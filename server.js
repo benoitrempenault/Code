@@ -78,6 +78,13 @@ app.use((req, res, next) => {
   // Generate or refresh token for the session (idempotent).
   res.locals._csrf = generateToken(req);
   res.locals.user = (req.session && req.session.user) || null;
+  // Pop flash (one-shot per request)
+  if (req.session && req.session.flash) {
+    res.locals.flash = req.session.flash;
+    delete req.session.flash;
+  } else {
+    res.locals.flash = null;
+  }
   next();
 });
 
@@ -90,6 +97,7 @@ app.use(globalLimiter);
 // --- Views & static
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+Object.assign(app.locals, require('./lib/format'));
 app.use('/static', express.static(path.join(__dirname, 'public'), { maxAge: isProd ? '1d' : 0, index: false, dotfiles: 'deny' }));
 
 // --- Routes (login is public, everything else requires auth + CSRF)
@@ -143,6 +151,7 @@ app.get('/api/address', require('./routes/address'));
 app.use(csrfSynchronisedProtection);
 
 app.use('/properties', require('./routes/properties'));
+app.use('/properties', require('./routes/search'));
 app.use('/api/properties', require('./routes/properties-api'));
 app.use('/agencies', require('./routes/agencies'));
 app.use('/our-sales', require('./routes/our-sales'));

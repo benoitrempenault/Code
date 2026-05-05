@@ -1,5 +1,5 @@
 <%- include('partials/head', { title: 'Agences — ' + (p.label || 'Bien') }) %>
-<%- include('partials/format') %>
+
 <section>
   <h1>Agences — <%= p.label || ('Bien #' + p.id) %></h1>
   <p class="muted"><a href="/properties/<%= p.id %>">← Retour à l'analyse du bien</a></p>

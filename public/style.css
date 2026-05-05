@@ -66,3 +66,5 @@ table.grid td.multi { white-space: pre-wrap; max-width: 280px; }
 .prop-head p { margin: 4px 0; }
 .hint { font-size: 12px; color: var(--muted); }
 details summary { cursor: pointer; padding: 6px 0; font-weight: 600; }
+.flash { background: #eef6ff; border: 1px solid #c2dafd; border-radius: 6px; padding: 10px 14px; margin: 8px 0 12px; }
+.flash ul { margin: 6px 0 0 18px; padding: 0; }

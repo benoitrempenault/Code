@@ -1,6 +1,0 @@
-<%
-const eur = (v) => (v == null || !isFinite(v)) ? '—' : new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(v);
-const num = (v, d) => (v == null || !isFinite(v)) ? '—' : new Intl.NumberFormat('fr-FR',{maximumFractionDigits:d||0}).format(v);
-const condLabel = (c) => ({excellent:'Excellent',tres_bon:'Très bon',bon:'Bon',a_reflechir:'À réfléchir'})[c] || '—';
-const dateFr = (s) => { if (!s) return '—'; const d = new Date(s); return isNaN(d) ? s : d.toLocaleDateString('fr-FR'); };
-%>

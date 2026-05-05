@@ -1,5 +1,5 @@
 <%- include('partials/head', { title: (p.label || 'Bien') + ' — analyse' }) %>
-<%- include('partials/format') %>
+
 <section>
   <header class="prop-head">
     <h1><%= p.label || ('Bien #' + p.id) %></h1>
@@ -14,6 +14,10 @@
     </p>
     <p>
       <a href="/agencies?property_id=<%= p.id %>" class="btn">Onglet Agences</a>
+      <form method="post" action="/properties/<%= p.id %>/search" class="inline">
+        <input type="hidden" name="_csrf" value="<%= _csrf %>">
+        <button type="submit">Rechercher des annonces</button>
+      </form>
       <form method="post" action="/properties/<%= p.id %>/refresh-dvf" class="inline">
         <input type="hidden" name="_csrf" value="<%= _csrf %>">
         <button type="submit">Actualiser DVF</button>
@@ -24,6 +28,21 @@
       </form>
     </p>
   </header>
+
+  <% if (flash && flash.search) { %>
+    <div class="flash">
+      <strong>Recherche automatique :</strong> <%= flash.search.saved %> annonce(s) ajoutée(s).
+      <ul>
+      <% for (const s of flash.search.summary) { %>
+        <li>
+          <strong><%= s.source %></strong> :
+          <% if (s.error) { %><span class="warn"><%= s.error %></span>
+          <% } else { %><%= s.count %> trouvée(s)<% if (s.total) { %> sur <%= s.total.toLocaleString('fr-FR') %> au total<% } %><% } %>
+        </li>
+      <% } %>
+      </ul>
+    </div>
+  <% } %>
 
   <h2>Estimation suggérée</h2>
   <% if (reco.basis === 'no-data' || reco.basis === 'no-surface') { %>
@@ -71,10 +90,10 @@
 
   <h2 id="annonces">Annonces concurrentes</h2>
   <p class="muted">
-    Les sites comme Le Bon Coin, SeLoger, Castorus, etc. interdisent le scraping automatisé et
-    bloquent les bots. Collez ici les liens des annonces que vous identifiez ; l'application les
-    centralise, calcule les prix moyens et génère le rapport. Vous pouvez aussi compléter les
-    champs (prix, surface…) manuellement.
+    « Rechercher des annonces » interroge automatiquement Bien'ici (API JSON) et Castorus
+    (aggrégateur, qui remonte indirectement Le Bon Coin / SeLoger / PAP). Les annonces sont
+    dédupliquées et enregistrées ci-dessous. Vous pouvez aussi en ajouter manuellement
+    (sites bloqués par anti-bot, agences locales, etc.).
   </p>
   <% if (listings.length) { %>
     <p>

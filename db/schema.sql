@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS listings (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   property_id  INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
   source       TEXT NOT NULL,
+  external_id  TEXT,
   url          TEXT,
   title        TEXT,
   price        REAL,
@@ -52,10 +53,12 @@ CREATE TABLE IF NOT EXISTS listings (
   city         TEXT,
   agency       TEXT,
   notes        TEXT,
+  fetched_at   INTEGER,
   created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_listings_property ON listings(property_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_extid ON listings(property_id, external_id) WHERE external_id IS NOT NULL;
 
 -- Transactions DVF mises en cache
 CREATE TABLE IF NOT EXISTS dvf_cache (
