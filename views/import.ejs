@@ -1,0 +1,92 @@
+<%- include('partials/head', { title: 'Importer des annonces' }) %>
+<section class="card">
+  <h1>Importer des annonces depuis votre navigateur</h1>
+  <p class="muted">
+    Cette page reçoit les annonces capturées par le bookmarklet (cf.
+    <a href="/import/bookmarklet">installer le favori</a>) sur Le Bon Coin / SeLoger / PAP /
+    site d'agence. Aucune donnée n'a été envoyée au serveur — la capture est entièrement locale
+    à votre navigateur jusqu'à validation ci-dessous.
+  </p>
+
+  <p id="msg" class="muted">Chargement…</p>
+
+  <form id="form" method="post" action="/import" hidden>
+    <input type="hidden" name="_csrf" value="<%= _csrf %>">
+    <input type="hidden" name="items" id="items">
+    <label>Associer au dossier
+      <select name="property_id" id="property" required>
+        <% for (const p of properties) { %>
+          <option value="<%= p.id %>"><%= p.label || ('Bien #' + p.id) %> — <%= p.address %><% if (p.postcode) { %> (<%= p.postcode %>)<% } %></option>
+        <% } %>
+      </select>
+    </label>
+    <div id="preview"></div>
+    <button type="submit">Enregistrer</button>
+  </form>
+</section>
+
+<style>
+  .preview-list { margin: 12px 0; }
+  .preview-list li { padding: 6px 0; border-bottom: 1px solid #eef0f5; list-style: none; }
+  .preview-list li small { color: #5b6477; }
+</style>
+
+<script>
+(function () {
+  var msg = document.getElementById('msg');
+  var form = document.getElementById('form');
+  var items = document.getElementById('items');
+  var preview = document.getElementById('preview');
+  var properties = <%- JSON.stringify((properties||[]).map(p=>({id:p.id,label:p.label||('Bien #'+p.id),city:p.city||'',postcode:p.postcode||''}))) %>;
+
+  // Read fragment (#data=<encodeURIComponent(JSON)>)
+  var hash = window.location.hash.replace(/^#/, '');
+  var params = {};
+  hash.split('&').forEach(function (kv) { var i = kv.indexOf('='); if (i > 0) params[kv.slice(0, i)] = kv.slice(i + 1); });
+  if (!params.data) { msg.textContent = 'Aucune donnée à importer (utilisez le bookmarklet sur la page d\'un site immobilier).'; return; }
+
+  var payload;
+  try { payload = JSON.parse(decodeURIComponent(params.data)); }
+  catch (e) { msg.textContent = 'Données illisibles : ' + e.message; return; }
+  var arr = Array.isArray(payload) ? payload : (payload && payload.items) || [];
+  if (!arr.length) { msg.textContent = 'Aucune annonce détectée.'; return; }
+
+  // Pre-select the property whose city/postcode matches the most listings
+  if (properties.length > 1) {
+    var counts = {};
+    arr.forEach(function (it) {
+      var pc = (it.postcode || '').toString();
+      properties.forEach(function (p) {
+        if (p.postcode && pc && p.postcode === pc) counts[p.id] = (counts[p.id] || 0) + 1;
+      });
+    });
+    var best = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; })[0];
+    if (best) document.getElementById('property').value = best;
+  }
+
+  msg.textContent = arr.length + ' annonce(s) capturée(s) — vérifiez puis enregistrez.';
+  form.hidden = false;
+
+  var ul = document.createElement('ul');
+  ul.className = 'preview-list';
+  arr.slice(0, 30).forEach(function (it) {
+    var li = document.createElement('li');
+    var line1 = document.createElement('div');
+    line1.textContent = (it.title || '(sans titre)') + (it.price ? ' — ' + new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(it.price) : '');
+    var line2 = document.createElement('small');
+    line2.textContent = [it.source, it.surface_m2 ? it.surface_m2 + ' m²' : null, it.rooms ? it.rooms + ' p.' : null, it.city, it.postcode, it.agency].filter(Boolean).join(' · ');
+    li.appendChild(line1); li.appendChild(line2);
+    if (it.url) {
+      var br = document.createElement('br');
+      var a = document.createElement('a');
+      a.href = it.url; a.target = '_blank'; a.rel = 'noopener noreferrer nofollow';
+      a.textContent = it.url.slice(0, 100);
+      li.appendChild(br); li.appendChild(a);
+    }
+    ul.appendChild(li);
+  });
+  preview.appendChild(ul);
+  items.value = JSON.stringify(arr);
+})();
+</script>
+<%- include('partials/foot') %>

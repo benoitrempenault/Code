@@ -90,10 +90,11 @@
 
   <h2 id="annonces">Annonces concurrentes</h2>
   <p class="muted">
-    « Rechercher des annonces » interroge automatiquement Bien'ici (API JSON) et Castorus
-    (aggrégateur, qui remonte indirectement Le Bon Coin / SeLoger / PAP). Les annonces sont
-    dédupliquées et enregistrées ci-dessous. Vous pouvez aussi en ajouter manuellement
-    (sites bloqués par anti-bot, agences locales, etc.).
+    « Rechercher des annonces » interroge automatiquement Bien'ici, Castorus et Foncia.
+    Pour Le Bon Coin / SeLoger / PAP qui bloquent le scraping serveur, installez le
+    <a href="/import/bookmarklet">bookmarklet</a> et capturez-les directement depuis votre
+    navigateur (zéro coût, IP résidentielle naturelle). Vous pouvez aussi ajouter une annonce
+    manuellement ci-dessous.
   </p>
   <% if (listings.length) { %>
     <p>

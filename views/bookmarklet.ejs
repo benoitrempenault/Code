@@ -1,0 +1,38 @@
+<%- include('partials/head', { title: 'Bookmarklet d\'import' }) %>
+<section class="card">
+  <h1>Importer depuis votre navigateur</h1>
+  <p>
+    Le Bon Coin, SeLoger et PAP bloquent les requêtes faites depuis un serveur
+    (anti-bot DataDome / Cloudflare). En revanche, lorsque vous visitez ces
+    sites depuis votre navigateur normal, vous y avez parfaitement accès. Ce
+    bookmarklet utilise <strong>votre</strong> session et <strong>votre</strong> IP pour
+    capturer les annonces ouvertes sous vos yeux.
+  </p>
+
+  <h2>Installation (une fois)</h2>
+  <ol>
+    <li>Affichez votre barre de favoris (<kbd>Ctrl + Maj + B</kbd> sur Chrome / Firefox).</li>
+    <li>Glissez-déposez le bouton ci-dessous dans la barre de favoris.</li>
+  </ol>
+
+  <p>
+    <a class="btn"
+       href="<%= bookmarklet %>"
+       onclick="event.preventDefault(); alert('Glissez ce bouton dans votre barre de favoris au lieu de cliquer.');"
+       draggable="true">📥 Estimation Immo — Importer</a>
+  </p>
+
+  <h2>Utilisation</h2>
+  <ol>
+    <li>Ouvrez Le Bon Coin / SeLoger / PAP / un site d'agence et lancez votre recherche.</li>
+    <li>Restez sur la page de résultats (ou la fiche d'une annonce).</li>
+    <li>Cliquez le favori « Estimation Immo — Importer ».</li>
+    <li>Un nouvel onglet s'ouvre avec les annonces détectées et un sélecteur de dossier — validez.</li>
+  </ol>
+
+  <p class="muted">
+    Le bookmarklet ne transmet rien au serveur tant que vous n'avez pas validé : la capture
+    est dans l'URL (fragment <code>#data=…</code>), elle reste locale à votre navigateur.
+  </p>
+</section>
+<%- include('partials/foot') %>
