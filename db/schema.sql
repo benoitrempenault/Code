@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS properties (
   condition    TEXT CHECK(condition IN ('excellent','tres_bon','bon','a_reflechir')),
   notes        TEXT,
   asking_price REAL,
+  last_searched_at INTEGER,
   created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
   updated_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );

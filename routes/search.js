@@ -16,8 +16,20 @@ function loadProperty(req, res, next) {
   next();
 }
 
+const CACHE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 router.post('/:id/search', param('id').isInt(), loadProperty, async (req, res) => {
   const p = req.property;
+  const force = req.body.force === '1';
+  if (!force && p.last_searched_at && (Date.now() - p.last_searched_at * 1000) < CACHE_WINDOW_MS) {
+    const ageMin = Math.round((Date.now() - p.last_searched_at * 1000) / 60000);
+    req.session.flash = { search: {
+      summary: [{ source: 'cache', count: 0, error: `dernière recherche il y a ${ageMin} min — utiliser « Relancer » pour forcer` }],
+      saved: 0,
+    } };
+    return res.redirect(`/properties/${p.id}#annonces`);
+  }
+
   let summary = [], saved = 0;
   try {
     const r = await searchAll(p);
@@ -38,10 +50,10 @@ router.post('/:id/search', param('id').isInt(), loadProperty, async (req, res) =
       return added;
     });
     saved = tx(r.items);
+    db.prepare('UPDATE properties SET last_searched_at = strftime(\'%s\',\'now\') WHERE id = ?').run(p.id);
   } catch (e) {
     summary = [{ source: 'orchestrator', count: 0, error: e.message }];
   }
-  // Persist a flash message via session (one-shot).
   req.session.flash = { search: { summary, saved } };
   res.redirect(`/properties/${p.id}#annonces`);
 });

@@ -12,13 +12,22 @@
       <strong>Terrain :</strong> <%= num(p.land_m2,0) %> m² ·
       <strong>État :</strong> <%= condLabel(p.condition) %>
     </p>
-    <p>
+    <p class="actions no-print">
       <a href="/agencies?property_id=<%= p.id %>" class="btn">Onglet Agences</a>
       <a href="/properties/<%= p.id %>/edit" class="btn">Modifier</a>
+      <button type="button" class="btn" onclick="window.print()">Imprimer / PDF</button>
       <form method="post" action="/properties/<%= p.id %>/search" class="inline">
         <input type="hidden" name="_csrf" value="<%= _csrf %>">
         <button type="submit">Rechercher des annonces</button>
       </form>
+      <% if (p.last_searched_at) { %>
+        <form method="post" action="/properties/<%= p.id %>/search" class="inline">
+          <input type="hidden" name="_csrf" value="<%= _csrf %>">
+          <input type="hidden" name="force" value="1">
+          <button type="submit" title="Forcer une nouvelle recherche, ignore le cache 24 h">Relancer</button>
+        </form>
+        <span class="muted">· Dernière recherche : <%= dateFr(p.last_searched_at) %></span>
+      <% } %>
       <form method="post" action="/properties/<%= p.id %>/refresh-dvf" class="inline">
         <input type="hidden" name="_csrf" value="<%= _csrf %>">
         <button type="submit">Actualiser DVF</button>
@@ -31,7 +40,7 @@
   </header>
 
   <% if (flash && flash.search) { %>
-    <div class="flash">
+    <div class="flash no-print">
       <strong>Recherche automatique :</strong> <%= flash.search.saved %> nouvelle(s) annonce(s) ajoutée(s).
       <ul>
       <% for (const s of flash.search.summary) { %>
@@ -136,7 +145,7 @@
     <p class="muted">Aucune annonce. Ajoutez-en ci-dessous.</p>
   <% } %>
 
-  <details open>
+  <details open class="no-print">
     <summary>Ajouter une annonce</summary>
     <form method="post" action="/properties/<%= p.id %>/listings" class="card">
       <input type="hidden" name="_csrf" value="<%= _csrf %>">

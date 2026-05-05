@@ -68,3 +68,20 @@ table.grid td.multi { white-space: pre-wrap; max-width: 280px; }
 details summary { cursor: pointer; padding: 6px 0; font-weight: 600; }
 .flash { background: #eef6ff; border: 1px solid #c2dafd; border-radius: 6px; padding: 10px 14px; margin: 8px 0 12px; }
 .flash ul { margin: 6px 0 0 18px; padding: 0; }
+
+@media print {
+  /* Tighten the page so the report fits on standard paper without surprises. */
+  @page { size: A4; margin: 14mm 12mm; }
+  body { background: #fff; color: #000; font-size: 11pt; }
+  .topbar, footer, .no-print, button.danger, td:last-child .inline { display: none !important; }
+  main { padding: 0; max-width: none; }
+  a { color: #000; text-decoration: none; }
+  .reco { background: #f3f8f5 !important; border-color: #c5e0d0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  table.grid { font-size: 10pt; }
+  table.grid th { background: #eef2f9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  h1, h2, h3 { page-break-after: avoid; }
+  table { page-break-inside: auto; }
+  tr { page-break-inside: avoid; page-break-after: auto; }
+  thead { display: table-header-group; }
+  details { display: none !important; }
+}
