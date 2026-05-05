@@ -49,7 +49,7 @@
           <td class="multi"><%= a.strengths || '—' %></td>
           <td class="multi"><%= a.weaknesses || '—' %></td>
           <td>
-            <form method="post" action="/agencies/<%= a.id %>/delete" class="inline" onsubmit="return confirm('Supprimer ?');">
+            <form method="post" action="/agencies/<%= a.id %>/delete" class="inline" data-confirm="Supprimer ?">
               <input type="hidden" name="_csrf" value="<%= _csrf %>">
               <button class="link danger" type="submit">×</button>
             </form>

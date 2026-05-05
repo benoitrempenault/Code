@@ -136,3 +136,19 @@ CREATE TABLE IF NOT EXISTS audit_log (
   ip         TEXT,
   created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
+
+-- Liens de partage tokenisés pour envoyer un rapport au client (lecture seule)
+CREATE TABLE IF NOT EXISTS share_tokens (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  token       TEXT NOT NULL UNIQUE,
+  property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  expires_at  INTEGER,
+  revoked_at  INTEGER,
+  last_seen_at INTEGER,
+  view_count  INTEGER NOT NULL DEFAULT 0,
+  note        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_share_property ON share_tokens(property_id);

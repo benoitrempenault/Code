@@ -104,7 +104,9 @@ router.get('/:id', param('id').isInt(), loadProperty, async (req, res) => {
   const listingStats = summarise(listings, { priceKey: 'price', surfaceKey: 'surface_m2' });
   const reco = recommendPrice(p, dvfStats, listingStats);
   const oursales = db.prepare(`SELECT * FROM our_sales WHERE postcode = ? AND (property_type = ? OR property_type IS NULL) ORDER BY sold_at DESC LIMIT 50`).all(p.postcode || '', p.property_type);
-  res.render('property-report', { p, listings, dvf, dvfStats, listingStats, reco, oursales });
+  const shares = db.prepare('SELECT * FROM share_tokens WHERE property_id = ? ORDER BY created_at DESC').all(p.id);
+  const origin = `${req.protocol}://${req.get('host')}`;
+  res.render('property-report', { p, listings, dvf, dvfStats, listingStats, reco, oursales, shares, origin });
 });
 
 function safeFilename(s, max = 60) {

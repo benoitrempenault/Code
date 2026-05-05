@@ -18,8 +18,9 @@
   <p>
     <a class="btn"
        href="<%= bookmarklet %>"
-       onclick="event.preventDefault(); alert('Glissez ce bouton dans votre barre de favoris au lieu de cliquer.');"
-       draggable="true">📥 Estimation Immo — Importer</a>
+       data-action="noop"
+       data-message="Glissez ce bouton dans votre barre de favoris au lieu de cliquer."
+       draggable="true">Estimation Immo — Importer</a>
   </p>
 
   <h2>Utilisation</h2>

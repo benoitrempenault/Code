@@ -1,0 +1,117 @@
+<%- include('partials/head', { title: 'Statistiques' }) %>
+<section>
+  <h1>Statistiques</h1>
+
+  <div class="kpi-grid">
+    <div class="kpi"><span>Dossiers</span><strong><%= counts.properties %></strong></div>
+    <div class="kpi"><span>Annonces collectées</span><strong><%= counts.listings %></strong></div>
+    <div class="kpi"><span>Agences référencées</span><strong><%= counts.agencies %></strong></div>
+    <div class="kpi"><span>Nos ventes</span><strong><%= counts.our_sales %></strong></div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <h2>Répartition par état</h2>
+      <% if (!byCondition.length) { %><p class="muted">—</p><% } else { %>
+        <table class="grid">
+          <thead><tr><th>État</th><th>Dossiers</th></tr></thead>
+          <tbody>
+          <% for (const r of byCondition) { %>
+            <tr><td><%= condLabel(r.k) %></td><td><%= r.n %></td></tr>
+          <% } %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
+    <div>
+      <h2>Répartition par type</h2>
+      <% if (!byType.length) { %><p class="muted">—</p><% } else { %>
+        <table class="grid">
+          <thead><tr><th>Type</th><th>Dossiers</th></tr></thead>
+          <tbody>
+          <% for (const r of byType) { %>
+            <tr><td><%= r.k %></td><td><%= r.n %></td></tr>
+          <% } %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
+  </div>
+
+  <h2>Par code postal</h2>
+  <% if (!perCp.length) { %>
+    <p class="muted">Aucun bien renseigné avec un code postal.</p>
+  <% } else { %>
+    <table class="grid">
+      <thead><tr><th>CP</th><th>Dossiers</th><th>Comparables DVF</th><th>Médiane €/m² (DVF)</th></tr></thead>
+      <tbody>
+      <% for (const r of perCp) { %>
+        <tr>
+          <td><%= r.cp %></td>
+          <td><%= r.dossiers %></td>
+          <td><%= r.dvf_count %></td>
+          <td><%= r.ppm2_median ? eur(r.ppm2_median) + ' (n=' + r.ppm2_n + ')' : '—' %></td>
+        </tr>
+      <% } %>
+      </tbody>
+    </table>
+  <% } %>
+
+  <h2>Top agences concurrentes rencontrées</h2>
+  <% if (!topAgencies.length) { %>
+    <p class="muted">Aucune agence concurrente enregistrée pour l'instant.</p>
+  <% } else { %>
+    <table class="grid">
+      <thead><tr><th>Agence</th><th>Dossiers</th><th>Honoraires moy. (%)</th><th>Conseillers moy.</th><th>Σ annonces compa.</th><th>Σ vendus compa.</th></tr></thead>
+      <tbody>
+      <% for (const a of topAgencies) { %>
+        <tr>
+          <td><%= a.name %></td>
+          <td><%= a.n %></td>
+          <td><%= a.avg_fee_pct ? num(a.avg_fee_pct, 2) + ' %' : '—' %></td>
+          <td><%= a.avg_advisors ? num(a.avg_advisors, 1) : '—' %></td>
+          <td><%= a.sum_listings ?? '—' %></td>
+          <td><%= a.sum_sold ?? '—' %></td>
+        </tr>
+      <% } %>
+      </tbody>
+    </table>
+  <% } %>
+
+  <h2>Notre agence — performance globale</h2>
+  <div class="kpi-grid">
+    <div class="kpi"><span>Ventes au référentiel</span><strong><%= ours.count %></strong></div>
+    <div class="kpi"><span>Médiane €/m² vendu</span><strong><%= ours.ppm2_median ? eur(ours.ppm2_median) : '—' %></strong></div>
+    <div class="kpi"><span>Écart médian demandé→vendu</span><strong><%= ours.gap_pct_median != null ? num(ours.gap_pct_median, 1) + ' %' : '—' %></strong></div>
+  </div>
+
+  <h2>Activité (12 derniers mois)</h2>
+  <% if (!monthly.length) { %>
+    <p class="muted">Pas d'activité.</p>
+  <% } else { %>
+    <% const max = Math.max(...monthly.map(r => r.n), 1); %>
+    <ul class="bars">
+      <% for (const r of monthly) { %>
+        <li>
+          <span class="bar-label"><%= r.ym %></span>
+          <span class="bar" style="width: <%= Math.round(r.n * 100 / max) %>%"></span>
+          <span class="bar-value"><%= r.n %></span>
+        </li>
+      <% } %>
+    </ul>
+  <% } %>
+</section>
+
+<style>
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 12px 0 18px; }
+  .kpi { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; text-align: center; }
+  .kpi span { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .kpi strong { display: block; font-size: 22px; margin-top: 4px; }
+  .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+  ul.bars { list-style: none; margin: 0; padding: 0; }
+  ul.bars li { display: grid; grid-template-columns: 80px 1fr 40px; align-items: center; gap: 8px; padding: 4px 0; }
+  ul.bars .bar { background: var(--accent); height: 12px; border-radius: 3px; min-width: 2px; }
+  ul.bars .bar-label { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+  ul.bars .bar-value { text-align: right; font-variant-numeric: tabular-nums; }
+</style>
+<%- include('partials/foot') %>

@@ -85,3 +85,8 @@ details summary { cursor: pointer; padding: 6px 0; font-weight: 600; }
   thead { display: table-header-group; }
   details { display: none !important; }
 }
+
+body.share .share-head { display: flex; align-items: center; gap: 14px; padding: 10px 24px; background: #1c2230; color: #fff; }
+body.share .share-head .muted { color: #c9d1de; margin-right: auto; }
+body.share .share-head .btn { margin-left: auto; }
+input.share-link { font-family: ui-monospace, monospace; font-size: 12px; }

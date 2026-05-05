@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex,nofollow">
+<title>Analyse de marché — <%= p.label || p.address %></title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="share">
+<header class="share-head no-print">
+  <strong>Analyse de marché</strong>
+  <span class="muted">Document partagé — lecture seule</span>
+  <button type="button" class="btn" data-action="print">Imprimer / PDF</button>
+  <script src="/static/app.js" defer></script>
+</header>
+<main>
+<section>
+  <h1><%= p.label || ('Bien ' + (p.address || '')) %></h1>
+  <p class="muted"><%= p.address %><% if (p.city) { %> — <%= p.city %><% } %> <%= p.postcode || '' %></p>
+  <p>
+    <strong>Type :</strong> <%= p.property_type %> ·
+    <strong>Surface :</strong> <%= num(p.surface_m2,1) %> m² ·
+    <strong>Pièces :</strong> <%= p.rooms ?? '—' %> ·
+    <strong>Chambres :</strong> <%= p.bedrooms ?? '—' %> ·
+    <strong>Terrain :</strong> <%= num(p.land_m2,0) %> m² ·
+    <strong>État :</strong> <%= condLabel(p.condition) %>
+  </p>
+
+  <h2>Estimation suggérée</h2>
+  <% if (reco.basis === 'no-data' || reco.basis === 'no-surface') { %>
+    <p class="warn">Données insuffisantes pour proposer une fourchette.</p>
+  <% } else { %>
+    <div class="reco">
+      <div><span>Bas</span><strong><%= eur(reco.lowEUR) %></strong></div>
+      <div class="mid"><span>Médian</span><strong><%= eur(reco.midEUR) %></strong></div>
+      <div><span>Haut</span><strong><%= eur(reco.highEUR) %></strong></div>
+      <div class="meta">~ <%= eur(reco.pricePerM2) %>/m² · base : <%= reco.basis %> · coef. état : ×<%= reco.conditionCoef %></div>
+    </div>
+  <% } %>
+
+  <% if (dvf.length) { %>
+    <h2>Comparables vendus (transactions DVF officielles)</h2>
+    <p>
+      <strong><%= dvfStats.count %></strong> transactions ·
+      Médiane prix : <%= eur(dvfStats.price.median) %> ·
+      Médiane €/m² : <%= eur(dvfStats.pricePerM2.median) %>
+      (Q1 <%= eur(dvfStats.pricePerM2.q1) %> — Q3 <%= eur(dvfStats.pricePerM2.q3) %>)
+    </p>
+    <table class="grid">
+      <thead><tr><th>Date</th><th>Adresse</th><th>Ville</th><th>Type</th><th>Surf.</th><th>Pièces</th><th>Terrain</th><th>Prix</th><th>€/m²</th></tr></thead>
+      <tbody>
+      <% for (const r of dvf.slice(0, 50)) { %>
+        <tr>
+          <td><%= dateFr(r.date_mut) %></td>
+          <td><%= r.address || '—' %></td>
+          <td><%= r.city || '' %> <%= r.postcode || '' %></td>
+          <td><%= r.type_local || '' %></td>
+          <td><%= num(r.surface_m2,0) %></td>
+          <td><%= r.rooms ?? '' %></td>
+          <td><%= num(r.land_m2,0) %></td>
+          <td><%= eur(r.valeur) %></td>
+          <td><%= r.surface_m2 ? eur(r.valeur / r.surface_m2) : '—' %></td>
+        </tr>
+      <% } %>
+      </tbody>
+    </table>
+  <% } %>
+
+  <% if (listings.length) { %>
+    <h2>Annonces concurrentes en cours</h2>
+    <p>
+      <strong><%= listingStats.count %></strong> annonces ·
+      Médiane prix : <%= eur(listingStats.price.median) %> ·
+      Médiane €/m² : <%= eur(listingStats.pricePerM2.median) %>
+    </p>
+    <table class="grid">
+      <thead><tr><th>Source</th><th>Description</th><th>Surf.</th><th>P.</th><th>Terrain</th><th>Prix</th><th>€/m²</th></tr></thead>
+      <tbody>
+      <% for (const l of listings.slice(0, 50)) { %>
+        <tr>
+          <td><%= l.source %></td>
+          <td>
+            <% if (l.url) { %>
+              <a href="<%= l.url %>" target="_blank" rel="noopener noreferrer nofollow"><%= l.title || l.url %></a>
+            <% } else { %><%= l.title || '—' %><% } %>
+          </td>
+          <td><%= num(l.surface_m2,0) %></td>
+          <td><%= l.rooms ?? '' %></td>
+          <td><%= num(l.land_m2,0) %></td>
+          <td><%= eur(l.price) %></td>
+          <td><%= l.surface_m2 && l.price ? eur(l.price / l.surface_m2) : '—' %></td>
+        </tr>
+      <% } %>
+      </tbody>
+    </table>
+  <% } %>
+
+  <% if (oursales && oursales.length) { %>
+    <h2>Nos ventes comparables sur le secteur</h2>
+    <table class="grid">
+      <thead><tr><th>Date</th><th>Adresse</th><th>Type</th><th>Surf.</th><th>P.</th><th>Demandé</th><th>Vendu</th><th>€/m²</th></tr></thead>
+      <tbody>
+      <% for (const r of oursales) { %>
+        <tr>
+          <td><%= dateFr(r.sold_at) %></td>
+          <td><%= r.address || '—' %> · <%= r.city || '' %></td>
+          <td><%= r.property_type || '' %></td>
+          <td><%= num(r.surface_m2,0) %></td>
+          <td><%= r.rooms ?? '' %></td>
+          <td><%= eur(r.asking_price) %></td>
+          <td><%= eur(r.sold_price) %></td>
+          <td><%= r.surface_m2 && r.sold_price ? eur(r.sold_price / r.surface_m2) : '—' %></td>
+        </tr>
+      <% } %>
+      </tbody>
+    </table>
+  <% } %>
+</section>
+</main>
+<footer class="muted" style="text-align:center; padding:24px;">
+  Document généré pour information. Sources : DGFiP / Etalab (DVF), Bien'ici, Castorus, Foncia, et données saisies par l'agence.
+</footer>
+</body>
+</html>

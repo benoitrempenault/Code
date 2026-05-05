@@ -23,7 +23,7 @@
           <td><%= eur(r.asking_price) %></td>
           <td><%= eur(r.sold_price) %></td>
           <td>
-            <form method="post" action="/our-sales/<%= r.id %>/delete" class="inline" onsubmit="return confirm('Supprimer ?');">
+            <form method="post" action="/our-sales/<%= r.id %>/delete" class="inline" data-confirm="Supprimer ?">
               <input type="hidden" name="_csrf" value="<%= _csrf %>">
               <button class="link danger" type="submit">×</button>
             </form>

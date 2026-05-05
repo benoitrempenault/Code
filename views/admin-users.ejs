@@ -14,7 +14,7 @@
         <td>
           <form method="post" action="/admin/users/<%= u.id %>/role" class="inline">
             <input type="hidden" name="_csrf" value="<%= _csrf %>">
-            <select name="role" onchange="this.form.submit()">
+            <select name="role" data-autosubmit>
               <option value="user" <%= u.role === 'user' ? 'selected' : '' %>>user</option>
               <option value="admin" <%= u.role === 'admin' ? 'selected' : '' %>>admin</option>
             </select>
@@ -37,7 +37,7 @@
               <button type="submit">Réactiver</button>
             </form>
           <% } else { %>
-            <form method="post" action="/admin/users/<%= u.id %>/disable" class="inline" onsubmit="return confirm('Désactiver <%= u.email %> ?');">
+            <form method="post" action="/admin/users/<%= u.id %>/disable" class="inline" data-confirm="Désactiver <%= u.email %> ?">
               <input type="hidden" name="_csrf" value="<%= _csrf %>">
               <button type="submit" class="danger">Désactiver</button>
             </form>

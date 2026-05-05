@@ -94,6 +94,12 @@ const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHead
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
 app.use(globalLimiter);
 
+// --- Public share routes (read-only, no auth, no CSRF, tighter rate limit).
+//     Mounted before requireAuth so they bypass the login wall.
+const shareLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
+const sharePubl = require('./routes/share');
+app.get('/share/:token', shareLimiter, sharePubl.publicView);
+
 // --- Views & static
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -195,6 +201,8 @@ app.use('/agencies', require('./routes/agencies'));
 app.use('/our-sales', require('./routes/our-sales'));
 app.use('/import', require('./routes/import'));
 app.use('/admin', require('./routes/admin'));
+app.use('/stats', require('./routes/stats'));
+app.use('/', sharePubl.router);
 
 // 404 / error handler
 app.use((req, res) => res.status(404).render('error', { code: 404, message: 'Page introuvable' }));
