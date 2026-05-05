@@ -138,8 +138,46 @@ app.post('/logout', csrfSynchronisedProtection, (req, res) => {
 app.use(auth.requireAuth);
 
 app.get('/', (req, res) => {
-  const props = db.prepare('SELECT id, label, address, city, postcode, condition, created_at FROM properties WHERE user_id = ? ORDER BY created_at DESC LIMIT 50').all(req.session.user.id);
-  res.render('dashboard', { props });
+  // Whitelist sort columns to keep ORDER BY safe even though it's parameterised
+  // through a static map (never user-supplied SQL).
+  const SORT_COLS = {
+    'created_desc': 'created_at DESC',
+    'created_asc':  'created_at ASC',
+    'label':        "COALESCE(label, address) COLLATE NOCASE ASC",
+    'city':         "COALESCE(city, '') COLLATE NOCASE ASC, postcode",
+    'condition':    "CASE condition WHEN 'excellent' THEN 1 WHEN 'tres_bon' THEN 2 WHEN 'bon' THEN 3 WHEN 'a_reflechir' THEN 4 ELSE 5 END",
+  };
+  const sort = SORT_COLS[req.query.sort] || SORT_COLS.created_desc;
+  const q = String(req.query.q || '').trim().slice(0, 100);
+  const city = String(req.query.city || '').trim().slice(0, 120);
+  const cp = String(req.query.cp || '').trim().slice(0, 10);
+  const type = ['maison', 'appartement', 'terrain', 'autre'].includes(req.query.type) ? req.query.type : '';
+  const cond = ['excellent', 'tres_bon', 'bon', 'a_reflechir'].includes(req.query.condition) ? req.query.condition : '';
+
+  const where = ['user_id = ?'];
+  const params = [req.session.user.id];
+  if (q) {
+    where.push('(label LIKE ? OR address LIKE ? OR city LIKE ?)');
+    const like = '%' + q.replace(/[%_]/g, (c) => '\\' + c) + '%';
+    params.push(like, like, like);
+  }
+  if (city) { where.push('city LIKE ?'); params.push('%' + city + '%'); }
+  if (cp) { where.push('postcode = ?'); params.push(cp); }
+  if (type) { where.push('property_type = ?'); params.push(type); }
+  if (cond) { where.push('condition = ?'); params.push(cond); }
+
+  const sql = `SELECT id, label, address, city, postcode, property_type, condition, created_at, last_searched_at
+               FROM properties WHERE ${where.join(' AND ')} ORDER BY ${sort} LIMIT 200`;
+  const props = db.prepare(sql).all(...params);
+
+  // Distinct city / postcode lists (for filter selects), scoped to the user.
+  const cities = db.prepare("SELECT DISTINCT city FROM properties WHERE user_id = ? AND city IS NOT NULL AND city != '' ORDER BY city COLLATE NOCASE").all(req.session.user.id).map((r) => r.city);
+  const postcodes = db.prepare("SELECT DISTINCT postcode FROM properties WHERE user_id = ? AND postcode IS NOT NULL AND postcode != '' ORDER BY postcode").all(req.session.user.id).map((r) => r.postcode);
+
+  res.render('dashboard', {
+    props, cities, postcodes,
+    filter: { q, city, cp, type, condition: cond, sort: req.query.sort || 'created_desc' },
+  });
 });
 
 // API: address autocomplete (BAN). State-changing? No — but apply CSRF anyway since the

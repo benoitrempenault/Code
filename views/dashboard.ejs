@@ -1,25 +1,89 @@
 <%- include('partials/head', { title: 'Tableau de bord' }) %>
-
 <section>
   <h1>Vos biens</h1>
   <p><a class="btn" href="/properties/new">+ Nouveau bien</a></p>
+
+  <form method="get" action="/" class="filters card">
+    <div class="row">
+      <label class="grow">Recherche
+        <input type="search" name="q" value="<%= filter.q %>" placeholder="Libellé, adresse, ville…" maxlength="100">
+      </label>
+      <label>Ville
+        <select name="city">
+          <option value="">— Toutes —</option>
+          <% for (const c of cities) { %>
+            <option value="<%= c %>" <%= filter.city === c ? 'selected' : '' %>><%= c %></option>
+          <% } %>
+        </select>
+      </label>
+      <label>Code postal
+        <select name="cp">
+          <option value="">— Tous —</option>
+          <% for (const c of postcodes) { %>
+            <option value="<%= c %>" <%= filter.cp === c ? 'selected' : '' %>><%= c %></option>
+          <% } %>
+        </select>
+      </label>
+      <label>Type
+        <select name="type">
+          <option value="">— Tous —</option>
+          <option value="maison" <%= filter.type === 'maison' ? 'selected' : '' %>>Maison</option>
+          <option value="appartement" <%= filter.type === 'appartement' ? 'selected' : '' %>>Appartement</option>
+          <option value="terrain" <%= filter.type === 'terrain' ? 'selected' : '' %>>Terrain</option>
+          <option value="autre" <%= filter.type === 'autre' ? 'selected' : '' %>>Autre</option>
+        </select>
+      </label>
+      <label>État
+        <select name="condition">
+          <option value="">— Tous —</option>
+          <option value="excellent"   <%= filter.condition === 'excellent' ? 'selected' : '' %>>Excellent</option>
+          <option value="tres_bon"    <%= filter.condition === 'tres_bon' ? 'selected' : '' %>>Très bon</option>
+          <option value="bon"         <%= filter.condition === 'bon' ? 'selected' : '' %>>Bon</option>
+          <option value="a_reflechir" <%= filter.condition === 'a_reflechir' ? 'selected' : '' %>>À réfléchir</option>
+        </select>
+      </label>
+      <label>Tri
+        <select name="sort">
+          <option value="created_desc" <%= filter.sort === 'created_desc' ? 'selected' : '' %>>Récent → ancien</option>
+          <option value="created_asc"  <%= filter.sort === 'created_asc'  ? 'selected' : '' %>>Ancien → récent</option>
+          <option value="label"        <%= filter.sort === 'label'        ? 'selected' : '' %>>Libellé / adresse</option>
+          <option value="city"         <%= filter.sort === 'city'         ? 'selected' : '' %>>Ville</option>
+          <option value="condition"    <%= filter.sort === 'condition'    ? 'selected' : '' %>>État (meilleur d'abord)</option>
+        </select>
+      </label>
+    </div>
+    <div>
+      <button type="submit">Filtrer</button>
+      <a href="/" class="btn" style="background:transparent;color:var(--accent);">Réinitialiser</a>
+      <span class="muted"><%= props.length %> bien(s)</span>
+    </div>
+  </form>
+
   <% if (!props.length) { %>
-    <p class="muted">Aucun bien. Commencez par en créer un.</p>
+    <p class="muted">Aucun bien ne correspond à ces critères.</p>
   <% } else { %>
     <table class="grid">
-      <thead><tr><th>Libellé</th><th>Adresse</th><th>Ville</th><th>État</th><th>Créé</th></tr></thead>
+      <thead><tr><th>Libellé</th><th>Adresse</th><th>Ville</th><th>Type</th><th>État</th><th>Recherche</th><th>Créé</th></tr></thead>
       <tbody>
       <% for (const p of props) { %>
         <tr>
           <td><a href="/properties/<%= p.id %>"><%= p.label || ('Bien #' + p.id) %></a></td>
           <td><%= p.address %></td>
           <td><%= p.city || '' %> <%= p.postcode || '' %></td>
+          <td><%= p.property_type || '' %></td>
           <td><%= condLabel(p.condition) %></td>
-          <td><%= dateFr(new Date(p.created_at*1000).toISOString()) %></td>
+          <td><%= p.last_searched_at ? dateFr(p.last_searched_at) : '—' %></td>
+          <td><%= dateFr(p.created_at) %></td>
         </tr>
       <% } %>
       </tbody>
     </table>
   <% } %>
 </section>
+
+<style>
+  .filters { padding: 12px 14px; }
+  .filters .row { gap: 8px; }
+  .filters label { margin: 4px 0; }
+</style>
 <%- include('partials/foot') %>

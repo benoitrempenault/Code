@@ -5,6 +5,7 @@ const db = require('../lib/db');
 const { fetchComparables } = require('../lib/dvf');
 const { summarise, recommendPrice } = require('../lib/analysis');
 const { safeUrl } = require('../lib/sanitize');
+const { buildCsv } = require('../lib/csv');
 
 const router = express.Router();
 
@@ -104,6 +105,35 @@ router.get('/:id', param('id').isInt(), loadProperty, async (req, res) => {
   const reco = recommendPrice(p, dvfStats, listingStats);
   const oursales = db.prepare(`SELECT * FROM our_sales WHERE postcode = ? AND (property_type = ? OR property_type IS NULL) ORDER BY sold_at DESC LIMIT 50`).all(p.postcode || '', p.property_type);
   res.render('property-report', { p, listings, dvf, dvfStats, listingStats, reco, oursales });
+});
+
+function safeFilename(s, max = 60) {
+  return String(s || 'bien').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, max) || 'bien';
+}
+
+router.get('/:id/listings.csv', param('id').isInt(), loadProperty, (req, res) => {
+  const rows = db.prepare(`SELECT source, title, price, surface_m2, rooms, bedrooms, land_m2, city, agency, url, fetched_at, created_at
+                            FROM listings WHERE property_id = ? ORDER BY created_at DESC`).all(req.property.id);
+  const headers = ['Source', 'Titre', 'Prix EUR', 'Surface m2', 'Pieces', 'Chambres', 'Terrain m2', 'Ville', 'Agence', 'URL', 'Recuperee le', 'Creee le'];
+  const data = rows.map((r) => [
+    r.source, r.title, r.price, r.surface_m2, r.rooms, r.bedrooms, r.land_m2, r.city, r.agency, r.url,
+    r.fetched_at ? new Date(r.fetched_at * 1000).toISOString() : '',
+    r.created_at ? new Date(r.created_at * 1000).toISOString() : '',
+  ]);
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="annonces_${safeFilename(req.property.label || ('bien' + req.property.id))}.csv"`);
+  res.send(buildCsv(headers, data));
+});
+
+router.get('/:id/dvf.csv', param('id').isInt(), loadProperty, (req, res) => {
+  const rows = db.prepare(`SELECT date_mut, type_local, valeur, surface_m2, rooms, land_m2, address, city, postcode, distance_m
+                            FROM dvf_cache WHERE property_id = ? ORDER BY date_mut DESC`).all(req.property.id);
+  const headers = ['Date', 'Type', 'Prix EUR', 'Surface m2', 'Pieces', 'Terrain m2', 'Adresse', 'Ville', 'CP', 'Distance m'];
+  const data = rows.map((r) => [r.date_mut, r.type_local, r.valeur, r.surface_m2, r.rooms, r.land_m2, r.address, r.city, r.postcode, r.distance_m]);
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="dvf_${safeFilename(req.property.label || ('bien' + req.property.id))}.csv"`);
+  res.send(buildCsv(headers, data));
 });
 
 router.post('/:id/refresh-dvf', param('id').isInt(), loadProperty, async (req, res) => {

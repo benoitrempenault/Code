@@ -16,6 +16,8 @@
       <a href="/agencies?property_id=<%= p.id %>" class="btn">Onglet Agences</a>
       <a href="/properties/<%= p.id %>/edit" class="btn">Modifier</a>
       <button type="button" class="btn" onclick="window.print()">Imprimer / PDF</button>
+      <a href="/properties/<%= p.id %>/listings.csv" class="btn">CSV annonces</a>
+      <a href="/properties/<%= p.id %>/dvf.csv" class="btn">CSV DVF</a>
       <form method="post" action="/properties/<%= p.id %>/search" class="inline">
         <input type="hidden" name="_csrf" value="<%= _csrf %>">
         <button type="submit">Rechercher des annonces</button>
