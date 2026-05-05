@@ -1,0 +1,68 @@
+:root {
+  --fg: #1c2230; --muted: #5b6477; --bg: #f7f8fb; --card: #fff;
+  --border: #e3e7ee; --accent: #1f5fbd; --accent-fg: #fff;
+  --danger: #b3261e; --warn: #b75c00; --ok: #1d6f42;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--fg); background: var(--bg); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.topbar { display: flex; align-items: center; gap: 18px; padding: 12px 24px; background: #1c2230; color: #fff; }
+.topbar a { color: #fff; }
+.topbar .brand { font-weight: 700; font-size: 16px; }
+.topbar nav { display: flex; gap: 14px; align-items: center; margin-left: auto; }
+.topbar .who { color: #c9d1de; }
+.topbar .inline { margin: 0; display: inline; }
+.topbar .link { background: transparent; border: 0; color: #fff; cursor: pointer; padding: 0; font: inherit; }
+.topbar .link:hover { text-decoration: underline; }
+footer { text-align: center; padding: 18px; color: var(--muted); }
+
+h1 { font-size: 22px; margin: 0 0 12px; }
+h2 { font-size: 17px; margin: 20px 0 10px; }
+h3 { font-size: 15px; margin: 16px 0 8px; }
+
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 18px; margin: 12px 0; }
+.card.narrow { max-width: 420px; margin: 36px auto; }
+.muted { color: var(--muted); }
+.warn { color: var(--warn); }
+.err { color: var(--danger); background: #fde7e6; border: 1px solid #f5c1bd; padding: 8px 10px; border-radius: 6px; }
+
+label { display: block; margin: 8px 0; }
+input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font: inherit; background: #fff; color: var(--fg); }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+textarea { resize: vertical; }
+button, .btn { display: inline-block; background: var(--accent); color: var(--accent-fg); border: 0; padding: 8px 14px; border-radius: 6px; cursor: pointer; font: inherit; text-decoration: none; }
+button:hover, .btn:hover { filter: brightness(1.06); text-decoration: none; }
+button.link { background: transparent; color: var(--accent); padding: 0; }
+button.danger, .danger { background: var(--danger); color: #fff; }
+button.link.danger { background: transparent; color: var(--danger); }
+form.inline { display: inline; }
+
+.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.row > label.grow { grid-column: span 2; }
+label.check { display: flex; align-items: center; gap: 6px; }
+label.check input { width: auto; }
+
+table.grid { width: 100%; border-collapse: collapse; margin: 8px 0 18px; background: #fff; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+table.grid th, table.grid td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+table.grid th { background: #eef2f9; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: #354054; }
+table.grid tr.ours { background: #eaf4ff; }
+table.grid td.multi { white-space: pre-wrap; max-width: 280px; }
+.badge { background: var(--accent); color: #fff; border-radius: 999px; padding: 1px 8px; font-size: 11px; }
+
+.autocomplete { position: relative; }
+.ac-results { position: absolute; left: 0; right: 0; top: 100%; background: #fff; border: 1px solid var(--border); border-radius: 6px; max-height: 240px; overflow: auto; margin: 2px 0 0; padding: 0; list-style: none; z-index: 5; box-shadow: 0 6px 16px rgba(0,0,0,.08); }
+.ac-results li { padding: 8px 10px; cursor: pointer; }
+.ac-results li:hover, .ac-results li[aria-selected="true"] { background: #eef2f9; }
+
+.reco { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: end; background: #eef6f1; border: 1px solid #c5e0d0; padding: 14px; border-radius: 8px; }
+.reco > div { text-align: center; }
+.reco span { display: block; font-size: 12px; color: var(--muted); text-transform: uppercase; }
+.reco strong { display: block; font-size: 22px; }
+.reco .mid strong { font-size: 28px; color: var(--ok); }
+.reco .meta { grid-column: 1 / -1; text-align: center; font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+.prop-head p { margin: 4px 0; }
+.hint { font-size: 12px; color: var(--muted); }
+details summary { cursor: pointer; padding: 6px 0; font-weight: 600; }

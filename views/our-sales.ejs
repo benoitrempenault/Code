@@ -1,0 +1,70 @@
+<%- include('partials/head', { title: 'Nos ventes' }) %>
+<%- include('partials/format') %>
+<section>
+  <h1>Nos ventes</h1>
+  <p class="muted">Ces données servent de référentiel comparatif lors des analyses de bien et d'agences.</p>
+  <% if (!rows.length) { %>
+    <p class="muted">Aucune vente enregistrée.</p>
+  <% } else { %>
+    <table class="grid">
+      <thead><tr><th>Date</th><th>Adresse</th><th>Ville</th><th>CP</th><th>Type</th><th>Surf.</th><th>P.</th><th>Ch.</th><th>Terrain</th><th>Demandé</th><th>Vendu</th><th></th></tr></thead>
+      <tbody>
+      <% for (const r of rows) { %>
+        <tr>
+          <td><%= dateFr(r.sold_at) %></td>
+          <td><%= r.address || '—' %></td>
+          <td><%= r.city || '' %></td>
+          <td><%= r.postcode || '' %></td>
+          <td><%= r.property_type || '' %></td>
+          <td><%= num(r.surface_m2,0) %></td>
+          <td><%= r.rooms ?? '' %></td>
+          <td><%= r.bedrooms ?? '' %></td>
+          <td><%= num(r.land_m2,0) %></td>
+          <td><%= eur(r.asking_price) %></td>
+          <td><%= eur(r.sold_price) %></td>
+          <td>
+            <form method="post" action="/our-sales/<%= r.id %>/delete" class="inline" onsubmit="return confirm('Supprimer ?');">
+              <input type="hidden" name="_csrf" value="<%= _csrf %>">
+              <button class="link danger" type="submit">×</button>
+            </form>
+          </td>
+        </tr>
+      <% } %>
+      </tbody>
+    </table>
+  <% } %>
+
+  <h2>Ajouter une vente</h2>
+  <form method="post" action="/our-sales" class="card">
+    <input type="hidden" name="_csrf" value="<%= _csrf %>">
+    <div class="row">
+      <label class="grow">Adresse<input name="address" maxlength="300"></label>
+      <label>Date de vente<input type="date" name="sold_at"></label>
+    </div>
+    <div class="row">
+      <label>Ville<input name="city" maxlength="120"></label>
+      <label>Code postal<input name="postcode" maxlength="10"></label>
+      <label>Type
+        <select name="property_type">
+          <option value="">—</option>
+          <option value="maison">Maison</option>
+          <option value="appartement">Appartement</option>
+          <option value="terrain">Terrain</option>
+          <option value="autre">Autre</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <label>Surface (m²)<input type="number" min="0" step="0.01" name="surface_m2"></label>
+      <label>Pièces<input type="number" min="0" max="50" name="rooms"></label>
+      <label>Chambres<input type="number" min="0" max="50" name="bedrooms"></label>
+      <label>Terrain (m²)<input type="number" min="0" step="1" name="land_m2"></label>
+    </div>
+    <div class="row">
+      <label>Prix demandé (€)<input type="number" min="0" step="1" name="asking_price"></label>
+      <label>Prix vendu (€)<input type="number" min="0" step="1" name="sold_price"></label>
+    </div>
+    <button type="submit">Enregistrer</button>
+  </form>
+</section>
+<%- include('partials/foot') %>

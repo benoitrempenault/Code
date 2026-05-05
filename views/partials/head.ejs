@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title><%= typeof title !== 'undefined' ? title : 'Estimation Immo' %></title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">Estimation Immo</a>
+  <nav>
+    <% if (typeof user !== 'undefined' && user) { %>
+      <a href="/">Tableau de bord</a>
+      <a href="/properties/new">Nouveau bien</a>
+      <a href="/our-sales">Nos ventes</a>
+      <span class="who">· <%= user.display_name %></span>
+      <form method="post" action="/logout" class="inline">
+        <input type="hidden" name="_csrf" value="<%= _csrf %>">
+        <button class="link" type="submit">Déconnexion</button>
+      </form>
+    <% } %>
+  </nav>
+</header>
+<main>

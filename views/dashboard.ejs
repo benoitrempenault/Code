@@ -1,0 +1,25 @@
+<%- include('partials/head', { title: 'Tableau de bord' }) %>
+<%- include('partials/format') %>
+<section>
+  <h1>Vos biens</h1>
+  <p><a class="btn" href="/properties/new">+ Nouveau bien</a></p>
+  <% if (!props.length) { %>
+    <p class="muted">Aucun bien. Commencez par en créer un.</p>
+  <% } else { %>
+    <table class="grid">
+      <thead><tr><th>Libellé</th><th>Adresse</th><th>Ville</th><th>État</th><th>Créé</th></tr></thead>
+      <tbody>
+      <% for (const p of props) { %>
+        <tr>
+          <td><a href="/properties/<%= p.id %>"><%= p.label || ('Bien #' + p.id) %></a></td>
+          <td><%= p.address %></td>
+          <td><%= p.city || '' %> <%= p.postcode || '' %></td>
+          <td><%= condLabel(p.condition) %></td>
+          <td><%= dateFr(new Date(p.created_at*1000).toISOString()) %></td>
+        </tr>
+      <% } %>
+      </tbody>
+    </table>
+  <% } %>
+</section>
+<%- include('partials/foot') %>

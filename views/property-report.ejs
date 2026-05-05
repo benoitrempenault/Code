@@ -1,0 +1,181 @@
+<%- include('partials/head', { title: (p.label || 'Bien') + ' — analyse' }) %>
+<%- include('partials/format') %>
+<section>
+  <header class="prop-head">
+    <h1><%= p.label || ('Bien #' + p.id) %></h1>
+    <p class="muted"><%= p.address %><% if (p.city) { %> — <%= p.city %><% } %> <%= p.postcode || '' %></p>
+    <p>
+      <strong>Type :</strong> <%= p.property_type %> ·
+      <strong>Surface :</strong> <%= num(p.surface_m2,1) %> m² ·
+      <strong>Pièces :</strong> <%= p.rooms ?? '—' %> ·
+      <strong>Chambres :</strong> <%= p.bedrooms ?? '—' %> ·
+      <strong>Terrain :</strong> <%= num(p.land_m2,0) %> m² ·
+      <strong>État :</strong> <%= condLabel(p.condition) %>
+    </p>
+    <p>
+      <a href="/agencies?property_id=<%= p.id %>" class="btn">Onglet Agences</a>
+      <form method="post" action="/properties/<%= p.id %>/refresh-dvf" class="inline">
+        <input type="hidden" name="_csrf" value="<%= _csrf %>">
+        <button type="submit">Actualiser DVF</button>
+      </form>
+      <form method="post" action="/properties/<%= p.id %>/delete" class="inline" onsubmit="return confirm('Supprimer ce bien ?');">
+        <input type="hidden" name="_csrf" value="<%= _csrf %>">
+        <button type="submit" class="danger">Supprimer</button>
+      </form>
+    </p>
+  </header>
+
+  <h2>Estimation suggérée</h2>
+  <% if (reco.basis === 'no-data' || reco.basis === 'no-surface') { %>
+    <p class="warn">Données insuffisantes pour proposer une fourchette (renseignez au moins la surface et lancez une recherche DVF).</p>
+  <% } else { %>
+    <div class="reco">
+      <div><span>Bas</span><strong><%= eur(reco.lowEUR) %></strong></div>
+      <div class="mid"><span>Médian</span><strong><%= eur(reco.midEUR) %></strong></div>
+      <div><span>Haut</span><strong><%= eur(reco.highEUR) %></strong></div>
+      <div class="meta">~ <%= eur(reco.pricePerM2) %>/m² · base : <%= reco.basis %> · coef. état : ×<%= reco.conditionCoef %></div>
+    </div>
+  <% } %>
+
+  <h2 id="dvf">Comparables vendus (DVF)</h2>
+  <p class="muted">Source : Demandes de Valeurs Foncières (DGFiP via Etalab) — transactions réelles.</p>
+  <% if (!dvf.length) { %>
+    <p class="muted">Aucune transaction trouvée pour les critères / le secteur.</p>
+  <% } else { %>
+    <p>
+      <strong><%= dvfStats.count %></strong> transactions ·
+      Médiane prix : <%= eur(dvfStats.price.median) %> ·
+      Médiane €/m² : <%= eur(dvfStats.pricePerM2.median) %>
+      (Q1 <%= eur(dvfStats.pricePerM2.q1) %> — Q3 <%= eur(dvfStats.pricePerM2.q3) %>)
+    </p>
+    <table class="grid">
+      <thead><tr><th>Date</th><th>Adresse</th><th>Ville</th><th>Type</th><th>Surf.</th><th>Pièces</th><th>Terrain</th><th>Prix</th><th>€/m²</th><th>Dist.</th></tr></thead>
+      <tbody>
+      <% for (const r of dvf) { %>
+        <tr>
+          <td><%= dateFr(r.date_mut) %></td>
+          <td><%= r.address || '—' %></td>
+          <td><%= r.city || '' %> <%= r.postcode || '' %></td>
+          <td><%= r.type_local || '' %></td>
+          <td><%= num(r.surface_m2,0) %></td>
+          <td><%= r.rooms ?? '' %></td>
+          <td><%= num(r.land_m2,0) %></td>
+          <td><%= eur(r.valeur) %></td>
+          <td><%= r.surface_m2 ? eur(r.valeur / r.surface_m2) : '—' %></td>
+          <td><%= r.distance_m ? num(r.distance_m,0) + ' m' : '—' %></td>
+        </tr>
+      <% } %>
+      </tbody>
+    </table>
+  <% } %>
+
+  <h2 id="annonces">Annonces concurrentes</h2>
+  <p class="muted">
+    Les sites comme Le Bon Coin, SeLoger, Castorus, etc. interdisent le scraping automatisé et
+    bloquent les bots. Collez ici les liens des annonces que vous identifiez ; l'application les
+    centralise, calcule les prix moyens et génère le rapport. Vous pouvez aussi compléter les
+    champs (prix, surface…) manuellement.
+  </p>
+  <% if (listings.length) { %>
+    <p>
+      <strong><%= listingStats.count %></strong> annonces ·
+      Médiane prix : <%= eur(listingStats.price.median) %> ·
+      Médiane €/m² : <%= eur(listingStats.pricePerM2.median) %>
+    </p>
+    <table class="grid">
+      <thead><tr><th>Source</th><th>Titre</th><th>Ville</th><th>Surf.</th><th>P.</th><th>Ch.</th><th>Terrain</th><th>Prix</th><th>€/m²</th><th>Agence</th><th></th></tr></thead>
+      <tbody>
+      <% for (const l of listings) { %>
+        <tr>
+          <td><%= l.source %></td>
+          <td>
+            <% if (l.url) { %>
+              <a href="<%= l.url %>" target="_blank" rel="noopener noreferrer nofollow"><%= l.title || l.url %></a>
+            <% } else { %><%= l.title || '—' %><% } %>
+          </td>
+          <td><%= l.city || '' %></td>
+          <td><%= num(l.surface_m2,0) %></td>
+          <td><%= l.rooms ?? '' %></td>
+          <td><%= l.bedrooms ?? '' %></td>
+          <td><%= num(l.land_m2,0) %></td>
+          <td><%= eur(l.price) %></td>
+          <td><%= l.surface_m2 && l.price ? eur(l.price / l.surface_m2) : '—' %></td>
+          <td><%= l.agency || '' %></td>
+          <td>
+            <form method="post" action="/properties/<%= p.id %>/listings/<%= l.id %>/delete" class="inline" onsubmit="return confirm('Supprimer ?');">
+              <input type="hidden" name="_csrf" value="<%= _csrf %>">
+              <button class="link danger" type="submit">×</button>
+            </form>
+          </td>
+        </tr>
+      <% } %>
+      </tbody>
+    </table>
+  <% } else { %>
+    <p class="muted">Aucune annonce. Ajoutez-en ci-dessous.</p>
+  <% } %>
+
+  <details open>
+    <summary>Ajouter une annonce</summary>
+    <form method="post" action="/properties/<%= p.id %>/listings" class="card">
+      <input type="hidden" name="_csrf" value="<%= _csrf %>">
+      <div class="row">
+        <label>Source
+          <select name="source" required>
+            <option>Le Bon Coin</option>
+            <option>SeLoger</option>
+            <option>Logic-Immo</option>
+            <option>Bien'ici</option>
+            <option>Castorus</option>
+            <option>PAP</option>
+            <option>Ouest-France Immo</option>
+            <option>Site agence</option>
+            <option>Autre</option>
+          </select>
+        </label>
+        <label class="grow">URL annonce
+          <input type="url" name="url" maxlength="1000" placeholder="https://...">
+        </label>
+      </div>
+      <label>Titre / résumé
+        <input name="title" maxlength="300">
+      </label>
+      <div class="row">
+        <label>Prix (€)<input type="number" min="0" step="1" name="price"></label>
+        <label>Surface (m²)<input type="number" min="0" step="0.01" name="surface_m2"></label>
+        <label>Pièces<input type="number" min="0" max="50" name="rooms"></label>
+        <label>Chambres<input type="number" min="0" max="50" name="bedrooms"></label>
+        <label>Terrain (m²)<input type="number" min="0" step="1" name="land_m2"></label>
+      </div>
+      <div class="row">
+        <label>Ville<input name="city" maxlength="120"></label>
+        <label class="grow">Agence<input name="agency" maxlength="200"></label>
+      </div>
+      <label>Notes<textarea name="notes" rows="2" maxlength="1000"></textarea></label>
+      <button type="submit">Ajouter</button>
+    </form>
+  </details>
+
+  <% if (oursales && oursales.length) { %>
+    <h2>Nos ventes comparables sur le secteur</h2>
+    <table class="grid">
+      <thead><tr><th>Date</th><th>Adresse</th><th>Type</th><th>Surf.</th><th>P.</th><th>Terrain</th><th>Demandé</th><th>Vendu</th><th>€/m²</th></tr></thead>
+      <tbody>
+      <% for (const r of oursales) { %>
+        <tr>
+          <td><%= dateFr(r.sold_at) %></td>
+          <td><%= r.address || '—' %> · <%= r.city || '' %></td>
+          <td><%= r.property_type || '' %></td>
+          <td><%= num(r.surface_m2,0) %></td>
+          <td><%= r.rooms ?? '' %></td>
+          <td><%= num(r.land_m2,0) %></td>
+          <td><%= eur(r.asking_price) %></td>
+          <td><%= eur(r.sold_price) %></td>
+          <td><%= r.surface_m2 && r.sold_price ? eur(r.sold_price / r.surface_m2) : '—' %></td>
+        </tr>
+      <% } %>
+      </tbody>
+    </table>
+  <% } %>
+</section>
+<%- include('partials/foot') %>

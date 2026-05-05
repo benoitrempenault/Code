@@ -1,0 +1,17 @@
+<%- include('partials/head', { title: 'Connexion' }) %>
+<section class="card narrow">
+  <h1>Connexion</h1>
+  <% if (error) { %><p class="err"><%= error %></p><% } %>
+  <form method="post" action="/login" autocomplete="on">
+    <input type="hidden" name="_csrf" value="<%= _csrf %>">
+    <label>Email
+      <input type="email" name="email" required autocomplete="username" maxlength="200">
+    </label>
+    <label>Mot de passe
+      <input type="password" name="password" required autocomplete="current-password" maxlength="256">
+    </label>
+    <button type="submit">Se connecter</button>
+  </form>
+  <p class="hint">Comptes créés par l'administrateur via <code>npm run create-user</code>.</p>
+</section>
+<%- include('partials/foot') %>

@@ -1,0 +1,29 @@
+{
+  "name": "estimation-immo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Outil d'analyse concurrentielle immobilière (multi-utilisateurs, sécurisé)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "init-db": "node scripts/init-db.js",
+    "create-user": "node scripts/create-user.js",
+    "audit": "npm audit --omit=dev"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^11.3.0",
+    "better-sqlite3-session-store": "^0.1.0",
+    "csrf-sync": "^4.0.3",
+    "dotenv": "^16.4.5",
+    "ejs": "^3.1.10",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.4.1",
+    "express-session": "^1.18.1",
+    "express-validator": "^7.2.0",
+    "helmet": "^8.0.0"
+  }
+}

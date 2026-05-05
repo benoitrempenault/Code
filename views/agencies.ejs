@@ -1,0 +1,101 @@
+<%- include('partials/head', { title: 'Agences — ' + (p.label || 'Bien') }) %>
+<%- include('partials/format') %>
+<section>
+  <h1>Agences — <%= p.label || ('Bien #' + p.id) %></h1>
+  <p class="muted"><a href="/properties/<%= p.id %>">← Retour à l'analyse du bien</a></p>
+
+  <h2>Notre agence</h2>
+  <% if (!ours.length) { %>
+    <p class="muted">Aucune entrée pour notre agence sur ce dossier. Ajoutez-la ci-dessous (cochez « Notre agence »).</p>
+  <% } %>
+
+  <h2>Comparatif forces / faiblesses</h2>
+  <% if (!ours.length && !competitors.length) { %>
+    <p class="muted">Aucune agence renseignée pour le moment.</p>
+  <% } else { %>
+    <table class="grid wide">
+      <thead>
+        <tr>
+          <th>Agence</th>
+          <th>Honoraires</th>
+          <th>Diffusion</th>
+          <th>Conseillers</th>
+          <th>Annonces compa.</th>
+          <th>Prix moy. demandés</th>
+          <th>Médiane demandés</th>
+          <th>Vendus compa.</th>
+          <th>Prix moy. vendus</th>
+          <th>Forces</th>
+          <th>Faiblesses</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      <% const all = [...ours, ...competitors]; for (const a of all) { %>
+        <tr class="<%= a.is_ours ? 'ours' : '' %>">
+          <td><strong><%= a.name %></strong><% if (a.is_ours) { %> <span class="badge">Nous</span><% } %></td>
+          <td>
+            <% if (a.fee_pct) { %><%= num(a.fee_pct,2) %> %<% } %>
+            <% if (a.fee_fixed) { %><%= a.fee_pct ? ' / ' : '' %><%= eur(a.fee_fixed) %><% } %>
+            <% if (!a.fee_pct && !a.fee_fixed) { %>—<% } %>
+          </td>
+          <td><%= a.diffusion_sites || '—' %></td>
+          <td><%= a.advisors ?? '—' %></td>
+          <td><%= a.comparable_listings ?? '—' %></td>
+          <td><%= eur(a.avg_price) %></td>
+          <td><%= eur(a.median_price) %></td>
+          <td><%= a.sold_comparable ?? '—' %></td>
+          <td><%= eur(a.avg_sold_price) %></td>
+          <td class="multi"><%= a.strengths || '—' %></td>
+          <td class="multi"><%= a.weaknesses || '—' %></td>
+          <td>
+            <form method="post" action="/agencies/<%= a.id %>/delete" class="inline" onsubmit="return confirm('Supprimer ?');">
+              <input type="hidden" name="_csrf" value="<%= _csrf %>">
+              <button class="link danger" type="submit">×</button>
+            </form>
+          </td>
+        </tr>
+      <% } %>
+      </tbody>
+    </table>
+  <% } %>
+
+  <% if (oursales && oursales.length) { %>
+    <h3>Nos ventes sur le secteur (<%= p.postcode || 'CP non renseigné' %>)</h3>
+    <p class="muted"><%= oursales.length %> vente(s) connue(s). Ces données alimentent automatiquement la comparaison avec notre agence.</p>
+  <% } %>
+
+  <h2>Ajouter une agence</h2>
+  <form method="post" action="/agencies" class="card">
+    <input type="hidden" name="_csrf" value="<%= _csrf %>">
+    <input type="hidden" name="property_id" value="<%= p.id %>">
+    <div class="row">
+      <label class="grow">Nom de l'agence
+        <input name="name" required maxlength="200">
+      </label>
+      <label class="check">
+        <input type="checkbox" name="is_ours" value="1"> Notre agence
+      </label>
+    </div>
+    <div class="row">
+      <label>Honoraires (%)<input type="number" min="0" max="50" step="0.01" name="fee_pct"></label>
+      <label>Honoraires fixes (€)<input type="number" min="0" step="1" name="fee_fixed"></label>
+      <label>Conseillers<input type="number" min="0" name="advisors"></label>
+    </div>
+    <label>Sites de diffusion (séparés par virgules)
+      <input name="diffusion_sites" maxlength="1000" placeholder="SeLoger, Le Bon Coin, Bien'ici, ...">
+    </label>
+    <div class="row">
+      <label>Annonces comparables<input type="number" min="0" name="comparable_listings"></label>
+      <label>Prix moy. demandés (€)<input type="number" min="0" step="1" name="avg_price"></label>
+      <label>Médiane demandés (€)<input type="number" min="0" step="1" name="median_price"></label>
+      <label>Vendus comparables<input type="number" min="0" name="sold_comparable"></label>
+      <label>Prix moy. vendus (€)<input type="number" min="0" step="1" name="avg_sold_price"></label>
+    </div>
+    <label>Forces<textarea name="strengths" rows="2" maxlength="4000"></textarea></label>
+    <label>Faiblesses<textarea name="weaknesses" rows="2" maxlength="4000"></textarea></label>
+    <label>Notes<textarea name="notes" rows="2" maxlength="4000"></textarea></label>
+    <button type="submit">Enregistrer</button>
+  </form>
+</section>
+<%- include('partials/foot') %>

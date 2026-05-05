@@ -1,0 +1,57 @@
+<%- include('partials/head', { title: 'Nouveau bien' }) %>
+<section class="card">
+  <h1>Nouveau bien</h1>
+  <% if (error) { %><p class="err"><%= error %></p><% } %>
+  <form method="post" action="/properties" autocomplete="off">
+    <input type="hidden" name="_csrf" value="<%= _csrf %>">
+    <label>Libellé interne (facultatif)
+      <input name="label" maxlength="200" value="<%= property && property.label ? property.label : '' %>">
+    </label>
+    <label>Adresse
+      <div class="autocomplete">
+        <input id="addr" name="address" required minlength="3" maxlength="300" autocomplete="off"
+               value="<%= property && property.address ? property.address : '' %>">
+        <ul id="addr-results" class="ac-results" hidden></ul>
+      </div>
+      <input type="hidden" name="city" id="addr-city">
+      <input type="hidden" name="postcode" id="addr-postcode">
+      <input type="hidden" name="insee_code" id="addr-insee">
+      <input type="hidden" name="lat" id="addr-lat">
+      <input type="hidden" name="lng" id="addr-lng">
+    </label>
+    <div class="row">
+      <label>Type
+        <select name="property_type">
+          <option value="maison">Maison</option>
+          <option value="appartement">Appartement</option>
+          <option value="terrain">Terrain</option>
+          <option value="autre">Autre</option>
+        </select>
+      </label>
+      <label>État du bien
+        <select name="condition" required>
+          <option value="">— choisir —</option>
+          <option value="excellent">Excellent</option>
+          <option value="tres_bon">Très bon</option>
+          <option value="bon">Bon</option>
+          <option value="a_reflechir">À réfléchir</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <label>Surface habitable (m²)<input type="number" min="0" max="50000" step="0.01" name="surface_m2"></label>
+      <label>Pièces<input type="number" min="0" max="50" name="rooms"></label>
+      <label>Chambres<input type="number" min="0" max="50" name="bedrooms"></label>
+      <label>Terrain (m²)<input type="number" min="0" max="5000000" step="0.01" name="land_m2"></label>
+    </div>
+    <label>Prix demandé (€) (facultatif)
+      <input type="number" min="0" max="1000000000" step="1" name="asking_price">
+    </label>
+    <label>Notes
+      <textarea name="notes" maxlength="4000" rows="3"></textarea>
+    </label>
+    <button type="submit">Créer et analyser</button>
+  </form>
+</section>
+<script src="/static/autocomplete.js" defer></script>
+<%- include('partials/foot') %>
