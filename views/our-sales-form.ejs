@@ -1,0 +1,38 @@
+<%- include('partials/head', { title: 'Modifier vente' }) %>
+<section class="card">
+  <h1>Modifier la vente</h1>
+  <p class="muted"><a href="/our-sales">← Retour à nos ventes</a></p>
+  <% if (error) { %><p class="err"><%= error %></p><% } %>
+  <form method="post" action="/our-sales/<%= row.id %>" autocomplete="off">
+    <input type="hidden" name="_csrf" value="<%= _csrf %>">
+    <div class="row">
+      <label class="grow">Adresse<input name="address" maxlength="300" value="<%= row.address || '' %>"></label>
+      <label>Date de vente<input type="date" name="sold_at" value="<%= row.sold_at || '' %>"></label>
+    </div>
+    <div class="row">
+      <label>Ville<input name="city" maxlength="120" value="<%= row.city || '' %>"></label>
+      <label>Code postal<input name="postcode" maxlength="10" value="<%= row.postcode || '' %>"></label>
+      <label>Type
+        <select name="property_type">
+          <option value="">—</option>
+          <% for (const t of ['maison','appartement','terrain','autre']) { %>
+            <option value="<%= t %>" <%= row.property_type === t ? 'selected' : '' %>><%= t %></option>
+          <% } %>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <label>Surface (m²)<input type="number" min="0" step="0.01" name="surface_m2" value="<%= row.surface_m2 || '' %>"></label>
+      <label>Pièces<input type="number" min="0" max="50" name="rooms" value="<%= row.rooms || '' %>"></label>
+      <label>Chambres<input type="number" min="0" max="50" name="bedrooms" value="<%= row.bedrooms || '' %>"></label>
+      <label>Terrain (m²)<input type="number" min="0" step="1" name="land_m2" value="<%= row.land_m2 || '' %>"></label>
+    </div>
+    <div class="row">
+      <label>Prix demandé (€)<input type="number" min="0" step="1" name="asking_price" value="<%= row.asking_price || '' %>"></label>
+      <label>Prix vendu (€)<input type="number" min="0" step="1" name="sold_price" value="<%= row.sold_price || '' %>"></label>
+    </div>
+    <button type="submit">Enregistrer</button>
+    <a href="/our-sales" class="btn" style="background:transparent;color:var(--accent);">Annuler</a>
+  </form>
+</section>
+<%- include('partials/foot') %>

@@ -1,0 +1,40 @@
+<%- include('partials/head', { title: 'Modifier annonce' }) %>
+<section class="card">
+  <h1>Modifier l'annonce</h1>
+  <p class="muted"><a href="/properties/<%= p.id %>#annonces">← Retour au bien <%= p.label || ('#' + p.id) %></a></p>
+  <% if (error) { %><p class="err"><%= error %></p><% } %>
+  <form method="post" action="/properties/<%= p.id %>/listings/<%= listing.id %>" autocomplete="off">
+    <input type="hidden" name="_csrf" value="<%= _csrf %>">
+    <div class="row">
+      <label>Source
+        <select name="source" required>
+          <% const sources = ['Le Bon Coin','SeLoger','Logic-Immo','Bien\'ici','Castorus','PAP','Foncia','Ouest-France Immo','Site agence','Autre']; %>
+          <% for (const s of sources) { %>
+            <option value="<%= s %>" <%= listing.source === s ? 'selected' : '' %>><%= s %></option>
+          <% } %>
+        </select>
+      </label>
+      <label class="grow">URL annonce
+        <input type="url" name="url" maxlength="1000" value="<%= listing.url || '' %>">
+      </label>
+    </div>
+    <label>Titre / résumé
+      <input name="title" maxlength="300" value="<%= listing.title || '' %>">
+    </label>
+    <div class="row">
+      <label>Prix (€)<input type="number" min="0" step="1" name="price" value="<%= listing.price || '' %>"></label>
+      <label>Surface (m²)<input type="number" min="0" step="0.01" name="surface_m2" value="<%= listing.surface_m2 || '' %>"></label>
+      <label>Pièces<input type="number" min="0" max="50" name="rooms" value="<%= listing.rooms || '' %>"></label>
+      <label>Chambres<input type="number" min="0" max="50" name="bedrooms" value="<%= listing.bedrooms || '' %>"></label>
+      <label>Terrain (m²)<input type="number" min="0" step="1" name="land_m2" value="<%= listing.land_m2 || '' %>"></label>
+    </div>
+    <div class="row">
+      <label>Ville<input name="city" maxlength="120" value="<%= listing.city || '' %>"></label>
+      <label class="grow">Agence<input name="agency" maxlength="200" value="<%= listing.agency || '' %>"></label>
+    </div>
+    <label>Notes<textarea name="notes" rows="2" maxlength="1000"><%= listing.notes || '' %></textarea></label>
+    <button type="submit">Enregistrer</button>
+    <a href="/properties/<%= p.id %>#annonces" class="btn" style="background:transparent;color:var(--accent);">Annuler</a>
+  </form>
+</section>
+<%- include('partials/foot') %>

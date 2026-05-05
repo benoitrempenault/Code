@@ -55,6 +55,35 @@ router.post('/', agencyValidators, loadProperty, (req, res) => {
   res.redirect(`/agencies?property_id=${req.property.id}`);
 });
 
+router.get('/:id/edit', param('id').isInt(), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const a = db.prepare('SELECT a.*, p.user_id FROM agencies a JOIN properties p ON p.id = a.property_id WHERE a.id = ?').get(id);
+  if (!a || a.user_id !== req.session.user.id) return res.status(404).render('error', { code: 404, message: 'Agence introuvable' });
+  const p = db.prepare('SELECT * FROM properties WHERE id = ?').get(a.property_id);
+  res.render('agency-form', { p, agency: a, error: null });
+});
+
+router.post('/:id', param('id').isInt(), agencyValidators, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const existing = db.prepare('SELECT a.*, p.user_id FROM agencies a JOIN properties p ON p.id = a.property_id WHERE a.id = ?').get(id);
+  if (!existing || existing.user_id !== req.session.user.id) return res.status(404).render('error', { code: 404, message: 'Agence introuvable' });
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    const p = db.prepare('SELECT * FROM properties WHERE id = ?').get(existing.property_id);
+    return res.status(400).render('agency-form', { p, agency: { ...existing, ...req.body }, error: errors.array()[0].msg });
+  }
+  const b = req.body;
+  const isOurs = (b.is_ours === '1' || b.is_ours === 'on') ? 1 : 0;
+  db.prepare(`UPDATE agencies SET name=?, is_ours=?, fee_pct=?, fee_fixed=?, diffusion_sites=?, advisors=?, comparable_listings=?, avg_price=?, median_price=?, sold_comparable=?, avg_sold_price=?, strengths=?, weaknesses=?, notes=?
+              WHERE id = ?`).run(
+    b.name, isOurs, b.fee_pct || null, b.fee_fixed || null, b.diffusion_sites || null,
+    b.advisors || null, b.comparable_listings || null, b.avg_price || null, b.median_price || null,
+    b.sold_comparable || null, b.avg_sold_price || null, b.strengths || null, b.weaknesses || null, b.notes || null,
+    id
+  );
+  res.redirect(`/agencies?property_id=${existing.property_id}`);
+});
+
 router.post('/:id/delete', param('id').isInt(), (req, res) => {
   const id = parseInt(req.params.id, 10);
   const a = db.prepare('SELECT a.*, p.user_id FROM agencies a JOIN properties p ON p.id = a.property_id WHERE a.id = ?').get(id);

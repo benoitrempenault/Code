@@ -49,7 +49,15 @@ table.grid th, table.grid td { padding: 8px 10px; border-bottom: 1px solid var(-
 table.grid th { background: #eef2f9; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: #354054; }
 table.grid tr.ours { background: #eaf4ff; }
 table.grid td.multi { white-space: pre-wrap; max-width: 280px; }
-.badge { background: var(--accent); color: #fff; border-radius: 999px; padding: 1px 8px; font-size: 11px; }
+.badge { background: var(--accent); color: #fff; border-radius: 999px; padding: 1px 8px; font-size: 11px; display: inline-block; }
+.badge.warn { background: var(--warn); color: #fff; }
+.badge.danger { background: var(--danger); color: #fff; }
+.badge.status-prospect       { background: #6b7385; color: #fff; }
+.badge.status-mandat_simple  { background: #1f5fbd; color: #fff; }
+.badge.status-mandat_exclusif{ background: #1d6f42; color: #fff; }
+.badge.status-vendu          { background: #0a7a3a; color: #fff; }
+.badge.status-perdu          { background: #b3261e; color: #fff; }
+.badge.status-archive        { background: #888; color: #fff; }
 
 .autocomplete { position: relative; }
 .ac-results { position: absolute; left: 0; right: 0; top: 100%; background: #fff; border: 1px solid var(--border); border-radius: 6px; max-height: 240px; overflow: auto; margin: 2px 0 0; padding: 0; list-style: none; z-index: 5; box-shadow: 0 6px 16px rgba(0,0,0,.08); }

@@ -159,6 +159,7 @@ app.get('/', (req, res) => {
   const cp = String(req.query.cp || '').trim().slice(0, 10);
   const type = ['maison', 'appartement', 'terrain', 'autre'].includes(req.query.type) ? req.query.type : '';
   const cond = ['excellent', 'tres_bon', 'bon', 'a_reflechir'].includes(req.query.condition) ? req.query.condition : '';
+  const status = ['prospect', 'mandat_simple', 'mandat_exclusif', 'vendu', 'perdu', 'archive'].includes(req.query.status) ? req.query.status : '';
 
   const where = ['user_id = ?'];
   const params = [req.session.user.id];
@@ -171,8 +172,9 @@ app.get('/', (req, res) => {
   if (cp) { where.push('postcode = ?'); params.push(cp); }
   if (type) { where.push('property_type = ?'); params.push(type); }
   if (cond) { where.push('condition = ?'); params.push(cond); }
+  if (status) { where.push('status = ?'); params.push(status); }
 
-  const sql = `SELECT id, label, address, city, postcode, property_type, condition, created_at, last_searched_at
+  const sql = `SELECT id, label, address, city, postcode, property_type, condition, status, created_at, last_searched_at
                FROM properties WHERE ${where.join(' AND ')} ORDER BY ${sort} LIMIT 200`;
   const props = db.prepare(sql).all(...params);
 
@@ -182,7 +184,7 @@ app.get('/', (req, res) => {
 
   res.render('dashboard', {
     props, cities, postcodes,
-    filter: { q, city, cp, type, condition: cond, sort: req.query.sort || 'created_desc' },
+    filter: { q, city, cp, type, condition: cond, status, sort: req.query.sort || 'created_desc' },
   });
 });
 

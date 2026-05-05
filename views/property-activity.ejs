@@ -1,0 +1,25 @@
+<%- include('partials/head', { title: 'Activité — ' + (p.label || 'bien #' + p.id) }) %>
+<section>
+  <h1>Activité — <%= p.label || ('Bien #' + p.id) %></h1>
+  <p class="muted"><a href="/properties/<%= p.id %>">← Retour à l'analyse</a></p>
+
+  <% if (!events.length) { %>
+    <p class="muted">Aucune activité enregistrée pour ce bien.</p>
+  <% } else { %>
+    <table class="grid">
+      <thead><tr><th>Date</th><th>Action</th><th>Détail</th><th>Par</th><th>IP</th></tr></thead>
+      <tbody>
+      <% for (const e of events) { %>
+        <tr>
+          <td><%= dateFr(e.created_at) %> <%= new Date(e.created_at*1000).toLocaleTimeString('fr-FR') %></td>
+          <td><span class="badge"><%= e.action %></span></td>
+          <td class="multi"><%= e.detail || '—' %></td>
+          <td><%= e.user_name || e.user_email || '—' %></td>
+          <td class="muted"><%= e.ip || '' %></td>
+        </tr>
+      <% } %>
+      </tbody>
+    </table>
+  <% } %>
+</section>
+<%- include('partials/foot') %>

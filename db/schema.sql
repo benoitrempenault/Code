@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS properties (
   notes        TEXT,
   asking_price REAL,
   last_searched_at INTEGER,
+  status       TEXT NOT NULL DEFAULT 'prospect' CHECK(status IN ('prospect','mandat_simple','mandat_exclusif','vendu','perdu','archive')),
+  mandate_at   INTEGER,
+  closed_at    INTEGER,
+  sold_price   REAL,
   created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
   updated_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );

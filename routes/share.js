@@ -45,7 +45,7 @@ router.post('/properties/:id/share',
     const token = generateToken();
     db.prepare(`INSERT INTO share_tokens (token, property_id, created_by, expires_at, note)
                 VALUES (?,?,?,?,?)`).run(token, req.property.id, req.session.user.id, expires, req.body.note || null);
-    auth.audit(req.session.user.id, 'share_create', `property=${req.property.id} lifetime=${lifetime}d`, req.ip);
+    auth.audit(req.session.user.id, 'share_create', `lifetime=${lifetime}d`, req.ip, req.property.id);
     res.redirect(`/properties/${req.property.id}#share`);
   }
 );
@@ -56,7 +56,7 @@ router.post('/properties/:id/share/:tid/revoke',
     const tid = parseInt(req.params.tid, 10);
     db.prepare('UPDATE share_tokens SET revoked_at = strftime(\'%s\',\'now\') WHERE id = ? AND property_id = ?')
       .run(tid, req.property.id);
-    auth.audit(req.session.user.id, 'share_revoke', `tid=${tid} property=${req.property.id}`, req.ip);
+    auth.audit(req.session.user.id, 'share_revoke', `tid=${tid}`, req.ip, req.property.id);
     res.redirect(`/properties/${req.property.id}#share`);
   }
 );

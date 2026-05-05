@@ -37,6 +37,29 @@ router.post('/', v, (req, res) => {
   res.redirect('/our-sales');
 });
 
+router.get('/:id/edit', param('id').isInt(), (req, res) => {
+  const r = db.prepare('SELECT * FROM our_sales WHERE id = ?').get(parseInt(req.params.id, 10));
+  if (!r) return res.status(404).render('error', { code: 404, message: 'Vente introuvable' });
+  res.render('our-sales-form', { row: r, error: null });
+});
+
+router.post('/:id', param('id').isInt(), v, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const existing = db.prepare('SELECT * FROM our_sales WHERE id = ?').get(id);
+  if (!existing) return res.status(404).render('error', { code: 404, message: 'Vente introuvable' });
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).render('our-sales-form', { row: { ...existing, ...req.body }, error: errors.array()[0].msg });
+  const b = req.body;
+  db.prepare(`UPDATE our_sales SET address=?, city=?, postcode=?, property_type=?, surface_m2=?, rooms=?, bedrooms=?, land_m2=?, asking_price=?, sold_price=?, sold_at=?
+              WHERE id = ?`).run(
+    b.address || null, b.city || null, b.postcode || null, b.property_type || null,
+    b.surface_m2 || null, b.rooms || null, b.bedrooms || null, b.land_m2 || null,
+    b.asking_price || null, b.sold_price || null, b.sold_at || null,
+    id
+  );
+  res.redirect('/our-sales');
+});
+
 router.post('/:id/delete', param('id').isInt(), (req, res) => {
   db.prepare('DELETE FROM our_sales WHERE id = ?').run(parseInt(req.params.id, 10));
   res.redirect('/our-sales');

@@ -42,6 +42,14 @@
           <option value="a_reflechir" <%= filter.condition === 'a_reflechir' ? 'selected' : '' %>>À réfléchir</option>
         </select>
       </label>
+      <label>Statut
+        <select name="status">
+          <option value="">— Tous —</option>
+          <% for (const s of ['prospect','mandat_simple','mandat_exclusif','vendu','perdu','archive']) { %>
+            <option value="<%= s %>" <%= filter.status === s ? 'selected' : '' %>><%= statusLabel(s) %></option>
+          <% } %>
+        </select>
+      </label>
       <label>Tri
         <select name="sort">
           <option value="created_desc" <%= filter.sort === 'created_desc' ? 'selected' : '' %>>Récent → ancien</option>
@@ -63,7 +71,7 @@
     <p class="muted">Aucun bien ne correspond à ces critères.</p>
   <% } else { %>
     <table class="grid">
-      <thead><tr><th>Libellé</th><th>Adresse</th><th>Ville</th><th>Type</th><th>État</th><th>Recherche</th><th>Créé</th></tr></thead>
+      <thead><tr><th>Libellé</th><th>Adresse</th><th>Ville</th><th>Type</th><th>État</th><th>Statut</th><th>Recherche</th><th>Créé</th></tr></thead>
       <tbody>
       <% for (const p of props) { %>
         <tr>
@@ -72,6 +80,7 @@
           <td><%= p.city || '' %> <%= p.postcode || '' %></td>
           <td><%= p.property_type || '' %></td>
           <td><%= condLabel(p.condition) %></td>
+          <td><span class="badge status-<%= p.status || 'prospect' %>"><%= statusLabel(p.status) %></span></td>
           <td><%= p.last_searched_at ? dateFr(p.last_searched_at) : '—' %></td>
           <td><%= dateFr(p.created_at) %></td>
         </tr>

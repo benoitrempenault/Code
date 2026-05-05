@@ -2,7 +2,10 @@
 
 <section>
   <header class="prop-head">
-    <h1><%= p.label || ('Bien #' + p.id) %></h1>
+    <h1>
+      <%= p.label || ('Bien #' + p.id) %>
+      <span class="badge status-<%= p.status || 'prospect' %>"><%= statusLabel(p.status) %></span>
+    </h1>
     <p class="muted"><%= p.address %><% if (p.city) { %> — <%= p.city %><% } %> <%= p.postcode || '' %></p>
     <p>
       <strong>Type :</strong> <%= p.property_type %> ·
@@ -15,6 +18,7 @@
     <p class="actions no-print">
       <a href="/agencies?property_id=<%= p.id %>" class="btn">Onglet Agences</a>
       <a href="/properties/<%= p.id %>/edit" class="btn">Modifier</a>
+      <a href="/properties/<%= p.id %>/activity" class="btn">Activité</a>
       <button type="button" class="btn" data-action="print">Imprimer / PDF</button>
       <a href="/properties/<%= p.id %>/listings.csv" class="btn">CSV annonces</a>
       <a href="/properties/<%= p.id %>/dvf.csv" class="btn">CSV DVF</a>
@@ -133,7 +137,8 @@
           <td><%= eur(l.price) %></td>
           <td><%= l.surface_m2 && l.price ? eur(l.price / l.surface_m2) : '—' %></td>
           <td><%= l.agency || '' %></td>
-          <td>
+          <td class="no-print">
+            <a href="/properties/<%= p.id %>/listings/<%= l.id %>/edit" class="link" title="Modifier">✎</a>
             <form method="post" action="/properties/<%= p.id %>/listings/<%= l.id %>/delete" class="inline" data-confirm="Supprimer ?">
               <input type="hidden" name="_csrf" value="<%= _csrf %>">
               <button class="link danger" type="submit">×</button>
@@ -209,6 +214,24 @@
       </tbody>
     </table>
   <% } %>
+
+  <h2 id="status" class="no-print">Statut du dossier</h2>
+  <form method="post" action="/properties/<%= p.id %>/status" class="card no-print">
+    <input type="hidden" name="_csrf" value="<%= _csrf %>">
+    <div class="row">
+      <label>Statut
+        <select name="status">
+          <% for (const s of ['prospect','mandat_simple','mandat_exclusif','vendu','perdu','archive']) { %>
+            <option value="<%= s %>" <%= (p.status||'prospect') === s ? 'selected' : '' %>><%= statusLabel(s) %></option>
+          <% } %>
+        </select>
+      </label>
+      <label>Date du mandat<input type="date" name="mandate_at" value="<%= p.mandate_at ? new Date(p.mandate_at*1000).toISOString().slice(0,10) : '' %>"></label>
+      <label>Date de clôture<input type="date" name="closed_at" value="<%= p.closed_at ? new Date(p.closed_at*1000).toISOString().slice(0,10) : '' %>"></label>
+      <label>Prix de vente (€)<input type="number" min="0" step="1" name="sold_price" value="<%= p.sold_price || '' %>"></label>
+    </div>
+    <button type="submit">Mettre à jour</button>
+  </form>
 
   <h2 id="share" class="no-print">Partager au client</h2>
   <p class="muted no-print">

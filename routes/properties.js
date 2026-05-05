@@ -6,6 +6,7 @@ const { fetchComparables } = require('../lib/dvf');
 const { summarise, recommendPrice } = require('../lib/analysis');
 const { safeUrl } = require('../lib/sanitize');
 const { buildCsv } = require('../lib/csv');
+const { audit } = require('../lib/auth');
 
 const router = express.Router();
 
@@ -138,6 +139,43 @@ router.get('/:id/dvf.csv', param('id').isInt(), loadProperty, (req, res) => {
   res.send(buildCsv(headers, data));
 });
 
+const STATUSES = ['prospect', 'mandat_simple', 'mandat_exclusif', 'vendu', 'perdu', 'archive'];
+
+router.post('/:id/status',
+  param('id').isInt(),
+  body('status').isIn(STATUSES),
+  body('mandate_at').optional({ checkFalsy: true }).matches(/^\d{4}-\d{2}-\d{2}$/),
+  body('closed_at').optional({ checkFalsy: true }).matches(/^\d{4}-\d{2}-\d{2}$/),
+  body('sold_price').optional({ checkFalsy: true }).isFloat({ min: 0, max: 1e9 }).toFloat(),
+  loadProperty,
+  (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).redirect(`/properties/${req.property.id}#status`);
+    const b = req.body;
+    const toEpoch = (s) => s ? Math.floor(new Date(s + 'T00:00:00Z').getTime() / 1000) : null;
+    db.prepare(`UPDATE properties SET status=?, mandate_at=COALESCE(?, mandate_at), closed_at=?, sold_price=?, updated_at=strftime('%s','now')
+                WHERE id=? AND user_id=?`).run(
+      b.status,
+      b.mandate_at ? toEpoch(b.mandate_at) : null,
+      b.closed_at ? toEpoch(b.closed_at) : null,
+      b.sold_price || null,
+      req.property.id, req.session.user.id
+    );
+    require('../lib/auth').audit(req.session.user.id, 'property_status', `from=${req.property.status} to=${b.status}`, req.ip, req.property.id);
+    res.redirect(`/properties/${req.property.id}#status`);
+  }
+);
+
+router.get('/:id/activity', param('id').isInt(), loadProperty, (req, res) => {
+  const events = db.prepare(`
+    SELECT a.action, a.detail, a.created_at, a.ip, u.email AS user_email, u.display_name AS user_name
+    FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+    WHERE a.property_id = ? OR a.detail LIKE ?
+    ORDER BY a.created_at DESC LIMIT 200
+  `).all(req.property.id, `%property=${req.property.id}%`);
+  res.render('property-activity', { p: req.property, events });
+});
+
 router.post('/:id/refresh-dvf', param('id').isInt(), loadProperty, async (req, res) => {
   const p = req.property;
   if (!p.postcode) return res.redirect(`/properties/${p.id}`);
@@ -152,6 +190,7 @@ router.post('/:id/refresh-dvf', param('id').isInt(), loadProperty, async (req, r
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     const tx = db.transaction((rows) => { for (const r of rows) ins.run(p.id, r.date_mut, r.valeur, r.surface_m2, r.rooms, r.land_m2, r.type_local, r.address, r.city, r.postcode, r.lat, r.lng, r.distance_m, r.raw_id); });
     tx(items);
+    audit(req.session.user.id, 'dvf_refresh', `count=${items.length}`, req.ip, p.id);
   } catch (e) { /* ignore */ }
   res.redirect(`/properties/${p.id}`);
 });
@@ -173,15 +212,53 @@ router.post('/:id/listings', param('id').isInt(), loadProperty,
     if (!errors.isEmpty()) return res.status(400).redirect(`/properties/${req.property.id}`);
     const b = req.body;
     const url = b.url ? safeUrl(b.url) : null;
-    db.prepare(`INSERT INTO listings (property_id, source, url, title, price, surface_m2, rooms, bedrooms, land_m2, city, agency, notes)
+    const r = db.prepare(`INSERT INTO listings (property_id, source, url, title, price, surface_m2, rooms, bedrooms, land_m2, city, agency, notes)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(req.property.id, b.source, url, b.title || null, b.price || null, b.surface_m2 || null, b.rooms || null, b.bedrooms || null, b.land_m2 || null, b.city || null, b.agency || null, b.notes || null);
+    audit(req.session.user.id, 'listing_add', `lid=${r.lastInsertRowid} source=${b.source}`, req.ip, req.property.id);
+    res.redirect(`/properties/${req.property.id}#annonces`);
+  }
+);
+
+router.get('/:id/listings/:lid/edit', param('id').isInt(), param('lid').isInt(), loadProperty, (req, res) => {
+  const lid = parseInt(req.params.lid, 10);
+  const listing = db.prepare('SELECT * FROM listings WHERE id = ? AND property_id = ?').get(lid, req.property.id);
+  if (!listing) return res.status(404).render('error', { code: 404, message: 'Annonce introuvable' });
+  res.render('listing-form', { p: req.property, listing, error: null });
+});
+
+router.post('/:id/listings/:lid', param('id').isInt(), param('lid').isInt(), loadProperty,
+  body('source').isString().isLength({ min: 1, max: 60 }).trim(),
+  body('url').optional({ checkFalsy: true }).isString().isLength({ max: 1000 }).trim(),
+  body('title').optional({ checkFalsy: true }).isString().isLength({ max: 300 }).trim(),
+  body('price').optional({ checkFalsy: true }).isFloat({ min: 0, max: 1e9 }).toFloat(),
+  body('surface_m2').optional({ checkFalsy: true }).isFloat({ min: 1, max: 50000 }).toFloat(),
+  body('rooms').optional({ checkFalsy: true }).isInt({ min: 0, max: 50 }).toInt(),
+  body('bedrooms').optional({ checkFalsy: true }).isInt({ min: 0, max: 50 }).toInt(),
+  body('land_m2').optional({ checkFalsy: true }).isFloat({ min: 0, max: 5000000 }).toFloat(),
+  body('city').optional({ checkFalsy: true }).isString().isLength({ max: 120 }).trim(),
+  body('agency').optional({ checkFalsy: true }).isString().isLength({ max: 200 }).trim(),
+  body('notes').optional({ checkFalsy: true }).isString().isLength({ max: 1000 }).trim(),
+  (req, res) => {
+    const errors = validationResult(req);
+    const lid = parseInt(req.params.lid, 10);
+    const existing = db.prepare('SELECT * FROM listings WHERE id = ? AND property_id = ?').get(lid, req.property.id);
+    if (!existing) return res.status(404).render('error', { code: 404, message: 'Annonce introuvable' });
+    if (!errors.isEmpty()) return res.status(400).render('listing-form', { p: req.property, listing: { ...existing, ...req.body }, error: errors.array()[0].msg });
+    const b = req.body;
+    const url = b.url ? safeUrl(b.url) : null;
+    db.prepare(`UPDATE listings SET source=?, url=?, title=?, price=?, surface_m2=?, rooms=?, bedrooms=?, land_m2=?, city=?, agency=?, notes=?
+                WHERE id = ? AND property_id = ?`)
+      .run(b.source, url, b.title || null, b.price || null, b.surface_m2 || null, b.rooms || null, b.bedrooms || null, b.land_m2 || null, b.city || null, b.agency || null, b.notes || null, lid, req.property.id);
+    audit(req.session.user.id, 'listing_edit', `lid=${lid}`, req.ip, req.property.id);
     res.redirect(`/properties/${req.property.id}#annonces`);
   }
 );
 
 router.post('/:id/listings/:lid/delete', param('id').isInt(), param('lid').isInt(), loadProperty, (req, res) => {
-  db.prepare('DELETE FROM listings WHERE id = ? AND property_id = ?').run(parseInt(req.params.lid, 10), req.property.id);
+  const lid = parseInt(req.params.lid, 10);
+  db.prepare('DELETE FROM listings WHERE id = ? AND property_id = ?').run(lid, req.property.id);
+  audit(req.session.user.id, 'listing_delete', `lid=${lid}`, req.ip, req.property.id);
   res.redirect(`/properties/${req.property.id}#annonces`);
 });
 

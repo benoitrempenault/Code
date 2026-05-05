@@ -4,6 +4,7 @@ const { param } = require('express-validator');
 const db = require('../lib/db');
 const { searchAll } = require('../lib/search');
 const { safeUrl } = require('../lib/sanitize');
+const { audit } = require('../lib/auth');
 
 const router = express.Router();
 
@@ -51,6 +52,7 @@ router.post('/:id/search', param('id').isInt(), loadProperty, async (req, res) =
     });
     saved = tx(r.items);
     db.prepare('UPDATE properties SET last_searched_at = strftime(\'%s\',\'now\') WHERE id = ?').run(p.id);
+    audit(req.session.user.id, 'listings_search', `saved=${saved} sources=${summary.map(s=>s.source+':'+s.count).join(',')}`, req.ip, p.id);
   } catch (e) {
     summary = [{ source: 'orchestrator', count: 0, error: e.message }];
   }
