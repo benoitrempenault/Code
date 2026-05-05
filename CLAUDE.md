@@ -39,7 +39,8 @@ En production : reverse-proxy HTTPS devant le port Node, `NODE_ENV=production`, 
   - `dvf.js` — récupération transactions DVF par code postal, filtrage type/surface/terrain/distance.
   - `analysis.js` — statistiques (médiane, quartiles, €/m²) + `recommendPrice` (pondération DVF/annonces × coef. d'état).
   - `sanitize.js` — `safeUrl` (whitelist http/https), escape HTML.
-- `routes/` — `address` (autocomplete JSON), `properties` (CRUD bien + annonces + refresh DVF), `agencies`, `our-sales`.
+- `routes/` — `address` (autocomplete JSON), `properties` (CRUD bien + annonces + refresh DVF), `search` (POST /properties/:id/search → orchestrateur d'annonces concurrentes), `agencies`, `our-sales`.
+- `lib/search.js` + `lib/sources/` — orchestrateur multi-sources pour la recherche automatique d'annonces. Sources HTTP directes : Bien'ici (API JSON), Castorus (HTML + JSON-LD). Sources navigateur (Playwright + stealth, optionnelles via `SCRAPER_BROWSER=true`) : Le Bon Coin (parse `__NEXT_DATA__`), SeLoger, PAP. Depuis une IP datacenter LBC/SeLoger/PAP renvoient quasi-systématiquement la challenge DataDome — il faut un proxy résidentiel (`SCRAPER_PROXY=...`) en production.
 - `views/` — EJS, partials `head`/`foot`/`format`. Aucune chaîne utilisateur n'est interpolée en `<%- %>`.
 - `public/` — CSS et `autocomplete.js` (debounce 200 ms, navigation clavier).
 - `scripts/` — `init-db.js`, `create-user.js`.
@@ -54,8 +55,19 @@ En production : reverse-proxy HTTPS devant le port Node, `NODE_ENV=production`, 
 - En vues, n'utiliser `<%- %>` que pour des `include` de partials, jamais pour du contenu utilisateur.
 - Le secret de session doit faire ≥ 32 caractères (`server.js` refuse de démarrer sinon).
 
+## Scraping (optionnel)
+
+```
+npx playwright install chromium     # ~270 Mo
+# Puis dans .env :
+SCRAPER_BROWSER=true
+SCRAPER_PROXY=http://user:pass@residential-proxy:7000   # recommandé
+```
+
+Sans `SCRAPER_BROWSER=true`, seules Bien'ici et Castorus sont interrogées (rapide, fiable, ~4 s). Avec, Le Bon Coin / SeLoger / PAP s'ajoutent au pipeline (séquentiels, ~30 s, statut `blocked` reporté dans l'UI quand DataDome refuse). Aucun scraping ne casse l'application : chaque source renvoie `{error}` proprement.
+
 ## Audit
 
 ```
-npm audit --omit=dev    # doit rester à 0
+npm audit --omit=dev    # production deps doivent rester à 0 (les deps de Playwright peuvent en avoir)
 ```

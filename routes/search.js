@@ -26,16 +26,18 @@ router.post('/:id/search', param('id').isInt(), loadProperty, async (req, res) =
       (property_id, source, external_id, url, title, price, surface_m2, rooms, bedrooms, land_m2, city, agency, fetched_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,strftime('%s','now'))`);
     const tx = db.transaction((items) => {
+      let added = 0;
       for (const it of items) {
-        ins.run(
+        const info = ins.run(
           p.id, it.source, it.external_id || null, safeUrl(it.url), it.title || null,
           it.price || null, it.surface_m2 || null, it.rooms || null, it.bedrooms || null,
           it.land_m2 || null, it.city || null, it.agency || null
         );
+        added += info.changes;
       }
+      return added;
     });
-    tx(r.items);
-    saved = r.items.length;
+    saved = tx(r.items);
   } catch (e) {
     summary = [{ source: 'orchestrator', count: 0, error: e.message }];
   }
