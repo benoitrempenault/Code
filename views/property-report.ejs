@@ -14,6 +14,7 @@
     </p>
     <p>
       <a href="/agencies?property_id=<%= p.id %>" class="btn">Onglet Agences</a>
+      <a href="/properties/<%= p.id %>/edit" class="btn">Modifier</a>
       <form method="post" action="/properties/<%= p.id %>/search" class="inline">
         <input type="hidden" name="_csrf" value="<%= _csrf %>">
         <button type="submit">Rechercher des annonces</button>

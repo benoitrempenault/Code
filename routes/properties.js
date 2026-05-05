@@ -53,6 +53,33 @@ function loadProperty(req, res, next) {
   next();
 }
 
+router.get('/:id/edit', param('id').isInt(), loadProperty, (req, res) => {
+  res.render('property-form', { property: req.property, error: null });
+});
+
+router.post('/:id', param('id').isInt(), loadProperty, propertyValidators, (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).render('property-form', { property: { ...req.property, ...req.body }, error: errors.array()[0].msg });
+  const b = req.body;
+  const prev = req.property;
+  db.prepare(`UPDATE properties SET
+    label=?, address=?, city=?, postcode=?, insee_code=?, lat=?, lng=?,
+    surface_m2=?, rooms=?, bedrooms=?, land_m2=?, property_type=?, condition=?,
+    asking_price=?, notes=?, updated_at=strftime('%s','now')
+    WHERE id=? AND user_id=?`).run(
+    b.label || null, b.address, b.city || null, b.postcode || null, b.insee_code || null,
+    b.lat || null, b.lng || null, b.surface_m2 || null, b.rooms || null, b.bedrooms || null,
+    b.land_m2 || null, b.property_type || prev.property_type, b.condition || null,
+    b.asking_price || null, b.notes || null,
+    prev.id, req.session.user.id
+  );
+  // If postcode/coords changed, the cached DVF is no longer relevant.
+  if ((b.postcode || null) !== prev.postcode) {
+    db.prepare('DELETE FROM dvf_cache WHERE property_id = ?').run(prev.id);
+  }
+  res.redirect(`/properties/${prev.id}`);
+});
+
 router.get('/:id', param('id').isInt(), loadProperty, async (req, res) => {
   const p = req.property;
   const listings = db.prepare('SELECT * FROM listings WHERE property_id = ? ORDER BY created_at DESC').all(p.id);

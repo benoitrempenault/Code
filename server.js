@@ -156,6 +156,7 @@ app.use('/api/properties', require('./routes/properties-api'));
 app.use('/agencies', require('./routes/agencies'));
 app.use('/our-sales', require('./routes/our-sales'));
 app.use('/import', require('./routes/import'));
+app.use('/admin', require('./routes/admin'));
 
 // 404 / error handler
 app.use((req, res) => res.status(404).render('error', { code: 404, message: 'Page introuvable' }));

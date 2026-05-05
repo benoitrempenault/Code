@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   role         TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user','admin')),
   failed_logins INTEGER NOT NULL DEFAULT 0,
   locked_until INTEGER,
+  disabled     INTEGER NOT NULL DEFAULT 0,
   created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
 

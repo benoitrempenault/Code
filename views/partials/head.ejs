@@ -16,6 +16,7 @@
       <a href="/properties/new">Nouveau bien</a>
       <a href="/our-sales">Nos ventes</a>
       <a href="/import/bookmarklet">Bookmarklet</a>
+      <% if (user.role === 'admin') { %><a href="/admin/users">Utilisateurs</a><% } %>
       <span class="who">· <%= user.display_name %></span>
       <form method="post" action="/logout" class="inline">
         <input type="hidden" name="_csrf" value="<%= _csrf %>">
