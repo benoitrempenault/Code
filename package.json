@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
-    "better-sqlite3": "^11.3.0",
+    "better-sqlite3": "^12.0.0",
     "better-sqlite3-session-store": "^0.1.0",
     "csrf-sync": "^4.0.3",
     "dotenv": "^16.4.5",
