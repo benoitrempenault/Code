@@ -58,6 +58,17 @@ function sel(k, val){ return v(k) === val ? ' selected' : ''; }
     <label>Notes
       <textarea name="notes" maxlength="4000" rows="3"><%= v('notes') %></textarea>
     </label>
+
+    <h2>Contact vendeur (privé — non partagé au client)</h2>
+    <div class="row">
+      <label class="grow">Nom<input name="client_name" maxlength="200" value="<%= v('client_name') %>"></label>
+      <label>Téléphone<input type="tel" name="client_phone" maxlength="40" value="<%= v('client_phone') %>"></label>
+      <label>Email<input type="email" name="client_email" maxlength="200" value="<%= v('client_email') %>"></label>
+    </div>
+    <label>Notes vendeur
+      <textarea name="client_notes" maxlength="4000" rows="3"><%= v('client_notes') %></textarea>
+    </label>
+
     <button type="submit"><%= buttonLabel %></button>
     <% if (isEdit) { %>
       <a href="/properties/<%= p.id %>" class="btn" style="background:transparent;color:var(--accent);">Annuler</a>

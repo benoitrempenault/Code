@@ -42,8 +42,9 @@ En production : reverse-proxy HTTPS devant le port Node, `NODE_ENV=production`, 
 - `routes/` — `address` (autocomplete JSON), `properties` (CRUD bien + annonces + refresh DVF), `search` (POST /properties/:id/search → orchestrateur d'annonces concurrentes), `agencies`, `our-sales`.
 - `lib/search.js` + `lib/sources/` — orchestrateur multi-sources pour la recherche automatique d'annonces. Sources HTTP directes : Bien'ici (API JSON), Castorus (HTML + JSON-LD), Foncia (HTML + parse de `<title>`). Sources navigateur (Playwright + stealth, optionnelles via `SCRAPER_BROWSER=true`) : Le Bon Coin (parse `__NEXT_DATA__`), SeLoger, PAP. Depuis une IP datacenter LBC/SeLoger/PAP renvoient quasi-systématiquement la challenge DataDome — il faut un proxy résidentiel (`SCRAPER_PROXY=...`) en production.
 - `routes/import.js` + `public/import.js` + `views/{import,bookmarklet}.ejs` — bookmarklet d'import navigateur. Le runtime est inliné dans le `javascript:` URL (CSP des sites cibles bloquerait un script externe). Le conseiller capture LBC/SeLoger/PAP depuis sa propre IP résidentielle, l'app reçoit le payload via le fragment d'URL et le persiste après confirmation.
-- `views/` — EJS, partials `head`/`foot`/`format`. Aucune chaîne utilisateur n'est interpolée en `<%- %>`.
-- `public/` — CSS et `autocomplete.js` (debounce 200 ms, navigation clavier).
+- `views/` — EJS, partials `head`/`foot`. Aucune chaîne utilisateur n'est interpolée en `<%- %>` sauf `JSON.stringify().replace(/</g, '\\u003c')` dans les blocs `<script type="application/json">` (data-only, pas exécuté).
+- `public/` — CSS, `autocomplete.js` (debounce 200 ms, navigation clavier), `app.js` (délégation d'événements pour rester compatible avec `script-src-attr 'none'`), `property-map.js` (Leaflet sur la fiche bien), `import.js` (runtime du bookmarklet, inliné dans le `javascript:` URL côté client).
+- `public/vendor/leaflet/` — bibliothèque Leaflet 1.9 servie en local pour rester `script-src 'self'`. Tiles OSM autorisées dans la CSP via `img-src https://*.tile.openstreetmap.org`.
 - `scripts/` — `init-db.js`, `create-user.js`.
 - `db/schema.sql` — source unique des tables.
 

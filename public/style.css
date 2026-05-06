@@ -92,7 +92,10 @@ details summary { cursor: pointer; padding: 6px 0; font-weight: 600; }
   tr { page-break-inside: avoid; page-break-after: auto; }
   thead { display: table-header-group; }
   details { display: none !important; }
+  #property-map { display: none !important; }
 }
+
+.client-card div { padding: 2px 0; }
 
 body.share .share-head { display: flex; align-items: center; gap: 14px; padding: 10px 24px; background: #1c2230; color: #fff; }
 body.share .share-head .muted { color: #c9d1de; margin-right: auto; }

@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS properties (
   mandate_at   INTEGER,
   closed_at    INTEGER,
   sold_price   REAL,
+  client_name  TEXT,
+  client_phone TEXT,
+  client_email TEXT,
+  client_notes TEXT,
   created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
   updated_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );

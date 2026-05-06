@@ -26,6 +26,10 @@ const propertyValidators = [
   body('condition').optional({ checkFalsy: true }).isIn(['excellent', 'tres_bon', 'bon', 'a_reflechir']),
   body('asking_price').optional({ checkFalsy: true }).isFloat({ min: 0, max: 1e9 }).toFloat(),
   body('notes').optional({ checkFalsy: true }).isString().isLength({ max: 4000 }).trim(),
+  body('client_name').optional({ checkFalsy: true }).isString().isLength({ max: 200 }).trim(),
+  body('client_phone').optional({ checkFalsy: true }).isString().isLength({ max: 40 }).trim(),
+  body('client_email').optional({ checkFalsy: true }).isEmail().isLength({ max: 200 }).normalizeEmail(),
+  body('client_notes').optional({ checkFalsy: true }).isString().isLength({ max: 4000 }).trim(),
 ];
 
 router.get('/new', (req, res) => {
@@ -37,11 +41,12 @@ router.post('/', propertyValidators, (req, res) => {
   if (!errors.isEmpty()) return res.status(400).render('property-form', { property: req.body, error: errors.array()[0].msg });
   const b = req.body;
   const r = db.prepare(`INSERT INTO properties
-    (user_id, label, address, city, postcode, insee_code, lat, lng, surface_m2, rooms, bedrooms, land_m2, property_type, condition, asking_price, notes)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    (user_id, label, address, city, postcode, insee_code, lat, lng, surface_m2, rooms, bedrooms, land_m2, property_type, condition, asking_price, notes, client_name, client_phone, client_email, client_notes)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
     req.session.user.id, b.label || null, b.address, b.city || null, b.postcode || null, b.insee_code || null,
     b.lat || null, b.lng || null, b.surface_m2 || null, b.rooms || null, b.bedrooms || null, b.land_m2 || null,
-    b.property_type || 'maison', b.condition || null, b.asking_price || null, b.notes || null
+    b.property_type || 'maison', b.condition || null, b.asking_price || null, b.notes || null,
+    b.client_name || null, b.client_phone || null, b.client_email || null, b.client_notes || null
   );
   res.redirect(`/properties/${r.lastInsertRowid}`);
 });
@@ -67,12 +72,14 @@ router.post('/:id', param('id').isInt(), loadProperty, propertyValidators, (req,
   db.prepare(`UPDATE properties SET
     label=?, address=?, city=?, postcode=?, insee_code=?, lat=?, lng=?,
     surface_m2=?, rooms=?, bedrooms=?, land_m2=?, property_type=?, condition=?,
-    asking_price=?, notes=?, updated_at=strftime('%s','now')
+    asking_price=?, notes=?, client_name=?, client_phone=?, client_email=?, client_notes=?,
+    updated_at=strftime('%s','now')
     WHERE id=? AND user_id=?`).run(
     b.label || null, b.address, b.city || null, b.postcode || null, b.insee_code || null,
     b.lat || null, b.lng || null, b.surface_m2 || null, b.rooms || null, b.bedrooms || null,
     b.land_m2 || null, b.property_type || prev.property_type, b.condition || null,
     b.asking_price || null, b.notes || null,
+    b.client_name || null, b.client_phone || null, b.client_email || null, b.client_notes || null,
     prev.id, req.session.user.id
   );
   // If postcode/coords changed, the cached DVF is no longer relevant.

@@ -28,7 +28,8 @@ app.use(helmet({
       'default-src': ["'self'"],
       'script-src': ["'self'"],
       'style-src': ["'self'"],
-      'img-src': ["'self'", 'data:'],
+      // OSM tile servers (a/b/c.tile.openstreetmap.org) for the map widget.
+      'img-src': ["'self'", 'data:', 'https://*.tile.openstreetmap.org', 'https://tile.openstreetmap.org'],
       'connect-src': ["'self'"],
       'form-action': ["'self'"],
       'frame-ancestors': ["'none'"],

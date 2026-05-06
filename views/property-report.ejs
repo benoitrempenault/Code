@@ -72,6 +72,25 @@
     </div>
   <% } %>
 
+  <% if (p.lat && p.lng) { %>
+    <h2>Carte</h2>
+    <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+    <%
+      const mapPoints = dvf.filter(r => r.lat && r.lng).map(r => ({
+        lat: r.lat, lng: r.lng, v: r.valeur, s: r.surface_m2,
+        dt: r.date_mut, a: r.address || ''
+      }));
+    %>
+    <div id="property-map"
+         data-lat="<%= p.lat %>"
+         data-lng="<%= p.lng %>"
+         data-label="<%= p.label || p.address || '' %>"
+         style="height: 360px; border-radius: 8px; border: 1px solid var(--border);"></div>
+    <script id="property-map-data" type="application/json"><%- JSON.stringify(mapPoints).replace(/</g, '\\u003c') %></script>
+    <script src="/static/vendor/leaflet/leaflet.js" defer></script>
+    <script src="/static/property-map.js" defer></script>
+  <% } %>
+
   <h2 id="dvf">Comparables vendus (DVF)</h2>
   <p class="muted">Source : Demandes de Valeurs Foncières (DGFiP via Etalab) — transactions réelles.</p>
   <% if (!dvf.length) { %>
@@ -213,6 +232,16 @@
       <% } %>
       </tbody>
     </table>
+  <% } %>
+
+  <% if (p.client_name || p.client_phone || p.client_email || p.client_notes) { %>
+    <h2 id="client" class="no-print">Contact vendeur</h2>
+    <div class="card no-print client-card">
+      <% if (p.client_name) { %><div><strong>Nom :</strong> <%= p.client_name %></div><% } %>
+      <% if (p.client_phone) { %><div><strong>Téléphone :</strong> <a href="tel:<%= p.client_phone %>"><%= p.client_phone %></a></div><% } %>
+      <% if (p.client_email) { %><div><strong>Email :</strong> <a href="mailto:<%= p.client_email %>"><%= p.client_email %></a></div><% } %>
+      <% if (p.client_notes) { %><pre style="white-space:pre-wrap;margin:8px 0 0;"><%= p.client_notes %></pre><% } %>
+    </div>
   <% } %>
 
   <h2 id="status" class="no-print">Statut du dossier</h2>
