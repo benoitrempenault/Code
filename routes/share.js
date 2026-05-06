@@ -11,6 +11,7 @@ const { body, param, validationResult } = require('express-validator');
 
 const db = require('../lib/db');
 const auth = require('../lib/auth');
+const mail = require('../lib/mail');
 const { fetchComparables } = require('../lib/dvf');
 const { summarise, recommendPrice } = require('../lib/analysis');
 
@@ -61,6 +62,20 @@ router.post('/properties/:id/share/:tid/revoke',
   }
 );
 
+const NOTIFY_THROTTLE_S = 12 * 3600;
+
+async function notifyCreatorOnce(row) {
+  const prevSeen = row.last_seen_at || 0;
+  if (prevSeen && (Math.floor(Date.now() / 1000) - prevSeen) < NOTIFY_THROTTLE_S) return;
+  if (!row.created_by) return;
+  const u = db.prepare('SELECT email, display_name FROM users WHERE id = ? AND disabled = 0').get(row.created_by);
+  if (!u || !u.email) return;
+  const p = db.prepare('SELECT label, address FROM properties WHERE id = ?').get(row.property_id);
+  const subject = `[Estimation Immo] Lien client consulté — ${p && (p.label || p.address) || 'bien'}`;
+  const text = `Bonjour ${u.display_name || ''},\n\nVotre lien de partage pour le bien "${p && (p.label || p.address) || ''}" vient d'être consulté.\nVues totales : ${(row.view_count || 0) + 1}.\n\n— Estimation Immo`;
+  try { await mail.send({ to: u.email, subject, text }); } catch (_) { /* never block the public view */ }
+}
+
 // Public read-only view. Mounted at /share/:token in server.js with a tighter
 // rate limit and no CSRF / session requirement.
 function publicView(req, res) {
@@ -76,6 +91,10 @@ function publicView(req, res) {
   }
   // Side-effects: bump view counter (rate-limit reduces noise upstream).
   db.prepare(`UPDATE share_tokens SET last_seen_at = strftime('%s','now'), view_count = view_count + 1 WHERE id = ?`).run(row.id);
+
+  // First-view email to the creator. Subsequent views inside a 12 h window
+  // are not re-notified to avoid noise.
+  notifyCreatorOnce(row).catch(() => {});
 
   const p = db.prepare('SELECT * FROM properties WHERE id = ?').get(row.pid);
   const listings = db.prepare('SELECT * FROM listings WHERE property_id = ? ORDER BY created_at DESC').all(p.id);

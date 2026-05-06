@@ -72,7 +72,13 @@ app.use(session({
 
 // --- CSRF (synchronizer-token pattern). Token exposed via res.locals._csrf.
 const { csrfSynchronisedProtection, generateToken } = csrfSync({
-  getTokenFromRequest: (req) => (req.body && req.body._csrf) || req.headers['x-csrf-token'],
+  getTokenFromRequest: (req) =>
+    (req.body && req.body._csrf) ||
+    // Multipart uploads can't put the token in req.body before multer runs,
+    // so we also accept it from the query string (token is session-scoped
+    // and only travels in our own logs).
+    (req.query && req.query._csrf) ||
+    req.headers['x-csrf-token'],
 });
 
 app.use((req, res, next) => {
@@ -199,6 +205,7 @@ app.use(csrfSynchronisedProtection);
 
 app.use('/properties', require('./routes/properties'));
 app.use('/properties', require('./routes/search'));
+app.use('/properties', require('./routes/photos'));
 app.use('/api/properties', require('./routes/properties-api'));
 app.use('/agencies', require('./routes/agencies'));
 app.use('/our-sales', require('./routes/our-sales'));

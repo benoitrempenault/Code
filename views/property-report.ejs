@@ -234,6 +234,37 @@
     </table>
   <% } %>
 
+  <% if (typeof photos !== 'undefined' && photos && photos.length) { %>
+    <h2 id="photos">Photos</h2>
+    <div class="photo-gallery">
+    <% for (const ph of photos) { %>
+      <figure class="photo">
+        <a href="/properties/<%= p.id %>/photos/<%= ph.id %>" target="_blank" rel="noopener">
+          <img src="/properties/<%= p.id %>/photos/<%= ph.id %>" alt="<%= ph.caption || 'Photo du bien' %>" loading="lazy">
+        </a>
+        <% if (ph.caption) { %><figcaption><%= ph.caption %></figcaption><% } %>
+        <form method="post" action="/properties/<%= p.id %>/photos/<%= ph.id %>/delete" class="inline no-print" data-confirm="Supprimer la photo ?">
+          <input type="hidden" name="_csrf" value="<%= _csrf %>">
+          <button class="link danger photo-del" type="submit" title="Supprimer">×</button>
+        </form>
+      </figure>
+    <% } %>
+    </div>
+  <% } %>
+
+  <details class="no-print" id="photos-add">
+    <summary>Ajouter des photos (JPEG / PNG / WebP / HEIC, 8 Mo max chacune)</summary>
+    <form method="post" action="/properties/<%= p.id %>/photos?_csrf=<%= encodeURIComponent(_csrf) %>" enctype="multipart/form-data" class="card">
+      <label>Fichiers (jusqu'à 12 à la fois)
+        <input type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple required>
+      </label>
+      <label>Légende (optionnelle, partagée par tous les fichiers de cet envoi)
+        <input name="caption" maxlength="200">
+      </label>
+      <button type="submit">Téléverser</button>
+    </form>
+  </details>
+
   <% if (p.client_name || p.client_phone || p.client_email || p.client_notes) { %>
     <h2 id="client" class="no-print">Contact vendeur</h2>
     <div class="card no-print client-card">

@@ -142,8 +142,24 @@ CREATE TABLE IF NOT EXISTS audit_log (
   action     TEXT NOT NULL,
   detail     TEXT,
   ip         TEXT,
+  property_id INTEGER,
   created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
 );
+
+-- Photos d'un bien (stockées sur disque sous data/uploads/properties/{id}/)
+CREATE TABLE IF NOT EXISTS property_photos (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  filename    TEXT NOT NULL,
+  mime        TEXT NOT NULL,
+  size        INTEGER NOT NULL,
+  caption     TEXT,
+  position    INTEGER NOT NULL DEFAULT 0,
+  uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_photos_property ON property_photos(property_id);
 
 -- Liens de partage tokenisés pour envoyer un rapport au client (lecture seule)
 CREATE TABLE IF NOT EXISTS share_tokens (

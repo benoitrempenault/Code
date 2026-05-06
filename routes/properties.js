@@ -113,8 +113,9 @@ router.get('/:id', param('id').isInt(), loadProperty, async (req, res) => {
   const reco = recommendPrice(p, dvfStats, listingStats);
   const oursales = db.prepare(`SELECT * FROM our_sales WHERE postcode = ? AND (property_type = ? OR property_type IS NULL) ORDER BY sold_at DESC LIMIT 50`).all(p.postcode || '', p.property_type);
   const shares = db.prepare('SELECT * FROM share_tokens WHERE property_id = ? ORDER BY created_at DESC').all(p.id);
+  const photos = db.prepare('SELECT id, mime, size, caption, position, created_at FROM property_photos WHERE property_id = ? ORDER BY position, id').all(p.id);
   const origin = `${req.protocol}://${req.get('host')}`;
-  res.render('property-report', { p, listings, dvf, dvfStats, listingStats, reco, oursales, shares, origin });
+  res.render('property-report', { p, listings, dvf, dvfStats, listingStats, reco, oursales, shares, photos, origin });
 });
 
 function safeFilename(s, max = 60) {

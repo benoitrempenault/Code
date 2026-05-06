@@ -26,6 +26,8 @@
     "express-validator": "^7.2.0",
     "helmet": "^8.0.0",
     "leaflet": "^1.9.4",
+    "multer": "^2.1.1",
+    "nodemailer": "^8.0.7",
     "playwright": "^1.59.1",
     "playwright-extra": "^4.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2"
