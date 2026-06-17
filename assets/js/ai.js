@@ -12,6 +12,7 @@
     type: "object",
     additionalProperties: false,
     properties: {
+      coverTitle: { type: "string", description: "Titre de couverture court et évocateur (3 à 7 mots), porteur d'émotion. JAMAIS « à vendre », « à louer » ni le prix." },
       hook: { type: "string", description: "Accroche émotionnelle, une à deux phrases, page d'introduction." },
       description: { type: "string", description: "Description narrative du bien. Paragraphes séparés par une ligne vide (\\n\\n)." },
       features: {
@@ -43,7 +44,7 @@
         required: ["pieces", "chambres", "sdb", "surface", "terrain"]
       }
     },
-    required: ["hook", "description", "features", "quartier", "stats"]
+    required: ["coverTitle", "hook", "description", "features", "quartier", "stats"]
   };
 
   const TONES = {
@@ -66,6 +67,9 @@
       "- N'invente AUCUN fait : utilise uniquement les informations fournies. Si une donnée manque, ne la mentionne pas.",
       "",
       "Contenu attendu :",
+      "- coverTitle : un titre de couverture court et évocateur (3 à 7 mots), qui suscite l'émotion et l'envie.",
+      "  Il remplace une mention banale comme « Bien à vendre ». N'écris JAMAIS « à vendre », « à louer », ni de prix.",
+      "  Exemples de ton : « Le Sud, la lumière, le calme », « Une villa tournée vers son jardin », « L'art de vivre, plein sud ».",
       "- hook : une accroche de 1 à 2 phrases, évocatrice, qui donne envie.",
       "- description : 3 à 5 paragraphes (séparés par une ligne vide) racontant le bien — volumes, lumière, pièces, art de vivre.",
       "- features.interieur / features.exterieur : caractéristiques concrètes, formulées en groupes nominaux courts et soignés.",
@@ -222,5 +226,93 @@
     return extractJson(text);
   }
 
-  window.BrochureAI = { generate, generateQuartier };
+  /* ----------- Reconnaissance des pièces & légendes (vision) -------------- */
+  function dataUrlParts(u) {
+    const m = /^data:(image\/[a-zA-Z+]+);base64,(.*)$/.exec(u || "");
+    return m ? { media: m[1], data: m[2] } : null;
+  }
+
+  async function captionPhotos(opts) {
+    const { apiKey, model, photos, context } = opts;
+    if (!apiKey || !/^sk-ant-/.test(apiKey.trim())) {
+      throw new Error("Clé API manquante ou invalide (point 8).");
+    }
+    const list = (photos || []).slice(0, 16); // on limite le nombre d'images par appel
+    if (!list.length) throw new Error("Ajoutez d'abord des photos à la galerie.");
+
+    const CAP_SCHEMA = {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        captions: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: { index: { type: "integer" }, caption: { type: "string" } },
+            required: ["index", "caption"]
+          }
+        }
+      },
+      required: ["captions"]
+    };
+
+    const system = [
+      "Tu es un·e expert·e immobilier·e. On te montre des photos d'un bien, dans l'ordre.",
+      "Pour chaque photo, identifie la pièce ou l'espace et propose une légende COURTE et élégante",
+      "(2 à 4 mots), en français, qui sera affichée sur la photo dans une brochure haut de gamme.",
+      "Exemples : « La pièce de vie », « La suite parentale », « La cuisine ouverte », « Le jardin & la piscine »,",
+      "« La salle d'eau », « La terrasse plein sud », « Le bureau ». Reste factuel : décris ce que tu vois,",
+      "sans inventer. Si un doute, reste générique (« Une chambre », « Un espace de vie »).",
+      context && context.type ? "Type de bien : " + context.type + "." : "",
+      "Réponds en JSON : { \"captions\": [ { \"index\": 0, \"caption\": \"...\" }, ... ] } avec un objet par photo."
+    ].filter(Boolean).join("\n");
+
+    const content = [];
+    list.forEach(function (p, i) {
+      const parts = dataUrlParts(p.url);
+      if (!parts) return;
+      content.push({ type: "text", text: "Photo index " + i + " :" });
+      content.push({ type: "image", source: { type: "base64", media_type: parts.media, data: parts.data } });
+    });
+    content.push({ type: "text", text: "Donne une légende pour chaque photo, dans l'ordre des index." });
+
+    const body = {
+      model: model || "claude-opus-4-8",
+      max_tokens: 1500,
+      output_config: { format: { type: "json_schema", schema: CAP_SCHEMA } },
+      system: system,
+      messages: [{ role: "user", content: content }]
+    };
+
+    let res;
+    try {
+      res = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey.trim(),
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true"
+        },
+        body: JSON.stringify(body)
+      });
+    } catch (e) {
+      throw new Error("Connexion impossible à l'API Anthropic. " + e.message);
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = (data && data.error && data.error.message) || ("Erreur " + res.status);
+      if (res.status === 401) throw new Error("Clé API refusée (401).");
+      throw new Error(msg);
+    }
+    if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
+    const textBlock = (data.content || []).find(function (b) { return b.type === "text"; });
+    if (!textBlock) throw new Error("Réponse vide du modèle.");
+    let parsed;
+    try { parsed = JSON.parse(textBlock.text); } catch (e) { throw new Error("Réponse illisible (JSON)."); }
+    return parsed.captions || [];
+  }
+
+  window.BrochureAI = { generate, generateQuartier, captionPhotos };
 })();

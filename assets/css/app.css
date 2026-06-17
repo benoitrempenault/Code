@@ -173,6 +173,10 @@ fieldset.stats legend { padding: 0 6px; color: var(--ui-muted); font-size: 11px;
 .thumb:hover .thumb__bar { opacity: 1; }
 .thumb__btn { background: rgba(0,0,0,.55); color: #fff; border: none; border-radius: 5px; width: 22px; height: 22px; cursor: pointer; font-size: 13px; line-height: 1; }
 .thumb__btn:hover { background: rgba(0,0,0,.85); }
+#galleryThumbs { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
+.gcell { display: flex; flex-direction: column; gap: 5px; }
+.gcap { font: inherit; width: 100%; background: var(--ui-field); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 6px; padding: 4px 7px; font-size: 11px; outline: none; }
+.gcap:focus { border-color: var(--ui-accent); }
 
 /* ------------------------------- IA panel ------------------------------- */
 #panelAI > summary { color: var(--ui-accent); }

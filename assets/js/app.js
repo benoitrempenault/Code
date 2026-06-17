@@ -204,17 +204,26 @@
       '<button class="thumb__btn" data-del="' + kind + '" title="Supprimer">×</button></div></div>';
   }
   function galleryThumb(p, i) {
-    return '<div class="thumb"><img src="' + p.url + '" alt="">' +
+    return '<div class="gcell">' +
+      '<div class="thumb"><img src="' + p.url + '" alt="">' +
       '<div class="thumb__bar">' +
       '<span><button class="thumb__btn" data-move="' + i + '" data-dir="-1" title="Monter">↑</button>' +
       '<button class="thumb__btn" data-move="' + i + '" data-dir="1" title="Descendre">↓</button></span>' +
-      '<button class="thumb__btn" data-delg="' + i + '" title="Supprimer">×</button></div></div>';
+      '<button class="thumb__btn" data-delg="' + i + '" title="Supprimer">×</button></div></div>' +
+      '<input class="gcap" type="text" data-cap-index="' + i + '" value="' + esc(p.caption || "") + '" placeholder="Légende…" />' +
+      '</div>';
   }
 
   function wirePhotoEvents() {
     $("#fileCover").addEventListener("change", function (e) { addFiles(e.target.files, "cover"); e.target.value = ""; });
     $("#filePlan").addEventListener("change", function (e) { addFiles(e.target.files, "plan"); e.target.value = ""; });
     $("#fileGallery").addEventListener("change", function (e) { addFiles(e.target.files, "gallery"); e.target.value = ""; });
+
+    // Édition des légendes de galerie
+    $("#galleryThumbs").addEventListener("input", function (e) {
+      const idx = e.target.getAttribute && e.target.getAttribute("data-cap-index");
+      if (idx != null && state.gallery[+idx]) { state.gallery[+idx].caption = e.target.value; scheduleSave(); scheduleRender(); }
+    });
 
     // Délégation pour suppression / réorganisation
     $("#editor").addEventListener("click", function (e) {
@@ -281,7 +290,7 @@
       '<div class="cover__top"><div class="cover__brand">' + emblem + esc(a.name || "") + "</div>" + tag + "</div>" +
       '<div class="cover__bottom">' +
       (p.type ? '<div class="cover__eyebrow">' + esc(p.type) + "</div>" : "") +
-      '<h1 class="cover__title">' + esc(p.title || "Bien à vendre") + "</h1>" +
+      (p.title ? '<h1 class="cover__title">' + esc(p.title) + "</h1>" : "") +
       (p.location ? '<div class="cover__loc">' + esc(p.location) + "</div>" : "") +
       (contact ? '<div class="cover__contact">' + esc(contact) + "</div>" : "") +
       "</div></section>";
@@ -567,6 +576,27 @@
       }).then(function () { btn.disabled = false; });
     });
 
+    var btnCap = document.getElementById("btnAICaption");
+    if (btnCap) btnCap.addEventListener("click", function () {
+      const status = $("#captionStatus");
+      status.className = "ai-status is-busy"; status.textContent = "Analyse des photos…";
+      btnCap.disabled = true;
+      window.BrochureAI.captionPhotos({
+        apiKey: keyInput.value,
+        model: $("#aiModel").value,
+        photos: state.gallery,
+        context: { type: state.property.type }
+      }).then(function (caps) {
+        caps.forEach(function (c) {
+          if (c && typeof c.index === "number" && state.gallery[c.index]) state.gallery[c.index].caption = c.caption;
+        });
+        renderPhotoUI(); render(); save();
+        status.className = "ai-status is-ok"; status.textContent = "Photos légendées ✓";
+      }).catch(function (err) {
+        status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
+      }).then(function () { btnCap.disabled = false; });
+    });
+
     $("#btnAIQuartier").addEventListener("click", function () {
       const status = $("#quartierStatus");
       const btn = $("#btnAIQuartier");
@@ -588,6 +618,7 @@
   }
 
   function applyAI(out) {
+    if (out.coverTitle) state.property.title = out.coverTitle;
     if (out.hook) state.property.hook = out.hook;
     if (out.description) state.property.description = out.description;
     if (out.features) {

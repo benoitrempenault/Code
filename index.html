@@ -72,8 +72,8 @@
               <span>Mandat en exclusivité</span>
             </label>
           </div>
-          <label>Titre (couverture)
-            <input type="text" data-bind="property.title" placeholder="Villa d'architecte à vendre" />
+          <label>Titre (couverture) <small class="hint">(une phrase qui suscite l'émotion, pas « à vendre »)</small>
+            <input type="text" data-bind="property.title" placeholder="Le Sud, la lumière, le calme" />
           </label>
           <label>Localisation <small class="hint">(texte affiché sur la couverture)</small>
             <input type="text" data-bind="property.location" placeholder="Saint-Médard-en-Jalles — Quartier de Corbiac" />
@@ -127,7 +127,7 @@
         </div>
       </details>
 
-      <details class="panel">
+      <details class="panel" open>
         <summary>4 · Le quartier</summary>
         <div class="panel__body">
           <p class="hint">À partir de l'<strong>adresse précise</strong> saisie au point 2, Claude recherche sur le web les
@@ -198,6 +198,11 @@
             </div>
             <p class="hint">Glissez-déposez vos photos ici, ou utilisez « Ajouter ». Réorganisez-les avec ↑ ↓.</p>
             <div id="galleryThumbs" class="thumbs"></div>
+            <div class="ai-actions" style="margin-top:10px">
+              <button class="btn btn--primary btn--sm" id="btnAICaption">✨ Reconnaître les pièces &amp; légender</button>
+              <span id="captionStatus" class="ai-status" role="status" aria-live="polite"></span>
+            </div>
+            <p class="hint">Claude identifie chaque pièce et ajoute une légende sur la photo. Nécessite la clé API (point 8). Modifiable ensuite ci-dessous.</p>
           </div>
 
           <div class="uploader">
