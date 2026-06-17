@@ -25,6 +25,7 @@
         },
         required: ["interieur", "exterieur", "aSavoir"]
       },
+      quartierIntro: { type: "string", description: "2 à 3 phrases sur l'attrait de la ville (cadre de vie, dynamisme, patrimoine). Vide si rien de fiable dans les notes." },
       quartier: {
         type: "array",
         items: {
@@ -44,7 +45,7 @@
         required: ["pieces", "chambres", "sdb", "surface", "terrain"]
       }
     },
-    required: ["coverTitle", "hook", "description", "features", "quartier", "stats"]
+    required: ["coverTitle", "hook", "description", "features", "quartierIntro", "quartier", "stats"]
   };
 
   const TONES = {
@@ -74,7 +75,8 @@
       "- description : 3 à 5 paragraphes (séparés par une ligne vide) racontant le bien — volumes, lumière, pièces, art de vivre.",
       "- features.interieur / features.exterieur : caractéristiques concrètes, formulées en groupes nominaux courts et soignés.",
       "- features.aSavoir : taxes, charges, copropriété, etc. si présentes dans les notes (sinon liste vide).",
-      "- quartier : commodités sous forme {label, value} (Transports, Écoles, Commerces, Loisirs…) si présentes (sinon liste vide).",
+      "- quartierIntro : 2 à 3 phrases sur l'attrait de la ville si l'information existe (sinon chaîne vide).",
+      "- quartier : commodités sous forme {label, value} (Écoles, Centre-ville, Transports, Points d'intérêt, Commerces & services) si présentes (sinon liste vide).",
       "- stats : pièces, chambres, salles d'eau, surface habitable, terrain — uniquement si l'information existe (chaîne vide sinon).",
       "  Pour surface et terrain, inclure l'unité (ex : « 198 m² », « 1 223 m² »)."
     ].join("\n");
@@ -166,21 +168,35 @@
     }
 
     const system = [
-      "Tu es un·e expert·e local·e en immobilier. À partir d'une adresse française, tu décris le quartier",
-      "pour une fiche de présentation acquéreur. Utilise l'outil de recherche web pour trouver des informations",
-      "réelles et à jour : transports (bus, tram, gare, accès routier/aéroport), écoles (maternelle, primaire,",
-      "collège, lycée), commerces et services (centre-ville, supermarchés, marché, santé), et loisirs/cadre de vie.",
+      "Tu es un·e expert·e local·e en immobilier. À partir d'une adresse française, tu documentes le quartier",
+      "et la commune pour une fiche de présentation acquéreur. Utilise activement l'outil de recherche web.",
       "",
-      "Règles :",
-      "- Donne des distances ou temps approximatifs et nomme les lieux réels quand tu les trouves.",
-      "- Reste prudent·e : si une donnée n'est pas vérifiable, formule-la qualitativement (« à proximité »,",
-      "  « à quelques minutes ») plutôt que d'inventer un chiffre précis.",
-      "- Style sobre et élégant, en français, sans superlatifs creux.",
+      "MÉTHODE (rigueur des sources) :",
+      "- Croise plusieurs sources et privilégie les plus fiables : site officiel de la commune, INSEE,",
+      "  autorité de transport locale (réseau de bus/tram, SNCF), annuaires d'établissements scolaires de",
+      "  l'Éducation nationale, cartes (distances/temps de trajet). Évite les sources promotionnelles non vérifiables.",
+      "- Donne des distances en km et/ou des temps de trajet réalistes ; nomme les lieux réels.",
+      "- N'invente JAMAIS un chiffre. Si une donnée n'est pas vérifiable, reste qualitatif (« à proximité »,",
+      "  « à quelques minutes ») et baisse la fiabilité indiquée.",
+      "",
+      "CONTENU :",
+      "- intro : 2 à 3 phrases élégantes sur l'attrait de la VILLE (cadre de vie, dynamisme, patrimoine,",
+      "  nature, accessibilité) — sans superlatifs creux ni clichés.",
+      "- quartier : une entrée {label, value} par catégorie, avec distances/temps :",
+      "    • « Écoles » (maternelle, primaire, collège, lycée + distances)",
+      "    • « Centre-ville » (distance/temps, ce qu'on y trouve)",
+      "    • « Transports » (bus, tram, gare, accès autoroute, aéroport + temps)",
+      "    • « Points d'intérêt » (parcs, sites, équipements culturels/sportifs notables + distances)",
+      "    • « Commerces & services » (supermarchés, marché, santé)",
+      "- sources : la liste des sources utilisées avec ton évaluation de fiabilité.",
       "",
       "Réponds UNIQUEMENT par un objet JSON, sans texte autour, de la forme :",
-      '{ "location": "Ville — Quartier", "quartier": [ { "label": "Transports", "value": "..." },',
-      '  { "label": "Écoles", "value": "..." }, { "label": "Commerces et services", "value": "..." },',
-      '  { "label": "Loisirs & cadre de vie", "value": "..." } ] }'
+      '{ "location": "Ville — Quartier",',
+      '  "intro": "…attrait de la ville…",',
+      '  "quartier": [ { "label": "Écoles", "value": "…" }, { "label": "Centre-ville", "value": "…" },',
+      '    { "label": "Transports", "value": "…" }, { "label": "Points d\'intérêt", "value": "…" },',
+      '    { "label": "Commerces & services", "value": "…" } ],',
+      '  "sources": [ { "name": "site/source", "reliability": "élevée|moyenne|faible" } ] }'
     ].join("\n");
 
     const headers = {

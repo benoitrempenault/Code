@@ -115,6 +115,7 @@
 .asavoir li { font-size: 10pt; color: var(--ink); }
 
 /* =============================== QUARTIER ============================== */
+.quartier-intro { font-family: var(--serif); font-size: 13pt; line-height: 1.55; color: var(--ink); font-style: italic; margin: 0 0 12mm; max-width: 46ch; }
 .quartier-list { display: grid; grid-template-columns: 1fr; gap: 0; }
 .quartier-item { display: grid; grid-template-columns: 42mm 1fr; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--hair); align-items: baseline; }
 .quartier-item:first-child { border-top: 1px solid var(--hair); }
@@ -122,20 +123,17 @@
 .quartier-item dd { margin: 0; font-size: 10pt; line-height: 1.5; color: var(--ink-soft); }
 
 /* =============================== GALERIE ============================== */
+/* Montage éditorial, toutes les images recadrées en paysage. */
 .gallery-page .page__inner { padding: 0; }
-.gallery-grid { display: grid; gap: 4mm; padding: 12mm; height: 297mm; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; }
-.gallery-grid .g { overflow: hidden; background: var(--hair); position: relative; }
-.gallery-grid .g img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.gallery-grid .g .cap { position: absolute; left: 0; bottom: 0; padding: 6px 10px; font-size: 8pt; letter-spacing: .12em; text-transform: uppercase; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.55)); width: 100%; }
-/* motifs selon le nombre de photos sur la page */
-.gallery-grid[data-n="1"] { grid-template-columns: 1fr; }
-.gallery-grid[data-n="2"] { grid-template-rows: 1fr 1fr; grid-template-columns: 1fr; }
-.gallery-grid[data-n="3"] .g:first-child { grid-column: 1 / -1; }
-.gallery-grid[data-n="5"] .g:first-child { grid-column: 1 / -1; }
-.gallery-grid[data-n="4"] { }
-.gallery-grid[data-n="6"] { grid-template-rows: repeat(3, 1fr); }
-
-.gallery-caption-band { position: relative; }
+.gallery-montage { height: 297mm; padding: 15mm; display: flex; flex-direction: column; gap: 5mm; box-sizing: border-box; }
+.gm-head { flex: 0 0 auto; display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1mm; }
+.gm-head-title { font-family: var(--serif); font-size: 17pt; }
+.gallery-montage > .gm-cell { flex: 1; min-height: 0; }
+.gallery-montage > .gm-hero { flex: 1.75; min-height: 0; }
+.gallery-montage > .gm-row { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; min-height: 0; }
+.gm-cell { position: relative; overflow: hidden; background: var(--hair); }
+.gm-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gm-cap { position: absolute; left: 0; bottom: 0; width: 100%; padding: 8px 13px; font-size: 8.5pt; letter-spacing: .14em; text-transform: uppercase; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.62)); }
 
 /* ============================ DIAGNOSTICS ============================= */
 .diag-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 12mm; align-items: start; }

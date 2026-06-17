@@ -136,7 +136,11 @@
             <button class="btn btn--primary" id="btnAIQuartier">Rechercher le quartier</button>
             <span id="quartierStatus" class="ai-status" role="status" aria-live="polite"></span>
           </div>
-          <label>Commodités <small class="hint">(une par ligne, au format « Libellé : valeur » — modifiable)</small>
+          <div id="quartierSources"></div>
+          <label>L'attrait de la ville <small class="hint">(phrase d'introduction du quartier)</small>
+            <textarea rows="3" data-bind="property.quartierIntro" placeholder="Quelques mots sur le cadre de vie, le dynamisme, le patrimoine de la commune…"></textarea>
+          </label>
+          <label>Commodités <small class="hint">(une par ligne — « Écoles : … », « Centre-ville : … », « Transports : … », « Points d'intérêt : … »)</small>
             <textarea rows="7" data-bind-kv="quartier" placeholder="Transports : Gare Saint-Jean à 1,1 km&#10;Écoles : Groupe scolaire à 700 m&#10;Commerces : Centre-ville à 2,6 km"></textarea>
           </label>
           <p class="hint">⚠️ Vérifiez les distances et noms proposés : ils sont issus d'une recherche automatique et peuvent comporter des approximations.</p>

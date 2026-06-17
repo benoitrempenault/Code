@@ -30,7 +30,8 @@
         "Dès l'entrée, un vaste hall et son vestiaire ouvrent sur une pièce de vie magistrale de plus de 70 m², baignée de lumière et tournée vers un jardin paysager apaisant. Les volumes, la clarté et l'harmonie des espaces créent une atmosphère à la fois moderne et chaleureuse.\n\nLa cuisine ouverte, sobre et raffinée, prolonge l'esprit de convivialité. Parfaitement équipée et agrémentée de nombreux rangements, elle s'ouvre sur une buanderie, un vaste cellier et un garage qui complète le quotidien.\n\nAu rez-de-chaussée, une suite parentale de près de 37 m² — digne d'un hôtel de charme — offre une vue sur la piscine, un dressing aménagé et une salle d'eau raffinée.\n\nÀ l'étage, un escalier maçonné conduit à l'espace enfants : deux chambres lumineuses, chacune avec sa salle d'eau, et une intimité parfaite pour toute la famille.\n\nÀ l'extérieur, place à la détente : terrasse ensoleillée, jardin paysager et piscine de 11 mètres à l'abri des regards. Le mariage rare du design, du confort et de la sérénité.",
       stats: { pieces: "7", chambres: "5", sdb: "4", surface: "198 m²", terrain: "1 223 m²" },
       price: "950 000 € FAI",
-      priceNote: "Honoraires à la charge du vendeur"
+      priceNote: "Honoraires à la charge du vendeur",
+      quartierIntro: "Saint-Médard-en-Jalles conjugue la douceur d'une ville à taille humaine et la proximité immédiate de Bordeaux : forêts et pistes cyclables, tissu commerçant vivant et bassin d'emploi dynamique."
     },
     features: {
       interieur: [
@@ -327,23 +328,22 @@
 
   function pagesGallery() {
     const g = state.gallery; if (!g.length) return "";
-    const pages = [];
-    let rest = g;
-    // 1re photo en pleine page si la galerie est fournie
-    if (g.length > 3) {
-      pages.push(galleryGridPage([g[0]]));
-      rest = g.slice(1);
-    }
-    chunk(rest, 4).forEach(function (grp) { pages.push(galleryGridPage(grp)); });
-    return pages.join("");
+    return chunk(g, 3).map(function (grp, gi) { return galleryMontagePage(grp, gi === 0); }).join("");
   }
-  function galleryGridPage(items) {
-    const cells = items.map(function (p) {
-      return '<div class="g"><img src="' + p.url + '" alt="">' +
-        (p.caption ? '<div class="cap">' + esc(p.caption) + "</div>" : "") + "</div>";
-    }).join("");
-    return '<section class="page gallery-page page--full">' +
-      '<div class="gallery-grid" data-n="' + items.length + '">' + cells + "</div></section>";
+  function gmCell(p, hero) {
+    return '<div class="gm-cell' + (hero ? ' gm-hero' : '') + '">' +
+      '<img src="' + p.url + '" alt="">' +
+      (p.caption ? '<div class="gm-cap">' + esc(p.caption) + "</div>" : "") + "</div>";
+  }
+  function galleryMontagePage(items, first) {
+    const head = first
+      ? '<div class="gm-head"><div class="eyebrow">Galerie</div><div class="gm-head-title">Les espaces</div></div>'
+      : "";
+    let body;
+    if (items.length === 1) body = gmCell(items[0]);
+    else if (items.length === 2) body = gmCell(items[0]) + gmCell(items[1]);
+    else body = gmCell(items[0], true) + '<div class="gm-row">' + gmCell(items[1]) + gmCell(items[2]) + "</div>";
+    return '<section class="page gallery-page"><div class="gallery-montage">' + head + body + "</div></section>";
   }
 
   function pageFeatures() {
@@ -366,13 +366,17 @@
   }
 
   function pageQuartier() {
-    const q = state.quartier; if (!q || !q.length) return "";
+    const q = state.quartier || [];
+    const intro = state.property.quartierIntro;
+    if (!q.length && !intro) return "";
     return '<section class="page"><div class="page__inner">' +
       '<div class="section-head"><div><div class="eyebrow">L\'emplacement</div>' +
       '<h2 class="section-title">Le quartier</h2></div><span class="idx">03</span></div>' +
-      '<dl class="quartier-list">' + q.map(function (it) {
+      (intro ? '<p class="quartier-intro">' + esc(intro) + "</p>" : "") +
+      (q.length ? '<dl class="quartier-list">' + q.map(function (it) {
         return '<div class="quartier-item"><dt>' + esc(it.label) + "</dt><dd>" + esc(it.value) + "</dd></div>";
-      }).join("") + "</dl></div></section>";
+      }).join("") + "</dl>" : "") +
+      "</div></section>";
   }
 
   function pageDiagnostics() {
@@ -608,13 +612,27 @@
         address: state.property.address
       }).then(function (out) {
         if (out.quartier && out.quartier.length) state.quartier = out.quartier;
+        if (out.intro) state.property.quartierIntro = out.intro;
         if (out.location && !state.property.location) state.property.location = out.location;
         hydrateForm(); render(); save();
+        renderSources(out.sources);
         status.className = "ai-status is-ok"; status.textContent = "Quartier rempli ✓";
       }).catch(function (err) {
         status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
       }).then(function () { btn.disabled = false; });
     });
+  }
+
+  function renderSources(sources) {
+    const el = document.getElementById("quartierSources");
+    if (!el) return;
+    if (!sources || !sources.length) { el.innerHTML = ""; return; }
+    el.innerHTML = '<p class="hint" style="margin-bottom:4px">Sources consultées (à vérifier) :</p><ul class="sources">' +
+      sources.map(function (s) {
+        const rel = (s.reliability || "").toLowerCase();
+        const dot = rel.indexOf("élev") === 0 || rel === "elevee" ? "🟢" : (rel.indexOf("faible") === 0 ? "🔴" : "🟡");
+        return "<li>" + dot + " " + esc(s.name || "") + (s.reliability ? " <em>(" + esc(s.reliability) + ")</em>" : "") + "</li>";
+      }).join("") + "</ul>";
   }
 
   function applyAI(out) {
@@ -627,6 +645,7 @@
       state.features.aSavoir = out.features.aSavoir || state.features.aSavoir;
     }
     if (out.quartier && out.quartier.length) state.quartier = out.quartier;
+    if (out.quartierIntro) state.property.quartierIntro = out.quartierIntro;
     if (out.stats) {
       Object.keys(out.stats).forEach(function (k) {
         if (out.stats[k]) state.property.stats[k] = out.stats[k];
