@@ -53,6 +53,24 @@
 .rule { height: 1px; background: var(--hair); border: 0; margin: 0; }
 
 /* ============================== COUVERTURE ============================== */
+/* Couverture « bandeau » : photo paysage encadrée, bandeaux haut et bas. */
+.cover-banded { height: 297mm; display: flex; flex-direction: column; justify-content: space-between; background: var(--paper); color: var(--ink); }
+.cover-banded[data-cover="dark"] { background: var(--ink); color: var(--paper); }
+.cb-top { flex: 0 0 auto; padding: 16mm 18mm 0; display: flex; align-items: center; justify-content: space-between; }
+.cb-brand { display: flex; align-items: center; gap: 11px; font-weight: 500; letter-spacing: .02em; font-size: 11pt; }
+.cb-emblem { height: 40px; width: auto; display: block; }
+.cb-tag { font-size: 8.5pt; letter-spacing: .26em; text-transform: uppercase; border: 1px solid currentColor; border-radius: 999px; padding: 6px 14px; opacity: .85; }
+.cb-photo { flex: 0 0 auto; margin: 11mm 16mm; aspect-ratio: 3 / 2; min-height: 0; overflow: hidden; }
+.cb-photo img { width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; }
+.cb-ph { width: 100%; height: 100%; background: linear-gradient(135deg, #cfc4b2, #ab9d86); }
+.cb-bottom { flex: 0 0 auto; padding: 0 18mm 18mm; }
+.cover-banded .eyebrow { color: var(--accent); }
+.cb-title { font-family: var(--serif); font-weight: 400; font-size: 34pt; line-height: 1.04; margin: 8px 0 12px; letter-spacing: -.015em; max-width: 18ch; }
+.cb-loc { font-size: 12pt; display: flex; align-items: center; gap: 9px; }
+.cb-loc::before { content: ""; width: 26px; height: 1px; background: currentColor; opacity: .55; display: inline-block; }
+.cb-contact { margin-top: 12px; font-size: 9.5pt; opacity: .72; letter-spacing: .02em; }
+
+/* ============================== COUVERTURE (ancienne, pleine page) ====== */
 .cover { position: relative; height: 297mm; }
 .cover__img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .cover__img--placeholder { background: linear-gradient(135deg, #cfc4b2, #ab9d86); }
@@ -123,17 +141,18 @@
 .quartier-item dd { margin: 0; font-size: 10pt; line-height: 1.5; color: var(--ink-soft); }
 
 /* =============================== GALERIE ============================== */
-/* Montage éditorial, toutes les images recadrées en paysage. */
+/* Montage éditorial — images entières (jamais rognées), légende dessous. */
 .gallery-page .page__inner { padding: 0; }
-.gallery-montage { height: 297mm; padding: 15mm; display: flex; flex-direction: column; gap: 5mm; box-sizing: border-box; }
+.gallery-montage { height: 297mm; padding: 15mm; display: flex; flex-direction: column; gap: 6mm; box-sizing: border-box; }
 .gm-head { flex: 0 0 auto; display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1mm; }
 .gm-head-title { font-family: var(--serif); font-size: 17pt; }
 .gallery-montage > .gm-cell { flex: 1; min-height: 0; }
 .gallery-montage > .gm-hero { flex: 1.75; min-height: 0; }
-.gallery-montage > .gm-row { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; min-height: 0; }
-.gm-cell { position: relative; overflow: hidden; background: var(--hair); }
-.gm-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.gm-cap { position: absolute; left: 0; bottom: 0; width: 100%; padding: 8px 13px; font-size: 8.5pt; letter-spacing: .14em; text-transform: uppercase; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.62)); }
+.gallery-montage > .gm-row { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; min-height: 0; }
+.gm-cell { display: flex; flex-direction: column; min-height: 0; }
+.gm-img { flex: 1 1 auto; min-height: 0; }
+.gm-img img { width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; }
+.gm-cap { flex: 0 0 auto; text-align: center; padding-top: 3mm; font-size: 8pt; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-soft); }
 
 /* ============================ DIAGNOSTICS ============================= */
 .diag-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 12mm; align-items: start; }

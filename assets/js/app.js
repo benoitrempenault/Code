@@ -278,22 +278,23 @@
 
   function pageCover() {
     const p = state.property, a = state.agency;
+    const dark = state.theme.coverDark;
     const img = state.coverPhoto
-      ? '<img class="cover__img" src="' + state.coverPhoto + '" alt="">'
-      : '<div class="cover__img cover__img--placeholder"></div>';
-    const tag = p.exclusivite ? '<span class="cover__tag">Exclusivité</span>' : "<span></span>";
+      ? '<img src="' + state.coverPhoto + '" alt="">'
+      : '<div class="cb-ph"></div>';
+    const tag = p.exclusivite ? '<span class="cb-tag">Exclusivité</span>' : "<span></span>";
     const contact = [a.phone, a.email].filter(Boolean).join("  ·  ");
     const emblem = (window.KADIMA && window.KADIMA.emblem)
-      ? '<img class="cover__emblem" src="' + window.KADIMA.emblem + '" alt="Century 21">'
-      : '<span class="c21">21</span>';
-    return '<section class="page page--full cover">' + img +
-      '<div class="cover__scrim"></div><div class="cover__frame"></div>' +
-      '<div class="cover__top"><div class="cover__brand">' + emblem + esc(a.name || "") + "</div>" + tag + "</div>" +
-      '<div class="cover__bottom">' +
-      (p.type ? '<div class="cover__eyebrow">' + esc(p.type) + "</div>" : "") +
-      (p.title ? '<h1 class="cover__title">' + esc(p.title) + "</h1>" : "") +
-      (p.location ? '<div class="cover__loc">' + esc(p.location) + "</div>" : "") +
-      (contact ? '<div class="cover__contact">' + esc(contact) + "</div>" : "") +
+      ? '<img class="cb-emblem" src="' + window.KADIMA.emblem + '" alt="Century 21">'
+      : '<span>21</span>';
+    return '<section class="page cover-banded" data-cover="' + (dark ? "dark" : "light") + '">' +
+      '<div class="cb-top"><div class="cb-brand">' + emblem + "<span>" + esc(a.name || "") + "</span></div>" + tag + "</div>" +
+      '<div class="cb-photo">' + img + "</div>" +
+      '<div class="cb-bottom">' +
+      (p.type ? '<div class="eyebrow">' + esc(p.type) + "</div>" : "") +
+      (p.title ? '<h1 class="cb-title">' + esc(p.title) + "</h1>" : "") +
+      (p.location ? '<div class="cb-loc">' + esc(p.location) + "</div>" : "") +
+      (contact ? '<div class="cb-contact">' + esc(contact) + "</div>" : "") +
       "</div></section>";
   }
 
@@ -332,7 +333,7 @@
   }
   function gmCell(p, hero) {
     return '<div class="gm-cell' + (hero ? ' gm-hero' : '') + '">' +
-      '<img src="' + p.url + '" alt="">' +
+      '<div class="gm-img"><img src="' + p.url + '" alt=""></div>' +
       (p.caption ? '<div class="gm-cap">' + esc(p.caption) + "</div>" : "") + "</div>";
   }
   function galleryMontagePage(items, first) {
@@ -477,11 +478,18 @@
   function doNew() {
     if (!confirm("Repartir d'une fiche vierge ? Le projet actuel sera remplacé (pensez à le sauvegarder).")) return;
     state = blankState(); hydrateForm(); renderPhotoUI(); render(); save();
+    // Vider aussi les champs hors-état : notes brutes (point 8) et sources du quartier.
+    const notes = document.getElementById("aiNotes"); if (notes) notes.value = "";
+    const src = document.getElementById("quartierSources"); if (src) src.innerHTML = "";
+    ["aiStatus", "quartierStatus", "captionStatus"].forEach(function (id) {
+      const el = document.getElementById(id); if (el) { el.textContent = ""; el.className = "ai-status"; }
+    });
     toast("Nouvelle fiche.");
   }
   function blankState() {
     const s = clone(DEFAULT);
-    s.property.title = ""; s.property.location = ""; s.property.hook = ""; s.property.description = "";
+    s.property.title = ""; s.property.location = ""; s.property.address = "";
+    s.property.hook = ""; s.property.description = ""; s.property.quartierIntro = "";
     s.property.stats = { pieces: "", chambres: "", sdb: "", surface: "", terrain: "" };
     s.property.price = ""; s.features = { interieur: [], exterieur: [], aSavoir: [] };
     s.quartier = []; s.diagnostics = { dpe: "", dpeValue: "", ges: "", gesValue: "", note: "Document non contractuel." };
