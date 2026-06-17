@@ -63,6 +63,7 @@
 .cover__bottom { bottom: 20mm; }
 .cover__brand { display: flex; align-items: center; gap: 9px; font-weight: 500; letter-spacing: .02em; }
 .cover__brand .c21 { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 1px solid rgba(255,255,255,.7); font-family: var(--serif); font-size: 12pt; }
+.cover__emblem { height: 42px; width: auto; display: block; }
 .cover__tag { font-size: 8.5pt; letter-spacing: .26em; text-transform: uppercase; border: 1px solid rgba(255,255,255,.7); border-radius: 999px; padding: 6px 14px; }
 .cover__eyebrow { font-size: 10pt; letter-spacing: .28em; text-transform: uppercase; opacity: .92; }
 .cover__title { font-family: var(--serif); font-weight: 400; font-size: 40pt; line-height: 1.02; margin: 10px 0 12px; letter-spacing: -.015em; max-width: 15ch; }
@@ -164,6 +165,7 @@
 .price__legal { position: absolute; bottom: 14mm; left: 0; right: 0; text-align: center; font-size: 8pt; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-soft); }
 .price__c21 { display: inline-flex; align-items: center; gap: 8px; margin-top: 18px; font-family: var(--serif); font-size: 13pt; }
 .price__c21 .c21 { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: var(--paper); font-size: 12pt; }
+.price__logo { height: 78px; width: auto; display: block; margin: 22px auto 0; }
 
 .empty-hint { color: var(--ink-soft); font-style: italic; font-size: 10pt; }
 

@@ -24,6 +24,7 @@
       exclusivite: true,
       title: "Villa d'architecte en exclusivité",
       location: "Saint-Médard-en-Jalles — Quartier de Corbiac",
+      address: "42 rue Maurice Lestage, 33160 Saint-Médard-en-Jalles",
       hook: "Le matin, la lumière entre par l'est et glisse sur le parquet ; le soir, la terrasse s'ouvre sur la piscine et le jardin. Une maison pensée pour les vrais moments de vie.",
       description:
         "Dès l'entrée, un vaste hall et son vestiaire ouvrent sur une pièce de vie magistrale de plus de 70 m², baignée de lumière et tournée vers un jardin paysager apaisant. Les volumes, la clarté et l'harmonie des espaces créent une atmosphère à la fois moderne et chaleureuse.\n\nLa cuisine ouverte, sobre et raffinée, prolonge l'esprit de convivialité. Parfaitement équipée et agrémentée de nombreux rangements, elle s'ouvre sur une buanderie, un vaste cellier et un garage qui complète le quotidien.\n\nAu rez-de-chaussée, une suite parentale de près de 37 m² — digne d'un hôtel de charme — offre une vue sur la piscine, un dressing aménagé et une salle d'eau raffinée.\n\nÀ l'étage, un escalier maçonné conduit à l'espace enfants : deux chambres lumineuses, chacune avec sa salle d'eau, et une intimité parfaite pour toute la famille.\n\nÀ l'extérieur, place à la détente : terrasse ensoleillée, jardin paysager et piscine de 11 mètres à l'abri des regards. Le mariage rare du design, du confort et de la sérénité.",
@@ -272,9 +273,12 @@
       : '<div class="cover__img cover__img--placeholder"></div>';
     const tag = p.exclusivite ? '<span class="cover__tag">Exclusivité</span>' : "<span></span>";
     const contact = [a.phone, a.email].filter(Boolean).join("  ·  ");
+    const emblem = (window.KADIMA && window.KADIMA.emblem)
+      ? '<img class="cover__emblem" src="' + window.KADIMA.emblem + '" alt="Century 21">'
+      : '<span class="c21">21</span>';
     return '<section class="page page--full cover">' + img +
       '<div class="cover__scrim"></div><div class="cover__frame"></div>' +
-      '<div class="cover__top"><div class="cover__brand"><span class="c21">21</span>' + esc(a.name || "") + "</div>" + tag + "</div>" +
+      '<div class="cover__top"><div class="cover__brand">' + emblem + esc(a.name || "") + "</div>" + tag + "</div>" +
       '<div class="cover__bottom">' +
       (p.type ? '<div class="cover__eyebrow">' + esc(p.type) + "</div>" : "") +
       '<h1 class="cover__title">' + esc(p.title || "Bien à vendre") + "</h1>" +
@@ -393,7 +397,9 @@
       '<div class="agency">' + esc(a.name || "") + "</div>" +
       (a.agent ? '<div class="agent">' + esc(a.agent) + "</div>" : "") +
       '<div class="lines">' + lines.map(esc).join("<br>") + "</div>" +
-      '<div class="price__c21"><span class="c21">21</span></div>' +
+      ((window.KADIMA && window.KADIMA.full)
+        ? '<img class="price__logo" src="' + window.KADIMA.full + '" alt="Century 21 Kadima">'
+        : '<div class="price__c21"><span class="c21">21</span></div>') +
       "</div>" +
       '<div class="price__legal">Document non contractuel</div>' +
       "</div></section>";
@@ -537,7 +543,7 @@
   function wireAI() {
     const keyInput = $("#aiKey");
     keyInput.value = localStorage.getItem(LS_AIKEY) || "";
-    keyInput.addEventListener("change", function () {
+    keyInput.addEventListener("input", function () {
       if (keyInput.value.trim()) localStorage.setItem(LS_AIKEY, keyInput.value.trim());
       else localStorage.removeItem(LS_AIKEY);
     });
@@ -552,10 +558,29 @@
         model: $("#aiModel").value,
         tone: $("#aiTone").value,
         notes: $("#aiNotes").value,
-        context: { type: state.property.type, location: state.property.location, title: state.property.title }
+        context: { type: state.property.type, location: state.property.location, title: state.property.title, address: state.property.address }
       }).then(function (out) {
         applyAI(out);
         status.className = "ai-status is-ok"; status.textContent = "Fiche générée ✓";
+      }).catch(function (err) {
+        status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
+      }).then(function () { btn.disabled = false; });
+    });
+
+    $("#btnAIQuartier").addEventListener("click", function () {
+      const status = $("#quartierStatus");
+      const btn = $("#btnAIQuartier");
+      status.className = "ai-status is-busy"; status.textContent = "Recherche du quartier…";
+      btn.disabled = true;
+      window.BrochureAI.generateQuartier({
+        apiKey: keyInput.value,
+        model: $("#aiModel").value,
+        address: state.property.address
+      }).then(function (out) {
+        if (out.quartier && out.quartier.length) state.quartier = out.quartier;
+        if (out.location && !state.property.location) state.property.location = out.location;
+        hydrateForm(); render(); save();
+        status.className = "ai-status is-ok"; status.textContent = "Quartier rempli ✓";
       }).catch(function (err) {
         status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
       }).then(function () { btn.disabled = false; });
@@ -613,6 +638,10 @@
   }
 
   function init() {
+    if (window.KADIMA && window.KADIMA.emblem) {
+      var tl = document.getElementById("topbarLogo");
+      if (tl) tl.src = window.KADIMA.emblem;
+    }
     bindForm();
     hydrateForm();
     wirePhotoEvents();

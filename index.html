@@ -15,7 +15,7 @@
   <!-- ======================= BARRE D'ACTIONS ======================= -->
   <header class="topbar" id="topbar">
     <div class="topbar__brand">
-      <span class="topbar__mark">21</span>
+      <span class="topbar__mark"><img alt="" id="topbarLogo" /></span>
       <div>
         <strong>Studio&nbsp;Brochure</strong>
         <small id="topbarSubtitle">Fiche de présentation acquéreur</small>
@@ -75,8 +75,11 @@
           <label>Titre (couverture)
             <input type="text" data-bind="property.title" placeholder="Villa d'architecte à vendre" />
           </label>
-          <label>Localisation
+          <label>Localisation <small class="hint">(texte affiché sur la couverture)</small>
             <input type="text" data-bind="property.location" placeholder="Saint-Médard-en-Jalles — Quartier de Corbiac" />
+          </label>
+          <label>Adresse précise du bien <small class="hint">(pour la recherche du quartier — non affichée sur la brochure)</small>
+            <input type="text" data-bind="property.address" placeholder="42 rue Maurice Lestage, 33160 Saint-Médard-en-Jalles" />
           </label>
 
           <label>Accroche émotionnelle <small class="hint">(une phrase forte, en page d'introduction)</small>
@@ -127,9 +130,16 @@
       <details class="panel">
         <summary>4 · Le quartier</summary>
         <div class="panel__body">
-          <label>Commodités <small class="hint">(une par ligne, au format « Libellé : valeur »)</small>
-            <textarea rows="6" data-bind-kv="quartier" placeholder="Transports : Gare Saint-Jean à 1,1 km&#10;Écoles : Groupe scolaire à 700 m&#10;Commerces : Centre-ville à 2,6 km"></textarea>
+          <p class="hint">À partir de l'<strong>adresse précise</strong> saisie au point 2, Claude recherche sur le web les
+            transports, écoles, commerces et services à proximité, et remplit la liste ci-dessous. Nécessite la clé API (point 8).</p>
+          <div class="ai-actions">
+            <button class="btn btn--primary" id="btnAIQuartier">Rechercher le quartier</button>
+            <span id="quartierStatus" class="ai-status" role="status" aria-live="polite"></span>
+          </div>
+          <label>Commodités <small class="hint">(une par ligne, au format « Libellé : valeur » — modifiable)</small>
+            <textarea rows="7" data-bind-kv="quartier" placeholder="Transports : Gare Saint-Jean à 1,1 km&#10;Écoles : Groupe scolaire à 700 m&#10;Commerces : Centre-ville à 2,6 km"></textarea>
           </label>
+          <p class="hint">⚠️ Vérifiez les distances et noms proposés : ils sont issus d'une recherche automatique et peuvent comporter des approximations.</p>
         </div>
       </details>
 
@@ -280,6 +290,7 @@
   <input type="file" id="fileImport" accept="application/json,.json" hidden />
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+  <script src="assets/js/logo.js"></script>
   <script src="assets/js/ai.js"></script>
   <script src="assets/js/app.js"></script>
 </body>

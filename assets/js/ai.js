@@ -145,5 +145,82 @@
     return parsed;
   }
 
-  window.BrochureAI = { generate };
+  /* --------- Recherche du quartier à partir de l'adresse (web search) ------ */
+  function extractJson(text) {
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error("Réponse sans données exploitables.");
+    return JSON.parse(m[0]);
+  }
+
+  async function generateQuartier(opts) {
+    const { apiKey, model, address } = opts;
+    if (!apiKey || !/^sk-ant-/.test(apiKey.trim())) {
+      throw new Error("Clé API manquante ou invalide (point 8).");
+    }
+    if (!address || address.trim().length < 6) {
+      throw new Error("Renseignez d'abord l'adresse précise du bien (point 2).");
+    }
+
+    const system = [
+      "Tu es un·e expert·e local·e en immobilier. À partir d'une adresse française, tu décris le quartier",
+      "pour une fiche de présentation acquéreur. Utilise l'outil de recherche web pour trouver des informations",
+      "réelles et à jour : transports (bus, tram, gare, accès routier/aéroport), écoles (maternelle, primaire,",
+      "collège, lycée), commerces et services (centre-ville, supermarchés, marché, santé), et loisirs/cadre de vie.",
+      "",
+      "Règles :",
+      "- Donne des distances ou temps approximatifs et nomme les lieux réels quand tu les trouves.",
+      "- Reste prudent·e : si une donnée n'est pas vérifiable, formule-la qualitativement (« à proximité »,",
+      "  « à quelques minutes ») plutôt que d'inventer un chiffre précis.",
+      "- Style sobre et élégant, en français, sans superlatifs creux.",
+      "",
+      "Réponds UNIQUEMENT par un objet JSON, sans texte autour, de la forme :",
+      '{ "location": "Ville — Quartier", "quartier": [ { "label": "Transports", "value": "..." },',
+      '  { "label": "Écoles", "value": "..." }, { "label": "Commerces et services", "value": "..." },',
+      '  { "label": "Loisirs & cadre de vie", "value": "..." } ] }'
+    ].join("\n");
+
+    const headers = {
+      "content-type": "application/json",
+      "x-api-key": apiKey.trim(),
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    };
+    const base = {
+      model: model || "claude-opus-4-8",
+      max_tokens: 2500,
+      system: system,
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 6 }]
+    };
+
+    let messages = [{ role: "user", content: "Adresse du bien : " + address.trim() + "\n\nDécris le quartier." }];
+    let data = null;
+    for (let i = 0; i < 5; i++) {
+      let res;
+      try {
+        res = await fetch(ENDPOINT, { method: "POST", headers: headers, body: JSON.stringify(Object.assign({}, base, { messages: messages })) });
+      } catch (e) {
+        throw new Error("Connexion impossible à l'API Anthropic. " + e.message);
+      }
+      data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = (data && data.error && data.error.message) || ("Erreur " + res.status);
+        if (res.status === 401) throw new Error("Clé API refusée (401).");
+        throw new Error(msg);
+      }
+      if (data.stop_reason === "refusal") throw new Error("Recherche déclinée par le modèle.");
+      if (data.stop_reason === "pause_turn") {
+        // L'outil web a atteint la limite d'itérations serveur : on relance pour continuer.
+        messages = messages.concat([{ role: "assistant", content: data.content }]);
+        continue;
+      }
+      break;
+    }
+
+    const text = (data.content || []).filter(function (b) { return b.type === "text"; })
+      .map(function (b) { return b.text; }).join("\n").trim();
+    if (!text) throw new Error("Réponse vide du modèle.");
+    return extractJson(text);
+  }
+
+  window.BrochureAI = { generate, generateQuartier };
 })();
