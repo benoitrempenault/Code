@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Studio Brochure — Générateur de fiches de présentation</title>
+  <meta name="description" content="Créez des brochures immobilières élégantes, émotionnelles et prêtes à imprimer ou envoyer par mail." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/app.css" />
+  <link rel="stylesheet" href="assets/css/brochure.css" />
+</head>
+<body>
+  <!-- ======================= BARRE D'ACTIONS ======================= -->
+  <header class="topbar" id="topbar">
+    <div class="topbar__brand">
+      <span class="topbar__mark">21</span>
+      <div>
+        <strong>Studio&nbsp;Brochure</strong>
+        <small id="topbarSubtitle">Fiche de présentation acquéreur</small>
+      </div>
+    </div>
+    <div class="topbar__actions">
+      <button class="btn btn--ghost" id="btnNew" title="Repartir d'une fiche vierge">Nouveau</button>
+      <button class="btn btn--ghost" id="btnImport" title="Charger un projet (.json)">Importer</button>
+      <button class="btn btn--ghost" id="btnExportJson" title="Sauvegarder le projet (.json)">Sauvegarder</button>
+      <span class="topbar__sep" aria-hidden="true"></span>
+      <button class="btn btn--ghost" id="btnExportHtml" title="Exporter une page web autonome">Exporter HTML</button>
+      <button class="btn btn--ghost" id="btnMail" title="Préparer un e-mail">Envoyer par mail</button>
+      <button class="btn btn--primary" id="btnPrint" title="Imprimer ou enregistrer en PDF">Imprimer / PDF</button>
+    </div>
+    <button class="topbar__toggle" id="btnToggleEditor" title="Afficher/masquer l'éditeur" aria-label="Afficher/masquer l'éditeur">⇆</button>
+  </header>
+
+  <main class="workspace" id="workspace">
+    <!-- ======================= ÉDITEUR ======================= -->
+    <section class="editor" id="editor" aria-label="Éditeur de la fiche">
+
+      <details class="panel" open>
+        <summary>1 · L'agence &amp; le contact</summary>
+        <div class="panel__body">
+          <label>Nom de l'agence
+            <input type="text" data-bind="agency.name" placeholder="Century 21 Kadima" />
+          </label>
+          <label>Conseiller / négociateur
+            <input type="text" data-bind="agency.agent" placeholder="Prénom Nom" />
+          </label>
+          <label>Adresse
+            <input type="text" data-bind="agency.address" placeholder="20 rue François Mitterrand, 33160 Saint-Médard-en-Jalles" />
+          </label>
+          <div class="grid-2">
+            <label>Téléphone
+              <input type="text" data-bind="agency.phone" placeholder="05 56 57 77 77" />
+            </label>
+            <label>E-mail
+              <input type="text" data-bind="agency.email" placeholder="kadima@century21.fr" />
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" open>
+        <summary>2 · Le bien</summary>
+        <div class="panel__body">
+          <div class="grid-2">
+            <label>Type de bien
+              <input type="text" data-bind="property.type" placeholder="Villa d'architecte" />
+            </label>
+            <label class="check">
+              <input type="checkbox" data-bind="property.exclusivite" />
+              <span>Mandat en exclusivité</span>
+            </label>
+          </div>
+          <label>Titre (couverture)
+            <input type="text" data-bind="property.title" placeholder="Villa d'architecte à vendre" />
+          </label>
+          <label>Localisation
+            <input type="text" data-bind="property.location" placeholder="Saint-Médard-en-Jalles — Quartier de Corbiac" />
+          </label>
+
+          <label>Accroche émotionnelle <small class="hint">(une phrase forte, en page d'introduction)</small>
+            <textarea rows="2" data-bind="property.hook" placeholder="Une parenthèse de lumière et de sérénité, à quelques minutes de Bordeaux."></textarea>
+          </label>
+
+          <label>Description <small class="hint">(le récit du bien — séparez les paragraphes par une ligne vide)</small>
+            <textarea rows="9" data-bind="property.description" placeholder="Décrivez l'art de vivre, les volumes, la lumière…"></textarea>
+          </label>
+
+          <fieldset class="stats">
+            <legend>Chiffres clés</legend>
+            <div class="grid-5">
+              <label>Pièces<input type="text" data-bind="property.stats.pieces" placeholder="7" /></label>
+              <label>Chambres<input type="text" data-bind="property.stats.chambres" placeholder="5" /></label>
+              <label>Salles d'eau<input type="text" data-bind="property.stats.sdb" placeholder="4" /></label>
+              <label>Surface hab.<input type="text" data-bind="property.stats.surface" placeholder="198 m²" /></label>
+              <label>Terrain<input type="text" data-bind="property.stats.terrain" placeholder="1 223 m²" /></label>
+            </div>
+          </fieldset>
+
+          <div class="grid-2">
+            <label>Prix
+              <input type="text" data-bind="property.price" placeholder="950 000 € FAI" />
+            </label>
+            <label>Mention honoraires
+              <input type="text" data-bind="property.priceNote" placeholder="Honoraires à la charge du vendeur" />
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel">
+        <summary>3 · Caractéristiques</summary>
+        <div class="panel__body">
+          <label>Intérieur <small class="hint">(une caractéristique par ligne)</small>
+            <textarea rows="6" data-bind-list="features.interieur" placeholder="Cuisine ouverte sur-mesure&#10;Suite parentale de 36 m²&#10;Parquet massif au sol"></textarea>
+          </label>
+          <label>Extérieur <small class="hint">(une caractéristique par ligne)</small>
+            <textarea rows="5" data-bind-list="features.exterieur" placeholder="Piscine maçonnée 11 × 3,75 m&#10;Terrasse en bois exposée plein sud&#10;Portail motorisé"></textarea>
+          </label>
+          <label>À savoir <small class="hint">(taxes, charges…)</small>
+            <textarea rows="3" data-bind-list="features.aSavoir" placeholder="Taxe foncière : 2 900 €&#10;Électricité : 400 € / mois"></textarea>
+          </label>
+        </div>
+      </details>
+
+      <details class="panel">
+        <summary>4 · Le quartier</summary>
+        <div class="panel__body">
+          <label>Commodités <small class="hint">(une par ligne, au format « Libellé : valeur »)</small>
+            <textarea rows="6" data-bind-kv="quartier" placeholder="Transports : Gare Saint-Jean à 1,1 km&#10;Écoles : Groupe scolaire à 700 m&#10;Commerces : Centre-ville à 2,6 km"></textarea>
+          </label>
+        </div>
+      </details>
+
+      <details class="panel">
+        <summary>5 · Diagnostics (DPE / GES)</summary>
+        <div class="panel__body">
+          <div class="grid-2">
+            <label>Classe énergie (DPE)
+              <select data-bind="diagnostics.dpe">
+                <option value="">—</option>
+                <option>A</option><option>B</option><option>C</option><option>D</option>
+                <option>E</option><option>F</option><option>G</option>
+              </select>
+            </label>
+            <label>Valeur énergie <small class="hint">(kWh/m²/an)</small>
+              <input type="text" data-bind="diagnostics.dpeValue" placeholder="64" />
+            </label>
+          </div>
+          <div class="grid-2">
+            <label>Classe climat (GES)
+              <select data-bind="diagnostics.ges">
+                <option value="">—</option>
+                <option>A</option><option>B</option><option>C</option><option>D</option>
+                <option>E</option><option>F</option><option>G</option>
+              </select>
+            </label>
+            <label>Valeur climat <small class="hint">(kg CO₂/m²/an)</small>
+              <input type="text" data-bind="diagnostics.gesValue" placeholder="1" />
+            </label>
+          </div>
+          <label>Note complémentaire
+            <input type="text" data-bind="diagnostics.note" placeholder="DPE réalisé le … — Document non contractuel" />
+          </label>
+        </div>
+      </details>
+
+      <details class="panel" open>
+        <summary>6 · Photos</summary>
+        <div class="panel__body">
+          <div class="uploader">
+            <div class="uploader__row">
+              <span>Photo de couverture</span>
+              <label class="btn btn--ghost btn--sm">Choisir
+                <input type="file" id="fileCover" accept="image/*" hidden />
+              </label>
+            </div>
+            <div id="coverThumb" class="thumbs thumbs--single"></div>
+          </div>
+
+          <div class="uploader">
+            <div class="uploader__row">
+              <span>Galerie photos</span>
+              <label class="btn btn--ghost btn--sm">Ajouter
+                <input type="file" id="fileGallery" accept="image/*" multiple hidden />
+              </label>
+            </div>
+            <p class="hint">Glissez-déposez vos photos ici, ou utilisez « Ajouter ». Réorganisez-les avec ↑ ↓.</p>
+            <div id="galleryThumbs" class="thumbs"></div>
+          </div>
+
+          <div class="uploader">
+            <div class="uploader__row">
+              <span>Plan (optionnel)</span>
+              <label class="btn btn--ghost btn--sm">Choisir
+                <input type="file" id="filePlan" accept="image/*" hidden />
+              </label>
+            </div>
+            <div id="planThumb" class="thumbs thumbs--single"></div>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel">
+        <summary>7 · Style</summary>
+        <div class="panel__body">
+          <label>Ambiance
+            <select data-bind="theme.palette">
+              <option value="bronze">Sable &amp; bronze (chaleureux)</option>
+              <option value="sauge">Lin &amp; sauge (naturel)</option>
+              <option value="encre">Ardoise &amp; or (élégant)</option>
+              <option value="terracotta">Albâtre &amp; terracotta (éditorial)</option>
+            </select>
+          </label>
+          <label class="check">
+            <input type="checkbox" data-bind="theme.coverDark" />
+            <span>Couverture sombre (texte clair sur la photo)</span>
+          </label>
+        </div>
+      </details>
+
+      <details class="panel" id="panelAI">
+        <summary>8 · ✨ Rédaction assistée par Claude</summary>
+        <div class="panel__body">
+          <p class="hint">
+            Collez vos notes brutes (la fiche prestation, en vrac), et Claude rédige une accroche
+            émotionnelle, une description vendeuse et structure les caractéristiques — sans que cela
+            « sente » l'IA. Votre clé reste dans ce navigateur, elle n'est envoyée qu'à Anthropic.
+          </p>
+          <label>Clé API Anthropic <small class="hint">(commence par <code>sk-ant-</code>)</small>
+            <input type="password" id="aiKey" placeholder="sk-ant-…" autocomplete="off" />
+          </label>
+          <div class="grid-2">
+            <label>Modèle
+              <select id="aiModel">
+                <option value="claude-opus-4-8">Claude Opus 4.8 (qualité maximale)</option>
+                <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (rapide)</option>
+              </select>
+            </label>
+            <label>Ton
+              <select id="aiTone">
+                <option value="emotionnel">Émotionnel &amp; chaleureux</option>
+                <option value="elegant">Élégant &amp; sobre</option>
+                <option value="prestige">Prestige &amp; lifestyle</option>
+              </select>
+            </label>
+          </div>
+          <label>Notes brutes du bien <small class="hint">(copiez-collez tout : prestations, mesures, quartier…)</small>
+            <textarea rows="8" id="aiNotes" placeholder="Ex : Villa archi 2014, 198 m² hab, 7 pièces, terrain 1223 m², piscine 11x3.75, cuisine ouverte sur-mesure, suite parentale 36 m², DPE A, taxe foncière 2900€, gare Saint-Jean 1.1km…"></textarea>
+          </label>
+          <div class="ai-actions">
+            <button class="btn btn--primary" id="btnAIGenerate">Générer la fiche</button>
+            <span id="aiStatus" class="ai-status" role="status" aria-live="polite"></span>
+          </div>
+          <p class="hint">La génération remplace l'accroche, la description, les caractéristiques et le quartier. Les photos et le prix ne sont jamais modifiés.</p>
+        </div>
+      </details>
+
+      <p class="editor__footer">
+        Vos données restent sur cet appareil. Pour les conserver durablement,
+        cliquez sur <strong>Sauvegarder</strong> (fichier .json).
+      </p>
+    </section>
+
+    <!-- ======================= APERÇU ======================= -->
+    <section class="preview" id="preview" aria-label="Aperçu de la brochure">
+      <div class="preview__zoombar">
+        <button class="btn btn--icon" id="zoomOut" aria-label="Réduire">−</button>
+        <span id="zoomLabel">Ajusté</span>
+        <button class="btn btn--icon" id="zoomIn" aria-label="Agrandir">+</button>
+        <button class="btn btn--icon" id="zoomFit" aria-label="Ajuster">⤢</button>
+      </div>
+      <div class="preview__scroll" id="previewScroll">
+        <div class="brochure" id="brochure"><!-- rendu par JS --></div>
+      </div>
+    </section>
+  </main>
+
+  <input type="file" id="fileImport" accept="application/json,.json" hidden />
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="assets/js/ai.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
