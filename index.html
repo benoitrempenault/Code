@@ -150,6 +150,20 @@
       <details class="panel">
         <summary>5 · Diagnostics (DPE / GES)</summary>
         <div class="panel__body">
+          <div class="uploader">
+            <div class="uploader__row">
+              <span>Charger le diagnostic (PDF ou photo du DPE)</span>
+              <label class="btn btn--ghost btn--sm">Choisir
+                <input type="file" id="fileDpe" accept="application/pdf,image/*" hidden />
+              </label>
+            </div>
+            <p class="hint" id="dpeFileName"></p>
+            <div class="ai-actions">
+              <button class="btn btn--primary btn--sm" id="btnAIDpe" disabled>✨ Analyser &amp; mettre à jour</button>
+              <span id="dpeStatus" class="ai-status" role="status" aria-live="polite"></span>
+            </div>
+            <p class="hint">Claude lit les classes Énergie/Climat et met à jour la page Diagnostics. Nécessite la clé API (point 8). Astuce : chargez seulement la page du DPE si le fichier est lourd.</p>
+          </div>
           <div class="grid-2">
             <label>Classe énergie (DPE)
               <select data-bind="diagnostics.dpe">

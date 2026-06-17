@@ -11,7 +11,7 @@
   /* ----------------------------- État par défaut ------------------------ */
   // Exemple pré-rempli (villa de Corbiac) pour une première impression réussie.
   const DEFAULT = {
-    theme: { palette: "bronze", coverDark: true },
+    theme: { palette: "bronze", coverDark: false },
     agency: {
       name: "Century 21 Kadima",
       agent: "",
@@ -607,6 +607,41 @@
       }).catch(function (err) {
         status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
       }).then(function () { btnCap.disabled = false; });
+    });
+
+    // Chargement & lecture du diagnostic (DPE)
+    var dpeData = null;
+    var fileDpe = document.getElementById("fileDpe");
+    if (fileDpe) fileDpe.addEventListener("change", function (e) {
+      const f = e.target.files[0]; if (!f) return;
+      const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+      $("#dpeFileName").textContent = f.name;
+      const status = $("#dpeStatus"); status.className = "ai-status"; status.textContent = "Lecture du fichier…";
+      const done = function (url) { dpeData = { dataUrl: url, isPdf: isPdf }; $("#btnAIDpe").disabled = false; status.textContent = "Prêt à analyser."; };
+      if (isPdf) { const r = new FileReader(); r.onload = function () { done(r.result); }; r.readAsDataURL(f); }
+      else { resizeImage(f, 2200, 0.85).then(done).catch(function () { status.className = "ai-status is-error"; status.textContent = "Image illisible."; }); }
+    });
+
+    var btnDpe = document.getElementById("btnAIDpe");
+    if (btnDpe) btnDpe.addEventListener("click", function () {
+      if (!dpeData) return;
+      const status = $("#dpeStatus");
+      status.className = "ai-status is-busy"; status.textContent = "Analyse du diagnostic…";
+      btnDpe.disabled = true;
+      window.BrochureAI.extractDiagnostics({
+        apiKey: keyInput.value, model: $("#aiModel").value,
+        dataUrl: dpeData.dataUrl, isPdf: dpeData.isPdf
+      }).then(function (d) {
+        if (d.dpe) state.diagnostics.dpe = d.dpe;
+        if (d.dpeValue) state.diagnostics.dpeValue = d.dpeValue;
+        if (d.ges) state.diagnostics.ges = d.ges;
+        if (d.gesValue) state.diagnostics.gesValue = d.gesValue;
+        if (d.note) state.diagnostics.note = d.note;
+        hydrateForm(); render(); save();
+        status.className = "ai-status is-ok"; status.textContent = "Diagnostics mis à jour ✓";
+      }).catch(function (err) {
+        status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
+      }).then(function () { btnDpe.disabled = false; });
     });
 
     $("#btnAIQuartier").addEventListener("click", function () {

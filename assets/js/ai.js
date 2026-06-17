@@ -179,23 +179,26 @@
       "- N'invente JAMAIS un chiffre. Si une donnée n'est pas vérifiable, reste qualitatif (« à proximité »,",
       "  « à quelques minutes ») et baisse la fiabilité indiquée.",
       "",
-      "CONTENU :",
-      "- intro : 2 à 3 phrases élégantes sur l'attrait de la VILLE (cadre de vie, dynamisme, patrimoine,",
-      "  nature, accessibilité) — sans superlatifs creux ni clichés.",
-      "- quartier : une entrée {label, value} par catégorie, avec distances/temps :",
-      "    • « Écoles » (maternelle, primaire, collège, lycée + distances)",
-      "    • « Centre-ville » (distance/temps, ce qu'on y trouve)",
-      "    • « Transports » (bus, tram, gare, accès autoroute, aéroport + temps)",
-      "    • « Points d'intérêt » (parcs, sites, équipements culturels/sportifs notables + distances)",
-      "    • « Commerces & services » (supermarchés, marché, santé)",
+      "CONTENU (sois TRÈS précis et concret, avec des noms propres et des distances chiffrées) :",
+      "- intro : 2 à 3 phrases élégantes sur l'attrait de la VILLE (cadre de vie, dynamisme, patrimoine, nature, accessibilité).",
+      "- quartier : une entrée {label, value} par catégorie. Chaque value doit nommer les lieux et donner les distances/temps :",
+      "    • « Écoles » : nomme chaque établissement réel (maternelle, primaire, collège, lycée) avec sa distance en km ou à pied/voiture.",
+      "      Ex : « École maternelle des X à 400 m, collège Y à 1,2 km, lycée Z à 3 km ».",
+      "    • « Centre-ville » : distance et temps (à pied/voiture), et ce qu'on y trouve.",
+      "    • « Transports » : NOMME les lignes de bus par leur NUMÉRO/nom, l'arrêt le plus proche et sa distance, la fréquence si connue,",
+      "      la gare et son temps, l'accès autoroute, l'aéroport. Ex : « Arrêt ‹ X › à 200 m — lignes 3 et 47 vers la gare Saint-Jean (25 min) ».",
+      "    • « Commerces » : nomme les commerces de proximité et leur distance.",
+      "    • « Commerces majeurs » : nomme les supermarchés/enseignes principales (Leclerc, Carrefour, marché…) avec distances.",
+      "    • « Points d'intérêt » : parcs, sites, équipements culturels/sportifs notables, avec distances.",
       "- sources : la liste des sources utilisées avec ton évaluation de fiabilité.",
       "",
       "Réponds UNIQUEMENT par un objet JSON, sans texte autour, de la forme :",
       '{ "location": "Ville — Quartier",',
       '  "intro": "…attrait de la ville…",',
-      '  "quartier": [ { "label": "Écoles", "value": "…" }, { "label": "Centre-ville", "value": "…" },',
-      '    { "label": "Transports", "value": "…" }, { "label": "Points d\'intérêt", "value": "…" },',
-      '    { "label": "Commerces & services", "value": "…" } ],',
+      '  "quartier": [ { "label": "Écoles", "value": "…noms + distances…" }, { "label": "Centre-ville", "value": "…" },',
+      '    { "label": "Transports", "value": "…lignes de bus nommées + arrêt + distance…" },',
+      '    { "label": "Commerces", "value": "…" }, { "label": "Commerces majeurs", "value": "…enseignes + distances…" },',
+      '    { "label": "Points d\'intérêt", "value": "…" } ],',
       '  "sources": [ { "name": "site/source", "reliability": "élevée|moyenne|faible" } ] }'
     ].join("\n");
 
@@ -330,5 +333,80 @@
     return parsed.captions || [];
   }
 
-  window.BrochureAI = { generate, generateQuartier, captionPhotos };
+  /* ----------- Lecture automatique du diagnostic (DPE/GES) --------------- */
+  async function extractDiagnostics(opts) {
+    const { apiKey, model, dataUrl, isPdf } = opts;
+    if (!apiKey || !/^sk-ant-/.test(apiKey.trim())) {
+      throw new Error("Clé API manquante ou invalide (point 8).");
+    }
+    if (!dataUrl) throw new Error("Chargez d'abord le diagnostic (PDF ou image).");
+
+    const DIAG_SCHEMA = {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        dpe: { type: "string", description: "Classe énergie A à G (vide si absente)." },
+        dpeValue: { type: "string", description: "Consommation en kWh/m²/an (chiffre seul, vide si absent)." },
+        ges: { type: "string", description: "Classe climat A à G (vide si absente)." },
+        gesValue: { type: "string", description: "Émissions en kg CO₂/m²/an (chiffre seul, vide si absent)." },
+        note: { type: "string", description: "Mention utile (date du DPE, coûts annuels estimés…) ou vide." }
+      },
+      required: ["dpe", "dpeValue", "ges", "gesValue", "note"]
+    };
+
+    let block;
+    if (isPdf) {
+      const data = dataUrl.split(",")[1] || "";
+      block = { type: "document", source: { type: "base64", media_type: "application/pdf", data: data } };
+    } else {
+      const parts = dataUrlParts(dataUrl);
+      if (!parts) throw new Error("Format d'image non reconnu.");
+      block = { type: "image", source: { type: "base64", media_type: parts.media, data: parts.data } };
+    }
+
+    const system = [
+      "Tu lis un Diagnostic de Performance Énergétique (DPE) français.",
+      "Extrais : la classe Énergie (A–G) et sa valeur en kWh/m²/an, la classe Climat/GES (A–G) et sa valeur en kg CO₂/m²/an.",
+      "Si une information est absente ou illisible, renvoie une chaîne vide pour ce champ — n'invente rien.",
+      "Dans « note », tu peux indiquer la date de réalisation du DPE et/ou l'estimation des coûts annuels si présents.",
+      "Réponds uniquement via le format JSON demandé."
+    ].join("\n");
+
+    const body = {
+      model: model || "claude-opus-4-8",
+      max_tokens: 800,
+      output_config: { format: { type: "json_schema", schema: DIAG_SCHEMA } },
+      system: system,
+      messages: [{ role: "user", content: [block, { type: "text", text: "Lis ce diagnostic et renvoie les classes et valeurs DPE/GES." }] }]
+    };
+
+    let res;
+    try {
+      res = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey.trim(),
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true"
+        },
+        body: JSON.stringify(body)
+      });
+    } catch (e) {
+      throw new Error("Connexion impossible à l'API Anthropic. " + e.message);
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = (data && data.error && data.error.message) || ("Erreur " + res.status);
+      if (res.status === 401) throw new Error("Clé API refusée (401).");
+      if (res.status === 413) throw new Error("Fichier trop volumineux. Chargez seulement la page du DPE.");
+      throw new Error(msg);
+    }
+    if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
+    const textBlock = (data.content || []).find(function (b) { return b.type === "text"; });
+    if (!textBlock) throw new Error("Réponse vide du modèle.");
+    try { return JSON.parse(textBlock.text); } catch (e) { throw new Error("Réponse illisible (JSON)."); }
+  }
+
+  window.BrochureAI = { generate, generateQuartier, captionPhotos, extractDiagnostics };
 })();
