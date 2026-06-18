@@ -450,7 +450,7 @@
     const addr = a.address || "";
     const ci = addr.indexOf(",");
     const addrLines = ci >= 0 ? [addr.slice(0, ci).trim(), addr.slice(ci + 1).trim()] : (addr ? [addr] : []);
-    const lines = addrLines.concat([[a.phone, a.email].filter(Boolean).join("  ·  ")]).filter(Boolean);
+    const lines = addrLines.concat([a.phone, a.email].filter(Boolean));
     return '<section class="page"><div class="page__inner price-page">' +
       '<div class="eyebrow">Le prix</div>' +
       '<div class="price__value">' + esc(p.price || "Prix sur demande") + "</div>" +

@@ -63,15 +63,13 @@
 .cb-logo { height: 38mm; width: auto; max-width: 80%; display: block; }
 .cb-logo-text { font-family: var(--serif); font-size: 18pt; }
 .cb-tag { position: absolute; top: 14mm; right: 18mm; font-size: 6.5pt; letter-spacing: .2em; text-transform: uppercase; border: 1px solid currentColor; border-radius: 999px; padding: 3px 9px; opacity: .75; }
-.cb-photo { position: relative; flex: 0 0 auto; margin: 0 0 6mm; aspect-ratio: 3 / 2; min-height: 0; overflow: hidden; }
-.cb-photo img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
-.cb-photo::after { content: ""; position: absolute; inset: 5mm; border: 1px solid var(--accent); pointer-events: none; }
+.cb-photo { flex: 0 0 auto; margin: 0 14mm 6mm; aspect-ratio: 3 / 2; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.cb-photo img { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block; }
 .cb-ph { width: 100%; height: 100%; background: linear-gradient(135deg, #cfc4b2, #ab9d86); }
 .cb-bottom { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 18mm 18mm; }
 .cover-banded .eyebrow { color: var(--accent); }
 .cb-title { font-family: var(--serif); font-weight: 400; font-size: 34pt; line-height: 1.04; margin: 8px 0 12px; letter-spacing: -.015em; max-width: 18ch; }
-.cb-loc { font-size: 12pt; display: flex; align-items: center; gap: 9px; }
-.cb-loc::before { content: ""; width: 26px; height: 1px; background: currentColor; opacity: .55; display: inline-block; }
+.cb-loc { font-size: 12pt; }
 .cb-contact { margin-top: 12px; font-size: 9.5pt; opacity: .72; letter-spacing: .02em; }
 
 /* ============================== COUVERTURE (ancienne, pleine page) ====== */
@@ -154,9 +152,17 @@
 .gallery-montage > .gm-hero { flex: 1.75; min-height: 0; }
 .gallery-montage > .gm-row { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; min-height: 0; }
 .gm-cell { display: flex; flex-direction: column; min-height: 0; }
-.gm-img { flex: 1 1 auto; min-height: 0; border: 1px solid var(--accent); padding: 4px; background: var(--paper); }
-.gm-img img { width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; }
+.gm-img { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.gm-img img { max-width: 100%; max-height: 100%; width: auto; height: auto; }
 .gm-cap { flex: 0 0 auto; text-align: center; padding-top: 3mm; font-size: 8pt; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-soft); }
+
+/* Cadre doré uniforme : même marge (mat) entre la photo et le filet, partout. */
+.gm-img img, .cb-photo img, .plan-img, .surfaces-img {
+  border: 1px solid var(--accent);
+  padding: 3mm;
+  background: var(--paper);
+  box-sizing: border-box;
+}
 
 /* ============================ DIAGNOSTICS ============================= */
 .diag-wrap { display: grid; grid-template-columns: 1fr; gap: 14mm; align-items: start; }
@@ -179,8 +185,8 @@
 .diag-summary dt { font-size: 10pt; color: var(--ink); }
 .diag-summary dd { margin: 0; font-size: 9.5pt; color: var(--ink-soft); text-align: right; }
 .diag-note { font-size: 9pt; color: var(--ink-soft); margin-top: 8mm; line-height: 1.5; }
-.plan-img { width: 100%; border: 1px solid var(--accent); padding: 4px; background: var(--paper); margin-top: 10mm; }
-.surfaces-img { width: 100%; border: 1px solid var(--accent); padding: 4px; background: var(--paper); }
+.plan-img { width: 100%; margin-top: 10mm; }
+.surfaces-img { width: 100%; }
 
 /* petit emblème en bas de page (pages sans logo) */
 .page-mark { position: absolute; bottom: 12mm; right: 16mm; height: 9mm; width: auto; opacity: .8; }
