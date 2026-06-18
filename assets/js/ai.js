@@ -171,6 +171,8 @@
       "Tu es un·e expert·e local·e en immobilier. À partir d'une adresse française, tu documentes le quartier",
       "et la commune pour une fiche de présentation acquéreur. Utilise activement l'outil de recherche web.",
       "",
+      "EFFICACITÉ : effectue au plus 3 à 4 recherches web ciblées, puis réponds. Ne multiplie pas les requêtes.",
+      "",
       "MÉTHODE (rigueur des sources) :",
       "- Croise plusieurs sources et privilégie les plus fiables : site officiel de la commune, INSEE,",
       "  autorité de transport locale (réseau de bus/tram, SNCF), annuaires d'établissements scolaires de",
@@ -210,9 +212,10 @@
     };
     const base = {
       model: model || "claude-opus-4-8",
-      max_tokens: 2500,
+      max_tokens: 2200,
+      output_config: { effort: "low" },
       system: system,
-      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 6 }]
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }]
     };
 
     let messages = [{ role: "user", content: "Adresse du bien : " + address.trim() + "\n\nDécris le quartier." }];
@@ -349,9 +352,19 @@
         dpeValue: { type: "string", description: "Consommation en kWh/m²/an (chiffre seul, vide si absent)." },
         ges: { type: "string", description: "Classe climat A à G (vide si absente)." },
         gesValue: { type: "string", description: "Émissions en kg CO₂/m²/an (chiffre seul, vide si absent)." },
+        summary: {
+          type: "array",
+          description: "Synthèse de TOUS les diagnostics présents dans le document (hors DPE/GES déjà extraits).",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: { label: { type: "string" }, value: { type: "string" } },
+            required: ["label", "value"]
+          }
+        },
         note: { type: "string", description: "Mention utile (date du DPE, coûts annuels estimés…) ou vide." }
       },
-      required: ["dpe", "dpeValue", "ges", "gesValue", "note"]
+      required: ["dpe", "dpeValue", "ges", "gesValue", "summary", "note"]
     };
 
     let block;
@@ -365,16 +378,21 @@
     }
 
     const system = [
-      "Tu lis un Diagnostic de Performance Énergétique (DPE) français.",
-      "Extrais : la classe Énergie (A–G) et sa valeur en kWh/m²/an, la classe Climat/GES (A–G) et sa valeur en kg CO₂/m²/an.",
-      "Si une information est absente ou illisible, renvoie une chaîne vide pour ce champ — n'invente rien.",
-      "Dans « note », tu peux indiquer la date de réalisation du DPE et/ou l'estimation des coûts annuels si présents.",
+      "Tu lis un Dossier de Diagnostics Techniques (DDT) immobilier français (souvent plusieurs diagnostics).",
+      "1) Extrais le DPE : classe Énergie (A–G) + valeur en kWh/m²/an, classe Climat/GES (A–G) + valeur en kg CO₂/m²/an.",
+      "2) Dresse une SYNTHÈSE de TOUS les autres diagnostics présents, un par entrée {label, value}, avec un résultat",
+      "   synthétique COURT. Exemples de labels : « Amiante », « Plomb (CREP) », « Termites / état parasitaire »,",
+      "   « Installation électrique », « Installation gaz », « État des risques (ERP) », « Assainissement »,",
+      "   « Surface (loi Carrez/Boutin) », « Nuisances sonores aériennes ». Exemples de résultats : « Absence constatée »,",
+      "   « Néant », « Conforme », « Non concerné », « 198,44 m² », avec la date si indiquée.",
+      "N'inclus QUE les diagnostics réellement présents dans le document. N'invente rien : champ vide si absent.",
+      "Dans « note », tu peux indiquer la date du DPE et/ou l'estimation des coûts annuels d'énergie si présents.",
       "Réponds uniquement via le format JSON demandé."
     ].join("\n");
 
     const body = {
       model: model || "claude-opus-4-8",
-      max_tokens: 800,
+      max_tokens: 1400,
       output_config: { format: { type: "json_schema", schema: DIAG_SCHEMA } },
       system: system,
       messages: [{ role: "user", content: [block, { type: "text", text: "Lis ce diagnostic et renvoie les classes et valeurs DPE/GES." }] }]

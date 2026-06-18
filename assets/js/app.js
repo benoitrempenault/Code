@@ -60,7 +60,15 @@
       { label: "Collège", value: "Collège François Mauriac à 2,4 km." },
       { label: "Commerces", value: "Centre-ville à 2,6 km : commerces, banque, poste, mairie." }
     ],
-    diagnostics: { dpe: "A", dpeValue: "64", ges: "A", gesValue: "1", note: "Document non contractuel." },
+    diagnostics: {
+      dpe: "A", dpeValue: "64", ges: "A", gesValue: "1", note: "Document non contractuel.",
+      summary: [
+        { label: "Amiante", value: "Absence (construction 2014)" },
+        { label: "Termites", value: "Absence constatée" },
+        { label: "Installation électrique", value: "Conforme" },
+        { label: "État des risques (ERP)", value: "Consultable — voir document" }
+      ]
+    },
     coverPhoto: null,
     gallery: [],
     plan: null
@@ -382,16 +390,23 @@
 
   function pageDiagnostics() {
     const d = state.diagnostics || {};
+    const summary = d.summary || [];
     const hasDpe = d.dpe || d.ges;
-    if (!hasDpe && !state.plan) return "";
+    if (!hasDpe && !summary.length && !state.plan) return "";
     let body = "";
     if (hasDpe) {
       body += '<div class="diag-wrap">' +
         (d.dpe ? renderScale("Énergie (DPE)", "kWh/m²/an", DPE_COLORS, DPE_TEXT, d.dpe, d.dpeValue) : "") +
         (d.ges ? renderScale("Climat (GES)", "kg CO₂/m²/an", GES_COLORS, GES_TEXT, d.ges, d.gesValue) : "") +
-        (d.note ? '<p class="diag-note">' + esc(d.note) + "</p>" : "") +
         "</div>";
     }
+    if (summary.length) {
+      body += '<div class="diag-summary"><h3>Synthèse des diagnostics</h3><dl>' +
+        summary.map(function (it) {
+          return "<div><dt>" + esc(it.label) + "</dt><dd>" + esc(it.value) + "</dd></div>";
+        }).join("") + "</dl></div>";
+    }
+    if (d.note) body += '<p class="diag-note">' + esc(d.note) + "</p>";
     if (state.plan) body += '<img class="plan-img" src="' + state.plan + '" alt="Plan">';
     return '<section class="page"><div class="page__inner">' +
       '<div class="section-head"><div><div class="eyebrow">Informations</div>' +
@@ -492,7 +507,7 @@
     s.property.hook = ""; s.property.description = ""; s.property.quartierIntro = "";
     s.property.stats = { pieces: "", chambres: "", sdb: "", surface: "", terrain: "" };
     s.property.price = ""; s.features = { interieur: [], exterieur: [], aSavoir: [] };
-    s.quartier = []; s.diagnostics = { dpe: "", dpeValue: "", ges: "", gesValue: "", note: "Document non contractuel." };
+    s.quartier = []; s.diagnostics = { dpe: "", dpeValue: "", ges: "", gesValue: "", note: "Document non contractuel.", summary: [] };
     s.coverPhoto = null; s.gallery = []; s.plan = null;
     return s;
   }
@@ -636,6 +651,7 @@
         if (d.dpeValue) state.diagnostics.dpeValue = d.dpeValue;
         if (d.ges) state.diagnostics.ges = d.ges;
         if (d.gesValue) state.diagnostics.gesValue = d.gesValue;
+        if (d.summary && d.summary.length) state.diagnostics.summary = d.summary;
         if (d.note) state.diagnostics.note = d.note;
         hydrateForm(); render(); save();
         status.className = "ai-status is-ok"; status.textContent = "Diagnostics mis à jour ✓";
@@ -730,6 +746,48 @@
     window.addEventListener("resize", function () { if (preview.mode === "fit") applyZoom(); });
   }
 
+  /* ----------------- Saisie automatique de l'adresse (BAN) -------------- */
+  function wireAddressAutocomplete() {
+    const input = document.querySelector('[data-bind="property.address"]');
+    if (!input) return;
+    const wrap = document.createElement("div"); wrap.className = "ac-wrap";
+    input.parentNode.insertBefore(wrap, input); wrap.appendChild(input);
+    const list = document.createElement("div"); list.className = "ac-list"; wrap.appendChild(list);
+    let timer, items = [], active = -1;
+    function close() { list.innerHTML = ""; list.style.display = "none"; items = []; active = -1; }
+    function paint() { Array.prototype.forEach.call(list.children, function (c, i) { c.classList.toggle("is-active", i === active); }); }
+    function choose(label) {
+      input.value = label; setPath(state, "property.address", label);
+      scheduleSave(); close();
+    }
+    input.addEventListener("input", function () {
+      const q = input.value.trim(); clearTimeout(timer);
+      if (q.length < 3) { close(); return; }
+      timer = setTimeout(function () {
+        fetch("https://api-adresse.data.gouv.fr/search/?limit=5&q=" + encodeURIComponent(q))
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            items = (d.features || []).map(function (f) { return f.properties.label; });
+            if (!items.length) { close(); return; }
+            list.innerHTML = items.map(function (l, i) { return '<div class="ac-item" data-i="' + i + '">' + esc(l) + "</div>"; }).join("");
+            list.style.display = "block"; active = -1;
+          }).catch(close);
+      }, 250);
+    });
+    list.addEventListener("mousedown", function (e) {
+      const it = e.target.closest && e.target.closest(".ac-item");
+      if (it) { e.preventDefault(); choose(items[+it.getAttribute("data-i")]); }
+    });
+    input.addEventListener("keydown", function (e) {
+      if (list.style.display !== "block") return;
+      if (e.key === "ArrowDown") { active = Math.min(active + 1, items.length - 1); paint(); e.preventDefault(); }
+      else if (e.key === "ArrowUp") { active = Math.max(active - 1, 0); paint(); e.preventDefault(); }
+      else if (e.key === "Enter") { if (active >= 0) { choose(items[active]); e.preventDefault(); } }
+      else if (e.key === "Escape") { close(); }
+    });
+    input.addEventListener("blur", function () { setTimeout(close, 150); });
+  }
+
   function init() {
     if (window.KADIMA && window.KADIMA.emblem) {
       var tl = document.getElementById("topbarLogo");
@@ -741,6 +799,7 @@
     renderPhotoUI();
     wireToolbar();
     wireAI();
+    wireAddressAutocomplete();
     render();
     applyZoom();
   }

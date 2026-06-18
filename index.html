@@ -188,6 +188,9 @@
               <input type="text" data-bind="diagnostics.gesValue" placeholder="1" />
             </label>
           </div>
+          <label>Synthèse des diagnostics <small class="hint">(une par ligne — « Amiante : Absence », « Termites : Néant »… ; remplie automatiquement par l'analyse)</small>
+            <textarea rows="5" data-bind-kv="diagnostics.summary" placeholder="Amiante : Absence&#10;Termites : Absence constatée&#10;Installation électrique : Conforme&#10;État des risques (ERP) : voir document"></textarea>
+          </label>
           <label>Note complémentaire
             <input type="text" data-bind="diagnostics.note" placeholder="DPE réalisé le … — Document non contractuel" />
           </label>

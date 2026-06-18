@@ -168,7 +168,13 @@
 .dpe__row.is-active { font-weight: 700; }
 .dpe__row.is-active .dpe__val { color: var(--ink); font-weight: 700; }
 .dpe__row.is-active .dpe__bar { box-shadow: 0 0 0 2px var(--ink) inset; outline: 2px solid var(--ink); outline-offset: 1px; }
-.diag-note { grid-column: 1 / -1; font-size: 9pt; color: var(--ink-soft); margin-top: 6mm; line-height: 1.5; }
+.diag-summary { margin-top: 12mm; }
+.diag-summary h3 { font-family: var(--sans); font-size: 9pt; letter-spacing: .18em; text-transform: uppercase; color: var(--accent); margin: 0 0 10px; }
+.diag-summary dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12mm; margin: 0; }
+.diag-summary dl > div { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--hair); }
+.diag-summary dt { font-size: 10pt; color: var(--ink); }
+.diag-summary dd { margin: 0; font-size: 9.5pt; color: var(--ink-soft); text-align: right; }
+.diag-note { font-size: 9pt; color: var(--ink-soft); margin-top: 8mm; line-height: 1.5; }
 .plan-img { width: 100%; border: 1px solid var(--hair); margin-top: 10mm; }
 
 /* ================================ PRIX ================================ */
