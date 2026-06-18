@@ -239,13 +239,23 @@
 
           <div class="uploader">
             <div class="uploader__row">
-              <span>Tableau des surfaces (image)</span>
+              <span>Tableau des surfaces (PDF ou image)</span>
               <label class="btn btn--ghost btn--sm">Choisir
-                <input type="file" id="fileSurfaces" accept="image/*" hidden />
+                <input type="file" id="fileSurfaces" accept="application/pdf,image/*" hidden />
               </label>
             </div>
-            <p class="hint">Photo ou capture du tableau des surfaces (loi Carrez / Boutin). Ajoute une page dédiée à la brochure.</p>
-            <div id="surfacesThumb" class="thumbs thumbs--single"></div>
+            <p class="hint" id="surfacesFileName"></p>
+            <div class="ai-actions">
+              <button class="btn btn--primary btn--sm" id="btnAISurfaces" disabled>✨ Analyser &amp; créer le tableau</button>
+              <span id="surfacesStatus" class="ai-status" role="status" aria-live="polite"></span>
+            </div>
+            <p class="hint">Chargez le mesurage (loi Carrez / Boutin) : Claude lit les surfaces et crée un <strong>tableau design</strong>. Nécessite la clé API (point 8).</p>
+            <label>Surfaces <small class="hint">(une par ligne — « Séjour : 45 m² » ; rempli par l'analyse)</small>
+              <textarea rows="6" data-bind-kv="surfaces" placeholder="Séjour : 45 m²&#10;Cuisine : 14 m²&#10;Suite parentale : 36,71 m²"></textarea>
+            </label>
+            <label>Surface totale
+              <input type="text" data-bind="surfacesTotal" placeholder="198,44 m²" />
+            </label>
           </div>
         </div>
       </details>

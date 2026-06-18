@@ -72,7 +72,15 @@
     coverPhoto: null,
     gallery: [],
     plan: null,
-    surfacesTable: null
+    surfaces: [
+      { label: "Séjour / salle à manger", value: "71 m²" },
+      { label: "Cuisine", value: "19 m²" },
+      { label: "Suite parentale", value: "36,71 m²" },
+      { label: "Chambre 2", value: "23 m²" },
+      { label: "Chambre 3", value: "24 m²" },
+      { label: "Garage", value: "31 m²" }
+    ],
+    surfacesTotal: "198,44 m²"
   };
 
   /* --------------------------------- État ------------------------------- */
@@ -190,7 +198,6 @@
     Promise.all(list.map(function (f) { return resizeImage(f, maxEdge, 0.85); })).then(function (urls) {
       if (target === "cover") state.coverPhoto = urls[0];
       else if (target === "plan") state.plan = urls[0];
-      else if (target === "surfaces") state.surfacesTable = urls[0];
       else urls.forEach(function (u) { state.gallery.push({ id: uid(), url: u, caption: "" }); });
       renderPhotoUI(); scheduleSave(); render();
     }).catch(function () { toast("Impossible de lire l'image.", true); });
@@ -205,9 +212,6 @@
     $("#planThumb").innerHTML = state.plan
       ? thumb(state.plan, "plan")
       : '<p class="hint">Aucun plan.</p>';
-    // Tableau des surfaces
-    const st = $("#surfacesThumb");
-    if (st) st.innerHTML = state.surfacesTable ? thumb(state.surfacesTable, "surfaces") : '<p class="hint">Aucun tableau.</p>';
     // Galerie
     $("#galleryThumbs").innerHTML = state.gallery.length
       ? state.gallery.map(function (p, i) { return galleryThumb(p, i); }).join("")
@@ -233,8 +237,6 @@
     $("#fileCover").addEventListener("change", function (e) { addFiles(e.target.files, "cover"); e.target.value = ""; });
     $("#filePlan").addEventListener("change", function (e) { addFiles(e.target.files, "plan"); e.target.value = ""; });
     $("#fileGallery").addEventListener("change", function (e) { addFiles(e.target.files, "gallery"); e.target.value = ""; });
-    var fileSurf = document.getElementById("fileSurfaces");
-    if (fileSurf) fileSurf.addEventListener("change", function (e) { addFiles(e.target.files, "surfaces"); e.target.value = ""; });
 
     // Édition des légendes de galerie
     $("#galleryThumbs").addEventListener("input", function (e) {
@@ -249,7 +251,6 @@
       const move = e.target.getAttribute && e.target.getAttribute("data-move");
       if (del) {
         if (del === "cover") state.coverPhoto = null;
-        else if (del === "surfaces") state.surfacesTable = null;
         else state.plan = null;
         renderPhotoUI(); scheduleSave(); render();
       }
@@ -436,11 +437,19 @@
   }
 
   function pageSurfaces() {
-    if (!state.surfacesTable) return "";
+    const rows = state.surfaces || [];
+    if (!rows.length) return "";
+    const cells = rows.map(function (r) {
+      return '<div class="st-row"><span class="st-room">' + esc(r.label) +
+        '</span><span class="st-dots"></span><span class="st-area">' + esc(r.value) + "</span></div>";
+    }).join("");
+    const total = state.surfacesTotal
+      ? '<div class="st-total"><span>Surface totale</span><span class="st-area">' + esc(state.surfacesTotal) + "</span></div>"
+      : "";
     return '<section class="page"><div class="page__inner">' +
       '<div class="section-head"><div><div class="eyebrow">Métré</div>' +
       '<h2 class="section-title">Tableau des surfaces</h2></div><span class="idx">05</span></div>' +
-      '<img class="surfaces-img" src="' + state.surfacesTable + '" alt="Tableau des surfaces">' +
+      '<div class="surfaces-table">' + cells + "</div>" + total +
       "</div>" + pageMark() + "</section>";
   }
 
@@ -542,7 +551,7 @@
     s.property.stats = { pieces: "", chambres: "", sdb: "", surface: "", terrain: "" };
     s.property.price = ""; s.features = { interieur: [], exterieur: [], aSavoir: [] };
     s.quartier = []; s.diagnostics = { dpe: "", dpeValue: "", ges: "", gesValue: "", note: "Document non contractuel.", summary: [] };
-    s.coverPhoto = null; s.gallery = []; s.plan = null; s.surfacesTable = null;
+    s.coverPhoto = null; s.gallery = []; s.plan = null; s.surfaces = []; s.surfacesTotal = "";
     return s;
   }
 
@@ -692,6 +701,33 @@
       }).catch(function (err) {
         status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
       }).then(function () { btnDpe.disabled = false; });
+    });
+
+    // Tableau des surfaces : PDF/image → tableau design
+    var surfData = null;
+    var fileSurf = document.getElementById("fileSurfaces");
+    if (fileSurf) fileSurf.addEventListener("change", function (e) {
+      const f = e.target.files[0]; if (!f) return;
+      const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+      $("#surfacesFileName").textContent = f.name;
+      const status = $("#surfacesStatus"); status.className = "ai-status"; status.textContent = "Lecture du fichier…";
+      const done = function (url) { surfData = { dataUrl: url, isPdf: isPdf }; $("#btnAISurfaces").disabled = false; status.textContent = "Prêt à analyser."; };
+      if (isPdf) { const r = new FileReader(); r.onload = function () { done(r.result); }; r.readAsDataURL(f); }
+      else { resizeImage(f, 2200, 0.85).then(done).catch(function () { status.className = "ai-status is-error"; status.textContent = "Image illisible."; }); }
+    });
+    var btnSurf = document.getElementById("btnAISurfaces");
+    if (btnSurf) btnSurf.addEventListener("click", function () {
+      if (!surfData) return;
+      const status = $("#surfacesStatus");
+      status.className = "ai-status is-busy"; status.textContent = "Analyse du tableau…"; btnSurf.disabled = true;
+      window.BrochureAI.extractSurfaces({ apiKey: keyInput.value, model: $("#aiModel").value, dataUrl: surfData.dataUrl, isPdf: surfData.isPdf })
+        .then(function (d) {
+          if (d.rows && d.rows.length) state.surfaces = d.rows.map(function (r) { return { label: r.room, value: r.area }; });
+          if (d.total) state.surfacesTotal = d.total;
+          hydrateForm(); render(); save();
+          status.className = "ai-status is-ok"; status.textContent = "Tableau créé ✓";
+        }).catch(function (err) { status.className = "ai-status is-error"; status.textContent = err.message || "Erreur"; })
+        .then(function () { btnSurf.disabled = false; });
     });
 
     $("#btnAIQuartier").addEventListener("click", function () {

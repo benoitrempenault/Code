@@ -458,5 +458,73 @@
     } catch (e) { return null; }
   }
 
-  window.BrochureAI = { generate, generateQuartier, captionPhotos, extractDiagnostics, generateCityIntro };
+  /* ----------- Lecture du tableau des surfaces (PDF/image) --------------- */
+  async function extractSurfaces(opts) {
+    const { apiKey, model, dataUrl, isPdf } = opts;
+    if (!apiKey || !/^sk-ant-/.test(apiKey.trim())) throw new Error("Clé API manquante ou invalide (point 8).");
+    if (!dataUrl) throw new Error("Chargez d'abord le tableau des surfaces (PDF ou image).");
+
+    const SCHEMA = {
+      type: "object", additionalProperties: false,
+      properties: {
+        rows: {
+          type: "array",
+          items: {
+            type: "object", additionalProperties: false,
+            properties: { room: { type: "string" }, area: { type: "string" } },
+            required: ["room", "area"]
+          }
+        },
+        total: { type: "string", description: "Surface totale si indiquée (ex. « 198,44 m² »), sinon vide." },
+        note: { type: "string", description: "Mention utile (loi Carrez/Boutin, surface utile…) ou vide." }
+      },
+      required: ["rows", "total", "note"]
+    };
+
+    let block;
+    if (isPdf) {
+      block = { type: "document", source: { type: "base64", media_type: "application/pdf", data: dataUrl.split(",")[1] || "" } };
+    } else {
+      const parts = dataUrlParts(dataUrl);
+      if (!parts) throw new Error("Format d'image non reconnu.");
+      block = { type: "image", source: { type: "base64", media_type: parts.media, data: parts.data } };
+    }
+
+    const system = [
+      "Tu lis un tableau de mesurage de surfaces (loi Carrez/Boutin ou métré d'architecte) d'un bien immobilier.",
+      "Extrais chaque pièce/espace avec sa surface en m². Conserve l'unité (« m² ») dans 'area'.",
+      "Donne la surface totale dans 'total' si elle figure. N'invente AUCUNE valeur : si illisible, ignore la ligne.",
+      "Ordonne les pièces comme dans le document. Réponds uniquement via le format JSON demandé."
+    ].join("\n");
+
+    const body = {
+      model: model || "claude-opus-4-8",
+      max_tokens: 1500,
+      output_config: { format: { type: "json_schema", schema: SCHEMA } },
+      system: system,
+      messages: [{ role: "user", content: [block, { type: "text", text: "Extrais le tableau des surfaces." }] }]
+    };
+
+    let res;
+    try {
+      res = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": apiKey.trim(), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        body: JSON.stringify(body)
+      });
+    } catch (e) { throw new Error("Connexion impossible à l'API Anthropic. " + e.message); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = (data && data.error && data.error.message) || ("Erreur " + res.status);
+      if (res.status === 401) throw new Error("Clé API refusée (401).");
+      if (res.status === 413) throw new Error("Fichier trop volumineux. Chargez seulement la page du tableau.");
+      throw new Error(msg);
+    }
+    if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
+    const tb = (data.content || []).find(function (b) { return b.type === "text"; });
+    if (!tb) throw new Error("Réponse vide du modèle.");
+    try { return JSON.parse(tb.text); } catch (e) { throw new Error("Réponse illisible (JSON)."); }
+  }
+
+  window.BrochureAI = { generate, generateQuartier, captionPhotos, extractDiagnostics, extractSurfaces, generateCityIntro };
 })();

@@ -186,7 +186,16 @@
 .diag-summary dd { margin: 0; font-size: 9.5pt; color: var(--ink-soft); text-align: right; }
 .diag-note { font-size: 9pt; color: var(--ink-soft); margin-top: 8mm; line-height: 1.5; }
 .plan-img { width: 100%; margin-top: 10mm; }
-.surfaces-img { width: 100%; }
+
+/* Tableau des surfaces — mise en page éditoriale */
+.surfaces-table { columns: 2; column-gap: 16mm; }
+.st-row { display: flex; align-items: baseline; gap: 8px; padding: 9px 0; break-inside: avoid; border-bottom: 1px solid var(--hair); }
+.st-room { font-size: 10.5pt; color: var(--ink); }
+.st-dots { flex: 1 1 auto; border-bottom: 1px dotted var(--hair); transform: translateY(-3px); }
+.st-area { font-family: var(--serif); font-size: 10.5pt; color: var(--ink); white-space: nowrap; }
+.st-total { display: flex; justify-content: space-between; align-items: baseline; margin-top: 10mm; padding-top: 12px; border-top: 2px solid var(--accent); }
+.st-total > span:first-child { font-size: 9pt; letter-spacing: .18em; text-transform: uppercase; color: var(--accent); }
+.st-total .st-area { font-size: 17pt; }
 
 /* petit emblème en bas de page (pages sans logo) */
 .page-mark { position: absolute; bottom: 12mm; right: 16mm; height: 9mm; width: auto; opacity: .8; }
