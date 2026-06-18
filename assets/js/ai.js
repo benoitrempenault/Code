@@ -66,6 +66,7 @@
       "  « ne manquez pas », « idéalement situé », les superlatifs creux, les emojis, les listes à puces dans la description.",
       "- Phrases vivantes, rythme varié, détails concrets et sensoriels. Mise sur l'émotion sans tomber dans le cliché.",
       "- N'invente AUCUN fait : utilise uniquement les informations fournies. Si une donnée manque, ne la mentionne pas.",
+      "- Ne mentionne JAMAIS l'adresse précise ni le numéro/nom de rue du bien (confidentialité). Reste au niveau du quartier/de la ville.",
       "",
       "Contenu attendu :",
       "- coverTitle : un titre de couverture court et évocateur (3 à 7 mots), qui suscite l'émotion et l'envie.",

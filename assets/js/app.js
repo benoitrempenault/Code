@@ -274,14 +274,17 @@
   function renderScale(title, unit, colors, textColors, active, value) {
     const letters = ["A", "B", "C", "D", "E", "F", "G"];
     const rows = letters.map(function (L, idx) {
-      const width = 42 + idx * 8; // de 42% à 90%
+      const width = 38 + idx * 5; // de 38% à 68% (place pour l'étiquette à droite)
       const isActive = active === L;
-      return '<div class="dpe__row' + (isActive ? " is-active" : "") + '">' +
-        '<div class="dpe__bar" style="width:' + width + '%;background:' + colors[L] + ';color:' + textColors[L] + ';">' + L + '</div>' +
-        (isActive && value ? '<span class="dpe__val">' + esc(value) + " " + unit + "</span>" : "") +
+      return '<div class="dpe2-row' + (isActive ? " is-active" : "") + '">' +
+        '<div class="dpe2-bar" style="width:' + width + '%;--c:' + colors[L] + ';color:' + textColors[L] + ';">' + L + "</div>" +
+        (isActive
+          ? '<div class="dpe2-tag"><span class="dpe2-l">' + L + "</span>" +
+            (value ? '<span class="dpe2-v">' + esc(value) + " <em>" + unit + "</em></span>" : "") + "</div>"
+          : "") +
         "</div>";
     }).join("");
-    return '<div class="dpe"><h3>' + esc(title) + "</h3><div class=\"dpe__scale\">" + rows + "</div></div>";
+    return '<div class="dpe2"><h3>' + esc(title) + '</h3><div class="dpe2-scale">' + rows + "</div></div>";
   }
 
   function pageCover() {
@@ -594,7 +597,7 @@
         model: $("#aiModel").value,
         tone: $("#aiTone").value,
         notes: $("#aiNotes").value,
-        context: { type: state.property.type, location: state.property.location, title: state.property.title, address: state.property.address }
+        context: { type: state.property.type, location: state.property.location, title: state.property.title }
       }).then(function (out) {
         applyAI(out);
         status.className = "ai-status is-ok"; status.textContent = "Fiche générée ✓";
