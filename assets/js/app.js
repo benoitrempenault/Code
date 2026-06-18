@@ -71,7 +71,8 @@
     },
     coverPhoto: null,
     gallery: [],
-    plan: null
+    plan: null,
+    surfacesTable: null
   };
 
   /* --------------------------------- État ------------------------------- */
@@ -185,9 +186,11 @@
   function addFiles(files, target) {
     const list = Array.prototype.slice.call(files).filter(function (f) { return /^image\//.test(f.type); });
     if (!list.length) return;
-    Promise.all(list.map(function (f) { return resizeImage(f); })).then(function (urls) {
+    const maxEdge = (target === "surfaces" || target === "plan") ? 2200 : 1800;
+    Promise.all(list.map(function (f) { return resizeImage(f, maxEdge, 0.85); })).then(function (urls) {
       if (target === "cover") state.coverPhoto = urls[0];
       else if (target === "plan") state.plan = urls[0];
+      else if (target === "surfaces") state.surfacesTable = urls[0];
       else urls.forEach(function (u) { state.gallery.push({ id: uid(), url: u, caption: "" }); });
       renderPhotoUI(); scheduleSave(); render();
     }).catch(function () { toast("Impossible de lire l'image.", true); });
@@ -202,6 +205,9 @@
     $("#planThumb").innerHTML = state.plan
       ? thumb(state.plan, "plan")
       : '<p class="hint">Aucun plan.</p>';
+    // Tableau des surfaces
+    const st = $("#surfacesThumb");
+    if (st) st.innerHTML = state.surfacesTable ? thumb(state.surfacesTable, "surfaces") : '<p class="hint">Aucun tableau.</p>';
     // Galerie
     $("#galleryThumbs").innerHTML = state.gallery.length
       ? state.gallery.map(function (p, i) { return galleryThumb(p, i); }).join("")
@@ -227,6 +233,8 @@
     $("#fileCover").addEventListener("change", function (e) { addFiles(e.target.files, "cover"); e.target.value = ""; });
     $("#filePlan").addEventListener("change", function (e) { addFiles(e.target.files, "plan"); e.target.value = ""; });
     $("#fileGallery").addEventListener("change", function (e) { addFiles(e.target.files, "gallery"); e.target.value = ""; });
+    var fileSurf = document.getElementById("fileSurfaces");
+    if (fileSurf) fileSurf.addEventListener("change", function (e) { addFiles(e.target.files, "surfaces"); e.target.value = ""; });
 
     // Édition des légendes de galerie
     $("#galleryThumbs").addEventListener("input", function (e) {
@@ -239,7 +247,12 @@
       const del = e.target.getAttribute && e.target.getAttribute("data-del");
       const delg = e.target.getAttribute && e.target.getAttribute("data-delg");
       const move = e.target.getAttribute && e.target.getAttribute("data-move");
-      if (del) { if (del === "cover") state.coverPhoto = null; else state.plan = null; renderPhotoUI(); scheduleSave(); render(); }
+      if (del) {
+        if (del === "cover") state.coverPhoto = null;
+        else if (del === "surfaces") state.surfacesTable = null;
+        else state.plan = null;
+        renderPhotoUI(); scheduleSave(); render();
+      }
       else if (delg != null) { state.gallery.splice(+delg, 1); renderPhotoUI(); scheduleSave(); render(); }
       else if (move != null) {
         const i = +move, dir = +e.target.getAttribute("data-dir"), j = i + dir;
@@ -287,6 +300,11 @@
     return '<div class="dpe2"><h3>' + esc(title) + '</h3><div class="dpe2-scale">' + rows + "</div></div>";
   }
 
+  // petit emblème C21 en bas de page, pour les pages sans logo
+  function pageMark() {
+    return (window.KADIMA && window.KADIMA.emblem) ? '<img class="page-mark" src="' + window.KADIMA.emblem + '" alt="">' : "";
+  }
+
   function pageCover() {
     const p = state.property, a = state.agency;
     const dark = state.theme.coverDark;
@@ -315,7 +333,7 @@
       '<div class="eyebrow">Présentation</div>' +
       '<blockquote class="edito__quote">' + esc(state.property.hook) + "</blockquote>" +
       '<span class="edito__mark"></span>' +
-      "</div></section>";
+      "</div>" + pageMark() + "</section>";
   }
 
   function pageBien() {
@@ -335,7 +353,7 @@
       '<h2 class="section-title">L\'art de vivre</h2></div><span class="idx">01</span></div>' +
       stats +
       (p.description ? '<div class="prose">' + nl2p(p.description) + "</div>" : "") +
-      "</div></section>";
+      "</div>" + pageMark() + "</section>";
   }
 
   function pagesGallery() {
@@ -355,7 +373,7 @@
     if (items.length === 1) body = gmCell(items[0]);
     else if (items.length === 2) body = gmCell(items[0]) + gmCell(items[1]);
     else body = gmCell(items[0], true) + '<div class="gm-row">' + gmCell(items[1]) + gmCell(items[2]) + "</div>";
-    return '<section class="page gallery-page"><div class="gallery-montage">' + head + body + "</div></section>";
+    return '<section class="page gallery-page"><div class="gallery-montage">' + head + body + "</div>" + pageMark() + "</section>";
   }
 
   function pageFeatures() {
@@ -374,7 +392,7 @@
       '<div class="section-head"><div><div class="eyebrow">Caractéristiques</div>' +
       '<h2 class="section-title">Les prestations</h2></div><span class="idx">02</span></div>' +
       '<div class="feature-grid">' + block("Intérieur", f.interieur) + block("Extérieur", f.exterieur) + "</div>" +
-      asavoir + "</div></section>";
+      asavoir + "</div>" + pageMark() + "</section>";
   }
 
   function pageQuartier() {
@@ -388,7 +406,7 @@
       (q.length ? '<dl class="quartier-list">' + q.map(function (it) {
         return '<div class="quartier-item"><dt>' + esc(it.label) + "</dt><dd>" + esc(it.value) + "</dd></div>";
       }).join("") + "</dl>" : "") +
-      "</div></section>";
+      "</div>" + pageMark() + "</section>";
   }
 
   function pageDiagnostics() {
@@ -414,12 +432,25 @@
     return '<section class="page"><div class="page__inner">' +
       '<div class="section-head"><div><div class="eyebrow">Informations</div>' +
       '<h2 class="section-title">Diagnostics' + (state.plan ? " & plan" : "") + '</h2></div><span class="idx">04</span></div>' +
-      body + "</div></section>";
+      body + "</div>" + pageMark() + "</section>";
+  }
+
+  function pageSurfaces() {
+    if (!state.surfacesTable) return "";
+    return '<section class="page"><div class="page__inner">' +
+      '<div class="section-head"><div><div class="eyebrow">Métré</div>' +
+      '<h2 class="section-title">Tableau des surfaces</h2></div><span class="idx">05</span></div>' +
+      '<img class="surfaces-img" src="' + state.surfacesTable + '" alt="Tableau des surfaces">' +
+      "</div>" + pageMark() + "</section>";
   }
 
   function pagePrice() {
     const p = state.property, a = state.agency;
-    const lines = [a.address, [a.phone, a.email].filter(Boolean).join("  ·  ")].filter(Boolean);
+    // Adresse sur deux lignes : rue puis code postal + ville.
+    const addr = a.address || "";
+    const ci = addr.indexOf(",");
+    const addrLines = ci >= 0 ? [addr.slice(0, ci).trim(), addr.slice(ci + 1).trim()] : (addr ? [addr] : []);
+    const lines = addrLines.concat([[a.phone, a.email].filter(Boolean).join("  ·  ")]).filter(Boolean);
     return '<section class="page"><div class="page__inner price-page">' +
       '<div class="eyebrow">Le prix</div>' +
       '<div class="price__value">' + esc(p.price || "Prix sur demande") + "</div>" +
@@ -440,7 +471,7 @@
   function buildBrochure() {
     return [
       pageCover(), pageEdito(), pageBien(), pagesGallery(),
-      pageFeatures(), pageQuartier(), pageDiagnostics(), pagePrice()
+      pageFeatures(), pageQuartier(), pageDiagnostics(), pageSurfaces(), pagePrice()
     ].join("");
   }
 
@@ -511,7 +542,7 @@
     s.property.stats = { pieces: "", chambres: "", sdb: "", surface: "", terrain: "" };
     s.property.price = ""; s.features = { interieur: [], exterieur: [], aSavoir: [] };
     s.quartier = []; s.diagnostics = { dpe: "", dpeValue: "", ges: "", gesValue: "", note: "Document non contractuel.", summary: [] };
-    s.coverPhoto = null; s.gallery = []; s.plan = null;
+    s.coverPhoto = null; s.gallery = []; s.plan = null; s.surfacesTable = null;
     return s;
   }
 

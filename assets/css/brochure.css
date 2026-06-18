@@ -63,8 +63,9 @@
 .cb-logo { height: 38mm; width: auto; max-width: 80%; display: block; }
 .cb-logo-text { font-family: var(--serif); font-size: 18pt; }
 .cb-tag { position: absolute; top: 14mm; right: 18mm; font-size: 6.5pt; letter-spacing: .2em; text-transform: uppercase; border: 1px solid currentColor; border-radius: 999px; padding: 3px 9px; opacity: .75; }
-.cb-photo { flex: 0 0 auto; margin: 0 0 6mm; aspect-ratio: 3 / 2; min-height: 0; overflow: hidden; }
+.cb-photo { position: relative; flex: 0 0 auto; margin: 0 0 6mm; aspect-ratio: 3 / 2; min-height: 0; overflow: hidden; }
 .cb-photo img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
+.cb-photo::after { content: ""; position: absolute; inset: 5mm; border: 1px solid var(--accent); pointer-events: none; }
 .cb-ph { width: 100%; height: 100%; background: linear-gradient(135deg, #cfc4b2, #ab9d86); }
 .cb-bottom { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 18mm 18mm; }
 .cover-banded .eyebrow { color: var(--accent); }
@@ -153,7 +154,7 @@
 .gallery-montage > .gm-hero { flex: 1.75; min-height: 0; }
 .gallery-montage > .gm-row { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; min-height: 0; }
 .gm-cell { display: flex; flex-direction: column; min-height: 0; }
-.gm-img { flex: 1 1 auto; min-height: 0; }
+.gm-img { flex: 1 1 auto; min-height: 0; border: 1px solid var(--accent); padding: 4px; background: var(--paper); }
 .gm-img img { width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; }
 .gm-cap { flex: 0 0 auto; text-align: center; padding-top: 3mm; font-size: 8pt; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-soft); }
 
@@ -178,7 +179,12 @@
 .diag-summary dt { font-size: 10pt; color: var(--ink); }
 .diag-summary dd { margin: 0; font-size: 9.5pt; color: var(--ink-soft); text-align: right; }
 .diag-note { font-size: 9pt; color: var(--ink-soft); margin-top: 8mm; line-height: 1.5; }
-.plan-img { width: 100%; border: 1px solid var(--hair); margin-top: 10mm; }
+.plan-img { width: 100%; border: 1px solid var(--accent); padding: 4px; background: var(--paper); margin-top: 10mm; }
+.surfaces-img { width: 100%; border: 1px solid var(--accent); padding: 4px; background: var(--paper); }
+
+/* petit emblème en bas de page (pages sans logo) */
+.page-mark { position: absolute; bottom: 12mm; right: 16mm; height: 9mm; width: auto; opacity: .8; }
+.gallery-page .page-mark { bottom: 7mm; right: 9mm; }
 
 /* ================================ PRIX ================================ */
 .price-page { display: flex; flex-direction: column; justify-content: center; min-height: 297mm; text-align: center; }
@@ -193,7 +199,7 @@
 .price__legal { position: absolute; bottom: 14mm; left: 0; right: 0; text-align: center; font-size: 8pt; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-soft); }
 .price__c21 { display: inline-flex; align-items: center; gap: 8px; margin-top: 18px; font-family: var(--serif); font-size: 13pt; }
 .price__c21 .c21 { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: var(--paper); font-size: 12pt; }
-.price__logo { height: 78px; width: auto; display: block; margin: 22px auto 0; }
+.price__logo { height: 124px; width: auto; display: block; margin: 26px auto 0; }
 
 .empty-hint { color: var(--ink-soft); font-style: italic; font-size: 10pt; }
 
