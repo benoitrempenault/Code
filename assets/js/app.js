@@ -290,13 +290,13 @@
     const img = state.coverPhoto
       ? '<img src="' + state.coverPhoto + '" alt="">'
       : '<div class="cb-ph"></div>';
-    const tag = p.exclusivite ? '<span class="cb-tag">Exclusivité</span>' : "<span></span>";
+    const tag = p.exclusivite ? '<span class="cb-tag">Exclusivité</span>' : "";
     const contact = [a.phone, a.email].filter(Boolean).join("  ·  ");
-    const emblem = (window.KADIMA && window.KADIMA.emblem)
-      ? '<img class="cb-emblem" src="' + window.KADIMA.emblem + '" alt="Century 21">'
-      : '<span>21</span>';
+    const logo = (window.KADIMA && window.KADIMA.full)
+      ? '<img class="cb-logo" src="' + window.KADIMA.full + '" alt="' + esc(a.name || "Century 21") + '">'
+      : '<span class="cb-logo-text">' + esc(a.name || "") + "</span>";
     return '<section class="page cover-banded" data-cover="' + (dark ? "dark" : "light") + '">' +
-      '<div class="cb-top"><div class="cb-brand">' + emblem + "<span>" + esc(a.name || "") + "</span></div>" + tag + "</div>" +
+      '<div class="cb-top">' + logo + tag + "</div>" +
       '<div class="cb-photo">' + img + "</div>" +
       '<div class="cb-bottom">' +
       (p.type ? '<div class="eyebrow">' + esc(p.type) + "</div>" : "") +
@@ -665,17 +665,18 @@
       const btn = $("#btnAIQuartier");
       status.className = "ai-status is-busy"; status.textContent = "Recherche du quartier…";
       btn.disabled = true;
-      window.BrochureAI.generateQuartier({
-        apiKey: keyInput.value,
-        model: $("#aiModel").value,
-        address: state.property.address
-      }).then(function (out) {
+      // 1) Données cartographiques réelles (OpenStreetMap) — noms + distances exactes.
+      window.BrochureGeo.searchQuartier(state.property.address).then(function (out) {
         if (out.quartier && out.quartier.length) state.quartier = out.quartier;
-        if (out.intro) state.property.quartierIntro = out.intro;
         if (out.location && !state.property.location) state.property.location = out.location;
         hydrateForm(); render(); save();
         renderSources(out.sources);
         status.className = "ai-status is-ok"; status.textContent = "Quartier rempli ✓";
+        // 2) En option : un mot sur l'attrait de la ville (si clé API fournie).
+        if (keyInput.value && keyInput.value.trim() && !state.property.quartierIntro) {
+          window.BrochureAI.generateCityIntro({ apiKey: keyInput.value, model: $("#aiModel").value, city: out.location, tone: $("#aiTone").value })
+            .then(function (intro) { if (intro) { state.property.quartierIntro = intro; hydrateForm(); render(); save(); } });
+        }
       }).catch(function (err) {
         status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
       }).then(function () { btn.disabled = false; });

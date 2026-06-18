@@ -58,10 +58,10 @@
 /* Couverture « bandeau » : photo paysage encadrée, bandeaux haut et bas. */
 .cover-banded { height: 297mm; display: flex; flex-direction: column; justify-content: space-between; background: var(--paper); color: var(--ink); }
 .cover-banded[data-cover="dark"] { background: var(--ink); color: var(--paper); }
-.cb-top { flex: 0 0 auto; padding: 16mm 18mm 0; display: flex; align-items: center; justify-content: space-between; }
-.cb-brand { display: flex; align-items: center; gap: 11px; font-weight: 500; letter-spacing: .02em; font-size: 11pt; }
-.cb-emblem { height: 40px; width: auto; display: block; }
-.cb-tag { font-size: 8.5pt; letter-spacing: .26em; text-transform: uppercase; border: 1px solid currentColor; border-radius: 999px; padding: 6px 14px; opacity: .85; }
+.cb-top { position: relative; flex: 0 0 auto; padding: 16mm 18mm 0; display: flex; align-items: flex-start; justify-content: center; }
+.cb-logo { height: 24mm; width: auto; max-width: 72%; display: block; }
+.cb-logo-text { font-family: var(--serif); font-size: 16pt; }
+.cb-tag { position: absolute; top: 16mm; right: 18mm; font-size: 6.5pt; letter-spacing: .2em; text-transform: uppercase; border: 1px solid currentColor; border-radius: 999px; padding: 3px 9px; opacity: .75; }
 .cb-photo { flex: 0 0 auto; margin: 10mm 0; aspect-ratio: 3 / 2; min-height: 0; overflow: hidden; }
 .cb-photo img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
 .cb-ph { width: 100%; height: 100%; background: linear-gradient(135deg, #cfc4b2, #ab9d86); }

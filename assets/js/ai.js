@@ -426,5 +426,36 @@
     try { return JSON.parse(textBlock.text); } catch (e) { throw new Error("Réponse illisible (JSON)."); }
   }
 
-  window.BrochureAI = { generate, generateQuartier, captionPhotos, extractDiagnostics };
+  /* --------- Petit texte sur l'attrait de la ville (rapide, sans web) ----- */
+  async function generateCityIntro(opts) {
+    const { apiKey, model, city, tone } = opts;
+    if (!apiKey || !/^sk-ant-/.test(apiKey.trim()) || !city) return null;
+    const body = {
+      model: model || "claude-opus-4-8",
+      max_tokens: 400,
+      output_config: {
+        effort: "low",
+        format: {
+          type: "json_schema",
+          schema: { type: "object", additionalProperties: false, properties: { intro: { type: "string" } }, required: ["intro"] }
+        }
+      },
+      system: "Tu écris, en français, 2 à 3 phrases élégantes sur l'attrait d'une ville française pour une fiche immobilière "
+        + (TONES[tone] || TONES.emotionnel) + ". Cadre de vie, dynamisme, patrimoine, nature, accessibilité. Pas de superlatifs creux, pas de chiffres inventés.",
+      messages: [{ role: "user", content: "Ville : " + city }]
+    };
+    try {
+      const res = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": apiKey.trim(), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) return null;
+      const tb = (data.content || []).find(function (b) { return b.type === "text"; });
+      return tb ? (JSON.parse(tb.text).intro || null) : null;
+    } catch (e) { return null; }
+  }
+
+  window.BrochureAI = { generate, generateQuartier, captionPhotos, extractDiagnostics, generateCityIntro };
 })();

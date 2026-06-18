@@ -130,8 +130,9 @@
       <details class="panel" open>
         <summary>4 · Le quartier</summary>
         <div class="panel__body">
-          <p class="hint">À partir de l'<strong>adresse précise</strong> saisie au point 2, Claude recherche sur le web les
-            transports, écoles, commerces et services à proximité, et remplit la liste ci-dessous. Nécessite la clé API (point 8).</p>
+          <p class="hint">À partir de l'<strong>adresse précise</strong> (point 2), l'outil interroge la cartographie <strong>OpenStreetMap</strong>
+            et calcule les <strong>distances réelles</strong> : arrêts de bus/tram, écoles, commerces et services — avec leurs noms.
+            Aucune clé requise. (Le mot sur « l'attrait de la ville » utilise la clé API du point 8 si elle est renseignée.)</p>
           <div class="ai-actions">
             <button class="btn btn--primary" id="btnAIQuartier">Rechercher le quartier</button>
             <span id="quartierStatus" class="ai-status" role="status" aria-live="polite"></span>
@@ -143,7 +144,7 @@
           <label>Commodités <small class="hint">(une par ligne — « Écoles : … », « Centre-ville : … », « Transports : … », « Points d'intérêt : … »)</small>
             <textarea rows="7" data-bind-kv="quartier" placeholder="Transports : Gare Saint-Jean à 1,1 km&#10;Écoles : Groupe scolaire à 700 m&#10;Commerces : Centre-ville à 2,6 km"></textarea>
           </label>
-          <p class="hint">⚠️ Vérifiez les distances et noms proposés : ils sont issus d'une recherche automatique et peuvent comporter des approximations.</p>
+          <p class="hint">Les distances sont calculées à vol d'oiseau depuis l'adresse (données OpenStreetMap). Tout reste modifiable.</p>
         </div>
       </details>
 
@@ -317,6 +318,7 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="assets/js/logo.js"></script>
+  <script src="assets/js/geo.js"></script>
   <script src="assets/js/ai.js"></script>
   <script src="assets/js/app.js"></script>
 </body>
