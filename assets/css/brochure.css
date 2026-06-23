@@ -59,14 +59,14 @@
 .cover-banded { height: 297mm; display: flex; flex-direction: column; background: var(--paper); color: var(--ink); }
 .cover-banded[data-cover="dark"] { background: var(--ink); color: var(--paper); }
 /* Bandeau du haut à HAUTEUR FIXE : agrandir le logo ne décale pas la photo. */
-.cb-top { position: relative; flex: 0 0 52mm; padding: 0 18mm; display: flex; align-items: center; justify-content: center; }
+.cb-top { position: relative; flex: 0 0 44mm; padding: 0 18mm; display: flex; align-items: center; justify-content: center; }
 .cb-logo { height: 38mm; width: auto; max-width: 80%; display: block; }
 .cb-logo-text { font-family: var(--serif); font-size: 18pt; }
 .cb-tag { position: absolute; top: 14mm; right: 18mm; font-size: 6.5pt; letter-spacing: .2em; text-transform: uppercase; border: 1px solid currentColor; border-radius: 999px; padding: 3px 9px; opacity: .75; }
-.cb-photo { flex: 0 0 auto; margin: 0 14mm 6mm; aspect-ratio: 3 / 2; min-height: 0; display: flex; align-items: center; justify-content: center; }
-.cb-photo img { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block; }
+.cb-photo { flex: 1 1 auto; margin: 0 12mm 7mm; min-height: 0; }
+.cb-photo img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
 .cb-ph { width: 100%; height: 100%; background: linear-gradient(135deg, #cfc4b2, #ab9d86); }
-.cb-bottom { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 18mm 18mm; }
+.cb-bottom { flex: 0 0 auto; padding: 0 18mm 16mm; }
 .cover-banded .eyebrow { color: var(--accent); }
 .cb-title { font-family: var(--serif); font-weight: 400; font-size: 34pt; line-height: 1.04; margin: 8px 0 12px; letter-spacing: -.015em; max-width: 18ch; }
 .cb-loc { font-size: 12pt; }
@@ -187,15 +187,17 @@
 .diag-note { font-size: 9pt; color: var(--ink-soft); margin-top: 8mm; line-height: 1.5; }
 .plan-img { width: 100%; margin-top: 10mm; }
 
-/* Tableau des surfaces — mise en page éditoriale */
-.surfaces-table { columns: 2; column-gap: 16mm; }
-.st-row { display: flex; align-items: baseline; gap: 8px; padding: 9px 0; break-inside: avoid; border-bottom: 1px solid var(--hair); }
-.st-room { font-size: 10.5pt; color: var(--ink); }
+/* Tableau des surfaces — occupe la page (réparti verticalement) */
+.surfaces-page .page__inner { min-height: 297mm; display: flex; flex-direction: column; box-sizing: border-box; }
+.surfaces-page .section-head { flex: 0 0 auto; }
+.surfaces-table { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-between; }
+.st-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--hair); }
+.st-room { font-size: 11pt; color: var(--ink); }
 .st-dots { flex: 1 1 auto; border-bottom: 1px dotted var(--hair); transform: translateY(-3px); }
-.st-area { font-family: var(--serif); font-size: 10.5pt; color: var(--ink); white-space: nowrap; }
-.st-total { display: flex; justify-content: space-between; align-items: baseline; margin-top: 10mm; padding-top: 12px; border-top: 2px solid var(--accent); }
+.st-area { font-family: var(--serif); font-size: 11pt; color: var(--ink); white-space: nowrap; }
+.st-total { flex: 0 0 auto; display: flex; justify-content: space-between; align-items: baseline; margin-top: 8mm; padding-top: 12px; border-top: 2px solid var(--accent); }
 .st-total > span:first-child { font-size: 9pt; letter-spacing: .18em; text-transform: uppercase; color: var(--accent); }
-.st-total .st-area { font-size: 17pt; }
+.st-total .st-area { font-size: 18pt; }
 
 /* petit emblème en bas de page (pages sans logo) */
 .page-mark { position: absolute; bottom: 12mm; right: 16mm; height: 9mm; width: auto; opacity: .8; }

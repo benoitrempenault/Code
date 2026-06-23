@@ -359,7 +359,7 @@
 
   function pagesGallery() {
     const g = state.gallery; if (!g.length) return "";
-    return chunk(g, 3).map(function (grp, gi) { return galleryMontagePage(grp, gi === 0); }).join("");
+    return chunk(g, 2).map(function (grp, gi) { return galleryMontagePage(grp, gi === 0); }).join("");
   }
   function gmCell(p, hero) {
     return '<div class="gm-cell' + (hero ? ' gm-hero' : '') + '">' +
@@ -446,7 +446,7 @@
     const total = state.surfacesTotal
       ? '<div class="st-total"><span>Surface totale</span><span class="st-area">' + esc(state.surfacesTotal) + "</span></div>"
       : "";
-    return '<section class="page"><div class="page__inner">' +
+    return '<section class="page surfaces-page"><div class="page__inner">' +
       '<div class="section-head"><div><div class="eyebrow">Métré</div>' +
       '<h2 class="section-title">Tableau des surfaces</h2></div><span class="idx">05</span></div>' +
       '<div class="surfaces-table">' + cells + "</div>" + total +
