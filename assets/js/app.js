@@ -71,7 +71,7 @@
     },
     coverPhoto: null,
     gallery: [],
-    plan: null,
+    plans: [],
     surfaces: [
       { label: "Séjour / salle à manger", value: "71 m²" },
       { label: "Cuisine", value: "19 m²" },
@@ -84,8 +84,18 @@
   };
 
   /* --------------------------------- État ------------------------------- */
-  let state = load() || clone(DEFAULT);
+  let state = normalizeState(load() || clone(DEFAULT));
   let preview = { mode: "fit", value: 0.62 };
+
+  // migration / valeurs par défaut sûres (ex. ancien champ `plan` unique -> `plans[]`)
+  function normalizeState(s) {
+    if (s.plan && (!s.plans || !s.plans.length)) s.plans = [s.plan];
+    if (!s.plans) s.plans = [];
+    delete s.plan;
+    if (!s.surfaces) s.surfaces = [];
+    if (!s.gallery) s.gallery = [];
+    return s;
+  }
 
   /* ------------------------------ Utilitaires --------------------------- */
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
@@ -197,7 +207,7 @@
     const maxEdge = (target === "surfaces" || target === "plan") ? 2200 : 1800;
     Promise.all(list.map(function (f) { return resizeImage(f, maxEdge, 0.85); })).then(function (urls) {
       if (target === "cover") state.coverPhoto = urls[0];
-      else if (target === "plan") state.plan = urls[0];
+      else if (target === "plan") urls.forEach(function (u) { state.plans.push(u); });
       else urls.forEach(function (u) { state.gallery.push({ id: uid(), url: u, caption: "" }); });
       renderPhotoUI(); scheduleSave(); render();
     }).catch(function () { toast("Impossible de lire l'image.", true); });
@@ -208,9 +218,9 @@
     $("#coverThumb").innerHTML = state.coverPhoto
       ? thumb(state.coverPhoto, "cover")
       : '<p class="hint">Aucune photo de couverture.</p>';
-    // Plan
-    $("#planThumb").innerHTML = state.plan
-      ? thumb(state.plan, "plan")
+    // Plans (plusieurs possibles)
+    $("#planThumb").innerHTML = state.plans.length
+      ? state.plans.map(function (u, i) { return planThumb(u, i); }).join("")
       : '<p class="hint">Aucun plan.</p>';
     // Galerie
     $("#galleryThumbs").innerHTML = state.gallery.length
@@ -221,6 +231,13 @@
     return '<div class="thumb"><img src="' + url + '" alt="">' +
       '<div class="thumb__bar"><span></span>' +
       '<button class="thumb__btn" data-del="' + kind + '" title="Supprimer">×</button></div></div>';
+  }
+  function planThumb(u, i) {
+    return '<div class="thumb"><img src="' + u + '" alt="">' +
+      '<div class="thumb__bar">' +
+      '<span><button class="thumb__btn" data-moveplan="' + i + '" data-dir="-1" title="Monter">↑</button>' +
+      '<button class="thumb__btn" data-moveplan="' + i + '" data-dir="1" title="Descendre">↓</button></span>' +
+      '<button class="thumb__btn" data-delplan="' + i + '" title="Supprimer">×</button></div></div>';
   }
   function galleryThumb(p, i) {
     return '<div class="gcell">' +
@@ -249,16 +266,25 @@
       const del = e.target.getAttribute && e.target.getAttribute("data-del");
       const delg = e.target.getAttribute && e.target.getAttribute("data-delg");
       const move = e.target.getAttribute && e.target.getAttribute("data-move");
+      const delplan = e.target.getAttribute && e.target.getAttribute("data-delplan");
+      const moveplan = e.target.getAttribute && e.target.getAttribute("data-moveplan");
       if (del) {
         if (del === "cover") state.coverPhoto = null;
-        else state.plan = null;
         renderPhotoUI(); scheduleSave(); render();
       }
       else if (delg != null) { state.gallery.splice(+delg, 1); renderPhotoUI(); scheduleSave(); render(); }
+      else if (delplan != null) { state.plans.splice(+delplan, 1); renderPhotoUI(); scheduleSave(); render(); }
       else if (move != null) {
         const i = +move, dir = +e.target.getAttribute("data-dir"), j = i + dir;
         if (j >= 0 && j < state.gallery.length) {
           const t = state.gallery[i]; state.gallery[i] = state.gallery[j]; state.gallery[j] = t;
+          renderPhotoUI(); scheduleSave(); render();
+        }
+      }
+      else if (moveplan != null) {
+        const i = +moveplan, dir = +e.target.getAttribute("data-dir"), j = i + dir;
+        if (j >= 0 && j < state.plans.length) {
+          const t = state.plans[i]; state.plans[i] = state.plans[j]; state.plans[j] = t;
           renderPhotoUI(); scheduleSave(); render();
         }
       }
@@ -414,7 +440,7 @@
     const d = state.diagnostics || {};
     const summary = d.summary || [];
     const hasDpe = d.dpe || d.ges;
-    if (!hasDpe && !summary.length && !state.plan) return "";
+    if (!hasDpe && !summary.length) return "";
     let body = "";
     if (hasDpe) {
       body += '<div class="diag-wrap">' +
@@ -429,11 +455,21 @@
         }).join("") + "</dl></div>";
     }
     if (d.note) body += '<p class="diag-note">' + esc(d.note) + "</p>";
-    if (state.plan) body += '<img class="plan-img" src="' + state.plan + '" alt="Plan">';
     return '<section class="page"><div class="page__inner">' +
       '<div class="section-head"><div><div class="eyebrow">Informations</div>' +
-      '<h2 class="section-title">Diagnostics' + (state.plan ? " & plan" : "") + '</h2></div><span class="idx">04</span></div>' +
+      '<h2 class="section-title">Diagnostics</h2></div><span class="idx">04</span></div>' +
       body + "</div>" + pageMark() + "</section>";
+  }
+
+  function pagesPlans() {
+    const pl = state.plans || []; if (!pl.length) return "";
+    return chunk(pl, 2).map(function (grp, gi) {
+      const head = gi === 0
+        ? '<div class="gm-head"><div class="eyebrow">Le bien</div><div class="gm-head-title">' + (pl.length > 1 ? "Les plans" : "Le plan") + "</div></div>"
+        : "";
+      const body = grp.map(function (u) { return gmCell({ url: u, caption: "" }); }).join("");
+      return '<section class="page gallery-page"><div class="gallery-montage">' + head + body + "</div>" + pageMark() + "</section>";
+    }).join("");
   }
 
   function pageSurfaces() {
@@ -480,7 +516,7 @@
   function buildBrochure() {
     return [
       pageCover(), pageEdito(), pageBien(), pagesGallery(),
-      pageFeatures(), pageQuartier(), pageDiagnostics(), pageSurfaces(), pagePrice()
+      pageFeatures(), pageQuartier(), pageDiagnostics(), pagesPlans(), pageSurfaces(), pagePrice()
     ].join("");
   }
 
@@ -526,7 +562,7 @@
       try {
         const d = JSON.parse(r.result);
         if (!d.property) throw new Error("format");
-        state = Object.assign(clone(DEFAULT), d);
+        state = normalizeState(Object.assign(clone(DEFAULT), d));
         hydrateForm(); renderPhotoUI(); render(); save();
         toast("Projet chargé.");
       } catch (e) { toast("Fichier .json invalide.", true); }
@@ -551,7 +587,7 @@
     s.property.stats = { pieces: "", chambres: "", sdb: "", surface: "", terrain: "" };
     s.property.price = ""; s.features = { interieur: [], exterieur: [], aSavoir: [] };
     s.quartier = []; s.diagnostics = { dpe: "", dpeValue: "", ges: "", gesValue: "", note: "Document non contractuel.", summary: [] };
-    s.coverPhoto = null; s.gallery = []; s.plan = null; s.surfaces = []; s.surfacesTotal = "";
+    s.coverPhoto = null; s.gallery = []; s.plans = []; s.surfaces = []; s.surfacesTotal = "";
     return s;
   }
 

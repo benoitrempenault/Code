@@ -229,12 +229,13 @@
 
           <div class="uploader">
             <div class="uploader__row">
-              <span>Plan (optionnel)</span>
-              <label class="btn btn--ghost btn--sm">Choisir
-                <input type="file" id="filePlan" accept="image/*" hidden />
+              <span>Plans (optionnel — plusieurs possibles)</span>
+              <label class="btn btn--ghost btn--sm">Ajouter
+                <input type="file" id="filePlan" accept="image/*" multiple hidden />
               </label>
             </div>
-            <div id="planThumb" class="thumbs thumbs--single"></div>
+            <p class="hint">Ajoutez un ou plusieurs plans (RDC, étage…). Réorganisez avec ↑ ↓. 2 plans par page.</p>
+            <div id="planThumb" class="thumbs"></div>
           </div>
 
           <div class="uploader">
