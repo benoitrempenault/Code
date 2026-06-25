@@ -492,15 +492,14 @@
       (tot ? '<div class="surf-card surf-card--accent"><div class="sc-label">Surface totale</div><div class="sc-value">' + esc(tot) + "</div></div>" : "") +
       "</div>";
     const cells = rows.map(function (r) {
-      return '<div class="surf-row"><span class="surf-room">' + esc(r.label) +
-        '</span><span class="surf-dots"></span><span class="surf-area">' + esc(r.value) + "</span></div>";
+      return "<tr><td class=\"surf-room\">" + esc(r.label) + '</td><td class="surf-area">' + esc(r.value) + "</td></tr>";
     }).join("");
     return '<section class="page surfaces-page"><div class="page__inner">' +
       '<div class="section-head"><div><div class="eyebrow">Métré</div>' +
       '<h2 class="section-title">Tableau des surfaces</h2></div><span class="idx">05</span></div>' +
       cards +
-      '<div class="surf-table"><div class="surf-thead"><span>Pièce / espace</span><span>Surface</span></div>' +
-      '<div class="surf-rows">' + cells + "</div></div>" +
+      '<div class="surf-table"><table class="surf-tbl"><thead><tr><th>Pièce / espace</th><th>Surface</th></tr></thead>' +
+      "<tbody>" + cells + "</tbody></table></div>" +
       "</div>" + pageMark() + "</section>";
   }
 

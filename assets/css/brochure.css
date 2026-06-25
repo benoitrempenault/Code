@@ -196,13 +196,14 @@
 .sc-label { font-size: 8.5pt; letter-spacing: .18em; text-transform: uppercase; color: var(--ink-soft); }
 .surf-card--accent .sc-label { color: var(--accent); }
 .sc-value { font-family: var(--serif); font-size: 27pt; line-height: 1; margin-top: 10px; }
-.surf-table { flex: 1 1 auto; display: flex; flex-direction: column; max-width: 82mm; margin: 0 auto; width: 100%; }
-.surf-thead { flex: 0 0 auto; display: flex; justify-content: space-between; font-size: 8.5pt; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); padding-bottom: 8px; border-bottom: 2px solid var(--accent); }
-.surf-rows { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-between; }
-.surf-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--hair); }
+.surf-table { flex: 1 1 auto; display: flex; max-width: 122mm; margin: 0 auto; width: 100%; }
+.surf-tbl { flex: 1 1 auto; width: 100%; border-collapse: collapse; table-layout: fixed; }
+.surf-tbl thead th { font-size: 8.5pt; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; color: var(--paper); background: var(--accent); padding: 6mm 7mm; text-align: left; }
+.surf-tbl thead th:last-child { text-align: right; width: 38mm; }
+.surf-tbl td { border: 1px solid var(--hair); padding: 5mm 7mm; vertical-align: middle; }
+.surf-tbl tbody tr:nth-child(even) td { background: rgba(0,0,0,.025); }
 .surf-room { font-size: 11pt; color: var(--ink); }
-.surf-dots { flex: 1 1 auto; border-bottom: 1px dotted var(--hair); transform: translateY(-3px); }
-.surf-area { font-family: var(--serif); font-size: 11pt; color: var(--ink); white-space: nowrap; }
+.surf-area { font-family: var(--serif); font-size: 12pt; color: var(--ink); text-align: right; white-space: nowrap; }
 
 /* petit emblème en bas de page (pages sans logo) */
 .page-mark { position: absolute; bottom: 12mm; right: 16mm; height: 9mm; width: auto; opacity: .8; }
