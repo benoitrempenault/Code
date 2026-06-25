@@ -7,6 +7,43 @@
 
   const ENDPOINT = "https://api.anthropic.com/v1/messages";
 
+  function authHeaders(apiKey) {
+    return {
+      "content-type": "application/json",
+      "x-api-key": apiKey.trim(),
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    };
+  }
+  function delay(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  // Appel à l'API avec ré-essais sur erreurs serveur transitoires (429 / 5xx).
+  async function callAnthropic(apiKey, body, tries) {
+    tries = tries || 3;
+    let lastErr;
+    for (let i = 0; i < tries; i++) {
+      let res;
+      try {
+        res = await fetch(ENDPOINT, { method: "POST", headers: authHeaders(apiKey), body: JSON.stringify(body) });
+      } catch (e) {
+        lastErr = new Error("Connexion impossible à l'API Anthropic (réseau).");
+        await delay(700 * (i + 1)); continue;
+      }
+      let data; try { data = await res.json(); } catch (e) { data = {}; }
+      if (res.ok) return data;
+      const st = res.status;
+      if (st === 401) throw new Error("Clé API refusée (401). Vérifiez votre clé Anthropic.");
+      if (st === 413) throw new Error("Fichier trop volumineux. Chargez seulement la page utile du document.");
+      if (st === 400) throw new Error((data.error && data.error.message) || "Requête invalide (400).");
+      lastErr = new Error(st >= 500
+        ? "Service Claude momentanément indisponible (erreur " + st + "). Réessayez dans quelques secondes."
+        : ((data.error && data.error.message) || ("Erreur " + st)));
+      if (st === 429 || st >= 500) { await delay(900 * (i + 1)); continue; } // transitoire → on réessaie
+      throw lastErr;
+    }
+    throw lastErr;
+  }
+
   // Schéma de sortie : on contraint Claude à renvoyer du JSON exploitable.
   const SCHEMA = {
     type: "object",
@@ -113,29 +150,7 @@
       messages: [{ role: "user", content: userPrompt(notes, context) }]
     };
 
-    let res;
-    try {
-      res = await fetch(ENDPOINT, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": apiKey.trim(),
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true"
-        },
-        body: JSON.stringify(body)
-      });
-    } catch (e) {
-      throw new Error("Connexion impossible à l'API Anthropic (réseau ou navigateur). " + e.message);
-    }
-
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = (data && data.error && data.error.message) || ("Erreur " + res.status);
-      if (res.status === 401) throw new Error("Clé API refusée (401). Vérifiez votre clé Anthropic.");
-      if (res.status === 429) throw new Error("Limite de débit atteinte (429). Réessayez dans un instant.");
-      throw new Error(msg);
-    }
+    const data = await callAnthropic(apiKey, body);
     if (data.stop_reason === "refusal") {
       throw new Error("La demande a été déclinée par le modèle. Reformulez les notes.");
     }
@@ -308,27 +323,7 @@
       messages: [{ role: "user", content: content }]
     };
 
-    let res;
-    try {
-      res = await fetch(ENDPOINT, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": apiKey.trim(),
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true"
-        },
-        body: JSON.stringify(body)
-      });
-    } catch (e) {
-      throw new Error("Connexion impossible à l'API Anthropic. " + e.message);
-    }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = (data && data.error && data.error.message) || ("Erreur " + res.status);
-      if (res.status === 401) throw new Error("Clé API refusée (401).");
-      throw new Error(msg);
-    }
+    const data = await callAnthropic(apiKey, body);
     if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
     const textBlock = (data.content || []).find(function (b) { return b.type === "text"; });
     if (!textBlock) throw new Error("Réponse vide du modèle.");
@@ -399,28 +394,7 @@
       messages: [{ role: "user", content: [block, { type: "text", text: "Lis ce diagnostic et renvoie les classes et valeurs DPE/GES." }] }]
     };
 
-    let res;
-    try {
-      res = await fetch(ENDPOINT, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": apiKey.trim(),
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true"
-        },
-        body: JSON.stringify(body)
-      });
-    } catch (e) {
-      throw new Error("Connexion impossible à l'API Anthropic. " + e.message);
-    }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = (data && data.error && data.error.message) || ("Erreur " + res.status);
-      if (res.status === 401) throw new Error("Clé API refusée (401).");
-      if (res.status === 413) throw new Error("Fichier trop volumineux. Chargez seulement la page du DPE.");
-      throw new Error(msg);
-    }
+    const data = await callAnthropic(apiKey, body);
     if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
     const textBlock = (data.content || []).find(function (b) { return b.type === "text"; });
     if (!textBlock) throw new Error("Réponse vide du modèle.");
@@ -505,21 +479,7 @@
       messages: [{ role: "user", content: [block, { type: "text", text: "Extrais le tableau des surfaces." }] }]
     };
 
-    let res;
-    try {
-      res = await fetch(ENDPOINT, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-api-key": apiKey.trim(), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify(body)
-      });
-    } catch (e) { throw new Error("Connexion impossible à l'API Anthropic. " + e.message); }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = (data && data.error && data.error.message) || ("Erreur " + res.status);
-      if (res.status === 401) throw new Error("Clé API refusée (401).");
-      if (res.status === 413) throw new Error("Fichier trop volumineux. Chargez seulement la page du tableau.");
-      throw new Error(msg);
-    }
+    const data = await callAnthropic(apiKey, body);
     if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
     const tb = (data.content || []).find(function (b) { return b.type === "text"; });
     if (!tb) throw new Error("Réponse vide du modèle.");

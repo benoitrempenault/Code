@@ -252,11 +252,9 @@
             </div>
             <p class="hint">Chargez le mesurage (loi Carrez / Boutin) : Claude lit les surfaces et crée un <strong>tableau design</strong>. Nécessite la clé API (point 8).</p>
             <label>Surfaces <small class="hint">(une par ligne — « Séjour : 45 m² » ; rempli par l'analyse)</small>
-              <textarea rows="6" data-bind-kv="surfaces" placeholder="Séjour : 45 m²&#10;Cuisine : 14 m²&#10;Suite parentale : 36,71 m²"></textarea>
+              <textarea rows="7" data-bind-kv="surfaces" placeholder="Séjour : 45 m²&#10;Cuisine : 14 m²&#10;Suite parentale : 36,71 m²"></textarea>
             </label>
-            <label>Surface totale
-              <input type="text" data-bind="surfacesTotal" placeholder="198,44 m²" />
-            </label>
+            <p class="hint">« Surface totale » est calculée automatiquement (somme des lignes). « Surface habitable » reprend la valeur du point 2.</p>
           </div>
         </div>
       </details>

@@ -472,20 +472,35 @@
     }).join("");
   }
 
+  function sumSurfaces(rows) {
+    let sum = 0, any = false;
+    (rows || []).forEach(function (r) {
+      const m = String(r.value).replace(",", ".").match(/[0-9]+(\.[0-9]+)?/);
+      if (m) { sum += parseFloat(m[0]); any = true; }
+    });
+    if (!any) return "";
+    return (Math.round(sum * 100) / 100).toString().replace(".", ",") + " m²";
+  }
+
   function pageSurfaces() {
     const rows = state.surfaces || [];
     if (!rows.length) return "";
+    const hab = (state.property.stats && state.property.stats.surface) || "";
+    const tot = sumSurfaces(rows) || state.surfacesTotal || "";
+    const cards = '<div class="surf-cards">' +
+      (hab ? '<div class="surf-card"><div class="sc-label">Surface habitable</div><div class="sc-value">' + esc(hab) + "</div></div>" : "") +
+      (tot ? '<div class="surf-card surf-card--accent"><div class="sc-label">Surface totale</div><div class="sc-value">' + esc(tot) + "</div></div>" : "") +
+      "</div>";
     const cells = rows.map(function (r) {
-      return '<div class="st-row"><span class="st-room">' + esc(r.label) +
-        '</span><span class="st-dots"></span><span class="st-area">' + esc(r.value) + "</span></div>";
+      return '<div class="surf-row"><span class="surf-room">' + esc(r.label) +
+        '</span><span class="surf-dots"></span><span class="surf-area">' + esc(r.value) + "</span></div>";
     }).join("");
-    const total = state.surfacesTotal
-      ? '<div class="st-total"><span>Surface totale</span><span class="st-area">' + esc(state.surfacesTotal) + "</span></div>"
-      : "";
     return '<section class="page surfaces-page"><div class="page__inner">' +
       '<div class="section-head"><div><div class="eyebrow">Métré</div>' +
       '<h2 class="section-title">Tableau des surfaces</h2></div><span class="idx">05</span></div>' +
-      '<div class="surfaces-table">' + cells + "</div>" + total +
+      cards +
+      '<div class="surf-table"><div class="surf-thead"><span>Pièce / espace</span><span>Surface</span></div>' +
+      '<div class="surf-rows">' + cells + "</div></div>" +
       "</div>" + pageMark() + "</section>";
   }
 

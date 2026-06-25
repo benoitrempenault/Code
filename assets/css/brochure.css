@@ -187,17 +187,22 @@
 .diag-note { font-size: 9pt; color: var(--ink-soft); margin-top: 8mm; line-height: 1.5; }
 .plan-img { width: 100%; margin-top: 10mm; }
 
-/* Tableau des surfaces — occupe la page (réparti verticalement) */
+/* Tableau des surfaces — cartes récap + table, occupe la page */
 .surfaces-page .page__inner { min-height: 297mm; display: flex; flex-direction: column; box-sizing: border-box; }
 .surfaces-page .section-head { flex: 0 0 auto; }
-.surfaces-table { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-between; }
-.st-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--hair); }
-.st-room { font-size: 11pt; color: var(--ink); }
-.st-dots { flex: 1 1 auto; border-bottom: 1px dotted var(--hair); transform: translateY(-3px); }
-.st-area { font-family: var(--serif); font-size: 11pt; color: var(--ink); white-space: nowrap; }
-.st-total { flex: 0 0 auto; display: flex; justify-content: space-between; align-items: baseline; margin-top: 8mm; padding-top: 12px; border-top: 2px solid var(--accent); }
-.st-total > span:first-child { font-size: 9pt; letter-spacing: .18em; text-transform: uppercase; color: var(--accent); }
-.st-total .st-area { font-size: 18pt; }
+.surf-cards { flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 10mm; margin-bottom: 12mm; }
+.surf-card { border: 1px solid var(--hair); border-radius: 10px; padding: 9mm 6mm; text-align: center; }
+.surf-card--accent { border-color: var(--accent); }
+.sc-label { font-size: 8.5pt; letter-spacing: .18em; text-transform: uppercase; color: var(--ink-soft); }
+.surf-card--accent .sc-label { color: var(--accent); }
+.sc-value { font-family: var(--serif); font-size: 27pt; line-height: 1; margin-top: 10px; }
+.surf-table { flex: 1 1 auto; display: flex; flex-direction: column; }
+.surf-thead { flex: 0 0 auto; display: flex; justify-content: space-between; font-size: 8.5pt; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); padding-bottom: 8px; border-bottom: 2px solid var(--accent); }
+.surf-rows { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-between; }
+.surf-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--hair); }
+.surf-room { font-size: 11pt; color: var(--ink); }
+.surf-dots { flex: 1 1 auto; border-bottom: 1px dotted var(--hair); transform: translateY(-3px); }
+.surf-area { font-family: var(--serif); font-size: 11pt; color: var(--ink); white-space: nowrap; }
 
 /* petit emblème en bas de page (pages sans logo) */
 .page-mark { position: absolute; bottom: 12mm; right: 16mm; height: 9mm; width: auto; opacity: .8; }
