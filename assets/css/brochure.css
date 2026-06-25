@@ -196,7 +196,7 @@
 .sc-label { font-size: 8.5pt; letter-spacing: .18em; text-transform: uppercase; color: var(--ink-soft); }
 .surf-card--accent .sc-label { color: var(--accent); }
 .sc-value { font-family: var(--serif); font-size: 27pt; line-height: 1; margin-top: 10px; }
-.surf-table { flex: 1 1 auto; display: flex; flex-direction: column; max-width: 105mm; margin: 0 auto; width: 100%; }
+.surf-table { flex: 1 1 auto; display: flex; flex-direction: column; max-width: 82mm; margin: 0 auto; width: 100%; }
 .surf-thead { flex: 0 0 auto; display: flex; justify-content: space-between; font-size: 8.5pt; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); padding-bottom: 8px; border-bottom: 2px solid var(--accent); }
 .surf-rows { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-between; }
 .surf-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--hair); }
