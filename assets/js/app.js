@@ -86,6 +86,8 @@
   /* --------------------------------- État ------------------------------- */
   let state = normalizeState(load() || clone(DEFAULT));
   let preview = { mode: "fit", value: 0.62 };
+  let currentFileName = null;   // nom du .json ouvert depuis la bibliothèque (pour réenregistrer au même endroit)
+  let libItems = [];            // dernière liste lue du dossier
 
   // migration / valeurs par défaut sûres (ex. ancien champ `plan` unique -> `plans[]`)
   function normalizeState(s) {
@@ -570,14 +572,18 @@
     downloadBlob(JSON.stringify(data, null, 2), fileSlug() + ".json", "application/json");
     toast("Projet sauvegardé (.json).");
   }
+  // Charge des données de projet dans l'état (import .json ou bibliothèque).
+  function loadData(d) {
+    if (!d || !d.property) throw new Error("format");
+    state = normalizeState(Object.assign(clone(DEFAULT), d));
+    hydrateForm(); renderPhotoUI(); render(); save();
+  }
   function doImportJson(file) {
     const r = new FileReader();
     r.onload = function () {
       try {
-        const d = JSON.parse(r.result);
-        if (!d.property) throw new Error("format");
-        state = normalizeState(Object.assign(clone(DEFAULT), d));
-        hydrateForm(); renderPhotoUI(); render(); save();
+        loadData(JSON.parse(r.result));
+        currentFileName = null; // fichier importé : « Enregistrer » créera une entrée dans le dossier
         toast("Projet chargé.");
       } catch (e) { toast("Fichier .json invalide.", true); }
     };
@@ -585,7 +591,7 @@
   }
   function doNew() {
     if (!confirm("Repartir d'une fiche vierge ? Le projet actuel sera remplacé (pensez à le sauvegarder).")) return;
-    state = blankState(); hydrateForm(); renderPhotoUI(); render(); save();
+    state = blankState(); currentFileName = null; hydrateForm(); renderPhotoUI(); render(); save();
     // Vider aussi les champs hors-état : notes brutes (point 8) et sources du quartier.
     const notes = document.getElementById("aiNotes"); if (notes) notes.value = "";
     const src = document.getElementById("quartierSources"); if (src) src.innerHTML = "";
@@ -842,6 +848,148 @@
     clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.className = "toast"; }, 3600);
   }
 
+  /* ---------------------- Bibliothèque (dossier OneDrive) --------------- */
+  const Lib = window.BrochureLibrary;
+  function normTxt(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
+
+  function openLib() { $("#libOverlay").hidden = false; libRefresh(); }
+  function closeLib() { $("#libOverlay").hidden = true; }
+
+  async function libRefresh() {
+    const listEl = $("#libList"), folderEl = $("#libFolder"), hint = $("#libHint");
+    const btnChoose = $("#libChoose"), btnSave = $("#libSave");
+    if (!Lib || !Lib.isSupported()) {
+      folderEl.textContent = "Indisponible sur ce navigateur";
+      listEl.innerHTML = "";
+      hint.innerHTML = "La bibliothèque OneDrive nécessite <strong>Google Chrome</strong> ou <strong>Microsoft Edge</strong> sur ordinateur. " +
+        "Vous pouvez toujours utiliser « Sauvegarder » et « Importer » (fichiers .json).";
+      btnChoose.disabled = true; btnSave.disabled = true;
+      return;
+    }
+    btnChoose.disabled = false; btnSave.disabled = false;
+    if (!Lib.folderName()) {
+      folderEl.textContent = "Aucun dossier sélectionné";
+      listEl.innerHTML = '<div class="lib-empty">Choisissez votre dossier OneDrive (ex. « Documents / Brochures ») pour commencer.</div>';
+      hint.textContent = "Une seule fois : sélectionnez le dossier. Les brochures y sont enregistrées en .json et OneDrive les synchronise vers le cloud et vos autres appareils.";
+      return;
+    }
+    const ok = await Lib.ensurePermission();
+    if (!ok) {
+      hint.textContent = "Autorisation refusée. Cliquez sur « Choisir le dossier OneDrive » pour la réaccorder.";
+      return;
+    }
+    folderEl.textContent = "Dossier : " + Lib.folderName();
+    hint.textContent = "";
+    listEl.innerHTML = '<div class="lib-empty">Lecture du dossier…</div>';
+    try {
+      libItems = await Lib.list();
+      renderLibList();
+    } catch (e) {
+      listEl.innerHTML = ""; hint.textContent = "Impossible de lire le dossier.";
+    }
+  }
+
+  function renderLibList() {
+    const listEl = $("#libList");
+    if (!libItems.length) {
+      listEl.innerHTML = '<div class="lib-empty">Aucune brochure dans ce dossier pour le moment. Créez-en une puis « Enregistrer la brochure actuelle ».</div>';
+      return;
+    }
+    const raw = $("#libSearch").value; const q = normTxt(raw);
+    const items = q ? libItems.filter(function (it) {
+      return normTxt(it.title + " " + it.location + " " + it.name).indexOf(q) >= 0;
+    }) : libItems;
+    if (!items.length) {
+      listEl.innerHTML = '<div class="lib-empty">Aucun résultat pour « ' + esc(raw) + ' ».</div>';
+      return;
+    }
+    listEl.innerHTML = items.map(function (it) {
+      const d = new Date(it.modified);
+      const ds = (it.modified && !isNaN(d)) ? d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) : "";
+      const sub = [it.location, it.price].filter(Boolean).join("  ·  ") || it.name;
+      const cur = (it.name === currentFileName) ? ' <span class="lib-item__badge">ouverte</span>' : "";
+      return '<div class="lib-item" data-name="' + esc(it.name) + '">' +
+        '<div class="lib-item__main">' +
+        '<div class="lib-item__title">' + esc(it.title) + cur + "</div>" +
+        '<div class="lib-item__sub">' + esc(sub) + "</div>" +
+        '<div class="lib-item__meta">' + (ds ? "Modifié le " + ds : "") + "</div>" +
+        "</div>" +
+        '<div class="lib-item__actions">' +
+        '<button class="btn btn--primary btn--sm" data-act="open">Ouvrir</button>' +
+        '<button class="btn btn--ghost btn--sm" data-act="del">Supprimer</button>' +
+        "</div></div>";
+    }).join("");
+  }
+
+  async function libOpen(name) {
+    try {
+      const d = await Lib.read(name);
+      loadData(d);
+      currentFileName = name;
+      closeLib();
+      toast("« " + (state.property.title || name) + " » ouverte. Modifiez, puis « Bibliothèque » → « Enregistrer ».");
+    } catch (e) { toast("Ouverture impossible.", true); }
+  }
+
+  async function libDelete(name) {
+    if (!confirm("Supprimer définitivement « " + name + " » du dossier OneDrive ?")) return;
+    try {
+      await Lib.remove(name);
+      if (currentFileName === name) currentFileName = null;
+      libItems = await Lib.list(); renderLibList();
+      toast("Brochure supprimée.");
+    } catch (e) { toast("Suppression impossible.", true); }
+  }
+
+  async function libUnique(base) {
+    let i = 2, name;
+    do { name = base + "-" + i + ".json"; i++; } while (await Lib.exists(name));
+    return name;
+  }
+  async function libSaveCurrent() {
+    if (!Lib || !Lib.isSupported()) { toast("Sur ce navigateur, utilisez « Sauvegarder » (.json).", true); return; }
+    if (!Lib.folderName()) { toast("Choisissez d'abord le dossier OneDrive.", true); return; }
+    if (!(await Lib.ensurePermission())) { toast("Autorisation requise pour écrire dans le dossier.", true); return; }
+    let name;
+    if (currentFileName) {
+      name = currentFileName; // réenregistre au même endroit (ex. mise à jour du prix)
+    } else {
+      const base = fileSlug(); name = base + ".json";
+      if (await Lib.exists(name)) {
+        if (!confirm("Une brochure « " + name + " » existe déjà. La remplacer ?")) name = await libUnique(base);
+      }
+    }
+    const data = clone(state); data._app = "studio-brochure"; data._v = 2;
+    try {
+      await Lib.saveState(data, name);
+      currentFileName = name;
+      libItems = await Lib.list(); renderLibList();
+      $("#libFolder").textContent = "Dossier : " + Lib.folderName();
+      toast("Brochure enregistrée dans le dossier : " + name);
+    } catch (e) { toast("Enregistrement impossible.", true); }
+  }
+
+  function wireLibrary() {
+    $("#btnLibrary").addEventListener("click", openLib);
+    $("#libClose").addEventListener("click", closeLib);
+    $("#libOverlay").addEventListener("click", function (e) { if (e.target === this) closeLib(); });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !$("#libOverlay").hidden) closeLib(); });
+    $("#libSearch").addEventListener("input", renderLibList);
+    $("#libSave").addEventListener("click", libSaveCurrent);
+    $("#libChoose").addEventListener("click", async function () {
+      try { await Lib.chooseFolder(); await libRefresh(); }
+      catch (e) { /* l'utilisateur a annulé la sélection */ }
+    });
+    $("#libList").addEventListener("click", function (e) {
+      const btn = e.target.closest && e.target.closest("button[data-act]"); if (!btn) return;
+      const item = e.target.closest(".lib-item"); if (!item) return;
+      const name = item.getAttribute("data-name");
+      if (btn.getAttribute("data-act") === "open") libOpen(name); else libDelete(name);
+    });
+    // Retrouve le dossier mémorisé (sans encore demander l'autorisation).
+    if (Lib && Lib.isSupported()) Lib.restore();
+  }
+
   /* ------------------------------ Démarrage ----------------------------- */
   function wireToolbar() {
     $("#btnNew").addEventListener("click", doNew);
@@ -920,6 +1068,7 @@
     renderPhotoUI();
     wireToolbar();
     wireAI();
+    wireLibrary();
     wireAddressAutocomplete();
     render();
     applyZoom();

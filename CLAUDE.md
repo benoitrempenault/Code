@@ -26,6 +26,15 @@ host (GitHub Pages) or a local `python3 -m http.server`.
   Messages API (header `anthropic-dangerous-direct-browser-access`), constrained to JSON via
   `output_config.format`. Default model `claude-opus-4-8`. The user's API key lives only in
   `localStorage` (`studio-brochure-aikey`) and is never put in the exported `.json`.
+- `assets/js/library.js` — `window.BrochureLibrary`: a **brochure library backed by a local
+  OneDrive-synced folder** (File System Access API). The user picks a folder once; the app
+  lists/opens/saves/deletes `.json` brochures in it, and the OneDrive desktop client syncs them
+  to the cloud and other devices. The chosen directory handle is persisted in **IndexedDB**
+  (`studio-brochure` DB, `handles` store) so it survives reloads; read/write permission is
+  re-requested on the first user gesture. Chrome/Edge desktop only — elsewhere the app falls
+  back to the `.json` Import/Save buttons. The library UI (topbar `▤ Bibliothèque` → modal with
+  search-by-name) is wired in `app.js` (`wireLibrary`), which tracks `currentFileName` so
+  re-saving an opened brochure (e.g. to change the price) overwrites the same file.
 
 ### Key conventions
 - The brochure is re-rendered from `state` on every change; `buildBrochure()` returns an HTML

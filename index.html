@@ -25,6 +25,7 @@
       <button class="btn btn--ghost" id="btnNew" title="Repartir d'une fiche vierge">Nouveau</button>
       <button class="btn btn--ghost" id="btnImport" title="Charger un projet (.json)">Importer</button>
       <button class="btn btn--ghost" id="btnExportJson" title="Sauvegarder le projet (.json)">Sauvegarder</button>
+      <button class="btn btn--ghost" id="btnLibrary" title="Ouvrir ou enregistrer une brochure dans votre dossier OneDrive">▤ Bibliothèque</button>
       <span class="topbar__sep" aria-hidden="true"></span>
       <button class="btn btn--ghost" id="btnExportHtml" title="Exporter une page web autonome">Exporter HTML</button>
       <button class="btn btn--ghost" id="btnMail" title="Préparer un e-mail">Envoyer par mail</button>
@@ -315,8 +316,9 @@
       </details>
 
       <p class="editor__footer">
-        Vos données restent sur cet appareil. Pour les conserver durablement,
-        cliquez sur <strong>Sauvegarder</strong> (fichier .json).
+        Vos données restent sur cet appareil. Pour retrouver et modifier vos brochures plus tard
+        (le prix, une photo…), utilisez <strong>▤ Bibliothèque</strong> et enregistrez-les dans
+        votre dossier <strong>OneDrive</strong> — ou <strong>Sauvegarder</strong> (fichier .json).
       </p>
     </section>
 
@@ -337,9 +339,32 @@
   <input type="file" id="fileImport" accept="application/json,.json" hidden />
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+  <!-- ======================= BIBLIOTHÈQUE ======================= -->
+  <div class="lib-overlay" id="libOverlay" hidden>
+    <div class="lib-modal" role="dialog" aria-modal="true" aria-label="Bibliothèque des brochures">
+      <div class="lib-head">
+        <div>
+          <strong>Bibliothèque</strong>
+          <small id="libFolder">Aucun dossier sélectionné</small>
+        </div>
+        <button class="btn btn--icon" id="libClose" aria-label="Fermer">✕</button>
+      </div>
+      <div class="lib-toolbar">
+        <button class="btn btn--ghost btn--sm" id="libChoose">📁 Choisir le dossier OneDrive…</button>
+        <button class="btn btn--primary btn--sm" id="libSave">Enregistrer la brochure actuelle</button>
+      </div>
+      <div class="lib-search">
+        <input type="search" id="libSearch" placeholder="Rechercher une brochure par nom…" autocomplete="off" />
+      </div>
+      <div class="lib-list" id="libList"></div>
+      <p class="lib-hint" id="libHint"></p>
+    </div>
+  </div>
+
   <script src="assets/js/logo.js"></script>
   <script src="assets/js/geo.js"></script>
   <script src="assets/js/ai.js"></script>
+  <script src="assets/js/library.js"></script>
   <script src="assets/js/app.js"></script>
 </body>
 </html>
