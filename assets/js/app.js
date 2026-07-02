@@ -956,13 +956,15 @@
     listEl.innerHTML = items.map(function (it) {
       const d = new Date(it.modified);
       const ds = (it.modified && !isNaN(d)) ? d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) : "";
-      const sub = [it.location, it.price].filter(Boolean).join("  ·  ") || it.name;
+      const fname = it.name.replace(/\.json$/i, "");     // le nom sous lequel c'est enregistré
+      const sub = [it.title, it.location].filter(Boolean).join(" — ");   // le contenu de la brochure
+      const meta = [it.price, ds ? "Modifié le " + ds : ""].filter(Boolean).join("  ·  ");
       const cur = (it.name === currentFileName) ? ' <span class="lib-item__badge">ouverte</span>' : "";
       return '<div class="lib-item" data-name="' + esc(it.name) + '">' +
         '<div class="lib-item__main">' +
-        '<div class="lib-item__title">' + esc(it.title) + cur + "</div>" +
-        '<div class="lib-item__sub">' + esc(sub) + "</div>" +
-        '<div class="lib-item__meta">' + (ds ? "Modifié le " + ds : "") + "</div>" +
+        '<div class="lib-item__title">' + esc(fname) + cur + "</div>" +
+        (sub ? '<div class="lib-item__sub">' + esc(sub) + "</div>" : "") +
+        '<div class="lib-item__meta">' + esc(meta) + "</div>" +
         "</div>" +
         '<div class="lib-item__actions">' +
         '<button class="btn btn--primary btn--sm" data-act="open">Ouvrir</button>' +
