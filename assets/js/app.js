@@ -567,10 +567,60 @@
   }
 
   /* ------------------------- Import / Export / Print -------------------- */
-  function doExportJson() {
+  // « Sauvegarder » : sur Chrome/Edge, écrit dans le dossier OneDrive choisi
+  // (avec un nom saisi) ; sinon, téléchargement .json classique.
+  async function doExportJson() {
+    const Lib = window.BrochureLibrary;
+    if (Lib && Lib.isSupported()) {
+      try {
+        if (!Lib.folderName()) {
+          toast("Choisissez votre dossier (une seule fois) — ex. KADIMA-TB…\\BROCHURE.");
+          await Lib.chooseFolder();
+        }
+      } catch (e) { downloadJson(); return; } // sélection annulée → repli téléchargement
+      await saveCurrentToFolder();
+      return;
+    }
+    downloadJson();
+  }
+  function downloadJson() {
     const data = clone(state); data._app = "studio-brochure"; data._v = 2;
     downloadBlob(JSON.stringify(data, null, 2), fileSlug() + ".json", "application/json");
-    toast("Projet sauvegardé (.json).");
+    toast("Projet téléchargé (.json).");
+  }
+  // Nettoie un nom saisi pour en faire un nom de fichier valide (Windows/OneDrive).
+  function safeName(s) {
+    return String(s || "")
+      .replace(/[<>:"/\\|?*]/g, "")        // caracteres interdits par Windows (espaces et tirets conserves)
+      .replace(/[\u0000-\u001F]/g, "")     // caracteres de controle
+      .replace(/\s+/g, " ")
+      .replace(/^[.\s]+|[.\s]+$/g, "")     // ni point ni espace en debut/fin
+      .slice(0, 80);
+  }
+  // Demande un nom puis enregistre la brochure courante dans le dossier OneDrive.
+  // Partagé par « Sauvegarder » et « Bibliothèque → Enregistrer ».
+  async function saveCurrentToFolder() {
+    const Lib = window.BrochureLibrary;
+    if (!(await Lib.ensurePermission())) { toast("Autorisation requise pour écrire dans le dossier.", true); return false; }
+    const suggested = currentFileName ? currentFileName.replace(/\.json$/i, "") : (state.property.title || fileSlug());
+    const input = prompt("Nom de la brochure :", suggested);
+    if (input == null) return false; // annulé
+    const base = safeName(input) || fileSlug();
+    const name = base + ".json";
+    if (name !== currentFileName && await Lib.exists(name)) {
+      if (!confirm("Une brochure « " + name + " » existe déjà. La remplacer ?")) return false;
+    }
+    const data = clone(state); data._app = "studio-brochure"; data._v = 2;
+    try {
+      await Lib.saveState(data, name);
+      currentFileName = name;
+      if (!$("#libOverlay").hidden) {
+        libItems = await Lib.list(); renderLibList();
+        $("#libFolder").textContent = "Dossier : " + Lib.folderName();
+      }
+      toast("Brochure enregistrée : " + name);
+      return true;
+    } catch (e) { toast("Enregistrement impossible.", true); return false; }
   }
   // Charge des données de projet dans l'état (import .json ou bibliothèque).
   function loadData(d) {
@@ -869,8 +919,8 @@
     btnChoose.disabled = false; btnSave.disabled = false;
     if (!Lib.folderName()) {
       folderEl.textContent = "Aucun dossier sélectionné";
-      listEl.innerHTML = '<div class="lib-empty">Choisissez votre dossier OneDrive (ex. « Documents / Brochures ») pour commencer.</div>';
-      hint.textContent = "Une seule fois : sélectionnez le dossier. Les brochures y sont enregistrées en .json et OneDrive les synchronise vers le cloud et vos autres appareils.";
+      listEl.innerHTML = '<div class="lib-empty">Choisissez votre dossier de brochures pour commencer — ex.<br><code>KADIMA-TB\\Kadima - General\\MODELES\\COMMUNICATION\\BROCHURE</code>.</div>';
+      hint.textContent = "Une seule fois : sélectionnez le dossier (naviguez jusqu'à BROCHURE dans la fenêtre Windows). Il sera mémorisé ensuite. OneDrive synchronise les .json vers le cloud et vos autres appareils.";
       return;
     }
     const ok = await Lib.ensurePermission();
@@ -941,32 +991,13 @@
     } catch (e) { toast("Suppression impossible.", true); }
   }
 
-  async function libUnique(base) {
-    let i = 2, name;
-    do { name = base + "-" + i + ".json"; i++; } while (await Lib.exists(name));
-    return name;
-  }
   async function libSaveCurrent() {
     if (!Lib || !Lib.isSupported()) { toast("Sur ce navigateur, utilisez « Sauvegarder » (.json).", true); return; }
-    if (!Lib.folderName()) { toast("Choisissez d'abord le dossier OneDrive.", true); return; }
-    if (!(await Lib.ensurePermission())) { toast("Autorisation requise pour écrire dans le dossier.", true); return; }
-    let name;
-    if (currentFileName) {
-      name = currentFileName; // réenregistre au même endroit (ex. mise à jour du prix)
-    } else {
-      const base = fileSlug(); name = base + ".json";
-      if (await Lib.exists(name)) {
-        if (!confirm("Une brochure « " + name + " » existe déjà. La remplacer ?")) name = await libUnique(base);
-      }
+    if (!Lib.folderName()) {
+      try { await Lib.chooseFolder(); await libRefresh(); }
+      catch (e) { return; } // sélection annulée
     }
-    const data = clone(state); data._app = "studio-brochure"; data._v = 2;
-    try {
-      await Lib.saveState(data, name);
-      currentFileName = name;
-      libItems = await Lib.list(); renderLibList();
-      $("#libFolder").textContent = "Dossier : " + Lib.folderName();
-      toast("Brochure enregistrée dans le dossier : " + name);
-    } catch (e) { toast("Enregistrement impossible.", true); }
+    await saveCurrentToFolder(); // demande un nom puis écrit dans le dossier
   }
 
   function wireLibrary() {

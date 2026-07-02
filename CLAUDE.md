@@ -35,6 +35,13 @@ host (GitHub Pages) or a local `python3 -m http.server`.
   back to the `.json` Import/Save buttons. The library UI (topbar `▤ Bibliothèque` → modal with
   search-by-name) is wired in `app.js` (`wireLibrary`), which tracks `currentFileName` so
   re-saving an opened brochure (e.g. to change the price) overwrites the same file.
+  Both the topbar **Sauvegarder** button and the library's **Enregistrer** button funnel
+  through `saveCurrentToFolder()`: on Chrome/Edge they prompt for a brochure name (`prompt`,
+  sanitized by `safeName` — spaces/accents/hyphens kept, Windows-illegal chars stripped) and
+  write `<name>.json` into the chosen folder; `Sauvegarder` triggers the one-time folder pick
+  if none is set yet, and falls back to a plain `.json` download (`downloadJson`) on other
+  browsers. Note: browsers cannot pre-set an absolute path — the user navigates to the target
+  folder (e.g. `KADIMA-TB\…\BROCHURE`) once and it is remembered via IndexedDB + picker `id`.
 
 ### Key conventions
 - The brochure is re-rendered from `state` on every change; `buildBrochure()` returns an HTML
