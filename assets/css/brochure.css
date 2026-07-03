@@ -190,20 +190,20 @@
 /* Tableau des surfaces — cartes récap + table, occupe la page */
 .surfaces-page .page__inner { min-height: 297mm; display: flex; flex-direction: column; box-sizing: border-box; }
 .surfaces-page .section-head { flex: 0 0 auto; }
-.surf-cards { flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 10mm; margin-bottom: 12mm; }
-.surf-card { border: 1px solid var(--hair); border-radius: 10px; padding: 9mm 6mm; text-align: center; }
+.surf-cards { flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 10mm; margin-bottom: var(--surf-cmb, 12mm); }
+.surf-card { border: 1px solid var(--hair); border-radius: 10px; padding: calc(var(--surf-cmb, 12mm) * 0.75) 6mm; text-align: center; }
 .surf-card--accent { border-color: var(--accent); }
-.sc-label { font-size: 8.5pt; letter-spacing: .18em; text-transform: uppercase; color: var(--ink-soft); }
+.sc-label { font-size: var(--surf-sclbl, 8.5pt); letter-spacing: .18em; text-transform: uppercase; color: var(--ink-soft); }
 .surf-card--accent .sc-label { color: var(--accent); }
-.sc-value { font-family: var(--serif); font-size: 27pt; line-height: 1; margin-top: 10px; }
+.sc-value { font-family: var(--serif); font-size: var(--surf-scval, 27pt); line-height: 1; margin-top: 8px; }
 .surf-table { flex: 1 1 auto; display: flex; max-width: 122mm; margin: 0 auto; width: 100%; }
 .surf-tbl { flex: 1 1 auto; width: 100%; border-collapse: collapse; table-layout: fixed; }
-.surf-tbl thead th { font-size: 8.5pt; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; color: var(--paper); background: var(--accent); padding: 6mm 7mm; text-align: left; }
+.surf-tbl thead th { font-size: 8.5pt; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; color: var(--paper); background: var(--accent); padding: var(--surf-hpad, 6mm) 7mm; text-align: left; }
 .surf-tbl thead th:last-child { text-align: right; width: 38mm; }
-.surf-tbl td { border: 1px solid var(--hair); padding: 5mm 7mm; vertical-align: middle; }
+.surf-tbl td { border: 1px solid var(--hair); padding: var(--surf-vpad, 5mm) 7mm; vertical-align: middle; }
 .surf-tbl tbody tr:nth-child(even) td { background: rgba(0,0,0,.025); }
-.surf-room { font-size: 11pt; color: var(--ink); }
-.surf-area { font-family: var(--serif); font-size: 12pt; color: var(--ink); text-align: right; white-space: nowrap; }
+.surf-room { font-size: var(--surf-fs, 11pt); color: var(--ink); }
+.surf-area { font-family: var(--serif); font-size: calc(var(--surf-fs, 11pt) + 1pt); color: var(--ink); text-align: right; white-space: nowrap; }
 
 /* petit emblème en bas de page (pages sans logo) */
 .page-mark { position: absolute; bottom: 12mm; right: 16mm; height: 9mm; width: auto; opacity: .8; }

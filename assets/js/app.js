@@ -484,11 +484,25 @@
     return (Math.round(sum * 100) / 100).toString().replace(".", ",") + " m²";
   }
 
+  // Densité adaptative : plus il y a de pièces, plus la typo et les marges
+  // se resserrent, pour que TOUT tienne sur une seule page sans oublier de ligne.
+  function surfDensity(n) {
+    //                fs(pt) vpad(mm) hpad(mm) cmb(mm)  scLbl scVal
+    if (n <= 8)  return [11,   5,      6,       12,      8.5,  27];
+    if (n <= 11) return [10,   3.1,    5,        9,      8.5,  24];
+    if (n <= 14) return [9.5,  2.2,    4,        7,      8,    21];
+    if (n <= 18) return [9,    1.5,    3.5,      6,      7.5,  19];
+    if (n <= 24) return [8,    1.0,    3,        5,      7,    17];
+    return          [7,    0.6,    2.5,      4,      6.5,  15];
+  }
   function pageSurfaces() {
     const rows = state.surfaces || [];
     if (!rows.length) return "";
     const hab = (state.property.stats && state.property.stats.surface) || "";
     const tot = sumSurfaces(rows) || state.surfacesTotal || "";
+    const d = surfDensity(rows.length);
+    const style = "--surf-fs:" + d[0] + "pt;--surf-vpad:" + d[1] + "mm;--surf-hpad:" + d[2] +
+      "mm;--surf-cmb:" + d[3] + "mm;--surf-sclbl:" + d[4] + "pt;--surf-scval:" + d[5] + "pt";
     const cards = '<div class="surf-cards">' +
       (hab ? '<div class="surf-card"><div class="sc-label">Surface habitable</div><div class="sc-value">' + esc(hab) + "</div></div>" : "") +
       (tot ? '<div class="surf-card surf-card--accent"><div class="sc-label">Surface totale</div><div class="sc-value">' + esc(tot) + "</div></div>" : "") +
@@ -496,7 +510,7 @@
     const cells = rows.map(function (r) {
       return "<tr><td class=\"surf-room\">" + esc(r.label) + '</td><td class="surf-area">' + esc(r.value) + "</td></tr>";
     }).join("");
-    return '<section class="page surfaces-page"><div class="page__inner">' +
+    return '<section class="page surfaces-page" style="' + style + '"><div class="page__inner">' +
       '<div class="section-head"><div><div class="eyebrow">Métré</div>' +
       '<h2 class="section-title">Tableau des surfaces</h2></div><span class="idx">05</span></div>' +
       cards +
