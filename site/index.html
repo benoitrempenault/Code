@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Studio Immo — La fiche, la brochure et l'annonce en quelques minutes</title>
-  <meta name="description" content="L'outil des agences immobilières : dictez la fiche prestation, obtenez une brochure élégante prête à imprimer et le texte d'annonce pour les portails — à vos couleurs." />
+  <title>Studio Immo — Le livret qui fait signer les mandats</title>
+  <meta name="description" content="Fiche prestation dictée à la voix, brochure élégante, annonce pour les portails et page web du bien pour votre site : le package complet du mandat, en dix minutes, à vos couleurs." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
@@ -20,7 +20,6 @@
     .wrap { max-width: 1060px; margin: 0 auto; padding: 0 24px; }
     a { color: inherit; }
 
-    /* Header */
     header { position: sticky; top: 0; z-index: 10; background: rgba(247,242,234,.9); backdrop-filter: blur(8px); border-bottom: 1px solid var(--hair); }
     .nav { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; }
     .brand { font-family: var(--serif); font-size: 20px; font-weight: 600; letter-spacing: .3px; }
@@ -34,66 +33,78 @@
     .btn--ghost { border: 1px solid var(--hair); color: var(--ink); }
     .btn--big { padding: 14px 28px; font-size: 16px; }
 
-    /* Hero */
-    .hero { padding: 76px 0 30px; text-align: center; }
+    .hero { padding: 74px 0 26px; text-align: center; }
     .hero .eyebrow { letter-spacing: .22em; text-transform: uppercase; font-size: 12px; color: var(--accent-deep); font-weight: 600; }
-    .hero h1 { font-family: var(--serif); font-weight: 500; font-size: clamp(34px, 5.4vw, 58px); line-height: 1.12; margin: 18px auto 20px; max-width: 21ch; }
-    .hero p.lead { font-size: 18px; color: var(--ink-soft); max-width: 56ch; margin: 0 auto 30px; }
+    .hero h1 { font-family: var(--serif); font-weight: 500; font-size: clamp(32px, 5.2vw, 54px); line-height: 1.14; margin: 18px auto 20px; max-width: 24ch; }
+    .hero p.lead { font-size: 18px; color: var(--ink-soft); max-width: 58ch; margin: 0 auto 30px; }
     .hero .ctas { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; }
     .hero .note { font-size: 12.5px; color: var(--ink-soft); }
 
-    /* Video */
     .demo { padding: 26px 0 10px; }
-    .demo video {
-      display: block; width: 100%; border-radius: 16px; border: 1px solid var(--hair);
-      box-shadow: 0 30px 80px rgba(60,45,20,.18);
-    }
+    .demo video { display: block; width: 100%; border-radius: 16px; border: 1px solid var(--hair); box-shadow: 0 30px 80px rgba(60,45,20,.18); }
     .demo .cap { text-align: center; font-size: 13px; color: var(--ink-soft); padding: 14px 0 0; }
 
-    /* Sections */
-    section { padding: 72px 0; }
-    .sec-head { text-align: center; margin-bottom: 42px; }
+    section { padding: 68px 0; }
+    .sec-head { text-align: center; margin-bottom: 40px; }
     .sec-head .eyebrow { letter-spacing: .2em; text-transform: uppercase; font-size: 11.5px; color: var(--accent-deep); font-weight: 600; }
     .sec-head h2 { font-family: var(--serif); font-weight: 500; font-size: clamp(26px, 3.6vw, 38px); margin-top: 10px; }
-    .sec-head p { color: var(--ink-soft); max-width: 60ch; margin: 12px auto 0; }
+    .sec-head p { color: var(--ink-soft); max-width: 62ch; margin: 12px auto 0; }
 
-    /* Package cards */
-    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
-    .card { background: #fff; border: 1px solid var(--hair); border-radius: 16px; padding: 28px 24px; }
-    .card .ico { font-size: 26px; }
-    .card h3 { font-family: var(--serif); font-weight: 550; font-size: 20px; margin: 12px 0 8px; }
-    .card p { font-size: 14px; color: var(--ink-soft); }
+    /* Histoire */
+    .story { max-width: 700px; margin: 0 auto; background: #fff; border: 1px solid var(--hair); border-radius: 18px; padding: 40px 42px; }
+    .story p { font-family: var(--serif); font-size: 19px; line-height: 1.65; margin-bottom: 16px; }
+    .story p:last-of-type { margin-bottom: 0; }
+    .story .who { font-family: var(--sans); font-size: 12.5px; color: var(--ink-soft); margin-top: 20px; }
 
-    /* Steps */
+    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .card { background: #fff; border: 1px solid var(--hair); border-radius: 16px; padding: 26px 22px; }
+    .card .ico { font-size: 25px; }
+    .card h3 { font-family: var(--serif); font-weight: 550; font-size: 18.5px; margin: 12px 0 8px; }
+    .card p { font-size: 13.5px; color: var(--ink-soft); }
+    .card--new { border-color: var(--accent); position: relative; }
+    .card--new::before { content: "LA DIFFÉRENCE"; position: absolute; top: -9px; left: 18px; background: var(--accent); color: #fff; font-size: 9.5px; font-weight: 600; letter-spacing: .08em; padding: 2px 9px; border-radius: 20px; }
+
     .steps { counter-reset: s; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
     .step { background: #fff; border: 1px solid var(--hair); border-radius: 14px; padding: 18px 16px; }
-    .step::before {
-      counter-increment: s; content: counter(s);
-      display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
-      background: var(--accent); color: #fff; font-weight: 600; font-size: 13px; margin-bottom: 10px;
-    }
+    .step::before { counter-increment: s; content: counter(s); display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 600; font-size: 13px; margin-bottom: 10px; }
     .step b { display: block; font-size: 14.5px; margin-bottom: 4px; }
     .step span { font-size: 12.5px; color: var(--ink-soft); }
     .steps-note { text-align: center; color: var(--ink-soft); font-size: 13px; margin-top: 18px; }
 
-    /* Features */
     .feats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 34px; }
     .feat { padding: 16px 0; border-top: 1px solid var(--hair); }
     .feat b { display: block; font-size: 15px; margin-bottom: 4px; }
     .feat span { font-size: 13.5px; color: var(--ink-soft); }
 
-    /* Pricing */
-    .prices { display: grid; grid-template-columns: repeat(2, minmax(0, 340px)); gap: 20px; justify-content: center; }
-    .price { background: #fff; border: 1px solid var(--hair); border-radius: 18px; padding: 30px 28px; text-align: center; }
-    .price--hero { border-color: var(--accent); box-shadow: 0 18px 50px rgba(140,105,55,.14); }
-    .price h3 { font-family: var(--serif); font-size: 21px; font-weight: 550; }
-    .price .amount { font-family: var(--serif); font-size: 44px; margin: 12px 0 2px; }
-    .price .amount small { font-size: 15px; font-family: var(--sans); color: var(--ink-soft); }
-    .price ul { list-style: none; padding: 0; margin: 18px 0 22px; font-size: 14px; color: var(--ink-soft); display: grid; gap: 8px; }
-    .price .tag { display: inline-block; background: var(--accent); color: #fff; border-radius: 20px; font-size: 11px; font-weight: 600; padding: 3px 12px; letter-spacing: .06em; }
-    .prices-note { text-align: center; font-size: 12.5px; color: var(--ink-soft); margin-top: 18px; }
+    /* Ancrage + offre unique */
+    .anchor { max-width: 700px; margin: 0 auto 36px; display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--hair); border-radius: 16px; overflow: hidden; }
+    .anchor > div { padding: 24px 26px; }
+    .anchor .old { background: #fff; color: var(--ink-soft); }
+    .anchor .old b { color: var(--ink); }
+    .anchor .new { background: var(--ink); color: var(--paper); }
+    .anchor .new b { color: #fff; }
+    .anchor p { font-size: 13.5px; line-height: 1.55; }
+    .anchor .big { font-family: var(--serif); font-size: 25px; margin-bottom: 6px; display: block; }
 
-    /* FAQ */
+    .offer { max-width: 460px; margin: 0 auto; background: #fff; border: 2px solid var(--accent); border-radius: 20px; padding: 34px 32px; text-align: center; box-shadow: 0 24px 60px rgba(140,105,55,.16); }
+    .offer .tag { display: inline-block; background: var(--accent); color: #fff; border-radius: 20px; font-size: 11px; font-weight: 600; padding: 3px 14px; letter-spacing: .08em; }
+    .offer h3 { font-family: var(--serif); font-size: 22px; font-weight: 550; margin-top: 14px; }
+    .offer .amount { font-family: var(--serif); font-size: 48px; margin: 10px 0 2px; }
+    .offer .amount small { font-size: 15px; font-family: var(--sans); color: var(--ink-soft); }
+    .offer .was { color: var(--ink-soft); font-size: 14px; }
+    .offer .was s { color: #b4483c; }
+    .offer ul { list-style: none; padding: 0; margin: 20px 0 24px; font-size: 14px; color: var(--ink-soft); display: grid; gap: 8px; }
+    .offer ul li::before { content: "✓  "; color: var(--accent-deep); font-weight: 600; }
+    .offer .left { font-size: 12.5px; color: #b4483c; font-weight: 600; margin-top: 14px; }
+    .offer-note { text-align: center; font-size: 12.5px; color: var(--ink-soft); margin-top: 18px; }
+
+    /* Confiance */
+    .trust { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; max-width: 860px; margin: 0 auto; }
+    .trust > div { text-align: center; padding: 18px 12px; background: #fff; border: 1px solid var(--hair); border-radius: 14px; }
+    .trust b { display: block; font-size: 14px; margin: 6px 0 3px; }
+    .trust span { font-size: 12px; color: var(--ink-soft); }
+    .trust .ic { font-size: 20px; }
+
     .faq { max-width: 720px; margin: 0 auto; }
     .faq details { border-top: 1px solid var(--hair); padding: 4px 0; }
     .faq summary { cursor: pointer; font-weight: 600; font-size: 15px; padding: 14px 0; list-style: none; display: flex; justify-content: space-between; }
@@ -101,20 +112,14 @@
     .faq details[open] summary::after { content: "–"; }
     .faq p { font-size: 14px; color: var(--ink-soft); padding: 0 0 16px; }
 
-    /* CTA + footer */
-    .cta-final { background: var(--ink); color: var(--paper); text-align: center; border-radius: 22px; padding: 58px 30px; }
+    .cta-final { background: var(--ink); color: var(--paper); text-align: center; border-radius: 22px; padding: 56px 30px; }
     .cta-final h2 { font-family: var(--serif); font-weight: 500; font-size: clamp(26px, 3.4vw, 36px); margin-bottom: 12px; }
-    .cta-final p { color: #cfc6b8; margin-bottom: 26px; }
+    .cta-final p { color: #cfc6b8; margin-bottom: 26px; max-width: 54ch; margin-left: auto; margin-right: auto; }
     footer { padding: 40px 0 50px; text-align: center; color: var(--ink-soft); font-size: 13px; }
 
-    @media (max-width: 860px) {
-      .cards, .steps, .feats, .prices { grid-template-columns: 1fr 1fr; }
-      .nav-links a:not(.btn) { display: none; }
-    }
-    @media (max-width: 560px) {
-      .cards, .steps, .feats, .prices { grid-template-columns: 1fr; }
-      section { padding: 52px 0; }
-    }
+    @media (max-width: 900px) { .cards { grid-template-columns: 1fr 1fr; } .trust { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 860px) { .steps, .feats { grid-template-columns: 1fr 1fr; } .nav-links a:not(.btn) { display: none; } .anchor { grid-template-columns: 1fr; } }
+    @media (max-width: 560px) { .cards, .steps, .feats, .trust { grid-template-columns: 1fr; } section { padding: 50px 0; } .story { padding: 28px 24px; } }
   </style>
 </head>
 <body>
@@ -123,138 +128,189 @@
     <div class="wrap nav">
       <div class="brand">Studio <em>Immo</em></div>
       <nav class="nav-links">
+        <a href="#histoire">L'histoire</a>
         <a href="#package">Le package</a>
-        <a href="#etapes">Comment ça marche</a>
-        <a href="#tarifs">Tarifs</a>
+        <a href="#offre">L'offre</a>
         <a class="btn btn--gold" href="../pro/">Essayer gratuitement</a>
       </nav>
     </div>
   </header>
 
+  <!-- ÉMOTION D'ABORD, RÉSULTAT VENDU -->
   <div class="wrap">
     <div class="hero">
-      <div class="eyebrow">Pour les agences immobilières</div>
-      <h1>La fiche prestation, la brochure et l'annonce. En quelques minutes.</h1>
-      <p class="lead">Dictez la fiche prestation à la voix, laissez l'outil calculer les vraies distances du
-        quartier et lire vos diagnostics — et repartez avec une brochure élégante prête à imprimer,
-        à vos couleurs, plus le texte d'annonce pour les portails.</p>
+      <div class="eyebrow">Pour les agences qui veulent signer plus de mandats</div>
+      <h1>Le vendeur reçoit trois agences. Une seule pose <em style="font-style:italic">ce livret</em> sur la table.</h1>
+      <p class="lead">Ce moment où le propriétaire feuillette la brochure de SA maison — le quartier avec les
+        vraies distances, les surfaces en tableau, le récit qui donne envie — c'est ce moment-là qui signe
+        le mandat. Studio Immo vous le fabrique en dix minutes, à vos couleurs.</p>
       <div class="ctas">
         <a class="btn btn--gold btn--big" href="../pro/">Essayer gratuitement</a>
-        <a class="btn btn--ghost btn--big" href="#demo">Voir la démo (57 s)</a>
+        <a class="btn btn--ghost btn--big" href="#demo">Voir la démo (49 s)</a>
       </div>
-      <div class="note">Aucune installation · fonctionne dans votre navigateur · vos données restent chez vous</div>
+      <div class="note">Sans installation · sans engagement · vos données restent sur votre poste</div>
     </div>
 
     <div class="demo" id="demo">
       <video controls preload="metadata" poster="assets/poster.jpg" src="assets/demo.mp4"></video>
-      <p class="cap">De la première visite à la brochure finie : le parcours complet, en temps réel.</p>
+      <p class="cap">Démo réelle : une fiche prestation authentique (maison de plain-pied, piscine, chalet) — du
+        paramétrage de l'agence à la brochure finie, distances du quartier calculées sur la vraie adresse.</p>
     </div>
   </div>
 
-  <section id="package">
+  <!-- LES HISTOIRES VENDENT MIEUX QUE LES FAITS -->
+  <section id="histoire">
     <div class="wrap">
       <div class="sec-head">
-        <div class="eyebrow">Un bien, trois documents</div>
-        <h2>Le package complet du mandat</h2>
-        <p>Tout part de la même saisie : plus jamais trois outils ni trois resaisies.</p>
+        <div class="eyebrow">Une scène que vous connaissez</div>
+        <h2>Mardi, 18 h 40. Rendez-vous d'estimation.</h2>
+      </div>
+      <div class="story">
+        <p>La concurrente est passée lundi. Elle a laissé une carte de visite et un avis de valeur
+          sur papier à en-tête.</p>
+        <p>Vous, vous sortez le livret du bien comparable vendu le mois dernier : la couverture dorée,
+          l'histoire de la maison, le quartier avec l'école à 260 mètres et le bus à 150 mètres, le tableau
+          des surfaces, la page de prix. Le propriétaire le feuillette lentement. Sa femme dit :
+          <em>« C'est comme ça que je veux que notre maison soit présentée. »</em></p>
+        <p>Le mandat — exclusif — est signé avant le café.</p>
+        <p class="who">Scène d'illustration. Mais vous savez qu'elle est vraie : on ne confie pas sa maison
+          à celui qui la présente comme les autres.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- VENDRE LA SOLUTION : LE PACKAGE, DONT LA PAGE WEB DU BIEN -->
+  <section id="package" style="background: var(--paper-2);">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">Une saisie, quatre armes</div>
+        <h2>Le package complet du mandat — sans resaisir une ligne</h2>
+        <p>Vous dictez la fiche prestation une fois. Studio Immo en tire tout le reste.</p>
       </div>
       <div class="cards">
         <div class="card">
           <div class="ico">🎤</div>
           <h3>La fiche prestation</h3>
-          <p>Dictez-la à la voix en sortant du rendez-vous, ou collez vos notes en vrac. C'est la matière
-            première : l'outil s'occupe de la mise en forme.</p>
+          <p>Dictée à la voix en sortant du rendez-vous, ou collée en vrac. La matière première — l'outil
+            s'occupe de tout le reste.</p>
         </div>
         <div class="card">
           <div class="ico">📖</div>
-          <h3>La brochure acquéreur</h3>
-          <p>Un livret A4 éditorial et émotionnel : couverture, galerie légendée, quartier avec distances
-            réelles, diagnostics, plans, surfaces, prix. Prêt à imprimer ou à envoyer.</p>
+          <h3>La brochure qui signe</h3>
+          <p>Livret A4 éditorial : couverture émotion, galerie légendée, quartier aux distances réelles,
+            diagnostics, surfaces, prix. À imprimer ou envoyer.</p>
         </div>
         <div class="card">
           <div class="ico">📰</div>
-          <h3>Le texte publicitaire</h3>
-          <p>L'annonce factuelle et complète pour SeLoger, LeBonCoin ou votre site — générée depuis la même
-            fiche, copiée en un clic.</p>
+          <h3>L'annonce des portails</h3>
+          <p>Le texte factuel et complet pour SeLoger, LeBonCoin ou la vitrine — copié en un clic,
+            cohérent avec la brochure.</p>
+        </div>
+        <div class="card card--new">
+          <div class="ico">🌐</div>
+          <h3>La page web du bien</h3>
+          <p>Une page dédiée, autonome et élégante, à mettre en ligne sur <strong>le site de votre
+            agence</strong> ou à envoyer par lien. Le bien a sa vitrine — pas une annonce parmi mille.</p>
         </div>
       </div>
     </div>
   </section>
 
-  <section id="etapes" style="background: var(--paper-2);">
-    <div class="wrap">
-      <div class="sec-head">
-        <div class="eyebrow">Pédagogique, étape par étape</div>
-        <h2>Huit étapes guidées, deux seulement sont obligatoires</h2>
-        <p>Le type de bien et l'adresse suffisent pour commencer. Tout le reste peut être passé
-          et complété plus tard.</p>
-      </div>
-      <div class="steps">
-        <div class="step"><b>Le bien</b><span>Type de bien, exclusivité. C'est parti.</span></div>
-        <div class="step"><b>L'adresse</b><span>Saisie assistée, puis recherche du quartier : bus, écoles, commerces — avec noms et distances réelles.</span></div>
-        <div class="step"><b>Les diagnostics</b><span>Déposez le DPE : les classes sont lues automatiquement.</span></div>
-        <div class="step"><b>Les photos</b><span>Couverture + galerie. Les pièces sont reconnues et légendées.</span></div>
-        <div class="step"><b>Les plans</b><span>Un ou plusieurs plans, joliment encadrés.</span></div>
-        <div class="step"><b>Les surfaces</b><span>Déposez le mesurage : le tableau design se construit seul.</span></div>
-        <div class="step"><b>La fiche prestation</b><span>À la voix 🎤 ou au clavier — prix et chiffres clés.</span></div>
-        <div class="step"><b>La génération</b><span>Brochure rédigée, texte d'annonce, exports PDF / HTML / e-mail.</span></div>
-      </div>
-      <p class="steps-note">L'aperçu de la brochure se met à jour en direct, à chaque étape.</p>
-    </div>
-  </section>
-
+  <!-- LA LOGIQUE ENSUITE : ÉTAPES + PREUVES -->
   <section>
     <div class="wrap">
       <div class="sec-head">
-        <div class="eyebrow">Pensé pour le terrain</div>
-        <h2>Ce qui fait la différence</h2>
+        <div class="eyebrow">La logique, maintenant</div>
+        <h2>Huit étapes guidées. Deux seulement sont obligatoires.</h2>
+        <p>Conçu pour être utilisé un téléphone à la main entre deux visites : le type de bien,
+          l'adresse — et le reste se complète ou se passe.</p>
+      </div>
+      <div class="steps">
+        <div class="step"><b>Le bien</b><span>Type de bien, exclusivité.</span></div>
+        <div class="step"><b>L'adresse</b><span>Le quartier se remplit seul : bus, écoles, commerces — noms et distances réelles.</span></div>
+        <div class="step"><b>Les diagnostics</b><span>Déposez le DPE, les classes sont lues automatiquement.</span></div>
+        <div class="step"><b>Les photos</b><span>Les pièces sont reconnues et légendées.</span></div>
+        <div class="step"><b>Les plans</b><span>Un ou plusieurs, joliment encadrés.</span></div>
+        <div class="step"><b>Les surfaces</b><span>Déposez le mesurage, le tableau se construit seul.</span></div>
+        <div class="step"><b>La fiche prestation</b><span>À la voix 🎤 ou au clavier.</span></div>
+        <div class="step"><b>La génération</b><span>Brochure + annonce + page web. Exports en un clic.</span></div>
+      </div>
+      <p class="steps-note">L'aperçu se met à jour en direct — vous voyez la brochure se construire à chaque étape.</p>
+    </div>
+  </section>
+
+  <!-- DIFFÉRENCIATION -->
+  <section style="background: var(--paper-2); padding-top: 60px;">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">Pourquoi ça ne ressemble à rien d'autre</div>
+        <h2>Des détails que vos concurrents ne peuvent pas improviser</h2>
       </div>
       <div class="feats">
-        <div class="feat"><b>À vos couleurs</b><span>Votre logo et vos coordonnées sur chaque page — configurés une fois, appliqués partout.</span></div>
-        <div class="feat"><b>Quartier véridique</b><span>Distances calculées depuis l'adresse réelle (OpenStreetMap) : arrêts nommés, lignes de bus, écoles, commerces.</span></div>
-        <div class="feat"><b>Lecture des documents</b><span>DPE et tableau de surfaces extraits automatiquement de vos PDF.</span></div>
-        <div class="feat"><b>Rédaction qui ne « sent » pas l'IA</b><span>Accroche et récit émotionnels pour la brochure ; texte factuel pour l'annonce.</span></div>
-        <div class="feat"><b>Bibliothèque partagée</b><span>Brochures rangées dans le dossier OneDrive de l'agence : recherche par nom, reprise en un clic pour changer un prix.</span></div>
-        <div class="feat"><b>Zéro installation</b><span>Une page web. Vos données restent sur votre poste ; rien ne part sur un serveur tiers.</span></div>
+        <div class="feat"><b>Le quartier véridique</b><span>« École maternelle Les Tauzins à 260 m » — calculé depuis la vraie adresse, pas recopié d'une annonce.</span></div>
+        <div class="feat"><b>À vos couleurs, sans graphiste</b><span>Votre logo et vos coordonnées sur chaque page. Configuré une fois, appliqué pour toujours.</span></div>
+        <div class="feat"><b>Vos PDF lus pour vous</b><span>DPE et mesurage déposés tels quels — classes et tableaux extraits automatiquement.</span></div>
+        <div class="feat"><b>Une écriture qui ne « sent » pas l'IA</b><span>Le récit émotionnel pour la brochure, le factuel pour l'annonce. Relisez, ajustez, assumez.</span></div>
+        <div class="feat"><b>La bibliothèque de l'agence</b><span>Brochures rangées dans votre OneDrive : le prix change ? Rouvrez, corrigez, réenregistrez.</span></div>
+        <div class="feat"><b>Vos données restent chez vous</b><span>Pas de serveur tiers, pas de compte cloud : l'outil travaille sur votre poste.</span></div>
       </div>
     </div>
   </section>
 
-  <section id="tarifs" style="background: var(--paper-2);">
+  <!-- ANCRAGE + RARETÉ + OFFRE UNIQUE + AVERSION À LA PERTE -->
+  <section id="offre">
     <div class="wrap">
       <div class="sec-head">
-        <div class="eyebrow">Tarifs de lancement</div>
-        <h2>Moins cher qu'une seule impression ratée</h2>
-        <p>Essai gratuit de 14 jours, sans carte bancaire. Tarifs réservés aux agences pilotes.</p>
+        <div class="eyebrow">L'offre — une seule, simple</div>
+        <h2>Ce que coûte une seule plaquette chez un graphiste<br>paie ici tous vos biens du mois</h2>
       </div>
-      <div class="prices">
-        <div class="price">
-          <h3>Solo</h3>
-          <div class="amount">29 €<small> /mois</small></div>
-          <ul>
-            <li>1 utilisateur</li>
-            <li>Brochures &amp; annonces illimitées*</li>
-            <li>Marque blanche complète</li>
-            <li>Bibliothèque OneDrive</li>
-          </ul>
-          <a class="btn btn--ghost" href="mailto:benoit.rempenault@century21.fr?subject=Studio%20Immo%20—%20essai%20Solo">Commencer l'essai</a>
+
+      <div class="anchor">
+        <div class="old">
+          <span class="big"><b>150 à 300 €</b></span>
+          <p><b>La plaquette « à l'ancienne »</b> : un graphiste, un bien, des allers-retours,
+            huit jours de délai. Et à la baisse de prix, tout est à refaire.</p>
         </div>
-        <div class="price price--hero">
-          <span class="tag">AGENCE PILOTE</span>
-          <h3>Agence</h3>
-          <div class="amount">79 €<small> /mois</small></div>
-          <ul>
-            <li>Jusqu'à 5 utilisateurs</li>
-            <li>Brochures &amp; annonces illimitées*</li>
-            <li>Marque blanche complète</li>
-            <li>Accompagnement à la prise en main</li>
-            <li>Vos demandes priorisées</li>
-          </ul>
-          <a class="btn btn--gold" href="mailto:benoit.rempenault@century21.fr?subject=Studio%20Immo%20—%20agence%20pilote">Devenir agence pilote</a>
+        <div class="new">
+          <span class="big"><b>79 € / mois</b></span>
+          <p><b>Studio Immo</b> : tous vos biens, brochure + annonce + page web,
+            dix minutes par mandat, modifiable à volonté.</p>
         </div>
       </div>
-      <p class="prices-note">* Usage raisonnable de la rédaction assistée. Pendant la phase pilote, la rédaction IA
-        utilise votre clé Anthropic (guidée pas à pas) ; elle sera incluse dans l'abonnement à l'ouverture générale.</p>
+
+      <div class="offer">
+        <span class="tag">PROGRAMME FONDATEUR — 5 AGENCES</span>
+        <h3>Agence fondatrice</h3>
+        <div class="amount">79 €<small> /mois</small></div>
+        <div class="was">au lieu de <s>129 €</s> au tarif public — <strong>gelé à vie</strong> pour les fondatrices</div>
+        <ul>
+          <li>Jusqu'à 5 utilisateurs</li>
+          <li>Brochures, annonces &amp; pages web illimitées*</li>
+          <li>Marque blanche complète (votre logo partout)</li>
+          <li>Prise en main avec vous, sur vos vrais mandats</li>
+          <li>Vos demandes en tête de feuille de route</li>
+        </ul>
+        <a class="btn btn--gold btn--big" href="mailto:benoit.rempenault@century21.fr?subject=Studio%20Immo%20—%20agence%20fondatrice">Réserver ma place</a>
+        <div class="left">5 places. Quand elles sont prises, le tarif fondateur disparaît définitivement.</div>
+      </div>
+      <p class="offer-note">Conseiller indépendant ? Écrivez-nous, une formule Solo existe. * Usage raisonnable de la
+        rédaction assistée — pendant la phase fondatrice, elle utilise votre clé Anthropic (guidée pas à pas) ; incluse ensuite.</p>
+    </div>
+  </section>
+
+  <!-- LA CONFIANCE VEND TOUT -->
+  <section style="background: var(--paper-2); padding-top: 56px; padding-bottom: 56px;">
+    <div class="wrap">
+      <div class="sec-head" style="margin-bottom: 28px;">
+        <div class="eyebrow">Zéro risque, zéro piège</div>
+        <h2>Essayez-le sur votre prochain mandat</h2>
+      </div>
+      <div class="trust">
+        <div><div class="ic">🗓</div><b>14 jours d'essai</b><span>Gratuit, sans carte bancaire</span></div>
+        <div><div class="ic">🔓</div><b>Sans engagement</b><span>Résiliable en un clic, vos fichiers restent à vous</span></div>
+        <div><div class="ic">💻</div><b>Données chez vous</b><span>Aucun serveur tiers, tout reste sur votre poste</span></div>
+        <div><div class="ic">🏠</div><b>Né dans une agence</b><span>Créé par un agent en activité, sur de vrais mandats</span></div>
+      </div>
     </div>
   </section>
 
@@ -265,10 +321,16 @@
         <h2>Tout ce qu'on nous demande</h2>
       </div>
       <details>
+        <summary>Comment je mets la page du bien sur le site de mon agence ?</summary>
+        <p>« Exporter HTML » produit un fichier unique, autonome (photos incluses), aux couleurs de votre agence.
+          Vous le déposez sur votre site (ou le faites déposer par votre webmaster) et le bien a sa page dédiée —
+          vous pouvez aussi l'envoyer par e-mail : elle s'ouvre chez l'acquéreur sans rien installer.</p>
+      </details>
+      <details>
         <summary>Où vont les données de mes clients ?</summary>
         <p>Nulle part : l'outil fonctionne dans votre navigateur, sur votre poste. Les brochures sont des fichiers
           enregistrés dans le dossier de votre choix (par exemple le OneDrive de l'agence). Seule la rédaction
-          assistée envoie le texte du bien à l'IA — jamais l'adresse exacte n'apparaît dans les documents.</p>
+          assistée envoie le texte du bien à l'IA — et l'adresse exacte n'apparaît jamais dans les documents.</p>
       </details>
       <details>
         <summary>Faut-il installer quelque chose ?</summary>
@@ -277,12 +339,7 @@
       <details>
         <summary>Puis-je reprendre une brochure pour changer le prix ?</summary>
         <p>Oui — c'est le rôle de la Bibliothèque : retrouvez la brochure par son nom, rouvrez-la, changez le prix,
-          réenregistrez. Le fichier est mis à jour au même endroit.</p>
-      </details>
-      <details>
-        <summary>Le rendu est-il vraiment aux couleurs de mon agence ?</summary>
-        <p>Oui. Votre logo, vos coordonnées et l'ambiance de couleurs sont configurés une fois et appliqués sur la
-          couverture, les pages intérieures et la page de contact. Aucune autre marque n'apparaît.</p>
+          réenregistrez. Brochure, annonce et page web restent cohérentes.</p>
       </details>
       <details>
         <summary>D'où viennent les informations du quartier ?</summary>
@@ -292,12 +349,14 @@
     </div>
   </section>
 
+  <!-- AVERSION À LA PERTE + CTA -->
   <section style="padding-top: 0;">
     <div class="wrap">
       <div class="cta-final">
-        <h2>Votre prochaine brochure est à huit étapes.</h2>
-        <p>Essayez sur votre prochain mandat — la première brochure prend moins de dix minutes.</p>
-        <a class="btn btn--gold btn--big" href="../pro/">Essayer gratuitement</a>
+        <h2>Pendant que vous lisez ceci, un confrère prépare son estimation.</h2>
+        <p>La semaine prochaine, l'un de vous deux posera un livret doré sur la table du vendeur.
+          L'autre laissera une carte de visite.</p>
+        <a class="btn btn--gold btn--big" href="../pro/">Faire ma première brochure — gratuit</a>
       </div>
     </div>
   </section>
