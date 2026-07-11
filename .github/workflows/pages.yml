@@ -30,6 +30,10 @@ jobs:
           mkdir -p _site/assets
           cp index.html _site/
           cp -r assets/* _site/assets/
+          # Studio Immo (version marque blanche, parcours guidé) sous /pro/
+          mkdir -p _site/pro/assets
+          cp pro/index.html _site/pro/
+          cp -r pro/assets/* _site/pro/assets/
           touch _site/.nojekyll
 
       - uses: actions/upload-pages-artifact@v3

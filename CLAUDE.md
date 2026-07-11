@@ -12,6 +12,18 @@ PDF (via print) or a self-contained HTML file. Built for Century 21 Kadima but g
 No build step, no framework, no backend. Plain HTML/CSS/vanilla JS, runnable from any static
 host (GitHub Pages) or a local `python3 -m http.server`.
 
+**`pro/` — Studio Immo**, the white-label commercial variant, lives alongside without touching
+the original app. Same engine (forked copies of `app.js`/`ai.js`/`geo.js`/`library.js` under
+`pro/assets/`), but: a **step-by-step wizard UI** (`pro/index.html` + `pro/assets/js/wizard.js`,
+8 steps — type de bien and adresse are required, diagnostics/photos/plans/surfaces skippable,
+fiche prestation with **voice dictation** via Web Speech API, final step generates brochure +
+**texte publicitaire** via `BrochureAI.generateAdText`), **agency branding configured by the
+user** (logo/name/contacts in a settings overlay, persisted under `studio-pro-agency`,
+re-applied to every fiche; no Century 21 assets anywhere in `pro/`), and separate storage keys
+(`studio-pro-v1`, `studio-pro-aikey`, IndexedDB `studio-pro`). Deployed at `/pro/` by the same
+Pages workflow. When changing brochure rendering in the original app, mirror the change in
+`pro/assets/` if it should ship in the commercial version (and vice versa).
+
 ## Architecture
 
 - `index.html` — single-page shell: left **editor** panel (form), right **preview** (live A4).
