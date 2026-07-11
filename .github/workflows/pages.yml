@@ -34,6 +34,10 @@ jobs:
           mkdir -p _site/pro/assets
           cp pro/index.html _site/pro/
           cp -r pro/assets/* _site/pro/assets/
+          # Site vitrine (promotion Studio Immo) sous /site/
+          mkdir -p _site/site/assets
+          cp site/index.html _site/site/
+          cp -r site/assets/* _site/site/assets/
           touch _site/.nojekyll
 
       - uses: actions/upload-pages-artifact@v3
