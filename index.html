@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Studio Brochure — Générateur de fiches de présentation</title>
-  <meta name="description" content="Créez des brochures immobilières élégantes, émotionnelles et prêtes à imprimer ou envoyer par mail." />
+  <meta name="description" content="Créez pas à pas des brochures immobilières élégantes, émotionnelles et prêtes à imprimer ou envoyer par mail — plus le texte d'annonce." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
@@ -30,127 +30,76 @@
       <button class="btn btn--ghost" id="btnExportHtml" title="Exporter une page web autonome">Exporter HTML</button>
       <button class="btn btn--ghost" id="btnMail" title="Préparer un e-mail">Envoyer par mail</button>
       <button class="btn btn--primary" id="btnPrint" title="Imprimer ou enregistrer en PDF">Imprimer / PDF</button>
+      <span class="topbar__sep" aria-hidden="true"></span>
+      <button class="btn btn--ghost" id="btnSettings" title="Coordonnées de l'agence, ambiance, clé API">⚙ Réglages</button>
     </div>
     <button class="topbar__toggle" id="btnToggleEditor" title="Afficher/masquer l'éditeur" aria-label="Afficher/masquer l'éditeur">⇆</button>
   </header>
 
   <main class="workspace" id="workspace">
-    <!-- ======================= ÉDITEUR ======================= -->
-    <section class="editor" id="editor" aria-label="Éditeur de la fiche">
+    <!-- ======================= PARCOURS GUIDÉ ======================= -->
+    <section class="editor" id="editor" aria-label="Création guidée de la fiche">
 
-      <details class="panel" open>
-        <summary>1 · L'agence &amp; le contact</summary>
-        <div class="panel__body">
-          <label>Nom de l'agence
-            <input type="text" data-bind="agency.name" placeholder="Century 21 Kadima" />
-          </label>
-          <label>Conseiller / négociateur
-            <input type="text" data-bind="agency.agent" placeholder="Prénom Nom" />
-          </label>
-          <label>Adresse
-            <input type="text" data-bind="agency.address" placeholder="20 rue François Mitterrand, 33160 Saint-Médard-en-Jalles" />
-          </label>
-          <div class="grid-2">
-            <label>Téléphone
-              <input type="text" data-bind="agency.phone" placeholder="05 56 57 77 77" />
-            </label>
-            <label>E-mail
-              <input type="text" data-bind="agency.email" placeholder="kadima@century21.fr" />
-            </label>
-          </div>
-        </div>
-      </details>
+      <nav class="wiz-progress" id="wizProgress" aria-label="Progression"></nav>
 
-      <details class="panel" open>
-        <summary>2 · Le bien</summary>
+      <!-- ÉTAPE 1 · Le bien -->
+      <section class="panel wstep" data-wstep="1">
+        <header class="wstep__head">
+          <div class="wstep__eyebrow">Étape 1 sur 8 · <span class="wstep__req">requis</span></div>
+          <h2>Quel type de bien présentez-vous&nbsp;?</h2>
+          <p class="hint">C'est la seule information indispensable pour commencer. Tout le reste pourra être complété ou passé.</p>
+        </header>
         <div class="panel__body">
-          <div class="grid-2">
-            <label>Type de bien
-              <input type="text" data-bind="property.type" placeholder="Villa d'architecte" />
-            </label>
-            <label class="check">
-              <input type="checkbox" data-bind="property.exclusivite" />
-              <span>Mandat en exclusivité</span>
-            </label>
-          </div>
-          <label>Titre (couverture) <small class="hint">(une phrase qui suscite l'émotion, pas « à vendre »)</small>
+          <label>Type de bien <small class="hint">(ex. « Villa d'architecte », « Appartement T3 », « Maison familiale »)</small>
+            <input type="text" data-bind="property.type" placeholder="Villa d'architecte" />
+          </label>
+          <label class="check">
+            <input type="checkbox" data-bind="property.exclusivite" />
+            <span>Mandat en exclusivité</span>
+          </label>
+          <label>Titre de couverture <small class="hint">(optionnel — laissez vide, l'IA en proposera un à l'étape 8)</small>
             <input type="text" data-bind="property.title" placeholder="Le Sud, la lumière, le calme" />
           </label>
-          <label>Localisation <small class="hint">(texte affiché sur la couverture)</small>
-            <input type="text" data-bind="property.location" placeholder="Saint-Médard-en-Jalles — Quartier de Corbiac" />
-          </label>
-          <label>Adresse précise du bien <small class="hint">(pour la recherche du quartier — non affichée sur la brochure)</small>
+        </div>
+      </section>
+
+      <!-- ÉTAPE 2 · L'adresse & le quartier -->
+      <section class="panel wstep" data-wstep="2">
+        <header class="wstep__head">
+          <div class="wstep__eyebrow">Étape 2 sur 8 · <span class="wstep__req">requis</span></div>
+          <h2>Où se trouve le bien&nbsp;?</h2>
+          <p class="hint">Saisissez l'adresse précise (jamais affichée sur les documents) : elle sert à calculer
+            les vraies distances du quartier — écoles, bus, commerces.</p>
+        </header>
+        <div class="panel__body">
+          <label>Adresse précise du bien
             <input type="text" data-bind="property.address" placeholder="42 rue Maurice Lestage, 33160 Saint-Médard-en-Jalles" />
           </label>
-
-          <label>Accroche émotionnelle <small class="hint">(une phrase forte, en page d'introduction)</small>
-            <textarea rows="2" data-bind="property.hook" placeholder="Une parenthèse de lumière et de sérénité, à quelques minutes de Bordeaux."></textarea>
-          </label>
-
-          <label>Description <small class="hint">(le récit du bien — séparez les paragraphes par une ligne vide)</small>
-            <textarea rows="9" data-bind="property.description" placeholder="Décrivez l'art de vivre, les volumes, la lumière…"></textarea>
-          </label>
-
-          <fieldset class="stats">
-            <legend>Chiffres clés</legend>
-            <div class="grid-5">
-              <label>Pièces<input type="text" data-bind="property.stats.pieces" placeholder="7" /></label>
-              <label>Chambres<input type="text" data-bind="property.stats.chambres" placeholder="5" /></label>
-              <label>Salles d'eau<input type="text" data-bind="property.stats.sdb" placeholder="4" /></label>
-              <label>Surface hab.<input type="text" data-bind="property.stats.surface" placeholder="198 m²" /></label>
-              <label>Terrain<input type="text" data-bind="property.stats.terrain" placeholder="1 223 m²" /></label>
-            </div>
-          </fieldset>
-
-          <div class="grid-2">
-            <label>Prix
-              <input type="text" data-bind="property.price" placeholder="950 000 € FAI" />
-            </label>
-            <label>Mention honoraires
-              <input type="text" data-bind="property.priceNote" placeholder="Honoraires à la charge du vendeur" />
-            </label>
-          </div>
-        </div>
-      </details>
-
-      <details class="panel">
-        <summary>3 · Caractéristiques</summary>
-        <div class="panel__body">
-          <label>Intérieur <small class="hint">(une caractéristique par ligne)</small>
-            <textarea rows="6" data-bind-list="features.interieur" placeholder="Cuisine ouverte sur-mesure&#10;Suite parentale de 36 m²&#10;Parquet massif au sol"></textarea>
-          </label>
-          <label>Extérieur <small class="hint">(une caractéristique par ligne)</small>
-            <textarea rows="5" data-bind-list="features.exterieur" placeholder="Piscine maçonnée 11 × 3,75 m&#10;Terrasse en bois exposée plein sud&#10;Portail motorisé"></textarea>
-          </label>
-          <label>À savoir <small class="hint">(taxes, charges…)</small>
-            <textarea rows="3" data-bind-list="features.aSavoir" placeholder="Taxe foncière : 2 900 €&#10;Électricité : 400 € / mois"></textarea>
-          </label>
-        </div>
-      </details>
-
-      <details class="panel" open>
-        <summary>4 · Le quartier</summary>
-        <div class="panel__body">
-          <p class="hint">À partir de l'<strong>adresse précise</strong> (point 2), l'outil interroge la cartographie <strong>OpenStreetMap</strong>
-            et calcule les <strong>distances réelles</strong> : arrêts de bus/tram, écoles, commerces et services — avec leurs noms.
-            Aucune clé requise. (Le mot sur « l'attrait de la ville » utilise la clé API du point 8 si elle est renseignée.)</p>
           <div class="ai-actions">
-            <button class="btn btn--primary" id="btnAIQuartier">Rechercher le quartier</button>
+            <button class="btn btn--primary" id="btnAIQuartier">📍 Valider l'adresse &amp; rechercher le quartier</button>
             <span id="quartierStatus" class="ai-status" role="status" aria-live="polite"></span>
           </div>
           <div id="quartierSources"></div>
-          <label>L'attrait de la ville <small class="hint">(phrase d'introduction du quartier)</small>
-            <textarea rows="3" data-bind="property.quartierIntro" placeholder="Quelques mots sur le cadre de vie, le dynamisme, le patrimoine de la commune…"></textarea>
+          <label>Localisation affichée <small class="hint">(ce qui apparaît sur la couverture — ville, quartier)</small>
+            <input type="text" data-bind="property.location" placeholder="Saint-Médard-en-Jalles — Quartier de Corbiac" />
           </label>
-          <label>Commodités <small class="hint">(une par ligne — « Écoles : … », « Centre-ville : … », « Transports : … », « Points d'intérêt : … »)</small>
-            <textarea rows="7" data-bind-kv="quartier" placeholder="Transports : Gare Saint-Jean à 1,1 km&#10;Écoles : Groupe scolaire à 700 m&#10;Commerces : Centre-ville à 2,6 km"></textarea>
+          <label>Commodités trouvées <small class="hint">(modifiable — une par ligne)</small>
+            <textarea rows="6" data-bind-kv="quartier" placeholder="Transports : Bus « Corbiac » à 220 m (ligne 30)&#10;Écoles : Groupe scolaire à 700 m"></textarea>
           </label>
-          <p class="hint">Les distances sont calculées à vol d'oiseau depuis l'adresse (données OpenStreetMap). Tout reste modifiable.</p>
+          <label>L'attrait de la ville <small class="hint">(rempli automatiquement si la clé API est configurée)</small>
+            <textarea rows="2" data-bind="property.quartierIntro" placeholder="Quelques mots sur le cadre de vie…"></textarea>
+          </label>
         </div>
-      </details>
+      </section>
 
-      <details class="panel">
-        <summary>5 · Diagnostics (DPE / GES)</summary>
+      <!-- ÉTAPE 3 · Diagnostics -->
+      <section class="panel wstep" data-wstep="3">
+        <header class="wstep__head">
+          <div class="wstep__eyebrow">Étape 3 sur 8 · <span class="wstep__opt">optionnel</span></div>
+          <h2>Les diagnostics (DPE / GES)</h2>
+          <p class="hint">Chargez le DPE : l'outil lit les classes et remplit la page Diagnostics. Vous pouvez aussi
+            saisir à la main, ou <strong>passer cette étape</strong> et y revenir plus tard.</p>
+        </header>
         <div class="panel__body">
           <div class="uploader">
             <div class="uploader__row">
@@ -164,7 +113,6 @@
               <button class="btn btn--primary btn--sm" id="btnAIDpe" disabled>✨ Analyser &amp; mettre à jour</button>
               <span id="dpeStatus" class="ai-status" role="status" aria-live="polite"></span>
             </div>
-            <p class="hint">Claude lit les classes Énergie/Climat et met à jour la page Diagnostics. Nécessite la clé API (point 8). Astuce : chargez seulement la page du DPE si le fichier est lourd.</p>
           </div>
           <div class="grid-2">
             <label>Classe énergie (DPE)
@@ -190,17 +138,23 @@
               <input type="text" data-bind="diagnostics.gesValue" placeholder="1" />
             </label>
           </div>
-          <label>Synthèse des diagnostics <small class="hint">(une par ligne — « Amiante : Absence », « Termites : Néant »… ; remplie automatiquement par l'analyse)</small>
-            <textarea rows="5" data-bind-kv="diagnostics.summary" placeholder="Amiante : Absence&#10;Termites : Absence constatée&#10;Installation électrique : Conforme&#10;État des risques (ERP) : voir document"></textarea>
+          <label>Synthèse des diagnostics <small class="hint">(une par ligne — remplie automatiquement par l'analyse)</small>
+            <textarea rows="4" data-bind-kv="diagnostics.summary" placeholder="Amiante : Absence&#10;Termites : Absence constatée"></textarea>
           </label>
           <label>Note complémentaire
             <input type="text" data-bind="diagnostics.note" placeholder="DPE réalisé le … — Document non contractuel" />
           </label>
         </div>
-      </details>
+      </section>
 
-      <details class="panel" open>
-        <summary>6 · Photos</summary>
+      <!-- ÉTAPE 4 · Photos -->
+      <section class="panel wstep" data-wstep="4">
+        <header class="wstep__head">
+          <div class="wstep__eyebrow">Étape 4 sur 8 · <span class="wstep__opt">optionnel</span></div>
+          <h2>Les photos du bien</h2>
+          <p class="hint">Une belle photo de couverture, puis la galerie. L'IA peut reconnaître chaque pièce
+            et rédiger les légendes. Vous pouvez <strong>passer</strong> et ajouter les photos plus tard.</p>
+        </header>
         <div class="panel__body">
           <div class="uploader">
             <div class="uploader__row">
@@ -211,7 +165,6 @@
             </div>
             <div id="coverThumb" class="thumbs thumbs--single"></div>
           </div>
-
           <div class="uploader">
             <div class="uploader__row">
               <span>Galerie photos</span>
@@ -219,26 +172,46 @@
                 <input type="file" id="fileGallery" accept="image/*" multiple hidden />
               </label>
             </div>
-            <p class="hint">Glissez-déposez vos photos ici, ou utilisez « Ajouter ». Réorganisez-les avec ↑ ↓.</p>
+            <p class="hint">Glissez-déposez vos photos ici. Réorganisez-les avec ↑ ↓.</p>
             <div id="galleryThumbs" class="thumbs"></div>
             <div class="ai-actions" style="margin-top:10px">
               <button class="btn btn--primary btn--sm" id="btnAICaption">✨ Reconnaître les pièces &amp; légender</button>
               <span id="captionStatus" class="ai-status" role="status" aria-live="polite"></span>
             </div>
-            <p class="hint">Claude identifie chaque pièce et ajoute une légende sur la photo. Nécessite la clé API (point 8). Modifiable ensuite ci-dessous.</p>
           </div>
+        </div>
+      </section>
 
+      <!-- ÉTAPE 5 · Plans -->
+      <section class="panel wstep" data-wstep="5">
+        <header class="wstep__head">
+          <div class="wstep__eyebrow">Étape 5 sur 8 · <span class="wstep__opt">optionnel</span></div>
+          <h2>Les plans</h2>
+          <p class="hint">Ajoutez un ou plusieurs plans (RDC, étage…) — ou <strong>passez</strong> s'il n'y en a pas.</p>
+        </header>
+        <div class="panel__body">
           <div class="uploader">
             <div class="uploader__row">
-              <span>Plans (optionnel — plusieurs possibles)</span>
+              <span>Plans (plusieurs possibles)</span>
               <label class="btn btn--ghost btn--sm">Ajouter
                 <input type="file" id="filePlan" accept="image/*" multiple hidden />
               </label>
             </div>
-            <p class="hint">Ajoutez un ou plusieurs plans (RDC, étage…). Réorganisez avec ↑ ↓. 2 plans par page.</p>
+            <p class="hint">Réorganisez avec ↑ ↓. Deux plans par page.</p>
             <div id="planThumb" class="thumbs"></div>
           </div>
+        </div>
+      </section>
 
+      <!-- ÉTAPE 6 · Surfaces -->
+      <section class="panel wstep" data-wstep="6">
+        <header class="wstep__head">
+          <div class="wstep__eyebrow">Étape 6 sur 8 · <span class="wstep__opt">optionnel</span></div>
+          <h2>Le tableau des surfaces</h2>
+          <p class="hint">Chargez le mesurage (loi Carrez / Boutin) : l'outil lit les surfaces et crée un tableau
+            élégant qui tient sur une page. Ou <strong>passez</strong> cette étape.</p>
+        </header>
+        <div class="panel__body">
           <div class="uploader">
             <div class="uploader__row">
               <span>Tableau des surfaces (PDF ou image)</span>
@@ -251,44 +224,67 @@
               <button class="btn btn--primary btn--sm" id="btnAISurfaces" disabled>✨ Analyser &amp; créer le tableau</button>
               <span id="surfacesStatus" class="ai-status" role="status" aria-live="polite"></span>
             </div>
-            <p class="hint">Chargez le mesurage (loi Carrez / Boutin) : Claude lit les surfaces et crée un <strong>tableau design</strong>. Nécessite la clé API (point 8).</p>
-            <label>Surfaces <small class="hint">(une par ligne — « Séjour : 45 m² » ; rempli par l'analyse)</small>
-              <textarea rows="7" data-bind-kv="surfaces" placeholder="Séjour : 45 m²&#10;Cuisine : 14 m²&#10;Suite parentale : 36,71 m²"></textarea>
+            <label>Surfaces <small class="hint">(une par ligne — « Séjour : 45 m² »)</small>
+              <textarea rows="6" data-bind-kv="surfaces" placeholder="Séjour : 45 m²&#10;Cuisine : 14 m²"></textarea>
             </label>
-            <p class="hint">« Surface totale » est calculée automatiquement (somme des lignes). « Surface habitable » reprend la valeur du point 2.</p>
           </div>
         </div>
-      </details>
+      </section>
 
-      <details class="panel">
-        <summary>7 · Style</summary>
+      <!-- ÉTAPE 7 · La fiche prestation -->
+      <section class="panel wstep" data-wstep="7">
+        <header class="wstep__head">
+          <div class="wstep__eyebrow">Étape 7 sur 8 · <span class="wstep__req">recommandé</span></div>
+          <h2>La fiche prestation</h2>
+          <p class="hint"><strong>Collez</strong> vos notes en vrac (prestations, matériaux, équipements, travaux,
+            charges…) — ou <strong>photographiez votre prise de notes</strong> (papier, Word, scan) : l'IA la
+            transcrit pour vous. C'est la matière première de la brochure et du texte d'annonce.</p>
+        </header>
         <div class="panel__body">
-          <label>Ambiance
-            <select data-bind="theme.palette">
-              <option value="bronze">Sable &amp; bronze (chaleureux)</option>
-              <option value="sauge">Lin &amp; sauge (naturel)</option>
-              <option value="encre">Ardoise &amp; or (élégant)</option>
-              <option value="terracotta">Albâtre &amp; terracotta (éditorial)</option>
-            </select>
+          <div class="uploader">
+            <div class="uploader__row">
+              <span>Photo / capture de vos notes <small class="hint">(manuscrites ou imprimées — plusieurs possibles)</small></span>
+              <label class="btn btn--ghost btn--sm">Choisir
+                <input type="file" id="fileNotes" accept="image/*" multiple hidden />
+              </label>
+            </div>
+            <div class="ai-actions">
+              <span id="notesStatus" class="ai-status" role="status" aria-live="polite"></span>
+            </div>
+          </div>
+          <label>Notes brutes du bien
+            <textarea rows="9" id="aiNotes" placeholder="Ex : Villa archi 2014, 198 m² hab, 7 pièces, terrain 1223 m², piscine 11x3.75, cuisine ouverte sur-mesure, suite parentale 36 m², DPE A, taxe foncière 2900 €…"></textarea>
           </label>
-          <label class="check">
-            <input type="checkbox" data-bind="theme.coverDark" />
-            <span>Couverture sombre (texte clair sur la photo)</span>
-          </label>
+          <fieldset class="stats">
+            <legend>Chiffres clés</legend>
+            <div class="grid-5">
+              <label>Pièces<input type="text" data-bind="property.stats.pieces" placeholder="7" /></label>
+              <label>Chambres<input type="text" data-bind="property.stats.chambres" placeholder="5" /></label>
+              <label>Salles d'eau<input type="text" data-bind="property.stats.sdb" placeholder="4" /></label>
+              <label>Surface hab.<input type="text" data-bind="property.stats.surface" placeholder="198 m²" /></label>
+              <label>Terrain<input type="text" data-bind="property.stats.terrain" placeholder="1 223 m²" /></label>
+            </div>
+          </fieldset>
+          <div class="grid-2">
+            <label>Prix
+              <input type="text" data-bind="property.price" placeholder="950 000 € FAI" />
+            </label>
+            <label>Mention honoraires
+              <input type="text" data-bind="property.priceNote" placeholder="Honoraires à la charge du vendeur" />
+            </label>
+          </div>
         </div>
-      </details>
+      </section>
 
-      <details class="panel" id="panelAI">
-        <summary>8 · ✨ Rédaction assistée par Claude</summary>
+      <!-- ÉTAPE 8 · Génération -->
+      <section class="panel wstep" data-wstep="8">
+        <header class="wstep__head">
+          <div class="wstep__eyebrow">Étape 8 sur 8</div>
+          <h2>Générer le package</h2>
+          <p class="hint">L'IA rédige la brochure (accroche, description, caractéristiques) à partir de votre fiche
+            prestation, puis le <strong>texte publicitaire</strong> factuel pour vos annonces. Relisez, ajustez, exportez.</p>
+        </header>
         <div class="panel__body">
-          <p class="hint">
-            Collez vos notes brutes (la fiche prestation, en vrac), et Claude rédige une accroche
-            émotionnelle, une description vendeuse et structure les caractéristiques — sans que cela
-            « sente » l'IA. Votre clé reste dans ce navigateur, elle n'est envoyée qu'à Anthropic.
-          </p>
-          <label>Clé API Anthropic <small class="hint">(commence par <code>sk-ant-</code>)</small>
-            <input type="password" id="aiKey" placeholder="sk-ant-…" autocomplete="off" />
-          </label>
           <div class="grid-2">
             <label>Modèle
               <select id="aiModel">
@@ -296,7 +292,7 @@
                 <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (rapide)</option>
               </select>
             </label>
-            <label>Ton
+            <label>Ton de la brochure
               <select id="aiTone">
                 <option value="emotionnel">Émotionnel &amp; chaleureux</option>
                 <option value="elegant">Élégant &amp; sobre</option>
@@ -304,21 +300,63 @@
               </select>
             </label>
           </div>
-          <label>Notes brutes du bien <small class="hint">(copiez-collez tout : prestations, mesures, quartier…)</small>
-            <textarea rows="8" id="aiNotes" placeholder="Ex : Villa archi 2014, 198 m² hab, 7 pièces, terrain 1223 m², piscine 11x3.75, cuisine ouverte sur-mesure, suite parentale 36 m², DPE A, taxe foncière 2900€, gare Saint-Jean 1.1km…"></textarea>
-          </label>
           <div class="ai-actions">
-            <button class="btn btn--primary" id="btnAIGenerate">Générer la fiche</button>
+            <button class="btn btn--primary" id="btnAIGenerate">✨ 1 · Rédiger la brochure</button>
             <span id="aiStatus" class="ai-status" role="status" aria-live="polite"></span>
           </div>
-          <p class="hint">La génération remplace l'accroche, la description, les caractéristiques et le quartier. Les photos et le prix ne sont jamais modifiés.</p>
+          <label>Accroche <small class="hint">(page d'introduction — relisez et ajustez)</small>
+            <textarea rows="2" data-bind="property.hook" placeholder="Générée par l'IA à partir de la fiche prestation…"></textarea>
+          </label>
+          <label>Description <small class="hint">(le récit du bien)</small>
+            <textarea rows="6" data-bind="property.description" placeholder="Générée par l'IA…"></textarea>
+          </label>
+          <details class="panel panel--nested">
+            <summary>Caractéristiques (intérieur / extérieur / à savoir)</summary>
+            <div class="panel__body">
+              <label>Intérieur <small class="hint">(une par ligne)</small>
+                <textarea rows="5" data-bind-list="features.interieur"></textarea>
+              </label>
+              <label>Extérieur <small class="hint">(une par ligne)</small>
+                <textarea rows="4" data-bind-list="features.exterieur"></textarea>
+              </label>
+              <label>À savoir <small class="hint">(taxes, charges…)</small>
+                <textarea rows="3" data-bind-list="features.aSavoir"></textarea>
+              </label>
+            </div>
+          </details>
+          <hr class="wstep__sep" />
+          <div class="ai-actions">
+            <button class="btn btn--primary" id="btnAIAd">📰 2 · Créer le texte publicitaire</button>
+            <span id="adStatus" class="ai-status" role="status" aria-live="polite"></span>
+          </div>
+          <label>Texte publicitaire <small class="hint">(annonce factuelle pour les portails — SeLoger, LeBonCoin…)</small>
+            <textarea rows="9" data-bind="adText" placeholder="Généré à partir de la fiche prestation, de l'adresse et du quartier…"></textarea>
+          </label>
+          <div class="ai-actions">
+            <button class="btn btn--ghost btn--sm" id="btnCopyAd">📋 Copier le texte publicitaire</button>
+          </div>
+          <hr class="wstep__sep" />
+          <div class="wstep__exports">
+            <button class="btn btn--primary" id="btnFinishPrint">🖨 Imprimer / PDF</button>
+            <button class="btn btn--ghost" id="btnFinishSave">💾 Enregistrer dans la bibliothèque</button>
+            <button class="btn btn--ghost" id="btnFinishHtml">🌐 Exporter HTML</button>
+            <button class="btn btn--ghost" id="btnFinishMail">✉️ Envoyer par mail</button>
+          </div>
         </div>
-      </details>
+      </section>
+
+      <!-- Navigation commune des étapes -->
+      <div class="wstep-nav" id="wizNav">
+        <button class="btn btn--ghost" id="wizPrev">← Retour</button>
+        <div class="wstep-nav__right">
+          <button class="btn btn--ghost" id="wizSkip">Passer cette étape →</button>
+          <button class="btn btn--primary" id="wizNext">Continuer →</button>
+        </div>
+      </div>
 
       <p class="editor__footer">
-        <strong>Sauvegarder</strong> enregistre la brochure (sous le nom de votre choix) dans votre
-        dossier <strong>OneDrive</strong> ; retrouvez-la et modifiez-la ensuite (prix, photo…) via
-        <strong>▤ Bibliothèque</strong>. OneDrive synchronise vos brochures sur tous vos appareils.
+        L'aperçu à droite se met à jour en direct. <strong>Sauvegarder</strong> range la brochure
+        dans votre dossier OneDrive ; retrouvez-la ensuite via <strong>▤ Bibliothèque</strong>.
       </p>
     </section>
 
@@ -338,6 +376,57 @@
 
   <input type="file" id="fileImport" accept="application/json,.json" hidden />
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- ======================= RÉGLAGES ======================= -->
+  <div class="lib-overlay" id="setupOverlay" hidden>
+    <div class="lib-modal setup-modal" role="dialog" aria-modal="true" aria-label="Réglages">
+      <div class="lib-head">
+        <div>
+          <strong id="setupTitle">Réglages</strong>
+          <small>Coordonnées de l'agence, ambiance et clé API</small>
+        </div>
+        <button class="btn btn--icon" id="setupClose" aria-label="Fermer">✕</button>
+      </div>
+      <div class="setup-body">
+        <label>Nom de l'agence
+          <input type="text" data-bind="agency.name" placeholder="Century 21 Kadima" />
+        </label>
+        <label>Conseiller / négociateur
+          <input type="text" data-bind="agency.agent" placeholder="Prénom Nom" />
+        </label>
+        <label>Adresse de l'agence
+          <input type="text" data-bind="agency.address" placeholder="20 rue François Mitterrand, 33160 Saint-Médard-en-Jalles" />
+        </label>
+        <div class="grid-2">
+          <label>Téléphone
+            <input type="text" data-bind="agency.phone" placeholder="05 56 57 77 77" />
+          </label>
+          <label>E-mail
+            <input type="text" data-bind="agency.email" placeholder="kadima@century21.fr" />
+          </label>
+        </div>
+        <label>Ambiance des brochures
+          <select data-bind="theme.palette">
+            <option value="bronze">Sable &amp; bronze (chaleureux)</option>
+            <option value="sauge">Lin &amp; sauge (naturel)</option>
+            <option value="encre">Ardoise &amp; or (élégant)</option>
+            <option value="terracotta">Albâtre &amp; terracotta (éditorial)</option>
+          </select>
+        </label>
+        <label class="check">
+          <input type="checkbox" data-bind="theme.coverDark" />
+          <span>Couverture sombre (texte clair sur la photo)</span>
+        </label>
+        <hr class="wstep__sep" />
+        <label>Clé API Anthropic <small class="hint">(commence par <code>sk-ant-</code> — nécessaire pour la rédaction IA ; reste dans ce navigateur)</small>
+          <input type="password" id="aiKey" placeholder="sk-ant-…" autocomplete="off" />
+        </label>
+      </div>
+      <div class="lib-toolbar setup-foot">
+        <button class="btn btn--primary" id="setupSave">Enregistrer les réglages</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ======================= BIBLIOTHÈQUE ======================= -->
   <div class="lib-overlay" id="libOverlay" hidden>
@@ -366,5 +455,6 @@
   <script src="assets/js/ai.js"></script>
   <script src="assets/js/library.js"></script>
   <script src="assets/js/app.js"></script>
+  <script src="assets/js/wizard.js"></script>
 </body>
 </html>

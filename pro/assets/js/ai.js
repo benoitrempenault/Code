@@ -548,5 +548,43 @@
     } catch (e) { throw new Error("Réponse illisible (JSON)."); }
   }
 
-  window.BrochureAI = { generate, generateQuartier, captionPhotos, extractDiagnostics, extractSurfaces, generateCityIntro, generateAdText };
+
+  /* ------------- Transcription d'une photo / capture de notes ------------ */
+  // L'agent colle ses notes… ou les photographie (prise de notes manuscrite,
+  // page Word, scan) : Claude les transcrit fidèlement dans le champ notes.
+  async function extractNotes(opts) {
+    const { apiKey, model, images } = opts;
+    if (!apiKey || !/^sk-ant-/.test(apiKey.trim())) throw new Error("Clé API manquante ou invalide (voir paramètres).");
+    if (!images || !images.length) throw new Error("Ajoutez d'abord une photo ou une capture de vos notes.");
+    const SCHEMA = {
+      type: "object", additionalProperties: false,
+      properties: { text: { type: "string", description: "La transcription fidèle des notes, une information par ligne." } },
+      required: ["text"]
+    };
+    const blocks = [];
+    for (let i = 0; i < images.length; i++) {
+      const parts = dataUrlParts(images[i]);
+      if (!parts) throw new Error("Format d'image non reconnu.");
+      blocks.push({ type: "image", source: { type: "base64", media_type: parts.media, data: parts.data } });
+    }
+    blocks.push({ type: "text", text: "Transcris ces notes de visite immobilière." });
+    const body = {
+      model: model || "claude-opus-4-8",
+      max_tokens: 2000,
+      output_config: { format: { type: "json_schema", schema: SCHEMA } },
+      system: [
+        "Tu transcris des notes de visite immobilière (manuscrites, imprimées ou capture d'écran) en texte brut exploitable.",
+        "Règles : transcription FIDÈLE — n'invente rien, ne complète rien, n'interprète pas. Conserve chiffres, surfaces et unités tels quels.",
+        "Mets une information par ligne. Si un mot est illisible, écris [illisible]. Réponds uniquement via le format JSON demandé."
+      ].join("\n"),
+      messages: [{ role: "user", content: blocks }]
+    };
+    const data = await callAnthropic(apiKey, body);
+    if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
+    const tb = (data.content || []).find(function (b) { return b.type === "text"; });
+    if (!tb) throw new Error("Réponse vide du modèle.");
+    try { return JSON.parse(tb.text).text || ""; } catch (e) { throw new Error("Réponse illisible (JSON)."); }
+  }
+
+  window.BrochureAI = { generate, generateQuartier, captionPhotos, extractDiagnostics, extractSurfaces, generateCityIntro, generateAdText, extractNotes };
 })();

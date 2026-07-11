@@ -236,14 +236,21 @@
         <header class="wstep__head">
           <div class="wstep__eyebrow">Étape 7 sur 8 · <span class="wstep__req">recommandé</span></div>
           <h2>La fiche prestation</h2>
-          <p class="hint">Décrivez le bien <strong>en vrac</strong> — prestations, matériaux, équipements, travaux,
-            charges… Dictez-la à la voix 🎤 ou collez vos notes : c'est la matière première de la brochure
-            et du texte d'annonce.</p>
+          <p class="hint"><strong>Collez</strong> vos notes en vrac (prestations, matériaux, équipements, travaux,
+            charges…) — ou <strong>photographiez votre prise de notes</strong> (papier, Word, scan) : l'IA la
+            transcrit pour vous. C'est la matière première de la brochure et du texte d'annonce.</p>
         </header>
         <div class="panel__body">
-          <div class="ai-actions">
-            <button class="btn btn--ghost" id="btnVoice" type="button">🎤 Dicter la fiche prestation</button>
-            <span id="voiceStatus" class="ai-status" role="status" aria-live="polite"></span>
+          <div class="uploader">
+            <div class="uploader__row">
+              <span>Photo / capture de vos notes <small class="hint">(manuscrites ou imprimées — plusieurs possibles)</small></span>
+              <label class="btn btn--ghost btn--sm">Choisir
+                <input type="file" id="fileNotes" accept="image/*" multiple hidden />
+              </label>
+            </div>
+            <div class="ai-actions">
+              <span id="notesStatus" class="ai-status" role="status" aria-live="polite"></span>
+            </div>
           </div>
           <label>Notes brutes du bien
             <textarea rows="9" id="aiNotes" placeholder="Ex : Villa archi 2014, 198 m² hab, 7 pièces, terrain 1223 m², piscine 11x3.75, cuisine ouverte sur-mesure, suite parentale 36 m², PAC air/eau, taxe foncière 2900 €…"></textarea>

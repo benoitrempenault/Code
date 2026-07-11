@@ -80,7 +80,8 @@
       { label: "Chambre 3", value: "24 m²" },
       { label: "Garage", value: "31 m²" }
     ],
-    surfacesTotal: "198,44 m²"
+    surfacesTotal: "198,44 m²",
+    adText: ""
   };
 
   /* --------------------------------- État ------------------------------- */
@@ -96,6 +97,7 @@
     delete s.plan;
     if (!s.surfaces) s.surfaces = [];
     if (!s.gallery) s.gallery = [];
+    if (s.adText == null) s.adText = "";
     return s;
   }
 
@@ -666,12 +668,14 @@
   }
   function blankState() {
     const s = clone(DEFAULT);
+    s.property.type = ""; s.property.exclusivite = false;
     s.property.title = ""; s.property.location = ""; s.property.address = "";
     s.property.hook = ""; s.property.description = ""; s.property.quartierIntro = "";
     s.property.stats = { pieces: "", chambres: "", sdb: "", surface: "", terrain: "" };
     s.property.price = ""; s.features = { interieur: [], exterieur: [], aSavoir: [] };
     s.quartier = []; s.diagnostics = { dpe: "", dpeValue: "", ges: "", gesValue: "", note: "Document non contractuel.", summary: [] };
     s.coverPhoto = null; s.gallery = []; s.plans = []; s.surfaces = []; s.surfacesTotal = "";
+    s.adText = "";
     return s;
   }
 
@@ -1120,6 +1124,19 @@
     render();
     applyZoom();
   }
+
+  /* ------------- API pour l'interface pas-à-pas (wizard.js) ------------- */
+  window.StudioApp = {
+    getState: function () { return state; },
+    setValue: function (path, val) { setPath(state, path, val); },
+    render: render,
+    save: save,
+    scheduleSave: scheduleSave,
+    hydrateForm: hydrateForm,
+    renderPhotoUI: renderPhotoUI,
+    toast: toast,
+    doNew: doNew
+  };
 
   document.addEventListener("DOMContentLoaded", init);
 })();

@@ -486,5 +486,104 @@
     try { return JSON.parse(tb.text); } catch (e) { throw new Error("Réponse illisible (JSON)."); }
   }
 
-  window.BrochureAI = { generate, generateQuartier, captionPhotos, extractDiagnostics, extractSurfaces, generateCityIntro };
+  /* --------------- Texte publicitaire (annonce portails) ----------------- */
+  // Factuel et vendeur, dans l'esprit des annonces SeLoger / LeBonCoin :
+  // structuré, chiffré, sans lyrisme — le pendant « annonce » de la brochure.
+  async function generateAdText(opts) {
+    const { apiKey, model, state } = opts;
+    if (!apiKey || !/^sk-ant-/.test(apiKey.trim())) throw new Error("Clé API manquante ou invalide (à renseigner dans les paramètres).");
+    const p = state.property || {}, st = p.stats || {}, diag = state.diagnostics || {};
+    const facts = [
+      p.type ? "Type : " + p.type : "",
+      p.location ? "Localisation (affichable) : " + p.location : "",
+      st.pieces ? "Pièces : " + st.pieces : "",
+      st.chambres ? "Chambres : " + st.chambres : "",
+      st.sdb ? "Salles d'eau/bains : " + st.sdb : "",
+      st.surface ? "Surface habitable : " + st.surface : "",
+      st.terrain ? "Terrain : " + st.terrain : "",
+      p.price ? "Prix : " + p.price : "",
+      p.priceNote ? "Honoraires : " + p.priceNote : "",
+      diag.dpe ? "DPE : " + diag.dpe + (diag.dpeValue ? " (" + diag.dpeValue + " kWh/m²/an)" : "") : "",
+      diag.ges ? "GES : " + diag.ges : "",
+      p.exclusivite ? "Mandat : exclusivité" : ""
+    ].filter(Boolean).join("\n");
+    const lists = []
+      .concat(((state.features || {}).interieur || []).map(function (x) { return "Intérieur : " + x; }))
+      .concat(((state.features || {}).exterieur || []).map(function (x) { return "Extérieur : " + x; }))
+      .concat(((state.features || {}).aSavoir || []).map(function (x) { return "À savoir : " + x; }))
+      .concat((state.quartier || []).map(function (q) { return "Quartier — " + q.label + " : " + q.value; }))
+      .join("\n");
+    const desc = p.description ? "\nDescription rédigée (source d'information, ne pas recopier) :\n" + p.description : "";
+
+    const SCHEMA = {
+      type: "object", additionalProperties: false,
+      properties: {
+        title: { type: "string", description: "Titre d'annonce factuel et accrocheur (max 80 caractères), ex. « Villa 7 pièces de 198 m² avec piscine — Saint-Médard-en-Jalles »" },
+        text: { type: "string", description: "Le corps de l'annonce (150 à 250 mots), paragraphes séparés par une ligne vide." }
+      },
+      required: ["title", "text"]
+    };
+    const system = [
+      "Tu rédiges, en français, une ANNONCE IMMOBILIÈRE de portail (style SeLoger / LeBonCoin / Bien'ici) pour une agence.",
+      "Ton factuel, précis et vendeur — PAS le lyrisme d'une brochure : phrases courtes, informations concrètes, chiffres exacts fournis.",
+      "Structure attendue dans 'text' : 1) phrase d'ouverture situant le bien (type, surface, localisation générale) ; 2) description pièce par pièce / niveaux ; 3) extérieurs et prestations ; 4) quartier et commodités avec distances si fournies ; 5) mentions pratiques (DPE, prix, honoraires, exclusivité le cas échéant).",
+      "INTERDIT : nommer la rue ou l'adresse précise (quartier et ville uniquement), inventer une information non fournie, superlatifs creux (« exceptionnel », « unique », « coup de cœur assuré »), points d'exclamation en rafale.",
+      "N'utilise que les informations fournies. Termine par une invitation sobre à contacter l'agence pour une visite."
+    ].join("\n");
+
+    const body = {
+      model: model || "claude-opus-4-8",
+      max_tokens: 1200,
+      output_config: { format: { type: "json_schema", schema: SCHEMA } },
+      system: system,
+      messages: [{ role: "user", content: "Données du bien :\n" + facts + "\n\nPrestations et quartier :\n" + lists + desc }]
+    };
+    const data = await callAnthropic(apiKey, body);
+    if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
+    const tb = (data.content || []).find(function (b) { return b.type === "text"; });
+    if (!tb) throw new Error("Réponse vide du modèle.");
+    try {
+      const out = JSON.parse(tb.text);
+      return (out.title ? out.title + "\n\n" : "") + (out.text || "");
+    } catch (e) { throw new Error("Réponse illisible (JSON)."); }
+  }
+
+  /* ------------- Transcription d'une photo / capture de notes ------------ */
+  // L'agent colle ses notes… ou les photographie (prise de notes manuscrite,
+  // page Word, scan) : Claude les transcrit fidèlement dans le champ notes.
+  async function extractNotes(opts) {
+    const { apiKey, model, images } = opts;
+    if (!apiKey || !/^sk-ant-/.test(apiKey.trim())) throw new Error("Clé API manquante ou invalide (voir paramètres).");
+    if (!images || !images.length) throw new Error("Ajoutez d'abord une photo ou une capture de vos notes.");
+    const SCHEMA = {
+      type: "object", additionalProperties: false,
+      properties: { text: { type: "string", description: "La transcription fidèle des notes, une information par ligne." } },
+      required: ["text"]
+    };
+    const blocks = [];
+    for (let i = 0; i < images.length; i++) {
+      const parts = dataUrlParts(images[i]);
+      if (!parts) throw new Error("Format d'image non reconnu.");
+      blocks.push({ type: "image", source: { type: "base64", media_type: parts.media, data: parts.data } });
+    }
+    blocks.push({ type: "text", text: "Transcris ces notes de visite immobilière." });
+    const body = {
+      model: model || "claude-opus-4-8",
+      max_tokens: 2000,
+      output_config: { format: { type: "json_schema", schema: SCHEMA } },
+      system: [
+        "Tu transcris des notes de visite immobilière (manuscrites, imprimées ou capture d'écran) en texte brut exploitable.",
+        "Règles : transcription FIDÈLE — n'invente rien, ne complète rien, n'interprète pas. Conserve chiffres, surfaces et unités tels quels.",
+        "Mets une information par ligne. Si un mot est illisible, écris [illisible]. Réponds uniquement via le format JSON demandé."
+      ].join("\n"),
+      messages: [{ role: "user", content: blocks }]
+    };
+    const data = await callAnthropic(apiKey, body);
+    if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
+    const tb = (data.content || []).find(function (b) { return b.type === "text"; });
+    if (!tb) throw new Error("Réponse vide du modèle.");
+    try { return JSON.parse(tb.text).text || ""; } catch (e) { throw new Error("Réponse illisible (JSON)."); }
+  }
+
+  window.BrochureAI = { generate, generateQuartier, captionPhotos, extractDiagnostics, extractSurfaces, generateCityIntro, generateAdText, extractNotes };
 })();

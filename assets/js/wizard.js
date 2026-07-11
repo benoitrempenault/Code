@@ -1,7 +1,7 @@
 /* =========================================================================
-   wizard.js — Parcours guidé de Studio Immo.
-   Navigation pas-à-pas, validation des étapes requises, paramétrage de
-   l'agence (marque blanche), photo de notes transcrite par l'IA et
+   wizard.js — Parcours guidé de Studio Brochure (Century 21 Kadima).
+   Navigation pas-à-pas, validation des étapes requises, réglages (agence,
+   ambiance, clé API), photo/capture de notes transcrite par l'IA et
    génération du texte publicitaire. S'appuie sur window.StudioApp (app.js).
    ========================================================================= */
 (function () {
@@ -21,13 +21,11 @@
     { n: 8, label: "Générer", skippable: false }
   ];
   let current = 1;
-  let maxVisited = 1;
+  let maxVisited = 8; // l'app existait avant le parcours : toutes les étapes restent accessibles
 
   const App = function () { return window.StudioApp; };
 
   /* ------------------------------ Navigation ---------------------------- */
-  function stepEl(n) { return $('.wstep[data-wstep="' + n + '"]'); }
-
   function paintProgress() {
     const bar = $("#wizProgress");
     bar.innerHTML = STEPS.map(function (s) {
@@ -51,7 +49,7 @@
     $("#wizNext").style.display = current === 8 ? "none" : "";
     paintProgress();
     $("#editor").scrollTo({ top: 0, behavior: "smooth" });
-    try { sessionStorage.setItem("studio-pro-step", String(current)); } catch (e) { }
+    try { sessionStorage.setItem("studio-brochure-step", String(current)); } catch (e) { }
   }
 
   // Ville lisible depuis l'adresse BAN (« … 33160 Saint-Médard-en-Jalles »).
@@ -63,7 +61,7 @@
   function validate(n) {
     const st = App().getState();
     if (n === 1 && !(st.property.type || "").trim()) {
-      App().toast("Indiquez d'abord le type de bien (ex. « Maison de ville »).", true);
+      App().toast("Indiquez d'abord le type de bien (ex. « Maison familiale »).", true);
       const inp = $('[data-bind="property.type"]'); if (inp) inp.focus();
       return false;
     }
@@ -78,7 +76,6 @@
   function next() {
     if (!validate(current)) return;
     if (current === 2) {
-      // Complète la localisation affichée à partir de l'adresse si vide.
       const st = App().getState();
       if (!(st.property.location || "").trim()) {
         const city = cityFromAddress(st.property.address);
@@ -110,70 +107,19 @@
     $("#btnFinishMail").addEventListener("click", function () { $("#btnMail").click(); });
   }
 
-  /* --------------------------- Paramétrage agence ----------------------- */
-  function paintLogoPreview() {
-    const st = App().getState();
-    const box = $("#agencyLogoPreview");
-    box.innerHTML = st.agency.logo
-      ? '<img src="' + st.agency.logo + '" alt="Logo de l\'agence"><button type="button" class="btn btn--ghost btn--sm" id="agencyLogoRemove">Retirer</button>'
-      : '<p class="hint">Aucun logo pour l\'instant — le nom de l\'agence sera affiché à la place.</p>';
-  }
-
-  function resizeLogo(file, cb) {
-    const r = new FileReader();
-    r.onload = function () {
-      const img = new Image();
-      img.onload = function () {
-        const MAX = 640;
-        const k = Math.min(1, MAX / Math.max(img.width, img.height));
-        const c = document.createElement("canvas");
-        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-        // PNG pour préserver la transparence des logos
-        cb(c.toDataURL("image/png"));
-      };
-      img.src = r.result;
-    };
-    r.readAsDataURL(file);
-  }
-
-  function openSetup(firstRun) {
-    $("#setupTitle").textContent = firstRun ? "Bienvenue ! Paramétrez votre agence" : "Mon agence";
-    App().hydrateForm();
-    paintLogoPreview();
-    $("#setupOverlay").hidden = false;
-  }
-  function closeSetup() { $("#setupOverlay").hidden = true; }
-
+  /* -------------------------------- Réglages ---------------------------- */
   function wireSetup() {
-    $("#btnSettings").addEventListener("click", function () { openSetup(false); });
-    $("#setupClose").addEventListener("click", closeSetup);
-    $("#setupOverlay").addEventListener("click", function (e) { if (e.target === this) closeSetup(); });
-    $("#agencyLogoFile").addEventListener("change", function (e) {
-      const f = e.target.files[0]; e.target.value = "";
-      if (!f) return;
-      resizeLogo(f, function (dataUrl) {
-        App().setValue("agency.logo", dataUrl);
-        paintLogoPreview(); App().refreshTopbarLogo(); App().render(); App().scheduleSave();
-      });
+    $("#btnSettings").addEventListener("click", function () {
+      App().hydrateForm();
+      $("#setupOverlay").hidden = false;
     });
-    $("#agencyLogoPreview").addEventListener("click", function (e) {
-      if (e.target && e.target.id === "agencyLogoRemove") {
-        App().setValue("agency.logo", null);
-        paintLogoPreview(); App().refreshTopbarLogo(); App().render(); App().scheduleSave();
-      }
-    });
+    function close() { $("#setupOverlay").hidden = true; }
+    $("#setupClose").addEventListener("click", close);
+    $("#setupOverlay").addEventListener("click", function (e) { if (e.target === this) close(); });
     $("#setupSave").addEventListener("click", function () {
-      const st = App().getState();
-      if (!(st.agency.name || "").trim()) {
-        App().toast("Le nom de l'agence est requis.", true);
-        const inp = $('[data-bind="agency.name"]'); if (inp) inp.focus();
-        return;
-      }
-      App().saveAgency();
-      App().refreshTopbarLogo(); App().render(); App().save();
-      closeSetup();
-      App().toast("Paramètres de l'agence enregistrés.");
+      App().render(); App().save();
+      close();
+      App().toast("Réglages enregistrés.");
     });
   }
 
@@ -203,8 +149,8 @@
       if (!files.length) return;
       const key = ($("#aiKey").value || "").trim();
       if (!key) {
-        App().toast("Renseignez d'abord la clé API dans ⚙ Mon agence.", true);
-        openSetup(false);
+        App().toast("Renseignez d'abord la clé API dans ⚙ Réglages.", true);
+        $("#setupOverlay").hidden = false;
         return;
       }
       status.className = "ai-status is-busy";
@@ -239,8 +185,8 @@
       const btn = $("#btnAIAd"), status = $("#adStatus");
       const key = ($("#aiKey").value || "").trim();
       if (!key) {
-        App().toast("Renseignez d'abord la clé API dans ⚙ Mon agence.", true);
-        openSetup(false);
+        App().toast("Renseignez d'abord la clé API dans ⚙ Réglages.", true);
+        $("#setupOverlay").hidden = false;
         return;
       }
       status.className = "ai-status is-busy"; status.textContent = "Rédaction de l'annonce…";
@@ -275,10 +221,8 @@
     wireNotesPhoto();
     wireAdText();
     let start = 1;
-    try { start = parseInt(sessionStorage.getItem("studio-pro-step"), 10) || 1; } catch (e) { }
-    maxVisited = Math.max(1, start);
+    try { start = parseInt(sessionStorage.getItem("studio-brochure-step"), 10) || 1; } catch (e) { }
     show(start);
-    if (!App().agencyConfigured()) openSetup(true);
   }
 
   document.addEventListener("DOMContentLoaded", init);
