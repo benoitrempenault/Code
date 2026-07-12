@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Studio Mandat — Fiche prestation &amp; Brochure</title>
+  <meta name="description" content="La suite du mandat : dictez la fiche prestation, exportez-la en Word, puis injectez-la dans la brochure acquéreur." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0f0f10; --panel: #17171a; --panel-2: #1e1e22; --line: #2a2a30;
+      --text: #ece9e2; --muted: #9a968c; --accent: #c2a36b; --accent-ink: #1a1714;
+    }
+    * { box-sizing: border-box; margin: 0; }
+    html, body { height: 100%; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: "Inter", system-ui, sans-serif;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 30px 20px; gap: 34px;
+    }
+    .brand { text-align: center; }
+    .brand img { height: 74px; width: auto; margin-bottom: 18px; }
+    .brand h1 { font-family: "Fraunces", Georgia, serif; font-weight: 500; font-size: clamp(26px, 4vw, 38px); letter-spacing: .2px; }
+    .brand h1 em { font-style: normal; color: var(--accent); }
+    .brand p { color: var(--muted); margin-top: 10px; font-size: 15px; max-width: 52ch; }
+
+    .tiles { display: grid; grid-template-columns: repeat(2, minmax(260px, 340px)); gap: 20px; }
+    .tile {
+      display: flex; flex-direction: column; gap: 12px; text-decoration: none;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+      padding: 32px 28px; color: var(--text);
+      transition: border-color .15s, transform .12s, box-shadow .15s;
+    }
+    .tile:hover { border-color: var(--accent); transform: translateY(-3px); box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+    .tile .ico { font-size: 34px; }
+    .tile h2 { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 22px; }
+    .tile p { color: var(--muted); font-size: 13.5px; line-height: 1.55; flex: 1 1 auto; }
+    .tile .go { color: var(--accent); font-weight: 600; font-size: 14px; }
+    .flow { color: var(--muted); font-size: 12.5px; text-align: center; line-height: 1.6; max-width: 60ch; }
+    .flow strong { color: var(--text); }
+    @media (max-width: 700px) { .tiles { grid-template-columns: 1fr; width: 100%; max-width: 420px; } }
+  </style>
+</head>
+<body>
+
+  <div class="brand">
+    <img id="logo" alt="Century 21 Kadima" />
+    <h1>Studio <em>Mandat</em></h1>
+    <p>La suite du mandat : dictez la fiche prestation en rentrant de visite,
+      exportez-la en Word — puis injectez-la dans la brochure acquéreur.</p>
+  </div>
+
+  <div class="tiles">
+    <a class="tile" href="fiche.html">
+      <span class="ico">🎙️</span>
+      <h2>Fiche prestation</h2>
+      <p>Dictez les prestations et matériaux à la voix (ou collez vos notes),
+        laissez l'IA structurer la fiche, puis exportez-la en Word ou en PDF.</p>
+      <span class="go">Commencer une fiche →</span>
+    </a>
+    <a class="tile" href="brochure.html">
+      <span class="ico">📖</span>
+      <h2>Brochure</h2>
+      <p>Le parcours guidé en 8 étapes : quartier aux distances réelles, photos,
+        surfaces, rédaction — brochure, annonce et page web du bien.</p>
+      <span class="go">Créer une brochure →</span>
+    </a>
+  </div>
+
+  <p class="flow">Le parcours conseillé : <strong>1)</strong> Fiche prestation (dictée) →
+    <strong>2)</strong> « Injecter dans la brochure » → <strong>3)</strong> compléter photos et quartier →
+    <strong>4)</strong> exporter le package. Vous pouvez revenir à cet accueil à tout moment (bouton ⌂).</p>
+
+  <script src="assets/js/logo.js"></script>
+  <script>
+    (function () {
+      var el = document.getElementById("logo");
+      if (window.KADIMA && window.KADIMA.full) el.src = window.KADIMA.full;
+      else el.style.display = "none";
+    })();
+  </script>
+</body>
+</html>

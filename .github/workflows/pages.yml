@@ -34,6 +34,10 @@ jobs:
           mkdir -p _site/pro/assets
           cp pro/index.html _site/pro/
           cp -r pro/assets/* _site/pro/assets/
+          # Studio Mandat (accueil + fiche prestation + brochure) sous /mandat/
+          mkdir -p _site/mandat/assets
+          cp mandat/index.html mandat/fiche.html mandat/brochure.html _site/mandat/
+          cp -r mandat/assets/* _site/mandat/assets/
           # Site vitrine (promotion Studio Immo) sous /site/
           mkdir -p _site/site/assets
           cp site/index.html _site/site/

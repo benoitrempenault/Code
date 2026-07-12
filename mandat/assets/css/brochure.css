@@ -1,0 +1,301 @@
+/* =========================================================================
+   La brochure elle-même — partagée par l'aperçu, l'impression et l'export.
+   Conçue en A4 portrait (210 × 297 mm). Esthétique éditoriale / magazine.
+   ========================================================================= */
+
+.brochure {
+  /* Palette par défaut : Sable & bronze */
+  --paper:   #f7f3ec;
+  --ink:     #1c1813;
+  --ink-soft:#5b554c;
+  --accent:  #a67c52;
+  --hair:    #ddd5c7;
+  --serif:   "Fraunces", Georgia, "Times New Roman", serif;
+  --sans:    "Inter", system-ui, -apple-system, Segoe UI, sans-serif;
+}
+.brochure[data-palette="sauge"]     { --paper:#f3f2ea; --ink:#20231d; --ink-soft:#555c4d; --accent:#7c8a6e; --hair:#d8dacb; }
+.brochure[data-palette="encre"]     { --paper:#f4f2ee; --ink:#191b1f; --ink-soft:#52555c; --accent:#b08d57; --hair:#dcd8d0; }
+.brochure[data-palette="terracotta"]{ --paper:#f6f1ea; --ink:#241c17; --ink-soft:#5e5249; --accent:#bd6a4e; --hair:#e3d8cd; }
+
+/* --------------------------------- Page --------------------------------- */
+.page {
+  width: 210mm;
+  min-height: 297mm;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  position: relative;
+  box-shadow: 0 18px 50px rgba(0,0,0,.35);
+}
+/* Seules les pages « pleines » (couverture, galerie) sont écrêtées ;
+   les pages de texte peuvent grandir et déborder sur une 2e feuille à l'impression. */
+.page--full, .cover-banded, .gallery-page, .cover { overflow: hidden; }
+.page__inner { padding: 22mm 20mm; }
+.page--full .page__inner { padding: 0; }
+
+/* Filets & libellés de section */
+.eyebrow {
+  font-family: var(--sans);
+  font-size: 9.5pt;
+  letter-spacing: .28em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 500;
+}
+.section-title {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 30pt;
+  line-height: 1.05;
+  margin: 6px 0 0;
+  letter-spacing: -.01em;
+}
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 16mm; }
+.section-head .idx { font-family: var(--serif); font-size: 13pt; color: var(--hair); }
+.rule { height: 1px; background: var(--hair); border: 0; margin: 0; }
+
+/* ============================== COUVERTURE ============================== */
+/* Couverture « bandeau » : photo paysage encadrée, bandeaux haut et bas. */
+.cover-banded { height: 297mm; display: flex; flex-direction: column; background: var(--paper); color: var(--ink); }
+.cover-banded[data-cover="dark"] { background: var(--ink); color: var(--paper); }
+/* Bandeau du haut à HAUTEUR FIXE : agrandir le logo ne décale pas la photo. */
+.cb-top { position: relative; flex: 0 0 44mm; padding: 0 18mm; display: flex; align-items: center; justify-content: center; }
+.cb-logo { height: 38mm; width: auto; max-width: 80%; display: block; }
+.cb-logo-text { font-family: var(--serif); font-size: 18pt; }
+.cb-tag { position: absolute; top: 14mm; right: 18mm; font-size: 6.5pt; letter-spacing: .2em; text-transform: uppercase; border: 1px solid currentColor; border-radius: 999px; padding: 3px 9px; opacity: .75; }
+.cb-photo { flex: 1 1 auto; margin: 0 12mm 7mm; min-height: 0; }
+.cb-photo img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
+.cb-ph { width: 100%; height: 100%; background: linear-gradient(135deg, #cfc4b2, #ab9d86); }
+.cb-bottom { flex: 0 0 auto; padding: 0 18mm 16mm; }
+.cover-banded .eyebrow { color: var(--accent); }
+.cb-title { font-family: var(--serif); font-weight: 400; font-size: 34pt; line-height: 1.04; margin: 8px 0 12px; letter-spacing: -.015em; max-width: 18ch; }
+.cb-loc { font-size: 12pt; }
+.cb-contact { margin-top: 12px; font-size: 9.5pt; opacity: .72; letter-spacing: .02em; }
+
+/* ============================== COUVERTURE (ancienne, pleine page) ====== */
+.cover { position: relative; height: 297mm; }
+.cover__img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cover__img--placeholder { background: linear-gradient(135deg, #cfc4b2, #ab9d86); }
+.cover__scrim { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.28) 0%, rgba(0,0,0,0) 32%, rgba(0,0,0,0) 55%, rgba(0,0,0,.62) 100%); }
+.cover__frame { position: absolute; inset: 12mm; border: 1px solid rgba(255,255,255,.55); pointer-events: none; }
+.cover__top, .cover__bottom { position: absolute; left: 20mm; right: 20mm; color: #fff; }
+.cover__top { top: 20mm; display: flex; align-items: center; justify-content: space-between; }
+.cover__bottom { bottom: 20mm; }
+.cover__brand { display: flex; align-items: center; gap: 9px; font-weight: 500; letter-spacing: .02em; }
+.cover__brand .c21 { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 1px solid rgba(255,255,255,.7); font-family: var(--serif); font-size: 12pt; }
+.cover__emblem { height: 42px; width: auto; display: block; }
+.cover__tag { font-size: 8.5pt; letter-spacing: .26em; text-transform: uppercase; border: 1px solid rgba(255,255,255,.7); border-radius: 999px; padding: 6px 14px; }
+.cover__eyebrow { font-size: 10pt; letter-spacing: .28em; text-transform: uppercase; opacity: .92; }
+.cover__title { font-family: var(--serif); font-weight: 400; font-size: 40pt; line-height: 1.02; margin: 10px 0 12px; letter-spacing: -.015em; max-width: 15ch; }
+.cover__loc { font-size: 12pt; letter-spacing: .02em; display: flex; align-items: center; gap: 9px; }
+.cover__loc::before { content: ""; width: 26px; height: 1px; background: rgba(255,255,255,.8); display: inline-block; }
+.cover__contact { margin-top: 16px; font-size: 9.5pt; opacity: .85; letter-spacing: .02em; }
+
+/* Variante couverture claire (texte sombre, sans photo plein cadre) */
+.brochure[data-cover="light"] .cover__scrim { background: linear-gradient(180deg, rgba(255,255,255,.15), rgba(255,255,255,.05) 40%, rgba(255,255,255,.35)); }
+
+/* =============================== ÉDITO ================================= */
+.edito { display: flex; flex-direction: column; justify-content: center; min-height: 297mm; }
+.edito .eyebrow { text-align: center; }
+.edito__quote {
+  font-family: var(--serif);
+  font-weight: 300;
+  font-size: 27pt;
+  line-height: 1.32;
+  text-align: center;
+  margin: 22px auto 0;
+  max-width: 26ch;
+  font-style: italic;
+  letter-spacing: -.005em;
+}
+.edito__mark { display: block; width: 44px; height: 1px; background: var(--accent); margin: 26px auto 0; }
+
+/* =============================== LE BIEN =============================== */
+.stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); margin-bottom: 14mm; }
+.stat { padding: 14px 8px; text-align: center; border-right: 1px solid var(--hair); }
+.stat:last-child { border-right: 0; }
+.stat__num { font-family: var(--serif); font-size: 22pt; line-height: 1; }
+.stat__lbl { font-size: 8pt; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-soft); margin-top: 7px; }
+.prose { columns: 2; column-gap: 11mm; font-size: 10.5pt; line-height: 1.72; color: var(--ink-soft); text-align: justify; hyphens: auto; }
+.prose p { margin: 0 0 10px; break-inside: avoid; }
+.prose p:first-child::first-letter {
+  font-family: var(--serif); float: left; font-size: 42pt; line-height: .82;
+  padding: 4px 8px 0 0; color: var(--accent);
+}
+
+/* ============================ CARACTÉRISTIQUES ========================= */
+.feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12mm; }
+.feature-block h3 { font-family: var(--serif); font-weight: 400; font-size: 15pt; margin: 0 0 12px; }
+.feature-block ul { list-style: none; margin: 0; padding: 0; }
+.feature-block li { font-size: 10pt; line-height: 1.45; color: var(--ink-soft); padding: 7px 0 7px 20px; border-bottom: 1px solid var(--hair); position: relative; break-inside: avoid; }
+.feature-block li::before { content: ""; position: absolute; left: 2px; top: 13px; width: 6px; height: 6px; border: 1px solid var(--accent); transform: rotate(45deg); }
+.asavoir { margin-top: 12mm; padding: 12px 16px; background: rgba(0,0,0,.025); border-left: 2px solid var(--accent); }
+.asavoir h3 { font-family: var(--sans); font-size: 9pt; letter-spacing: .18em; text-transform: uppercase; margin: 0 0 8px; color: var(--accent); }
+.asavoir ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 22px; }
+.asavoir li { font-size: 10pt; color: var(--ink); }
+
+/* =============================== QUARTIER ============================== */
+.quartier-intro { font-family: var(--serif); font-size: 13pt; line-height: 1.55; color: var(--ink); font-style: italic; margin: 0 0 12mm; max-width: 46ch; }
+.quartier-list { display: grid; grid-template-columns: 1fr; gap: 0; }
+.quartier-item { display: grid; grid-template-columns: 42mm 1fr; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--hair); align-items: baseline; }
+.quartier-item:first-child { border-top: 1px solid var(--hair); }
+.quartier-item dt { font-family: var(--serif); font-size: 12pt; }
+.quartier-item dd { margin: 0; font-size: 10pt; line-height: 1.5; color: var(--ink-soft); }
+
+/* =============================== GALERIE ============================== */
+/* Montage éditorial — images entières (jamais rognées), légende dessous. */
+.gallery-page .page__inner { padding: 0; }
+.gallery-montage { height: 297mm; padding: 15mm; display: flex; flex-direction: column; gap: 6mm; box-sizing: border-box; }
+.gm-head { flex: 0 0 auto; display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1mm; }
+.gm-head-title { font-family: var(--serif); font-size: 17pt; }
+.gallery-montage > .gm-cell { flex: 1; min-height: 0; }
+.gallery-montage > .gm-hero { flex: 1.75; min-height: 0; }
+.gallery-montage > .gm-row { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; min-height: 0; }
+.gm-cell { display: flex; flex-direction: column; min-height: 0; }
+.gm-img { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.gm-img img { max-width: 100%; max-height: 100%; width: auto; height: auto; }
+.gm-cap { flex: 0 0 auto; text-align: center; padding-top: 3mm; font-size: 8pt; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-soft); }
+
+/* Cadre doré uniforme : même marge (mat) entre la photo et le filet, partout. */
+.gm-img img, .cb-photo img, .plan-img, .surfaces-img {
+  border: 1px solid var(--accent);
+  padding: 3mm;
+  background: var(--paper);
+  box-sizing: border-box;
+}
+
+/* ============================ DIAGNOSTICS ============================= */
+.diag-wrap { display: grid; grid-template-columns: 1fr; gap: 14mm; align-items: start; }
+/* Échelle DPE/GES — style étiquette moderne */
+.dpe2 h3 { font-family: var(--serif); font-weight: 400; font-size: 13.5pt; margin: 0 0 14px; }
+.dpe2-scale { display: flex; flex-direction: column; gap: 7px; }
+.dpe2-row { display: flex; align-items: center; height: 30px; }
+.dpe2-bar { height: 100%; display: flex; align-items: center; padding-left: 14px; font-weight: 700; font-size: 10.5pt; border-radius: 5px 0 0 5px; background: var(--c); position: relative; }
+.dpe2-bar::after { content: ""; position: absolute; right: -15px; top: 0; border: 15px solid transparent; border-left-color: var(--c); }
+.dpe2-row.is-active { height: 38px; }
+.dpe2-row.is-active .dpe2-bar { box-shadow: 0 2px 8px rgba(0,0,0,.22); font-size: 13pt; }
+.dpe2-tag { margin-left: auto; display: inline-flex; align-items: center; gap: 9px; background: var(--ink); color: var(--paper); border-radius: 7px; padding: 5px 12px; white-space: nowrap; }
+.dpe2-l { font-family: var(--serif); font-size: 15pt; line-height: 1; }
+.dpe2-v { font-size: 9pt; letter-spacing: .02em; }
+.dpe2-v em { font-style: normal; opacity: .7; }
+.diag-summary { margin-top: 12mm; }
+.diag-summary h3 { font-family: var(--sans); font-size: 9pt; letter-spacing: .18em; text-transform: uppercase; color: var(--accent); margin: 0 0 10px; }
+.diag-summary dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12mm; margin: 0; }
+.diag-summary dl > div { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--hair); }
+.diag-summary dt { font-size: 10pt; color: var(--ink); }
+.diag-summary dd { margin: 0; font-size: 9.5pt; color: var(--ink-soft); text-align: right; }
+.diag-note { font-size: 9pt; color: var(--ink-soft); margin-top: 8mm; line-height: 1.5; }
+.plan-img { width: 100%; margin-top: 10mm; }
+
+/* Tableau des surfaces — cartes récap + table, occupe la page */
+.surfaces-page .page__inner { min-height: 297mm; display: flex; flex-direction: column; box-sizing: border-box; }
+.surfaces-page .section-head { flex: 0 0 auto; }
+.surf-cards { flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 10mm; margin-bottom: var(--surf-cmb, 12mm); }
+.surf-card { border: 1px solid var(--hair); border-radius: 10px; padding: calc(var(--surf-cmb, 12mm) * 0.75) 6mm; text-align: center; }
+.surf-card--accent { border-color: var(--accent); }
+.sc-label { font-size: var(--surf-sclbl, 8.5pt); letter-spacing: .18em; text-transform: uppercase; color: var(--ink-soft); }
+.surf-card--accent .sc-label { color: var(--accent); }
+.sc-value { font-family: var(--serif); font-size: var(--surf-scval, 27pt); line-height: 1; margin-top: 8px; }
+.surf-table { flex: 1 1 auto; display: flex; max-width: 122mm; margin: 0 auto; width: 100%; }
+.surf-tbl { flex: 1 1 auto; width: 100%; border-collapse: collapse; table-layout: fixed; }
+.surf-tbl thead th { font-size: 8.5pt; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; color: var(--paper); background: var(--accent); padding: var(--surf-hpad, 6mm) 7mm; text-align: left; }
+.surf-tbl thead th:last-child { text-align: right; width: 38mm; }
+.surf-tbl td { border: 1px solid var(--hair); padding: var(--surf-vpad, 5mm) 7mm; vertical-align: middle; }
+.surf-tbl tbody tr:nth-child(even) td { background: rgba(0,0,0,.025); }
+.surf-room { font-size: var(--surf-fs, 11pt); color: var(--ink); }
+.surf-area { font-family: var(--serif); font-size: calc(var(--surf-fs, 11pt) + 1pt); color: var(--ink); text-align: right; white-space: nowrap; }
+
+/* petit emblème en bas de page (pages sans logo) */
+.page-mark { position: absolute; bottom: 12mm; right: 16mm; height: 9mm; width: auto; opacity: .8; }
+.gallery-page .page-mark { bottom: 7mm; right: 9mm; }
+
+/* ================================ PRIX ================================ */
+.price-page { display: flex; flex-direction: column; justify-content: center; min-height: 297mm; text-align: center; }
+.price-page .eyebrow { text-align: center; }
+.price__value { font-family: var(--serif); font-weight: 400; font-size: 48pt; line-height: 1; margin: 16px 0 8px; letter-spacing: -.02em; }
+.price__note { font-size: 9.5pt; color: var(--ink-soft); letter-spacing: .04em; }
+.price__divider { width: 60px; height: 1px; background: var(--accent); margin: 32px auto; }
+.contact-card { max-width: 360px; margin: 0 auto; }
+.contact-card .agency { font-family: var(--serif); font-size: 16pt; }
+.contact-card .agent { font-size: 11pt; margin-top: 4px; }
+.contact-card .lines { font-size: 10pt; color: var(--ink-soft); line-height: 1.7; margin-top: 14px; }
+.price__legal { position: absolute; bottom: 14mm; left: 0; right: 0; text-align: center; font-size: 8pt; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-soft); }
+.price__c21 { display: inline-flex; align-items: center; gap: 8px; margin-top: 18px; font-family: var(--serif); font-size: 13pt; }
+.price__c21 .c21 { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: var(--paper); font-size: 12pt; }
+.price__logo { height: 124px; width: auto; display: block; margin: 26px auto 0; }
+
+.empty-hint { color: var(--ink-soft); font-style: italic; font-size: 10pt; }
+
+/* ============================ APERÇU (zoom) =========================== */
+.preview .page { zoom: var(--preview-zoom, 0.62); }
+
+/* ============================== IMPRESSION ============================ */
+@media print {
+  @page { size: A4; margin: 0; }
+  html, body { background: #fff; height: auto; }
+  .topbar, .editor, .preview__zoombar, .toast { display: none !important; }
+  .workspace { display: block; height: auto; }
+  .preview { overflow: visible; background: #fff; }
+  .preview__scroll { overflow: visible; padding: 0; display: block; }
+  .brochure { display: block; gap: 0; }
+  .page {
+    box-shadow: none;
+    zoom: 1 !important;
+    margin: 0;
+    width: 210mm;
+    height: 297mm;
+    page-break-after: always;
+    break-after: page;
+  }
+  .page:last-child { page-break-after: auto; }
+  /* Forcer le rendu des fonds (couleurs DPE, scrims, etc.) */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+}
+
+/* ------------------------- Typographies au choix ------------------------ */
+/* elegant = Fraunces (défaut, défini dans :root) */
+.brochure[data-font="classique"] { --serif: "Cormorant Garamond", Georgia, "Times New Roman", serif; }
+.brochure[data-font="classique"] .cb-title { font-size: 37pt; }
+.brochure[data-font="dynamique"] { --serif: "Montserrat", "Inter", system-ui, sans-serif; }
+.brochure[data-font="dynamique"] .cb-title,
+.brochure[data-font="dynamique"] .section-title,
+.brochure[data-font="dynamique"] .cover__title { font-weight: 600; letter-spacing: -.02em; }
+.brochure[data-font="dynamique"] .cb-title { font-size: 30pt; }
+.brochure[data-font="sobre"] { --serif: "Inter", system-ui, -apple-system, Segoe UI, sans-serif; }
+.brochure[data-font="sobre"] .cb-title { font-weight: 500; font-size: 31pt; }
+
+/* ------------------- Couverture « photo pleine page » ------------------- */
+.cover-full { position: relative; height: 297mm; overflow: hidden; color: #fff;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.cf-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cf-scrim { position: absolute; inset: 0;
+  background: linear-gradient(to bottom, rgba(10,8,6,.42), rgba(10,8,6,0) 26%, rgba(10,8,6,0) 52%, rgba(10,8,6,.66)); }
+.cf-top { position: absolute; top: 10mm; left: 12mm; right: 12mm; display: flex; justify-content: space-between; align-items: center; }
+.cf-top .cb-logo { height: 13mm; width: auto; background: rgba(255,255,255,.94); padding: 2mm 4mm; border-radius: 2mm; }
+.cf-top .cb-logo-text { font-family: var(--serif); font-size: 16pt; text-shadow: 0 1px 8px rgba(0,0,0,.5); }
+.cf-tag { border: 1px solid rgba(255,255,255,.85); border-radius: 20px; padding: 1.5mm 5mm;
+  font-size: 8.5pt; letter-spacing: .18em; text-transform: uppercase; background: rgba(10,8,6,.25); }
+.cf-bottom { position: absolute; bottom: 14mm; left: 12mm; right: 12mm; }
+.cf-bottom .eyebrow { color: #f4e3c8; }
+.cf-title { font-family: var(--serif); font-weight: 400; font-size: 34pt; line-height: 1.05; margin: 6px 0 10px; letter-spacing: -.015em; max-width: 20ch; text-shadow: 0 2px 14px rgba(0,0,0,.45); }
+.cf-loc { font-size: 12pt; opacity: .95; }
+.cf-contact { margin-top: 6mm; font-size: 9.5pt; letter-spacing: .06em; opacity: .9; }
+
+/* ---------------------- Couverture « mosaïque » ------------------------- */
+.cover-mosaic { height: 297mm; display: flex; flex-direction: column; background: var(--paper); color: var(--ink); }
+.cm-top { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 9mm 12mm 6mm; }
+.cm-top .cb-logo { max-height: 15mm; width: auto; }
+.cm-grid { flex: 1 1 auto; display: grid; grid-template-columns: 3fr 2fr; grid-template-rows: 1fr 1fr; gap: 4mm; padding: 0 12mm; min-height: 0; }
+.cm-grid .cm-a { grid-row: 1 / 3; }
+.cm-cell { min-height: 0; overflow: hidden; }
+.cm-cell img { width: 100%; height: 100%; object-fit: cover; display: block;
+  border: 1px solid var(--accent); padding: 2mm; background: var(--paper); box-sizing: border-box; }
+.cm-bottom { flex: 0 0 auto; padding: 8mm 12mm 10mm; }
+.cm-title { font-family: var(--serif); font-weight: 400; font-size: 27pt; line-height: 1.06; margin: 4px 0 8px; letter-spacing: -.015em; }
+.cm-loc { color: var(--ink-soft); font-size: 11.5pt; }
+.cm-contact { margin-top: 4mm; font-size: 9pt; letter-spacing: .06em; color: var(--ink-soft); }
+
+/* ------------------- QR code vers la page du bien ----------------------- */
+.price__qr { margin-top: 12mm; display: flex; flex-direction: column; align-items: center; gap: 3mm; }
+.price__qr img { width: 24mm; height: 24mm; border: 1px solid var(--hair); padding: 1.5mm; background: #fff; }
+.price__qr span { font-size: 8.5pt; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }

@@ -31,6 +31,17 @@ anywhere in `pro/`), and separate storage keys (`studio-pro-v1`, `studio-pro-aik
 `/site/`. When changing the engine or wizard in one app, mirror the change in the other if it
 should ship there too.
 
+**`mandat/` — Studio Mandat**, a third variant (do not modify `/` or `pro/` when working on it):
+a hub with a home page (`mandat/index.html`, two tiles) linking a **fiche prestation app**
+(`mandat/fiche.html` + `mandat/assets/js/fiche.js`: voice dictation via Web Speech, photo-of-notes
+transcription, AI structuring via `BrochureAI.structureFiche`, live A4 preview, **Word export**
+as an HTML `.doc` blob, print) and the **brochure** (`mandat/brochure.html`, a Kadima-flavoured
+fork). The fiche's « Injecter dans la brochure » button writes `studio-mandat-handoff` to
+localStorage; the brochure wizard consumes it on load (fills type/address/notes, lands on
+step 2). Storage: `studio-mandat-v1` (brochure state) and `studio-mandat-fiche`; the API key
+(`studio-brochure-aikey`) and the OneDrive library folder are deliberately shared with the
+original app. Deployed at `/mandat/`.
+
 ## Architecture
 
 - `index.html` — single-page shell: left **editor** panel (form), right **preview** (live A4).
