@@ -28,7 +28,7 @@
   const FIELDS = ["fVendeur", "fAdresse", "fType", "fNotes", "fCarac", "fInterieur", "fExterieur", "fASavoir", "fFont", "fColor"];
   function collect() {
     const o = {};
-    FIELDS.forEach(function (id) { o[id] = $("#" + id).value; });
+    FIELDS.forEach(function (id) { const el = $("#" + id); if (el) o[id] = el.value; });
     return o;
   }
   function save() { try { localStorage.setItem(LS_KEY, JSON.stringify(collect())); } catch (e) { } }
@@ -36,7 +36,7 @@
     try {
       const raw = localStorage.getItem(LS_KEY); if (!raw) return;
       const o = JSON.parse(raw);
-      FIELDS.forEach(function (id) { if (o[id] != null) $("#" + id).value = o[id]; });
+      FIELDS.forEach(function (id) { const el = $("#" + id); if (el && o[id] != null) el.value = o[id]; });
     } catch (e) { }
   }
 
@@ -66,8 +66,8 @@
     const logo = (window.KADIMA && window.KADIMA.full)
       ? '<img class="fdoc__logo" src="' + window.KADIMA.full + '" alt="">' : "";
     const doc = $("#fdoc");
-    doc.setAttribute("data-font", $("#fFont").value || "elegant");
-    doc.style.setProperty("--fdoc-accent", $("#fColor").value || "#8a6a3c");
+    doc.setAttribute("data-font", ($("#fFont") && $("#fFont").value) || "elegant");
+    doc.style.setProperty("--fdoc-accent", ($("#fColor") && $("#fColor").value) || "#8a6a3c");
     doc.innerHTML = logo + docBody();
   }
   let renderTimer;
@@ -235,21 +235,46 @@
   function exportWord() {
     const adresse = $("#fAdresse").value.trim();
     const vendeur = $("#fVendeur").value.trim();
-    const accent = $("#fColor").value || "#8a6a3c";
-    const titleFont = WORD_FONTS[$("#fFont").value] || WORD_FONTS.elegant;
+    const accent = ($("#fColor") && $("#fColor").value) || "#8a6a3c";
+    const titleFont = WORD_FONTS[($("#fFont") && $("#fFont").value)] || WORD_FONTS.elegant;
+    const hasLogo = !!(window.KADIMA && window.KADIMA.full);
+    const logoB64 = hasLogo ? (window.KADIMA.full.split(",")[1] || "") : "";
     const html =
       '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
       '<head><meta charset="utf-8"><title>Fiche prestations</title>' +
       "<style>" +
       "body{font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.5;color:#1c1813;}" +
+      ".logo{display:block;margin:0 auto 10pt;}" +
       "h1{font-family:" + titleFont + ";font-size:16pt;text-align:center;letter-spacing:2px;margin-bottom:4pt;}" +
       ".who{text-align:center;color:#6b6459;margin-bottom:18pt;}" +
       "h2{font-family:" + titleFont + ";font-size:12.5pt;color:" + accent + ";border-bottom:1pt solid #c9b99a;padding-bottom:2pt;margin:14pt 0 6pt;}" +
       "ul{margin:0 0 6pt 18pt;padding:0;} li{margin-bottom:3pt;}" +
       ".legal{margin-top:24pt;text-align:center;color:#9a968c;font-size:8.5pt;letter-spacing:1px;}" +
-      "</style></head><body>" + docBody().replace(/class="fdoc__who"/g, 'class="who"').replace(/class="fdoc__legal"/g, 'class="legal"').replace(/<p class="fdoc__empty">— à compléter —<\/p>/g, "") +
+      "</style></head><body>" +
+      (hasLogo ? '<img class="logo" src="logo-kadima.png" width="170" alt="">' : "") +
+      docBody().replace(/class="fdoc__who"/g, 'class="who"').replace(/class="fdoc__legal"/g, 'class="legal"').replace(/<p class="fdoc__empty">— à compléter —<\/p>/g, "") +
       "</body></html>";
-    const blob = new Blob(["﻿" + html], { type: "application/msword" });
+    // Document MHT (multipart) : c'est le format que Word ouvre avec les images embarquées.
+    const B = "----=_StudioMandat_Boundary";
+    let mht =
+      "MIME-Version: 1.0\r\n" +
+      'Content-Type: multipart/related; boundary="' + B + '"; type="text/html"\r\n\r\n' +
+      "--" + B + "\r\n" +
+      'Content-Type: text/html; charset="utf-8"\r\n' +
+      "Content-Transfer-Encoding: 8bit\r\n" +
+      "Content-Location: file:///C:/fiche/fiche.htm\r\n\r\n" +
+      html + "\r\n";
+    if (hasLogo) {
+      const wrapped = logoB64.replace(/(.{76})/g, "$1\r\n");
+      mht +=
+        "--" + B + "\r\n" +
+        "Content-Type: image/png\r\n" +
+        "Content-Transfer-Encoding: base64\r\n" +
+        "Content-Location: file:///C:/fiche/logo-kadima.png\r\n\r\n" +
+        wrapped + "\r\n";
+    }
+    mht += "--" + B + "--";
+    const blob = new Blob([mht], { type: "application/msword" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -258,7 +283,27 @@
     a.click();
     a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
-    toast("Fiche exportée en Word (.doc).");
+    toast("Fiche exportée en Word (.doc) — logo inclus.");
+  }
+
+  /* --------------------- Numéros de page à l'impression ------------------ */
+  function removePageNumbers() {
+    Array.prototype.slice.call(document.querySelectorAll(".fdoc__pageno")).forEach(function (el) { el.remove(); });
+    $("#fdoc").style.minHeight = "";
+  }
+  function addPageNumbers() {
+    removePageNumbers();
+    const doc = $("#fdoc");
+    const pxPerMm = doc.offsetWidth / 210;
+    const pages = Math.max(1, Math.ceil((doc.scrollHeight - 8) / (297 * pxPerMm))); // -8px : tolérance d'arrondi
+    for (let i = 1; i <= pages; i++) {
+      const d = document.createElement("div");
+      d.className = "fdoc__pageno";
+      d.textContent = i + " / " + pages;
+      d.style.top = "calc(" + (i * 297) + "mm - 9mm)";
+      doc.appendChild(d);
+    }
+    doc.style.minHeight = (pages * 297) + "mm";
   }
 
   /* -------------------------- Injection brochure ------------------------- */
@@ -283,14 +328,59 @@
     window.location.href = "brochure.html";
   }
 
+  /* ---------------- Saisie automatique de l'adresse (BAN) ---------------- */
+  function wireAddressAutocomplete() {
+    const input = $("#fAdresse");
+    if (!input) return;
+    const wrap = document.createElement("div"); wrap.className = "ac-wrap";
+    input.parentNode.insertBefore(wrap, input); wrap.appendChild(input);
+    const list = document.createElement("div"); list.className = "ac-list"; wrap.appendChild(list);
+    let timer, items = [], active = -1;
+    function close() { list.innerHTML = ""; list.style.display = "none"; items = []; active = -1; }
+    function paint() { Array.prototype.forEach.call(list.children, function (c, i) { c.classList.toggle("is-active", i === active); }); }
+    function choose(label) {
+      input.value = label;
+      scheduleRender(); close();
+    }
+    input.addEventListener("input", function () {
+      const q = input.value.trim(); clearTimeout(timer);
+      if (q.length < 3) { close(); return; }
+      timer = setTimeout(function () {
+        fetch("https://api-adresse.data.gouv.fr/search/?limit=5&q=" + encodeURIComponent(q))
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            items = (d.features || []).map(function (f) { return f.properties.label; });
+            if (!items.length) { close(); return; }
+            list.innerHTML = items.map(function (l, i) { return '<div class="ac-item" data-i="' + i + '">' + esc(l) + "</div>"; }).join("");
+            list.style.display = "block"; active = -1;
+          }).catch(close);
+      }, 250);
+    });
+    list.addEventListener("mousedown", function (e) {
+      const it = e.target.closest && e.target.closest(".ac-item");
+      if (it) { e.preventDefault(); choose(items[+it.getAttribute("data-i")]); }
+    });
+    input.addEventListener("keydown", function (e) {
+      if (list.style.display !== "block") return;
+      if (e.key === "ArrowDown") { active = Math.min(active + 1, items.length - 1); paint(); e.preventDefault(); }
+      else if (e.key === "ArrowUp") { active = Math.max(active - 1, 0); paint(); e.preventDefault(); }
+      else if (e.key === "Enter") { if (active >= 0) { choose(items[active]); e.preventDefault(); } }
+      else if (e.key === "Escape") { close(); }
+    });
+    input.addEventListener("blur", function () { setTimeout(close, 150); });
+  }
+
   /* ------------------------------- Divers -------------------------------- */
   function wireMisc() {
     FIELDS.forEach(function (id) {
-      $("#" + id).addEventListener("input", scheduleRender);
-      $("#" + id).addEventListener("change", scheduleRender);
+      const el = $("#" + id); if (!el) return;
+      el.addEventListener("input", scheduleRender);
+      el.addEventListener("change", scheduleRender);
     });
     $("#btnWord").addEventListener("click", exportWord);
-    $("#btnFichePrint").addEventListener("click", function () { window.print(); });
+    $("#btnFichePrint").addEventListener("click", function () { addPageNumbers(); window.print(); });
+    window.addEventListener("beforeprint", addPageNumbers);
+    window.addEventListener("afterprint", removePageNumbers);
     $("#btnInject").addEventListener("click", inject);
     $("#btnFicheNew").addEventListener("click", function () {
       if (!confirm("Repartir d'une fiche vierge ? La fiche actuelle sera effacée (pensez à l'exporter en Word).")) return;
@@ -311,6 +401,7 @@
     const tl = document.getElementById("topbarLogo");
     if (tl && window.KADIMA && window.KADIMA.emblem) tl.src = window.KADIMA.emblem;
     load();
+    wireAddressAutocomplete();
     wireVoice();
     wireNotesPhoto();
     wireStructure();
