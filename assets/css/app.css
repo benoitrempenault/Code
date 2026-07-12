@@ -345,3 +345,13 @@ ul.sources em { color: var(--ui-muted); font-style: normal; }
 .setup-body .wstep__req { align-self: flex-start; }
 .preview-return { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); z-index: 70;
   box-shadow: 0 12px 34px rgba(0,0,0,.5); }
+/* Le :active générique (.btn) remplaçait translateX(-50%) : le bouton sautait
+   de côté au moment du clic et l'événement tombait à côté. */
+.btn.preview-return:active { transform: translateX(-50%) translateY(1px); }
+/* « Revenir aux réglages » : barre pleine largeur, entièrement cliquable. */
+.preview-return {
+  position: fixed; left: 0; right: 0; bottom: 0; transform: none;
+  border-radius: 0; padding: 15px 20px; font-size: 15px; text-align: center;
+  z-index: 70; box-shadow: 0 -8px 30px rgba(0,0,0,.45);
+}
+.btn.preview-return:active { transform: none; }

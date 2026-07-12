@@ -215,8 +215,24 @@
     });
   }
 
+  // Vérifie un fichier image : renvoie un message d'erreur, ou null si OK.
+  function imageFileError(f, maxMo) {
+    if (!/^image\//.test(f.type)) {
+      return "« " + f.name + " » n'est pas une image — formats acceptés : JPG, PNG, WebP.";
+    }
+    if (f.size > maxMo * 1024 * 1024) {
+      return "« " + f.name + " » est trop lourd (" + Math.round(f.size / 1024 / 1024) + " Mo — max " + maxMo + " Mo).";
+    }
+    return null;
+  }
   function addFiles(files, target) {
-    const list = Array.prototype.slice.call(files).filter(function (f) { return /^image\//.test(f.type); });
+    const all = Array.prototype.slice.call(files);
+    const list = [];
+    for (let i = 0; i < all.length; i++) {
+      const err = imageFileError(all[i], 25);
+      if (err) { toast(err, true); continue; }
+      list.push(all[i]);
+    }
     if (!list.length) return;
     const maxEdge = (target === "surfaces" || target === "plan") ? 2200 : 1800;
     Promise.all(list.map(function (f) { return resizeImage(f, maxEdge, 0.85); })).then(function (urls) {
@@ -224,7 +240,7 @@
       else if (target === "plan") urls.forEach(function (u) { state.plans.push(u); });
       else urls.forEach(function (u) { state.gallery.push({ id: uid(), url: u, caption: "" }); });
       renderPhotoUI(); scheduleSave(); render();
-    }).catch(function () { toast("Impossible de lire l'image.", true); });
+    }).catch(function () { toast("Impossible de lire l'image — fichier corrompu ou format non pris en charge (HEIC d'iPhone ? Convertissez-le en JPG).", true); });
   }
 
   function renderPhotoUI() {
@@ -882,11 +898,22 @@
     if (fileDpe) fileDpe.addEventListener("change", function (e) {
       const f = e.target.files[0]; if (!f) return;
       const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+      const status = $("#dpeStatus");
+      if (!isPdf && !/^image\//.test(f.type)) {
+        status.className = "ai-status is-error";
+        status.textContent = "Format non pris en charge : « " + f.name + " » — utilisez un PDF ou une image (JPG, PNG, WebP).";
+        return;
+      }
+      if (f.size > 10 * 1024 * 1024) {
+        status.className = "ai-status is-error";
+        status.textContent = "Fichier trop lourd (" + Math.round(f.size / 1024 / 1024) + " Mo — max 10 Mo). Chargez seulement la page du DPE.";
+        return;
+      }
       $("#dpeFileName").textContent = f.name;
-      const status = $("#dpeStatus"); status.className = "ai-status"; status.textContent = "Lecture du fichier…";
+      status.className = "ai-status"; status.textContent = "Lecture du fichier…";
       const done = function (url) { dpeData = { dataUrl: url, isPdf: isPdf }; $("#btnAIDpe").disabled = false; status.textContent = "Prêt à analyser."; };
       if (isPdf) { const r = new FileReader(); r.onload = function () { done(r.result); }; r.readAsDataURL(f); }
-      else { resizeImage(f, 2200, 0.85).then(done).catch(function () { status.className = "ai-status is-error"; status.textContent = "Image illisible."; }); }
+      else { resizeImage(f, 2200, 0.85).then(done).catch(function () { status.className = "ai-status is-error"; status.textContent = "Image illisible (format HEIC ? Convertissez-la en JPG)."; }); }
     });
 
     var btnDpe = document.getElementById("btnAIDpe");
@@ -918,6 +945,16 @@
     if (fileSurf) fileSurf.addEventListener("change", function (e) {
       const f = e.target.files[0]; if (!f) return;
       const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+      if (!isPdf && !/^image\//.test(f.type)) {
+        const st = $("#surfacesStatus"); st.className = "ai-status is-error";
+        st.textContent = "Format non pris en charge : « " + f.name + " » — utilisez un PDF ou une image (JPG, PNG, WebP).";
+        return;
+      }
+      if (f.size > 10 * 1024 * 1024) {
+        const st = $("#surfacesStatus"); st.className = "ai-status is-error";
+        st.textContent = "Fichier trop lourd (" + Math.round(f.size / 1024 / 1024) + " Mo — max 10 Mo). Chargez seulement la page du mesurage.";
+        return;
+      }
       $("#surfacesFileName").textContent = f.name;
       const status = $("#surfacesStatus"); status.className = "ai-status"; status.textContent = "Lecture du fichier…";
       const done = function (url) { surfData = { dataUrl: url, isPdf: isPdf }; $("#btnAISurfaces").disabled = false; status.textContent = "Prêt à analyser."; };

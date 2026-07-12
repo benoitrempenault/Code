@@ -151,8 +151,10 @@
         c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
         cb(c.toDataURL("image/jpeg", 0.85));
       };
+      img.onerror = function () { cb(null); }; // format non décodable (HEIC…)
       img.src = r.result;
     };
+    r.onerror = function () { cb(null); };
     r.readAsDataURL(file);
   }
 
@@ -169,10 +171,18 @@
         $("#setupOverlay").hidden = false;
         return;
       }
+      const badFmt = files.filter(function (f) {
+        return !(f.type === "application/pdf" || /\.pdf$/i.test(f.name) || /^image\/(jpeg|png|webp)$/.test(f.type));
+      });
+      if (badFmt.length) {
+        status.className = "ai-status is-error";
+        status.textContent = "Format non pris en charge : « " + badFmt[0].name + " » — utilisez JPG, PNG, WebP ou PDF.";
+        return;
+      }
       const tooBig = files.filter(function (f) { return f.size > 10 * 1024 * 1024; });
       if (tooBig.length) {
         status.className = "ai-status is-error";
-        status.textContent = "Fichier trop lourd (max 10 Mo) : " + tooBig[0].name;
+        status.textContent = "Fichier trop lourd (" + Math.round(tooBig[0].size / 1024 / 1024) + " Mo — max 10 Mo) : " + tooBig[0].name;
         return;
       }
       status.className = "ai-status is-busy";
@@ -181,6 +191,11 @@
       files.forEach(function (f, i) {
         const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
         const put = function (dataUrl) {
+          if (dataUrl === null) {
+            status.className = "ai-status is-error";
+            status.textContent = "Image illisible : « " + f.name + " » — convertissez-la en JPG et réessayez.";
+            return;
+          }
           images[i] = dataUrl;
           if (++done < files.length) return;
           window.BrochureAI.extractNotes({
