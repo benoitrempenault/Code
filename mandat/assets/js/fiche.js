@@ -295,14 +295,14 @@
       '<head><meta charset="utf-8"><title>Fiche prestations</title>' +
       "<style>" +
       "body{font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.5;color:#1c1813;}" +
-      ".logo{display:block;margin:0 auto 10pt;}" +
+
       "h1{font-family:" + titleFont + ";font-size:16pt;text-align:center;letter-spacing:2px;margin-bottom:4pt;}" +
       ".who{text-align:center;color:#6b6459;margin-bottom:18pt;}" +
       "h2{font-family:" + titleFont + ";font-size:12.5pt;color:" + accent + ";border-bottom:1pt solid #c9b99a;padding-bottom:2pt;margin:14pt 0 6pt;}" +
       "ul{margin:0 0 6pt 18pt;padding:0;} li{margin-bottom:3pt;}" +
       ".legal{margin-top:24pt;text-align:center;color:#9a968c;font-size:8.5pt;letter-spacing:1px;}" +
       "</style></head><body>" +
-      (hasLogo ? '<img class="logo" src="logo-kadima.png" width="' + logoW + '" height="' + logoH + '" alt="">' : "") +
+      (hasLogo ? '<p align="center" style="text-align:center;margin:0 0 10pt 0"><img src="logo-kadima.png" width="' + logoW + '" height="' + logoH + '" alt=""></p>' : "") +
       wordBody() +
       "</body></html>";
     // Document MHT (multipart) : c'est le format que Word ouvre avec les images embarquées.
