@@ -251,3 +251,15 @@
   /* Forcer le rendu des fonds (couleurs DPE, scrims, etc.) */
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 }
+
+/* ------------------------- Typographies au choix ------------------------ */
+/* elegant = Fraunces (défaut, défini dans :root) */
+.brochure[data-font="classique"] { --serif: "Cormorant Garamond", Georgia, "Times New Roman", serif; }
+.brochure[data-font="classique"] .cb-title { font-size: 37pt; }
+.brochure[data-font="dynamique"] { --serif: "Montserrat", "Inter", system-ui, sans-serif; }
+.brochure[data-font="dynamique"] .cb-title,
+.brochure[data-font="dynamique"] .section-title,
+.brochure[data-font="dynamique"] .cover__title { font-weight: 600; letter-spacing: -.02em; }
+.brochure[data-font="dynamique"] .cb-title { font-size: 30pt; }
+.brochure[data-font="sobre"] { --serif: "Inter", system-ui, -apple-system, Segoe UI, sans-serif; }
+.brochure[data-font="sobre"] .cb-title { font-weight: 500; font-size: 31pt; }

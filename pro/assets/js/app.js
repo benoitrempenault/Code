@@ -15,7 +15,7 @@
   // Marque blanche : l'agence est vide au départ, configurée au premier
   // lancement puis mémorisée (AG_KEY) et réappliquée à chaque nouvelle fiche.
   const DEFAULT = {
-    theme: { palette: "bronze", coverDark: false },
+    theme: { palette: "bronze", coverDark: false, font: "elegant", customAccent: "#a8834f", customPaper: "#f7f3ec" },
     agency: {
       name: "",
       agent: "",
@@ -129,6 +129,10 @@
     if (!s.surfaces) s.surfaces = [];
     if (!s.gallery) s.gallery = [];
     if (s.adText == null) s.adText = "";
+    if (!s.theme) s.theme = clone(DEFAULT.theme);
+    if (!s.theme.font) s.theme.font = "elegant";
+    if (!s.theme.customAccent) s.theme.customAccent = "#a8834f";
+    if (!s.theme.customPaper) s.theme.customPaper = "#f7f3ec";
     if (!s.agency) s.agency = clone(DEFAULT.agency);
     if (s.agency.logo === undefined) s.agency.logo = null;
     return s;
@@ -585,10 +589,28 @@
 
   let renderTimer;
   function scheduleRender() { clearTimeout(renderTimer); renderTimer = setTimeout(render, 120); }
+  // Assombrit légèrement une couleur hexadécimale (pour les filets dérivés du fond).
+  function shade(hex, k) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || ""); if (!m) return hex;
+    const n = parseInt(m[1], 16);
+    const f = function (v) { return Math.max(0, Math.min(255, Math.round(v * (1 - k)))); };
+    return "#" + [f(n >> 16 & 255), f(n >> 8 & 255), f(n & 255)].map(function (v) { return v.toString(16).padStart(2, "0"); }).join("");
+  }
+  function applyCustomTheme(el) {
+    if ((state.theme.palette || "bronze") === "custom") {
+      el.style.setProperty("--accent", state.theme.customAccent || "#a8834f");
+      el.style.setProperty("--paper", state.theme.customPaper || "#f7f3ec");
+      el.style.setProperty("--hair", shade(state.theme.customPaper || "#f7f3ec", 0.10));
+    } else {
+      el.style.removeProperty("--accent"); el.style.removeProperty("--paper"); el.style.removeProperty("--hair");
+    }
+  }
   function render() {
     const b = $("#brochure");
     b.setAttribute("data-palette", state.theme.palette || "bronze");
     b.setAttribute("data-cover", state.theme.coverDark ? "dark" : "light");
+    b.setAttribute("data-font", state.theme.font || "elegant");
+    applyCustomTheme(b);
     b.innerHTML = buildBrochure();
     // sous-titre de la barre
     $("#topbarSubtitle").textContent = state.property.title || "Fiche de présentation";
@@ -720,10 +742,14 @@
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
         "<title>" + esc(state.property.title || "Brochure") + "</title>" +
         '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>' +
-        '<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">' +
+        '<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Inter:wght@300;400;500;600&family=Cormorant+Garamond:wght@400;500;600&family=Montserrat:wght@400;500;600&display=swap" rel="stylesheet">' +
         "<style>" + brochureCss + EXPORT_CSS + "</style></head><body>" +
         '<div class="export-toolbar"><button onclick="window.print()">Imprimer / PDF</button></div>' +
-        '<div class="brochure" data-palette="' + (state.theme.palette || "bronze") + '" data-cover="' + (state.theme.coverDark ? "dark" : "light") + '">' +
+        '<div class="brochure" data-palette="' + (state.theme.palette || "bronze") + '" data-cover="' + (state.theme.coverDark ? "dark" : "light") +
+        '" data-font="' + (state.theme.font || "elegant") +
+        '"' + ((state.theme.palette === "custom")
+          ? ' style="--accent:' + (state.theme.customAccent || "#a8834f") + ';--paper:' + (state.theme.customPaper || "#f7f3ec") + ';--hair:' + shade(state.theme.customPaper || "#f7f3ec", 0.10) + '"'
+          : "") + ">" +
         buildBrochure() + "</div></body></html>";
       downloadBlob(html, fileSlug() + ".html", "text/html");
       toast("Brochure exportée (.html). Ouvrez-la ou joignez-la à un e-mail.");
@@ -1100,7 +1126,11 @@
 
   /* ----------------- Saisie automatique de l'adresse (BAN) -------------- */
   function wireAddressAutocomplete() {
-    const input = document.querySelector('[data-bind="property.address"]');
+    attachAddressAutocomplete('[data-bind="property.address"]', "property.address");
+    attachAddressAutocomplete('[data-bind="agency.address"]', "agency.address");
+  }
+  function attachAddressAutocomplete(selector, path) {
+    const input = document.querySelector(selector);
     if (!input) return;
     const wrap = document.createElement("div"); wrap.className = "ac-wrap";
     input.parentNode.insertBefore(wrap, input); wrap.appendChild(input);
@@ -1109,7 +1139,7 @@
     function close() { list.innerHTML = ""; list.style.display = "none"; items = []; active = -1; }
     function paint() { Array.prototype.forEach.call(list.children, function (c, i) { c.classList.toggle("is-active", i === active); }); }
     function choose(label) {
-      input.value = label; setPath(state, "property.address", label);
+      input.value = label; setPath(state, path, label);
       scheduleSave(); close();
     }
     input.addEventListener("input", function () {

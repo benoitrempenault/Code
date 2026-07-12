@@ -345,3 +345,5 @@ ul.sources em { color: var(--ui-muted); font-style: normal; }
 }
 .setup-foot { justify-content: flex-end; padding-bottom: 16px; }
 .setup-body .wstep__req { align-self: flex-start; }
+.custom-colors { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 10px 12px; border: 1px dashed var(--ui-line); border-radius: 9px; }
+.custom-colors input[type="color"] { width: 100%; height: 38px; padding: 3px; background: var(--ui-field); border: 1px solid var(--ui-line); border-radius: 8px; cursor: pointer; }

@@ -563,8 +563,12 @@
     };
     const blocks = [];
     for (let i = 0; i < images.length; i++) {
+      if (/^data:application\/pdf/.test(images[i])) {
+        blocks.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: images[i].split(",")[1] || "" } });
+        continue;
+      }
       const parts = dataUrlParts(images[i]);
-      if (!parts) throw new Error("Format d'image non reconnu.");
+      if (!parts) throw new Error("Format non reconnu (JPG, PNG, WebP ou PDF).");
       blocks.push({ type: "image", source: { type: "base64", media_type: parts.media, data: parts.data } });
     }
     blocks.push({ type: "text", text: "Transcris ces notes de visite immobilière." });
