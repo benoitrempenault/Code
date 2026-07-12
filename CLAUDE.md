@@ -42,6 +42,20 @@ step 2). Storage: `studio-mandat-v1` (brochure state) and `studio-mandat-fiche`;
 (`studio-brochure-aikey`) and the OneDrive library folder are deliberately shared with the
 original app. Deployed at `/mandat/`.
 
+**`mandat-pro/` — Studio Mandat white-label**, the commercial variant of `mandat/` (the one the
+sales site `site-mandat/` links to). Same hub + fiche + brochure trio, but **the agency is
+configured once at the accueil** (`mandat-pro/index.html`): a first-run overlay (logo upload
+resized to PNG 640px, name required, conseiller/adresse/tél/e-mail, brochure palette, API key)
+writes `studio-mandatpro-agency` (`{agency, palette}` — same shape `pro/` uses) and
+`studio-mandatpro-aikey`; a « ⚙ Paramètres de l'agence » button (or `?setup=1`) reopens it.
+The fiche (`fiche.html`/`fiche.js`) reads that key for the logo shown in the A4 preview and
+embedded in the Word export (`logo-agence.png` MHT part; agency name shown when no logo), and
+redirects to `index.html?setup=1` when unconfigured. The brochure (`brochure.html`) is the
+`pro/` white-label engine (forked `app.js`/`wizard.js` with keys `studio-mandatpro-v1`/`-step`,
+IndexedDB `studio-mandatpro`) plus the ⌂ Accueil link and handoff consumption
+(`studio-mandatpro-handoff`); its ⚙ « Mon agence » overlay edits the same agency key. `ai.js`
+is the `mandat/` fork (it has `structureFiche`). Deployed at `/mandat-pro/`.
+
 ## Architecture
 
 - `index.html` — single-page shell: left **editor** panel (form), right **preview** (live A4).

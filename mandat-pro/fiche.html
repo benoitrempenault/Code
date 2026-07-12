@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Studio Mandat — Fiche prestation</title>
+  <meta name="description" content="Dictez la fiche prestations et matériaux, structurez-la, exportez-la en Word — puis injectez-la dans la brochure." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&family=Cormorant+Garamond:wght@400;500;600&family=Montserrat:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/app.css?v=1" />
+  <style>
+    /* Aperçu du document fiche prestation (page A4 claire) */
+    .fdoc-scroll { overflow-y: auto; background: #35353a; padding: 26px; display: flex; justify-content: center; }
+    .fdoc {
+      box-sizing: border-box;
+      width: 210mm; min-height: 297mm; background: #fff; color: #1c1813;
+      font-family: "Inter", system-ui, sans-serif; font-size: 10.5pt; line-height: 1.55;
+      padding: 18mm 20mm; box-shadow: 0 18px 50px rgba(0,0,0,.4); flex: 0 0 auto;
+    }
+    .fdoc { --fdoc-accent: #8a6a3c; --fdoc-serif: "Fraunces", Georgia, serif; }
+    .fdoc[data-font="classique"] { --fdoc-serif: "Cormorant Garamond", Georgia, serif; }
+    .fdoc[data-font="dynamique"] { --fdoc-serif: "Montserrat", "Inter", sans-serif; }
+    .fdoc[data-font="sobre"]     { --fdoc-serif: "Inter", system-ui, sans-serif; }
+    .fdoc__logo { max-height: 26mm; max-width: 70mm; width: auto; display: block; margin: 0 auto 7mm; }
+    .fdoc__agency { font-family: var(--fdoc-serif); font-size: 13pt; letter-spacing: .18em; text-align: center; color: var(--fdoc-accent); margin: 0 0 7mm; text-transform: uppercase; }
+    .fdoc h1 { font-family: var(--fdoc-serif); font-weight: 550; font-size: 17pt; text-align: center; letter-spacing: .08em; margin-bottom: 2mm; }
+    .fdoc .fdoc__who { text-align: center; color: #6b6459; margin-bottom: 8mm; font-size: 10pt; }
+    .fdoc h2 { font-family: var(--fdoc-serif); font-weight: 550; font-size: 12.5pt; color: var(--fdoc-accent); border-bottom: 1px solid #e2d8c8; padding-bottom: 1.5mm; margin: 6mm 0 3mm; }
+    .fdoc ul { margin: 0 0 2mm 5mm; padding: 0; }
+    .fdoc li { margin-bottom: 1.2mm; }
+    .fdoc .fdoc__empty { color: #9a968c; font-style: italic; }
+    .fdoc .fdoc__legal { margin-top: 10mm; text-align: center; color: #9a968c; font-size: 8.5pt; letter-spacing: .08em; }
+    #btnVoice.is-rec { border-color: #a33; color: #ff9c9c; animation: recpulse 1.2s ease-in-out infinite; }
+    @keyframes recpulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,90,90,.35); } 50% { box-shadow: 0 0 0 6px rgba(255,90,90,0); } }
+    .fdoc__pageno { display: none; }
+    @media print {
+      @page { size: A4; margin: 0; } /* supprime l'horodatage/URL du navigateur */
+      body > *:not(.workspace), .editor, .preview__zoombar { display: none !important; }
+      .workspace { display: block !important; height: auto !important; }
+      .fdoc-scroll { padding: 0; background: #fff; overflow: visible; display: block; }
+      .fdoc { box-shadow: none; width: 210mm; position: relative; }
+      .fdoc h2 { break-after: avoid; }
+      .fdoc ul { break-inside: avoid; }
+      .fdoc__pageno { display: block; position: absolute; right: 12mm; font-size: 8.5pt; color: #9a968c; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar__brand">
+      <span class="topbar__mark"><img alt="" id="topbarLogo" /></span>
+      <div>
+        <strong>Studio&nbsp;Mandat</strong>
+        <small>Fiche prestation</small>
+      </div>
+    </div>
+    <div class="topbar__actions">
+      <a class="btn btn--ghost" href="index.html" title="Retour à l'accueil" style="text-decoration:none">⌂ Accueil</a>
+      <button class="btn btn--ghost" id="btnFicheNew" title="Repartir d'une fiche vierge">Nouveau</button>
+      <span class="topbar__sep" aria-hidden="true"></span>
+      <button class="btn btn--ghost" id="btnWord" title="Télécharger la fiche au format Word">📄 Exporter en Word</button>
+      <button class="btn btn--ghost" id="btnFichePrint" title="Imprimer ou enregistrer en PDF">🖨 Imprimer / PDF</button>
+      <button class="btn btn--primary" id="btnInject" title="Ouvrir la brochure pré-remplie avec cette fiche">📖 Injecter dans la brochure</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <!-- ======================= SAISIE ======================= -->
+    <section class="editor" aria-label="Saisie de la fiche prestation">
+      <section class="panel" style="margin-top:10px">
+        <header class="wstep__head">
+          <h2 style="margin:6px 0 8px;font-size:19px;font-weight:600">La fiche prestation, à la voix</h2>
+          <p class="hint"><strong>Dictez</strong> en rentrant de visite : construction, surfaces, pièce par pièce,
+            équipements, extérieurs, travaux, taxes… Parlez naturellement, l'IA structurera. Vous pouvez aussi
+            coller vos notes ou photographier votre prise de notes.</p>
+        </header>
+        <div class="panel__body">
+          <label>Vendeur(s) <small class="hint">(ex. « Madame et Monsieur PETIT »)</small>
+            <input type="text" id="fVendeur" placeholder="Madame et Monsieur…" />
+          </label>
+          <label>Adresse du bien
+            <input type="text" id="fAdresse" placeholder="25 rue du Dehès, 33185 Le Haillan" />
+          </label>
+          <label>Type de bien
+            <input type="text" id="fType" placeholder="Maison individuelle de plain-pied" />
+          </label>
+
+          <div class="ai-actions">
+            <button class="btn btn--primary" id="btnVoice" type="button">🎙️ Dicter la fiche</button>
+            <span id="voiceStatus" class="ai-status" role="status" aria-live="polite"></span>
+          </div>
+          <div class="uploader">
+            <div class="uploader__row">
+              <span>Photo / capture de vos notes <small class="hint">(JPG, PNG, WebP ou PDF — 10 Mo max)</small></span>
+              <label class="btn btn--ghost btn--sm">Choisir
+                <input type="file" id="fileNotes" accept="application/pdf,image/jpeg,image/png,image/webp" multiple hidden />
+              </label>
+            </div>
+            <div class="ai-actions"><span id="notesStatus" class="ai-status" role="status" aria-live="polite"></span></div>
+          </div>
+          <label>Notes brutes <small class="hint">(la dictée s'écrit ici — modifiable)</small>
+            <textarea rows="9" id="fNotes" placeholder="Maison 1979, 130 m² hab, parcelle 1 450 m², séjour traversant 41 m² avec insert…"></textarea>
+          </label>
+          <div class="ai-actions">
+            <button class="btn btn--primary" id="btnStructure">✨ Structurer la fiche</button>
+            <span id="structStatus" class="ai-status" role="status" aria-live="polite"></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <header class="wstep__head">
+          <h2 style="margin:6px 0 8px;font-size:16px;font-weight:600">Les sections de la fiche <small class="hint">(remplies par « Structurer » — modifiables, une ligne par élément)</small></h2>
+        </header>
+        <div class="panel__body">
+          <label>Caractéristiques <small class="hint">(construction, toiture, chauffage, isolation…)</small>
+            <textarea rows="5" id="fCarac"></textarea>
+          </label>
+          <label>Intérieur
+            <textarea rows="6" id="fInterieur"></textarea>
+          </label>
+          <label>Extérieur
+            <textarea rows="5" id="fExterieur"></textarea>
+          </label>
+          <label>À savoir <small class="hint">(taxes, travaux, servitudes, délais…)</small>
+            <textarea rows="4" id="fASavoir"></textarea>
+          </label>
+          <div class="grid-2">
+            <label>Typographie du document
+              <select id="fFont">
+                <option value="elegant">Élégante (serif littéraire)</option>
+                <option value="classique">Classique (garamond)</option>
+                <option value="dynamique">Dynamique (sans-serif affirmée)</option>
+                <option value="sobre">Sobre (tout en linéale)</option>
+              </select>
+            </label>
+            <label>Couleur des titres
+              <input type="color" id="fColor" value="#8a6a3c" style="height:38px;padding:3px;cursor:pointer" />
+            </label>
+          </div>
+          <label>Clé API Anthropic <small class="hint">(renseignée au paramétrage de l’agence — reste dans ce navigateur)</small>
+            <input type="password" id="aiKey" placeholder="sk-ant-…" autocomplete="off" />
+          </label>
+        </div>
+      </section>
+      <p class="editor__footer">La fiche s'enregistre automatiquement sur cet appareil.
+        « Injecter dans la brochure » ouvre la brochure pré-remplie — vous pourrez revenir ici à tout moment (⌂).</p>
+    </section>
+
+    <!-- ======================= APERÇU DOCUMENT ======================= -->
+    <section class="fdoc-scroll" aria-label="Aperçu de la fiche">
+      <article class="fdoc" id="fdoc"><!-- rendu par JS --></article>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="assets/js/ai.js?v=1"></script>
+  <script src="assets/js/fiche.js?v=1"></script>
+</body>
+</html>

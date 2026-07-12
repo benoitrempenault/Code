@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Studio Mandat — Fiche prestation &amp; Brochure</title>
+  <meta name="description" content="La suite du mandat, aux couleurs de votre agence : dictez la fiche prestation, exportez-la en Word, puis injectez-la dans la brochure acquéreur." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0f0f10; --panel: #17171a; --panel-2: #1e1e22; --line: #2a2a30;
+      --text: #ece9e2; --muted: #9a968c; --accent: #c2a36b; --accent-ink: #1a1714;
+    }
+    * { box-sizing: border-box; margin: 0; }
+    html, body { height: 100%; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: "Inter", system-ui, sans-serif;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 30px 20px; gap: 34px;
+    }
+    .brand { text-align: center; }
+    .brand img { max-height: 74px; max-width: 260px; width: auto; margin-bottom: 18px; }
+    .brand .brand__agency { color: var(--accent); letter-spacing: .22em; text-transform: uppercase; font-size: 14px; margin-bottom: 14px; }
+    .brand h1 { font-family: "Fraunces", Georgia, serif; font-weight: 500; font-size: clamp(26px, 4vw, 38px); letter-spacing: .2px; }
+    .brand h1 em { font-style: normal; color: var(--accent); }
+    .brand p { color: var(--muted); margin-top: 10px; font-size: 15px; max-width: 52ch; }
+
+    .tiles { display: grid; grid-template-columns: repeat(2, minmax(260px, 340px)); gap: 20px; }
+    .tile {
+      display: flex; flex-direction: column; gap: 12px; text-decoration: none;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+      padding: 32px 28px; color: var(--text);
+      transition: border-color .15s, transform .12s, box-shadow .15s;
+    }
+    .tile:hover { border-color: var(--accent); transform: translateY(-3px); box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+    .tile .ico { font-size: 34px; }
+    .tile h2 { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 22px; }
+    .tile p { color: var(--muted); font-size: 13.5px; line-height: 1.55; flex: 1 1 auto; }
+    .tile .go { color: var(--accent); font-weight: 600; font-size: 14px; }
+    .flow { color: var(--muted); font-size: 12.5px; text-align: center; line-height: 1.6; max-width: 60ch; }
+    .flow strong { color: var(--text); }
+    .settings-link {
+      background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 999px;
+      padding: 8px 16px; font: inherit; font-size: 12.5px; cursor: pointer;
+    }
+    .settings-link:hover { border-color: var(--accent); color: var(--text); }
+    @media (max-width: 700px) { .tiles { grid-template-columns: 1fr; width: 100%; max-width: 420px; } }
+
+    /* ------------------- Paramétrage de l'agence (marque blanche) ------- */
+    .setup-overlay {
+      position: fixed; inset: 0; background: rgba(8, 8, 9, .78); backdrop-filter: blur(3px);
+      display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 50;
+    }
+    .setup-overlay[hidden] { display: none; }
+    .setup-modal {
+      width: min(560px, 100%); max-height: 92vh; overflow-y: auto;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+      padding: 26px 26px 22px; box-shadow: 0 30px 80px rgba(0,0,0,.55);
+    }
+    .setup-modal h2 { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 22px; margin-bottom: 4px; }
+    .setup-modal > p.hint { margin-bottom: 18px; }
+    .hint { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+    .setup-modal label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 14px; }
+    .setup-modal input[type="text"], .setup-modal input[type="password"], .setup-modal select {
+      width: 100%; margin-top: 6px; padding: 10px 12px; border-radius: 10px;
+      border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+      font: inherit; font-size: 14px;
+    }
+    .setup-modal input:focus, .setup-modal select:focus { outline: none; border-color: var(--accent); }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .req { color: var(--accent); font-weight: 600; font-size: 11px; letter-spacing: .06em; }
+    .logo-row {
+      display: flex; align-items: center; gap: 14px; margin: 6px 0 14px;
+      background: var(--panel-2); border: 1px dashed var(--line); border-radius: 12px; padding: 12px 14px;
+    }
+    .logo-row .logo-box { flex: 1 1 auto; min-height: 44px; display: flex; align-items: center; }
+    .logo-row img { max-height: 52px; max-width: 200px; background: #fff; border-radius: 6px; padding: 4px; }
+    .btn {
+      display: inline-block; border-radius: 10px; padding: 10px 16px; font: inherit; font-size: 13.5px;
+      font-weight: 600; cursor: pointer; border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+    }
+    .btn:hover { border-color: var(--accent); }
+    .btn--primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    .btn--primary:hover { filter: brightness(1.06); }
+    .btn--sm { padding: 7px 12px; font-size: 12.5px; }
+    .setup-foot { display: flex; justify-content: flex-end; margin-top: 6px; }
+    .setup-error { color: #ff9c9c; font-size: 12.5px; margin: -6px 0 10px; min-height: 16px; }
+    .toast {
+      position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(20px);
+      background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+      padding: 11px 18px; border-radius: 12px; font-size: 13.5px; opacity: 0; pointer-events: none;
+      transition: opacity .2s, transform .2s; z-index: 60; box-shadow: 0 14px 40px rgba(0,0,0,.5);
+    }
+    .toast.is-show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+  <div class="brand">
+    <img id="agencyLogo" alt="" hidden />
+    <div class="brand__agency" id="agencyName" hidden></div>
+    <h1>Studio <em>Mandat</em></h1>
+    <p>La suite du mandat, aux couleurs de votre agence : dictez la fiche prestation en rentrant
+      de visite, exportez-la en Word — puis injectez-la dans la brochure acquéreur.</p>
+  </div>
+
+  <div class="tiles">
+    <a class="tile" href="fiche.html">
+      <span class="ico">🎙️</span>
+      <h2>Fiche prestation</h2>
+      <p>Dictez les prestations et matériaux à la voix (ou collez vos notes),
+        laissez l'IA structurer la fiche, puis exportez-la en Word ou en PDF.</p>
+      <span class="go">Commencer une fiche →</span>
+    </a>
+    <a class="tile" href="brochure.html">
+      <span class="ico">📖</span>
+      <h2>Brochure</h2>
+      <p>Le parcours guidé en 8 étapes : quartier aux distances réelles, photos,
+        surfaces, rédaction — brochure, annonce et page web du bien.</p>
+      <span class="go">Créer une brochure →</span>
+    </a>
+  </div>
+
+  <p class="flow">Le parcours conseillé : <strong>1)</strong> Fiche prestation (dictée) →
+    <strong>2)</strong> « Injecter dans la brochure » → <strong>3)</strong> compléter photos et quartier →
+    <strong>4)</strong> exporter le package. Vous pouvez revenir à cet accueil à tout moment (bouton ⌂).</p>
+
+  <button class="settings-link" id="btnSettings" type="button">⚙ Paramètres de l'agence</button>
+
+  <!-- ============== PARAMÉTRAGE DE L'AGENCE (premier lancement) ============== -->
+  <div class="setup-overlay" id="setupOverlay" hidden>
+    <div class="setup-modal" role="dialog" aria-modal="true" aria-label="Paramètres de l'agence">
+      <h2 id="setupTitle">Bienvenue ! Paramétrez votre agence</h2>
+      <p class="hint">Logo, coordonnées et ambiance — repris automatiquement sur la
+        <strong>fiche prestation</strong> et sur chaque <strong>brochure</strong>. À faire une seule fois.</p>
+
+      <div class="logo-row">
+        <div class="logo-box" id="logoBox"><span class="hint">Aucun logo pour l'instant — le nom de l'agence sera affiché à la place.</span></div>
+        <label class="btn btn--sm" style="margin:0">Choisir le logo
+          <input type="file" id="logoFile" accept="image/*" hidden />
+        </label>
+      </div>
+
+      <label>Nom de l'agence <span class="req">requis</span>
+        <input type="text" id="agName" placeholder="Agence du Parc Immobilier" />
+      </label>
+      <label>Conseiller / négociateur
+        <input type="text" id="agAgent" placeholder="Prénom Nom" />
+      </label>
+      <label>Adresse de l'agence
+        <input type="text" id="agAddress" placeholder="12 place du Marché, 33000 Bordeaux" />
+      </label>
+      <div class="grid-2">
+        <label>Téléphone
+          <input type="text" id="agPhone" placeholder="05 56 00 00 00" />
+        </label>
+        <label>E-mail
+          <input type="text" id="agEmail" placeholder="contact@agence.fr" />
+        </label>
+      </div>
+      <label>Ambiance des brochures
+        <select id="agPalette">
+          <option value="bronze">Sable &amp; bronze (chaleureux)</option>
+          <option value="sauge">Lin &amp; sauge (naturel)</option>
+          <option value="encre">Ardoise &amp; or (élégant)</option>
+          <option value="terracotta">Albâtre &amp; terracotta (éditorial)</option>
+        </select>
+      </label>
+      <label>Clé API Anthropic <small class="hint">(commence par <code>sk-ant-</code> — nécessaire pour la
+        dictée structurée et la rédaction IA ; reste dans ce navigateur)</small>
+        <input type="password" id="agKey" placeholder="sk-ant-…" autocomplete="off" />
+      </label>
+      <p class="setup-error" id="setupError"></p>
+      <div class="setup-foot">
+        <button class="btn btn--primary" id="setupSave" type="button">Enregistrer et commencer</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (function () {
+      "use strict";
+      var AG_KEY = "studio-mandatpro-agency";
+      var LS_AIKEY = "studio-mandatpro-aikey";
+      function $(s) { return document.querySelector(s); }
+
+      var toastTimer;
+      function toast(msg) {
+        var t = $("#toast"); t.textContent = msg; t.className = "toast is-show";
+        clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.className = "toast"; }, 3200);
+      }
+
+      function loadSaved() {
+        try { var raw = localStorage.getItem(AG_KEY); return raw ? JSON.parse(raw) : null; }
+        catch (e) { return null; }
+      }
+      var saved = loadSaved();
+      var logo = (saved && saved.agency && saved.agency.logo) || null;
+
+      /* Identité affichée sur l'accueil */
+      function paintBrand() {
+        var img = $("#agencyLogo"), name = $("#agencyName");
+        var a = (saved && saved.agency) || {};
+        img.hidden = !a.logo; if (a.logo) img.src = a.logo;
+        name.hidden = !!a.logo || !(a.name || "").trim();
+        name.textContent = a.name || "";
+      }
+
+      /* Aperçu du logo dans le paramétrage */
+      function paintLogoBox() {
+        var box = $("#logoBox");
+        box.innerHTML = logo
+          ? '<img src="' + logo + '" alt="Logo de l\'agence">'
+          : '<span class="hint">Aucun logo pour l\'instant — le nom de l\'agence sera affiché à la place.</span>';
+      }
+
+      function resizeLogo(file, cb) {
+        var r = new FileReader();
+        r.onload = function () {
+          var img = new Image();
+          img.onload = function () {
+            var MAX = 640;
+            var k = Math.min(1, MAX / Math.max(img.width, img.height));
+            var c = document.createElement("canvas");
+            c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+            c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+            cb(c.toDataURL("image/png")); // PNG : préserve la transparence
+          };
+          img.onerror = function () { cb(null); };
+          img.src = r.result;
+        };
+        r.onerror = function () { cb(null); };
+        r.readAsDataURL(file);
+      }
+
+      function openSetup(firstRun) {
+        $("#setupTitle").textContent = firstRun ? "Bienvenue ! Paramétrez votre agence" : "Paramètres de l'agence";
+        var a = (loadSaved() || {}).agency || {};
+        $("#agName").value = a.name || "";
+        $("#agAgent").value = a.agent || "";
+        $("#agAddress").value = a.address || "";
+        $("#agPhone").value = a.phone || "";
+        $("#agEmail").value = a.email || "";
+        $("#agPalette").value = (loadSaved() || {}).palette || "bronze";
+        $("#agKey").value = localStorage.getItem(LS_AIKEY) || "";
+        logo = a.logo || null;
+        paintLogoBox();
+        $("#setupError").textContent = "";
+        $("#setupOverlay").hidden = false;
+      }
+
+      $("#logoFile").addEventListener("change", function (e) {
+        var f = e.target.files[0]; e.target.value = "";
+        if (!f) return;
+        if (!/^image\//.test(f.type)) { $("#setupError").textContent = "« " + f.name + " » n'est pas une image — le logo doit être en PNG ou JPG."; return; }
+        if (f.size > 5 * 1024 * 1024) { $("#setupError").textContent = "Logo trop lourd (" + Math.round(f.size / 1024 / 1024) + " Mo — max 5 Mo)."; return; }
+        resizeLogo(f, function (dataUrl) {
+          if (!dataUrl) { $("#setupError").textContent = "Logo illisible — convertissez-le en PNG ou JPG."; return; }
+          logo = dataUrl; $("#setupError").textContent = ""; paintLogoBox();
+        });
+      });
+
+      $("#setupSave").addEventListener("click", function () {
+        var name = $("#agName").value.trim();
+        if (!name) { $("#setupError").textContent = "Le nom de l'agence est requis."; $("#agName").focus(); return; }
+        var payload = {
+          agency: {
+            name: name,
+            agent: $("#agAgent").value.trim(),
+            address: $("#agAddress").value.trim(),
+            phone: $("#agPhone").value.trim(),
+            email: $("#agEmail").value.trim(),
+            logo: logo
+          },
+          palette: $("#agPalette").value
+        };
+        try { localStorage.setItem(AG_KEY, JSON.stringify(payload)); }
+        catch (e) { $("#setupError").textContent = "Impossible de mémoriser l'agence (logo trop lourd ?)."; return; }
+        var key = $("#agKey").value.trim();
+        try {
+          if (key) localStorage.setItem(LS_AIKEY, key);
+          else localStorage.removeItem(LS_AIKEY);
+        } catch (e) { }
+        saved = payload;
+        paintBrand();
+        $("#setupOverlay").hidden = true;
+        toast("Paramètres de l'agence enregistrés ✓");
+      });
+
+      $("#btnSettings").addEventListener("click", function () { openSetup(false); });
+
+      paintBrand();
+      var configured = !!(saved && saved.agency && (saved.agency.name || "").trim());
+      var forced = /[?&]setup=1/.test(window.location.search);
+      if (!configured || forced) openSetup(!configured);
+    })();
+  </script>
+</body>
+</html>

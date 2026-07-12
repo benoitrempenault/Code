@@ -38,6 +38,10 @@ jobs:
           mkdir -p _site/mandat/assets
           cp mandat/index.html mandat/fiche.html mandat/brochure.html _site/mandat/
           cp -r mandat/assets/* _site/mandat/assets/
+          # Studio Mandat marque blanche (paramétrage agence) sous /mandat-pro/
+          mkdir -p _site/mandat-pro/assets
+          cp mandat-pro/index.html mandat-pro/fiche.html mandat-pro/brochure.html _site/mandat-pro/
+          cp -r mandat-pro/assets/* _site/mandat-pro/assets/
           # Page de présentation Studio Mandat sous /site-mandat/
           mkdir -p _site/site-mandat/assets
           cp site-mandat/index.html _site/site-mandat/
