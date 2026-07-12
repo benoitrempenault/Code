@@ -7,7 +7,7 @@
   <meta name="description" content="Dictez la fiche prestations et matériaux, structurez-la, exportez-la en Word — puis injectez-la dans la brochure." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&family=Cormorant+Garamond:wght@400;500;600&family=Montserrat:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="assets/css/app.css" />
   <style>
     /* Aperçu du document fiche prestation (page A4 claire) */
@@ -17,10 +17,14 @@
       font-family: "Inter", system-ui, sans-serif; font-size: 10.5pt; line-height: 1.55;
       padding: 18mm 20mm; box-shadow: 0 18px 50px rgba(0,0,0,.4); flex: 0 0 auto;
     }
-    .fdoc__logo { height: 15mm; width: auto; display: block; margin: 0 auto 6mm; }
-    .fdoc h1 { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 17pt; text-align: center; letter-spacing: .08em; margin-bottom: 2mm; }
+    .fdoc { --fdoc-accent: #8a6a3c; --fdoc-serif: "Fraunces", Georgia, serif; }
+    .fdoc[data-font="classique"] { --fdoc-serif: "Cormorant Garamond", Georgia, serif; }
+    .fdoc[data-font="dynamique"] { --fdoc-serif: "Montserrat", "Inter", sans-serif; }
+    .fdoc[data-font="sobre"]     { --fdoc-serif: "Inter", system-ui, sans-serif; }
+    .fdoc__logo { height: 26mm; width: auto; display: block; margin: 0 auto 7mm; }
+    .fdoc h1 { font-family: var(--fdoc-serif); font-weight: 550; font-size: 17pt; text-align: center; letter-spacing: .08em; margin-bottom: 2mm; }
     .fdoc .fdoc__who { text-align: center; color: #6b6459; margin-bottom: 8mm; font-size: 10pt; }
-    .fdoc h2 { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 12.5pt; color: #8a6a3c; border-bottom: 1px solid #e2d8c8; padding-bottom: 1.5mm; margin: 6mm 0 3mm; }
+    .fdoc h2 { font-family: var(--fdoc-serif); font-weight: 550; font-size: 12.5pt; color: var(--fdoc-accent); border-bottom: 1px solid #e2d8c8; padding-bottom: 1.5mm; margin: 6mm 0 3mm; }
     .fdoc ul { margin: 0 0 2mm 5mm; padding: 0; }
     .fdoc li { margin-bottom: 1.2mm; }
     .fdoc .fdoc__empty { color: #9a968c; font-style: italic; }
@@ -115,6 +119,19 @@
           <label>À savoir <small class="hint">(taxes, travaux, servitudes, délais…)</small>
             <textarea rows="4" id="fASavoir"></textarea>
           </label>
+          <div class="grid-2">
+            <label>Typographie du document
+              <select id="fFont">
+                <option value="elegant">Élégante (serif littéraire)</option>
+                <option value="classique">Classique (garamond)</option>
+                <option value="dynamique">Dynamique (sans-serif affirmée)</option>
+                <option value="sobre">Sobre (tout en linéale)</option>
+              </select>
+            </label>
+            <label>Couleur des titres
+              <input type="color" id="fColor" value="#8a6a3c" style="height:38px;padding:3px;cursor:pointer" />
+            </label>
+          </div>
           <label>Clé API Anthropic <small class="hint">(partagée avec la brochure — reste dans ce navigateur)</small>
             <input type="password" id="aiKey" placeholder="sk-ant-…" autocomplete="off" />
           </label>

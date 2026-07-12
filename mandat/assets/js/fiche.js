@@ -25,7 +25,7 @@
   }
 
   /* ------------------------------- État --------------------------------- */
-  const FIELDS = ["fVendeur", "fAdresse", "fType", "fNotes", "fCarac", "fInterieur", "fExterieur", "fASavoir"];
+  const FIELDS = ["fVendeur", "fAdresse", "fType", "fNotes", "fCarac", "fInterieur", "fExterieur", "fASavoir", "fFont", "fColor"];
   function collect() {
     const o = {};
     FIELDS.forEach(function (id) { o[id] = $("#" + id).value; });
@@ -65,7 +65,10 @@
   function render() {
     const logo = (window.KADIMA && window.KADIMA.full)
       ? '<img class="fdoc__logo" src="' + window.KADIMA.full + '" alt="">' : "";
-    $("#fdoc").innerHTML = logo + docBody();
+    const doc = $("#fdoc");
+    doc.setAttribute("data-font", $("#fFont").value || "elegant");
+    doc.style.setProperty("--fdoc-accent", $("#fColor").value || "#8a6a3c");
+    doc.innerHTML = logo + docBody();
   }
   let renderTimer;
   function scheduleRender() { clearTimeout(renderTimer); renderTimer = setTimeout(function () { render(); save(); }, 200); }
@@ -222,17 +225,26 @@
   function safeName(s) {
     return String(s || "").replace(/[<>:"/\\|?*]/g, "").replace(/\s+/g, " ").trim().slice(0, 80);
   }
+  // Familles disponibles dans Word (les webfonts n'y sont pas embarquées).
+  const WORD_FONTS = {
+    elegant: "Georgia, 'Times New Roman', serif",
+    classique: "Garamond, Georgia, serif",
+    dynamique: "'Segoe UI', Arial, sans-serif",
+    sobre: "Calibri, Arial, sans-serif"
+  };
   function exportWord() {
     const adresse = $("#fAdresse").value.trim();
     const vendeur = $("#fVendeur").value.trim();
+    const accent = $("#fColor").value || "#8a6a3c";
+    const titleFont = WORD_FONTS[$("#fFont").value] || WORD_FONTS.elegant;
     const html =
       '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
       '<head><meta charset="utf-8"><title>Fiche prestations</title>' +
       "<style>" +
       "body{font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.5;color:#1c1813;}" +
-      "h1{font-size:16pt;text-align:center;letter-spacing:2px;margin-bottom:4pt;}" +
+      "h1{font-family:" + titleFont + ";font-size:16pt;text-align:center;letter-spacing:2px;margin-bottom:4pt;}" +
       ".who{text-align:center;color:#6b6459;margin-bottom:18pt;}" +
-      "h2{font-size:12.5pt;color:#8a6a3c;border-bottom:1pt solid #c9b99a;padding-bottom:2pt;margin:14pt 0 6pt;}" +
+      "h2{font-family:" + titleFont + ";font-size:12.5pt;color:" + accent + ";border-bottom:1pt solid #c9b99a;padding-bottom:2pt;margin:14pt 0 6pt;}" +
       "ul{margin:0 0 6pt 18pt;padding:0;} li{margin-bottom:3pt;}" +
       ".legal{margin-top:24pt;text-align:center;color:#9a968c;font-size:8.5pt;letter-spacing:1px;}" +
       "</style></head><body>" + docBody().replace(/class="fdoc__who"/g, 'class="who"').replace(/class="fdoc__legal"/g, 'class="legal"').replace(/<p class="fdoc__empty">— à compléter —<\/p>/g, "") +
@@ -273,13 +285,17 @@
 
   /* ------------------------------- Divers -------------------------------- */
   function wireMisc() {
-    FIELDS.forEach(function (id) { $("#" + id).addEventListener("input", scheduleRender); });
+    FIELDS.forEach(function (id) {
+      $("#" + id).addEventListener("input", scheduleRender);
+      $("#" + id).addEventListener("change", scheduleRender);
+    });
     $("#btnWord").addEventListener("click", exportWord);
     $("#btnFichePrint").addEventListener("click", function () { window.print(); });
     $("#btnInject").addEventListener("click", inject);
     $("#btnFicheNew").addEventListener("click", function () {
       if (!confirm("Repartir d'une fiche vierge ? La fiche actuelle sera effacée (pensez à l'exporter en Word).")) return;
       FIELDS.forEach(function (id) { $("#" + id).value = ""; });
+      $("#fFont").value = "elegant"; $("#fColor").value = "#8a6a3c";
       render(); save();
       toast("Nouvelle fiche.");
     });
