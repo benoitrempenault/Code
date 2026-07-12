@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Studio Mandat — La suite du mandat, de la visite à la brochure</title>
+  <meta name="description" content="Dictez la fiche prestation en rentrant de visite, exportez-la en Word, puis injectez-la dans la brochure acquéreur : quartier réel, photos, annonce, page web du bien." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --paper: #f7f2ea; --paper-2: #efe7da; --ink: #1c1813; --ink-soft: #6d655a;
+      --accent: #a8834f; --accent-deep: #8a6a3c; --hair: #e2d8c8;
+      --serif: "Fraunces", Georgia, serif; --sans: "Inter", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; }
+    html { scroll-behavior: smooth; }
+    body { background: var(--paper); color: var(--ink); font-family: var(--sans); line-height: 1.6; }
+    .wrap { max-width: 1020px; margin: 0 auto; padding: 0 24px; }
+
+    header { position: sticky; top: 0; z-index: 10; background: rgba(247,242,234,.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--hair); }
+    .nav { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; }
+    .brand { font-family: var(--serif); font-size: 20px; font-weight: 600; }
+    .brand em { font-style: normal; color: var(--accent-deep); }
+    .btn { display: inline-block; text-decoration: none; border-radius: 10px; padding: 11px 20px; font-weight: 600; font-size: 14.5px; }
+    .btn--gold { background: var(--accent); color: #fff; }
+    .btn--gold:hover { filter: brightness(1.07); }
+    .btn--big { padding: 14px 28px; font-size: 16px; }
+
+    .hero { padding: 70px 0 26px; text-align: center; }
+    .hero .eyebrow { letter-spacing: .22em; text-transform: uppercase; font-size: 12px; color: var(--accent-deep); font-weight: 600; }
+    .hero h1 { font-family: var(--serif); font-weight: 500; font-size: clamp(30px, 5vw, 50px); line-height: 1.14; margin: 18px auto 20px; max-width: 24ch; }
+    .hero p.lead { font-size: 17.5px; color: var(--ink-soft); max-width: 58ch; margin: 0 auto 28px; }
+
+    .demo { padding: 22px 0 8px; }
+    .demo video { display: block; width: 100%; border-radius: 16px; border: 1px solid var(--hair); box-shadow: 0 30px 80px rgba(60,45,20,.18); }
+    .demo .cap { text-align: center; font-size: 13px; color: var(--ink-soft); padding: 14px 0 0; }
+
+    section { padding: 62px 0; }
+    .sec-head { text-align: center; margin-bottom: 36px; }
+    .sec-head .eyebrow { letter-spacing: .2em; text-transform: uppercase; font-size: 11.5px; color: var(--accent-deep); font-weight: 600; }
+    .sec-head h2 { font-family: var(--serif); font-weight: 500; font-size: clamp(25px, 3.4vw, 36px); margin-top: 10px; }
+    .sec-head p { color: var(--ink-soft); max-width: 60ch; margin: 12px auto 0; }
+
+    /* Le flux en 4 temps */
+    .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; counter-reset: f; }
+    .fstep { background: #fff; border: 1px solid var(--hair); border-radius: 16px; padding: 22px 18px; position: relative; }
+    .fstep::before { counter-increment: f; content: counter(f); display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 600; margin-bottom: 10px; }
+    .fstep b { display: block; font-size: 15px; margin-bottom: 5px; }
+    .fstep span { font-size: 13px; color: var(--ink-soft); }
+
+    .docs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .doc { background: #fff; border: 1px solid var(--hair); border-radius: 16px; padding: 24px 20px; }
+    .doc .ico { font-size: 26px; }
+    .doc h3 { font-family: var(--serif); font-weight: 550; font-size: 17.5px; margin: 10px 0 6px; }
+    .doc p { font-size: 13px; color: var(--ink-soft); }
+
+    .cta-final { background: var(--ink); color: var(--paper); text-align: center; border-radius: 22px; padding: 52px 30px; }
+    .cta-final h2 { font-family: var(--serif); font-weight: 500; font-size: clamp(25px, 3.2vw, 34px); margin-bottom: 12px; }
+    .cta-final p { color: #cfc6b8; margin-bottom: 24px; }
+    footer { padding: 36px 0 46px; text-align: center; color: var(--ink-soft); font-size: 13px; }
+
+    @media (max-width: 860px) { .flow, .docs { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 540px) { .flow, .docs { grid-template-columns: 1fr; } section { padding: 46px 0; } }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="wrap nav">
+      <div class="brand">Studio <em>Mandat</em></div>
+      <a class="btn btn--gold" href="../mandat/" target="_blank" rel="noopener">Ouvrir Studio Mandat</a>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="hero">
+      <div class="eyebrow">La suite du mandat — Century 21 Kadima</div>
+      <h1>De la visite d'estimation à la brochure, sans rien resaisir.</h1>
+      <p class="lead">Vous rentrez de visite : vous <strong>dictez</strong> la fiche prestation.
+        Elle se structure toute seule, s'exporte en Word — puis s'<strong>injecte dans la
+        brochure</strong> : quartier aux distances réelles, photos, annonce, page web du bien.</p>
+      <a class="btn btn--gold btn--big" href="../mandat/" target="_blank" rel="noopener">Ouvrir Studio Mandat</a>
+    </div>
+
+    <div class="demo" id="demo">
+      <video controls preload="metadata" poster="assets/poster.jpg" src="assets/demo.mp4"></video>
+      <p class="cap">Le parcours complet en 1 min 17 : dictée de la fiche (données réelles), structuration,
+        export Word, injection, quartier réel, génération de la brochure et de l'annonce.</p>
+    </div>
+  </div>
+
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">Le parcours</div>
+        <h2>Quatre temps, un seul fil</h2>
+      </div>
+      <div class="flow">
+        <div class="fstep"><b>🎙️ Dictez la fiche</b><span>En rentrant de visite : prestations, matériaux,
+          travaux, taxes. L'IA structure fidèlement — rien n'est inventé.</span></div>
+        <div class="fstep"><b>📄 Exportez en Word</b><span>La fiche « Prestations et matériaux » au format
+          de l'agence, logo compris — imprimable en PDF avec numérotation.</span></div>
+        <div class="fstep"><b>📖 Injectez dans la brochure</b><span>Un clic : type, adresse et fiche
+          basculent dans le parcours brochure, pré-remplis.</span></div>
+        <div class="fstep"><b>✨ Générez le package</b><span>Quartier aux distances réelles, photos
+          légendées, brochure rédigée, annonce et page web du bien.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section style="background: var(--paper-2);">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">Une visite, quatre documents</div>
+        <h2>Tout le dossier du mandat</h2>
+      </div>
+      <div class="docs">
+        <div class="doc"><div class="ico">📋</div><h3>La fiche prestation</h3><p>Structurée, au format Word de
+          l'agence — la mémoire fidèle de la visite.</p></div>
+        <div class="doc"><div class="ico">📖</div><h3>La brochure acquéreur</h3><p>Livret A4 éditorial :
+          couverture au choix, quartier véridique, surfaces, prix.</p></div>
+        <div class="doc"><div class="ico">📰</div><h3>L'annonce des portails</h3><p>Factuelle et complète,
+          copiée en un clic pour SeLoger ou LeBonCoin.</p></div>
+        <div class="doc"><div class="ico">🌐</div><h3>La page web du bien</h3><p>Autonome, à déposer sur le
+          site de l'agence — avec QR code sur la brochure.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding-top: 0;">
+    <div class="wrap">
+      <div class="cta-final">
+        <h2>La prochaine visite d'estimation mérite mieux qu'un carnet de notes.</h2>
+        <p>Dictez, structurez, injectez — le dossier complet du mandat en dix minutes.</p>
+        <a class="btn btn--gold btn--big" href="../mandat/" target="_blank" rel="noopener">Ouvrir Studio Mandat</a>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">Studio Mandat — Century 21 Kadima · <a href="mailto:benoit.rempenault@century21.fr">benoit.rempenault@century21.fr</a></div>
+  </footer>
+
+</body>
+</html>

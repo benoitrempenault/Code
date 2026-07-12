@@ -7,8 +7,10 @@
 (function () {
   "use strict";
 
-  const LS_KEY = "studio-mandat-fiche";
-  const LS_AIKEY = "studio-brochure-aikey"; // clé partagée avec les autres apps
+  const SS_KEY = "studio-mandat-fiche";        // sessionStorage : fiche vierge à chaque nouvelle session
+  const LS_PREFS = "studio-mandat-fiche-prefs"; // typo/couleur : conservées d'une session à l'autre
+  const LS_AIKEY = "studio-brochure-aikey";     // clé partagée avec les autres apps
+  const PREF_FIELDS = ["fFont", "fColor"];
 
   function $(s) { return document.querySelector(s); }
   function esc(s) {
@@ -31,12 +33,27 @@
     FIELDS.forEach(function (id) { const el = $("#" + id); if (el) o[id] = el.value; });
     return o;
   }
-  function save() { try { localStorage.setItem(LS_KEY, JSON.stringify(collect())); } catch (e) { } }
+  function save() {
+    try {
+      const all = collect();
+      const prefs = {};
+      PREF_FIELDS.forEach(function (id) { prefs[id] = all[id]; delete all[id]; });
+      sessionStorage.setItem(SS_KEY, JSON.stringify(all));
+      localStorage.setItem(LS_PREFS, JSON.stringify(prefs));
+    } catch (e) { }
+  }
   function load() {
     try {
-      const raw = localStorage.getItem(LS_KEY); if (!raw) return;
-      const o = JSON.parse(raw);
-      FIELDS.forEach(function (id) { const el = $("#" + id); if (el && o[id] != null) el.value = o[id]; });
+      const raw = sessionStorage.getItem(SS_KEY);
+      if (raw) {
+        const o = JSON.parse(raw);
+        FIELDS.forEach(function (id) { const el = $("#" + id); if (el && o[id] != null) el.value = o[id]; });
+      }
+      const praw = localStorage.getItem(LS_PREFS);
+      if (praw) {
+        const prefs = JSON.parse(praw);
+        PREF_FIELDS.forEach(function (id) { const el = $("#" + id); if (el && prefs[id] != null) el.value = prefs[id]; });
+      }
     } catch (e) { }
   }
 
@@ -232,12 +249,46 @@
     dynamique: "'Segoe UI', Arial, sans-serif",
     sobre: "Calibri, Arial, sans-serif"
   };
+  // Corps du document pour Word : les sections vides sont omises.
+  function wordSection(title, textareaId) {
+    const items = lines($("#" + textareaId).value);
+    if (!items.length) return "";
+    return "<h2>" + esc(title) + "</h2><ul>" + items.map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("") + "</ul>";
+  }
+  function wordBody() {
+    const vendeur = $("#fVendeur").value.trim();
+    const adresse = $("#fAdresse").value.trim();
+    const type = $("#fType").value.trim();
+    return "<h1>PRESTATIONS ET MATÉRIAUX</h1>" +
+      '<div class="who">' +
+      (vendeur ? esc(vendeur) + "<br>" : "") +
+      (adresse ? esc(adresse) + "<br>" : "") +
+      (type ? "<em>" + esc(type) + "</em>" : "") +
+      "</div>" +
+      wordSection("Caractéristiques", "fCarac") +
+      wordSection("Intérieur", "fInterieur") +
+      wordSection("Extérieur", "fExterieur") +
+      wordSection("À savoir", "fASavoir") +
+      '<p class="legal">DOCUMENT NON CONTRACTUEL</p>';
+  }
   function exportWord() {
+    const hasLogo = !!(window.KADIMA && window.KADIMA.full);
+    if (hasLogo) {
+      // dimensions réelles du logo pour que Word le mette à l'échelle proprement
+      const im = new Image();
+      im.onload = function () { buildWord(170, Math.round(170 * im.naturalHeight / Math.max(1, im.naturalWidth))); };
+      im.onerror = function () { buildWord(0, 0); };
+      im.src = window.KADIMA.full;
+    } else {
+      buildWord(0, 0);
+    }
+  }
+  function buildWord(logoW, logoH) {
     const adresse = $("#fAdresse").value.trim();
     const vendeur = $("#fVendeur").value.trim();
     const accent = ($("#fColor") && $("#fColor").value) || "#8a6a3c";
     const titleFont = WORD_FONTS[($("#fFont") && $("#fFont").value)] || WORD_FONTS.elegant;
-    const hasLogo = !!(window.KADIMA && window.KADIMA.full);
+    const hasLogo = logoW > 0 && !!(window.KADIMA && window.KADIMA.full);
     const logoB64 = hasLogo ? (window.KADIMA.full.split(",")[1] || "") : "";
     const html =
       '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
@@ -251,8 +302,8 @@
       "ul{margin:0 0 6pt 18pt;padding:0;} li{margin-bottom:3pt;}" +
       ".legal{margin-top:24pt;text-align:center;color:#9a968c;font-size:8.5pt;letter-spacing:1px;}" +
       "</style></head><body>" +
-      (hasLogo ? '<img class="logo" src="logo-kadima.png" width="170" alt="">' : "") +
-      docBody().replace(/class="fdoc__who"/g, 'class="who"').replace(/class="fdoc__legal"/g, 'class="legal"').replace(/<p class="fdoc__empty">— à compléter —<\/p>/g, "") +
+      (hasLogo ? '<img class="logo" src="logo-kadima.png" width="' + logoW + '" height="' + logoH + '" alt="">' : "") +
+      wordBody() +
       "</body></html>";
     // Document MHT (multipart) : c'est le format que Word ouvre avec les images embarquées.
     const B = "----=_StudioMandat_Boundary";
