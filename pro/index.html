@@ -57,6 +57,17 @@
             <input type="checkbox" data-bind="property.exclusivite" />
             <span>Mandat en exclusivité</span>
           </label>
+          <label>Bandeau de couverture <small class="hint">(affiché en haut de la couverture)</small>
+            <select data-bind="property.banner">
+              <option value="">Automatique (« Exclusivité » si mandat exclusif)</option>
+              <option>EXCLUSIVITÉ</option>
+              <option>NOUVEAUTÉ</option>
+              <option>COUP DE CŒUR</option>
+              <option>BAISSE DE PRIX</option>
+              <option>SOUS COMPROMIS</option>
+              <option>VENDU</option>
+            </select>
+          </label>
           <label>Titre de couverture <small class="hint">(optionnel — laissez vide, l'IA en proposera un à l'étape 8)</small>
             <input type="text" data-bind="property.title" placeholder="Le Sud, la lumière, le calme" />
           </label>
@@ -337,6 +348,11 @@
             <button class="btn btn--ghost btn--sm" id="btnCopyAd">📋 Copier le texte publicitaire</button>
           </div>
           <hr class="wstep__sep" />
+          <label>Lien vers la page du bien <small class="hint">(optionnel — ajoute un QR code « scannez pour découvrir le bien » sur la page de prix)</small>
+            <input type="url" data-bind="property.webUrl" id="webUrlInput" placeholder="https://www.votre-agence.fr/biens/maison-familiale.html" />
+          </label>
+          <div class="ai-actions"><span id="qrStatus" class="ai-status" role="status" aria-live="polite"></span></div>
+          <hr class="wstep__sep" />
           <div class="wstep__exports">
             <button class="btn btn--primary" id="btnFinishPrint">🖨 Imprimer / PDF</button>
             <button class="btn btn--ghost" id="btnFinishSave">💾 Enregistrer dans la bibliothèque</button>
@@ -377,6 +393,7 @@
 
   <input type="file" id="fileImport" accept="application/json,.json" hidden />
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <button class="btn btn--primary preview-return" id="btnBackSetup" hidden>↩ Revenir aux réglages</button>
 
   <!-- ======================= PARAMÉTRAGE AGENCE ======================= -->
   <div class="lib-overlay" id="setupOverlay" hidden>
@@ -415,6 +432,13 @@
             <input type="text" data-bind="agency.email" placeholder="contact@agence.fr" />
           </label>
         </div>
+        <label>Modèle de couverture
+          <select data-bind="theme.coverLayout">
+            <option value="bandeau">Bandeau (photo non rognée)</option>
+            <option value="pleine">Photo pleine page (immersif)</option>
+            <option value="mosaique">Mosaïque (3 photos)</option>
+          </select>
+        </label>
         <div class="grid-2">
           <label>Ambiance des brochures
             <select data-bind="theme.palette" id="paletteSelect">
@@ -443,7 +467,7 @@
           </label>
         </div>
         <div class="ai-actions">
-          <button type="button" class="btn btn--ghost btn--sm" id="btnPreviewTheme" title="Maintenez le bouton enfoncé pour voir la brochure derrière">👁 Prévisualiser (maintenir enfoncé)</button>
+          <button type="button" class="btn btn--ghost btn--sm" id="btnPreviewTheme">👁 Prévisualiser la brochure</button>
         </div>
         <label class="check">
           <input type="checkbox" data-bind="theme.coverDark" />

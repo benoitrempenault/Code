@@ -11,7 +11,7 @@
   /* ----------------------------- État par défaut ------------------------ */
   // Exemple pré-rempli (villa de Corbiac) pour une première impression réussie.
   const DEFAULT = {
-    theme: { palette: "bronze", coverDark: false },
+    theme: { palette: "bronze", coverDark: false, font: "elegant", customAccent: "#a67c52", customPaper: "#f7f3ec", coverLayout: "bandeau" },
     agency: {
       name: "Century 21 Kadima",
       agent: "",
@@ -98,6 +98,16 @@
     if (!s.surfaces) s.surfaces = [];
     if (!s.gallery) s.gallery = [];
     if (s.adText == null) s.adText = "";
+    if (!s.theme) s.theme = clone(DEFAULT.theme);
+    if (!s.theme.font) s.theme.font = "elegant";
+    if (!s.theme.customAccent) s.theme.customAccent = "#a67c52";
+    if (!s.theme.customPaper) s.theme.customPaper = "#f7f3ec";
+    if (!s.theme.coverLayout) s.theme.coverLayout = "bandeau";
+    if (s.property) {
+      if (s.property.banner == null) s.property.banner = "";
+      if (s.property.webUrl == null) s.property.webUrl = "";
+      if (s.property.webQr === undefined) s.property.webQr = null;
+    }
     return s;
   }
 
@@ -336,13 +346,62 @@
     return (window.KADIMA && window.KADIMA.emblem) ? '<img class="page-mark" src="' + window.KADIMA.emblem + '" alt="">' : "";
   }
 
+  function coverTag() {
+    return state.property.banner || (state.property.exclusivite ? "Exclusivité" : "");
+  }
+  function coverLogoHtml(cls) {
+    return (window.KADIMA && window.KADIMA.full)
+      ? '<img class="' + cls + '" src="' + window.KADIMA.full + '" alt="' + esc(state.agency.name || "Century 21") + '">'
+      : '<span class="cb-logo-text">' + esc(state.agency.name || "") + "</span>";
+  }
   function pageCover() {
+    const layout = state.theme.coverLayout || "bandeau";
+    if (layout === "pleine" && state.coverPhoto) return pageCoverFull();
+    if (layout === "mosaique" && state.coverPhoto) return pageCoverMosaic();
+    return pageCoverBanded();
+  }
+  // Photo plein cadre, texte sur voile sombre.
+  function pageCoverFull() {
+    const p = state.property, a = state.agency;
+    const tag = coverTag();
+    const contact = [a.phone, a.email].filter(Boolean).join("  ·  ");
+    return '<section class="page page--full cover-full">' +
+      '<img class="cf-img" src="' + state.coverPhoto + '" alt="">' +
+      '<div class="cf-scrim"></div>' +
+      '<div class="cf-top">' + coverLogoHtml("cb-logo") + (tag ? '<span class="cf-tag">' + esc(tag) + "</span>" : "") + "</div>" +
+      '<div class="cf-bottom">' +
+      (p.type ? '<div class="eyebrow">' + esc(p.type) + "</div>" : "") +
+      (p.title ? '<h1 class="cf-title">' + esc(p.title) + "</h1>" : "") +
+      (p.location ? '<div class="cf-loc">' + esc(p.location) + "</div>" : "") +
+      (contact ? '<div class="cf-contact">' + esc(contact) + "</div>" : "") +
+      "</div></section>";
+  }
+  // Mosaïque : grande photo + deux premières photos de la galerie.
+  function pageCoverMosaic() {
+    const p = state.property, a = state.agency;
+    const tag = coverTag();
+    const contact = [a.phone, a.email].filter(Boolean).join("  ·  ");
+    const g = state.gallery || [];
+    const cells = ['<div class="cm-cell cm-a"><img src="' + state.coverPhoto + '" alt=""></div>'];
+    if (g[0]) cells.push('<div class="cm-cell"><img src="' + g[0].url + '" alt=""></div>');
+    if (g[1]) cells.push('<div class="cm-cell"><img src="' + g[1].url + '" alt=""></div>');
+    return '<section class="page page--full cover-mosaic">' +
+      '<div class="cm-top">' + coverLogoHtml("cb-logo") + (tag ? '<span class="cf-tag" style="color:var(--accent);border-color:var(--accent);background:none">' + esc(tag) + "</span>" : "") + "</div>" +
+      '<div class="cm-grid"' + (cells.length === 1 ? ' style="grid-template-columns:1fr"' : "") + ">" + cells.join("") + "</div>" +
+      '<div class="cm-bottom">' +
+      (p.type ? '<div class="eyebrow">' + esc(p.type) + "</div>" : "") +
+      (p.title ? '<h1 class="cm-title">' + esc(p.title) + "</h1>" : "") +
+      (p.location ? '<div class="cm-loc">' + esc(p.location) + "</div>" : "") +
+      (contact ? '<div class="cm-contact">' + esc(contact) + "</div>" : "") +
+      "</div></section>";
+  }
+  function pageCoverBanded() {
     const p = state.property, a = state.agency;
     const dark = state.theme.coverDark;
     const img = state.coverPhoto
       ? '<img src="' + state.coverPhoto + '" alt="">'
       : '<div class="cb-ph"></div>';
-    const tag = p.exclusivite ? '<span class="cb-tag">Exclusivité</span>' : "";
+    const tag = coverTag() ? '<span class="cb-tag">' + esc(coverTag()) + "</span>" : "";
     const contact = [a.phone, a.email].filter(Boolean).join("  ·  ");
     const logo = (window.KADIMA && window.KADIMA.full)
       ? '<img class="cb-logo" src="' + window.KADIMA.full + '" alt="' + esc(a.name || "Century 21") + '">'
@@ -541,6 +600,10 @@
         ? '<img class="price__logo" src="' + window.KADIMA.full + '" alt="Century 21 Kadima">'
         : '<div class="price__c21"><span class="c21">21</span></div>') +
       "</div>" +
+      ((state.property.webQr)
+        ? '<div class="price__qr"><img src="' + state.property.webQr + '" alt="QR code">' +
+          '<span>Scannez pour découvrir le bien en ligne</span></div>'
+        : "") +
       '<div class="price__legal">Document non contractuel</div>' +
       "</div></section>";
   }
@@ -554,10 +617,28 @@
 
   let renderTimer;
   function scheduleRender() { clearTimeout(renderTimer); renderTimer = setTimeout(render, 120); }
+  // Assombrit légèrement une couleur hexadécimale (pour les filets dérivés du fond).
+  function shade(hex, k) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || ""); if (!m) return hex;
+    const n = parseInt(m[1], 16);
+    const f = function (v) { return Math.max(0, Math.min(255, Math.round(v * (1 - k)))); };
+    return "#" + [f(n >> 16 & 255), f(n >> 8 & 255), f(n & 255)].map(function (v) { return v.toString(16).padStart(2, "0"); }).join("");
+  }
+  function applyCustomTheme(el) {
+    if ((state.theme.palette || "bronze") === "custom") {
+      el.style.setProperty("--accent", state.theme.customAccent || "#a67c52");
+      el.style.setProperty("--paper", state.theme.customPaper || "#f7f3ec");
+      el.style.setProperty("--hair", shade(state.theme.customPaper || "#f7f3ec", 0.10));
+    } else {
+      el.style.removeProperty("--accent"); el.style.removeProperty("--paper"); el.style.removeProperty("--hair");
+    }
+  }
   function render() {
     const b = $("#brochure");
     b.setAttribute("data-palette", state.theme.palette || "bronze");
     b.setAttribute("data-cover", state.theme.coverDark ? "dark" : "light");
+    b.setAttribute("data-font", state.theme.font || "elegant");
+    applyCustomTheme(b);
     b.innerHTML = buildBrochure();
     // sous-titre de la barre
     $("#topbarSubtitle").textContent = state.property.title || "Fiche de présentation";
@@ -688,10 +769,14 @@
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
         "<title>" + esc(state.property.title || "Brochure") + "</title>" +
         '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>' +
-        '<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">' +
+        '<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Inter:wght@300;400;500;600&family=Cormorant+Garamond:wght@400;500;600&family=Montserrat:wght@400;500;600&display=swap" rel="stylesheet">' +
         "<style>" + brochureCss + EXPORT_CSS + "</style></head><body>" +
         '<div class="export-toolbar"><button onclick="window.print()">Imprimer / PDF</button></div>' +
-        '<div class="brochure" data-palette="' + (state.theme.palette || "bronze") + '" data-cover="' + (state.theme.coverDark ? "dark" : "light") + '">' +
+        '<div class="brochure" data-palette="' + (state.theme.palette || "bronze") + '" data-cover="' + (state.theme.coverDark ? "dark" : "light") +
+        '" data-font="' + (state.theme.font || "elegant") +
+        '"' + ((state.theme.palette === "custom")
+          ? ' style="--accent:' + (state.theme.customAccent || "#a67c52") + ';--paper:' + (state.theme.customPaper || "#f7f3ec") + ';--hair:' + shade(state.theme.customPaper || "#f7f3ec", 0.10) + '"'
+          : "") + ">" +
         buildBrochure() + "</div></body></html>";
       downloadBlob(html, fileSlug() + ".html", "text/html");
       toast("Brochure exportée (.html). Ouvrez-la ou joignez-la à un e-mail.");
@@ -1068,7 +1153,11 @@
 
   /* ----------------- Saisie automatique de l'adresse (BAN) -------------- */
   function wireAddressAutocomplete() {
-    const input = document.querySelector('[data-bind="property.address"]');
+    attachAddressAutocomplete('[data-bind="property.address"]', "property.address");
+    attachAddressAutocomplete('[data-bind="agency.address"]', "agency.address");
+  }
+  function attachAddressAutocomplete(selector, path) {
+    const input = document.querySelector(selector);
     if (!input) return;
     const wrap = document.createElement("div"); wrap.className = "ac-wrap";
     input.parentNode.insertBefore(wrap, input); wrap.appendChild(input);
@@ -1077,7 +1166,7 @@
     function close() { list.innerHTML = ""; list.style.display = "none"; items = []; active = -1; }
     function paint() { Array.prototype.forEach.call(list.children, function (c, i) { c.classList.toggle("is-active", i === active); }); }
     function choose(label) {
-      input.value = label; setPath(state, "property.address", label);
+      input.value = label; setPath(state, path, label);
       scheduleSave(); close();
     }
     input.addEventListener("input", function () {

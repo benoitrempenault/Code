@@ -108,10 +108,26 @@
   }
 
   /* -------------------------------- Réglages ---------------------------- */
+  function paintCustomColors() {
+    const st = App().getState();
+    $("#customColors").hidden = (st.theme.palette !== "custom");
+  }
+  function openSetup() {
+    App().hydrateForm();
+    paintCustomColors();
+    $("#setupOverlay").hidden = false;
+  }
   function wireSetup() {
-    $("#btnSettings").addEventListener("click", function () {
-      App().hydrateForm();
-      $("#setupOverlay").hidden = false;
+    $("#btnSettings").addEventListener("click", openSetup);
+    $("#paletteSelect").addEventListener("change", paintCustomColors);
+    // Prévisualiser : masque les réglages, un bouton flottant permet d'y revenir
+    $("#btnPreviewTheme").addEventListener("click", function () {
+      $("#setupOverlay").hidden = true;
+      $("#btnBackSetup").hidden = false;
+    });
+    $("#btnBackSetup").addEventListener("click", function () {
+      $("#btnBackSetup").hidden = true;
+      openSetup();
     });
     function close() { $("#setupOverlay").hidden = true; }
     $("#setupClose").addEventListener("click", close);
@@ -153,11 +169,18 @@
         $("#setupOverlay").hidden = false;
         return;
       }
+      const tooBig = files.filter(function (f) { return f.size > 10 * 1024 * 1024; });
+      if (tooBig.length) {
+        status.className = "ai-status is-error";
+        status.textContent = "Fichier trop lourd (max 10 Mo) : " + tooBig[0].name;
+        return;
+      }
       status.className = "ai-status is-busy";
-      status.textContent = "Lecture de vos notes… (" + files.length + " image" + (files.length > 1 ? "s" : "") + ")";
+      status.textContent = "Lecture de vos notes… (" + files.length + " fichier" + (files.length > 1 ? "s" : "") + ")";
       let done = 0; const images = new Array(files.length);
       files.forEach(function (f, i) {
-        fileToResizedDataUrl(f, 1800, function (dataUrl) {
+        const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+        const put = function (dataUrl) {
           images[i] = dataUrl;
           if (++done < files.length) return;
           window.BrochureAI.extractNotes({
@@ -174,8 +197,104 @@
           }).catch(function (err) {
             status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
           });
-        });
+        };
+        if (isPdf) {
+          const r = new FileReader();
+          r.onload = function () { put(r.result); };
+          r.readAsDataURL(f);
+        } else {
+          fileToResizedDataUrl(f, 1800, put);
+        }
       });
+    });
+  }
+
+  /* ------------------- Prix : format automatique (000 000 €) ------------ */
+  // « 700000 » devient « 700 000 € » — l'espace des milliers en cours de
+  // frappe, le € à la sortie du champ. Les mentions (FAI…) sont conservées.
+  function formatPriceValue(v, addEuro) {
+    const m = /^\s*([\d\s.,\u00A0\u202F]*\d)([\s\S]*)$/.exec(v);
+    if (!m) return v;
+    const digits = m[1].replace(/[^\d]/g, "");
+    if (!digits) return v;
+    const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, "\u202F");
+    let rest = m[2].trim();
+    if (addEuro && rest.indexOf("€") < 0) rest = ("€ " + rest).trim();
+    return grouped + (rest ? " " + rest : "");
+  }
+  function wirePriceFormat() {
+    const input = $('[data-bind="property.price"]');
+    if (!input) return;
+    function apply(addEuro) {
+      const before = input.value;
+      const after = formatPriceValue(before, addEuro);
+      if (after === before) return;
+      const atEnd = input.selectionStart === before.length;
+      input.value = after;
+      if (atEnd) { try { input.setSelectionRange(after.length, after.length); } catch (e) { } }
+      App().setValue("property.price", after);
+      App().render(); App().scheduleSave();
+    }
+    input.addEventListener("input", function () {
+      // en cours de frappe : on regroupe les milliers, sans encore ajouter le €
+      if (input.selectionStart === input.value.length) apply(false);
+    });
+    input.addEventListener("blur", function () { apply(true); });
+  }
+
+  /* ---------------- QR code vers la page du bien (page de prix) ---------- */
+  function wireQr() {
+    const input = $("#webUrlInput"), status = $("#qrStatus");
+    if (!input) return;
+    input.addEventListener("change", function () {
+      const url = (input.value || "").trim();
+      if (!url) {
+        App().setValue("property.webQr", null);
+        App().render(); App().scheduleSave();
+        status.className = "ai-status"; status.textContent = "";
+        return;
+      }
+      if (!/^https?:\/\//i.test(url)) {
+        status.className = "ai-status is-error"; status.textContent = "Le lien doit commencer par http(s)://";
+        return;
+      }
+      status.className = "ai-status is-busy"; status.textContent = "Génération du QR code…";
+      fetch("https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=0&data=" + encodeURIComponent(url))
+        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.blob(); })
+        .then(function (blob) {
+          const rd = new FileReader();
+          rd.onload = function () {
+            App().setValue("property.webQr", rd.result);
+            App().render(); App().scheduleSave();
+            status.className = "ai-status is-ok"; status.textContent = "QR code ajouté à la page de prix ✓";
+          };
+          rd.readAsDataURL(blob);
+        })
+        .catch(function () {
+          status.className = "ai-status is-error"; status.textContent = "Génération impossible (connexion ?). Réessayez.";
+        });
+    });
+  }
+
+  /* ------- Montants automatiques dans « À savoir » (taxes, charges…) ----- */
+  function formatMoneyLine(line) {
+    if (!/taxe|charge|électric|electric|gaz|eau|copro|honorair|fonci/i.test(line)) return line;
+    return line.replace(/(\d[\d\s\u00A0\u202F]*\d|\d{3,})(?![\s\u00A0\u202F]*€|\d)/g, function (m) {
+      const digits = m.replace(/[^\d]/g, "");
+      if (digits.length < 3 || /^(19|20)\d{2}$/.test(digits)) return m;
+      return digits.replace(/\B(?=(\d{3})+(?!\d))/g, "\u202F") + " €";
+    });
+  }
+  function wireMoneyFormat() {
+    const ta = $('[data-bind-list="features.aSavoir"]');
+    if (!ta) return;
+    ta.addEventListener("blur", function () {
+      const before = ta.value;
+      const after = before.split("\n").map(formatMoneyLine).join("\n");
+      if (after !== before) {
+        ta.value = after;
+        ta.dispatchEvent(new Event("input", { bubbles: true })); // resynchronise l'état
+      }
     });
   }
 
@@ -219,6 +338,9 @@
     wireNav();
     wireSetup();
     wireNotesPhoto();
+    wirePriceFormat();
+    wireMoneyFormat();
+    wireQr();
     wireAdText();
     let start = 1;
     try { start = parseInt(sessionStorage.getItem("studio-brochure-step"), 10) || 1; } catch (e) { }

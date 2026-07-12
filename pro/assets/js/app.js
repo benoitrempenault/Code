@@ -15,7 +15,7 @@
   // Marque blanche : l'agence est vide au départ, configurée au premier
   // lancement puis mémorisée (AG_KEY) et réappliquée à chaque nouvelle fiche.
   const DEFAULT = {
-    theme: { palette: "bronze", coverDark: false, font: "elegant", customAccent: "#a8834f", customPaper: "#f7f3ec" },
+    theme: { palette: "bronze", coverDark: false, font: "elegant", customAccent: "#a8834f", customPaper: "#f7f3ec", coverLayout: "bandeau" },
     agency: {
       name: "",
       agent: "",
@@ -133,6 +133,10 @@
     if (!s.theme.font) s.theme.font = "elegant";
     if (!s.theme.customAccent) s.theme.customAccent = "#a8834f";
     if (!s.theme.customPaper) s.theme.customPaper = "#f7f3ec";
+    if (!s.theme.coverLayout) s.theme.coverLayout = "bandeau";
+    if (s.property.banner == null) s.property.banner = "";
+    if (s.property.webUrl == null) s.property.webUrl = "";
+    if (s.property.webQr === undefined) s.property.webQr = null;
     if (!s.agency) s.agency = clone(DEFAULT.agency);
     if (s.agency.logo === undefined) s.agency.logo = null;
     return s;
@@ -373,13 +377,64 @@
     return state.agency.logo ? '<img class="page-mark" src="' + state.agency.logo + '" alt="">' : "";
   }
 
+  function coverTag() {
+    const t = state.property.banner || (state.property.exclusivite ? "Exclusivité" : "");
+    return t;
+  }
   function pageCover() {
+    const layout = state.theme.coverLayout || "bandeau";
+    if (layout === "pleine" && state.coverPhoto) return pageCoverFull();
+    if (layout === "mosaique" && state.coverPhoto) return pageCoverMosaic();
+    return pageCoverBanded();
+  }
+  // Photo plein cadre, texte sur voile sombre.
+  function pageCoverFull() {
+    const p = state.property, a = state.agency;
+    const tag = coverTag();
+    const contact = [a.phone, a.email].filter(Boolean).join("  ·  ");
+    const logo = a.logo
+      ? '<img class="cb-logo" src="' + a.logo + '" alt="' + esc(a.name || "") + '">'
+      : '<span class="cb-logo-text">' + esc(a.name || "") + "</span>";
+    return '<section class="page page--full cover-full">' +
+      '<img class="cf-img" src="' + state.coverPhoto + '" alt="">' +
+      '<div class="cf-scrim"></div>' +
+      '<div class="cf-top">' + logo + (tag ? '<span class="cf-tag">' + esc(tag) + "</span>" : "") + "</div>" +
+      '<div class="cf-bottom">' +
+      (p.type ? '<div class="eyebrow">' + esc(p.type) + "</div>" : "") +
+      (p.title ? '<h1 class="cf-title">' + esc(p.title) + "</h1>" : "") +
+      (p.location ? '<div class="cf-loc">' + esc(p.location) + "</div>" : "") +
+      (contact ? '<div class="cf-contact">' + esc(contact) + "</div>" : "") +
+      "</div></section>";
+  }
+  // Mosaïque : grande photo + deux premières photos de la galerie.
+  function pageCoverMosaic() {
+    const p = state.property, a = state.agency;
+    const tag = coverTag();
+    const contact = [a.phone, a.email].filter(Boolean).join("  ·  ");
+    const logo = a.logo
+      ? '<img class="cb-logo" src="' + a.logo + '" alt="' + esc(a.name || "") + '">'
+      : '<span class="cb-logo-text">' + esc(a.name || "") + "</span>";
+    const g = state.gallery || [];
+    const cells = ['<div class="cm-cell cm-a"><img src="' + state.coverPhoto + '" alt=""></div>'];
+    if (g[0]) cells.push('<div class="cm-cell"><img src="' + g[0].url + '" alt=""></div>');
+    if (g[1]) cells.push('<div class="cm-cell"><img src="' + g[1].url + '" alt=""></div>');
+    return '<section class="page page--full cover-mosaic">' +
+      '<div class="cm-top">' + logo + (tag ? '<span class="cf-tag" style="color:var(--accent);border-color:var(--accent);background:none">' + esc(tag) + "</span>" : "") + "</div>" +
+      '<div class="cm-grid"' + (cells.length === 1 ? ' style="grid-template-columns:1fr"' : "") + ">" + cells.join("") + "</div>" +
+      '<div class="cm-bottom">' +
+      (p.type ? '<div class="eyebrow">' + esc(p.type) + "</div>" : "") +
+      (p.title ? '<h1 class="cm-title">' + esc(p.title) + "</h1>" : "") +
+      (p.location ? '<div class="cm-loc">' + esc(p.location) + "</div>" : "") +
+      (contact ? '<div class="cm-contact">' + esc(contact) + "</div>" : "") +
+      "</div></section>";
+  }
+  function pageCoverBanded() {
     const p = state.property, a = state.agency;
     const dark = state.theme.coverDark;
     const img = state.coverPhoto
       ? '<img src="' + state.coverPhoto + '" alt="">'
       : '<div class="cb-ph"></div>';
-    const tag = p.exclusivite ? '<span class="cb-tag">Exclusivité</span>' : "";
+    const tag = coverTag() ? '<span class="cb-tag">' + esc(coverTag()) + "</span>" : "";
     const contact = [a.phone, a.email].filter(Boolean).join("  ·  ");
     const logo = a.logo
       ? '<img class="cb-logo" src="' + a.logo + '" alt="' + esc(a.name || "") + '">'
@@ -576,6 +631,10 @@
       '<div class="lines">' + lines.map(esc).join("<br>") + "</div>" +
       (a.logo ? '<img class="price__logo" src="' + a.logo + '" alt="' + esc(a.name || "") + '">' : "") +
       "</div>" +
+      ((state.property.webQr)
+        ? '<div class="price__qr"><img src="' + state.property.webQr + '" alt="QR code">' +
+          '<span>Scannez pour découvrir le bien en ligne</span></div>'
+        : "") +
       '<div class="price__legal">Document non contractuel</div>' +
       "</div></section>";
   }

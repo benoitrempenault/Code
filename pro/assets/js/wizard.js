@@ -154,13 +154,15 @@
     $("#btnSettings").addEventListener("click", function () { openSetup(false); });
     // Couleurs personnalisées : pickers visibles seulement en palette « custom »
     $("#paletteSelect").addEventListener("change", paintCustomColors);
-    // Prévisualiser : maintenir le bouton enfoncé pour voir la brochure derrière
-    const pv = $("#btnPreviewTheme"), modal = $(".setup-modal");
-    function hideModal(e) { e.preventDefault(); modal.style.visibility = "hidden"; }
-    function showModal() { modal.style.visibility = ""; }
-    pv.addEventListener("mousedown", hideModal);
-    pv.addEventListener("touchstart", hideModal);
-    ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach(function (ev) { pv.addEventListener(ev, showModal); });
+    // Prévisualiser : masque les réglages, un bouton flottant permet d'y revenir
+    $("#btnPreviewTheme").addEventListener("click", function () {
+      $("#setupOverlay").hidden = true;
+      $("#btnBackSetup").hidden = false;
+    });
+    $("#btnBackSetup").addEventListener("click", function () {
+      $("#btnBackSetup").hidden = true;
+      openSetup(false);
+    });
     $("#setupClose").addEventListener("click", closeSetup);
     $("#setupOverlay").addEventListener("click", function (e) { if (e.target === this) closeSetup(); });
     $("#agencyLogoFile").addEventListener("change", function (e) {
@@ -329,6 +331,62 @@
     });
   }
 
+  /* ---------------- QR code vers la page du bien (page de prix) ---------- */
+  function wireQr() {
+    const input = $("#webUrlInput"), status = $("#qrStatus");
+    if (!input) return;
+    input.addEventListener("change", function () {
+      const url = (input.value || "").trim();
+      if (!url) {
+        App().setValue("property.webQr", null);
+        App().render(); App().scheduleSave();
+        status.className = "ai-status"; status.textContent = "";
+        return;
+      }
+      if (!/^https?:\/\//i.test(url)) {
+        status.className = "ai-status is-error"; status.textContent = "Le lien doit commencer par http(s)://";
+        return;
+      }
+      status.className = "ai-status is-busy"; status.textContent = "Génération du QR code…";
+      fetch("https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=0&data=" + encodeURIComponent(url))
+        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.blob(); })
+        .then(function (blob) {
+          const rd = new FileReader();
+          rd.onload = function () {
+            App().setValue("property.webQr", rd.result);
+            App().render(); App().scheduleSave();
+            status.className = "ai-status is-ok"; status.textContent = "QR code ajouté à la page de prix ✓";
+          };
+          rd.readAsDataURL(blob);
+        })
+        .catch(function () {
+          status.className = "ai-status is-error"; status.textContent = "Génération impossible (connexion ?). Réessayez.";
+        });
+    });
+  }
+
+  /* ------- Montants automatiques dans « À savoir » (taxes, charges…) ----- */
+  function formatMoneyLine(line) {
+    if (!/taxe|charge|électric|electric|gaz|eau|copro|honorair|fonci/i.test(line)) return line;
+    return line.replace(/(\d[\d\s\u00A0\u202F]*\d|\d{3,})(?![\s\u00A0\u202F]*€|\d)/g, function (m) {
+      const digits = m.replace(/[^\d]/g, "");
+      if (digits.length < 3 || /^(19|20)\d{2}$/.test(digits)) return m;
+      return digits.replace(/\B(?=(\d{3})+(?!\d))/g, "\u202F") + " €";
+    });
+  }
+  function wireMoneyFormat() {
+    const ta = $('[data-bind-list="features.aSavoir"]');
+    if (!ta) return;
+    ta.addEventListener("blur", function () {
+      const before = ta.value;
+      const after = before.split("\n").map(formatMoneyLine).join("\n");
+      if (after !== before) {
+        ta.value = after;
+        ta.dispatchEvent(new Event("input", { bubbles: true })); // resynchronise l'état
+      }
+    });
+  }
+
   /* -------------------------------- Démarrage --------------------------- */
   function init() {
     if (!window.StudioApp) return; // moteur non chargé
@@ -336,6 +394,8 @@
     wireSetup();
     wireNotesPhoto();
     wirePriceFormat();
+    wireMoneyFormat();
+    wireQr();
     wireAdText();
     let start = 1;
     try { start = parseInt(sessionStorage.getItem("studio-pro-step"), 10) || 1; } catch (e) { }

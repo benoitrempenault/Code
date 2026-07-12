@@ -343,3 +343,5 @@ ul.sources em { color: var(--ui-muted); font-style: normal; }
 }
 .setup-foot { justify-content: flex-end; padding-bottom: 16px; }
 .setup-body .wstep__req { align-self: flex-start; }
+.preview-return { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); z-index: 70;
+  box-shadow: 0 12px 34px rgba(0,0,0,.5); }

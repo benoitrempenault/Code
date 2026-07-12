@@ -7,7 +7,7 @@
   <meta name="description" content="Créez pas à pas des brochures immobilières élégantes, émotionnelles et prêtes à imprimer ou envoyer par mail — plus le texte d'annonce." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Inter:wght@300;400;500;600&family=Cormorant+Garamond:wght@400;500;600&family=Montserrat:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="assets/css/app.css" />
   <link rel="stylesheet" href="assets/css/brochure.css" />
 </head>
@@ -56,6 +56,17 @@
           <label class="check">
             <input type="checkbox" data-bind="property.exclusivite" />
             <span>Mandat en exclusivité</span>
+          </label>
+          <label>Bandeau de couverture <small class="hint">(affiché en haut de la couverture)</small>
+            <select data-bind="property.banner">
+              <option value="">Automatique (« Exclusivité » si mandat exclusif)</option>
+              <option>EXCLUSIVITÉ</option>
+              <option>NOUVEAUTÉ</option>
+              <option>COUP DE CŒUR</option>
+              <option>BAISSE DE PRIX</option>
+              <option>SOUS COMPROMIS</option>
+              <option>VENDU</option>
+            </select>
           </label>
           <label>Titre de couverture <small class="hint">(optionnel — laissez vide, l'IA en proposera un à l'étape 8)</small>
             <input type="text" data-bind="property.title" placeholder="Le Sud, la lumière, le calme" />
@@ -245,9 +256,10 @@
             <div class="uploader__row">
               <span>Photo / capture de vos notes <small class="hint">(manuscrites ou imprimées — plusieurs possibles)</small></span>
               <label class="btn btn--ghost btn--sm">Choisir
-                <input type="file" id="fileNotes" accept="image/*" multiple hidden />
+                <input type="file" id="fileNotes" accept="application/pdf,image/jpeg,image/png,image/webp" multiple hidden />
               </label>
             </div>
+            <p class="hint">Formats acceptés : <strong>JPG, PNG, WebP ou PDF</strong> (10 Mo max par fichier).</p>
             <div class="ai-actions">
               <span id="notesStatus" class="ai-status" role="status" aria-live="polite"></span>
             </div>
@@ -336,6 +348,11 @@
             <button class="btn btn--ghost btn--sm" id="btnCopyAd">📋 Copier le texte publicitaire</button>
           </div>
           <hr class="wstep__sep" />
+          <label>Lien vers la page du bien <small class="hint">(optionnel — ajoute un QR code « scannez pour découvrir le bien » sur la page de prix)</small>
+            <input type="url" data-bind="property.webUrl" id="webUrlInput" placeholder="https://www.votre-agence.fr/biens/maison-familiale.html" />
+          </label>
+          <div class="ai-actions"><span id="qrStatus" class="ai-status" role="status" aria-live="polite"></span></div>
+          <hr class="wstep__sep" />
           <div class="wstep__exports">
             <button class="btn btn--primary" id="btnFinishPrint">🖨 Imprimer / PDF</button>
             <button class="btn btn--ghost" id="btnFinishSave">💾 Enregistrer dans la bibliothèque</button>
@@ -376,6 +393,7 @@
 
   <input type="file" id="fileImport" accept="application/json,.json" hidden />
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <button class="btn btn--primary preview-return" id="btnBackSetup" hidden>↩ Revenir aux réglages</button>
 
   <!-- ======================= RÉGLAGES ======================= -->
   <div class="lib-overlay" id="setupOverlay" hidden>
@@ -405,14 +423,43 @@
             <input type="text" data-bind="agency.email" placeholder="kadima@century21.fr" />
           </label>
         </div>
-        <label>Ambiance des brochures
-          <select data-bind="theme.palette">
-            <option value="bronze">Sable &amp; bronze (chaleureux)</option>
-            <option value="sauge">Lin &amp; sauge (naturel)</option>
-            <option value="encre">Ardoise &amp; or (élégant)</option>
-            <option value="terracotta">Albâtre &amp; terracotta (éditorial)</option>
+        <label>Modèle de couverture
+          <select data-bind="theme.coverLayout">
+            <option value="bandeau">Bandeau (photo non rognée)</option>
+            <option value="pleine">Photo pleine page (immersif)</option>
+            <option value="mosaique">Mosaïque (3 photos)</option>
           </select>
         </label>
+        <div class="grid-2">
+          <label>Ambiance des brochures
+            <select data-bind="theme.palette" id="paletteSelect">
+              <option value="bronze">Sable &amp; bronze (chaleureux)</option>
+              <option value="sauge">Lin &amp; sauge (naturel)</option>
+              <option value="encre">Ardoise &amp; or (élégant)</option>
+              <option value="terracotta">Albâtre &amp; terracotta (éditorial)</option>
+              <option value="custom">Personnalisée (vos couleurs)…</option>
+            </select>
+          </label>
+          <label>Typographie
+            <select data-bind="theme.font">
+              <option value="elegant">Élégante (serif littéraire)</option>
+              <option value="classique">Classique (garamond)</option>
+              <option value="dynamique">Dynamique (sans-serif affirmée)</option>
+              <option value="sobre">Sobre (tout en linéale)</option>
+            </select>
+          </label>
+        </div>
+        <div id="customColors" class="custom-colors" hidden>
+          <label>Couleur principale <small class="hint">(titres, cadres, accents)</small>
+            <input type="color" data-bind="theme.customAccent" value="#a67c52" />
+          </label>
+          <label>Fond des pages <small class="hint">(choisissez une teinte claire)</small>
+            <input type="color" data-bind="theme.customPaper" value="#f7f3ec" />
+          </label>
+        </div>
+        <div class="ai-actions">
+          <button type="button" class="btn btn--ghost btn--sm" id="btnPreviewTheme">👁 Prévisualiser la brochure</button>
+        </div>
         <label class="check">
           <input type="checkbox" data-bind="theme.coverDark" />
           <span>Couverture sombre (texte clair sur la photo)</span>
