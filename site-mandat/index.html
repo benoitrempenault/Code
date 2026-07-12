@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Studio Mandat — La suite du mandat, de la visite à la brochure</title>
-  <meta name="description" content="Dictez la fiche prestation en rentrant de visite, exportez-la en Word, puis injectez-la dans la brochure acquéreur : quartier réel, photos, annonce, page web du bien." />
+  <title>Studio Mandat — De la visite à la brochure, sans rien resaisir</title>
+  <meta name="description" content="Dictez la fiche prestation en rentrant de visite, exportez-la en Word, injectez-la dans la brochure : quartier réel, photos, annonce, page web du bien. Gagnez du temps, gagnez en image." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
   <style>
     :root {
       --paper: #f7f2ea; --paper-2: #efe7da; --ink: #1c1813; --ink-soft: #6d655a;
@@ -17,52 +17,116 @@
     * { box-sizing: border-box; margin: 0; }
     html { scroll-behavior: smooth; }
     body { background: var(--paper); color: var(--ink); font-family: var(--sans); line-height: 1.6; }
-    .wrap { max-width: 1020px; margin: 0 auto; padding: 0 24px; }
+    .wrap { max-width: 1060px; margin: 0 auto; padding: 0 24px; }
+    a { color: inherit; }
 
-    header { position: sticky; top: 0; z-index: 10; background: rgba(247,242,234,.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--hair); }
+    header { position: sticky; top: 0; z-index: 10; background: rgba(247,242,234,.9); backdrop-filter: blur(8px); border-bottom: 1px solid var(--hair); }
     .nav { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; }
-    .brand { font-family: var(--serif); font-size: 20px; font-weight: 600; }
+    .brand { font-family: var(--serif); font-size: 20px; font-weight: 600; letter-spacing: .3px; }
     .brand em { font-style: normal; color: var(--accent-deep); }
-    .btn { display: inline-block; text-decoration: none; border-radius: 10px; padding: 11px 20px; font-weight: 600; font-size: 14.5px; }
+    .nav-links { display: flex; gap: 22px; align-items: center; font-size: 14px; }
+    .nav-links a { text-decoration: none; color: var(--ink-soft); }
+    .nav-links a:hover { color: var(--ink); }
+    .btn { display: inline-block; text-decoration: none; border-radius: 10px; padding: 11px 20px; font-weight: 600; font-size: 14.5px; transition: filter .15s; }
     .btn--gold { background: var(--accent); color: #fff; }
     .btn--gold:hover { filter: brightness(1.07); }
+    .btn--ghost { border: 1px solid var(--hair); color: var(--ink); }
     .btn--big { padding: 14px 28px; font-size: 16px; }
 
-    .hero { padding: 70px 0 26px; text-align: center; }
+    .hero { padding: 74px 0 26px; text-align: center; }
     .hero .eyebrow { letter-spacing: .22em; text-transform: uppercase; font-size: 12px; color: var(--accent-deep); font-weight: 600; }
-    .hero h1 { font-family: var(--serif); font-weight: 500; font-size: clamp(30px, 5vw, 50px); line-height: 1.14; margin: 18px auto 20px; max-width: 24ch; }
-    .hero p.lead { font-size: 17.5px; color: var(--ink-soft); max-width: 58ch; margin: 0 auto 28px; }
+    .hero h1 { font-family: var(--serif); font-weight: 500; font-size: clamp(32px, 5.2vw, 54px); line-height: 1.14; margin: 18px auto 20px; max-width: 24ch; }
+    .hero p.lead { font-size: 18px; color: var(--ink-soft); max-width: 58ch; margin: 0 auto 30px; }
+    .hero .ctas { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; }
+    .hero .note { font-size: 12.5px; color: var(--ink-soft); }
 
-    .demo { padding: 22px 0 8px; }
+    .demo { padding: 26px 0 10px; }
     .demo video { display: block; width: 100%; border-radius: 16px; border: 1px solid var(--hair); box-shadow: 0 30px 80px rgba(60,45,20,.18); }
     .demo .cap { text-align: center; font-size: 13px; color: var(--ink-soft); padding: 14px 0 0; }
 
-    section { padding: 62px 0; }
-    .sec-head { text-align: center; margin-bottom: 36px; }
+    section { padding: 68px 0; }
+    .sec-head { text-align: center; margin-bottom: 40px; }
     .sec-head .eyebrow { letter-spacing: .2em; text-transform: uppercase; font-size: 11.5px; color: var(--accent-deep); font-weight: 600; }
-    .sec-head h2 { font-family: var(--serif); font-weight: 500; font-size: clamp(25px, 3.4vw, 36px); margin-top: 10px; }
-    .sec-head p { color: var(--ink-soft); max-width: 60ch; margin: 12px auto 0; }
+    .sec-head h2 { font-family: var(--serif); font-weight: 500; font-size: clamp(26px, 3.6vw, 38px); margin-top: 10px; }
+    .sec-head p { color: var(--ink-soft); max-width: 62ch; margin: 12px auto 0; }
 
-    /* Le flux en 4 temps */
-    .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; counter-reset: f; }
-    .fstep { background: #fff; border: 1px solid var(--hair); border-radius: 16px; padding: 22px 18px; position: relative; }
-    .fstep::before { counter-increment: f; content: counter(f); display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 600; margin-bottom: 10px; }
-    .fstep b { display: block; font-size: 15px; margin-bottom: 5px; }
-    .fstep span { font-size: 13px; color: var(--ink-soft); }
+    /* Histoire */
+    .story { max-width: 700px; margin: 0 auto; background: #fff; border: 1px solid var(--hair); border-radius: 18px; padding: 40px 42px; }
+    .story p { font-family: var(--serif); font-size: 19px; line-height: 1.65; margin-bottom: 16px; }
+    .story p:last-of-type { margin-bottom: 0; }
+    .story .who { font-family: var(--sans); font-size: 12.5px; color: var(--ink-soft); margin-top: 20px; }
 
-    .docs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
-    .doc { background: #fff; border: 1px solid var(--hair); border-radius: 16px; padding: 24px 20px; }
-    .doc .ico { font-size: 26px; }
-    .doc h3 { font-family: var(--serif); font-weight: 550; font-size: 17.5px; margin: 10px 0 6px; }
-    .doc p { font-size: 13px; color: var(--ink-soft); }
+    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .card { background: #fff; border: 1px solid var(--hair); border-radius: 16px; padding: 26px 22px; }
+    .card .ico { font-size: 25px; }
+    .card h3 { font-family: var(--serif); font-weight: 550; font-size: 18.5px; margin: 12px 0 8px; }
+    .card p { font-size: 13.5px; color: var(--ink-soft); }
+    .card--new { border-color: var(--accent); position: relative; }
+    .card--new::before { content: "LE POINT DE DÉPART"; position: absolute; top: -9px; left: 18px; background: var(--accent); color: #fff; font-size: 9.5px; font-weight: 600; letter-spacing: .08em; padding: 2px 9px; border-radius: 20px; }
 
-    .cta-final { background: var(--ink); color: var(--paper); text-align: center; border-radius: 22px; padding: 52px 30px; }
-    .cta-final h2 { font-family: var(--serif); font-weight: 500; font-size: clamp(25px, 3.2vw, 34px); margin-bottom: 12px; }
-    .cta-final p { color: #cfc6b8; margin-bottom: 24px; }
-    footer { padding: 36px 0 46px; text-align: center; color: var(--ink-soft); font-size: 13px; }
+    .steps { counter-reset: s; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .step { background: #fff; border: 1px solid var(--hair); border-radius: 14px; padding: 18px 16px; }
+    .step::before { counter-increment: s; content: counter(s); display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 600; font-size: 13px; margin-bottom: 10px; }
+    .step b { display: block; font-size: 14.5px; margin-bottom: 4px; }
+    .step span { font-size: 12.5px; color: var(--ink-soft); }
+    .steps-note { text-align: center; color: var(--ink-soft); font-size: 13px; margin-top: 18px; }
 
-    @media (max-width: 860px) { .flow, .docs { grid-template-columns: 1fr 1fr; } }
-    @media (max-width: 540px) { .flow, .docs { grid-template-columns: 1fr; } section { padding: 46px 0; } }
+    /* Gains : temps + professionnalisme */
+    .gains { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; max-width: 860px; margin: 0 auto; }
+    .gain { background: #fff; border: 1px solid var(--hair); border-radius: 18px; padding: 30px 28px; }
+    .gain .big { font-family: var(--serif); font-size: 34px; color: var(--accent-deep); }
+    .gain h3 { font-family: var(--serif); font-weight: 550; font-size: 20px; margin: 6px 0 10px; }
+    .gain ul { list-style: none; padding: 0; display: grid; gap: 8px; font-size: 14px; color: var(--ink-soft); }
+    .gain ul li::before { content: "✓  "; color: var(--accent-deep); font-weight: 600; }
+
+    .feats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 34px; }
+    .feat { padding: 16px 0; border-top: 1px solid var(--hair); }
+    .feat b { display: block; font-size: 15px; margin-bottom: 4px; }
+    .feat span { font-size: 13.5px; color: var(--ink-soft); }
+
+    /* Ancrage + offre unique */
+    .anchor { max-width: 700px; margin: 0 auto 36px; display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--hair); border-radius: 16px; overflow: hidden; }
+    .anchor > div { padding: 24px 26px; }
+    .anchor .old { background: #fff; color: var(--ink-soft); }
+    .anchor .old b { color: var(--ink); }
+    .anchor .new { background: var(--ink); color: var(--paper); }
+    .anchor .new b { color: #fff; }
+    .anchor p { font-size: 13.5px; line-height: 1.55; }
+    .anchor .big { font-family: var(--serif); font-size: 25px; margin-bottom: 6px; display: block; }
+
+    .offer { max-width: 460px; margin: 0 auto; background: #fff; border: 2px solid var(--accent); border-radius: 20px; padding: 34px 32px; text-align: center; box-shadow: 0 24px 60px rgba(140,105,55,.16); }
+    .offer .tag { display: inline-block; background: var(--accent); color: #fff; border-radius: 20px; font-size: 11px; font-weight: 600; padding: 3px 14px; letter-spacing: .08em; }
+    .offer h3 { font-family: var(--serif); font-size: 22px; font-weight: 550; margin-top: 14px; }
+    .offer .amount { font-family: var(--serif); font-size: 48px; margin: 10px 0 2px; }
+    .offer .amount small { font-size: 15px; font-family: var(--sans); color: var(--ink-soft); }
+    .offer .was { color: var(--ink-soft); font-size: 14px; }
+    .offer .was s { color: #b4483c; }
+    .offer ul { list-style: none; padding: 0; margin: 20px 0 24px; font-size: 14px; color: var(--ink-soft); display: grid; gap: 8px; }
+    .offer ul li::before { content: "✓  "; color: var(--accent-deep); font-weight: 600; }
+    .offer .left { font-size: 12.5px; color: #b4483c; font-weight: 600; margin-top: 14px; }
+    .offer-note { text-align: center; font-size: 12.5px; color: var(--ink-soft); margin-top: 18px; }
+
+    .trust { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; max-width: 860px; margin: 0 auto; }
+    .trust > div { text-align: center; padding: 18px 12px; background: #fff; border: 1px solid var(--hair); border-radius: 14px; }
+    .trust b { display: block; font-size: 14px; margin: 6px 0 3px; }
+    .trust span { font-size: 12px; color: var(--ink-soft); }
+    .trust .ic { font-size: 20px; }
+
+    .faq { max-width: 720px; margin: 0 auto; }
+    .faq details { border-top: 1px solid var(--hair); padding: 4px 0; }
+    .faq summary { cursor: pointer; font-weight: 600; font-size: 15px; padding: 14px 0; list-style: none; display: flex; justify-content: space-between; }
+    .faq summary::after { content: "+"; color: var(--accent-deep); }
+    .faq details[open] summary::after { content: "–"; }
+    .faq p { font-size: 14px; color: var(--ink-soft); padding: 0 0 16px; }
+
+    .cta-final { background: var(--ink); color: var(--paper); text-align: center; border-radius: 22px; padding: 56px 30px; }
+    .cta-final h2 { font-family: var(--serif); font-weight: 500; font-size: clamp(26px, 3.4vw, 36px); margin-bottom: 12px; }
+    .cta-final p { color: #cfc6b8; margin-bottom: 26px; max-width: 54ch; margin-left: auto; margin-right: auto; }
+    footer { padding: 40px 0 50px; text-align: center; color: var(--ink-soft); font-size: 13px; }
+
+    @media (max-width: 900px) { .cards { grid-template-columns: 1fr 1fr; } .trust { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 860px) { .steps, .feats { grid-template-columns: 1fr 1fr; } .nav-links a:not(.btn) { display: none; } .anchor, .gains { grid-template-columns: 1fr; } }
+    @media (max-width: 560px) { .cards, .steps, .feats, .trust { grid-template-columns: 1fr; } section { padding: 52px 0; } .story { padding: 28px 24px; } }
   </style>
 </head>
 <body>
@@ -70,77 +134,291 @@
   <header>
     <div class="wrap nav">
       <div class="brand">Studio <em>Mandat</em></div>
-      <a class="btn btn--gold" href="../mandat/" target="_blank" rel="noopener">Ouvrir Studio Mandat</a>
+      <nav class="nav-links">
+        <a href="#histoire">L'histoire</a>
+        <a href="#package">Le package</a>
+        <a href="#gains">Ce que vous y gagnez</a>
+        <a href="#offre">L'offre</a>
+        <a class="btn btn--gold" href="../mandat/" target="_blank" rel="noopener">Essayer gratuitement</a>
+      </nav>
     </div>
   </header>
 
+  <!-- ÉMOTION D'ABORD, RÉSULTAT VENDU -->
   <div class="wrap">
     <div class="hero">
-      <div class="eyebrow">La suite du mandat — Century 21 Kadima</div>
+      <div class="eyebrow">Pour les agences qui veulent signer plus de mandats</div>
       <h1>De la visite d'estimation à la brochure, sans rien resaisir.</h1>
-      <p class="lead">Vous rentrez de visite : vous <strong>dictez</strong> la fiche prestation.
-        Elle se structure toute seule, s'exporte en Word — puis s'<strong>injecte dans la
-        brochure</strong> : quartier aux distances réelles, photos, annonce, page web du bien.</p>
-      <a class="btn btn--gold btn--big" href="../mandat/" target="_blank" rel="noopener">Ouvrir Studio Mandat</a>
+      <p class="lead">Vous rentrez de visite : vous <strong>dictez</strong> la fiche prestation. Elle se
+        structure toute seule, s'exporte en Word — puis s'<strong>injecte dans la brochure</strong> :
+        quartier aux distances réelles, photos légendées, annonce des portails, page web du bien.
+        Le dossier complet du mandat, en dix minutes.</p>
+      <div class="ctas">
+        <a class="btn btn--gold btn--big" href="../mandat/" target="_blank" rel="noopener">Essayer gratuitement</a>
+        <a class="btn btn--ghost btn--big" href="#demo">Voir la démo guidée (1 min 30)</a>
+      </div>
+      <div class="note">Sans installation · sans engagement · vos données restent sur votre poste</div>
     </div>
 
     <div class="demo" id="demo">
       <video controls preload="metadata" poster="assets/poster.jpg" src="assets/demo.mp4"></video>
-      <p class="cap">Le parcours complet en 1 min 17 : dictée de la fiche (données réelles), structuration,
-        export Word, injection, quartier réel, génération de la brochure et de l'annonce.</p>
+      <p class="cap">Démo guidée pas à pas, sur un bien réel : la flèche vous montre chaque clic —
+        dictée de la fiche, structuration, export Word, injection, quartier réel, brochure finale.</p>
     </div>
   </div>
 
+  <!-- LES HISTOIRES VENDENT MIEUX QUE LES FAITS -->
+  <section id="histoire">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">Une scène que vous connaissez</div>
+        <h2>Mardi, 18 h 40. Vous sortez de la visite d'estimation.</h2>
+      </div>
+      <div class="story">
+        <p>Dans la voiture, tout est encore frais : le plan de travail en marbre, la suite parentale,
+          la piscine au sel refaite en 2018. D'habitude, vous griffonnez trois mots — et le soir,
+          devant l'ordinateur, vous passez deux heures à tout reconstituer.</p>
+        <p>Ce soir, vous ouvrez Studio Mandat et vous <em>parlez</em> pendant quatre minutes.
+          La fiche prestation se structure toute seule. Vous l'exportez en Word pour le dossier,
+          puis un clic : elle s'injecte dans la brochure. Le quartier se remplit — l'école à 390 m,
+          le bus à 120 m — vous glissez les photos, l'IA rédige.</p>
+        <p>Le lendemain matin, vous posez sur la table du vendeur un livret doré à son nom,
+          l'annonce prête pour les portails, et la page web de son bien. Le mandat — exclusif —
+          est signé avant le café.</p>
+        <p class="who">Scène d'illustration. Mais vous savez qu'elle est vraie : on ne confie pas sa
+          maison à celui qui la présente comme les autres.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- LE PACKAGE : 4 DOCUMENTS -->
+  <section id="package" style="background: var(--paper-2);">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">Une visite, quatre documents</div>
+        <h2>Le package complet du mandat — sans resaisir une ligne</h2>
+        <p>Vous dictez une fois. Studio Mandat en tire tout le reste.</p>
+      </div>
+      <div class="cards">
+        <div class="card card--new">
+          <div class="ico">🎙️</div>
+          <h3>La fiche prestation</h3>
+          <p>Dictée à la voix en sortant du rendez-vous (ou collée, ou photographiée). Structurée par
+            l'IA, <strong>exportée en Word</strong> au format de l'agence, logo compris.</p>
+        </div>
+        <div class="card">
+          <div class="ico">📖</div>
+          <h3>La brochure qui signe</h3>
+          <p>Livret A4 éditorial : couverture au choix, galerie légendée, quartier aux distances
+            réelles, diagnostics, surfaces, prix. À imprimer ou envoyer.</p>
+        </div>
+        <div class="card">
+          <div class="ico">📰</div>
+          <h3>L'annonce des portails</h3>
+          <p>Le texte factuel et complet pour SeLoger, LeBonCoin ou la vitrine — copié en un clic,
+            cohérent avec la brochure.</p>
+        </div>
+        <div class="card">
+          <div class="ico">🌐</div>
+          <h3>La page web du bien</h3>
+          <p>Une page dédiée, autonome et élégante, à mettre en ligne sur le site de votre agence —
+            reliée à la brochure par un QR code.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LA LOGIQUE : LES ÉTAPES -->
   <section>
     <div class="wrap">
       <div class="sec-head">
-        <div class="eyebrow">Le parcours</div>
-        <h2>Quatre temps, un seul fil</h2>
+        <div class="eyebrow">La logique, maintenant</div>
+        <h2>Un fil guidé, du micro au livret</h2>
+        <p>La fiche d'abord, la brochure ensuite — chaque étape vous montre quoi faire,
+          et tout ce qui est optionnel peut se passer d'un clic.</p>
       </div>
-      <div class="flow">
-        <div class="fstep"><b>🎙️ Dictez la fiche</b><span>En rentrant de visite : prestations, matériaux,
-          travaux, taxes. L'IA structure fidèlement — rien n'est inventé.</span></div>
-        <div class="fstep"><b>📄 Exportez en Word</b><span>La fiche « Prestations et matériaux » au format
-          de l'agence, logo compris — imprimable en PDF avec numérotation.</span></div>
-        <div class="fstep"><b>📖 Injectez dans la brochure</b><span>Un clic : type, adresse et fiche
-          basculent dans le parcours brochure, pré-remplis.</span></div>
-        <div class="fstep"><b>✨ Générez le package</b><span>Quartier aux distances réelles, photos
-          légendées, brochure rédigée, annonce et page web du bien.</span></div>
+      <div class="steps">
+        <div class="step"><b>Dictez la fiche</b><span>En rentrant de visite : prestations, matériaux, travaux, taxes. L'IA structure fidèlement — rien n'est inventé.</span></div>
+        <div class="step"><b>Exportez en Word</b><span>La fiche « Prestations et matériaux » au format de l'agence — imprimable en PDF, numérotée, sans en-têtes parasites.</span></div>
+        <div class="step"><b>Injectez dans la brochure</b><span>Un clic : type, adresse et fiche basculent dans le parcours brochure, pré-remplis.</span></div>
+        <div class="step"><b>Le quartier se remplit seul</b><span>« École Jean de la Fontaine à 390 m » — distances calculées sur la vraie adresse, pas recopiées d'une annonce.</span></div>
+        <div class="step"><b>Ajoutez les photos</b><span>Les pièces sont reconnues et légendées ; les diagnostics et surfaces se lisent depuis vos PDF.</span></div>
+        <div class="step"><b>L'IA rédige</b><span>Le récit émotionnel pour la brochure, le factuel pour l'annonce. Relisez, ajustez, assumez.</span></div>
+        <div class="step"><b>Exportez le package</b><span>PDF, page web, e-mail — et la brochure rangée dans la bibliothèque OneDrive de l'agence.</span></div>
+        <div class="step"><b>Rééditez en 1 minute</b><span>Baisse de prix ? Rouvrez, changez, réimprimez — brochure, annonce et page web restent cohérentes.</span></div>
+      </div>
+      <p class="steps-note">L'aperçu se met à jour en direct — vous voyez la brochure se construire à chaque étape.</p>
+    </div>
+  </section>
+
+  <!-- CE QUE VOUS Y GAGNEZ -->
+  <section id="gains" style="background: var(--paper-2);">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">Le calcul est simple</div>
+        <h2>Deux gains, un outil</h2>
+      </div>
+      <div class="gains">
+        <div class="gain">
+          <div class="big">≈ 2 h 30 → 10 min</div>
+          <h3>Du temps, à chaque mandat</h3>
+          <ul>
+            <li>Plus de resaisie fiche → brochure → annonce</li>
+            <li>Le quartier se documente tout seul (noms + distances)</li>
+            <li>DPE et tableau de surfaces lus depuis vos PDF</li>
+            <li>La réédition (prix, photo) prend une minute</li>
+          </ul>
+        </div>
+        <div class="gain">
+          <div class="big">L'image d'un grand</div>
+          <h3>Du professionnalisme, visible</h3>
+          <ul>
+            <li>Un livret doré à votre marque, digne d'une conciergerie</li>
+            <li>Des documents cohérents : fiche, brochure, annonce, web</li>
+            <li>Une écriture qui ne « sent » pas l'IA</li>
+            <li>Le détail qui bluffe en rendez-vous : le QR code vers la page du bien</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- L'AVANTAGE CLIENT -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">L'argument qui signe</div>
+        <h2>« Et pour moi, qu'est-ce que ça change ? » — votre vendeur</h2>
+        <p>Ce que gagne un client qui confie son bien à une agence équipée de Studio Mandat :</p>
+      </div>
+      <div class="feats">
+        <div class="feat"><b>Son bien mis en valeur, vraiment</b><span>Un livret éditorial à son nom, pas une annonce photocopiée — la différence se voit dès le rendez-vous.</span></div>
+        <div class="feat"><b>Une diffusion cohérente partout</b><span>Brochure, portails, site de l'agence : le même récit, les mêmes chiffres, zéro contradiction.</span></div>
+        <div class="feat"><b>Des acquéreurs mieux préparés</b><span>Le livret répond aux questions avant la visite : surfaces, diagnostics, quartier chiffré. Moins de visites inutiles.</span></div>
+        <div class="feat"><b>Une mise en vente plus rapide</b><span>Le dossier complet est prêt le lendemain de l'estimation — pas dans dix jours.</span></div>
+        <div class="feat"><b>De la transparence</b><span>Distances réelles vérifiables (OpenStreetMap), diagnostics lus depuis les documents officiels.</span></div>
+        <div class="feat"><b>Un bien qui reste soigné</b><span>Baisse de prix, nouveau bandeau « Sous compromis » : les documents se rééditent proprement, sans bricolage.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ANCRAGE + RARETÉ + OFFRE UNIQUE -->
+  <section id="offre" style="background: var(--paper-2);">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">L'offre — une seule, simple</div>
+        <h2>Ce que coûte une seule plaquette chez un graphiste<br>paie ici tous vos mandats du mois</h2>
+      </div>
+
+      <div class="anchor">
+        <div class="old">
+          <span class="big"><b>150 à 300 € + 2 h 30</b></span>
+          <p><b>Le mandat « à l'ancienne »</b> : un graphiste par plaquette, des allers-retours,
+            huit jours de délai — et vos soirées à resaisir la fiche dans la brochure puis dans l'annonce.</p>
+        </div>
+        <div class="new">
+          <span class="big"><b>79 € / mois</b></span>
+          <p><b>Studio Mandat</b> : tous vos biens, fiche Word + brochure + annonce + page web,
+            dix minutes par mandat, réédition illimitée.</p>
+        </div>
+      </div>
+
+      <div class="offer">
+        <span class="tag">PROGRAMME FONDATEUR — 5 AGENCES</span>
+        <h3>Agence fondatrice</h3>
+        <div class="amount">79 €<small> /mois</small></div>
+        <div class="was">au lieu de <s>129 €</s> au tarif public — <strong>gelé à vie</strong> pour les fondatrices</div>
+        <ul>
+          <li>Jusqu'à 5 utilisateurs</li>
+          <li>Fiches, brochures, annonces &amp; pages web illimitées*</li>
+          <li>Marque blanche complète (votre logo partout)</li>
+          <li>Prise en main avec vous, sur vos vrais mandats</li>
+          <li>Vos demandes en tête de feuille de route</li>
+        </ul>
+        <a class="btn btn--gold btn--big" href="mailto:benoit.rempenault@century21.fr?subject=Studio%20Mandat%20—%20agence%20fondatrice">Réserver ma place</a>
+        <div class="left">5 places. Quand elles sont prises, le tarif fondateur disparaît définitivement.</div>
+      </div>
+      <p class="offer-note">Conseiller indépendant ? Écrivez-nous, une formule Solo existe. * Usage raisonnable de la
+        rédaction assistée — pendant la phase fondatrice, elle utilise votre clé Anthropic (guidée pas à pas) ; incluse ensuite.</p>
+    </div>
+  </section>
+
+  <!-- LA CONFIANCE VEND TOUT -->
+  <section style="padding-top: 56px; padding-bottom: 56px;">
+    <div class="wrap">
+      <div class="sec-head" style="margin-bottom: 28px;">
+        <div class="eyebrow">Zéro risque, zéro piège</div>
+        <h2>Essayez-le sur votre prochain mandat</h2>
+      </div>
+      <div class="trust">
+        <div><div class="ic">🗓</div><b>14 jours d'essai</b><span>Gratuit, sans carte bancaire</span></div>
+        <div><div class="ic">🔓</div><b>Sans engagement</b><span>Résiliable en un clic, vos fichiers restent à vous</span></div>
+        <div><div class="ic">💻</div><b>Données chez vous</b><span>Aucun serveur tiers, tout reste sur votre poste</span></div>
+        <div><div class="ic">🏠</div><b>Né dans une agence</b><span>Créé par un agent en activité, sur de vrais mandats</span></div>
       </div>
     </div>
   </section>
 
   <section style="background: var(--paper-2);">
-    <div class="wrap">
+    <div class="wrap faq">
       <div class="sec-head">
-        <div class="eyebrow">Une visite, quatre documents</div>
-        <h2>Tout le dossier du mandat</h2>
+        <div class="eyebrow">Questions fréquentes</div>
+        <h2>Tout ce qu'on nous demande</h2>
       </div>
-      <div class="docs">
-        <div class="doc"><div class="ico">📋</div><h3>La fiche prestation</h3><p>Structurée, au format Word de
-          l'agence — la mémoire fidèle de la visite.</p></div>
-        <div class="doc"><div class="ico">📖</div><h3>La brochure acquéreur</h3><p>Livret A4 éditorial :
-          couverture au choix, quartier véridique, surfaces, prix.</p></div>
-        <div class="doc"><div class="ico">📰</div><h3>L'annonce des portails</h3><p>Factuelle et complète,
-          copiée en un clic pour SeLoger ou LeBonCoin.</p></div>
-        <div class="doc"><div class="ico">🌐</div><h3>La page web du bien</h3><p>Autonome, à déposer sur le
-          site de l'agence — avec QR code sur la brochure.</p></div>
-      </div>
+      <details>
+        <summary>La dictée marche vraiment ? Et si je préfère écrire ?</summary>
+        <p>La dictée utilise la reconnaissance vocale de Chrome/Edge (français) : vous parlez naturellement,
+          le texte s'écrit, l'IA fait le tri des hésitations. Et vous pouvez tout aussi bien coller vos notes
+          ou photographier votre prise de notes manuscrite — elle sera transcrite fidèlement.</p>
+      </details>
+      <details>
+        <summary>L'export Word est-il au format de mon agence ?</summary>
+        <p>La fiche « Prestations et matériaux » s'exporte en .doc avec votre logo centré, vos sections, la
+          typographie et la couleur de titres que vous avez choisies. Elle s'ouvre et se modifie dans Word
+          comme n'importe quel document.</p>
+      </details>
+      <details>
+        <summary>Comment je mets la page du bien sur le site de mon agence ?</summary>
+        <p>« Exporter HTML » produit un fichier unique, autonome (photos incluses). Vous le déposez sur votre
+          site et le bien a sa page dédiée — le QR code de la brochure y emmène directement les acquéreurs.</p>
+      </details>
+      <details>
+        <summary>Où vont les données de mes clients ?</summary>
+        <p>Nulle part : l'outil fonctionne dans votre navigateur, sur votre poste. Les brochures sont des
+          fichiers enregistrés dans le dossier de votre choix (par exemple le OneDrive de l'agence). Seule la
+          rédaction assistée envoie le texte du bien à l'IA — et l'adresse exacte n'apparaît jamais dans les documents.</p>
+      </details>
+      <details>
+        <summary>Puis-je reprendre une brochure pour changer le prix ?</summary>
+        <p>Oui — c'est le rôle de la Bibliothèque : retrouvez la brochure par son nom, rouvrez-la, changez le
+          prix, réenregistrez. Brochure, annonce et page web restent cohérentes.</p>
+      </details>
+      <details>
+        <summary>D'où viennent les informations du quartier ?</summary>
+        <p>Des données cartographiques publiques (OpenStreetMap, Base Adresse Nationale) : distances calculées
+          depuis l'adresse réelle du bien, arrêts et lignes de bus nommés, écoles, commerces. Vous restez libre
+          de tout modifier.</p>
+      </details>
     </div>
   </section>
 
-  <section style="padding-top: 0;">
+  <!-- AVERSION À LA PERTE + CTA -->
+  <section style="padding-top: 0; padding-bottom: 68px; background: var(--paper-2);">
     <div class="wrap">
       <div class="cta-final">
-        <h2>La prochaine visite d'estimation mérite mieux qu'un carnet de notes.</h2>
-        <p>Dictez, structurez, injectez — le dossier complet du mandat en dix minutes.</p>
-        <a class="btn btn--gold btn--big" href="../mandat/" target="_blank" rel="noopener">Ouvrir Studio Mandat</a>
+        <h2>Ce soir, un confrère dictera sa fiche sur le trajet du retour.</h2>
+        <p>Demain matin, son vendeur feuillettera un livret doré pendant que le vôtre attendra
+          encore le compte rendu de visite. La semaine prochaine, l'un de vous deux aura l'exclusivité.</p>
+        <a class="btn btn--gold btn--big" href="../mandat/" target="_blank" rel="noopener">Faire mon premier mandat — gratuit</a>
       </div>
     </div>
   </section>
 
   <footer>
-    <div class="wrap">Studio Mandat — Century 21 Kadima · <a href="mailto:benoit.rempenault@century21.fr">benoit.rempenault@century21.fr</a></div>
+    <div class="wrap">
+      Studio Mandat — le dossier complet du mandat, de la visite à la brochure.<br>
+      Contact : <a href="mailto:benoit.rempenault@century21.fr">benoit.rempenault@century21.fr</a>
+    </div>
   </footer>
 
 </body>
