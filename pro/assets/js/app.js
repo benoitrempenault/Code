@@ -790,7 +790,7 @@
     // Vider aussi les champs hors-état : notes brutes (point 8) et sources du quartier.
     const notes = document.getElementById("aiNotes"); if (notes) notes.value = "";
     const src = document.getElementById("quartierSources"); if (src) src.innerHTML = "";
-    ["aiStatus", "quartierStatus", "captionStatus"].forEach(function (id) {
+    ["aiStatus", "quartierStatus", "captionStatus", "qrStatus", "notesStatus", "adStatus", "dpeStatus", "surfacesStatus"].forEach(function (id) {
       const el = document.getElementById(id); if (el) { el.textContent = ""; el.className = "ai-status"; }
     });
     toast("Nouvelle fiche.");
@@ -805,6 +805,7 @@
     s.quartier = []; s.diagnostics = { dpe: "", dpeValue: "", ges: "", gesValue: "", note: "Document non contractuel.", summary: [] };
     s.coverPhoto = null; s.gallery = []; s.plans = []; s.surfaces = []; s.surfacesTotal = "";
     s.adText = "";
+    s.property.banner = ""; s.property.webUrl = ""; s.property.webQr = null;
     return applyAgency(s);
   }
 
