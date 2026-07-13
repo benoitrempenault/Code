@@ -110,49 +110,90 @@
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
       btn.disabled = true;
-      status.textContent = "Dictée indisponible sur ce navigateur — utilisez Chrome ou Edge.";
+      status.textContent = "Dictée indisponible sur ce navigateur — utilisez Chrome, Edge ou Safari.";
       return;
     }
-    let rec = null, listening = false;
-    function stop() {
-      listening = false;
-      if (rec) { try { rec.stop(); } catch (e) { } rec = null; }
+    let rec = null, listening = false, started = false, base = "", hintTimer = null;
+
+    function setIdle() {
       btn.textContent = "🎙️ Dicter la fiche";
       btn.classList.remove("is-rec");
-      status.className = "ai-status"; status.textContent = "";
+    }
+    // Arrêt inconditionnel : on détache tout et on avorte, même si la
+    // reconnaissance est coincée (cas fréquent sur téléphone).
+    function stop(msg, isErr) {
+      listening = false; started = false;
+      clearTimeout(hintTimer);
+      if (rec) {
+        rec.onstart = rec.onresult = rec.onerror = rec.onend = null;
+        try { rec.abort(); } catch (e) { try { rec.stop(); } catch (e2) { } }
+        rec = null;
+      }
+      setIdle();
+      status.className = "ai-status" + (isErr ? " is-error" : "");
+      status.textContent = msg || "";
       scheduleRender();
     }
-    btn.addEventListener("click", function () {
-      if (listening) { stop(); return; }
-      rec = new SR();
-      rec.lang = "fr-FR"; rec.continuous = true; rec.interimResults = true;
-      let base = notes.value ? notes.value.replace(/\s+$/, "") + " " : "";
-      rec.onresult = function (ev) {
-        let finals = "", interim = "";
-        for (let i = 0; i < ev.results.length; i++) {
-          const r = ev.results[i];
-          if (r.isFinal) finals += r[0].transcript + " ";
-          else interim += r[0].transcript;
-        }
-        notes.value = base + finals + interim;
-        scheduleRender();
-      };
-      rec.onerror = function (ev) {
-        stop();
-        status.className = "ai-status is-error";
-        status.textContent = ev.error === "not-allowed"
-          ? "Micro refusé — autorisez le micro pour ce site (icône 🔒 dans la barre d'adresse)."
-          : "Dictée interrompue (" + ev.error + ").";
-      };
-      rec.onend = function () { if (listening) { try { rec.start(); } catch (e) { stop(); } } };
-      try {
-        rec.start();
-        listening = true;
+    function newRec() {
+      const r = new SR();
+      r.lang = "fr-FR";
+      r.continuous = true;      // instable sur Android : le redémarrage d'onend prend le relais
+      r.interimResults = true;
+      r.maxAlternatives = 1;
+      r.onstart = function () {
+        started = true;
+        clearTimeout(hintTimer);
         btn.textContent = "⏹ Arrêter la dictée";
         btn.classList.add("is-rec");
         status.className = "ai-status is-busy";
-        status.textContent = "J'écoute — parlez naturellement, cliquez pour arrêter.";
-      } catch (e) { stop(); }
+        status.textContent = "J'écoute — parlez naturellement, touchez le bouton pour arrêter.";
+      };
+      r.onresult = function (ev) {
+        let finals = "", interim = "";
+        for (let i = 0; i < ev.results.length; i++) {
+          const res = ev.results[i];
+          if (res.isFinal) finals += res[0].transcript + " ";
+          else interim += res[0].transcript;
+        }
+        r.__finals = finals;
+        notes.value = base + finals + interim;
+        scheduleRender();
+      };
+      r.onerror = function (ev) {
+        if (ev.error === "no-speech" || ev.error === "aborted") return; // silence : onend relancera
+        const msgs = {
+          "not-allowed": "Micro refusé — autorisez le micro pour ce site (icône 🔒 ou réglages du navigateur).",
+          "service-not-allowed": "La dictée est bloquée par ce navigateur — essayez Chrome.",
+          "audio-capture": "Aucun micro détecté sur cet appareil.",
+          "network": "La reconnaissance vocale n'a pas pu joindre le service — vérifiez la connexion."
+        };
+        stop(msgs[ev.error] || "Dictée interrompue (" + ev.error + ").", true);
+      };
+      // Les téléphones terminent la reconnaissance à chaque silence :
+      // on consolide le texte acquis puis on repart sans rien perdre.
+      r.onend = function () {
+        if (!listening) return;
+        if (r.__finals) base = base + r.__finals;
+        notes.value = base;
+        try { rec = newRec(); rec.start(); } catch (e) { stop(); }
+      };
+      return r;
+    }
+    btn.addEventListener("click", function () {
+      if (listening) { stop(); return; }
+      base = notes.value ? notes.value.replace(/\s+$/, "") + " " : "";
+      listening = true;
+      btn.textContent = "⏹ Arrêter la dictée"; // retour visuel immédiat au toucher
+      btn.classList.add("is-rec");
+      status.className = "ai-status is-busy";
+      status.textContent = "Initialisation du micro…";
+      hintTimer = setTimeout(function () {
+        if (listening && !started) {
+          status.textContent = "Si rien ne se passe : autorisez le micro pour ce site (icône 🔒 ou réglages du navigateur).";
+        }
+      }, 5000);
+      try { rec = newRec(); rec.start(); }
+      catch (e) { stop("Impossible de démarrer la dictée sur ce navigateur.", true); }
     });
   }
 
