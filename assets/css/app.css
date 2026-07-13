@@ -217,9 +217,15 @@ ul.sources em { color: var(--ui-muted); font-style: normal; }
   .editor { display: none; }
   .workspace.is-editor-open .editor { display: block; position: fixed; inset: 55px 0 0 0; z-index: 20; }
   .workspace.is-editor-open .preview { display: none; }
-  .topbar__toggle { display: block; }
-  .topbar__actions { display: none; }
-  .topbar__actions.is-open { display: flex; position: absolute; top: 55px; right: 0; flex-direction: column; align-items: stretch; background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 0 0 0 10px; padding: 10px; }
+  .topbar__toggle { display: block; flex: 0 0 auto; }
+  /* Barre compacte : logo seul + actions qui défilent horizontalement */
+  .topbar { gap: 10px; }
+  .topbar__brand { flex: 0 0 auto; }
+  .topbar__brand > div { display: none; }
+  .topbar__actions { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .topbar__actions::-webkit-scrollbar { display: none; }
+  .topbar__actions .btn { flex: 0 0 auto; padding: 6px 10px; font-size: 12.5px; }
+  .topbar__sep { display: none; }
 }
 
 /* -------------------------------- Toast --------------------------------- */

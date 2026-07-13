@@ -1185,6 +1185,8 @@
       else ws.classList.toggle("is-collapsed");
       applyZoom();
     });
+    // Sur téléphone : arriver sur la saisie (l'aperçu reste accessible via ⇆)
+    if (window.matchMedia("(max-width: 900px)").matches) $("#workspace").classList.add("is-editor-open");
 
     window.addEventListener("resize", function () { if (preview.mode === "fit") applyZoom(); });
   }

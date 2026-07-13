@@ -99,9 +99,23 @@
     doc.setAttribute("data-font", ($("#fFont") && $("#fFont").value) || "elegant");
     doc.style.setProperty("--fdoc-accent", ($("#fColor") && $("#fColor").value) || "#8a6a3c");
     doc.innerHTML = logo + docBody();
+    fitPreview();
   }
   let renderTimer;
   function scheduleRender() { clearTimeout(renderTimer); renderTimer = setTimeout(function () { render(); save(); }, 200); }
+
+  /* ---------------- Aperçu réduit pour tenir dans l'écran (téléphone) ---- */
+  function fitPreview() {
+    const doc = $("#fdoc");
+    if (!doc) return;
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      const wrap = doc.parentElement;
+      const k = Math.min(1, (wrap.clientWidth - 24) / 794); // 794 px ≈ 210 mm
+      doc.style.zoom = k < 1 ? String(k) : "";
+    } else {
+      doc.style.zoom = "";
+    }
+  }
 
   /* ------------------------------ Dictée -------------------------------- */
   function wireVoice() {
@@ -475,6 +489,7 @@
       else tl.parentNode.style.display = "none";
     }
     load();
+    window.addEventListener("resize", fitPreview);
     wireAddressAutocomplete();
     wireVoice();
     wireNotesPhoto();
