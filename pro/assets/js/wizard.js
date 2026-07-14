@@ -1,5 +1,5 @@
 /* =========================================================================
-   wizard.js — Parcours guidé de Studio Immo.
+   wizard.js — Parcours guidé de Studio Brochure.
    Navigation pas-à-pas, validation des étapes requises, paramétrage de
    l'agence (marque blanche), photo de notes transcrite par l'IA et
    génération du texte publicitaire. S'appuie sur window.StudioApp (app.js).

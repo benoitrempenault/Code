@@ -1,5 +1,5 @@
 /* =========================================================================
-   app.js — Studio Mandat (marque blanche) · moteur de la brochure
+   app.js — Studio Brochure (marque blanche) · moteur de la brochure
    Moteur : état, liaison formulaire ⇄ données, photos, rendu, export.
    L'interface pas-à-pas vit dans wizard.js ; l'identité de l'agence (logo,
    coordonnées) est configurée par l'utilisateur et mémorisée à part.

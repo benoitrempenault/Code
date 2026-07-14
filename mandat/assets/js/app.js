@@ -1,5 +1,5 @@
 /* =========================================================================
-   app.js — Studio Mandat (brochure)
+   app.js — Studio Brochure (brochure)
    État, liaison formulaire ⇄ données, photos, rendu, export, impression.
    ========================================================================= */
 (function () {

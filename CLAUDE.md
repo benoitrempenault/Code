@@ -22,7 +22,9 @@ all steps unlocked since the app predates the wizard) and `pro/assets/js/wizard.
 flavour: first-run agency setup with logo upload, steps unlock as you advance). Voice dictation
 was removed (fiches are written at a desk, not on the phone).
 
-**`pro/` — Studio Immo**, the white-label commercial variant, lives alongside without touching
+**`pro/` — the white-label brochure variant** (UI branded « Studio Brochure », formerly
+« Studio Immo » — all four apps now share the « Studio Brochure » brand; directory names and
+storage keys keep their historical names), lives alongside without touching
 the original app. Same engine (forked copies of `app.js`/`ai.js`/`geo.js`/`library.js` under
 `pro/assets/`), but **agency branding configured by the user** (logo/name/contacts in a settings
 overlay, persisted under `studio-pro-agency`, re-applied to every fiche; no Century 21 assets
@@ -31,7 +33,8 @@ anywhere in `pro/`), and separate storage keys (`studio-pro-v1`, `studio-pro-aik
 `/site/`. When changing the engine or wizard in one app, mirror the change in the other if it
 should ship there too.
 
-**`mandat/` — Studio Mandat**, a third variant (do not modify `/` or `pro/` when working on it):
+**`mandat/`** — a third variant (UI branded « Studio Brochure », formerly « Studio Mandat » ;
+do not modify `/` or `pro/` when working on it):
 a hub with a home page (`mandat/index.html`, two tiles) linking a **fiche prestation app**
 (`mandat/fiche.html` + `mandat/assets/js/fiche.js`: voice dictation via Web Speech, photo-of-notes
 transcription, AI structuring via `BrochureAI.structureFiche`, live A4 preview, **Word export**
@@ -42,7 +45,8 @@ step 2). Storage: `studio-mandat-v1` (brochure state) and `studio-mandat-fiche`;
 (`studio-brochure-aikey`) and the OneDrive library folder are deliberately shared with the
 original app. Deployed at `/mandat/`.
 
-**`mandat-pro/` — Studio Mandat white-label**, the commercial variant of `mandat/` (the one the
+**`mandat-pro/`** — the white-label commercial variant of `mandat/` (UI branded « Studio
+Brochure » ; the one the
 sales site `site-mandat/` links to). Same hub + fiche + brochure trio, but **the agency is
 configured once at the accueil** (`mandat-pro/index.html`): a first-run overlay (logo upload
 resized to PNG 640px, name required, conseiller/adresse/tél/e-mail, brochure palette, API key)

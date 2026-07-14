@@ -1,5 +1,5 @@
 /* =========================================================================
-   fiche.js — Studio Mandat (marque blanche) · Fiche prestation.
+   fiche.js — Studio Brochure (marque blanche) · Fiche prestation.
    Dictée vocale (Web Speech), transcription de photos de notes, structuration
    par l'IA en sections « Prestations et matériaux », aperçu A4 en direct,
    export Word (.doc), impression, et injection vers la brochure.

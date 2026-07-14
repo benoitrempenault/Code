@@ -1,5 +1,5 @@
 /* =========================================================================
-   app.js — Studio Immo (version marque blanche, parcours guidé)
+   app.js — Studio Brochure (version marque blanche, parcours guidé)
    Moteur : état, liaison formulaire ⇄ données, photos, rendu, export.
    L'interface pas-à-pas vit dans wizard.js ; l'identité de l'agence (logo,
    coordonnées) est configurée par l'utilisateur et mémorisée à part.

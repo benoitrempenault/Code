@@ -1,5 +1,5 @@
 /* =========================================================================
-   wizard.js — Parcours guidé de Studio Mandat (brochure).
+   wizard.js — Parcours guidé de Studio Brochure (brochure).
    Navigation pas-à-pas, validation des étapes requises, réglages (agence,
    ambiance, clé API), photo/capture de notes transcrite par l'IA et
    génération du texte publicitaire. S'appuie sur window.StudioApp (app.js).
