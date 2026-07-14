@@ -8,10 +8,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&family=Cormorant+Garamond:wght@400;500;600&family=Montserrat:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/app.css?v=7" />
+  <link rel="stylesheet" href="assets/css/app.css?v=8" />
   <style>
     /* Aperçu du document fiche prestation (page A4 claire) */
-    .fdoc-scroll { overflow-y: auto; background: #35353a; padding: 26px; display: flex; justify-content: center; }
+    .fdoc-scroll { overflow-y: auto; background: #35353a; padding: 26px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; }
+    .fdoc-switch { display: flex; gap: 5px; margin: 0 auto 16px; background: rgba(0,0,0,.28); border: 1px solid #46464c; padding: 4px; border-radius: 999px; flex: 0 0 auto; }
+    .fdoc-switch button { border: 0; background: transparent; color: #cfcabe; font: 600 12.5px "Inter", system-ui, sans-serif; padding: 7px 16px; border-radius: 999px; cursor: pointer; }
+    .fdoc-switch button.is-active { background: #c2a36b; color: #1a1714; }
     .fdoc {
       box-sizing: border-box;
       width: 210mm; min-height: 297mm; background: #fff; color: #1c1813;
@@ -30,6 +33,9 @@
     .fdoc li { margin-bottom: 1.2mm; }
     .fdoc .fdoc__empty { color: #9a968c; font-style: italic; }
     .fdoc .fdoc__legal { margin-top: 10mm; text-align: center; color: #9a968c; font-size: 8.5pt; letter-spacing: .08em; }
+    .fdoc__confbadge { text-align: center; color: #b3452e; border: 1.5px solid #b3452e; border-radius: 999px; padding: 1.2mm 6mm; width: fit-content; margin: 0 auto 5mm; font-size: 8.5pt; letter-spacing: .14em; font-weight: 600; }
+    .fdoc__conf { margin-top: 8mm; border: 1.5px solid #b3452e; border-radius: 2.5mm; padding: 4mm 6mm 5mm; break-inside: avoid; }
+    .fdoc__conf h2 { color: #b3452e; border-bottom-color: #e8c7bd; margin-top: 0; }
     #btnVoice.is-rec { border-color: #a33; color: #ff9c9c; animation: recpulse 1.2s ease-in-out infinite; }
     @keyframes recpulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,90,90,.35); } 50% { box-shadow: 0 0 0 6px rgba(255,90,90,0); } }
     .fdoc__pageno { display: none; }
@@ -38,6 +44,7 @@
       body > *:not(.workspace), .editor, .preview__zoombar { display: none !important; }
       .workspace { display: block !important; height: auto !important; }
       .fdoc-scroll { padding: 0; background: #fff; overflow: visible; display: block; }
+      .fdoc-switch { display: none !important; }
       .fdoc { box-shadow: none; width: 210mm; position: relative; }
       .fdoc h2 { break-after: avoid; }
       .fdoc ul { break-inside: avoid; }
@@ -84,7 +91,10 @@
           <h2 style="margin:6px 0 8px;font-size:19px;font-weight:600">La fiche prestation, à la voix</h2>
           <p class="hint"><strong>Dictez</strong> en rentrant de visite : construction, surfaces, pièce par pièce,
             équipements, extérieurs, travaux, taxes… Parlez naturellement, l'IA structurera. Vous pouvez aussi
-            coller vos notes ou photographier votre prise de notes.</p>
+            coller vos notes ou photographier votre prise de notes.
+            Dites <strong>« pour la fiche conseiller, ajoute… »</strong> puis marquez une pause :
+            l'info part dans les notes confidentielles de la fiche conseiller (marge de négociation,
+            contexte…) — jamais sur la fiche vendeur.</p>
         </header>
         <div class="panel__body">
           <label>Vendeur(s) <small class="hint">(ex. « Madame et Monsieur PETIT »)</small>
@@ -137,6 +147,9 @@
           <label>À savoir <small class="hint">(taxes, travaux, servitudes, délais…)</small>
             <textarea rows="4" id="fASavoir"></textarea>
           </label>
+          <label>Notes confidentielles <small class="hint">(fiche conseiller uniquement — jamais sur la fiche vendeur ni dans la brochure)</small>
+            <textarea rows="4" id="fConf" placeholder="Marge de négociation, contexte de la vente, consignes de visite…"></textarea>
+          </label>
           <div class="grid-2">
             <label>Typographie du document
               <select id="fFont">
@@ -161,14 +174,18 @@
 
     <!-- ======================= APERÇU DOCUMENT ======================= -->
     <section class="fdoc-scroll" aria-label="Aperçu de la fiche">
+      <div class="fdoc-switch" id="fdocSwitch" role="tablist" aria-label="Choix de la fiche affichée">
+        <button type="button" data-mode="vendeur" class="is-active">Fiche prestation</button>
+        <button type="button" data-mode="conseiller">Fiche conseiller 🔒</button>
+      </div>
       <article class="fdoc" id="fdoc"><!-- rendu par JS --></article>
     </section>
   </main>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="assets/js/logo.js?v=7"></script>
-  <script src="assets/js/ai.js?v=7"></script>
-  <script src="assets/js/fiche.js?v=7"></script>
+  <script src="assets/js/logo.js?v=8"></script>
+  <script src="assets/js/ai.js?v=8"></script>
+  <script src="assets/js/fiche.js?v=8"></script>
 </body>
 </html>

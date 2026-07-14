@@ -27,7 +27,7 @@
   }
 
   /* ------------------------------- État --------------------------------- */
-  const FIELDS = ["fVendeur", "fAdresse", "fType", "fNotes", "fCarac", "fInterieur", "fExterieur", "fASavoir", "fFont", "fColor"];
+  const FIELDS = ["fVendeur", "fAdresse", "fType", "fNotes", "fCarac", "fInterieur", "fExterieur", "fASavoir", "fConf", "fFont", "fColor"];
   function collect() {
     const o = {};
     FIELDS.forEach(function (id) { const el = $("#" + id); if (el) o[id] = el.value; });
@@ -58,16 +58,30 @@
   }
 
   /* --------------------------- Aperçu du document ------------------------ */
+  // Deux fiches : « vendeur » (fiche prestation classique) et « conseiller »
+  // (identique + notes confidentielles à la fin — usage interne uniquement).
+  let docMode = "vendeur";
+
   function sectionHtml(title, textareaId) {
     const items = lines($("#" + textareaId).value);
     if (!items.length) return "<h2>" + esc(title) + '</h2><p class="fdoc__empty">— à compléter —</p>';
     return "<h2>" + esc(title) + "</h2><ul>" + items.map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("") + "</ul>";
   }
+  function confSectionHtml() {
+    const items = lines($("#fConf").value);
+    return '<div class="fdoc__conf"><h2>Notes confidentielles — usage interne</h2>' +
+      (items.length
+        ? "<ul>" + items.map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("") + "</ul>"
+        : '<p class="fdoc__empty">— aucune note confidentielle —</p>') +
+      "</div>";
+  }
   function docBody() {
     const vendeur = $("#fVendeur").value.trim();
     const adresse = $("#fAdresse").value.trim();
     const type = $("#fType").value.trim();
+    const conseiller = docMode === "conseiller";
     return "<h1>PRESTATIONS ET MATÉRIAUX</h1>" +
+      (conseiller ? '<div class="fdoc__confbadge">FICHE CONSEILLER — CONFIDENTIEL</div>' : "") +
       '<div class="fdoc__who">' +
       (vendeur ? esc(vendeur) + "<br>" : "") +
       (adresse ? esc(adresse) + "<br>" : "") +
@@ -77,6 +91,7 @@
       sectionHtml("Intérieur", "fInterieur") +
       sectionHtml("Extérieur", "fExterieur") +
       sectionHtml("À savoir", "fASavoir") +
+      (conseiller ? confSectionHtml() : "") +
       '<p class="fdoc__legal">DOCUMENT NON CONTRACTUEL</p>';
   }
   function render() {
@@ -86,7 +101,54 @@
     doc.setAttribute("data-font", ($("#fFont") && $("#fFont").value) || "elegant");
     doc.style.setProperty("--fdoc-accent", ($("#fColor") && $("#fColor").value) || "#8a6a3c");
     doc.innerHTML = logo + docBody();
+    const sw = $("#fdocSwitch");
+    if (sw) {
+      Array.prototype.forEach.call(sw.querySelectorAll("button[data-mode]"), function (b) {
+        b.classList.toggle("is-active", b.getAttribute("data-mode") === docMode);
+      });
+    }
     fitPreview();
+  }
+  function wireSwitch() {
+    const sw = $("#fdocSwitch");
+    if (!sw) return;
+    sw.addEventListener("click", function (e) {
+      const b = e.target.closest && e.target.closest("button[data-mode]");
+      if (!b) return;
+      docMode = b.getAttribute("data-mode");
+      render();
+    });
+  }
+
+  /* --------- « Pour la fiche conseiller, ajoute… » (dictée) --------------- */
+  // Pendant la dictée, cette phrase envoie ce qui suit (jusqu'à une pause, ou
+  // jusqu'à « fin de note ») vers les notes confidentielles de la fiche
+  // conseiller, et le retire des notes du bien.
+  const CONF_TRIGGER = /(?:pour|sur|dans) la fiche conseill\w+\s*[,:]?\s*(?:ajoute[sz]?|ajouter|note[sz]?|noter|mets?|mettre)?\s*(?:que\s+)?[,:]?\s*/i;
+  const CONF_END = /\s*fin de (?:la )?(?:note|fiche(?: conseill\w+)?)\s*[.!,]?/i;
+  function sweepConfidential() {
+    const notes = $("#fNotes"), conf = $("#fConf");
+    if (!notes || !conf) return false;
+    let text = notes.value, moved = false, guard = 0, m;
+    while ((m = CONF_TRIGGER.exec(text)) && guard++ < 20) {
+      const after = text.slice(m.index + m[0].length);
+      const endM = CONF_END.exec(after);
+      const confPart = (endM ? after.slice(0, endM.index) : after).trim();
+      if (!confPart && !endM) break; // le contenu n'est pas encore dicté : on attend la suite
+      const rest = endM ? after.slice(endM.index + endM[0].length) : "";
+      text = (text.slice(0, m.index).replace(/\s+$/, "") + (rest.trim() ? " " + rest.replace(/^\s+/, "") : "")).replace(/^\s+/, "");
+      if (confPart) {
+        conf.value = (conf.value.trim() ? conf.value.replace(/\s+$/, "") + "\n" : "") + confPart;
+        moved = true;
+      }
+    }
+    if (text !== notes.value) {
+      notes.value = text;
+      if (moved) toast("Note ajoutée à la fiche conseiller ✓ (confidentielle)");
+      render(); save();
+      return true;
+    }
+    return false;
   }
   let renderTimer;
   function scheduleRender() { clearTimeout(renderTimer); renderTimer = setTimeout(function () { render(); save(); }, 200); }
@@ -132,6 +194,7 @@
       setIdle();
       status.className = "ai-status" + (isErr ? " is-error" : "");
       status.textContent = msg || "";
+      sweepConfidential(); // traite un éventuel « pour la fiche conseiller… » en fin de dictée
       scheduleRender();
     }
     function newRec() {
@@ -175,6 +238,8 @@
         if (!listening) return;
         if (r.__finals) base = base + r.__finals;
         notes.value = base;
+        sweepConfidential(); // « pour la fiche conseiller, ajoute… »
+        base = notes.value ? notes.value.replace(/\s+$/, "") + " " : "";
         try { rec = newRec(); rec.start(); } catch (e) { stop(); }
       };
       return r;
@@ -274,6 +339,7 @@
       const btn = $("#btnStructure"), status = $("#structStatus");
       const key = ($("#aiKey").value || "").trim();
       if (!key) { toast("Renseignez d'abord la clé API (en bas du panneau).", true); return; }
+      sweepConfidential();
       status.className = "ai-status is-busy"; status.textContent = "Structuration de la fiche…";
       btn.disabled = true;
       window.BrochureAI.structureFiche({ apiKey: key, notes: $("#fNotes").value })
@@ -314,7 +380,17 @@
     const vendeur = $("#fVendeur").value.trim();
     const adresse = $("#fAdresse").value.trim();
     const type = $("#fType").value.trim();
+    const conseiller = docMode === "conseiller";
+    let confBlock = "";
+    if (conseiller) {
+      const items = lines($("#fConf").value);
+      confBlock = '<h2 style="color:#b3452e;border-bottom:1pt solid #e0b7aa;">Notes confidentielles — usage interne</h2>' +
+        (items.length
+          ? "<ul>" + items.map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("") + "</ul>"
+          : '<p style="color:#9a968c;font-style:italic;">— aucune note confidentielle —</p>');
+    }
     return "<h1>PRESTATIONS ET MATÉRIAUX</h1>" +
+      (conseiller ? '<p class="confbadge">FICHE CONSEILLER — CONFIDENTIEL — USAGE INTERNE</p>' : "") +
       '<div class="who">' +
       (vendeur ? esc(vendeur) + "<br>" : "") +
       (adresse ? esc(adresse) + "<br>" : "") +
@@ -324,6 +400,7 @@
       wordSection("Intérieur", "fInterieur") +
       wordSection("Extérieur", "fExterieur") +
       wordSection("À savoir", "fASavoir") +
+      confBlock +
       '<p class="legal">DOCUMENT NON CONTRACTUEL</p>';
   }
   function exportWord() {
@@ -356,6 +433,7 @@
       "h2{font-family:" + titleFont + ";font-size:12.5pt;color:" + accent + ";border-bottom:1pt solid #c9b99a;padding-bottom:2pt;margin:14pt 0 6pt;}" +
       "ul{margin:0 0 6pt 18pt;padding:0;} li{margin-bottom:3pt;}" +
       ".legal{margin-top:24pt;text-align:center;color:#9a968c;font-size:8.5pt;letter-spacing:1px;}" +
+      ".confbadge{text-align:center;color:#b3452e;font-weight:bold;letter-spacing:2px;font-size:9pt;margin:0 0 10pt 0;}" +
       "</style></head><body>" +
       (hasLogo ? '<p align="center" style="text-align:center;margin:0 0 10pt 0"><img src="logo-kadima.png" width="' + logoW + '" height="' + logoH + '" alt=""></p>' : "") +
       wordBody() +
@@ -384,12 +462,15 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "FICHE PRESTATIONS - " + (safeName(adresse || vendeur) || "fiche") + ".doc";
+    a.download = (docMode === "conseiller" ? "FICHE CONSEILLER CONFIDENTIELLE - " : "FICHE PRESTATIONS - ") +
+      (safeName(adresse || vendeur) || "fiche") + ".doc";
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
-    toast("Fiche exportée en Word (.doc) — logo inclus.");
+    toast(docMode === "conseiller"
+      ? "Fiche conseiller exportée en Word (.doc) — document confidentiel."
+      : "Fiche prestation exportée en Word (.doc).");
   }
 
   /* --------------------- Numéros de page à l'impression ------------------ */
@@ -414,6 +495,7 @@
 
   /* -------------------------- Injection brochure ------------------------- */
   function inject() {
+    sweepConfidential(); // les notes confidentielles ne partent jamais dans la brochure
     const notesParts = [];
     const type = $("#fType").value.trim();
     ["fCarac", "fInterieur", "fExterieur", "fASavoir"].forEach(function (id, i) {
@@ -509,6 +591,7 @@
     load();
     window.addEventListener("resize", fitPreview);
     wireAddressAutocomplete();
+    wireSwitch();
     wireVoice();
     wireNotesPhoto();
     wireStructure();
