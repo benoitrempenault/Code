@@ -416,6 +416,7 @@
   /* -------------------------------- Démarrage --------------------------- */
   function init() {
     if (!window.StudioApp) return; // moteur non chargé
+    if (window.StudioLicense) { window.StudioLicense.enforce(); }
     wireNav();
     wireSetup();
     wireNotesPhoto();

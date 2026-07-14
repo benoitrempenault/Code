@@ -129,7 +129,13 @@
     <strong>2)</strong> « Injecter dans la brochure » → <strong>3)</strong> compléter photos et quartier →
     <strong>4)</strong> exporter le package. Vous pouvez revenir à cet accueil à tout moment (bouton ⌂).</p>
 
-  <button class="settings-link" id="btnSettings" type="button">⚙ Paramètres de l'agence</button>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+      <button class="settings-link" id="btnSettings" type="button">⚙ Paramètres de l'agence</button>
+      <button class="settings-link" id="btnLicense" type="button">🔑 Abonnement</button>
+    </div>
+    <p class="flow" id="licenseStatus" style="margin:0"></p>
+  </div>
 
   <!-- ============== PARAMÉTRAGE DE L'AGENCE (premier lancement) ============== -->
   <div class="setup-overlay" id="setupOverlay" hidden>
@@ -183,6 +189,7 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+  <script src="assets/js/license.js"></script>
   <script src="assets/js/home.js"></script>
 </body>
 </html>

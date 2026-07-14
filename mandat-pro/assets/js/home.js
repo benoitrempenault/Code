@@ -109,6 +109,29 @@
 
       $("#btnSettings").addEventListener("click", function () { openSetup(false); });
 
+      /* Abonnement : statut + activation */
+      function paintLicense() {
+        var el = $("#licenseStatus");
+        if (!el || !window.StudioLicense) return;
+        window.StudioLicense.status().then(function (st) {
+          if (st.state === "licensed") {
+            el.innerHTML = "Abonnement actif — valable jusqu'au <strong>" +
+              window.StudioLicense.fmtDate(st.exp) + "</strong>.";
+          } else if (st.state === "trial") {
+            el.innerHTML = "Essai gratuit : <strong>" + st.daysLeft + " jour" +
+              (st.daysLeft > 1 ? "s" : "") + "</strong> restant" + (st.daysLeft > 1 ? "s" : "") + ".";
+          } else {
+            el.innerHTML = (st.reason === "trial" ? "Essai gratuit terminé" : "Abonnement expiré") +
+              " — cliquez sur « 🔑 Abonnement » pour activer.";
+          }
+        });
+      }
+      var btnL = $("#btnLicense");
+      if (btnL && window.StudioLicense) {
+        btnL.addEventListener("click", function () { window.StudioLicense.open().then(paintLicense); });
+      }
+      paintLicense();
+
       paintBrand();
       var configured = !!(saved && saved.agency && (saved.agency.name || "").trim());
       var forced = /[?&]setup=1/.test(window.location.search);

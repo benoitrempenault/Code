@@ -519,6 +519,8 @@
   }
 
   function init() {
+    // Licence : bloque l'accès si l'essai/l'abonnement a expiré.
+    if (window.StudioLicense) { window.StudioLicense.enforce(); }
     // L'agence doit être paramétrée à l'accueil avant la première fiche.
     if (!(agency.name || "").trim() && !agency.logo) {
       window.location.replace("index.html?setup=1");
