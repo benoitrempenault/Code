@@ -106,6 +106,19 @@
     .offer ul li::before { content: "✓  "; color: var(--accent-deep); font-weight: 600; }
     .offer .left { font-size: 12.5px; color: #b4483c; font-weight: 600; margin-top: 14px; }
     .offer-note { text-align: center; font-size: 12.5px; color: var(--ink-soft); margin-top: 18px; }
+    /* Deux formules côte à côte (modèle mixte) */
+    .plans { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 760px; margin: 0 auto; align-items: stretch; }
+    .plans .offer { max-width: none; margin: 0; }
+    .plans .offer--soon { border-color: var(--hair); box-shadow: none; opacity: .96; }
+    .plans .offer--soon .tag { background: var(--ink); }
+    .plans .offer--soon .amount { color: var(--ink-soft); font-size: 30px; }
+    .trial-badge { display: inline-block; background: rgba(140,105,55,.12); color: var(--accent-deep); border-radius: 20px; font-size: 12px; font-weight: 600; padding: 5px 14px; margin-bottom: 8px; }
+    .onboard { counter-reset: o; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; max-width: 760px; margin: 30px auto 0; }
+    .onboard > div { counter-increment: o; background: #fff; border: 1px solid var(--hair); border-radius: 14px; padding: 18px 18px 16px; position: relative; }
+    .onboard > div::before { content: counter(o); font-family: var(--serif); font-size: 15px; color: #fff; background: var(--accent); width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; margin-bottom: 10px; }
+    .onboard h4 { font-size: 15px; margin: 0 0 4px; }
+    .onboard p { font-size: 13px; color: var(--ink-soft); line-height: 1.5; margin: 0; }
+    @media (max-width: 700px) { .plans, .onboard { grid-template-columns: 1fr; } }
 
     .trust { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; max-width: 860px; margin: 0 auto; }
     .trust > div { text-align: center; padding: 18px 12px; background: #fff; border: 1px solid var(--hair); border-radius: 14px; }
@@ -325,23 +338,61 @@
         </div>
       </div>
 
-      <div class="offer">
-        <span class="tag">PROGRAMME FONDATEUR — 5 AGENCES</span>
-        <h3>Agence fondatrice</h3>
-        <div class="amount">79 €<small> /mois</small></div>
-        <div class="was">au lieu de <s>129 €</s> au tarif public — <strong>gelé à vie</strong> pour les fondatrices</div>
-        <ul>
-          <li>Jusqu'à 5 utilisateurs</li>
-          <li>Fiches, brochures, annonces &amp; pages web illimitées*</li>
-          <li>Marque blanche complète (votre logo partout)</li>
-          <li>Prise en main avec vous, sur vos vrais mandats</li>
-          <li>Vos demandes en tête de feuille de route</li>
-        </ul>
-        <a class="btn btn--gold btn--big" href="mailto:benoit.rempenault@century21.fr?subject=Studio%20Mandat%20—%20agence%20fondatrice">Réserver ma place</a>
-        <div class="left">5 places. Quand elles sont prises, le tarif fondateur disparaît définitivement.</div>
+      <div class="plans">
+        <div class="offer">
+          <span class="tag">DISPONIBLE — PROGRAMME FONDATEUR</span>
+          <h3>Apportez votre clé</h3>
+          <span class="trial-badge">14 jours d'essai gratuit, sans carte</span>
+          <div class="amount">79 €<small> /mois</small></div>
+          <div class="was">au lieu de <s>129 €</s> au tarif public — <strong>gelé à vie</strong> pour les 5 fondatrices</div>
+          <ul>
+            <li>Jusqu'à 5 utilisateurs</li>
+            <li>Fiches, brochures, annonces &amp; pages web illimitées</li>
+            <li>Marque blanche complète (votre logo partout)</li>
+            <li>Prise en main avec vous, sur vos vrais mandats</li>
+            <li>Vos demandes en tête de feuille de route</li>
+          </ul>
+          <a class="btn btn--gold btn--big" href="../mandat-pro/" target="_blank" rel="noopener">Commencer l'essai gratuit</a>
+          <div class="left">5 places. Quand elles sont prises, le tarif fondateur disparaît définitivement.</div>
+        </div>
+        <div class="offer offer--soon">
+          <span class="tag">BIENTÔT</span>
+          <h3>Tout compris</h3>
+          <span class="trial-badge">IA incluse — aucune clé à gérer</span>
+          <div class="amount">Bientôt</div>
+          <div class="was">La rédaction assistée est comprise : rien à configurer, une seule facture.</div>
+          <ul>
+            <li>Tout ce qui est dans « Apportez votre clé »</li>
+            <li>Rédaction IA incluse (pas de clé Anthropic à créer)</li>
+            <li>Comptes et facturation centralisés</li>
+            <li>Support prioritaire</li>
+          </ul>
+          <a class="btn btn--ghost btn--big" href="mailto:benoit.rempenault@century21.fr?subject=Studio%20Brochure%20—%20liste%20d'attente%20Tout%20compris">Être prévenu au lancement</a>
+          <div class="left" style="color:var(--ink-soft)">En préparation — dites-nous que ça vous intéresse.</div>
+        </div>
       </div>
-      <p class="offer-note">Conseiller indépendant ? Écrivez-nous, une formule Solo existe. * Usage raisonnable de la
-        rédaction assistée — pendant la phase fondatrice, elle utilise votre clé Anthropic (guidée pas à pas) ; incluse ensuite.</p>
+
+      <div class="sec-head" style="margin: 46px auto 0;">
+        <div class="eyebrow">Comment démarrer</div>
+        <h2 style="font-size: 26px;">Vous êtes opérationnel en trois minutes</h2>
+      </div>
+      <div class="onboard">
+        <div>
+          <h4>1 · Ouvrez l'essai gratuit</h4>
+          <p>Cliquez sur « Commencer l'essai gratuit ». Aucune installation, aucune carte bancaire — 14 jours pour tout tester.</p>
+        </div>
+        <div>
+          <h4>2 · Paramétrez votre agence</h4>
+          <p>Logo, coordonnées, couleurs et clé Anthropic (guidée pas à pas) une seule fois. L'appli passe à vos couleurs.</p>
+        </div>
+        <div>
+          <h4>3 · Faites votre premier mandat</h4>
+          <p>Dictez la fiche, injectez-la dans la brochure, exportez. Convaincu ? Activez votre clé d'abonnement, c'est tout.</p>
+        </div>
+      </div>
+      <p class="offer-note">Conseiller indépendant ? Écrivez-nous, une formule Solo existe. « Apportez votre clé » : la rédaction
+        assistée utilise votre propre clé Anthropic (guidée à la configuration) ; sa consommation est facturée par Anthropic,
+        généralement quelques centimes par bien. La formule « Tout compris » l'inclura.</p>
     </div>
   </section>
 
