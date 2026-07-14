@@ -114,6 +114,7 @@
     if (!saved) return s;
     s.agency = Object.assign(clone(DEFAULT.agency), saved.agency || {});
     if (saved.palette) s.theme.palette = saved.palette;
+    sanitizeStateImages(s);
     return s;
   }
   function agencyConfigured() {
@@ -123,6 +124,11 @@
 
   // migration / valeurs par défaut sûres (ex. ancien champ `plan` unique -> `plans[]`)
   function normalizeState(s) {
+    if (!s || typeof s !== "object") s = {};
+    ["property", "theme", "agency", "features", "diagnostics"].forEach(function (k) {
+      if (!s[k] || typeof s[k] !== "object" || Array.isArray(s[k])) s[k] = clone(DEFAULT[k]);
+    });
+    if (!s.property.stats || typeof s.property.stats !== "object") s.property.stats = clone(DEFAULT.property.stats);
     if (s.plan && (!s.plans || !s.plans.length)) s.plans = [s.plan];
     if (!s.plans) s.plans = [];
     delete s.plan;
@@ -144,6 +150,39 @@
 
   /* ------------------------------ Utilitaires --------------------------- */
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  // Sécurité : n'accepte comme source d'image que data:image, http(s) ou blob.
+  // Bloque « javascript: », les ruptures d'attribut (guillemets/chevrons) et
+  // tout schéma exotique — un .json importé ne peut donc pas injecter de script.
+  function sanitizeImageUrl(u) {
+    if (typeof u !== "string") return null;
+    const v = u.trim();
+    if (/[<>"'`]/.test(v)) return null;                     // pas de rupture d'attribut HTML
+    if (/^data:image\/(?:png|jpe?g|webp|gif|avif|svg\+xml);/i.test(v)) {
+      if (/svg/i.test(v) && /script|onload|onerror|<\s*foreignobject/i.test(v)) return null; // SVG piégé
+      return v;
+    }
+    if (/^https?:\/\//i.test(v) || /^blob:/i.test(v)) return v;
+    return null;
+  }
+  function sanitizeStateImages(s) {
+    if (!s || typeof s !== "object") return s;
+    if ("coverPhoto" in s) s.coverPhoto = sanitizeImageUrl(s.coverPhoto);
+    if (Array.isArray(s.plans)) s.plans = s.plans.map(sanitizeImageUrl).filter(Boolean);
+    if (Array.isArray(s.gallery)) s.gallery = s.gallery.filter(function (p) { return p && typeof p === "object"; })
+      .map(function (p) { p.url = sanitizeImageUrl(p.url); return p; }).filter(function (p) { return p.url; });
+    if (s.property && "webQr" in s.property) s.property.webQr = sanitizeImageUrl(s.property.webQr);
+    if (s.agency && "logo" in s.agency) s.agency.logo = sanitizeImageUrl(s.agency.logo);
+    return s;
+  }
+  // Retire les clés dangereuses (pollution de prototype) d'un objet JSON importé.
+  function stripDangerousKeys(o) {
+    if (Array.isArray(o)) { o.forEach(stripDangerousKeys); return o; }
+    if (o && typeof o === "object") {
+      delete o.__proto__; delete o.constructor; delete o.prototype;
+      Object.keys(o).forEach(function (k) { stripDangerousKeys(o[k]); });
+    }
+    return o;
+  }
   function $(s, r) { return (r || document).querySelector(s); }
   function $all(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
   function esc(s) {
@@ -768,7 +807,8 @@
   }
   // Charge des données de projet dans l'état (import .json ou bibliothèque).
   function loadData(d) {
-    if (!d || !d.property) throw new Error("format");
+    if (!d || typeof d !== "object" || !d.property || typeof d.property !== "object") throw new Error("format");
+    stripDangerousKeys(d);
     state = normalizeState(Object.assign(clone(DEFAULT), d));
     applyAgency(state); // l'identité de l'agence configurée prime sur celle du fichier
     hydrateForm(); renderPhotoUI(); render(); save();

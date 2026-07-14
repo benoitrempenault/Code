@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob:; connect-src 'self' https://api.anthropic.com https://overpass-api.de https://api-adresse.data.gouv.fr https://api.qrserver.com https://fonts.googleapis.com https://fonts.gstatic.com" />
   <title>Studio Brochure — Fiche prestation &amp; Brochure</title>
   <meta name="description" content="La suite du mandat : dictez la fiche prestation, exportez-la en Word, puis injectez-la dans la brochure acquéreur." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -75,12 +76,6 @@
     <strong>4)</strong> exporter le package. Vous pouvez revenir à cet accueil à tout moment (bouton ⌂).</p>
 
   <script src="assets/js/logo.js"></script>
-  <script>
-    (function () {
-      var el = document.getElementById("logo");
-      if (window.KADIMA && window.KADIMA.full) el.src = window.KADIMA.full;
-      else el.style.display = "none";
-    })();
-  </script>
+  <script src="assets/js/home.js"></script>
 </body>
 </html>

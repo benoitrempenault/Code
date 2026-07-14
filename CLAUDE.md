@@ -113,6 +113,25 @@ is the `mandat/` fork (it has `structureFiche`). Deployed at `/mandat-pro/`.
 (requires Settings → Pages → Source = GitHub Actions). It deliberately excludes the client
 documents (`*.pdf`, `*.docx`) present in the repo root — **do not publish those**.
 
+## Security
+
+- **Untrusted input = imported `.json` / library brochures.** All text is rendered through
+  `esc()` / `nl2p()` (which escapes). The only non-text sink is **image `src`**: `normalizeState`
+  calls `sanitizeStateImages()`, which runs every image field (`coverPhoto`, `gallery[].url`,
+  `plans[]`, `property.webQr`, `agency.logo`) through `sanitizeImageUrl()` — accepts only
+  `data:image/*`, `http(s):` and `blob:`, rejects anything containing `<>"'\`` or a booby-trapped
+  SVG. This is the single choke point; do **not** interpolate a raw URL into `src` elsewhere.
+- `loadData()` runs `stripDangerousKeys()` (removes `__proto__`/`constructor`/`prototype`) before
+  merging, and rejects a payload without a `property` object.
+- `normalizeState()` backfills missing top-level objects from `DEFAULT` so a partial/old/corrupt
+  `localStorage` can't white-screen the app.
+- Every app + site page carries a **Content-Security-Policy** meta: `script-src 'self'` (no inline
+  JS — the two accueil pages load `assets/js/home.js`), `connect-src` limited to the Anthropic API
+  + OSM Overpass + BAN + qrserver + Google Fonts. When adding a new external call, widen the CSP in
+  **all** affected pages or it will be blocked. The exported `.html` deliberately has no CSP (must
+  open offline from `file://`).
+- The Anthropic API key lives only in `localStorage` and is never written to exported `.json`/`.html`.
+
 ## Note on repo contents
 
 The root also contains sample client documents (DESPREAUX/SEVERINI `.pdf`/`.docx`). They are
