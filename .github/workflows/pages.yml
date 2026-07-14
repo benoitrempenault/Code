@@ -50,6 +50,10 @@ jobs:
           mkdir -p _site/site/assets
           cp site/index.html _site/site/
           cp -r site/assets/* _site/site/assets/
+          # Pages légales (mentions, RGPD, CGU/CGV, cookies) sous /legal/
+          mkdir -p _site/legal/assets
+          cp legal/*.html _site/legal/
+          cp -r legal/assets/* _site/legal/assets/
           touch _site/.nojekyll
 
       - uses: actions/upload-pages-artifact@v3

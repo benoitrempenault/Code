@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:" />
+  <title>Confidentialité (RGPD) — Studio Brochure</title>
+  <meta name="robots" content="noindex" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/legal.css" />
+</head>
+<body>
+  <header class="lg-top">
+    <div class="wrap">
+      <a class="lg-brand" href="../site-mandat/">Studio <em>Brochure</em></a>
+      <nav class="lg-nav">
+        <a href="mentions-legales.html">Mentions légales</a>
+        <a href="confidentialite.html" aria-current="page">Confidentialité (RGPD)</a>
+        <a href="cgu-cgv.html">CGU / CGV</a>
+        <a href="cookies.html">Cookies</a>
+      </nav>
+    </div>
+  </header>
+  <main class="wrap">
+
+    <h1>Politique de confidentialité</h1>
+    <p class="updated">Dernière mise à jour : 14 juillet 2026.</p>
+    <p>Studio Brochure est conçu pour <strong>traiter le minimum de données</strong> et les garder, autant que
+      possible, sur votre appareil. Cette page explique quelles données sont traitées, par qui, et vos droits.</p>
+
+    <h2>1. Responsable de traitement</h2>
+    <p>Pour les données que vous saisissez dans l'outil (biens, photos, notes), <strong>c'est vous — l'agence
+      utilisatrice — qui êtes responsable de traitement</strong> vis-à-vis de vos clients vendeurs. L'éditeur du
+      logiciel (<span class="todo">[RAISON SOCIALE]</span>) fournit l'outil et n'accède pas à ces données.</p>
+
+    <h2>2. Où sont stockées vos données</h2>
+    <p>Studio Brochure est une application <strong>statique, sans serveur applicatif</strong>. Les fiches, brochures,
+      photos et notes que vous créez sont enregistrées <strong>localement dans votre navigateur</strong>
+      (<em>localStorage</em>, <em>sessionStorage</em>) et, si vous l'activez, dans le <strong>dossier de votre
+      choix</strong> (OneDrive via l'API d'accès aux fichiers). L'éditeur ne dispose d'aucune copie sur ses serveurs.</p>
+
+    <h2>3. Destinataires tiers (sous-traitants)</h2>
+    <p>Certaines fonctions envoient des données à des services tiers, uniquement le temps du traitement&nbsp;:</p>
+    <table>
+      <tr><th>Service</th><th>Données transmises</th><th>Finalité</th><th>Localisation</th></tr>
+      <tr><td>Anthropic (API Claude)</td><td>Descriptifs, notes, photos du bien que vous soumettez à l'IA</td><td>Rédaction / structuration des textes</td><td>États-Unis</td></tr>
+      <tr><td>Base Adresse Nationale (BAN, data.gouv.fr)</td><td>Adresse saisie</td><td>Saisie assistée / géolocalisation</td><td>France</td></tr>
+      <tr><td>OpenStreetMap (Overpass)</td><td>Coordonnées du bien</td><td>Distances réelles du quartier</td><td>Union européenne</td></tr>
+      <tr><td>QR Server</td><td>Lien web du bien</td><td>Génération du QR code</td><td>Union européenne</td></tr>
+      <tr><td>Google Fonts</td><td>Adresse IP (chargement des polices)</td><td>Affichage</td><td>États-Unis</td></tr>
+    </table>
+    <p>Les appels à l'IA sont effectués <strong>directement depuis votre navigateur</strong> avec <strong>votre
+      propre clé API</strong> : ils sont soumis aux conditions et à la politique de confidentialité d'Anthropic.
+      Les transferts hors UE (Anthropic, Google) reposent sur les clauses contractuelles types de la Commission
+      européenne. <strong>Ne soumettez pas à l'IA de données personnelles sensibles</strong> ni d'informations
+      confidentielles inutiles à la rédaction.</p>
+
+    <h2>4. Durée de conservation</h2>
+    <p>Vos projets restent stockés tant que vous ne les supprimez pas (bouton « Nouveau », effacement des données
+      du navigateur, ou suppression des fichiers <em>.json</em> du dossier). Vous en gardez la maîtrise complète.</p>
+
+    <h2>5. Base légale</h2>
+    <p>Le traitement des données des vendeurs repose sur l'exécution du mandat / la relation contractuelle et
+      l'intérêt légitime de l'agence à présenter le bien. Informez vos clients vendeurs de l'usage de leurs
+      données et de leurs droits.</p>
+
+    <h2>6. Vos droits</h2>
+    <p>Conformément au RGPD, les personnes concernées disposent d'un droit d'accès, de rectification, d'effacement,
+      de limitation et d'opposition. Ces demandes s'exercent auprès de l'agence responsable de traitement. Pour
+      toute question sur le logiciel lui-même : benoit.rempenault@century21.fr. Réclamation possible auprès de la
+      <a href="https://www.cnil.fr">CNIL</a>.</p>
+
+    <h2>7. Sécurité</h2>
+    <p>Les données importées sont contrôlées (assainissement des images, rejet des contenus dangereux) et une
+      politique de sécurité de contenu (CSP) limite les connexions sortantes. La clé API reste dans votre
+      navigateur et n'est jamais incluse dans les fichiers exportés.</p>
+  </main>
+  <footer class="lg-foot">
+    <div class="wrap">
+      <span>© Studio Brochure — <span class="todo">[RAISON SOCIALE]</span></span>
+      <span><a href="../site-mandat/">Retour au site</a> · <a href="mentions-legales.html">Mentions légales</a> · <a href="confidentialite.html">Confidentialité</a></span>
+    </div>
+  </footer>
+</body>
+</html>
