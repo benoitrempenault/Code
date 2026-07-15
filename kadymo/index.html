@@ -1,0 +1,1398 @@
+<title>Kadymo — Formation & Documents</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --accent:#3D5A80;
+  --on-accent:#FFFFFF;
+  --bg:color-mix(in oklab, var(--accent) 4%, #FAF9F6);
+  --surface:color-mix(in oklab, var(--accent) 1.5%, #FFFFFF);
+  --surface-2:color-mix(in oklab, var(--accent) 6%, #F4F2EE);
+  --ink:#212936;
+  --muted:#5C6675;
+  --line:color-mix(in oklab, var(--accent) 10%, #E4E1DB);
+  --ok:#2E7D4F;
+  --ok-bg:color-mix(in oklab, #2E7D4F 12%, var(--surface));
+  --warn:#A66A14;
+  --warn-bg:color-mix(in oklab, #A66A14 12%, var(--surface));
+  --bad:#B3403A;
+  --bad-bg:color-mix(in oklab, #B3403A 10%, var(--surface));
+  --shadow:0 1px 2px rgba(20,25,35,.06),0 8px 24px -12px rgba(20,25,35,.12);
+  --font-display:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --font-body:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:color-mix(in oklab, var(--accent) 7%, #121519);
+    --surface:color-mix(in oklab, var(--accent) 4%, #1A1F26);
+    --surface-2:color-mix(in oklab, var(--accent) 9%, #21262E);
+    --ink:#E9E7E2;
+    --muted:#9AA3AE;
+    --line:color-mix(in oklab, var(--accent) 14%, #2B323C);
+    --ok:#5CB884; --ok-bg:color-mix(in oklab, #5CB884 16%, var(--surface));
+    --warn:#D9A24C; --warn-bg:color-mix(in oklab, #D9A24C 16%, var(--surface));
+    --bad:#E07B72; --bad-bg:color-mix(in oklab, #E07B72 14%, var(--surface));
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="light"]{
+  --bg:color-mix(in oklab, var(--accent) 4%, #FAF9F6);
+  --surface:color-mix(in oklab, var(--accent) 1.5%, #FFFFFF);
+  --surface-2:color-mix(in oklab, var(--accent) 6%, #F4F2EE);
+  --ink:#212936;
+  --muted:#5C6675;
+  --line:color-mix(in oklab, var(--accent) 10%, #E4E1DB);
+  --ok:#2E7D4F; --ok-bg:color-mix(in oklab, #2E7D4F 12%, var(--surface));
+  --warn:#A66A14; --warn-bg:color-mix(in oklab, #A66A14 12%, var(--surface));
+  --bad:#B3403A; --bad-bg:color-mix(in oklab, #B3403A 10%, var(--surface));
+  --shadow:0 1px 2px rgba(20,25,35,.06),0 8px 24px -12px rgba(20,25,35,.12);
+}
+:root[data-theme="dark"]{
+  --bg:color-mix(in oklab, var(--accent) 7%, #121519);
+  --surface:color-mix(in oklab, var(--accent) 4%, #1A1F26);
+  --surface-2:color-mix(in oklab, var(--accent) 9%, #21262E);
+  --ink:#E9E7E2;
+  --muted:#9AA3AE;
+  --line:color-mix(in oklab, var(--accent) 14%, #2B323C);
+  --ok:#5CB884; --ok-bg:color-mix(in oklab, #5CB884 16%, var(--surface));
+  --warn:#D9A24C; --warn-bg:color-mix(in oklab, #D9A24C 16%, var(--surface));
+  --bad:#E07B72; --bad-bg:color-mix(in oklab, #E07B72 14%, var(--surface));
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.5);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:var(--font-display);font-weight:600;line-height:1.2;text-wrap:balance;margin:0 0 .5em}
+h1{font-size:1.9rem}h2{font-size:1.4rem}h3{font-size:1.12rem}
+p{margin:.4em 0 .9em}
+a{color:var(--accent)}
+button{font:inherit;cursor:pointer}
+.eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);font-weight:600}
+.muted{color:var(--muted)}
+.small{font-size:.85rem}
+
+/* ---- shell ---- */
+.topbar{display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--surface);position:sticky;top:0;z-index:20}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.brand-logo{width:40px;height:40px;border-radius:8px;background:var(--accent);color:var(--on-accent);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:1.15rem;font-weight:700;overflow:hidden;flex-shrink:0}
+.brand-logo img{width:100%;height:100%;object-fit:contain;background:#fff}
+.brand-name{font-family:var(--font-display);font-size:1.2rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand-tag{font-size:.75rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar-spacer{flex:1}
+.iconbtn{background:none;border:1px solid var(--line);border-radius:8px;color:var(--muted);padding:7px 10px;font-size:.9rem}
+.iconbtn:hover{color:var(--ink);border-color:var(--muted)}
+nav.tabs{display:flex;gap:6px;padding:10px 20px;flex-wrap:wrap;background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:69px;z-index:19}
+nav.tabs button{border:1px solid transparent;background:none;color:var(--muted);padding:8px 14px;border-radius:999px;font-weight:600;font-size:.92rem}
+nav.tabs button:hover{color:var(--ink);background:var(--surface-2)}
+nav.tabs button.active{background:var(--accent);color:var(--on-accent)}
+main{max-width:1020px;margin:0 auto;padding:28px 20px 80px}
+footer.app-footer{text-align:center;padding:18px;color:var(--muted);font-size:.8rem;border-top:1px solid var(--line)}
+
+/* ---- components ---- */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:20px;box-shadow:var(--shadow)}
+.grid{display:grid;gap:14px}
+.grid.cols-2{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.grid.cols-3{grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.btn{display:inline-flex;align-items:center;gap:8px;border:none;border-radius:8px;padding:10px 18px;font-weight:600;font-size:.95rem;background:var(--accent);color:var(--on-accent)}
+.btn:hover{filter:brightness(1.08)}
+.btn.secondary{background:var(--surface-2);color:var(--ink);border:1px solid var(--line)}
+.btn.ghost{background:none;color:var(--accent);border:1px solid var(--line)}
+.btn.sm{padding:6px 12px;font-size:.85rem}
+.badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:.72rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase}
+.badge.oblig{background:var(--bad-bg);color:var(--bad)}
+.badge.reco{background:var(--ok-bg);color:var(--ok)}
+.badge.zone{background:var(--warn-bg);color:var(--warn)}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:2px 10px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);font-size:.78rem;color:var(--muted)}
+.pill-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+/* ---- wizard ---- */
+.wizard-progress{height:6px;border-radius:3px;background:var(--surface-2);margin:14px 0 26px;overflow:hidden}
+.wizard-progress i{display:block;height:100%;background:var(--accent);border-radius:3px;transition:width .3s ease}
+.opt-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));margin-top:18px}
+.opt{background:var(--surface);border:1.5px solid var(--line);border-radius:var(--r);padding:16px;text-align:left;transition:border-color .15s, transform .1s}
+.opt:hover{border-color:var(--accent);transform:translateY(-1px)}
+.opt.selected{border-color:var(--accent);background:color-mix(in oklab, var(--accent) 7%, var(--surface));}
+.opt .opt-ico{font-size:1.6rem;display:block;margin-bottom:8px}
+.opt .opt-t{font-weight:700;display:block;margin-bottom:3px}
+.opt .opt-d{font-size:.83rem;color:var(--muted);display:block}
+.wizard-nav{display:flex;justify-content:space-between;margin-top:26px;gap:10px}
+
+/* ---- results / checklist ---- */
+.gauge-wrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.gauge{width:92px;height:92px;flex-shrink:0}
+.gauge text{font:700 1.05rem var(--font-body);fill:var(--ink)}
+.src-group{margin-top:22px}
+.src-head{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.src-ico{width:38px;height:38px;border-radius:9px;background:var(--surface-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:1.15rem;flex-shrink:0}
+.src-conseil{font-size:.84rem;color:var(--muted);margin:2px 0 10px;padding-left:48px}
+.doc{display:flex;gap:12px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:13px 15px;margin-bottom:8px}
+.doc.done{opacity:.62}
+.doc.done .doc-t{text-decoration:line-through}
+.doc input[type=checkbox]{width:19px;height:19px;margin-top:2px;accent-color:var(--accent);flex-shrink:0}
+.doc-t{font-weight:600}
+.doc-d{font-size:.85rem;color:var(--muted);margin-top:1px}
+.doc-meta{display:flex;gap:7px;flex-wrap:wrap;margin-top:7px}
+.doc-astuce{font-size:.83rem;background:var(--surface-2);border-left:3px solid var(--accent);padding:7px 11px;border-radius:0 7px 7px 0;margin-top:8px}
+.doc-astuce b{color:var(--accent)}
+
+/* ---- formation ---- */
+.lesson-card{display:flex;flex-direction:column;gap:8px;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--shadow);transition:transform .12s,border-color .12s}
+.lesson-card:hover{transform:translateY(-2px);border-color:var(--accent)}
+.lesson-card .lc-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.lesson-body h3{margin-top:1.6em}
+.lesson-body ul{padding-left:1.2em}
+.lesson-body li{margin:.35em 0}
+.script{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin:12px 0;font-size:.93rem}
+.script .who{font-weight:700;color:var(--accent)}
+.keypoint{border-left:3px solid var(--accent);background:color-mix(in oklab, var(--accent) 6%, var(--surface));padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:.93rem}
+table.cmp{width:100%;border-collapse:collapse;font-size:.9rem;margin:12px 0}
+table.cmp th,table.cmp td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+table.cmp th{background:var(--surface-2)}
+.table-scroll{overflow-x:auto}
+
+/* ---- entraînement ---- */
+.chat{display:flex;flex-direction:column;gap:10px;margin:16px 0}
+.bubble{max-width:85%;padding:11px 15px;border-radius:14px;font-size:.94rem}
+.bubble.npc{background:var(--surface-2);border:1px solid var(--line);align-self:flex-start;border-bottom-left-radius:4px}
+.bubble.me{background:var(--accent);color:var(--on-accent);align-self:flex-end;border-bottom-right-radius:4px}
+.bubble .who{display:block;font-size:.7rem;text-transform:uppercase;letter-spacing:.07em;opacity:.7;margin-bottom:3px;font-weight:700}
+.choice-list{display:flex;flex-direction:column;gap:9px;margin-top:14px}
+.choice{text-align:left;background:var(--surface);border:1.5px solid var(--line);border-radius:10px;padding:12px 15px;font-size:.93rem}
+.choice:hover{border-color:var(--accent)}
+.fb{border-radius:10px;padding:11px 14px;font-size:.9rem;margin-top:12px}
+.fb.good{background:var(--ok-bg);color:var(--ok)}
+.fb.mid{background:var(--warn-bg);color:var(--warn)}
+.fb.bad{background:var(--bad-bg);color:var(--bad)}
+.score-bar{display:flex;align-items:center;gap:10px;font-size:.85rem;color:var(--muted)}
+.score-bar .track{flex:1;height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden}
+.score-bar .track i{display:block;height:100%;background:var(--accent);transition:width .3s}
+
+/* flashcards */
+.fcard{perspective:1000px;min-height:210px;cursor:pointer}
+.fcard-inner{position:relative;width:100%;min-height:210px;transition:transform .5s;transform-style:preserve-3d}
+.fcard.flipped .fcard-inner{transform:rotateY(180deg)}
+.fface{position:absolute;inset:0;backface-visibility:hidden;border-radius:var(--r);border:1px solid var(--line);padding:20px;display:flex;flex-direction:column;justify-content:center;gap:8px}
+.fface.front{background:var(--surface)}
+.fface.back{background:color-mix(in oklab, var(--accent) 7%, var(--surface));transform:rotateY(180deg)}
+
+/* quiz */
+.qopt{display:block;width:100%;text-align:left;background:var(--surface);border:1.5px solid var(--line);border-radius:10px;padding:11px 15px;margin-bottom:9px;font-size:.94rem}
+.qopt:hover{border-color:var(--accent)}
+.qopt.correct{border-color:var(--ok);background:var(--ok-bg)}
+.qopt.wrong{border-color:var(--bad);background:var(--bad-bg)}
+
+/* settings */
+.field{margin-bottom:16px}
+.field label{display:block;font-weight:600;font-size:.88rem;margin-bottom:5px}
+.field input[type=text],.field select{width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit}
+.field input[type=color]{width:52px;height:36px;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:2px}
+.swatches{display:flex;gap:8px;flex-wrap:wrap}
+.swatch{width:34px;height:34px;border-radius:50%;border:2px solid var(--line);cursor:pointer}
+.swatch.on{border-color:var(--ink);box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--accent)}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line)}
+.toggle-row:last-child{border-bottom:none}
+
+/* home */
+.hero{background:linear-gradient(135deg, color-mix(in oklab, var(--accent) 14%, var(--surface)), var(--surface));border:1px solid var(--line);border-radius:14px;padding:30px 28px;margin-bottom:22px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
+.stat .v{font-size:1.7rem;font-weight:700;font-family:var(--font-display);font-variant-numeric:tabular-nums}
+.stat .l{font-size:.8rem;color:var(--muted)}
+
+@media (max-width:640px){
+  .topbar{padding:10px 14px}
+  nav.tabs{top:61px;padding:8px 12px}
+  main{padding:20px 14px 60px}
+  .brand-tag{display:none}
+}
+@media print{
+  .topbar,nav.tabs,.no-print,footer.app-footer{display:none !important}
+  body{background:#fff;color:#000}
+  .card,.doc{box-shadow:none;border-color:#ccc}
+  main{max-width:none;padding:0}
+}
+@media (prefers-reduced-motion: reduce){
+  *{transition:none !important;animation:none !important}
+}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-logo" id="brandLogo">K</div>
+    <div>
+      <div class="brand-name" id="brandName">Kadymo</div>
+      <div class="brand-tag" id="brandTag">L'école de vos réussites immobilières</div>
+    </div>
+  </div>
+  <div class="topbar-spacer"></div>
+  <button class="iconbtn" id="themeBtn" title="Basculer clair / sombre" aria-label="Basculer le thème">◐</button>
+</header>
+<nav class="tabs" id="tabs" aria-label="Navigation principale"></nav>
+<main id="app"></main>
+<footer class="app-footer" id="appFooter"></footer>
+
+<script>
+"use strict";
+/* ================= Kadymo — plateforme marque blanche =================
+   Un seul fichier, aucune dépendance. Données et rendu en JS pur.       */
+
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem("kadymo:"+k); return v===null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem("kadymo:"+k, JSON.stringify(v)); }catch(e){} }
+};
+
+const DEFAULT_CONFIG = {
+  nom: "Kadymo",
+  baseline: "L'école de vos réussites immobilières",
+  logo: "",            // dataURL éventuel
+  accent: "#3D5A80",
+  vocab: "conseiller", // conseiller | négociateur | agent
+  modules: { documents:true, formation:true, entrainement:true },
+  mandatSimple: true   // un réseau 100% exclusif peut masquer les contenus mandat simple
+};
+
+let config = Object.assign({}, DEFAULT_CONFIG, store.get("config", {}));
+config.modules = Object.assign({}, DEFAULT_CONFIG.modules, config.modules||{});
+
+let progress = Object.assign({ lessonsRead:{}, quizBest:null, simBest:{} }, store.get("progress", {}));
+
+/* vocabulaire marque blanche */
+function V(){ return config.vocab || "conseiller"; }
+function Vcap(){ const v = V(); return v.charAt(0).toUpperCase()+v.slice(1); }
+
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+/* contraste du texte sur la couleur d'accent */
+function onAccent(hex){
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex||""); if(!m) return "#fff";
+  const n = parseInt(m[1],16), r=(n>>16)&255, g=(n>>8)&255, b=n&255;
+  const lum = .2126*(r/255)**2.2 + .7152*(g/255)**2.2 + .0722*(b/255)**2.2;
+  return lum > .35 ? "#1C2430" : "#FFFFFF";
+}
+
+function applyBranding(){
+  document.documentElement.style.setProperty("--accent", config.accent);
+  document.documentElement.style.setProperty("--on-accent", onAccent(config.accent));
+  document.getElementById("brandName").textContent = config.nom;
+  document.getElementById("brandTag").textContent = config.baseline;
+  const logo = document.getElementById("brandLogo");
+  logo.innerHTML = config.logo ? '<img src="'+config.logo+'" alt="Logo '+esc(config.nom)+'">' : esc((config.nom||"K").trim().charAt(0).toUpperCase());
+  document.title = config.nom + " — Formation & Documents";
+  document.getElementById("appFooter").textContent = config.nom + " · Plateforme de formation immobilière · Contenu pédagogique, ne remplace pas un conseil juridique.";
+}
+
+/* thème clair / sombre */
+let theme = store.get("theme", "");
+function applyTheme(){
+  if(theme) document.documentElement.setAttribute("data-theme", theme);
+  else document.documentElement.removeAttribute("data-theme");
+}
+document.getElementById("themeBtn").addEventListener("click", () => {
+  const dark = theme ? theme==="dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  theme = dark ? "light" : "dark";
+  store.set("theme", theme); applyTheme();
+});
+
+/* ---------------- navigation ---------------- */
+let route = store.get("route", "home");
+const app = document.getElementById("app");
+
+function tabsDef(){
+  const t = [{id:"home", label:"Accueil"}];
+  if(config.modules.documents) t.push({id:"docs", label:"Dossier documents"});
+  if(config.modules.formation) t.push({id:"formation", label:"Formation"});
+  if(config.modules.entrainement) t.push({id:"training", label:"Entraînement"});
+  t.push({id:"settings", label:"Marque blanche"});
+  return t;
+}
+function renderTabs(){
+  const el = document.getElementById("tabs");
+  el.innerHTML = tabsDef().map(t =>
+    '<button data-r="'+t.id+'" class="'+(route===t.id || route.startsWith(t.id+"/") ? "active":"")+'">'+t.label+'</button>').join("");
+  el.querySelectorAll("button").forEach(b => b.addEventListener("click", () => go(b.dataset.r)));
+}
+function go(r){
+  route = r; store.set("route", r);
+  renderTabs(); render();
+  window.scrollTo({top:0, behavior:"instant"});
+}
+</script>
+<script>
+"use strict";
+/* ================= MODULE DOCUMENTS : assistant guidé ================= */
+
+const SOURCES = {
+  vendeur:       { label:"Le vendeur",              ico:"🗝️", conseil:"À demander dès le rendez-vous découverte. Donnez la liste par écrit : un vendeur retrouve rarement tout du premier coup. Proposez de l'aider à chercher — c'est aussi un excellent prétexte de re-contact." },
+  notaire:       { label:"Le notaire",              ico:"⚖️", conseil:"Le notaire du vendeur détient la copie du titre de propriété et les actes. Écrivez-lui avec l'accord du vendeur ; comptez de quelques jours à deux semaines." },
+  syndic:        { label:"Le syndic",               ico:"🏢", conseil:"Certains documents sont payants (pré-état daté notamment). Anticipez : les syndics répondent parfois en plusieurs semaines. Le vendeur peut souvent les télécharger gratuitement depuis son extranet copropriétaire." },
+  diagnostiqueur:{ label:"Le diagnostiqueur",       ico:"📐", conseil:"Groupez tous les diagnostics en une seule visite : c'est moins cher et plus rapide. Vérifiez les dates de validité des diagnostics déjà réalisés avant d'en commander de nouveaux." },
+  mairie:        { label:"La mairie / l'urbanisme", ico:"🏛️", conseil:"Urbanisme, autorisations de travaux, alignement, assainissement collectif : passez par le service urbanisme de la commune. Beaucoup de communes répondent par mail." },
+  enligne:       { label:"Les services en ligne",   ico:"🌐", conseil:"Géorisques (ERP), impots.gouv (taxe foncière), cadastre.gouv (plan cadastral) : le vendeur — ou vous — pouvez les obtenir immédiatement, gratuitement." }
+};
+
+/* Questions de l'assistant. `when` masque une question selon les réponses déjà données. */
+const QUESTIONS = [
+  { id:"type", titre:"Quel type de bien vendez-vous ?", sub:"C'est la première question à poser : elle détermine toute la suite du dossier.",
+    opts:[
+      {v:"maison",      ico:"🏠", t:"Une maison",      d:"Individuelle ou en lotissement"},
+      {v:"appartement", ico:"🏬", t:"Un appartement",  d:"En copropriété dans la quasi-totalité des cas"},
+      {v:"terrain",     ico:"🌳", t:"Un terrain",      d:"À bâtir ou non constructible"}
+    ]},
+  { id:"copro", titre:"Le bien est-il en copropriété ?", sub:"Une maison peut aussi être en copropriété (lotissement avec parties communes, copropriété horizontale).",
+    when:a => a.type!=="terrain",
+    opts:[
+      {v:"oui", ico:"🏢", t:"Oui", d:"Il y a un syndic, des charges, des AG"},
+      {v:"non", ico:"🚪", t:"Non", d:"Propriété individuelle, aucune partie commune"}
+    ]},
+  { id:"construction", titre:"Quand le bien a-t-il été construit ?", sub:"L'âge du bâti déclenche (ou non) les diagnostics plomb, amiante, gaz et électricité.",
+    when:a => a.type!=="terrain",
+    opts:[
+      {v:"avant1949", ico:"🏚️", t:"Avant 1949",            d:"Diagnostic plomb obligatoire"},
+      {v:"avant1997", ico:"🧱", t:"Entre 1949 et juil. 1997", d:"Diagnostic amiante obligatoire"},
+      {v:"apres1997", ico:"🏗️", t:"Après juillet 1997",     d:"Ni plomb, ni amiante"},
+      {v:"moins10",   ico:"✨", t:"Il y a moins de 10 ans",  d:"Garanties constructeur encore actives"}
+    ]},
+  { id:"vendeur", titre:"Quelle est la situation du vendeur ?", sub:"Le contexte juridique du vendeur change les pièces à réunir — et les signatures nécessaires sur votre mandat.",
+    opts:[
+      {v:"seul",       ico:"🧍", t:"Un propriétaire unique",   d:"Cas le plus simple"},
+      {v:"couple",     ico:"💍", t:"Un couple marié ou pacsé", d:"Les deux signatures peuvent être requises"},
+      {v:"succession", ico:"🕊️", t:"Succession / indivision",  d:"Plusieurs héritiers ou indivisaires"},
+      {v:"divorce",    ico:"⚡", t:"Divorce en cours",          d:"Accord des deux époux indispensable"},
+      {v:"sci",        ico:"📜", t:"Une SCI",                   d:"Vérifier les pouvoirs du gérant"},
+      {v:"protege",    ico:"🛡️", t:"Majeur protégé",           d:"Tutelle ou curatelle : autorisation du juge"}
+    ]},
+  { id:"occupation", titre:"Le bien est-il occupé par un locataire ?", sub:"Un bien loué se vend, mais le dossier — et parfois la procédure de congé — change.",
+    when:a => a.type!=="terrain",
+    opts:[
+      {v:"libre", ico:"🔓", t:"Non, il est libre",  d:"Occupé par le vendeur ou vide"},
+      {v:"loue",  ico:"🔑", t:"Oui, il est loué",   d:"Bail en cours"}
+    ]},
+  { id:"equip", titre:"Cochez ce qui concerne le bien", sub:"Chaque équipement a ses justificatifs. Vous pourrez repasser ici si vous découvrez quelque chose en visite.",
+    when:a => a.type!=="terrain", multi:true,
+    opts:[
+      {v:"piscine",  ico:"🏊", t:"Piscine",                    d:"Sécurité et déclaration de travaux"},
+      {v:"cheminee", ico:"🔥", t:"Cheminée / poêle / insert",  d:"Justificatif de ramonage"},
+      {v:"anc",      ico:"💧", t:"Assainissement individuel",  d:"Fosse septique, micro-station"},
+      {v:"gaz15",    ico:"♨️", t:"Installation gaz de +15 ans", d:"Diagnostic gaz obligatoire"},
+      {v:"elec15",   ico:"⚡", t:"Installation élec. de +15 ans", d:"Diagnostic électricité obligatoire"},
+      {v:"solaire",  ico:"☀️", t:"Panneaux solaires",           d:"Contrats et factures"},
+      {v:"dpeFG",    ico:"🌡️", t:"DPE F ou G (ou supposé)",    d:"Audit énergétique à prévoir"}
+    ]},
+  { id:"travaux", titre:"Des travaux importants ont-ils été réalisés depuis moins de 10 ans ?", sub:"Extension, toiture, gros œuvre… Les garanties décennales protègent l'acquéreur : c'est un argument de vente.",
+    when:a => a.type!=="terrain",
+    opts:[
+      {v:"oui", ico:"🔨", t:"Oui", d:"Extension, rénovation lourde, toiture…"},
+      {v:"non", ico:"➖", t:"Non", d:"Rien de significatif"}
+    ]}
+];
+
+/* Bibliothèque des documents. `when` décide de l'inclusion selon les réponses. */
+const DOCS = [
+  /* --- fondamentaux --- */
+  { id:"titre", nom:"Titre de propriété", src:"notaire", delai:"1 à 2 semaines", niv:"oblig",
+    d:"L'acte authentique qui prouve que le vendeur est bien propriétaire.",
+    astuce:"Demandez-le dès la prise de mandat : il révèle servitudes, indivision ou hypothèques qui peuvent freiner la vente.", when:a=>true },
+  { id:"identite", nom:"Pièces d'identité et livret de famille", src:"vendeur", delai:"Immédiat", niv:"oblig",
+    d:"CNI ou passeport de chaque vendeur, livret de famille si couple.",
+    astuce:"Photographiez-les au premier rendez-vous, avec l'accord du vendeur : c'est fait, et votre mandat sera juste du premier coup.", when:a=>true },
+  { id:"taxefonciere", nom:"Dernier avis de taxe foncière", src:"enligne", delai:"Immédiat", niv:"oblig",
+    d:"Les acquéreurs le demandent systématiquement ; il sert aussi au prorata chez le notaire.",
+    astuce:"Téléchargeable en 2 minutes sur impots.gouv.fr, espace particulier du vendeur.", when:a=>true },
+  { id:"erp", nom:"État des risques et pollutions (ERP)", src:"enligne", delai:"Immédiat", niv:"oblig",
+    d:"Risques naturels, miniers, technologiques, sismicité, radon. Obligatoire dès l'annonce.",
+    astuce:"Gratuit sur errial.georisques.gouv.fr — à refaire s'il a plus de 6 mois au compromis.", when:a=>true },
+  { id:"dpe", nom:"DPE — diagnostic de performance énergétique", src:"diagnostiqueur", delai:"Moins d'1 semaine", niv:"oblig",
+    d:"Obligatoire avant toute annonce : l'étiquette doit figurer dans la publicité.",
+    astuce:"Commandez-le en premier — sans DPE, pas de mise en vente. Validité 10 ans (sauf DPE réalisés avant juillet 2021, désormais expirés).", when:a=>a.type!=="terrain" },
+  { id:"plans", nom:"Plans du bien", src:"vendeur", delai:"Variable", niv:"reco",
+    d:"Plans d'origine, plans de permis ou croquis coté.",
+    astuce:"Pas de plans ? Faites un relevé simple en visite : un plan, même sommaire, augmente le taux de contact sur l'annonce.", when:a=>a.type!=="terrain" },
+  { id:"energie", nom:"Factures d'énergie récentes", src:"vendeur", delai:"Immédiat", niv:"reco",
+    d:"12 derniers mois d'électricité, gaz, fioul… Les acquéreurs veulent le coût réel.",
+    astuce:"Transformez-les en argument : « chauffage : X €/mois » parle plus qu'une étiquette DPE.", when:a=>a.type!=="terrain" },
+
+  /* --- selon l'âge du bâti --- */
+  { id:"plomb", nom:"Diagnostic plomb (CREP)", src:"diagnostiqueur", delai:"Moins d'1 semaine", niv:"oblig",
+    d:"Constat de risque d'exposition au plomb, pour tout logement construit avant 1949.",
+    astuce:"Validité illimitée si aucun plomb détecté ; 1 an seulement en cas de présence.", when:a=>a.construction==="avant1949" },
+  { id:"amiante", nom:"Diagnostic amiante", src:"diagnostiqueur", delai:"Moins d'1 semaine", niv:"oblig",
+    d:"Pour tout permis de construire antérieur à juillet 1997.",
+    astuce:"Validité illimitée si négatif et réalisé après 2013 ; sinon, à refaire.", when:a=>["avant1949","avant1997"].includes(a.construction) },
+  { id:"do", nom:"Assurance dommages-ouvrage + garantie décennale", src:"vendeur", delai:"Quelques jours", niv:"oblig",
+    d:"Pour un bien de moins de 10 ans : attestations DO du maître d'ouvrage et décennales des entreprises.",
+    astuce:"C'est un argument de vente fort : l'acquéreur reste couvert jusqu'aux 10 ans du bâtiment.", when:a=>a.construction==="moins10" },
+  { id:"pcdaact", nom:"Permis de construire + DAACT", src:"mairie", delai:"1 à 3 semaines", niv:"oblig",
+    d:"Permis, déclaration d'achèvement et attestation de non-contestation de conformité.",
+    astuce:"Le vendeur les a normalement conservés ; sinon, le service urbanisme en garde copie.", when:a=>a.construction==="moins10" },
+  { id:"gaz", nom:"Diagnostic gaz", src:"diagnostiqueur", delai:"Moins d'1 semaine", niv:"oblig",
+    d:"Installation intérieure de gaz de plus de 15 ans.",
+    astuce:"Validité 3 ans pour une vente. Une anomalie n'empêche pas de vendre : elle informe l'acquéreur.", when:a=>(a.equip||[]).includes("gaz15") },
+  { id:"elec", nom:"Diagnostic électricité", src:"diagnostiqueur", delai:"Moins d'1 semaine", niv:"oblig",
+    d:"Installation électrique de plus de 15 ans.",
+    astuce:"Validité 3 ans. Anticipez les questions : chiffrez avec un artisan le coût de mise en sécurité des anomalies relevées.", when:a=>(a.equip||[]).includes("elec15") },
+  { id:"audit", nom:"Audit énergétique réglementaire", src:"diagnostiqueur", delai:"1 à 2 semaines", niv:"oblig",
+    d:"Obligatoire pour la vente d'une maison (mono-propriété) classée F ou G : scénarios de travaux chiffrés.",
+    astuce:"Plus complet (et plus cher) que le DPE. Commandez-le en même temps que les autres diagnostics pour gagner du temps.",
+    when:a=>(a.equip||[]).includes("dpeFG") && a.type==="maison" && a.copro!=="oui" },
+  { id:"termites", nom:"État relatif à la présence de termites", src:"diagnostiqueur", delai:"Moins d'1 semaine", niv:"zone",
+    d:"Obligatoire uniquement dans les zones délimitées par arrêté préfectoral.",
+    astuce:"Vérifiez en mairie ou sur le site de la préfecture si la commune est en zone termites. Validité : 6 mois seulement.", when:a=>a.type!=="terrain" },
+
+  /* --- copropriété --- */
+  { id:"reglement", nom:"Règlement de copropriété + état descriptif de division", src:"syndic", delai:"1 à 2 semaines", niv:"oblig",
+    d:"Avec tous ses modificatifs. Annexé au compromis (loi ALUR).",
+    astuce:"Le vendeur l'a reçu à son achat — souvent plus vite retrouvé chez son notaire que via le syndic.", when:a=>a.copro==="oui" },
+  { id:"pvag", nom:"Procès-verbaux des 3 dernières AG", src:"syndic", delai:"Quelques jours", niv:"oblig",
+    d:"Ils révèlent travaux votés, litiges et ambiance de la copropriété.",
+    astuce:"Lisez-les avant l'acquéreur : un ravalement voté non payé, ça se découvre au mandat, pas au compromis.", when:a=>a.copro==="oui" },
+  { id:"fiche", nom:"Fiche synthétique de la copropriété", src:"syndic", delai:"Quelques jours", niv:"oblig",
+    d:"Carte d'identité de la copro : nombre de lots, budget, impayés.",
+    astuce:"Le syndic doit la fournir sous 15 jours — souvent disponible sur l'extranet copropriétaire.", when:a=>a.copro==="oui" },
+  { id:"carnet", nom:"Carnet d'entretien de l'immeuble", src:"syndic", delai:"Quelques jours", niv:"oblig",
+    d:"Historique des travaux et contrats d'entretien de l'immeuble.",
+    astuce:"Utile pour répondre à LA question des acquéreurs : « la toiture / la chaudière collective a quel âge ? »", when:a=>a.copro==="oui" },
+  { id:"charges", nom:"Appels de charges des 2 derniers exercices", src:"vendeur", delai:"Immédiat", niv:"oblig",
+    d:"Charges courantes et travaux, pour chiffrer le budget réel de l'acquéreur.",
+    astuce:"Annoncez des charges exactes dès l'annonce : une mauvaise surprise à ce stade fait fuir.", when:a=>a.copro==="oui" },
+  { id:"preetat", nom:"Pré-état daté", src:"syndic", delai:"2 à 4 semaines", niv:"oblig",
+    d:"Situation financière du lot (impayés, procédures, fonds travaux). Nécessaire pour le compromis.",
+    astuce:"Payant (souvent 150 à 400 €). Commandez-le dès l'offre acceptée pour ne pas retarder la signature.", when:a=>a.copro==="oui" },
+  { id:"carrez", nom:"Mesurage loi Carrez", src:"diagnostiqueur", delai:"Moins d'1 semaine", niv:"oblig",
+    d:"Surface privative certifiée, obligatoire pour tout lot de copropriété.",
+    astuce:"Si la surface réelle est inférieure de plus de 5 % à celle de l'acte, l'acquéreur peut exiger une baisse de prix : ne le bâclez jamais.", when:a=>a.copro==="oui" },
+
+  /* --- maison hors copro --- */
+  { id:"anc", nom:"Diagnostic assainissement non collectif (SPANC)", src:"mairie", delai:"2 à 6 semaines", niv:"oblig",
+    d:"Contrôle de la fosse septique / micro-station par le SPANC. Validité 3 ans.",
+    astuce:"Le plus long à obtenir dans certaines communes : lancez la demande dès le mandat. En cas de non-conformité, l'acquéreur a 1 an après l'acte pour mettre aux normes.", when:a=>(a.equip||[]).includes("anc") },
+  { id:"egout", nom:"Attestation de raccordement au tout-à-l'égout", src:"mairie", delai:"1 à 4 semaines", niv:"zone",
+    d:"Certaines communes exigent un contrôle de conformité du raccordement lors de la vente.",
+    astuce:"Appelez le service assainissement de la commune : la règle varie d'une ville à l'autre.", when:a=>a.type==="maison" && !(a.equip||[]).includes("anc") },
+  { id:"cadastre", nom:"Plan cadastral et bornage", src:"enligne", delai:"Immédiat", niv:"reco",
+    d:"Références cadastrales et limites de la parcelle.",
+    astuce:"Plan gratuit sur cadastre.gouv.fr. En cas de doute sur les limites (clôture, haie), signalez-le tôt : un bornage se négocie avant le compromis.", when:a=>a.type==="maison" },
+  { id:"piscine", nom:"Piscine : déclaration de travaux + attestation de sécurité", src:"vendeur", delai:"Variable", niv:"oblig",
+    d:"Autorisation d'urbanisme de la piscine et conformité du dispositif de sécurité (alarme, barrière, abri, couverture).",
+    astuce:"Une piscine non déclarée se régularise auprès de l'urbanisme et des impôts — mieux vaut le faire avant la vente qu'au moment du compromis.", when:a=>(a.equip||[]).includes("piscine") },
+  { id:"ramonage", nom:"Certificat de ramonage", src:"vendeur", delai:"Immédiat", niv:"reco",
+    d:"Justificatif d'entretien de la cheminée, du poêle ou de l'insert.",
+    astuce:"Un ramonage récent rassure ; l'assurance de l'acquéreur l'exigera de toute façon.", when:a=>(a.equip||[]).includes("cheminee") },
+  { id:"solaire", nom:"Panneaux solaires : contrats et factures", src:"vendeur", delai:"Quelques jours", niv:"oblig",
+    d:"Facture d'installation, contrat de revente (EDF OA…) ou de location/leasing.",
+    astuce:"Vérifiez si les panneaux sont en location : un contrat de leasing se transfère à l'acquéreur et doit être annoncé.", when:a=>(a.equip||[]).includes("solaire") },
+
+  /* --- terrain --- */
+  { id:"cu", nom:"Certificat d'urbanisme", src:"mairie", delai:"1 à 2 mois", niv:"oblig",
+    d:"CU d'information ou opérationnel : constructibilité, règles applicables, taxes.",
+    astuce:"Demandez un CU opérationnel si l'acquéreur a un projet précis : il « gèle » les règles d'urbanisme 18 mois.", when:a=>a.type==="terrain" },
+  { id:"bornage", nom:"Bornage par géomètre-expert", src:"vendeur", delai:"3 à 6 semaines", niv:"oblig",
+    d:"Obligatoire pour un terrain à bâtir issu d'un lotissement ; fortement conseillé partout ailleurs.",
+    astuce:"Le descriptif de bornage doit être mentionné dans le compromis, sous peine de nullité pour un terrain en lotissement.", when:a=>a.type==="terrain" },
+  { id:"g1", nom:"Étude de sol G1 (loi ELAN)", src:"vendeur", delai:"2 à 4 semaines", niv:"zone",
+    d:"Obligatoire pour la vente d'un terrain constructible en zone d'argiles gonflantes moyenne ou forte.",
+    astuce:"Vérifiez la zone sur georisques.gouv.fr (retrait-gonflement des argiles). Comptez 800 à 1 500 €.", when:a=>a.type==="terrain" },
+  { id:"reglot", nom:"Règlement et cahier des charges du lotissement", src:"vendeur", delai:"Quelques jours", niv:"zone",
+    d:"S'il s'agit d'un lot de lotissement : règles privées de construction et d'usage.",
+    astuce:"L'association syndicale du lotissement ou le notaire d'origine en détiennent copie.", when:a=>a.type==="terrain" },
+  { id:"erpterrain", nom:"ERP du terrain + zonage assainissement", src:"mairie", delai:"1 à 2 semaines", niv:"reco",
+    d:"Le terrain est-il desservi par les réseaux (eau, électricité, égout) ?",
+    astuce:"Un terrain « viabilisé ou non » change tout au prix : vérifiez les réseaux en limite de parcelle auprès de la mairie et des concessionnaires.", when:a=>a.type==="terrain" },
+
+  /* --- situation du vendeur --- */
+  { id:"conjoint", nom:"Accord du conjoint", src:"vendeur", delai:"Immédiat", niv:"oblig",
+    d:"Si le bien est la résidence de la famille, les DEUX époux doivent consentir à la vente (art. 215 du Code civil), même si un seul est propriétaire.",
+    astuce:"Faites signer le mandat par les deux dès le départ : un mandat signé d'un seul époux sur la maison familiale est fragile.", when:a=>a.vendeur==="couple" },
+  { id:"notoriete", nom:"Acte de notoriété + attestation immobilière", src:"notaire", delai:"2 semaines à plusieurs mois", niv:"oblig",
+    d:"Établit qui sont les héritiers et leur transfère officiellement la propriété.",
+    astuce:"Sans attestation immobilière publiée, impossible de signer l'acte de vente. Vérifiez où en est la succession AVANT de promettre un délai à un acquéreur.", when:a=>a.vendeur==="succession" },
+  { id:"indivisaires", nom:"Accord écrit de tous les indivisaires", src:"vendeur", delai:"Variable", niv:"oblig",
+    d:"La vente exige en principe l'unanimité des indivisaires ; le mandat aussi.",
+    astuce:"Collectez les coordonnées de TOUS les indivisaires au premier rendez-vous et faites signer le mandat par chacun (ou avec procurations).", when:a=>a.vendeur==="succession" },
+  { id:"divorce", nom:"Situation du divorce : jugement ou accord des deux époux", src:"vendeur", delai:"Variable", niv:"oblig",
+    d:"Tant que la communauté n'est pas liquidée, les deux époux signent — même séparés.",
+    astuce:"Restez neutre entre les deux époux et informez-les symétriquement : c'est votre meilleure protection en cas de conflit.", when:a=>a.vendeur==="divorce" },
+  { id:"sci", nom:"SCI : statuts, Kbis de moins de 3 mois, décision autorisant la vente", src:"vendeur", delai:"Quelques jours", niv:"oblig",
+    d:"Vérifier que le gérant a le pouvoir de vendre ; sinon, PV d'assemblée des associés.",
+    astuce:"Lisez la clause « pouvoirs du gérant » des statuts : si la vente n'y figure pas, exigez le PV d'AG avant de commercialiser.", when:a=>a.vendeur==="sci" },
+  { id:"tutelle", nom:"Jugement de protection + autorisation du juge", src:"vendeur", delai:"1 à 3 mois", niv:"oblig",
+    d:"La vente du logement d'un majeur sous tutelle exige l'autorisation du juge des contentieux de la protection.",
+    astuce:"Le juge exige souvent deux avis de valeur : proposez le vôtre, c'est aussi l'occasion de sécuriser le mandat.", when:a=>a.vendeur==="protege" },
+
+  /* --- bien loué --- */
+  { id:"bail", nom:"Bail en cours + avenants + état des lieux", src:"vendeur", delai:"Immédiat", niv:"oblig",
+    d:"Le bail se transmet à l'acquéreur avec le bien.",
+    astuce:"Vérifiez la date d'échéance du bail : elle commande la stratégie (vente occupée ou congé pour vendre libre).", when:a=>a.occupation==="loue" },
+  { id:"quittances", nom:"3 dernières quittances + dépôt de garantie", src:"vendeur", delai:"Immédiat", niv:"oblig",
+    d:"Loyer réellement payé et montant du dépôt à transférer à l'acquéreur.",
+    astuce:"Un locataire à jour de ses loyers est un argument pour les investisseurs : mettez la rentabilité en avant dans l'annonce.", when:a=>a.occupation==="loue" },
+  { id:"conge", nom:"Congé pour vente (si vente libre visée)", src:"vendeur", delai:"6 mois avant l'échéance du bail", niv:"zone",
+    d:"Pour vendre libre, congé au moins 6 mois avant la fin du bail (location nue) — le locataire est prioritaire pour acheter.",
+    astuce:"Le congé pour vente vaut offre de vente au locataire : le prix doit être ferme et sérieux. Faites-le sécuriser par huissier ou notaire.", when:a=>a.occupation==="loue" },
+
+  /* --- travaux --- */
+  { id:"factures", nom:"Factures des travaux + garanties", src:"vendeur", delai:"Quelques jours", niv:"oblig",
+    d:"Factures des entreprises et attestations décennales pour les travaux de moins de 10 ans.",
+    astuce:"Des travaux facturés par des pros = garanties transmissibles = argument prix. Des travaux « au noir » = aucune garantie : ajustez l'estimation.", when:a=>a.travaux==="oui" },
+  { id:"autorisations", nom:"Autorisations d'urbanisme des travaux (DP / PC)", src:"mairie", delai:"1 à 3 semaines", niv:"oblig",
+    d:"Déclaration préalable ou permis pour extension, véranda, garage, fenêtres de toit…",
+    astuce:"Une extension non déclarée bloque souvent la vente au moment du notaire. Détectez-la au mandat (comparez avec le plan cadastral) et régularisez tôt.", when:a=>a.travaux==="oui" }
+];
+
+const NIV_LABEL = { oblig:{c:"oblig", t:"Obligatoire"}, reco:{c:"reco", t:"Recommandé"}, zone:{c:"zone", t:"Selon zone / cas"} };
+
+/* état du dossier en cours */
+let dossier = store.get("dossier", null); // {answers:{...}, checked:{docId:true}, nom:""}
+
+function visibleQuestions(answers){ return QUESTIONS.filter(q => !q.when || q.when(answers)); }
+function docsFor(answers){ return DOCS.filter(d => d.when(answers)); }
+
+function renderDocs(){
+  if(!config.modules.documents){ go("home"); return; }
+  if(dossier && dossier.done){ renderDocResults(); return; }
+  renderWizard();
+}
+
+let wizAnswers = null, wizIdx = 0;
+function renderWizard(){
+  if(!wizAnswers) { wizAnswers = (dossier && !dossier.done) ? dossier.answers : {}; wizIdx = 0; }
+  const qs = visibleQuestions(wizAnswers);
+  if(wizIdx >= qs.length){ finishWizard(); return; }
+  const q = qs[wizIdx];
+  const multi = !!q.multi;
+  const cur = wizAnswers[q.id];
+  app.innerHTML = `
+    <div class="eyebrow">Assistant dossier de vente · question ${wizIdx+1} sur ${qs.length}</div>
+    <div class="wizard-progress"><i style="width:${Math.round(wizIdx/qs.length*100)}%"></i></div>
+    <h1>${q.titre}</h1>
+    <p class="muted">${q.sub}</p>
+    <div class="opt-grid">
+      ${q.opts.map(o => {
+        const sel = multi ? (cur||[]).includes(o.v) : cur===o.v;
+        return `<button class="opt ${sel?"selected":""}" data-v="${o.v}">
+          <span class="opt-ico">${o.ico}</span><span class="opt-t">${o.t}</span><span class="opt-d">${o.d}</span>
+        </button>`;
+      }).join("")}
+    </div>
+    <div class="wizard-nav">
+      <button class="btn ghost" id="wizBack" ${wizIdx===0?"disabled":""}>← Retour</button>
+      ${multi ? '<button class="btn" id="wizNext">Continuer →</button>' : '<span class="muted small" style="align-self:center">Choisissez une réponse pour continuer</span>'}
+    </div>`;
+  app.querySelectorAll(".opt").forEach(b => b.addEventListener("click", () => {
+    if(multi){
+      const arr = new Set(wizAnswers[q.id]||[]);
+      arr.has(b.dataset.v) ? arr.delete(b.dataset.v) : arr.add(b.dataset.v);
+      wizAnswers[q.id] = [...arr];
+      b.classList.toggle("selected");
+    } else {
+      wizAnswers[q.id] = b.dataset.v;
+      /* réponses par défaut cohérentes */
+      if(q.id==="type" && b.dataset.v==="terrain"){ delete wizAnswers.copro; delete wizAnswers.construction; delete wizAnswers.occupation; delete wizAnswers.equip; delete wizAnswers.travaux; }
+      wizIdx++;
+      renderWizard();
+    }
+  }));
+  const back = document.getElementById("wizBack");
+  if(back) back.addEventListener("click", () => { if(wizIdx>0){ wizIdx--; renderWizard(); } });
+  const next = document.getElementById("wizNext");
+  if(next) next.addEventListener("click", () => { if(!wizAnswers[q.id]) wizAnswers[q.id]=[]; wizIdx++; renderWizard(); });
+}
+
+function finishWizard(){
+  dossier = { answers: wizAnswers, checked: (dossier && dossier.checked) || {}, done: true, ts: dossier && dossier.ts || null };
+  store.set("dossier", dossier);
+  wizAnswers = null; wizIdx = 0;
+  renderDocResults();
+}
+
+function resumeLabel(a){
+  const t = {maison:"Maison", appartement:"Appartement", terrain:"Terrain"}[a.type]||"";
+  const bits = [t];
+  if(a.copro==="oui") bits.push("copropriété");
+  if(a.occupation==="loue") bits.push("loué");
+  const v = {seul:"", couple:"couple", succession:"succession", divorce:"divorce", sci:"SCI", protege:"majeur protégé"}[a.vendeur];
+  if(v) bits.push(v);
+  return bits.join(" · ");
+}
+
+function renderDocResults(){
+  const a = dossier.answers;
+  const docs = docsFor(a);
+  const byNiv = {oblig:[],reco:[],zone:[]};
+  docs.forEach(d=>byNiv[d.niv].push(d));
+  const total = docs.length;
+  const done = docs.filter(d => dossier.checked[d.id]).length;
+  const pct = total ? Math.round(done/total*100) : 0;
+  const bySrc = {};
+  docs.forEach(d => { (bySrc[d.src] = bySrc[d.src]||[]).push(d); });
+  const circ = 2*Math.PI*40;
+
+  app.innerHTML = `
+    <div class="card no-print" style="margin-bottom:20px">
+      <div class="gauge-wrap">
+        <svg class="gauge" viewBox="0 0 100 100" role="img" aria-label="Dossier complet à ${pct}%">
+          <circle cx="50" cy="50" r="40" fill="none" stroke="var(--surface-2)" stroke-width="10"/>
+          <circle cx="50" cy="50" r="40" fill="none" stroke="var(--accent)" stroke-width="10" stroke-linecap="round"
+            stroke-dasharray="${circ}" stroke-dashoffset="${circ*(1-pct/100)}" transform="rotate(-90 50 50)"/>
+          <text x="50" y="55" text-anchor="middle">${pct}%</text>
+        </svg>
+        <div style="flex:1;min-width:220px">
+          <div class="eyebrow">Votre dossier de vente</div>
+          <h1 style="margin:.15em 0 .2em">${resumeLabel(a)}</h1>
+          <p class="muted small" style="margin:0">${done} document${done>1?"s":""} sur ${total} réuni${done>1?"s":""} —
+            ${byNiv.oblig.length} obligatoires, ${byNiv.reco.length} recommandés, ${byNiv.zone.length} selon zone ou cas particulier.</p>
+          <div class="pill-row" style="margin-top:12px">
+            <button class="btn sm secondary" id="docEdit">✎ Modifier les réponses</button>
+            <button class="btn sm secondary" id="docRestart">↺ Nouveau dossier</button>
+            <button class="btn sm secondary" id="docCopy">⧉ Copier la liste</button>
+            <button class="btn sm secondary" onclick="window.print()">🖨 Imprimer</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    ${pct===100 ? '<div class="fb good" style="margin-bottom:18px">🎉 Dossier complet ! Vous pouvez commercialiser sereinement — et le montrer au vendeur : un dossier complet, c\'est votre premier argument d\'exclusivité.</div>' : ""}
+    ${Object.keys(bySrc).map(src => {
+      const s = SOURCES[src];
+      const items = bySrc[src];
+      const sdone = items.filter(d=>dossier.checked[d.id]).length;
+      return `<section class="src-group">
+        <div class="src-head">
+          <div class="src-ico">${s.ico}</div>
+          <div style="flex:1"><h2 style="margin:0">${s.label}</h2></div>
+          <span class="chip">${sdone}/${items.length}</span>
+        </div>
+        <p class="src-conseil">${s.conseil}</p>
+        ${items.map(d => `
+          <div class="doc ${dossier.checked[d.id]?"done":""}">
+            <input type="checkbox" id="ck-${d.id}" data-doc="${d.id}" ${dossier.checked[d.id]?"checked":""} aria-label="Obtenu : ${esc(d.nom)}">
+            <div style="flex:1">
+              <label class="doc-t" for="ck-${d.id}">${d.nom}</label>
+              <div class="doc-d">${d.d}</div>
+              <div class="doc-meta">
+                <span class="badge ${NIV_LABEL[d.niv].c}">${NIV_LABEL[d.niv].t}</span>
+                <span class="chip">⏱ ${d.delai}</span>
+              </div>
+              <div class="doc-astuce"><b>Astuce ${V()} :</b> ${d.astuce}</div>
+            </div>
+          </div>`).join("")}
+      </section>`;
+    }).join("")}
+    <p class="muted small" style="margin-top:26px">Liste indicative à visée pédagogique : les obligations exactes dépendent de la commune et de la situation. En cas de doute, validez avec le notaire.</p>`;
+
+  app.querySelectorAll("input[data-doc]").forEach(c => c.addEventListener("change", () => {
+    dossier.checked[c.dataset.doc] = c.checked;
+    store.set("dossier", dossier);
+    renderDocResults();
+  }));
+  document.getElementById("docEdit").addEventListener("click", () => { wizAnswers = Object.assign({}, dossier.answers); wizIdx = 0; dossier.done = false; renderWizard(); });
+  document.getElementById("docRestart").addEventListener("click", () => {
+    if(confirm("Repartir de zéro ? Les cases cochées seront effacées.")){ dossier = null; wizAnswers = null; wizIdx = 0; store.set("dossier", null); renderWizard(); }
+  });
+  document.getElementById("docCopy").addEventListener("click", (e) => {
+    const lines = ["Dossier de vente — " + resumeLabel(a), ""];
+    Object.keys(bySrc).forEach(src => {
+      lines.push("■ " + SOURCES[src].label.toUpperCase());
+      bySrc[src].forEach(d => lines.push((dossier.checked[d.id]?"[x] ":"[ ] ") + d.nom + " — " + NIV_LABEL[d.niv].t + " (" + d.delai + ")"));
+      lines.push("");
+    });
+    navigator.clipboard && navigator.clipboard.writeText(lines.join("\n")).then(()=>{ e.target.textContent = "✓ Copié !"; setTimeout(()=>e.target.textContent="⧉ Copier la liste", 1600); });
+  });
+}
+</script>
+<script>
+"use strict";
+/* ================= MODULE FORMATION ================= */
+
+function LESSONS(){
+  const v = V(), vc = Vcap();
+  const all = [
+  {
+    id:"mandats", titre:"Mandat simple ou exclusif : comprendre pour convaincre", min:15, tag:"Fondamentaux",
+    resume:"Ce que chaque mandat engage vraiment, les chiffres à connaître, et comment présenter l'exclusivité sans la « vendre de force ».",
+    body:`
+      <h3>Les trois mandats en une page</h3>
+      <div class="table-scroll"><table class="cmp">
+        <tr><th></th><th>Mandat simple</th><th>Mandat semi-exclusif</th><th>Mandat exclusif</th></tr>
+        <tr><th>Qui peut vendre ?</th><td>Plusieurs agences + le propriétaire lui-même</td><td>Votre agence + le propriétaire en direct</td><td>Votre agence uniquement</td></tr>
+        <tr><th>Engagement du ${v}</th><td>Limité : personne n'investit à fond sur un bien partagé</td><td>Réel, mais concurrence du vendeur</td><td>Total : photos pro, plan de commercialisation complet, comptes-rendus</td></tr>
+        <tr><th>Image du bien</th><td>Annonces multiples, prix parfois différents : le bien « se grille »</td><td>Une seule annonce agence</td><td>Une annonce, un prix, un interlocuteur : rareté et cohérence</td></tr>
+        <tr><th>Durée type</th><td>3 mois renouvelables</td><td>3 mois</td><td>3 mois irrévocables puis dénonçable (15 j de préavis)</td></tr>
+      </table></div>
+      <div class="keypoint">💡 Un bien en mandat simple diffusé par 4 agences n'est pas « 4 fois plus visible » : c'est le <b>même bien</b> vu 4 fois, souvent à des prix différents. L'acquéreur en déduit que le vendeur est aux abois — et négocie.</div>
+      <h3>Pourquoi l'exclusivité vend mieux (et plus vite)</h3>
+      <ul>
+        <li><b>Responsabilité claire :</b> un seul professionnel porte le résultat. En simple, chacun espère que l'autre fera le travail.</li>
+        <li><b>Investissement rentabilisé :</b> photos professionnelles, visite virtuelle, home staging, diffusion premium… ne se justifient que si vous êtes sûr d'être rémunéré.</li>
+        <li><b>Maîtrise du prix :</b> une seule stratégie de prix, des ajustements pilotés par les retours de visites, pas par la panique.</li>
+        <li><b>Filtrage des acquéreurs :</b> vous connaissez tous les contacts, vous qualifiez le financement, vous créez la tension d'offre.</li>
+      </ul>
+      <h3>Le dire simplement au vendeur</h3>
+      <div class="script"><span class="who">${vc} :</span> « Le mandat simple, c'est confier vos clés à quatre personnes en espérant que l'une d'elles s'en occupe. L'exclusivité, c'est me confier une mission avec une obligation de moyens : voici noir sur blanc tout ce que je m'engage à faire, et chaque quinzaine vous saurez exactement où on en est. Si je ne le fais pas, vous reprenez votre liberté. »</div>
+      <h3>Et quand le vendeur impose le simple ?</h3>
+      <p>Refuser sèchement, c'est perdre le contact. Accepter mollement, c'est travailler gratuitement. La voie professionnelle : accepter <i>en préparant la transformation</i> — voir la leçon « Transformer un mandat simple en exclusif ».</p>
+      <ul>
+        <li>Actez par écrit ce que le vendeur perd (pas de photos pro, pas de diffusion premium…) : ce n'est pas une punition, c'est de la cohérence économique.</li>
+        <li>Fixez un rendez-vous de bilan à 3-4 semaines <b>dès la signature</b> du mandat simple.</li>
+        <li>Restez le plus professionnel de tous les intervenants : c'est vous qu'il choisira quand il voudra passer à la vitesse supérieure.</li>
+      </ul>`
+  },
+  {
+    id:"pige", titre:"La pige : appeler un propriétaire qui vend en direct", min:25, tag:"Prospection",
+    resume:"Préparer l'appel, passer les 20 premières secondes, décrocher le rendez-vous — script complet et cadre légal.",
+    body:`
+      <h3>Ce qu'est vraiment la pige</h3>
+      <p>La pige, c'est contacter un particulier qui a publié lui-même son annonce (PAP, Leboncoin…). Ce vendeur a déjà fait le plus dur : il a décidé de vendre. Il n'a simplement pas encore décidé de se faire accompagner. Votre appel n'est donc pas un appel de vente : c'est un appel de <b>mise en relation</b>.</p>
+      <div class="keypoint">⚖️ <b>Cadre à respecter :</b> annonce d'un particulier = prospect légitime, mais restez loyal : présentez-vous immédiatement comme professionnel (jamais de fausse identité d'acquéreur), respectez un refus clairement exprimé, et souvenez-vous qu'aucune rémunération n'est due sans mandat écrit signé <i>avant</i> toute action d'entremise (loi Hoguet).</div>
+      <h3>Avant de décrocher le téléphone</h3>
+      <ul>
+        <li><b>Étudiez l'annonce :</b> depuis combien de temps est-elle en ligne ? Le prix a-t-il baissé ? Photos sombres, description pauvre ? Chaque faiblesse est une aide que vous pouvez apporter.</li>
+        <li><b>Préparez 2 éléments de valeur :</b> une vente comparable récente dans le quartier, et un acquéreur (réel !) de votre fichier qui cherche ce type de bien.</li>
+        <li><b>Fixez UN objectif :</b> pas de mandat par téléphone. L'objectif d'un appel de pige, c'est un rendez-vous. Rien d'autre.</li>
+      </ul>
+      <h3>Le script, étape par étape</h3>
+      <div class="script"><span class="who">1. Annonce de couleur (10 s) :</span> « Bonjour, [Prénom Nom], je suis ${v} immobilier à [ville], à l'agence [enseigne]. Je vous appelle au sujet de votre annonce pour la maison de la rue X — vous avez deux minutes ? »<br><br>
+      <span class="who">2. Désamorcer (le vendeur s'attend à être harcelé) :</span> « Je sais que vous vendez entre particuliers et je respecte ce choix — je ne vous appelle pas pour vous le reprocher. »<br><br>
+      <span class="who">3. Apporter avant de demander :</span> « Je viens de vendre un bien très proche du vôtre, rue Y, en [délai] à [prix]. Et j'ai en ce moment des acquéreurs validés en financement qui cherchent exactement votre secteur. »<br><br>
+      <span class="who">4. Questions ouvertes (faites-le parler) :</span> « Comment se passent vos contacts depuis la parution ? Vous avez eu des visites ? Des offres ? Qu'est-ce qui vous ferait dire dans trois mois : c'est réussi ? »<br><br>
+      <span class="who">5. Proposer le rendez-vous, à double choix :</span> « Ce que je vous propose, c'est simple et sans engagement : je passe voir le bien, je vous donne mon avis de valeur et le profil de mes acquéreurs. Vous êtes plutôt en semaine en fin de journée, ou le samedi matin ? »</div>
+      <h3>Les objections de pige et leurs réponses</h3>
+      <ul>
+        <li><b>« Je ne veux pas d'agence. »</b> — « Je comprends, et vous n'avez rien signé avec moi. Puis-je juste vous demander : c'est la commission qui vous freine, ou une mauvaise expérience ? » <i>(Identifiez la vraie objection avant de répondre.)</i></li>
+        <li><b>« Rappelez-moi dans un mois. »</b> — « Bien sûr. D'ici là, la question qui compte : combien de contacts sérieux, financement vérifié, aurez-vous reçus ? Je note de vous rappeler le [date] — et si un de mes acquéreurs correspond d'ici là, je vous préviens. »</li>
+        <li><b>« Les agences, vous dites tous ça. »</b> — « Vous avez raison d'être prudent. C'est pour ça que je ne vous demande pas de me croire : je vous propose de me juger sur pièces, en 30 minutes chez vous, sans engagement. »</li>
+      </ul>
+      <h3>Après l'appel : la pige est un marathon</h3>
+      <ul>
+        <li>Notez tout dans votre suivi (date, ton, objections, date de rappel promise) — la pige se gagne au <b>3ᵉ ou 4ᵉ contact</b>, rarement au premier.</li>
+        <li>Variez les prétextes de re-contact : nouvelle vente comparable, acquéreur en recherche, évolution du marché, baisse de son annonce repérée.</li>
+        <li>Envoyez quelque chose après chaque contact : un SMS de remerciement, votre avis de valeur, une étude de marché. Restez la trace écrite la plus professionnelle de sa boîte mail.</li>
+      </ul>`
+  },
+  {
+    id:"transformation", titre:"Transformer un mandat simple en mandat exclusif", min:18, tag:"Mandats",
+    resume:"La méthode des points de contact : prouver sa valeur pendant le mandat simple pour faire de l'exclusivité une évidence.",
+    body:`
+      <h3>Le principe : on ne convainc pas, on démontre</h3>
+      <p>Un vendeur qui a choisi le mandat simple a une croyance : « plus d'agences = plus de chances ». Vous ne casserez pas cette croyance par un argument, mais par une <b>expérience vécue</b> : pendant les premières semaines, soyez objectivement le meilleur intervenant sur son bien — puis montrez-lui le décalage.</p>
+      <h3>Semaine 1 à 4 : semer les preuves</h3>
+      <ul>
+        <li><b>Jour 1 :</b> confirmation écrite de la mise en vente, annonce soignée (même en simple, votre annonce doit être la meilleure des annonces publiées).</li>
+        <li><b>Chaque visite :</b> compte-rendu sous 24 h, par écrit. Aucune autre agence ne le fera.</li>
+        <li><b>Chaque quinzaine :</b> un point marché : nombre de vues, contacts, comparables nouveaux. Court, factuel, daté.</li>
+        <li><b>En parallèle :</b> notez ce que font (ou ne font pas) les autres : annonces aux prix incohérents, photos ratées, textes copiés-collés. Ne critiquez jamais oralement — gardez les faits pour le bilan.</li>
+      </ul>
+      <h3>Le rendez-vous de transformation</h3>
+      <p>À 4-6 semaines, ou dès qu'un signal apparaît (baisse de moral du vendeur, prix incohérents entre agences, visite ratée par un confrère), demandez un rendez-vous de bilan. Sur table :</p>
+      <div class="script"><span class="who">${vc} :</span> « Voilà six semaines de commercialisation. Côté marché : X contacts, Y visites, voici les retours mot pour mot. Maintenant, regardons votre bien tel que l'acquéreur le voit : trois annonces, trois prix différents, des photos qui se contredisent. Qu'est-ce que vous en concluez, vous, si vous êtes acheteur ? <i>(Silence — laissez-le répondre.)</i> C'est exactement pour ça que je vous propose de changer de méthode : une seule stratégie, un seul prix, un professionnel responsable du résultat. Voici, point par point, ce que je déclenche dès la signature de l'exclusivité : photos professionnelles sous 8 jours, [diffusion premium], un compte-rendu tous les 15 jours. Et si je ne tiens pas ces engagements, vous reprenez votre liberté. »</div>
+      <div class="keypoint">🎯 La question « Qu'est-ce que vous en concluez, vous, si vous êtes acheteur ? » est le pivot : c'est le <b>vendeur</b> qui doit prononcer le diagnostic. Une conclusion qu'il formule lui-même vaut dix de vos arguments.</div>
+      <h3>Les leviers qui font basculer</h3>
+      <ul>
+        <li><b>Le levier économique :</b> proposez un avantage à la transformation (honoraires ajustés, prestation ajoutée) — la transformation doit être une bonne affaire datée, pas une capitulation.</li>
+        <li><b>Le levier calendrier :</b> « Chaque semaine en vente multiple use votre bien. Les acquéreurs regardent la date de première parution. »</li>
+        <li><b>Le levier engagement réciproque :</b> l'exclusivité n'est pas une faveur que le vendeur vous fait : c'est un contrat où <i>vous</i> prenez des engagements écrits et vérifiables.</li>
+        <li><b>La porte de sortie :</b> une exclusivité dénonçable après 3 mois avec préavis rassure — celui qui promet un résultat sans s'engager lui-même n'est pas crédible.</li>
+      </ul>`
+  },
+  {
+    id:"bilan", titre:"Le bilan de promotion : le rendez-vous qui garde la main", min:15, tag:"Suivi vendeur",
+    resume:"Structure d'un compte-rendu qui rassure, fait accepter les décisions difficiles (prix !) et verrouille la relation.",
+    body:`
+      <h3>Pourquoi c'est LE rendez-vous stratégique</h3>
+      <p>La première cause de perte de mandat n'est pas l'absence de résultat : c'est le <b>silence</b>. Un vendeur sans nouvelles imagine le pire, écoute la concurrence et durcit ses positions. Le bilan de promotion — toutes les 2 à 4 semaines, en face à face si possible — transforme l'attente en pilotage partagé.</p>
+      <h3>La structure en 5 temps (30 minutes)</h3>
+      <ul>
+        <li><b>1. Les actions</b> — ce qui a été fait, preuve à l'appui : diffusions, remontées d'annonce, mailing acquéreurs, panneau… « Voici ce que je vous avais promis, voici ce qui est fait. »</li>
+        <li><b>2. Les chiffres</b> — vues de l'annonce, appels, visites, offres. Comparez à la période précédente et aux moyennes de biens similaires : un chiffre isolé ne dit rien.</li>
+        <li><b>3. Les retours de visites</b> — mot pour mot, y compris les critiques. C'est la matière la plus précieuse : c'est le marché qui parle, pas vous.</li>
+        <li><b>4. L'analyse</b> — que disent ces données ? Beaucoup de vues et peu d'appels = problème de prix ou de photos. Des visites et pas d'offres = déception sur place : cherchez quoi.</li>
+        <li><b>5. La décision</b> — repartez toujours avec une action datée : ajustement de prix, nouvelles photos, home staging, élargissement de cible… et la date du prochain bilan.</li>
+      </ul>
+      <h3>Faire accepter une baisse de prix</h3>
+      <div class="script"><span class="who">${vc} :</span> « Le marché nous a répondu : 250 vues, 3 appels, aucune visite en trois semaines. Les acquéreurs comparent : au même prix, ils ont ceci <i>(montrez 2-3 comparables)</i>. Ce n'est pas votre bien le problème, c'est sa place dans ce classement. À [nouveau prix], nous redevenons le meilleur choix de la liste. Je ne vous demande pas de perdre de l'argent : je vous propose d'arrêter d'en perdre en temps — et souvent, un bien bien positionné déclenche plusieurs offres. »</div>
+      <div class="keypoint">📊 Annoncez la méthode dès la prise de mandat : « Dans un mois, ce sont les chiffres qui décideront, pas nos opinions. » Le jour du bilan, vous ne vous dédirez pas : vous appliquerez le contrat.</div>
+      <h3>Les pièges du bilan</h3>
+      <ul>
+        <li>Enjoliver : un vendeur découvre toujours la vérité. Votre crédibilité est votre seul capital.</li>
+        <li>Le faire par SMS : les décisions difficiles se prennent en face à face ou au téléphone, jamais à l'écrit sec.</li>
+        <li>Venir sans recommandation : un bilan sans proposition d'action, c'est un constat d'échec partagé.</li>
+      </ul>`
+  },
+  {
+    id:"offres", titre:"Le passage d'offres : de l'offre écrite à l'accord signé", min:20, tag:"Négociation",
+    resume:"Recevoir, qualifier et présenter une offre — même basse — et mener la contre-offre sans casser la vente.",
+    body:`
+      <h3>Vos obligations d'abord</h3>
+      <div class="keypoint">⚖️ Vous devez transmettre au vendeur <b>toutes</b> les offres reçues, même celles que vous jugez irrecevables. C'est lui qui décide. Filtrer une offre, c'est engager votre responsabilité — et perdre sa confiance si ça se sait.</div>
+      <h3>Qualifier l'offre avant de la présenter</h3>
+      <ul>
+        <li><b>Le financement :</b> apport, simulation ou attestation de faisabilité bancaire, courtier au dossier ? Une offre à 98 % non financée vaut moins qu'une offre à 95 % validée banque.</li>
+        <li><b>Les conditions :</b> conditions suspensives (prêt, vente d'un autre bien ?), date de signature souhaitée, mobilier inclus.</li>
+        <li><b>La motivation :</b> depuis combien de temps cherchent-ils, qu'ont-ils visité, pourquoi ce bien ? Ces éléments serviront au vendeur pour décider.</li>
+      </ul>
+      <h3>Présenter l'offre : la méthode du dossier complet</h3>
+      <p>Jamais « ils proposent 285 000 € » sec au téléphone. Présentez un <b>dossier d'offre</b>, si possible en face à face :</p>
+      <div class="script"><span class="who">${vc} :</span> « J'ai une offre écrite à vous présenter. Avant le montant, laissez-moi vous décrire les acquéreurs : un couple, financement validé à hauteur de X avec apport, souples sur la date, pas de bien à revendre. Ils ont eu un vrai coup de cœur — leurs mots : “...”. Leur offre est de 285 000 €. Elle est à 95 % de notre prix affiché, et au niveau des trois dernières ventes du quartier. Vous avez trois options : accepter, refuser, ou contre-proposer. Je vous donne mon analyse si vous la voulez, mais la décision vous appartient. »</div>
+      <h3>Piloter la contre-offre</h3>
+      <ul>
+        <li>Faites formuler au vendeur son <b>prix plancher réel</b> avant de rappeler l'acquéreur — pas pendant.</li>
+        <li>Une contre-offre se justifie : « le vendeur accepte de descendre à X en raison de… » — un chiffre nu invite à re-négocier.</li>
+        <li>Cadencez : une offre a une durée de validité. L'urgence douce (« ils visitent autre chose samedi ») est légitime si elle est <b>vraie</b>. Ne mentez jamais sur l'existence d'autres offres.</li>
+        <li>En cas d'offres multiples : organisez un tour clair et équitable (« meilleure offre finale pour vendredi 18 h »), informez tout le monde des règles, documentez.</li>
+      </ul>
+      <h3>Offre acceptée ≠ vente faite</h3>
+      <ul>
+        <li>Verrouillez immédiatement : acceptation écrite, rendez-vous notaire, calendrier du compromis, pièces manquantes du dossier (voir module Documents !).</li>
+        <li>Préparez le vendeur au délai de rétractation (10 jours) et aux conditions suspensives : pas de silence radio entre l'offre et le compromis, c'est la zone où les ventes meurent.</li>
+      </ul>`
+  },
+  {
+    id:"r1", titre:"La découverte vendeur : le rendez-vous qui décide de tout", min:15, tag:"Fondamentaux",
+    resume:"Le premier rendez-vous n'est pas une visite du bien : c'est une découverte du projet. Méthode d'écoute et grille de questions.",
+    body:`
+      <h3>Inverser la logique</h3>
+      <p>Le ${v} débutant visite la maison. Le professionnel découvre le <b>projet</b> : pourquoi vendre, pour aller où, à quelle échéance, avec quelles contraintes ? Le bien n'est que le véhicule du projet. C'est le projet qui signe les mandats.</p>
+      <h3>La grille de découverte</h3>
+      <ul>
+        <li><b>Le projet :</b> « Qu'est-ce qui vous amène à vendre ? Et ensuite, vous allez où ? » — mutation, agrandissement, séparation, succession : chaque motif a son tempo et ses tensions.</li>
+        <li><b>Le calendrier :</b> « Dans un monde idéal, vous signez quand ? Et au plus tard ? » — l'urgence réelle guide la stratégie de prix.</li>
+        <li><b>Le prix :</b> « Vous en attendez combien ? Et comment êtes-vous arrivé à ce chiffre ? » — écoutez la méthode plus que le montant : voisin, estimation en ligne, besoin pour le projet suivant ?</li>
+        <li><b>Les décideurs :</b> « Qui participe à la décision ? » — conjoint, enfants, indivisaires : un mandat signé sans tous les décideurs est un mandat mort.</li>
+        <li><b>L'historique :</b> « Avez-vous déjà essayé de vendre ? Avec qui ? Comment ça s'est passé ? » — vous saurez quelles erreurs ne pas répéter et quelles blessures ne pas rouvrir.</li>
+      </ul>
+      <div class="keypoint">👂 Règle des deux tiers : dans une découverte réussie, le vendeur parle deux fois plus que vous. Chaque minute où vous parlez de vous est une minute où vous n'apprenez rien.</div>
+      <h3>Terminer en professionnel</h3>
+      <p>Ne donnez pas de prix à chaud. Annoncez la suite : « Je reviens vers vous [date précise] avec mon avis de valeur argumenté et mon plan de commercialisation. On se cale 45 minutes ? » Deux rendez-vous valent mieux qu'un : la restitution (R2) est votre scène pour l'exclusivité.</p>`
+  },
+  {
+    id:"dossier", titre:"Le dossier de vente complet : votre meilleur argument d'exclusivité", min:10, tag:"Documents",
+    resume:"Pourquoi collecter les documents dès le mandat, et comment en faire un service visible qui justifie l'exclusivité.",
+    body:`
+      <h3>Le dossier n'est pas de l'administratif : c'est du commercial</h3>
+      <ul>
+        <li><b>Il sécurise le délai :</b> un pré-état daté ou un diagnostic SPANC commandé au compromis fait perdre un mois. Commandé au mandat, il ne fait perdre personne.</li>
+        <li><b>Il révèle les pièges tôt :</b> extension non déclarée, servitude, indivisaire hostile, procédure copro… Mieux vaut le savoir avant l'acquéreur.</li>
+        <li><b>Il crédibilise le prix :</b> factures de travaux, garanties décennales, charges exactes — chaque pièce transforme une affirmation en preuve.</li>
+        <li><b>Il différencie :</b> montrez au vendeur votre méthode (utilisez l'assistant Documents de cette plateforme en rendez-vous !) : « voici les pièces de votre dossier, qui les demande, sous quel délai ». Aucun concurrent en mandat simple ne fera ça.</li>
+      </ul>
+      <div class="keypoint">🗂️ Réflexe : générez la liste personnalisée avec l'assistant (onglet « Dossier documents ») <b>pendant</b> le rendez-vous vendeur, sur tablette. L'effet démonstration est immédiat : le vendeur voit un professionnel outillé, pas un vendeur de promesses.</div>
+      <h3>Qui demande quoi : la règle des 3 canaux</h3>
+      <ul>
+        <li><b>Le vendeur fournit</b> ce qu'il possède : identité, taxe foncière, factures, bail…</li>
+        <li><b>Vous commandez</b> ce qui se commande : diagnostics, documents syndic (avec son accord écrit).</li>
+        <li><b>Le notaire complète</b> les actes : titre, attestation immobilière, état hypothécaire.</li>
+      </ul>
+      <p>Fixez la règle au mandat : « chaque semaine, un point sur les pièces manquantes ». C'est un prétexte de contact de plus — et un dossier complet à J+30.</p>`
+  }];
+  if(!config.mandatSimple){
+    return all.filter(l => !["pige","transformation"].includes(l.id));
+  }
+  return all;
+}
+
+function renderFormation(){
+  if(!config.modules.formation){ go("home"); return; }
+  const lessons = LESSONS();
+  const m = route.match(/^formation\/(.+)$/);
+  if(m){
+    const l = lessons.find(x => x.id===m[1]);
+    if(l){ renderLesson(l); return; }
+  }
+  app.innerHTML = `
+    <div class="eyebrow">Formation</div>
+    <h1>Les méthodes du métier, leçon par leçon</h1>
+    <p class="muted">Des cours courts et concrets, pensés pour un ${V()} débutant. Chaque leçon a son entraînement dans l'onglet suivant.</p>
+    <div class="grid cols-2" style="margin-top:20px">
+      ${lessons.map(l => `
+        <button class="lesson-card" data-l="${l.id}">
+          <div class="lc-top"><span class="chip">${l.tag}</span><span class="muted small">⏱ ${l.min} min ${progress.lessonsRead[l.id] ? " · ✅ lu" : ""}</span></div>
+          <h3 style="margin:0">${l.titre}</h3>
+          <span class="muted small">${l.resume}</span>
+        </button>`).join("")}
+    </div>`;
+  app.querySelectorAll("[data-l]").forEach(b => b.addEventListener("click", () => go("formation/"+b.dataset.l)));
+}
+
+function renderLesson(l){
+  progress.lessonsRead[l.id] = true; store.set("progress", progress);
+  app.innerHTML = `
+    <button class="btn ghost sm no-print" id="backF">← Toutes les leçons</button>
+    <div style="margin-top:18px" class="eyebrow">${l.tag} · ${l.min} min de lecture</div>
+    <h1>${l.titre}</h1>
+    <div class="lesson-body card">${l.body}</div>
+    <div class="pill-row no-print" style="margin-top:18px">
+      ${config.modules.entrainement ? '<button class="btn" id="goTrain">S\'entraîner sur ce thème →</button>' : ""}
+      <button class="btn secondary" id="backF2">Retour aux leçons</button>
+    </div>`;
+  const back = () => go("formation");
+  document.getElementById("backF").addEventListener("click", back);
+  document.getElementById("backF2").addEventListener("click", back);
+  const gt = document.getElementById("goTrain");
+  if(gt) gt.addEventListener("click", () => go("training"));
+}
+</script>
+<script>
+"use strict";
+/* ================= MODULE ENTRAÎNEMENT ================= */
+
+function SCENARIOS(){
+  const all = [
+  { id:"pige", titre:"Pige : le premier appel", ico:"📞", theme:"Prospection", mandatSimple:true,
+    ctx:"M. Ferrand vend sa maison seul depuis 5 semaines sur Leboncoin. Le prix a baissé une fois. Vous l'appelez pour la première fois. Objectif : décrocher un rendez-vous — pas un mandat.",
+    npcName:"M. Ferrand", start:"s1",
+    scenes:{
+      s1:{ npc:"Allô oui ? … Ah, une agence. Écoutez, c'est écrit sur l'annonce : AGENCES S'ABSTENIR.",
+        choices:[
+          {t:"« Je ne vous appelle pas pour critiquer votre choix de vendre seul — je le respecte. Je vous appelle parce que je viens de vendre rue des Lilas, à 300 mètres de chez vous, et que j'ai des acquéreurs validés qui cherchent votre secteur. Vous avez deux minutes ? »", pts:2, fb:"Excellent : vous désamorcez, puis vous apportez de la valeur concrète (vente comparable + acquéreurs) avant de demander quoi que ce soit.", next:"s2"},
+          {t:"« Justement, si vous avez mis “agences s'abstenir”, c'est que vous en avez assez d'être harcelé. Moi je ne suis pas comme les autres. »", pts:1, fb:"L'intention est bonne mais « je ne suis pas comme les autres » est la phrase que TOUS les autres prononcent. Prouvez-le par un fait, pas par une déclaration.", next:"s2"},
+          {t:"« Vous savez, 80 % des particuliers finissent par confier leur bien à une agence. Vous perdez du temps. »", pts:0, fb:"Statistique agressive = vexation immédiate. Vous venez de confirmer tous ses préjugés sur les agents. Il va raccrocher.", next:"s2"}
+        ]},
+      s2:{ npc:"Mouais… De toute façon j'ai déjà des contacts. Encore ce week-end, deux visites.",
+        choices:[
+          {t:"« C'est très bien ! Et sur ces contacts, combien avaient un financement déjà validé par leur banque ? C'est là que la plupart des ventes entre particuliers se bloquent — au compromis, trois mois perdus. »", pts:2, fb:"Parfait : vous valorisez ses résultats (pas de confrontation) puis vous ouvrez la question qu'il ne s'est jamais posée : la qualification du financement.", next:"s3"},
+          {t:"« Des visites, c'est bien, mais des offres ? Parce que visiter, tout le monde visite. »", pts:1, fb:"La question est juste, mais le ton est frontal — « tout le monde visite » sonne méprisant. Même question possible en valorisant d'abord.", next:"s3"},
+          {t:"« Des curieux, sûrement. Les vrais acheteurs passent par les agences. »", pts:0, fb:"Faux en plus d'être arrogant. Vous invalidez son vécu : il va défendre sa position au lieu de vous écouter.", next:"s3"}
+        ]},
+      s3:{ npc:"Le financement, bon… les gens avaient l'air sérieux. Et puis entre nous, si je vends seul c'est pour ne pas payer 5 % de commission pour ouvrir une porte.",
+        choices:[
+          {t:"« Si mon métier c'était d'ouvrir des portes, je serais d'accord avec vous. Ce que vous achetez, c'est un prix défendu jusqu'au bout : mes ventes se négocient en moyenne bien moins que les ventes entre particuliers, parce que je qualifie les dossiers et je crée de la concurrence entre acheteurs. Souvent, ça paie les honoraires — et au-delà. »", pts:2, fb:"Vous reformulez l'objection commission en équation de valeur : prix net vendeur final, pas pourcentage. C'est LA réponse à l'objection commission.", next:"s4"},
+          {t:"« On peut discuter des honoraires, vous savez. Je peux faire un geste. »", pts:0, fb:"Brader avant même d'avoir démontré votre valeur : vous confirmez que votre prestation ne vaut pas son prix. Et vous attirez les vendeurs qui négocieront tout.", next:"s4"},
+          {t:"« Je comprends. Beaucoup de mes clients vendeurs pensaient pareil avant. Puis ils ont vu la différence sur le prix final et la tranquillité. »", pts:1, fb:"Correct mais abstrait : « ils ont vu la différence » ne prouve rien. Chiffrez, donnez un exemple précis.", next:"s4"}
+        ]},
+      s4:{ npc:"Hm. Vous êtes moins agressif que les autres, je vous l'accorde. Mais je ne signerai rien, je vous préviens.",
+        choices:[
+          {t:"« Et je ne vous demande rien à signer. Je vous propose 30 minutes : je visite, je vous donne mon avis de valeur écrit et le profil de mes trois acquéreurs en recherche sur votre secteur. Vous gardez tout, même si on ne travaille jamais ensemble. Plutôt jeudi en fin de journée, ou samedi matin ? »", pts:2, fb:"Rendez-vous sans engagement + apport concret + alternative double : c'est exactement la clôture d'un appel de pige réussi.", next:null},
+          {t:"« D'accord, mais réfléchissez quand même au mandat simple, ça ne vous engage à rien et ça ne vous coûte rien. »", pts:1, fb:"Vous grillez l'étape : demander le mandat au téléphone fait retomber la méfiance. D'abord le rendez-vous, le mandat viendra sur place — et visez mieux qu'un simple.", next:null},
+          {t:"« Très bien, je vous laisse mon numéro, appelez-moi si vous changez d'avis. »", pts:0, fb:"Il ne rappellera jamais. C'est à VOUS de proposer une prochaine étape concrète et datée. Un appel de pige sans rendez-vous ni date de rappel est un appel perdu.", next:null}
+        ]},
+    },
+    debrief:{
+      high:"🏆 Appel maîtrisé : vous avez désamorcé, apporté de la valeur, répondu à l'objection commission par le prix net final, et fermé sur un rendez-vous daté. C'est le schéma à reproduire — souvenez-vous qu'une pige se gagne en plusieurs contacts : notez tout et re-contactez avec un nouveau prétexte de valeur.",
+      mid:"👍 L'essentiel y est, mais des réflexes restent à ancrer : valoriser avant de questionner, chiffrer votre valeur plutôt que l'affirmer, et toujours fermer sur une étape concrète datée. Rejouez le scénario en visant le sans-faute.",
+      low:"📚 Relisez la leçon « La pige » avant de rejouer : les trois pièges classiques (confrontation, statistiques agressives, absence de prochaine étape) vous ont coûté l'appel. C'est normal au début — c'est exactement pour ça qu'on s'entraîne ici et pas sur de vrais vendeurs."
+    }},
+
+  { id:"transfo", titre:"Du mandat simple à l'exclusivité", ico:"🔄", theme:"Mandats", mandatSimple:true,
+    ctx:"Mme Weber vous a confié un mandat simple il y a 6 semaines (3 agences + elle-même sur PAP). Vous avez fait 4 visites avec comptes-rendus écrits ; les autres agences, aucune. Vous l'avez invitée à un bilan. Objectif : transformer en exclusivité.",
+    npcName:"Mme Weber", start:"s1",
+    scenes:{
+      s1:{ npc:"Bonjour ! Alors, vous avez de bonnes nouvelles ? Une offre ?",
+        choices:[
+          {t:"« Pas encore d'offre, et je vais vous montrer exactement pourquoi — c'est le but de ce rendez-vous. Voici le bilan complet : 4 visites par mon agence, les retours mot pour mot, et une analyse de la situation de votre bien sur le marché. On regarde ensemble ? »", pts:2, fb:"Honnête et structuré : vous annoncez la couleur et vous pilotez le rendez-vous avec des faits.", next:"s2"},
+          {t:"« Pas d'offre, mais ne vous inquiétez pas, ça va venir, le marché est un peu lent en ce moment. »", pts:0, fb:"Rassurer sans données = perdre de la crédibilité. Et accuser « le marché » vous désarme pour la suite : si c'est le marché, à quoi servez-vous ?", next:"s2"},
+          {t:"« Pas d'offre. Honnêtement, avec trois agences sur le coup, c'est difficile de travailler correctement. »", pts:1, fb:"Le fond est vrai, mais s'ouvrir sur une plainte vous fait passer pour mauvais joueur. Les faits d'abord, la conclusion viendra d'elle-même.", next:"s2"}
+        ]},
+      s2:{ npc:"Je vous écoute… C'est vrai que vous êtes le seul à m'envoyer des comptes-rendus, d'ailleurs.",
+        choices:[
+          {t:"« Regardez cette recherche comme si vous étiez acheteuse : votre maison apparaît 3 fois, à 315 000 chez moi, 325 000 ailleurs, 330 000 sur PAP. Trois prix pour le même bien. Si vous étiez acheteuse, qu'est-ce que vous en concluriez ? »", pts:2, fb:"Le pivot parfait : vous montrez les faits et vous laissez MME WEBER prononcer le diagnostic. Sa conclusion vaudra dix de vos arguments.", next:"s3"},
+          {t:"« Oui, et c'est bien la preuve que les autres agences ne font rien. Il faut leur retirer le mandat, elles ne servent à rien. »", pts:1, fb:"Critiquer frontalement les confrères est contre-productif : c'est ELLE qui les a choisis, vous critiquez donc son choix. Montrez plutôt les faits.", next:"s3"},
+          {t:"« C'est normal, c'est mon travail ! Bon, sinon, est-ce qu'on passe en exclusivité ? »", pts:0, fb:"Demande prématurée, sans démonstration. Elle n'a encore aucune raison de changer de stratégie : vous n'avez rien montré.", next:"s3"}
+        ]},
+      s3:{ npc:"Vu comme ça… on dirait que je brade, ou que personne ne coordonne rien. Mais si je vous donne l'exclusivité et que vous ne trouvez pas, je mets tous mes œufs dans le même panier, non ?",
+        choices:[
+          {t:"« C'est la bonne question. Alors mettons les engagements par écrit, dans les deux sens : photos professionnelles sous 8 jours, diffusion premium, un compte-rendu tous les 15 jours — et si je ne tiens pas ces engagements, vous dénoncez le mandat après 3 mois avec 15 jours de préavis. Vous ne pariez pas sur moi : vous signez un contrat vérifiable. »", pts:2, fb:"Vous répondez à la peur (dépendance) par la réciprocité et la porte de sortie. C'est ce qui fait basculer les vendeurs prudents.", next:"s4"},
+          {t:"« Faites-moi confiance, je connais mon métier. Je vends 90 % de mes exclusivités. »", pts:1, fb:"Le chiffre est bien, mais « faites-moi confiance » ne répond pas à sa peur : elle veut une garantie, pas une promesse.", next:"s4"},
+          {t:"« Dans ce cas restons en simple, mais donnez-moi au moins une baisse de prix pour compenser. »", pts:0, fb:"Confusion totale : la baisse de prix et le type de mandat sont deux sujets distincts. Vous venez d'abandonner la transformation ET de braquer la vendeuse sur le prix.", next:"s4"}
+        ]},
+      s4:{ npc:"Et concrètement, qu'est-ce que je gagne à part vos photos ? Parce que les autres agences, elles, me promettent déjà des acheteurs…",
+        choices:[
+          {t:"« Un seul prix sur le marché, une seule stratégie, un responsable unique — moi. Concrètement dès lundi : retrait des annonces concurrentes, nouvelles photos, remise du bien en avant comme une nouveauté cohérente, et vos acquéreurs des 4 visites recontactés avec le bon discours. Et je vous propose de dater notre premier bilan d'exclusivité : dans 15 jours, ici même, chiffres sur table. »", pts:2, fb:"Concret, daté, orienté résultat : la vendeuse voit exactement à quoi ressemble sa semaine prochaine. C'est ça, vendre l'exclusivité.", next:null},
+          {t:"« Les autres promettent, moi je prouve. Relisez mes comptes-rendus, c'est déjà plus que ce qu'elles feront jamais. »", pts:1, fb:"Vrai, mais tourné vers le passé. Le vendeur signe pour ce qui va se passer demain : peignez la suite, pas le bilan.", next:null},
+          {t:"« Écoutez, si les autres sont si bien, restez avec elles. Moi je ne cours pas après les mandats. »", pts:0, fb:"La fausse indifférence est une roulette russe : quelques vendeurs mordent, la plupart concluent que vous n'avez pas besoin d'eux. Six semaines de travail sérieux gâchées sur une pique d'ego.", next:null}
+        ]},
+    },
+    debrief:{
+      high:"🏆 Transformation exemplaire : bilan factuel, diagnostic prononcé par la vendeuse elle-même, réponse à la peur de dépendance par des engagements réciproques, et projection concrète dans la semaine qui suit. Vous venez de signer une exclusivité sans jamais la « vendre ».",
+      mid:"👍 Vous tenez la trame, mais attention aux raccourcis : demander l'exclusivité avant la démonstration, ou critiquer les confrères au lieu de laisser parler les faits. Rejouez en cherchant à faire prononcer le diagnostic par la vendeuse.",
+      low:"📚 Reprenez la leçon « Transformer un mandat simple en exclusif » : la méthode repose sur les preuves accumulées puis le bilan factuel — jamais sur la pression ou la critique des concurrents."
+    }},
+
+  { id:"offre", titre:"Passage d'une offre à −8 %", ico:"✍️", theme:"Négociation", mandatSimple:false,
+    ctx:"Vous avez une exclusivité sur l'appartement de M. et Mme Rossi, affiché 320 000 €. Après 5 semaines et 9 visites, un couple d'acquéreurs — financement validé, pas de bien à revendre — fait une offre écrite à 295 000 € (−8 %). Vous la présentez aux Rossi.",
+    npcName:"M. Rossi", start:"s1",
+    scenes:{
+      s1:{ npc:"295 000 ?! C'est insultant. Ils se moquent de nous, ne leur répondez même pas.",
+        choices:[
+          {t:"« Je comprends la déception — vous aviez 320 000 en tête. Avant de décider, laissez-moi vous présenter le dossier complet : qui ils sont, comment ils financent, et où se situe leur offre par rapport aux dernières ventes du quartier. Ensuite vous aurez trois options : accepter, refuser, ou contre-proposer. »", pts:2, fb:"Vous accueillez l'émotion, puis vous ramenez au processus : dossier complet, trois options. Le vendeur reste décideur, vous restez pilote.", next:"s2"},
+          {t:"« Vous avez raison, c'est très bas. Je leur dis de repasser leur chemin ? »", pts:0, fb:"Vous épousez l'émotion du vendeur au lieu de l'éclairer. Une offre financée à −8 % après 9 visites sans autre offre, ça s'analyse, ça ne se jette pas.", next:"s2"},
+          {t:"« Attention, une offre écrite et financée, ça ne se refuse pas comme ça. Vous n'aurez peut-être jamais mieux. »", pts:1, fb:"Le fond mérite d'être dit, mais pas en première réponse à l'émotion : dit ainsi, cela sonne comme une pression pour vendre vite. D'abord accueillir, ensuite analyser.", next:"s2"}
+        ]},
+      s2:{ npc:"Bon… c'est qui, ces gens ? Ils ont les moyens au moins ?",
+        choices:[
+          {t:"« Un couple avec un enfant, primo-accédants. Financement validé par leur banque à 300 000 avec apport — j'ai l'attestation. Pas de bien à revendre, souples sur la date de signature. Ils ont visité deux fois, leurs mots : “c'est l'appartement qu'on cherche depuis un an, mais notre budget plafonne”. »", pts:2, fb:"Dossier d'offre complet : profil, financement prouvé, conditions, motivation. Le vendeur peut maintenant décider en connaissance de cause.", next:"s3"},
+          {t:"« Oui oui, ils sont solides, je les sens bien. Faites-moi confiance. »", pts:0, fb:"« Je les sens bien » n'est pas une qualification. Apport ? Attestation bancaire ? Conditions ? Sans faits, votre recommandation ne vaut rien.", next:"s3"},
+          {t:"« Ils sont financés. Mais le vrai sujet, c'est que 320 000 était sans doute trop cher dès le départ. »", pts:1, fb:"L'analyse prix est peut-être juste, mais lancée à ce moment-là, elle sonne comme un règlement de comptes. Présentez d'abord l'offre, l'analyse marché vient après.", next:"s3"}
+        ]},
+      s3:{ npc:"S'ils peuvent monter à 300 000, qu'ils le fassent ! Nous, en dessous de 315 000, c'est non. Dites-leur 315 000, à prendre ou à laisser.",
+        choices:[
+          {t:"« On peut contre-proposer 315 000, c'est votre droit. Mais regardons d'abord les faits : 9 visites, une seule offre, et les trois dernières ventes comparables entre 296 000 et 308 000. Une contre-offre à 315 000 a de fortes chances de les faire partir. À 305 000, argumentée sur les travaux récents, on reste au-dessus du marché en gardant l'acquéreur à la table. Quel est votre vrai plancher, entre nous ? »", pts:2, fb:"Vous respectez sa décision tout en l'éclairant : données de marché, risque chiffré, et la question clé du prix plancher — posée AVANT de rappeler l'acquéreur.", next:"s4"},
+          {t:"« Très bien, je transmets 315 000 à prendre ou à laisser. »", pts:1, fb:"Transmettre est votre devoir, mais transmettre SANS conseiller est un abandon de poste. « À prendre ou à laisser » ferme la porte à la négociation — votre métier est de la garder ouverte.", next:"s4"},
+          {t:"« 315 000 c'est irréaliste, ils ne suivront jamais. Acceptez 295 000, on signe la semaine prochaine et on n'en parle plus. »", pts:0, fb:"Pousser le vendeur à accepter la première offre sans explorer la contre-offre : c'est le cliché de l'agent pressé de toucher sa commission. Vous perdez sa confiance — et probablement le mandat.", next:"s4"}
+        ]},
+      s4:{ npc:"Bon… notre plancher réel, c'est 305 000. En dessous, on préfère attendre. Mais s'ils disent non à 305, on fait quoi ?",
+        choices:[
+          {t:"« Alors je défends 305 000, argumenté : chaudière neuve, charges maîtrisées, disponibilité immédiate. S'ils refusent, ils feront sans doute une dernière proposition entre 295 et 305 — et vous déciderez avec de vrais chiffres. Quoi qu'il arrive, je vous rappelle demain avant midi. Et s'ils sortent, le bien reste en vente : ce test du marché nous servira pour la suite. »", pts:2, fb:"Plan clair, argumentaire de contre-offre, scénarios anticipés, prochain contact daté. Le vendeur sait exactement ce qui se passe ensuite : c'est ça, piloter un passage d'offre.", next:null},
+          {t:"« S'ils disent non, tant pis pour eux, d'autres viendront. Le marché est porteur. »", pts:0, fb:"Après 5 semaines et une seule offre, promettre que « d'autres viendront » est de la méthode Coué. Ne promettez jamais ce que le marché n'a pas confirmé.", next:null},
+          {t:"« On verra à ce moment-là. Chaque chose en son temps. »", pts:1, fb:"Un vendeur anxieux a besoin de scénarios anticipés. « On verra » le laisse seul avec son angoisse — et l'angoisse, la nuit, appelle les autres agences.", next:null}
+        ]},
+    },
+    debrief:{
+      high:"🏆 Passage d'offre exemplaire : émotion accueillie, dossier d'offre complet, contre-offre construite sur des données de marché, prix plancher obtenu au bon moment et scénarios anticipés. L'acquéreur reste à la table, le vendeur reste en confiance.",
+      mid:"👍 Les fondamentaux sont là. Points de vigilance : ne jamais transmettre une contre-offre sans l'avoir conseillée, et toujours obtenir le prix plancher AVANT de rappeler l'acquéreur. Rejouez pour ancrer le réflexe.",
+      low:"📚 Relisez la leçon « Le passage d'offres ». Rappels clés : toute offre se transmet, une offre s'analyse (financement, conditions, marché) avant de se juger, et le vendeur décide — éclairé par vous."
+    }},
+
+  { id:"bilan", titre:"Bilan de promotion difficile", ico:"📊", theme:"Suivi vendeur", mandatSimple:false,
+    ctx:"Exclusivité depuis 6 semaines sur la maison de Mme Dubois, affichée 450 000 €. Résultat : 320 vues en ligne, 5 appels, 2 visites, aucune offre. Les comparables vendus sont autour de 415 000 €. C'est l'heure du bilan — et de la discussion prix.",
+    npcName:"Mme Dubois", start:"s1",
+    scenes:{
+      s1:{ npc:"Six semaines et deux malheureuses visites… Je commence à me demander si vous faites vraiment votre travail.",
+        choices:[
+          {t:"« C'est une question légitime, alors regardons-la en face. Voici tout ce qui a été fait : diffusion sur 8 portails, remontées hebdomadaires, mailing à 240 acquéreurs, panneau. Résultat : 320 vues, 5 appels, 2 visites. La machine tourne — c'est donc autre chose qui bloque, et les chiffres nous disent quoi. Je vous montre ? »", pts:2, fb:"Vous accueillez le reproche sans vous justifier ni vous écraser : preuves des actions, puis transition vers le vrai diagnostic. Exactement la posture du bilan.", next:"s2"},
+          {t:"« Je vous assure que je fais le maximum, j'y passe mes soirées ! Le marché est très compliqué en ce moment. »", pts:0, fb:"Vous vous justifiez émotionnellement et vous accusez « le marché » : les deux réflexes qui détruisent la crédibilité. Des faits, pas des efforts.", next:"s2"},
+          {t:"« Si vous n'êtes pas satisfaite, on peut arrêter le mandat, vous savez. »", pts:1, fb:"Proposer la rupture au premier reproche : vous fuyez au lieu de traiter. Certains vendeurs diront banco — et vous aurez perdu un mandat sauvable.", next:"s2"}
+        ]},
+      s2:{ npc:"Bon, montrez… 320 vues quand même ! Et seulement 5 appels ? Les gens sont bizarres.",
+        choices:[
+          {t:"« Ce ratio est justement le diagnostic : 320 personnes ont ouvert l'annonce, 315 ont refermé sans appeler. Elles ont vu les photos, la description… et le prix. Quand une annonce est vue mais n'appelle pas, dans 9 cas sur 10, c'est le positionnement prix. Regardez les trois ventes comparables de ces deux mois : 408, 415 et 422 000 €. »", pts:2, fb:"Vous transformez les chiffres en diagnostic limpide : beaucoup de vues + peu d'appels = prix. Et vous l'étayez immédiatement par des comparables.", next:"s3"},
+          {t:"« Oui, c'est le mystère du marché… On devrait peut-être changer les photos, ou refaire le texte de l'annonce ? »", pts:1, fb:"Proposer des retouches cosmétiques quand les données pointent le prix : vous retardez la vraie conversation de plusieurs semaines — aux frais de la vendeuse.", next:"s3"},
+          {t:"« Les acheteurs ne savent pas ce qu'ils veulent, c'est bien connu. Il faut être patient. »", pts:0, fb:"Mépriser les acquéreurs pour flatter la vendeuse : le marché n'a pas tort, il arbitre. La patience sans analyse est une lente dévalorisation du bien.", next:"s3"}
+        ]},
+      s3:{ npc:"Baisser à 415 000 ?! Mais j'ai besoin de 440 000 pour mon prochain achat ! Et ma voisine a vendu 460 000 l'année dernière !",
+        choices:[
+          {t:"« Je comprends, et ces deux chiffres méritent d'être regardés séparément. Votre besoin de 440 000 est un objectif de projet — le marché ne le connaît pas. Et la vente de votre voisine date d'un marché qui a changé ; à l'époque, les taux étaient plus bas. La vraie question : préférez-vous être au prix du marché dans un mois par choix, ou dans six mois par épuisement — après avoir “grillé” le bien ? »", pts:2, fb:"Vous dissociez besoin personnel et valeur de marché, vous datez le comparable de la voisine, et vous posez l'alternative temps/prix. C'est la conversation prix menée avec respect.", next:"s4"},
+          {t:"« 460 000 l'année dernière ? Alors attendons, ça va remonter. »", pts:0, fb:"Vous validez un comparable obsolète pour éviter le conflit. Six semaines de plus au mauvais prix, et c'est la vendeuse qui paiera l'addition — en temps ET en prix final.", next:"s4"},
+          {t:"« Votre voisine a eu de la chance. Aujourd'hui c'est 415 000, c'est comme ça, c'est mathématique. »", pts:1, fb:"Le fond est juste, la forme est brutale : « c'est comme ça » ferme la discussion. Elle a besoin de comprendre POURQUOI le marché a changé pour accepter le chiffre.", next:"s4"}
+        ]},
+      s4:{ npc:"… Je n'avais pas vu les choses comme ça. Mais accepter d'un coup 415 000, c'est dur à avaler. Il n'y a pas une solution intermédiaire ?",
+        choices:[
+          {t:"« Si, et je vous la propose : repositionnement à 425 000 dès lundi — le seuil qui nous fait apparaître dans les recherches “moins de 430 000” — avec un plan relance complet : annonce réécrite, re-mailing acquéreurs, remontée en tête de liste. Et on se fixe la règle ensemble : bilan dans 3 semaines, ici même. S'il n'y a pas au moins 4 visites, on ajuste à 415 000. Ce sont les chiffres qui décideront, pas nos émotions. »", pts:2, fb:"Palier chiffré et malin (seuil de recherche), plan de relance daté, règle de décision automatique : la vendeuse garde le sentiment de contrôle, vous gardez la trajectoire. Bilan magistral.", next:null},
+          {t:"« On peut mettre 435 000 pour vous rassurer, et on verra bien. »", pts:1, fb:"Un demi-palier sans plan ni règle de décision : vous achetez trois semaines de paix, pas une stratégie. « On verra bien » n'est pas un plan.", next:null},
+          {t:"« Non, c'est 415 000 ou je préfère rendre le mandat. À ce prix-là je ne peux rien faire. »", pts:0, fb:"L'ultimatum après qu'elle a commencé à bouger (« je n'avais pas vu les choses comme ça ») : contresens total. On accompagne une prise de conscience, on ne la matraque pas.", next:null}
+        ]},
+    },
+    debrief:{
+      high:"🏆 Bilan difficile transformé en feuille de route acceptée : preuves des actions, diagnostic par les ratios, dissociation besoin/marché, et palier avec règle de décision chiffrée. C'est exactement ainsi qu'on garde un mandat ET un vendeur satisfait.",
+      mid:"👍 Vous savez où aller, mais la forme compte autant que le fond dans un bilan tendu : ni justification émotionnelle, ni brutalité assénée. La cible : des faits, de l'empathie, une règle de décision.",
+      low:"📚 Relisez « Le bilan de promotion ». Les réflexes à ancrer : prouver les actions avant tout, lire les ratios (vues/appels/visites), ne jamais accuser le marché, et repartir avec une décision datée."
+    }}
+  ];
+  return config.mandatSimple ? all : all.filter(s => !s.mandatSimple);
+}
+
+const QUIZ = [
+  { q:"Un vendeur signe un mandat simple avec 3 agences. Qui peut vendre le bien ?", opts:["Uniquement les 3 agences","Les 3 agences et le vendeur lui-même","Seulement la première agence signataire","Le vendeur uniquement s'il baisse son prix"], ok:1, ex:"Le mandat simple laisse au vendeur le droit de vendre par lui-même, en plus de toutes les agences mandatées." },
+  { q:"Sans quel document ne peut-on PAS publier l'annonce d'une maison ?", opts:["Le pré-état daté","Le titre de propriété","Le DPE","Le diagnostic termites"], ok:2, ex:"L'étiquette énergie du DPE doit figurer dans toute annonce : c'est le premier diagnostic à commander." },
+  { q:"Le diagnostic plomb (CREP) est obligatoire pour les logements construits…", opts:["Avant 1949","Avant juillet 1997","Avant 1975","Quel que soit l'âge"], ok:0, ex:"Avant 1949 pour le plomb ; juillet 1997 est le seuil de l'amiante." },
+  { q:"Vous recevez une offre très basse que vous jugez fantaisiste. Que faites-vous ?", opts:["Vous la classez sans suite pour protéger le vendeur","Vous la transmettez au vendeur, avec votre analyse","Vous négociez d'abord seul avec l'acquéreur","Vous attendez une meilleure offre pour présenter les deux"], ok:1, ex:"Toute offre doit être transmise au vendeur : c'est lui qui décide. Votre valeur ajoutée, c'est l'analyse qui l'accompagne." },
+  { q:"Beaucoup de vues sur l'annonce, très peu d'appels. Diagnostic le plus probable ?", opts:["Le portail d'annonces fonctionne mal","Le prix est au-dessus du marché","Les acquéreurs sont en vacances","Il faut changer d'agence"], ok:1, ex:"Vu mais pas contacté = l'annonce attire mais le positionnement (presque toujours le prix) refroidit." },
+  { q:"La vente d'une maison classée F ou G (mono-propriété) exige en plus du DPE…", opts:["Un audit énergétique réglementaire","Un permis de louer","Une attestation RT2012","Rien de plus"], ok:0, ex:"L'audit énergétique, avec scénarios de travaux chiffrés, est obligatoire pour les passoires énergétiques en mono-propriété." },
+  { q:"Le bien vendu est la résidence de la famille, propriété du seul mari. Qui doit consentir à la vente ?", opts:["Le mari uniquement, il est propriétaire","Les deux époux","Le notaire tranche","Les enfants majeurs aussi"], ok:1, ex:"Article 215 du Code civil : le logement de la famille ne peut être vendu sans le consentement des deux époux, même si un seul est propriétaire." },
+  { q:"En appel de pige, votre objectif prioritaire est…", opts:["Faire signer un mandat par téléphone","Obtenir un rendez-vous","Donner une estimation immédiate","Récupérer l'adresse mail"], ok:1, ex:"Pas de mandat par téléphone : l'appel de pige vise le rendez-vous, tout le reste se joue sur place." },
+  { q:"Quel document de copropriété est généralement payant et à commander tôt car il peut prendre plusieurs semaines ?", opts:["La fiche synthétique","Le carnet d'entretien","Le pré-état daté","Le règlement de copropriété"], ok:2, ex:"Le pré-état daté (souvent 150-400 €) conditionne le compromis : commandez-le dès l'offre acceptée." },
+  { q:"Un mandat exclusif de 3 mois, après cette période initiale…", opts:["Se renouvelle obligatoirement 3 mois","Peut être dénoncé avec un préavis de 15 jours","Devient automatiquement un mandat simple","Est prolongé de 6 mois"], ok:1, ex:"Après la période irrévocable initiale, chaque partie peut dénoncer le mandat, en général avec 15 jours de préavis — un argument qui rassure les vendeurs." },
+  { q:"Le locataire d'un logement nu reçoit un congé pour vente. Quel est son droit ?", opts:["Aucun, il doit partir","Il est prioritaire pour acheter le logement","Il peut rester 3 ans de plus","Il peut exiger une indemnité"], ok:1, ex:"Le congé pour vente vaut offre de vente : le locataire dispose d'un droit de préemption au prix indiqué." },
+  { q:"La surface loi Carrez de l'acte s'avère surévaluée de plus de 5 %. L'acquéreur peut…", opts:["Annuler la vente sans condition","Demander une diminution du prix au prorata","Exiger des travaux","Rien, la vente est signée"], ok:1, ex:"Plus de 5 % d'écart : l'acquéreur a un an après l'acte pour demander une réduction proportionnelle du prix. D'où l'importance d'un mesurage sérieux." }
+];
+
+const FLASHCARDS = [
+  { o:"« Votre commission est trop chère. »", r:"« Comparons ce qui compte : votre prix net final. Je qualifie les financements, je crée la concurrence entre acheteurs et je défends le prix en négociation — c'est souvent bien plus que mes honoraires. Voulez-vous que je vous montre sur un exemple chiffré ? »", t:"Ramener au net vendeur, jamais au pourcentage." },
+  { o:"« Je veux d'abord essayer de vendre seul. »", r:"« C'est votre droit, et certains y arrivent. Fixons juste un repère : si dans 6 semaines vous n'avez pas d'offre financée, qu'est-ce que ça vous aura coûté en temps et en visibilité ? Je vous laisse mon avis de valeur — et je vous rappelle à cette date-là. »", t:"Ne pas s'opposer : poser un jalon daté et rester dans le paysage." },
+  { o:"« Une autre agence m'estime 30 000 € de plus. »", r:"« Une estimation n'engage que celui qui l'écoute. Demandez-lui les ventes signées — pas les prix affichés — qui justifient ce chiffre. Voici les miennes. L'agence qui surestime achète votre mandat aujourd'hui et vous fera baisser dans deux mois. »", t:"Exiger des comparables VENDUS ; nommer la surestimation d'appel." },
+  { o:"« L'exclusivité, c'est mettre tous mes œufs dans le même panier. »", r:"« Sauf que le panier signe des engagements écrits : photos pro sous 8 jours, compte-rendu tous les 15 jours, plan de diffusion complet. Si je ne les tiens pas, vous dénoncez le mandat avec 15 jours de préavis. Le vrai risque, c'est 4 agences dont aucune n'est responsable de rien. »", t:"Répondre à la peur par des engagements vérifiables + porte de sortie." },
+  { o:"« Les frais d'agence, l'acheteur n'a qu'à les payer. »", r:"« Peu importe la ligne où ils s'écrivent : l'acquéreur raisonne toujours en coût total. Ce qui compte, c'est que le prix affiché honoraires compris reste dans le marché — sinon personne n'appelle, et c'est vous qui payez en délai. »", t:"Recentrer sur le coût total acquéreur et le positionnement d'annonce." },
+  { o:"« Baisser le prix ? Jamais. J'ai le temps. »", r:"« Avoir le temps est une force — à condition que le bien ne s'use pas. Or une annonce qui vieillit fait fuir : “pourquoi personne n'en veut ?”. Testons le marché au bon prix pendant 3 semaines ; s'il répond, vous vendez fort. S'il ne répond pas, vous aurez une vraie donnée, pas une opinion. »", t:"Transformer « attendre » en test daté et mesurable." },
+  { o:"« Mon bien vaut plus, j'ai tout refait. »", r:"« Et ça se voit — c'est pour ça que je l'ai valorisé dans mon estimation, factures à l'appui. Mais le marché paie la valeur d'usage, pas le coût des travaux : une salle de bains à 15 000 € ne vaut pas +15 000 €, elle fait vendre plus vite au bon prix. »", t:"Distinguer coût des travaux et valeur de marché, valoriser par les factures." },
+  { o:"« Je ne signe rien aujourd'hui. »", r:"« Et je ne vous le demande pas : on ne confie pas sa maison sur un coup de tête. Je vous laisse mon plan de commercialisation détaillé. Je vous propose de nous revoir jeudi avec vos questions — c'est votre décision, prise au calme, qui m'intéresse. »", t:"Dédramatiser, laisser une trace écrite, dater la suite." },
+  { o:"« On a déjà eu une mauvaise expérience avec une agence. »", r:"« Racontez-moi — qu'est-ce qui s'est mal passé exactement ? … C'est précisément pour ça que je travaille avec des engagements écrits et des comptes-rendus systématiques : vous saurez toujours ce qui est fait, et vous pourrez me juger sur pièces. »", t:"Faire parler la blessure avant de proposer ; répondre point par point." },
+  { o:"« Rappelez-moi dans six mois. »", r:"« Bien noté, je vous rappelle le [date]. D'ici là, une question pour vous : qu'est-ce qui doit se passer dans ces six mois pour que votre projet avance ? … Je vous envoie mon étude de marché du quartier — elle vous servira, avec ou sans moi. »", t:"Accepter + dater + donner de la valeur pour rester présent." }
+];
+
+/* ----- rendu entraînement ----- */
+let sim = null; // {scn, sceneId, score, max, log:[], fb}
+let quiz = null; // {i, score, answered}
+
+function renderTraining(){
+  if(!config.modules.entrainement){ go("home"); return; }
+  const m = route.match(/^training\/(.+)$/);
+  if(m){
+    if(m[1]==="quiz"){ renderQuiz(); return; }
+    if(m[1]==="cartes"){ renderFlash(); return; }
+    const scn = SCENARIOS().find(s => s.id===m[1]);
+    if(scn){ renderSim(scn); return; }
+  }
+  sim = null; quiz = null;
+  const scns = SCENARIOS();
+  app.innerHTML = `
+    <div class="eyebrow">Entraînement</div>
+    <h1>Entraînez-vous avant d'affronter le terrain</h1>
+    <p class="muted">Des mises en situation avec de vrais dialogues : choisissez vos répliques, recevez un retour immédiat, visez le sans-faute. Ici, se tromper ne coûte aucun mandat.</p>
+    <h2 style="margin-top:26px">🎭 Mises en situation</h2>
+    <div class="grid cols-2">
+      ${scns.map(s => {
+        const best = progress.simBest[s.id];
+        return `<button class="lesson-card" data-r="training/${s.id}">
+          <div class="lc-top"><span class="chip">${s.ico} ${s.theme}</span>${best!=null ? '<span class="muted small">Meilleur score : '+best+'%</span>' : '<span class="muted small">Jamais joué</span>'}</div>
+          <h3 style="margin:0">${s.titre}</h3>
+          <span class="muted small">${s.ctx}</span>
+        </button>`;
+      }).join("")}
+    </div>
+    <h2 style="margin-top:30px">🧠 Connaissances</h2>
+    <div class="grid cols-2">
+      <button class="lesson-card" data-r="training/quiz">
+        <div class="lc-top"><span class="chip">❓ Quiz</span>${progress.quizBest!=null ? '<span class="muted small">Meilleur score : '+progress.quizBest+'/'+QUIZ.length+'</span>':''}</div>
+        <h3 style="margin:0">Quiz mandats, documents & négociation</h3>
+        <span class="muted small">${QUIZ.length} questions corrigées et expliquées, tirées des leçons.</span>
+      </button>
+      <button class="lesson-card" data-r="training/cartes">
+        <div class="lc-top"><span class="chip">🃏 Flashcards</span></div>
+        <h3 style="margin:0">Objections vendeurs : les réponses qui marchent</h3>
+        <span class="muted small">${FLASHCARDS.length} objections classiques. Formulez votre réponse à voix haute, puis retournez la carte.</span>
+      </button>
+    </div>`;
+  app.querySelectorAll("[data-r]").forEach(b => b.addEventListener("click", () => go(b.dataset.r)));
+}
+
+function renderSim(scn){
+  if(!sim || sim.scn.id!==scn.id){
+    sim = { scn, sceneId:scn.start, score:0, max:0, log:[], fb:null, ended:false };
+  }
+  const sc = scn.scenes[sim.sceneId];
+  const pct = sim.max ? Math.round(sim.score/sim.max*100) : 0;
+  app.innerHTML = `
+    <button class="btn ghost sm" id="backT">← Entraînements</button>
+    <div style="margin-top:16px" class="eyebrow">${scn.ico} Mise en situation · ${scn.theme}</div>
+    <h1>${scn.titre}</h1>
+    <div class="card" style="margin-bottom:16px"><span class="eyebrow">Contexte</span><p style="margin:.4em 0 0">${scn.ctx}</p></div>
+    <div class="score-bar no-print"><span>Score</span><div class="track"><i style="width:${pct}%"></i></div><span style="font-variant-numeric:tabular-nums">${sim.score}/${sim.max||"–"}</span></div>
+    <div class="chat" aria-live="polite">
+      ${sim.log.map(e => `
+        <div class="bubble ${e.who==="npc"?"npc":"me"}"><span class="who">${e.who==="npc"?scn.npcName:"Vous"}</span>${e.txt}</div>
+        ${e.fb ? '<div class="fb '+e.cls+'">'+e.fb+'</div>' : ""}`).join("")}
+      ${!sim.ended ? '<div class="bubble npc"><span class="who">'+scn.npcName+'</span>'+sc.npc+'</div>' : ""}
+    </div>
+    ${!sim.ended ? `
+      <div class="eyebrow">Que répondez-vous ?</div>
+      <div class="choice-list">
+        ${sc.choices.map((c,i) => '<button class="choice" data-i="'+i+'">'+c.t+'</button>').join("")}
+      </div>` : renderDebrief(scn, pct)}
+  `;
+  document.getElementById("backT").addEventListener("click", () => { sim=null; go("training"); });
+  app.querySelectorAll(".choice").forEach(b => b.addEventListener("click", () => {
+    const c = sc.choices[+b.dataset.i];
+    sim.score += c.pts; sim.max += 2;
+    sim.log.push({who:"npc", txt:sc.npc});
+    sim.log.push({who:"me", txt:c.t, fb:c.fb, cls:c.pts===2?"good":(c.pts===1?"mid":"bad")});
+    if(c.next){ sim.sceneId = c.next; } else { sim.ended = true; finishSim(scn); }
+    renderSim(scn);
+    window.scrollTo({top:document.body.scrollHeight, behavior:"smooth"});
+  }));
+  const replay = document.getElementById("simReplay");
+  if(replay) replay.addEventListener("click", () => { sim=null; renderSim(scn); window.scrollTo(0,0); });
+}
+function finishSim(scn){
+  const pct = Math.round(sim.score/sim.max*100);
+  if(progress.simBest[scn.id]==null || pct > progress.simBest[scn.id]){ progress.simBest[scn.id]=pct; store.set("progress", progress); }
+}
+function renderDebrief(scn, pct){
+  const d = pct>=80 ? scn.debrief.high : (pct>=50 ? scn.debrief.mid : scn.debrief.low);
+  return `<div class="card" style="margin-top:10px">
+    <div class="eyebrow">Débrief — score final : ${pct}%</div>
+    <p style="margin:.5em 0 1em">${d}</p>
+    <div class="pill-row">
+      <button class="btn" id="simReplay">↺ Rejouer le scénario</button>
+    </div>
+  </div>`;
+}
+
+function renderQuiz(){
+  if(!quiz) quiz = { i:0, score:0, answered:false, order:QUIZ.map((_,i)=>i) };
+  if(quiz.i >= QUIZ.length){
+    if(progress.quizBest==null || quiz.score > progress.quizBest){ progress.quizBest = quiz.score; store.set("progress", progress); }
+    const s = quiz.score;
+    app.innerHTML = `
+      <button class="btn ghost sm" id="backT">← Entraînements</button>
+      <h1 style="margin-top:16px">Résultat : ${s} / ${QUIZ.length}</h1>
+      <div class="card"><p>${s>=10?"🏆 Excellent — vous maîtrisez les fondamentaux. Passez aux mises en situation pour travailler la posture.":(s>=7?"👍 Bonne base ! Relisez les corrections des questions ratées, puis retentez le sans-faute.":"📚 C'est le moment de (re)lire les leçons de l'onglet Formation — puis revenez : le quiz vous dira si c'est acquis.")}</p>
+      <div class="pill-row"><button class="btn" id="quizRestart">↺ Recommencer le quiz</button></div></div>`;
+    document.getElementById("backT").addEventListener("click", () => { quiz=null; go("training"); });
+    document.getElementById("quizRestart").addEventListener("click", () => { quiz=null; renderQuiz(); });
+    return;
+  }
+  const q = QUIZ[quiz.i];
+  app.innerHTML = `
+    <button class="btn ghost sm" id="backT">← Entraînements</button>
+    <div style="margin-top:16px" class="eyebrow">Quiz · question ${quiz.i+1} / ${QUIZ.length} · score ${quiz.score}</div>
+    <div class="wizard-progress"><i style="width:${Math.round(quiz.i/QUIZ.length*100)}%"></i></div>
+    <h2>${q.q}</h2>
+    <div id="qopts">${q.opts.map((o,i)=>'<button class="qopt" data-i="'+i+'">'+o+'</button>').join("")}</div>
+    <div id="qex"></div>`;
+  document.getElementById("backT").addEventListener("click", () => { quiz=null; go("training"); });
+  app.querySelectorAll(".qopt").forEach(b => b.addEventListener("click", () => {
+    if(quiz.answered) return;
+    quiz.answered = true;
+    const i = +b.dataset.i;
+    app.querySelectorAll(".qopt").forEach((x,xi) => { if(xi===q.ok) x.classList.add("correct"); else if(xi===i) x.classList.add("wrong"); });
+    if(i===q.ok) quiz.score++;
+    document.getElementById("qex").innerHTML = '<div class="fb '+(i===q.ok?"good":"bad")+'">'+(i===q.ok?"✔ Exact. ":"✘ Raté. ")+q.ex+'</div><button class="btn" id="qNext" style="margin-top:14px">Question suivante →</button>';
+    document.getElementById("qNext").addEventListener("click", () => { quiz.i++; quiz.answered=false; renderQuiz(); });
+  }));
+}
+
+function renderFlash(){
+  app.innerHTML = `
+    <button class="btn ghost sm" id="backT">← Entraînements</button>
+    <div style="margin-top:16px" class="eyebrow">Flashcards · objections vendeurs</div>
+    <h1>Formulez votre réponse à voix haute, puis retournez la carte</h1>
+    <p class="muted small">L'objectif n'est pas de réciter la carte mot à mot, mais de retrouver la <b>technique</b> indiquée en bas de chaque réponse.</p>
+    <div class="grid cols-2" style="margin-top:18px">
+      ${FLASHCARDS.map((f,i)=>`
+        <div class="fcard" data-i="${i}" role="button" tabindex="0" aria-label="Carte objection ${i+1}, cliquer pour retourner">
+          <div class="fcard-inner">
+            <div class="fface front"><span class="eyebrow">Objection ${i+1}</span><h3 style="margin:0">${f.o}</h3><span class="muted small">Cliquez pour voir une réponse</span></div>
+            <div class="fface back"><p class="small" style="margin:0">${f.r}</p><span class="eyebrow" style="margin-top:6px">🎯 ${f.t}</span></div>
+          </div>
+        </div>`).join("")}
+    </div>`;
+  document.getElementById("backT").addEventListener("click", () => go("training"));
+  app.querySelectorAll(".fcard").forEach(c => {
+    const flip = () => c.classList.toggle("flipped");
+    c.addEventListener("click", flip);
+    c.addEventListener("keydown", e => { if(e.key==="Enter"||e.key===" "){ e.preventDefault(); flip(); } });
+  });
+}
+
+/* ================= ACCUEIL ================= */
+function renderHome(){
+  const lessons = config.modules.formation ? LESSONS() : [];
+  const read = lessons.filter(l=>progress.lessonsRead[l.id]).length;
+  const scns = config.modules.entrainement ? SCENARIOS() : [];
+  const played = scns.filter(s=>progress.simBest[s.id]!=null).length;
+  let docPct = null;
+  if(dossier && dossier.done){
+    const ds = docsFor(dossier.answers);
+    docPct = ds.length ? Math.round(ds.filter(d=>dossier.checked[d.id]).length/ds.length*100) : 0;
+  }
+  app.innerHTML = `
+    <div class="hero">
+      <div class="eyebrow">${config.nom}</div>
+      <h1>Bienvenue sur votre plateforme de formation</h1>
+      <p class="muted" style="max-width:60ch">Tout ce qu'il faut à un ${V()} pour réussir ses premiers mandats : constituer un dossier de vente sans rien oublier, maîtriser les méthodes du métier, et s'entraîner sur des situations réelles — sans risque.</p>
+      <div class="pill-row" style="margin-top:14px">
+        ${config.modules.documents ? '<button class="btn" data-r="docs">🗂 Préparer un dossier de vente</button>':""}
+        ${config.modules.formation ? '<button class="btn secondary" data-r="formation">📖 Suivre une leçon</button>':""}
+        ${config.modules.entrainement ? '<button class="btn secondary" data-r="training">🎭 S\'entraîner</button>':""}
+      </div>
+    </div>
+    <div class="grid cols-3">
+      ${docPct!=null ? '<div class="stat"><div class="v">'+docPct+'%</div><div class="l">Dossier de vente en cours</div></div>' : (config.modules.documents ? '<div class="stat"><div class="v">–</div><div class="l">Aucun dossier en cours</div></div>':"")}
+      ${config.modules.formation ? '<div class="stat"><div class="v">'+read+'/'+lessons.length+'</div><div class="l">Leçons lues</div></div>':""}
+      ${config.modules.entrainement ? '<div class="stat"><div class="v">'+played+'/'+scns.length+'</div><div class="l">Mises en situation jouées</div></div>':""}
+      ${config.modules.entrainement && progress.quizBest!=null ? '<div class="stat"><div class="v">'+progress.quizBest+'/'+QUIZ.length+'</div><div class="l">Meilleur score au quiz</div></div>':""}
+    </div>
+    <div class="grid cols-2" style="margin-top:22px">
+      ${config.modules.documents ? `<div class="card">
+        <h3>🗂 L'assistant dossier de vente</h3>
+        <p class="small muted">Répondez à quelques questions — maison ou appartement, copropriété, situation du vendeur… — et obtenez la liste exacte des documents : à qui les demander, sous quel délai, avec une astuce de pro pour chacun.</p>
+        <button class="btn sm" data-r="docs">${dossier && dossier.done ? "Reprendre mon dossier →" : "Démarrer un dossier →"}</button>
+      </div>`:""}
+      ${config.modules.entrainement ? `<div class="card">
+        <h3>🎭 Le simulateur de dialogues</h3>
+        <p class="small muted">Un appel de pige, une offre à −8 %, un bilan tendu : entraînez-vous sur des conversations réalistes avec retour immédiat sur chaque réplique. Ici, se tromper ne coûte aucun mandat.</p>
+        <button class="btn sm" data-r="training">Choisir un scénario →</button>
+      </div>`:""}
+    </div>`;
+  app.querySelectorAll("[data-r]").forEach(b => b.addEventListener("click", () => go(b.dataset.r)));
+}
+
+/* ================= MARQUE BLANCHE ================= */
+const SWATCHES = ["#3D5A80","#7A2E2E","#1F6E5C","#8A6D1F","#4A3B78","#B4552D","#2B2B2B","#0F5E75"];
+
+function renderSettings(){
+  app.innerHTML = `
+    <div class="eyebrow">Marque blanche</div>
+    <h1>Personnalisez la plateforme à votre enseigne</h1>
+    <p class="muted">Tout se met à jour instantanément : nom, logo, couleur, vocabulaire et modules visibles. Les réglages sont conservés sur cet appareil.</p>
+    <div class="grid cols-2" style="margin-top:20px">
+      <div class="card">
+        <h3>Identité</h3>
+        <div class="field"><label for="cfgNom">Nom de l'enseigne</label><input type="text" id="cfgNom" value="${esc(config.nom)}" maxlength="40"></div>
+        <div class="field"><label for="cfgBase">Baseline (sous le nom)</label><input type="text" id="cfgBase" value="${esc(config.baseline)}" maxlength="70"></div>
+        <div class="field"><label for="cfgLogo">Logo (PNG/JPG/SVG, affiché 40×40)</label>
+          <input type="file" id="cfgLogo" accept="image/*">
+          ${config.logo ? '<button class="btn sm ghost" id="cfgLogoDel" style="margin-top:8px">Retirer le logo</button>' : '<p class="muted small" style="margin-top:6px">Sans logo, l\'initiale de l\'enseigne s\'affiche sur la couleur d\'accent.</p>'}
+        </div>
+      </div>
+      <div class="card">
+        <h3>Couleur d'accent</h3>
+        <div class="swatches" style="margin-bottom:12px">
+          ${SWATCHES.map(c=>'<button class="swatch '+(config.accent.toLowerCase()===c.toLowerCase()?"on":"")+'" style="background:'+c+'" data-c="'+c+'" aria-label="Couleur '+c+'"></button>').join("")}
+        </div>
+        <div class="field"><label for="cfgColor">Ou choisissez précisément</label><input type="color" id="cfgColor" value="${config.accent}"></div>
+        <h3 style="margin-top:20px">Vocabulaire</h3>
+        <div class="field"><label for="cfgVocab">Comment appelez-vous vos collaborateurs ?</label>
+          <select id="cfgVocab">
+            <option value="conseiller" ${config.vocab==="conseiller"?"selected":""}>Conseiller</option>
+            <option value="négociateur" ${config.vocab==="négociateur"?"selected":""}>Négociateur</option>
+            <option value="agent" ${config.vocab==="agent"?"selected":""}>Agent</option>
+          </select>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Modules visibles</h3>
+        <div class="toggle-row"><span>🗂 Dossier documents</span><input type="checkbox" data-mod="documents" ${config.modules.documents?"checked":""}></div>
+        <div class="toggle-row"><span>📖 Formation</span><input type="checkbox" data-mod="formation" ${config.modules.formation?"checked":""}></div>
+        <div class="toggle-row"><span>🎭 Entraînement</span><input type="checkbox" data-mod="entrainement" ${config.modules.entrainement?"checked":""}></div>
+        <div class="toggle-row"><span>Contenus « mandat simple & pige »<br><span class="muted small">À décocher pour un réseau 100 % exclusivité qui ne souhaite pas les montrer</span></span><input type="checkbox" id="cfgMS" ${config.mandatSimple?"checked":""}></div>
+      </div>
+      <div class="card">
+        <h3>Réinitialiser</h3>
+        <p class="muted small">Restaure le nom, la couleur et les modules par défaut. Ne touche ni aux dossiers documents ni aux scores.</p>
+        <button class="btn secondary" id="cfgReset">Rétablir les réglages par défaut</button>
+      </div>
+    </div>`;
+
+  const save = () => { store.set("config", config); applyBranding(); renderTabs(); };
+  document.getElementById("cfgNom").addEventListener("input", e => { config.nom = e.target.value || "Kadymo"; save(); });
+  document.getElementById("cfgBase").addEventListener("input", e => { config.baseline = e.target.value; save(); });
+  document.getElementById("cfgLogo").addEventListener("change", e => {
+    const f = e.target.files && e.target.files[0]; if(!f) return;
+    if(f.size > 400*1024){ alert("Image trop lourde (max 400 Ko) : préférez un logo léger."); return; }
+    const rd = new FileReader();
+    rd.onload = () => { config.logo = rd.result; save(); renderSettings(); };
+    rd.readAsDataURL(f);
+  });
+  const del = document.getElementById("cfgLogoDel");
+  if(del) del.addEventListener("click", () => { config.logo=""; save(); renderSettings(); });
+  app.querySelectorAll(".swatch").forEach(s => s.addEventListener("click", () => { config.accent = s.dataset.c; save(); renderSettings(); }));
+  document.getElementById("cfgColor").addEventListener("input", e => { config.accent = e.target.value; save(); });
+  document.getElementById("cfgVocab").addEventListener("change", e => { config.vocab = e.target.value; save(); });
+  app.querySelectorAll("[data-mod]").forEach(c => c.addEventListener("change", () => {
+    config.modules[c.dataset.mod] = c.checked; save();
+  }));
+  document.getElementById("cfgMS").addEventListener("change", e => { config.mandatSimple = e.target.checked; save(); });
+  document.getElementById("cfgReset").addEventListener("click", () => {
+    if(!confirm("Rétablir les réglages par défaut ?")) return;
+    config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+    store.set("config", config); applyBranding(); renderTabs(); renderSettings();
+  });
+}
+
+/* ================= boot ================= */
+function render(){
+  if(route==="home") return renderHome();
+  if(route==="docs" || route.startsWith("docs/")) return renderDocs();
+  if(route==="formation" || route.startsWith("formation/")) return renderFormation();
+  if(route==="training" || route.startsWith("training/")) return renderTraining();
+  if(route==="settings") return renderSettings();
+  route = "home"; renderHome();
+}
+/* si un module a été masqué alors que la route pointait dessus */
+(function(){
+  const ok = tabsDef().some(t => route===t.id || route.startsWith(t.id+"/"));
+  if(!ok) route = "home";
+})();
+applyTheme();
+applyBranding();
+renderTabs();
+render();
+</script>
