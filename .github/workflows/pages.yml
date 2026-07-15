@@ -29,30 +29,31 @@ jobs:
         run: |
           mkdir -p _site/assets
           cp index.html _site/
+          cp favicon.svg _site/
           cp -r assets/* _site/assets/
           # Studio Immo (version marque blanche, parcours guidé) sous /pro/
           mkdir -p _site/pro/assets
-          cp pro/index.html _site/pro/
+          cp pro/index.html pro/favicon.svg _site/pro/
           cp -r pro/assets/* _site/pro/assets/
           # Studio Mandat (accueil + fiche prestation + brochure) sous /mandat/
           mkdir -p _site/mandat/assets
-          cp mandat/index.html mandat/fiche.html mandat/brochure.html _site/mandat/
+          cp mandat/index.html mandat/fiche.html mandat/brochure.html mandat/favicon.svg _site/mandat/
           cp -r mandat/assets/* _site/mandat/assets/
           # Studio Mandat marque blanche (paramétrage agence) sous /mandat-pro/
           mkdir -p _site/mandat-pro/assets
-          cp mandat-pro/index.html mandat-pro/fiche.html mandat-pro/brochure.html _site/mandat-pro/
+          cp mandat-pro/index.html mandat-pro/fiche.html mandat-pro/brochure.html mandat-pro/favicon.svg _site/mandat-pro/
           cp -r mandat-pro/assets/* _site/mandat-pro/assets/
           # Page de présentation Studio Mandat sous /site-mandat/
           mkdir -p _site/site-mandat/assets
-          cp site-mandat/index.html _site/site-mandat/
+          cp site-mandat/index.html site-mandat/favicon.svg _site/site-mandat/
           cp -r site-mandat/assets/* _site/site-mandat/assets/
           # Site vitrine (promotion Studio Immo) sous /site/
           mkdir -p _site/site/assets
-          cp site/index.html _site/site/
+          cp site/index.html site/favicon.svg _site/site/
           cp -r site/assets/* _site/site/assets/
           # Pages légales (mentions, RGPD, CGU/CGV, cookies) sous /legal/
           mkdir -p _site/legal/assets
-          cp legal/*.html _site/legal/
+          cp legal/*.html legal/favicon.svg _site/legal/
           cp -r legal/assets/* _site/legal/assets/
           touch _site/.nojekyll
 

@@ -32,6 +32,11 @@ Ma recommandation : **sécuriser tout de suite les noms de domaine et réseaux (
 trancher entre « logo semi-figuratif sur Studio Brochure » et « nouveau nom fort » avant le
 dépôt INPI.
 
+> **Décision prise (juillet 2026) : on garde « Studio Brochure » et on protège la MARQUE
+> SEMI-FIGURATIVE (logo + nom).** Le logo « Le pli » a été créé et intégré (barre des sites,
+> pages légales, favicon). Fichiers dans le dossier `brand/` — c'est cette version figée qu'il
+> faudra joindre au dépôt INPI (en PNG haute résolution). On ne dépose PAS le mot seul.
+
 ---
 
 ## 1. Ce qu'on cherche à protéger
