@@ -132,6 +132,17 @@ documents (`*.pdf`, `*.docx`) present in the repo root — **do not publish thos
   open offline from `file://`).
 - The Anthropic API key lives only in `localStorage` and is never written to exported `.json`/`.html`.
 
+## Separation rule: Century 21 vs ABR IMMO
+
+The repo hosts two worlds that must stay visually and legally separate:
+- **Century 21 Kadima internal tools** (`/` and `/mandat/`): carry the KADIMA/Century 21 logo,
+  are `noindex`, and must **never** mention ABR IMMO nor link to `/legal/`.
+- **Commercial product** (`/pro/`, `/mandat-pro/`, `/site/`, `/site-mandat/`, `/legal/`):
+  published by ABR IMMO (legal pages), must **never** contain Century 21 marks, logos, forms
+  or wording taken from agency documents (franchise confidentiality clause — see
+  `docs/marque-studio-brochure.md`).
+When adding footers, links or branding, respect this split.
+
 ## Note on repo contents
 
 The root also contains sample client documents (DESPREAUX/SEVERINI `.pdf`/`.docx`). They are
