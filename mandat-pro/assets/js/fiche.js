@@ -1,7 +1,7 @@
 /* =========================================================================
    fiche.js — Studio Brochure (marque blanche) · Fiche prestation.
    Dictée vocale (Web Speech), transcription de photos de notes, structuration
-   par l'IA en sections « Prestations et matériaux », aperçu A4 en direct,
+   par l'IA en fiche technique structurée, aperçu A4 en direct,
    export Word (.doc), impression, et injection vers la brochure.
    L'identité de l'agence (logo, nom) vient du paramétrage fait à l'accueil
    (localStorage « studio-mandatpro-agency », partagé avec la brochure).
@@ -22,7 +22,9 @@
     } catch (e) { return {}; }
   }
   let agency = loadAgency();
-  const PREF_FIELDS = ["fFont", "fColor"];
+  const PREF_FIELDS = ["fTitre", "fFont", "fColor"]; // le titre du document est un réglage d'agence
+  const DOC_TITLE_DEFAULT = "FICHE TECHNIQUE DU BIEN";
+  function docTitle() { const el = $("#fTitre"); return ((el && el.value) || "").trim() || DOC_TITLE_DEFAULT; }
 
   function $(s) { return document.querySelector(s); }
   function esc(s) {
@@ -39,7 +41,7 @@
   }
 
   /* ------------------------------- État --------------------------------- */
-  const FIELDS = ["fVendeur", "fAdresse", "fType", "fNotes", "fCarac", "fInterieur", "fExterieur", "fASavoir", "fFont", "fColor"];
+  const FIELDS = ["fVendeur", "fAdresse", "fType", "fNotes", "fCarac", "fInterieur", "fExterieur", "fASavoir", "fTitre", "fFont", "fColor"];
   function collect() {
     const o = {};
     FIELDS.forEach(function (id) { const el = $("#" + id); if (el) o[id] = el.value; });
@@ -79,7 +81,7 @@
     const vendeur = $("#fVendeur").value.trim();
     const adresse = $("#fAdresse").value.trim();
     const type = $("#fType").value.trim();
-    return "<h1>PRESTATIONS ET MATÉRIAUX</h1>" +
+    return "<h1>" + esc(docTitle()) + "</h1>" +
       '<div class="fdoc__who">' +
       (vendeur ? esc(vendeur) + "<br>" : "") +
       (adresse ? esc(adresse) + "<br>" : "") +
@@ -327,7 +329,7 @@
     const vendeur = $("#fVendeur").value.trim();
     const adresse = $("#fAdresse").value.trim();
     const type = $("#fType").value.trim();
-    return "<h1>PRESTATIONS ET MATÉRIAUX</h1>" +
+    return "<h1>" + esc(docTitle()) + "</h1>" +
       '<div class="who">' +
       (vendeur ? esc(vendeur) + "<br>" : "") +
       (adresse ? esc(adresse) + "<br>" : "") +
@@ -360,7 +362,7 @@
     const logoMime = hasLogo ? ((/^data:(image\/[a-z+]+);/.exec(agency.logo) || [])[1] || "image/png") : "image/png";
     const html =
       '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
-      '<head><meta charset="utf-8"><title>Fiche prestations</title>' +
+      '<head><meta charset="utf-8"><title>Fiche technique</title>' +
       "<style>" +
       "body{font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.5;color:#1c1813;}" +
 
@@ -399,7 +401,7 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "FICHE PRESTATIONS - " + (safeName(adresse || vendeur) || "fiche") + ".doc";
+    a.download = (safeName(docTitle().toUpperCase()) || "FICHE") + " - " + (safeName(adresse || vendeur) || "fiche") + ".doc";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -505,7 +507,9 @@
     $("#btnInject").addEventListener("click", inject);
     $("#btnFicheNew").addEventListener("click", function () {
       if (!confirm("Repartir d'une fiche vierge ? La fiche actuelle sera effacée (pensez à l'exporter en Word).")) return;
-      FIELDS.forEach(function (id) { $("#" + id).value = ""; });
+      const titre = $("#fTitre") ? $("#fTitre").value : "";
+      FIELDS.forEach(function (id) { const el = $("#" + id); if (el) el.value = ""; });
+      if ($("#fTitre")) $("#fTitre").value = titre; // le titre du document est un réglage d'agence
       $("#fFont").value = "elegant"; $("#fColor").value = "#8a6a3c";
       render(); save();
       toast("Nouvelle fiche.");

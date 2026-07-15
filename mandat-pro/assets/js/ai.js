@@ -611,7 +611,7 @@
       max_tokens: 3000,
       output_config: { format: { type: "json_schema", schema: SCHEMA } },
       system: [
-        "Tu structures les notes de visite d'un agent immobilier français en FICHE PRESTATIONS ET MATÉRIAUX.",
+        "Tu structures les notes de visite d'un agent immobilier français en fiche technique détaillée du bien (prestations, matériaux, équipements).",
         "Règles ABSOLUES : fidélité totale — n'invente rien, ne complète rien, n'embellis pas. Conserve chiffres, surfaces, unités et noms de marques tels quels.",
         "Chaque élément est une ligne courte et factuelle (style fiche technique, pas de phrases marketing).",
         "Range chaque information dans la bonne section ; ignore les hésitations et répétitions de dictée (« euh », redites).",

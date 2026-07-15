@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&family=Cormorant+Garamond:wght@400;500;600&family=Montserrat:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/app.css?v=3" />
+  <link rel="stylesheet" href="assets/css/app.css?v=4" />
   <style>
     /* Aperçu du document fiche prestation (page A4 claire) */
     .fdoc-scroll { overflow-y: auto; background: #35353a; padding: 26px; display: flex; justify-content: center; }
@@ -140,6 +140,9 @@
           <label>À savoir <small class="hint">(taxes, travaux, servitudes, délais…)</small>
             <textarea rows="4" id="fASavoir"></textarea>
           </label>
+          <label>Titre du document <small class="hint">(en-tête de la fiche — aux mots de votre agence)</small>
+            <input type="text" id="fTitre" placeholder="FICHE TECHNIQUE DU BIEN" />
+          </label>
           <div class="grid-2">
             <label>Typographie du document
               <select id="fFont">
@@ -171,7 +174,7 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="assets/js/license.js?v=1"></script>
-  <script src="assets/js/ai.js?v=3"></script>
-  <script src="assets/js/fiche.js?v=3"></script>
+  <script src="assets/js/ai.js?v=4"></script>
+  <script src="assets/js/fiche.js?v=4"></script>
 </body>
 </html>
