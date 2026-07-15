@@ -71,12 +71,52 @@
     try { const r = localStorage.getItem(LS_LICENSE); return r ? JSON.parse(r) : null; }
     catch (e) { return null; }
   }
-  function trialStart() {
-    try {
-      let t = parseInt(localStorage.getItem(LS_TRIAL), 10);
-      if (!t) { t = now(); localStorage.setItem(LS_TRIAL, String(t)); }
-      return t;
-    } catch (e) { return now(); }
+  /* Début d'essai mémorisé en trois endroits (localStorage, cookie, IndexedDB) :
+     effacer l'un ne remet pas le compteur à zéro — la date la plus ancienne gagne. */
+  function readCookieTrial() {
+    const m = /(?:^|; )sbtrial=(\d+)/.exec(document.cookie);
+    return m ? parseInt(m[1], 10) : 0;
+  }
+  function writeTrialEverywhere(t) {
+    try { localStorage.setItem(LS_TRIAL, String(t)); } catch (e) { }
+    try { document.cookie = "sbtrial=" + t + ";max-age=63072000;path=/;SameSite=Lax"; } catch (e) { }
+    idbSet("trial", t);
+  }
+  function idbOpen() {
+    return new Promise(function (resolve) {
+      try {
+        const r = indexedDB.open("studio-mandatpro-meta", 1);
+        r.onupgradeneeded = function () { r.result.createObjectStore("kv"); };
+        r.onsuccess = function () { resolve(r.result); };
+        r.onerror = function () { resolve(null); };
+      } catch (e) { resolve(null); }
+    });
+  }
+  function idbGet(key) {
+    return idbOpen().then(function (db) {
+      if (!db) return 0;
+      return new Promise(function (resolve) {
+        try {
+          const tx = db.transaction("kv", "readonly").objectStore("kv").get(key);
+          tx.onsuccess = function () { resolve(parseInt(tx.result, 10) || 0); };
+          tx.onerror = function () { resolve(0); };
+        } catch (e) { resolve(0); }
+      });
+    });
+  }
+  function idbSet(key, val) {
+    idbOpen().then(function (db) {
+      if (!db) return;
+      try { db.transaction("kv", "readwrite").objectStore("kv").put(val, key); } catch (e) { }
+    });
+  }
+  async function trialStart() {
+    let ls = 0;
+    try { ls = parseInt(localStorage.getItem(LS_TRIAL), 10) || 0; } catch (e) { }
+    const candidates = [ls, readCookieTrial(), await idbGet("trial")].filter(Boolean);
+    const t = candidates.length ? Math.min.apply(null, candidates) : now();
+    writeTrialEverywhere(t);
+    return t;
   }
 
   // État courant : essai en cours, sous licence, ou expiré.
@@ -90,7 +130,7 @@
       }
       if (payload) return { state: "expired", agency: payload.agency || "", exp: payload.exp, reason: "licence" };
     }
-    const start = trialStart();
+    const start = await trialStart();
     const end = start + TRIAL_DAYS * 86400;
     if (now() < end) return { state: "trial", exp: end, daysLeft: Math.ceil((end - now()) / 86400) };
     return { state: "expired", reason: "trial" };
@@ -103,6 +143,7 @@
     if (payload.exp <= now()) return { ok: false, error: "Cette clé a expiré le " + fmtDate(payload.exp) + "." };
     try { localStorage.setItem(LS_LICENSE, JSON.stringify({ key: String(raw).trim(), agency: payload.agency })); }
     catch (e) { return { ok: false, error: "Impossible d'enregistrer la clé sur cet appareil." }; }
+    window.StudioLicense.current = { state: "licensed", agency: payload.agency || "", plan: payload.plan || "base", exp: payload.exp };
     return { ok: true, payload: payload };
   }
 
@@ -190,6 +231,8 @@
     setTimeout(function () { const i = document.getElementById("lcInput"); if (i) i.focus(); }, 50);
   }
 
+  // État courant exposé pour le marquage des documents : le nom d'agence vient
+  // du payload SIGNÉ (revérifié), pas des réglages — infalsifiable côté client.
   window.StudioLicense = {
     status: status,
     activate: activate,
@@ -198,6 +241,11 @@
     open: open,
     fmtDate: fmtDate,
     TRIAL_DAYS: TRIAL_DAYS,
-    CONTACT: CONTACT
+    CONTACT: CONTACT,
+    current: null
   };
+  status().then(function (st) {
+    window.StudioLicense.current = st;
+    document.dispatchEvent(new CustomEvent("sb-license", { detail: st }));
+  });
 })();

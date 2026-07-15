@@ -668,6 +668,11 @@
       "</div>" + pageMark() + "</section>";
   }
 
+  function licenceMark() {
+    const st = window.StudioLicense && window.StudioLicense.current;
+    if (st && st.state === "licensed" && st.agency) return "Édité avec Studio Brochure · Licence : " + st.agency;
+    return "Édité avec Studio Brochure · Version d'essai";
+  }
   function pagePrice() {
     const p = state.property, a = state.agency;
     // Adresse sur deux lignes : rue puis code postal + ville.
@@ -691,7 +696,9 @@
           '<span>Scannez pour découvrir le bien en ligne</span></div>'
         : "") +
       '<div class="price__legal">Document non contractuel</div>' +
-      "</div></section>";
+      "</div>" +
+      '<div class="sb-licmark">' + esc(licenceMark()) + "</div>" +
+      "</section>";
   }
 
   function buildBrochure() {
@@ -1260,6 +1267,7 @@
     // Sur téléphone : arriver sur la saisie (l'aperçu reste accessible via ⇆)
     if (window.matchMedia("(max-width: 900px)").matches) $("#workspace").classList.add("is-editor-open");
 
+    document.addEventListener("sb-license", function () { render(); });
     window.addEventListener("resize", function () { if (preview.mode === "fit") applyZoom(); });
   }
 

@@ -22,6 +22,14 @@
     } catch (e) { return {}; }
   }
   let agency = loadAgency();
+
+  // Marquage nominatif : le nom vient du payload SIGNÉ de la licence (vérifié
+  // par license.js), jamais des réglages — dissuade le partage de clés.
+  function licenceMark() {
+    const st = window.StudioLicense && window.StudioLicense.current;
+    if (st && st.state === "licensed" && st.agency) return "Édité avec Studio Brochure · Licence : " + st.agency;
+    return "Édité avec Studio Brochure · Version d'essai";
+  }
   const PREF_FIELDS = ["fTitre", "fFont", "fColor"]; // le titre du document est un réglage d'agence
   const DOC_TITLE_DEFAULT = "FICHE TECHNIQUE DU BIEN";
   function docTitle() { const el = $("#fTitre"); return ((el && el.value) || "").trim() || DOC_TITLE_DEFAULT; }
@@ -91,7 +99,8 @@
       sectionHtml("Intérieur", "fInterieur") +
       sectionHtml("Extérieur", "fExterieur") +
       sectionHtml("À savoir", "fASavoir") +
-      '<p class="fdoc__legal">DOCUMENT NON CONTRACTUEL</p>';
+      '<p class="fdoc__legal">DOCUMENT NON CONTRACTUEL</p>' +
+      '<p class="fdoc__licmark">' + esc(licenceMark()) + "</p>";
   }
   function render() {
     const logo = agency.logo
@@ -339,7 +348,8 @@
       wordSection("Intérieur", "fInterieur") +
       wordSection("Extérieur", "fExterieur") +
       wordSection("À savoir", "fASavoir") +
-      '<p class="legal">DOCUMENT NON CONTRACTUEL</p>';
+      '<p class="legal">DOCUMENT NON CONTRACTUEL</p>' +
+      '<p class="legal" style="margin-top:2pt;font-size:7.5pt;">' + esc(licenceMark()) + "</p>";
   }
   function exportWord() {
     if (agency.logo) {
@@ -536,6 +546,7 @@
       else tl.parentNode.style.display = "none";
     }
     load();
+    document.addEventListener("sb-license", function () { render(); });
     window.addEventListener("resize", fitPreview);
     wireAddressAutocomplete();
     wireVoice();
