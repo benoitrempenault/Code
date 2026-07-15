@@ -185,8 +185,8 @@ voulez explorer cette voie — dites-le-moi.
 - [ ] Mener la **recherche d'antériorité** classes 9/35/42 (§3).
 - [ ] (Recommandé) Faire valider le choix par un **CPI**.
 - [ ] Déposer à l'**INPI**, classes 9 + 42 (+35 en option).
-- [ ] Renseigner l'**entité juridique** (elle sera titulaire de la marque) — cohérente avec les
-      mentions légales `[À COMPLÉTER]` du site.
+- [x] Entité juridique titulaire : **ABR IMMO** (mentions légales du site renseignées — il ne
+      manque que le SIREN).
 - [ ] Noter la date de dépôt et programmer le **renouvellement à 10 ans**.
 - [ ] Clarifier la **compatibilité avec Century 21** (§5).
 
@@ -208,9 +208,10 @@ Le dépôt se fait en ligne sur **https://procedures.inpi.fr** (compte INPI grat
 FranceConnect). Comptez ~20 minutes. Voici quoi répondre, champ par champ :
 
 1. **Type de demande** : Dépôt de marque française.
-2. **Déposant** : votre entité juridique (la même que dans les mentions légales — personne
-   physique possible si vous n'avez pas encore de société, la marque pourra être apportée à la
-   société ensuite, mais déposer directement au nom de la société est plus simple si elle existe).
+2. **Déposant** : **ABR IMMO**, SAS au capital de 1 000 €, 4 impasse d'Orion,
+   33160 Saint-Aubin-de-Médoc (décision de juillet 2026 : c'est la holding de Benoît qui édite
+   Studio Brochure). Pensez à faire la modification d'objet social AVANT ou en parallèle du
+   dépôt (voir docs/abr-immo-modification-objet.md).
 3. **Type de marque** : **« Marque figurative contenant des éléments verbaux »** (= semi-figurative).
 4. **Reproduction de la marque** : joindre `brand/logo-horizontal.png` (fond transparent,
    haute résolution — déjà prêt dans le dépôt Git). Ne PAS déposer le mot seul.
