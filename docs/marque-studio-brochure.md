@@ -81,7 +81,27 @@ le discours commercial insiste sur « faire vendre les biens ». Évitez la 16 a
 
 ---
 
-## 3. Recherche d'antériorité — À MENER avant tout dépôt
+## 3-bis. Recherche d'antériorité — RÉSULTATS du 15 juillet 2026
+
+Recherche préliminaire effectuée sur les bases officielles (à faire confirmer par un CPI,
+notamment pour la similarité phonétique/visuelle étendue) :
+
+| Vérification | Source | Résultat |
+|---|---|---|
+| Marques « studio brochure » (FR + UE + internationales) | TMview (tmdn.org) | **0 marque** |
+| Variantes « studiobrochure », « brochure studio », « studio brochures » | TMview | **0 marque** |
+| Sociétés françaises « studio brochure » / « studiobrochure » | recherche-entreprises.api.gouv.fr | **0 société** |
+| `studiobrochure.fr` / `studio-brochure.fr` | RDAP nic.fr | **libres** |
+| `studiobrochure.com` / `studio-brochure.com` | RDAP Verisign | **libres** |
+
+**Conclusion : aucun obstacle détecté.** Le terrain est dégagé pour un dépôt semi-figuratif
+(logo « Le pli » + nom). Les domaines étant libres *aujourd'hui*, réservez-les **sans attendre**
+(~12 €/an chacun chez OVH, Gandi, Ionos…) : c'est la première chose à faire.
+
+Restent à vérifier manuellement (non automatisable) : les pseudos Instagram / LinkedIn /
+Facebook / YouTube « studiobrochure ».
+
+## 3. Recherche d'antériorité — méthode complète (pour le CPI ou une re-vérification)
 
 Objectif : vérifier qu'un signe identique ou proche n'est pas déjà déposé pour des
 produits/services similaires. À faire **avant** de payer un dépôt (un dépôt refusé n'est pas
@@ -179,3 +199,41 @@ sites de vente. Les **dossiers techniques et clés de stockage** gardent leurs n
 (`mandat-pro`, `studio-mandatpro-*`, etc.) — c'est **interne, invisible pour l'utilisateur** et
 sans incidence sur la marque. Si un jour vous voulez des URLs alignées sur la marque
 (ex. `/studio-brochure/`), c'est faisable, mais ça casse les liens existants : à planifier.
+
+---
+
+## 9. Dépôt INPI pas à pas (semi-figuratif) — prêt à remplir
+
+Le dépôt se fait en ligne sur **https://procedures.inpi.fr** (compte INPI gratuit à créer, ou
+FranceConnect). Comptez ~20 minutes. Voici quoi répondre, champ par champ :
+
+1. **Type de demande** : Dépôt de marque française.
+2. **Déposant** : votre entité juridique (la même que dans les mentions légales — personne
+   physique possible si vous n'avez pas encore de société, la marque pourra être apportée à la
+   société ensuite, mais déposer directement au nom de la société est plus simple si elle existe).
+3. **Type de marque** : **« Marque figurative contenant des éléments verbaux »** (= semi-figurative).
+4. **Reproduction de la marque** : joindre `brand/logo-horizontal.png` (fond transparent,
+   haute résolution — déjà prêt dans le dépôt Git). Ne PAS déposer le mot seul.
+5. **Description (facultative)** : « Trois panneaux verticaux évoquant une brochure dépliée,
+   dont le panneau central doré, suivis des mots “Studio Brochure” en caractères serif. »
+6. **Couleurs revendiquées** : noir (#1a1714), doré/bronze (#b58a4a).
+7. **Classes et libellés** — copier-coller :
+   - **Classe 9** : Logiciels ; applications logicielles téléchargeables pour la création,
+     l'édition et la mise en page de fiches, brochures, annonces et supports de présentation de
+     biens immobiliers ; logiciels utilisant l'intelligence artificielle pour la génération et la
+     structuration de textes.
+   - **Classe 42** : Logiciel-service (SaaS) ; mise à disposition en ligne de logiciels non
+     téléchargeables pour la création de brochures et documents de présentation immobilière ;
+     conception et développement de logiciels.
+   - *(Option, +40 €)* **Classe 35** : Services d'aide à la présentation, à la publicité et à la
+     promotion de biens immobiliers pour le compte de tiers ; production de supports publicitaires.
+8. **Paiement** : 190 € (1 classe) + 40 € par classe supplémentaire → **230 €** pour 9 + 42
+   (270 € avec la 35). Carte bancaire en ligne.
+9. **Après le dépôt** : publication au BOPI sous ~6 semaines, période d'opposition de 2 mois,
+   enregistrement total ~5 mois. La protection court **dès la date de dépôt**. Surveillez l'e-mail
+   du compte INPI (notifications d'éventuelles objections/oppositions).
+10. **À noter dans votre agenda** : renouvellement dans 10 ans.
+
+**Avant de cliquer « Payer »** : domaines réservés (§3-bis), logo figé (c'est la version déposée
+qui est protégée — la modifier ensuite affaiblit la protection), et si possible un œil de CPI
+(~150–300 € la consultation) pour valider les libellés.
