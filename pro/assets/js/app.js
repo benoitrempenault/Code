@@ -333,7 +333,7 @@
       '<button class="thumb__btn" data-del="' + kind + '" title="Supprimer">×</button></div></div>';
   }
   function planThumb(u, i) {
-    return '<div class="thumb"><img src="' + u + '" alt="">' +
+    return '<div class="thumb" draggable="true" data-pidx="' + i + '"><img draggable="false" src="' + u + '" alt="">' +
       '<div class="thumb__bar">' +
       '<span><button class="thumb__btn" data-moveplan="' + i + '" data-dir="-1" title="Monter">↑</button>' +
       '<button class="thumb__btn" data-moveplan="' + i + '" data-dir="1" title="Descendre">↓</button></span>' +
@@ -341,7 +341,7 @@
   }
   function galleryThumb(p, i) {
     return '<div class="gcell">' +
-      '<div class="thumb"><img src="' + p.url + '" alt="">' +
+      '<div class="thumb" draggable="true" data-gidx="' + i + '"><img draggable="false" src="' + p.url + '" alt="">' +
       '<div class="thumb__bar">' +
       '<span><button class="thumb__btn" data-move="' + i + '" data-dir="-1" title="Monter">↑</button>' +
       '<button class="thumb__btn" data-move="' + i + '" data-dir="1" title="Descendre">↓</button></span>' +
@@ -398,7 +398,54 @@
     ["dragleave", "drop"].forEach(function (ev) {
       gz.addEventListener(ev, function (e) { e.preventDefault(); gz.classList.remove("is-drag"); });
     });
-    gz.addEventListener("drop", function (e) { if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files, "gallery"); });
+    gz.addEventListener("drop", function (e) { if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) addFiles(e.dataTransfer.files, "gallery"); });
+
+    // Réordonner en glissant-déposant les vignettes (les flèches ↑ ↓ restent).
+    function wireDragReorder(containerId, getArr, attr) {
+      const box = document.getElementById(containerId);
+      if (!box) return;
+      let fromIdx = null;
+      function clearMarks() {
+        $all("[" + attr + "]", box).forEach(function (c) { c.classList.remove("is-dragging", "drop-before", "drop-after"); });
+      }
+      box.addEventListener("dragstart", function (e) {
+        const cell = e.target.closest && e.target.closest("[" + attr + "]");
+        if (!cell) return;
+        fromIdx = +cell.getAttribute(attr);
+        try { e.dataTransfer.setData("text/plain", String(fromIdx)); e.dataTransfer.effectAllowed = "move"; } catch (err) { }
+        cell.classList.add("is-dragging");
+      });
+      box.addEventListener("dragover", function (e) {
+        if (fromIdx == null) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        const cell = e.target.closest && e.target.closest("[" + attr + "]");
+        $all("[" + attr + "]", box).forEach(function (c) { c.classList.remove("drop-before", "drop-after"); });
+        if (!cell || +cell.getAttribute(attr) === fromIdx) return;
+        const r = cell.getBoundingClientRect();
+        cell.classList.add(e.clientX < r.left + r.width / 2 ? "drop-before" : "drop-after");
+      });
+      box.addEventListener("drop", function (e) {
+        if (fromIdx == null) return;
+        e.preventDefault(); e.stopPropagation();
+        const cell = e.target.closest && e.target.closest("[" + attr + "]");
+        const arr = getArr();
+        let to = arr.length; // par défaut : à la fin
+        if (cell) {
+          to = +cell.getAttribute(attr);
+          const r = cell.getBoundingClientRect();
+          if (e.clientX >= r.left + r.width / 2) to += 1;
+        }
+        const item = arr.splice(fromIdx, 1)[0];
+        if (to > fromIdx) to -= 1;
+        arr.splice(to, 0, item);
+        fromIdx = null; clearMarks();
+        renderPhotoUI(); render(); scheduleSave();
+      });
+      box.addEventListener("dragend", function () { fromIdx = null; clearMarks(); });
+    }
+    wireDragReorder("galleryThumbs", function () { return state.gallery; }, "data-gidx");
+    wireDragReorder("planThumb", function () { return state.plans; }, "data-pidx");
   }
 
   /* ------------------------------- Rendu -------------------------------- */
@@ -947,19 +994,36 @@
     var btnCap = document.getElementById("btnAICaption");
     if (btnCap) btnCap.addEventListener("click", function () {
       const status = $("#captionStatus");
-      status.className = "ai-status is-busy"; status.textContent = "Analyse des photos…";
+      // Seules les photos SANS légende sont analysées : les légendes déjà
+      // écrites (ou corrigées à la main) ne sont jamais écrasées.
+      const pending = [];
+      state.gallery.forEach(function (p, i) { if (!(p.caption || "").trim()) pending.push({ url: p.url, gi: i }); });
+      if (!pending.length) {
+        status.className = "ai-status is-ok";
+        status.textContent = "Toutes les photos ont déjà une légende — effacez-en une pour la faire réécrire.";
+        return;
+      }
+      const kept = state.gallery.length - pending.length;
+      status.className = "ai-status is-busy";
+      status.textContent = "Analyse de " + pending.length + " photo" + (pending.length > 1 ? "s" : "") +
+        (kept ? " (les " + kept + " légendes existantes sont conservées)…" : "…");
       btnCap.disabled = true;
       window.BrochureAI.captionPhotos({
         apiKey: keyInput.value,
         model: $("#aiModel").value,
-        photos: state.gallery,
+        photos: pending,
         context: { type: state.property.type }
       }).then(function (caps) {
         caps.forEach(function (c) {
-          if (c && typeof c.index === "number" && state.gallery[c.index]) state.gallery[c.index].caption = c.caption;
+          if (c && typeof c.index === "number" && pending[c.index]) {
+            const g = state.gallery[pending[c.index].gi];
+            if (g && !(g.caption || "").trim()) g.caption = c.caption;
+          }
         });
         renderPhotoUI(); render(); save();
-        status.className = "ai-status is-ok"; status.textContent = "Photos légendées ✓";
+        status.className = "ai-status is-ok";
+        status.textContent = pending.length + " photo" + (pending.length > 1 ? "s" : "") + " légendée" + (pending.length > 1 ? "s" : "") + " ✓" +
+          (kept ? " — " + kept + " légende" + (kept > 1 ? "s" : "") + " existante" + (kept > 1 ? "s" : "") + " conservée" + (kept > 1 ? "s" : "") + "." : "");
       }).catch(function (err) {
         status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
       }).then(function () { btnCap.disabled = false; });

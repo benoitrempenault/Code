@@ -365,3 +365,9 @@ ul.sources em { color: var(--ui-muted); font-style: normal; }
   z-index: 70; box-shadow: 0 -8px 30px rgba(0,0,0,.45);
 }
 .btn.preview-return:active { transform: none; }
+
+/* Glisser-déposer des vignettes (galerie & plans) */
+.thumb[draggable="true"] { cursor: grab; }
+.thumb.is-dragging { opacity: .45; }
+.thumb.drop-before { box-shadow: -3px 0 0 0 var(--ui-accent); }
+.thumb.drop-after { box-shadow: 3px 0 0 0 var(--ui-accent); }
