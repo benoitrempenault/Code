@@ -1078,19 +1078,47 @@ function SCENARIOS(){
   return config.mandatSimple ? all : all.filter(s => !s.mandatSimple);
 }
 
+const QUIZCATS = [
+  { id:"mandats", nom:"Mandats & juridique", ico:"📜" },
+  { id:"docs",    nom:"Documents & diagnostics", ico:"🗂️" },
+  { id:"pige",    nom:"Prospection & pige", ico:"📞" },
+  { id:"nego",    nom:"Négociation & suivi vendeur", ico:"🤝" },
+];
 const QUIZ = [
-  { q:"Un vendeur signe un mandat simple avec 3 agences. Qui peut vendre le bien ?", opts:["Uniquement les 3 agences","Les 3 agences et le vendeur lui-même","Seulement la première agence signataire","Le vendeur uniquement s'il baisse son prix"], ok:1, ex:"Le mandat simple laisse au vendeur le droit de vendre par lui-même, en plus de toutes les agences mandatées." },
-  { q:"Sans quel document ne peut-on PAS publier l'annonce d'une maison ?", opts:["Le pré-état daté","Le titre de propriété","Le DPE","Le diagnostic termites"], ok:2, ex:"L'étiquette énergie du DPE doit figurer dans toute annonce : c'est le premier diagnostic à commander." },
-  { q:"Le diagnostic plomb (CREP) est obligatoire pour les logements construits…", opts:["Avant 1949","Avant juillet 1997","Avant 1975","Quel que soit l'âge"], ok:0, ex:"Avant 1949 pour le plomb ; juillet 1997 est le seuil de l'amiante." },
-  { q:"Vous recevez une offre très basse que vous jugez fantaisiste. Que faites-vous ?", opts:["Vous la classez sans suite pour protéger le vendeur","Vous la transmettez au vendeur, avec votre analyse","Vous négociez d'abord seul avec l'acquéreur","Vous attendez une meilleure offre pour présenter les deux"], ok:1, ex:"Toute offre doit être transmise au vendeur : c'est lui qui décide. Votre valeur ajoutée, c'est l'analyse qui l'accompagne." },
-  { q:"Beaucoup de vues sur l'annonce, très peu d'appels. Diagnostic le plus probable ?", opts:["Le portail d'annonces fonctionne mal","Le prix est au-dessus du marché","Les acquéreurs sont en vacances","Il faut changer d'agence"], ok:1, ex:"Vu mais pas contacté = l'annonce attire mais le positionnement (presque toujours le prix) refroidit." },
-  { q:"La vente d'une maison classée F ou G (mono-propriété) exige en plus du DPE…", opts:["Un audit énergétique réglementaire","Un permis de louer","Une attestation RT2012","Rien de plus"], ok:0, ex:"L'audit énergétique, avec scénarios de travaux chiffrés, est obligatoire pour les passoires énergétiques en mono-propriété." },
-  { q:"Le bien vendu est la résidence de la famille, propriété du seul mari. Qui doit consentir à la vente ?", opts:["Le mari uniquement, il est propriétaire","Les deux époux","Le notaire tranche","Les enfants majeurs aussi"], ok:1, ex:"Article 215 du Code civil : le logement de la famille ne peut être vendu sans le consentement des deux époux, même si un seul est propriétaire." },
-  { q:"En appel de pige, votre objectif prioritaire est…", opts:["Faire signer un mandat par téléphone","Obtenir un rendez-vous","Donner une estimation immédiate","Récupérer l'adresse mail"], ok:1, ex:"Pas de mandat par téléphone : l'appel de pige vise le rendez-vous, tout le reste se joue sur place." },
-  { q:"Quel document de copropriété est généralement payant et à commander tôt car il peut prendre plusieurs semaines ?", opts:["La fiche synthétique","Le carnet d'entretien","Le pré-état daté","Le règlement de copropriété"], ok:2, ex:"Le pré-état daté (souvent 150-400 €) conditionne le compromis : commandez-le dès l'offre acceptée." },
-  { q:"Un mandat exclusif de 3 mois, après cette période initiale…", opts:["Se renouvelle obligatoirement 3 mois","Peut être dénoncé avec un préavis de 15 jours","Devient automatiquement un mandat simple","Est prolongé de 6 mois"], ok:1, ex:"Après la période irrévocable initiale, chaque partie peut dénoncer le mandat, en général avec 15 jours de préavis — un argument qui rassure les vendeurs." },
-  { q:"Le locataire d'un logement nu reçoit un congé pour vente. Quel est son droit ?", opts:["Aucun, il doit partir","Il est prioritaire pour acheter le logement","Il peut rester 3 ans de plus","Il peut exiger une indemnité"], ok:1, ex:"Le congé pour vente vaut offre de vente : le locataire dispose d'un droit de préemption au prix indiqué." },
-  { q:"La surface loi Carrez de l'acte s'avère surévaluée de plus de 5 %. L'acquéreur peut…", opts:["Annuler la vente sans condition","Demander une diminution du prix au prorata","Exiger des travaux","Rien, la vente est signée"], ok:1, ex:"Plus de 5 % d'écart : l'acquéreur a un an après l'acte pour demander une réduction proportionnelle du prix. D'où l'importance d'un mesurage sérieux." }
+  /* --- mandats & juridique --- */
+  { cat:"mandats", q:"Un vendeur signe un mandat simple avec 3 agences. Qui peut vendre le bien ?", opts:["Uniquement les 3 agences","Les 3 agences et le vendeur lui-même","Seulement la première agence signataire","Le vendeur uniquement s'il baisse son prix"], ok:1, ex:"Le mandat simple laisse au vendeur le droit de vendre par lui-même, en plus de toutes les agences mandatées." },
+  { cat:"mandats", q:"Un mandat exclusif de 3 mois, après cette période initiale…", opts:["Se renouvelle obligatoirement 3 mois","Peut être dénoncé avec un préavis de 15 jours","Devient automatiquement un mandat simple","Est prolongé de 6 mois"], ok:1, ex:"Après la période irrévocable initiale, chaque partie peut dénoncer le mandat, en général avec 15 jours de préavis — un argument qui rassure les vendeurs." },
+  { cat:"mandats", q:"Le bien vendu est la résidence de la famille, propriété du seul mari. Qui doit consentir à la vente ?", opts:["Le mari uniquement, il est propriétaire","Les deux époux","Le notaire tranche","Les enfants majeurs aussi"], ok:1, ex:"Article 215 du Code civil : le logement de la famille ne peut être vendu sans le consentement des deux époux, même si un seul est propriétaire." },
+  { cat:"mandats", q:"Selon la loi Hoguet, vos honoraires sont dus…", opts:["Dès la signature du mandat","Dès qu'une offre est acceptée","Seulement si un mandat écrit a été signé AVANT et que la vente se conclut par votre entremise","Dès la première visite effectuée"], ok:2, ex:"Pas de mandat écrit préalable = pas de rémunération, quelle que soit la qualité du travail fourni. Le mandat se signe avant toute action de commercialisation." },
+  { cat:"mandats", q:"Avec un mandat semi-exclusif, le vendeur…", opts:["Ne peut plus rien faire lui-même","Peut vendre seul, en général sans vous devoir d'honoraires","Peut mandater une autre agence","Doit vous présenter tous ses acheteurs"], ok:1, ex:"Le semi-exclusif écarte les autres agences mais laisse au vendeur le droit de vendre en direct — vérifiez toujours la clause exacte du mandat." },
+  { cat:"mandats", q:"Le bien appartient à une SCI. Qui signe le mandat de vente ?", opts:["N'importe quel associé","Le gérant, si les statuts ou une AG l'y autorisent","Tous les associés obligatoirement","Le notaire de la SCI"], ok:1, ex:"Lisez la clause « pouvoirs du gérant » des statuts : si la vente n'y figure pas, exigez un PV d'assemblée autorisant la vente." },
+  { cat:"mandats", q:"Après la signature du compromis, l'acquéreur non professionnel dispose de…", opts:["8 jours de réflexion","10 jours de rétractation","15 jours de rétractation","Aucun délai"], ok:1, ex:"Délai SRU de 10 jours après notification du compromis : anticipez-le dans le calendrier annoncé au vendeur." },
+  { cat:"mandats", q:"Le bien est en indivision entre 4 héritiers. Pour vendre, il faut en principe…", opts:["L'accord de la majorité simple","L'accord des 2/3 des indivisaires","L'unanimité des indivisaires","L'accord du seul indivisaire occupant"], ok:2, ex:"La vente amiable exige en principe l'unanimité (des recours judiciaires existent à partir des 2/3, mais c'est long et conflictuel). D'où l'importance de faire signer le mandat par tous." },
+  /* --- documents & diagnostics --- */
+  { cat:"docs", q:"Sans quel document ne peut-on PAS publier l'annonce d'une maison ?", opts:["Le pré-état daté","Le titre de propriété","Le DPE","Le diagnostic termites"], ok:2, ex:"L'étiquette énergie du DPE doit figurer dans toute annonce : c'est le premier diagnostic à commander." },
+  { cat:"docs", q:"Le diagnostic plomb (CREP) est obligatoire pour les logements construits…", opts:["Avant 1949","Avant juillet 1997","Avant 1975","Quel que soit l'âge"], ok:0, ex:"Avant 1949 pour le plomb ; juillet 1997 est le seuil de l'amiante." },
+  { cat:"docs", q:"La vente d'une maison classée F ou G (mono-propriété) exige en plus du DPE…", opts:["Un audit énergétique réglementaire","Un permis de louer","Une attestation RT2012","Rien de plus"], ok:0, ex:"L'audit énergétique, avec scénarios de travaux chiffrés, est obligatoire pour les passoires énergétiques en mono-propriété." },
+  { cat:"docs", q:"Quel document de copropriété est généralement payant et à commander tôt car il peut prendre plusieurs semaines ?", opts:["La fiche synthétique","Le carnet d'entretien","Le pré-état daté","Le règlement de copropriété"], ok:2, ex:"Le pré-état daté (souvent 150-400 €) conditionne le compromis : commandez-le dès l'offre acceptée." },
+  { cat:"docs", q:"La surface loi Carrez de l'acte s'avère surévaluée de plus de 5 %. L'acquéreur peut…", opts:["Annuler la vente sans condition","Demander une diminution du prix au prorata","Exiger des travaux","Rien, la vente est signée"], ok:1, ex:"Plus de 5 % d'écart : l'acquéreur a un an après l'acte pour demander une réduction proportionnelle du prix. D'où l'importance d'un mesurage sérieux." },
+  { cat:"docs", q:"Les diagnostics gaz et électricité sont obligatoires pour les installations de plus de…", opts:["10 ans","15 ans","20 ans","25 ans"], ok:1, ex:"Plus de 15 ans dans les deux cas ; validité 3 ans pour une vente. Une anomalie n'empêche pas de vendre : elle informe l'acquéreur." },
+  { cat:"docs", q:"Quelle est la durée de validité de l'état parasitaire termites ?", opts:["6 mois","1 an","3 ans","Illimitée"], ok:0, ex:"6 mois seulement — c'est le diagnostic le plus périssable : calez sa commande sur le calendrier du compromis." },
+  { cat:"docs", q:"Le diagnostic assainissement non collectif (SPANC) est non conforme. Conséquence pour l'acquéreur ?", opts:["La vente est impossible","Il a 1 an après l'acte pour mettre aux normes","Le vendeur doit faire les travaux avant la vente","Le notaire bloque 10 % du prix"], ok:1, ex:"La vente reste possible : l'acquéreur s'engage à mettre en conformité dans l'année. Chiffrez les travaux tôt — c'est un sujet de négociation à anticiper." },
+  /* --- prospection & pige --- */
+  { cat:"pige", q:"En appel de pige, votre objectif prioritaire est…", opts:["Faire signer un mandat par téléphone","Obtenir un rendez-vous","Donner une estimation immédiate","Récupérer l'adresse mail"], ok:1, ex:"Pas de mandat par téléphone : l'appel de pige vise le rendez-vous, tout le reste se joue sur place." },
+  { cat:"pige", q:"Pour visiter un bien en vente entre particuliers, vous ne devez JAMAIS…", opts:["Rappeler plusieurs fois","Vous présenter comme un acquéreur particulier","Envoyer un avis de valeur","Proposer un rendez-vous le samedi"], ok:1, ex:"Se faire passer pour un acheteur est déloyal et détruit toute confiance possible. Annoncez toujours immédiatement votre qualité de professionnel." },
+  { cat:"pige", q:"Statistiquement, une pige se gagne le plus souvent…", opts:["Au premier appel","Au 3ᵉ ou 4ᵉ contact","Après 10 contacts minimum","Jamais : les PAP ne signent pas"], ok:1, ex:"La persévérance organisée fait la différence : notez chaque contact, datez le rappel suivant et variez les prétextes de valeur (comparable vendu, acquéreur en recherche…)." },
+  { cat:"pige", q:"Le vendeur particulier refuse le rendez-vous. Quelle est la meilleure sortie d'appel ?", opts:["Raccrocher poliment et passer au suivant","Lui laisser votre numéro « au cas où »","Acter un rappel daté et lui envoyer quelque chose d'utile (avis de valeur, étude de quartier)","Le rappeler le lendemain"], ok:2, ex:"Sortie professionnelle = une trace écrite utile + une date de rappel notée. Vous restez dans le paysage sans harceler." },
+  { cat:"pige", q:"Une annonce PAP en ligne depuis 8 semaines avec une baisse de prix récente signale…", opts:["Un bien invendable","Un vendeur qui teste le marché","Un vendeur en difficulté, plus ouvert à un accompagnement","Une annonce frauduleuse"], ok:2, ex:"Durée + baisse = usure du vendeur solo. C'est le meilleur moment pour apporter méthode et acquéreurs — sans triomphalisme." },
+  { cat:"pige", q:"L'annonce indique « AGENCES S'ABSTENIR ». Vous…", opts:["Ne l'appelez jamais, c'est interdit","L'appelez en vous présentant honnêtement, avec une vraie valeur à apporter","L'appelez en masquant votre numéro","Lui envoyez un courrier anonyme"], ok:1, ex:"Ce n'est pas une interdiction légale mais un signal de méfiance : appelez avec respect, annoncez votre qualité et apportez de la valeur (comparable, acquéreurs). Respectez un refus clairement exprimé." },
+  /* --- négociation & suivi --- */
+  { cat:"nego", q:"Vous recevez une offre très basse que vous jugez fantaisiste. Que faites-vous ?", opts:["Vous la classez sans suite pour protéger le vendeur","Vous la transmettez au vendeur, avec votre analyse","Vous négociez d'abord seul avec l'acquéreur","Vous attendez une meilleure offre pour présenter les deux"], ok:1, ex:"Toute offre doit être transmise au vendeur : c'est lui qui décide. Votre valeur ajoutée, c'est l'analyse qui l'accompagne." },
+  { cat:"nego", q:"Beaucoup de vues sur l'annonce, très peu d'appels. Diagnostic le plus probable ?", opts:["Le portail d'annonces fonctionne mal","Le prix est au-dessus du marché","Les acquéreurs sont en vacances","Il faut changer d'agence"], ok:1, ex:"Vu mais pas contacté = l'annonce attire mais le positionnement (presque toujours le prix) refroidit." },
+  { cat:"nego", q:"Le locataire d'un logement nu reçoit un congé pour vente. Quel est son droit ?", opts:["Aucun, il doit partir","Il est prioritaire pour acheter le logement","Il peut rester 3 ans de plus","Il peut exiger une indemnité"], ok:1, ex:"Le congé pour vente vaut offre de vente : le locataire dispose d'un droit de préemption au prix indiqué." },
+  { cat:"nego", q:"Avant de présenter une offre au vendeur, l'élément n°1 à vérifier est…", opts:["La profession des acquéreurs","La solidité du financement","Leur date de vacances","Leur nombre d'enfants"], ok:1, ex:"Une offre à 98 % non financée vaut moins qu'une offre à 95 % validée banque. Apport, attestation de faisabilité, courtier : qualifiez avant de présenter." },
+  { cat:"nego", q:"Juridiquement, une contre-offre du vendeur…", opts:["Laisse l'offre initiale valable 10 jours","Éteint l'offre initiale : c'est un refus assorti d'une nouvelle offre","Oblige l'acquéreur à s'aligner","N'a aucune valeur"], ok:1, ex:"Contre-proposer, c'est refuser puis offrir à son tour : l'acquéreur retrouve sa liberté. D'où l'importance de bien calibrer la contre-offre avant de l'envoyer." },
+  { cat:"nego", q:"Deux offres arrivent le même week-end. La bonne pratique ?", opts:["Présenter seulement la meilleure","Organiser un tour équitable et documenté (« meilleure offre finale pour vendredi 18 h »)","Faire monter les enchères oralement sans trace","Tirer au sort"], ok:1, ex:"Toutes les offres se présentent ; en cas de multiples, fixez des règles claires, informez tout le monde et gardez une trace écrite." },
+  { cat:"nego", q:"Pour créer de l'urgence chez un acquéreur hésitant, vous pouvez…", opts:["Inventer une autre offre","Évoquer une visite réelle prévue samedi","Dire que le vendeur part à l'étranger demain","Doubler les honoraires lundi"], ok:1, ex:"L'urgence n'est légitime que si elle est vraie. Mentir sur l'existence d'offres ou de visites engage votre responsabilité et détruit votre réputation." },
+  { cat:"nego", q:"Quelle est la première cause de perte d'un mandat en cours ?", opts:["Le prix trop élevé","Le silence : un vendeur sans nouvelles imagine le pire","Les photos ratées","La concurrence"], ok:1, ex:"D'où le bilan de promotion régulier : même sans bonne nouvelle, un vendeur informé reste un vendeur en confiance." }
 ];
 
 const FLASHCARDS = [
@@ -1114,8 +1142,9 @@ function renderTraining(){
   if(!config.modules.entrainement){ go("home"); return; }
   const m = route.match(/^training\/(.+)$/);
   if(m){
-    if(m[1]==="quiz"){ renderQuiz(); return; }
+    if(m[1]==="quiz" || m[1].startsWith("quiz/")){ renderQuiz(); return; }
     if(m[1]==="cartes"){ renderFlash(); return; }
+    if(m[1]==="ia" || m[1].startsWith("ia/")){ renderIA(); return; }
     const scn = SCENARIOS().find(s => s.id===m[1]);
     if(scn){ renderSim(scn); return; }
   }
@@ -1125,7 +1154,7 @@ function renderTraining(){
     <div class="eyebrow">Entraînement</div>
     <h1>Entraînez-vous avant d'affronter le terrain</h1>
     <p class="muted">Des mises en situation avec de vrais dialogues : choisissez vos répliques, recevez un retour immédiat, visez le sans-faute. Ici, se tromper ne coûte aucun mandat.</p>
-    <h2 style="margin-top:26px">🎭 Mises en situation</h2>
+    <h2 style="margin-top:26px">🎭 Mises en situation guidées</h2>
     <div class="grid cols-2">
       ${scns.map(s => {
         const best = progress.simBest[s.id];
@@ -1136,12 +1165,20 @@ function renderTraining(){
         </button>`;
       }).join("")}
     </div>
+    <h2 style="margin-top:30px">🤖 Entraînement IA — jeu de rôle libre</h2>
+    <div class="grid cols-2">
+      <button class="lesson-card" data-r="training/ia">
+        <div class="lc-top"><span class="chip">🤖 IA</span><span class="muted small">${aiAvailableLabel()}</span></div>
+        <h3 style="margin:0">Dialoguez librement avec un vendeur virtuel</h3>
+        <span class="muted small">Plus de répliques imposées : vous écrivez vos propres réponses, l'IA joue le vendeur (pige, offre basse, bilan tendu…) puis un coach IA débriefe votre conversation, point par point.</span>
+      </button>
+    </div>
     <h2 style="margin-top:30px">🧠 Connaissances</h2>
     <div class="grid cols-2">
       <button class="lesson-card" data-r="training/quiz">
-        <div class="lc-top"><span class="chip">❓ Quiz</span>${progress.quizBest!=null ? '<span class="muted small">Meilleur score : '+progress.quizBest+'/'+QUIZ.length+'</span>':''}</div>
-        <h3 style="margin:0">Quiz mandats, documents & négociation</h3>
-        <span class="muted small">${QUIZ.length} questions corrigées et expliquées, tirées des leçons.</span>
+        <div class="lc-top"><span class="chip">❓ Quiz</span>${progress.quizBestPct!=null ? '<span class="muted small">Meilleur score : '+progress.quizBestPct+'%</span>':''}</div>
+        <h3 style="margin:0">Quiz par thèmes</h3>
+        <span class="muted small">${QUIZ.length} questions corrigées et expliquées, en 4 thèmes : mandats, documents, pige, négociation — ou tout mélangé.</span>
       </button>
       <button class="lesson-card" data-r="training/cartes">
         <div class="lc-top"><span class="chip">🃏 Flashcards</span></div>
@@ -1204,25 +1241,66 @@ function renderDebrief(scn, pct){
   </div>`;
 }
 
+function shuffled(arr){
+  const a = arr.slice();
+  for(let i=a.length-1;i>0;i--){ const j = Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+  return a;
+}
+
 function renderQuiz(){
-  if(!quiz) quiz = { i:0, score:0, answered:false, order:QUIZ.map((_,i)=>i) };
-  if(quiz.i >= QUIZ.length){
-    if(progress.quizBest==null || quiz.score > progress.quizBest){ progress.quizBest = quiz.score; store.set("progress", progress); }
-    const s = quiz.score;
+  /* écran de choix du thème */
+  if(!quiz){
     app.innerHTML = `
       <button class="btn ghost sm" id="backT">← Entraînements</button>
-      <h1 style="margin-top:16px">Résultat : ${s} / ${QUIZ.length}</h1>
-      <div class="card"><p>${s>=10?"🏆 Excellent — vous maîtrisez les fondamentaux. Passez aux mises en situation pour travailler la posture.":(s>=7?"👍 Bonne base ! Relisez les corrections des questions ratées, puis retentez le sans-faute.":"📚 C'est le moment de (re)lire les leçons de l'onglet Formation — puis revenez : le quiz vous dira si c'est acquis.")}</p>
-      <div class="pill-row"><button class="btn" id="quizRestart">↺ Recommencer le quiz</button></div></div>`;
-    document.getElementById("backT").addEventListener("click", () => { quiz=null; go("training"); });
-    document.getElementById("quizRestart").addEventListener("click", () => { quiz=null; renderQuiz(); });
+      <div style="margin-top:16px" class="eyebrow">Quiz · ${QUIZ.length} questions au total</div>
+      <h1>Choisissez votre thème</h1>
+      <p class="muted">Les questions sont mélangées à chaque partie. Chaque réponse est corrigée et expliquée.</p>
+      <div class="grid cols-2" style="margin-top:18px">
+        ${QUIZCATS.map(c => {
+          const n = QUIZ.filter(q=>q.cat===c.id).length;
+          return `<button class="lesson-card" data-cat="${c.id}">
+            <div class="lc-top"><span class="chip">${c.ico} ${n} questions</span></div>
+            <h3 style="margin:0">${c.nom}</h3>
+          </button>`;
+        }).join("")}
+        <button class="lesson-card" data-cat="all">
+          <div class="lc-top"><span class="chip">🎲 12 questions tirées au sort</span>${progress.quizBestPct!=null ? '<span class="muted small">Meilleur : '+progress.quizBestPct+'%</span>':''}</div>
+          <h3 style="margin:0">Tout mélanger</h3>
+        </button>
+      </div>`;
+    document.getElementById("backT").addEventListener("click", () => go("training"));
+    app.querySelectorAll("[data-cat]").forEach(b => b.addEventListener("click", () => {
+      const cat = b.dataset.cat;
+      const list = cat==="all" ? shuffled(QUIZ).slice(0,12) : shuffled(QUIZ.filter(q=>q.cat===cat));
+      quiz = { cat, list, i:0, score:0, answered:false };
+      renderQuiz();
+    }));
     return;
   }
-  const q = QUIZ[quiz.i];
+  const L = quiz.list;
+  if(quiz.i >= L.length){
+    const pct = Math.round(quiz.score/L.length*100);
+    if(progress.quizBestPct==null || pct > progress.quizBestPct){ progress.quizBestPct = pct; store.set("progress", progress); }
+    app.innerHTML = `
+      <button class="btn ghost sm" id="backT">← Entraînements</button>
+      <h1 style="margin-top:16px">Résultat : ${quiz.score} / ${L.length} (${pct}%)</h1>
+      <div class="card"><p>${pct>=80?"🏆 Excellent — vous maîtrisez les fondamentaux. Passez aux mises en situation pour travailler la posture.":(pct>=55?"👍 Bonne base ! Relisez les corrections des questions ratées, puis retentez le sans-faute.":"📚 C'est le moment de (re)lire les leçons de l'onglet Formation — puis revenez : le quiz vous dira si c'est acquis.")}</p>
+      <div class="pill-row"><button class="btn" id="quizRestart">↺ Rejouer ce thème</button><button class="btn secondary" id="quizThemes">Changer de thème</button></div></div>`;
+    document.getElementById("backT").addEventListener("click", () => { quiz=null; go("training"); });
+    document.getElementById("quizRestart").addEventListener("click", () => {
+      const cat = quiz.cat;
+      const list = cat==="all" ? shuffled(QUIZ).slice(0,12) : shuffled(QUIZ.filter(q=>q.cat===cat));
+      quiz = { cat, list, i:0, score:0, answered:false }; renderQuiz();
+    });
+    document.getElementById("quizThemes").addEventListener("click", () => { quiz=null; renderQuiz(); });
+    return;
+  }
+  const q = L[quiz.i];
+  const catName = quiz.cat==="all" ? "Tout mélanger" : (QUIZCATS.find(c=>c.id===quiz.cat)||{}).nom;
   app.innerHTML = `
     <button class="btn ghost sm" id="backT">← Entraînements</button>
-    <div style="margin-top:16px" class="eyebrow">Quiz · question ${quiz.i+1} / ${QUIZ.length} · score ${quiz.score}</div>
-    <div class="wizard-progress"><i style="width:${Math.round(quiz.i/QUIZ.length*100)}%"></i></div>
+    <div style="margin-top:16px" class="eyebrow">Quiz · ${catName} · question ${quiz.i+1} / ${L.length} · score ${quiz.score}</div>
+    <div class="wizard-progress"><i style="width:${Math.round(quiz.i/L.length*100)}%"></i></div>
     <h2>${q.q}</h2>
     <div id="qopts">${q.opts.map((o,i)=>'<button class="qopt" data-i="'+i+'">'+o+'</button>').join("")}</div>
     <div id="qex"></div>`;
@@ -1287,7 +1365,7 @@ function renderHome(){
       ${docPct!=null ? '<div class="stat"><div class="v">'+docPct+'%</div><div class="l">Dossier de vente en cours</div></div>' : (config.modules.documents ? '<div class="stat"><div class="v">–</div><div class="l">Aucun dossier en cours</div></div>':"")}
       ${config.modules.formation ? '<div class="stat"><div class="v">'+read+'/'+lessons.length+'</div><div class="l">Leçons lues</div></div>':""}
       ${config.modules.entrainement ? '<div class="stat"><div class="v">'+played+'/'+scns.length+'</div><div class="l">Mises en situation jouées</div></div>':""}
-      ${config.modules.entrainement && progress.quizBest!=null ? '<div class="stat"><div class="v">'+progress.quizBest+'/'+QUIZ.length+'</div><div class="l">Meilleur score au quiz</div></div>':""}
+      ${config.modules.entrainement && progress.quizBestPct!=null ? '<div class="stat"><div class="v">'+progress.quizBestPct+'%</div><div class="l">Meilleur score au quiz</div></div>':""}
     </div>
     <div class="grid cols-2" style="margin-top:22px">
       ${config.modules.documents ? `<div class="card">
@@ -1375,6 +1453,236 @@ function renderSettings(){
     config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
     store.set("config", config); applyBranding(); renderTabs(); renderSettings();
   });
+}
+
+</script>
+<script>
+"use strict";
+/* ================= ENTRAÎNEMENT IA : jeu de rôle libre ================= */
+
+function IA_SCN(){
+  const all = [
+    { id:"pige", ico:"📞", titre:"Appel de pige", ms:true,
+      ctx:"M. Ferrand vend sa maison seul depuis 5 semaines (annonce « agences s'abstenir », une baisse de prix). Vous l'appelez pour la première fois. Objectif : décrocher un rendez-vous.",
+      persona:"M. Ferrand, 58 ans, vend sa maison de 320 000 € seul depuis 5 semaines sur Leboncoin avec la mention « agences s'abstenir ». Il a baissé son prix une fois (de 335 000 à 320 000). Il a eu quelques visites de curieux, aucune offre écrite. Il est méfiant envers les agences (il trouve les commissions trop chères et a été harcelé d'appels), mais il commence à fatiguer. Il répond au téléphone.",
+      objectif:"décrocher un rendez-vous d'estimation, sans jamais promettre de mandat par téléphone",
+      ouverture:"Allô oui ?… Ah, une agence, j'imagine. C'est écrit sur l'annonce pourtant : AGENCES S'ABSTENIR. Vous avez 30 secondes." },
+    { id:"transfo", ico:"🔄", titre:"Transformer un mandat simple en exclusivité", ms:true,
+      ctx:"Mme Weber vous a confié un mandat simple il y a 6 semaines (3 agences + PAP). Vous seul avez fait des visites et des comptes-rendus. C'est le rendez-vous de bilan. Objectif : l'exclusivité.",
+      persona:"Mme Weber, 45 ans, vend son appartement affiché 315 000 € chez vous, 325 000 € dans une autre agence et 330 000 € sur PAP. Mandat simple depuis 6 semaines. Vous seul avez fait 4 visites et envoyé des comptes-rendus écrits (elle l'a remarqué et l'apprécie). Elle croit que « plus d'agences = plus de chances », a peur de « mettre tous ses œufs dans le même panier », mais elle est rationnelle et sensible aux faits chiffrés.",
+      objectif:"faire signer un mandat exclusif en s'appuyant sur les faits, sans dénigrer les confrères",
+      ouverture:"Bonjour ! Alors, ce bilan… J'espère que vous avez de bonnes nouvelles ? Une offre, peut-être ?" },
+    { id:"offre", ico:"✍️", titre:"Passage d'une offre à −8 %", ms:false,
+      ctx:"Exclusivité sur l'appartement des Rossi, affiché 320 000 €. Après 9 visites, une offre écrite arrive à 295 000 €, financement validé. Vous la présentez à M. Rossi. Objectif : garder l'acquéreur à la table et le vendeur en confiance.",
+      persona:"M. Rossi, 62 ans, vend avec son épouse leur appartement affiché 320 000 € (exclusivité, 5 semaines, 9 visites, aucune autre offre). Les trois dernières ventes comparables du quartier : 296 000, 302 000 et 308 000 €. Il reçoit une offre à 295 000 € d'un couple au financement validé (300 000 € max, attestation bancaire, pas de bien à revendre). Il est fier, attaché à son bien, se vexe vite, et son premier réflexe est de trouver l'offre « insultante ». Son plancher réel (qu'il ne révèle que si le conseiller travaille bien) est 305 000 €.",
+      objectif:"présenter l'offre avec un dossier complet, obtenir le prix plancher et construire une contre-offre argumentée",
+      ouverture:"295 000 ?! C'est une plaisanterie ? On est à 320 000 ! Ils se moquent de nous, ces gens. Ne leur répondez même pas." },
+    { id:"bilan", ico:"📊", titre:"Bilan de promotion tendu", ms:false,
+      ctx:"Exclusivité depuis 6 semaines sur la maison de Mme Dubois à 450 000 €. 320 vues, 5 appels, 2 visites, 0 offre. Les comparables sont autour de 415 000 €. Objectif : faire accepter un repositionnement de prix.",
+      persona:"Mme Dubois, 51 ans, vend sa maison affichée 450 000 € (exclusivité, 6 semaines). Résultats : 320 vues en ligne, 5 appels, 2 visites, aucune offre. Ventes comparables récentes : 408 000, 415 000 et 422 000 €. Elle a besoin de 440 000 € pour son prochain achat et sa voisine a vendu 460 000 € « l'année dernière » (marché plus haut). Elle est déçue, un peu agressive au début (« vous ne faites pas votre travail »), mais de bonne foi : elle se range aux faits s'ils sont bien présentés, et a besoin de garder un sentiment de contrôle (paliers, règles de décision).",
+      objectif:"prouver les actions menées, faire le diagnostic prix par les ratios, obtenir un repositionnement (idéalement avec palier et règle de décision datée)",
+      ouverture:"Six semaines et deux malheureuses visites… Je vais être franche : je commence à me demander si vous faites vraiment votre travail." },
+    { id:"decouverte", ico:"🔍", titre:"Découverte vendeur (R1)", ms:false,
+      ctx:"M. Lambert vous reçoit chez lui pour une estimation. Mutation professionnelle dans 4 mois. Objectif : découvrir le projet complet (motif, calendrier, prix, décideurs) et obtenir le rendez-vous de restitution (R2).",
+      persona:"M. Lambert, 39 ans, doit être muté à Lyon dans 4 mois. Il vend une maison de 5 pièces. Sa femme est co-propriétaire mais absente ce jour-là (élément qu'il ne mentionne que si on lui demande qui décide). Il pense que sa maison vaut 380 000 € « parce qu'un voisin a vendu à ce prix » (en réalité le marché est plutôt à 350-360 000). Il a déjà eu une mauvaise expérience avec une agence il y a 10 ans (estimation gonflée puis baisses successives). Il est pressé mais veut éviter de refaire cette erreur. Il attend du conseiller qu'il s'intéresse à son projet, pas qu'il récite un argumentaire.",
+      objectif:"mener une vraie découverte (motif, calendrier, décideurs, historique, attentes de prix) sans donner de prix à chaud, et verrouiller un rendez-vous de restitution avec les deux époux",
+      ouverture:"Bonjour, entrez. Bon, je vous préviens, j'ai une petite heure devant moi. Alors, vous voulez visiter tout de suite ? Elle vaut combien, à votre avis ?" }
+  ];
+  return config.mandatSimple ? all : all.filter(s => !s.ms);
+}
+
+const IA_DIFF = {
+  facile:   { label:"Échauffement", desc:"Interlocuteur de bonne volonté, objections légères.", prompt:"Tu es globalement de bonne volonté : tu exprimes tes objections une fois, sans t'acharner, et tu te laisses convaincre par des arguments corrects." },
+  normal:   { label:"Réaliste",     desc:"Objections normales, il faut mériter le résultat.",  prompt:"Tu es réaliste : tu exprimes tes objections naturellement et tu ne cèdes que face à de vrais arguments, des faits et une attitude professionnelle. Tu restes poli mais tu ne fais aucun cadeau." },
+  difficile:{ label:"Coriace",      desc:"Méfiant, pressé, mauvaise foi occasionnelle.",        prompt:"Tu es coriace : méfiant, pressé, parfois de mauvaise foi. Tu coupes court aux banalités, tu relances les objections sous d'autres formes, tu testes le conseiller. Tu ne cèdes que face à une prestation excellente — et jamais complètement dès la première concession." }
+};
+
+function iaSystemPrompt(scn, diff){
+  return "Tu joues un rôle dans un simulateur d'entraînement pour " + V() + "s immobiliers débutants. " +
+    "PERSONNAGE : " + scn.persona + " " +
+    "DIFFICULTÉ : " + IA_DIFF[diff].prompt + " " +
+    "RÈGLES STRICTES : Tu restes en permanence dans ton personnage et tu ne révèles jamais que tu es une IA. " +
+    "Tu réponds UNIQUEMENT ce que dirait ton personnage, en français parlé naturel, en 1 à 4 phrases courtes (c'est une conversation, pas un monologue). " +
+    "Tu ne donnes JAMAIS de conseil au " + V() + ", tu ne commentes jamais sa performance, tu ne sors jamais du dialogue. " +
+    "Si le " + V() + " est excellent, ton personnage peut progressivement se laisser convaincre (accepter un rendez-vous, une signature, une contre-offre…) — mais uniquement si c'est mérité et de façon crédible. " +
+    "S'il est maladroit ou agressif, ton personnage réagit comme dans la vraie vie (agacement, raccrochage possible en dernier recours). " +
+    "Ne mets jamais de didascalies entre parenthèses ni de préfixe de nom : uniquement la réplique.";
+}
+
+function iaCoachPrompt(scn, msgs){
+  const transcript = msgs.map(m => (m.role==="user" ? Vcap()+" : " : "Interlocuteur : ") + m.content).join("\n");
+  return "Tu es un coach expérimenté en transaction immobilière qui débriefe un exercice de jeu de rôle d'un " + V() + " débutant.\n\n" +
+    "SCÉNARIO : " + scn.ctx + "\nOBJECTIF DU " + V().toUpperCase() + " : " + scn.objectif + ".\n\nTRANSCRIPTION :\n" + transcript + "\n\n" +
+    "Rédige un débrief en français, bienveillant mais exigeant et concret, au format EXACT suivant (markdown léger) :\n" +
+    "**Note : X/100** (sois juste : 80+ seulement si l'objectif est atteint avec une vraie qualité d'échange)\n\n" +
+    "**Objectif atteint ?** une phrase.\n\n**Points forts**\n- 2 à 3 puces, en citant les répliques concernées\n\n**À retravailler**\n- 2 à 3 puces concrètes, en citant les répliques concernées\n\n**La réplique à retenir** : reformule LA réponse idéale au moment le plus critique de la conversation.\n" +
+    "Reste sous 300 mots.";
+}
+
+/* ---- accès au modèle : window.claude.complete (artefact claude.ai) ou API Anthropic avec clé ---- */
+function aiBackend(){
+  if(window.claude && typeof window.claude.complete === "function") return "claude";
+  if(store.get("apikey","")) return "api";
+  return null;
+}
+function aiAvailableLabel(){
+  const b = aiBackend();
+  return b ? "✅ IA prête" : "⚙️ Connexion à configurer";
+}
+
+async function aiChat(system, msgs, maxTokens){
+  const b = aiBackend();
+  if(b==="claude"){
+    const prompt = system + "\n\nCONVERSATION JUSQU'ICI :\n" +
+      msgs.map(m => (m.role==="user" ? "LE "+V().toUpperCase()+" : " : "TON PERSONNAGE : ") + m.content).join("\n") +
+      "\n\nRéponds uniquement par la prochaine réplique de ton personnage.";
+    return (await window.claude.complete(prompt)).trim();
+  }
+  if(b==="api"){
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method:"POST",
+      headers:{ "content-type":"application/json", "x-api-key":store.get("apikey",""),
+        "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
+      body:JSON.stringify({ model:"claude-sonnet-5", max_tokens:maxTokens||400, system, messages:msgs })
+    });
+    if(!r.ok){ const t = await r.text(); const e = new Error("api"); e.status = r.status; e.body = t; throw e; }
+    const j = await r.json();
+    return j.content.map(c => c.text||"").join("").trim();
+  }
+  const e = new Error("nokey"); e.nokey = true; throw e;
+}
+
+function mdLite(s){
+  return esc(s)
+    .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+    .replace(/^- (.*)$/gm, "<li>$1</li>")
+    .replace(/(<li>.*<\/li>\n?)+/g, m => "<ul>"+m+"</ul>")
+    .replace(/\n\n/g, "<br><br>").replace(/\n/g, " ");
+}
+
+let iaSess = null; // {scn, diff, msgs:[{role,content}], busy, debrief, error}
+
+function renderIA(){
+  const m = route.match(/^training\/ia\/(.+)$/);
+  const scns = IA_SCN();
+  if(m){
+    const scn = scns.find(s => s.id===m[1]);
+    if(scn){ renderIAChat(scn); return; }
+  }
+  iaSess = null;
+  const backend = aiBackend();
+  app.innerHTML = `
+    <button class="btn ghost sm" id="backT">← Entraînements</button>
+    <div style="margin-top:16px" class="eyebrow">🤖 Entraînement IA</div>
+    <h1>Jeu de rôle libre avec un vendeur virtuel</h1>
+    <p class="muted">Contrairement aux mises en situation guidées, ici <b>vous écrivez vos propres répliques</b>. L'IA joue le vendeur — avec son caractère, ses objections, sa mauvaise foi parfois — puis un coach analyse toute votre conversation : note, points forts, axes de progrès et la réplique idéale au moment clé.</p>
+    ${backend ? "" : `
+    <div class="card" style="margin:16px 0">
+      <h3>⚙️ Connecter l'IA</h3>
+      <p class="small muted">Cette page fonctionne sans serveur : pour animer le vendeur virtuel, renseignez une clé API Anthropic (console.anthropic.com). Elle est conservée uniquement dans ce navigateur, sur cet appareil.</p>
+      <div class="field"><label for="iaKey">Clé API Anthropic</label><input type="text" id="iaKey" placeholder="sk-ant-…" autocomplete="off"></div>
+      <button class="btn sm" id="iaKeySave">Enregistrer la clé</button>
+      <p class="small muted" style="margin-top:10px">Note : sur la version hébergée claude.ai/code, les connexions externes sont bloquées — utilisez le fichier <b>kadymo/index.html</b> ouvert directement dans votre navigateur (ou hébergé chez vous) pour l'entraînement IA.</p>
+    </div>`}
+    ${backend==="api" ? `<p class="small muted">Clé API enregistrée sur cet appareil. <button class="btn sm ghost" id="iaKeyDel">Retirer la clé</button></p>` : ""}
+    <div class="field" style="max-width:340px;margin-top:14px"><label for="iaDiff">Niveau de difficulté</label>
+      <select id="iaDiff">${Object.keys(IA_DIFF).map(k=>'<option value="'+k+'" '+(k===(store.get("iadiff","normal"))?"selected":"")+'>'+IA_DIFF[k].label+' — '+IA_DIFF[k].desc+'</option>').join("")}</select>
+    </div>
+    <h2 style="margin-top:10px">Choisissez votre situation</h2>
+    <div class="grid cols-2">
+      ${scns.map(s => `
+        <button class="lesson-card" data-r="training/ia/${s.id}">
+          <div class="lc-top"><span class="chip">${s.ico} Dialogue libre</span></div>
+          <h3 style="margin:0">${s.titre}</h3>
+          <span class="muted small">${s.ctx}</span>
+        </button>`).join("")}
+    </div>`;
+  document.getElementById("backT").addEventListener("click", () => go("training"));
+  const sel = document.getElementById("iaDiff");
+  sel.addEventListener("change", () => store.set("iadiff", sel.value));
+  const ks = document.getElementById("iaKeySave");
+  if(ks) ks.addEventListener("click", () => {
+    const v = document.getElementById("iaKey").value.trim();
+    if(!v) return;
+    store.set("apikey", v); renderIA();
+  });
+  const kd = document.getElementById("iaKeyDel");
+  if(kd) kd.addEventListener("click", () => { store.set("apikey",""); renderIA(); });
+  app.querySelectorAll("[data-r]").forEach(b => b.addEventListener("click", () => go(b.dataset.r)));
+}
+
+function renderIAChat(scn){
+  const diff = store.get("iadiff","normal");
+  if(!iaSess || iaSess.scn.id!==scn.id){
+    iaSess = { scn, diff, msgs:[{role:"assistant", content:scn.ouverture}], busy:false, debrief:null, error:null };
+  }
+  const userTurns = iaSess.msgs.filter(m=>m.role==="user").length;
+  app.innerHTML = `
+    <button class="btn ghost sm" id="backT">← Choisir une autre situation</button>
+    <div style="margin-top:16px" class="eyebrow">🤖 Jeu de rôle libre · ${IA_DIFF[iaSess.diff].label}</div>
+    <h1>${scn.titre}</h1>
+    <div class="card" style="margin-bottom:14px"><span class="eyebrow">Contexte</span><p style="margin:.4em 0 0">${scn.ctx}</p></div>
+    <div class="chat" id="iaChat" aria-live="polite">
+      ${iaSess.msgs.map(e => `
+        <div class="bubble ${e.role==="assistant"?"npc":"me"}"><span class="who">${e.role==="assistant" ? "Interlocuteur" : "Vous"}</span>${esc(e.content)}</div>`).join("")}
+      ${iaSess.busy ? '<div class="bubble npc"><span class="who">Interlocuteur</span><i>…</i></div>' : ""}
+    </div>
+    ${iaSess.error ? '<div class="fb bad">'+iaSess.error+'</div>' : ""}
+    ${iaSess.debrief ? `<div class="card" style="margin-top:14px"><div class="eyebrow">🎓 Débrief du coach</div><div class="lesson-body small" style="margin-top:8px">${mdLite(iaSess.debrief)}</div>
+      <div class="pill-row" style="margin-top:14px"><button class="btn" id="iaReplay">↺ Rejouer</button></div></div>` : `
+    <div class="no-print" style="margin-top:6px">
+      <div class="field"><label for="iaInput" class="eyebrow">Votre réplique</label>
+        <textarea id="iaInput" rows="3" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;resize:vertical" placeholder="Écrivez ce que vous diriez, puis Entrée pour envoyer (Maj+Entrée : saut de ligne)…" ${iaSess.busy?"disabled":""}></textarea></div>
+      <div class="pill-row">
+        <button class="btn" id="iaSend" ${iaSess.busy?"disabled":""}>Envoyer</button>
+        <button class="btn secondary" id="iaEnd" ${(iaSess.busy||userTurns<2)?"disabled":""}>🎓 Terminer et recevoir le débrief</button>
+        <span class="muted small">${userTurns<2?"Au moins 2 répliques avant le débrief.":""}</span>
+      </div>
+    </div>`}`;
+  document.getElementById("backT").addEventListener("click", () => { iaSess=null; go("training/ia"); });
+  const replay = document.getElementById("iaReplay");
+  if(replay) replay.addEventListener("click", () => { iaSess=null; renderIAChat(scn); });
+  const input = document.getElementById("iaInput");
+  const send = document.getElementById("iaSend");
+  const end = document.getElementById("iaEnd");
+  if(input){
+    input.focus();
+    input.addEventListener("keydown", e => { if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); doSend(); } });
+  }
+  if(send) send.addEventListener("click", doSend);
+  if(end) end.addEventListener("click", doEnd);
+
+  async function doSend(){
+    const txt = (input.value||"").trim();
+    if(!txt || iaSess.busy) return;
+    iaSess.msgs.push({role:"user", content:txt});
+    iaSess.busy = true; iaSess.error = null;
+    renderIAChat(scn); scrollChat();
+    try{
+      const reply = await aiChat(iaSystemPrompt(scn, iaSess.diff), iaSess.msgs, 300);
+      iaSess.msgs.push({role:"assistant", content:reply});
+    }catch(err){ iaSess.error = iaErrorMsg(err); iaSess.msgs.pop(); }
+    iaSess.busy = false;
+    renderIAChat(scn); scrollChat();
+  }
+  async function doEnd(){
+    iaSess.busy = true; iaSess.error = null;
+    renderIAChat(scn); scrollChat();
+    try{
+      iaSess.debrief = await aiChat("Tu es un coach en transaction immobilière. Réponds uniquement au format demandé.",
+        [{role:"user", content:iaCoachPrompt(scn, iaSess.msgs)}], 700);
+    }catch(err){ iaSess.error = iaErrorMsg(err); }
+    iaSess.busy = false;
+    renderIAChat(scn); scrollChat();
+  }
+  function scrollChat(){ window.scrollTo({top:document.body.scrollHeight, behavior:"smooth"}); }
+}
+
+function iaErrorMsg(err){
+  if(err && err.nokey) return "Aucune connexion IA configurée : renseignez une clé API sur l'écran précédent.";
+  if(err && err.status===401) return "Clé API refusée (401) : vérifiez-la sur l'écran précédent.";
+  if(err && err.status===429) return "Trop de requêtes (429) : patientez quelques secondes puis réessayez.";
+  return "Impossible de joindre l'IA. Si vous êtes sur la version hébergée claude.ai/code, les connexions externes y sont bloquées : ouvrez le fichier kadymo/index.html directement dans votre navigateur (ou hébergez-le) pour activer l'entraînement IA.";
 }
 
 /* ================= boot ================= */
