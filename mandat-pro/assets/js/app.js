@@ -563,8 +563,12 @@
 
   function pageBien() {
     const p = state.property, s = p.stats || {};
+    // Libellés accordés : singulier quand la valeur est exactement 1.
+    const one = function (v) { return String(v == null ? "" : v).trim() === "1"; };
     const cells = [
-      ["Pièces", s.pieces], ["Chambres", s.chambres], ["Salles d'eau", s.sdb],
+      [one(s.pieces) ? "Pièce" : "Pièces", s.pieces],
+      [one(s.chambres) ? "Chambre" : "Chambres", s.chambres],
+      [one(s.sdb) ? "Point d'eau" : "Points d'eau", s.sdb],
       ["Surface", s.surface], ["Terrain", s.terrain]
     ].filter(function (c) { return c[1]; });
     if (!p.description && !cells.length) return "";

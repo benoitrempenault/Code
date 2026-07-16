@@ -115,7 +115,7 @@
       "- features.aSavoir : taxes, charges, copropriété, etc. si présentes dans les notes (sinon liste vide).",
       "- quartierIntro : 2 à 3 phrases sur l'attrait de la ville si l'information existe (sinon chaîne vide).",
       "- quartier : commodités sous forme {label, value} (Écoles, Centre-ville, Transports, Points d'intérêt, Commerces & services) si présentes (sinon liste vide).",
-      "- stats : pièces, chambres, salles d'eau, surface habitable, terrain — uniquement si l'information existe (chaîne vide sinon).",
+      "- stats : pièces, chambres, points d'eau (salles d'eau + salles de bains), surface habitable, terrain — uniquement si l'information existe (chaîne vide sinon).",
       "  Pour surface et terrain, inclure l'unité (ex : « 198 m² », « 1 223 m² »)."
     ].join("\n");
   }
@@ -498,7 +498,7 @@
       p.location ? "Localisation (affichable) : " + p.location : "",
       st.pieces ? "Pièces : " + st.pieces : "",
       st.chambres ? "Chambres : " + st.chambres : "",
-      st.sdb ? "Salles d'eau/bains : " + st.sdb : "",
+      st.sdb ? "Points d'eau (salles d'eau/bains) : " + st.sdb : "",
       st.surface ? "Surface habitable : " + st.surface : "",
       st.terrain ? "Terrain : " + st.terrain : "",
       p.price ? "Prix : " + p.price : "",
