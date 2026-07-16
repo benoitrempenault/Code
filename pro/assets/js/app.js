@@ -1030,38 +1030,72 @@
     });
 
     // Chargement & lecture du diagnostic (DPE)
-    var dpeData = null;
+    // Diagnostics : plusieurs fichiers possibles (PDF et/ou photos), cumulés
+    // d'une sélection à l'autre — pratique pour photographier page par page.
+    var dpeData = [];
+    function paintDpeFiles() {
+      const p = $("#dpeFileName");
+      if (p) p.textContent = dpeData.length
+        ? dpeData.length + " fichier" + (dpeData.length > 1 ? "s" : "") + " : " + dpeData.map(function (d) { return d.name; }).join(", ")
+        : "";
+      const clr = document.getElementById("btnDpeClear");
+      if (clr) clr.hidden = !dpeData.length;
+      const btn = document.getElementById("btnAIDpe");
+      if (btn) btn.disabled = !dpeData.length;
+    }
     var fileDpe = document.getElementById("fileDpe");
     if (fileDpe) fileDpe.addEventListener("change", function (e) {
-      const f = e.target.files[0]; if (!f) return;
-      const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+      const files = Array.prototype.slice.call(e.target.files || []);
+      e.target.value = ""; // permet d'ajouter d'autres fichiers ensuite
+      if (!files.length) return;
       const status = $("#dpeStatus");
-      if (!isPdf && !/^image\//.test(f.type)) {
+      const bad = files.find(function (f) { return !(f.type === "application/pdf" || /\.pdf$/i.test(f.name) || /^image\//.test(f.type)); });
+      if (bad) {
         status.className = "ai-status is-error";
-        status.textContent = "Format non pris en charge : « " + f.name + " » — utilisez un PDF ou une image (JPG, PNG, WebP).";
+        status.textContent = "Format non pris en charge : « " + bad.name + " » — utilisez un PDF ou une image (JPG, PNG, WebP).";
         return;
       }
-      if (f.size > 10 * 1024 * 1024) {
+      const big = files.find(function (f) { return f.size > 10 * 1024 * 1024; });
+      if (big) {
         status.className = "ai-status is-error";
-        status.textContent = "Fichier trop lourd (" + Math.round(f.size / 1024 / 1024) + " Mo — max 10 Mo). Chargez seulement la page du DPE.";
+        status.textContent = "Fichier trop lourd (" + Math.round(big.size / 1024 / 1024) + " Mo — max 10 Mo) : " + big.name;
         return;
       }
-      $("#dpeFileName").textContent = f.name;
-      status.className = "ai-status"; status.textContent = "Lecture du fichier…";
-      const done = function (url) { dpeData = { dataUrl: url, isPdf: isPdf }; $("#btnAIDpe").disabled = false; status.textContent = "Prêt à analyser."; };
-      if (isPdf) { const r = new FileReader(); r.onload = function () { done(r.result); }; r.readAsDataURL(f); }
-      else { resizeImage(f, 2200, 0.85).then(done).catch(function () { status.className = "ai-status is-error"; status.textContent = "Image illisible (format HEIC ? Convertissez-la en JPG)."; }); }
+      status.className = "ai-status"; status.textContent = "Lecture de " + files.length + " fichier" + (files.length > 1 ? "s" : "") + "…";
+      let done = 0;
+      files.forEach(function (f) {
+        const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+        const put = function (url) {
+          if (url) dpeData.push({ dataUrl: url, isPdf: isPdf, name: f.name });
+          else { status.className = "ai-status is-error"; status.textContent = "Image illisible : « " + f.name + " » (HEIC ? Convertissez-la en JPG)."; }
+          if (++done === files.length && dpeData.length) {
+            paintDpeFiles();
+            if (status.className.indexOf("is-error") < 0) {
+              status.className = "ai-status";
+              status.textContent = "Prêt à analyser (" + dpeData.length + " fichier" + (dpeData.length > 1 ? "s" : "") + ").";
+            }
+          }
+        };
+        if (isPdf) { const r = new FileReader(); r.onload = function () { put(r.result); }; r.onerror = function () { put(null); }; r.readAsDataURL(f); }
+        else { resizeImage(f, 2200, 0.85).then(put).catch(function () { put(null); }); }
+      });
+    });
+    var btnDpeClear = document.getElementById("btnDpeClear");
+    if (btnDpeClear) btnDpeClear.addEventListener("click", function () {
+      dpeData = []; paintDpeFiles();
+      const status = $("#dpeStatus"); status.className = "ai-status"; status.textContent = "";
     });
 
     var btnDpe = document.getElementById("btnAIDpe");
     if (btnDpe) btnDpe.addEventListener("click", function () {
-      if (!dpeData) return;
+      if (!dpeData.length) return;
       const status = $("#dpeStatus");
-      status.className = "ai-status is-busy"; status.textContent = "Analyse du diagnostic…";
+      status.className = "ai-status is-busy";
+      status.textContent = "Analyse de " + dpeData.length + " fichier" + (dpeData.length > 1 ? "s" : "") + "…";
       btnDpe.disabled = true;
       window.BrochureAI.extractDiagnostics({
         apiKey: keyInput.value, model: $("#aiModel").value,
-        dataUrl: dpeData.dataUrl, isPdf: dpeData.isPdf
+        files: dpeData
       }).then(function (d) {
         if (d.dpe) state.diagnostics.dpe = d.dpe;
         if (d.dpeValue) state.diagnostics.dpeValue = d.dpeValue;

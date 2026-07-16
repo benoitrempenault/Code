@@ -334,11 +334,12 @@
 
   /* ----------- Lecture automatique du diagnostic (DPE/GES) --------------- */
   async function extractDiagnostics(opts) {
-    const { apiKey, model, dataUrl, isPdf } = opts;
+    const { apiKey, model, dataUrl, isPdf, files } = opts;
     if (!apiKey || !/^sk-ant-/.test(apiKey.trim())) {
       throw new Error("Clé API manquante ou invalide (point 8).");
     }
-    if (!dataUrl) throw new Error("Chargez d'abord le diagnostic (PDF ou image).");
+    const list = (files && files.length) ? files : (dataUrl ? [{ dataUrl: dataUrl, isPdf: isPdf }] : []);
+    if (!list.length) throw new Error("Chargez d'abord le ou les diagnostics (PDF ou photos).");
 
     const DIAG_SCHEMA = {
       type: "object",
@@ -363,18 +364,17 @@
       required: ["dpe", "dpeValue", "ges", "gesValue", "summary", "note"]
     };
 
-    let block;
-    if (isPdf) {
-      const data = dataUrl.split(",")[1] || "";
-      block = { type: "document", source: { type: "base64", media_type: "application/pdf", data: data } };
-    } else {
-      const parts = dataUrlParts(dataUrl);
-      if (!parts) throw new Error("Format d'image non reconnu.");
-      block = { type: "image", source: { type: "base64", media_type: parts.media, data: parts.data } };
-    }
+    const blocks = list.slice(0, 8).map(function (fl) {
+      if (fl.isPdf) {
+        return { type: "document", source: { type: "base64", media_type: "application/pdf", data: fl.dataUrl.split(",")[1] || "" } };
+      }
+      const parts = dataUrlParts(fl.dataUrl);
+      if (!parts) throw new Error("Format d'image non reconnu (" + (fl.name || "image") + ").");
+      return { type: "image", source: { type: "base64", media_type: parts.media, data: parts.data } };
+    });
 
     const system = [
-      "Tu lis un Dossier de Diagnostics Techniques (DDT) immobilier français (souvent plusieurs diagnostics).",
+      "Tu lis un Dossier de Diagnostics Techniques (DDT) immobilier français — parfois fourni en plusieurs fichiers ou photos qui forment UN MÊME dossier.",
       "1) Extrais le DPE : classe Énergie (A–G) + valeur en kWh/m²/an, classe Climat/GES (A–G) + valeur en kg CO₂/m²/an.",
       "2) Dresse une SYNTHÈSE de TOUS les autres diagnostics présents, un par entrée {label, value}, avec un résultat",
       "   synthétique COURT. Exemples de labels : « Amiante », « Plomb (CREP) », « Termites / état parasitaire »,",
@@ -391,7 +391,7 @@
       max_tokens: 1400,
       output_config: { format: { type: "json_schema", schema: DIAG_SCHEMA } },
       system: system,
-      messages: [{ role: "user", content: [block, { type: "text", text: "Lis ce diagnostic et renvoie les classes et valeurs DPE/GES." }] }]
+      messages: [{ role: "user", content: blocks.concat([{ type: "text", text: "Lis ce(s) diagnostic(s) et renvoie les classes et valeurs DPE/GES ainsi que la synthèse." }]) }]
     };
 
     const data = await callAnthropic(apiKey, body);

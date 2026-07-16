@@ -118,12 +118,13 @@
         <div class="panel__body">
           <div class="uploader">
             <div class="uploader__row">
-              <span>Charger le diagnostic (PDF ou photo du DPE)</span>
+              <span>Charger les diagnostics <small class="hint">(PDF et/ou photos — plusieurs fichiers possibles)</small></span>
               <label class="btn btn--ghost btn--sm">Choisir
-                <input type="file" id="fileDpe" accept="application/pdf,image/*" hidden />
+                <input type="file" id="fileDpe" accept="application/pdf,image/*" multiple hidden />
               </label>
             </div>
             <p class="hint" id="dpeFileName"></p>
+            <div class="ai-actions"><button class="btn btn--ghost btn--sm" id="btnDpeClear" hidden>✕ Retirer les fichiers</button></div>
             <div class="ai-actions">
               <button class="btn btn--primary btn--sm" id="btnAIDpe" disabled>✨ Analyser &amp; mettre à jour</button>
               <span id="dpeStatus" class="ai-status" role="status" aria-live="polite"></span>
