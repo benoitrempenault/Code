@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&family=Cormorant+Garamond:wght@400;500;600&family=Montserrat:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/app.css?v=5" />
+  <link rel="stylesheet" href="assets/css/app.css?v=6" />
   <style>
     /* Aperçu du document fiche prestation (page A4 claire) */
     .fdoc-scroll { overflow-y: auto; background: #35353a; padding: 26px; display: flex; justify-content: center; }
@@ -31,6 +31,7 @@
     .fdoc h2 { font-family: var(--fdoc-serif); font-weight: 550; font-size: 12.5pt; color: var(--fdoc-accent); border-bottom: 1px solid #e2d8c8; padding-bottom: 1.5mm; margin: 6mm 0 3mm; }
     .fdoc ul { margin: 0 0 2mm 5mm; padding: 0; }
     .fdoc li { margin-bottom: 1.2mm; }
+    .fdoc .fdoc__lvl { font-weight: 600; font-size: 10.5pt; margin: 3mm 0 1.5mm; padding-left: 2.5mm; border-left: 2.5px solid var(--fdoc-accent); letter-spacing: .02em; }
     .fdoc .fdoc__empty { color: #9a968c; font-style: italic; }
     .fdoc .fdoc__legal { margin-top: 10mm; text-align: center; color: #9a968c; font-size: 8.5pt; letter-spacing: .08em; }
     .fdoc .fdoc__licmark { margin-top: 1.5mm; text-align: center; color: #c0b8a8; font-size: 6.5pt; letter-spacing: .1em; }
@@ -73,6 +74,7 @@
     <div class="topbar__actions">
       <a class="btn btn--ghost" href="index.html" title="Retour à l'accueil" style="text-decoration:none">⌂ Accueil</a>
       <button class="btn btn--ghost" id="btnFicheNew" title="Repartir d'une fiche vierge">Nouveau</button>
+      <button class="btn btn--ghost" id="btnFicheLib" title="Ouvrir ou enregistrer une fiche dans votre dossier">▤ Bibliothèque</button>
       <span class="topbar__sep" aria-hidden="true"></span>
       <button class="btn btn--ghost" id="btnWord" title="Télécharger la fiche au format Word">📄 Exporter en Word</button>
       <button class="btn btn--ghost" id="btnFichePrint" title="Imprimer ou enregistrer en PDF">🖨 Imprimer / PDF</button>
@@ -172,10 +174,34 @@
     </section>
   </main>
 
+
+  <!-- ======================= BIBLIOTHÈQUE DES FICHES ======================= -->
+  <div class="lib-overlay" id="libOverlay" hidden>
+    <div class="lib-modal" role="dialog" aria-modal="true" aria-label="Bibliothèque des fiches prestation">
+      <div class="lib-head">
+        <div>
+          <strong>Bibliothèque des fiches</strong>
+          <small id="libFolder">Aucun dossier sélectionné</small>
+        </div>
+        <button class="btn btn--icon" id="libClose" aria-label="Fermer">✕</button>
+      </div>
+      <div class="lib-toolbar">
+        <button class="btn btn--ghost btn--sm" id="libChoose">📁 Choisir le dossier…</button>
+        <button class="btn btn--primary btn--sm" id="libSave">Enregistrer la fiche actuelle</button>
+      </div>
+      <div class="lib-search">
+        <input type="search" id="libSearch" placeholder="Rechercher une fiche par nom, vendeur ou adresse…" autocomplete="off" />
+      </div>
+      <div class="lib-list" id="libList"></div>
+      <p class="lib-hint" id="libHint"></p>
+    </div>
+  </div>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="assets/js/license.js?v=1"></script>
-  <script src="assets/js/ai.js?v=5"></script>
-  <script src="assets/js/fiche.js?v=5"></script>
+  <script src="assets/js/library.js?v=1"></script>
+  <script src="assets/js/ai.js?v=6"></script>
+  <script src="assets/js/fiche.js?v=6"></script>
 </body>
 </html>

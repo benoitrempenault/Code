@@ -615,6 +615,13 @@
         "Règles ABSOLUES : fidélité totale — n'invente rien, ne complète rien, n'embellis pas. Conserve chiffres, surfaces, unités et noms de marques tels quels.",
         "Chaque élément est une ligne courte et factuelle (style fiche technique, pas de phrases marketing).",
         "Range chaque information dans la bonne section ; ignore les hésitations et répétitions de dictée (« euh », redites).",
+        "REGROUPEMENTS obligatoires — une seule ligne par thème, en assemblant toutes les informations dispersées :",
+        "- Menuiseries (dans caractéristiques) : UNE ligne pour tout ce qui concerne les fenêtres — type d'huisseries, vitrage, volets, moustiquaires. Ex. « Menuiseries : PVC double vitrage, volets roulants motorisés, moustiquaires ».",
+        "- Enveloppe extérieure (dans caractéristiques) : UNE ligne pour façade/crépi, toiture, avant-toits, gouttières, descentes, bandeaux. Ex. « Extérieur : crépi gratté, toiture tuiles (2019), avant-toits PVC, gouttières et descentes alu, bandeaux alu ».",
+        "- Cuisine (dans intérieur) : UNE ligne rassemblant tout — marque, plan de travail, électroménager, rangements.",
+        "- Pièces d'eau (dans intérieur) : UNE ligne par salle d'eau / salle de bains, rassemblant ses équipements.",
+        "Section aSavoir : les charges, le syndic, la copropriété, les taxes et les mensualités vont TOUJOURS dans aSavoir, jamais dans caracteristiques.",
+        "Section interieur : si le bien a plusieurs niveaux, commence chaque niveau par une ligne d'en-tête se terminant par deux-points — ex. « Rez-de-chaussée : », « À l'étage : », « Sous-sol : » — puis liste les pièces du niveau. S'il n'y a qu'un niveau, pas d'en-tête.",
         "Ne mets JAMAIS de nom de client ni d'adresse dans les listes (ils sont gérés à part)."
       ].join("\n"),
       messages: [{ role: "user", content: "Notes brutes (dictée) :\n\"\"\"\n" + notes.trim() + "\n\"\"\"" }]

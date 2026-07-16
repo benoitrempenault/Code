@@ -129,6 +129,31 @@
 
   async function remove(name) { await dirHandle.removeEntry(name); }
 
+  // Fiches prestation (.json portant _app: "studio-fiche") — même dossier que
+  // les brochures, listes disjointes (les brochures exigent .property).
+  async function listFiches() {
+    if (!dirHandle) return [];
+    const out = [];
+    for await (const entry of dirHandle.values()) {
+      if (entry.kind !== "file" || !/\.json$/i.test(entry.name)) continue;
+      try {
+        const file = await entry.getFile();
+        const d = JSON.parse(await file.text());
+        if (!d || d._app !== "studio-fiche") continue;
+        out.push({
+          name: entry.name,
+          vendeur: typeof d.fVendeur === "string" ? d.fVendeur : "",
+          adresse: typeof d.fAdresse === "string" ? d.fAdresse : "",
+          type: typeof d.fType === "string" ? d.fType : "",
+          modified: file.lastModified
+        });
+      } catch (e) { continue; }
+    }
+    out.sort(function (a, b) { return b.modified - a.modified; });
+    return out;
+  }
+
+
   window.BrochureLibrary = {
     isSupported: isSupported,
     chooseFolder: chooseFolder,
@@ -136,6 +161,7 @@
     ensurePermission: ensurePermission,
     folderName: folderName,
     list: list,
+    listFiches: listFiches,
     read: read,
     exists: exists,
     saveState: saveState,

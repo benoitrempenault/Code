@@ -80,10 +80,27 @@
   }
 
   /* --------------------------- Aperçu du document ------------------------ */
+  // Une ligne courte se terminant par « : » est un en-tête de niveau
+  // (« Rez-de-chaussée : », « À l'étage : ») mis en avant dans le document.
+  function isLevelLine(l) { return /:$/.test(l) && l.length <= 40; }
+  function listHtml(items, lvlClass) {
+    let html = "", open = false;
+    items.forEach(function (l) {
+      if (isLevelLine(l)) {
+        if (open) { html += "</ul>"; open = false; }
+        html += '<div class="' + lvlClass + '">' + esc(l.replace(/\s*:$/, "")) + "</div>";
+      } else {
+        if (!open) { html += "<ul>"; open = true; }
+        html += "<li>" + esc(l) + "</li>";
+      }
+    });
+    if (open) html += "</ul>";
+    return html;
+  }
   function sectionHtml(title, textareaId) {
     const items = lines($("#" + textareaId).value);
     if (!items.length) return "<h2>" + esc(title) + '</h2><p class="fdoc__empty">— à compléter —</p>';
-    return "<h2>" + esc(title) + "</h2><ul>" + items.map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("") + "</ul>";
+    return "<h2>" + esc(title) + "</h2>" + listHtml(items, "fdoc__lvl");
   }
   function docBody() {
     const vendeur = $("#fVendeur").value.trim();
@@ -332,7 +349,18 @@
   function wordSection(title, textareaId) {
     const items = lines($("#" + textareaId).value);
     if (!items.length) return "";
-    return "<h2>" + esc(title) + "</h2><ul>" + items.map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("") + "</ul>";
+    let html = "", open = false;
+    items.forEach(function (l) {
+      if (isLevelLine(l)) {
+        if (open) { html += "</ul>"; open = false; }
+        html += '<p style="font-weight:bold;margin:8pt 0 3pt 0;">' + esc(l.replace(/\s*:$/, "")) + "</p>";
+      } else {
+        if (!open) { html += "<ul>"; open = true; }
+        html += "<li>" + esc(l) + "</li>";
+      }
+    });
+    if (open) html += "</ul>";
+    return "<h2>" + esc(title) + "</h2>" + html;
   }
   function wordBody() {
     const vendeur = $("#fVendeur").value.trim();
@@ -421,14 +449,43 @@
 
   /* --------------------- Numéros de page à l'impression ------------------ */
   function removePageNumbers() {
-    Array.prototype.slice.call(document.querySelectorAll(".fdoc__pageno")).forEach(function (el) { el.remove(); });
+    Array.prototype.slice.call(document.querySelectorAll(".fdoc__pageno, .fdoc__pgspacer")).forEach(function (el) { el.remove(); });
     $("#fdoc").style.minHeight = "";
   }
+  // Pagination : aucun bloc ne doit chevaucher un saut de page, et chaque page
+  // suivante garde une vraie marge haute (des intercalaires invisibles poussent
+  // les blocs au besoin). Puis numérotation « i / N ».
   function addPageNumbers() {
     removePageNumbers();
     const doc = $("#fdoc");
     const pxPerMm = doc.offsetWidth / 210;
-    const pages = Math.max(1, Math.ceil((doc.scrollHeight - 8) / (297 * pxPerMm))); // -8px : tolérance d'arrondi
+    const pageH = 297 * pxPerMm;
+    const topMargin = 16 * pxPerMm;    // marge haute des pages 2+
+    const bottomMargin = 14 * pxPerMm; // zone basse évitée
+    const blocks = Array.prototype.slice.call(doc.children);
+    for (let i = 0; i < blocks.length; i++) {
+      const el = blocks[i];
+      if (!el.getBoundingClientRect) continue;
+      const docTop = doc.getBoundingClientRect().top;
+      const r = el.getBoundingClientRect();
+      if (!r.height) continue;
+      const top = r.top - docTop, bottom = top + r.height;
+      const page = Math.floor(top / pageH);
+      const limit = (page + 1) * pageH - bottomMargin;
+      let push = 0;
+      if (bottom > limit && r.height < pageH * 0.75) {
+        push = ((page + 1) * pageH + topMargin) - top;          // bascule entière sur la page suivante
+      } else if (page > 0 && (top - page * pageH) < topMargin) {
+        push = topMargin - (top - page * pageH);                // garantit la marge haute
+      }
+      if (push > 0.5) {
+        const sp = document.createElement("div");
+        sp.className = "fdoc__pgspacer";
+        sp.style.height = push + "px";
+        doc.insertBefore(sp, el);
+      }
+    }
+    const pages = Math.max(1, Math.ceil((doc.scrollHeight - 8) / pageH)); // -8px : tolérance d'arrondi
     for (let i = 1; i <= pages; i++) {
       const d = document.createElement("div");
       d.className = "fdoc__pageno";
@@ -503,6 +560,119 @@
     input.addEventListener("blur", function () { setTimeout(close, 150); });
   }
 
+
+  /* --------------------- Bibliothèque des fiches (dossier) --------------- */
+  // Même dossier OneDrive que les brochures ; les fiches y sont des .json
+  // marqués _app: "studio-fiche" (invisibles dans la bibliothèque brochures).
+  let currentFicheFile = null;
+  function wireFicheLibrary() {
+    function Lib() { return window.BrochureLibrary; }
+    const overlay = $("#libOverlay");
+    if (!overlay) return;
+    let items = [];
+
+    function paintFolder() {
+      $("#libFolder").textContent = (Lib() && Lib().folderName()) ? "Dossier : " + Lib().folderName() : "Aucun dossier sélectionné";
+    }
+    function fmtDate(ms) {
+      try { const d = new Date(ms); return isNaN(d) ? "" : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }); }
+      catch (e) { return ""; }
+    }
+    function paintList() {
+      const listEl = $("#libList");
+      const q = ($("#libSearch").value || "").trim().toLowerCase();
+      const shown = q ? items.filter(function (it) {
+        return (it.name + " " + it.vendeur + " " + it.adresse + " " + it.type).toLowerCase().indexOf(q) >= 0;
+      }) : items;
+      if (!shown.length) {
+        listEl.innerHTML = '<div class="lib-empty">' + (q ? "Aucun résultat pour « " + esc(q) + " »." : "Aucune fiche dans ce dossier pour le moment. « Enregistrer la fiche actuelle » pour commencer.") + "</div>";
+        return;
+      }
+      listEl.innerHTML = shown.map(function (it) {
+        const sub = [it.vendeur, it.adresse].filter(Boolean).join(" — ");
+        const cur = (it.name === currentFicheFile) ? ' <span class="lib-item__badge">ouverte</span>' : "";
+        return '<div class="lib-item" data-name="' + esc(it.name) + '">' +
+          '<div class="lib-item__main">' +
+          '<div class="lib-item__title">' + esc(it.name.replace(/\.json$/i, "")) + cur + "</div>" +
+          (sub ? '<div class="lib-item__sub">' + esc(sub) + "</div>" : "") +
+          '<div class="lib-item__meta">' + esc([it.type, it.modified ? "Modifiée le " + fmtDate(it.modified) : ""].filter(Boolean).join("  ·  ")) + "</div>" +
+          "</div>" +
+          '<div class="lib-item__actions">' +
+          '<button class="btn btn--primary btn--sm" data-act="open">Ouvrir</button>' +
+          '<button class="btn btn--ghost btn--sm" data-act="del">Supprimer</button>' +
+          "</div></div>";
+      }).join("");
+    }
+    async function refresh() {
+      const listEl = $("#libList");
+      if (!Lib || !Lib().isSupported()) {
+        listEl.innerHTML = '<div class="lib-empty">La bibliothèque nécessite <strong>Google Chrome</strong> ou <strong>Microsoft Edge</strong> sur ordinateur.</div>';
+        return;
+      }
+      if (!Lib().folderName()) {
+        listEl.innerHTML = '<div class="lib-empty">Choisissez votre dossier de travail (le même que pour les brochures).</div>';
+        return;
+      }
+      if (!(await Lib().ensurePermission())) { $("#libHint").textContent = "Autorisation requise pour lire le dossier."; return; }
+      listEl.innerHTML = '<div class="lib-empty">Lecture du dossier…</div>';
+      try { items = await Lib().listFiches(); } catch (e) { listEl.innerHTML = ""; $("#libHint").textContent = "Impossible de lire le dossier."; return; }
+      paintList();
+    }
+    async function saveCurrent() {
+      if (!Lib || !Lib().isSupported()) { toast("Bibliothèque indisponible sur ce navigateur — utilisez Chrome ou Edge.", true); return; }
+      if (!Lib().folderName()) {
+        try { await Lib().chooseFolder(); paintFolder(); } catch (e) { return; }
+      }
+      if (!(await Lib().ensurePermission())) { toast("Autorisation requise pour écrire dans le dossier.", true); return; }
+      const suggested = currentFicheFile
+        ? currentFicheFile.replace(/\.json$/i, "")
+        : ("FICHE " + (safeName($("#fAdresse").value || $("#fVendeur").value) || "sans nom"));
+      const input = prompt("Nom de la fiche :", suggested);
+      if (input == null) return;
+      const name = (safeName(input) || "fiche") + ".json";
+      if (name !== currentFicheFile && await Lib().exists(name)) {
+        if (!confirm("Une fiche « " + name + " » existe déjà. La remplacer ?")) return;
+      }
+      const data = collect(); data._app = "studio-fiche"; data._v = 1;
+      try {
+        await Lib().saveState(data, name);
+        currentFicheFile = name;
+        toast("Fiche enregistrée : " + name);
+        if (!overlay.hidden) refresh();
+      } catch (e) { toast("Enregistrement impossible.", true); }
+    }
+    async function openFiche(name) {
+      try {
+        const d = await Lib().read(name);
+        if (!d || d._app !== "studio-fiche") { toast("Ce fichier n'est pas une fiche prestation.", true); return; }
+        FIELDS.forEach(function (id) { const el = $("#" + id); if (el && typeof d[id] === "string") el.value = d[id]; });
+        currentFicheFile = name;
+        render(); save();
+        overlay.hidden = true;
+        toast("« " + name.replace(/\.json$/i, "") + " » ouverte.");
+      } catch (e) { toast("Ouverture impossible.", true); }
+    }
+    $("#btnFicheLib").addEventListener("click", function () { overlay.hidden = false; paintFolder(); refresh(); });
+    $("#libClose").addEventListener("click", function () { overlay.hidden = true; });
+    overlay.addEventListener("click", function (e) { if (e.target === overlay) overlay.hidden = true; });
+    $("#libChoose").addEventListener("click", async function () {
+      try { await Lib().chooseFolder(); paintFolder(); refresh(); } catch (e) { }
+    });
+    $("#libSave").addEventListener("click", saveCurrent);
+    $("#libSearch").addEventListener("input", paintList);
+    $("#libList").addEventListener("click", function (e) {
+      const btn = e.target.closest && e.target.closest("button[data-act]");
+      if (!btn) return;
+      const name = btn.closest(".lib-item").getAttribute("data-name");
+      if (btn.getAttribute("data-act") === "open") openFiche(name);
+      else if (confirm("Supprimer définitivement « " + name + " » du dossier ?")) {
+        Lib().remove(name).then(function () { if (currentFicheFile === name) currentFicheFile = null; refresh(); toast("Fiche supprimée."); })
+          .catch(function () { toast("Suppression impossible.", true); });
+      }
+    });
+    if (Lib() && Lib().isSupported()) Lib().restore().then(paintFolder).catch(function () { });
+  }
+
   /* ------------------------------- Divers -------------------------------- */
   function wireMisc() {
     FIELDS.forEach(function (id) {
@@ -552,6 +722,7 @@
     wireVoice();
     wireNotesPhoto();
     wireStructure();
+    wireFicheLibrary();
     wireMisc();
     render();
   }
