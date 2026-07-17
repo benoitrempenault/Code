@@ -69,3 +69,20 @@ CREATE TABLE IF NOT EXISTS licenses (
   last_seen   INTEGER,
   created_at  INTEGER NOT NULL
 );
+
+-- Fiches prestation synchronisées : suivent le compte (téléphone <-> ordinateur),
+-- partagées au sein de l'agence comme le dossier OneDrive.
+CREATE TABLE IF NOT EXISTS fiches (
+  id         TEXT PRIMARY KEY,               -- fi_xxxxxxxx
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  user_id    TEXT NOT NULL,                  -- dernier auteur
+  name       TEXT NOT NULL,
+  vendeur    TEXT NOT NULL DEFAULT '',       -- métadonnées de liste (extraites de data)
+  adresse    TEXT NOT NULL DEFAULT '',
+  type       TEXT NOT NULL DEFAULT '',
+  data       TEXT NOT NULL,                  -- JSON complet (_app = studio-fiche)
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_fiches_name   ON fiches(agency_id, name);
+CREATE INDEX        IF NOT EXISTS idx_fiches_agency ON fiches(agency_id, updated_at);

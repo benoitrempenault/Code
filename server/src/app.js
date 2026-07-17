@@ -35,7 +35,7 @@ export function createApp(env) {
   app.use("*", cors({
     origin: (o) => (origins.includes(o) ? o : origins[0] || "*"),
     allowHeaders: ["Authorization", "Content-Type"],
-    allowMethods: ["GET", "POST", "OPTIONS"]
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
   }));
 
   const err = (c, status, message) => c.json({ error: message }, status);
@@ -165,6 +165,69 @@ export function createApp(env) {
       },
       usage: { month, requests: u?.n || 0, cost_eur: Math.round((u?.cost || 0) / 1e4) / 100, quota_eur: ctx.agency.quota_eur }
     });
+  });
+
+  /* -------------------- Fiches prestation synchronisées ------------------ */
+  // Partagées au sein de l'agence (comme le dossier OneDrive). La lecture reste
+  // ouverte même abonnement suspendu (pas de données en otage) ; l'écriture non.
+  const FICHE_MAX_BYTES = 200000, FICHES_MAX = 1000;
+  app.get("/fiches", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const rows = await db.all(
+      `SELECT f.id, f.name, f.vendeur, f.adresse, f.type, f.updated_at, u.name AS author
+       FROM fiches f LEFT JOIN users u ON u.id = f.user_id
+       WHERE f.agency_id = ? ORDER BY f.updated_at DESC`, [ctx.agency.id]);
+    return c.json({ fiches: rows });
+  });
+
+  app.get("/fiches/:id", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const row = await db.get("SELECT * FROM fiches WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!row) return err(c, 404, "Fiche introuvable.");
+    let data;
+    try { data = JSON.parse(row.data); } catch (e) { return err(c, 500, "Fiche illisible."); }
+    return c.json({ id: row.id, name: row.name, updated_at: row.updated_at, data });
+  });
+
+  app.put("/fiches", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif — la synchronisation des fiches est suspendue.");
+    const b = await c.req.json().catch(() => null);
+    const name = String((b && b.name) || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 120);
+    const data = b && b.data;
+    if (!name || !data || typeof data !== "object" || Array.isArray(data) || data._app !== "studio-fiche") {
+      return err(c, 400, "name et data (fiche « studio-fiche ») requis.");
+    }
+    const json = JSON.stringify(data);
+    if (json.length > FICHE_MAX_BYTES) return err(c, 413, "Fiche trop volumineuse.");
+    const meta = [
+      String(data.fVendeur || "").slice(0, 200),
+      String(data.fAdresse || "").slice(0, 200),
+      String(data.fType || "").slice(0, 100)
+    ];
+    const existing = await db.get("SELECT id FROM fiches WHERE agency_id = ? AND name = ?", [ctx.agency.id, name]);
+    if (existing) {
+      await db.run("UPDATE fiches SET data = ?, vendeur = ?, adresse = ?, type = ?, user_id = ?, updated_at = ? WHERE id = ?",
+        [json, meta[0], meta[1], meta[2], ctx.user.id, now(), existing.id]);
+      return c.json({ ok: true, id: existing.id, name, updated: true });
+    }
+    const count = await db.get("SELECT COUNT(*) AS n FROM fiches WHERE agency_id = ?", [ctx.agency.id]);
+    if ((count?.n || 0) >= FICHES_MAX) return err(c, 409, "Limite de fiches atteinte (" + FICHES_MAX + ") — supprimez-en d'abord.");
+    const id = randId("fi");
+    await db.run(
+      "INSERT INTO fiches (id, agency_id, user_id, name, vendeur, adresse, type, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [id, ctx.agency.id, ctx.user.id, name, meta[0], meta[1], meta[2], json, now(), now()]);
+    return c.json({ ok: true, id, name, updated: false });
+  });
+
+  app.delete("/fiches/:id", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    await db.run("DELETE FROM fiches WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    return c.json({ ok: true });
   });
 
   /* ------------------------------ Proxy IA ------------------------------ */

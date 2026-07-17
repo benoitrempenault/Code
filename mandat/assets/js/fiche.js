@@ -673,9 +673,41 @@
     if (!overlay) return;
     let items = [];
 
-    function paintFolder() {
-      $("#libFolder").textContent = (Lib() && Lib().folderName()) ? "Dossier : " + Lib().folderName() : "Aucun dossier sélectionné";
+    /* --- Mode « compte » : fiches synchronisées par le serveur Studio
+       Brochure — dictez au téléphone, ouvrez sur l'ordinateur. Actif dès
+       qu'un compte est connecté ; sur ordinateur, le bouton de bascule
+       redonne accès au dossier OneDrive classique. --- */
+    const API = String((window.StudioConfig && window.StudioConfig.apiBase) || "").replace(/\/$/, "");
+    function account() { try { return JSON.parse(localStorage.getItem("studio-mandatpro-account") || "null"); } catch (e) { return null; } }
+    function cloudOn() { const a = account(); return !!(API && a && a.session); }
+    async function cloudApi(path, opts) {
+      opts = opts || {};
+      const a = account() || {};
+      let res;
+      try {
+        res = await fetch(API + path, {
+          method: opts.method || (opts.body ? "PUT" : "GET"),
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + (a.session || "") },
+          body: opts.body ? JSON.stringify(opts.body) : undefined
+        });
+      } catch (e) { throw new Error("Serveur injoignable — vérifiez votre connexion."); }
+      const data = await res.json().catch(function () { return null; });
+      if (res.status === 401) throw new Error("Session expirée — reconnectez-vous sur la page « Mon compte ».");
+      if (!res.ok) throw new Error((data && data.error) || "Erreur serveur — réessayez.");
+      return data;
     }
+    let cloudMode = false, currentCloudId = null;
+    function paintMode() {
+      $("#libFolder").textContent = cloudMode
+        ? "Fiches du compte — synchronisées entre vos appareils"
+        : ((Lib() && Lib().folderName()) ? "Dossier : " + Lib().folderName() : "Aucun dossier sélectionné");
+      $("#libChoose").hidden = cloudMode;
+      const t = $("#libToggle");
+      t.hidden = !(cloudOn() && Lib() && Lib().isSupported());
+      t.textContent = cloudMode ? "▤ Voir le dossier OneDrive" : "☁ Fiches du compte";
+    }
+
+    function paintFolder() { paintMode(); }
     function fmtDate(ms) {
       try { const d = new Date(ms); return isNaN(d) ? "" : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }); }
       catch (e) { return ""; }
@@ -687,17 +719,19 @@
         return (it.name + " " + it.vendeur + " " + it.adresse + " " + it.type).toLowerCase().indexOf(q) >= 0;
       }) : items;
       if (!shown.length) {
-        listEl.innerHTML = '<div class="lib-empty">' + (q ? "Aucun résultat pour « " + esc(q) + " »." : "Aucune fiche dans ce dossier pour le moment. « Enregistrer la fiche actuelle » pour commencer.") + "</div>";
+        listEl.innerHTML = '<div class="lib-empty">' + (q ? "Aucun résultat pour « " + esc(q) + " »."
+          : (cloudMode ? "Aucune fiche sur votre compte pour le moment. « Enregistrer la fiche actuelle » — elle vous suivra du téléphone à l'ordinateur."
+                       : "Aucune fiche dans ce dossier pour le moment. « Enregistrer la fiche actuelle » pour commencer.")) + "</div>";
         return;
       }
       listEl.innerHTML = shown.map(function (it) {
         const sub = [it.vendeur, it.adresse].filter(Boolean).join(" — ");
-        const cur = (it.name === currentFicheFile) ? ' <span class="lib-item__badge">ouverte</span>' : "";
-        return '<div class="lib-item" data-name="' + esc(it.name) + '">' +
+        const cur = (cloudMode ? (it.id && it.id === currentCloudId) : (it.name === currentFicheFile)) ? ' <span class="lib-item__badge">ouverte</span>' : "";
+        return '<div class="lib-item" data-name="' + esc(it.name) + '"' + (it.id ? ' data-id="' + esc(it.id) + '"' : "") + '>' +
           '<div class="lib-item__main">' +
           '<div class="lib-item__title">' + esc(it.name.replace(/\.json$/i, "")) + cur + "</div>" +
           (sub ? '<div class="lib-item__sub">' + esc(sub) + "</div>" : "") +
-          '<div class="lib-item__meta">' + esc([it.type, it.modified ? "Modifiée le " + fmtDate(it.modified) : ""].filter(Boolean).join("  ·  ")) + "</div>" +
+          '<div class="lib-item__meta">' + esc([it.type, it.modified ? "Modifiée le " + fmtDate(it.modified) : "", it.author ? "par " + it.author : ""].filter(Boolean).join("  ·  ")) + "</div>" +
           "</div>" +
           '<div class="lib-item__actions">' +
           '<button class="btn btn--primary btn--sm" data-act="open">Ouvrir</button>' +
@@ -707,6 +741,19 @@
     }
     async function refresh() {
       const listEl = $("#libList");
+      paintMode();
+      if (cloudMode) {
+        listEl.innerHTML = '<div class="lib-empty">Chargement…</div>';
+        $("#libHint").textContent = "Dictez au téléphone, ouvrez sur l'ordinateur : vos fiches suivent votre compte.";
+        try {
+          const r = await cloudApi("/fiches");
+          items = (r.fiches || []).map(function (x) {
+            return { id: x.id, name: x.name, vendeur: x.vendeur || "", adresse: x.adresse || "", type: x.type || "", modified: (x.updated_at || 0) * 1000, author: x.author || "" };
+          });
+        } catch (e) { listEl.innerHTML = ""; $("#libHint").textContent = e.message; return; }
+        paintList();
+        return;
+      }
       if (!Lib || !Lib().isSupported()) {
         listEl.innerHTML = '<div class="lib-empty">La bibliothèque nécessite <strong>Google Chrome</strong> ou <strong>Microsoft Edge</strong> sur ordinateur.</div>';
         return;
@@ -721,6 +768,22 @@
       paintList();
     }
     async function saveCurrent() {
+      if (cloudMode) {
+        const suggested = currentFicheFile
+          ? currentFicheFile.replace(/\.json$/i, "")
+          : ("FICHE " + (safeName($("#fAdresse").value || $("#fVendeur").value) || "sans nom"));
+        const input = prompt("Nom de la fiche :", suggested);
+        if (input == null) return;
+        const name = (input.trim() || "fiche").slice(0, 120);
+        const data = collect(); data._app = "studio-fiche"; data._v = 1;
+        try {
+          const r = await cloudApi("/fiches", { body: { name: name, data: data } });
+          currentCloudId = r.id; currentFicheFile = name + ".json";
+          toast(r.updated ? "« " + name + " » mise à jour sur votre compte ✓" : "Fiche enregistrée sur votre compte : " + name);
+          if (!overlay.hidden) refresh();
+        } catch (e) { toast(e.message, true); }
+        return;
+      }
       if (!Lib || !Lib().isSupported()) { toast("Bibliothèque indisponible sur ce navigateur — utilisez Chrome ou Edge.", true); return; }
       if (!Lib().folderName()) {
         try { await Lib().chooseFolder(); paintFolder(); } catch (e) { return; }
@@ -743,6 +806,18 @@
         if (!overlay.hidden) refresh();
       } catch (e) { toast("Enregistrement impossible.", true); }
     }
+    async function openCloud(id) {
+      try {
+        const r = await cloudApi("/fiches/" + id);
+        const d = r.data;
+        if (!d || d._app !== "studio-fiche") { toast("Ce fichier n'est pas une fiche prestation.", true); return; }
+        FIELDS.forEach(function (fid) { const el = $("#" + fid); if (el && typeof d[fid] === "string") el.value = d[fid]; });
+        currentCloudId = id; currentFicheFile = (r.name || "fiche") + ".json";
+        render(); save();
+        overlay.hidden = true;
+        toast("« " + (r.name || "fiche") + " » ouverte.");
+      } catch (e) { toast(e.message, true); }
+    }
     async function openFiche(name) {
       try {
         const d = await Lib().read(name);
@@ -754,7 +829,8 @@
         toast("« " + name.replace(/\.json$/i, "") + " » ouverte.");
       } catch (e) { toast("Ouverture impossible.", true); }
     }
-    $("#btnFicheLib").addEventListener("click", function () { overlay.hidden = false; paintFolder(); refresh(); });
+    $("#btnFicheLib").addEventListener("click", function () { cloudMode = cloudOn(); overlay.hidden = false; refresh(); });
+    $("#libToggle").addEventListener("click", function () { cloudMode = !cloudMode; refresh(); });
     $("#libClose").addEventListener("click", function () { overlay.hidden = true; });
     overlay.addEventListener("click", function (e) { if (e.target === overlay) overlay.hidden = true; });
     $("#libChoose").addEventListener("click", async function () {
@@ -769,11 +845,18 @@
     $("#libList").addEventListener("click", function (e) {
       const btn = e.target.closest && e.target.closest("button[data-act]");
       if (!btn) return;
-      const name = btn.closest(".lib-item").getAttribute("data-name");
-      if (btn.getAttribute("data-act") === "open") openFiche(name);
-      else if (confirm("Supprimer définitivement « " + name + " » du dossier ?")) {
-        Lib().remove(name).then(function () { if (currentFicheFile === name) currentFicheFile = null; refresh(); toast("Fiche supprimée."); })
-          .catch(function () { toast("Suppression impossible.", true); });
+      const item = btn.closest(".lib-item");
+      const name = item.getAttribute("data-name"), cid = item.getAttribute("data-id");
+      if (btn.getAttribute("data-act") === "open") { if (cloudMode && cid) openCloud(cid); else openFiche(name); }
+      else if (confirm("Supprimer définitivement « " + name + " » " + (cloudMode ? "de votre compte" : "du dossier") + " ?")) {
+        if (cloudMode && cid) {
+          cloudApi("/fiches/" + cid, { method: "DELETE" })
+            .then(function () { if (currentCloudId === cid) currentCloudId = null; refresh(); toast("Fiche supprimée."); },
+                  function (e) { toast(e.message, true); });
+        } else {
+          Lib().remove(name).then(function () { if (currentFicheFile === name) currentFicheFile = null; refresh(); toast("Fiche supprimée."); })
+            .catch(function () { toast("Suppression impossible.", true); });
+        }
       }
     });
     if (Lib() && Lib().isSupported()) Lib().restore().then(paintFolder).catch(function () { });
