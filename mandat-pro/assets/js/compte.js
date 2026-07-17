@@ -90,6 +90,11 @@
       }
     });
     $("#email").addEventListener("keydown", function (e) { if (e.key === "Enter") $("#btnSend").click(); });
+    $("#btnConfirm").addEventListener("click", async function () {
+      const t = pendingToken; pendingToken = null;
+      this.hidden = true;
+      if (t) await handleToken(t);
+    });
     $("#btnLogout").addEventListener("click", async function () {
       const a = getAccount();
       if (a && a.session) { await api("/auth/logout", { method: "POST", auth: a.session, body: {} }).catch(function () { }); }
@@ -99,10 +104,21 @@
     });
   }
 
+  let pendingToken = null;
   function consumeHashToken() {
+    // Le jeton n'est PLUS échangé automatiquement : les passerelles de
+    // sécurité e-mail (Microsoft Defender…) pré-ouvrent les liens dans un
+    // bac à sable et consommaient le jeton à usage unique avant l'utilisateur.
+    // On attend donc un clic — les robots ne cliquent pas sur les boutons.
     const m = /[#&]token=([^&]+)/.exec(location.hash || "");
-    if (m) { handleToken(decodeURIComponent(m[1])); return true; }
-    return false;
+    if (!m) return false;
+    pendingToken = decodeURIComponent(m[1]);
+    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { }
+    show("cardLogin");
+    $("#btnConfirm").hidden = false;
+    $("#loginMsg").className = "msg is-ok";
+    $("#loginMsg").textContent = "Vous y êtes — cliquez sur « Ouvrir ma session ».";
+    return true;
   }
   function init() {
     if (!API) { show("cardOff"); return; }
