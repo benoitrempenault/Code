@@ -141,6 +141,11 @@
 
   /* -------------------- Photo / capture de la prise de notes ------------ */
   function fileToResizedDataUrl(file, maxEdge, cb) {
+    if (window.SBHeic && window.SBHeic.isHeic(file)) {
+      window.SBHeic.toJpeg(file).then(function (f2) { fileToResizedDataUrl(f2, maxEdge, cb); },
+        function () { cb(null); });
+      return;
+    }
     const r = new FileReader();
     r.onload = function () {
       const img = new Image();
@@ -176,11 +181,11 @@
         return;
       }
       const badFmt = files.filter(function (f) {
-        return !(f.type === "application/pdf" || /\.pdf$/i.test(f.name) || /^image\/(jpeg|png|webp)$/.test(f.type));
+        return !(f.type === "application/pdf" || /\.pdf$/i.test(f.name) || /^image\/(jpeg|png|webp|heic|heif)$/i.test(f.type) || /\.hei[cf]$/i.test(f.name || ""));
       });
       if (badFmt.length) {
         status.className = "ai-status is-error";
-        status.textContent = "Format non pris en charge : « " + badFmt[0].name + " » — utilisez JPG, PNG, WebP ou PDF.";
+        status.textContent = "Format non pris en charge : « " + badFmt[0].name + " » — utilisez JPG, PNG, WebP, HEIC ou PDF.";
         return;
       }
       const tooBig = files.filter(function (f) { return f.size > 10 * 1024 * 1024; });

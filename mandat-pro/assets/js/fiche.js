@@ -136,13 +136,23 @@
   function fitPreview() {
     const doc = $("#fdoc");
     if (!doc) return;
+    const wrap = doc.parentElement;
+    const reset = function () {
+      doc.style.zoom = ""; doc.style.transform = ""; doc.style.transformOrigin = "";
+      wrap.style.height = ""; wrap.style.overflow = "";
+    };
     if (window.matchMedia("(max-width: 900px)").matches) {
-      const wrap = doc.parentElement;
       const k = Math.min(1, (wrap.clientWidth - 24) / 794); // 794 px ≈ 210 mm
-      doc.style.zoom = k < 1 ? String(k) : "";
-    } else {
-      doc.style.zoom = "";
-    }
+      if (k < 1) {
+        // transform (et non zoom) : sur iPhone, zoom fausse la hauteur calculée
+        // et tout ce qui dépasse la première page disparaît dans le fond sombre.
+        doc.style.zoom = "";
+        doc.style.transform = "scale(" + k + ")";
+        doc.style.transformOrigin = "top left";
+        wrap.style.height = Math.ceil(doc.offsetHeight * k + 24) + "px";
+        wrap.style.overflow = "hidden";
+      } else reset();
+    } else reset();
   }
 
   /* ------------------------------ Dictée -------------------------------- */
@@ -240,6 +250,11 @@
 
   /* -------------------- Photo / capture de la prise de notes ------------ */
   function fileToResizedDataUrl(file, maxEdge, cb) {
+    if (window.SBHeic && window.SBHeic.isHeic(file)) {
+      window.SBHeic.toJpeg(file).then(function (f2) { fileToResizedDataUrl(f2, maxEdge, cb); },
+        function () { cb(null); });
+      return;
+    }
     const r = new FileReader();
     r.onload = function () {
       const img = new Image();
@@ -265,11 +280,11 @@
       const key = ($("#aiKey").value || "").trim();
       if (!key && !(window.SBProxy && window.SBProxy())) { toast((window.StudioConfig && window.StudioConfig.apiBase) ? "Connectez-vous à votre compte pour utiliser la rédaction IA (page « Mon compte »)." : "Renseignez d'abord la clé API (en bas du panneau).", true); return; }
       const badFmt = files.filter(function (f) {
-        return !(f.type === "application/pdf" || /\.pdf$/i.test(f.name) || /^image\/(jpeg|png|webp)$/.test(f.type));
+        return !(f.type === "application/pdf" || /\.pdf$/i.test(f.name) || /^image\/(jpeg|png|webp|heic|heif)$/i.test(f.type) || /\.hei[cf]$/i.test(f.name || ""));
       });
       if (badFmt.length) {
         status.className = "ai-status is-error";
-        status.textContent = "Format non pris en charge : « " + badFmt[0].name + " » — utilisez JPG, PNG, WebP ou PDF.";
+        status.textContent = "Format non pris en charge : « " + badFmt[0].name + " » — utilisez JPG, PNG, WebP, HEIC ou PDF.";
         return;
       }
       const tooBig = files.filter(function (f) { return f.size > 10 * 1024 * 1024; });
@@ -656,6 +671,10 @@
     $("#libClose").addEventListener("click", function () { overlay.hidden = true; });
     overlay.addEventListener("click", function (e) { if (e.target === overlay) overlay.hidden = true; });
     $("#libChoose").addEventListener("click", async function () {
+      if (!Lib() || !Lib().isSupported()) {
+        toast("La bibliothèque nécessite Google Chrome ou Microsoft Edge sur ordinateur — sur téléphone, elle n'est pas disponible.", true);
+        return;
+      }
       try { await Lib().chooseFolder(); paintFolder(); refresh(); } catch (e) { }
     });
     $("#libSave").addEventListener("click", saveCurrent);

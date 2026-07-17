@@ -237,6 +237,9 @@
   /* ------------------------------- Photos ------------------------------- */
   function resizeImage(file, maxEdge, quality) {
     maxEdge = maxEdge || 1800; quality = quality || 0.82;
+    if (window.SBHeic && window.SBHeic.isHeic(file)) {
+      return window.SBHeic.toJpeg(file).then(function (f2) { return resizeImage(f2, maxEdge, quality); });
+    }
     return new Promise(function (resolve, reject) {
       const reader = new FileReader();
       reader.onload = function () {
@@ -257,8 +260,8 @@
 
   // Vérifie un fichier image : renvoie un message d'erreur, ou null si OK.
   function imageFileError(f, maxMo) {
-    if (!/^image\//.test(f.type)) {
-      return "« " + f.name + " » n'est pas une image — formats acceptés : JPG, PNG, WebP.";
+    if (!/^image\//.test(f.type) && !/\.hei[cf]$/i.test(f.name || "")) {
+      return "« " + f.name + " » n'est pas une image — formats acceptés : JPG, PNG, WebP, HEIC.";
     }
     if (f.size > maxMo * 1024 * 1024) {
       return "« " + f.name + " » est trop lourd (" + Math.round(f.size / 1024 / 1024) + " Mo — max " + maxMo + " Mo).";
@@ -1298,6 +1301,10 @@
     $("#libSearch").addEventListener("input", renderLibList);
     $("#libSave").addEventListener("click", libSaveCurrent);
     $("#libChoose").addEventListener("click", async function () {
+      if (!Lib || !Lib.isSupported()) {
+        toast("La bibliothèque nécessite Google Chrome ou Microsoft Edge sur ordinateur — sur téléphone, elle n'est pas disponible.", true);
+        return;
+      }
       try { await Lib.chooseFolder(); await libRefresh(); }
       catch (e) { /* l'utilisateur a annulé la sélection */ }
     });

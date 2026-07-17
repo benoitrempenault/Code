@@ -74,6 +74,11 @@ is the `mandat/` fork (it has `structureFiche`). Deployed at `/mandat-pro/`.
   Messages API (header `anthropic-dangerous-direct-browser-access`), constrained to JSON via
   `output_config.format`. Default model `claude-opus-4-8`. The user's API key lives only in
   `localStorage` (`studio-brochure-aikey`) and is never put in the exported `.json`.
+- `assets/js/heic.js` — `window.SBHeic`: iPhone **HEIC/HEIF photo support**. `toJpeg(file)` tries
+  native decode first (Safari reads HEIC), then falls back to the vendored WASM decoder
+  (`assets/js/vendor/libheif-bundle.js`, ~1.4 MB, wasm embedded, loaded lazily on the first HEIC).
+  Wired into `resizeImage` (app.js) and `fileToResizedDataUrl` (wizard.js/fiche.js) in all four
+  apps — new photo entry points should funnel through those, not read files directly.
 - `assets/js/library.js` — `window.BrochureLibrary`: a **brochure library backed by a local
   OneDrive-synced folder** (File System Access API). The user picks a folder once; the app
   lists/opens/saves/deletes `.json` brochures in it, and the OneDrive desktop client syncs them
@@ -125,8 +130,9 @@ documents (`*.pdf`, `*.docx`) present in the repo root — **do not publish thos
   merging, and rejects a payload without a `property` object.
 - `normalizeState()` backfills missing top-level objects from `DEFAULT` so a partial/old/corrupt
   `localStorage` can't white-screen the app.
-- Every app + site page carries a **Content-Security-Policy** meta: `script-src 'self'` (no inline
-  JS — the two accueil pages load `assets/js/home.js`), `connect-src` limited to the Anthropic API
+- Every app + site page carries a **Content-Security-Policy** meta: `script-src 'self'
+  'wasm-unsafe-eval'` on the six app pages (the HEIC decoder is WebAssembly; no inline JS —
+  the two accueil pages load `assets/js/home.js`), `connect-src` limited to the Anthropic API
   + OSM Overpass + BAN + qrserver + Google Fonts. When adding a new external call, widen the CSP in
   **all** affected pages or it will be blocked. The exported `.html` deliberately has no CSP (must
   open offline from `file://`).
