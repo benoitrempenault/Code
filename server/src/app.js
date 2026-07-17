@@ -29,6 +29,9 @@ export function createApp(env) {
   const app = new Hono();
 
   const origins = String(env.APP_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
+  // Base des liens de connexion : APP_BASE inclut le chemin de l'app
+  // (ex. GitHub Pages sert sous /Code) — une origine seule ne suffit pas.
+  const appBase = () => String(env.APP_BASE || origins[0] || "").replace(/\/$/, "");
   app.use("*", cors({
     origin: (o) => (origins.includes(o) ? o : origins[0] || "*"),
     allowHeaders: ["Authorization", "Content-Type"],
@@ -89,7 +92,7 @@ export function createApp(env) {
       "INSERT INTO login_tokens (token_hash, user_id, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)",
       [await sha256hex(token), user.id, now() + LINK_TTL, now()]
     );
-    const link = String(env.APP_ORIGINS || "").split(",")[0] + "/mandat-pro/compte.html#token=" + token;
+    const link = appBase() + "/mandat-pro/compte.html#token=" + token;
     if (env.RESEND_API_KEY) {
       await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -254,7 +257,7 @@ export function createApp(env) {
       "INSERT INTO login_tokens (token_hash, user_id, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)",
       [await sha256hex(token), user.id, now() + 7 * 86400, now()] // lien d'accueil : 7 jours
     );
-    const link = String(env.APP_ORIGINS || "").split(",")[0] + "/mandat-pro/compte.html#token=" + token;
+    const link = appBase() + "/mandat-pro/compte.html#token=" + token;
     return c.json({ ok: true, agency, user, welcome_link: link });
   });
 
