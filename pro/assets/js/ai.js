@@ -7,6 +7,21 @@
 
   const ENDPOINT = "https://api.anthropic.com/v1/messages";
 
+  // Mode serveur Studio Brochure : si un compte est connecté (voir config.js),
+  // les appels passent par le serveur — aucune clé API locale n'est nécessaire.
+  function proxyOn() { return !!(window.SBProxy && window.SBProxy()); }
+  function proxyUrl() { return String(window.StudioConfig.apiBase).replace(/\/$/, "") + "/v1/messages"; }
+  function proxyAuth() {
+    try { return JSON.parse(localStorage.getItem("studio-mandatpro-account")).session || ""; }
+    catch (e) { return ""; }
+  }
+  // Message unique quand ni compte connecté ni clé locale.
+  function missingAccess() {
+    return new Error((window.StudioConfig && window.StudioConfig.apiBase)
+      ? "Connectez-vous \u00e0 votre compte pour utiliser la r\u00e9daction IA (page \u00ab Mon compte \u00bb)."
+      : "Cl\u00e9 API manquante ou invalide (elle commence par \u00ab sk-ant- \u00bb).");
+  }
+
   function authHeaders(apiKey) {
     return {
       "content-type": "application/json",
@@ -23,21 +38,34 @@
     let lastErr;
     for (let i = 0; i < tries; i++) {
       let res;
+      const viaProxy = proxyOn();
       try {
-        res = await fetch(ENDPOINT, { method: "POST", headers: authHeaders(apiKey), body: JSON.stringify(body) });
+        res = await fetch(
+          viaProxy ? proxyUrl() : ENDPOINT,
+          {
+            method: "POST",
+            headers: viaProxy
+              ? { "Content-Type": "application/json", Authorization: "Bearer " + proxyAuth() }
+              : authHeaders(apiKey),
+            body: JSON.stringify(body)
+          }
+        );
       } catch (e) {
-        lastErr = new Error("Connexion impossible à l'API Anthropic (réseau).");
+        lastErr = new Error(viaProxy ? "Connexion impossible au serveur Studio Brochure (réseau)." : "Connexion impossible à l'API Anthropic (réseau).");
         await delay(700 * (i + 1)); continue;
       }
       let data; try { data = await res.json(); } catch (e) { data = {}; }
       if (res.ok) return data;
       const st = res.status;
-      if (st === 401) throw new Error("Clé API refusée (401). Vérifiez votre clé Anthropic.");
+      const serverMsg = data && ((data.error && data.error.message) || (typeof data.error === "string" ? data.error : ""));
+      if (st === 401) throw new Error(viaProxy ? "Session expirée — reconnectez-vous sur la page « Mon compte »." : "Clé API refusée (401). Vérifiez votre clé Anthropic.");
+      if (st === 402) throw new Error(serverMsg || "Compte inactif — voir la page « Mon compte ».");
       if (st === 413) throw new Error("Fichier trop volumineux. Chargez seulement la page utile du document.");
       if (st === 400) throw new Error((data.error && data.error.message) || "Requête invalide (400).");
       lastErr = new Error(st >= 500
         ? "Service Claude momentanément indisponible (erreur " + st + "). Réessayez dans quelques secondes."
         : ((data.error && data.error.message) || ("Erreur " + st)));
+      if (st === 429 && viaProxy && serverMsg) throw new Error(serverMsg); // quota mensuel : inutile de réessayer
       if (st === 429 || st >= 500) { await delay(900 * (i + 1)); continue; } // transitoire → on réessaie
       throw lastErr;
     }
@@ -135,8 +163,8 @@
 
   async function generate(opts) {
     const { apiKey, model, tone, notes, context } = opts;
-    if (!apiKey || !/^sk-ant-/.test(apiKey.trim())) {
-      throw new Error("Clé API manquante ou invalide (elle commence par « sk-ant- »).");
+    if (!proxyOn() && (!apiKey || !/^sk-ant-/.test(apiKey.trim()))) {
+      throw missingAccess();
     }
     if (!notes || notes.trim().length < 15) {
       throw new Error("Ajoutez quelques notes sur le bien avant de générer.");
@@ -176,8 +204,8 @@
 
   async function generateQuartier(opts) {
     const { apiKey, model, address } = opts;
-    if (!apiKey || !/^sk-ant-/.test(apiKey.trim())) {
-      throw new Error("Clé API manquante ou invalide (point 8).");
+    if (!proxyOn() && (!apiKey || !/^sk-ant-/.test(apiKey.trim()))) {
+      throw missingAccess();
     }
     if (!address || address.trim().length < 6) {
       throw new Error("Renseignez d'abord l'adresse précise du bien (point 2).");
@@ -272,8 +300,8 @@
 
   async function captionPhotos(opts) {
     const { apiKey, model, photos, context } = opts;
-    if (!apiKey || !/^sk-ant-/.test(apiKey.trim())) {
-      throw new Error("Clé API manquante ou invalide (point 8).");
+    if (!proxyOn() && (!apiKey || !/^sk-ant-/.test(apiKey.trim()))) {
+      throw missingAccess();
     }
     const list = (photos || []).slice(0, 16); // on limite le nombre d'images par appel
     if (!list.length) throw new Error("Ajoutez d'abord des photos à la galerie.");
@@ -335,8 +363,8 @@
   /* ----------- Lecture automatique du diagnostic (DPE/GES) --------------- */
   async function extractDiagnostics(opts) {
     const { apiKey, model, dataUrl, isPdf, files } = opts;
-    if (!apiKey || !/^sk-ant-/.test(apiKey.trim())) {
-      throw new Error("Clé API manquante ou invalide (point 8).");
+    if (!proxyOn() && (!apiKey || !/^sk-ant-/.test(apiKey.trim()))) {
+      throw missingAccess();
     }
     const list = (files && files.length) ? files : (dataUrl ? [{ dataUrl: dataUrl, isPdf: isPdf }] : []);
     if (!list.length) throw new Error("Chargez d'abord le ou les diagnostics (PDF ou photos).");
@@ -404,7 +432,7 @@
   /* --------- Petit texte sur l'attrait de la ville (rapide, sans web) ----- */
   async function generateCityIntro(opts) {
     const { apiKey, model, city, tone } = opts;
-    if (!apiKey || !/^sk-ant-/.test(apiKey.trim()) || !city) return null;
+    if ((!proxyOn() && (!apiKey || !/^sk-ant-/.test(apiKey.trim()))) || !city) return null;
     const body = {
       model: model || "claude-opus-4-8",
       max_tokens: 400,
@@ -435,7 +463,7 @@
   /* ----------- Lecture du tableau des surfaces (PDF/image) --------------- */
   async function extractSurfaces(opts) {
     const { apiKey, model, dataUrl, isPdf } = opts;
-    if (!apiKey || !/^sk-ant-/.test(apiKey.trim())) throw new Error("Clé API manquante ou invalide (point 8).");
+    if (!proxyOn() && (!apiKey || !/^sk-ant-/.test(apiKey.trim()))) throw missingAccess();
     if (!dataUrl) throw new Error("Chargez d'abord le tableau des surfaces (PDF ou image).");
 
     const SCHEMA = {
@@ -491,7 +519,7 @@
   // structuré, chiffré, sans lyrisme — le pendant « annonce » de la brochure.
   async function generateAdText(opts) {
     const { apiKey, model, state } = opts;
-    if (!apiKey || !/^sk-ant-/.test(apiKey.trim())) throw new Error("Clé API manquante ou invalide (à renseigner dans les paramètres).");
+    if (!proxyOn() && (!apiKey || !/^sk-ant-/.test(apiKey.trim()))) throw missingAccess();
     const p = state.property || {}, st = p.stats || {}, diag = state.diagnostics || {};
     const facts = [
       p.type ? "Type : " + p.type : "",
@@ -548,13 +576,12 @@
     } catch (e) { throw new Error("Réponse illisible (JSON)."); }
   }
 
-
   /* ------------- Transcription d'une photo / capture de notes ------------ */
   // L'agent colle ses notes… ou les photographie (prise de notes manuscrite,
   // page Word, scan) : Claude les transcrit fidèlement dans le champ notes.
   async function extractNotes(opts) {
     const { apiKey, model, images } = opts;
-    if (!apiKey || !/^sk-ant-/.test(apiKey.trim())) throw new Error("Clé API manquante ou invalide (voir paramètres).");
+    if (!proxyOn() && (!apiKey || !/^sk-ant-/.test(apiKey.trim()))) throw missingAccess();
     if (!images || !images.length) throw new Error("Ajoutez d'abord une photo ou une capture de vos notes.");
     const SCHEMA = {
       type: "object", additionalProperties: false,

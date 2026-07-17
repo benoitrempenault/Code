@@ -63,6 +63,10 @@
         $("#agEmail").value = a.email || "";
         $("#agPalette").value = (loadSaved() || {}).palette || "bronze";
         $("#agKey").value = localStorage.getItem(LS_AIKEY) || "";
+        if (window.StudioConfig && window.StudioConfig.apiBase) {
+          var keyLabel = $("#agKey").closest("label");
+          if (keyLabel) keyLabel.style.display = "none"; // offre Tout compris : pas de clé à saisir
+        }
         logo = a.logo || null;
         paintLogoBox();
         $("#setupError").textContent = "";

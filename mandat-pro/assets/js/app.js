@@ -1008,6 +1008,10 @@
   function wireAI() {
     const keyInput = $("#aiKey");
     keyInput.value = localStorage.getItem(LS_AIKEY) || "";
+    if (window.StudioConfig && window.StudioConfig.apiBase) {
+      const keyLabel = keyInput.closest("label");
+      if (keyLabel) keyLabel.style.display = "none"; // offre Tout compris : pas de clé à saisir
+    }
     keyInput.addEventListener("input", function () {
       if (keyInput.value.trim()) localStorage.setItem(LS_AIKEY, keyInput.value.trim());
       else localStorage.removeItem(LS_AIKEY);

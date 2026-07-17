@@ -34,7 +34,7 @@
       <button class="btn btn--ghost" id="btnMail" title="Préparer un e-mail">Envoyer par mail</button>
       <button class="btn btn--primary" id="btnPrint" title="Imprimer ou enregistrer en PDF">Imprimer / PDF</button>
       <span class="topbar__sep" aria-hidden="true"></span>
-      <button class="btn btn--ghost" id="btnSettings" title="Coordonnées de l'agence, ambiance, clé API">⚙ Réglages</button>
+      <button class="btn btn--ghost" id="btnSettings" title="Coordonnées de l'agence et ambiance">⚙ Réglages</button>
     </div>
     <button class="topbar__toggle" id="btnToggleEditor" title="Afficher/masquer l'éditeur" aria-label="Afficher/masquer l'éditeur">⇆</button>
   </header>
@@ -100,7 +100,7 @@
           <label>Commodités trouvées <small class="hint">(modifiable — une par ligne)</small>
             <textarea rows="6" data-bind-kv="quartier" placeholder="Transports : Bus « Corbiac » à 220 m (ligne 30)&#10;Écoles : Groupe scolaire à 700 m"></textarea>
           </label>
-          <label>L'attrait de la ville <small class="hint">(rempli automatiquement si la clé API est configurée)</small>
+          <label>L'attrait de la ville <small class="hint">(rempli automatiquement par la rédaction IA)</small>
             <textarea rows="2" data-bind="property.quartierIntro" placeholder="Quelques mots sur le cadre de vie…"></textarea>
           </label>
         </div>
@@ -408,7 +408,7 @@
       <div class="lib-head">
         <div>
           <strong id="setupTitle">Réglages</strong>
-          <small>Coordonnées de l'agence, ambiance et clé API</small>
+          <small>Coordonnées de l'agence et ambiance</small>
         </div>
         <button class="btn btn--icon" id="setupClose" aria-label="Fermer">✕</button>
       </div>

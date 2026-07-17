@@ -306,7 +306,7 @@
       e.target.value = "";
       if (!files.length) return;
       const key = ($("#aiKey").value || "").trim();
-      if (!key && !(window.SBProxy && window.SBProxy())) { toast("Renseignez d'abord la clé API (en bas du panneau).", true); return; }
+      if (!key && !(window.SBProxy && window.SBProxy())) { toast((window.StudioConfig && window.StudioConfig.apiBase) ? "Connectez-vous à votre compte pour utiliser la rédaction IA (page « Mon compte »)." : "Renseignez d'abord la clé API (en bas du panneau).", true); return; }
       const badFmt = files.filter(function (f) {
         return !(f.type === "application/pdf" || /\.pdf$/i.test(f.name) || /^image\/(jpeg|png|webp)$/.test(f.type));
       });
@@ -357,7 +357,7 @@
     $("#btnStructure").addEventListener("click", function () {
       const btn = $("#btnStructure"), status = $("#structStatus");
       const key = ($("#aiKey").value || "").trim();
-      if (!key && !(window.SBProxy && window.SBProxy())) { toast("Renseignez d'abord la clé API (en bas du panneau).", true); return; }
+      if (!key && !(window.SBProxy && window.SBProxy())) { toast((window.StudioConfig && window.StudioConfig.apiBase) ? "Connectez-vous à votre compte pour utiliser la rédaction IA (page « Mon compte »)." : "Renseignez d'abord la clé API (en bas du panneau).", true); return; }
       sweepConfidential();
       status.className = "ai-status is-busy"; status.textContent = "Structuration de la fiche…";
       btn.disabled = true;
@@ -751,6 +751,10 @@
     });
     const keyInput = $("#aiKey");
     keyInput.value = localStorage.getItem(LS_AIKEY) || "";
+    if (window.StudioConfig && window.StudioConfig.apiBase) {
+      const keyLabel = keyInput.closest("label");
+      if (keyLabel) keyLabel.style.display = "none"; // offre Tout compris : pas de clé à saisir
+    }
     keyInput.addEventListener("input", function () {
       if (keyInput.value.trim()) localStorage.setItem(LS_AIKEY, keyInput.value.trim());
       else localStorage.removeItem(LS_AIKEY);

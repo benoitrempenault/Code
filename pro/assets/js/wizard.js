@@ -280,9 +280,13 @@
       e.target.value = "";
       if (!files.length) return;
       const key = ($("#aiKey").value || "").trim();
-      if (!key) {
-        App().toast("Renseignez d'abord la clé API dans ⚙ Mon agence.", true);
-        openSetup(false);
+      if (!key && !(window.SBProxy && window.SBProxy())) {
+        if (window.StudioConfig && window.StudioConfig.apiBase) {
+          App().toast("Connectez-vous à votre compte pour utiliser la rédaction IA (page « Mon compte »).", true);
+        } else {
+          App().toast("Renseignez d'abord la clé API dans ⚙ Mon agence.", true);
+          openSetup(false);
+        }
         return;
       }
       const badFmt = files.filter(function (f) {
@@ -344,9 +348,13 @@
     $("#btnAIAd").addEventListener("click", function () {
       const btn = $("#btnAIAd"), status = $("#adStatus");
       const key = ($("#aiKey").value || "").trim();
-      if (!key) {
-        App().toast("Renseignez d'abord la clé API dans ⚙ Mon agence.", true);
-        openSetup(false);
+      if (!key && !(window.SBProxy && window.SBProxy())) {
+        if (window.StudioConfig && window.StudioConfig.apiBase) {
+          App().toast("Connectez-vous à votre compte pour utiliser la rédaction IA (page « Mon compte »).", true);
+        } else {
+          App().toast("Renseignez d'abord la clé API dans ⚙ Mon agence.", true);
+          openSetup(false);
+        }
         return;
       }
       status.className = "ai-status is-busy"; status.textContent = "Rédaction de l'annonce…";
