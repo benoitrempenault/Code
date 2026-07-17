@@ -7,7 +7,7 @@ compatibility_date = "2026-07-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "studio-brochure"
-database_id = "REMPLACER-PAR-L-ID-D1"  # wrangler d1 create studio-brochure
+database_id = "1731dcd7-6981-43e0-ac11-5538d0042a5b"  # créé le 17/07/2026 (région WEUR)
 
 [vars]
 APP_ORIGINS = "https://benoitrempenault.github.io"
