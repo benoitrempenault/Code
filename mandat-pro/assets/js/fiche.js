@@ -155,6 +155,36 @@
     } else reset();
   }
 
+
+  /* ------------- Export / import .json (transfert téléphone ⇄ PC) -------- */
+  function exportFicheJson() {
+    const data = collect(); data._app = "studio-fiche"; data._v = 1;
+    const name = (currentFicheFile ? currentFicheFile.replace(/\.json$/i, "")
+      : "FICHE " + (safeName($("#fAdresse").value || $("#fVendeur").value) || "sans nom")) + ".json";
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    toast("« " + name + " » téléchargé — déposez-le dans le dossier OneDrive de l'agence pour le retrouver dans la bibliothèque de l'ordinateur.");
+  }
+  function importFicheJson(file) {
+    const r = new FileReader();
+    r.onload = function () {
+      try {
+        const d = JSON.parse(r.result);
+        if (!d || d._app !== "studio-fiche") { toast("Ce fichier n'est pas une fiche prestation.", true); return; }
+        FIELDS.forEach(function (id) { const el = $("#" + id); if (el && typeof d[id] === "string") el.value = d[id]; });
+        currentFicheFile = null;
+        render(); save();
+        toast("Fiche importée ✓");
+      } catch (e) { toast("Fichier illisible.", true); }
+    };
+    r.onerror = function () { toast("Lecture du fichier impossible.", true); };
+    r.readAsText(file);
+  }
+
   /* ------------------------------ Dictée -------------------------------- */
   function wireVoice() {
     const btn = $("#btnVoice"), status = $("#voiceStatus"), notes = $("#fNotes");
@@ -703,6 +733,12 @@
     $("#btnFichePrint").addEventListener("click", function () { addPageNumbers(); window.print(); });
     window.addEventListener("beforeprint", addPageNumbers);
     window.addEventListener("afterprint", removePageNumbers);
+    $("#btnFicheExport").addEventListener("click", exportFicheJson);
+    $("#btnFicheImport").addEventListener("click", function () { $("#ficheImportFile").click(); });
+    $("#ficheImportFile").addEventListener("change", function (e) {
+      const f = e.target.files[0]; e.target.value = "";
+      if (f) importFicheJson(f);
+    });
     $("#btnInject").addEventListener("click", inject);
     $("#btnFicheNew").addEventListener("click", function () {
       if (!confirm("Repartir d'une fiche vierge ? La fiche actuelle sera effacée (pensez à l'exporter en Word).")) return;
