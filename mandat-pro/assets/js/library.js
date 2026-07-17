@@ -129,6 +129,30 @@
 
   async function remove(name) { await dirHandle.removeEntry(name); }
 
+  // Réglages de l'agence (logo, coordonnées, ambiance) sauvegardés dans le
+  // même dossier : ils survivent à un changement d'ordinateur — restauration
+  // en un clic depuis « Restaurer depuis mon dossier ».
+  const AGENCY_FILE = "reglages-agence.json";
+  async function saveAgencySettings(payload) {
+    if (!dirHandle) return false;
+    try {
+      const fh = await dirHandle.getFileHandle(AGENCY_FILE, { create: true });
+      const w = await fh.createWritable();
+      await w.write(new Blob([JSON.stringify(Object.assign({ _app: "studio-agency", _v: 1, saved_at: Date.now() }, payload), null, 2)], { type: "application/json" }));
+      await w.close();
+      return true;
+    } catch (e) { return false; }
+  }
+  async function readAgencySettings() {
+    if (!dirHandle) return null;
+    try {
+      const fh = await dirHandle.getFileHandle(AGENCY_FILE);
+      const d = JSON.parse(await (await fh.getFile()).text());
+      return (d && d._app === "studio-agency" && d.agency) ? d : null;
+    } catch (e) { return null; }
+  }
+
+
   // Fiches prestation (.json portant _app: "studio-fiche") — même dossier que
   // les brochures, listes disjointes (les brochures exigent .property).
   async function listFiches() {
@@ -165,6 +189,8 @@
     read: read,
     exists: exists,
     saveState: saveState,
-    remove: remove
+    remove: remove,
+    saveAgencySettings: saveAgencySettings,
+    readAgencySettings: readAgencySettings
   };
 })();

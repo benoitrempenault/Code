@@ -105,9 +105,42 @@
         paintBrand();
         $("#setupOverlay").hidden = true;
         toast("Paramètres de l'agence enregistrés ✓");
+        // copie de secours dans le dossier OneDrive (si déjà choisi)
+        try {
+          var Lib = window.BrochureLibrary;
+          if (Lib && Lib.isSupported()) {
+            Lib.restore().then(function () {
+              if (!Lib.folderName()) return;
+              Lib.ensurePermission().then(function (ok) { if (ok) Lib.saveAgencySettings(payload); });
+            }).catch(function () { });
+          }
+        } catch (e) { }
       });
 
       $("#btnSettings").addEventListener("click", function () { openSetup(false); });
+
+      /* Restauration des réglages depuis le dossier OneDrive (nouveau poste) */
+      var btnRestore = $("#btnRestoreAgency");
+      if (btnRestore) btnRestore.addEventListener("click", function () {
+        var Lib = window.BrochureLibrary;
+        if (!Lib || !Lib.isSupported()) { toast("Disponible sur Google Chrome ou Microsoft Edge (ordinateur)."); return; }
+        (async function () {
+          try {
+            await Lib.restore();
+            if (!Lib.folderName()) await Lib.chooseFolder();
+            if (!(await Lib.ensurePermission())) { $("#setupError").textContent = "Autorisation requise sur le dossier."; return; }
+            var d = await Lib.readAgencySettings();
+            if (!d) { $("#setupError").textContent = "Aucun réglage d'agence trouvé dans ce dossier."; return; }
+            var a = d.agency || {};
+            if (a.logo && !/^data:image\/(png|jpe?g|webp);/i.test(a.logo)) a.logo = null; // sécurité
+            var payload = { agency: { name: String(a.name || ""), agent: String(a.agent || ""), address: String(a.address || ""), phone: String(a.phone || ""), email: String(a.email || ""), logo: a.logo || null }, palette: String(d.palette || "bronze") };
+            localStorage.setItem(AG_KEY, JSON.stringify(payload));
+            saved = payload; logo = payload.agency.logo;
+            paintBrand(); openSetup(false);
+            toast("Paramètres de l'agence restaurés ✓");
+          } catch (e) { /* annulé */ }
+        })();
+      });
 
       /* Abonnement : statut + activation */
       function paintLicense() {

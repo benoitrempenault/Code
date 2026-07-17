@@ -108,6 +108,36 @@
         palette: state.theme.palette
       }));
     } catch (e) { toast("Impossible de mémoriser l'agence (logo trop lourd ?).", true); }
+    backupAgencyToFolder();
+  }
+  // Copie de secours des réglages dans le dossier OneDrive de la bibliothèque :
+  // ils survivent ainsi à un changement d'ordinateur. Silencieux si pas de dossier.
+  function backupAgencyToFolder() {
+    try {
+      const Lib = window.BrochureLibrary;
+      if (!Lib || !Lib.isSupported() || !Lib.folderName() || !agencyConfigured()) return;
+      Lib.ensurePermission().then(function (ok) {
+        if (ok) Lib.saveAgencySettings({ agency: state.agency, palette: state.theme.palette });
+      }).catch(function () { });
+    } catch (e) { }
+  }
+  // Restauration depuis le dossier (nouveau poste) — appelée par le bouton
+  // « Restaurer depuis mon dossier » du paramétrage.
+  function restoreAgency(d) {
+    if (!d || !d.agency) return false;
+    const a = d.agency;
+    state.agency = {
+      name: String(a.name || ""),
+      agent: String(a.agent || ""),
+      address: String(a.address || ""),
+      phone: String(a.phone || ""),
+      email: String(a.email || ""),
+      logo: sanitizeImageUrl(a.logo)
+    };
+    if (d.palette) state.theme.palette = String(d.palette);
+    saveAgency();
+    refreshTopbarLogo(); hydrateForm(); render(); save();
+    return true;
   }
   function applyAgency(s) {
     const saved = loadAgency();
@@ -1325,7 +1355,7 @@
     $("#libSearch").addEventListener("input", renderLibList);
     $("#libSave").addEventListener("click", libSaveCurrent);
     $("#libChoose").addEventListener("click", async function () {
-      try { await Lib.chooseFolder(); await libRefresh(); }
+      try { await Lib.chooseFolder(); backupAgencyToFolder(); await libRefresh(); }
       catch (e) { /* l'utilisateur a annulé la sélection */ }
     });
     $("#libList").addEventListener("click", function (e) {
@@ -1444,6 +1474,7 @@
     renderPhotoUI: renderPhotoUI,
     toast: toast,
     saveAgency: saveAgency,
+    restoreAgency: restoreAgency,
     agencyConfigured: agencyConfigured,
     refreshTopbarLogo: refreshTopbarLogo,
     doNew: doNew

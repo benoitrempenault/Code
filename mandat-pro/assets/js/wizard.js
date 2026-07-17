@@ -165,6 +165,22 @@
       $("#btnBackSetup").hidden = true;
       openSetup(false);
     });
+
+    // Restauration des réglages d'agence depuis le dossier OneDrive (nouveau poste)
+    const btnRestore = $("#btnRestoreAgency");
+    if (btnRestore) btnRestore.addEventListener("click", async function () {
+      const Lib = window.BrochureLibrary;
+      if (!Lib || !Lib.isSupported()) { App().toast("Disponible sur Google Chrome ou Microsoft Edge (ordinateur).", true); return; }
+      try {
+        if (!Lib.folderName()) await Lib.chooseFolder();
+        if (!(await Lib.ensurePermission())) { App().toast("Autorisation requise sur le dossier.", true); return; }
+        const d = await Lib.readAgencySettings();
+        if (!d) { App().toast("Aucun réglage d'agence trouvé dans ce dossier.", true); return; }
+        App().restoreAgency(d);
+        openSetup(false);
+        App().toast("Paramètres de l'agence restaurés ✓");
+      } catch (e) { /* sélection annulée */ }
+    });
     $("#setupClose").addEventListener("click", closeSetup);
     $("#setupOverlay").addEventListener("click", function (e) { if (e.target === this) closeSetup(); });
     $("#agencyLogoFile").addEventListener("change", function (e) {
