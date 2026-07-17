@@ -61,6 +61,13 @@
 /* Bandeau du haut à HAUTEUR FIXE : agrandir le logo ne décale pas la photo. */
 .cb-top { position: relative; flex: 0 0 44mm; padding: 0 18mm; display: flex; align-items: center; justify-content: center; }
 .cb-logo { height: 38mm; width: auto; max-width: 80%; display: block; }
+/* Logo « fondu » : le pavé blanc du fichier logo se fond dans le papier
+   (multiply : le blanc devient la couleur du fond). Pas sur couverture sombre
+   ni sur photo, où le pavé blanc sert d'assiette de lisibilité. */
+.cover-banded:not([data-cover="dark"]) .cb-logo,
+.cover-mosaic .cb-logo,
+.price__logo,
+.page-mark { mix-blend-mode: multiply; }
 .cb-logo-text { font-family: var(--serif); font-size: 18pt; }
 .cb-tag { position: absolute; top: 14mm; right: 18mm; font-size: 6.5pt; letter-spacing: .2em; text-transform: uppercase; border: 1px solid currentColor; border-radius: 999px; padding: 3px 9px; opacity: .75; }
 .cb-photo { flex: 1 1 auto; margin: 0 12mm 7mm; min-height: 0; }
