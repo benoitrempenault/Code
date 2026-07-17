@@ -14,6 +14,7 @@ export default {
       ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
       ANTHROPIC_BASE: env.ANTHROPIC_BASE || "",
       APP_ORIGINS: env.APP_ORIGINS || "",
+      APP_BASE: env.APP_BASE || "",
       RESEND_API_KEY: env.RESEND_API_KEY || "",
       MAIL_FROM: env.MAIL_FROM || "",
       STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET || "",
