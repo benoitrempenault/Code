@@ -1203,7 +1203,7 @@
     btnChoose.disabled = false; btnSave.disabled = false;
     if (!Lib.folderName()) {
       folderEl.textContent = "Aucun dossier sélectionné";
-      listEl.innerHTML = '<div class="lib-empty">Choisissez votre dossier de brochures pour commencer — ex.<br><code>KADIMA-TB\\Kadima - General\\MODELES\\COMMUNICATION\\BROCHURE</code>.</div>';
+      listEl.innerHTML = '<div class="lib-empty">Choisissez votre dossier de brochures pour commencer — ex.<br><code>KADIMA-TB\\Kadima - General\\MODELES\\COMMUNICATION\\BROCHURE</code>.<br><br><strong>Conseil :</strong> chaque conseiller désigne ce même dossier partagé (une fois par poste) — la bibliothèque est ainsi commune à toute l\'agence.</div>';
       hint.textContent = "Une seule fois : sélectionnez le dossier (naviguez jusqu'à BROCHURE dans la fenêtre Windows). Il sera mémorisé ensuite. OneDrive synchronise les .json vers le cloud et vos autres appareils.";
       return;
     }

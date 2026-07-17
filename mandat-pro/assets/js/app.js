@@ -1271,7 +1271,7 @@
     btnChoose.disabled = false; btnSave.disabled = false;
     if (!Lib.folderName()) {
       folderEl.textContent = "Aucun dossier sélectionné";
-      listEl.innerHTML = '<div class="lib-empty">Choisissez votre dossier de brochures pour commencer — par exemple un dossier synchronisé OneDrive de votre agence.</div>';
+      listEl.innerHTML = '<div class="lib-empty">Choisissez votre dossier de brochures pour commencer. <br><br><strong>Conseil :</strong> créez un dossier « Studio Brochure » dans l\'espace d\'équipe OneDrive/SharePoint de l\'agence, et que chaque conseiller désigne ce même dossier (une fois par poste) — bibliothèque, fiches et réglages seront partagés par toute l\'agence.</div>';
       hint.textContent = "Une seule fois : sélectionnez le dossier (naviguez jusqu'à BROCHURE dans la fenêtre Windows). Il sera mémorisé ensuite. OneDrive synchronise les .json vers le cloud et vos autres appareils.";
       return;
     }

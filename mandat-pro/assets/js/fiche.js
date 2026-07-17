@@ -610,7 +610,7 @@
         return;
       }
       if (!Lib().folderName()) {
-        listEl.innerHTML = '<div class="lib-empty">Choisissez votre dossier de travail (le même que pour les brochures).</div>';
+        listEl.innerHTML = '<div class="lib-empty">Choisissez votre dossier de travail — le même que pour les brochures. <br><br><strong>Conseil :</strong> créez un dossier « Studio Brochure » dans l\'espace d\'équipe OneDrive/SharePoint de l\'agence, et que chaque conseiller désigne ce même dossier (une fois par poste) — bibliothèque, fiches et réglages seront partagés par toute l\'agence.</div>';
         return;
       }
       if (!(await Lib().ensurePermission())) { $("#libHint").textContent = "Autorisation requise pour lire le dossier."; return; }
