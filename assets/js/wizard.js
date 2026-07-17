@@ -166,7 +166,7 @@
       e.target.value = "";
       if (!files.length) return;
       const key = ($("#aiKey").value || "").trim();
-      if (!key) {
+      if (!key && !(window.SBProxy && window.SBProxy())) {
         App().toast("Renseignez d'abord la clé API dans ⚙ Réglages.", true);
         $("#setupOverlay").hidden = false;
         return;
@@ -318,7 +318,7 @@
     $("#btnAIAd").addEventListener("click", function () {
       const btn = $("#btnAIAd"), status = $("#adStatus");
       const key = ($("#aiKey").value || "").trim();
-      if (!key) {
+      if (!key && !(window.SBProxy && window.SBProxy())) {
         App().toast("Renseignez d'abord la clé API dans ⚙ Réglages.", true);
         $("#setupOverlay").hidden = false;
         return;
