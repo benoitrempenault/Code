@@ -6,7 +6,7 @@
    Tant que c'est vide, l'app fonctionne en mode « Apportez votre clé ».
    ========================================================================= */
 window.StudioConfig = window.StudioConfig || {};
-if (!window.StudioConfig.apiBase) window.StudioConfig.apiBase = "";
+if (!window.StudioConfig.apiBase) window.StudioConfig.apiBase = "https://studio-brochure-api.studiobrochure.workers.dev";
 
 // Vrai si un compte « Tout compris » est connecté (les appels IA passent
 // alors par le serveur Studio Brochure, sans clé API locale).

@@ -6,7 +6,7 @@
    domaine : connectez-vous une fois sur /mandat-pro/compte.html.
    ========================================================================= */
 window.StudioConfig = window.StudioConfig || {};
-if (!window.StudioConfig.apiBase) window.StudioConfig.apiBase = "";
+if (!window.StudioConfig.apiBase) window.StudioConfig.apiBase = "https://studio-brochure-api.studiobrochure.workers.dev";
 
 window.SBProxy = function () {
   try {
