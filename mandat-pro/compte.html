@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self' https://api.studiobrochure.fr https://*.workers.dev http://localhost:8787" />
+  <title>Studio Brochure — Mon compte</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <meta name="description" content="Compte Studio Brochure « Tout compris » : connexion, abonnement et usage de la rédaction IA." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0f0f10; --panel: #17171a; --panel-2: #1e1e22; --line: #2a2a30;
+      --text: #ece9e2; --muted: #9a968c; --accent: #c2a36b; --accent-ink: #1a1714;
+    }
+    * { box-sizing: border-box; margin: 0; }
+    html, body { height: 100%; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: "Inter", system-ui, sans-serif;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 30px 20px; gap: 26px;
+    }
+    h1 { font-family: "Fraunces", Georgia, serif; font-weight: 500; font-size: clamp(24px, 4vw, 34px); text-align: center; }
+    h1 em { font-style: normal; color: var(--accent); }
+    .card {
+      width: min(480px, 100%); background: var(--panel); border: 1px solid var(--line);
+      border-radius: 18px; padding: 26px; box-shadow: 0 24px 70px rgba(0,0,0,.5);
+    }
+    .card h2 { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 20px; margin-bottom: 6px; }
+    .hint { color: var(--muted); font-size: 13px; line-height: 1.55; }
+    label { display: block; font-size: 13px; font-weight: 500; margin: 14px 0 0; }
+    input[type="email"] {
+      width: 100%; margin-top: 6px; padding: 11px 13px; border-radius: 10px;
+      border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit;
+    }
+    input:focus { outline: none; border-color: var(--accent); }
+    .btn {
+      display: inline-block; border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+      border-radius: 10px; padding: 11px 18px; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none;
+    }
+    .btn:hover { border-color: var(--accent); }
+    .btn--primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    .btn--full { width: 100%; margin-top: 14px; }
+    .msg { min-height: 18px; font-size: 13px; margin-top: 10px; }
+    .msg.is-error { color: #ff9c9c; }
+    .msg.is-ok { color: #9fd8a4; }
+    .row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+    .row:last-of-type { border-bottom: 0; }
+    .row b { font-weight: 600; }
+    .quota { height: 8px; background: var(--panel-2); border-radius: 99px; overflow: hidden; margin-top: 8px; }
+    .quota > div { height: 100%; background: var(--accent); border-radius: 99px; }
+    .badge { display: inline-block; border-radius: 99px; padding: 3px 12px; font-size: 11.5px; font-weight: 600; letter-spacing: .05em; }
+    .badge--on { background: rgba(120,200,130,.15); color: #9fd8a4; }
+    .badge--off { background: rgba(230,110,100,.15); color: #ff9c9c; }
+    .foot { display: flex; gap: 10px; justify-content: space-between; flex-wrap: wrap; margin-top: 18px; }
+    .back { color: var(--muted); font-size: 13px; text-decoration: none; }
+    .back:hover { color: var(--accent); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>Studio <em>Brochure</em> — Mon compte</h1>
+
+  <!-- Offre non activée (apiBase vide dans config.js) -->
+  <div class="card" id="cardOff" hidden>
+    <h2>Offre « Tout compris »</h2>
+    <p class="hint">Cette formule (rédaction IA incluse, sans clé à gérer) n'est pas encore ouverte.
+      En attendant, l'application fonctionne avec votre clé Anthropic — et votre clé d'activation
+      Studio Brochure. Intéressé par le « Tout compris » ? Écrivez-nous depuis la page de présentation.</p>
+    <div class="foot"><a class="back" href="index.html">⌂ Retour à l'accueil</a></div>
+  </div>
+
+  <!-- Connexion -->
+  <div class="card" id="cardLogin" hidden>
+    <h2>Connexion</h2>
+    <p class="hint">Saisissez l'adresse e-mail de votre compte : nous vous envoyons un lien de
+      connexion (valable 15 minutes). Pas de mot de passe à retenir.</p>
+    <label>Adresse e-mail
+      <input type="email" id="email" placeholder="vous@votre-agence.fr" autocomplete="email" />
+    </label>
+    <button class="btn btn--primary btn--full" id="btnSend" type="button">Recevoir mon lien de connexion</button>
+    <p class="msg" id="loginMsg" role="status" aria-live="polite"></p>
+    <div class="foot"><a class="back" href="index.html">⌂ Retour à l'accueil</a></div>
+  </div>
+
+  <!-- Profil connecté -->
+  <div class="card" id="cardMe" hidden>
+    <h2 id="meAgency">…</h2>
+    <p class="hint" id="meUser"></p>
+    <div style="margin:14px 0 4px"><span class="badge" id="meBadge"></span></div>
+    <div class="row"><span>Formule</span><b id="mePlan"></b></div>
+    <div class="row"><span>Utilisations IA ce mois-ci</span><b id="meReq"></b></div>
+    <div class="row"><span>Usage raisonnable</span><b id="meQuota"></b></div>
+    <div class="quota"><div id="meBar" style="width:0%"></div></div>
+    <p class="hint" style="margin-top:12px">Sur cet appareil, la rédaction IA passe par votre
+      abonnement — aucune clé API à configurer. Valable sur 2 appareils par utilisateur.</p>
+    <div class="foot">
+      <a class="back" href="index.html">⌂ Retour à l'accueil</a>
+      <button class="btn" id="btnLogout" type="button">Se déconnecter</button>
+    </div>
+  </div>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/compte.js"></script>
+</body>
+</html>

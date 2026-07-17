@@ -1,3 +1,5 @@
 node_modules/
 studio.sqlite
 *.sqlite
+*.log
+nohup.out

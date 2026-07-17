@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob:; connect-src 'self' https://api.anthropic.com https://overpass-api.de https://api-adresse.data.gouv.fr https://api.qrserver.com https://fonts.googleapis.com https://fonts.gstatic.com" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob:; connect-src 'self' https://api.anthropic.com https://overpass-api.de https://api-adresse.data.gouv.fr https://api.qrserver.com https://fonts.googleapis.com https://fonts.gstatic.com https://api.studiobrochure.fr https://*.workers.dev http://localhost:8787" />
   <title>Studio Brochure — Fiche prestation &amp; Brochure</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <meta name="description" content="La suite du mandat, aux couleurs de votre agence : dictez la fiche prestation, exportez-la en Word, puis injectez-la dans la brochure acquéreur." />
@@ -134,6 +134,7 @@
     <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
       <button class="settings-link" id="btnSettings" type="button">⚙ Paramètres de l'agence</button>
       <button class="settings-link" id="btnLicense" type="button">🔑 Abonnement</button>
+      <a class="settings-link" href="compte.html" style="text-decoration:none">👤 Mon compte</a>
     </div>
     <p class="flow" id="licenseStatus" style="margin:0"></p>
   </div>
@@ -190,6 +191,7 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+  <script src="assets/js/config.js"></script>
   <script src="assets/js/license.js"></script>
   <script src="assets/js/home.js"></script>
 </body>

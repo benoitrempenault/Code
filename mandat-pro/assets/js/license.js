@@ -119,10 +119,34 @@
     return t;
   }
 
+  // Révocation en ligne : si le serveur est configuré, on vérifie la clé au
+  // plus une fois toutes les 12 h ; une clé révoquée est retirée de l'appareil.
+  async function checkRevocation(lic) {
+    try {
+      if (!(window.StudioConfig && window.StudioConfig.apiBase)) return false;
+      const last = parseInt(localStorage.getItem("studio-mandatpro-liccheck"), 10) || 0;
+      if (now() - last < 12 * 3600) return false;
+      const res = await fetch(String(window.StudioConfig.apiBase).replace(/\/$/, "") + "/license/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: lic.key }),
+        signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(4000) : undefined
+      });
+      const d = await res.json();
+      localStorage.setItem("studio-mandatpro-liccheck", String(now()));
+      if (d && d.ok === false && d.reason === "revoked") {
+        localStorage.removeItem(LS_LICENSE);
+        return true; // révoquée
+      }
+    } catch (e) { /* hors-ligne : on n'embête pas l'utilisateur */ }
+    return false;
+  }
+
   // État courant : essai en cours, sous licence, ou expiré.
   async function status() {
     const lic = storedLicense();
     if (lic && lic.key) {
+      if (await checkRevocation(lic)) return { state: "expired", reason: "licence" };
       const payload = await verifyKey(lic.key); // revérifie la signature à chaque fois
       if (payload && payload.exp > now()) {
         return { state: "licensed", agency: payload.agency || "", plan: payload.plan || "base",
