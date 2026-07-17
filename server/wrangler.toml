@@ -1,0 +1,21 @@
+# Studio Brochure — API « Tout compris » (Cloudflare Workers + D1)
+# Déploiement : voir README.md
+name = "studio-brochure-api"
+main = "worker.js"
+compatibility_date = "2026-07-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "studio-brochure"
+database_id = "REMPLACER-PAR-L-ID-D1"  # wrangler d1 create studio-brochure
+
+[vars]
+APP_ORIGINS = "https://benoitrempenault.github.io"
+MAIL_FROM = "Studio Brochure <connexion@studiobrochure.fr>"
+
+# Secrets (JAMAIS dans ce fichier) — à poser avec :
+#   wrangler secret put ANTHROPIC_API_KEY
+#   wrangler secret put ADMIN_KEY
+#   wrangler secret put SESSION_SECRET
+#   wrangler secret put RESEND_API_KEY        (optionnel au début)
+#   wrangler secret put STRIPE_WEBHOOK_SECRET (à l'activation de Stripe)

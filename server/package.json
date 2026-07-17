@@ -1,0 +1,17 @@
+{
+  "name": "studio-brochure-api",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "DEV_MODE=1 node node.js",
+    "test": "node test.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "hono": "^4.12.30"
+  },
+  "type": "module"
+}
