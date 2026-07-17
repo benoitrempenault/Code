@@ -143,7 +143,38 @@
   }
 
   // État courant : essai en cours, sous licence, ou expiré.
+  /* --------- Compte « Tout compris » : un abonnement actif côté serveur
+     vaut licence — prioritaire sur l'essai local et les clés SB1. --------- */
+  const LS_ACCSTATUS = "studio-mandatpro-accstatus";
+  async function accountLicense() {
+    try {
+      const API = String((window.StudioConfig && window.StudioConfig.apiBase) || "").replace(/\/$/, "");
+      const a = JSON.parse(localStorage.getItem("studio-mandatpro-account") || "null");
+      if (!API || !a || !a.session) return null;
+      const cached = JSON.parse(localStorage.getItem(LS_ACCSTATUS) || "null");
+      if (cached && (Date.now() - cached.ts) < 6 * 3600 * 1000) return cached.open ? cached : null;
+      const r = await fetch(API + "/me", {
+        headers: { Authorization: "Bearer " + a.session },
+        signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(4000) : undefined
+      });
+      if (!r.ok) { if (r.status === 401) try { localStorage.removeItem(LS_ACCSTATUS); } catch (e) { } ; return null; }
+      const d = await r.json();
+      const st = { ts: Date.now(), open: !!(d && d.agency && d.agency.open), agency: (d && d.agency && d.agency.name) || "", status: (d && d.agency && d.agency.status) || "" };
+      try { localStorage.setItem(LS_ACCSTATUS, JSON.stringify(st)); } catch (e) { }
+      return st.open ? st : null;
+    } catch (e) {
+      // Hors ligne : on fait confiance au dernier état connu — verrouiller un
+      // abonné à cause d'une coupure réseau serait pire.
+      try { const c = JSON.parse(localStorage.getItem(LS_ACCSTATUS) || "null"); return (c && c.open) ? c : null; }
+      catch (e2) { return null; }
+    }
+  }
+
   async function status() {
+    const acc = await accountLicense();
+    if (acc) {
+      return { state: "licensed", via: "account", agency: acc.agency, plan: "tout-compris", accountStatus: acc.status };
+    }
     const lic = storedLicense();
     if (lic && lic.key) {
       if (await checkRevocation(lic)) return { state: "expired", reason: "licence" };

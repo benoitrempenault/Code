@@ -152,8 +152,10 @@
         if (!el || !window.StudioLicense) return;
         window.StudioLicense.status().then(function (st) {
           if (st.state === "licensed") {
-            el.innerHTML = "Abonnement actif — valable jusqu'au <strong>" +
-              window.StudioLicense.fmtDate(st.exp) + "</strong>.";
+            el.innerHTML = st.via === "account"
+              ? "Abonnement actif — compte de l'agence connecté ✓"
+              : "Abonnement actif — valable jusqu'au <strong>" +
+                window.StudioLicense.fmtDate(st.exp) + "</strong>.";
           } else if (st.state === "trial") {
             el.innerHTML = "Essai gratuit : <strong>" + st.daysLeft + " jour" +
               (st.daysLeft > 1 ? "s" : "") + "</strong> restant" + (st.daysLeft > 1 ? "s" : "") + ".";
