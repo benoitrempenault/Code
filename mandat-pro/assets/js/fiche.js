@@ -253,7 +253,9 @@
         if (ev.error === "no-speech" || ev.error === "aborted") return; // silence : onend relancera
         const msgs = {
           "not-allowed": "Micro refusé — autorisez le micro pour ce site (icône 🔒 ou réglages du navigateur).",
-          "service-not-allowed": "Le service de reconnaissance vocale est bloqué sur ce poste (navigateur dérivé ou politique d'entreprise) — essayez Microsoft Edge.",
+          "service-not-allowed": /iPhone|iPad/.test(navigator.userAgent)
+            ? "Sur iPhone, la dictée ne fonctionne que dans Safari — ouvrez cette page dans Safari."
+            : "Le service de reconnaissance vocale est bloqué (permission micro de l'application, navigateur dérivé ou politique d'entreprise) — sur Android vérifiez Paramètres → Chrome → Micro ; sur PC essayez Microsoft Edge.",
           "audio-capture": "Aucun micro détecté sur cet appareil.",
           "network": "La reconnaissance vocale n'a pas pu joindre le service — vérifiez la connexion."
         };
