@@ -90,6 +90,11 @@ const oldSession = await call("/me", { headers: { Authorization: "Bearer " + bea
 ok(oldSession.status === 401, "3e connexion → la plus ancienne session est déconnectée");
 ok((await call("/me", { headers: { Authorization: "Bearer " + s3 } })).status === 200, "la nouvelle session fonctionne");
 
+console.log("— Limite d'envoi des liens de connexion");
+let last429 = null;
+for (let i = 0; i < 5; i++) last429 = await call("/auth/request-link", { body: { email: "claire@azur-immo.fr" } });
+ok(last429.status === 429 && /10 minutes/.test(last429.json.error), "rafale bloquée à 4 liens / 10 min avec message adapté");
+
 console.log("— Mise à jour d'agence (admin)");
 const upd = await call("/admin/agencies/" + agencyId, { headers: admin, body: { seats: 30, quota_eur: 60 } });
 ok(upd.status === 200 && upd.json.agency.seats === 30 && upd.json.agency.quota_eur === 60, "sièges et quota modifiés");

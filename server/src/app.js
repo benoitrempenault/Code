@@ -21,7 +21,8 @@ import { now, monthKey, randId, randToken, sha256hex, hmacHex, safeEqual, costMi
 const SESSION_TTL = 30 * 24 * 3600;   // 30 jours d'inactivité
 const MAX_SESSIONS = 2;               // appareils simultanés par utilisateur
 const LINK_TTL = 15 * 60;             // lien magique : 15 minutes
-const MAX_LINKS_PER_HOUR = 5;
+const MAX_LINKS_PER_10MIN = 4;    // stoppe les rafales (scanner, double-clics)
+const MAX_LINKS_PER_HOUR = 12;    // stoppe l'abus (bombardement d'e-mails)
 const MAX_TOKENS_CAP = 8192;
 
 export function createApp(env) {
@@ -82,6 +83,11 @@ export function createApp(env) {
     // Réponse identique que le compte existe ou non (pas de fuite d'annuaire).
     const generic = { ok: true, message: "Si un compte existe pour cette adresse, un lien de connexion vient d'être envoyé." };
     if (!user) return c.json(generic);
+    const burst = await db.get(
+      "SELECT COUNT(*) AS n FROM login_tokens WHERE user_id = ? AND created_at > ?",
+      [user.id, now() - 600]
+    );
+    if ((burst?.n || 0) >= MAX_LINKS_PER_10MIN) return err(c, 429, "Plusieurs liens viennent d'être envoyés — utilisez le dernier reçu, ou réessayez dans 10 minutes.");
     const recent = await db.get(
       "SELECT COUNT(*) AS n FROM login_tokens WHERE user_id = ? AND created_at > ?",
       [user.id, now() - 3600]
