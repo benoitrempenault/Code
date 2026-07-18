@@ -297,7 +297,7 @@
         const msgs = {
           "not-allowed": "Micro refusé — autorisez le micro pour ce site (icône 🔒 ou réglages du navigateur).",
           "service-not-allowed": /iPhone|iPad/.test(navigator.userAgent)
-            ? "Sur iPhone, la dictée ne fonctionne que dans Safari — ouvrez cette page dans Safari."
+            ? "Dictée bloquée : Réglages iPhone → votre navigateur → Micro → activer. Si ça persiste (ancien iOS), ouvrez cette page dans Safari."
             : "Le service de reconnaissance vocale est bloqué (permission micro de l'application, navigateur dérivé ou politique d'entreprise) — sur Android vérifiez Paramètres → Chrome → Micro ; sur PC essayez Microsoft Edge.",
           "audio-capture": "Aucun micro détecté sur cet appareil.",
           "network": "La reconnaissance vocale n'a pas pu joindre le service — vérifiez la connexion."
