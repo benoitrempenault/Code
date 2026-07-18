@@ -362,8 +362,10 @@ export function createApp(env) {
     if (!requireAdmin(c)) return err(c, 401, "Clé admin invalide.");
     const b = await c.req.json().catch(() => ({}));
     if (!["trial", "active", "suspended"].includes(b.status)) return err(c, 400, "status invalide.");
-    await db.run("UPDATE agencies SET status = ? WHERE id = ?", [b.status, c.req.param("id")]);
-    return c.json({ ok: true });
+    const agency = await db.get("SELECT id, name FROM agencies WHERE id = ?", [c.req.param("id")]);
+    if (!agency) return err(c, 404, "Agence introuvable — vérifiez l'identifiant (ag_…).");
+    await db.run("UPDATE agencies SET status = ? WHERE id = ?", [b.status, agency.id]);
+    return c.json({ ok: true, agency: agency.name, status: b.status });
   });
 
   app.post("/admin/users", async (c) => {
