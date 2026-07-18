@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Studio Brochure — Fiche de dépannage</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    width: 210mm; min-height: 297mm; padding: 8mm 11mm;
+    font-family: "Segoe UI", system-ui, sans-serif; color: #1c1813;
+    background: #faf7f2; font-size: 8.3pt; line-height: 1.32;
+  }
+  .head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #b7a06b; padding-bottom: 2.5mm; margin-bottom: 3mm; }
+  h1 { font-family: Georgia, serif; font-weight: 500; font-size: 16pt; }
+  h1 em { font-style: normal; color: #9a7b3f; }
+  .tag { font-size: 8pt; letter-spacing: .16em; text-transform: uppercase; color: #8b8578; }
+  .cols { column-count: 2; column-gap: 6mm; }
+  .item { break-inside: avoid; background: #fff; border: 1px solid #e4dccb; border-radius: 2.5mm; padding: 2.2mm 2.6mm; margin-bottom: 2.4mm; }
+  .item h3 { font-size: 8.9pt; color: #7d6330; margin-bottom: 1mm; }
+  .item .why { color: #8b8578; font-style: italic; margin-bottom: 1mm; }
+  .item b { font-weight: 600; }
+  .fix::before { content: "→ "; color: #b7a06b; font-weight: 700; }
+  .fix { margin-top: .6mm; }
+  .foot { margin-top: 3mm; border-top: 1px solid #d8cfc0; padding-top: 2.5mm; font-size: 8pt; color: #8b8578; }
+  code { font-family: Consolas, monospace; font-size: 8.2pt; background: #f1e9da; border-radius: 1mm; padding: 0 1mm; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>Studio <em>Brochure</em> — fiche de dépannage</h1>
+    <div class="tag">Mémo interne · Century 21 Kadima</div>
+  </div>
+
+  <div class="cols">
+
+    <div class="item">
+      <h3>🎙️ « Micro refusé » ou la dictée ne démarre pas (iPhone)</h3>
+      <div class="why">Sur iPhone, la dictée ne fonctionne QUE dans Safari — pas dans Chrome.</div>
+      <div class="fix">Ouvre la fiche dans <b>Safari</b>.</div>
+      <div class="fix">Si Safari a mémorisé un refus : bouton <b>aA</b> (barre d'adresse) → <b>Réglages du site web</b> → <b>Micro : Autoriser</b> → recharge.</div>
+      <div class="fix">Sinon : Réglages iPhone → <b>Apps → Safari → Micro → Demander</b>, et Réglages → <b>Confidentialité → Micro</b> : Safari autorisé.</div>
+      <div class="fix">Icône « écran d'accueil » : elle a SA propre autorisation — si refusée, supprime l'icône, ré-ajoute-la, accepte à la 1<sup>re</sup> dictée.</div>
+    </div>
+
+    <div class="item">
+      <h3>🎙️ Micro sur ordinateur (Chrome / Edge)</h3>
+      <div class="fix">Clique le <b>cadenas</b> (ou l'icône réglages) à gauche de l'adresse → <b>Micro : Autoriser</b> → recharge la page.</div>
+      <div class="fix">Toujours muet : Paramètres Windows → Confidentialité → <b>Microphone</b> → autoriser le navigateur ; vérifie aussi que le bon micro est branché/choisi.</div>
+    </div>
+
+    <div class="item">
+      <h3>🤖 « Connectez-vous à votre compte pour utiliser la rédaction IA »</h3>
+      <div class="why">Cet appareil n'a pas (ou plus) de session active.</div>
+      <div class="fix">Page <b>Mon compte</b> → ton e-mail → « Recevoir mon lien » → clique le lien → <b>« Ouvrir ma session »</b> → recharge la fiche (F5).</div>
+      <div class="fix">Rappel : <b>2 appareils max</b> par personne — une connexion sur un 3<sup>e</sup> appareil déconnecte le plus ancien, sans prévenir.</div>
+    </div>
+
+    <div class="item">
+      <h3>📧 L'e-mail de connexion n'arrive pas</h3>
+      <div class="fix">Regarde les <b>courriers indésirables</b> (expéditeur : connexion@studiobrochure.fr) — marque « non spam ».</div>
+      <div class="fix">« Plusieurs liens viennent d'être envoyés » : utilise le <b>dernier</b> e-mail reçu, ou attends 10 minutes.</div>
+      <div class="fix">Toujours rien : ton accès n'est peut-être pas encore créé → <b>Benoît</b>.</div>
+    </div>
+
+    <div class="item">
+      <h3>🔗 « Lien invalide ou expiré »</h3>
+      <div class="why">Un lien de connexion ne sert qu'UNE fois et dure 15 minutes.</div>
+      <div class="fix">Redemande simplement un lien et clique le dernier reçu. (Si tu es déjà connecté, la page te montre ton compte : tout va bien.)</div>
+    </div>
+
+    <div class="item">
+      <h3>🌐 Page « 404 — There isn't a GitHub Pages site here »</h3>
+      <div class="why">Adresse mal tapée — la casse compte.</div>
+      <div class="fix">C'est <code>/Code/</code> avec un <b>C majuscule</b>. Le plus sûr : passe toujours par ton <b>favori</b>.</div>
+    </div>
+
+    <div class="item">
+      <h3>📁 Bibliothèque : « Choisir le dossier » ne répond pas</h3>
+      <div class="why">L'accès au dossier OneDrive n'existe que sur Chrome/Edge <b>ordinateur</b>.</div>
+      <div class="fix">Sur téléphone : connecté, ta bibliothèque devient « <b>Fiches du compte</b> » — elle marche partout et se synchronise avec le PC.</div>
+    </div>
+
+    <div class="item">
+      <h3>📷 Photo iPhone (HEIC) « illisible » ou lente</h3>
+      <div class="fix">Le format HEIC est accepté. La <b>première</b> photo HEIC charge le décodeur : quelques secondes, c'est normal. Si échec : réessaie, ou re-sélectionne la photo.</div>
+    </div>
+
+    <div class="item">
+      <h3>🔄 L'app a un comportement « d'avant la mise à jour »</h3>
+      <div class="why">Le navigateur garde l'ancienne version en cache.</div>
+      <div class="fix">PC : <b>Ctrl+F5</b>. Téléphone : ferme l'onglet (ou l'app écran d'accueil) et rouvre.</div>
+    </div>
+
+    <div class="item">
+      <h3>📊 « Quota atteint » / IA refusée en fin de mois</h3>
+      <div class="why">Le plafond mensuel d'usage IA de l'agence est atteint.</div>
+      <div class="fix">Préviens <b>Benoît</b> (il peut l'augmenter). Le compteur est visible sur la page « Mon compte ».</div>
+    </div>
+
+    <div class="item">
+      <h3>🗣️ La dictée « oublie » des mots ou coupe</h3>
+      <div class="fix">Parle à 20-30 cm du micro, phrases courtes, et fais des <b>pauses</b> : le texte s'ajoute par blocs. Tu peux toujours corriger au clavier après — puis « ✨ Structurer la fiche » remet tout au propre.</div>
+      <div class="fix">Les infos sensibles : dis « <i>pour la fiche conseiller ajoute…</i> » — elles vont sur la fiche interne, pas sur les documents clients.</div>
+    </div>
+
+    <div class="item">
+      <h3>🖨️ L'impression coupe mal les pages</h3>
+      <div class="fix">Utilise le bouton <b>🖨 Imprimer / PDF</b> de l'app (pas Ctrl+P directement) : il pagine proprement avant d'imprimer. Destination « Enregistrer en PDF » pour un fichier.</div>
+    </div>
+
+  </div>
+
+  <div class="foot">
+    Rien ne marche ? Note ce que tu faisais + le message exact (capture d'écran) → <b>Benoît</b>.
+    — Document interne Century 21 Kadima · ne pas diffuser.
+  </div>
+</body>
+</html>
