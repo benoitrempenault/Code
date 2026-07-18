@@ -70,6 +70,8 @@ jobs:
   # COMMERCIAL_DEPLOY_TOKEN est configuré.
   commercial:
     runs-on: ubuntu-latest
+    env:
+      TOKEN: ${{ secrets.COMMERCIAL_DEPLOY_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -103,9 +105,7 @@ jobs:
           touch _commercial/.nojekyll
 
       - name: Publier vers le dépôt studiobrochure
-        if: ${{ secrets.COMMERCIAL_DEPLOY_TOKEN != '' }}
-        env:
-          TOKEN: ${{ secrets.COMMERCIAL_DEPLOY_TOKEN }}
+        if: ${{ env.TOKEN != '' }}
         run: |
           cd _commercial
           git init -b gh-pages
