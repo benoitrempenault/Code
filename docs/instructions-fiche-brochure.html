@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Studio Brochure — Mode d'emploi fiche prestation & brochure</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    width: 210mm; min-height: 297mm; padding: 9mm 11mm;
+    font-family: "Segoe UI", system-ui, sans-serif; color: #1c1813;
+    background: #faf7f2; font-size: 8.6pt; line-height: 1.36;
+  }
+  .head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #b7a06b; padding-bottom: 2.5mm; margin-bottom: 3.5mm; }
+  h1 { font-family: Georgia, serif; font-weight: 500; font-size: 16pt; }
+  h1 em { font-style: normal; color: #9a7b3f; }
+  .tag { font-size: 8pt; letter-spacing: .16em; text-transform: uppercase; color: #8b8578; }
+  .flow { background: #f1e9da; border-radius: 3mm; padding: 2.5mm 4mm; margin-bottom: 4mm; font-size: 9pt; text-align: center; }
+  .cols { display: flex; gap: 6mm; }
+  .col { flex: 1 1 0; }
+  h2 { font-family: Georgia, serif; font-size: 12.5pt; color: #9a7b3f; margin: 0 0 2mm; padding-bottom: 1mm; border-bottom: 1px solid #e4dccb; }
+  .step { display: flex; gap: 3mm; margin-bottom: 2.2mm; break-inside: avoid; }
+  .num {
+    flex: 0 0 auto; width: 6mm; height: 6mm; border-radius: 50%;
+    background: #b7a06b; color: #fff; font-weight: 700; font-size: 9pt;
+    display: flex; align-items: center; justify-content: center; margin-top: .4mm;
+  }
+  b { font-weight: 600; }
+  .tip { border-left: 3px solid #b7a06b; padding: 1.2mm 0 1.2mm 3mm; color: #55503f; font-size: 8.2pt; margin: 2mm 0 3mm; }
+  .voice { background: #fff; border: 1px dashed #b7a06b; border-radius: 2mm; padding: 1.8mm 2.5mm; font-style: italic; color: #55503f; margin: 1.5mm 0; font-size: 8.2pt; }
+  .foot { margin-top: 4mm; border-top: 1px solid #d8cfc0; padding-top: 2.5mm; font-size: 8pt; color: #8b8578; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>Studio <em>Brochure</em> — mode d'emploi</h1>
+    <div class="tag">Mémo interne · Century 21 Kadima</div>
+  </div>
+
+  <div class="flow">
+    Le parcours d'un mandat : <b>1)</b> je dicte la fiche en sortant de la visite →
+    <b>2)</b> l'IA la structure → <b>3)</b> je relis, j'exporte en Word →
+    <b>4)</b> « Injecter dans la brochure » → <b>5)</b> photos + quartier →
+    <b>6)</b> brochure, annonce et PDF prêts. <b>10 minutes par mandat.</b>
+  </div>
+
+  <div class="cols">
+    <div class="col">
+      <h2>📋 La fiche prestation</h2>
+
+      <div class="step"><div class="num">1</div><div><b>Vendeur, adresse, type de bien</b> en haut du panneau —
+        l'adresse sert aussi à nommer les fichiers.</div></div>
+
+      <div class="step"><div class="num">2</div><div><b>🎙️ Dicter la fiche</b> (ou collez vos notes, ou photographiez
+        vos notes manuscrites : bouton photo → l'IA les transcrit). Parlez naturellement, pièce par pièce,
+        avec les chiffres : année, surfaces, parcelle, constructeur, chauffage, menuiseries, fibre…</div></div>
+
+      <div class="voice">« …pour la fiche conseiller ajoute : la piscine n'a pas été déclarée… fin de note »
+        → part sur la fiche interne, <b>jamais</b> sur les documents clients — et ressort <b>en rouge</b>.</div>
+
+      <div class="step"><div class="num">3</div><div><b>✨ Structurer la fiche</b> : l'IA range tout —
+        Caractéristiques par familles (Bien · Surfaces · Charpente &amp; toiture · Chauffage &amp; énergie ·
+        Menuiseries · Assainissement · Enveloppe), Intérieur niveau par niveau, cuisine et pièces d'eau
+        regroupées, <b>encart Copropriété / Lotissement</b> (syndic, lots, tantièmes, charges, procédures,
+        travaux votés), et « À savoir » qui commence par les données financières (élec, gaz, taxe foncière,
+        charges, servitudes).</div></div>
+
+      <div class="step"><div class="num">4</div><div><b>Relisez et ajustez</b> directement dans les champs —
+        l'aperçu A4 se met à jour en direct. Une ligne courte finissant par « : » devient un
+        sous-titre (« Rez-de-chaussée : »).</div></div>
+
+      <div class="step"><div class="num">5</div><div>Basculez <b>Fiche vendeur / Fiche conseiller</b> au-dessus
+        de l'aperçu : la version conseiller ajoute les notes confidentielles (non-déclarations en rouge).
+        Chaque version s'imprime et s'exporte séparément.</div></div>
+
+      <div class="step"><div class="num">6</div><div><b>▤ Bibliothèque → « Enregistrer la fiche actuelle »</b> :
+        elle suit votre compte (téléphone ⇄ ordinateur). Puis <b>📄 Exporter en Word</b> (logo inclus)
+        ou <b>🖨 Imprimer / PDF</b>.</div></div>
+
+      <div class="step"><div class="num">7</div><div><b>📖 Injecter dans la brochure</b> : ouvre la brochure
+        pré-remplie (type, adresse, toute la fiche en notes) — la partie confidentielle reste derrière.</div></div>
+
+      <div class="tip">💡 « Nouveau » efface tout pour repartir sur un autre bien — la fiche précédente reste
+        dans la bibliothèque si vous l'avez enregistrée.</div>
+    </div>
+
+    <div class="col">
+      <h2>📖 La brochure (parcours guidé en 8 étapes)</h2>
+
+      <div class="step"><div class="num">1</div><div><b>Type de bien</b> puis <b>adresse</b> — la saisie
+        s'auto-complète (adresse officielle) : indispensable pour le quartier et la carte.</div></div>
+
+      <div class="step"><div class="num">2</div><div><b>Quartier</b> : distances réelles calculées (écoles,
+        commerces, transports) + un mot sur la ville rédigé par l'IA. Cochez ce que vous gardez.</div></div>
+
+      <div class="step"><div class="num">3</div><div><b>Photos</b> : couverture + galerie (les photos iPhone
+        HEIC passent directement). Réordonnez à la souris ou avec ↑ ↓ ; « Légender par l'IA » nomme
+        les pièces — vos légendes déjà écrites ne sont pas touchées. Une photo déjà présente n'est
+        pas ré-ajoutée.</div></div>
+
+      <div class="step"><div class="num">4</div><div><b>Plans</b> (optionnel) : un ou plusieurs, pleine page.</div></div>
+
+      <div class="step"><div class="num">5</div><div><b>Diagnostics</b> : photographiez le DPE (plusieurs photos
+        possibles) → lettres et valeurs extraites, échelles dessinées proprement.</div></div>
+
+      <div class="step"><div class="num">6</div><div><b>Surfaces</b> (optionnel) : photo/PDF du relevé →
+        le tableau des pièces se remplit seul.</div></div>
+
+      <div class="step"><div class="num">7</div><div><b>Notes du bien</b> : déjà remplies si vous venez de la
+        fiche prestation. Sinon dictez/collez — ou photographiez vos notes manuscrites.</div></div>
+
+      <div class="step"><div class="num">8</div><div><b>Générer</b> : l'IA rédige les textes de la brochure
+        (fidèles à vos notes, rien d'inventé) + le <b>texte publicitaire</b> prêt pour les portails
+        (toujours « m² », jamais d'adresse exacte). Prix, mentions, QR code vers la page web du bien
+        sur la page de fin.</div></div>
+
+      <div class="step"><div class="num">✓</div><div><b>Exports</b> : 🖨 Imprimer / PDF (brochure A4 paginée),
+        page web du bien, envoi par e-mail — et <b>Sauvegarder</b> dans la bibliothèque OneDrive de
+        l'agence (réédition illimitée : rouvrez, changez le prix, réimprimez).</div></div>
+
+      <div class="tip">💡 Tout est modifiable après génération : chaque texte, chaque légende, l'ordre des
+        photos, l'ambiance (couleurs / couverture sombre) — l'aperçu est toujours fidèle à l'impression.</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    Connexion, micro, bibliothèque : voir la <b>fiche de dépannage</b>. Une idée, un manque → <b>Benoît</b>.
+    — Document interne Century 21 Kadima · ne pas diffuser.
+  </div>
+</body>
+</html>
