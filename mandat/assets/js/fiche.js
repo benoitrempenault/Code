@@ -27,7 +27,7 @@
   }
 
   /* ------------------------------- État --------------------------------- */
-  const FIELDS = ["fVendeur", "fAdresse", "fType", "fNotes", "fCarac", "fInterieur", "fExterieur", "fASavoir", "fConf", "fFont", "fColor"];
+  const FIELDS = ["fVendeur", "fAdresse", "fType", "fNotes", "fCarac", "fInterieur", "fExterieur", "fCopro", "fASavoir", "fConf", "fFont", "fColor"];
   function collect() {
     const o = {};
     FIELDS.forEach(function (id) { const el = $("#" + id); if (el) o[id] = el.value; });
@@ -84,11 +84,19 @@
     if (!items.length) return "<h2>" + esc(title) + '</h2><p class="fdoc__empty">— à compléter —</p>';
     return "<h2>" + esc(title) + "</h2>" + listHtml(items, "fdoc__lvl");
   }
+  // Encart dédié : n'apparaît que si le bien est en copropriété ou lotissement.
+  function coproHtml() {
+    const items = lines($("#fCopro").value);
+    if (!items.length) return "";
+    return '<div class="fdoc__box"><h2>Copropriété / Lotissement</h2>' + listHtml(items, "fdoc__lvl") + "</div>";
+  }
+  // Ce qui n'est PAS déclaré doit sauter aux yeux sur la fiche conseiller.
+  const CONF_ALERT = /(pas|non|jamais|sans|aucune?)[^,;.\n]{0,40}d[ée]clar|d[ée]clar[^,;.\n]{0,25}\b(pas|non|jamais)\b|non[- ]conforme/i;
   function confSectionHtml() {
     const items = lines($("#fConf").value);
     return '<div class="fdoc__conf"><h2>Notes confidentielles — usage interne</h2>' +
       (items.length
-        ? "<ul>" + items.map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("") + "</ul>"
+        ? "<ul>" + items.map(function (l) { return "<li" + (CONF_ALERT.test(l) ? ' class="fdoc__alert"' : "") + ">" + esc(l) + "</li>"; }).join("") + "</ul>"
         : '<p class="fdoc__empty">— aucune note confidentielle —</p>') +
       "</div>";
   }
@@ -107,6 +115,7 @@
       sectionHtml("Caractéristiques", "fCarac") +
       sectionHtml("Intérieur", "fInterieur") +
       sectionHtml("Extérieur", "fExterieur") +
+      coproHtml() +
       sectionHtml("À savoir", "fASavoir") +
       (conseiller ? confSectionHtml() : "") +
       '<p class="fdoc__legal">DOCUMENT NON CONTRACTUEL</p>';
@@ -226,6 +235,7 @@
   }
 
   /* ------------------------------ Dictée -------------------------------- */
+  let stopVoice = function () { }; // réassignée par wireVoice — arrêt du micro depuis n'importe où
   function wireVoice() {
     const btn = $("#btnVoice"), status = $("#voiceStatus"), notes = $("#fNotes");
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -256,6 +266,7 @@
       sweepConfidential(); // traite un éventuel « pour la fiche conseiller… » en fin de dictée
       scheduleRender();
     }
+    stopVoice = function () { if (rec || listening || started) stop(""); };
     function newRec() {
       const r = new SR();
       r.lang = "fr-FR";
@@ -401,6 +412,7 @@
   function wireStructure() {
     $("#btnStructure").addEventListener("click", function () {
       const btn = $("#btnStructure"), status = $("#structStatus");
+      stopVoice(); // la structuration fige le texte : on arrête la dictée
       const key = ($("#aiKey").value || "").trim();
       if (!key && !(window.SBProxy && window.SBProxy())) { toast((window.StudioConfig && window.StudioConfig.apiBase) ? "Connectez-vous à votre compte pour utiliser la rédaction IA (page « Mon compte »)." : "Renseignez d'abord la clé API (en bas du panneau).", true); return; }
       sweepConfidential();
@@ -412,6 +424,7 @@
           $("#fCarac").value = (out.caracteristiques || []).join("\n");
           $("#fInterieur").value = (out.interieur || []).join("\n");
           $("#fExterieur").value = (out.exterieur || []).join("\n");
+          $("#fCopro").value = (out.copro || []).join("\n");
           $("#fASavoir").value = (out.aSavoir || []).join("\n");
           render(); save();
           status.className = "ai-status is-ok"; status.textContent = "Fiche structurée ✓ — relisez et ajustez.";
@@ -461,7 +474,7 @@
       const items = lines($("#fConf").value);
       confBlock = '<h2 style="color:#b3452e;border-bottom:1pt solid #e0b7aa;">Notes confidentielles — usage interne</h2>' +
         (items.length
-          ? "<ul>" + items.map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("") + "</ul>"
+          ? "<ul>" + items.map(function (l) { return "<li" + (CONF_ALERT.test(l) ? ' style="color:#b3261e;font-weight:bold"' : "") + ">" + esc(l) + "</li>"; }).join("") + "</ul>"
           : '<p style="color:#9a968c;font-style:italic;">— aucune note confidentielle —</p>');
     }
     return "<h1>PRESTATIONS ET MATÉRIAUX</h1>" +
@@ -474,6 +487,7 @@
       wordSection("Caractéristiques", "fCarac") +
       wordSection("Intérieur", "fInterieur") +
       wordSection("Extérieur", "fExterieur") +
+      wordSection("Copropriété / Lotissement", "fCopro") +
       wordSection("À savoir", "fASavoir") +
       confBlock +
       '<p class="legal">DOCUMENT NON CONTRACTUEL</p>';
@@ -602,8 +616,8 @@
     sweepConfidential(); // les notes confidentielles ne partent jamais dans la brochure
     const notesParts = [];
     const type = $("#fType").value.trim();
-    ["fCarac", "fInterieur", "fExterieur", "fASavoir"].forEach(function (id, i) {
-      const title = ["Caractéristiques", "Intérieur", "Extérieur", "À savoir"][i];
+    ["fCarac", "fInterieur", "fExterieur", "fCopro", "fASavoir"].forEach(function (id, i) {
+      const title = ["Caractéristiques", "Intérieur", "Extérieur", "Copropriété / Lotissement", "À savoir"][i];
       const items = lines($("#" + id).value);
       if (items.length) notesParts.push(title + " :\n" + items.map(function (l) { return "- " + l; }).join("\n"));
     });
@@ -882,6 +896,8 @@
     $("#btnInject").addEventListener("click", inject);
     $("#btnFicheNew").addEventListener("click", function () {
       if (!confirm("Repartir d'une fiche vierge ? La fiche actuelle sera effacée (pensez à l'exporter en Word).")) return;
+      stopVoice(); // une dictée encore active re-remplirait les notes brutes
+      currentFicheFile = null;
       FIELDS.forEach(function (id) { $("#" + id).value = ""; });
       $("#fFont").value = "elegant"; $("#fColor").value = "#8a6a3c";
       render(); save();

@@ -279,9 +279,15 @@
     if (!list.length) return;
     const maxEdge = (target === "surfaces" || target === "plan") ? 2200 : 1800;
     Promise.all(list.map(function (f) { return resizeImage(f, maxEdge, 0.85); })).then(function (urls) {
+      // Une photo déjà présente (même image) n'est pas ajoutée une seconde fois.
+      const known = {};
+      state.gallery.forEach(function (p) { known[p.url] = 1; });
+      state.plans.forEach(function (u) { known[u] = 1; });
+      let skipped = 0;
       if (target === "cover") state.coverPhoto = urls[0];
-      else if (target === "plan") urls.forEach(function (u) { state.plans.push(u); });
-      else urls.forEach(function (u) { state.gallery.push({ id: uid(), url: u, caption: "" }); });
+      else if (target === "plan") urls.forEach(function (u) { if (known[u]) { skipped++; return; } known[u] = 1; state.plans.push(u); });
+      else urls.forEach(function (u) { if (known[u]) { skipped++; return; } known[u] = 1; state.gallery.push({ id: uid(), url: u, caption: "" }); });
+      if (skipped) toast(skipped > 1 ? skipped + " photos déjà présentes — ignorées." : "Photo déjà présente — ignorée.");
       renderPhotoUI(); scheduleSave(); render();
     }).catch(function () { toast("Impossible de lire l'image — fichier corrompu ou format non pris en charge (HEIC d'iPhone ? Convertissez-le en JPG).", true); });
   }

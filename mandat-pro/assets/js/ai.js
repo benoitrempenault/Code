@@ -557,6 +557,7 @@
       "Ton factuel, précis et vendeur — PAS le lyrisme d'une brochure : phrases courtes, informations concrètes, chiffres exacts fournis.",
       "Structure attendue dans 'text' : 1) phrase d'ouverture situant le bien (type, surface, localisation générale) ; 2) description pièce par pièce / niveaux ; 3) extérieurs et prestations ; 4) quartier et commodités avec distances si fournies ; 5) mentions pratiques (DPE, prix, honoraires, exclusivité le cas échéant).",
       "INTERDIT : nommer la rue ou l'adresse précise (quartier et ville uniquement), inventer une information non fournie, superlatifs creux (« exceptionnel », « unique », « coup de cœur assuré »), points d'exclamation en rafale.",
+      "Écris toujours « m² » — jamais « mètres carrés » en toutes lettres.",
       "N'utilise que les informations fournies. Termine par une invitation sobre à contacter l'agence pour une visite."
     ].join("\n");
 
@@ -631,9 +632,10 @@
         caracteristiques: { type: "array", items: { type: "string" }, description: "Construction, surfaces, parcelle, toiture, chauffage, isolation, huisseries…" },
         interieur: { type: "array", items: { type: "string" }, description: "Pièce par pièce : dimensions, équipements, matériaux, marques." },
         exterieur: { type: "array", items: { type: "string" }, description: "Terrain, terrasses, piscine, annexes, portail, points d'eau…" },
-        aSavoir: { type: "array", items: { type: "string" }, description: "Taxes, charges, travaux réalisés, servitudes, délais, conditions." }
+        copro: { type: "array", items: { type: "string" }, description: "Copropriété ou lotissement : nom, syndic/président, bâtiment, lots, tantièmes, charges, procédures, travaux votés. Tableau VIDE si le bien n'est ni en copropriété ni en lotissement." },
+        aSavoir: { type: "array", items: { type: "string" }, description: "Données financières (électricité, gaz, taxe foncière, charges), servitudes, travaux réalisés, délais, conditions." }
       },
-      required: ["type", "caracteristiques", "interieur", "exterieur", "aSavoir"]
+      required: ["type", "caracteristiques", "interieur", "exterieur", "copro", "aSavoir"]
     };
     const body = {
       model: model || "claude-opus-4-8",
@@ -644,12 +646,20 @@
         "Règles ABSOLUES : fidélité totale — n'invente rien, ne complète rien, n'embellis pas. Conserve chiffres, surfaces, unités et noms de marques tels quels.",
         "Chaque élément est une ligne courte et factuelle (style fiche technique, pas de phrases marketing).",
         "Range chaque information dans la bonne section ; ignore les hésitations et répétitions de dictée (« euh », redites).",
-        "REGROUPEMENTS obligatoires — une seule ligne par thème, en assemblant toutes les informations dispersées :",
-        "- Menuiseries (dans caractéristiques) : UNE ligne pour tout ce qui concerne les fenêtres — type d'huisseries, vitrage, volets, moustiquaires. Ex. « Menuiseries : PVC double vitrage, volets roulants motorisés, moustiquaires ».",
-        "- Enveloppe extérieure (dans caractéristiques) : UNE ligne pour façade/crépi, toiture, avant-toits, gouttières, descentes, bandeaux. Ex. « Extérieur : crépi gratté, toiture tuiles (2019), avant-toits PVC, gouttières et descentes alu, bandeaux alu ».",
-        "- Cuisine (dans intérieur) : UNE ligne rassemblant tout — marque, plan de travail, électroménager, rangements.",
-        "- Pièces d'eau (dans intérieur) : UNE ligne par salle d'eau / salle de bains, rassemblant ses équipements.",
-        "Section aSavoir : les charges, le syndic, la copropriété, les taxes et les mensualités vont TOUJOURS dans aSavoir, jamais dans caracteristiques.",
+        "REGROUPEMENTS obligatoires — une seule ligne par famille, en assemblant toutes les informations dispersées.",
+        "Dans caracteristiques, suis cet ordre de familles (n'écris une ligne que si au moins une information existe ; n'écris JAMAIS « non précisé ») :",
+        "1. « Bien : » type précis (maison individuelle / maison mitoyenne en limite de propriété / appartement…), année de construction, constructeur (nom), type de construction (brique, bois, parpaing…).",
+        "2. « Surfaces : » superficie habitable, superficie totale, taille du terrain, numéro de parcelle cadastrale.",
+        "3. « Charpente & toiture : » type de charpente, couverture (matériau, année).",
+        "4. « Chauffage & énergie : » mode de chauffage, production d'eau chaude, fibre optique.",
+        "5. « Menuiseries : » type d'huisseries, vitrage, volets, moustiquaires.",
+        "6. « Assainissement : » tout-à-l'égout, fosse septique, conformité si précisée.",
+        "7. « Enveloppe : » façade/crépi, avant-toits, gouttières, descentes, bandeaux.",
+        "- Cuisine (dans interieur) : UNE ligne rassemblant tout — marque, plan de travail, électroménager, rangements — chaque appareil cité UNE seule fois.",
+        "- Pièces d'eau (dans interieur) : UNE ligne par salle d'eau / salle de bains, rassemblant ses équipements.",
+        "DÉDOUBLONNAGE ABSOLU : chaque information n'apparaît qu'UNE seule fois dans toute la fiche, à l'endroit le plus pertinent. Le chauffage apparaît UNIQUEMENT dans la ligne « Chauffage & énergie » (jamais répété pièce par pièce) ; l'électroménager UNIQUEMENT dans la ligne Cuisine.",
+        "Section copro — UNIQUEMENT si le bien est en copropriété ou en lotissement, sinon tableau vide : nom de la copropriété ou du lotissement, syndic (nom) pour une copropriété / président (nom) pour un lotissement, numéro de bâtiment, numéro(s) de lot, nombre de lots de la copropriété, tantièmes, montant des charges, procédures en cours, travaux votés. Ces informations ne vont NI dans caracteristiques NI dans aSavoir.",
+        "Section aSavoir : commence par les données financières, une ligne par poste — « Électricité : … », « Gaz : … », « Taxe foncière : … », « Charges : … » — puis « Servitudes : … », puis le reste (travaux réalisés, délais, conditions).",
         "Section interieur : si le bien a plusieurs niveaux, commence chaque niveau par une ligne d'en-tête se terminant par deux-points — ex. « Rez-de-chaussée : », « À l'étage : », « Sous-sol : » — puis liste les pièces du niveau. S'il n'y a qu'un niveau, pas d'en-tête.",
         "Ne mets JAMAIS de nom de client ni d'adresse dans les listes (ils sont gérés à part)."
       ].join("\n"),

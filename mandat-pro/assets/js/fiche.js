@@ -49,7 +49,7 @@
   }
 
   /* ------------------------------- État --------------------------------- */
-  const FIELDS = ["fVendeur", "fAdresse", "fType", "fNotes", "fCarac", "fInterieur", "fExterieur", "fASavoir", "fTitre", "fFont", "fColor"];
+  const FIELDS = ["fVendeur", "fAdresse", "fType", "fNotes", "fCarac", "fInterieur", "fExterieur", "fCopro", "fASavoir", "fTitre", "fFont", "fColor"];
   function collect() {
     const o = {};
     FIELDS.forEach(function (id) { const el = $("#" + id); if (el) o[id] = el.value; });
@@ -102,6 +102,12 @@
     if (!items.length) return "<h2>" + esc(title) + '</h2><p class="fdoc__empty">— à compléter —</p>';
     return "<h2>" + esc(title) + "</h2>" + listHtml(items, "fdoc__lvl");
   }
+  // Encart dédié : n'apparaît que si le bien est en copropriété ou lotissement.
+  function coproHtml() {
+    const items = lines($("#fCopro").value);
+    if (!items.length) return "";
+    return '<div class="fdoc__box"><h2>Copropriété / Lotissement</h2>' + listHtml(items, "fdoc__lvl") + "</div>";
+  }
   function docBody() {
     const vendeur = $("#fVendeur").value.trim();
     const adresse = $("#fAdresse").value.trim();
@@ -115,6 +121,7 @@
       sectionHtml("Caractéristiques", "fCarac") +
       sectionHtml("Intérieur", "fInterieur") +
       sectionHtml("Extérieur", "fExterieur") +
+      coproHtml() +
       sectionHtml("À savoir", "fASavoir") +
       '<p class="fdoc__legal">DOCUMENT NON CONTRACTUEL</p>' +
       '<p class="fdoc__licmark">' + esc(licenceMark()) + "</p>";
@@ -186,6 +193,7 @@
   }
 
   /* ------------------------------ Dictée -------------------------------- */
+  let stopVoice = function () { }; // réassignée par wireVoice — arrêt du micro depuis n'importe où
   function wireVoice() {
     const btn = $("#btnVoice"), status = $("#voiceStatus"), notes = $("#fNotes");
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -215,6 +223,7 @@
       status.textContent = msg || "";
       scheduleRender();
     }
+    stopVoice = function () { if (rec || listening || started) stop(""); };
     function newRec() {
       const r = new SR();
       r.lang = "fr-FR";
@@ -358,6 +367,7 @@
   function wireStructure() {
     $("#btnStructure").addEventListener("click", function () {
       const btn = $("#btnStructure"), status = $("#structStatus");
+      stopVoice(); // la structuration fige le texte : on arrête la dictée
       const key = ($("#aiKey").value || "").trim();
       if (!key && !(window.SBProxy && window.SBProxy())) { toast((window.StudioConfig && window.StudioConfig.apiBase) ? "Connectez-vous à votre compte pour utiliser la rédaction IA (page « Mon compte »)." : "Renseignez d'abord la clé API (en bas du panneau).", true); return; }
       status.className = "ai-status is-busy"; status.textContent = "Structuration de la fiche…";
@@ -368,6 +378,7 @@
           $("#fCarac").value = (out.caracteristiques || []).join("\n");
           $("#fInterieur").value = (out.interieur || []).join("\n");
           $("#fExterieur").value = (out.exterieur || []).join("\n");
+          $("#fCopro").value = (out.copro || []).join("\n");
           $("#fASavoir").value = (out.aSavoir || []).join("\n");
           render(); save();
           status.className = "ai-status is-ok"; status.textContent = "Fiche structurée ✓ — relisez et ajustez.";
@@ -420,6 +431,7 @@
       wordSection("Caractéristiques", "fCarac") +
       wordSection("Intérieur", "fInterieur") +
       wordSection("Extérieur", "fExterieur") +
+      wordSection("Copropriété / Lotissement", "fCopro") +
       wordSection("À savoir", "fASavoir") +
       '<p class="legal">DOCUMENT NON CONTRACTUEL</p>' +
       '<p class="legal" style="margin-top:2pt;font-size:7.5pt;">' + esc(licenceMark()) + "</p>";
@@ -545,8 +557,8 @@
   function inject() {
     const notesParts = [];
     const type = $("#fType").value.trim();
-    ["fCarac", "fInterieur", "fExterieur", "fASavoir"].forEach(function (id, i) {
-      const title = ["Caractéristiques", "Intérieur", "Extérieur", "À savoir"][i];
+    ["fCarac", "fInterieur", "fExterieur", "fCopro", "fASavoir"].forEach(function (id, i) {
+      const title = ["Caractéristiques", "Intérieur", "Extérieur", "Copropriété / Lotissement", "À savoir"][i];
       const items = lines($("#" + id).value);
       if (items.length) notesParts.push(title + " :\n" + items.map(function (l) { return "- " + l; }).join("\n"));
     });
@@ -825,6 +837,8 @@
     $("#btnInject").addEventListener("click", inject);
     $("#btnFicheNew").addEventListener("click", function () {
       if (!confirm("Repartir d'une fiche vierge ? La fiche actuelle sera effacée (pensez à l'exporter en Word).")) return;
+      stopVoice(); // une dictée encore active re-remplirait les notes brutes
+      currentFicheFile = null;
       const titre = $("#fTitre") ? $("#fTitre").value : "";
       FIELDS.forEach(function (id) { const el = $("#" + id); if (el) el.value = ""; });
       if ($("#fTitre")) $("#fTitre").value = titre; // le titre du document est un réglage d'agence

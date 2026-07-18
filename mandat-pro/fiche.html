@@ -32,6 +32,9 @@
     .fdoc ul { margin: 0 0 2mm 5mm; padding: 0; }
     .fdoc li { margin-bottom: 1.2mm; }
     .fdoc .fdoc__lvl { font-weight: 600; font-size: 10.5pt; margin: 3mm 0 1.5mm; padding-left: 2.5mm; border-left: 2.5px solid var(--fdoc-accent); letter-spacing: .02em; }
+    .fdoc .fdoc__box { border: 1.5px solid var(--fdoc-accent); border-radius: 2.5mm; padding: 3mm 5mm 3.5mm; margin: 5mm 0 2mm; break-inside: avoid; }
+    .fdoc .fdoc__box h2 { margin-top: 0; }
+    .fdoc .fdoc__alert { color: #b3261e; font-weight: 700; }
     .fdoc .fdoc__empty { color: #9a968c; font-style: italic; }
     .fdoc .fdoc__legal { margin-top: 10mm; text-align: center; color: #9a968c; font-size: 8.5pt; letter-spacing: .08em; }
     .fdoc .fdoc__licmark { margin-top: 1.5mm; text-align: center; color: #c0b8a8; font-size: 6.5pt; letter-spacing: .1em; }
@@ -142,6 +145,9 @@
           </label>
           <label>Extérieur
             <textarea rows="5" id="fExterieur"></textarea>
+          </label>
+          <label>Copropriété / Lotissement <small class="hint">(nom, syndic ou président, charges, lots, tantièmes, procédures, travaux votés — laissez vide sinon)</small>
+            <textarea rows="4" id="fCopro"></textarea>
           </label>
           <label>À savoir <small class="hint">(taxes, travaux, servitudes, délais…)</small>
             <textarea rows="4" id="fASavoir"></textarea>

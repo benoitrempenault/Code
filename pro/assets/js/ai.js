@@ -556,6 +556,7 @@
       "Ton factuel, précis et vendeur — PAS le lyrisme d'une brochure : phrases courtes, informations concrètes, chiffres exacts fournis.",
       "Structure attendue dans 'text' : 1) phrase d'ouverture situant le bien (type, surface, localisation générale) ; 2) description pièce par pièce / niveaux ; 3) extérieurs et prestations ; 4) quartier et commodités avec distances si fournies ; 5) mentions pratiques (DPE, prix, honoraires, exclusivité le cas échéant).",
       "INTERDIT : nommer la rue ou l'adresse précise (quartier et ville uniquement), inventer une information non fournie, superlatifs creux (« exceptionnel », « unique », « coup de cœur assuré »), points d'exclamation en rafale.",
+      "Écris toujours « m² » — jamais « mètres carrés » en toutes lettres.",
       "N'utilise que les informations fournies. Termine par une invitation sobre à contacter l'agence pour une visite."
     ].join("\n");
 
