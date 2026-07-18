@@ -53,6 +53,9 @@
     $("#meReq").textContent = d.usage.requests + " génération" + (d.usage.requests > 1 ? "s" : "");
     $("#meQuota").textContent = d.usage.cost_eur.toFixed(2) + " € / " + d.usage.quota_eur + " €";
     $("#meBar").style.width = Math.min(100, Math.round(100 * d.usage.cost_eur / Math.max(0.01, d.usage.quota_eur))) + "%";
+    // Chaque agence a son espace de travail : l'agence historique utilise la
+    // version dédiée, les agences clientes l'accueil marque blanche.
+    $("#btnGoTools").href = d.agency.id === "ag_8csricwct9" ? "../mandat/" : "index.html";
     show("cardMe");
   }
 
