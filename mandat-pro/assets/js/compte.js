@@ -66,6 +66,13 @@
       setAccount({ session: r.data.session, user: r.data.user, agency: r.data.agency });
       await paintMe();
     } else {
+      // Re-clic sur un vieux lien : si une session valide existe déjà sur cet
+      // appareil, on montre le compte plutôt qu'une erreur.
+      const a = getAccount();
+      if (a && a.session) {
+        const r2 = await api("/me", { auth: a.session }).catch(function () { return { status: 0 }; });
+        if (r2.status === 200) { await paintMe(); return; }
+      }
       show("cardLogin");
       $("#loginMsg").className = "msg is-error";
       $("#loginMsg").textContent = (r.data && r.data.error) || "Lien invalide ou expiré — redemandez un lien.";
