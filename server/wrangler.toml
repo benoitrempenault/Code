@@ -10,8 +10,8 @@ database_name = "studio-brochure"
 database_id = "1731dcd7-6981-43e0-ac11-5538d0042a5b"  # créé le 17/07/2026 (région WEUR)
 
 [vars]
-APP_ORIGINS = "https://benoitrempenault.github.io"
-APP_BASE = "https://benoitrempenault.github.io/Code"  # base des liens de connexion (origine + chemin)
+APP_ORIGINS = "https://benoitrempenault.github.io,https://studiobrochure.fr"
+APP_BASE = "https://benoitrempenault.github.io/Code/mandat-pro"  # dossier de l'app compte (les agences peuvent avoir leur app_base)
 MAIL_FROM = "Studio Brochure <connexion@studiobrochure.fr>"
 
 # Secrets (JAMAIS dans ce fichier) — à poser avec :

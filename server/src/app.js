@@ -30,9 +30,10 @@ export function createApp(env) {
   const app = new Hono();
 
   const origins = String(env.APP_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
-  // Base des liens de connexion : APP_BASE inclut le chemin de l'app
-  // (ex. GitHub Pages sert sous /Code) — une origine seule ne suffit pas.
-  const appBase = () => String(env.APP_BASE || origins[0] || "").replace(/\/$/, "");
+  // Base des liens de connexion : pointe sur le DOSSIER de l'app compte
+  // (ex. https://studiobrochure.fr/app). Chaque agence peut avoir la sienne
+  // (app_base) — à défaut, APP_BASE du serveur, puis la première origine.
+  const appBase = (agency) => String((agency && agency.app_base) || env.APP_BASE || origins[0] || "").replace(/\/$/, "");
   app.use("*", cors({
     origin: (o) => (origins.includes(o) ? o : origins[0] || "*"),
     allowHeaders: ["Authorization", "Content-Type"],
@@ -98,7 +99,8 @@ export function createApp(env) {
       "INSERT INTO login_tokens (token_hash, user_id, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)",
       [await sha256hex(token), user.id, now() + LINK_TTL, now()]
     );
-    const link = appBase() + "/mandat-pro/compte.html#token=" + token;
+    const linkAgency = await db.get("SELECT app_base FROM agencies WHERE id = ?", [user.agency_id]);
+    const link = appBase(linkAgency) + "/compte.html#token=" + token;
     if (env.RESEND_API_KEY) {
       await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -312,9 +314,10 @@ export function createApp(env) {
       quota_eur: Number(b.quota_eur) || 20,
       trial_ends_at: now() + (parseInt(b.trial_days, 10) || 14) * 86400
     };
+    const appBaseCol = String(b.app_base || "").trim().replace(/\/$/, "");
     await db.run(
-      "INSERT INTO agencies (id, name, status, plan, seats, quota_eur, features, trial_ends_at, created_at) VALUES (?, ?, ?, 'tout-compris', ?, ?, '{}', ?, ?)",
-      [agency.id, agency.name, agency.status, agency.seats, agency.quota_eur, agency.trial_ends_at, now()]
+      "INSERT INTO agencies (id, name, status, plan, seats, quota_eur, features, app_base, trial_ends_at, created_at) VALUES (?, ?, ?, 'tout-compris', ?, ?, '{}', ?, ?, ?)",
+      [agency.id, agency.name, agency.status, agency.seats, agency.quota_eur, appBaseCol, agency.trial_ends_at, now()]
     );
     const user = { id: randId("us"), email, name: String(b.user_name || "").trim() };
     await db.run(
@@ -326,7 +329,7 @@ export function createApp(env) {
       "INSERT INTO login_tokens (token_hash, user_id, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)",
       [await sha256hex(token), user.id, now() + 7 * 86400, now()] // lien d'accueil : 7 jours
     );
-    const link = appBase() + "/mandat-pro/compte.html#token=" + token;
+    const link = appBase({ app_base: b.app_base }) + "/compte.html#token=" + token;
     return c.json({ ok: true, agency, user, welcome_link: link });
   });
 
@@ -354,8 +357,9 @@ export function createApp(env) {
     if (!Number.isFinite(seats) || seats < 1 || seats > 500) return err(c, 400, "seats invalide (1-500).");
     if (!Number.isFinite(quota) || quota < 0 || quota > 10000) return err(c, 400, "quota_eur invalide.");
     if (!name) return err(c, 400, "name vide.");
-    await db.run("UPDATE agencies SET seats = ?, quota_eur = ?, name = ? WHERE id = ?", [seats, quota, name, agency.id]);
-    return c.json({ ok: true, agency: { id: agency.id, name, seats, quota_eur: quota } });
+    const base = (b.app_base != null) ? String(b.app_base).trim().replace(/\/$/, "") : agency.app_base;
+    await db.run("UPDATE agencies SET seats = ?, quota_eur = ?, name = ?, app_base = ? WHERE id = ?", [seats, quota, name, base, agency.id]);
+    return c.json({ ok: true, agency: { id: agency.id, name, seats, quota_eur: quota, app_base: base } });
   });
 
   app.post("/admin/agencies/:id/status", async (c) => {

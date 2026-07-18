@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS agencies (
   seats         INTEGER NOT NULL DEFAULT 5,   -- utilisateurs max
   quota_eur     REAL NOT NULL DEFAULT 20.0,   -- plafond IA mensuel (fair use)
   features      TEXT NOT NULL DEFAULT '{}',   -- extensions futures (formation…)
+  app_base      TEXT NOT NULL DEFAULT '',     -- base de l'app pour les liens de connexion ('' = APP_BASE du serveur)
   stripe_customer_id TEXT,
   trial_ends_at INTEGER,                      -- epoch s (fin d'essai)
   created_at    INTEGER NOT NULL

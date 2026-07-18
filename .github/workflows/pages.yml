@@ -61,6 +61,60 @@ jobs:
         with:
           path: _site
 
+
+  # ---------------------------------------------------------------------
+  # Produit commercial ABR IMMO → dépôt "studiobrochure" (studiobrochure.fr)
+  # Racine = site de vente ; /app = Studio Brochure (fiche+brochure+compte) ;
+  # /brochure = brochure seule ; /site-brochure = vitrine brochure ; /legal.
+  # Aucun contenu Century 21 n'y est copié. Ne tourne que si le secret
+  # COMMERCIAL_DEPLOY_TOKEN est configuré.
+  commercial:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construire le site commercial
+        run: |
+          mkdir -p _commercial
+          # Site de vente à la racine
+          cp site-mandat/index.html site-mandat/favicon.svg _commercial/
+          mkdir -p _commercial/assets && cp -r site-mandat/assets/* _commercial/assets/
+          # L'app (ex mandat-pro) sous /app
+          mkdir -p _commercial/app/assets
+          cp mandat-pro/index.html mandat-pro/fiche.html mandat-pro/brochure.html mandat-pro/compte.html mandat-pro/favicon.svg _commercial/app/
+          cp -r mandat-pro/assets/* _commercial/app/assets/
+          # Brochure seule (ex pro) sous /brochure
+          mkdir -p _commercial/brochure/assets
+          cp pro/index.html pro/favicon.svg _commercial/brochure/
+          cp -r pro/assets/* _commercial/brochure/assets/
+          # Vitrine brochure sous /site-brochure
+          mkdir -p _commercial/site-brochure/assets
+          cp site/index.html site/favicon.svg _commercial/site-brochure/
+          cp -r site/assets/* _commercial/site-brochure/assets/
+          # Légal
+          mkdir -p _commercial/legal/assets
+          cp legal/*.html legal/favicon.svg _commercial/legal/
+          cp -r legal/assets/* _commercial/legal/assets/
+          # Réécriture des chemins pour la nouvelle arborescence
+          sed -i 's|"\.\./legal/|"legal/|g; s|"\.\./mandat-pro/|"app/|g' _commercial/index.html
+          sed -i 's|"\.\./site-mandat/|"../|g' _commercial/legal/*.html
+          sed -i 's|"\.\./pro/|"../brochure/|g' _commercial/site-brochure/index.html
+          echo "studiobrochure.fr" > _commercial/CNAME
+          touch _commercial/.nojekyll
+
+      - name: Publier vers le dépôt studiobrochure
+        if: ${{ secrets.COMMERCIAL_DEPLOY_TOKEN != '' }}
+        env:
+          TOKEN: ${{ secrets.COMMERCIAL_DEPLOY_TOKEN }}
+        run: |
+          cd _commercial
+          git init -b gh-pages
+          git config user.name "deploy-bot"
+          git config user.email "contact@studiobrochure.fr"
+          git add -A
+          git commit -m "Déploiement $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push --force "https://x-access-token:${TOKEN}@github.com/benoitrempenault/studiobrochure.git" gh-pages
+
   deploy:
     needs: build
     runs-on: ubuntu-latest
