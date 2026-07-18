@@ -296,7 +296,7 @@
         if (ev.error === "no-speech" || ev.error === "aborted") return; // silence : onend relancera
         const msgs = {
           "not-allowed": "Micro refusé — autorisez le micro pour ce site (icône 🔒 ou réglages du navigateur).",
-          "service-not-allowed": "La dictée est bloquée par ce navigateur — essayez Chrome.",
+          "service-not-allowed": "Le service de reconnaissance vocale est bloqué sur ce poste (navigateur dérivé ou politique d'entreprise) — essayez Microsoft Edge.",
           "audio-capture": "Aucun micro détecté sur cet appareil.",
           "network": "La reconnaissance vocale n'a pas pu joindre le service — vérifiez la connexion."
         };
