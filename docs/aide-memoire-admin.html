@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Studio Brochure — Aide-mémoire administrateur</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    width: 210mm; min-height: 297mm; padding: 9mm 12mm;
+    font-family: "Segoe UI", system-ui, sans-serif; color: #1c1813;
+    background: #faf7f2; font-size: 8.6pt; line-height: 1.35;
+  }
+  .head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #b7a06b; padding-bottom: 2.5mm; margin-bottom: 3mm; }
+  h1 { font-family: Georgia, serif; font-weight: 500; font-size: 15pt; }
+  h1 em { font-style: normal; color: #9a7b3f; }
+  .tag { font-size: 8pt; letter-spacing: .16em; text-transform: uppercase; color: #8b8578; }
+  h2 { font-family: Georgia, serif; font-size: 11pt; color: #9a7b3f; margin: 3.5mm 0 1.5mm; }
+  pre {
+    background: #1c1813; color: #f0e7d8; border-radius: 2mm; padding: 2mm 3mm;
+    font-family: Consolas, monospace; font-size: 7.6pt; line-height: 1.45;
+    white-space: pre-wrap; word-break: break-all; margin: 1mm 0 2mm;
+  }
+  .note { color: #55503f; font-size: 8pt; margin-bottom: 1.5mm; }
+  b { font-weight: 600; }
+  .warn { background: #fdf0e4; border-left: 3px solid #c96f2b; padding: 1.5mm 3mm; margin: 2mm 0; font-size: 8.2pt; }
+  .foot { margin-top: 3mm; border-top: 1px solid #d8cfc0; padding-top: 2mm; font-size: 7.8pt; color: #8b8578; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>Studio <em>Brochure</em> — aide-mémoire administrateur</h1>
+    <div class="tag">Confidentiel · Benoît uniquement</div>
+  </div>
+
+  <div class="warn">⚠️ <b>Rituel d'ouverture — À FAIRE DANS CHAQUE NOUVELLE FENÊTRE PowerShell</b> (les variables
+  meurent avec la fenêtre ; sans ça : « Clé admin invalide » ou « référence d'objet non définie ») :</div>
+<pre>$k = Read-Host "Collez votre ADMIN_KEY"
+$env:CLOUDFLARE_API_TOKEN = Read-Host "Collez votre jeton Cloudflare"   # seulement si commandes wrangler</pre>
+  <div class="note">Les deux valeurs sont dans le gestionnaire de mots de passe. `$k` sert aux commandes Invoke-RestMethod ;
+  le jeton Cloudflare aux commandes wrangler (dans le dossier <b>server</b> du dernier ZIP).</div>
+
+  <h2>👤 Créer un conseiller Kadima (30 sièges)</h2>
+<pre>Invoke-RestMethod -Method Post -Uri "https://studio-brochure-api.studiobrochure.workers.dev/admin/users" `
+  -Headers @{ "X-Admin-Key" = $k } -ContentType "application/json; charset=utf-8" `
+  -Body (@{ agency_id = "ag_8csricwct9"; email = "prenom.nom@century21.fr"; name = "Prenom Nom" } | ConvertTo-Json)</pre>
+  <div class="note">Puis envoyer le kit PDF au conseiller (mémo + mode d'emploi + dépannage). ag_8csricwct9 = Century 21 Kadima.</div>
+
+  <h2>🏢 Créer une agence CLIENTE (essai 14 jours)</h2>
+<pre>Invoke-RestMethod -Method Post -Uri "https://studio-brochure-api.studiobrochure.workers.dev/admin/agencies" `
+  -Headers @{ "X-Admin-Key" = $k } -ContentType "application/json; charset=utf-8" `
+  -Body (@{ name = "Nom Agence"; email = "contact@agence.fr"; user_name = "Prenom Nom" } | ConvertTo-Json) | ConvertTo-Json -Depth 5</pre>
+  <div class="note">→ envoyer le <b>welcome_link</b> reçu (valable 7 jours, lien vers studiobrochure.fr/app). Ajouter
+  <b>status = "active"</b> dans le Body pour une agence déjà abonnée. Noter l'<b>id</b> (ag_…).</div>
+
+  <h2>📋 Lister les agences (id, statut, usage du mois)</h2>
+<pre>Invoke-RestMethod -Uri "https://studio-brochure-api.studiobrochure.workers.dev/admin/agencies" `
+  -Headers @{ "X-Admin-Key" = $k } | ConvertTo-Json -Depth 5</pre>
+
+  <h2>✏️ Modifier une agence (sièges, quota IA, nom)</h2>
+<pre>Invoke-RestMethod -Method Post -Uri "https://studio-brochure-api.studiobrochure.workers.dev/admin/agencies/AG_ID_ICI" `
+  -Headers @{ "X-Admin-Key" = $k } -ContentType "application/json" -Body '{"seats": 10, "quota_eur": 40}'</pre>
+  <div class="note">Champs au choix : seats, quota_eur, name, app_base. L'ID (ag_…) se place dans l'ADRESSE, entre
+  agencies/ et la fin.</div>
+
+  <h2>⛔ Suspendre / réactiver une agence (fin d'abonnement, impayé)</h2>
+<pre>Invoke-RestMethod -Method Post -Uri "https://studio-brochure-api.studiobrochure.workers.dev/admin/agencies/AG_ID_ICI/status" `
+  -Headers @{ "X-Admin-Key" = $k } -ContentType "application/json" -Body '{"status":"suspended"}'</pre>
+  <div class="note">Réactiver : remplacer par <b>"active"</b>. Effet immédiat : IA coupée, écriture de fiches bloquée
+  (lecture conservée). « Agence introuvable » = mauvais ag_… → relister.</div>
+
+  <h2>🔓 Débloquer quelqu'un (« Trop de demandes » de liens)</h2>
+<pre>wrangler d1 execute studio-brochure --remote --command "DELETE FROM login_tokens WHERE user_id = (SELECT id FROM users WHERE email = 'son.email@exemple.fr')"</pre>
+  <div class="note">Commande wrangler → dossier server + jeton Cloudflare posé. La personne redemande un lien aussitôt après.</div>
+
+  <h2>🚀 Mettre à jour le serveur (quand Claude a poussé du code serveur)</h2>
+<pre>« GitHub → branche claude/property-brochure-generator-645oap → Code → Download ZIP » → extraire
+→ PowerShell dans le dossier server →
+$env:CLOUDFLARE_API_TOKEN = Read-Host "Jeton Cloudflare"
+npm install
+wrangler deploy</pre>
+  <div class="note">Répondre y aux confirmations ; le warning jaune « node:sqlite » est normal. Vérif :
+  https://studio-brochure-api.studiobrochure.workers.dev/health → {"ok":true}.</div>
+
+  <h2>🌐 Les adresses</h2>
+  <div class="note">
+    <b>Clients</b> : https://studiobrochure.fr (site) · /app (produit) · /legal — <b>Kadima</b> :
+    https://benoitrempenault.github.io/Code/mandat/ (outils) · /Code/mandat-pro/compte.html (connexion) —
+    <b>Serveur</b> : tableau de bord Cloudflare (Workers &amp; Pages → studio-brochure-api) ·
+    e-mails : resend.com (journal des envois) · DNS : manager OVH.
+  </div>
+
+  <div class="foot">
+    Jamais dans un e-mail, une capture ou un chat : ADMIN_KEY, jeton Cloudflare, clé Anthropic, clé Resend,
+    welcome_link. En cas de fuite : régénérer (Roll / secret put) immédiatement. — ABR IMMO · document confidentiel.
+  </div>
+</body>
+</html>
