@@ -336,6 +336,22 @@ export function createApp(env) {
     return c.json({ month, agencies: rows.map((r) => ({ ...r, month_cost_eur: Math.round(r.month_cost_micros / 1e4) / 100 })) });
   });
 
+  // Mise à jour d'une agence : sièges, plafond IA mensuel, nom.
+  app.post("/admin/agencies/:id", async (c) => {
+    if (!requireAdmin(c)) return err(c, 401, "Clé admin invalide.");
+    const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [c.req.param("id")]);
+    if (!agency) return err(c, 404, "Agence introuvable.");
+    const b = await c.req.json().catch(() => ({}));
+    const seats = (b.seats != null) ? parseInt(b.seats, 10) : agency.seats;
+    const quota = (b.quota_eur != null) ? Number(b.quota_eur) : agency.quota_eur;
+    const name = (b.name != null) ? String(b.name).trim() : agency.name;
+    if (!Number.isFinite(seats) || seats < 1 || seats > 500) return err(c, 400, "seats invalide (1-500).");
+    if (!Number.isFinite(quota) || quota < 0 || quota > 10000) return err(c, 400, "quota_eur invalide.");
+    if (!name) return err(c, 400, "name vide.");
+    await db.run("UPDATE agencies SET seats = ?, quota_eur = ?, name = ? WHERE id = ?", [seats, quota, name, agency.id]);
+    return c.json({ ok: true, agency: { id: agency.id, name, seats, quota_eur: quota } });
+  });
+
   app.post("/admin/agencies/:id/status", async (c) => {
     if (!requireAdmin(c)) return err(c, 401, "Clé admin invalide.");
     const b = await c.req.json().catch(() => ({}));

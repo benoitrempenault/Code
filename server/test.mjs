@@ -90,6 +90,12 @@ const oldSession = await call("/me", { headers: { Authorization: "Bearer " + bea
 ok(oldSession.status === 401, "3e connexion → la plus ancienne session est déconnectée");
 ok((await call("/me", { headers: { Authorization: "Bearer " + s3 } })).status === 200, "la nouvelle session fonctionne");
 
+console.log("— Mise à jour d'agence (admin)");
+const upd = await call("/admin/agencies/" + agencyId, { headers: admin, body: { seats: 30, quota_eur: 60 } });
+ok(upd.status === 200 && upd.json.agency.seats === 30 && upd.json.agency.quota_eur === 60, "sièges et quota modifiés");
+ok((await call("/admin/agencies/" + agencyId, { headers: admin, body: { seats: 0 } })).status === 400, "seats hors bornes refusé");
+ok((await call("/admin/agencies/inconnu", { headers: admin, body: { seats: 10 } })).status === 404, "agence inconnue → 404");
+
 console.log("— Fiches synchronisées");
 const ficheData = { _app: "studio-fiche", _v: 1, fVendeur: "M. Dupont", fAdresse: "3 allée des Pins", fType: "Maison", fInterieur: "Séjour 35 m2" };
 const put1 = await call("/fiches", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { name: "FICHE 3 allée des Pins", data: ficheData } });
