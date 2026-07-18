@@ -100,6 +100,15 @@
       }
     });
     $("#email").addEventListener("keydown", function (e) { if (e.key === "Enter") $("#btnSend").click(); });
+    // iPhone : l'app « écran d'accueil » a sa propre session — le lien cliqué
+    // s'ouvre dans Safari, donc on accepte aussi le lien collé directement ici.
+    $("#linkPaste").addEventListener("input", function () {
+      const m = /[#&]token=([^&\s]+)/.exec(this.value || "");
+      if (!m) return;
+      const t = decodeURIComponent(m[1]);
+      this.value = "";
+      handleToken(t);
+    });
     $("#btnConfirm").addEventListener("click", async function () {
       const t = pendingToken; pendingToken = null;
       this.hidden = true;

@@ -19,7 +19,7 @@ import { cors } from "hono/cors";
 import { now, monthKey, randId, randToken, sha256hex, hmacHex, safeEqual, costMicros } from "./util.js";
 
 const SESSION_TTL = 30 * 24 * 3600;   // 30 jours d'inactivité
-const MAX_SESSIONS = 2;               // appareils simultanés par utilisateur
+const MAX_SESSIONS = 3;               // appareils simultanés (PC + téléphone : Safari ET app écran d'accueil comptent chacun)
 const LINK_TTL = 15 * 60;             // lien magique : 15 minutes
 const MAX_LINKS_PER_10MIN = 4;    // stoppe les rafales (scanner, double-clics)
 const MAX_LINKS_PER_HOUR = 12;    // stoppe l'abus (bombardement d'e-mails)

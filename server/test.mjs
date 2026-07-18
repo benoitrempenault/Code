@@ -81,14 +81,19 @@ for (let i = 2; i <= 5; i++) {
 const seat6 = await call("/admin/users", { headers: admin, body: { agency_id: agencyId, email: "u6@azur-immo.fr" } });
 ok(seat6.status === 409, "6e utilisateur refusé (5 sièges)");
 
-console.log("— Limite d'appareils (2 sessions simultanées)");
+console.log("— Limite d'appareils (3 sessions simultanées)");
 const t2 = (await call("/auth/request-link", { body: { email: "claire@azur-immo.fr" } })).json.dev_token;
 const s2 = (await call("/auth/exchange", { body: { token: t2 } })).json.session;
 const t3 = (await call("/auth/request-link", { body: { email: "claire@azur-immo.fr" } })).json.dev_token;
 const s3 = (await call("/auth/exchange", { body: { token: t3 } })).json.session;
+ok((await call("/me", { headers: { Authorization: "Bearer " + bearer } })).status === 200, "3 sessions : toutes actives");
+await db.run("DELETE FROM login_tokens", []); // remet à zéro le compteur anti-rafale pour la suite du test
+const t4 = (await call("/auth/request-link", { body: { email: "claire@azur-immo.fr" } })).json.dev_token;
+const s4 = (await call("/auth/exchange", { body: { token: t4 } })).json.session;
 const oldSession = await call("/me", { headers: { Authorization: "Bearer " + bearer } });
-ok(oldSession.status === 401, "3e connexion → la plus ancienne session est déconnectée");
-ok((await call("/me", { headers: { Authorization: "Bearer " + s3 } })).status === 200, "la nouvelle session fonctionne");
+ok(oldSession.status === 401, "4e connexion → la plus ancienne session est déconnectée");
+const s3b = s4; // la plus récente doit fonctionner
+ok((await call("/me", { headers: { Authorization: "Bearer " + s3b } })).status === 200, "la nouvelle session fonctionne");
 
 console.log("— Limite d'envoi des liens de connexion");
 let last429 = null;
