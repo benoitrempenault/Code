@@ -32,7 +32,7 @@
     .brand h1 em { font-style: normal; color: var(--accent); }
     .brand p { color: var(--muted); margin-top: 10px; font-size: 15px; max-width: 52ch; }
 
-    .tiles { display: grid; grid-template-columns: repeat(2, minmax(260px, 340px)); gap: 20px; }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 330px)); justify-content: center; gap: 20px; max-width: 1060px; }
     .tile {
       display: flex; flex-direction: column; gap: 12px; text-decoration: none;
       background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
@@ -72,6 +72,14 @@
       <p>Le parcours guidé en 8 étapes : quartier aux distances réelles, photos,
         surfaces, rédaction — brochure, annonce et page web du bien.</p>
       <span class="go">Créer une brochure →</span>
+    </a>
+    <a class="tile" href="formation.html">
+      <span class="ico">🎓</span>
+      <h2>Formation &amp; Documents</h2>
+      <p>L'assistant dossier de vente (quels documents, à qui les demander),
+        les fiches méthode, le quiz, l'entraînement IA et les calculettes
+        notaire, plus-value et financement.</p>
+      <span class="go">Se former →</span>
     </a>
   </div>
 
