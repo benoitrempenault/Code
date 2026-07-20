@@ -646,6 +646,7 @@
         "Règles ABSOLUES : fidélité totale — n'invente rien, ne complète rien, n'embellis pas. Conserve chiffres, surfaces, unités et noms de marques tels quels.",
         "Chaque élément est une ligne courte et factuelle (style fiche technique, pas de phrases marketing).",
         "Range chaque information dans la bonne section ; ignore les hésitations et répétitions de dictée (« euh », redites).",
+        "Artefacts de dictée à corriger : « PAC R R », « PAC air air », « pack air air » = « PAC Air/Air » ; « PAC R O », « PAC air eau », « PAC r haut » = « PAC Air/Eau » (idem « pompe à chaleur »).",
         "REGROUPEMENTS obligatoires — une seule ligne par famille, en assemblant toutes les informations dispersées.",
         "Dans caracteristiques, suis cet ordre de familles (n'écris une ligne que si au moins une information existe ; n'écris JAMAIS « non précisé ») :",
         "1. « Bien : » type précis (maison individuelle / maison mitoyenne en limite de propriété / appartement…), année de construction, constructeur (nom), type de construction (brique, bois, parpaing…).",

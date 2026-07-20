@@ -193,6 +193,16 @@
   }
 
   /* ------------------------------ Dictée -------------------------------- */
+  // La reconnaissance vocale transcrit mal certains termes métier (« PAC R R »
+  // pour « PAC Air/Air », « PAC R O » pour « PAC Air/Eau ») : on corrige les
+  // segments définitifs avant affichage. Idempotent — réapplicable sans risque.
+  function fixSpeech(t) {
+    return t
+      .replace(/\b(?:PAC|pack)\s+(?:air|r|er)\s*(?:\/|-|,)?\s*(?:air|r|er)\b/gi, "PAC Air/Air")
+      .replace(/\b(?:PAC|pack)\s+(?:air|r|er)\s*(?:\/|-|,)?\s*(?:eau|[oô]|au|haut)\b/gi, "PAC Air/Eau")
+      .replace(/\b(pompe\s+[àa]\s+chaleur)\s+(?:air|r|er)\s*(?:\/|-|,)?\s*(?:air|r|er)\b/gi, "$1 Air/Air")
+      .replace(/\b(pompe\s+[àa]\s+chaleur)\s+(?:air|r|er)\s*(?:\/|-|,)?\s*(?:eau|[oô]|au|haut)\b/gi, "$1 Air/Eau");
+  }
   let stopVoice = function () { }; // réassignée par wireVoice — arrêt du micro depuis n'importe où
   function wireVoice() {
     const btn = $("#btnVoice"), status = $("#voiceStatus"), notes = $("#fNotes");
@@ -246,7 +256,7 @@
           else interim += res[0].transcript;
         }
         r.__finals = finals;
-        notes.value = base + finals + interim;
+        notes.value = fixSpeech(base + finals) + interim;
         scheduleRender();
       };
       r.onerror = function (ev) {
@@ -265,7 +275,7 @@
       // on consolide le texte acquis puis on repart sans rien perdre.
       r.onend = function () {
         if (!listening) return;
-        if (r.__finals) base = base + r.__finals;
+        if (r.__finals) base = fixSpeech(base + r.__finals);
         notes.value = base;
         try { rec = newRec(); rec.start(); } catch (e) { stop(); }
       };
