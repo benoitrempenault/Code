@@ -7,6 +7,19 @@
 
   const ENDPOINT = "https://api.anthropic.com/v1/messages";
 
+  // Modèles par tâche (offre « tout compris ») : la rédaction éditoriale de la
+  // brochure et la transcription de notes MANUSCRITES restent sur le modèle le
+  // plus fort (qualité) ; le reste (factuel, extraction, structuration) passe
+  // sur un modèle moins coûteux. L'argument `model` (sélecteur « Tout en Opus »)
+  // reste un override. Réglable sans redéployer via
+  // window.StudioConfig.models = { editorial, ocr, standard }.
+  const _mcfg = (window.StudioConfig && window.StudioConfig.models) || {};
+  const MODELS = {
+    editorial: _mcfg.editorial || "claude-opus-4-8",
+    ocr: _mcfg.ocr || "claude-opus-4-8",
+    standard: _mcfg.standard || "claude-sonnet-5"
+  };
+
   // Mode « Tout compris » : si un compte est connecté (voir config.js et la
   // page Mon compte), les appels passent par le serveur Studio Brochure —
   // aucune clé API locale n'est nécessaire.
@@ -172,7 +185,7 @@
     }
 
     const body = {
-      model: model || "claude-opus-4-8",
+      model: model || MODELS.editorial,
       max_tokens: 4096,
       output_config: { format: { type: "json_schema", schema: SCHEMA } },
       system: systemPrompt(tone),
@@ -256,7 +269,7 @@
       "anthropic-dangerous-direct-browser-access": "true"
     };
     const base = {
-      model: model || "claude-opus-4-8",
+      model: model || MODELS.standard,
       max_tokens: 2200,
       output_config: { effort: "low" },
       system: system,
@@ -345,7 +358,7 @@
     content.push({ type: "text", text: "Donne une légende pour chaque photo, dans l'ordre des index." });
 
     const body = {
-      model: model || "claude-opus-4-8",
+      model: model || MODELS.standard,
       max_tokens: 1500,
       output_config: { format: { type: "json_schema", schema: CAP_SCHEMA } },
       system: system,
@@ -416,7 +429,7 @@
     ].join("\n");
 
     const body = {
-      model: model || "claude-opus-4-8",
+      model: model || MODELS.standard,
       max_tokens: 1400,
       output_config: { format: { type: "json_schema", schema: DIAG_SCHEMA } },
       system: system,
@@ -435,7 +448,7 @@
     const { apiKey, model, city, tone } = opts;
     if ((!proxyOn() && (!apiKey || !/^sk-ant-/.test(apiKey.trim()))) || !city) return null;
     const body = {
-      model: model || "claude-opus-4-8",
+      model: model || MODELS.standard,
       max_tokens: 400,
       output_config: {
         effort: "low",
@@ -501,7 +514,7 @@
     ].join("\n");
 
     const body = {
-      model: model || "claude-opus-4-8",
+      model: model || MODELS.standard,
       max_tokens: 1500,
       output_config: { format: { type: "json_schema", schema: SCHEMA } },
       system: system,
@@ -562,7 +575,7 @@
     ].join("\n");
 
     const body = {
-      model: model || "claude-opus-4-8",
+      model: model || MODELS.standard,
       max_tokens: 1200,
       output_config: { format: { type: "json_schema", schema: SCHEMA } },
       system: system,
@@ -602,7 +615,7 @@
     }
     blocks.push({ type: "text", text: "Transcris ces notes de visite immobilière." });
     const body = {
-      model: model || "claude-opus-4-8",
+      model: model || MODELS.ocr,
       max_tokens: 2000,
       output_config: { format: { type: "json_schema", schema: SCHEMA } },
       system: [
@@ -638,7 +651,7 @@
       required: ["type", "caracteristiques", "interieur", "exterieur", "copro", "aSavoir"]
     };
     const body = {
-      model: model || "claude-opus-4-8",
+      model: model || MODELS.standard,
       max_tokens: 3000,
       output_config: { format: { type: "json_schema", schema: SCHEMA } },
       system: [

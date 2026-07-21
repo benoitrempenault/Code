@@ -29,7 +29,7 @@ const MAX_TOKENS_CAP = 8192;
 // --- Garde-fous du proxy IA (coût) --------------------------------------
 // Modèles servis par l'offre « tout compris » (liste blanche, surchargeable
 // par env.AI_MODELS pour ajouter/retirer sans redéployer le code).
-const DEFAULT_AI_MODELS = "claude-opus-4-8,claude-sonnet-4-5,claude-haiku-4-5,claude-fable-5";
+const DEFAULT_AI_MODELS = "claude-opus-4-8,claude-sonnet-5,claude-haiku-4-5,claude-fable-5";
 const DEFAULT_AI_RATE_PER_MIN = 60;      // appels IA par agence et par minute
 const DEFAULT_AI_MAX_BODY = 4_000_000;   // 4 Mo : autorise la vision multi-photos, bloque un payload absurde
 const RESERVE_INPUT_CAP = 200000;        // plafond de tokens d'entrée estimés pour la réservation
