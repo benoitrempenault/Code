@@ -1,8 +1,8 @@
 # ABR IMMO — Modification de l'objet social (ajout édition de logiciels)
 
 > Modèle préparé pour permettre à ABR IMMO d'éditer et de commercialiser Studio Brochure.
-> À faire relire par votre expert-comptable ou avocat avant signature. Complétez les champs
-> `[…]` (date, SIREN). Coût total indicatif : ~230 € (annonce légale ~150 €, greffe ~80 €).
+> À faire relire par votre expert-comptable ou avocat avant signature. Il ne reste qu'à
+> compléter la **date** `[DATE]`. Coût total indicatif : ~230 € (annonce légale ~150 €, greffe ~80 €).
 
 ---
 
@@ -25,7 +25,7 @@
 ABR IMMO
 Société par actions simplifiée au capital de 1 000 euros
 Siège social : 4 impasse d'Orion, 33160 SAINT-AUBIN-DE-MÉDOC
-[SIREN] RCS BORDEAUX
+903 882 363 RCS BORDEAUX
 
 PROCÈS-VERBAL DES DÉCISIONS DE L'ASSOCIÉ UNIQUE
 EN DATE DU [DATE]
@@ -100,7 +100,7 @@ et consigné au registre des décisions de la Société.
 
 ```
 ABR IMMO — SAS au capital de 1 000 € — Siège social : 4 impasse d'Orion,
-33160 Saint-Aubin-de-Médoc — [SIREN] RCS Bordeaux.
+33160 Saint-Aubin-de-Médoc — 903 882 363 RCS Bordeaux.
 Par décisions du [DATE], l'associé unique a décidé d'étendre l'objet social, à compter du
 même jour, aux activités de conception, développement, édition et commercialisation de
 logiciels, d'applications et de services numériques, notamment par abonnement (SaaS), et
@@ -112,8 +112,8 @@ statuts a été modifié en conséquence. Mention au RCS de Bordeaux.
 
 ## Rappels liés (cohérence du dossier)
 
-- Les **mentions légales** du site sont déjà au nom d'ABR IMMO — il ne manque que le **SIREN**
-  (dites-le-moi et je le renseigne).
+- Les **mentions légales** du site sont au nom d'ABR IMMO, SIREN **903 882 363** (RCS Bordeaux)
+  renseigné.
 - Le **dépôt de marque INPI** se fera au nom d'ABR IMMO (voir `marque-studio-brochure.md`).
   Faites la modification d'objet avant ou en parallèle.
 - La **TVA** : l'activité d'abonnement logiciel est soumise à TVA (20 %) ; voyez avec votre

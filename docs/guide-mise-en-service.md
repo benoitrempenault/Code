@@ -240,7 +240,7 @@ wrangler deploy
 | Action | Où |
 |---|---|
 | Signer le PV de modification d'objet ABR IMMO + annonce légale | `abr-immo-modification-objet.md` |
-| Me donner le **SIREN** → je complète les mentions légales | (un message suffit) |
+| ~~Me donner le SIREN → je complète les mentions légales~~ ✅ fait (SIREN 903 882 363) | `legal/mentions-legales.html` |
 | Dépôt de marque INPI semi-figuratif (230 €) | `marque-studio-brochure.md` §9 |
 | Accord écrit de votre dirigeant + consultation avocat (art. 13 / statut) | analyse contrat du 15/07 |
 | Remplacer les photos du bien client dans la vidéo de démo | (avant grande diffusion) |
