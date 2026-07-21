@@ -49,6 +49,12 @@
   // Appel à l'API avec ré-essais sur erreurs serveur transitoires (429 / 5xx).
   async function callAnthropic(apiKey, body, tries) {
     tries = tries || 3;
+    // Sonnet 5 active la « réflexion » par défaut quand le champ thinking est
+    // absent ; combinée à la sortie structurée et au plafond de tokens, elle
+    // peut épuiser le budget et renvoyer une réponse sans texte (« réponse
+    // vide »). Nos tâches n'en ont pas besoin — on la désactive (comportement
+    // identique à Opus 4.8, qui ne réfléchissait pas par défaut).
+    if (body && typeof body === "object" && !body.thinking) body.thinking = { type: "disabled" };
     let lastErr;
     for (let i = 0; i < tries; i++) {
       let res;
