@@ -145,6 +145,7 @@
     s.agency = Object.assign(clone(DEFAULT.agency), saved.agency || {});
     if (saved.palette) s.theme.palette = saved.palette;
     sanitizeStateImages(s);
+    sanitizeStateTheme(s);
     return s;
   }
   function agencyConfigured() {
@@ -193,6 +194,22 @@
     }
     if (/^https?:\/\//i.test(v) || /^blob:/i.test(v)) return v;
     return null;
+  }
+  // Sécurité : les champs de thème finissent dans des attributs HTML de l'export
+  // (data-palette, data-font, style="--accent:…") par concaténation. On les
+  // contraint à des formes SÛRES — slug pour les identifiants, #rrggbb pour les
+  // couleurs — de sorte qu'un .json importé ne puisse pas rompre l'attribut.
+  function safeSlug(v, dflt) { return /^[a-z0-9-]{1,32}$/i.test(String(v || "")) ? String(v) : dflt; }
+  function safeHex(v, dflt) { return /^#[0-9a-f]{6}$/i.test(String(v || "")) ? String(v) : dflt; }
+  function sanitizeStateTheme(s) {
+    if (!s || !s.theme || typeof s.theme !== "object") return s;
+    const t = s.theme;
+    t.palette = safeSlug(t.palette, "bronze");
+    t.font = safeSlug(t.font, "elegant");
+    if (t.coverLayout != null) t.coverLayout = safeSlug(t.coverLayout, "bandeau");
+    t.customAccent = safeHex(t.customAccent, "#a67c52");
+    t.customPaper = safeHex(t.customPaper, "#f7f3ec");
+    return s;
   }
   function sanitizeStateImages(s) {
     if (!s || typeof s !== "object") return s;
