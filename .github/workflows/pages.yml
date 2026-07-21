@@ -25,6 +25,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Garde-fou — syntaxe JS (bloque le déploiement si cassé)
+        run: |
+          set -e
+          for f in $(find assets pro mandat mandat-pro -name '*.js' -not -path '*/node_modules/*'); do
+            node --check "$f"
+          done
+          echo "Syntaxe JS OK — déploiement autorisé."
+
       - name: Préparer le site (app uniquement)
         run: |
           mkdir -p _site/assets

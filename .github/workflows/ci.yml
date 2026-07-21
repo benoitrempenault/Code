@@ -1,0 +1,41 @@
+name: CI (syntaxe + tests serveur)
+
+# Garde-fou qualité : vérifie la syntaxe de tout le JS et lance les tests
+# d'intégration du serveur à chaque push / pull request. Pour en faire un
+# verrou dur : Settings → Branches → protéger la branche et exiger ce check.
+
+on:
+  push:
+    branches:
+      - claude/property-brochure-generator-645oap
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  verifier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Vérifier la syntaxe de tout le JS
+        run: |
+          set -e
+          count=0
+          for f in $(find assets pro mandat mandat-pro server -name '*.js' -not -path '*/node_modules/*'); do
+            node --check "$f"
+            count=$((count+1))
+          done
+          echo "Syntaxe OK sur $count fichiers JS."
+
+      - name: Tests d'intégration du serveur
+        working-directory: server
+        run: |
+          npm install
+          npm test
