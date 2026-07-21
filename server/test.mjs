@@ -213,6 +213,25 @@ ok(unblockOk.status === 200 && unblockOk.json.ok === true, "débloquer un compte
 const unblockNoauth = await call("/admin/users/unblock", { body: { email: "claire@azur-immo.fr" } });
 ok(unblockNoauth.status === 401, "débloquer sans clé admin → refusé");
 
+console.log("— Conseillers gérés par l'admin d'agence (self-service)");
+const claireId = ex.json.user.id;
+const team = await call("/agency/users", { headers: { Authorization: "Bearer " + s3 } });
+ok(team.status === 200 && team.json.users.some(function (u) { return u.email === "claire@azur-immo.fr"; }) && typeof team.json.seats === "number",
+  "l'admin liste les conseillers de son agence (+ sièges)");
+const addC = await call("/agency/users", { headers: { Authorization: "Bearer " + s3 }, body: { email: "recrue@azur-immo.fr", name: "Recrue Test" } });
+ok(addC.status === 200 && addC.json.user.role === "member" && addC.json.user.id.startsWith("us_"), "l'admin ajoute un conseiller (rôle membre)");
+ok((await call("/agency/users", { headers: { Authorization: "Bearer " + s3 }, body: { email: "recrue@azur-immo.fr" } })).status === 409, "e-mail déjà pris → refusé");
+ok((await call("/agency/users", { headers: { Authorization: "Bearer " + s3 }, body: { email: "pas-un-email" } })).status === 400, "e-mail invalide → refusé");
+// un conseiller (non-admin) ne peut pas gérer l'équipe
+const u2tok = (await call("/auth/request-link", { body: { email: "u2@azur-immo.fr" } })).json.dev_token;
+const u2sess = (await call("/auth/exchange", { body: { token: u2tok } })).json.session;
+ok((await call("/agency/users", { headers: { Authorization: "Bearer " + u2sess } })).status === 403, "un conseiller non-admin ne peut pas gérer l'équipe");
+ok((await call("/agency/users", { headers: { Authorization: "Bearer " + u2sess }, body: { email: "x@azur-immo.fr" } })).status === 403, "un conseiller non-admin ne peut pas ajouter");
+// retraits
+ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 400, "l'admin ne peut pas se retirer lui-même");
+ok((await call("/agency/users/" + addC.json.user.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 200, "l'admin retire un conseiller");
+ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Authorization: "Bearer " + s2b } })).status === 404, "une autre agence ne peut pas retirer un conseiller (isolation)");
+
 fake.close();
 console.log("\n" + passed + " réussis, " + failed + " échec(s)");
 process.exit(failed ? 1 : 0);

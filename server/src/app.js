@@ -88,6 +88,36 @@ export function createApp(env) {
     const k = c.req.header("X-Admin-Key") || "";
     return env.ADMIN_KEY && safeEqual(k, env.ADMIN_KEY);
   }
+  // Administrateur d'une agence (peut gérer les conseillers de SON agence).
+  function isAgencyAdmin(ctx) { return !!(ctx && ctx.user && ctx.user.role === "admin"); }
+
+  // Crée un jeton de connexion pour un utilisateur et lui envoie le lien
+  // (si Resend est configuré). Renvoie { token, link }. Factorisé pour être
+  // partagé entre la demande de lien et l'ajout d'un conseiller.
+  async function issueLoginLink(user, ttl, mail) {
+    const token = randToken(32);
+    await db.run(
+      "INSERT INTO login_tokens (token_hash, user_id, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)",
+      [await sha256hex(token), user.id, now() + ttl, now()]
+    );
+    const ag = await db.get("SELECT app_base FROM agencies WHERE id = ?", [user.agency_id]);
+    const link = appBase(ag) + "/compte.html#token=" + token;
+    if (env.RESEND_API_KEY) {
+      const intro = (mail && mail.intro) || "Voici votre lien de connexion (valable 15 minutes) :";
+      await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.RESEND_API_KEY },
+        body: JSON.stringify({
+          from: env.MAIL_FROM || "Studio Brochure <connexion@studiobrochure.fr>",
+          to: [user.email],
+          subject: (mail && mail.subject) || "Votre lien de connexion Studio Brochure",
+          text: "Bonjour,\n\n" + intro + "\n" + link +
+            "\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n\nStudio Brochure"
+        })
+      }).catch(() => { });
+    }
+    return { token, link };
+  }
 
   /* ------------------------------- Santé -------------------------------- */
   app.get("/health", (c) => c.json({ ok: true, ts: now() }));
@@ -111,26 +141,7 @@ export function createApp(env) {
       [user.id, now() - 3600]
     );
     if ((recent?.n || 0) >= MAX_LINKS_PER_HOUR) return err(c, 429, "Trop de demandes — réessayez dans une heure.");
-    const token = randToken(32);
-    await db.run(
-      "INSERT INTO login_tokens (token_hash, user_id, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)",
-      [await sha256hex(token), user.id, now() + LINK_TTL, now()]
-    );
-    const linkAgency = await db.get("SELECT app_base FROM agencies WHERE id = ?", [user.agency_id]);
-    const link = appBase(linkAgency) + "/compte.html#token=" + token;
-    if (env.RESEND_API_KEY) {
-      await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.RESEND_API_KEY },
-        body: JSON.stringify({
-          from: env.MAIL_FROM || "Studio Brochure <connexion@studiobrochure.fr>",
-          to: [email],
-          subject: "Votre lien de connexion Studio Brochure",
-          text: "Bonjour,\n\nVoici votre lien de connexion (valable 15 minutes) :\n" + link +
-            "\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n\nStudio Brochure"
-        })
-      }).catch(() => { });
-    }
+    const { token, link } = await issueLoginLink(user, LINK_TTL);
     if (env.DEV_MODE) return c.json({ ...generic, dev_token: token, dev_link: link });
     return c.json(generic);
   });
@@ -193,6 +204,61 @@ export function createApp(env) {
       },
       usage: { month, requests: u?.n || 0, cost_eur: Math.round((u?.cost || 0) / 1e4) / 100, quota_eur: ctx.agency.quota_eur }
     });
+  });
+
+  /* ---------- Conseillers de l'agence (gérés par son administrateur) ------ */
+  // L'admin d'une agence ajoute/retire ses conseillers lui-même (dans la limite
+  // des sièges), sans passer par la clé ADMIN_KEY. Strictement borné à SON agence.
+  app.get("/agency/users", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!isAgencyAdmin(ctx)) return err(c, 403, "Réservé à l'administrateur de l'agence.");
+    const rows = await db.all(
+      "SELECT id, email, name, role, created_at FROM users WHERE agency_id = ? ORDER BY created_at ASC",
+      [ctx.agency.id]
+    );
+    return c.json({ users: rows, seats: ctx.agency.seats, used: rows.length });
+  });
+
+  app.post("/agency/users", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!isAgencyAdmin(ctx)) return err(c, 403, "Réservé à l'administrateur de l'agence.");
+    if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif — réactivez-le pour ajouter des conseillers.");
+    const b = await c.req.json().catch(() => ({}));
+    const email = String(b.email || "").trim().toLowerCase();
+    const name = String(b.name || "").trim().slice(0, 120);
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(c, 400, "E-mail invalide.");
+    if (await db.get("SELECT id FROM users WHERE email = ?", [email])) return err(c, 409, "Cet e-mail a déjà un compte.");
+    const count = await db.get("SELECT COUNT(*) AS n FROM users WHERE agency_id = ?", [ctx.agency.id]);
+    if ((count?.n || 0) >= ctx.agency.seats) {
+      return err(c, 409, "Tous les sièges sont occupés (" + ctx.agency.seats + ") — retirez un conseiller ou contactez Studio Brochure pour en ajouter.");
+    }
+    const user = { id: randId("us"), email, name };
+    await db.run(
+      "INSERT INTO users (id, agency_id, email, name, role, created_at) VALUES (?, ?, ?, ?, 'member', ?)",
+      [user.id, ctx.agency.id, user.email, user.name, now()]
+    );
+    // Envoie tout de suite au conseiller son lien d'accès (valable 7 jours).
+    const { link } = await issueLoginLink({ id: user.id, email: user.email, agency_id: ctx.agency.id }, 7 * 86400, {
+      subject: "Votre accès Studio Brochure est prêt",
+      intro: "Votre agence vient de vous ouvrir un accès à Studio Brochure. Cliquez pour vous connecter (lien valable 7 jours) :"
+    });
+    return c.json({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: "member" }, invite_link: link });
+  });
+
+  app.delete("/agency/users/:id", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!isAgencyAdmin(ctx)) return err(c, 403, "Réservé à l'administrateur de l'agence.");
+    const id = c.req.param("id");
+    if (id === ctx.user.id) return err(c, 400, "Vous ne pouvez pas retirer votre propre compte.");
+    const u = await db.get("SELECT id FROM users WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);
+    if (!u) return err(c, 404, "Conseiller introuvable dans votre agence.");
+    await db.run("UPDATE sessions SET revoked = 1 WHERE user_id = ?", [id]);
+    await db.run("DELETE FROM login_tokens WHERE user_id = ?", [id]);
+    await db.run("DELETE FROM users WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);
+    return c.json({ ok: true });
   });
 
   /* -------------------- Fiches prestation synchronisées ------------------ */

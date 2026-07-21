@@ -20,8 +20,11 @@
   function setAccount(a) { try { localStorage.setItem(LS_ACCOUNT, JSON.stringify(a)); } catch (e) { } }
   function clearAccount() { try { localStorage.removeItem(LS_ACCOUNT); } catch (e) { } }
 
+  let meUserId = null;
+
   function show(card) {
     ["cardOff", "cardLogin", "cardMe"].forEach(function (id) { $("#" + id).hidden = id !== card; });
+    $("#cardTeam").hidden = true; // géré à part (affiché sous le profil pour les admins)
   }
 
   async function api(path, opts) {
@@ -57,6 +60,65 @@
     // version dédiée, les agences clientes l'accueil marque blanche.
     $("#btnGoTools").href = d.agency.id === "ag_8csricwct9" ? "../mandat/" : "index.html";
     show("cardMe");
+    meUserId = d.user.id;
+    if (d.user.role === "admin") { $("#cardTeam").hidden = false; loadTeam(); }
+  }
+
+  /* --------------------- Conseillers (admin d'agence) ------------------- */
+  async function loadTeam() {
+    const a = getAccount();
+    if (!a || !a.session) return;
+    const r = await api("/agency/users", { auth: a.session }).catch(function () { return { status: 0 }; });
+    if (r.status !== 200 || !r.data) { $("#cardTeam").hidden = true; return; }
+    renderTeam(r.data);
+  }
+  function renderTeam(d) {
+    $("#teamSeats").textContent = d.used + " / " + d.seats + " sièges utilisés";
+    const list = $("#teamList");
+    list.textContent = "";
+    (d.users || []).forEach(function (u) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const left = document.createElement("span");
+      left.textContent = (u.name ? u.name + " · " : "") + u.email + (u.role === "admin" ? "  (admin)" : "");
+      row.appendChild(left);
+      if (u.id === meUserId) {
+        const me = document.createElement("b"); me.textContent = "vous"; row.appendChild(me);
+      } else {
+        const b = document.createElement("button");
+        b.className = "btn"; b.type = "button"; b.textContent = "Retirer";
+        b.style.padding = "5px 12px"; b.style.fontSize = "12.5px";
+        b.addEventListener("click", function () { removeConseiller(u); });
+        row.appendChild(b);
+      }
+      list.appendChild(row);
+    });
+  }
+  async function addConseiller() {
+    const email = ($("#teamEmail").value || "").trim();
+    const name = ($("#teamName").value || "").trim();
+    const msg = $("#teamMsg");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { msg.className = "msg is-error"; msg.textContent = "Adresse e-mail invalide."; return; }
+    const a = getAccount();
+    const btn = $("#btnAddConseiller"); btn.disabled = true;
+    msg.className = "msg"; msg.textContent = "Ajout en cours…";
+    const r = await api("/agency/users", { auth: a.session, body: { email: email, name: name } }).catch(function () { return { status: 0 }; });
+    btn.disabled = false;
+    if (r.status === 200) {
+      msg.className = "msg is-ok"; msg.textContent = "Conseiller ajouté — un lien de connexion vient de lui être envoyé.";
+      $("#teamEmail").value = ""; $("#teamName").value = "";
+      loadTeam();
+    } else {
+      msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Impossible d'ajouter ce conseiller.";
+    }
+  }
+  async function removeConseiller(u) {
+    if (!window.confirm("Retirer " + (u.name || u.email) + " ? Son accès sera coupé immédiatement.")) return;
+    const a = getAccount();
+    const msg = $("#teamMsg");
+    const r = await api("/agency/users/" + u.id, { method: "DELETE", auth: a.session }).catch(function () { return { status: 0 }; });
+    if (r.status === 200) { msg.className = "msg is-ok"; msg.textContent = "Conseiller retiré."; loadTeam(); }
+    else { msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Retrait impossible."; }
   }
 
   async function handleToken(token) {
@@ -121,6 +183,9 @@
       show("cardLogin");
       $("#loginMsg").className = "msg is-ok"; $("#loginMsg").textContent = "Vous êtes déconnecté.";
     });
+    $("#btnAddConseiller").addEventListener("click", addConseiller);
+    $("#teamName").addEventListener("keydown", function (e) { if (e.key === "Enter") addConseiller(); });
+    $("#teamEmail").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); $("#teamName").focus(); } });
   }
 
   let pendingToken = null;

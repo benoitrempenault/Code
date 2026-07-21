@@ -32,7 +32,7 @@
     .card h2 { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 20px; margin-bottom: 6px; }
     .hint { color: var(--muted); font-size: 13px; line-height: 1.55; }
     label { display: block; font-size: 13px; font-weight: 500; margin: 14px 0 0; }
-    input[type="email"] {
+    input[type="email"], input[type="text"] {
       width: 100%; margin-top: 6px; padding: 11px 13px; border-radius: 10px;
       border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit;
     }
@@ -108,6 +108,23 @@
       <a class="back" href="index.html">⌂ Retour à l'accueil</a>
       <button class="btn" id="btnLogout" type="button">Se déconnecter</button>
     </div>
+  </div>
+
+  <!-- Gestion des conseillers (admin de l'agence uniquement) -->
+  <div class="card" id="cardTeam" hidden>
+    <h2>Mes conseillers</h2>
+    <p class="hint" id="teamSeats"></p>
+    <div id="teamList" style="margin:6px 0 4px"></div>
+    <label>Ajouter un conseiller — e-mail
+      <input type="email" id="teamEmail" placeholder="prenom.nom@century21.fr" autocomplete="off" />
+    </label>
+    <label>Nom (facultatif)
+      <input type="text" id="teamName" placeholder="Prénom Nom" autocomplete="off" />
+    </label>
+    <button class="btn btn--primary btn--full" id="btnAddConseiller" type="button">Ajouter et envoyer l'accès</button>
+    <p class="msg" id="teamMsg" role="status" aria-live="polite"></p>
+    <p class="hint" style="margin-top:8px">Le conseiller reçoit aussitôt un e-mail avec son lien de connexion.
+      Le nombre de conseillers est limité au nombre de sièges de votre abonnement.</p>
   </div>
 
   <script src="assets/js/config.js"></script>
