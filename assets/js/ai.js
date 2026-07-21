@@ -317,12 +317,33 @@
     return m ? { media: m[1], data: m[2] } : null;
   }
 
+  // Longueur (caractères) de la charge base64 d'une data-URL — ce qui pèse
+  // réellement dans le corps JSON envoyé au proxy IA.
+  function payloadLen(u) {
+    var i = (u || "").indexOf(",");
+    return i < 0 ? (u || "").length : (u.length - i - 1);
+  }
+  // Découpe une liste d'images/documents en lots dont la charge cumulée reste
+  // sous la limite du proxy IA (~4 Mo) : au-delà, l'appel échouait en
+  // « Fichier trop volumineux ». Une pièce seule forme toujours au moins un lot.
+  var IMG_BATCH_BUDGET = 3200000; // caractères de base64 par requête (marge sous 4 Mo)
+  function batchByBudget(items, urlOf) {
+    var batches = [], cur = [], size = 0;
+    for (var i = 0; i < items.length; i++) {
+      var len = payloadLen(urlOf(items[i]));
+      if (cur.length && size + len > IMG_BATCH_BUDGET) { batches.push(cur); cur = []; size = 0; }
+      cur.push(items[i]); size += len;
+    }
+    if (cur.length) batches.push(cur);
+    return batches;
+  }
+
   async function captionPhotos(opts) {
     const { apiKey, model, photos, context } = opts;
     if (!proxyOn() && (!apiKey || !/^sk-ant-/.test(apiKey.trim()))) {
       throw missingAccess();
     }
-    const list = (photos || []).slice(0, 16); // on limite le nombre d'images par appel
+    const list = (photos || []).slice(0, 40); // garde-fou large ; le vrai découpage se fait par taille (lots)
     if (!list.length) throw new Error("Ajoutez d'abord des photos à la galerie.");
 
     const CAP_SCHEMA = {
@@ -353,30 +374,42 @@
       "Réponds en JSON : { \"captions\": [ { \"index\": 0, \"caption\": \"...\" }, ... ] } avec un objet par photo."
     ].filter(Boolean).join("\n");
 
-    const content = [];
-    list.forEach(function (p, i) {
-      const parts = dataUrlParts(p.url);
-      if (!parts) return;
-      content.push({ type: "text", text: "Photo index " + i + " :" });
-      content.push({ type: "image", source: { type: "base64", media_type: parts.media, data: parts.data } });
-    });
-    content.push({ type: "text", text: "Donne une légende pour chaque photo, dans l'ordre des index." });
+    // Découpe la galerie en lots sous la limite de taille du proxy IA, puis
+    // recolle les légendes avec leur index GLOBAL d'origine (attendu par l'appelant).
+    const batches = batchByBudget(list, function (p) { return p.url; });
+    const out = [];
+    let offset = 0;
+    for (let bi = 0; bi < batches.length; bi++) {
+      const batch = batches[bi];
+      const content = [];
+      batch.forEach(function (p, i) {
+        const parts = dataUrlParts(p.url);
+        if (!parts) return;
+        content.push({ type: "text", text: "Photo index " + i + " :" });
+        content.push({ type: "image", source: { type: "base64", media_type: parts.media, data: parts.data } });
+      });
+      content.push({ type: "text", text: "Donne une légende pour chaque photo, dans l'ordre des index." });
 
-    const body = {
-      model: model || MODELS.standard,
-      max_tokens: 1500,
-      output_config: { format: { type: "json_schema", schema: CAP_SCHEMA } },
-      system: system,
-      messages: [{ role: "user", content: content }]
-    };
+      const body = {
+        model: model || MODELS.standard,
+        max_tokens: 1500,
+        output_config: { format: { type: "json_schema", schema: CAP_SCHEMA } },
+        system: system,
+        messages: [{ role: "user", content: content }]
+      };
 
-    const data = await callAnthropic(apiKey, body);
-    if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
-    const textBlock = (data.content || []).find(function (b) { return b.type === "text"; });
-    if (!textBlock) throw new Error("Réponse vide du modèle.");
-    let parsed;
-    try { parsed = JSON.parse(textBlock.text); } catch (e) { throw new Error("Réponse illisible (JSON)."); }
-    return parsed.captions || [];
+      const data = await callAnthropic(apiKey, body);
+      if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
+      const textBlock = (data.content || []).find(function (b) { return b.type === "text"; });
+      if (!textBlock) throw new Error("Réponse vide du modèle.");
+      let parsed;
+      try { parsed = JSON.parse(textBlock.text); } catch (e) { throw new Error("Réponse illisible (JSON)."); }
+      (parsed.captions || []).forEach(function (c) {
+        if (c && typeof c.index === "number") out.push({ index: c.index + offset, caption: c.caption });
+      });
+      offset += batch.length;
+    }
+    return out;
   }
 
   /* ----------- Lecture automatique du diagnostic (DPE/GES) --------------- */
@@ -608,33 +641,45 @@
       properties: { text: { type: "string", description: "La transcription fidèle des notes, une information par ligne." } },
       required: ["text"]
     };
-    const blocks = [];
-    for (let i = 0; i < images.length; i++) {
-      if (/^data:application\/pdf/.test(images[i])) {
-        blocks.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: images[i].split(",")[1] || "" } });
-        continue;
+    const system = [
+      "Tu transcris des notes de visite immobilière (manuscrites, imprimées ou capture d'écran) en texte brut exploitable.",
+      "Règles : transcription FIDÈLE — n'invente rien, ne complète rien, n'interprète pas. Conserve chiffres, surfaces et unités tels quels.",
+      "Mets une information par ligne. Si un mot est illisible, écris [illisible]. Réponds uniquement via le format JSON demandé."
+    ].join("\n");
+    // Découpe en lots sous la limite du proxy IA (plusieurs photos de notes
+    // dépassaient 4 Mo → « Fichier trop volumineux »). Les transcriptions de
+    // chaque lot sont recollées dans l'ordre.
+    const batches = batchByBudget(images, function (u) { return u; });
+    const texts = [];
+    for (let bi = 0; bi < batches.length; bi++) {
+      const blocks = [];
+      for (let i = 0; i < batches[bi].length; i++) {
+        const im = batches[bi][i];
+        if (/^data:application\/pdf/.test(im)) {
+          blocks.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: im.split(",")[1] || "" } });
+          continue;
+        }
+        const parts = dataUrlParts(im);
+        if (!parts) throw new Error("Format non reconnu (JPG, PNG, WebP ou PDF).");
+        blocks.push({ type: "image", source: { type: "base64", media_type: parts.media, data: parts.data } });
       }
-      const parts = dataUrlParts(images[i]);
-      if (!parts) throw new Error("Format non reconnu (JPG, PNG, WebP ou PDF).");
-      blocks.push({ type: "image", source: { type: "base64", media_type: parts.media, data: parts.data } });
+      blocks.push({ type: "text", text: "Transcris ces notes de visite immobilière." });
+      const body = {
+        model: model || MODELS.ocr,
+        max_tokens: 2000,
+        output_config: { format: { type: "json_schema", schema: SCHEMA } },
+        system: system,
+        messages: [{ role: "user", content: blocks }]
+      };
+      const data = await callAnthropic(apiKey, body);
+      if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
+      const tb = (data.content || []).find(function (b) { return b.type === "text"; });
+      if (!tb) throw new Error("Réponse vide du modèle.");
+      let t;
+      try { t = JSON.parse(tb.text).text || ""; } catch (e) { throw new Error("Réponse illisible (JSON)."); }
+      if (t.trim()) texts.push(t.trim());
     }
-    blocks.push({ type: "text", text: "Transcris ces notes de visite immobilière." });
-    const body = {
-      model: model || MODELS.ocr,
-      max_tokens: 2000,
-      output_config: { format: { type: "json_schema", schema: SCHEMA } },
-      system: [
-        "Tu transcris des notes de visite immobilière (manuscrites, imprimées ou capture d'écran) en texte brut exploitable.",
-        "Règles : transcription FIDÈLE — n'invente rien, ne complète rien, n'interprète pas. Conserve chiffres, surfaces et unités tels quels.",
-        "Mets une information par ligne. Si un mot est illisible, écris [illisible]. Réponds uniquement via le format JSON demandé."
-      ].join("\n"),
-      messages: [{ role: "user", content: blocks }]
-    };
-    const data = await callAnthropic(apiKey, body);
-    if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
-    const tb = (data.content || []).find(function (b) { return b.type === "text"; });
-    if (!tb) throw new Error("Réponse vide du modèle.");
-    try { return JSON.parse(tb.text).text || ""; } catch (e) { throw new Error("Réponse illisible (JSON)."); }
+    return texts.join("\n");
   }
 
   window.BrochureAI = { generate, generateQuartier, captionPhotos, extractDiagnostics, extractSurfaces, generateCityIntro, generateAdText, extractNotes };
