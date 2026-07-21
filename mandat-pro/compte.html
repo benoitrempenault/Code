@@ -16,11 +16,13 @@
       --text: #ece9e2; --muted: #9a968c; --accent: #c2a36b; --accent-ink: #1a1714;
     }
     * { box-sizing: border-box; margin: 0; }
-    html, body { height: 100%; }
+    html { height: 100%; }
     body {
-      background: var(--bg); color: var(--text);
+      background: var(--bg); color: var(--text); min-height: 100%;
       font-family: "Inter", system-ui, sans-serif;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      /* safe center : centré quand le contenu tient, aligné en haut (défilable)
+         quand il dépasse — évite que le haut soit coupé avec beaucoup de conseillers. */
+      display: flex; flex-direction: column; align-items: center; justify-content: safe center;
       padding: 30px 20px; gap: 26px;
     }
     h1 { font-family: "Fraunces", Georgia, serif; font-weight: 500; font-size: clamp(24px, 4vw, 34px); text-align: center; }
