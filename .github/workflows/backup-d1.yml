@@ -1,0 +1,90 @@
+name: Sauvegarde D1 (chiffrée)
+
+# Exporte la base D1 de production, la chiffre (AES-256), et la conserve comme
+# artefact du dépôt (téléchargeable par l'administrateur, retenu 90 jours).
+# Aucune donnée personnelle n'atterrit dans le dépôt ni sur GitHub Pages.
+#
+# Secrets requis (Settings → Secrets and variables → Actions) :
+#   CLOUDFLARE_API_TOKEN  jeton Cloudflare avec accès LECTURE D1
+#   BACKUP_PASSPHRASE     phrase secrète de chiffrement (à garder au coffre —
+#                         sans elle, la sauvegarde est indéchiffrable)
+#
+# Restauration : voir la note en bas de ce fichier.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"   # tous les jours à 03:00 UTC
+  workflow_dispatch: {}    # + déclenchement manuel (onglet Actions → Run workflow)
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-d1
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    # Ne tourne que si le jeton est configuré (évite les échecs sur un fork/dépôt sans secret).
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+    steps:
+      - name: Vérifier la présence des secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::error::Secrets CLOUDFLARE_API_TOKEN et/ou BACKUP_PASSPHRASE manquants — sauvegarde ignorée."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Exporter la base D1 (distante)
+        working-directory: server
+        run: |
+          npx --yes wrangler@4 d1 export studio-brochure --remote --output "$RUNNER_TEMP/d1-dump.sql"
+          echo "Taille de l'export :"
+          ls -lh "$RUNNER_TEMP/d1-dump.sql"
+
+      - name: Chiffrer l'export (AES-256, PBKDF2)
+        run: |
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+            -in "$RUNNER_TEMP/d1-dump.sql" \
+            -out "$RUNNER_TEMP/d1-dump.sql.enc" \
+            -pass env:BACKUP_PASSPHRASE
+          rm -f "$RUNNER_TEMP/d1-dump.sql"   # ne jamais conserver le clair
+          echo "Empreinte du fichier chiffré :"
+          sha256sum "$RUNNER_TEMP/d1-dump.sql.enc"
+
+      - name: Horodater le nom de l'artefact
+        id: stamp
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Conserver la sauvegarde chiffrée (90 jours)
+        uses: actions/upload-artifact@v4
+        with:
+          name: d1-backup-${{ steps.stamp.outputs.date }}
+          path: ${{ runner.temp }}/d1-dump.sql.enc
+          retention-days: 90
+          if-no-files-found: error
+
+# =============================================================================
+# RESTAURATION (en cas de perte / corruption de la base)
+# -----------------------------------------------------------------------------
+# 1. Onglet Actions → ce workflow → ouvrir un run → télécharger l'artefact
+#    « d1-backup-AAAA-MM-JJ » (une archive .zip contenant d1-dump.sql.enc).
+# 2. Déchiffrer localement (dossier server, jeton Cloudflare posé) :
+#      openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+#        -in d1-dump.sql.enc -out d1-dump.sql -pass pass:VOTRE_PHRASE
+# 3. Réimporter dans une base D1 (idéalement une NEUVE pour vérifier avant bascule) :
+#      wrangler d1 execute studio-brochure --remote --file d1-dump.sql
+#    (ou créer une base de test : wrangler d1 create studio-brochure-restore
+#     puis --file dessus, vérifier, et ne basculer qu'ensuite).
+# Conseil : télécharger une sauvegarde sur un disque hors-ligne de temps en temps
+# (les artefacts expirent à 90 jours). Sans la BACKUP_PASSPHRASE, rien n'est lisible.
+# =============================================================================
