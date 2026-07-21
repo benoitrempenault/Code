@@ -23,8 +23,11 @@
   }
   .note { color: #55503f; font-size: 8pt; margin-bottom: 1.5mm; }
   b { font-weight: 600; }
+  .ok { color: #2f7d4f; font-weight: 600; }
   .warn { background: #fdf0e4; border-left: 3px solid #c96f2b; padding: 1.5mm 3mm; margin: 2mm 0; font-size: 8.2pt; }
+  .good { background: #eef5ee; border-left: 3px solid #6a9f6a; padding: 1.5mm 3mm; margin: 2mm 0; font-size: 8.2pt; }
   .foot { margin-top: 3mm; border-top: 1px solid #d8cfc0; padding-top: 2mm; font-size: 7.8pt; color: #8b8578; }
+  ul { margin: .5mm 0 1.5mm 4.5mm; } li { margin-bottom: .6mm; }
 </style>
 </head>
 <body>
@@ -33,66 +36,86 @@
     <div class="tag">Confidentiel · Benoît uniquement</div>
   </div>
 
-  <div class="warn">⚠️ <b>Rituel d'ouverture — À FAIRE DANS CHAQUE NOUVELLE FENÊTRE PowerShell</b> (les variables
-  meurent avec la fenêtre ; sans ça : « Clé admin invalide » ou « référence d'objet non définie ») :</div>
-<pre>$k = Read-Host "Collez votre ADMIN_KEY"
-$env:CLOUDFLARE_API_TOKEN = Read-Host "Collez votre jeton Cloudflare"   # seulement si commandes wrangler</pre>
-  <div class="note">Les deux valeurs sont dans le gestionnaire de mots de passe. `$k` sert aux commandes Invoke-RestMethod ;
-  le jeton Cloudflare aux commandes wrangler (dans le dossier <b>server</b> du dernier ZIP).</div>
+  <div class="good">✅ <b>Le plus courant se fait maintenant sur la CONSOLE WEB — plus besoin de PowerShell.</b>
+  Console admin : <b>https://benoitrempenault.github.io/Code/admin.html</b> (C majuscule) — connexion avec l'ADMIN_KEY
+  (gardée seulement le temps de l'onglet). Ne pas diffuser cette adresse.</div>
 
-  <h2>👤 Créer un conseiller Kadima (30 sièges)</h2>
-<pre>Invoke-RestMethod -Method Post -Uri "https://studio-brochure-api.studiobrochure.workers.dev/admin/users" `
-  -Headers @{ "X-Admin-Key" = $k } -ContentType "application/json; charset=utf-8" `
-  -Body (@{ agency_id = "ag_8csricwct9"; email = "prenom.nom@century21.fr"; name = "Prenom Nom" } | ConvertTo-Json)</pre>
-  <div class="note">Puis envoyer le kit PDF au conseiller (mémo + mode d'emploi + dépannage). ag_8csricwct9 = Century 21 Kadima.</div>
+  <h2>🖥️ Console web — opérations en 2 clics</h2>
+  <ul>
+    <li><b>Créer une agence cliente</b> → affiche le <b>lien d'accueil</b> à envoyer (valable 7 j, vers studiobrochure.fr/app).</li>
+    <li><b>Lister</b> les agences avec statut + usage IA du mois (coût / requêtes).</li>
+    <li><b>Modifier</b> sièges, quota IA (€), nom ; <b>Suspendre / Réactiver</b> (coupe l'IA + l'écriture de fiches).</li>
+    <li><b>Créer un conseiller</b> dans une agence.</li>
+    <li><b>Débloquer</b> un utilisateur coincé sur « Trop de demandes de liens ».</li>
+  </ul>
 
-  <h2>🏢 Créer une agence CLIENTE (essai 14 jours)</h2>
-<pre>Invoke-RestMethod -Method Post -Uri "https://studio-brochure-api.studiobrochure.workers.dev/admin/agencies" `
-  -Headers @{ "X-Admin-Key" = $k } -ContentType "application/json; charset=utf-8" `
-  -Body (@{ name = "Nom Agence"; email = "contact@agence.fr"; user_name = "Prenom Nom" } | ConvertTo-Json) | ConvertTo-Json -Depth 5</pre>
-  <div class="note">→ envoyer le <b>welcome_link</b> reçu (valable 7 jours, lien vers studiobrochure.fr/app). Ajouter
-  <b>status = "active"</b> dans le Body pour une agence déjà abonnée. Noter l'<b>id</b> (ag_…).</div>
+  <h2>👥 Les conseillers se gèrent tout seuls (self-service)</h2>
+  <div class="note">Chaque <b>admin d'agence</b> (dont toi pour Kadima) ajoute/retire ses conseillers depuis sa page
+  <b>« Mon compte »</b> → carte <b>« Mes conseillers »</b>, dans la limite des sièges. Le conseiller reçoit aussitôt son
+  lien de connexion par e-mail. Kadima : <b>https://benoitrempenault.github.io/Code/mandat-pro/compte.html</b>.</div>
+  <div class="note">La carte n'apparaît que si le compte a le rôle <b>admin</b>. Pour promouvoir quelqu'un (pas dans la
+  console — commande wrangler, cf. plus bas).</div>
 
-  <h2>📋 Lister les agences (id, statut, usage du mois)</h2>
-<pre>Invoke-RestMethod -Uri "https://studio-brochure-api.studiobrochure.workers.dev/admin/agencies" `
-  -Headers @{ "X-Admin-Key" = $k } | ConvertTo-Json -Depth 5</pre>
-
-  <h2>✏️ Modifier une agence (sièges, quota IA, nom)</h2>
-<pre>Invoke-RestMethod -Method Post -Uri "https://studio-brochure-api.studiobrochure.workers.dev/admin/agencies/AG_ID_ICI" `
-  -Headers @{ "X-Admin-Key" = $k } -ContentType "application/json" -Body '{"seats": 10, "quota_eur": 40}'</pre>
-  <div class="note">Champs au choix : seats, quota_eur, name, app_base. L'ID (ag_…) se place dans l'ADRESSE, entre
-  agencies/ et la fin.</div>
-
-  <h2>⛔ Suspendre / réactiver une agence (fin d'abonnement, impayé)</h2>
-<pre>Invoke-RestMethod -Method Post -Uri "https://studio-brochure-api.studiobrochure.workers.dev/admin/agencies/AG_ID_ICI/status" `
-  -Headers @{ "X-Admin-Key" = $k } -ContentType "application/json" -Body '{"status":"suspended"}'</pre>
-  <div class="note">Réactiver : remplacer par <b>"active"</b>. Effet immédiat : IA coupée, écriture de fiches bloquée
-  (lecture conservée). « Agence introuvable » = mauvais ag_… → relister.</div>
-
-  <h2>🔓 Débloquer quelqu'un (« Trop de demandes » de liens)</h2>
-<pre>wrangler d1 execute studio-brochure --remote --command "DELETE FROM login_tokens WHERE user_id = (SELECT id FROM users WHERE email = 'son.email@exemple.fr')"</pre>
-  <div class="note">Commande wrangler → dossier server + jeton Cloudflare posé. La personne redemande un lien aussitôt après.</div>
+  <div class="warn">⚠️ <b>PowerShell — rituel d'ouverture DANS CHAQUE NOUVELLE FENÊTRE</b> (les variables meurent avec la
+  fenêtre ; sinon « clé invalide » / « référence non définie »). Nécessaire pour les commandes wrangler (dossier
+  <b>server</b>) :</div>
+<pre>$env:CLOUDFLARE_API_TOKEN = Read-Host "Collez votre jeton Cloudflare"</pre>
 
   <h2>🚀 Mettre à jour le serveur (quand Claude a poussé du code serveur)</h2>
-<pre>« GitHub → branche claude/property-brochure-generator-645oap → Code → Download ZIP » → extraire
-→ PowerShell dans le dossier server →
+  <div class="warn">⚠️ <b>TOUJOURS repartir d'un ZIP FRAÎCHEMENT téléchargé</b> — ne pas réutiliser un ancien dossier
+  extrait (sinon on redéploie l'ancien code, ex. routes manquantes = erreurs 404).</div>
+<pre>GitHub → dépôt Code → branche claude/property-brochure-generator-645oap → « Code » → Download ZIP
+→ extraire dans un NOUVEAU dossier → PowerShell dans le sous-dossier server →
 $env:CLOUDFLARE_API_TOKEN = Read-Host "Jeton Cloudflare"
 npm install
 wrangler deploy</pre>
-  <div class="note">Répondre y aux confirmations ; le warning jaune « node:sqlite » est normal. Vérif :
-  https://studio-brochure-api.studiobrochure.workers.dev/health → {"ok":true}.</div>
+  <div class="note">Répondre y ; le warning jaune « node:sqlite » est normal. Vérif : /health →
+  <span class="ok">{"ok":true}</span>. Une route nouvelle doit répondre 401 (et non 404) une fois déployée.</div>
+
+  <h2>🛠️ Commandes wrangler utiles (dossier server, jeton posé)</h2>
+  <div class="note"><b>Promouvoir un compte en admin d'agence</b> (fait apparaître « Mes conseillers ») :</div>
+<pre>wrangler d1 execute studio-brochure --remote --command "UPDATE users SET role='admin' WHERE email='prenom.nom@century21.fr'"</pre>
+  <div class="note"><b>Débloquer</b> quelqu'un (sinon la console web le fait aussi) :</div>
+<pre>wrangler d1 execute studio-brochure --remote --command "DELETE FROM login_tokens WHERE user_id = (SELECT id FROM users WHERE email = 'son.email@exemple.fr')"</pre>
+  <div class="note"><b>Vérifier un rôle / un compte</b> (lecture seule) :</div>
+<pre>wrangler d1 execute studio-brochure --remote --command "SELECT email, role FROM users WHERE email='prenom.nom@century21.fr'"</pre>
+
+  <h2>🤖 Modèles IA (coût maîtrisé)</h2>
+  <div class="note">Par défaut, la rédaction de brochure et la transcription de notes manuscrites tournent sur
+  <b>Claude Opus</b> (qualité) ; le reste (quartier, annonce, légendes, extraction DPE/surfaces, fiche) sur
+  <b>Sonnet</b> (~5× moins cher). Le sélecteur de l'app « <b>Tout en Opus</b> » force le maximum partout si besoin.</div>
+
+  <h2>💾 Sauvegarde de la base (automatique)</h2>
+  <div class="note">Workflow <b>« Sauvegarde D1 (chiffrée) »</b> : tous les jours à 03:00 UTC (+ manuel via Actions →
+  Run workflow), export chiffré AES-256 conservé 90 j comme artefact. <b>Secrets à poser une fois</b> (Settings →
+  Secrets and variables → Actions) : <b>CLOUDFLARE_API_TOKEN</b> (accès D1) et <b>BACKUP_PASSPHRASE</b> (phrase de
+  chiffrement — à garder au coffre, sans elle rien n'est lisible).</div>
+  <div class="note"><b>Restaurer</b> : Actions → run → télécharger l'artefact d1-backup-… → déchiffrer puis réimporter :</div>
+<pre>openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in d1-dump.sql.enc -out d1-dump.sql -pass pass:VOTRE_PHRASE
+wrangler d1 execute studio-brochure --remote --file d1-dump.sql</pre>
+  <div class="note">Conseil : télécharger une sauvegarde sur un disque hors-ligne de temps en temps (les artefacts
+  expirent à 90 j).</div>
+
+  <h2>📉 Filets de sécurité coût &amp; disponibilité</h2>
+  <ul>
+    <li><b>Plafond de dépense Anthropic</b> : console.anthropic.com → réglages d'usage → limite mensuelle + alertes
+      e-mail. Filet ultime, indépendant des quotas par agence.</li>
+    <li><b>Surveillance</b> : UptimeRobot (gratuit) sur <b>…workers.dev/health</b> (type « keyword », mot-clé
+      <span class="ok">"ok":true</span>) → alerte e-mail si l'API tombe.</li>
+    <li><b>Plafond global serveur</b> : coupe l'IA de tout le parc si un plafond mensuel est dépassé (garde-fou anti-facture).</li>
+  </ul>
 
   <h2>🌐 Les adresses</h2>
   <div class="note">
-    <b>Clients</b> : https://studiobrochure.fr (site) · /app (produit) · /legal — <b>Kadima</b> :
-    https://benoitrempenault.github.io/Code/mandat/ (outils) · /Code/mandat-pro/compte.html (connexion) —
-    <b>Serveur</b> : tableau de bord Cloudflare (Workers &amp; Pages → studio-brochure-api) ·
-    e-mails : resend.com (journal des envois) · DNS : manager OVH.
+    <b>Clients</b> : https://studiobrochure.fr (site) · /app (produit) · /app/compte.html (connexion) · /legal —
+    <b>Kadima</b> : /Code/mandat/ (outils) · /Code/mandat-pro/compte.html (connexion + mes conseillers) ·
+    <b>/Code/admin.html (console admin)</b> — <b>Serveur</b> : dashboard Cloudflare (Workers &amp; Pages →
+    studio-brochure-api) · e-mails : resend.com · DNS : manager OVH. Agence Kadima : <b>ag_8csricwct9</b>.
   </div>
 
   <div class="foot">
     Jamais dans un e-mail, une capture ou un chat : ADMIN_KEY, jeton Cloudflare, clé Anthropic, clé Resend,
-    welcome_link. En cas de fuite : régénérer (Roll / secret put) immédiatement. — ABR IMMO · document confidentiel.
+    BACKUP_PASSPHRASE, welcome_link. En cas de fuite : régénérer (Roll / secret put) immédiatement. — ABR IMMO · document confidentiel.
   </div>
 </body>
 </html>
