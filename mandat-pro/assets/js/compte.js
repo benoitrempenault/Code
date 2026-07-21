@@ -69,7 +69,16 @@
     const a = getAccount();
     if (!a || !a.session) return;
     const r = await api("/agency/users", { auth: a.session }).catch(function () { return { status: 0 }; });
-    if (r.status !== 200 || !r.data) { $("#cardTeam").hidden = true; return; }
+    if (r.status !== 200 || !r.data) {
+      // On garde la carte visible avec un message (ne pas la faire disparaître).
+      $("#teamSeats").textContent = "";
+      $("#teamMsg").className = "msg is-error";
+      $("#teamMsg").textContent = (r.status === 404)
+        ? "Gestion des conseillers indisponible — le serveur doit être mis à jour (wrangler deploy)."
+        : "Liste des conseillers momentanément indisponible — réessayez.";
+      return;
+    }
+    $("#teamMsg").textContent = "";
     renderTeam(r.data);
   }
   function renderTeam(d) {
