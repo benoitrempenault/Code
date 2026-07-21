@@ -30,6 +30,7 @@ jobs:
           mkdir -p _site/assets
           cp index.html _site/
           cp favicon.svg _site/
+          cp admin.html _site/            # console d'administration interne (noindex, protégée par ADMIN_KEY)
           cp -r assets/* _site/assets/
           # Studio Immo (version marque blanche, parcours guidé) sous /pro/
           mkdir -p _site/pro/assets

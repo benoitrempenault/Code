@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://studio-brochure-api.studiobrochure.workers.dev" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Studio Brochure — Administration</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <style>
+    :root { --bg:#1a1714; --panel:#241f1a; --line:#3a332b; --ink:#efe9df; --muted:#a49a89; --gold:#c2a36b; --ok:#4a9d6a; --bad:#c9503f; --warn:#c08a2e; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 "Segoe UI", system-ui, sans-serif; }
+    .wrap { max-width:1040px; margin:0 auto; padding:24px 18px 80px; }
+    header.top { display:flex; align-items:baseline; justify-content:space-between; gap:12px; border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:22px; }
+    h1 { font:500 22px Georgia, serif; margin:0; } h1 em { font-style:normal; color:var(--gold); }
+    h2 { font:500 17px Georgia, serif; color:var(--gold); margin:0 0 12px; }
+    .muted { color:var(--muted); } .mono { font-family:ui-monospace, Consolas, monospace; font-size:12.5px; color:var(--muted); }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin-bottom:20px; }
+    label { display:block; font-size:12.5px; color:var(--muted); margin:10px 0 3px; }
+    input, select { width:100%; background:#1c1813; border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:9px 11px; font:inherit; }
+    input:focus, select:focus { outline:2px solid var(--gold); outline-offset:0; }
+    button { cursor:pointer; font:inherit; border-radius:8px; border:1px solid var(--line); background:#2e2820; color:var(--ink); padding:9px 15px; }
+    button.primary { background:var(--gold); color:#1a1714; border-color:var(--gold); font-weight:600; }
+    button.mini { padding:4px 9px; font-size:12.5px; margin:0 3px 3px 0; }
+    button.mini.warn { border-color:var(--warn); color:#e3ad5a; } button.mini.go { border-color:var(--ok); color:#7fc79c; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:0 16px; } .grid .full { grid-column:1 / -1; }
+    .row-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:6px; }
+    table { width:100%; border-collapse:collapse; font-size:13.5px; }
+    th, td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+    th { color:var(--muted); font-weight:500; font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; }
+    td.acts { white-space:nowrap; }
+    .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:11.5px; font-weight:600; }
+    .pill.ok { background:rgba(74,157,106,.18); color:#7fc79c; } .pill.bad { background:rgba(201,80,63,.18); color:#e58a7c; } .pill.warn { background:rgba(192,138,46,.18); color:#e3ad5a; }
+    .tbl-scroll { overflow-x:auto; }
+    .toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(20px); background:#111; color:#fff; padding:11px 18px; border-radius:10px; opacity:0; pointer-events:none; transition:.25s; max-width:90vw; }
+    .toast.show { opacity:1; transform:translateX(-50%) translateY(0); } .toast.err { background:var(--bad); }
+    .note { background:rgba(194,163,107,.1); border:1px solid var(--line); border-radius:8px; padding:10px 13px; font-size:12.5px; color:var(--muted); margin-bottom:16px; }
+    .welcome { background:#1c2a20; border:1px solid #2f5540; border-radius:8px; padding:12px 14px; margin-top:12px; }
+    .welcome .flex { display:flex; gap:8px; margin-top:6px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <h1>Studio <em>Brochure</em> · Administration</h1>
+      <div id="topActions"></div>
+    </header>
+
+    <!-- Gate clé admin -->
+    <section id="gate" class="panel" hidden>
+      <h2>Connexion administrateur</h2>
+      <p class="muted" style="margin-top:0">Entrez la clé admin (ADMIN_KEY). Elle reste sur cet appareil le temps de l'onglet uniquement.</p>
+      <form id="formGate">
+        <label for="gateKey">Clé admin</label>
+        <input type="password" id="gateKey" autocomplete="off" spellcheck="false" />
+        <div class="row-actions"><button type="submit" class="primary">Se connecter</button></div>
+      </form>
+    </section>
+
+    <!-- Application -->
+    <div id="app" hidden>
+      <div class="note">🔒 Console interne — ne pas diffuser cette page ni les liens d'accueil. La clé admin n'est jamais stockée durablement.</div>
+
+      <section class="panel">
+        <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap">
+          <h2 style="margin:0">Agences <span class="muted" style="font-size:13px">· usage du mois <span id="month" class="mono"></span></span></h2>
+          <div><button type="button" id="btnRefresh">↻ Rafraîchir</button> <button type="button" id="btnLock">Se déconnecter</button></div>
+        </div>
+        <div class="tbl-scroll">
+          <table id="agTable">
+            <thead><tr><th>Agence</th><th>ID</th><th>Statut</th><th>Users / sièges</th><th>Quota</th><th>Mois (coût · req.)</th><th>Actions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Créer une agence</h2>
+        <form id="formAgency">
+          <div class="grid">
+            <div><label for="agName">Nom de l'agence *</label><input id="agName" /></div>
+            <div><label for="agEmail">E-mail du contact *</label><input id="agEmail" type="email" /></div>
+            <div><label for="agUser">Nom du contact</label><input id="agUser" /></div>
+            <div><label for="agStatus">Statut</label><select id="agStatus"><option value="trial">Essai</option><option value="active">Abonné (actif)</option></select></div>
+            <div><label for="agSeats">Sièges</label><input id="agSeats" type="number" min="1" placeholder="5" /></div>
+            <div><label for="agQuota">Quota IA mensuel (€)</label><input id="agQuota" type="number" min="0" placeholder="20" /></div>
+            <div class="full"><label for="agBase">Base de connexion (app_base, optionnel)</label><input id="agBase" placeholder="laisser vide = studiobrochure.fr/app" /></div>
+          </div>
+          <div class="row-actions"><button type="submit" class="primary">Créer l'agence</button></div>
+        </form>
+        <div id="welcome" class="welcome" hidden>
+          <strong>Lien d'accueil pour <span id="welcomeName"></span></strong> — valable 7 jours, à envoyer au client (ne pas diffuser publiquement) :
+          <div class="flex"><input id="welcomeLink" readonly /><button type="button" id="btnCopyLink">Copier</button></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Créer un conseiller</h2>
+        <form id="formUser">
+          <div class="grid">
+            <div><label for="uAgency">Agence</label><select id="uAgency"></select></div>
+            <div><label for="uRole">Rôle</label><select id="uRole"><option value="member">Conseiller</option><option value="admin">Admin de l'agence</option></select></div>
+            <div><label for="uEmail">E-mail *</label><input id="uEmail" type="email" /></div>
+            <div><label for="uName">Nom</label><input id="uName" /></div>
+          </div>
+          <div class="row-actions"><button type="submit" class="primary">Créer le conseiller</button></div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Débloquer une connexion</h2>
+        <p class="muted" style="margin-top:0">Pour un utilisateur bloqué sur « Trop de demandes de liens ». Réinitialise son compteur.</p>
+        <form id="formUnblock">
+          <label for="ubEmail">E-mail de l'utilisateur</label>
+          <input id="ubEmail" type="email" />
+          <div class="row-actions"><button type="submit">Débloquer</button></div>
+        </form>
+      </section>
+    </div>
+  </div>
+  <div id="toast" class="toast"></div>
+  <script src="assets/js/admin.js"></script>
+</body>
+</html>

@@ -205,6 +205,14 @@ const badHook = await app.fetch(new Request("http://api.test/stripe/webhook", {
 }));
 ok(badHook.status === 401, "webhook mal signé refusé");
 
+console.log("— Débloquer un utilisateur (admin)");
+const unblockKo = await call("/admin/users/unblock", { headers: admin, body: { email: "inconnu@nulle-part.fr" } });
+ok(unblockKo.status === 404, "débloquer un e-mail inconnu → 404");
+const unblockOk = await call("/admin/users/unblock", { headers: admin, body: { email: "claire@azur-immo.fr" } });
+ok(unblockOk.status === 200 && unblockOk.json.ok === true, "débloquer un compte existant → ok");
+const unblockNoauth = await call("/admin/users/unblock", { body: { email: "claire@azur-immo.fr" } });
+ok(unblockNoauth.status === 401, "débloquer sans clé admin → refusé");
+
 fake.close();
 console.log("\n" + passed + " réussis, " + failed + " échec(s)");
 process.exit(failed ? 1 : 0);

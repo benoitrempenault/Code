@@ -455,6 +455,18 @@ export function createApp(env) {
     return c.json({ ok: true, user });
   });
 
+  // Débloquer un utilisateur coincé sur « Trop de demandes » de liens :
+  // purge ses jetons de connexion (réinitialise le compteur anti-rafale).
+  app.post("/admin/users/unblock", async (c) => {
+    if (!requireAdmin(c)) return err(c, 401, "Clé admin invalide.");
+    const b = await c.req.json().catch(() => ({}));
+    const email = String(b.email || "").trim().toLowerCase();
+    const user = await db.get("SELECT id FROM users WHERE email = ?", [email]);
+    if (!user) return err(c, 404, "Aucun compte pour cet e-mail.");
+    await db.run("DELETE FROM login_tokens WHERE user_id = ?", [user.id]);
+    return c.json({ ok: true, email });
+  });
+
   app.post("/admin/licenses", async (c) => {
     if (!requireAdmin(c)) return err(c, 401, "Clé admin invalide.");
     const b = await c.req.json().catch(() => ({}));
