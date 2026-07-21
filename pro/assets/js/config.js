@@ -1,5 +1,5 @@
 /* =========================================================================
-   config.js — connexion des outils Kadima au serveur Studio Brochure.
+   config.js — connexion des outils au serveur Studio Brochure.
    Renseignez apiBase après le déploiement (même valeur que dans
    mandat-pro/assets/js/config.js). Vide = fonctionnement actuel (clé API
    locale). La session « Mon compte » est partagée entre toutes les apps du

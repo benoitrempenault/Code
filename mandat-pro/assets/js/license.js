@@ -22,7 +22,7 @@
   const LS_LICENSE = "studio-mandatpro-license"; // la clé d'activation validée
   const LS_TRIAL = "studio-mandatpro-trial";     // date de début d'essai (epoch s)
   const TRIAL_DAYS = 14;
-  const CONTACT = "benoit.rempenault@century21.fr";
+  const CONTACT = "contact@studiobrochure.fr";
 
   function b64urlToBytes(s) {
     s = String(s).replace(/-/g, "+").replace(/_/g, "/");
