@@ -556,29 +556,81 @@ export function createApp(env) {
   });
 
   /* ------------------------------- Stripe -------------------------------- */
+  // Rappelle l'état d'un abonnement Stripe vers notre modèle (active | suspended).
+  // Renvoie null quand le statut Stripe ne doit rien changer (ex. « incomplete »,
+  // paiement initial en attente : on laisse l'agence en essai/trial).
+  function statusFromStripeSub(subStatus) {
+    if (subStatus === "active" || subStatus === "trialing") return "active";
+    if (["past_due", "unpaid", "canceled", "incomplete_expired", "paused"].includes(subStatus)) return "suspended";
+    return null;
+  }
+  // Change le statut de la (des) agence(s) rattachée(s) à un client Stripe.
+  // Idempotent : Stripe peut rejouer un même évènement.
+  async function setStatusByCustomer(cust, status) {
+    if (!cust) return 0;
+    const r = await db.run("UPDATE agencies SET status = ? WHERE stripe_customer_id = ?", [status, cust]);
+    return changesOf(r);
+  }
+
   app.post("/stripe/webhook", async (c) => {
     if (!env.STRIPE_WEBHOOK_SECRET) return err(c, 501, "Stripe non configuré.");
+    // Le corps BRUT est indispensable : la signature porte sur les octets exacts.
     const payload = await c.req.text();
     const sigHeader = c.req.header("Stripe-Signature") || "";
     const t = /t=(\d+)/.exec(sigHeader)?.[1];
     const v1s = [...sigHeader.matchAll(/v1=([0-9a-f]+)/g)].map((m) => m[1]);
     if (!t || !v1s.length) return err(c, 400, "Signature manquante.");
+    if (Math.abs(now() - parseInt(t, 10)) > 600) return err(c, 401, "Horodatage trop ancien.");
     const expected = await hmacHex(env.STRIPE_WEBHOOK_SECRET, t + "." + payload);
     if (!v1s.some((v) => safeEqual(v, expected))) return err(c, 401, "Signature invalide.");
-    if (Math.abs(now() - parseInt(t, 10)) > 600) return err(c, 401, "Horodatage trop ancien.");
     let event;
     try { event = JSON.parse(payload); } catch (e) { return err(c, 400, "JSON invalide."); }
 
     const obj = event.data?.object || {};
-    if (event.type === "checkout.session.completed") {
-      const agencyId = obj.metadata?.agency_id || obj.client_reference_id;
-      if (agencyId) {
-        await db.run("UPDATE agencies SET status = 'active', stripe_customer_id = ? WHERE id = ?",
-          [obj.customer || null, agencyId]);
+    switch (event.type) {
+      // Premier paiement (lien de paiement / Checkout) : on active l'agence et on
+      // mémorise l'identifiant client Stripe pour les évènements suivants.
+      case "checkout.session.completed": {
+        let agencyId = obj.metadata?.agency_id || obj.client_reference_id || null;
+        // Repli : si le lien n'a pas transporté d'identifiant d'agence, on retrouve
+        // l'agence par l'e-mail de l'acheteur (le compte admin créé à l'inscription).
+        if (!agencyId) {
+          const email = String(obj.customer_details?.email || obj.customer_email || "").trim().toLowerCase();
+          if (email) {
+            const u = await db.get("SELECT agency_id FROM users WHERE email = ?", [email]);
+            agencyId = u?.agency_id || null;
+          }
+        }
+        if (agencyId) {
+          await db.run("UPDATE agencies SET status = 'active', stripe_customer_id = ? WHERE id = ?",
+            [obj.customer || null, agencyId]);
+        }
+        break;
       }
-    } else if (event.type === "customer.subscription.deleted" || event.type === "invoice.payment_failed") {
-      const cust = obj.customer;
-      if (cust) await db.run("UPDATE agencies SET status = 'suspended' WHERE stripe_customer_id = ?", [cust]);
+      // Paiement d'échéance réussi : réactive une agence qui aurait été suspendue
+      // pour impayé (les relances Stripe finissent par aboutir). Idempotent.
+      case "invoice.paid":
+      case "invoice.payment_succeeded":
+        await setStatusByCustomer(obj.customer, "active");
+        break;
+      // Impayé : suspension immédiate (l'IA se coupe). La reprise se fait au
+      // prochain paiement réussi ci-dessus.
+      case "invoice.payment_failed":
+        await setStatusByCustomer(obj.customer, "suspended");
+        break;
+      // Cycle de vie de l'abonnement : source de vérité pour past_due / annulation.
+      case "customer.subscription.updated": {
+        const mapped = statusFromStripeSub(obj.status);
+        if (mapped) await setStatusByCustomer(obj.customer, mapped);
+        break;
+      }
+      case "customer.subscription.deleted":
+        await setStatusByCustomer(obj.customer, "suspended");
+        break;
+      // Tout autre évènement : accusé de réception sans effet (200) pour éviter
+      // que Stripe ne réessaie indéfiniment.
+      default:
+        break;
     }
     return c.json({ received: true });
   });

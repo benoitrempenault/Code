@@ -213,13 +213,17 @@ Prérequis : SIREN d'ABR IMMO (après la modification d'objet — voir
    `https://buy.stripe.com/XXXX?client_reference_id=ag_IDENTIFIANT`
    → au paiement, le serveur **active l'agence automatiquement**.
 4. **Développeurs → Webhooks** → Add endpoint → `https://VOTRE-API/stripe/webhook` →
-   événements : `checkout.session.completed`, `invoice.payment_failed`,
+   événements : `checkout.session.completed`, `invoice.payment_succeeded`,
+   `invoice.payment_failed`, `customer.subscription.updated`,
    `customer.subscription.deleted` → copiez le « Signing secret » (whsec_…) :
 ```powershell
 wrangler secret put STRIPE_WEBHOOK_SECRET
 wrangler deploy
 ```
-→ impayé ou résiliation = suspension automatique (l'IA se coupe), paiement = activation.
+→ premier paiement = activation ; impayé ou résiliation = suspension automatique
+(l'IA se coupe) ; **paiement d'échéance réussi = réactivation automatique** (une agence
+suspendue pour impayé se rallume dès que la relance Stripe aboutit). Le corps du webhook est
+vérifié par signature HMAC (rejet si absente, invalide ou horodatage > 10 min).
 
 ---
 

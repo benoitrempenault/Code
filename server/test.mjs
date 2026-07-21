@@ -205,6 +205,43 @@ const badHook = await app.fetch(new Request("http://api.test/stripe/webhook", {
 }));
 ok(badHook.status === 401, "webhook mal signé refusé");
 
+// Helper : envoie un évènement Stripe correctement signé (corps brut + HMAC).
+async function stripeHook(event) {
+  const body = JSON.stringify(event);
+  const now = Math.floor(Date.now() / 1000);
+  const s = "t=" + now + ",v1=" + (await hmacHex("whsec_test", now + "." + body));
+  const res = await app.fetch(new Request("http://api.test/stripe/webhook", {
+    method: "POST", headers: { "Stripe-Signature": s, "Content-Type": "application/json" }, body
+  }));
+  return res.status;
+}
+const agStatus = async () => (await db.get("SELECT status FROM agencies WHERE id = ?", [agencyId])).status;
+
+// Impayé → suspension immédiate (par identifiant client Stripe).
+await stripeHook({ type: "invoice.payment_failed", data: { object: { customer: "cus_123" } } });
+ok((await agStatus()) === "suspended", "impayé → agence suspendue");
+// Paiement d'échéance réussi → réactivation (les relances Stripe aboutissent).
+await stripeHook({ type: "invoice.payment_succeeded", data: { object: { customer: "cus_123" } } });
+ok((await agStatus()) === "active", "paiement réussi → agence réactivée");
+// Cycle de vie de l'abonnement : past_due → suspendu, active → réactivé.
+await stripeHook({ type: "customer.subscription.updated", data: { object: { customer: "cus_123", status: "past_due" } } });
+ok((await agStatus()) === "suspended", "subscription past_due → suspendu");
+await stripeHook({ type: "customer.subscription.updated", data: { object: { customer: "cus_123", status: "active" } } });
+ok((await agStatus()) === "active", "subscription active → réactivé");
+// Résiliation → suspension.
+await stripeHook({ type: "customer.subscription.deleted", data: { object: { customer: "cus_123" } } });
+ok((await agStatus()) === "suspended", "abonnement résilié → suspendu");
+// Un statut Stripe neutre (incomplete) ne doit rien changer.
+await stripeHook({ type: "customer.subscription.updated", data: { object: { customer: "cus_123", status: "incomplete" } } });
+ok((await agStatus()) === "suspended", "statut neutre (incomplete) → inchangé");
+// Évènement inconnu : accusé de réception 200 (Stripe ne réessaie pas).
+ok((await stripeHook({ type: "customer.updated", data: { object: { customer: "cus_123" } } })) === 200, "évènement non géré → 200 sans effet");
+// Repli par e-mail : un checkout sans agency_id retrouve l'agence via l'e-mail acheteur.
+await db.run("UPDATE agencies SET status = 'trial', stripe_customer_id = NULL WHERE id = ?", [agencyId]);
+await stripeHook({ type: "checkout.session.completed", data: { object: { customer: "cus_999", customer_details: { email: "claire@azur-immo.fr" } } } });
+const agByEmail = await db.get("SELECT status, stripe_customer_id FROM agencies WHERE id = ?", [agencyId]);
+ok(agByEmail.status === "active" && agByEmail.stripe_customer_id === "cus_999", "checkout sans agency_id → agence retrouvée par e-mail");
+
 console.log("— Débloquer un utilisateur (admin)");
 const unblockKo = await call("/admin/users/unblock", { headers: admin, body: { email: "inconnu@nulle-part.fr" } });
 ok(unblockKo.status === 404, "débloquer un e-mail inconnu → 404");
