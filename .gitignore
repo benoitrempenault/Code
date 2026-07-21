@@ -1,3 +1,6 @@
 
 # Clé privée de licence — NE JAMAIS commiter
 tools/license-private-key.json
+
+# PDF générés depuis les HTML de docs/ (régénérables, non versionnés)
+docs/*.pdf
