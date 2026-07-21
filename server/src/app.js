@@ -16,6 +16,7 @@
    ========================================================================= */
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { changesOf } from "./db.js";
 import { now, monthKey, randId, randToken, sha256hex, hmacHex, safeEqual, costMicros } from "./util.js";
 
 const SESSION_TTL = 30 * 24 * 3600;   // 30 jours d'inactivité
@@ -24,6 +25,14 @@ const LINK_TTL = 15 * 60;             // lien magique : 15 minutes
 const MAX_LINKS_PER_10MIN = 4;    // stoppe les rafales (scanner, double-clics)
 const MAX_LINKS_PER_HOUR = 12;    // stoppe l'abus (bombardement d'e-mails)
 const MAX_TOKENS_CAP = 8192;
+
+// --- Garde-fous du proxy IA (coût) --------------------------------------
+// Modèles servis par l'offre « tout compris » (liste blanche, surchargeable
+// par env.AI_MODELS pour ajouter/retirer sans redéployer le code).
+const DEFAULT_AI_MODELS = "claude-opus-4-8,claude-sonnet-4-5,claude-haiku-4-5,claude-fable-5";
+const DEFAULT_AI_RATE_PER_MIN = 60;      // appels IA par agence et par minute
+const DEFAULT_AI_MAX_BODY = 4_000_000;   // 4 Mo : autorise la vision multi-photos, bloque un payload absurde
+const RESERVE_INPUT_CAP = 200000;        // plafond de tokens d'entrée estimés pour la réservation
 
 export function createApp(env) {
   const db = env.db;
@@ -34,6 +43,14 @@ export function createApp(env) {
   // (ex. https://studiobrochure.fr/app). Chaque agence peut avoir la sienne
   // (app_base) — à défaut, APP_BASE du serveur, puis la première origine.
   const appBase = (agency) => String((agency && agency.app_base) || env.APP_BASE || origins[0] || "").replace(/\/$/, "");
+
+  const aiModels = String(env.AI_MODELS || DEFAULT_AI_MODELS).split(",").map((s) => s.trim()).filter(Boolean);
+  const aiRatePerMin = parseInt(env.AI_RATE_PER_MIN, 10) || DEFAULT_AI_RATE_PER_MIN;
+  const aiMaxBody = parseInt(env.AI_MAX_BODY_BYTES, 10) || DEFAULT_AI_MAX_BODY;
+  // Kill-switch global : plafond de dépense IA tous comptes confondus (filet
+  // anti-facture, indépendant des quotas par agence). 0 = désactivé.
+  const globalCapMicros = env.GLOBAL_MONTHLY_CAP_EUR ? Math.round(Number(env.GLOBAL_MONTHLY_CAP_EUR) * 1e6) : 0;
+
   app.use("*", cors({
     origin: (o) => (origins.includes(o) ? o : origins[0] || "*"),
     allowHeaders: ["Authorization", "Content-Type"],
@@ -125,7 +142,10 @@ export function createApp(env) {
     const hash = await sha256hex(token);
     const row = await db.get("SELECT * FROM login_tokens WHERE token_hash = ?", [hash]);
     if (!row || row.used || row.expires_at < now()) return err(c, 401, "Lien invalide ou expiré — redemandez un lien de connexion.");
-    await db.run("UPDATE login_tokens SET used = 1 WHERE token_hash = ?", [hash]);
+    // Consommation atomique : garantit qu'un même lien ne crée pas deux sessions
+    // si deux requêtes arrivent en même temps (scanner + clic, double-onglet).
+    const claim = await db.run("UPDATE login_tokens SET used = 1 WHERE token_hash = ? AND used = 0", [hash]);
+    if (changesOf(claim) !== 1) return err(c, 401, "Lien invalide ou expiré — redemandez un lien de connexion.");
     const user = await db.get("SELECT * FROM users WHERE id = ?", [row.user_id]);
     if (!user) return err(c, 401, "Compte introuvable.");
     const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [user.agency_id]);
@@ -239,25 +259,66 @@ export function createApp(env) {
   });
 
   /* ------------------------------ Proxy IA ------------------------------ */
+  // Contrôle de coût en 3 temps : (1) rate-limit par agence/minute,
+  // (2) RÉSERVATION atomique du quota avant l'appel (une UPDATE gardée : les
+  // requêtes concurrentes se sérialisent sur la ligne, plus de « check-then-act »),
+  // (3) RÉCONCILIATION au coût réel après l'appel (l'estimation pessimiste est
+  // relâchée). Un kill-switch global plafonne la dépense tous comptes confondus.
   app.post("/v1/messages", async (c) => {
     const ctx = await sessionFrom(c);
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
     if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif — activez votre abonnement pour utiliser la rédaction IA.");
     if (!env.ANTHROPIC_API_KEY) return err(c, 501, "Proxy IA non configuré (ANTHROPIC_API_KEY).");
 
-    const body = await c.req.json().catch(() => null);
+    const raw = await c.req.text();
+    if (raw.length > aiMaxBody) return err(c, 413, "Requête trop volumineuse.");
+    let body; try { body = JSON.parse(raw); } catch (e) { body = null; }
     if (!body || typeof body !== "object") return err(c, 400, "Corps de requête invalide.");
-    if (!/^claude-/.test(String(body.model || ""))) return err(c, 400, "Modèle non autorisé.");
+    if (!aiModels.includes(String(body.model || ""))) return err(c, 400, "Modèle non autorisé.");
     body.max_tokens = Math.min(parseInt(body.max_tokens, 10) || 1024, MAX_TOKENS_CAP);
     delete body.stream; // v1 : pas de flux
 
     const month = monthKey();
-    const used = await db.get(
-      "SELECT COALESCE(SUM(cost_micros),0) AS cost FROM usage WHERE agency_id = ? AND month = ?",
-      [ctx.agency.id, month]
+    const model = String(body.model);
+
+    // (1) Rate-limit par agence et par minute (anti-rafale / boucle scriptée).
+    const minute = Math.floor(now() / 60);
+    await db.run("INSERT OR IGNORE INTO ai_rate (scope, minute, n) VALUES (?, ?, 0)", [ctx.agency.id, minute]);
+    const rl = await db.run("UPDATE ai_rate SET n = n + 1 WHERE scope = ? AND minute = ? AND n < ?", [ctx.agency.id, minute, aiRatePerMin]);
+    if (changesOf(rl) !== 1) return err(c, 429, "Trop de requêtes IA en peu de temps — patientez une minute.");
+
+    // (2) Réservation atomique du quota (estimation pessimiste : entrée estimée
+    // depuis la taille du corps, plafonnée ; sortie = max_tokens).
+    const estIn = Math.min(Math.ceil(raw.length / 3.5), RESERVE_INPUT_CAP);
+    const est = costMicros(model, estIn, body.max_tokens);
+    const quotaMicros = Math.round((ctx.agency.quota_eur || 0) * 1e6);
+    await db.run("INSERT OR IGNORE INTO quota_counters (scope, month, spent_micros) VALUES (?, ?, 0)", [ctx.agency.id, month]);
+    const resv = await db.run(
+      "UPDATE quota_counters SET spent_micros = spent_micros + ? WHERE scope = ? AND month = ? AND spent_micros + ? <= ?",
+      [est, ctx.agency.id, month, est, quotaMicros]
     );
-    if ((used?.cost || 0) >= ctx.agency.quota_eur * 1e6) {
+    if (changesOf(resv) !== 1) {
       return err(c, 429, "Quota mensuel d'usage raisonnable atteint — contactez Studio Brochure pour l'augmenter.");
+    }
+    let globalReserved = false;
+    if (globalCapMicros > 0) {
+      await db.run("INSERT OR IGNORE INTO quota_counters (scope, month, spent_micros) VALUES ('__global__', ?, 0)", [month]);
+      const gr = await db.run(
+        "UPDATE quota_counters SET spent_micros = spent_micros + ? WHERE scope = '__global__' AND month = ? AND spent_micros + ? <= ?",
+        [est, month, est, globalCapMicros]
+      );
+      if (changesOf(gr) !== 1) {
+        await db.run("UPDATE quota_counters SET spent_micros = spent_micros - ? WHERE scope = ? AND month = ?", [est, ctx.agency.id, month]);
+        return err(c, 503, "Service IA momentanément indisponible — réessayez plus tard.");
+      }
+      globalReserved = true;
+    }
+
+    // Ajuste les compteurs réservés d'un delta (négatif = remboursement).
+    async function adjust(delta) {
+      if (!delta) return;
+      await db.run("UPDATE quota_counters SET spent_micros = spent_micros + ? WHERE scope = ? AND month = ?", [delta, ctx.agency.id, month]);
+      if (globalReserved) await db.run("UPDATE quota_counters SET spent_micros = spent_micros + ? WHERE scope = '__global__' AND month = ?", [delta, month]);
     }
 
     const base = env.ANTHROPIC_BASE || "https://api.anthropic.com";
@@ -273,16 +334,20 @@ export function createApp(env) {
         body: JSON.stringify(body)
       });
     } catch (e) {
+      await adjust(-est); // aucun token consommé : on rembourse la réservation
       return err(c, 502, "Service IA injoignable — réessayez.");
     }
     const data = await upstream.json().catch(() => null);
+    // (3) Réconciliation : coût réel si succès, sinon remboursement complet.
+    let actual = 0;
     if (upstream.ok && data && data.usage) {
+      actual = costMicros(model, data.usage.input_tokens || 0, data.usage.output_tokens || 0);
       await db.run(
         "INSERT INTO usage (agency_id, user_id, model, tokens_in, tokens_out, cost_micros, month, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [ctx.agency.id, ctx.user.id, String(body.model), data.usage.input_tokens || 0, data.usage.output_tokens || 0,
-          costMicros(String(body.model), data.usage.input_tokens || 0, data.usage.output_tokens || 0), month, now()]
+        [ctx.agency.id, ctx.user.id, model, data.usage.input_tokens || 0, data.usage.output_tokens || 0, actual, month, now()]
       );
     }
+    await adjust(actual - est);
     return c.json(data ?? { error: "Réponse IA illisible." }, upstream.status);
   });
 

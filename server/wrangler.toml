@@ -13,6 +13,11 @@ database_id = "1731dcd7-6981-43e0-ac11-5538d0042a5b"  # créé le 17/07/2026 (r�
 APP_ORIGINS = "https://benoitrempenault.github.io,https://studiobrochure.fr"
 APP_BASE = "https://studiobrochure.fr/app"  # dossier de l'app compte par défaut (clients) ; Kadima a son app_base en base
 MAIL_FROM = "Studio Brochure <connexion@studiobrochure.fr>"
+# Garde-fous du proxy IA (surchargeables sans redéployer le code) :
+GLOBAL_MONTHLY_CAP_EUR = "500"  # kill-switch : plafond de dépense IA mensuel TOUS comptes confondus (filet anti-facture)
+# AI_MODELS = "claude-opus-4-8,claude-sonnet-4-5,claude-haiku-4-5"  # liste blanche (défaut dans le code)
+# AI_RATE_PER_MIN = "60"        # appels IA max par agence et par minute
+# AI_MAX_BODY_BYTES = "4000000" # taille max d'une requête IA (vision multi-photos)
 
 # Secrets (JAMAIS dans ce fichier) — à poser avec :
 #   wrangler secret put ANTHROPIC_API_KEY

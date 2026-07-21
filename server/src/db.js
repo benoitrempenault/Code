@@ -5,6 +5,15 @@
      contrat { get, all, run } à base de requêtes préparées.
    ========================================================================= */
 
+// Nombre de lignes modifiées par un run(), quel que soit le moteur.
+// D1 : { meta: { changes } } · node:sqlite : { changes } (parfois BigInt).
+export function changesOf(r) {
+  if (!r) return 0;
+  if (r.meta && r.meta.changes != null) return Number(r.meta.changes);
+  if (r.changes != null) return Number(r.changes);
+  return 0;
+}
+
 // --- Adaptateur D1 (Cloudflare Workers) ---------------------------------
 export function wrapD1(d1) {
   return {

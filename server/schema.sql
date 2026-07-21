@@ -59,6 +59,24 @@ CREATE TABLE IF NOT EXISTS usage (
 );
 CREATE INDEX IF NOT EXISTS idx_usage_month ON usage(agency_id, month);
 
+-- Compteur de dépense IA du mois : source de vérité pour le quota, mise à jour
+-- ATOMIQUE (réservation avant l'appel, réconciliation après). scope = id agence
+-- ou '__global__' pour le kill-switch global. Réinitialisé de fait chaque mois.
+CREATE TABLE IF NOT EXISTS quota_counters (
+  scope        TEXT NOT NULL,                 -- ag_… | '__global__'
+  month        TEXT NOT NULL,                 -- AAAA-MM
+  spent_micros INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (scope, month)
+);
+
+-- Compteur d'appels IA par agence et par minute (rate-limit anti-rafale).
+CREATE TABLE IF NOT EXISTS ai_rate (
+  scope  TEXT NOT NULL,                        -- ag_…
+  minute INTEGER NOT NULL,                      -- floor(epoch / 60)
+  n      INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (scope, minute)
+);
+
 -- Clés d'activation de la formule « Apportez votre clé » : suivi + révocation
 -- (niveau 2 anti-partage : l'app statique valide en ligne quand elle le peut)
 CREATE TABLE IF NOT EXISTS licenses (

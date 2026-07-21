@@ -148,6 +148,31 @@ const over = await call("/v1/messages", { headers: { Authorization: "Bearer " + 
 ok(over.status === 429, "quota atteint → 429");
 await db.run("UPDATE agencies SET quota_eur = 20 WHERE id = ?", [agencyId]);
 
+console.log("— Garde-fous IA (taille d'entrée + concurrence)");
+const huge = await call("/v1/messages", {
+  headers: { Authorization: "Bearer " + s3 },
+  body: { model: "claude-opus-4-8", messages: [{ role: "user", content: "x".repeat(4_100_000) }] }
+});
+ok(huge.status === 413, "requête trop volumineuse → 413");
+const badModel2 = await call("/v1/messages", { headers: { Authorization: "Bearer " + s3 }, body: { model: "claude-opus-3-ancien", messages: [] } });
+ok(badModel2.status === 400, "modèle hors liste blanche refusé (claude-opus-3-ancien)");
+// Concurrence : 10 appels simultanés sur un petit quota ne doivent JAMAIS
+// le dépasser (la réservation atomique ferme la course « check-then-act »).
+await db.run("DELETE FROM quota_counters WHERE scope = ?", [agencyId]);
+await db.run("DELETE FROM ai_rate WHERE scope = ?", [agencyId]);
+await db.run("UPDATE agencies SET quota_eur = 2 WHERE id = ?", [agencyId]);
+const burst = await Promise.all(Array.from({ length: 10 }, () =>
+  call("/v1/messages", { headers: { Authorization: "Bearer " + s3 }, body: { model: "claude-opus-4-8", max_tokens: 8192, messages: [{ role: "user", content: "test" }] } })
+));
+const ok200 = burst.filter((r) => r.status === 200).length;
+const ko429 = burst.filter((r) => r.status === 429).length;
+ok(ok200 < 10 && ok200 >= 1 && ko429 >= 4, "rafale de 10 : course fermée (" + ok200 + " passés / " + ko429 + " refusés)");
+const spent = await db.get("SELECT spent_micros FROM quota_counters WHERE scope = ? AND month = ?", [agencyId, (new Date()).getUTCFullYear() + "-" + String((new Date()).getUTCMonth() + 1).padStart(2, "0")]);
+ok((spent?.spent_micros || 0) <= 2 * 1e6, "quota jamais dépassé sous rafale (" + (spent?.spent_micros || 0) + " ≤ " + (2 * 1e6) + ")");
+await db.run("DELETE FROM quota_counters WHERE scope = ?", [agencyId]);
+await db.run("DELETE FROM ai_rate WHERE scope = ?", [agencyId]);
+await db.run("UPDATE agencies SET quota_eur = 20 WHERE id = ?", [agencyId]);
+
 console.log("— Suspension");
 await call("/admin/agencies/" + agencyId + "/status", { headers: admin, body: { status: "suspended" } });
 const susp = await call("/v1/messages", { headers: { Authorization: "Bearer " + s3 }, body: { model: "claude-opus-4-8", messages: [] } });

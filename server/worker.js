@@ -18,6 +18,10 @@ export default {
       RESEND_API_KEY: env.RESEND_API_KEY || "",
       MAIL_FROM: env.MAIL_FROM || "",
       STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET || "",
+      AI_MODELS: env.AI_MODELS || "",
+      AI_RATE_PER_MIN: env.AI_RATE_PER_MIN || "",
+      AI_MAX_BODY_BYTES: env.AI_MAX_BODY_BYTES || "",
+      GLOBAL_MONTHLY_CAP_EUR: env.GLOBAL_MONTHLY_CAP_EUR || "",
       DEV_MODE: false
     });
     return app.fetch(request, env, ctx);

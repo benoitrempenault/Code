@@ -20,6 +20,10 @@ const app = createApp({
   RESEND_API_KEY: process.env.RESEND_API_KEY || "",
   MAIL_FROM: process.env.MAIL_FROM || "",
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || "",
+  AI_MODELS: process.env.AI_MODELS || "",
+  AI_RATE_PER_MIN: process.env.AI_RATE_PER_MIN || "",
+  AI_MAX_BODY_BYTES: process.env.AI_MAX_BODY_BYTES || "",
+  GLOBAL_MONTHLY_CAP_EUR: process.env.GLOBAL_MONTHLY_CAP_EUR || "",
   DEV_MODE: process.env.DEV_MODE === "1"
 });
 
