@@ -870,8 +870,11 @@
     };
     r.readAsText(file);
   }
-  function doNew() {
-    if (!confirm("Repartir d'une fiche vierge ? Le projet actuel sera remplacé (pensez à le sauvegarder).")) return;
+  // Remise à zéro complète du projet (état + champs hors-état), sans
+  // confirmation : appelée par « Nouveau » et par l'injection d'une fiche
+  // prestation (qui doit repartir d'une brochure vierge, pas hériter des
+  // photos / localisation / textes du bien précédent).
+  function resetBlank() {
     state = blankState(); currentFileName = null; hydrateForm(); renderPhotoUI(); render(); save();
     // Vider aussi les champs hors-état : notes brutes (point 8) et sources du quartier.
     const notes = document.getElementById("aiNotes"); if (notes) notes.value = "";
@@ -879,6 +882,10 @@
     ["aiStatus", "quartierStatus", "captionStatus", "qrStatus", "notesStatus", "adStatus", "dpeStatus", "surfacesStatus"].forEach(function (id) {
       const el = document.getElementById(id); if (el) { el.textContent = ""; el.className = "ai-status"; }
     });
+  }
+  function doNew() {
+    if (!confirm("Repartir d'une fiche vierge ? Le projet actuel sera remplacé (pensez à le sauvegarder).")) return;
+    resetBlank();
     toast("Nouvelle fiche.");
   }
   function blankState() {
@@ -1441,7 +1448,8 @@
     hydrateForm: hydrateForm,
     renderPhotoUI: renderPhotoUI,
     toast: toast,
-    doNew: doNew
+    doNew: doNew,
+    resetBlank: resetBlank
   };
 
   document.addEventListener("DOMContentLoaded", init);

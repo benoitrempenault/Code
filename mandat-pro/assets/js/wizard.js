@@ -463,6 +463,10 @@
         localStorage.removeItem("studio-mandatpro-handoff");
         const h = JSON.parse(raw);
         if (h && h.notes) {
+          // Nouveau bien = nouvelle brochure : on repart d'un état vierge pour
+          // ne pas hériter des photos, de la localisation ni des textes
+          // (« attrait de la ville »…) du bien précédent.
+          if (App().resetBlank) App().resetBlank();
           if (h.type) App().setValue("property.type", h.type);
           if (h.adresse) App().setValue("property.address", h.adresse);
           const notes = $("#aiNotes");
