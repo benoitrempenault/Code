@@ -1,0 +1,216 @@
+/* =========================================================================
+   voyage.css — Studio Voyage. UI sombre (éditeur) + carnet A4 imprimable.
+   ========================================================================= */
+
+:root {
+  --bg: #101418;
+  --bg-2: #171d24;
+  --bg-3: #1f2731;
+  --line: #2a3440;
+  --text: #e8edf2;
+  --muted: #93a1b0;
+  --accent: #e0a458;      /* sable doré */
+  --accent-2: #4fa3a5;    /* lagon */
+  --danger: #d06a5f;
+  --radius: 10px;
+  --font-ui: "Inter", system-ui, sans-serif;
+  --font-display: "Fraunces", Georgia, serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ------------------------------- Topbar -------------------------------- */
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 16px;
+  padding: 10px 18px;
+  background: rgba(16, 20, 24, .92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.topbar__brand { display: flex; align-items: center; gap: 10px; }
+.topbar__mark {
+  display: grid; place-items: center;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #101418; font-size: 17px;
+}
+.topbar__brand strong { font-family: var(--font-display); font-size: 16px; letter-spacing: .02em; }
+.topbar__brand small { display: block; color: var(--muted); font-size: 11px; }
+.topbar__actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.topbar__sep { width: 1px; height: 22px; background: var(--line); }
+
+/* ------------------------------- Boutons ------------------------------- */
+.btn {
+  font: 500 13px/1 var(--font-ui);
+  padding: 9px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg-3); color: var(--text);
+  transition: filter .15s, transform .05s;
+}
+.btn:hover { filter: brightness(1.15); }
+.btn:active { transform: translateY(1px); }
+.btn--ghost { background: transparent; }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: #16110a; }
+.btn--accent { background: var(--accent-2); border-color: var(--accent-2); color: #0c1416; }
+.btn--block { display: block; width: 100%; margin-top: 10px; }
+.btn--mini { padding: 4px 8px; font-size: 11px; }
+.btn--danger { color: var(--danger); border-color: var(--danger); background: transparent; }
+.btn[disabled] { opacity: .5; cursor: wait; }
+
+/* ------------------------------- Layout -------------------------------- */
+.layout {
+  display: grid; grid-template-columns: 430px 1fr;
+  min-height: calc(100vh - 55px);
+}
+.editor {
+  padding: 16px; border-right: 1px solid var(--line);
+  overflow-y: auto; max-height: calc(100vh - 55px);
+}
+.preview {
+  background: #262b31 url() center/cover;
+  overflow-y: auto; max-height: calc(100vh - 55px);
+  padding: 28px;
+}
+.preview__inner { max-width: 860px; margin: 0 auto; display: grid; gap: 24px; }
+
+@media (max-width: 980px) {
+  .layout { grid-template-columns: 1fr; }
+  .editor, .preview { max-height: none; }
+}
+
+/* ------------------------------- Cartes -------------------------------- */
+.card {
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: var(--radius); margin-bottom: 12px; overflow: hidden;
+}
+.card > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  padding: 12px 14px; font-weight: 600; font-size: 13.5px;
+  display: flex; align-items: center; gap: 10px;
+}
+.card > summary::-webkit-details-marker { display: none; }
+.card__num {
+  display: grid; place-items: center; width: 22px; height: 22px;
+  border-radius: 50%; background: var(--bg-3); border: 1px solid var(--line);
+  font-size: 11px; color: var(--accent);
+}
+.card__body { padding: 4px 14px 14px; }
+
+label { display: block; margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+input[type="text"], input[type="number"], input[type="password"], textarea {
+  display: block; width: 100%; margin-top: 4px;
+  background: var(--bg-3); color: var(--text);
+  border: 1px solid var(--line); border-radius: 7px;
+  padding: 9px 10px; font: 400 13px/1.4 var(--font-ui);
+}
+input:focus, textarea:focus { outline: 1px solid var(--accent-2); }
+textarea { resize: vertical; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.hint { font-size: 11.5px; color: var(--muted); margin: 8px 0; }
+.hint code { background: var(--bg-3); padding: 1px 5px; border-radius: 4px; }
+.status { font-size: 12px; color: var(--accent-2); min-height: 16px; margin: 8px 0 0; }
+.status--error { color: var(--danger); }
+
+/* Styles de voyage (cases) */
+.styles { border: 1px solid var(--line); border-radius: 8px; margin-top: 12px; padding: 8px 10px 10px; }
+.styles legend { font-size: 11.5px; color: var(--muted); padding: 0 4px; }
+.styles__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+.styles__grid label {
+  display: flex; align-items: center; gap: 7px; margin: 2px 0;
+  font-size: 12.5px; color: var(--text); cursor: pointer;
+}
+.styles__grid input { width: auto; margin: 0; accent-color: var(--accent); }
+
+/* Historique des voyages */
+.trip {
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 12px; margin-top: 10px; background: var(--bg-3);
+}
+.trip__head { display: flex; gap: 8px; align-items: center; }
+.trip__head input { margin-top: 0; }
+.trip__head .t-annee { width: 74px; flex: none; }
+.trip__head .t-dest { flex: 1; }
+.trip textarea { margin-top: 8px; }
+
+/* --------------------------- Aperçu : cartes idées ---------------------- */
+.welcome {
+  background: var(--bg-2); border: 1px dashed var(--line); border-radius: 14px;
+  padding: 40px; text-align: center; color: var(--muted);
+}
+.welcome h2 { font-family: var(--font-display); color: var(--text); font-weight: 500; margin: 0 0 8px; }
+
+.idea {
+  background: #fdfaf5; color: #22262b; border-radius: 14px;
+  padding: 26px 30px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+}
+.idea h3 {
+  font-family: var(--font-display); font-weight: 500; font-size: 24px;
+  margin: 0 0 2px; color: #202830;
+}
+.idea .idea__meta { font-size: 12.5px; color: #7c6a4d; margin-bottom: 12px; }
+.idea p { margin: 8px 0; font-size: 13.5px; line-height: 1.65; }
+.idea ul { margin: 8px 0; padding-left: 20px; font-size: 13px; }
+.idea .idea__links { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.idea .idea__links a {
+  font-size: 12.5px; font-weight: 600; text-decoration: none;
+  color: #14555c; border: 1px solid #14555c; border-radius: 999px; padding: 7px 14px;
+}
+.idea .idea__links a:hover { background: #14555c; color: #fff; }
+
+/* --------------------------- Carnet A4 (itinéraire) --------------------- */
+.page {
+  width: 210mm; min-height: 297mm; margin: 0 auto;
+  background: #fdfaf5; color: #22262b;
+  padding: 22mm 20mm; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  font-family: var(--font-ui);
+}
+.page--cover { display: flex; flex-direction: column; justify-content: center; text-align: center; }
+.page--cover .cover__kicker { letter-spacing: .35em; text-transform: uppercase; font-size: 11px; color: #a08654; }
+.page--cover h1 { font-family: var(--font-display); font-weight: 400; font-size: 44px; margin: 14px 0 6px; }
+.page--cover .cover__dates { font-family: var(--font-display); font-style: italic; font-size: 18px; color: #6b7280; }
+.page--cover .cover__resume { max-width: 130mm; margin: 26px auto 0; font-size: 13.5px; line-height: 1.8; color: #3d434b; }
+.page--cover .cover__rule { width: 46px; height: 2px; background: #e0a458; margin: 22px auto 0; }
+
+.day { margin-bottom: 26px; page-break-inside: avoid; }
+.day h2 {
+  font-family: var(--font-display); font-weight: 500; font-size: 20px;
+  margin: 0 0 2px; color: #202830;
+}
+.day .day__label { letter-spacing: .25em; text-transform: uppercase; font-size: 10px; color: #a08654; }
+.day dl { margin: 10px 0 0; }
+.day dt { font-weight: 600; font-size: 12px; color: #14555c; margin-top: 8px; }
+.day dd { margin: 2px 0 0; font-size: 13px; line-height: 1.65; }
+.page h2.section { font-family: var(--font-display); font-weight: 500; font-size: 22px; margin: 0 0 14px; }
+.page ul.tips { padding-left: 20px; font-size: 13px; line-height: 1.7; }
+
+/* ------------------------------ Overlay -------------------------------- */
+.overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(10, 13, 16, .7); backdrop-filter: blur(3px);
+  display: grid; place-items: center;
+}
+.overlay__panel {
+  width: min(440px, 92vw); background: var(--bg-2);
+  border: 1px solid var(--line); border-radius: 14px; padding: 22px;
+}
+.overlay__panel h2 { margin: 0 0 8px; font-family: var(--font-display); font-weight: 500; }
+.overlay__actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+/* ------------------------------ Impression ------------------------------ */
+@media print {
+  body { background: #fff; }
+  .topbar, .editor, .welcome, .idea { display: none !important; }
+  .layout { display: block; min-height: 0; }
+  .preview { max-height: none; padding: 0; background: #fff; overflow: visible; }
+  .preview__inner { max-width: none; gap: 0; }
+  .page { box-shadow: none; margin: 0; page-break-after: always; }
+}
+@page { size: A4; margin: 0; }

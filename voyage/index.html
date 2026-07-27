@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.anthropic.com https://fonts.googleapis.com https://fonts.gstatic.com" />
+  <title>Studio Voyage — Votre agent de voyage personnel</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <meta name="robots" content="noindex" />
+  <meta name="description" content="Agent de voyage personnel : profil voyageur, idées de destinations sur mesure, itinéraires jour par jour et carnet de voyage imprimable." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/voyage.css" />
+</head>
+<body>
+  <!-- ======================= BARRE D'ACTIONS ======================= -->
+  <header class="topbar" id="topbar">
+    <div class="topbar__brand">
+      <span class="topbar__mark">✈</span>
+      <div>
+        <strong>Studio&nbsp;Voyage</strong>
+        <small>Votre agent de voyage personnel</small>
+      </div>
+    </div>
+    <div class="topbar__actions">
+      <button class="btn btn--ghost" id="btnNew" title="Repartir de zéro">Nouveau</button>
+      <button class="btn btn--ghost" id="btnImport" title="Charger un profil / carnet (.json)">Importer</button>
+      <button class="btn btn--ghost" id="btnExport" title="Sauvegarder le profil et les voyages (.json)">Sauvegarder</button>
+      <span class="topbar__sep" aria-hidden="true"></span>
+      <button class="btn btn--primary" id="btnPrint" title="Imprimer le carnet de voyage ou l'enregistrer en PDF">Imprimer le carnet</button>
+      <span class="topbar__sep" aria-hidden="true"></span>
+      <button class="btn btn--ghost" id="btnSettings" title="Clé API Anthropic">⚙ Réglages</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ======================= ÉDITEUR ======================= -->
+    <section class="editor" id="editor">
+
+      <details class="card" open>
+        <summary><span class="card__num">1</span> Votre profil voyageur</summary>
+        <div class="card__body">
+          <label>Qui voyage&nbsp;?
+            <input type="text" data-bind="profil.voyageurs" placeholder="2 adultes (couple)" />
+          </label>
+          <label>Aéroport de départ
+            <input type="text" data-bind="profil.aeroport" placeholder="Bordeaux-Mérignac (BOD)" />
+          </label>
+          <label>Budget typique par voyage
+            <input type="text" data-bind="profil.budget" placeholder="ex : 2 000 – 3 000 € pour une semaine" />
+          </label>
+          <fieldset class="styles">
+            <legend>Styles de voyage</legend>
+            <div class="styles__grid" id="stylesGrid"></div>
+          </fieldset>
+          <label>Envies (destinations rêvées, expériences à vivre)
+            <textarea rows="3" data-bind="profil.envies" placeholder="ex : Japon au printemps, safari, aurores boréales…"></textarea>
+          </label>
+          <label>À éviter (vetos)
+            <textarea rows="2" data-bind="profil.vetos" placeholder="ex : vols de plus de 10 h, chaleur extrême…"></textarea>
+          </label>
+        </div>
+      </details>
+
+      <details class="card" open>
+        <summary><span class="card__num">2</span> Vos voyages passés</summary>
+        <div class="card__body">
+          <p class="hint">L'historique nourrit les suggestions&nbsp;: plus il est complet, plus les idées sont personnalisées. Il peut être pré-rempli en important un fichier <code>.json</code> préparé par votre agent.</p>
+          <div id="historique"></div>
+          <button class="btn btn--ghost btn--block" id="btnAddTrip">+ Ajouter un voyage</button>
+        </div>
+      </details>
+
+      <details class="card" open>
+        <summary><span class="card__num">3</span> Idées de destinations</summary>
+        <div class="card__body">
+          <label>Votre brief
+            <textarea rows="3" data-bind="brief" placeholder="ex : une semaine en février, du soleil, budget 2 500 € pour deux"></textarea>
+          </label>
+          <button class="btn btn--accent btn--block" id="btnIdeas">✨ Proposer 3 destinations sur mesure</button>
+          <p class="status" id="ideasStatus"></p>
+        </div>
+      </details>
+
+      <details class="card" open>
+        <summary><span class="card__num">4</span> Itinéraire jour par jour</summary>
+        <div class="card__body">
+          <label>Destination
+            <input type="text" data-bind="itiBrief.destination" placeholder="ex : Lisbonne" />
+          </label>
+          <div class="row2">
+            <label>Dates / période
+              <input type="text" data-bind="itiBrief.dates" placeholder="ex : du 14 au 21 février" />
+            </label>
+            <label>Nombre de jours
+              <input type="number" min="1" max="30" data-bind="itiBrief.jours" placeholder="7" />
+            </label>
+          </div>
+          <label>Précisions (rythme, incontournables, occasions…)
+            <textarea rows="2" data-bind="itiBrief.notes" placeholder="ex : rythme tranquille, un bon restau pour l'anniversaire…"></textarea>
+          </label>
+          <button class="btn btn--accent btn--block" id="btnItinerary">🗺 Construire l'itinéraire</button>
+          <p class="status" id="itiStatus"></p>
+        </div>
+      </details>
+
+    </section>
+
+    <!-- ======================= APERÇU ======================= -->
+    <section class="preview" id="previewWrap">
+      <div class="preview__inner" id="preview"></div>
+    </section>
+  </main>
+
+  <!-- ======================= RÉGLAGES ======================= -->
+  <div class="overlay" id="settingsOverlay" hidden>
+    <div class="overlay__panel">
+      <h2>Réglages</h2>
+      <label>Clé API Anthropic
+        <input type="password" id="apiKeyInput" placeholder="sk-ant-…" autocomplete="off" />
+      </label>
+      <p class="hint">La clé reste dans ce navigateur (localStorage) et n'est envoyée qu'à l'API Anthropic. Si vous utilisez déjà Studio Brochure sur ce navigateur, sa clé est reprise automatiquement.</p>
+      <div class="overlay__actions">
+        <button class="btn btn--ghost" id="btnSettingsClose">Fermer</button>
+        <button class="btn btn--primary" id="btnSettingsSave">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="importFile" accept="application/json" hidden />
+
+  <script src="assets/js/ai.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
