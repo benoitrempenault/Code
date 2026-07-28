@@ -145,13 +145,37 @@
     required: ["idees"]
   };
 
-  const ITI_SCHEMA = {
+  // L'itinéraire se construit en deux temps : un PLAN global (un appel court
+  // avec recherche web), puis la rédaction des journées par lots en parallèle.
+  const PLAN_SCHEMA = {
     type: "object", additionalProperties: false,
     properties: {
       titre: { type: "string", description: "Titre évocateur du carnet" },
       resume: { type: "string", description: "3 à 4 phrases donnant l'esprit du voyage" },
-      logement: { type: "string", description: "Quartier(s) conseillé(s) où dormir et pourquoi" },
-      joursDetail: {
+      logement: { type: "string", description: "Où dormir à chaque étape : ville par ville, quartier conseillé et pourquoi" },
+      squelette: {
+        type: "array",
+        description: "Exactement un élément par jour du voyage, dans l'ordre",
+        items: {
+          type: "object", additionalProperties: false,
+          properties: {
+            jour: { type: "integer" },
+            ville: { type: "string", description: "Ville où l'on dort ce soir-là" },
+            titre: { type: "string", description: "Thème du jour en quelques mots (ex. « Arrivée et vieille ville », « Trajet Budapest → Istanbul »)" }
+          },
+          required: ["jour", "ville", "titre"]
+        }
+      },
+      conseils: { type: "array", items: { type: "string" }, description: "4 à 8 conseils pratiques concrets (transports entre étapes, réservations à faire en avance…)" },
+      budget: { type: "string", description: "Estimation honnête du budget total sur place" }
+    },
+    required: ["titre", "resume", "logement", "squelette", "conseils", "budget"]
+  };
+
+  const DETAIL_SCHEMA = {
+    type: "object", additionalProperties: false,
+    properties: {
+      jours: {
         type: "array",
         items: {
           type: "object", additionalProperties: false,
@@ -164,11 +188,9 @@
           },
           required: ["jour", "titre", "matin", "apresMidi", "soir"]
         }
-      },
-      conseils: { type: "array", items: { type: "string" }, description: "4 à 8 conseils pratiques concrets" },
-      budget: { type: "string", description: "Estimation honnête du budget total sur place" }
+      }
     },
-    required: ["titre", "resume", "logement", "joursDetail", "conseils", "budget"]
+    required: ["jours"]
   };
 
   // Résumé du profil injecté dans chaque prompt : c'est lui qui personnalise.
@@ -228,44 +250,106 @@
   }
 
   /* ---------------------- Itinéraire jour par jour ------------------------ */
+  // Deux temps : (1) le PLAN global — un appel court avec recherche web —
+  // puis (2) la rédaction des journées par lots de 6, lancés EN PARALLÈLE.
+  // Bien plus rapide et fiable qu'un unique appel géant, surtout pour les
+  // longs voyages multi-étapes.
+  const DETAIL_BATCH = 6;
+
   async function itinerary(opts) {
-    const { apiKey, state, destination, dates, jours, notes } = opts;
+    const { apiKey, state, destination, dates, jours, notes, onProgress } = opts;
+    const progress = typeof onProgress === "function" ? onProgress : function () {};
     checkKey(apiKey);
     if (!destination) throw new Error("Indiquez d'abord la destination.");
     const n = Math.max(1, Math.min(30, parseInt(jours, 10) || 7));
 
-    const system = [
-      "Tu es un agent de voyage personnel haut de gamme, francophone. Tu construis un itinéraire jour par jour",
-      "précis et réaliste, adapté au profil du client. Utilise l'outil de recherche web (3 à 6 recherches max)",
-      "pour vérifier horaires, jours de fermeture, quartiers où loger et bonnes adresses actuelles.",
-      "",
-      "Règles :",
-      "- Rythme réaliste : pas plus de 2 à 3 temps forts par jour, temps de trajet pris en compte.",
-      "- Adresses et lieux RÉELS et nommés (quartiers, sites, restaurants) — rien d'inventé.",
-      "- Adapte le contenu au profil (styles aimés, vetos, budget).",
-      "- Termine par des conseils pratiques (transport, réservation à faire en avance, budget)."
-    ].join("\n");
-
-    const user = profileBlock(state)
-      + "\n\nITINÉRAIRE DEMANDÉ :\nDestination : " + destination
+    const voyage = "VOYAGE DEMANDÉ :\nDestination(s) : " + destination
       + (dates ? "\nDates : " + dates : "")
       + "\nNombre de jours : " + n
-      + (notes ? "\nPrécisions : " + notes : "");
+      + (notes ? "\nPrécisions du client : " + notes : "");
 
-    const body = {
+    /* ---- Étape 1 : le plan global ---- */
+    progress("Étape 1/2 — plan du voyage (étapes, trajets, recherche web)");
+    const planSystem = [
+      "Tu es un agent de voyage personnel haut de gamme, francophone. Tu construis le PLAN GLOBAL d'un voyage :",
+      "le découpage jour par jour (quelle ville chaque soir), la logistique entre les étapes, où dormir, les conseils.",
+      "Utilise l'outil de recherche web (3 à 4 recherches MAX, sois efficace) pour vérifier les liaisons réalistes",
+      "entre les étapes (train, bus, vol, location de voiture) et leurs durées.",
+      "",
+      "Règles :",
+      "- Le squelette contient EXACTEMENT " + n + " entrées (jour 1 à " + n + "), dans l'ordre.",
+      "- Répartis intelligemment les étapes : temps de trajet réalistes, pas de zigzag, arrivées/départs cohérents.",
+      "- Les jours de trajet longs sont marqués comme tels dans le titre du jour.",
+      "- Adapte au profil du client (styles, vetos, budget)."
+    ].join("\n");
+
+    const planData = await callAnthropic(apiKey, {
       model: MODEL,
-      max_tokens: 12000,
-      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 6 }],
-      output_config: { format: { type: "json_schema", schema: ITI_SCHEMA } },
-      system: system,
-      messages: [{ role: "user", content: user }]
-    };
+      max_tokens: 4000,
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }],
+      output_config: { format: { type: "json_schema", schema: PLAN_SCHEMA } },
+      system: planSystem,
+      messages: [{ role: "user", content: profileBlock(state) + "\n\n" + voyage }]
+    });
+    if (planData.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
+    const plan = extractJson(textOf(planData));
+    const squelette = (plan.squelette || []).slice(0, 60);
+    if (!squelette.length) throw new Error("Plan de voyage vide reçu. Réessayez.");
 
-    const data = await callAnthropic(apiKey, body);
-    if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
-    const out = extractJson(textOf(data));
-    if (!out.joursDetail || !out.joursDetail.length) throw new Error("Itinéraire vide reçu. Réessayez.");
-    return out;
+    /* ---- Étape 2 : les journées, par lots en parallèle ---- */
+    const batches = [];
+    for (let i = 0; i < squelette.length; i += DETAIL_BATCH) {
+      batches.push(squelette.slice(i, i + DETAIL_BATCH));
+    }
+    let doneCount = 0;
+    progress("Étape 2/2 — rédaction des journées (0/" + batches.length + " lots)");
+
+    const squeletteTxt = squelette.map(function (d) {
+      return "Jour " + d.jour + " — " + d.ville + " : " + d.titre;
+    }).join("\n");
+
+    const detailSystem = [
+      "Tu es un agent de voyage personnel haut de gamme, francophone. On te donne le plan complet d'un voyage ;",
+      "tu rédiges le détail (matin / après-midi / soir) d'une plage de jours précise, en cohérence avec ce plan.",
+      "Au besoin, une ou deux recherches web MAX pour vérifier un horaire ou une adresse.",
+      "",
+      "Règles :",
+      "- Rythme réaliste : 2 à 3 temps forts par jour, temps de trajet pris en compte.",
+      "- Lieux, quartiers, sites et restaurants RÉELS et nommés — rien d'inventé.",
+      "- Respecte la ville du squelette pour chaque jour.",
+      "- Adapte au profil du client (styles, vetos, budget, composition du groupe)."
+    ].join("\n");
+
+    const parts = await Promise.all(batches.map(function (batch) {
+      const j1 = batch[0].jour, j2 = batch[batch.length - 1].jour;
+      return callAnthropic(apiKey, {
+        model: MODEL,
+        max_tokens: 4000,
+        tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 2 }],
+        output_config: { format: { type: "json_schema", schema: DETAIL_SCHEMA } },
+        system: detailSystem,
+        messages: [{
+          role: "user",
+          content: profileBlock(state) + "\n\n" + voyage
+            + "\n\nPLAN COMPLET DU VOYAGE :\n" + squeletteTxt
+            + "\n\nRédige le détail des jours " + j1 + " à " + j2 + " UNIQUEMENT."
+        }]
+      }).then(function (data) {
+        if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
+        doneCount++;
+        progress("Étape 2/2 — rédaction des journées (" + doneCount + "/" + batches.length + " lots)");
+        return extractJson(textOf(data)).jours || [];
+      });
+    }));
+
+    const joursDetail = parts.reduce(function (a, b) { return a.concat(b); }, [])
+      .sort(function (a, b) { return (a.jour || 0) - (b.jour || 0); });
+    if (!joursDetail.length) throw new Error("Itinéraire vide reçu. Réessayez.");
+
+    return {
+      titre: plan.titre, resume: plan.resume, logement: plan.logement,
+      joursDetail: joursDetail, conseils: plan.conseils, budget: plan.budget
+    };
   }
 
   window.VoyageAI = { suggest: suggest, itinerary: itinerary };

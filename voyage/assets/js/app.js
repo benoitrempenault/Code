@@ -284,15 +284,19 @@
     el.textContent = msg || "";
     el.classList.toggle("status--error", !!isError);
   }
-  // Chrono visible pendant la génération : l'utilisateur voit que ça travaille.
+  // Chrono visible pendant la génération, avec libellé de phase actualisable.
   function startTimer(id, label) {
     const t0 = Date.now();
+    const box = { label: label, stop: null, set: null };
     setStatus(id, label + "…");
-    return setInterval(function () {
+    const iv = setInterval(function () {
       const s = Math.floor((Date.now() - t0) / 1000);
       const min = Math.floor(s / 60);
-      setStatus(id, label + "… " + (min ? min + " min " : "") + (s % 60) + " s");
+      setStatus(id, box.label + "… " + (min ? min + " min " : "") + (s % 60) + " s");
     }, 1000);
+    box.stop = function () { clearInterval(iv); };
+    box.set = function (l) { box.label = l; };
+    return box;
   }
 
   async function onIdeas() {
@@ -305,7 +309,7 @@
       setStatus("ideasStatus", idees.length + " propositions prêtes ↓");
     } catch (e) {
       setStatus("ideasStatus", (e && e.message) || "Erreur inattendue. Réessayez.", true);
-    } finally { clearInterval(timer); btn.disabled = false; }
+    } finally { timer.stop(); btn.disabled = false; }
   }
 
   async function onItinerary() {
@@ -314,22 +318,21 @@
     if (!state.itiBrief.jours) { setStatus("itiStatus", "Choisissez vos dates de départ et de retour.", true); return; }
     btn.disabled = true;
     const n = parseInt(state.itiBrief.jours, 10) || 7;
-    const label = "Construction du carnet de " + n + " jours (recherche web en cours"
-      + (n > 10 ? ", comptez 2 à 5 min" : "") + ")";
-    const timer = startTimer("itiStatus", label);
+    const timer = startTimer("itiStatus", "Construction du carnet de " + n + " jours");
     try {
       const iti = await window.VoyageAI.itinerary({
         apiKey: apiKey(), state: state,
         destination: state.itiBrief.destination,
         dates: state.itiBrief.dates,
         jours: state.itiBrief.jours,
-        notes: state.itiBrief.notes
+        notes: state.itiBrief.notes,
+        onProgress: timer.set
       });
       state.itineraire = iti; save(); renderCarnet();
       setStatus("itiStatus", "Carnet prêt ↓ — imprimable en PDF.");
     } catch (e) {
       setStatus("itiStatus", (e && e.message) || "Erreur inattendue. Réessayez.", true);
-    } finally { clearInterval(timer); btn.disabled = false; }
+    } finally { timer.stop(); btn.disabled = false; }
   }
 
   /* --------------------------- Import / export ---------------------------- */
