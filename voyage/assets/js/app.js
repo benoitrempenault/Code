@@ -1,6 +1,7 @@
 /* =========================================================================
-   app.js — Studio Voyage. État, liaison du formulaire, rendu de l'aperçu
-   (cartes d'idées + carnet A4), persistance localStorage et import/export.
+   app.js — Studio Voyage. Navigation par écrans (accueil / idées /
+   itinéraire / compte), état, liaison du formulaire, rendu des idées et du
+   carnet A4, persistance localStorage et import/export.
    ========================================================================= */
 (function () {
   "use strict";
@@ -25,7 +26,7 @@
     },
     historique: [],
     brief: "",
-    itiBrief: { destination: "", dates: "", jours: "", notes: "" },
+    itiBrief: { destination: "", dateDebut: "", dateFin: "", dates: "", jours: "", notes: "" },
     idees: [],
     itineraire: null
   };
@@ -73,6 +74,28 @@
     return localStorage.getItem(LS_KEY) || localStorage.getItem(LS_KEY_FALLBACK) || "";
   }
 
+  /* ---------------------------- Navigation -------------------------------- */
+  const SCREENS = ["accueil", "idees", "itineraire", "compte"];
+  function currentScreen() {
+    const h = (location.hash || "").replace("#", "");
+    return SCREENS.indexOf(h) >= 0 ? h : "accueil";
+  }
+  function renderScreen() {
+    const cur = currentScreen();
+    SCREENS.forEach(function (s) {
+      document.getElementById("screen-" + s).classList.toggle("active", s === cur);
+    });
+    window.scrollTo(0, 0);
+  }
+  function go(screen) {
+    if (location.hash !== "#" + screen) location.hash = screen;
+    renderScreen(); // rendu immédiat, sans attendre l'événement hashchange
+  }
+  window.addEventListener("hashchange", renderScreen);
+  document.querySelectorAll("[data-nav]").forEach(function (el) {
+    el.addEventListener("click", function () { go(el.getAttribute("data-nav")); });
+  });
+
   /* --------------------------- Liaison du form ---------------------------- */
   function getPath(obj, path) {
     return path.split(".").reduce(function (o, k) { return o ? o[k] : undefined; }, obj);
@@ -91,10 +114,37 @@
         el.dataset.bound = "1";
         el.addEventListener("input", function () {
           setPath(state, path, el.value);
+          if (path === "itiBrief.dateDebut" || path === "itiBrief.dateFin") computeJours();
           save();
         });
       }
     });
+  }
+
+  /* --------------------- Dates → nombre de jours auto --------------------- */
+  function fmtFr(iso) {
+    try {
+      return new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+    } catch (e) { return iso; }
+  }
+  function computeJours() {
+    const info = document.getElementById("joursInfo");
+    const d1 = state.itiBrief.dateDebut, d2 = state.itiBrief.dateFin;
+    state.itiBrief.jours = "";
+    state.itiBrief.dates = "";
+    if (d1 && d2) {
+      const n = Math.round((new Date(d2) - new Date(d1)) / 86400000) + 1;
+      if (n >= 1 && n <= 60) {
+        state.itiBrief.jours = String(n);
+        state.itiBrief.dates = "du " + fmtFr(d1) + " au " + fmtFr(d2);
+        info.textContent = "→ " + n + " jour" + (n > 1 ? "s" : "") + " " + state.itiBrief.dates
+          + (n > 24 ? " — long voyage : vous pouvez aussi le découper en 2 carnets" : "");
+        return;
+      }
+      if (n < 1) { info.textContent = "⚠ La date de retour est avant la date de départ."; return; }
+      if (n > 60) { info.textContent = "⚠ Voyage de plus de 60 jours : découpez-le en plusieurs carnets."; return; }
+    }
+    info.textContent = "";
   }
 
   function renderStyles() {
@@ -145,7 +195,7 @@
     });
   }
 
-  /* ------------------------------- Aperçu --------------------------------- */
+  /* ------------------------------- Rendus --------------------------------- */
   function adultsCount() {
     const m = (state.profil.voyageurs || "").match(/\d+/);
     const n = m ? parseInt(m[0], 10) : 2;
@@ -167,22 +217,9 @@
     return "https://www.google.com/maps/search/" + encodeURIComponent(q || "");
   }
 
-  function renderPreview() {
-    const el = document.getElementById("preview");
-    const parts = [];
-
-    if (state.itineraire) parts.push(renderCarnet(state.itineraire));
-    if (state.idees.length) parts.push(state.idees.map(renderIdea).join(""));
-
-    if (!parts.length) {
-      parts.push('<div class="welcome">'
-        + "<h2>Bienvenue dans votre agence</h2>"
-        + "<p>Renseignez votre profil et vos voyages passés (points 1 et 2),<br />"
-        + "puis demandez des idées de destinations ou un itinéraire complet.<br />"
-        + "L'aperçu — cartes d'inspiration et carnet de voyage A4 — s'affichera ici.</p>"
-        + "</div>");
-    }
-    el.innerHTML = parts.join("");
+  function renderIdeasList() {
+    const el = document.getElementById("ideasResults");
+    el.innerHTML = state.idees.map(renderIdea).join("");
   }
 
   function renderIdea(idea) {
@@ -201,7 +238,12 @@
       + "</article>";
   }
 
-  function renderCarnet(iti) {
+  function renderCarnet() {
+    const el = document.getElementById("carnet");
+    const iti = state.itineraire;
+    document.getElementById("carnetActions").hidden = !iti;
+    if (!iti) { el.innerHTML = ""; return; }
+
     const cover = '<section class="page page--cover">'
       + '<div class="cover__kicker">Carnet de voyage</div>'
       + "<h1>" + esc(iti.titre || state.itiBrief.destination) + "</h1>"
@@ -211,7 +253,6 @@
       + '<div class="cover__rule"></div>'
       + "</section>";
 
-    // Jours répartis sur des pages A4 (4 jours par page, marge de sécurité).
     const days = (iti.joursDetail || []).map(function (d) {
       return '<div class="day">'
         + '<div class="day__label">Jour ' + esc(d.jour) + "</div>"
@@ -234,7 +275,7 @@
       + (iti.budget ? "<p><strong>Budget estimé sur place :</strong> " + esc(iti.budget) + "</p>" : "")
       + "</section>";
 
-    return cover + dayPages.join("") + tips;
+    el.innerHTML = cover + dayPages.join("") + tips;
   }
 
   /* ------------------------------ Actions IA ------------------------------ */
@@ -243,24 +284,39 @@
     el.textContent = msg || "";
     el.classList.toggle("status--error", !!isError);
   }
+  // Chrono visible pendant la génération : l'utilisateur voit que ça travaille.
+  function startTimer(id, label) {
+    const t0 = Date.now();
+    setStatus(id, label + "…");
+    return setInterval(function () {
+      const s = Math.floor((Date.now() - t0) / 1000);
+      const min = Math.floor(s / 60);
+      setStatus(id, label + "… " + (min ? min + " min " : "") + (s % 60) + " s");
+    }, 1000);
+  }
 
   async function onIdeas() {
     const btn = document.getElementById("btnIdeas");
     btn.disabled = true;
-    setStatus("ideasStatus", "Votre agent cherche des idées (recherche web en cours)…");
+    const timer = startTimer("ideasStatus", "Votre agent cherche (recherche web en cours)");
     try {
       const idees = await window.VoyageAI.suggest({ apiKey: apiKey(), state: state, brief: state.brief });
-      state.idees = idees; save(); renderPreview();
-      setStatus("ideasStatus", idees.length + " propositions prêtes — voir l'aperçu à droite.");
+      state.idees = idees; save(); renderIdeasList();
+      setStatus("ideasStatus", idees.length + " propositions prêtes ↓");
     } catch (e) {
-      setStatus("ideasStatus", e.message, true);
-    } finally { btn.disabled = false; }
+      setStatus("ideasStatus", (e && e.message) || "Erreur inattendue. Réessayez.", true);
+    } finally { clearInterval(timer); btn.disabled = false; }
   }
 
   async function onItinerary() {
     const btn = document.getElementById("btnItinerary");
+    if (!state.itiBrief.destination) { setStatus("itiStatus", "Indiquez d'abord la destination.", true); return; }
+    if (!state.itiBrief.jours) { setStatus("itiStatus", "Choisissez vos dates de départ et de retour.", true); return; }
     btn.disabled = true;
-    setStatus("itiStatus", "Construction de l'itinéraire (recherche web en cours)…");
+    const n = parseInt(state.itiBrief.jours, 10) || 7;
+    const label = "Construction du carnet de " + n + " jours (recherche web en cours"
+      + (n > 10 ? ", comptez 2 à 5 min" : "") + ")";
+    const timer = startTimer("itiStatus", label);
     try {
       const iti = await window.VoyageAI.itinerary({
         apiKey: apiKey(), state: state,
@@ -269,11 +325,11 @@
         jours: state.itiBrief.jours,
         notes: state.itiBrief.notes
       });
-      state.itineraire = iti; save(); renderPreview();
-      setStatus("itiStatus", "Carnet prêt — imprimable via « Imprimer le carnet ».");
+      state.itineraire = iti; save(); renderCarnet();
+      setStatus("itiStatus", "Carnet prêt ↓ — imprimable en PDF.");
     } catch (e) {
-      setStatus("itiStatus", e.message, true);
-    } finally { btn.disabled = false; }
+      setStatus("itiStatus", (e && e.message) || "Erreur inattendue. Réessayez.", true);
+    } finally { clearInterval(timer); btn.disabled = false; }
   }
 
   /* --------------------------- Import / export ---------------------------- */
@@ -302,7 +358,8 @@
   }
 
   function rerenderAll() {
-    bindInputs(); renderStyles(); renderHistorique(); renderPreview();
+    bindInputs(); renderStyles(); renderHistorique();
+    renderIdeasList(); renderCarnet(); computeJours(); renderScreen();
   }
 
   /* -------------------------------- Câblage ------------------------------- */
@@ -322,32 +379,19 @@
     e.target.value = "";
   });
   document.getElementById("btnNew").addEventListener("click", function () {
-    if (confirm("Repartir de zéro ? Le profil et les idées en cours seront effacés (pensez à Sauvegarder avant).")) {
+    if (confirm("Repartir de zéro ? Le profil, l'historique et les idées seront effacés (pensez à Sauvegarder avant).")) {
       state = clone(DEFAULT); save(); rerenderAll();
     }
   });
 
-  // Réglages (clé API). Le masquage est piloté en style inline (et pas
-  // seulement via l'attribut hidden) : une vieille feuille CSS en cache ne
-  // peut ainsi jamais bloquer la fermeture de la fenêtre.
-  const overlay = document.getElementById("settingsOverlay");
-  function toggleOverlay(show) {
-    overlay.hidden = !show;
-    overlay.style.display = show ? "grid" : "none";
-  }
-  toggleOverlay(false);
-  document.getElementById("btnSettings").addEventListener("click", function () {
-    document.getElementById("apiKeyInput").value = apiKey();
-    toggleOverlay(true);
-  });
-  document.getElementById("btnSettingsClose").addEventListener("click", function () { toggleOverlay(false); });
-  document.getElementById("btnSettingsSave").addEventListener("click", function () {
+  // Clé API (écran Mon compte)
+  document.getElementById("apiKeyInput").value = apiKey();
+  document.getElementById("btnKeySave").addEventListener("click", function () {
     const v = document.getElementById("apiKeyInput").value.trim();
     if (v) localStorage.setItem(LS_KEY, v); else localStorage.removeItem(LS_KEY);
-    toggleOverlay(false);
+    setStatus("keyStatus", v ? "Clé enregistrée ✓" : "Clé effacée.");
+    setTimeout(function () { setStatus("keyStatus", ""); }, 3000);
   });
-  overlay.addEventListener("click", function (e) { if (e.target === overlay) toggleOverlay(false); });
-  document.addEventListener("keydown", function (e) { if (e.key === "Escape") toggleOverlay(false); });
 
   // PWA : service worker pour l'installation sur mobile et le hors-ligne.
   if ("serviceWorker" in navigator) {

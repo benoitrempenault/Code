@@ -24,6 +24,16 @@
     }
   }
 
+  // fetch avec délai maximum : sans lui, un appel qui traîne bloque l'app
+  // indéfiniment sans le moindre retour à l'utilisateur.
+  const FETCH_TIMEOUT_MS = 300000; // 5 min par requête (les longs carnets prennent du temps)
+  function fetchWithTimeout(url, opts) {
+    const ctrl = new AbortController();
+    const t = setTimeout(function () { ctrl.abort(); }, FETCH_TIMEOUT_MS);
+    return fetch(url, Object.assign({}, opts, { signal: ctrl.signal }))
+      .finally(function () { clearTimeout(t); });
+  }
+
   // Appel avec ré-essais sur erreurs transitoires (429 / 5xx) et relance
   // automatique quand la recherche web atteint la limite serveur (pause_turn).
   async function callAnthropic(apiKey, body, tries) {
@@ -34,12 +44,15 @@
     for (let i = 0; i < tries + 3; i++) {
       let res, data;
       try {
-        res = await fetch(ENDPOINT, {
+        res = await fetchWithTimeout(ENDPOINT, {
           method: "POST",
           headers: authHeaders(apiKey),
           body: JSON.stringify(Object.assign({}, body, { messages: messages }))
         });
       } catch (e) {
+        if (e && e.name === "AbortError") {
+          throw new Error("Le modèle a mis plus de 5 minutes à répondre — génération interrompue. Réessayez, ou réduisez le nombre de jours / découpez le voyage.");
+        }
         lastErr = new Error("Connexion impossible à l'API Anthropic (réseau).");
         await delay(800 * (i + 1)); continue;
       }
@@ -60,7 +73,7 @@
       if (st === 429 || st >= 500) { await delay(1000 * (i + 1)); continue; }
       throw lastErr;
     }
-    throw lastErr || new Error("Échec de l'appel à l'API.");
+    throw lastErr || new Error("La génération n'a pas abouti après plusieurs tentatives. Réessayez, ou réduisez le nombre de jours.");
   }
 
   function textOf(data) {

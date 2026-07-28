@@ -16,35 +16,101 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/voyage.css?v=6" />
+  <link rel="stylesheet" href="assets/css/voyage.css?v=7" />
 </head>
 <body>
-  <!-- ======================= BARRE D'ACTIONS ======================= -->
-  <header class="topbar" id="topbar">
-    <div class="topbar__brand">
+  <!-- ======================= BARRE DE NAVIGATION ======================= -->
+  <header class="topbar no-print" id="topbar">
+    <button class="topbar__brand" data-nav="accueil" title="Accueil">
       <span class="topbar__mark">✈</span>
       <div>
         <strong>Studio&nbsp;Voyage</strong>
         <small>Votre agent de voyage personnel</small>
       </div>
-    </div>
-    <div class="topbar__actions">
-      <button class="btn btn--ghost" id="btnNew" title="Repartir de zéro">Nouveau</button>
-      <button class="btn btn--ghost" id="btnImport" title="Charger un profil / carnet (.json)">Importer</button>
-      <button class="btn btn--ghost" id="btnExport" title="Sauvegarder le profil et les voyages (.json)">Sauvegarder</button>
-      <span class="topbar__sep" aria-hidden="true"></span>
-      <button class="btn btn--primary" id="btnPrint" title="Imprimer le carnet de voyage ou l'enregistrer en PDF">Imprimer le carnet</button>
-      <span class="topbar__sep" aria-hidden="true"></span>
-      <button class="btn btn--ghost" id="btnSettings" title="Clé API Anthropic">⚙ Réglages</button>
-    </div>
+    </button>
+    <nav class="topbar__actions">
+      <button class="btn btn--ghost" data-nav="idees">✨ Idées</button>
+      <button class="btn btn--ghost" data-nav="itineraire">🗺 Itinéraire</button>
+      <button class="btn btn--ghost" data-nav="compte">👤 Mon compte</button>
+    </nav>
   </header>
 
-  <main class="layout">
-    <!-- ======================= ÉDITEUR ======================= -->
-    <section class="editor" id="editor">
+  <main class="shell">
 
-      <details class="card" open>
-        <summary><span class="card__num">1</span> Votre profil voyageur</summary>
+    <!-- ======================= ACCUEIL ======================= -->
+    <section class="screen" id="screen-accueil">
+      <div class="hero no-print">
+        <h1>Où partons-nous&nbsp;?</h1>
+        <p>Votre agence connaît vos 35 voyages, vos envies et votre budget.</p>
+      </div>
+      <div class="tiles no-print">
+        <button class="tile" data-nav="idees">
+          <span class="tile__icon">✨</span>
+          <strong>Je n'ai pas d'idée</strong>
+          <small>Proposez-moi 3 destinations sur mesure, selon mon profil</small>
+        </button>
+        <button class="tile" data-nav="itineraire">
+          <span class="tile__icon">🗺</span>
+          <strong>J'ai une idée</strong>
+          <small>Construisez mon voyage jour par jour, en carnet à imprimer</small>
+        </button>
+      </div>
+      <button class="tile tile--wide no-print" data-nav="compte">
+        <span class="tile__icon">👤</span>
+        <strong>Mon compte</strong>
+        <small>Profil voyageur, voyages passés, envies, clé API</small>
+      </button>
+    </section>
+
+    <!-- ======================= IDÉES ======================= -->
+    <section class="screen" id="screen-idees">
+      <div class="card no-print">
+        <div class="card__head">✨ Proposez-moi des destinations</div>
+        <div class="card__body">
+          <label>Votre brief du moment
+            <textarea rows="3" data-bind="brief" placeholder="ex : une semaine en février, du soleil, budget 2 500 € pour deux"></textarea>
+          </label>
+          <button class="btn btn--accent btn--block" id="btnIdeas">✨ Proposer 3 destinations sur mesure</button>
+          <p class="status" id="ideasStatus"></p>
+        </div>
+      </div>
+      <div class="results" id="ideasResults"></div>
+    </section>
+
+    <!-- ======================= ITINÉRAIRE ======================= -->
+    <section class="screen" id="screen-itineraire">
+      <div class="card no-print">
+        <div class="card__head">🗺 Construisez mon voyage</div>
+        <div class="card__body">
+          <label>Destination
+            <input type="text" data-bind="itiBrief.destination" placeholder="ex : Porto — ou un combiné : Cracovie, Budapest, Istanbul…" />
+          </label>
+          <div class="row2">
+            <label>Date de départ
+              <input type="date" data-bind="itiBrief.dateDebut" id="dateDebut" />
+            </label>
+            <label>Date de retour
+              <input type="date" data-bind="itiBrief.dateFin" id="dateFin" />
+            </label>
+          </div>
+          <p class="jours-info" id="joursInfo"></p>
+          <label>Précisions (rythme, incontournables, occasions…)
+            <textarea rows="2" data-bind="itiBrief.notes" placeholder="ex : rythme tranquille, un bon restau pour l'anniversaire…"></textarea>
+          </label>
+          <button class="btn btn--accent btn--block" id="btnItinerary">🗺 Construire l'itinéraire</button>
+          <p class="status" id="itiStatus"></p>
+        </div>
+      </div>
+      <div class="carnet-actions no-print" id="carnetActions" hidden>
+        <button class="btn btn--primary" id="btnPrint">🖨 Imprimer le carnet / PDF</button>
+      </div>
+      <div id="carnet"></div>
+    </section>
+
+    <!-- ======================= MON COMPTE ======================= -->
+    <section class="screen" id="screen-compte">
+      <div class="card no-print">
+        <div class="card__head">👤 Mon profil voyageur</div>
         <div class="card__body">
           <label>Qui voyage&nbsp;?
             <input type="text" data-bind="profil.voyageurs" placeholder="2 adultes (couple)" />
@@ -66,76 +132,46 @@
             <textarea rows="2" data-bind="profil.vetos" placeholder="ex : vols de plus de 10 h, chaleur extrême…"></textarea>
           </label>
         </div>
-      </details>
+      </div>
 
-      <details class="card" open>
-        <summary><span class="card__num">2</span> Vos voyages passés</summary>
+      <div class="card no-print">
+        <div class="card__head">🧳 Mes voyages passés</div>
         <div class="card__body">
-          <p class="hint">L'historique nourrit les suggestions&nbsp;: plus il est complet, plus les idées sont personnalisées. Il peut être pré-rempli en important un fichier <code>.json</code> préparé par votre agent.</p>
+          <p class="hint">L'historique nourrit les suggestions&nbsp;: plus il est complet, plus les idées sont personnalisées.</p>
           <div id="historique"></div>
           <button class="btn btn--ghost btn--block" id="btnAddTrip">+ Ajouter un voyage</button>
         </div>
-      </details>
-
-      <details class="card" open>
-        <summary><span class="card__num">3</span> Idées de destinations</summary>
-        <div class="card__body">
-          <label>Votre brief
-            <textarea rows="3" data-bind="brief" placeholder="ex : une semaine en février, du soleil, budget 2 500 € pour deux"></textarea>
-          </label>
-          <button class="btn btn--accent btn--block" id="btnIdeas">✨ Proposer 3 destinations sur mesure</button>
-          <p class="status" id="ideasStatus"></p>
-        </div>
-      </details>
-
-      <details class="card" open>
-        <summary><span class="card__num">4</span> Itinéraire jour par jour</summary>
-        <div class="card__body">
-          <label>Destination
-            <input type="text" data-bind="itiBrief.destination" placeholder="ex : Lisbonne" />
-          </label>
-          <div class="row2">
-            <label>Dates / période
-              <input type="text" data-bind="itiBrief.dates" placeholder="ex : du 14 au 21 février" />
-            </label>
-            <label>Nombre de jours
-              <input type="number" min="1" max="30" data-bind="itiBrief.jours" placeholder="7" />
-            </label>
-          </div>
-          <label>Précisions (rythme, incontournables, occasions…)
-            <textarea rows="2" data-bind="itiBrief.notes" placeholder="ex : rythme tranquille, un bon restau pour l'anniversaire…"></textarea>
-          </label>
-          <button class="btn btn--accent btn--block" id="btnItinerary">🗺 Construire l'itinéraire</button>
-          <p class="status" id="itiStatus"></p>
-        </div>
-      </details>
-
-    </section>
-
-    <!-- ======================= APERÇU ======================= -->
-    <section class="preview" id="previewWrap">
-      <div class="preview__inner" id="preview"></div>
-    </section>
-  </main>
-
-  <!-- ======================= RÉGLAGES ======================= -->
-  <div class="overlay" id="settingsOverlay" hidden>
-    <div class="overlay__panel">
-      <h2>Réglages</h2>
-      <label>Clé API Anthropic
-        <input type="password" id="apiKeyInput" placeholder="sk-ant-…" autocomplete="off" />
-      </label>
-      <p class="hint">La clé reste dans ce navigateur (localStorage) et n'est envoyée qu'à l'API Anthropic. Si vous utilisez déjà Studio Brochure sur ce navigateur, sa clé est reprise automatiquement.</p>
-      <div class="overlay__actions">
-        <button class="btn btn--ghost" id="btnSettingsClose">Fermer</button>
-        <button class="btn btn--primary" id="btnSettingsSave">Enregistrer</button>
       </div>
-    </div>
-  </div>
+
+      <div class="card no-print">
+        <div class="card__head">🔑 Clé API Anthropic</div>
+        <div class="card__body">
+          <label>Clé (commence par « sk-ant- »)
+            <input type="password" id="apiKeyInput" placeholder="sk-ant-…" autocomplete="off" />
+          </label>
+          <p class="hint">La clé reste dans ce navigateur et n'est envoyée qu'à l'API Anthropic. Celle de Studio Brochure est reprise automatiquement si présente.</p>
+          <button class="btn btn--primary" id="btnKeySave">Enregistrer la clé</button>
+          <span class="status" id="keyStatus"></span>
+        </div>
+      </div>
+
+      <div class="card no-print">
+        <div class="card__head">💾 Mes données</div>
+        <div class="card__body">
+          <div class="btn-row">
+            <button class="btn btn--ghost" id="btnImport" title="Charger un profil / carnet (.json)">Importer</button>
+            <button class="btn btn--ghost" id="btnExport" title="Sauvegarder le profil et les voyages (.json)">Sauvegarder</button>
+            <button class="btn btn--danger" id="btnNew" title="Repartir de zéro">Tout effacer</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
 
   <input type="file" id="importFile" accept="application/json" hidden />
 
-  <script src="assets/js/ai.js?v=6"></script>
-  <script src="assets/js/app.js?v=6"></script>
+  <script src="assets/js/ai.js?v=7"></script>
+  <script src="assets/js/app.js?v=7"></script>
 </body>
 </html>
