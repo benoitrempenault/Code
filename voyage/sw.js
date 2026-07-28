@@ -6,7 +6,7 @@
    ========================================================================= */
 "use strict";
 
-const CACHE = "studio-voyage-v3";
+const CACHE = "studio-voyage-v4";
 const SHELL = [
   "./",
   "./index.html",
@@ -35,6 +35,15 @@ self.addEventListener("activate", function (e) {
       return Promise.all(keys.filter(function (k) { return k !== CACHE; })
         .map(function (k) { return caches.delete(k); }));
     }).then(function () { return self.clients.claim(); })
+      // Auto-réparation : les pages encore ouvertes sur une ancienne version
+      // sont rechargées une fois la nouvelle version activée (une seule fois
+      // par mise à jour, l'activation ne rejouant pas).
+      .then(function () { return self.clients.matchAll({ type: "window" }); })
+      .then(function (cs) {
+        cs.forEach(function (c) {
+          if (c.navigate) c.navigate(c.url).catch(function () { /* tant pis */ });
+        });
+      })
   );
 });
 
