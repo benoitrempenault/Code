@@ -330,5 +330,10 @@
     overlay.hidden = true;
   });
 
+  // PWA : service worker pour l'installation sur mobile et le hors-ligne.
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js").catch(function () { /* http:// local */ });
+  }
+
   rerenderAll();
 })();

@@ -54,7 +54,7 @@ jobs:
           cp -r mandat-pro/assets/* _site/mandat-pro/assets/
           # Studio Voyage (agent de voyage personnel, noindex) sous /voyage/
           mkdir -p _site/voyage/assets
-          cp voyage/index.html voyage/favicon.svg _site/voyage/
+          cp voyage/index.html voyage/favicon.svg voyage/manifest.webmanifest voyage/sw.js _site/voyage/
           cp -r voyage/assets/* _site/voyage/assets/
           # Page de présentation Studio Mandat sous /site-mandat/
           mkdir -p _site/site-mandat/assets
