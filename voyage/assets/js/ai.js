@@ -72,8 +72,70 @@
   function extractJson(text) {
     const m = text.match(/\{[\s\S]*\}/);
     if (!m) throw new Error("Réponse sans données exploitables.");
-    return JSON.parse(m[0]);
+    try { return JSON.parse(m[0]); }
+    catch (e) {
+      // Filet de sécurité : échappe les caractères de contrôle bruts que le
+      // modèle peut glisser à l'intérieur des chaînes (retours à la ligne…).
+      const fixed = m[0].replace(/"(?:[^"\\]|\\[\s\S])*"/g, function (s) {
+        return s.replace(/\n/g, "\\n").replace(/\r/g, "").replace(/\t/g, "\\t");
+      });
+      return JSON.parse(fixed);
+    }
   }
+
+  // Schémas de sortie : la réponse est contrainte à un JSON valide par l'API
+  // (output_config.format), compatible avec l'outil de recherche web.
+  const SUGGEST_SCHEMA = {
+    type: "object", additionalProperties: false,
+    properties: {
+      idees: {
+        type: "array",
+        items: {
+          type: "object", additionalProperties: false,
+          properties: {
+            destination: { type: "string" },
+            pays: { type: "string" },
+            quand: { type: "string", description: "Meilleure période / dates visées" },
+            duree: { type: "string", description: "Durée conseillée" },
+            budget: { type: "string", description: "Fourchette totale estimée en euros" },
+            pourquoiVous: { type: "string", description: "2 à 4 phrases personnalisées reliant la destination au profil et aux voyages passés" },
+            aVoir: { type: "array", items: { type: "string" }, description: "3 à 5 expériences concrètes" },
+            vol: { type: "string", description: "ex : direct depuis Bordeaux avec X, ~2 h 10, dès ~120 € A/R" },
+            searchHotel: { type: "string", description: "Requête Booking, ex : Lisbonne centre" },
+            searchVol: { type: "string", description: "Code IATA ou ville de destination, ex : LIS" }
+          },
+          required: ["destination", "pays", "quand", "duree", "budget", "pourquoiVous", "aVoir", "vol", "searchHotel", "searchVol"]
+        }
+      }
+    },
+    required: ["idees"]
+  };
+
+  const ITI_SCHEMA = {
+    type: "object", additionalProperties: false,
+    properties: {
+      titre: { type: "string", description: "Titre évocateur du carnet" },
+      resume: { type: "string", description: "3 à 4 phrases donnant l'esprit du voyage" },
+      logement: { type: "string", description: "Quartier(s) conseillé(s) où dormir et pourquoi" },
+      joursDetail: {
+        type: "array",
+        items: {
+          type: "object", additionalProperties: false,
+          properties: {
+            jour: { type: "integer" },
+            titre: { type: "string", description: "Thème du jour" },
+            matin: { type: "string" },
+            apresMidi: { type: "string" },
+            soir: { type: "string" }
+          },
+          required: ["jour", "titre", "matin", "apresMidi", "soir"]
+        }
+      },
+      conseils: { type: "array", items: { type: "string" }, description: "4 à 8 conseils pratiques concrets" },
+      budget: { type: "string", description: "Estimation honnête du budget total sur place" }
+    },
+    required: ["titre", "resume", "logement", "joursDetail", "conseils", "budget"]
+  };
 
   // Résumé du profil injecté dans chaque prompt : c'est lui qui personnalise.
   function profileBlock(state) {
@@ -112,23 +174,14 @@
       "- Tiens compte des vetos, du budget et de la saison réelle aux dates visées.",
       "- Chaque proposition doit être argumentée PAR RAPPORT À LEUR PROFIL (« parce que vous avez aimé X… »).",
       "- Budgets réalistes (vol + hébergement + sur place), en euros, pour l'ensemble des voyageurs.",
-      "- N'invente pas de prix précis au centime : donne des fourchettes honnêtes.",
-      "",
-      "Réponds UNIQUEMENT par un objet JSON de la forme :",
-      '{ "idees": [ {',
-      '  "destination": "Ville / région", "pays": "Pays", "quand": "meilleure période / dates visées",',
-      '  "duree": "durée conseillée", "budget": "fourchette totale estimée",',
-      '  "pourquoiVous": "2 à 4 phrases personnalisées reliant la destination à leur profil et leurs voyages passés",',
-      '  "aVoir": ["3 à 5 expériences concrètes"],',
-      '  "vol": "ex : direct depuis Bordeaux avec X, ~2 h 10, dès ~120 € A/R",',
-      '  "searchHotel": "requête à mettre dans Booking, ex : Lisbonne centre",',
-      '  "searchVol": "code IATA ou ville de destination, ex : LIS" } ] }'
+      "- N'invente pas de prix précis au centime : donne des fourchettes honnêtes."
     ].join("\n");
 
     const body = {
       model: MODEL,
       max_tokens: 3500,
       tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }],
+      output_config: { format: { type: "json_schema", schema: SUGGEST_SCHEMA } },
       system: system,
       messages: [{ role: "user", content: profileBlock(state) + "\n\nBRIEF DU MOMENT :\n" + (brief || "Surprends-nous.") }]
     };
@@ -156,15 +209,7 @@
       "- Rythme réaliste : pas plus de 2 à 3 temps forts par jour, temps de trajet pris en compte.",
       "- Adresses et lieux RÉELS et nommés (quartiers, sites, restaurants) — rien d'inventé.",
       "- Adapte le contenu au profil (styles aimés, vetos, budget).",
-      "- Termine par des conseils pratiques (transport, réservation à faire en avance, budget).",
-      "",
-      "Réponds UNIQUEMENT par un objet JSON de la forme :",
-      '{ "titre": "titre évocateur du carnet", "resume": "3 à 4 phrases donnant l\'esprit du voyage",',
-      '  "logement": "quartier(s) conseillé(s) où dormir et pourquoi",',
-      '  "joursDetail": [ { "jour": 1, "titre": "thème du jour",',
-      '     "matin": "…", "apresMidi": "…", "soir": "…" } ],',
-      '  "conseils": ["4 à 8 conseils pratiques concrets"],',
-      '  "budget": "estimation honnête du budget total sur place" }'
+      "- Termine par des conseils pratiques (transport, réservation à faire en avance, budget)."
     ].join("\n");
 
     const user = profileBlock(state)
@@ -177,6 +222,7 @@
       model: MODEL,
       max_tokens: 6000,
       tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 6 }],
+      output_config: { format: { type: "json_schema", schema: ITI_SCHEMA } },
       system: system,
       messages: [{ role: "user", content: user }]
     };
