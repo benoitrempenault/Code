@@ -148,30 +148,14 @@
     required: ["idees"]
   };
 
-  // L'itinéraire se construit en deux temps : un PLAN global (un appel court
-  // avec recherche web), puis la rédaction des journées par lots en parallèle.
-  const PLAN_SCHEMA = {
+  // L'itinéraire se construit en trois appels courts : la COLONNE VERTÉBRALE
+  // (squelette, vols, voiture), puis EN PARALLÈLE les infos pratiques
+  // (hôtels, météo, conseils, budget) et la rédaction des journées par lots.
+  const CORE_SCHEMA = {
     type: "object", additionalProperties: false,
     properties: {
       titre: { type: "string", description: "Titre évocateur du carnet" },
       resume: { type: "string", description: "3 à 4 phrases donnant l'esprit du voyage — si l'ordre des étapes a été réorganisé, le mentionner" },
-      meteo: { type: "string", description: "Météo attendue sur la période, étape par étape si elle varie, et si la période est propice (vérifié par recherche web)" },
-      hebergements: {
-        type: "array",
-        description: "Un hôtel précis et RÉEL recommandé par étape (ville où l'on dort)",
-        items: {
-          type: "object", additionalProperties: false,
-          properties: {
-            ville: { type: "string" },
-            lat: { type: "number", description: "Latitude de la ville" },
-            lon: { type: "number", description: "Longitude de la ville" },
-            hotel: { type: "string", description: "Nom exact d'un hôtel/riad/guesthouse réel, bien noté, adapté au budget du client" },
-            quartier: { type: "string", description: "Quartier et pourquoi ce choix" },
-            prix: { type: "string", description: "Fourchette de prix par nuit" }
-          },
-          required: ["ville", "lat", "lon", "hotel", "quartier", "prix"]
-        }
-      },
       squelette: {
         type: "array",
         description: "Exactement un élément par jour du voyage, dans l'ordre",
@@ -180,7 +164,7 @@
           properties: {
             jour: { type: "integer" },
             ville: { type: "string", description: "Ville où l'on dort ce soir-là" },
-            titre: { type: "string", description: "Thème du jour en quelques mots (ex. « Arrivée et vieille ville », « Trajet Budapest → Istanbul »)" }
+            titre: { type: "string", description: "Thème du jour ; les jours de trajet indiquent distance et durée (ex. « Trajet Antigua → Lac Atitlán (80 km, ~2 h 30) »)" }
           },
           required: ["jour", "ville", "titre"]
         }
@@ -224,11 +208,35 @@
           }
         },
         required: ["concerne", "loueurs", "prix", "conseils", "segments"]
+      }
+    },
+    required: ["titre", "resume", "squelette", "nbVoyageurs", "vols", "voiture"]
+  };
+
+  const INFO_SCHEMA = {
+    type: "object", additionalProperties: false,
+    properties: {
+      meteo: { type: "string", description: "Météo attendue sur la période, étape par étape si elle varie, et si la période est propice (vérifié par recherche web)" },
+      hebergements: {
+        type: "array",
+        description: "Un hôtel précis et RÉEL recommandé par étape (ville où l'on dort)",
+        items: {
+          type: "object", additionalProperties: false,
+          properties: {
+            ville: { type: "string" },
+            lat: { type: "number", description: "Latitude de la ville" },
+            lon: { type: "number", description: "Longitude de la ville" },
+            hotel: { type: "string", description: "Nom exact d'un hôtel/riad/guesthouse réel, bien noté, adapté au budget du client" },
+            quartier: { type: "string", description: "Quartier et pourquoi ce choix" },
+            prix: { type: "string", description: "Fourchette de prix par nuit" }
+          },
+          required: ["ville", "lat", "lon", "hotel", "quartier", "prix"]
+        }
       },
       conseils: { type: "array", items: { type: "string" }, description: "4 à 8 conseils pratiques concrets (transports entre étapes, réservations à faire en avance…)" },
       budget: { type: "string", description: "Estimation honnête du budget total sur place" }
     },
-    required: ["titre", "resume", "meteo", "hebergements", "nbVoyageurs", "vols", "voiture", "squelette", "conseils", "budget"]
+    required: ["meteo", "hebergements", "conseils", "budget"]
   };
 
   const DETAIL_SCHEMA = {
@@ -333,13 +341,12 @@
       + "\nNombre de jours : " + n
       + (notes ? "\nPrécisions du client : " + notes : "");
 
-    /* ---- Étape 1 : le plan global ---- */
-    progress("Étape 1/2 — plan du voyage (étapes, trajets, recherche web)");
-    const planSystem = [
-      "Tu es un agent de voyage personnel haut de gamme, francophone. Tu construis le PLAN GLOBAL d'un voyage :",
-      "le découpage jour par jour (quelle ville chaque soir), la logistique entre les étapes, les hôtels, la météo, les conseils.",
-      "Utilise l'outil de recherche web (5 à 6 recherches MAX, sois efficace) pour vérifier les liaisons réalistes",
-      "entre les étapes, la météo/saison sur la période, et des hôtels réels bien notés.",
+    /* ---- Étape 1 : la colonne vertébrale (squelette, vols, voiture) ---- */
+    progress("Étape 1/2 — colonne vertébrale du voyage (étapes, vols, trajets)");
+    const coreSystem = [
+      "Tu es un agent de voyage personnel haut de gamme, francophone. Tu construis la COLONNE VERTÉBRALE d'un",
+      "voyage : le découpage jour par jour (quelle ville chaque soir), les vols et la logistique entre étapes.",
+      "Utilise l'outil de recherche web (3 recherches MAX, sois efficace) pour vérifier les liaisons réelles.",
       "",
       "Règles :",
       "- ORDRE LOGIQUE : si le client liste plusieurs destinations, réordonne-les dans l'ordre géographiquement",
@@ -347,31 +354,25 @@
       "  son ordre diffère — et signale ce choix dans le résumé.",
       "- Le squelette contient EXACTEMENT " + n + " entrées (jour 1 à " + n + "), dans l'ordre.",
       "- Répartis intelligemment les étapes : temps de trajet réalistes, pas de zigzag, arrivées/départs cohérents.",
-      "- Les jours de trajet longs sont marqués comme tels dans le titre du jour.",
-      "- HÉBERGEMENTS : pour chaque ville-étape, recommande UN hôtel/riad/guesthouse précis et RÉEL (nom exact,",
-      "  bien noté sur Booking), adapté au budget et au style du client, avec quartier, fourchette de prix par nuit,",
-      "  et les coordonnées lat/lon de la ville (pour tracer la carte de l'itinéraire).",
       "- TRAJETS : chaque jour comportant un déplacement entre villes indique dans son titre la distance et la",
-      "  durée (ex. « Trajet Brașov → Sibiu (142 km, ~2 h 30 de route) »).",
+      "  durée (ex. « Trajet Antigua → Lac Atitlán (80 km, ~2 h 30 de route) »).",
       "- VOLS : liste TOUS les vols du voyage dans l'ordre — l'aller depuis l'aéroport du client, chaque vol",
-      "  entre étapes, et le retour — avec pour chacun le jour, départ, arrivée, compagnie(s) probable(s),",
-      "  direct/escale, durée et fourchette de prix par personne (vérifie les liaisons réelles par recherche web).",
+      "  entre étapes, et le retour — avec jour, départ, arrivée, compagnie(s) probable(s), direct/escale,",
+      "  durée et fourchette de prix par personne.",
       "- NOMBRE DE VOYAGEURS : déduis-le des précisions du client (ex. « à 3 avec notre fille ») sinon du profil.",
       "- ROAD TRIP : si une partie du voyage se fait en voiture de location, renseigne l'objet voiture :",
-      "  loueurs réels recommandés à la ville de prise en charge (vérifie par recherche web), prix estimé",
-      "  (location + carburant + péages/vignettes), conseils (assurance, caution, frontières), et la liste des",
-      "  SEGMENTS de route dans l'ordre (de, a, km, durée réaliste par tronçon). Sinon concerne=false et segments=[].",
-      "- MÉTÉO : indique la météo attendue sur la période (températures, pluie) et si la période est propice ;",
-      "  si elle varie selon les étapes, détaille étape par étape.",
+      "  loueurs réels recommandés à la ville de prise en charge, prix estimé (location + carburant + péages),",
+      "  conseils (assurance, caution, frontières), et la liste des SEGMENTS de route dans l'ordre",
+      "  (de, a, km, durée réaliste par tronçon). Sinon concerne=false et segments=[].",
       "- Adapte au profil du client (styles, vetos, budget)."
     ].join("\n");
 
     const planData = await callAnthropic(apiKey, {
       model: MODEL,
-      max_tokens: 5000,
-      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 6 }],
-      output_config: { format: { type: "json_schema", schema: PLAN_SCHEMA } },
-      system: planSystem,
+      max_tokens: 3500,
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 3 }],
+      output_config: { format: { type: "json_schema", schema: CORE_SCHEMA } },
+      system: coreSystem,
       messages: [{ role: "user", content: profileBlock(state) + "\n\n" + voyage }]
     });
     if (planData.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
@@ -379,17 +380,49 @@
     const squelette = (plan.squelette || []).slice(0, 60);
     if (!squelette.length) throw new Error("Plan de voyage vide reçu. Réessayez.");
 
-    /* ---- Étape 2 : les journées, par lots en parallèle ---- */
+    /* ---- Étape 2 : EN PARALLÈLE — infos pratiques + journées par lots ---- */
     const batches = [];
     for (let i = 0; i < squelette.length; i += DETAIL_BATCH) {
       batches.push(squelette.slice(i, i + DETAIL_BATCH));
     }
+    const totalLots = batches.length + 1; // + le lot « hôtels / météo / budget »
     let doneCount = 0;
-    progress("Étape 2/2 — rédaction des journées (0/" + batches.length + " lots)");
+    const tick = function () {
+      doneCount++;
+      progress("Étape 2/2 — hôtels, météo et journées (" + doneCount + "/" + totalLots + " lots)");
+    };
+    progress("Étape 2/2 — hôtels, météo et journées (0/" + totalLots + " lots)");
 
     const squeletteTxt = squelette.map(function (d) {
       return "Jour " + d.jour + " — " + d.ville + " : " + d.titre;
     }).join("\n");
+
+    const infoSystem = [
+      "Tu es un agent de voyage personnel haut de gamme, francophone. On te donne le plan complet d'un voyage ;",
+      "tu fournis les informations pratiques. Utilise l'outil de recherche web (3 à 4 recherches MAX).",
+      "",
+      "Règles :",
+      "- HÉBERGEMENTS : pour chaque ville-étape du squelette, recommande UN hôtel/riad/guesthouse précis et",
+      "  RÉEL (nom exact, bien noté sur Booking), adapté au budget et au style du client, avec quartier,",
+      "  fourchette de prix par nuit, et les coordonnées lat/lon de la ville (pour tracer la carte).",
+      "- MÉTÉO : météo attendue sur la période (températures, pluie), étape par étape si elle varie,",
+      "  et si la période est propice.",
+      "- CONSEILS : 4 à 8 conseils pratiques concrets (réservations à faire en avance, transports, sécurité…).",
+      "- BUDGET : estimation honnête du budget total sur place pour le groupe."
+    ].join("\n");
+
+    const infoPromise = callAnthropic(apiKey, {
+      model: MODEL,
+      max_tokens: 3500,
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }],
+      output_config: { format: { type: "json_schema", schema: INFO_SCHEMA } },
+      system: infoSystem,
+      messages: [{ role: "user", content: profileBlock(state) + "\n\n" + voyage + "\n\nPLAN COMPLET DU VOYAGE :\n" + squeletteTxt }]
+    }).then(function (data) {
+      if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
+      tick();
+      return extractJson(textOf(data));
+    });
 
     const detailSystem = [
       "Tu es un agent de voyage personnel haut de gamme, francophone. On te donne le plan complet d'un voyage ;",
@@ -421,22 +454,24 @@
         }]
       }).then(function (data) {
         if (data.stop_reason === "refusal") throw new Error("Demande déclinée par le modèle.");
-        doneCount++;
-        progress("Étape 2/2 — rédaction des journées (" + doneCount + "/" + batches.length + " lots)");
+        tick();
         return extractJson(textOf(data)).jours || [];
       });
     }));
 
-    const joursDetail = parts.reduce(function (a, b) { return a.concat(b); }, [])
+    const results = await Promise.all([infoPromise, parts]);
+    const info = results[0], dayParts = results[1];
+
+    const joursDetail = dayParts.reduce(function (a, b) { return a.concat(b); }, [])
       .sort(function (a, b) { return (a.jour || 0) - (b.jour || 0); });
     if (!joursDetail.length) throw new Error("Itinéraire vide reçu. Réessayez.");
 
     return {
-      titre: plan.titre, resume: plan.resume, meteo: plan.meteo,
-      hebergements: plan.hebergements, logement: plan.logement,
+      titre: plan.titre, resume: plan.resume, meteo: info.meteo,
+      hebergements: info.hebergements,
       voiture: plan.voiture, squelette: squelette,
       nbVoyageurs: plan.nbVoyageurs, vols: plan.vols,
-      joursDetail: joursDetail, conseils: plan.conseils, budget: plan.budget
+      joursDetail: joursDetail, conseils: info.conseils, budget: info.budget
     };
   }
 
