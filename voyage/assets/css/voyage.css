@@ -197,6 +197,8 @@ textarea { resize: vertical; }
   background: rgba(10, 13, 16, .7); backdrop-filter: blur(3px);
   display: grid; place-items: center;
 }
+/* display:grid ci-dessus écraserait l'attribut hidden — on le rétablit. */
+.overlay[hidden] { display: none; }
 .overlay__panel {
   width: min(440px, 92vw); background: var(--bg-2);
   border: 1px solid var(--line); border-radius: 14px; padding: 22px;
