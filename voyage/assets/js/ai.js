@@ -64,23 +64,44 @@
   }
 
   function textOf(data) {
-    const t = (data.content || []).filter(function (b) { return b.type === "text"; })
-      .map(function (b) { return b.text; }).join("\n").trim();
-    if (!t) throw new Error("Réponse vide du modèle.");
-    return t;
+    // Avec la recherche web, la réponse peut contenir plusieurs blocs de texte
+    // (messages intermédiaires entre deux recherches). Seul le DERNIER bloc
+    // porte la sortie finale contrainte par le schéma — ne parser que lui.
+    if (data.stop_reason === "max_tokens") {
+      throw new Error("Réponse tronquée (trop longue). Réduisez le nombre de jours ou découpez le voyage en étapes.");
+    }
+    const blocks = (data.content || []).filter(function (b) { return b.type === "text"; })
+      .map(function (b) { return (b.text || "").trim(); })
+      .filter(Boolean);
+    if (!blocks.length) throw new Error("Réponse vide du modèle.");
+    return blocks[blocks.length - 1];
+  }
+  // Échappe les caractères de contrôle bruts à l'intérieur des chaînes JSON.
+  function fixControlChars(s) {
+    return s.replace(/"(?:[^"\\]|\\[\s\S])*"/g, function (str) {
+      return str.replace(/\n/g, "\\n").replace(/\r/g, "").replace(/\t/g, "\\t");
+    });
   }
   function extractJson(text) {
-    const m = text.match(/\{[\s\S]*\}/);
-    if (!m) throw new Error("Réponse sans données exploitables.");
-    try { return JSON.parse(m[0]); }
-    catch (e) {
-      // Filet de sécurité : échappe les caractères de contrôle bruts que le
-      // modèle peut glisser à l'intérieur des chaînes (retours à la ligne…).
-      const fixed = m[0].replace(/"(?:[^"\\]|\\[\s\S])*"/g, function (s) {
-        return s.replace(/\n/g, "\\n").replace(/\r/g, "").replace(/\t/g, "\\t");
-      });
-      return JSON.parse(fixed);
+    try { return JSON.parse(text); } catch (e) { /* on tente plus fin */ }
+    // Repère les objets {...} équilibrés au niveau racine et parse le dernier
+    // (robuste face à du texte autour ou à plusieurs objets successifs).
+    const spans = [];
+    let depth = 0, start = -1, inStr = false, escNext = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (escNext) { escNext = false; continue; }
+      if (c === "\\") { if (inStr) escNext = true; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === "{") { if (depth === 0) start = i; depth++; }
+      else if (c === "}") { depth--; if (depth === 0 && start >= 0) { spans.push(text.slice(start, i + 1)); start = -1; } }
     }
+    for (let j = spans.length - 1; j >= 0; j--) {
+      try { return JSON.parse(spans[j]); } catch (e1) { /* candidat suivant */ }
+      try { return JSON.parse(fixControlChars(spans[j])); } catch (e2) { /* candidat suivant */ }
+    }
+    throw new Error("Réponse sans données exploitables. Réessayez.");
   }
 
   // Schémas de sortie : la réponse est contrainte à un JSON valide par l'API
@@ -220,7 +241,7 @@
 
     const body = {
       model: MODEL,
-      max_tokens: 6000,
+      max_tokens: 12000,
       tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 6 }],
       output_config: { format: { type: "json_schema", schema: ITI_SCHEMA } },
       system: system,
