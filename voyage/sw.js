@@ -6,7 +6,7 @@
    ========================================================================= */
 "use strict";
 
-const CACHE = "studio-voyage-v14";
+const CACHE = "studio-voyage-v15";
 const SHELL = [
   "./",
   "./index.html",

@@ -208,9 +208,13 @@
           }
         },
         required: ["concerne", "loueurs", "prix", "conseils", "segments"]
+      },
+      alertes: {
+        type: "array", items: { type: "string" },
+        description: "Arbitrages et avertissements IMPORTANTS : activité écourtée/retirée faute de temps (avec l'alternative proposée), réservation critique à faire très en avance, correspondance serrée, permis/guide obligatoire… Tableau vide si rien à signaler."
       }
     },
-    required: ["titre", "resume", "squelette", "nbVoyageurs", "vols", "voiture"]
+    required: ["titre", "resume", "squelette", "nbVoyageurs", "vols", "voiture", "alertes"]
   };
 
   const INFO_SCHEMA = {
@@ -354,11 +358,19 @@
       "  son ordre diffère — et signale ce choix dans le résumé.",
       "- Le squelette contient EXACTEMENT " + n + " entrées (jour 1 à " + n + "), dans l'ordre.",
       "- Répartis intelligemment les étapes : temps de trajet réalistes, pas de zigzag, arrivées/départs cohérents.",
+      "- FAISABILITÉ — RÈGLE ABSOLUE : les activités à durée incompressible ne se compressent JAMAIS.",
+      "  Un trek multi-jours (ex. El Mirador : 5-6 jours de marche aller-retour depuis Carmelita), une ascension,",
+      "  un safari, une croisière ont une durée standard : VÉRIFIE-la par recherche web en cas de doute.",
+      "  Si tout ne tient pas dans les " + n + " jours, NE compresse PAS : retire l'activité ou propose",
+      "  l'alternative réaliste (version courte officielle, survol en hélicoptère, site voisin plus accessible)",
+      "  et EXPLIQUE ce choix dans alertes. Un carnet infaisable est pire qu'un carnet incomplet.",
       "- TRAJETS : chaque jour comportant un déplacement entre villes indique dans son titre la distance et la",
       "  durée (ex. « Trajet Antigua → Lac Atitlán (80 km, ~2 h 30 de route) »).",
       "- VOLS : liste TOUS les vols du voyage dans l'ordre — l'aller depuis l'aéroport du client, chaque vol",
-      "  entre étapes, et le retour — avec jour, départ, arrivée, compagnie(s) probable(s), direct/escale,",
-      "  durée et fourchette de prix par personne.",
+      "  entre étapes, ET LE RETOUR COMPLET segment par segment jusqu'à l'aéroport du client (y compris les",
+      "  vols intérieurs du retour) — avec jour, départ, arrivée, compagnie(s) probable(s), direct/escale,",
+      "  durée et fourchette de prix par personne. Le dernier vol de la liste atterrit chez le client.",
+      "- Dans le squelette, ville = un NOM DE VILLE réel uniquement (jamais « X puis vol vers Y »).",
       "- NOMBRE DE VOYAGEURS : déduis-le des précisions du client (ex. « à 3 avec notre fille ») sinon du profil.",
       "- ROAD TRIP : si une partie du voyage se fait en voiture de location, renseigne l'objet voiture :",
       "  loueurs réels recommandés à la ville de prise en charge, prix estimé (location + carburant + péages),",
@@ -470,7 +482,7 @@
       titre: plan.titre, resume: plan.resume, meteo: info.meteo,
       hebergements: info.hebergements,
       voiture: plan.voiture, squelette: squelette,
-      nbVoyageurs: plan.nbVoyageurs, vols: plan.vols,
+      nbVoyageurs: plan.nbVoyageurs, vols: plan.vols, alertes: plan.alertes,
       joursDetail: joursDetail, conseils: info.conseils, budget: info.budget
     };
   }

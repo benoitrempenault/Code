@@ -262,6 +262,10 @@
       + '<div class="cover__dates">' + esc(state.itiBrief.dates || "") + "</div>"
       + (iti.resume ? '<p class="cover__resume">' + esc(iti.resume) + "</p>" : "")
       + (iti.meteo ? '<p class="cover__resume"><strong>☀ Météo :</strong> ' + esc(iti.meteo) + "</p>" : "")
+      + (Array.isArray(iti.alertes) && iti.alertes.length
+        ? '<div class="alertes"><strong>⚠ Les arbitrages de votre agent</strong><ul>'
+        + iti.alertes.map(function (a) { return "<li>" + esc(a) + "</li>"; }).join("")
+        + "</ul></div>" : "")
       + (!iti.hebergements && iti.logement ? '<p class="cover__resume"><strong>Où dormir :</strong> ' + esc(iti.logement) + "</p>" : "")
       + '<div class="cover__rule"></div>'
       + "</section>";
@@ -331,11 +335,14 @@
         const ci = dayDate(g.j1), co = dayDate(g.j2 + 1);
         const nn = g.j2 - g.j1 + 1;
         const hotel = hotelOf[g.ville.toLowerCase()] || "";
+        // Pas de bouton Booking pour les nuits de transit ou de bivouac.
+        const transit = /\b(vol|aéroport|transit|puis|escale|bivouac|avion|bus de nuit|train de nuit)\b/i.test(g.ville);
         return "<tr>"
           + "<td>" + (ci ? "du " + fmtS(ci) + " au " + fmtS(co) : "jours " + g.j1 + "–" + (g.j2 + 1)) + "</td>"
           + "<td><strong>" + esc(g.ville) + "</strong>" + (hotel ? '<br/><span class="nuits__hotel">' + esc(hotel) + "</span>" : "") + "</td>"
           + "<td>" + nn + " nuit" + (nn > 1 ? "s" : "") + "</td>"
-          + '<td><a class="hotel__link" href="' + bookingUrl(hotel ? hotel + " " + g.ville : g.ville, isoS(ci), isoS(co), nbV) + '" target="_blank" rel="noopener">Réserver →</a></td>'
+          + "<td>" + (transit ? ""
+            : '<a class="hotel__link" href="' + bookingUrl(hotel ? hotel + " " + g.ville : g.ville, isoS(ci), isoS(co), nbV) + '" target="_blank" rel="noopener">Réserver →</a>') + "</td>"
           + "</tr>";
       }).join("");
 

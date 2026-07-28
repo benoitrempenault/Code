@@ -189,6 +189,13 @@ textarea { resize: vertical; }
 .page--cover .cover__dates { font-family: var(--font-display); font-style: italic; font-size: 18px; color: #6b7280; }
 .page--cover .cover__resume { max-width: 130mm; margin: 26px auto 0; font-size: 13.5px; line-height: 1.8; color: #3d434b; }
 .page--cover .cover__rule { width: 46px; height: 2px; background: #e0a458; margin: 22px auto 0; }
+.alertes {
+  max-width: 140mm; margin: 20px auto 0; text-align: left;
+  background: #fdf0e3; border-left: 3px solid #d06a5f; border-radius: 8px;
+  padding: 12px 16px; font-size: 12.5px; line-height: 1.6;
+}
+.alertes ul { margin: 6px 0 0; padding-left: 18px; }
+.alertes li { margin-bottom: 4px; }
 
 .day { margin-bottom: 26px; page-break-inside: avoid; }
 .day h2 {
