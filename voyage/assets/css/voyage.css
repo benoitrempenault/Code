@@ -226,6 +226,7 @@ textarea { resize: vertical; }
 }
 .nuits td { padding: 9px 8px; font-size: 13px; border-bottom: 1px solid #e6e0d2; vertical-align: top; }
 .nuits__hotel { font-size: 12px; color: #6b7280; }
+.nuits__sub { font-family: var(--font-display); font-weight: 500; font-size: 18px; margin: 6px 0 10px; color: #202830; }
 .vols p { margin: 6px 0; font-size: 13.5px; }
 
 /* Bloc location de voiture */

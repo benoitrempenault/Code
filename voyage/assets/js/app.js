@@ -202,17 +202,21 @@
     return n >= 1 && n <= 30 ? n : 2;
   }
   function isIsoDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s || ""); }
-  function bookingUrl(q, checkin, checkout) {
+  function bookingUrl(q, checkin, checkout, adults) {
     return "https://www.booking.com/searchresults.fr.html?ss=" + encodeURIComponent(q || "")
-      + "&group_adults=" + adultsCount() + "&no_rooms=1&group_children=0"
+      + "&group_adults=" + (adults || adultsCount()) + "&no_rooms=1&group_children=0&lang=fr"
       + (isIsoDate(checkin) && isIsoDate(checkout) ? "&checkin=" + checkin + "&checkout=" + checkout : "");
   }
-  function flightsUrl(dest, aller, retour) {
+  function homeAirport() {
     // Le code IATA entre parenthèses du profil (ex. « (BOD) ») fiabilise le
-    // pré-remplissage ; la requête au format anglais est la mieux interprétée.
-    // Avec les dates conseillées, Google Flights affiche directement les offres.
+    // pré-remplissage des recherches de vols.
     const m = (state.profil.aeroport || "").match(/\(([A-Z]{3})\)/);
-    const from = m ? m[1] : ((state.profil.aeroport || "Bordeaux").replace(/\(.*\)/, "").trim() || "Bordeaux");
+    return m ? m[1] : ((state.profil.aeroport || "Bordeaux").replace(/\(.*\)/, "").trim() || "Bordeaux");
+  }
+  function flightsUrl(dest, aller, retour, fromCity) {
+    // Requête au format anglais, la mieux interprétée par Google Flights ;
+    // avec les dates, la page s'ouvre directement sur les offres.
+    const from = fromCity || homeAirport();
     let q = "Flights from " + from + " to " + (dest || "");
     if (isIsoDate(aller) && isIsoDate(retour)) q += " on " + aller + " through " + retour;
     else if (isIsoDate(aller)) q = "One way flights from " + from + " to " + (dest || "") + " on " + aller;
@@ -319,6 +323,8 @@
         const g = groups[groups.length - 1];
         if (g && g.ville === d.ville) g.j2 = d.jour; else groups.push({ ville: d.ville, j1: d.jour, j2: d.jour });
       });
+      const nbV = (typeof iti.nbVoyageurs === "number" && iti.nbVoyageurs >= 1 && iti.nbVoyageurs <= 30)
+        ? iti.nbVoyageurs : adultsCount();
       const hotelOf = {};
       (iti.hebergements || []).forEach(function (h) { if (h.ville) hotelOf[h.ville.toLowerCase()] = h.hotel; });
       const rows = groups.map(function (g) {
@@ -329,23 +335,43 @@
           + "<td>" + (ci ? "du " + fmtS(ci) + " au " + fmtS(co) : "jours " + g.j1 + "–" + (g.j2 + 1)) + "</td>"
           + "<td><strong>" + esc(g.ville) + "</strong>" + (hotel ? '<br/><span class="nuits__hotel">' + esc(hotel) + "</span>" : "") + "</td>"
           + "<td>" + nn + " nuit" + (nn > 1 ? "s" : "") + "</td>"
-          + '<td><a class="hotel__link" href="' + bookingUrl(hotel ? hotel + ", " + g.ville : g.ville, isoS(ci), isoS(co)) + '" target="_blank" rel="noopener">Réserver →</a></td>'
+          + '<td><a class="hotel__link" href="' + bookingUrl(hotel ? hotel + " " + g.ville : g.ville, isoS(ci), isoS(co), nbV) + '" target="_blank" rel="noopener">Réserver →</a></td>'
           + "</tr>";
       }).join("");
-      const d1 = dayDate(1), dn = dayDate(sq.length);
-      const first = sq[0].ville, last = sq[sq.length - 1].ville;
-      const volAller = flightsUrl(first, isoS(d1), "");
-      const volRetour = flightsUrl(last, isoS(dn), "");
+
+      // Tous les vols du voyage (aller, inter-étapes, retour) ; à défaut,
+      // repli sur l'aller/retour déduits du squelette.
+      let volsHtml = "";
+      const vols = Array.isArray(iti.vols) ? iti.vols.filter(function (v) { return v && v.de && v.a; }) : [];
+      if (vols.length) {
+        volsHtml = '<h3 class="nuits__sub">✈ Vos vols (' + nbV + " voyageur" + (nbV > 1 ? "s" : "") + ")</h3>"
+          + '<table class="nuits"><thead><tr><th>Date</th><th>Trajet</th><th>Détails</th><th></th></tr></thead><tbody>'
+          + vols.map(function (v) {
+            const d = dayDate(v.jour);
+            return "<tr>"
+              + "<td>" + (d ? fmtS(d) : "jour " + esc(v.jour)) + "</td>"
+              + "<td><strong>" + esc(v.de) + " → " + esc(v.a) + "</strong></td>"
+              + "<td>" + esc(v.details || "") + "</td>"
+              + '<td><a class="hotel__link" href="' + flightsUrl(v.a, isoS(d), "", v.de) + '" target="_blank" rel="noopener">voir les vols →</a></td>'
+              + "</tr>";
+          }).join("") + "</tbody></table>";
+      } else {
+        const d1 = dayDate(1), dn = dayDate(sq.length);
+        const first = sq[0].ville, last = sq[sq.length - 1].ville;
+        volsHtml = '<div class="vols">'
+          + "<p>✈ <strong>Vol aller :</strong> vers " + esc(first) + (d1 ? " le " + fmtS(d1) : "")
+          + ' <a class="hotel__link" href="' + flightsUrl(first, isoS(d1), "") + '" target="_blank" rel="noopener">voir les vols →</a></p>'
+          + "<p>✈ <strong>Vol retour :</strong> depuis " + esc(last) + (dn ? " le " + fmtS(dn) : "")
+          + ' <a class="hotel__link" href="' + flightsUrl(last, isoS(dn), "") + '" target="_blank" rel="noopener">voir les vols →</a></p>'
+          + "</div>";
+      }
+
       nightsPage = '<section class="page">'
         + '<h2 class="section">Vos nuits & vos vols</h2>'
         + '<table class="nuits"><thead><tr><th>Dates</th><th>Ville · hôtel conseillé</th><th>Nuits</th><th></th></tr></thead>'
         + "<tbody>" + rows + "</tbody></table>"
-        + '<div class="vols">'
-        + "<p>✈ <strong>Vol aller :</strong> vers " + esc(first) + (d1 ? " le " + fmtS(d1) : "")
-        + ' <a class="hotel__link" href="' + volAller + '" target="_blank" rel="noopener">voir les vols →</a></p>'
-        + "<p>✈ <strong>Vol retour :</strong> depuis " + esc(last) + (dn ? " le " + fmtS(dn) : "")
-        + ' <a class="hotel__link" href="' + volRetour + '" target="_blank" rel="noopener">voir les vols →</a></p>'
-        + "</div></section>";
+        + volsHtml
+        + "</section>";
     }
 
     /* ---- Page carte de l'itinéraire complet ---- */

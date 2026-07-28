@@ -185,6 +185,21 @@
           required: ["jour", "ville", "titre"]
         }
       },
+      nbVoyageurs: { type: "integer", description: "Nombre de voyageurs pour CE voyage (déduit des précisions du client, sinon du profil)" },
+      vols: {
+        type: "array",
+        description: "TOUS les vols du voyage dans l'ordre : aller depuis l'aéroport du client, vols entre étapes, retour",
+        items: {
+          type: "object", additionalProperties: false,
+          properties: {
+            jour: { type: "integer", description: "Jour du voyage où ce vol a lieu (1 = premier jour)" },
+            de: { type: "string", description: "Ville/aéroport de départ" },
+            a: { type: "string", description: "Ville/aéroport d'arrivée" },
+            details: { type: "string", description: "Compagnie(s) probable(s), direct ou escale, durée approximative, fourchette de prix par personne" }
+          },
+          required: ["jour", "de", "a", "details"]
+        }
+      },
       voiture: {
         type: "object", additionalProperties: false,
         description: "Location de voiture — renseigné quand le voyage comporte un road trip en véhicule",
@@ -213,7 +228,7 @@
       conseils: { type: "array", items: { type: "string" }, description: "4 à 8 conseils pratiques concrets (transports entre étapes, réservations à faire en avance…)" },
       budget: { type: "string", description: "Estimation honnête du budget total sur place" }
     },
-    required: ["titre", "resume", "meteo", "hebergements", "voiture", "squelette", "conseils", "budget"]
+    required: ["titre", "resume", "meteo", "hebergements", "nbVoyageurs", "vols", "voiture", "squelette", "conseils", "budget"]
   };
 
   const DETAIL_SCHEMA = {
@@ -338,6 +353,10 @@
       "  et les coordonnées lat/lon de la ville (pour tracer la carte de l'itinéraire).",
       "- TRAJETS : chaque jour comportant un déplacement entre villes indique dans son titre la distance et la",
       "  durée (ex. « Trajet Brașov → Sibiu (142 km, ~2 h 30 de route) »).",
+      "- VOLS : liste TOUS les vols du voyage dans l'ordre — l'aller depuis l'aéroport du client, chaque vol",
+      "  entre étapes, et le retour — avec pour chacun le jour, départ, arrivée, compagnie(s) probable(s),",
+      "  direct/escale, durée et fourchette de prix par personne (vérifie les liaisons réelles par recherche web).",
+      "- NOMBRE DE VOYAGEURS : déduis-le des précisions du client (ex. « à 3 avec notre fille ») sinon du profil.",
       "- ROAD TRIP : si une partie du voyage se fait en voiture de location, renseigne l'objet voiture :",
       "  loueurs réels recommandés à la ville de prise en charge (vérifie par recherche web), prix estimé",
       "  (location + carburant + péages/vignettes), conseils (assurance, caution, frontières), et la liste des",
@@ -416,6 +435,7 @@
       titre: plan.titre, resume: plan.resume, meteo: plan.meteo,
       hebergements: plan.hebergements, logement: plan.logement,
       voiture: plan.voiture, squelette: squelette,
+      nbVoyageurs: plan.nbVoyageurs, vols: plan.vols,
       joursDetail: joursDetail, conseils: plan.conseils, budget: plan.budget
     };
   }
