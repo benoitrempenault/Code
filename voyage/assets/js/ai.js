@@ -133,12 +133,13 @@
             duree: { type: "string", description: "Durée conseillée" },
             budget: { type: "string", description: "Fourchette totale estimée en euros" },
             pourquoiVous: { type: "string", description: "2 à 4 phrases personnalisées reliant la destination au profil et aux voyages passés" },
+            meteo: { type: "string", description: "Météo attendue sur la période demandée et pourquoi la période est propice (saison, affluence, températures) — vérifié par recherche web" },
             aVoir: { type: "array", items: { type: "string" }, description: "3 à 5 expériences concrètes" },
             vol: { type: "string", description: "ex : direct depuis Bordeaux avec X, ~2 h 10, dès ~120 € A/R" },
             searchHotel: { type: "string", description: "Requête Booking, ex : Lisbonne centre" },
             searchVol: { type: "string", description: "Code IATA ou ville de destination, ex : LIS" }
           },
-          required: ["destination", "pays", "quand", "duree", "budget", "pourquoiVous", "aVoir", "vol", "searchHotel", "searchVol"]
+          required: ["destination", "pays", "quand", "duree", "budget", "pourquoiVous", "meteo", "aVoir", "vol", "searchHotel", "searchVol"]
         }
       }
     },
@@ -151,8 +152,22 @@
     type: "object", additionalProperties: false,
     properties: {
       titre: { type: "string", description: "Titre évocateur du carnet" },
-      resume: { type: "string", description: "3 à 4 phrases donnant l'esprit du voyage" },
-      logement: { type: "string", description: "Où dormir à chaque étape : ville par ville, quartier conseillé et pourquoi" },
+      resume: { type: "string", description: "3 à 4 phrases donnant l'esprit du voyage — si l'ordre des étapes a été réorganisé, le mentionner" },
+      meteo: { type: "string", description: "Météo attendue sur la période, étape par étape si elle varie, et si la période est propice (vérifié par recherche web)" },
+      hebergements: {
+        type: "array",
+        description: "Un hôtel précis et RÉEL recommandé par étape (ville où l'on dort)",
+        items: {
+          type: "object", additionalProperties: false,
+          properties: {
+            ville: { type: "string" },
+            hotel: { type: "string", description: "Nom exact d'un hôtel/riad/guesthouse réel, bien noté, adapté au budget du client" },
+            quartier: { type: "string", description: "Quartier et pourquoi ce choix" },
+            prix: { type: "string", description: "Fourchette de prix par nuit" }
+          },
+          required: ["ville", "hotel", "quartier", "prix"]
+        }
+      },
       squelette: {
         type: "array",
         description: "Exactement un élément par jour du voyage, dans l'ordre",
@@ -169,7 +184,7 @@
       conseils: { type: "array", items: { type: "string" }, description: "4 à 8 conseils pratiques concrets (transports entre étapes, réservations à faire en avance…)" },
       budget: { type: "string", description: "Estimation honnête du budget total sur place" }
     },
-    required: ["titre", "resume", "logement", "squelette", "conseils", "budget"]
+    required: ["titre", "resume", "meteo", "hebergements", "squelette", "conseils", "budget"]
   };
 
   const DETAIL_SCHEMA = {
@@ -184,9 +199,10 @@
             titre: { type: "string", description: "Thème du jour" },
             matin: { type: "string" },
             apresMidi: { type: "string" },
-            soir: { type: "string" }
+            soir: { type: "string" },
+            restau: { type: "string", description: "L'adresse du jour : un restaurant/bar réel et nommé (spécialité, quartier), adapté au profil" }
           },
-          required: ["jour", "titre", "matin", "apresMidi", "soir"]
+          required: ["jour", "titre", "matin", "apresMidi", "soir", "restau"]
         }
       }
     },
@@ -227,6 +243,9 @@
       "MISSION : proposer exactement 3 destinations SUR MESURE répondant au brief.",
       "Règles :",
       "- Jamais une destination déjà faite (sauf si le client le demande explicitement).",
+      "- LA PÉRIODE DOIT ÊTRE PROPICE : vérifie par recherche web le climat et la saison aux dates visées",
+      "  (météo attendue, saison des pluies, canicule, affluence, haute/basse saison) et ne propose QUE des",
+      "  destinations où la période est favorable. Explique-le dans le champ meteo (températures attendues, pourquoi c'est le bon moment).",
       "- Tiens compte des vetos, du budget et de la saison réelle aux dates visées.",
       "- Chaque proposition doit être argumentée PAR RAPPORT À LEUR PROFIL (« parce que vous avez aimé X… »).",
       "- Budgets réalistes (vol + hébergement + sur place), en euros, pour l'ensemble des voyageurs.",
@@ -272,21 +291,28 @@
     progress("Étape 1/2 — plan du voyage (étapes, trajets, recherche web)");
     const planSystem = [
       "Tu es un agent de voyage personnel haut de gamme, francophone. Tu construis le PLAN GLOBAL d'un voyage :",
-      "le découpage jour par jour (quelle ville chaque soir), la logistique entre les étapes, où dormir, les conseils.",
-      "Utilise l'outil de recherche web (3 à 4 recherches MAX, sois efficace) pour vérifier les liaisons réalistes",
-      "entre les étapes (train, bus, vol, location de voiture) et leurs durées.",
+      "le découpage jour par jour (quelle ville chaque soir), la logistique entre les étapes, les hôtels, la météo, les conseils.",
+      "Utilise l'outil de recherche web (5 à 6 recherches MAX, sois efficace) pour vérifier les liaisons réalistes",
+      "entre les étapes, la météo/saison sur la période, et des hôtels réels bien notés.",
       "",
       "Règles :",
+      "- ORDRE LOGIQUE : si le client liste plusieurs destinations, réordonne-les dans l'ordre géographiquement",
+      "  le plus rationnel (minimise distances et retours en arrière, tient compte des liaisons réelles), même si",
+      "  son ordre diffère — et signale ce choix dans le résumé.",
       "- Le squelette contient EXACTEMENT " + n + " entrées (jour 1 à " + n + "), dans l'ordre.",
       "- Répartis intelligemment les étapes : temps de trajet réalistes, pas de zigzag, arrivées/départs cohérents.",
       "- Les jours de trajet longs sont marqués comme tels dans le titre du jour.",
+      "- HÉBERGEMENTS : pour chaque ville-étape, recommande UN hôtel/riad/guesthouse précis et RÉEL (nom exact,",
+      "  bien noté sur Booking), adapté au budget et au style du client, avec quartier et fourchette de prix par nuit.",
+      "- MÉTÉO : indique la météo attendue sur la période (températures, pluie) et si la période est propice ;",
+      "  si elle varie selon les étapes, détaille étape par étape.",
       "- Adapte au profil du client (styles, vetos, budget)."
     ].join("\n");
 
     const planData = await callAnthropic(apiKey, {
       model: MODEL,
-      max_tokens: 4000,
-      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }],
+      max_tokens: 5000,
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 6 }],
       output_config: { format: { type: "json_schema", schema: PLAN_SCHEMA } },
       system: planSystem,
       messages: [{ role: "user", content: profileBlock(state) + "\n\n" + voyage }]
@@ -316,6 +342,8 @@
       "Règles :",
       "- Rythme réaliste : 2 à 3 temps forts par jour, temps de trajet pris en compte.",
       "- Lieux, quartiers, sites et restaurants RÉELS et nommés — rien d'inventé.",
+      "- CHAQUE JOUR : renseigne « l'adresse du jour » (champ restau) — un restaurant ou bar précis et réel",
+      "  (nom exact, spécialité, quartier), cohérent avec la ville du jour et le profil du client.",
       "- Respecte la ville du squelette pour chaque jour.",
       "- Adapte au profil du client (styles, vetos, budget, composition du groupe)."
     ].join("\n");
@@ -347,7 +375,8 @@
     if (!joursDetail.length) throw new Error("Itinéraire vide reçu. Réessayez.");
 
     return {
-      titre: plan.titre, resume: plan.resume, logement: plan.logement,
+      titre: plan.titre, resume: plan.resume, meteo: plan.meteo,
+      hebergements: plan.hebergements, logement: plan.logement,
       joursDetail: joursDetail, conseils: plan.conseils, budget: plan.budget
     };
   }

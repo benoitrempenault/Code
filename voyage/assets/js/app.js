@@ -227,6 +227,7 @@
       + "<h3>" + esc(idea.destination) + (idea.pays ? " · " + esc(idea.pays) : "") + "</h3>"
       + '<div class="idea__meta">' + esc([idea.quand, idea.duree, idea.budget].filter(Boolean).join(" — ")) + "</div>"
       + "<p>" + esc(idea.pourquoiVous) + "</p>"
+      + (idea.meteo ? '<p class="idea__meteo">☀ <strong>Météo & saison :</strong> ' + esc(idea.meteo) + "</p>" : "")
       + (Array.isArray(idea.aVoir) && idea.aVoir.length
         ? "<ul>" + idea.aVoir.map(function (a) { return "<li>" + esc(a) + "</li>"; }).join("") + "</ul>" : "")
       + (idea.vol ? "<p><strong>✈ Vols :</strong> " + esc(idea.vol) + "</p>" : "")
@@ -249,9 +250,26 @@
       + "<h1>" + esc(iti.titre || state.itiBrief.destination) + "</h1>"
       + '<div class="cover__dates">' + esc(state.itiBrief.dates || "") + "</div>"
       + (iti.resume ? '<p class="cover__resume">' + esc(iti.resume) + "</p>" : "")
-      + (iti.logement ? '<p class="cover__resume"><strong>Où dormir :</strong> ' + esc(iti.logement) + "</p>" : "")
+      + (iti.meteo ? '<p class="cover__resume"><strong>☀ Météo :</strong> ' + esc(iti.meteo) + "</p>" : "")
+      + (!iti.hebergements && iti.logement ? '<p class="cover__resume"><strong>Où dormir :</strong> ' + esc(iti.logement) + "</p>" : "")
       + '<div class="cover__rule"></div>'
       + "</section>";
+
+    // Page « Où dormir » : un hôtel réel par étape, avec lien Booking direct.
+    let hotelsPage = "";
+    if (Array.isArray(iti.hebergements) && iti.hebergements.length) {
+      hotelsPage = '<section class="page">'
+        + '<h2 class="section">Où dormir — la sélection de votre agent</h2>'
+        + iti.hebergements.map(function (h) {
+          return '<div class="hotel">'
+            + '<div class="hotel__ville">' + esc(h.ville) + "</div>"
+            + "<h3>" + esc(h.hotel) + (h.prix ? ' <span class="hotel__prix">' + esc(h.prix) + "</span>" : "") + "</h3>"
+            + (h.quartier ? "<p>" + esc(h.quartier) + "</p>" : "")
+            + '<a class="hotel__link" href="' + bookingUrl(h.hotel + ", " + h.ville) + '" target="_blank" rel="noopener">Voir sur Booking →</a>'
+            + "</div>";
+        }).join("")
+        + "</section>";
+    }
 
     const days = (iti.joursDetail || []).map(function (d) {
       return '<div class="day">'
@@ -261,6 +279,7 @@
         + (d.matin ? "<dt>Matin</dt><dd>" + esc(d.matin) + "</dd>" : "")
         + (d.apresMidi ? "<dt>Après-midi</dt><dd>" + esc(d.apresMidi) + "</dd>" : "")
         + (d.soir ? "<dt>Soir</dt><dd>" + esc(d.soir) + "</dd>" : "")
+        + (d.restau ? "<dt>🍽 L'adresse du jour</dt><dd>" + esc(d.restau) + "</dd>" : "")
         + "</dl></div>";
     });
     const dayPages = [];
@@ -275,7 +294,7 @@
       + (iti.budget ? "<p><strong>Budget estimé sur place :</strong> " + esc(iti.budget) + "</p>" : "")
       + "</section>";
 
-    el.innerHTML = cover + dayPages.join("") + tips;
+    el.innerHTML = cover + hotelsPage + dayPages.join("") + tips;
   }
 
   /* ------------------------------ Actions IA ------------------------------ */

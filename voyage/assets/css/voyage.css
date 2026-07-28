@@ -202,6 +202,19 @@ textarea { resize: vertical; }
 .page h2.section { font-family: var(--font-display); font-weight: 500; font-size: 22px; margin: 0 0 14px; }
 .page ul.tips { padding-left: 20px; font-size: 13px; line-height: 1.7; }
 
+/* Page « Où dormir » du carnet */
+.hotel { margin-bottom: 20px; page-break-inside: avoid; }
+.hotel__ville { letter-spacing: .25em; text-transform: uppercase; font-size: 10px; color: #a08654; }
+.hotel h3 { font-family: var(--font-display); font-weight: 500; font-size: 18px; margin: 2px 0 4px; color: #202830; }
+.hotel__prix { font-family: var(--font-ui); font-size: 12px; color: #6b7280; font-weight: 400; }
+.hotel p { margin: 0 0 4px; font-size: 13px; line-height: 1.6; }
+.hotel__link { font-size: 12px; font-weight: 600; color: #14555c; text-decoration: none; }
+.hotel__link:hover { text-decoration: underline; }
+
+.idea__meteo { background: #f3efe4; border-radius: 8px; padding: 8px 12px; }
+
+@media print { .hotel__link { display: none; } }
+
 /* ------------------------------ Impression ------------------------------ */
 @media print {
   body { background: #fff; }
