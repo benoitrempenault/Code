@@ -317,18 +317,27 @@
     }
   });
 
-  // Réglages (clé API)
+  // Réglages (clé API). Le masquage est piloté en style inline (et pas
+  // seulement via l'attribut hidden) : une vieille feuille CSS en cache ne
+  // peut ainsi jamais bloquer la fermeture de la fenêtre.
   const overlay = document.getElementById("settingsOverlay");
+  function toggleOverlay(show) {
+    overlay.hidden = !show;
+    overlay.style.display = show ? "grid" : "none";
+  }
+  toggleOverlay(false);
   document.getElementById("btnSettings").addEventListener("click", function () {
     document.getElementById("apiKeyInput").value = apiKey();
-    overlay.hidden = false;
+    toggleOverlay(true);
   });
-  document.getElementById("btnSettingsClose").addEventListener("click", function () { overlay.hidden = true; });
+  document.getElementById("btnSettingsClose").addEventListener("click", function () { toggleOverlay(false); });
   document.getElementById("btnSettingsSave").addEventListener("click", function () {
     const v = document.getElementById("apiKeyInput").value.trim();
     if (v) localStorage.setItem(LS_KEY, v); else localStorage.removeItem(LS_KEY);
-    overlay.hidden = true;
+    toggleOverlay(false);
   });
+  overlay.addEventListener("click", function (e) { if (e.target === overlay) toggleOverlay(false); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") toggleOverlay(false); });
 
   // PWA : service worker pour l'installation sur mobile et le hors-ligne.
   if ("serviceWorker" in navigator) {

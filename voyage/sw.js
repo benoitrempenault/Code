@@ -6,7 +6,7 @@
    ========================================================================= */
 "use strict";
 
-const CACHE = "studio-voyage-v2";
+const CACHE = "studio-voyage-v3";
 const SHELL = [
   "./",
   "./index.html",
@@ -21,8 +21,11 @@ const SHELL = [
 
 self.addEventListener("install", function (e) {
   e.waitUntil(
-    caches.open(CACHE).then(function (c) { return c.addAll(SHELL); })
-      .then(function () { return self.skipWaiting(); })
+    caches.open(CACHE).then(function (c) {
+      // cache:"reload" force le réseau (jamais le cache HTTP du navigateur),
+      // sinon une mise à jour peut re-cacher des fichiers périmés.
+      return c.addAll(SHELL.map(function (u) { return new Request(u, { cache: "reload" }); }));
+    }).then(function () { return self.skipWaiting(); })
   );
 });
 
@@ -41,7 +44,7 @@ self.addEventListener("fetch", function (e) {
   // (API Anthropic, polices Google…) — on ne met jamais ça en cache.
   if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;
   e.respondWith(
-    caches.match(req).then(function (cached) {
+    caches.match(req, { ignoreSearch: true }).then(function (cached) {
       const fresh = fetch(req).then(function (res) {
         if (res && res.ok) {
           const copy = res.clone();
