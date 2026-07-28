@@ -146,12 +146,22 @@
   }
 
   /* ------------------------------- Aperçu --------------------------------- */
+  function adultsCount() {
+    const m = (state.profil.voyageurs || "").match(/\d+/);
+    const n = m ? parseInt(m[0], 10) : 2;
+    return n >= 1 && n <= 30 ? n : 2;
+  }
   function bookingUrl(q) {
-    return "https://www.booking.com/searchresults.fr.html?ss=" + encodeURIComponent(q || "");
+    return "https://www.booking.com/searchresults.fr.html?ss=" + encodeURIComponent(q || "")
+      + "&group_adults=" + adultsCount() + "&no_rooms=1&group_children=0";
   }
   function flightsUrl(dest) {
-    const from = (state.profil.aeroport || "Bordeaux").replace(/\(.*\)/, "").trim();
-    return "https://www.google.com/travel/flights?q=" + encodeURIComponent("vols de " + from + " à " + (dest || ""));
+    // Le code IATA entre parenthèses du profil (ex. « (BOD) ») fiabilise le
+    // pré-remplissage ; la requête au format anglais est la mieux interprétée.
+    const m = (state.profil.aeroport || "").match(/\(([A-Z]{3})\)/);
+    const from = m ? m[1] : ((state.profil.aeroport || "Bordeaux").replace(/\(.*\)/, "").trim() || "Bordeaux");
+    return "https://www.google.com/travel/flights?hl=fr&curr=EUR&q="
+      + encodeURIComponent("Flights from " + from + " to " + (dest || ""));
   }
   function mapsUrl(q) {
     return "https://www.google.com/maps/search/" + encodeURIComponent(q || "");
@@ -184,7 +194,7 @@
         ? "<ul>" + idea.aVoir.map(function (a) { return "<li>" + esc(a) + "</li>"; }).join("") + "</ul>" : "")
       + (idea.vol ? "<p><strong>✈ Vols :</strong> " + esc(idea.vol) + "</p>" : "")
       + '<div class="idea__links">'
-      + '<a href="' + bookingUrl(idea.searchHotel || idea.destination) + '" target="_blank" rel="noopener">Hôtels sur Booking</a>'
+      + '<a href="' + bookingUrl((idea.searchHotel || idea.destination) + (idea.pays ? ", " + idea.pays : "")) + '" target="_blank" rel="noopener">Hôtels sur Booking</a>'
       + '<a href="' + flightsUrl(idea.searchVol || idea.destination) + '" target="_blank" rel="noopener">Vols Google Flights</a>'
       + '<a href="' + mapsUrl(idea.destination + " " + (idea.pays || "")) + '" target="_blank" rel="noopener">Carte</a>'
       + "</div>"
