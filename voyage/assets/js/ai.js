@@ -130,6 +130,8 @@
             destination: { type: "string" },
             pays: { type: "string" },
             quand: { type: "string", description: "Meilleure période / dates visées" },
+            dateAller: { type: "string", description: "Date de départ conseillée, format AAAA-MM-JJ, optimisée (prix des vols, météo, affluence) dans la période demandée" },
+            dateRetour: { type: "string", description: "Date de retour conseillée, format AAAA-MM-JJ" },
             duree: { type: "string", description: "Durée conseillée" },
             budget: { type: "string", description: "Fourchette totale estimée en euros" },
             pourquoiVous: { type: "string", description: "2 à 4 phrases personnalisées reliant la destination au profil et aux voyages passés" },
@@ -139,7 +141,7 @@
             searchHotel: { type: "string", description: "Requête Booking, ex : Lisbonne centre" },
             searchVol: { type: "string", description: "Code IATA ou ville de destination, ex : LIS" }
           },
-          required: ["destination", "pays", "quand", "duree", "budget", "pourquoiVous", "meteo", "aVoir", "vol", "searchHotel", "searchVol"]
+          required: ["destination", "pays", "quand", "dateAller", "dateRetour", "duree", "budget", "pourquoiVous", "meteo", "aVoir", "vol", "searchHotel", "searchVol"]
         }
       }
     },
@@ -161,11 +163,13 @@
           type: "object", additionalProperties: false,
           properties: {
             ville: { type: "string" },
+            lat: { type: "number", description: "Latitude de la ville" },
+            lon: { type: "number", description: "Longitude de la ville" },
             hotel: { type: "string", description: "Nom exact d'un hôtel/riad/guesthouse réel, bien noté, adapté au budget du client" },
             quartier: { type: "string", description: "Quartier et pourquoi ce choix" },
             prix: { type: "string", description: "Fourchette de prix par nuit" }
           },
-          required: ["ville", "hotel", "quartier", "prix"]
+          required: ["ville", "lat", "lon", "hotel", "quartier", "prix"]
         }
       },
       squelette: {
@@ -181,10 +185,21 @@
           required: ["jour", "ville", "titre"]
         }
       },
+      voiture: {
+        type: "object", additionalProperties: false,
+        description: "Location de voiture — renseigné quand le voyage comporte un road trip en véhicule",
+        properties: {
+          concerne: { type: "boolean", description: "true si une location de voiture fait partie du voyage" },
+          loueurs: { type: "string", description: "Loueurs RÉELS recommandés à la ville de prise en charge (agences bien notées), chaîne vide sinon" },
+          prix: { type: "string", description: "Prix estimé : location (catégorie adaptée, durée) + carburant + péages/vignettes, chaîne vide sinon" },
+          conseils: { type: "string", description: "Assurance, caution, passage de frontières, état des routes, chaîne vide sinon" }
+        },
+        required: ["concerne", "loueurs", "prix", "conseils"]
+      },
       conseils: { type: "array", items: { type: "string" }, description: "4 à 8 conseils pratiques concrets (transports entre étapes, réservations à faire en avance…)" },
       budget: { type: "string", description: "Estimation honnête du budget total sur place" }
     },
-    required: ["titre", "resume", "meteo", "hebergements", "squelette", "conseils", "budget"]
+    required: ["titre", "resume", "meteo", "hebergements", "voiture", "squelette", "conseils", "budget"]
   };
 
   const DETAIL_SCHEMA = {
@@ -247,6 +262,8 @@
       "  (météo attendue, saison des pluies, canicule, affluence, haute/basse saison) et ne propose QUE des",
       "  destinations où la période est favorable. Explique-le dans le champ meteo (températures attendues, pourquoi c'est le bon moment).",
       "- Tiens compte des vetos, du budget et de la saison réelle aux dates visées.",
+      "- Propose des dates PRÉCISES aller/retour (dateAller/dateRetour) optimisées dans la période demandée :",
+      "  jours les moins chers pour voler (souvent mardi-mercredi ou hors week-end), météo, affluence.",
       "- Chaque proposition doit être argumentée PAR RAPPORT À LEUR PROFIL (« parce que vous avez aimé X… »).",
       "- Budgets réalistes (vol + hébergement + sur place), en euros, pour l'ensemble des voyageurs.",
       "- N'invente pas de prix précis au centime : donne des fourchettes honnêtes."
@@ -303,7 +320,13 @@
       "- Répartis intelligemment les étapes : temps de trajet réalistes, pas de zigzag, arrivées/départs cohérents.",
       "- Les jours de trajet longs sont marqués comme tels dans le titre du jour.",
       "- HÉBERGEMENTS : pour chaque ville-étape, recommande UN hôtel/riad/guesthouse précis et RÉEL (nom exact,",
-      "  bien noté sur Booking), adapté au budget et au style du client, avec quartier et fourchette de prix par nuit.",
+      "  bien noté sur Booking), adapté au budget et au style du client, avec quartier, fourchette de prix par nuit,",
+      "  et les coordonnées lat/lon de la ville (pour tracer la carte de l'itinéraire).",
+      "- TRAJETS : chaque jour comportant un déplacement entre villes indique dans son titre la distance et la",
+      "  durée (ex. « Trajet Brașov → Sibiu (142 km, ~2 h 30 de route) »).",
+      "- ROAD TRIP : si une partie du voyage se fait en voiture de location, renseigne l'objet voiture :",
+      "  loueurs réels recommandés à la ville de prise en charge (vérifie par recherche web), prix estimé",
+      "  (location + carburant + péages/vignettes), conseils (assurance, caution, frontières). Sinon concerne=false.",
       "- MÉTÉO : indique la météo attendue sur la période (températures, pluie) et si la période est propice ;",
       "  si elle varie selon les étapes, détaille étape par étape.",
       "- Adapte au profil du client (styles, vetos, budget)."
@@ -377,6 +400,7 @@
     return {
       titre: plan.titre, resume: plan.resume, meteo: plan.meteo,
       hebergements: plan.hebergements, logement: plan.logement,
+      voiture: plan.voiture,
       joursDetail: joursDetail, conseils: plan.conseils, budget: plan.budget
     };
   }

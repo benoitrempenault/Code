@@ -201,17 +201,21 @@
     const n = m ? parseInt(m[0], 10) : 2;
     return n >= 1 && n <= 30 ? n : 2;
   }
-  function bookingUrl(q) {
+  function isIsoDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s || ""); }
+  function bookingUrl(q, checkin, checkout) {
     return "https://www.booking.com/searchresults.fr.html?ss=" + encodeURIComponent(q || "")
-      + "&group_adults=" + adultsCount() + "&no_rooms=1&group_children=0";
+      + "&group_adults=" + adultsCount() + "&no_rooms=1&group_children=0"
+      + (isIsoDate(checkin) && isIsoDate(checkout) ? "&checkin=" + checkin + "&checkout=" + checkout : "");
   }
-  function flightsUrl(dest) {
+  function flightsUrl(dest, aller, retour) {
     // Le code IATA entre parenthèses du profil (ex. « (BOD) ») fiabilise le
     // pré-remplissage ; la requête au format anglais est la mieux interprétée.
+    // Avec les dates conseillées, Google Flights affiche directement les offres.
     const m = (state.profil.aeroport || "").match(/\(([A-Z]{3})\)/);
     const from = m ? m[1] : ((state.profil.aeroport || "Bordeaux").replace(/\(.*\)/, "").trim() || "Bordeaux");
-    return "https://www.google.com/travel/flights?hl=fr&curr=EUR&q="
-      + encodeURIComponent("Flights from " + from + " to " + (dest || ""));
+    let q = "Flights from " + from + " to " + (dest || "");
+    if (isIsoDate(aller) && isIsoDate(retour)) q += " on " + aller + " through " + retour;
+    return "https://www.google.com/travel/flights?hl=fr&curr=EUR&q=" + encodeURIComponent(q);
   }
   function mapsUrl(q) {
     return "https://www.google.com/maps/search/" + encodeURIComponent(q || "");
@@ -231,9 +235,11 @@
       + (Array.isArray(idea.aVoir) && idea.aVoir.length
         ? "<ul>" + idea.aVoir.map(function (a) { return "<li>" + esc(a) + "</li>"; }).join("") + "</ul>" : "")
       + (idea.vol ? "<p><strong>✈ Vols :</strong> " + esc(idea.vol) + "</p>" : "")
+      + (isIsoDate(idea.dateAller) && isIsoDate(idea.dateRetour)
+        ? '<p class="idea__dates">📅 <strong>Dates conseillées :</strong> du ' + esc(idea.dateAller.split("-").reverse().join("/")) + " au " + esc(idea.dateRetour.split("-").reverse().join("/")) + " — les liens ci-dessous les reprennent</p>" : "")
       + '<div class="idea__links">'
-      + '<a href="' + bookingUrl((idea.searchHotel || idea.destination) + (idea.pays ? ", " + idea.pays : "")) + '" target="_blank" rel="noopener">Hôtels sur Booking</a>'
-      + '<a href="' + flightsUrl(idea.searchVol || idea.destination) + '" target="_blank" rel="noopener">Vols Google Flights</a>'
+      + '<a href="' + bookingUrl((idea.searchHotel || idea.destination) + (idea.pays ? ", " + idea.pays : ""), idea.dateAller, idea.dateRetour) + '" target="_blank" rel="noopener">Hôtels sur Booking</a>'
+      + '<a href="' + flightsUrl(idea.searchVol || idea.destination, idea.dateAller, idea.dateRetour) + '" target="_blank" rel="noopener">Vols Google Flights</a>'
       + '<a href="' + mapsUrl(idea.destination + " " + (idea.pays || "")) + '" target="_blank" rel="noopener">Carte</a>'
       + "</div>"
       + "</article>";
@@ -254,6 +260,49 @@
       + (!iti.hebergements && iti.logement ? '<p class="cover__resume"><strong>Où dormir :</strong> ' + esc(iti.logement) + "</p>" : "")
       + '<div class="cover__rule"></div>'
       + "</section>";
+
+    // Page « Itinéraire » : carte SVG tracée à partir des coordonnées des
+    // étapes (auto-portée, imprimable) + lien Google Maps de l'itinéraire.
+    let mapPage = "";
+    const stages = [];
+    (iti.hebergements || []).forEach(function (h) {
+      if (typeof h.lat === "number" && typeof h.lon === "number"
+        && (!stages.length || stages[stages.length - 1].ville !== h.ville)) {
+        stages.push(h);
+      }
+    });
+    if (stages.length >= 2) {
+      const W = 640, H = 420, P = 70;
+      let minLa = Infinity, maxLa = -Infinity, minLo = Infinity, maxLo = -Infinity;
+      stages.forEach(function (s) {
+        minLa = Math.min(minLa, s.lat); maxLa = Math.max(maxLa, s.lat);
+        minLo = Math.min(minLo, s.lon); maxLo = Math.max(maxLo, s.lon);
+      });
+      const kx = Math.cos(((minLa + maxLa) / 2) * Math.PI / 180);
+      const spanX = Math.max((maxLo - minLo) * kx, 0.1), spanY = Math.max(maxLa - minLa, 0.1);
+      const sc = Math.min((W - 2 * P) / spanX, (H - 2 * P) / spanY);
+      const ox = (W - sc * spanX) / 2, oy = (H - sc * spanY) / 2;
+      const px = function (s) { return (ox + (s.lon - minLo) * kx * sc).toFixed(1); };
+      const py = function (s) { return (oy + (maxLa - s.lat) * sc).toFixed(1); };
+      const line = stages.map(function (s) { return px(s) + "," + py(s); }).join(" ");
+      const marks = stages.map(function (s, i) {
+        const x = parseFloat(px(s)), y = parseFloat(py(s));
+        return '<circle cx="' + x + '" cy="' + y + '" r="11" fill="#14555c"/>'
+          + '<text x="' + x + '" y="' + (y + 4) + '" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">' + (i + 1) + "</text>"
+          + '<text x="' + x + '" y="' + (y - 17) + '" text-anchor="middle" fill="#202830" font-size="13" font-family="Georgia,serif">' + esc(s.ville) + "</text>";
+      }).join("");
+      const gmaps = "https://www.google.com/maps/dir/" + stages.map(function (s) { return encodeURIComponent(s.ville); }).join("/");
+      mapPage = '<section class="page">'
+        + '<h2 class="section">L\'itinéraire en un coup d\'œil</h2>'
+        + '<svg class="carte" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Carte de l\'itinéraire">'
+        + '<rect width="' + W + '" height="' + H + '" rx="12" fill="#f3efe4"/>'
+        + '<polyline points="' + line + '" fill="none" stroke="#e0a458" stroke-width="3" stroke-dasharray="7 6" stroke-linecap="round"/>'
+        + marks
+        + "</svg>"
+        + '<p class="carte__legende">' + stages.map(function (s, i) { return (i + 1) + ". " + esc(s.ville); }).join(" → ") + "</p>"
+        + '<a class="hotel__link" href="' + gmaps + '" target="_blank" rel="noopener">Ouvrir l\'itinéraire dans Google Maps →</a>'
+        + "</section>";
+    }
 
     // Page « Où dormir » : un hôtel réel par étape, avec lien Booking direct.
     let hotelsPage = "";
@@ -287,14 +336,24 @@
       dayPages.push('<section class="page">' + days.slice(i, i + 4).join("") + "</section>");
     }
 
+    const voiture = (iti.voiture && iti.voiture.concerne)
+      ? '<div class="voiture">'
+        + "<h3>🚗 Location de voiture</h3>"
+        + (iti.voiture.loueurs ? "<p><strong>Loueurs recommandés :</strong> " + esc(iti.voiture.loueurs) + "</p>" : "")
+        + (iti.voiture.prix ? "<p><strong>Budget estimé :</strong> " + esc(iti.voiture.prix) + "</p>" : "")
+        + (iti.voiture.conseils ? "<p><strong>À savoir :</strong> " + esc(iti.voiture.conseils) + "</p>" : "")
+        + "</div>"
+      : "";
+
     const tips = '<section class="page">'
       + '<h2 class="section">Conseils de votre agent</h2>'
+      + voiture
       + (Array.isArray(iti.conseils) && iti.conseils.length
         ? '<ul class="tips">' + iti.conseils.map(function (c) { return "<li>" + esc(c) + "</li>"; }).join("") + "</ul>" : "")
       + (iti.budget ? "<p><strong>Budget estimé sur place :</strong> " + esc(iti.budget) + "</p>" : "")
       + "</section>";
 
-    el.innerHTML = cover + hotelsPage + dayPages.join("") + tips;
+    el.innerHTML = cover + mapPage + hotelsPage + dayPages.join("") + tips;
   }
 
   /* ------------------------------ Actions IA ------------------------------ */
