@@ -192,9 +192,23 @@
           concerne: { type: "boolean", description: "true si une location de voiture fait partie du voyage" },
           loueurs: { type: "string", description: "Loueurs RÉELS recommandés à la ville de prise en charge (agences bien notées), chaîne vide sinon" },
           prix: { type: "string", description: "Prix estimé : location (catégorie adaptée, durée) + carburant + péages/vignettes, chaîne vide sinon" },
-          conseils: { type: "string", description: "Assurance, caution, passage de frontières, état des routes, chaîne vide sinon" }
+          conseils: { type: "string", description: "Assurance, caution, passage de frontières, état des routes, chaîne vide sinon" },
+          segments: {
+            type: "array",
+            description: "Chaque tronçon de route du road trip, dans l'ordre (tableau vide si pas de voiture)",
+            items: {
+              type: "object", additionalProperties: false,
+              properties: {
+                de: { type: "string", description: "Ville de départ du tronçon" },
+                a: { type: "string", description: "Ville d'arrivée du tronçon" },
+                km: { type: "number", description: "Distance en km" },
+                duree: { type: "string", description: "Temps de route réaliste, ex. « ~2 h 30 »" }
+              },
+              required: ["de", "a", "km", "duree"]
+            }
+          }
         },
-        required: ["concerne", "loueurs", "prix", "conseils"]
+        required: ["concerne", "loueurs", "prix", "conseils", "segments"]
       },
       conseils: { type: "array", items: { type: "string" }, description: "4 à 8 conseils pratiques concrets (transports entre étapes, réservations à faire en avance…)" },
       budget: { type: "string", description: "Estimation honnête du budget total sur place" }
@@ -326,7 +340,8 @@
       "  durée (ex. « Trajet Brașov → Sibiu (142 km, ~2 h 30 de route) »).",
       "- ROAD TRIP : si une partie du voyage se fait en voiture de location, renseigne l'objet voiture :",
       "  loueurs réels recommandés à la ville de prise en charge (vérifie par recherche web), prix estimé",
-      "  (location + carburant + péages/vignettes), conseils (assurance, caution, frontières). Sinon concerne=false.",
+      "  (location + carburant + péages/vignettes), conseils (assurance, caution, frontières), et la liste des",
+      "  SEGMENTS de route dans l'ordre (de, a, km, durée réaliste par tronçon). Sinon concerne=false et segments=[].",
       "- MÉTÉO : indique la météo attendue sur la période (températures, pluie) et si la période est propice ;",
       "  si elle varie selon les étapes, détaille étape par étape.",
       "- Adapte au profil du client (styles, vetos, budget)."
@@ -400,7 +415,7 @@
     return {
       titre: plan.titre, resume: plan.resume, meteo: plan.meteo,
       hebergements: plan.hebergements, logement: plan.logement,
-      voiture: plan.voiture,
+      voiture: plan.voiture, squelette: squelette,
       joursDetail: joursDetail, conseils: plan.conseils, budget: plan.budget
     };
   }

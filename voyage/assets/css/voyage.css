@@ -218,6 +218,16 @@ textarea { resize: vertical; }
 .carte { width: 100%; height: auto; display: block; margin-bottom: 12px; }
 .carte__legende { font-size: 12.5px; color: #6b7280; margin: 0 0 10px; }
 
+/* Récap des nuits & vols */
+.nuits { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+.nuits th {
+  text-align: left; font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
+  color: #a08654; padding: 6px 8px; border-bottom: 1.5px solid #e0a458;
+}
+.nuits td { padding: 9px 8px; font-size: 13px; border-bottom: 1px solid #e6e0d2; vertical-align: top; }
+.nuits__hotel { font-size: 12px; color: #6b7280; }
+.vols p { margin: 6px 0; font-size: 13.5px; }
+
 /* Bloc location de voiture */
 .voiture { background: #f3efe4; border-radius: 10px; padding: 14px 18px; margin-bottom: 18px; page-break-inside: avoid; }
 .voiture h3 { font-family: var(--font-display); font-weight: 500; font-size: 17px; margin: 0 0 8px; color: #202830; }

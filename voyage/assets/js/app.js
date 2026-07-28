@@ -215,6 +215,7 @@
     const from = m ? m[1] : ((state.profil.aeroport || "Bordeaux").replace(/\(.*\)/, "").trim() || "Bordeaux");
     let q = "Flights from " + from + " to " + (dest || "");
     if (isIsoDate(aller) && isIsoDate(retour)) q += " on " + aller + " through " + retour;
+    else if (isIsoDate(aller)) q = "One way flights from " + from + " to " + (dest || "") + " on " + aller;
     return "https://www.google.com/travel/flights?hl=fr&curr=EUR&q=" + encodeURIComponent(q);
   }
   function mapsUrl(q) {
@@ -261,8 +262,93 @@
       + '<div class="cover__rule"></div>'
       + "</section>";
 
-    // Page « Itinéraire » : carte SVG tracée à partir des coordonnées des
-    // étapes (auto-portée, imprimable) + lien Google Maps de l'itinéraire.
+    /* ---- Outils dates & projection cartographique (locaux au carnet) ---- */
+    const dd = state.itiBrief.dateDebut;
+    function dayDate(j) {
+      if (!isIsoDate(dd)) return null;
+      const d = new Date(dd + "T12:00:00"); d.setDate(d.getDate() + (j - 1)); return d;
+    }
+    function fmtS(d) { return d ? d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : ""; }
+    function isoS(d) {
+      if (!d) return "";
+      const p = function (x) { return (x < 10 ? "0" : "") + x; };
+      return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+    }
+    // svgFor : trace une suite d'étapes {ville,lat,lon} ; segLabels optionnel
+    // (un libellé par tronçon, ex. « 142 km · ~2 h 30 »), solid = trait plein.
+    function svgFor(pts, segLabels, solid) {
+      const W = 640, H = 420, P = 70;
+      let minLa = Infinity, maxLa = -Infinity, minLo = Infinity, maxLo = -Infinity;
+      pts.forEach(function (s) {
+        minLa = Math.min(minLa, s.lat); maxLa = Math.max(maxLa, s.lat);
+        minLo = Math.min(minLo, s.lon); maxLo = Math.max(maxLo, s.lon);
+      });
+      const kx = Math.cos(((minLa + maxLa) / 2) * Math.PI / 180);
+      const spanX = Math.max((maxLo - minLo) * kx, 0.1), spanY = Math.max(maxLa - minLa, 0.1);
+      const sc = Math.min((W - 2 * P) / spanX, (H - 2 * P) / spanY);
+      const ox = (W - sc * spanX) / 2, oy = (H - sc * spanY) / 2;
+      const X = function (s) { return ox + (s.lon - minLo) * kx * sc; };
+      const Y = function (s) { return oy + (maxLa - s.lat) * sc; };
+      const line = pts.map(function (s) { return X(s).toFixed(1) + "," + Y(s).toFixed(1); }).join(" ");
+      const marks = pts.map(function (s, i) {
+        const x = X(s), y = Y(s);
+        return '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="11" fill="#14555c"/>'
+          + '<text x="' + x.toFixed(1) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">' + (i + 1) + "</text>"
+          + '<text x="' + x.toFixed(1) + '" y="' + (y - 17).toFixed(1) + '" text-anchor="middle" fill="#202830" font-size="13" font-family="Georgia,serif">' + esc(s.ville) + "</text>";
+      }).join("");
+      const labels = (segLabels || []).map(function (t, i) {
+        if (!t || !pts[i + 1]) return "";
+        const mx = (X(pts[i]) + X(pts[i + 1])) / 2, my = (Y(pts[i]) + Y(pts[i + 1])) / 2;
+        return '<text x="' + mx.toFixed(1) + '" y="' + (my - 7).toFixed(1) + '" text-anchor="middle" fill="#7c6a4d" font-size="10.5" font-style="italic">' + esc(t) + "</text>";
+      }).join("");
+      return '<svg class="carte" viewBox="0 0 ' + W + " " + H + '" role="img">'
+        + '<rect width="' + W + '" height="' + H + '" rx="12" fill="#f3efe4"/>'
+        + '<polyline points="' + line + '" fill="none" stroke="#e0a458" stroke-width="3"'
+        + (solid ? "" : ' stroke-dasharray="7 6"') + ' stroke-linecap="round"/>'
+        + marks + labels + "</svg>";
+    }
+
+    /* ---- Page « Vos nuits & vos vols » : le récap qui facilite les résas -- */
+    let nightsPage = "";
+    const sq = Array.isArray(iti.squelette) ? iti.squelette.filter(function (d) { return d && d.ville; }) : [];
+    if (sq.length >= 2) {
+      // n jours = n-1 nuits : la nuit du dernier jour (retour) est exclue.
+      const nuits = sq.slice(0, sq.length - 1);
+      const groups = [];
+      nuits.forEach(function (d) {
+        const g = groups[groups.length - 1];
+        if (g && g.ville === d.ville) g.j2 = d.jour; else groups.push({ ville: d.ville, j1: d.jour, j2: d.jour });
+      });
+      const hotelOf = {};
+      (iti.hebergements || []).forEach(function (h) { if (h.ville) hotelOf[h.ville.toLowerCase()] = h.hotel; });
+      const rows = groups.map(function (g) {
+        const ci = dayDate(g.j1), co = dayDate(g.j2 + 1);
+        const nn = g.j2 - g.j1 + 1;
+        const hotel = hotelOf[g.ville.toLowerCase()] || "";
+        return "<tr>"
+          + "<td>" + (ci ? "du " + fmtS(ci) + " au " + fmtS(co) : "jours " + g.j1 + "–" + (g.j2 + 1)) + "</td>"
+          + "<td><strong>" + esc(g.ville) + "</strong>" + (hotel ? '<br/><span class="nuits__hotel">' + esc(hotel) + "</span>" : "") + "</td>"
+          + "<td>" + nn + " nuit" + (nn > 1 ? "s" : "") + "</td>"
+          + '<td><a class="hotel__link" href="' + bookingUrl(hotel ? hotel + ", " + g.ville : g.ville, isoS(ci), isoS(co)) + '" target="_blank" rel="noopener">Réserver →</a></td>'
+          + "</tr>";
+      }).join("");
+      const d1 = dayDate(1), dn = dayDate(sq.length);
+      const first = sq[0].ville, last = sq[sq.length - 1].ville;
+      const volAller = flightsUrl(first, isoS(d1), "");
+      const volRetour = flightsUrl(last, isoS(dn), "");
+      nightsPage = '<section class="page">'
+        + '<h2 class="section">Vos nuits & vos vols</h2>'
+        + '<table class="nuits"><thead><tr><th>Dates</th><th>Ville · hôtel conseillé</th><th>Nuits</th><th></th></tr></thead>'
+        + "<tbody>" + rows + "</tbody></table>"
+        + '<div class="vols">'
+        + "<p>✈ <strong>Vol aller :</strong> vers " + esc(first) + (d1 ? " le " + fmtS(d1) : "")
+        + ' <a class="hotel__link" href="' + volAller + '" target="_blank" rel="noopener">voir les vols →</a></p>'
+        + "<p>✈ <strong>Vol retour :</strong> depuis " + esc(last) + (dn ? " le " + fmtS(dn) : "")
+        + ' <a class="hotel__link" href="' + volRetour + '" target="_blank" rel="noopener">voir les vols →</a></p>'
+        + "</div></section>";
+    }
+
+    /* ---- Page carte de l'itinéraire complet ---- */
     let mapPage = "";
     const stages = [];
     (iti.hebergements || []).forEach(function (h) {
@@ -272,35 +358,49 @@
       }
     });
     if (stages.length >= 2) {
-      const W = 640, H = 420, P = 70;
-      let minLa = Infinity, maxLa = -Infinity, minLo = Infinity, maxLo = -Infinity;
-      stages.forEach(function (s) {
-        minLa = Math.min(minLa, s.lat); maxLa = Math.max(maxLa, s.lat);
-        minLo = Math.min(minLo, s.lon); maxLo = Math.max(maxLo, s.lon);
-      });
-      const kx = Math.cos(((minLa + maxLa) / 2) * Math.PI / 180);
-      const spanX = Math.max((maxLo - minLo) * kx, 0.1), spanY = Math.max(maxLa - minLa, 0.1);
-      const sc = Math.min((W - 2 * P) / spanX, (H - 2 * P) / spanY);
-      const ox = (W - sc * spanX) / 2, oy = (H - sc * spanY) / 2;
-      const px = function (s) { return (ox + (s.lon - minLo) * kx * sc).toFixed(1); };
-      const py = function (s) { return (oy + (maxLa - s.lat) * sc).toFixed(1); };
-      const line = stages.map(function (s) { return px(s) + "," + py(s); }).join(" ");
-      const marks = stages.map(function (s, i) {
-        const x = parseFloat(px(s)), y = parseFloat(py(s));
-        return '<circle cx="' + x + '" cy="' + y + '" r="11" fill="#14555c"/>'
-          + '<text x="' + x + '" y="' + (y + 4) + '" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">' + (i + 1) + "</text>"
-          + '<text x="' + x + '" y="' + (y - 17) + '" text-anchor="middle" fill="#202830" font-size="13" font-family="Georgia,serif">' + esc(s.ville) + "</text>";
-      }).join("");
       const gmaps = "https://www.google.com/maps/dir/" + stages.map(function (s) { return encodeURIComponent(s.ville); }).join("/");
       mapPage = '<section class="page">'
         + '<h2 class="section">L\'itinéraire en un coup d\'œil</h2>'
-        + '<svg class="carte" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Carte de l\'itinéraire">'
-        + '<rect width="' + W + '" height="' + H + '" rx="12" fill="#f3efe4"/>'
-        + '<polyline points="' + line + '" fill="none" stroke="#e0a458" stroke-width="3" stroke-dasharray="7 6" stroke-linecap="round"/>'
-        + marks
-        + "</svg>"
+        + svgFor(stages)
         + '<p class="carte__legende">' + stages.map(function (s, i) { return (i + 1) + ". " + esc(s.ville); }).join(" → ") + "</p>"
-        + '<a class="hotel__link" href="' + gmaps + '" target="_blank" rel="noopener">Ouvrir l\'itinéraire dans Google Maps →</a>'
+        + '<a class="hotel__link" href="' + gmaps + '" target="_blank" rel="noopener">Ouvrir l\'itinéraire complet dans Google Maps →</a>'
+        + "</section>";
+    }
+
+    /* ---- Page carte du road trip (tronçons, km, temps de route) ---- */
+    let roadPage = "";
+    const segs = (iti.voiture && iti.voiture.concerne && Array.isArray(iti.voiture.segments))
+      ? iti.voiture.segments.filter(function (s) { return s && s.de && s.a; }) : [];
+    if (segs.length) {
+      const coord = {};
+      (iti.hebergements || []).forEach(function (h) {
+        if (typeof h.lat === "number" && h.ville) coord[h.ville.toLowerCase()] = h;
+      });
+      const findC = function (v) {
+        v = (v || "").toLowerCase();
+        if (coord[v]) return coord[v];
+        for (const k in coord) { if (k.indexOf(v) >= 0 || v.indexOf(k) >= 0) return coord[k]; }
+        return null;
+      };
+      const names = [segs[0].de].concat(segs.map(function (s) { return s.a; }));
+      const pts = names.map(function (nm) {
+        const c = findC(nm); return c ? { ville: nm, lat: c.lat, lon: c.lon } : null;
+      });
+      const labels = segs.map(function (s) { return Math.round(s.km) + " km · " + s.duree; });
+      const svg = (pts.every(Boolean) && pts.length >= 2) ? svgFor(pts, labels, true) : "";
+      const totalKm = Math.round(segs.reduce(function (a, s) { return a + (s.km || 0); }, 0));
+      const gmapsRoad = "https://www.google.com/maps/dir/?api=1&travelmode=driving"
+        + "&origin=" + encodeURIComponent(names[0])
+        + "&destination=" + encodeURIComponent(names[names.length - 1])
+        + (names.length > 2 ? "&waypoints=" + names.slice(1, -1).map(encodeURIComponent).join("%7C") : "");
+      roadPage = '<section class="page">'
+        + '<h2 class="section">🚗 Le road trip en un coup d\'œil</h2>'
+        + svg
+        + '<ul class="tips">' + segs.map(function (s) {
+          return "<li>" + esc(s.de) + " → " + esc(s.a) + " — <strong>" + Math.round(s.km) + " km</strong> · " + esc(s.duree) + "</li>";
+        }).join("") + "</ul>"
+        + "<p><strong>Total route :</strong> " + totalKm + " km</p>"
+        + '<a class="hotel__link" href="' + gmapsRoad + '" target="_blank" rel="noopener">Ouvrir le road trip seul dans Google Maps (mode voiture, temps réels) →</a>'
         + "</section>";
     }
 
@@ -353,7 +453,7 @@
       + (iti.budget ? "<p><strong>Budget estimé sur place :</strong> " + esc(iti.budget) + "</p>" : "")
       + "</section>";
 
-    el.innerHTML = cover + mapPage + hotelsPage + dayPages.join("") + tips;
+    el.innerHTML = cover + nightsPage + mapPage + roadPage + hotelsPage + dayPages.join("") + tips;
   }
 
   /* ------------------------------ Actions IA ------------------------------ */
