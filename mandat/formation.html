@@ -195,8 +195,8 @@ h1, .fh .ft, .dh1 { font-family: "Fraunces", Georgia, serif; font-weight: 550; }
 
 /* ---------- Impression : liste des documents en clair ---------- */
 @media print {
-  @page { size: A4; margin: 14mm; }
-  body { background: #fff !important; color: #111 !important; }
+  @page { size: A4; margin: 0; } /* supprime l'horodatage et l'URL ajoutés par le navigateur */
+  body { background: #fff !important; color: #111 !important; padding: 13mm 12mm; }
   .topbar, .fd-nav, .no-print, #section-formation, .ftabs { display: none !important; }
   body:not([data-print="tools"]) #section-fd-docs { display: block !important; }
   body[data-print="tools"] #section-fd-docs { display: none !important; }
