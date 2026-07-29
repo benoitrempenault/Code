@@ -1107,3 +1107,140 @@ document.addEventListener('DOMContentLoaded', function(){
   ['fiPrix','fiFrais','fiApport','fiTaux','fiDuree','fiAssu','fiRevenus','fiCharges'].forEach(function(id){ document.getElementById(id).addEventListener('input', calcFin); });
   calcNotaire(); calcPV(); calcFin();
 });
+
+/* ----- Profil acquéreur ----- */
+var PA_RATES = [
+  { label: "Aujourd'hui", taux: 3.20 },
+  { label: "2024", taux: 3.65 },
+  { label: "2023", taux: 3.69 },
+  { label: "2022", taux: 1.59 }
+];
+var paLast = null;
+
+function pct2(n){ return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' %'; }
+function paMensualite(capital, tauxPct, mois){
+  var t = tauxPct / 100 / 12;
+  return t > 0 ? capital * t / (1 - Math.pow(1 + t, -mois)) : capital / mois;
+}
+function paCapacite(mensualite, tauxPct, mois){
+  var t = tauxPct / 100 / 12;
+  return t > 0 ? mensualite * (1 - Math.pow(1 + t, -mois)) / t : mensualite * mois;
+}
+
+function buildProfilRows(){
+  var t1 = document.getElementById('paT1'), t2 = document.getElementById('paT2');
+  t1.innerHTML = PA_RATES.map(function(r, i){
+    return '<div class="parow' + (i === 0 ? ' pa-now' : '') + '">' +
+      '<span class="pa-year">' + r.label + (i === 0 ? ' •' : '') + '</span>' +
+      '<span class="pa-taux-cell"><input class="cin pa-taux-in" type="number" step="0.05" min="0" max="15" data-pa="' + i + '" value="' + r.taux.toFixed(2) + '" aria-label="Taux ' + r.label + '"></span>' +
+      '<span class="pa-bar-zone"><i class="pa-taux-bar" id="paT1t' + i + '"></i><i class="pa-prix-bar" id="paT1p' + i + '"></i></span>' +
+      '</div>';
+  }).join('');
+  t2.innerHTML = PA_RATES.map(function(r, i){
+    return '<div class="parow' + (i === 0 ? ' pa-now' : '') + '">' +
+      '<span class="pa-year">' + r.label + (i === 0 ? ' •' : '') + '</span>' +
+      '<span class="pa-taux-cell pa-taux-txt" id="paT2x' + i + '"></span>' +
+      '<span class="pa-bar-zone"><i class="pa-rev-box" id="paT2r' + i + '"></i><i class="pa-prix-bar pa-fixed" id="paT2p' + i + '"></i></span>' +
+      '</div>';
+  }).join('');
+  t1.querySelectorAll('.pa-taux-in').forEach(function(inp){
+    inp.addEventListener('input', function(){
+      var v = parseFloat(inp.value);
+      if (isFinite(v) && v >= 0) PA_RATES[+inp.dataset.pa].taux = v;
+      calcProfil();
+    });
+  });
+}
+
+function calcProfil(){
+  var prix = num('paPrix'), revenu = num('paRevenu');
+  var annees = Math.max(1, Math.floor(num('paDuree'))), mois = annees * 12;
+  var mensMax = revenu * 0.35;
+  document.getElementById('paMens').textContent = eur(mensMax);
+  document.getElementById('paT1Titre').textContent = eur(revenu) + ' / mois — impact des taux sur le prix d’achat';
+  document.getElementById('paT2Titre').textContent = eur(prix) + ' — impact des taux sur le revenu requis';
+  var maxTaux = Math.max.apply(null, PA_RATES.map(function(r){ return r.taux; })) || 1;
+  var caps = PA_RATES.map(function(r){ return paCapacite(mensMax, r.taux, mois); });
+  var maxCap = Math.max.apply(null, caps) || 1;
+  var revs = PA_RATES.map(function(r){ return paMensualite(prix, r.taux, mois) / 0.35; });
+  PA_RATES.forEach(function(r, i){
+    var tb = document.getElementById('paT1t' + i), pb = document.getElementById('paT1p' + i);
+    tb.style.width = Math.max(10, r.taux / maxTaux * 26) + '%';
+    tb.textContent = pct2(r.taux);
+    pb.style.width = Math.max(18, caps[i] / maxCap * 72) + '%';
+    pb.textContent = eur(caps[i]);
+    var xb = document.getElementById('paT2x' + i), rb = document.getElementById('paT2r' + i), fb = document.getElementById('paT2p' + i);
+    xb.textContent = pct2(r.taux);
+    rb.textContent = eur(revs[i]);
+    fb.textContent = eur(prix);
+  });
+  document.getElementById('paCout').textContent = eur(mensMax * mois);
+  paLast = { prix: prix, revenu: revenu, annees: annees, mensMax: mensMax, caps: caps, revs: revs, cout: mensMax * mois };
+}
+
+/* ----- Impression et e-mail des calculettes ----- */
+var DISCLAIMER = "Estimation indicative, communiquée à titre pédagogique : elle n'engage pas l'agence Century 21 Kadima.";
+
+function toolRowsText(sel){
+  return Array.prototype.map.call(document.querySelectorAll(sel + ' .crow'), function(r){
+    var s = r.querySelector('span'), b = r.querySelector('b');
+    return (s ? s.textContent : '') + ' : ' + (b ? b.textContent : '');
+  }).join('\n');
+}
+
+function toolMailText(tool){
+  var lines = [];
+  if (tool === 'notaire'){
+    lines.push('ESTIMATION DES FRAIS DE NOTAIRE');
+    lines.push('Prix : ' + eur(num('fnPrix')) + (num('fnMobilier') > 0 ? ' (dont mobilier déduit : ' + eur(num('fnMobilier')) + ')' : '') + ' — bien ' + (fnType === 'neuf' ? 'neuf' : 'ancien'));
+    lines.push('');
+    lines.push(toolRowsText('#fnRes'));
+  } else if (tool === 'pv'){
+    lines.push('ESTIMATION DE LA PLUS-VALUE IMMOBILIÈRE');
+    lines.push('Prix de vente : ' + eur(num('pvVente')) + ' — prix d’achat : ' + eur(num('pvAchat')) + ' — détention : ' + Math.floor(num('pvAnnees')) + ' ans');
+    lines.push('');
+    lines.push(toolRowsText('#pvRes'));
+  } else if (tool === 'fin'){
+    lines.push('SIMULATION DE FINANCEMENT');
+    lines.push('Prix : ' + eur(num('fiPrix')) + ' + frais ' + eur(num('fiFrais')) + ' — apport : ' + eur(num('fiApport')) + ' — ' + Math.floor(num('fiDuree')) + ' ans à ' + num('fiTaux').toLocaleString('fr-FR') + ' %');
+    lines.push('');
+    lines.push(toolRowsText('#fiRes'));
+  } else if (tool === 'profil' && paLast){
+    lines.push('PROFIL ACQUÉREUR — ' + eur(paLast.prix));
+    lines.push('Revenu net mensuel : ' + eur(paLast.revenu) + ' — mensualité max (35 %) : ' + eur(paLast.mensMax) + ' — durée : ' + paLast.annees + ' ans');
+    lines.push('');
+    lines.push('Impact des taux sur le prix d’achat (à ' + eur(paLast.revenu) + ' / mois) :');
+    PA_RATES.forEach(function(r, i){ lines.push('  ' + r.label + ' — ' + pct2(r.taux) + ' : ' + eur(paLast.caps[i])); });
+    lines.push('Coût total d’acquisition (aujourd’hui) : ' + eur(paLast.cout));
+    lines.push('');
+    lines.push('Revenu requis pour ' + eur(paLast.prix) + ' :');
+    PA_RATES.forEach(function(r, i){ lines.push('  ' + r.label + ' — ' + pct2(r.taux) + ' : ' + eur(paLast.revs[i]) + ' / mois'); });
+  }
+  lines.push('');
+  lines.push(DISCLAIMER);
+  lines.push('Century 21 Kadima');
+  return lines.join('\n');
+}
+
+var TOOL_TITLES = { notaire: 'Frais de notaire', pv: 'Plus-value immobilière', fin: 'Simulation de financement', profil: 'Profil acquéreur' };
+
+document.addEventListener('DOMContentLoaded', function(){
+  if (!document.getElementById('tool-profil')) return;
+  buildProfilRows();
+  ['paPrix', 'paRevenu', 'paDuree'].forEach(function(id){ document.getElementById(id).addEventListener('input', calcProfil); });
+  calcProfil();
+  document.querySelectorAll('[data-print-tool]').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.body.setAttribute('data-print', 'tools');
+      window.print();
+    });
+  });
+  window.addEventListener('afterprint', function(){ document.body.removeAttribute('data-print'); });
+  document.querySelectorAll('[data-mail-tool]').forEach(function(b){
+    b.addEventListener('click', function(){
+      var tool = b.dataset.mailTool;
+      var subject = TOOL_TITLES[tool] + ' — estimation Century 21 Kadima';
+      location.href = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(toolMailText(tool));
+    });
+  });
+});

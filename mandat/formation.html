@@ -166,12 +166,55 @@ h1, .fh .ft, .dh1 { font-family: "Fraunces", Georgia, serif; font-weight: 550; }
 .dfb { border-radius: 10px; padding: 11px 14px; font-size: 14px; }
 .dfb.good { background: rgba(143,191,114,.13); color: #b9dca7; }
 
+
+/* ---------- Profil acquéreur ---------- */
+.pa-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pa-dot { color: var(--ui-accent); }
+.pa-prix-wrap { display: inline-flex; align-items: center; gap: 6px; color: var(--ui-accent); }
+.pa-prix-in { width: 150px; font-size: 19px; font-weight: 600; color: var(--ui-accent); text-align: right; margin-top: 0; }
+.pa-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 700px) { .pa-stats { grid-template-columns: 1fr; } }
+.pa-stat { font-size: 12px; font-weight: 600; color: var(--ui-muted); text-transform: uppercase; letter-spacing: .05em; text-align: center; }
+.pa-stat .cin { margin-top: 6px; text-align: center; font-size: 17px; font-weight: 600; color: var(--ui-accent); }
+.pa-stat-val { margin-top: 6px; padding: 9px 11px; border: 1px solid var(--ui-line); border-radius: 8px; background: var(--ui-panel-2); font-size: 17px; font-weight: 600; color: var(--ui-accent); }
+.pa-legend { display: flex; gap: 8px; font-size: 11px; color: var(--ui-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+.pa-lg-year { width: 92px; flex-shrink: 0; } .pa-lg-taux { width: 84px; flex-shrink: 0; }
+.parow { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; font-size: 13px; }
+.pa-year { width: 92px; flex-shrink: 0; color: var(--ui-muted); }
+.pa-now .pa-year { color: var(--ui-text); font-weight: 600; }
+.pa-taux-cell { width: 84px; flex-shrink: 0; }
+.pa-taux-cell .cin { padding: 6px 8px; text-align: right; font-variant-numeric: tabular-nums; margin-top: 0; }
+.pa-taux-txt { text-align: right; font-variant-numeric: tabular-nums; color: var(--ui-text); padding-right: 8px; }
+.pa-bar-zone { flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.pa-taux-bar, .pa-prix-bar, .pa-rev-box { display: flex; align-items: center; border-radius: 6px; height: 30px; padding: 0 10px; font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12.5px; }
+.pa-taux-bar { background: rgba(220,90,82,.28); color: #ffb4ad; }
+.pa-prix-bar { background: var(--ui-accent); color: var(--ui-accent-ink); font-weight: 600; justify-content: flex-end; }
+.pa-prix-bar.pa-fixed { flex: 1; }
+.pa-rev-box { background: var(--ui-panel); border: 1px solid var(--ui-line); color: var(--ui-text); font-weight: 600; }
+.pa-now .pa-prix-bar { box-shadow: 0 0 0 1.5px var(--ui-accent); }
+
 /* ---------- Impression : liste des documents en clair ---------- */
 @media print {
   @page { size: A4; margin: 14mm; }
   body { background: #fff !important; color: #111 !important; }
-  .topbar, .fd-nav, .no-print, #section-formation { display: none !important; }
-  #section-fd-docs { display: block !important; }
+  .topbar, .fd-nav, .no-print, #section-formation, .ftabs { display: none !important; }
+  body:not([data-print="tools"]) #section-fd-docs { display: block !important; }
+  body[data-print="tools"] #section-fd-docs { display: none !important; }
+  body[data-print="tools"] #section-fd-tools { display: block !important; }
+  body[data-print="tools"] .cc { background: #fff; border-color: #bbb; }
+  body[data-print="tools"] .cc h3 { color: #8a6a3c; }
+  body[data-print="tools"] .clab, body[data-print="tools"] .crow b, body[data-print="tools"] .fh .ft,
+  body[data-print="tools"] .pa-taux-txt, body[data-print="tools"] .pa-year, body[data-print="tools"] .qopt { color: #111; }
+  body[data-print="tools"] .crow span, body[data-print="tools"] .cnote, body[data-print="tools"] .fh .fs,
+  body[data-print="tools"] .pa-legend, body[data-print="tools"] .tgt, body[data-print="tools"] .pa-stat { color: #555; }
+  body[data-print="tools"] .cin, body[data-print="tools"] .pa-rev-box, body[data-print="tools"] .thbtn { background: #fff; color: #111; border-color: #bbb; }
+  body[data-print="tools"] .crow.ctotal b, body[data-print="tools"] .pa-prix-in, body[data-print="tools"] .pa-prix-wrap,
+  body[data-print="tools"] .pa-stat-val { color: #8a6a3c; }
+  body[data-print="tools"] .pa-stat-val { background: #fff; border-color: #bbb; }
+  body[data-print="tools"] .pa-prix-bar { background: #8a6a3c; color: #fff; }
+  body[data-print="tools"] .pa-taux-bar { background: #f3c1bc; color: #7a2e28; }
+  body[data-print="tools"] .thbtn.active { background: #8a6a3c; color: #fff; border-color: #8a6a3c; }
+  body[data-print="tools"] .crow.ctotal { border-top-color: #8a6a3c; }
   .fd-wrap { max-width: none; padding: 0; }
   .dcard, .ddoc { background: #fff; border-color: #bbb; color: #111; box-shadow: none; page-break-inside: avoid; }
   .ddoc-t, .dh1, .dh2 { color: #111; }
@@ -559,6 +602,7 @@ h1, .fh .ft, .dh1 { font-family: "Fraunces", Georgia, serif; font-weight: 550; }
   <button class="ctab active" data-tool="notaire" type="button">Frais de notaire</button>
   <button class="ctab" data-tool="pv" type="button">Plus-value</button>
   <button class="ctab" data-tool="fin" type="button">Financement</button>
+  <button class="ctab" data-tool="profil" type="button">Profil acquéreur</button>
 </div>
 
 <!-- ============ Frais de notaire ============ -->
@@ -582,7 +626,8 @@ h1, .fh .ft, .dh1 { font-family: "Fraunces", Georgia, serif; font-weight: 550; }
     <div class="cc">
       <h3>Estimation</h3>
       <div class="cres" id="fnRes"></div>
-      <p class="cnote">Estimation indicative (barème des émoluments 2021 en vigueur, débours forfaitisés). Le décompte exact est établi par le notaire ; le trop-perçu éventuel est remboursé après l'acte.</p>
+      <p class="cnote">Estimation indicative et <b>non engageante pour l'agence</b> — seul le décompte du notaire fait foi ; le trop-perçu éventuel est remboursé après l'acte. Sources : barème des émoluments des notaires (art. A. 444-53 et s. du Code de commerce, arrêté du 25 février 2022), droits d'enregistrement (art. 1594 D du CGI et hausse départementale de la loi de finances 2025), contribution de sécurité immobilière (art. 879 du CGI).</p>
+      <div class="pill-row no-print" style="margin-top:10px"><button class="btn-s" type="button" data-print-tool="notaire">🖨 Imprimer</button><button class="btn-s" type="button" data-mail-tool="notaire">✉️ Envoyer par e-mail</button></div>
     </div>
   </div>
 </div>
@@ -621,7 +666,8 @@ h1, .fh .ft, .dh1 { font-family: "Fraunces", Georgia, serif; font-weight: 550; }
     <div class="cc">
       <h3>Estimation</h3>
       <div class="cres" id="pvRes"></div>
-      <p class="cnote">Exonérations principales : résidence principale ; détention ≥ 22 ans (impôt) et ≥ 30 ans (prélèvements sociaux) ; prix ≤ 15 000 € ; première cession sous conditions de remploi. Calcul indicatif — le notaire établit la déclaration exacte.</p>
+      <p class="cnote">Exonérations principales : résidence principale ; détention ≥ 22 ans (impôt) et ≥ 30 ans (prélèvements sociaux) ; prix ≤ 15 000 € ; première cession sous conditions de remploi. Estimation indicative et <b>non engageante pour l'agence</b> — la déclaration officielle est établie par le notaire. Sources : art. 150 U à 150 VH et 1609 nonies G du CGI (abattements art. 150 VC) ; impots.gouv.fr et service-public.fr.</p>
+      <div class="pill-row no-print" style="margin-top:10px"><button class="btn-s" type="button" data-print-tool="pv">🖨 Imprimer</button><button class="btn-s" type="button" data-mail-tool="pv">✉️ Envoyer par e-mail</button></div>
     </div>
   </div>
 </div>
@@ -654,7 +700,50 @@ h1, .fh .ft, .dh1 { font-family: "Fraunces", Georgia, serif; font-weight: 550; }
     <div class="cc">
       <h3>Résultat</h3>
       <div class="cres" id="fiRes"></div>
-      <p class="cnote">Repère HCSF : taux d'effort maximal de 35 % assurance comprise (les banques disposent d'une marge de flexibilité sur ~20 % des dossiers). Simulation indicative, hors frais de garantie et de dossier.</p>
+      <p class="cnote">Repère HCSF : taux d'effort maximal de 35 % assurance comprise (les banques disposent d'une marge de flexibilité sur ~20 % des dossiers). Simulation indicative et <b>non engageante pour l'agence</b>, hors frais de garantie et de dossier.</p>
+      <div class="pill-row no-print" style="margin-top:10px"><button class="btn-s" type="button" data-print-tool="fin">🖨 Imprimer</button><button class="btn-s" type="button" data-mail-tool="fin">✉️ Envoyer par e-mail</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Profil acquéreur ============ -->
+<div class="ctool" id="tool-profil">
+  <div class="fh">
+    <div class="ft pa-title">Profil acquéreur <span class="pa-dot">•</span>
+      <span class="pa-prix-wrap"><input class="cin pa-prix-in" type="number" id="paPrix" value="290000" min="0" step="5000" aria-label="Prix du bien"> €</span>
+    </div>
+    <div class="fs">À montrer au vendeur comme à l'acquéreur : ce que les taux font au budget — et au revenu qu'il faut pour acheter votre bien</div>
+  </div>
+
+  <div class="cc pa-head">
+    <div class="pa-stats">
+      <label class="pa-stat">Revenu mensuel net du foyer
+        <input class="cin" type="number" id="paRevenu" value="4016" min="0" step="50"></label>
+      <div class="pa-stat">Mensualité max (35 %)
+        <div class="pa-stat-val" id="paMens">—</div></div>
+      <label class="pa-stat">Durée du prêt (années)
+        <input class="cin" type="number" id="paDuree" value="25" min="5" max="35" step="1"></label>
+    </div>
+  </div>
+
+  <div class="cc">
+    <h3 id="paT1Titre">Impact des taux sur le prix d'achat</h3>
+    <div class="pa-legend"><span class="pa-lg-year"></span><span class="pa-lg-taux">Taux</span><span class="pa-lg-prix">Prix d'achat finançable</span></div>
+    <div id="paT1"></div>
+    <div class="crow ctotal" style="margin-top:8px"><span>Coût total d'acquisition (aujourd'hui, crédit compris)</span><b id="paCout">—</b></div>
+  </div>
+
+  <div class="cc">
+    <h3 id="paT2Titre">Impact des taux sur le revenu requis</h3>
+    <div class="pa-legend"><span class="pa-lg-year"></span><span class="pa-lg-taux">Taux</span><span class="pa-lg-prix">Revenu net requis</span></div>
+    <div id="paT2"></div>
+  </div>
+
+  <div class="cc">
+    <p class="cnote">Lecture : à revenu égal, la hausse des taux depuis 2022 a retiré plusieurs dizaines de milliers d'euros de budget aux acquéreurs — attendre un retour des prix « d'avant » revient souvent à payer plus cher en mensualités. Calcul à 35 % d'effort, hors assurance, apport et frais. Simulation indicative et non engageante pour l'agence.</p>
+    <div class="pill-row no-print" style="margin-top:10px">
+      <button class="btn-s" type="button" data-print-tool="profil">🖨 Imprimer</button>
+      <button class="btn-s" type="button" data-mail-tool="profil">✉️ Envoyer par e-mail</button>
     </div>
   </div>
 </div>
