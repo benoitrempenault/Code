@@ -1147,9 +1147,23 @@ function buildProfilRows(){
     inp.addEventListener('input', function(){
       var v = parseFloat(inp.value);
       if (isFinite(v) && v >= 0) PA_RATES[+inp.dataset.pa].taux = v;
+      if (+inp.dataset.pa === 0) syncRevenuFromPrix();
       calcProfil();
     });
   });
+}
+
+/* Prix et revenu du foyer sont liés : l'un se déduit de l'autre au taux
+   « Aujourd'hui » et à la durée choisie (effort de 35 %). */
+function syncRevenuFromPrix(){
+  var mois = Math.max(1, Math.floor(num('paDuree'))) * 12;
+  var rev = paMensualite(num('paPrix'), PA_RATES[0].taux, mois) / 0.35;
+  document.getElementById('paRevenu').value = Math.round(rev);
+}
+function syncPrixFromRevenu(){
+  var mois = Math.max(1, Math.floor(num('paDuree'))) * 12;
+  var cap = paCapacite(num('paRevenu') * 0.35, PA_RATES[0].taux, mois);
+  document.getElementById('paPrix').value = Math.round(cap);
 }
 
 function calcProfil(){
@@ -1227,7 +1241,9 @@ var TOOL_TITLES = { notaire: 'Frais de notaire', pv: 'Plus-value immobilière', 
 document.addEventListener('DOMContentLoaded', function(){
   if (!document.getElementById('tool-profil')) return;
   buildProfilRows();
-  ['paPrix', 'paRevenu', 'paDuree'].forEach(function(id){ document.getElementById(id).addEventListener('input', calcProfil); });
+  document.getElementById('paPrix').addEventListener('input', function(){ syncRevenuFromPrix(); calcProfil(); });
+  document.getElementById('paRevenu').addEventListener('input', function(){ syncPrixFromRevenu(); calcProfil(); });
+  document.getElementById('paDuree').addEventListener('input', function(){ syncRevenuFromPrix(); calcProfil(); });
   calcProfil();
   document.querySelectorAll('[data-print-tool]').forEach(function(b){
     b.addEventListener('click', function(){
