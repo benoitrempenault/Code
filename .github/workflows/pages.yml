@@ -50,7 +50,7 @@ jobs:
           cp -r mandat/assets/* _site/mandat/assets/
           # Studio Mandat marque blanche (paramétrage agence) sous /mandat-pro/
           mkdir -p _site/mandat-pro/assets
-          cp mandat-pro/index.html mandat-pro/fiche.html mandat-pro/brochure.html mandat-pro/compte.html mandat-pro/favicon.svg _site/mandat-pro/
+          cp mandat-pro/index.html mandat-pro/fiche.html mandat-pro/brochure.html mandat-pro/compte.html mandat-pro/formation.html mandat-pro/favicon.svg _site/mandat-pro/
           cp -r mandat-pro/assets/* _site/mandat-pro/assets/
           # Page de présentation Studio Mandat sous /site-mandat/
           mkdir -p _site/site-mandat/assets
@@ -92,7 +92,7 @@ jobs:
           mkdir -p _commercial/assets && cp -r site-mandat/assets/* _commercial/assets/
           # L'app (ex mandat-pro) sous /app
           mkdir -p _commercial/app/assets
-          cp mandat-pro/index.html mandat-pro/fiche.html mandat-pro/brochure.html mandat-pro/compte.html mandat-pro/favicon.svg _commercial/app/
+          cp mandat-pro/index.html mandat-pro/fiche.html mandat-pro/brochure.html mandat-pro/compte.html mandat-pro/formation.html mandat-pro/favicon.svg _commercial/app/
           cp -r mandat-pro/assets/* _commercial/app/assets/
           # Brochure seule (ex pro) sous /brochure
           mkdir -p _commercial/brochure/assets

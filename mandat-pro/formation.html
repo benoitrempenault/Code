@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob: data:; connect-src 'self' https://kadimmo-ia.onrender.com http://localhost:3999 https://fonts.googleapis.com https://fonts.gstatic.com" />
+  <title>Studio Brochure — Formation &amp; Documents</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <meta name="description" content="L'école du conseiller : assistant dossier de vente document par document, fiches méthode, quiz et entraînement IA." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/app.css?v=6" />
+  <style>
+/* ===== Onglet Formation & Documents — habillage Studio Brochure (sombre) ===== */
+.fd-wrap { max-width: 980px; margin: 0 auto; padding: 22px 18px 70px; }
+.fd-nav { display: flex; gap: 0; margin-bottom: 1.5rem; background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 12px; overflow: hidden; }
+.fd-nav button { flex: 1; padding: 12px; border: none; background: transparent; cursor: pointer; font: inherit; font-size: 14px; font-weight: 500; color: var(--ui-muted); transition: all .15s; }
+.fd-nav button:hover { color: var(--ui-text); }
+.fd-nav button.active { background: var(--ui-accent); color: var(--ui-accent-ink); font-weight: 600; }
+.section { display: none; } .section.active { display: block; }
+h1, .fh .ft, .dh1 { font-family: "Fraunces", Georgia, serif; font-weight: 550; }
+
+/* ---------- Formation : fiches ---------- */
+.ftabs { display: flex; gap: 0; margin-bottom: 1.25rem; background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 9px; overflow: hidden; width: fit-content; }
+.ftab { padding: 8px 20px; border: none; background: transparent; cursor: pointer; font: inherit; font-size: 14px; color: var(--ui-muted); font-weight: 500; }
+.ftab.active { background: var(--ui-accent); color: var(--ui-accent-ink); font-weight: 600; }
+.modnav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 1.25rem; }
+.modbtn { padding: 7px 14px; border: 1px solid var(--ui-line); border-radius: 8px; background: var(--ui-panel); cursor: pointer; font: inherit; font-size: 13px; color: var(--ui-muted); font-weight: 500; }
+.modbtn:hover { color: var(--ui-text); border-color: var(--ui-accent); }
+.modbtn.active { background: var(--ui-accent); color: var(--ui-accent-ink); border-color: var(--ui-accent); font-weight: 600; }
+.fiche { display: none; } .fiche.active { display: block; }
+.fh { margin-bottom: 1.5rem; }
+.fh .ft { font-size: 23px; margin-bottom: 4px; }
+.fh .fs { font-size: 14px; color: var(--ui-muted); }
+.cc { background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; }
+.cc h3 { font-size: 12px; font-weight: 600; color: var(--ui-accent); text-transform: uppercase; letter-spacing: .07em; margin: 0 0 12px; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { background: var(--ui-panel-2); border: 1px solid var(--ui-line); border-radius: 6px; padding: 4px 10px; font-size: 13px; }
+.tagh { background: rgba(194,163,107,.14); border-color: rgba(194,163,107,.45); color: #dcc394; font-weight: 500; }
+.kp { border-left: 3px solid var(--ui-accent); padding: 10px 14px; background: var(--ui-panel-2); border-radius: 0 8px 8px 0; margin: 8px 0; font-size: 14px; line-height: 1.6; }
+.kpw { border-left-color: #e2b563; background: rgba(226,181,99,.09); }
+.kps { border-left-color: #8fbf72; background: rgba(143,191,114,.09); }
+.slist { list-style: none; counter-reset: s; padding: 0; margin: 0; }
+.slist li { counter-increment: s; display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--ui-line); font-size: 14px; line-height: 1.5; }
+.slist li:last-child { border-bottom: none; }
+.slist li::before { content: counter(s); min-width: 22px; height: 22px; background: rgba(194,163,107,.16); color: var(--ui-accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0; margin-top: 1px; }
+.blist { list-style: none; padding: 0; margin: 0; }
+.blist li { padding: 7px 0; border-bottom: 1px solid var(--ui-line); font-size: 14px; display: flex; align-items: flex-start; gap: 8px; line-height: 1.5; }
+.blist li:last-child { border-bottom: none; }
+.blist li::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--ui-accent); flex-shrink: 0; margin-top: 7px; }
+.qb { font-style: italic; color: #cfc9bd; border: 1px solid var(--ui-line); border-radius: 8px; padding: 12px 16px; font-size: 14px; line-height: 1.6; margin: 8px 0; background: var(--ui-panel-2); }
+.mg { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px; }
+.mc { border: 1px solid var(--ui-line); border-radius: 8px; padding: 12px; font-size: 13px; }
+.mcf { border: 2px solid var(--ui-accent); background: rgba(194,163,107,.09); }
+.mc .mt { font-weight: 600; margin-bottom: 8px; }
+.mcf .mt { color: var(--ui-accent); }
+.aqg { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.aqr { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; }
+.aqa { background: rgba(120,180,90,.13); } .aqb { background: rgba(226,181,99,.11); } .aqc { background: rgba(220,90,82,.12); }
+.aqr .al { font-size: 16px; font-weight: 600; min-width: 20px; }
+.aqa .al { color: #9ecf84; } .aqb .al { color: #e2b563; } .aqc .al { color: #ff9c9c; }
+.aqa span { color: #b9dca7; font-size: 13px; } .aqb span { color: #ecc98b; font-size: 13px; } .aqc span { color: #f4b6b1; font-size: 13px; }
+
+/* ---------- Quiz ---------- */
+.qlev { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1rem; }
+.lvbtn { padding: 9px 20px; border: 1.5px solid var(--ui-line); border-radius: 8px; background: var(--ui-panel); cursor: pointer; font: inherit; font-size: 14px; font-weight: 500; color: var(--ui-muted); }
+.lvbtn.ld { border-color: #8fbf72; background: rgba(143,191,114,.13); color: #9ecf84; }
+.lvbtn.li { border-color: var(--ui-accent); background: rgba(194,163,107,.14); color: var(--ui-accent); }
+.lvbtn.la { border-color: #d97b73; background: rgba(220,90,82,.12); color: #ff9c9c; }
+.qthm { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 1.25rem; }
+.thbtn { padding: 6px 13px; border: 1px solid var(--ui-line); border-radius: 7px; background: var(--ui-panel); cursor: pointer; font: inherit; font-size: 13px; color: var(--ui-muted); }
+.thbtn:hover { color: var(--ui-text); border-color: var(--ui-accent); }
+.thbtn.active { background: var(--ui-accent); color: var(--ui-accent-ink); border-color: var(--ui-accent); font-weight: 600; }
+.btn-p { padding: 11px 22px; border: none; border-radius: 9px; background: var(--ui-accent); color: var(--ui-accent-ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.btn-p:hover { filter: brightness(1.07); }
+.btn-s { padding: 10px 18px; border: 1px solid var(--ui-line); border-radius: 9px; background: var(--ui-panel-2); color: var(--ui-text); font: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer; }
+.btn-s:hover { border-color: var(--ui-accent); }
+.qq { background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; }
+.qn { font-size: 11px; font-weight: 600; color: var(--ui-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+.qt { font-size: 15px; font-weight: 600; margin-bottom: 14px; line-height: 1.5; }
+.qopts { display: flex; flex-direction: column; gap: 6px; }
+.qopt { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--ui-line); border-radius: 8px; cursor: pointer; font-size: 14px; line-height: 1.4; background: var(--ui-panel-2); }
+.qopt:hover { border-color: var(--ui-accent); }
+.qopt.sel { border-color: var(--ui-accent); background: rgba(194,163,107,.12); }
+.qopt.ok { border-color: #8fbf72; background: rgba(143,191,114,.13); color: #b9dca7; font-weight: 500; }
+.qopt.ko { border-color: #d97b73; background: rgba(220,90,82,.12); color: #f4b6b1; }
+.qopt input[type=radio] { margin-top: 2px; accent-color: var(--ui-accent); flex-shrink: 0; }
+.qfb { font-size: 13px; margin-top: 10px; padding: 9px 12px; border-radius: 8px; line-height: 1.5; display: none; }
+.qfb.ok { background: rgba(143,191,114,.13); color: #b9dca7; display: block; }
+.qfb.ko { background: rgba(220,90,82,.12); color: #f4b6b1; display: block; }
+.score { text-align: center; padding: 2rem; background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 12px; margin-bottom: 1.5rem; }
+.snum { font-size: 52px; font-weight: 700; color: var(--ui-accent); font-family: "Fraunces", Georgia, serif; }
+.slbl { font-size: 14px; color: var(--ui-muted); margin-top: 6px; line-height: 1.6; }
+.lbadge { display: inline-block; padding: 3px 10px; border-radius: 5px; font-size: 12px; font-weight: 600; margin-bottom: .75rem; }
+.lbd { background: rgba(143,191,114,.15); color: #9ecf84; }
+.lbi { background: rgba(194,163,107,.16); color: var(--ui-accent); }
+.lba { background: rgba(220,90,82,.14); color: #ff9c9c; }
+
+/* ---------- Entraînement IA ---------- */
+.tchat { display: flex; flex-direction: column; gap: 10px; background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 10px; padding: 14px; min-height: 260px; max-height: 420px; overflow-y: auto; margin-bottom: 10px; }
+.tmsg { max-width: 80%; padding: 9px 13px; border-radius: 12px; font-size: 14px; line-height: 1.45; }
+.tme { align-self: flex-end; background: var(--ui-accent); color: var(--ui-accent-ink); border-bottom-right-radius: 3px; }
+.tclient { align-self: flex-start; background: var(--ui-panel-2); color: var(--ui-text); border: 1px solid var(--ui-line); border-bottom-left-radius: 3px; }
+.tstatus { font-size: 13px; color: var(--ui-muted); min-height: 18px; margin-bottom: 8px; font-style: italic; }
+.tbar { display: flex; gap: 8px; align-items: center; }
+.tmic { width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--ui-line); background: var(--ui-panel-2); color: var(--ui-text); font-size: 20px; cursor: pointer; flex-shrink: 0; }
+.tmic.rec { background: #c0392b; border-color: #c0392b; animation: tpulse 1.2s infinite; }
+@keyframes tpulse { 50% { opacity: .55; } }
+.tinput { flex: 1; padding: 11px 12px; border: 1px solid var(--ui-line); border-radius: 8px; font-size: 14px; font-family: inherit; min-width: 0; background: var(--ui-field, var(--ui-panel-2)); color: var(--ui-text); }
+.tinput:focus { outline: none; border-color: var(--ui-accent); }
+.tsel { padding: 9px 10px; border: 1px solid var(--ui-line); border-radius: 8px; font-size: 14px; background: var(--ui-panel-2); color: var(--ui-text); font-family: inherit; }
+.tgroup { margin-bottom: 1rem; }
+.tgt { font-size: 12px; font-weight: 600; color: var(--ui-muted); text-transform: uppercase; margin-bottom: 8px; letter-spacing: .05em; }
+.tcoach { align-self: stretch; max-width: 100%; background: rgba(194,163,107,.1); border: 1px solid rgba(194,163,107,.4); color: #dcc394; border-radius: 10px; padding: 9px 13px; font-size: 13px; line-height: 1.45; }
+.thint { align-self: stretch; max-width: 100%; background: rgba(120,150,200,.1); border: 1px dashed rgba(140,170,210,.45); color: #a9c3e8; border-radius: 10px; padding: 9px 13px; font-size: 13px; font-style: italic; }
+.tbadge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; font-size: 13px; border: 1px solid var(--ui-line); background: var(--ui-panel); margin: 0 6px 6px 0; }
+.tbadge.won { background: rgba(143,191,114,.13); border-color: #8fbf72; color: #9ecf84; font-weight: 600; }
+.tbadge.locked { opacity: .45; }
+
+/* ---------- Module Documents (assistant) ---------- */
+.deyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--ui-accent); font-weight: 600; }
+.dmuted { color: var(--ui-muted); } .dsmall { font-size: 13px; }
+.dh1 { font-size: 23px; margin: .35em 0 .4em; }
+.dh2 { font-size: 17px; font-weight: 600; }
+.dcard { background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 12px; padding: 18px; }
+.dbtn { display: inline-flex; align-items: center; gap: 7px; border: none; border-radius: 8px; padding: 9px 16px; font: inherit; font-weight: 600; font-size: 14px; background: var(--ui-accent); color: var(--ui-accent-ink); cursor: pointer; }
+.dbtn:hover { filter: brightness(1.07); }
+.dbtn.secondary { background: var(--ui-panel-2); color: var(--ui-text); border: 1px solid var(--ui-line); }
+.dbtn.secondary:hover { border-color: var(--ui-accent); }
+.dbtn.ghost { background: none; color: var(--ui-text); border: 1px solid var(--ui-line); }
+.dbtn.sm { padding: 6px 11px; font-size: 13px; }
+.dbtn:disabled { opacity: .45; cursor: default; }
+.dbadge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+.dbadge.oblig { background: rgba(220,90,82,.14); color: #ff9c9c; }
+.dbadge.reco { background: rgba(143,191,114,.14); color: #9ecf84; }
+.dbadge.zone { background: rgba(226,181,99,.13); color: #e2b563; }
+.dchip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; border-radius: 999px; background: var(--ui-panel-2); border: 1px solid var(--ui-line); font-size: 12px; color: var(--ui-muted); }
+.pill-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.wizard-progress { height: 6px; border-radius: 3px; background: var(--ui-panel-2); margin: 12px 0 22px; overflow: hidden; }
+.wizard-progress i { display: block; height: 100%; background: var(--ui-accent); border-radius: 3px; transition: width .3s ease; }
+.opt-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 16px; }
+.opt { background: var(--ui-panel); border: 1.5px solid var(--ui-line); border-radius: 11px; padding: 15px; text-align: left; cursor: pointer; transition: border-color .15s; font: inherit; color: var(--ui-text); }
+.opt:hover { border-color: var(--ui-accent); }
+.opt.selected { border-color: var(--ui-accent); background: rgba(194,163,107,.1); box-shadow: inset 0 0 0 1px var(--ui-accent); }
+.opt .opt-ico { font-size: 24px; display: block; margin-bottom: 7px; }
+.opt .opt-t { font-weight: 700; display: block; margin-bottom: 3px; }
+.opt .opt-d { font-size: 12.5px; color: var(--ui-muted); display: block; }
+.wizard-nav { display: flex; justify-content: space-between; margin-top: 24px; gap: 10px; }
+.gauge-wrap { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.gauge { width: 90px; height: 90px; flex-shrink: 0; }
+.gauge text { font: 700 17px "Inter", sans-serif; fill: var(--ui-text); }
+.src-group { margin-top: 22px; }
+.src-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.src-ico { width: 36px; height: 36px; border-radius: 8px; background: var(--ui-panel-2); border: 1px solid var(--ui-line); display: flex; align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0; }
+.src-conseil { font-size: 12.5px; color: var(--ui-muted); margin: 2px 0 10px; padding-left: 46px; }
+.ddoc { display: flex; gap: 12px; align-items: flex-start; background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; }
+.ddoc.done { opacity: .55; }
+.ddoc.done .ddoc-t { text-decoration: line-through; }
+.ddoc input[type=checkbox] { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--ui-accent); flex-shrink: 0; }
+.ddoc-t { font-weight: 600; cursor: pointer; }
+.ddoc-d { font-size: 13px; color: var(--ui-muted); margin-top: 1px; }
+.ddoc-meta { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 7px; }
+.ddoc-astuce { font-size: 12.5px; background: rgba(194,163,107,.08); border-left: 3px solid var(--ui-accent); padding: 7px 11px; border-radius: 0 7px 7px 0; margin-top: 8px; }
+.ddoc-astuce b { color: var(--ui-accent); }
+.dfb { border-radius: 10px; padding: 11px 14px; font-size: 14px; }
+.dfb.good { background: rgba(143,191,114,.13); color: #b9dca7; }
+
+
+/* ---------- Profil acquéreur ---------- */
+.pa-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pa-dot { color: var(--ui-accent); }
+.pa-prix-wrap { display: inline-flex; align-items: center; gap: 6px; color: var(--ui-accent); }
+.pa-prix-in { width: 150px; font-size: 19px; font-weight: 600; color: var(--ui-accent); text-align: right; margin-top: 0; }
+.pa-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 700px) { .pa-stats { grid-template-columns: 1fr; } }
+.pa-stat { font-size: 12px; font-weight: 600; color: var(--ui-muted); text-transform: uppercase; letter-spacing: .05em; text-align: center; }
+.pa-stat .cin { margin-top: 6px; text-align: center; font-size: 17px; font-weight: 600; color: var(--ui-accent); }
+.pa-stat-val { margin-top: 6px; padding: 9px 11px; border: 1px solid var(--ui-line); border-radius: 8px; background: var(--ui-panel-2); font-size: 17px; font-weight: 600; color: var(--ui-accent); }
+.pa-legend { display: flex; gap: 8px; font-size: 11px; color: var(--ui-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+.pa-lg-year { width: 92px; flex-shrink: 0; } .pa-lg-taux { width: 84px; flex-shrink: 0; }
+.parow { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; font-size: 13px; }
+.pa-year { width: 92px; flex-shrink: 0; color: var(--ui-muted); }
+.pa-now .pa-year { color: var(--ui-text); font-weight: 600; }
+.pa-taux-cell { width: 84px; flex-shrink: 0; }
+.pa-taux-cell .cin { padding: 6px 8px; text-align: right; font-variant-numeric: tabular-nums; margin-top: 0; }
+.pa-taux-txt { text-align: right; font-variant-numeric: tabular-nums; color: var(--ui-text); padding-right: 8px; }
+.pa-bar-zone { flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.pa-taux-bar, .pa-prix-bar, .pa-rev-box { display: flex; align-items: center; border-radius: 6px; height: 30px; padding: 0 10px; font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12.5px; }
+.pa-taux-bar { background: rgba(220,90,82,.28); color: #ffb4ad; }
+.pa-prix-bar { background: var(--ui-accent); color: var(--ui-accent-ink); font-weight: 600; justify-content: flex-end; }
+.pa-prix-bar.pa-fixed { flex: 1; }
+.pa-rev-box { background: var(--ui-panel); border: 1px solid var(--ui-line); color: var(--ui-text); font-weight: 600; }
+.pa-now .pa-prix-bar { box-shadow: 0 0 0 1.5px var(--ui-accent); }
+
+/* ---------- Impression : liste des documents en clair ---------- */
+@media print {
+  @page { size: A4; margin: 0; } /* supprime l'horodatage et l'URL ajoutés par le navigateur */
+  body { background: #fff !important; color: #111 !important; padding: 13mm 12mm; }
+  .topbar, .fd-nav, .no-print, #section-formation, .ftabs { display: none !important; }
+  body:not([data-print="tools"]) #section-fd-docs { display: block !important; }
+  body[data-print="tools"] #section-fd-docs { display: none !important; }
+  body[data-print="tools"] #section-fd-tools { display: block !important; }
+  body[data-print="tools"] .cc { background: #fff; border-color: #bbb; }
+  body[data-print="tools"] .cc h3 { color: #8a6a3c; }
+  body[data-print="tools"] .clab, body[data-print="tools"] .crow b, body[data-print="tools"] .fh .ft,
+  body[data-print="tools"] .pa-taux-txt, body[data-print="tools"] .pa-year, body[data-print="tools"] .qopt { color: #111; }
+  body[data-print="tools"] .crow span, body[data-print="tools"] .cnote, body[data-print="tools"] .fh .fs,
+  body[data-print="tools"] .pa-legend, body[data-print="tools"] .tgt, body[data-print="tools"] .pa-stat { color: #555; }
+  body[data-print="tools"] .cin, body[data-print="tools"] .pa-rev-box, body[data-print="tools"] .thbtn { background: #fff; color: #111; border-color: #bbb; }
+  body[data-print="tools"] .crow.ctotal b, body[data-print="tools"] .pa-prix-in, body[data-print="tools"] .pa-prix-wrap,
+  body[data-print="tools"] .pa-stat-val { color: #8a6a3c; }
+  body[data-print="tools"] .pa-stat-val { background: #fff; border-color: #bbb; }
+  body[data-print="tools"] .pa-prix-bar { background: #8a6a3c; color: #fff; }
+  body[data-print="tools"] .pa-taux-bar { background: #f3c1bc; color: #7a2e28; }
+  body[data-print="tools"] .thbtn.active { background: #8a6a3c; color: #fff; border-color: #8a6a3c; }
+  body[data-print="tools"] .crow.ctotal { border-top-color: #8a6a3c; }
+  .fd-wrap { max-width: none; padding: 0; }
+  .dcard, .ddoc { background: #fff; border-color: #bbb; color: #111; box-shadow: none; page-break-inside: avoid; }
+  .ddoc-t, .dh1, .dh2 { color: #111; }
+  .ddoc-d, .src-conseil, .dmuted, .dchip { color: #444; }
+  .dchip, .src-ico { background: #f2f2f2; border-color: #ccc; }
+  .ddoc-astuce { background: #f7f3ea; color: #333; }
+  .ddoc-astuce b { color: #8a6a3c; }
+  .deyebrow { color: #8a6a3c; }
+  .dbadge.oblig { background: #f7e3e1; color: #a33b34; }
+  .dbadge.reco { background: #e2efe6; color: #2a704a; }
+  .dbadge.zone { background: #f5ecd8; color: #8f6a14; }
+  .gauge text { fill: #111; }
+}
+@media (max-width: 700px) { .mg { grid-template-columns: 1fr; } }
+
+/* ---------- Outils de calcul ---------- */
+[hidden] { display: none !important; }
+.ctab { padding: 8px 20px; border: none; background: transparent; cursor: pointer; font: inherit; font-size: 14px; color: var(--ui-muted); font-weight: 500; }
+.ctab.active { background: var(--ui-accent); color: var(--ui-accent-ink); font-weight: 600; }
+.ctool { display: none; } .ctool.active { display: block; }
+.cgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+@media (max-width: 820px) { .cgrid { grid-template-columns: 1fr; } }
+.clab { display: block; font-size: 13px; font-weight: 500; color: var(--ui-text); margin-bottom: 12px; }
+.cin { width: 100%; margin-top: 5px; padding: 9px 11px; border: 1px solid var(--ui-line); border-radius: 8px; background: var(--ui-field, var(--ui-panel-2)); color: var(--ui-text); font: inherit; font-size: 14px; }
+.cin:focus { outline: none; border-color: var(--ui-accent); }
+.ccheck { display: flex; gap: 9px; align-items: flex-start; font-weight: 400; line-height: 1.5; margin-top: 12px; }
+.ccheck input { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--ui-accent); flex-shrink: 0; }
+.cres { display: flex; flex-direction: column; }
+.crow { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--ui-line); font-size: 13.5px; }
+.crow:last-of-type { border-bottom: none; }
+.crow span { color: var(--ui-muted); }
+.crow b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.crow.ctotal { border-top: 2px solid var(--ui-accent); border-bottom: none; margin-top: 4px; padding-top: 12px; font-size: 15px; }
+.crow.ctotal span { color: var(--ui-text); font-weight: 600; }
+.crow.ctotal b { color: var(--ui-accent); font-size: 19px; font-family: "Fraunces", Georgia, serif; }
+.crow.csub b { color: var(--ui-text); }
+.cok { color: #9ecf84; } .cko { color: #ff9c9c; }
+.cnote { font-size: 12px; color: var(--ui-muted); line-height: 1.55; margin: 10px 0 0; }
+.cnote-inline { font-weight: 400; color: var(--ui-muted); font-size: 11.5px; }
+  </style>
+</head>
+<body>
+  <header class="topbar" id="topbar">
+    <div class="topbar__brand">
+      <span class="topbar__mark"><img alt="" id="topbarLogo" /></span>
+      <div>
+        <strong>Studio&nbsp;Brochure</strong>
+        <small id="topbarSubtitle">Formation &amp; Documents</small>
+      </div>
+    </div>
+    <div class="topbar__actions">
+      <a class="btn btn--ghost" href="index.html" title="Retour à l'accueil" style="text-decoration:none">⌂ Accueil</a>
+    </div>
+  </header>
+
+  <main class="fd-wrap">
+    <div class="fd-nav">
+      <button class="active" data-sec="docs" type="button">Documents vendeur</button>
+      <button data-sec="formation" type="button">Formation</button>
+      <button data-sec="tools" type="button">Outils de calcul</button>
+    </div>
+
+    <div id="section-fd-docs" class="section active"><div id="docsApp"></div></div>
+
+<div id="section-formation" class="section">
+<div class="ftabs">
+  <button class="ftab active" onclick="showFTab(&#39;fiches&#39;,this)">Fiches</button>
+  <button class="ftab" onclick="showFTab(&#39;quiz&#39;,this)">Quiz</button>
+  <button class="ftab" onclick="showFTab(&#39;train&#39;,this)">Entraînement</button>
+</div>
+
+<div id="f-fiches">
+<div class="modnav">
+  <button class="modbtn active" onclick="showMod(&#39;prospection&#39;,this)">Prospection</button>
+  <button class="modbtn" onclick="showMod(&#39;r1&#39;,this)">Rendez-vous R1</button>
+  <button class="modbtn" onclick="showMod(&#39;mandat&#39;,this)">Mandat confiance</button>
+  <button class="modbtn" onclick="showMod(&#39;acquereur&#39;,this)">Découverte acquéreur</button>
+  <button class="modbtn" onclick="showMod(&#39;r2&#39;,this)">R2 &amp; Close</button>
+  <button class="modbtn" onclick="showMod(&#39;bilan&#39;,this)">Bilan de promotion</button>
+</div>
+
+<div class="fiche active" id="mod-prospection">
+  <div class="fh"><div class="ft">La prospection</div><div class="fs">Passer d'une prospection de chasseur à une prospection de cultivateur</div></div>
+  <div class="cc"><h3>Philosophie</h3>
+    <div class="kp">Ne pas se poser de questions — aucune barrière. Tous les prospects ont des informations à transmettre : pour les avoir, une chose essentielle, les rencontrer.</div>
+    <div class="kp kps">CR² : être <strong>C</strong>onnu et <strong>R</strong>econnu / <strong>C</strong>onnu et <strong>R</strong>ecommandé</div>
+    <div class="kp kpw">« Le succès est le fruit de la persévérance. » Ne sauter aucune maison — pas de sonnette = les occupants acceptent qu'on entre sur la propriété.</div>
+  </div>
+  <div class="cc"><h3>Objectifs de la prospection</h3>
+    <ul class="blist"><li>Meilleure connaissance du secteur — être connu et reconnu</li><li>Organisation optimum et travail plus efficient</li><li>Obtenir davantage d'informations, alimenter la base de données</li><li>Meilleur suivi des prospects, discours personnalisés</li><li>Être en amont des futurs projets</li><li>Fidélisation des prospects</li><li>Devenir le leader du secteur !</li></ul>
+  </div>
+  <div class="cc"><h3>Les 10 techniques de prospection</h3>
+    <ol class="slist"><li>Phoning — nouveaux clients, suivi mailing</li><li>Boîtage — mailing de masse ou ciblé</li><li>Réseaux sociaux &amp; relationnels</li><li>Pige — appeler sur annonces PAP</li><li>Emailing — événements, vœux, anniversaires</li><li>100 premiers contacts — entourage, anciens clients</li><li>Porte à porte</li><li>SMS — base clients</li><li>Farming — événements locaux, crémaillères</li><li>Commerçants</li></ol>
+  </div>
+  <div class="cc"><h3>Comportement START</h3>
+    <div class="tags"><span class="tag tagh">S — Sourire</span><span class="tag tagh">T — Tenue soignée</span><span class="tag tagh">A — Attitude positive</span><span class="tag tagh">R — Regard non fuyant</span><span class="tag tagh">T — Ton engagé</span></div>
+    <div class="kp kpw" style="margin-top:10px">Les 8 premières secondes, les 8 premiers gestes, les 8 premiers mots sont décisifs.</div>
+  </div>
+  <div class="cc"><h3>Sur le terrain — porte à porte</h3>
+    <ul class="blist"><li>Outils : application du conseiller, discours préparé, stylo, pochette sous-main, cartes de visite, « justes un mot », polo, cahier des infos</li><li>Un seul message à la fois — l'accroche est décisive : « Vous allez sûrement pouvoir m'aider… »</li><li>Être QIPM : Quels Intérêts Pour Moi — avant chaque action</li><li>Créer un lien avec le nom : « Bonjour Monsieur X » (appli du conseiller ou boîte aux lettres)</li><li>Interpeler les promeneurs — ils habitent forcément le quartier</li><li>À chaque contact, une carte de visite ; remplir le cahier des infos</li><li>Toute personne a des infos (locataires, mineurs…) — questionner et s'intéresser</li><li>Boîtage essentiellement si absence de réponse</li></ul>
+    <div class="qb">« Juste un mot » pour les maisons vides : « Bonjour, suite à de nombreuses demandes dans votre quartier, je suis en recherche active de maison. Si vous souhaitez vendre ou faire estimer votre bien, n'hésitez pas à me contacter. »</div>
+  </div>
+  <div class="cc"><h3>Application du conseiller</h3>
+    <ul class="blist"><li>Se positionner sur la rue prospectée (barre de recherche d'adresse)</li><li>Point blanc = contact non renseigné dans CenturyNet · Point jaune = contact renseigné</li><li>M = mandat rentré par l'agence · V = vente réalisée · E = estimation réalisée</li><li>Le point jaune donne accès : adresse, synthèse maison, infos prospect, historique des actions</li></ul>
+    <div class="kp kpw">L'historique des actions doit impérativement être lu AVANT l'action : il rappelle la dernière conversation et permet un discours personnalisé.</div>
+  </div>
+  <div class="cc"><h3>Méthode AIDA</h3>
+    <ol class="slist"><li><strong>Attention</strong> — Se vendre soi et son agence, faire parler le prospect</li><li><strong>Intérêt</strong> — Utiliser l'argument qui intéresse vraiment le client</li><li><strong>Désir</strong> — Mettre le prospect en situation de désir anticipé</li><li><strong>Action</strong> — Faire entrer l'interlocuteur dans votre logique</li></ol>
+    <div class="kp" style="margin-top:10px">Scénarios : mots forts et positifs, toujours parler au présent. Objectif du contact : obtenir un RDV si un besoin est détecté, qualifier le prospect sinon.</div>
+  </div>
+  <div class="cc"><h3>Mailings CVendu / CAVendre / adressé</h3>
+    <ul class="blist"><li>Mailing adressé : onglet Prospect → sélectionner le prospect → Imprimer → e-print21 → choisir le mailing</li><li>CVendu / CAVendre : onglet Bien → choisir le bien → Imprimer → cvendu ou cavendre → compléter les champs</li></ul>
+  </div>
+  <div class="cc"><h3>Enregistrement CenturyNet</h3>
+    <ol class="slist"><li>Sélectionner tous les prospects ayant reçu un mailing</li><li>Cliquer sur le bouton Pros+</li><li>Sélectionner l'action menée, le détail, et valider</li></ol>
+  </div>
+  <div class="cc"><h3>La crémaillère (farming)</h3>
+    <ol class="slist"><li><strong>Planifier</strong> avec les nouveaux propriétaires : date, heure, lieu (jardin, maison, rue…)</li><li><strong>J−5</strong> — Déterminer les rues, sortir les invitations, porte à porte en soirée (prendre téléphone + mail, invitation dans la boîte des absents)</li><li><strong>J−3</strong> — Liste boissons/apéritifs, commande fromager et boucher, second porte à porte de confirmation</li><li><strong>Jour J</strong> — Dernières courses, bouquet pour les propriétaires, installation (barnum, tables, ballons…), accueil + présentation du nouveau propriétaire</li><li><strong>J+1</strong> — SMS de remerciements + photos à tous les participants, publication Facebook/Instagram en mentionnant les commerçants</li></ol>
+  </div>
+</div>
+
+<div class="fiche" id="mod-r1">
+  <div class="fh"><div class="ft">Rendez-vous d'estimation — R1</div><div class="fs">20% le conseiller / 80% le client</div></div>
+  <div class="cc"><h3>Préparation</h3>
+    <ul class="blist"><li>Appareil photo + mètre laser — vérifier piles, carte mémoire, batterie : prendre une photo à l'agence avant de partir</li><li>Chaussons neufs, stylo</li><li>Guide R1 imprimé depuis CenturyNet (onglet prospection → contact → imprimer) — vérifier l'orthographe du nom et prénom</li><li>Cadastre avec plan de situation + infos parcelle</li><li>Fiches : découverte vendeurs, découverte du bien, prestations et matériaux</li><li>Googleliser le client + vérifier les voisins dans CenturyNet (anciens clients, estimés, 100 premiers) — montrer qu'on connaît le quartier</li></ul>
+    <div class="kp kpw">« Être à l'heure c'est déjà être en retard »</div>
+  </div>
+  <div class="cc"><h3>Poser le cadre</h3>
+    <div class="qb">« L'estimation va se passer en deux rendez-vous. Aujourd'hui nous allons discuter de votre projet, puis vous allez me présenter votre maison — je vais vous poser beaucoup de questions sur les matériaux, prendre les mesures et des photos techniques pour présenter votre maison à l'équipe. Dans un second temps, à l'agence, nous aborderons le marché, notre manière de commercialiser, et le montant de l'estimation. Est-ce que cela vous convient ? »</div>
+    <ul class="blist"><li>Puis : « Alors, racontez-moi votre projet ? » — laisser parler, questions ouvertes d'abord</li><li>Creuser ensuite avec des questions fermées (construction, date, plans…)</li><li>« Ce que je vous propose, c'est que vous me fassiez découvrir votre maison… on est parti ?! »</li><li>Parler de ses passions : le feeling créé fait souvent le choix de l'agent immobilier</li></ul>
+  </div>
+  <div class="cc"><h3>Squelette : Passé → Présent → Futur</h3>
+    <div class="kp"><strong>Passé :</strong> Où habitait-il ? Pourquoi être venu ici ? Comment s'est passée la précédente vente/acquisition ? Par qui ? Content de cet achat ? Prix d'achat, montant des travaux ? Mandat exclusif ou simple, et pourquoi ? Ce qui a plu ou déplu ?</div>
+    <div class="kp"><strong>Présent :</strong> Autres agences venues ? Seul décisionnaire ? Pourquoi cette estimation ? Idée du prix (cartouche pour l'ACM) ? Craintes ? Points forts/faibles de la maison ? Crédit restant ? Pourquoi notre agence ? Mandat simple ou exclusivité ? Pensez-vous vendre seul ? Si j'ai un client demain, on visite ?</div>
+    <div class="kp"><strong>Futur :</strong> Qu'allez-vous faire si la maison ne se vend pas ? Coût et conséquences de la non-vente ? Où allez-vous ?</div>
+    <div class="kp kps">Premier point sur le projet en arrivant, puis on se rassoit une deuxième fois après le tour de la maison si tout n'est pas pris. Ensuite : photos, guide R1, fixer le R2.</div>
+  </div>
+  <div class="cc"><h3>Comportement CARE</h3>
+    <div class="tags"><span class="tag">C — Curieux</span><span class="tag">A — Attentif</span><span class="tag">R — Rigoureux</span><span class="tag">E — À l'écoute</span></div>
+  </div>
+  <div class="cc"><h3>SONCAS</h3>
+    <div class="tags"><span class="tag tagh">S — Sécurité</span><span class="tag tagh">O — Orgueil</span><span class="tag tagh">N — Nouveauté</span><span class="tag tagh">C — Confort</span><span class="tag tagh">A — Argent</span><span class="tag tagh">S — Sympathie</span></div>
+    <ul class="blist" style="margin-top:10px"><li><strong>Sécurité</strong> — client prudent, à rassurer : agence, garantie d'action, diagnostics, comptes rendus réguliers</li><li><strong>Orgueil</strong> — aime être mis en valeur : service sur-mesure, unique</li><li><strong>Nouveauté</strong> — besoin d'innovation : montrer les nouveaux outils, digitaux ou non</li><li><strong>Confort</strong> — zéro contrainte : plan de com pris en charge, acheteurs qualifiés, suivi compromis → acte</li><li><strong>Argent</strong> — « est-ce que cela vaut le prix ? » : rapport qualité/prix du service</li><li><strong>Sympathie</strong> — le moment passé avec le conseiller doit lui plaire : se rapprocher de ses idéaux</li></ul>
+    <div class="kp" style="margin-top:10px">Le R1 = prise de cartouches pour simplifier le close au R2.</div>
+  </div>
+  <div class="cc"><h3>L'ACM — Analyse Comparative de Marché</h3>
+    <div class="kp kpw">« Le premier qui dit le prix a perdu. » Faire dire le prix au vendeur dès le R1.</div>
+    <div class="kp">Les 3 objectifs de l'outil : faire comprendre le marché au client, faire dire le prix au vendeur, faire accepter le prix.</div>
+    <ol class="slist"><li>Point d'équipe chaque matin — 10 avis professionnels</li><li>Analyse concurrence (biens similaires, prix, délais)</li><li>ACM = photo du marché : ventes &lt;6 mois + en vente + invendus</li></ol>
+    <ul class="blist"><li>Sources : base CenturyNet, ETALAB/DVF (ventes publiées 6-12 mois après l'acte), fichier AMEPI, connaissance du secteur, sites immo (leboncoin, seloger…), espace personnel impôts</li><li>Comparer avec du comparable — attention aux sensibilités de quartier</li><li>L'ACM se présente toujours en <strong>net vendeur</strong></li><li>Présentation : ligne par ligne (en cachant avec une feuille) OU poser un silence et le laisser analyser</li><li>La question : « Où vous positionnez-vous sur cette analyse ? » — puis en fin d'ACM : « Suite à votre idée de X €, êtes-vous satisfait de cette étude ? »</li></ul>
+  </div>
+  <div class="cc"><h3>Après le R1 — le mail type</h3>
+    <ul class="blist"><li>Remercier de l'accueil et de la confiance</li><li>Confirmer la date, l'heure et le lieu du R2 à l'agence</li><li>Annoncer le contenu du R2 : point sur le bien, marché, manière de travailler, estimation</li><li>Joindre la liste des documents à rassembler — pour être réactifs à la rédaction du compromis</li></ul>
+    <div class="kp kps">Après signature : demander un avis Google — « notre plus belle rémunération restera la satisfaction de nos clients ».</div>
+  </div>
+</div>
+
+<div class="fiche" id="mod-mandat">
+  <div class="fh"><div class="ft">Le mandat confiance</div><div class="fs">Une exclusivité d'interlocuteur, pas d'agence</div></div>
+  <div class="cc"><h3>Les 3 types de mandat</h3>
+    <div class="mg">
+      <div class="mc"><div class="mt">Mandat simple ③</div><ul class="blist"><li>Plusieurs agences</li><li>Peut vendre seul</li><li>Suivi limité</li></ul></div>
+      <div class="mc mcf"><div class="mt">Mandat confiance ⑤</div><ul class="blist"><li>Un seul interlocuteur</li><li>AMEPI + C21 + équipe</li><li>Clause 50/50</li><li>Garantie d'action</li></ul></div>
+      <div class="mc"><div class="mt">Mandat exclusif ④</div><ul class="blist"><li>Une seule agence</li><li>Ne peut vendre seul</li><li>Suivi renforcé</li></ul></div>
+    </div>
+  </div>
+  <div class="cc"><h3>Avantages clés</h3>
+    <ul class="blist"><li>Garantie d'action — 11 actions contractuelles ; manquement = le vendeur peut se délier</li><li>Clause 50/50 — vendeur trouve un acheteur seul → agence gère + reverse 50% commission</li><li>Accès à 122 agences AMEPI (CUB) — Laforêt, ERA, Guy Hoquet, Orpi, Square Habitat…</li><li>Pré-commercialisation privée avant mise sur le marché public</li><li>Suivi quotidien + espace mail dédié</li></ul>
+  </div>
+  <div class="cc"><h3>Argument central</h3>
+    <div class="qb">« Par un seul interlocuteur, vous avez accès à l'ensemble des acquéreurs sur votre secteur. »</div>
+    <div class="kp kps">Deux éléments indissociables pour vendre au meilleur prix et dans les délais : la promotion du bien et son prix.</div>
+  </div>
+  <div class="cc"><h3>Promotion et force du réseau</h3>
+    <ul class="blist"><li>Commercialisation sur les 3 sites les plus consultés par les acquéreurs : Century21, A Vendre À Louer, leboncoin</li><li>Vitrine d'angle en plein centre, emplacement stratégique à fort passage</li><li>Réseau de 902 agences en France : clientèle nationale et locale</li><li>10 conseillers à l'agence, dont plusieurs parmi les meilleurs du réseau — chacun relance l'ensemble de ses acquéreurs</li><li>Mise en concurrence des meilleurs acquéreurs (solvabilité, fiabilité) pour obtenir le meilleur prix net vendeur</li></ul>
+    <div class="kp">« Cela explique que nous travaillons à 100 % dans le cadre de ce mandat. »</div>
+  </div>
+  <div class="cc"><h3>La lettre d'estimation</h3>
+    <ul class="blist"><li>Rappeler la méthode : point d'équipe quotidien (10 avis), analyse de la concurrence, ACM</li><li>Donner une <strong>fourchette de valeur vénale en net vendeur</strong></li><li>Annoncer le délai : vente en ~3 mois au prix du marché ; à prix supérieur, délai plus ou moins long selon l'écart</li><li>Annexes : plaquette de présentation, ACM, guide de commercialisation, prestations matériaux C21, plan de commercialisation</li></ul>
+  </div>
+</div>
+
+<div class="fiche" id="mod-acquereur">
+  <div class="fh"><div class="ft">Découverte acquéreur, visite &amp; offre</div><div class="fs">20 à 40 min — il n'y a pas de question interdite</div></div>
+  <div class="cc"><h3>Posture</h3>
+    <div class="kp">Prendre le dessus sur la conversation — c'est le conseiller qui mène la danse. « Racontez-moi tout ! »</div>
+    <div class="kp kps">Les acheteurs d'aujourd'hui sont les vendeurs de demain !</div>
+  </div>
+  <div class="cc"><h3>Questions Passé / Présent</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div><div style="font-size:12px;font-weight:600;color:var(--ui-muted);margin-bottom:8px;text-transform:uppercase">Passé</div><ul class="blist"><li>Déjà acheté ? Par quel intermédiaire ?</li><li>Combien de biens visités ? Pourquoi pas encore ?</li></ul></div>
+      <div><div style="font-size:12px;font-weight:600;color:var(--ui-muted);margin-bottom:8px;text-transform:uppercase">Présent</div><ul class="blist"><li>Pourquoi déménager ? Ce qu'il veut retrouver ?</li><li>Financement : apport, crédit, vente en cours ?</li><li>Besoins : chambres, surface, neuf/ancien ?</li><li>Qui est décisionnaire ? Degré d'urgence ?</li></ul></div>
+    </div>
+  </div>
+  <div class="cc"><h3>Qualification A / B / C</h3>
+    <div class="aqg">
+      <div class="aqr aqa"><span class="al">A</span><span>Sérieux, motivé, désireux et capable d'acheter maintenant</span></div>
+      <div class="aqr aqb"><span class="al">B</span><span>Il manque un critère mineur pour acheter maintenant</span></div>
+      <div class="aqr aqc"><span class="al">C</span><span>Ne peut pas acheter de suite</span></div>
+    </div>
+    <div class="kp" style="margin-top:10px">Constats de fin de découverte : a-t-il les moyens d'acheter maintenant ? Est-il prêt ? Le veut-il vraiment ? Est-il le seul décisionnaire ? — et quel est son SONCAS ?</div>
+  </div>
+  <div class="cc"><h3>Après la découverte</h3>
+    <ul class="blist"><li>Envoi des fiches biens : <strong>3 fiches est le top</strong> → rappel impératif derrière pour débriefer chaque bien et prendre les RDV de visite</li><li>Enregistrer tous les critères dans le logiciel</li></ul>
+    <div class="qb">« Dès qu'une maison correspondant à votre recherche arrive à l'agence, je vous appelle. Nous travaillons essentiellement en exclusivité : les maisons que je vous présenterai seront seulement dans notre agence, et vous serez avertis en amont des biens mis sur le marché. »</div>
+  </div>
+  <div class="cc"><h3>Visite &amp; close</h3>
+    <ul class="blist"><li>RDV à l'agence — bon de visite + une seule voiture, notre véhicule (retour agence forcé, choisir le meilleur trajet)</li><li>L'acquéreur doit partir en tête qu'il ne va pas visiter mais <strong>acheter</strong> une maison</li><li>Parler peu en visite, mais la mener pour éviter la dispersion</li><li>Questions fin de visite : "Vous y voyez-vous ? Comment vous sentez-vous dans cette maison ? Voyez-vous vos enfants grandir ici ?"</li><li>Montrer les diagnostics avant d'aller chercher l'offre</li></ul>
+    <div class="kp kpw">Plus l'acquéreur se positionne tôt, plus il faudra le conforter ensuite.</div>
+  </div>
+  <div class="cc"><h3>Le retour de visite à l'agence</h3>
+    <ul class="blist"><li>Installer les clients dans un bureau calme, sans téléphone ; proposer une boisson</li><li>Prétexte d'aller chercher les dossiers → les laisser échanger seuls sur leur décision</li><li>Provoquer l'intervention d'un collègue qui a besoin des clés pour des clients « très intéressés »</li><li>Balance points positifs/négatifs de chaque bien ; règle des trois biens : faire se positionner</li><li>Faire se projeter (meubles, déco, projet), parler valeur potentielle et revente</li><li>« Est-ce que vous vous y voyez vivre ? Si oui, qu'est-ce qui vous empêcherait de vous positionner ? »</li></ul>
+    <div class="qb">Urgence : « J'ai 8 collègues qui peuvent faire visiter cette maison très rapidement — si une offre au prix est formulée, la maison vous passera sous le nez. »</div>
+    <div class="kp">Closer avec le « on » : « Allez, on y va ! On se positionne ! On fait quoi, on l'achète cette maison ? »</div>
+  </div>
+  <div class="cc"><h3>Process offre</h3>
+    <ol class="slist"><li>Compléter la fiche acquéreur, prendre les créneaux pour la signature du compromis</li><li>Débriefer avec quelqu'un non partie prenante</li><li>RDV vendeurs pour présenter et contre-signer l'offre</li><li>Établir un rétro-planning</li><li>Fixer la date de signature du compromis</li></ol>
+  </div>
+</div>
+
+<div class="fiche" id="mod-r2">
+  <div class="fh"><div class="ft">Le R2 et le close</div><div class="fs">« Vaut mieux closer trop tôt que trop tard »</div></div>
+  <div class="cc"><h3>Préparation du R2</h3>
+    <ul class="blist"><li>Créer : fiche bien, fiche prestations et matériaux, fiche découverte vendeur, guide de com</li><li>Imprimer : dossier R1, Etalab, guide de com, plan de com, note préco, ACM, fiche bien d'un mandat en stock, mandat confiance</li><li>Réviser le R1, anticiper les objections</li><li>Préparer le bureau : bouteille d'eau, café, clim/chauffage, stylo, dossier sous pochette placé face à la vitrine</li></ul>
+  </div>
+  <div class="cc"><h3>Déroulement du R2</h3>
+    <ol class="slist"><li>Café/eau — briser la glace, prendre des nouvelles, voir si changement</li><li>Poser le cadre : fiche bien et matériaux, marché, notre façon de travailler, puis le prix</li><li>Valider ensemble fiche bien + fiche prestations</li><li>Marché et chiffres C21 — le client doit participer au maximum, demander son avis</li><li>Frise des délais de vente + tableau prêt bancaire</li><li>Fiche présentation réseau : l'agence, sa création, son effectif, la synergie du réseau</li><li>Plan de com — « 2 moyens déterminants pour la vente : le prix et les moyens de promotion »</li><li>Pré-close : « Si on est OK sur le prix, on signe le mandat confiance » — planifier la visite marketing</li><li>Signature du mandat confiance</li></ol>
+    <div class="qb">Questions clés : « Comment envisagez-vous cette commercialisation ? Qu'attendez-vous de nous ? » — et pour isoler : « Qu'est-ce qui vous empêcherait de collaborer avec nous ? »</div>
+    <div class="kp">Prendre la température à chaque étape pour prendre les cartouches, faire le point et rayer en conséquence. Trouver l'objection et comprendre pourquoi avant de la traiter.</div>
+  </div>
+  <div class="cc"><h3>Technique de l'entonnoir</h3>
+    <ol class="slist"><li><strong>Accepter</strong> — "Je comprends votre point de vue, c'est vrai…"</li><li><strong>Reformuler</strong> — "Si je comprends bien… c'est bien ça ?"</li><li><strong>Isoler</strong> — "Est-ce la seule chose qui vous gêne ?"</li><li><strong>Pré-closer</strong> — "Si je vous démontre que… vous signez aujourd'hui ?"</li><li><strong>Répondre</strong> — Utiliser les cartouches prises en R1</li><li><strong>Closer</strong> — "Allez, on y va !"</li></ol>
+    <div class="kp kpw">Plus tu closes tôt, plus il faut conforter !</div>
+  </div>
+  <div class="cc"><h3>Les 5 familles d'objections et leurs parades</h3>
+    <ul class="blist"><li><strong>Manque de confiance</strong> — Avis clients, résultats concrets, faire raconter la mauvaise expérience, garantie d'action, assurances de l'agence, comptes rendus fixés de suite, compte extranet</li><li><strong>Excuse</strong> — "Je dois en parler à…", "besoin de réfléchir" → « Est-ce important pour vous ? », questions ouvertes pour découvrir ce qui ne va pas, rappeler le délai de rétractation</li><li><strong>Comparaison</strong> — « Qu'est-ce que vous voulez comparer ? » 8 avis pro, faire jouer le rôle de l'acheteur, clause 50/50, faire visiter est un vrai métier, gain de temps (diagnostics, photos, visites…), aménagement du mandat</li><li><strong>Coût des frais</strong> — Liste des services, détail des honoraires, exemple des autres professions</li><li><strong>Argent ("j'en veux plus")</strong> — Coût de la non-vente, marché réel vs théorique, hypothèse du marché, le sablier, le marchand de biens</li></ul>
+    <div class="kp kps">Mettre le bien à sa juste valeur reste LA bonne stratégie pour vendre — soyez-en convaincu.</div>
+  </div>
+  <div class="cc"><h3>La balance de l'ACM (objection « j'en veux plus »)</h3>
+    <ul class="blist"><li>D'un côté les <strong>vendus</strong>, de l'autre les <strong>invendus</strong> : où veut-il être ?</li><li>Offres = nombre d'annonces en concurrence · Demandes = en hausse ou en baisse vs l'an dernier</li><li>Qualifier le marché : haussier, stable ou baissier — et positionner le prix en conséquence</li></ul>
+  </div>
+  <div class="cc"><h3>Après le mandat — les négociations suivantes</h3>
+    <ul class="blist"><li><strong>Vendre une baisse de prix</strong> — bilan des actions et des chiffres, commentaires des acquéreurs, faire exprimer la raison de la non-vente (le prix), revenir sur l'estimation, le projet et l'urgence, présenter la liste des acquéreurs potentiels → faire signer un <strong>avenant au prix marché</strong></li><li><strong>Passage d'une offre</strong> — coût de la non-vente, historique de la vente (visites, offres), humaniser les acquéreurs et évoquer leur financement, points consentis par l'acquéreur, présenter l'offre sur papier libre en net vendeur… puis <strong>silence !</strong> Si refus : déterminer le prix plancher pour contre-offre ou avenant</li><li><strong>Transformer un mandat simple en exclusif</strong> — radiographie vendeur (maturité du projet), point actions/résultats, demander les résultats de la concurrence et sa propre analyse, RDV de suivi au bon moment. 5 facteurs de la vente : conjoncture, concurrence, moyens de promotion, conditions de présentation, prix</li><li><strong>La pige</strong> — bien se présenter, ne jamais s'excuser, phrases courtes, admettre que beaucoup d'agences appellent, jamais par mail ou SMS, savoir couper court. Techniques : la suite du projet, un client et un mandat de recherche, une vente similaire</li></ul>
+  </div>
+  <div class="cc"><h3>Les 4 accords Toltèques</h3>
+    <ul class="blist"><li>Que votre parole soit impeccable</li><li>Quoi qu'il arrive, ne pas en faire une affaire personnelle</li><li>Ne pas faire de suppositions</li><li>Faire toujours de son mieux</li></ul>
+  </div>
+</div>
+
+<div class="fiche" id="mod-bilan">
+  <div class="fh"><div class="ft">Bilan de promotion</div><div class="fs">Un mandat non vendu = manque de communication OU prix inadapté</div></div>
+  <div class="cc"><h3>Préparation</h3>
+    <ul class="blist"><li>Imprimer le bilan de promotion</li><li>Sortir les chiffres des différents sites</li><li>Ancienne ACM + nouvelle ACM actualisée</li><li>Fiche technique détaillée + estimation initiale</li><li>Préparation mentale</li></ul>
+  </div>
+  <div class="cc"><h3>Déroulement</h3>
+    <ol class="slist"><li>Proposer un café, briser la glace</li><li>Poser le cadre</li><li>Rappel du projet — si modification, ou pour prise de conscience</li><li>Prendre le ressenti sur la commercialisation : « Qu'en pensez-vous ? Souhaitez-vous qu'on modifie des choses ? » — questionnement</li><li>Conclure — deux axes : modification des moyens de promotion OU modification du prix</li></ol>
+    <div class="kp kps">Si les actions ont été réalisées en amont et le suivi fait toutes les semaines, le rendez-vous sera un bon moment pour tout le monde.</div>
+  </div>
+  <div class="cc"><h3>Points clés</h3>
+    <div class="kp kpw">Ne pas attendre pour conseiller une baisse si peu de visites — les concurrents en profiteront.</div>
+    <div class="kp">Fixer les dates de bilan dès la prise de mandat — c'est contractuel.</div>
+    <div class="kp kps">Les bilans permettent de garder la confiance et d'être soudés dans la même aventure.</div>
+  </div>
+</div>
+</div>
+
+<!-- ==== QUIZ ==== -->
+<div id="f-quiz" style="display:none">
+  <div id="qsetup">
+    <p style="font-size:14px;color:var(--ui-muted);margin-bottom:1.25rem">Choisissez un niveau et un thème, puis lancez le quiz.</p>
+    <div style="margin-bottom:1rem">
+      <div style="font-size:12px;font-weight:600;color:var(--ui-muted);text-transform:uppercase;margin-bottom:8px">Niveau de difficulté</div>
+      <div class="qlev">
+        <button class="lvbtn" onclick="setLvl(&#39;d&#39;,this)">🟢 Débutant</button>
+        <button class="lvbtn" onclick="setLvl(&#39;i&#39;,this)">🔵 Intermédiaire</button>
+        <button class="lvbtn" onclick="setLvl(&#39;a&#39;,this)">🔴 Avancé</button>
+      </div>
+    </div>
+    <div style="margin-bottom:1.25rem">
+      <div style="font-size:12px;font-weight:600;color:var(--ui-muted);text-transform:uppercase;margin-bottom:8px">Thème</div>
+      <div class="qthm">
+        <button class="thbtn active" onclick="setThm(&#39;all&#39;,this)">Tous les thèmes</button>
+        <button class="thbtn" onclick="setThm(&#39;prospection&#39;,this)">Prospection</button>
+        <button class="thbtn" onclick="setThm(&#39;r1&#39;,this)">R1</button>
+        <button class="thbtn" onclick="setThm(&#39;mandat&#39;,this)">Mandat</button>
+        <button class="thbtn" onclick="setThm(&#39;acquereur&#39;,this)">Acquéreur</button>
+        <button class="thbtn" onclick="setThm(&#39;r2&#39;,this)">R2 &amp; Close</button>
+        <button class="thbtn" onclick="setThm(&#39;bilan&#39;,this)">Bilan</button>
+      </div>
+    </div>
+    <button class="btn-p" onclick="startQ()">Démarrer le quiz</button>
+  </div>
+  <div id="qplay" style="display:none">
+    <div id="qbadge"></div>
+    <div id="qquestions"></div>
+    <button class="btn-p" onclick="submitQ()" id="qsubmit" style="margin-top:1rem">Valider mes réponses</button>
+  </div>
+</div>
+
+<!-- ==== ENTRAINEMENT ==== -->
+<div id="f-train" style="display:none">
+  <div id="tsetup">
+    <p style="font-size:14px;color:var(--ui-muted);margin-bottom:1rem">Entraînez-vous en conditions réelles : l'IA joue un client, vous jouez le conseiller. Parlez au micro (ou écrivez), puis terminez la session pour recevoir votre débriefing noté.</p>
+    <div id="tbadges" style="margin-bottom:1.25rem"></div>
+    <div class="tgroup"><div class="tgt">Scénario</div>
+      <div class="qthm" id="tscen">
+        <button class="thbtn active" data-v="r1" onclick="tPick(this)">Début de R1</button>
+        <button class="thbtn" data-v="r2" onclick="tPick(this)">R2 — avis de valeur</button>
+        <button class="thbtn" data-v="close" onclick="tPick(this)">Close du mandat</button>
+        <button class="thbtn" data-v="acquereur" onclick="tPick(this)">Découverte acquéreur</button>
+        <button class="thbtn" data-v="bilan" onclick="tPick(this)">Bilan de promotion</button>
+        <button class="thbtn" data-v="offre" onclick="tPick(this)">Passage d'offre</button>
+      </div>
+    </div>
+    <div class="tgroup"><div class="tgt">Difficulté du client</div>
+      <div class="qthm" id="tdiff">
+        <button class="thbtn active" data-v="facile" onclick="tPick(this)">🟢 Facile</button>
+        <button class="thbtn" data-v="reticent" onclick="tPick(this)">🔵 Réticent</button>
+        <button class="thbtn" data-v="difficile" onclick="tPick(this)">🔴 Difficile</button>
+      </div>
+    </div>
+    <div class="tgroup"><div class="tgt">Profil du client</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select class="tsel" id="tsoncas">
+          <option value="">SONCAS : tiré au sort</option>
+          <option value="securite">Sécurité</option>
+          <option value="orgueil">Orgueil</option>
+          <option value="nouveaute">Nouveauté</option>
+          <option value="confort">Confort</option>
+          <option value="argent">Argent</option>
+          <option value="sympathie">Sympathie</option>
+        </select>
+        <select class="tsel" id="tctx">
+          <option value="">Situation : tirée au sort</option>
+          <option value="mutation">Mutation professionnelle</option>
+          <option value="succession">Succession</option>
+          <option value="divorce">Séparation</option>
+          <option value="agrandissement">Famille qui s'agrandit</option>
+          <option value="retraite">Départ en retraite</option>
+          <option value="investisseur">Investisseur</option>
+        </select>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin-top:10px;cursor:pointer">
+        <input type="checkbox" id="tmystere" onchange="document.getElementById('tsoncas').disabled=this.checked;document.getElementById('tctx').disabled=this.checked">
+        🎭 Profil mystère — profil tiré au sort et caché : à vous de deviner le SONCAS avant le débriefing
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn-p" onclick="startTrain()">Démarrer la session</button>
+      <button class="btn-s" onclick="startDrill()">⚡ Drill objections (5 min)</button>
+    </div>
+    <p style="font-size:12px;color:var(--ui-muted);margin-top:10px" id="tsetupnote"></p>
+  </div>
+  <div id="tplay" style="display:none">
+    <div id="tbadge" style="margin-bottom:10px"></div>
+    <div class="tchat" id="tchat"></div>
+    <div class="tstatus" id="tstatus"></div>
+    <div class="tbar">
+      <button class="tmic" id="tmic" onclick="toggleMic()" title="Parler">🎤</button>
+      <input class="tinput" id="tinput" type="text" placeholder="Ou écrivez votre réplique…" onkeydown="if(event.key==='Enter')sendTrainInput()">
+      <button class="btn-s" onclick="sendTrainInput()">Envoyer</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap" id="tactions">
+      <button class="btn-p" id="tendbtn" onclick="endTrain()">Terminer et être débriefé</button>
+      <button class="btn-s" id="thintbtn" onclick="askHint()">💡 Indice (−1 pt)</button>
+      <button class="btn-s" onclick="quitTrain()">Abandonner</button>
+    </div>
+    <div id="tguess" style="display:none;margin-top:14px">
+      <div class="tgt">🎭 Avant le débriefing : quel était le profil SONCAS de votre client ?</div>
+      <div class="qthm" id="tguessbtns">
+        <button class="thbtn" data-v="securite" onclick="guessSoncas(this)">Sécurité</button>
+        <button class="thbtn" data-v="orgueil" onclick="guessSoncas(this)">Orgueil</button>
+        <button class="thbtn" data-v="nouveaute" onclick="guessSoncas(this)">Nouveauté</button>
+        <button class="thbtn" data-v="confort" onclick="guessSoncas(this)">Confort</button>
+        <button class="thbtn" data-v="argent" onclick="guessSoncas(this)">Argent</button>
+        <button class="thbtn" data-v="sympathie" onclick="guessSoncas(this)">Sympathie</button>
+      </div>
+    </div>
+  </div>
+  <div id="tdebrief" style="display:none"></div>
+</div>
+</div>
+
+
+<div id="section-fd-tools" class="section">
+<div class="ftabs">
+  <button class="ctab active" data-tool="notaire" type="button">Frais de notaire</button>
+  <button class="ctab" data-tool="pv" type="button">Plus-value</button>
+  <button class="ctab" data-tool="fin" type="button">Financement</button>
+  <button class="ctab" data-tool="profil" type="button">Profil acquéreur</button>
+</div>
+
+<!-- ============ Frais de notaire ============ -->
+<div class="ctool active" id="tool-notaire">
+  <div class="fh"><div class="ft">Frais de notaire (frais d'acquisition)</div><div class="fs">Estimation des frais à prévoir par l'acquéreur — détail droit par droit</div></div>
+  <div class="cgrid">
+    <div class="cc">
+      <h3>Le projet</h3>
+      <label class="clab">Prix de vente (FAI ou net vendeur + honoraires charge acquéreur)
+        <input class="cin" type="number" id="fnPrix" value="250000" min="0" step="1000"></label>
+      <label class="clab">Mobilier déduit (cuisine équipée, électroménager…)
+        <input class="cin" type="number" id="fnMobilier" value="0" min="0" step="500"></label>
+      <div class="tgt" style="margin-top:14px">Type de bien</div>
+      <div class="qthm">
+        <button class="thbtn active" data-fn-type="ancien" type="button">Ancien</button>
+        <button class="thbtn" data-fn-type="neuf" type="button">Neuf (VEFA)</button>
+      </div>
+      <label class="clab ccheck"><input type="checkbox" id="fnHausse" checked>
+        Département ayant voté la hausse des droits à 5 % (majorité des départements depuis 2025 — c'est le cas de la Gironde)</label>
+    </div>
+    <div class="cc">
+      <h3>Estimation</h3>
+      <div class="cres" id="fnRes"></div>
+      <p class="cnote">Estimation indicative et <b>non engageante pour l'agence</b> — seul le décompte du notaire fait foi ; le trop-perçu éventuel est remboursé après l'acte. Sources : barème des émoluments des notaires (art. A. 444-53 et s. du Code de commerce, arrêté du 25 février 2022), droits d'enregistrement (art. 1594 D du CGI et hausse départementale de la loi de finances 2025), contribution de sécurité immobilière (art. 879 du CGI).</p>
+      <div class="pill-row no-print" style="margin-top:10px"><button class="btn-s" type="button" data-print-tool="notaire">🖨 Imprimer</button><button class="btn-s" type="button" data-mail-tool="notaire">✉️ Envoyer par e-mail</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Plus-value ============ -->
+<div class="ctool" id="tool-pv">
+  <div class="fh"><div class="ft">Plus-value immobilière</div><div class="fs">Résidence secondaire, investissement locatif, terrain — impôt et net vendeur</div></div>
+  <div class="cgrid">
+    <div class="cc">
+      <h3>Le bien vendu</h3>
+      <label class="clab ccheck"><input type="checkbox" id="pvRP"> Résidence principale du vendeur (exonération totale)</label>
+      <label class="clab">Prix de vente
+        <input class="cin" type="number" id="pvVente" value="320000" min="0" step="1000"></label>
+      <label class="clab">Frais de cession (diagnostics, mainlevée…)
+        <input class="cin" type="number" id="pvFraisCession" value="1000" min="0" step="100"></label>
+      <label class="clab">Prix d'achat
+        <input class="cin" type="number" id="pvAchat" value="200000" min="0" step="1000"></label>
+      <label class="clab">Années de détention
+        <input class="cin" type="number" id="pvAnnees" value="12" min="0" max="60" step="1"></label>
+      <div class="tgt" style="margin-top:14px">Frais d'acquisition d'origine</div>
+      <div class="qthm">
+        <button class="thbtn active" data-pv-fa="forfait" type="button">Forfait 7,5 %</button>
+        <button class="thbtn" data-pv-fa="reel" type="button">Montant réel</button>
+      </div>
+      <label class="clab" id="pvFaReelWrap" hidden>Frais d'acquisition réels
+        <input class="cin" type="number" id="pvFaReel" value="15000" min="0" step="500"></label>
+      <div class="tgt" style="margin-top:14px">Travaux</div>
+      <div class="qthm">
+        <button class="thbtn active" data-pv-tx="aucun" type="button">Aucun</button>
+        <button class="thbtn" data-pv-tx="forfait" type="button">Forfait 15 % (détention ≥ 5 ans)</button>
+        <button class="thbtn" data-pv-tx="reel" type="button">Factures réelles</button>
+      </div>
+      <label class="clab" id="pvTxReelWrap" hidden>Montant des travaux (factures d'entreprises, non déjà déduits des revenus)
+        <input class="cin" type="number" id="pvTxReel" value="0" min="0" step="500"></label>
+    </div>
+    <div class="cc">
+      <h3>Estimation</h3>
+      <div class="cres" id="pvRes"></div>
+      <p class="cnote">Exonérations principales : résidence principale ; détention ≥ 22 ans (impôt) et ≥ 30 ans (prélèvements sociaux) ; prix ≤ 15 000 € ; première cession sous conditions de remploi. Estimation indicative et <b>non engageante pour l'agence</b> — la déclaration officielle est établie par le notaire. Sources : art. 150 U à 150 VH et 1609 nonies G du CGI (abattements art. 150 VC) ; impots.gouv.fr et service-public.fr.</p>
+      <div class="pill-row no-print" style="margin-top:10px"><button class="btn-s" type="button" data-print-tool="pv">🖨 Imprimer</button><button class="btn-s" type="button" data-mail-tool="pv">✉️ Envoyer par e-mail</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Financement ============ -->
+<div class="ctool" id="tool-fin">
+  <div class="fh"><div class="ft">Simulation de financement</div><div class="fs">Mensualité, taux d'endettement et capacité d'emprunt de l'acquéreur</div></div>
+  <div class="cgrid">
+    <div class="cc">
+      <h3>Le projet</h3>
+      <label class="clab">Prix du bien
+        <input class="cin" type="number" id="fiPrix" value="250000" min="0" step="1000"></label>
+      <label class="clab">Frais de notaire <span class="cnote-inline">(pré-rempli ≈ 8 % dans l'ancien — modifiable, ou utilisez la calculette dédiée)</span>
+        <input class="cin" type="number" id="fiFrais" value="20000" min="0" step="500"></label>
+      <label class="clab">Apport personnel
+        <input class="cin" type="number" id="fiApport" value="30000" min="0" step="1000"></label>
+      <h3 style="margin-top:16px">Le prêt</h3>
+      <label class="clab">Taux nominal annuel (%)
+        <input class="cin" type="number" id="fiTaux" value="3.4" min="0" max="15" step="0.05"></label>
+      <label class="clab">Durée (années)
+        <input class="cin" type="number" id="fiDuree" value="25" min="1" max="35" step="1"></label>
+      <label class="clab">Taux d'assurance annuel (% du capital emprunté)
+        <input class="cin" type="number" id="fiAssu" value="0.34" min="0" max="2" step="0.01"></label>
+      <h3 style="margin-top:16px">Le foyer</h3>
+      <label class="clab">Revenus nets mensuels du foyer (avant impôt)
+        <input class="cin" type="number" id="fiRevenus" value="4200" min="0" step="100"></label>
+      <label class="clab">Charges de crédits en cours (mensualités conservées après l'achat)
+        <input class="cin" type="number" id="fiCharges" value="0" min="0" step="50"></label>
+    </div>
+    <div class="cc">
+      <h3>Résultat</h3>
+      <div class="cres" id="fiRes"></div>
+      <p class="cnote">Repère HCSF : taux d'effort maximal de 35 % assurance comprise (les banques disposent d'une marge de flexibilité sur ~20 % des dossiers). Simulation indicative et <b>non engageante pour l'agence</b>, hors frais de garantie et de dossier.</p>
+      <div class="pill-row no-print" style="margin-top:10px"><button class="btn-s" type="button" data-print-tool="fin">🖨 Imprimer</button><button class="btn-s" type="button" data-mail-tool="fin">✉️ Envoyer par e-mail</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Profil acquéreur ============ -->
+<div class="ctool" id="tool-profil">
+  <div class="fh">
+    <div class="ft pa-title">Profil acquéreur <span class="pa-dot">•</span>
+      <span class="pa-prix-wrap"><input class="cin pa-prix-in" type="number" id="paPrix" value="290000" min="0" step="5000" aria-label="Prix du bien"> €</span>
+    </div>
+    <div class="fs">À montrer au vendeur comme à l'acquéreur : ce que les taux font au budget — et au revenu qu'il faut pour acheter votre bien</div>
+  </div>
+
+  <div class="cc pa-head">
+    <div class="pa-stats">
+      <label class="pa-stat">Revenu mensuel net du foyer
+        <input class="cin" type="number" id="paRevenu" value="4016" min="0" step="50"></label>
+      <div class="pa-stat">Mensualité max (35 %)
+        <div class="pa-stat-val" id="paMens">—</div></div>
+      <label class="pa-stat">Durée du prêt (années)
+        <input class="cin" type="number" id="paDuree" value="25" min="5" max="35" step="1"></label>
+    </div>
+  </div>
+
+  <div class="cc">
+    <h3 id="paT1Titre">Impact des taux sur le prix d'achat</h3>
+    <div class="pa-legend"><span class="pa-lg-year"></span><span class="pa-lg-taux">Taux</span><span class="pa-lg-prix">Prix d'achat finançable</span></div>
+    <div id="paT1"></div>
+    <div class="crow ctotal" style="margin-top:8px"><span>Coût total d'acquisition (aujourd'hui, crédit compris)</span><b id="paCout">—</b></div>
+  </div>
+
+  <div class="cc">
+    <h3 id="paT2Titre">Impact des taux sur le revenu requis</h3>
+    <div class="pa-legend"><span class="pa-lg-year"></span><span class="pa-lg-taux">Taux</span><span class="pa-lg-prix">Revenu net requis</span></div>
+    <div id="paT2"></div>
+  </div>
+
+  <div class="cc">
+    <p class="cnote">Lecture : à revenu égal, la hausse des taux depuis 2022 a retiré plusieurs dizaines de milliers d'euros de budget aux acquéreurs — attendre un retour des prix « d'avant » revient souvent à payer plus cher en mensualités. Calcul à 35 % d'effort, hors assurance, apport et frais. Simulation indicative et non engageante pour l'agence.</p>
+    <div class="pill-row no-print" style="margin-top:10px">
+      <button class="btn-s" type="button" data-print-tool="profil">🖨 Imprimer</button>
+      <button class="btn-s" type="button" data-mail-tool="profil">✉️ Envoyer par e-mail</button>
+    </div>
+  </div>
+</div>
+</div>
+
+  </main>
+
+  <script src="assets/js/formation-gate.js"></script>
+  <script src="assets/js/formation.js?v=2"></script>
+</body>
+</html>
