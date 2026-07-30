@@ -607,8 +607,27 @@
     setTimeout(function () { setStatus("keyStatus", ""); }, 3000);
   });
 
+  // Bouton de secours : ouvrir l'app avec « ?reset » purge le service worker
+  // et tous les caches, puis recharge une version fraîche du réseau.
+  const resetting = location.search.indexOf("reset") >= 0;
+  if (resetting) {
+    (async function () {
+      try {
+        if ("serviceWorker" in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map(function (r) { return r.unregister(); }));
+        }
+        if (window.caches) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map(function (k) { return caches.delete(k); }));
+        }
+      } catch (e) { /* au pire, on recharge quand même */ }
+      location.replace(location.pathname);
+    })();
+  }
+
   // PWA : service worker pour l'installation sur mobile et le hors-ligne.
-  if ("serviceWorker" in navigator) {
+  if (!resetting && "serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(function () { /* http:// local */ });
   }
 
