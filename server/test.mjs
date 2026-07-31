@@ -142,6 +142,40 @@ ok(badModel.status === 400, "modèle hors liste refusé");
 const meAfter = await call("/me", { headers: { Authorization: "Bearer " + s3 } });
 ok(meAfter.json.usage.requests === 1 && meAfter.json.usage.cost_eur > 0, "usage journalisé (" + meAfter.json.usage.cost_eur + " €)");
 
+console.log("— Prompts côté serveur (body.task)");
+const taskCall = await call("/v1/messages", {
+  headers: { Authorization: "Bearer " + s3 },
+  body: { model: "claude-sonnet-5", max_tokens: 1200, task: "ad_text", messages: [{ role: "user", content: "Données du bien : maison" }] }
+});
+const lastUp = upstreamCalls[upstreamCalls.length - 1];
+ok(taskCall.status === 200 && /ANNONCE IMMOBILIÈRE/.test(lastUp.body.system || ""), "task=ad_text → prompt injecté par le serveur");
+ok(lastUp.body.task === undefined && lastUp.body.task_arg === undefined, "task/task_arg jamais transmis à Anthropic");
+ok(lastUp.body.output_config && lastUp.body.output_config.format && lastUp.body.output_config.format.type === "json_schema", "format de sortie injecté par le serveur");
+const toneCall = await call("/v1/messages", {
+  headers: { Authorization: "Bearer " + s3 },
+  body: { model: "claude-opus-4-8", max_tokens: 4096, task: "brochure", task_arg: "prestige", messages: [{ role: "user", content: "notes" }] }
+});
+ok(toneCall.status === 200 && /prestige et lifestyle/.test(upstreamCalls[upstreamCalls.length - 1].body.system || ""), "task_arg (ton) répercuté dans le prompt");
+const badTask = await call("/v1/messages", { headers: { Authorization: "Bearer " + s3 }, body: { model: "claude-sonnet-5", task: "vol_de_prompts", messages: [] } });
+ok(badTask.status === 400, "tâche inconnue → 400");
+const legacy = await call("/v1/messages", {
+  headers: { Authorization: "Bearer " + s3 },
+  body: { model: "claude-opus-4-8", max_tokens: 100, system: "ancien client", messages: [{ role: "user", content: "test" }] }
+});
+ok(legacy.status === 200 && upstreamCalls[upstreamCalls.length - 1].body.system === "ancien client", "ancien client (system embarqué) toujours accepté");
+
+console.log("— Relais « clé personnelle » (X-User-Key)");
+const byo = await call("/v1/messages", {
+  headers: { "X-User-Key": "sk-ant-api03-cle-personnelle-du-client-0123456789" },
+  body: { model: "claude-sonnet-5", max_tokens: 500, task: "extract_notes", messages: [{ role: "user", content: "notes" }] }
+});
+ok(byo.status === 200, "clé personnelle sans session : relayé");
+ok(upstreamCalls[upstreamCalls.length - 1].headers["x-api-key"] === "sk-ant-api03-cle-personnelle-du-client-0123456789", "l'appel part avec LA CLÉ DU CLIENT");
+ok(/transcris des notes/.test(upstreamCalls[upstreamCalls.length - 1].body.system || ""), "prompt injecté aussi en mode clé personnelle");
+const byoQuota = await db.get("SELECT spent_micros FROM quota_counters WHERE scope LIKE 'byo:%'");
+ok(!byoQuota, "aucun quota consommé en mode clé personnelle");
+ok((await call("/v1/messages", { headers: { "X-User-Key": "pas-une-cle" }, body: { model: "claude-sonnet-5", messages: [] } })).status === 401, "clé personnelle malformée → 401");
+
 console.log("— Quota mensuel");
 await db.run("UPDATE agencies SET quota_eur = 0.00001 WHERE id = ?", [agencyId]);
 const over = await call("/v1/messages", { headers: { Authorization: "Bearer " + s3 }, body: { model: "claude-opus-4-8", messages: [] } });

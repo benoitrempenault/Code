@@ -17,6 +17,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { changesOf } from "./db.js";
+import { promptFor } from "./prompts.js";
 import { now, monthKey, randId, randToken, sha256hex, hmacHex, safeEqual, costMicros } from "./util.js";
 
 const SESSION_TTL = 30 * 24 * 3600;   // 30 jours d'inactivité
@@ -53,7 +54,7 @@ export function createApp(env) {
 
   app.use("*", cors({
     origin: (o) => (origins.includes(o) ? o : origins[0] || "*"),
-    allowHeaders: ["Authorization", "Content-Type"],
+    allowHeaders: ["Authorization", "Content-Type", "X-User-Key"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
   }));
 
@@ -331,10 +332,21 @@ export function createApp(env) {
   // (3) RÉCONCILIATION au coût réel après l'appel (l'estimation pessimiste est
   // relâchée). Un kill-switch global plafonne la dépense tous comptes confondus.
   app.post("/v1/messages", async (c) => {
+    // Deux modes d'accès :
+    // - session « Tout compris » (Authorization: Bearer …) : notre clé Anthropic,
+    //   quota mensuel + journal d'usage ;
+    // - clé personnelle (X-User-Key: sk-ant-…, formule « Apportez votre clé ») :
+    //   le serveur relaie l'appel avec LA CLÉ DU CLIENT (coût chez lui, pas de
+    //   quota chez nous) — indispensable depuis que les prompts vivent ici.
     const ctx = await sessionFrom(c);
-    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
-    if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif — activez votre abonnement pour utiliser la rédaction IA.");
-    if (!env.ANTHROPIC_API_KEY) return err(c, 501, "Proxy IA non configuré (ANTHROPIC_API_KEY).");
+    let byoKey = null;
+    if (!ctx) {
+      const uk = (c.req.header("X-User-Key") || "").trim();
+      if (/^sk-ant-[\w-]{16,}$/.test(uk)) byoKey = uk;
+      else return err(c, 401, "Session invalide — reconnectez-vous.");
+    }
+    if (ctx && !agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif — activez votre abonnement pour utiliser la rédaction IA.");
+    if (!byoKey && !env.ANTHROPIC_API_KEY) return err(c, 501, "Proxy IA non configuré (ANTHROPIC_API_KEY).");
 
     const raw = await c.req.text();
     if (raw.length > aiMaxBody) return err(c, 413, "Requête trop volumineuse.");
@@ -344,45 +356,62 @@ export function createApp(env) {
     body.max_tokens = Math.min(parseInt(body.max_tokens, 10) || 1024, MAX_TOKENS_CAP);
     delete body.stream; // v1 : pas de flux
 
+    // Prompts métier côté serveur : le client envoie un identifiant de tâche
+    // (body.task) et un court contexte (body.task_arg) ; on injecte le prompt
+    // système et le format de sortie. Les anciens clients (cache) qui envoient
+    // encore leur propre `system` restent acceptés tels quels.
+    if (body.task != null) {
+      const p = promptFor(String(body.task), body.task_arg == null ? "" : String(body.task_arg).slice(0, 300));
+      if (!p) return err(c, 400, "Tâche IA inconnue.");
+      body.system = p.system;
+      body.output_config = p.output_config;
+      delete body.task; delete body.task_arg;
+    }
+
     const month = monthKey();
     const model = String(body.model);
 
-    // (1) Rate-limit par agence et par minute (anti-rafale / boucle scriptée).
+    // (1) Rate-limit par minute (anti-rafale / boucle scriptée) : par agence en
+    // mode session, par empreinte de clé en mode « clé personnelle ».
+    const rlScope = ctx ? ctx.agency.id : "byo:" + (await sha256hex(byoKey)).slice(0, 16);
     const minute = Math.floor(now() / 60);
-    await db.run("INSERT OR IGNORE INTO ai_rate (scope, minute, n) VALUES (?, ?, 0)", [ctx.agency.id, minute]);
-    const rl = await db.run("UPDATE ai_rate SET n = n + 1 WHERE scope = ? AND minute = ? AND n < ?", [ctx.agency.id, minute, aiRatePerMin]);
+    await db.run("INSERT OR IGNORE INTO ai_rate (scope, minute, n) VALUES (?, ?, 0)", [rlScope, minute]);
+    const rl = await db.run("UPDATE ai_rate SET n = n + 1 WHERE scope = ? AND minute = ? AND n < ?", [rlScope, minute, aiRatePerMin]);
     if (changesOf(rl) !== 1) return err(c, 429, "Trop de requêtes IA en peu de temps — patientez une minute.");
 
-    // (2) Réservation atomique du quota (estimation pessimiste : entrée estimée
-    // depuis la taille du corps, plafonnée ; sortie = max_tokens).
+    // (2) Réservation atomique du quota (mode session uniquement — en mode clé
+    // personnelle, le coût est sur la clé du client). Estimation pessimiste :
+    // entrée estimée depuis la taille du corps, plafonnée ; sortie = max_tokens.
     const estIn = Math.min(Math.ceil(raw.length / 3.5), RESERVE_INPUT_CAP);
-    const est = costMicros(model, estIn, body.max_tokens);
-    const quotaMicros = Math.round((ctx.agency.quota_eur || 0) * 1e6);
-    await db.run("INSERT OR IGNORE INTO quota_counters (scope, month, spent_micros) VALUES (?, ?, 0)", [ctx.agency.id, month]);
-    const resv = await db.run(
-      "UPDATE quota_counters SET spent_micros = spent_micros + ? WHERE scope = ? AND month = ? AND spent_micros + ? <= ?",
-      [est, ctx.agency.id, month, est, quotaMicros]
-    );
-    if (changesOf(resv) !== 1) {
-      return err(c, 429, "Quota mensuel d'usage raisonnable atteint — contactez Studio Brochure pour l'augmenter.");
-    }
+    const est = ctx ? costMicros(model, estIn, body.max_tokens) : 0;
     let globalReserved = false;
-    if (globalCapMicros > 0) {
-      await db.run("INSERT OR IGNORE INTO quota_counters (scope, month, spent_micros) VALUES ('__global__', ?, 0)", [month]);
-      const gr = await db.run(
-        "UPDATE quota_counters SET spent_micros = spent_micros + ? WHERE scope = '__global__' AND month = ? AND spent_micros + ? <= ?",
-        [est, month, est, globalCapMicros]
+    if (ctx) {
+      const quotaMicros = Math.round((ctx.agency.quota_eur || 0) * 1e6);
+      await db.run("INSERT OR IGNORE INTO quota_counters (scope, month, spent_micros) VALUES (?, ?, 0)", [ctx.agency.id, month]);
+      const resv = await db.run(
+        "UPDATE quota_counters SET spent_micros = spent_micros + ? WHERE scope = ? AND month = ? AND spent_micros + ? <= ?",
+        [est, ctx.agency.id, month, est, quotaMicros]
       );
-      if (changesOf(gr) !== 1) {
-        await db.run("UPDATE quota_counters SET spent_micros = spent_micros - ? WHERE scope = ? AND month = ?", [est, ctx.agency.id, month]);
-        return err(c, 503, "Service IA momentanément indisponible — réessayez plus tard.");
+      if (changesOf(resv) !== 1) {
+        return err(c, 429, "Quota mensuel d'usage raisonnable atteint — contactez Studio Brochure pour l'augmenter.");
       }
-      globalReserved = true;
+      if (globalCapMicros > 0) {
+        await db.run("INSERT OR IGNORE INTO quota_counters (scope, month, spent_micros) VALUES ('__global__', ?, 0)", [month]);
+        const gr = await db.run(
+          "UPDATE quota_counters SET spent_micros = spent_micros + ? WHERE scope = '__global__' AND month = ? AND spent_micros + ? <= ?",
+          [est, month, est, globalCapMicros]
+        );
+        if (changesOf(gr) !== 1) {
+          await db.run("UPDATE quota_counters SET spent_micros = spent_micros - ? WHERE scope = ? AND month = ?", [est, ctx.agency.id, month]);
+          return err(c, 503, "Service IA momentanément indisponible — réessayez plus tard.");
+        }
+        globalReserved = true;
+      }
     }
 
     // Ajuste les compteurs réservés d'un delta (négatif = remboursement).
     async function adjust(delta) {
-      if (!delta) return;
+      if (!ctx || !delta) return;
       await db.run("UPDATE quota_counters SET spent_micros = spent_micros + ? WHERE scope = ? AND month = ?", [delta, ctx.agency.id, month]);
       if (globalReserved) await db.run("UPDATE quota_counters SET spent_micros = spent_micros + ? WHERE scope = '__global__' AND month = ?", [delta, month]);
     }
@@ -394,7 +423,7 @@ export function createApp(env) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": env.ANTHROPIC_API_KEY,
+          "x-api-key": byoKey || env.ANTHROPIC_API_KEY,
           "anthropic-version": "2023-06-01"
         },
         body: JSON.stringify(body)
@@ -404,9 +433,10 @@ export function createApp(env) {
       return err(c, 502, "Service IA injoignable — réessayez.");
     }
     const data = await upstream.json().catch(() => null);
-    // (3) Réconciliation : coût réel si succès, sinon remboursement complet.
+    // (3) Réconciliation : coût réel si succès, sinon remboursement complet
+    // (mode session uniquement).
     let actual = 0;
-    if (upstream.ok && data && data.usage) {
+    if (ctx && upstream.ok && data && data.usage) {
       actual = costMicros(model, data.usage.input_tokens || 0, data.usage.output_tokens || 0);
       await db.run(
         "INSERT INTO usage (agency_id, user_id, model, tokens_in, tokens_out, cost_micros, month, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

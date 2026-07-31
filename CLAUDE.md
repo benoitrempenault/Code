@@ -70,10 +70,17 @@ is the `mandat/` fork (it has `structureFiche`). Deployed at `/mandat-pro/`.
 - `assets/js/app.js` — everything: the `state` object, generic form binding
   (`data-bind` / `data-bind-list` / `data-bind-kv`), photo upload+resize, `buildBrochure()`
   page renderers, zoom, localStorage persistence, and JSON/HTML/print/mailto export.
-- `assets/js/ai.js` — `window.BrochureAI.generate()`: a direct browser call to the Anthropic
-  Messages API (header `anthropic-dangerous-direct-browser-access`), constrained to JSON via
-  `output_config.format`. Default model `claude-opus-4-8`. The user's API key lives only in
-  `localStorage` (`studio-brochure-aikey`) and is never put in the exported `.json`.
+- `assets/js/ai.js` — `window.BrochureAI.*`: all AI calls go through the Studio Brochure server
+  (`/v1/messages` proxy). **Business prompts live server-side** (`server/src/prompts.js`): the
+  client sends a task id (`body.task` + optional `body.task_arg`) and the server injects the
+  system prompt AND the `output_config` JSON schema before relaying to Anthropic. Two auth
+  modes: connected account (Bearer session) with quota/usage, or personal key relayed via the
+  `X-User-Key` header (the client's `sk-ant-` key is forwarded to Anthropic, no quota consumed).
+  Default editorial/OCR model `claude-opus-4-8`, standard tasks `claude-sonnet-5` (see `MODELS`).
+  The user's API key lives only in `localStorage` (`studio-brochure-aikey`) and is never put in
+  the exported `.json`. When adding an AI feature: add the prompt+schema to
+  `server/src/prompts.js` and send only `task`/`task_arg` from the client — never embed prompt
+  text in client JS (copy-protection), and mirror client changes in all four `ai.js` forks.
 - `assets/js/heic.js` — `window.SBHeic`: iPhone **HEIC/HEIF photo support**. `toJpeg(file)` tries
   native decode first (Safari reads HEIC), then falls back to the vendored WASM decoder
   (`assets/js/vendor/libheif-bundle.js`, ~1.4 MB, wasm embedded, loaded lazily on the first HEIC).
