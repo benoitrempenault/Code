@@ -138,7 +138,9 @@
 .feature-block li::before { content: ""; position: absolute; left: 2px; top: 13px; width: 6px; height: 6px; border: 1px solid var(--accent); transform: rotate(45deg); }
 .asavoir { margin-top: 12mm; padding: 12px 16px; background: rgba(0,0,0,.025); border-left: 2px solid var(--accent); }
 .asavoir h3 { font-family: var(--sans); font-size: 9pt; letter-spacing: .18em; text-transform: uppercase; margin: 0 0 8px; color: var(--accent); }
-.asavoir ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 22px; }
+/* Un élément par ligne : chaque retour à la ligne saisi dans « À savoir »
+   crée sa propre ligne sur la brochure (comme Intérieur / Extérieur). */
+.asavoir ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
 .asavoir li { font-size: 10pt; color: var(--ink); }
 
 /* =============================== QUARTIER ============================== */
