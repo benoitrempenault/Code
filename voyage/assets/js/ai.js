@@ -41,6 +41,7 @@
     if (!body.thinking) body.thinking = { type: "disabled" };
     let messages = body.messages;
     let lastErr;
+    let abortRetried = false;
     for (let i = 0; i < tries + 3; i++) {
       let res, data;
       try {
@@ -51,7 +52,10 @@
         });
       } catch (e) {
         if (e && e.name === "AbortError") {
-          throw new Error("Le modèle a mis plus de 5 minutes à répondre — génération interrompue. Réessayez, ou réduisez le nombre de jours / découpez le voyage.");
+          // Une relance automatique : sur mobile, l'appel peut expirer parce
+          // que la page a été suspendue (écran verrouillé, changement d'app).
+          if (!abortRetried) { abortRetried = true; continue; }
+          throw new Error("Le modèle a mis plus de 5 minutes à répondre — génération interrompue. Gardez l'app ouverte pendant la génération, puis réessayez (ou réduisez le nombre de jours).");
         }
         lastErr = new Error("Connexion impossible à l'API Anthropic (réseau).");
         await delay(800 * (i + 1)); continue;

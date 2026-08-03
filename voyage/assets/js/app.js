@@ -495,6 +495,18 @@
     el.textContent = msg || "";
     el.classList.toggle("status--error", !!isError);
   }
+  // Pendant une génération, on garde l'écran allumé (comme un GPS) : sur
+  // mobile, un écran qui se verrouille suspend la page et tue les appels.
+  let wakeLock = null;
+  async function keepAwake() {
+    try {
+      if (navigator.wakeLock && !wakeLock) wakeLock = await navigator.wakeLock.request("screen");
+    } catch (e) { /* non supporté ou refusé : tant pis */ }
+  }
+  function releaseAwake() {
+    try { if (wakeLock) { wakeLock.release(); wakeLock = null; } } catch (e) { /* rien */ }
+  }
+
   // Chrono visible pendant la génération, avec libellé de phase actualisable.
   function startTimer(id, label) {
     const t0 = Date.now();
@@ -513,14 +525,15 @@
   async function onIdeas() {
     const btn = document.getElementById("btnIdeas");
     btn.disabled = true;
-    const timer = startTimer("ideasStatus", "Votre agent cherche (recherche web en cours)");
+    keepAwake();
+    const timer = startTimer("ideasStatus", "Votre agent cherche (recherche web en cours — gardez l'app ouverte)");
     try {
       const idees = await window.VoyageAI.suggest({ apiKey: apiKey(), state: state, brief: state.brief });
       state.idees = idees; save(); renderIdeasList();
       setStatus("ideasStatus", idees.length + " propositions prêtes ↓");
     } catch (e) {
       setStatus("ideasStatus", (e && e.message) || "Erreur inattendue. Réessayez.", true);
-    } finally { timer.stop(); btn.disabled = false; }
+    } finally { timer.stop(); btn.disabled = false; releaseAwake(); }
   }
 
   async function onItinerary() {
@@ -528,8 +541,9 @@
     if (!state.itiBrief.destination) { setStatus("itiStatus", "Indiquez d'abord la destination.", true); return; }
     if (!state.itiBrief.jours) { setStatus("itiStatus", "Choisissez vos dates de départ et de retour.", true); return; }
     btn.disabled = true;
+    keepAwake();
     const n = parseInt(state.itiBrief.jours, 10) || 7;
-    const timer = startTimer("itiStatus", "Construction du carnet de " + n + " jours");
+    const timer = startTimer("itiStatus", "Construction du carnet de " + n + " jours (gardez l'app ouverte)");
     try {
       const iti = await window.VoyageAI.itinerary({
         apiKey: apiKey(), state: state,
@@ -543,7 +557,7 @@
       setStatus("itiStatus", "Carnet prêt ↓ — imprimable en PDF.");
     } catch (e) {
       setStatus("itiStatus", (e && e.message) || "Erreur inattendue. Réessayez.", true);
-    } finally { timer.stop(); btn.disabled = false; }
+    } finally { timer.stop(); btn.disabled = false; releaseAwake(); }
   }
 
   /* --------------------------- Import / export ---------------------------- */
