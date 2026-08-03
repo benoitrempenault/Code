@@ -102,6 +102,14 @@ is the `mandat/` fork (it has `structureFiche`). Deployed at `/mandat-pro/`.
   if none is set yet, and falls back to a plain `.json` download (`downloadJson`) on other
   browsers. Note: browsers cannot pre-set an absolute path — the user navigates to the target
   folder (e.g. `KADIMA-TB\…\BROCHURE`) once and it is remembered via IndexedDB + picker `id`.
+  **The library also has a « ☁ Brochures du compte » mode** (default when a session is
+  connected; toggle `#libToggle` switches back to the OneDrive folder on desktop): brochures
+  are stored server-side (metadata in the D1 `brochures` table, full JSON — photos included —
+  in the R2 bucket `studio-brochure-files`, binding `FILES`, routes `/brochures`), shared by
+  the whole agency and available on phones. Saving to the folder also silently pushes a copy
+  to the account (`pushCurrentToCloud`); on phones (no File System Access), the topbar
+  **Sauvegarder** saves to the account when connected. Fiches prestation have the same
+  two-mode library (D1 `fiches` table, no R2 — text only).
 
 ### Key conventions
 - The brochure is re-rendered from `state` on every change; `buildBrochure()` returns an HTML

@@ -71,6 +71,13 @@ npm install
 wrangler deploy</pre>
   <div class="note">Répondre y ; le warning jaune « node:sqlite » est normal. Vérif : /health →
   <span class="ok">{"ok":true}</span>. Une route nouvelle doit répondre 401 (et non 404) une fois déployée.</div>
+  <div class="note"><b>Si Claude a ajouté une table</b> (le message d'erreur parle d'une table manquante) — re-passer le
+  schéma, sans risque (idempotent) :</div>
+<pre>wrangler d1 execute studio-brochure --remote --file schema.sql</pre>
+  <div class="note"><b>Une seule fois — bibliothèque « Brochures du compte »</b> (stockage R2 des brochures
+  synchronisées) : créer le bucket AVANT le premier déploiement qui l'utilise. Si la commande demande d'activer R2 :
+  dashboard Cloudflare → R2 → Activer (gratuit jusqu'à 10 Go).</div>
+<pre>wrangler r2 bucket create studio-brochure-files</pre>
 
   <h2>🛠️ Commandes wrangler utiles (dossier server, jeton posé)</h2>
   <div class="note"><b>Promouvoir un compte en admin d'agence</b> (fait apparaître « Mes conseillers ») :</div>

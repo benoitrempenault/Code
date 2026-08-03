@@ -9,6 +9,14 @@ binding = "DB"
 database_name = "studio-brochure"
 database_id = "1731dcd7-6981-43e0-ac11-5538d0042a5b"  # créé le 17/07/2026 (région WEUR)
 
+# Contenu des brochures synchronisées (photos incluses — trop lourd pour D1).
+# AVANT le premier déploiement avec ce bloc, créer le bucket (une seule fois) :
+#   wrangler r2 bucket create studio-brochure-files
+# (si la commande demande d'activer R2 : dashboard Cloudflare → R2 → Activer, gratuit jusqu'à 10 Go)
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "studio-brochure-files"
+
 [vars]
 APP_ORIGINS = "https://benoitrempenault.github.io,https://studiobrochure.fr"
 APP_BASE = "https://studiobrochure.fr/app"  # dossier de l'app compte par défaut (clients) ; Kadima a son app_base en base

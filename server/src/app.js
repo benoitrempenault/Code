@@ -325,6 +325,92 @@ export function createApp(env) {
     return c.json({ ok: true });
   });
 
+  /* --------- Brochures synchronisées (métadonnées D1 + contenu R2) -------- */
+  // Une brochure embarque ses photos (data-URLs) : plusieurs Mo, trop lourd
+  // pour une ligne D1. Le JSON complet vit dans R2 (env.files), la liste et
+  // la recherche s'appuient sur les métadonnées en base.
+  const BROCHURE_MAX_BYTES = 15_000_000;  // ~15 Mo : couverture + galerie + plans confortables
+  const BROCHURES_MAX = 300;              // par agence
+  const brKey = (agencyId, id) => "br/" + agencyId + "/" + id + ".json";
+  const filesReady = () => !!env.files;
+
+  app.get("/brochures", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!filesReady()) return err(c, 501, "Bibliothèque du compte non configurée sur le serveur.");
+    const rows = await db.all(
+      `SELECT b.id, b.name, b.title, b.location, b.price, b.type, b.updated_at, u.name AS author
+       FROM brochures b LEFT JOIN users u ON u.id = b.user_id
+       WHERE b.agency_id = ? ORDER BY b.updated_at DESC`, [ctx.agency.id]);
+    return c.json({ brochures: rows });
+  });
+
+  app.get("/brochures/:id", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!filesReady()) return err(c, 501, "Bibliothèque du compte non configurée sur le serveur.");
+    const row = await db.get("SELECT * FROM brochures WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!row) return err(c, 404, "Brochure introuvable.");
+    const obj = await env.files.get(brKey(ctx.agency.id, row.id));
+    if (!obj) return err(c, 404, "Contenu de la brochure introuvable.");
+    let data;
+    try { data = JSON.parse(await obj.text()); } catch (e) { return err(c, 500, "Brochure illisible."); }
+    return c.json({ id: row.id, name: row.name, updated_at: row.updated_at, data });
+  });
+
+  app.put("/brochures", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif — la synchronisation des brochures est suspendue.");
+    if (!filesReady()) return err(c, 501, "Bibliothèque du compte non configurée sur le serveur.");
+    const raw = await c.req.text();
+    if (raw.length > BROCHURE_MAX_BYTES) return err(c, 413, "Brochure trop volumineuse — allégez la galerie de photos.");
+    let b; try { b = JSON.parse(raw); } catch (e) { b = null; }
+    const name = String((b && b.name) || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 120);
+    const data = b && b.data;
+    if (!name || !data || typeof data !== "object" || Array.isArray(data)
+      || data._app !== "studio-brochure" || !data.property || typeof data.property !== "object") {
+      return err(c, 400, "name et data (brochure « studio-brochure ») requis.");
+    }
+    const json = JSON.stringify(data);
+    const p = data.property;
+    const meta = [
+      String(p.title || "").slice(0, 200),
+      String(p.location || "").slice(0, 200),
+      String(p.price || "").slice(0, 60),
+      String(p.type || "").slice(0, 100)
+    ];
+    const existing = await db.get("SELECT id FROM brochures WHERE agency_id = ? AND name = ?", [ctx.agency.id, name]);
+    const id = existing ? existing.id : randId("br");
+    await env.files.put(brKey(ctx.agency.id, id), json);
+    if (existing) {
+      await db.run("UPDATE brochures SET title = ?, location = ?, price = ?, type = ?, size = ?, user_id = ?, updated_at = ? WHERE id = ?",
+        [meta[0], meta[1], meta[2], meta[3], json.length, ctx.user.id, now(), id]);
+      return c.json({ ok: true, id, name, updated: true });
+    }
+    const count = await db.get("SELECT COUNT(*) AS n FROM brochures WHERE agency_id = ?", [ctx.agency.id]);
+    if ((count?.n || 0) >= BROCHURES_MAX) {
+      await env.files.delete(brKey(ctx.agency.id, id)).catch?.(() => { });
+      return err(c, 409, "Limite de brochures atteinte (" + BROCHURES_MAX + ") — supprimez-en d'abord.");
+    }
+    await db.run(
+      "INSERT INTO brochures (id, agency_id, user_id, name, title, location, price, type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [id, ctx.agency.id, ctx.user.id, name, meta[0], meta[1], meta[2], meta[3], json.length, now(), now()]);
+    return c.json({ ok: true, id, name, updated: false });
+  });
+
+  app.delete("/brochures/:id", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!filesReady()) return err(c, 501, "Bibliothèque du compte non configurée sur le serveur.");
+    const row = await db.get("SELECT id FROM brochures WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (row) {
+      await db.run("DELETE FROM brochures WHERE id = ?", [row.id]);
+      await env.files.delete(brKey(ctx.agency.id, row.id));
+    }
+    return c.json({ ok: true });
+  });
+
   /* ------------------------------ Proxy IA ------------------------------ */
   // Contrôle de coût en 3 temps : (1) rate-limit par agence/minute,
   // (2) RÉSERVATION atomique du quota avant l'appel (une UPDATE gardée : les

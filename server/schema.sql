@@ -89,6 +89,25 @@ CREATE TABLE IF NOT EXISTS licenses (
   created_at  INTEGER NOT NULL
 );
 
+-- Brochures synchronisées : métadonnées ici, contenu JSON (photos incluses,
+-- plusieurs Mo) dans R2 (binding FILES, clé br/<agence>/<id>.json).
+-- Partagées au sein de l'agence, comme les fiches.
+CREATE TABLE IF NOT EXISTS brochures (
+  id         TEXT PRIMARY KEY,               -- br_xxxxxxxx
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  user_id    TEXT NOT NULL,                  -- dernier auteur
+  name       TEXT NOT NULL,
+  title      TEXT NOT NULL DEFAULT '',       -- métadonnées de liste (extraites de data.property)
+  location   TEXT NOT NULL DEFAULT '',
+  price      TEXT NOT NULL DEFAULT '',
+  type       TEXT NOT NULL DEFAULT '',
+  size       INTEGER NOT NULL DEFAULT 0,     -- octets du JSON dans R2
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_brochures_name   ON brochures(agency_id, name);
+CREATE INDEX        IF NOT EXISTS idx_brochures_agency ON brochures(agency_id, updated_at);
+
 -- Fiches prestation synchronisées : suivent le compte (téléphone <-> ordinateur),
 -- partagées au sein de l'agence comme le dossier OneDrive.
 CREATE TABLE IF NOT EXISTS fiches (

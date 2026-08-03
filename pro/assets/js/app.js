@@ -871,6 +871,9 @@
       await saveCurrentToFolder();
       return;
     }
+    // Sur téléphone (pas d'accès au dossier) : la brochure part sur le compte
+    // — visible ensuite sur l'ordinateur dans « ☁ Brochures du compte ».
+    if (cloudOn()) { await cloudSaveCurrent(); return; }
     downloadJson();
   }
   function downloadJson() {
@@ -909,9 +912,77 @@
         $("#libFolder").textContent = "Dossier : " + Lib.folderName();
       }
       toast("Brochure enregistrée : " + name);
+      pushCurrentToCloud(name); // copie « compte » silencieuse (téléphones + autres postes)
       return true;
     } catch (e) { toast("Enregistrement impossible.", true); return false; }
   }
+
+  /* ------------- Brochures du compte (synchronisées serveur) ------------- */
+  // Le contenu (photos incluses) est stocké côté serveur : la brochure suit
+  // le compte (téléphone <-> ordinateur) et est partagée au sein de l'agence,
+  // comme les fiches prestation. Le dossier OneDrive reste disponible sur
+  // ordinateur (second mode de la bibliothèque).
+  const CLOUD_API = String((window.StudioConfig && window.StudioConfig.apiBase) || "").replace(/\/$/, "");
+  function cloudAccount() { try { return JSON.parse(localStorage.getItem("studio-mandatpro-account") || "null"); } catch (e) { return null; } }
+  function cloudOn() { const a = cloudAccount(); return !!(CLOUD_API && a && a.session); }
+  async function cloudApi(path, opts) {
+    opts = opts || {};
+    const a = cloudAccount() || {};
+    let res;
+    try {
+      res = await fetch(CLOUD_API + path, {
+        method: opts.method || (opts.body ? "PUT" : "GET"),
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + (a.session || "") },
+        body: opts.body ? JSON.stringify(opts.body) : undefined
+      });
+    } catch (e) { throw new Error("Serveur injoignable — vérifiez votre connexion."); }
+    const data = await res.json().catch(function () { return null; });
+    if (res.status === 401) throw new Error("Session expirée — reconnectez-vous sur la page « Mon compte ».");
+    if (!res.ok) throw new Error((data && data.error) || "Erreur serveur — réessayez.");
+    return data;
+  }
+  let libCloudMode = false, currentCloudId = null;
+  // Enregistre la brochure courante sur le compte (nom demandé).
+  async function cloudSaveCurrent() {
+    const suggested = currentFileName ? currentFileName.replace(/\.json$/i, "") : (state.property.title || fileSlug());
+    const input = prompt("Nom de la brochure :", suggested);
+    if (input == null) return false;
+    const name = (safeName(input) || fileSlug()).slice(0, 120);
+    const data = clone(state); data._app = "studio-brochure"; data._v = 2;
+    try {
+      const r = await cloudApi("/brochures", { body: { name: name, data: data } });
+      currentCloudId = r.id; currentFileName = name + ".json";
+      toast(r.updated ? "« " + name + " » mise à jour sur le compte ✓" : "Brochure enregistrée sur le compte : " + name);
+      if (!$("#libOverlay").hidden) libRefresh();
+      return true;
+    } catch (e) { toast(e.message, true); return false; }
+  }
+  // Copie « compte » silencieuse après un enregistrement dans le dossier :
+  // la brochure devient visible sur les téléphones, sans double saisie.
+  function pushCurrentToCloud(name) {
+    if (!cloudOn()) return;
+    const data = clone(state); data._app = "studio-brochure"; data._v = 2;
+    cloudApi("/brochures", { body: { name: String(name || "").replace(/\.json$/i, ""), data: data } })
+      .then(function (r) { currentCloudId = r.id; }, function () { /* le dossier reste la référence */ });
+  }
+  async function cloudOpen(id) {
+    try {
+      const r = await cloudApi("/brochures/" + id);
+      loadData(r.data);
+      currentCloudId = id; currentFileName = (r.name || "brochure") + ".json";
+      closeLib();
+      toast("« " + (state.property.title || r.name) + " » ouverte.");
+    } catch (e) { toast(e.message, true); }
+  }
+  async function cloudDelete(id, name) {
+    if (!confirm("Supprimer définitivement « " + String(name || "").replace(/\.json$/i, "") + " » du compte (pour toute l'agence) ?")) return;
+    try {
+      await cloudApi("/brochures/" + id, { method: "DELETE" });
+      if (currentCloudId === id) currentCloudId = null;
+      libRefresh(); toast("Brochure supprimée.");
+    } catch (e) { toast(e.message, true); }
+  }
+
   // Charge des données de projet dans l'état (import .json ou bibliothèque).
   function loadData(d) {
     if (!d || typeof d !== "object" || !d.property || typeof d.property !== "object") throw new Error("format");
@@ -1277,12 +1348,38 @@
   const Lib = window.BrochureLibrary;
   function normTxt(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
 
-  function openLib() { $("#libOverlay").hidden = false; libRefresh(); }
+  function paintLibMode() {
+    const t = $("#libToggle");
+    if (!t) return;
+    t.hidden = !(cloudOn() && Lib && Lib.isSupported()); // bascule utile seulement quand les deux modes existent
+    t.textContent = libCloudMode ? "▤ Voir le dossier OneDrive" : "☁ Brochures du compte";
+    $("#libChoose").hidden = libCloudMode;
+  }
+  function openLib() { libCloudMode = cloudOn(); $("#libOverlay").hidden = false; libRefresh(); }
   function closeLib() { $("#libOverlay").hidden = true; }
 
   async function libRefresh() {
     const listEl = $("#libList"), folderEl = $("#libFolder"), hint = $("#libHint");
     const btnChoose = $("#libChoose"), btnSave = $("#libSave");
+    paintLibMode();
+    if (libCloudMode) {
+      btnChoose.disabled = false; btnSave.disabled = false;
+      folderEl.textContent = "Brochures du compte — synchronisées entre vos appareils";
+      hint.textContent = "Partagées avec toute l'agence : enregistrez sur l'ordinateur, ouvrez sur le téléphone (et inversement).";
+      listEl.innerHTML = '<div class="lib-empty">Chargement…</div>';
+      try {
+        const r = await cloudApi("/brochures");
+        libItems = (r.brochures || []).map(function (x) {
+          return { id: x.id, name: x.name + ".json", title: x.title || "", location: x.location || "", price: x.price || "", modified: (x.updated_at || 0) * 1000, author: x.author || "" };
+        });
+      } catch (e) {
+        // Serveur pas encore équipé (501) ou session expirée : message clair.
+        libItems = []; listEl.innerHTML = ""; hint.textContent = e.message;
+        return;
+      }
+      renderLibList();
+      return;
+    }
     if (!Lib || !Lib.isSupported()) {
       folderEl.textContent = "Indisponible sur ce navigateur";
       listEl.innerHTML = "";
@@ -1317,7 +1414,9 @@
   function renderLibList() {
     const listEl = $("#libList");
     if (!libItems.length) {
-      listEl.innerHTML = '<div class="lib-empty">Aucune brochure dans ce dossier pour le moment. Créez-en une puis « Enregistrer la brochure actuelle ».</div>';
+      listEl.innerHTML = '<div class="lib-empty">' + (libCloudMode
+        ? "Aucune brochure sur le compte pour le moment. « Enregistrer la brochure actuelle » — elle vous suivra du téléphone à l'ordinateur."
+        : "Aucune brochure dans ce dossier pour le moment. Créez-en une puis « Enregistrer la brochure actuelle ».") + '</div>';
       return;
     }
     const raw = $("#libSearch").value; const q = normTxt(raw);
@@ -1333,9 +1432,9 @@
       const ds = (it.modified && !isNaN(d)) ? d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) : "";
       const fname = it.name.replace(/\.json$/i, "");     // le nom sous lequel c'est enregistré
       const sub = [it.title, it.location].filter(Boolean).join(" — ");   // le contenu de la brochure
-      const meta = [it.price, ds ? "Modifié le " + ds : ""].filter(Boolean).join("  ·  ");
-      const cur = (it.name === currentFileName) ? ' <span class="lib-item__badge">ouverte</span>' : "";
-      return '<div class="lib-item" data-name="' + esc(it.name) + '">' +
+      const meta = [it.price, ds ? "Modifié le " + ds : "", it.author ? "par " + it.author : ""].filter(Boolean).join("  ·  ");
+      const cur = (libCloudMode ? (it.id && it.id === currentCloudId) : (it.name === currentFileName)) ? ' <span class="lib-item__badge">ouverte</span>' : "";
+      return '<div class="lib-item" data-name="' + esc(it.name) + '"' + (it.id ? ' data-id="' + esc(it.id) + '"' : "") + '>' +
         '<div class="lib-item__main">' +
         '<div class="lib-item__title">' + esc(fname) + cur + "</div>" +
         (sub ? '<div class="lib-item__sub">' + esc(sub) + "</div>" : "") +
@@ -1369,6 +1468,7 @@
   }
 
   async function libSaveCurrent() {
+    if (libCloudMode) { await cloudSaveCurrent(); return; }
     if (!Lib || !Lib.isSupported()) { toast("Sur ce navigateur, utilisez « Sauvegarder » (.json).", true); return; }
     if (!Lib.folderName()) {
       try { await Lib.chooseFolder(); await libRefresh(); }
@@ -1383,6 +1483,7 @@
     $("#libOverlay").addEventListener("click", function (e) { if (e.target === this) closeLib(); });
     document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !$("#libOverlay").hidden) closeLib(); });
     $("#libSearch").addEventListener("input", renderLibList);
+    if ($("#libToggle")) $("#libToggle").addEventListener("click", function () { libCloudMode = !libCloudMode; libRefresh(); });
     $("#libSave").addEventListener("click", libSaveCurrent);
     $("#libChoose").addEventListener("click", async function () {
       if (!Lib || !Lib.isSupported()) {
@@ -1395,8 +1496,10 @@
     $("#libList").addEventListener("click", function (e) {
       const btn = e.target.closest && e.target.closest("button[data-act]"); if (!btn) return;
       const item = e.target.closest(".lib-item"); if (!item) return;
-      const name = item.getAttribute("data-name");
-      if (btn.getAttribute("data-act") === "open") libOpen(name); else libDelete(name);
+      const name = item.getAttribute("data-name"), cid = item.getAttribute("data-id");
+      if (btn.getAttribute("data-act") === "open") { if (libCloudMode && cid) cloudOpen(cid); else libOpen(name); }
+      else if (libCloudMode && cid) cloudDelete(cid, name);
+      else libDelete(name);
     });
     // Retrouve le dossier mémorisé (sans encore demander l'autorisation).
     if (Lib && Lib.isSupported()) Lib.restore();

@@ -30,8 +30,16 @@ await new Promise((r) => fake.listen(18789, r));
 
 const schema = readFileSync(new URL("./schema.sql", import.meta.url), "utf8");
 const db = await createNodeDb(":memory:", schema);
+// Faux bucket R2 (contenu des brochures) — même contrat que le binding FILES.
+const filesMem = new Map();
+const files = {
+  async put(k, v) { filesMem.set(k, String(v)); },
+  async get(k) { return filesMem.has(k) ? { text: async () => filesMem.get(k) } : null; },
+  async delete(k) { filesMem.delete(k); }
+};
 const app = createApp({
   db,
+  files,
   SESSION_SECRET: "test-secret",
   ADMIN_KEY: "test-admin",
   ANTHROPIC_API_KEY: "sk-ant-fake-server-key",
@@ -126,6 +134,34 @@ ok((await call("/fiches/" + put1.json.id, { headers: { Authorization: "Bearer " 
 ok((await call("/fiches", { headers: { Authorization: "Bearer " + s2b } })).json.fiches.length === 0, "liste vide pour l'autre agence");
 const fdel = await call("/fiches/" + put1.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
 ok(fdel.status === 200 && (await call("/fiches", { headers: { Authorization: "Bearer " + s3 } })).json.fiches.length === 0, "suppression effective");
+
+console.log("— Brochures synchronisées (D1 + R2)");
+const broData = {
+  _app: "studio-brochure", _v: 2,
+  property: { title: "Le plain-pied ouvert sur son jardin", location: "Saint-Aubin-de-Médoc", price: "570 000 €", type: "Maison" },
+  gallery: [{ url: "data:image/jpeg;base64,QUJD", caption: "Le jardin" }]
+};
+const bput = await call("/brochures", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { name: "VILLA LAFOND", data: broData } });
+ok(bput.status === 200 && bput.json.id.startsWith("br_") && bput.json.updated === false, "brochure enregistrée sur le compte");
+ok(filesMem.has("br/" + agencyId + "/" + bput.json.id + ".json"), "contenu stocké dans R2 (clé par agence)");
+const blist = await call("/brochures", { headers: { Authorization: "Bearer " + s3 } });
+ok(blist.status === 200 && blist.json.brochures.length === 1 && blist.json.brochures[0].title === "Le plain-pied ouvert sur son jardin"
+  && typeof blist.json.brochures[0].author === "string", "liste avec métadonnées (titre + auteur)");
+const bget = await call("/brochures/" + bput.json.id, { headers: { Authorization: "Bearer " + s3 } });
+ok(bget.status === 200 && bget.json.data.property.price === "570 000 €" && bget.json.data.gallery.length === 1, "ouverture : contenu complet restitué");
+const bupd = await call("/brochures", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { name: "VILLA LAFOND", data: broData } });
+ok(bupd.status === 200 && bupd.json.updated === true && bupd.json.id === bput.json.id, "ré-enregistrement même nom → mise à jour (pas de doublon)");
+ok((await call("/brochures", { headers: { Authorization: "Bearer " + s2b } })).json.brochures.length === 0, "l'autre agence ne voit rien (isolation)");
+ok((await call("/brochures/" + bput.json.id, { headers: { Authorization: "Bearer " + s2b } })).status === 404, "l'autre agence ne peut pas ouvrir");
+ok((await call("/brochures", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { name: "X", data: { _app: "studio-fiche" } } })).status === 400, "mauvais type de document refusé");
+ok((await call("/brochures", { headers: {} })).status === 401, "sans session : refusé");
+const bdel = await call("/brochures/" + bput.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
+ok(bdel.status === 200 && !filesMem.has("br/" + agencyId + "/" + bput.json.id + ".json")
+  && (await call("/brochures", { headers: { Authorization: "Bearer " + s3 } })).json.brochures.length === 0, "suppression : base + R2 nettoyés");
+// Sans binding R2 (serveur pas encore configuré) : refus propre, pas de plantage.
+const appNoFiles = createApp({ db, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: true });
+const noFiles = await appNoFiles.fetch(new Request("http://api.test/brochures", { headers: { Authorization: "Bearer " + s3 } }));
+ok(noFiles.status === 501, "sans bucket R2 configuré → 501 propre");
 
 console.log("— Proxy IA");
 const gen = await call("/v1/messages", {

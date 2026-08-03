@@ -10,8 +10,16 @@ import { createApp } from "./src/app.js";
 
 const schema = readFileSync(new URL("./schema.sql", import.meta.url), "utf8");
 const db = await createNodeDb(process.env.DB_PATH || "studio.sqlite", schema);
+// Équivalent local du bucket R2 (contenu des brochures) : simple Map en mémoire.
+const filesMem = new Map();
+const files = {
+  async put(k, v) { filesMem.set(k, String(v)); },
+  async get(k) { return filesMem.has(k) ? { text: async () => filesMem.get(k) } : null; },
+  async delete(k) { filesMem.delete(k); }
+};
 const app = createApp({
   db,
+  files,
   SESSION_SECRET: process.env.SESSION_SECRET || "dev-secret",
   ADMIN_KEY: process.env.ADMIN_KEY || "dev-admin",
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || "",

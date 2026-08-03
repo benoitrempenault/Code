@@ -9,6 +9,7 @@ export default {
   async fetch(request, env, ctx) {
     const app = createApp({
       db: wrapD1(env.DB),
+      files: env.FILES || null, // R2 : contenu des brochures synchronisées (br/<agence>/<id>.json)
       SESSION_SECRET: env.SESSION_SECRET,
       ADMIN_KEY: env.ADMIN_KEY,
       ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
