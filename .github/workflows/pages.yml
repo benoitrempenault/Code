@@ -28,7 +28,7 @@ jobs:
       - name: Garde-fou — syntaxe JS (bloque le déploiement si cassé)
         run: |
           set -e
-          for f in $(find assets pro mandat mandat-pro -name '*.js' -not -path '*/node_modules/*'); do
+          for f in $(find assets pro mandat mandat-pro suivi -name '*.js' -not -path '*/node_modules/*'); do
             node --check "$f"
           done
           echo "Syntaxe JS OK — déploiement autorisé."
@@ -52,6 +52,10 @@ jobs:
           mkdir -p _site/mandat-pro/assets
           cp mandat-pro/index.html mandat-pro/fiche.html mandat-pro/brochure.html mandat-pro/compte.html mandat-pro/formation.html mandat-pro/favicon.svg _site/mandat-pro/
           cp -r mandat-pro/assets/* _site/mandat-pro/assets/
+          # Studio Suivi (dossiers de vente compromis → acte, interne Kadima) sous /suivi/
+          mkdir -p _site/suivi/assets
+          cp suivi/index.html suivi/favicon.svg _site/suivi/
+          cp -r suivi/assets/* _site/suivi/assets/
           # Page de présentation Studio Mandat sous /site-mandat/
           mkdir -p _site/site-mandat/assets
           cp site-mandat/index.html site-mandat/favicon.svg _site/site-mandat/

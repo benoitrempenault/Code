@@ -1,0 +1,234 @@
+/* =========================================================================
+   suivi.css — habillage de l'app Suivi des dossiers (thème sombre commun
+   aux outils Studio : Inter + Fraunces, accent doré).
+   ========================================================================= */
+:root {
+  --bg: #0f0f10; --panel: #17171a; --panel-2: #1e1e22; --line: #2a2a30;
+  --text: #ece9e2; --muted: #9a968c; --accent: #c2a36b; --accent-ink: #1a1714;
+  --ok: #6fbf8b; --warn: #e0b154; --bad: #e07a6a; --info: #7aa7d8;
+}
+* { box-sizing: border-box; margin: 0; }
+html { color-scheme: dark; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: "Inter", system-ui, sans-serif; font-size: 14px;
+  min-height: 100vh;
+}
+button { font: inherit; cursor: pointer; }
+input, select, textarea {
+  font: inherit; color: var(--text); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px;
+}
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+input[type="date"] { min-width: 130px; }
+input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
+a { color: var(--accent); }
+
+/* ------------------------------- Topbar -------------------------------- */
+.topbar {
+  position: sticky; top: 0; z-index: 40;
+  display: flex; align-items: center; gap: 14px;
+  padding: 10px 18px; background: rgba(15,15,16,.92); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.topbar__brand { display: flex; align-items: center; gap: 12px; }
+.topbar__brand img { height: 34px; width: auto; background: #fff; padding: 4px 8px; border-radius: 8px; }
+.topbar__brand strong { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 17px; display: block; }
+.topbar__brand small { color: var(--muted); font-size: 11.5px; display: block; }
+.topbar nav { display: flex; gap: 4px; margin-left: 18px; flex-wrap: wrap; }
+.topbar nav a {
+  text-decoration: none; color: var(--muted); padding: 7px 13px; border-radius: 8px; font-weight: 500;
+}
+.topbar nav a.on { background: var(--panel-2); color: var(--text); }
+.topbar nav a:hover { color: var(--text); }
+.topbar .spacer { flex: 1; }
+.topbar .who { color: var(--muted); font-size: 12px; text-align: right; }
+
+.btn {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 9px; padding: 8px 14px; font-weight: 500;
+  transition: border-color .12s, background .12s;
+}
+.btn:hover { border-color: var(--accent); }
+.btn--primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn--primary:hover { filter: brightness(1.07); }
+.btn--danger:hover { border-color: var(--bad); color: var(--bad); }
+.btn--sm { padding: 4px 9px; font-size: 12.5px; border-radius: 7px; }
+.btn[disabled] { opacity: .5; cursor: default; }
+
+/* ------------------------------- Layout -------------------------------- */
+.wrap { max-width: 1240px; margin: 0 auto; padding: 22px 18px 80px; }
+.view { display: none; }
+.view.on { display: block; }
+h2.viewtitle { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 24px; margin-bottom: 16px; }
+h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font-size: 13px; font-weight: 400; margin-left: 10px; }
+
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: 18px; margin-bottom: 16px;
+}
+.card h3 {
+  font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 16.5px;
+  margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+}
+.card h3 .cnt { color: var(--muted); font-family: "Inter", sans-serif; font-size: 12px; font-weight: 400; }
+.hintline { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.5; }
+
+/* --------------------------- Tableau de bord ---------------------------- */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+.kpi b { font-size: 26px; font-family: "Fraunces", Georgia, serif; font-weight: 550; display: block; }
+.kpi span { color: var(--muted); font-size: 12px; }
+.kpi.bad b { color: var(--bad); } .kpi.warn b { color: var(--warn); } .kpi.ok b { color: var(--ok); }
+
+.todo { display: flex; flex-direction: column; gap: 8px; }
+.todo__item {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+}
+.todo__item .when { min-width: 92px; font-weight: 600; font-size: 12.5px; }
+.todo__item.late .when { color: var(--bad); }
+.todo__item.soon .when { color: var(--warn); }
+.todo__item .what { flex: 1 1 260px; }
+.todo__item .what small { display: block; color: var(--muted); }
+.todo__empty { color: var(--muted); padding: 14px 4px; }
+
+/* ------------------------------- Listes --------------------------------- */
+.toolrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.toolrow input[type="search"] { flex: 1 1 220px; }
+table.liste { width: 100%; border-collapse: collapse; }
+table.liste th {
+  text-align: left; color: var(--muted); font-size: 11.5px; text-transform: uppercase;
+  letter-spacing: .05em; font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--line);
+}
+table.liste td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table.liste tr.row { cursor: pointer; }
+table.liste tr.row:hover td { background: var(--panel-2); }
+.tablewrap { overflow-x: auto; }
+
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 7px; vertical-align: baseline; }
+.dot.vert { background: var(--ok); } .dot.orange { background: var(--warn); }
+.dot.rouge { background: var(--bad); } .dot.gris { background: var(--muted); }
+.badge {
+  display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 11.5px; font-weight: 600;
+  border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
+}
+.badge.en_cours { color: var(--info); border-color: var(--info); }
+.badge.signe { color: var(--ok); border-color: var(--ok); }
+.badge.annule { color: var(--bad); border-color: var(--bad); }
+
+/* ------------------------------ Dossier --------------------------------- */
+.doshead { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+.doshead h2 { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 23px; }
+.doshead .sub { color: var(--muted); margin-top: 4px; }
+.doshead .spacer { flex: 1; }
+.doshead .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 14px; }
+@media (max-width: 900px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.field label { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; }
+.field input, .field select, .field textarea { width: 100%; }
+.field textarea { min-height: 74px; resize: vertical; }
+
+.partie {
+  border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px;
+  background: var(--panel-2); position: relative;
+}
+.partie .rm { position: absolute; top: 8px; right: 8px; }
+.addrow { margin-top: 4px; }
+
+/* ----------------------------- Échéancier ------------------------------- */
+.phase { margin: 18px 0 6px; color: var(--accent); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: .07em; }
+.etape {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 9px 10px; border-bottom: 1px solid var(--line);
+}
+.etape:last-child { border-bottom: none; }
+.etape .lab { flex: 1 1 300px; }
+.etape .lab small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+.etape.done .lab { color: var(--muted); text-decoration: line-through; text-decoration-color: rgba(154,150,140,.6); }
+.etape.done .lab small { text-decoration: none; }
+.etape .due { display: flex; align-items: center; gap: 8px; }
+.etape .due input { padding: 4px 6px; font-size: 12.5px; }
+.etape .delta { font-size: 11.5px; font-weight: 600; min-width: 74px; text-align: right; }
+.etape .delta.late { color: var(--bad); } .etape .delta.soon { color: var(--warn); } .etape .delta.far { color: var(--muted); }
+.etape .delta.okd { color: var(--ok); }
+
+/* ------------------------------- Journal -------------------------------- */
+.journal { display: flex; flex-direction: column; gap: 8px; }
+.journal__item { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; }
+.journal__item .meta { color: var(--muted); font-size: 11.5px; margin-bottom: 3px; }
+.journal__add { display: flex; gap: 8px; margin-top: 10px; }
+.journal__add input { flex: 1; }
+
+/* ----------------------------- Conditions ------------------------------- */
+.cond { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.cond:last-child { border-bottom: none; }
+.cond input[type="text"] { flex: 1 1 180px; }
+.cond textarea { flex: 2 1 260px; min-height: 38px; }
+
+/* ------------------------------- Modales -------------------------------- */
+.overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.66); z-index: 90;
+  display: none; align-items: flex-start; justify-content: center; padding: 5vh 16px; overflow: auto;
+}
+.overlay.on { display: flex; }
+.modal {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+  width: 100%; max-width: 720px; padding: 22px;
+}
+.modal h3 { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 19px; margin-bottom: 12px; }
+.modal .foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; flex-wrap: wrap; }
+
+.drop {
+  border: 2px dashed var(--line); border-radius: 12px; padding: 26px; text-align: center;
+  color: var(--muted); cursor: pointer; transition: border-color .12s;
+}
+.drop:hover, .drop.over { border-color: var(--accent); color: var(--text); }
+.drop input { display: none; }
+.filelist { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.filelist div { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 12.5px; display: flex; justify-content: space-between; gap: 8px; }
+
+.spin {
+  display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line);
+  border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 7px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* -------------------------------- Toast --------------------------------- */
+#toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  padding: 11px 18px; border-radius: 10px; opacity: 0; pointer-events: none;
+  transition: opacity .2s, transform .2s; z-index: 120; max-width: 90vw;
+}
+#toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.err { border-color: var(--bad); }
+
+/* ---------------------------- Écran connexion ---------------------------- */
+.gate { max-width: 520px; margin: 10vh auto; text-align: center; }
+.gate img { height: 60px; background: #fff; padding: 10px 16px; border-radius: 12px; margin-bottom: 18px; }
+.gate h1 { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 26px; margin-bottom: 10px; }
+.gate p { color: var(--muted); line-height: 1.6; margin-bottom: 18px; }
+
+/* ------------------------------ Modèles --------------------------------- */
+.modele { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; background: var(--panel-2); }
+.modele .head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.modele .head input[type="text"] { flex: 1 1 220px; font-weight: 600; }
+.modele textarea { width: 100%; min-height: 130px; font-size: 13px; line-height: 1.5; }
+.mergehelp { color: var(--muted); font-size: 11.5px; line-height: 1.7; }
+.mergehelp code { background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; font-size: 11px; }
+
+@media (max-width: 700px) {
+  .topbar { flex-wrap: wrap; }
+  .topbar nav { margin-left: 0; order: 3; width: 100%; }
+  .doshead .actions { width: 100%; }
+}
+@media print {
+  .topbar, .btn, .journal__add { display: none !important; }
+  body { background: #fff; color: #111; }
+  .card { border-color: #ccc; break-inside: avoid; }
+}

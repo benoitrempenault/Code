@@ -1,0 +1,1000 @@
+/* =========================================================================
+   app.js — Studio Suivi : suivi collaboratif des dossiers de vente
+   (compromis → acte authentique) pour l'agence.
+
+   - Les dossiers vivent sur le serveur Studio Brochure (D1) et sont partagés
+     par toute l'agence ; le compromis PDF est stocké dans R2.
+   - L'extraction du compromis (parties, notaires, prix, séquestre,
+     conditions suspensives…) passe par SuiviAI.extractCompromis.
+   - L'échéancier et les relances s'appuient sur SuiviEtapes (etapes.js).
+   Aucune donnée n'est stockée en local hormis la session « Mon compte »
+   (partagée avec les autres apps du domaine).
+   ========================================================================= */
+(function () {
+  "use strict";
+
+  const E = window.SuiviEtapes;
+  const AGENCE = "CENTURY 21 Kadima — Saint-Médard-en-Jalles";
+
+  /* ------------------------------ Utilitaires ---------------------------- */
+  const $ = (s, r) => (r || document).querySelector(s);
+  const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => (
+      { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+  let toastTimer = null;
+  function toast(msg, isErr) {
+    const t = $("#toast");
+    t.textContent = msg;
+    t.className = "on" + (isErr ? " err" : "");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.className = ""; }, isErr ? 6000 : 3000);
+  }
+  function debounce(fn, ms) {
+    let t = null;
+    return function () { clearTimeout(t); t = setTimeout(fn, ms); };
+  }
+  function getByPath(obj, path) {
+    return path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
+  }
+  function setByPath(obj, path, val) {
+    const keys = path.split(".");
+    let o = obj;
+    for (let i = 0; i < keys.length - 1; i++) {
+      if (o[keys[i]] == null || typeof o[keys[i]] !== "object") o[keys[i]] = {};
+      o = o[keys[i]];
+    }
+    o[keys[keys.length - 1]] = val;
+  }
+
+  /* ------------------------------- Compte -------------------------------- */
+  const API = String((window.StudioConfig && window.StudioConfig.apiBase) || "").replace(/\/$/, "");
+  function account() {
+    try { return JSON.parse(localStorage.getItem("studio-mandatpro-account") || "null"); }
+    catch (e) { return null; }
+  }
+  function userName() {
+    const a = account();
+    return (a && a.user && (a.user.name || a.user.email)) || "moi";
+  }
+  async function api(path, opts) {
+    opts = opts || {};
+    const a = account();
+    if (!a || !a.session) throw new Error("Session invalide — reconnectez-vous.");
+    const headers = Object.assign({ Authorization: "Bearer " + a.session }, opts.headers || {});
+    if (opts.json !== undefined) {
+      headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(opts.json);
+    }
+    let res;
+    try {
+      res = await fetch(API + path, { method: opts.method || (opts.body ? "POST" : "GET"), headers, body: opts.body });
+    } catch (e) { throw new Error("Serveur injoignable — vérifiez la connexion internet."); }
+    if (opts.raw) return res;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(data.error || ("Erreur " + res.status));
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  /* -------------------------------- État --------------------------------- */
+  let list = [];              // métadonnées de la liste (GET /dossiers)
+  const details = {};         // id -> { id, name, updated_at, data } (cache)
+  let modeles = [];           // modèles d'e-mails de l'agence
+  let currentId = null;       // dossier ouvert
+  let saveState = "";         // "" | "dirty" | "saving" | "saved" | "error"
+
+  function defPartie() { return { nom: "", adresse: "", telephone: "", email: "", naissance: "", situation: "" }; }
+  function defNotaire() { return { nom: "", ville: "", adresse: "", telephone: "", email: "" }; }
+  function newDossier() {
+    return {
+      _app: "studio-suivi", version: 1,
+      reference: "", statut: "en_cours", conseillers: "",
+      date_compromis: "", date_butoir: "", preemption: "",
+      bien: { type: "", adresse: "", ville: "", description: "", copropriete: "", lots: "", cadastre: "" },
+      prix: { prix_vente: "", honoraires: "", charge_honoraires: "" },
+      vendeurs: [], acquereurs: [],
+      notaire_vendeur: defNotaire(), notaire_acquereur: defNotaire(),
+      sequestre: { montant: "", depositaire: "", delai: "" },
+      financement: { recours_pret: "", montant_pret: "", duree: "", taux_max: "", banques: "", date_limite_depot: "", date_limite_obtention: "" },
+      conditions_suspensives: [],
+      dates: { envoi_sru: "", presentation_sru: "", envoi_notaires: "", envoi_dia: "", ar_dia: "", signature_prevue: "", signature_acte: "" },
+      etapes: {}, journal: [], observations: "", echeance: ""
+    };
+  }
+  // Consolide un dossier chargé (ancien, partiel ou importé) sur le gabarit.
+  function normalize(data) {
+    const base = newDossier();
+    if (!data || typeof data !== "object") return base;
+    ["__proto__", "constructor", "prototype"].forEach((k) => { try { delete data[k]; } catch (e) { } });
+    for (const k of Object.keys(base)) {
+      if (data[k] == null) { data[k] = base[k]; continue; }
+      if (typeof base[k] === "object" && !Array.isArray(base[k]) && typeof data[k] === "object") {
+        data[k] = Object.assign({}, base[k], data[k]);
+      }
+    }
+    data._app = "studio-suivi";
+    if (!Array.isArray(data.vendeurs)) data.vendeurs = [];
+    if (!Array.isArray(data.acquereurs)) data.acquereurs = [];
+    if (!Array.isArray(data.conditions_suspensives)) data.conditions_suspensives = [];
+    if (!Array.isArray(data.journal)) data.journal = [];
+    return data;
+  }
+
+  /* ----------------------------- Chargements ------------------------------ */
+  async function loadList() {
+    const r = await api("/dossiers");
+    list = r.dossiers || [];
+  }
+  async function loadDetail(id, force) {
+    if (!force && details[id]) return details[id];
+    const r = await api("/dossiers/" + encodeURIComponent(id));
+    r.data = normalize(r.data);
+    details[id] = r;
+    return r;
+  }
+  async function loadModeles() {
+    const r = await api("/modeles");
+    modeles = r.modeles || [];
+    // Premier lancement de l'agence : installe les modèles par défaut.
+    if (!modeles.length) {
+      for (const m of E.DEFAULT_MODELES) {
+        try { await api("/modeles", { method: "PUT", json: m }); } catch (e) { break; }
+      }
+      try { modeles = (await api("/modeles")).modeles || []; } catch (e) { }
+    }
+  }
+
+  /* ------------------------------ Sauvegarde ------------------------------ */
+  function setSaveState(s) {
+    saveState = s;
+    const el = $("#saveState");
+    if (!el) return;
+    el.textContent = s === "saving" ? "Enregistrement…" : s === "saved" ? "Enregistré ✓" : s === "error" ? "⚠ Non enregistré" : s === "dirty" ? "Modifié…" : "";
+    el.style.color = s === "error" ? "var(--bad)" : "var(--muted)";
+  }
+  async function saveDossier(id) {
+    const d = details[id];
+    if (!d) return;
+    if (id === currentId) setSaveState("saving");
+    d.data.echeance = E.nextDue(d.data);
+    const name = (d.data.reference || d.name || "Dossier sans nom").trim() || "Dossier sans nom";
+    try {
+      const r = await api("/dossiers", {
+        method: "PUT",
+        json: { id: d.id, name, data: d.data, base_updated_at: d.updated_at }
+      });
+      d.updated_at = r.updated_at;
+      d.name = name;
+      if (id === currentId) setSaveState("saved");
+      refreshListRow(d);
+    } catch (e) {
+      if (id === currentId) setSaveState("error");
+      if (e.status === 409) {
+        if (confirm(e.message + "\n\nRecharger la version la plus récente ? (vos dernières modifications non enregistrées seront perdues)")) {
+          await loadDetail(id, true);
+          if (id === currentId) { renderDossier(); setSaveState(""); }
+        }
+      } else toast(e.message, true);
+    }
+  }
+  function saveCurrent() { return saveDossier(currentId); }
+  const saveSoon = debounce(saveCurrent, 900);
+  function markDirty() { setSaveState("dirty"); saveSoon(); }
+  function refreshListRow(d) {
+    const i = list.findIndex((x) => x.id === d.id);
+    const row = {
+      id: d.id, name: d.name, statut: d.data.statut, adresse: d.data.bien.adresse,
+      conseillers: d.data.conseillers, date_ssp: d.data.date_compromis,
+      echeance: d.data.echeance, compromis_size: (i >= 0 ? list[i].compromis_size : 0) || d.compromis_size || 0,
+      updated_at: d.updated_at
+    };
+    if (i >= 0) list[i] = Object.assign({}, list[i], row); else list.unshift(row);
+  }
+
+  /* ------------------------------- Routage -------------------------------- */
+  function route() {
+    const h = location.hash || "#board";
+    let view = h.slice(1);
+    if (view.startsWith("dossier/")) { currentId = decodeURIComponent(view.slice(8)); view = "dossier"; }
+    $$(".view").forEach((v) => v.classList.remove("on"));
+    $$("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.v === view));
+    const el = $("#view-" + view) || $("#view-board");
+    el.classList.add("on");
+    if (view === "board") renderBoard();
+    else if (view === "dossiers") renderList();
+    else if (view === "dossier") openDossier(currentId);
+    else if (view === "modeles") renderModeles();
+  }
+
+  /* --------------------------- Tableau de bord ---------------------------- */
+  function frDate(iso) { return E.fmtFr(iso) || "—"; }
+  function deltaLabel(days) {
+    if (days == null) return "";
+    if (days < -1) return Math.abs(days) + " j de retard";
+    if (days === -1) return "1 j de retard";
+    if (days === 0) return "aujourd'hui";
+    if (days === 1) return "demain";
+    return "dans " + days + " j";
+  }
+
+  async function ensureOpenDetails() {
+    const open = list.filter((x) => x.statut === "en_cours" || x.statut === "signe");
+    for (const m of open) {
+      if (!details[m.id]) {
+        try { await loadDetail(m.id); } catch (e) { /* dossier illisible : ignoré du board */ }
+      }
+    }
+    return open.filter((m) => details[m.id]);
+  }
+
+  async function renderBoard() {
+    $("#boardDate").textContent = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+    const open = await ensureOpenDetails();
+
+    // Toutes les actions (étapes non faites avec échéance) des dossiers ouverts.
+    const actions = [];
+    for (const m of open) {
+      const d = details[m.id].data;
+      for (const s of E.compute(d)) {
+        if (!s.done && s.due) actions.push({ id: m.id, ref: d.reference || m.name, step: s });
+      }
+    }
+    actions.sort((a, b) => (a.step.due < b.step.due ? -1 : 1));
+    const late = actions.filter((a) => a.step.days < 0);
+    const soon = actions.filter((a) => a.step.days >= 0 && a.step.days <= 7);
+    const sigs = actions.filter((a) => a.step.id === "signature" && a.step.days != null && a.step.days <= 30 && a.step.days >= 0);
+
+    $("#kpis").innerHTML =
+      '<div class="kpi"><b>' + list.filter((x) => x.statut === "en_cours").length + "</b><span>dossiers en cours</span></div>" +
+      '<div class="kpi ' + (late.length ? "bad" : "ok") + '"><b>' + late.length + "</b><span>actions en retard</span></div>" +
+      '<div class="kpi ' + (soon.length ? "warn" : "ok") + '"><b>' + soon.length + "</b><span>à faire sous 7 jours</span></div>" +
+      '<div class="kpi"><b>' + sigs.length + "</b><span>signatures sous 30 jours</span></div>";
+
+    const show = late.concat(soon);
+    $("#todoCount").textContent = show.length ? show.length + " action(s)" : "";
+    $("#todoList").innerHTML = show.length ? show.map((a) => {
+      const s = a.step;
+      const cls = s.days < 0 ? "late" : "soon";
+      const mailBtn = (s.modele && recipientFor(details[a.id].data, s.cible)) ?
+        '<button class="btn btn--sm" data-act="mail" data-id="' + esc(a.id) + '" data-step="' + esc(s.id) + '">✉ Relancer</button>' : "";
+      return '<div class="todo__item ' + cls + '">' +
+        '<span class="when">' + frDate(s.due) + "<br><small>" + deltaLabel(s.days) + "</small></span>" +
+        '<span class="what"><b>' + esc(a.ref) + "</b><small>" + esc(s.label) + "</small></span>" +
+        mailBtn +
+        '<button class="btn btn--sm" data-act="done" data-id="' + esc(a.id) + '" data-step="' + esc(s.id) + '" title="Marquer fait">✓ Fait</button>' +
+        '<button class="btn btn--sm" data-act="open" data-id="' + esc(a.id) + '">Ouvrir →</button>' +
+        "</div>";
+    }).join("") : '<div class="todo__empty">Rien d\'urgent — tous les dossiers sont à jour. ☕</div>';
+
+    // Vendeurs sans nouvelle depuis 15 jours (journal ou dernière modification).
+    const now = Math.floor(Date.now() / 1000);
+    const stale = open.filter((m) => {
+      const d = details[m.id].data;
+      if (d.statut !== "en_cours") return false;
+      const lastJ = d.journal.length ? Math.max(...d.journal.map((j) => j.ts || 0)) : 0;
+      return (now - Math.max(lastJ, details[m.id].updated_at || 0)) > 15 * 86400;
+    });
+    $("#staleList").innerHTML = stale.length ? stale.map((m) => {
+      const d = details[m.id].data;
+      const mailBtn = recipientFor(d, "vendeur") ?
+        '<button class="btn btn--sm" data-act="mailname" data-id="' + esc(m.id) + '" data-modele="Point d\'étape vendeur">✉ Point d\'étape</button>' : "";
+      return '<div class="todo__item"><span class="what"><b>' + esc(d.reference || m.name) + "</b>" +
+        "<small>Aucune note ni action depuis plus de 15 jours — appelez ou écrivez au vendeur.</small></span>" +
+        mailBtn + '<button class="btn btn--sm" data-act="open" data-id="' + esc(m.id) + '">Ouvrir →</button></div>';
+    }).join("") : '<div class="todo__empty">Tous les vendeurs ont eu des nouvelles récemment.</div>';
+  }
+
+  /* ----------------------------- Liste dossiers --------------------------- */
+  function renderList() {
+    const q = ($("#search").value || "").toLowerCase();
+    const fs = $("#filtreStatut").value;
+    const rows = list.filter((m) => {
+      if (fs && m.statut !== fs) return false;
+      if (!q) return true;
+      const d = details[m.id] && details[m.id].data;
+      const hay = [m.name, m.adresse, m.conseillers,
+        d && d.notaire_vendeur.nom, d && d.notaire_acquereur.nom].join(" ").toLowerCase();
+      return hay.includes(q);
+    });
+    // Tri : en cours d'abord, puis par échéance la plus proche.
+    rows.sort((a, b) => {
+      const oa = a.statut === "en_cours" ? 0 : a.statut === "signe" ? 1 : 2;
+      const ob = b.statut === "en_cours" ? 0 : b.statut === "signe" ? 1 : 2;
+      if (oa !== ob) return oa - ob;
+      return (a.echeance || "9999") < (b.echeance || "9999") ? -1 : 1;
+    });
+    const STATUTS = { en_cours: "En cours", signe: "Acte signé", clos: "Clos", annule: "Annulé" };
+    $("#listBody").innerHTML = rows.map((m) => {
+      const d = details[m.id] && details[m.id].data;
+      const sante = d ? E.sante(d) : (m.statut === "en_cours" ? (m.echeance && m.echeance < E.today() ? "rouge" : "vert") : "gris");
+      const days = m.echeance ? E.daysUntil(m.echeance) : null;
+      return '<tr class="row" data-id="' + esc(m.id) + '">' +
+        '<td><span class="dot ' + sante + '"></span></td>' +
+        "<td><b>" + esc(m.name) + "</b></td>" +
+        "<td>" + esc(m.adresse || "") + "</td>" +
+        "<td>" + frDate(m.date_ssp) + "</td>" +
+        "<td>" + (m.echeance ? frDate(m.echeance) + ' <small style="color:var(--muted)">(' + deltaLabel(days) + ")</small>" : "—") + "</td>" +
+        "<td>" + esc(m.conseillers || "") + "</td>" +
+        '<td><span class="badge ' + esc(m.statut) + '">' + (STATUTS[m.statut] || m.statut) + "</span></td></tr>";
+    }).join("");
+    $("#listEmpty").hidden = rows.length > 0;
+  }
+
+  /* ---------------------------- Détail dossier ---------------------------- */
+  function input(label, path, d, type, extra) {
+    return '<div class="field"><label>' + esc(label) + "</label>" +
+      '<input type="' + (type || "text") + '" data-path="' + esc(path) + '" value="' + esc(getByPath(d, path) || "") + '" ' + (extra || "") + " /></div>";
+  }
+  function partieHtml(kind, i, p) {
+    return '<div class="partie">' +
+      '<button class="btn btn--sm btn--danger rm" data-rm="' + kind + "." + i + '" title="Retirer">✕</button>' +
+      '<div class="grid3">' +
+      input("Nom", kind + "." + i + ".nom", details[currentId].data) +
+      input("Téléphone", kind + "." + i + ".telephone", details[currentId].data) +
+      input("E-mail", kind + "." + i + ".email", details[currentId].data, "email") +
+      "</div>" +
+      input("Adresse", kind + "." + i + ".adresse", details[currentId].data) +
+      '<div class="grid2">' +
+      input("Naissance", kind + "." + i + ".naissance", details[currentId].data) +
+      input("Situation (régime, société…)", kind + "." + i + ".situation", details[currentId].data) +
+      "</div></div>";
+  }
+  function notaireHtml(titre, key, d) {
+    return "<div>" +
+      '<div class="field"><label>' + esc(titre) + "</label>" +
+      '<input type="text" data-path="' + key + '.nom" value="' + esc(d[key].nom) + '" placeholder="Me …" /></div>' +
+      '<div class="grid2">' +
+      input("Ville", key + ".ville", d) +
+      input("Téléphone", key + ".telephone", d) +
+      "</div>" +
+      input("E-mail", key + ".email", d, "email") +
+      "</div>";
+  }
+
+  async function openDossier(id) {
+    const view = $("#view-dossier");
+    view.innerHTML = '<p style="color:var(--muted)"><span class="spin"></span>Chargement du dossier…</p>';
+    try { await loadDetail(id); } catch (e) {
+      view.innerHTML = '<p style="color:var(--bad)">' + esc(e.message) + "</p>";
+      return;
+    }
+    renderDossier();
+  }
+
+  function renderDossier() {
+    const det = details[currentId];
+    const d = det.data;
+    const view = $("#view-dossier");
+    const santeD = E.sante(d);
+
+    // Échéancier groupé par phase.
+    const steps = E.compute(d);
+    const phases = [];
+    steps.forEach((s) => { if (!phases.includes(s.phase)) phases.push(s.phase); });
+    const echHtml = phases.map((ph) =>
+      '<div class="phase">' + esc(ph) + "</div>" +
+      steps.filter((s) => s.phase === ph).map((s) => {
+        const deltaCls = s.done ? "okd" : s.days == null ? "far" : s.days < 0 ? "late" : s.days <= 7 ? "soon" : "far";
+        const deltaTxt = s.done ? (s.date ? "fait le " + frDate(s.date) : "fait") : (s.days == null ? "" : deltaLabel(s.days));
+        const mailBtn = (s.modele && recipientFor(d, s.cible)) ?
+          '<button class="btn btn--sm" data-act="mail" data-id="' + esc(currentId) + '" data-step="' + esc(s.id) + '">✉ Relancer</button>' : "";
+        return '<div class="etape' + (s.done ? " done" : "") + '">' +
+          '<input type="checkbox" data-step-done="' + esc(s.id) + '"' + (s.done ? " checked" : "") + " />" +
+          '<span class="lab">' + esc(s.label) + (s.hint ? "<small>" + esc(s.hint) + "</small>" : "") + "</span>" +
+          '<span class="due"><input type="date" data-step-due="' + esc(s.id) + '" value="' + esc(s.due || "") + '" title="Échéance (modifiable)" /></span>' +
+          '<span class="delta ' + deltaCls + '">' + esc(deltaTxt) + "</span>" + mailBtn +
+          "</div>";
+      }).join("")
+    ).join("");
+
+    const condHtml = d.conditions_suspensives.map((c, i) =>
+      '<div class="cond">' +
+      '<input type="checkbox" data-path-check="conditions_suspensives.' + i + '.levee"' + (c.levee ? " checked" : "") + ' title="Condition levée" />' +
+      '<input type="text" data-path="conditions_suspensives.' + i + '.titre" value="' + esc(c.titre || "") + '" placeholder="Intitulé" />' +
+      '<textarea data-path="conditions_suspensives.' + i + '.detail" placeholder="Détail">' + esc(c.detail || "") + "</textarea>" +
+      '<input type="date" data-path="conditions_suspensives.' + i + '.echeance" value="' + esc(c.echeance || "") + '" title="Échéance" />' +
+      '<button class="btn btn--sm btn--danger" data-rm="conditions_suspensives.' + i + '">✕</button>' +
+      "</div>"
+    ).join("");
+
+    const journalHtml = d.journal.slice().reverse().map((j) => {
+      const dt = new Date((j.ts || 0) * 1000);
+      return '<div class="journal__item"><div class="meta">' +
+        esc(dt.toLocaleDateString("fr-FR") + " " + dt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })) +
+        " — " + esc(j.user || "") + "</div>" + esc(j.text || "") + "</div>";
+    }).join("");
+
+    view.innerHTML =
+      '<div class="doshead">' +
+      "<div><h2><span class=\"dot " + santeD + "\"></span>" + esc(d.reference || det.name) + "</h2>" +
+      '<div class="sub">' + esc([d.bien.type, d.bien.adresse, d.prix.prix_vente].filter(Boolean).join(" · ")) + "</div></div>" +
+      '<div class="spacer"></div>' +
+      '<div class="actions">' +
+      '<span id="saveState" style="font-size:12px;color:var(--muted)"></span>' +
+      '<select data-path="statut" title="Statut du dossier">' +
+      ["en_cours|En cours", "signe|Acte signé", "clos|Clos", "annule|Annulé"].map((o) => {
+        const [v, l] = o.split("|");
+        return '<option value="' + v + '"' + (d.statut === v ? " selected" : "") + ">" + l + "</option>";
+      }).join("") + "</select>" +
+      (det.compromis_size ? '<button class="btn" id="btnVoirPdf">📄 Voir le compromis</button>' : "") +
+      '<button class="btn" id="btnJoindrePdf">' + (det.compromis_size ? "Remplacer le PDF" : "📎 Joindre le compromis PDF") + "</button>" +
+      '<input type="file" id="pdfReplace" accept="application/pdf" style="display:none" />' +
+      '<button class="btn btn--danger" id="btnDelete">Supprimer</button>' +
+      "</div></div>" +
+
+      '<div class="card"><h3>🗓 Échéancier du dossier</h3>' + echHtml +
+      '<p class="hintline">Cochez une étape quand elle est faite (la date du jour est consignée). Les échéances sont calculées ' +
+      "depuis les dates du dossier — modifiez-les librement si le compromis prévoit d'autres délais.</p></div>" +
+
+      '<div class="grid2">' +
+      '<div class="card"><h3>📋 Le dossier</h3>' +
+      input("Référence (VENDEUR / ACQUÉREUR)", "reference", d) +
+      '<div class="grid2">' +
+      input("Date du compromis", "date_compromis", d, "date") +
+      input("Date butoir (réitération)", "date_butoir", d, "date") +
+      input("Conseillers (initiales)", "conseillers", d) +
+      input("Droit de préemption", "preemption", d, "text", 'placeholder="DPU, SAFER, locataire…"') +
+      "</div>" +
+      '<div class="field"><label>Observations (extraites du compromis + notes)</label>' +
+      '<textarea data-path="observations" style="min-height:110px">' + esc(d.observations) + "</textarea></div>" +
+      "</div>" +
+
+      '<div class="card"><h3>🏠 Bien &amp; prix</h3>' +
+      '<div class="grid2">' + input("Type", "bien.type", d) + input("Ville", "bien.ville", d) + "</div>" +
+      input("Adresse du bien", "bien.adresse", d) +
+      input("Désignation", "bien.description", d) +
+      '<div class="grid3">' +
+      input("Prix de vente", "prix.prix_vente", d) +
+      input("Honoraires", "prix.honoraires", d) +
+      input("À charge", "prix.charge_honoraires", d, "text", 'placeholder="vendeur / acquéreur"') +
+      "</div>" +
+      '<div class="grid3">' +
+      input("Copropriété", "bien.copropriete", d, "text", 'placeholder="oui / non"') +
+      input("Lots", "bien.lots", d) +
+      input("Cadastre", "bien.cadastre", d) +
+      "</div></div>" +
+
+      '<div class="card"><h3>👤 Vendeurs <span class="cnt">' + d.vendeurs.length + "</span></h3>" +
+      d.vendeurs.map((p, i) => partieHtml("vendeurs", i, p)).join("") +
+      '<button class="btn btn--sm addrow" data-add="vendeurs">+ Ajouter un vendeur</button></div>' +
+
+      '<div class="card"><h3>🔑 Acquéreurs <span class="cnt">' + d.acquereurs.length + "</span></h3>" +
+      d.acquereurs.map((p, i) => partieHtml("acquereurs", i, p)).join("") +
+      '<button class="btn btn--sm addrow" data-add="acquereurs">+ Ajouter un acquéreur</button></div>' +
+
+      '<div class="card"><h3>⚖️ Notaires</h3><div class="grid2">' +
+      notaireHtml("Notaire vendeur", "notaire_vendeur", d) +
+      notaireHtml("Notaire acquéreur", "notaire_acquereur", d) +
+      "</div></div>" +
+
+      '<div class="card"><h3>🏦 Séquestre &amp; financement</h3>' +
+      '<div class="grid3">' +
+      input("Montant du séquestre", "sequestre.montant", d) +
+      input("Dépositaire", "sequestre.depositaire", d) +
+      input("Versement (date/délai)", "sequestre.delai", d) +
+      "</div><hr style=\"border-color:var(--line);margin:12px 0\" />" +
+      '<div class="grid3">' +
+      '<div class="field"><label>Recours à un prêt</label><select data-path="financement.recours_pret">' +
+      ["|?", "oui|Oui", "non|Non (comptant)"].map((o) => {
+        const [v, l] = o.split("|");
+        return '<option value="' + v + '"' + (d.financement.recours_pret === v ? " selected" : "") + ">" + l + "</option>";
+      }).join("") + "</select></div>" +
+      input("Montant du prêt", "financement.montant_pret", d) +
+      input("Banques / courtier", "financement.banques", d) +
+      input("Durée max", "financement.duree", d) +
+      input("Taux max", "financement.taux_max", d) +
+      input("Dépôt demande avant le", "financement.date_limite_depot", d, "date") +
+      input("Obtention avant le (échéance condition)", "financement.date_limite_obtention", d, "date") +
+      "</div></div>" +
+
+      '<div class="card"><h3>📜 Conditions suspensives <span class="cnt">' + d.conditions_suspensives.length + "</span></h3>" +
+      (condHtml || '<p class="hintline">Aucune condition enregistrée.</p>') +
+      '<button class="btn btn--sm addrow" data-add="conditions_suspensives">+ Ajouter une condition</button></div>' +
+
+      '<div class="card"><h3>📅 Dates clés</h3><div class="grid3">' +
+      input("Notification SRU envoyée", "dates.envoi_sru", d, "date") +
+      input("Présentation AR SRU", "dates.presentation_sru", d, "date") +
+      input("Dossier envoyé aux notaires", "dates.envoi_notaires", d, "date") +
+      input("DIA envoyée", "dates.envoi_dia", d, "date") +
+      input("AR de la DIA", "dates.ar_dia", d, "date") +
+      input("Signature prévue", "dates.signature_prevue", d, "date") +
+      input("Acte signé le", "dates.signature_acte", d, "date") +
+      "</div></div>" +
+
+      '<div class="card"><h3>📝 Journal du dossier <span class="cnt">partagé avec toute l\'agence</span></h3>' +
+      '<div class="journal">' + (journalHtml || '<p class="hintline">Aucune note pour l\'instant.</p>') + "</div>" +
+      '<div class="journal__add"><input type="text" id="journalInput" placeholder="Ajouter une note (appel, réponse du notaire, avancement…)" />' +
+      '<button class="btn" id="journalAdd">Ajouter</button></div></div>' +
+      "</div>"; // grid2
+
+    setSaveState(saveState === "dirty" || saveState === "saving" ? saveState : "");
+  }
+
+  // Cocher une étape peut renseigner la date clé correspondante (et vice-versa).
+  const STEP_DATE = {
+    envoi_sru: "dates.envoi_sru", envoi_notaires: "dates.envoi_notaires",
+    retour_sru: "dates.presentation_sru", envoi_dia: "dates.envoi_dia",
+    signature: "dates.signature_acte"
+  };
+
+  // Écouteurs délégués du détail de dossier — attachés UNE fois au démarrage
+  // (le contenu de la vue est re-rendu à chaque changement structurel).
+  function wireDossier() {
+    const view = $("#view-dossier");
+    const cur = () => (details[currentId] ? details[currentId].data : null);
+
+    view.addEventListener("input", (ev) => {
+      const d = cur(), t = ev.target;
+      if (d && t.dataset.path) {
+        setByPath(d, t.dataset.path, t.value);
+        markDirty();
+      }
+    });
+    view.addEventListener("change", async (ev) => {
+      const d = cur(), t = ev.target;
+      if (!d) return;
+      if (t.id === "pdfReplace") {
+        const f = t.files[0];
+        if (f) await uploadCompromis(currentId, f);
+        t.value = "";
+        return;
+      }
+      if (t.dataset.pathCheck) { setByPath(d, t.dataset.pathCheck, t.checked); markDirty(); renderDossier(); return; }
+      if (t.dataset.stepDone != null) {
+        const id = t.dataset.stepDone;
+        d.etapes[id] = d.etapes[id] || {};
+        d.etapes[id].done = t.checked;
+        d.etapes[id].date = t.checked ? E.today() : "";
+        const datePath = STEP_DATE[id];
+        if (t.checked && datePath && !getByPath(d, datePath)) setByPath(d, datePath, E.today());
+        markDirty(); renderDossier(); return;
+      }
+      if (t.dataset.stepDue != null) {
+        const id = t.dataset.stepDue;
+        d.etapes[id] = d.etapes[id] || {};
+        d.etapes[id].due = t.value;
+        markDirty(); renderDossier(); return;
+      }
+      if (t.dataset.path && (t.type === "date" || t.tagName === "SELECT")) { renderDossierSoon(); }
+    });
+    view.addEventListener("click", (ev) => {
+      const d = cur();
+      const t = ev.target.closest("[data-add],[data-rm],#journalAdd,#btnDelete,#btnVoirPdf,#btnJoindrePdf,[data-act='mail']");
+      if (!d || !t) return;
+      if (t.dataset.add) {
+        const k = t.dataset.add;
+        if (k === "conditions_suspensives") d.conditions_suspensives.push({ titre: "", detail: "", echeance: "", levee: false });
+        else d[k].push(defPartie());
+        markDirty(); renderDossier(); return;
+      }
+      if (t.dataset.rm) {
+        const parts = t.dataset.rm.split(".");
+        const arr = getByPath(d, parts.slice(0, -1).join("."));
+        if (Array.isArray(arr)) arr.splice(Number(parts[parts.length - 1]), 1);
+        markDirty(); renderDossier(); return;
+      }
+      if (t.id === "journalAdd") {
+        const inp = $("#journalInput");
+        const txt = (inp.value || "").trim();
+        if (!txt) return;
+        d.journal.push({ ts: Math.floor(Date.now() / 1000), user: userName(), text: txt });
+        markDirty(); renderDossier(); return;
+      }
+      if (t.id === "btnDelete") { deleteCurrent(); return; }
+      if (t.id === "btnVoirPdf") { viewCompromis(currentId); return; }
+      if (t.id === "btnJoindrePdf") { const pi = $("#pdfReplace"); if (pi) pi.click(); return; }
+      if (t.dataset.act === "mail") { openMailForStep(t.dataset.id, t.dataset.step); return; }
+    });
+  }
+  const renderDossierSoon = debounce(() => { if ((location.hash || "").startsWith("#dossier/")) renderDossier(); }, 1200);
+
+  async function deleteCurrent() {
+    const det = details[currentId];
+    if (!confirm("Supprimer définitivement le dossier « " + (det.data.reference || det.name) + " » pour toute l'agence ?")) return;
+    try {
+      await api("/dossiers/" + encodeURIComponent(currentId), { method: "DELETE" });
+      delete details[currentId];
+      list = list.filter((x) => x.id !== currentId);
+      toast("Dossier supprimé.");
+      location.hash = "#dossiers";
+    } catch (e) { toast(e.message, true); }
+  }
+
+  /* ------------------------- Compromis PDF (R2) --------------------------- */
+  async function uploadCompromis(id, file) {
+    if (file.type !== "application/pdf" && !/\.pdf$/i.test(file.name || "")) { toast("Choisissez un PDF.", true); return; }
+    if (file.size > 15_000_000) { toast("PDF trop volumineux (15 Mo max).", true); return; }
+    try {
+      toast("Envoi du compromis…");
+      const a = account();
+      const res = await fetch(API + "/dossiers/" + encodeURIComponent(id) + "/compromis", {
+        method: "PUT",
+        headers: { Authorization: "Bearer " + a.session, "Content-Type": "application/pdf" },
+        body: file
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Envoi impossible (" + res.status + ").");
+      if (details[id]) details[id].compromis_size = data.size;
+      const m = list.find((x) => x.id === id);
+      if (m) m.compromis_size = data.size;
+      toast("Compromis attaché au dossier ✓");
+      if (currentId === id && (location.hash || "").startsWith("#dossier/")) renderDossier();
+    } catch (e) { toast(e.message, true); }
+  }
+  async function viewCompromis(id) {
+    try {
+      const res = await api("/dossiers/" + encodeURIComponent(id) + "/compromis", { raw: true });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "PDF introuvable."); }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) { toast(e.message, true); }
+  }
+
+  /* --------------------------- Relances e-mail ---------------------------- */
+  function joinNoms(arr) { return (arr || []).map((p) => p.nom).filter(Boolean).join(" et "); }
+  function recipientFor(d, cible) {
+    if (cible === "notaire_vendeur") return d.notaire_vendeur.email;
+    if (cible === "notaire_acquereur") return d.notaire_acquereur.email || d.notaire_vendeur.email;
+    if (cible === "acquereur") return (d.acquereurs || []).map((p) => p.email).filter(Boolean).join(",");
+    if (cible === "vendeur") return (d.vendeurs || []).map((p) => p.email).filter(Boolean).join(",");
+    return "";
+  }
+  function mergeFields(d) {
+    const fin = d.financement || {};
+    return {
+      reference: d.reference, adresse_bien: d.bien.adresse, ville: d.bien.ville,
+      prix: d.prix.prix_vente, vendeurs: joinNoms(d.vendeurs), acquereurs: joinNoms(d.acquereurs),
+      notaire_vendeur: [d.notaire_vendeur.nom, d.notaire_vendeur.ville].filter(Boolean).join(", "),
+      notaire_acquereur: [d.notaire_acquereur.nom, d.notaire_acquereur.ville].filter(Boolean).join(", "),
+      date_compromis: E.fmtFr(d.date_compromis), date_butoir: E.fmtFr(d.date_butoir),
+      fin_retractation: E.fmtFr(d.dates.presentation_sru ? E.addDays(d.dates.presentation_sru, 11) : ""),
+      sequestre_montant: d.sequestre.montant, sequestre_depositaire: d.sequestre.depositaire,
+      date_limite_depot: E.fmtFr(fin.date_limite_depot), echeance_pret: E.fmtFr(fin.date_limite_obtention),
+      signature_prevue: E.fmtFr(d.dates.signature_prevue),
+      conseiller: userName(), agence: AGENCE, date: new Date().toLocaleDateString("fr-FR")
+    };
+  }
+  function fill(tpl, fields) {
+    return String(tpl || "").replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (m, k) => {
+      const v = fields[k.toLowerCase()];
+      return (v == null || v === "") ? "[" + k + " ?]" : v;
+    });
+  }
+
+  let mailCtx = null; // { dossierId, modeleName }
+  function openMail(dossierId, modele) {
+    const d = details[dossierId].data;
+    const f = mergeFields(d);
+    mailCtx = { dossierId, modeleName: modele.name };
+    $("#mailTitle").textContent = modele.name + " — " + (d.reference || "");
+    $("#mailTo").value = recipientFor(d, modele.cible) || "";
+    $("#mailSubject").value = fill(modele.sujet, f);
+    $("#mailBody").value = fill(modele.corps, f);
+    $("#ovMail").classList.add("on");
+  }
+  function openMailForStep(dossierId, stepId) {
+    const step = E.ETAPES.find((e) => e.id === stepId);
+    if (!step || !step.modele) return;
+    const m = modeles.find((x) => x.name === step.modele) || E.DEFAULT_MODELES.find((x) => x.name === step.modele);
+    if (!m) { toast("Modèle « " + step.modele + " » introuvable — voir l'onglet Modèles.", true); return; }
+    openMail(dossierId, m);
+  }
+  function openMailByName(dossierId, name) {
+    const m = modeles.find((x) => x.name === name) || E.DEFAULT_MODELES.find((x) => x.name === name);
+    if (m) openMail(dossierId, m);
+  }
+  function logRelance(kind) {
+    if (!mailCtx) return;
+    const det = details[mailCtx.dossierId];
+    if (!det) return;
+    det.data.journal.push({
+      ts: Math.floor(Date.now() / 1000), user: userName(),
+      text: "✉ Relance « " + mailCtx.modeleName + " » " + kind + " (à : " + ($("#mailTo").value || "?") + ")"
+    });
+    const wasCurrent = currentId === mailCtx.dossierId;
+    saveDossier(mailCtx.dossierId).then(() => {
+      if (wasCurrent && (location.hash || "").startsWith("#dossier/")) renderDossier();
+    });
+  }
+
+  /* ------------------------------ Modèles --------------------------------- */
+  function renderModeles() {
+    const CIBLES = [["notaire_vendeur", "Notaire vendeur"], ["notaire_acquereur", "Notaire acquéreur"],
+      ["acquereur", "Acquéreur(s)"], ["vendeur", "Vendeur(s)"], ["banque", "Banque / courtier"], ["autre", "Autre"]];
+    $("#modelesList").innerHTML = modeles.map((m) =>
+      '<div class="modele" data-mid="' + esc(m.id) + '">' +
+      '<div class="head">' +
+      '<input type="text" data-mfield="name" value="' + esc(m.name) + '" />' +
+      "<select data-mfield=\"cible\">" + CIBLES.map(([v, l]) =>
+        '<option value="' + v + '"' + (m.cible === v ? " selected" : "") + ">" + l + "</option>").join("") + "</select>" +
+      '<button class="btn btn--sm btn--danger" data-mdel="' + esc(m.id) + '">Supprimer</button>' +
+      "</div>" +
+      '<div class="field"><label>Objet</label><input type="text" data-mfield="sujet" value="' + esc(m.sujet) + '" /></div>' +
+      '<div class="field"><label>Message</label><textarea data-mfield="corps">' + esc(m.corps) + "</textarea></div>" +
+      "</div>"
+    ).join("") || '<p class="hintline">Aucun modèle — cliquez sur « Restaurer les modèles par défaut ».</p>';
+  }
+  const saveModeleSoon = {};
+  function wireModeles() {
+    $("#modelesList").addEventListener("input", (ev) => {
+      const card = ev.target.closest(".modele");
+      const f = ev.target.dataset.mfield;
+      if (!card || !f) return;
+      const m = modeles.find((x) => x.id === card.dataset.mid);
+      if (!m) return;
+      m[f] = ev.target.value;
+      saveModeleSoon[m.id] = saveModeleSoon[m.id] || debounce(async () => {
+        try { await api("/modeles", { method: "PUT", json: m }); toast("Modèle enregistré ✓"); }
+        catch (e) { toast(e.message, true); }
+      }, 1200);
+      saveModeleSoon[m.id]();
+    });
+    $("#modelesList").addEventListener("click", async (ev) => {
+      const del = ev.target.closest("[data-mdel]");
+      if (!del) return;
+      const m = modeles.find((x) => x.id === del.dataset.mdel);
+      if (!m || !confirm("Supprimer le modèle « " + m.name + " » pour toute l'agence ?")) return;
+      try {
+        await api("/modeles/" + encodeURIComponent(m.id), { method: "DELETE" });
+        modeles = modeles.filter((x) => x.id !== m.id);
+        renderModeles();
+      } catch (e) { toast(e.message, true); }
+    });
+    $("#btnAddModele").addEventListener("click", async () => {
+      try {
+        await api("/modeles", { method: "PUT", json: { name: "Nouveau modèle " + (modeles.length + 1), cible: "autre", sujet: "", corps: "" } });
+        await loadModeles(); renderModeles();
+      } catch (e) { toast(e.message, true); }
+    });
+    $("#btnSeedModeles").addEventListener("click", async () => {
+      let n = 0;
+      for (const m of E.DEFAULT_MODELES) {
+        if (!modeles.some((x) => x.name === m.name)) {
+          try { await api("/modeles", { method: "PUT", json: m }); n++; } catch (e) { toast(e.message, true); break; }
+        }
+      }
+      await loadModeles(); renderModeles();
+      toast(n ? n + " modèle(s) restauré(s)." : "Tous les modèles par défaut sont déjà là.");
+    });
+  }
+
+  /* --------------------------- Nouveau dossier ---------------------------- */
+  let newFiles = []; // { dataUrl, isPdf, name, rawFile }
+  function renderFileList() {
+    $("#fileList").innerHTML = newFiles.map((f, i) =>
+      "<div><span>" + (f.isPdf ? "📄 " : "🖼 ") + esc(f.name) + "</span>" +
+      '<a href="#" data-frm="' + i + '">retirer</a></div>').join("");
+    $("#btnAnalyse").disabled = !newFiles.length;
+  }
+  function readAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = () => reject(new Error("Lecture impossible : " + file.name));
+      r.readAsDataURL(file);
+    });
+  }
+  // Photos de pages : recompression raisonnable pour tenir dans la requête IA
+  // tout en restant lisible (documents = 2000 px de grand côté).
+  async function imageToDataUrl(file) {
+    let f = file;
+    if (window.SBHeic && window.SBHeic.isHeic && window.SBHeic.isHeic(file)) {
+      try { f = await window.SBHeic.toJpeg(file); } catch (e) { /* on tente tel quel */ }
+    }
+    const url = await readAsDataUrl(f);
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 2000;
+        const sc = Math.min(1, MAX / Math.max(img.width, img.height));
+        if (sc >= 1 && url.length < 900000) { resolve(url); return; }
+        const cv = document.createElement("canvas");
+        cv.width = Math.round(img.width * sc); cv.height = Math.round(img.height * sc);
+        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+        resolve(cv.toDataURL("image/jpeg", 0.82));
+      };
+      img.onerror = () => resolve(url);
+      img.src = url;
+    });
+  }
+  async function addFiles(files) {
+    for (const f of files) {
+      try {
+        const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name || "");
+        const dataUrl = isPdf ? await readAsDataUrl(f) : await imageToDataUrl(f);
+        newFiles.push({ dataUrl, isPdf, name: f.name || "document", rawFile: isPdf ? f : null });
+      } catch (e) { toast(e.message, true); }
+    }
+    renderFileList();
+  }
+
+  function extractionToDossier(x) {
+    const d = newDossier();
+    const S = (v) => String(v == null ? "" : v).trim();
+    d.reference = S(x.reference);
+    d.date_compromis = S(x.date_compromis);
+    d.date_butoir = S(x.date_butoir);
+    d.preemption = S(x.preemption);
+    const partie = (p) => ({ nom: S(p.nom), adresse: S(p.adresse), telephone: S(p.telephone), email: S(p.email), naissance: S(p.naissance), situation: S(p.situation) });
+    d.vendeurs = (x.vendeurs || []).map(partie);
+    d.acquereurs = (x.acquereurs || []).map(partie);
+    const notaire = (n) => ({ nom: S(n && n.nom), ville: S(n && n.ville), adresse: S(n && n.adresse), telephone: S(n && n.telephone), email: S(n && n.email) });
+    d.notaire_vendeur = notaire(x.notaire_vendeur);
+    d.notaire_acquereur = notaire(x.notaire_acquereur);
+    const b = x.bien || {};
+    d.bien = { type: S(b.type), adresse: S(b.adresse), ville: S(b.ville), description: S(b.description), copropriete: S(b.copropriete), lots: S(b.lots), cadastre: S(b.cadastre) };
+    const pr = x.prix || {};
+    d.prix = { prix_vente: S(pr.prix_vente), honoraires: S(pr.honoraires), charge_honoraires: S(pr.charge_honoraires) };
+    const sq = x.sequestre || {};
+    d.sequestre = { montant: S(sq.montant), depositaire: S(sq.depositaire), delai: S(sq.delai) };
+    const fi = x.financement || {};
+    d.financement = {
+      recours_pret: S(fi.recours_pret), montant_pret: S(fi.montant_pret), duree: S(fi.duree), taux_max: S(fi.taux_max),
+      banques: S(fi.banques), date_limite_depot: S(fi.date_limite_depot), date_limite_obtention: S(fi.date_limite_obtention)
+    };
+    d.conditions_suspensives = (x.conditions_suspensives || []).map((c) => ({ titre: S(c.titre), detail: S(c.detail), echeance: S(c.echeance), levee: false }));
+    d.observations = S(x.observations);
+    d.journal.push({ ts: Math.floor(Date.now() / 1000), user: userName(), text: "Dossier créé par analyse du compromis (IA) — relisez et corrigez si besoin." });
+    return d;
+  }
+
+  async function createDossier(data, pdfFile) {
+    data.echeance = E.nextDue(data);
+    const name = (data.reference || "Dossier du " + new Date().toLocaleDateString("fr-FR")).trim();
+    const r = await api("/dossiers", { method: "PUT", json: { name, data } });
+    details[r.id] = { id: r.id, name: r.name, updated_at: r.updated_at, data, compromis_size: 0 };
+    refreshListRow(details[r.id]);
+    if (pdfFile) await uploadCompromis(r.id, pdfFile);
+    return r.id;
+  }
+
+  function wireNewModal() {
+    const ov = $("#ovNew"), drop = $("#drop"), inp = $("#fileInput");
+    $("#btnNew").addEventListener("click", () => { newFiles = []; renderFileList(); ov.classList.add("on"); });
+    $("#btnCancelNew").addEventListener("click", () => ov.classList.remove("on"));
+    inp.addEventListener("change", () => { addFiles(Array.from(inp.files || [])); inp.value = ""; });
+    ["dragover", "dragleave", "drop"].forEach((evn) => drop.addEventListener(evn, (ev) => {
+      ev.preventDefault();
+      drop.classList.toggle("over", evn === "dragover");
+      if (evn === "drop") addFiles(Array.from(ev.dataTransfer.files || []));
+    }));
+    $("#fileList").addEventListener("click", (ev) => {
+      const a = ev.target.closest("[data-frm]");
+      if (!a) return;
+      ev.preventDefault();
+      newFiles.splice(Number(a.dataset.frm), 1);
+      renderFileList();
+    });
+    $("#btnManual").addEventListener("click", async () => {
+      const ref = prompt("Référence du dossier (VENDEUR / ACQUÉREUR) :", "");
+      if (ref == null) return;
+      const d = newDossier();
+      d.reference = ref.trim() || "Dossier du " + new Date().toLocaleDateString("fr-FR");
+      d.date_compromis = E.today();
+      try {
+        const id = await createDossier(d, newFiles.find((f) => f.isPdf && f.rawFile) ? newFiles.find((f) => f.isPdf).rawFile : null);
+        ov.classList.remove("on");
+        location.hash = "#dossier/" + id;
+      } catch (e) { toast(e.message, true); }
+    });
+    $("#btnAnalyse").addEventListener("click", async () => {
+      const btn = $("#btnAnalyse");
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin"></span>Analyse en cours (30 s à 2 min)…';
+      try {
+        const x = await window.SuiviAI.extractCompromis({ files: newFiles });
+        const d = extractionToDossier(x);
+        const pdf = newFiles.find((f) => f.isPdf && f.rawFile);
+        const id = await createDossier(d, pdf ? pdf.rawFile : null);
+        ov.classList.remove("on");
+        toast("Dossier créé — relisez la fiche, tout est modifiable.");
+        location.hash = "#dossier/" + id;
+      } catch (e) { toast(e.message, true); }
+      btn.disabled = !newFiles.length;
+      btn.textContent = "✨ Analyser le compromis";
+    });
+  }
+
+  /* ------------------------------ Démarrage ------------------------------- */
+  function wireGlobal() {
+    window.addEventListener("hashchange", route);
+    $("#search").addEventListener("input", debounce(renderList, 200));
+    $("#filtreStatut").addEventListener("change", renderList);
+    $("#btnRefresh").addEventListener("click", async () => {
+      try {
+        await loadList();
+        for (const id of Object.keys(details)) delete details[id];
+        renderList();
+        toast("Liste actualisée.");
+      } catch (e) { toast(e.message, true); }
+    });
+    $("#listBody").addEventListener("click", (ev) => {
+      const tr = ev.target.closest("tr.row");
+      if (tr) location.hash = "#dossier/" + tr.dataset.id;
+    });
+    // Actions déléguées du tableau de bord.
+    document.addEventListener("click", async (ev) => {
+      const t = ev.target.closest("#todoList [data-act],#staleList [data-act]");
+      if (!t) return;
+      const id = t.dataset.id;
+      if (t.dataset.act === "open") { location.hash = "#dossier/" + id; return; }
+      if (t.dataset.act === "mail") { openMailForStep(id, t.dataset.step); return; }
+      if (t.dataset.act === "mailname") { openMailByName(id, t.dataset.modele); return; }
+      if (t.dataset.act === "done") {
+        const det = details[id];
+        if (!det) return;
+        det.data.etapes[t.dataset.step] = { done: true, date: E.today() };
+        await saveDossier(id);
+        renderBoard();
+      }
+    });
+    // Composeur d'e-mail.
+    $("#btnMailClose").addEventListener("click", () => $("#ovMail").classList.remove("on"));
+    $("#btnMailCopy").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText("À : " + $("#mailTo").value + "\nObjet : " + $("#mailSubject").value + "\n\n" + $("#mailBody").value);
+        toast("Texte copié ✓");
+        logRelance("copiée");
+      } catch (e) { toast("Copie impossible — sélectionnez le texte à la main.", true); }
+    });
+    $("#btnMailOpen").addEventListener("click", () => {
+      const url = "mailto:" + encodeURIComponent($("#mailTo").value) +
+        "?subject=" + encodeURIComponent($("#mailSubject").value) +
+        "&body=" + encodeURIComponent($("#mailBody").value);
+      window.location.href = url;
+      logRelance("ouverte dans la messagerie");
+      $("#ovMail").classList.remove("on");
+    });
+    // Recharge silencieuse au retour sur l'onglet (travail à plusieurs).
+    window.addEventListener("focus", async () => {
+      if (!account()) return;
+      try {
+        await loadList();
+        const h = location.hash || "#board";
+        if (h === "#board") renderBoard();
+        else if (h === "#dossiers") renderList();
+      } catch (e) { /* silencieux */ }
+    });
+  }
+
+  async function start() {
+    // Logos.
+    if (window.KADIMA && window.KADIMA.full) {
+      const g = $("#gateLogo"), tb = $("#topbarLogo");
+      if (g) g.src = window.KADIMA.full;
+      if (tb) tb.src = window.KADIMA.full;
+    }
+    const a = account();
+    if (!a || !a.session) {
+      $("#gate").hidden = false;
+      $("#gateRetry").addEventListener("click", (ev) => { ev.preventDefault(); location.reload(); });
+      return;
+    }
+    $("#app").hidden = false;
+    $("#who").textContent = (a.user && (a.user.name || a.user.email) || "") + (a.agency && a.agency.name ? " · " + a.agency.name : "");
+    wireGlobal(); wireDossier(); wireNewModal(); wireModeles();
+    try {
+      await loadList();
+      await loadModeles();
+    } catch (e) {
+      if (e.status === 401) {
+        $("#app").hidden = true;
+        $("#gate").hidden = false;
+        $("#gateRetry").addEventListener("click", (ev) => { ev.preventDefault(); location.reload(); });
+        toast("Session expirée — reconnectez-vous.", true);
+        return;
+      }
+      toast(e.message, true);
+    }
+    route();
+  }
+
+  document.addEventListener("DOMContentLoaded", start);
+})();

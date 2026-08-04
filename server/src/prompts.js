@@ -152,6 +152,107 @@ const FICHE_SCHEMA = {
   required: ["type", "caracteristiques", "interieur", "exterieur", "copro", "aSavoir"]
 };
 
+// Extraction d'un compromis de vente pour l'app Suivi des dossiers :
+// toutes les propriétés sont des chaînes ("" si absent) pour rester simple
+// à afficher et à corriger côté client. Les montants gardent leur format
+// d'origine (« 285 000 € »), les dates sont normalisées AAAA-MM-JJ.
+const PARTIE = {
+  type: "object", additionalProperties: false,
+  properties: {
+    nom: { type: "string", description: "Nom complet (M./Mme Prénom NOM, ou dénomination de la société)." },
+    adresse: { type: "string", description: "Adresse postale complète du domicile/siège." },
+    telephone: { type: "string" },
+    email: { type: "string" },
+    naissance: { type: "string", description: "Date et lieu de naissance si indiqués, sinon vide." },
+    situation: { type: "string", description: "Situation matrimoniale / régime, ou forme de la société, si indiquée." }
+  },
+  required: ["nom", "adresse", "telephone", "email", "naissance", "situation"]
+};
+const NOTAIRE = {
+  type: "object", additionalProperties: false,
+  properties: {
+    nom: { type: "string", description: "Nom du notaire (Me X) ou de l'étude." },
+    ville: { type: "string" },
+    adresse: { type: "string" },
+    telephone: { type: "string" },
+    email: { type: "string" }
+  },
+  required: ["nom", "ville", "adresse", "telephone", "email"]
+};
+const COMPROMIS_SCHEMA = {
+  type: "object", additionalProperties: false,
+  properties: {
+    reference: { type: "string", description: "Référence du dossier au format « NOM VENDEUR / NOM ACQUÉREUR » (noms de famille en capitales)." },
+    date_compromis: { type: "string", description: "Date de signature du compromis (AAAA-MM-JJ)." },
+    vendeurs: { type: "array", items: PARTIE },
+    acquereurs: { type: "array", items: PARTIE },
+    notaire_vendeur: NOTAIRE,
+    notaire_acquereur: NOTAIRE,
+    bien: {
+      type: "object", additionalProperties: false,
+      properties: {
+        type: { type: "string", description: "Maison, appartement, terrain…" },
+        adresse: { type: "string", description: "Adresse complète du bien vendu." },
+        ville: { type: "string" },
+        description: { type: "string", description: "Désignation courte du bien (surface, pièces, dépendances)." },
+        copropriete: { type: "string", description: "« oui » si le bien est en copropriété, sinon « non » ; lots et tantièmes dans lots." },
+        lots: { type: "string", description: "Numéros de lots et tantièmes si copropriété, sinon vide." },
+        cadastre: { type: "string", description: "Références cadastrales (section, numéro, contenance)." }
+      },
+      required: ["type", "adresse", "ville", "description", "copropriete", "lots", "cadastre"]
+    },
+    prix: {
+      type: "object", additionalProperties: false,
+      properties: {
+        prix_vente: { type: "string", description: "Prix de vente total, honoraires inclus le cas échéant." },
+        honoraires: { type: "string", description: "Montant des honoraires d'agence (commission)." },
+        charge_honoraires: { type: "string", description: "« vendeur » ou « acquéreur »." }
+      },
+      required: ["prix_vente", "honoraires", "charge_honoraires"]
+    },
+    sequestre: {
+      type: "object", additionalProperties: false,
+      properties: {
+        montant: { type: "string", description: "Montant du dépôt de garantie (séquestre)." },
+        depositaire: { type: "string", description: "Qui reçoit le séquestre (étude du notaire X, agence…)." },
+        delai: { type: "string", description: "Délai ou date de versement si précisé (AAAA-MM-JJ ou texte court)." }
+      },
+      required: ["montant", "depositaire", "delai"]
+    },
+    financement: {
+      type: "object", additionalProperties: false,
+      properties: {
+        recours_pret: { type: "string", description: "« oui » si l'acquéreur recourt à un prêt (condition suspensive), sinon « non »." },
+        montant_pret: { type: "string" },
+        duree: { type: "string", description: "Durée maximum du prêt (ex. « 25 ans »)." },
+        taux_max: { type: "string", description: "Taux d'intérêt maximum accepté." },
+        banques: { type: "string", description: "Établissements pressentis ou courtier si cités." },
+        date_limite_depot: { type: "string", description: "Date limite de dépôt de la demande de prêt (AAAA-MM-JJ)." },
+        date_limite_obtention: { type: "string", description: "Date limite d'obtention du prêt / de l'offre (AAAA-MM-JJ) — l'échéance de la condition suspensive." }
+      },
+      required: ["recours_pret", "montant_pret", "duree", "taux_max", "banques", "date_limite_depot", "date_limite_obtention"]
+    },
+    conditions_suspensives: {
+      type: "array",
+      description: "TOUTES les conditions suspensives du compromis, y compris prêt, préemption, urbanisme, vente d'un autre bien…",
+      items: {
+        type: "object", additionalProperties: false,
+        properties: {
+          titre: { type: "string", description: "Intitulé court (ex. « Obtention du prêt », « Non-préemption », « Certificat d'urbanisme »)." },
+          detail: { type: "string", description: "Contenu résumé de la condition (chiffres et délais conservés)." },
+          echeance: { type: "string", description: "Date d'échéance si stipulée (AAAA-MM-JJ), sinon vide." }
+        },
+        required: ["titre", "detail", "echeance"]
+      }
+    },
+    preemption: { type: "string", description: "Droit de préemption applicable (DPU, SAFER, locataire…) tel qu'indiqué, sinon vide." },
+    date_butoir: { type: "string", description: "Date limite de réitération / signature de l'acte authentique (AAAA-MM-JJ)." },
+    observations: { type: "string", description: "Autres points notables : servitudes, clauses particulières, travaux, occupation du bien, mobilier inclus… Une information par ligne." }
+  },
+  required: ["reference", "date_compromis", "vendeurs", "acquereurs", "notaire_vendeur", "notaire_acquereur",
+    "bien", "prix", "sequestre", "financement", "conditions_suspensives", "preemption", "date_butoir", "observations"]
+};
+
 /* ---------------------------- Prompts système --------------------------- */
 
 function brochureSystem(tone) {
@@ -260,6 +361,22 @@ const FICHE_SYSTEM = [
   "Ne mets JAMAIS de nom de client ni d'adresse dans les listes (ils sont gérés à part)."
 ].join("\n");
 
+const COMPROMIS_SYSTEM = [
+  "Tu lis un COMPROMIS DE VENTE (ou promesse de vente) immobilier français — PDF ou photos de plusieurs pages formant UN MÊME acte.",
+  "Extrais avec une fidélité absolue les informations demandées : identités et coordonnées des vendeurs et des acquéreurs,",
+  "notaires des deux parties, désignation du bien, prix et honoraires, dépôt de garantie (séquestre), conditions suspensives",
+  "(en particulier le financement : montant, durée, taux, dates limites), droit de préemption, date butoir de réitération.",
+  "Règles :",
+  "- N'invente RIEN : champ vide (\"\") si l'information ne figure pas dans le document. Ne déduis jamais un délai non écrit.",
+  "- Dates au format AAAA-MM-JJ. Si le document donne un délai (« dans les 60 jours »), calcule la date à partir de la date de",
+  "  signature UNIQUEMENT si celle-ci est connue, sinon recopie le délai en toutes lettres dans le champ concerné.",
+  "- Montants recopiés en chiffres avec le symbole € (ex. « 285 000 € »).",
+  "- reference : « NOM(S) VENDEUR / NOM(S) ACQUÉREUR » — noms de famille seuls, en capitales.",
+  "- conditions_suspensives : liste TOUTES les conditions, une entrée par condition, détail court mais complet (chiffres et délais conservés).",
+  "- observations : servitudes, clauses particulières (travaux, diagnostics à refaire, occupation, mobilier…), une par ligne.",
+  "Réponds uniquement via le format JSON demandé."
+].join("\n");
+
 /* ------------------------------- Registre ------------------------------- */
 
 const fmt = (schema) => ({ format: { type: "json_schema", schema } });
@@ -274,6 +391,7 @@ export function promptFor(task, arg) {
     case "extract_notes": return { system: NOTES_SYSTEM, output_config: fmt(NOTES_SCHEMA) };
     case "city_intro": return { system: citySystem(arg), output_config: { effort: "low", ...fmt(CITY_SCHEMA) } };
     case "structure_fiche": return { system: FICHE_SYSTEM, output_config: fmt(FICHE_SCHEMA) };
+    case "extract_compromis": return { system: COMPROMIS_SYSTEM, output_config: fmt(COMPROMIS_SCHEMA) };
     default: return null;
   }
 }

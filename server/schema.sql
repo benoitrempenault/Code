@@ -108,6 +108,44 @@ CREATE TABLE IF NOT EXISTS brochures (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_brochures_name   ON brochures(agency_id, name);
 CREATE INDEX        IF NOT EXISTS idx_brochures_agency ON brochures(agency_id, updated_at);
 
+-- Dossiers de vente (suivi compromis → acte authentique) : partagés au sein
+-- de l'agence. Le JSON complet (parties, notaires, échéancier, journal…) vit
+-- dans data ; les colonnes servent à la liste et au tri du tableau de bord.
+-- Le compromis PDF, trop lourd pour D1, vit dans R2 (clé do/<agence>/<id>.pdf).
+CREATE TABLE IF NOT EXISTS dossiers (
+  id             TEXT PRIMARY KEY,             -- do_xxxxxxxx
+  agency_id      TEXT NOT NULL REFERENCES agencies(id),
+  user_id        TEXT NOT NULL,                -- dernier auteur
+  name           TEXT NOT NULL,                -- « VENDEUR / ACQUÉREUR »
+  statut         TEXT NOT NULL DEFAULT 'en_cours', -- en_cours | signe | clos | annule
+  adresse        TEXT NOT NULL DEFAULT '',     -- métadonnées de liste (extraites de data)
+  conseillers    TEXT NOT NULL DEFAULT '',
+  date_ssp       TEXT NOT NULL DEFAULT '',     -- AAAA-MM-JJ (date du compromis)
+  echeance       TEXT NOT NULL DEFAULT '',     -- prochaine échéance (tri tableau de bord)
+  compromis_size INTEGER NOT NULL DEFAULT 0,   -- octets du PDF dans R2 (0 = aucun)
+  data           TEXT NOT NULL,                -- JSON complet (_app = studio-suivi)
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dossiers_name   ON dossiers(agency_id, name);
+CREATE INDEX        IF NOT EXISTS idx_dossiers_agency ON dossiers(agency_id, updated_at);
+
+-- Modèles d'e-mails de relance (DIA, séquestre, financement…), partagés par
+-- agence et modifiables dans l'app Suivi.
+CREATE TABLE IF NOT EXISTS modeles (
+  id         TEXT PRIMARY KEY,               -- mo_xxxxxxxx
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  user_id    TEXT NOT NULL,                  -- dernier auteur
+  name       TEXT NOT NULL,
+  cible      TEXT NOT NULL DEFAULT '',       -- notaire_vendeur | notaire_acquereur | acquereur | vendeur | banque | autre
+  sujet      TEXT NOT NULL DEFAULT '',
+  corps      TEXT NOT NULL DEFAULT '',       -- texte avec champs {{...}}
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_modeles_name   ON modeles(agency_id, name);
+CREATE INDEX        IF NOT EXISTS idx_modeles_agency ON modeles(agency_id, updated_at);
+
 -- Fiches prestation synchronisées : suivent le compte (téléphone <-> ordinateur),
 -- partagées au sein de l'agence comme le dossier OneDrive.
 CREATE TABLE IF NOT EXISTS fiches (

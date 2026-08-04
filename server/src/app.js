@@ -325,6 +325,179 @@ export function createApp(env) {
     return c.json({ ok: true });
   });
 
+  /* ------------- Dossiers de vente (suivi compromis → acte) -------------- */
+  // Partagés au sein de l'agence (app Suivi). Le JSON du dossier (parties,
+  // notaires, échéancier, journal…) tient dans D1 ; le compromis PDF, trop
+  // lourd, vit dans R2. Lecture ouverte même abonnement suspendu ; écriture non.
+  const DOSSIER_MAX_BYTES = 400000, DOSSIERS_MAX = 2000;
+  const COMPROMIS_MAX_BYTES = 15_000_000; // PDF scanné confortable
+  const doKey = (agencyId, id) => "do/" + agencyId + "/" + id + ".pdf";
+  const cleanName = (s) => String(s || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 160);
+
+  app.get("/dossiers", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const rows = await db.all(
+      `SELECT d.id, d.name, d.statut, d.adresse, d.conseillers, d.date_ssp, d.echeance,
+              d.compromis_size, d.updated_at, u.name AS author
+       FROM dossiers d LEFT JOIN users u ON u.id = d.user_id
+       WHERE d.agency_id = ? ORDER BY d.updated_at DESC`, [ctx.agency.id]);
+    return c.json({ dossiers: rows });
+  });
+
+  app.get("/dossiers/:id", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const row = await db.get("SELECT * FROM dossiers WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!row) return err(c, 404, "Dossier introuvable.");
+    let data;
+    try { data = JSON.parse(row.data); } catch (e) { return err(c, 500, "Dossier illisible."); }
+    return c.json({ id: row.id, name: row.name, updated_at: row.updated_at, compromis_size: row.compromis_size, data });
+  });
+
+  app.put("/dossiers", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif — la synchronisation des dossiers est suspendue.");
+    const b = await c.req.json().catch(() => null);
+    const name = cleanName(b && b.name);
+    const data = b && b.data;
+    if (!name || !data || typeof data !== "object" || Array.isArray(data) || data._app !== "studio-suivi") {
+      return err(c, 400, "name et data (dossier « studio-suivi ») requis.");
+    }
+    const json = JSON.stringify(data);
+    if (json.length > DOSSIER_MAX_BYTES) return err(c, 413, "Dossier trop volumineux.");
+    const meta = [
+      ["en_cours", "signe", "clos", "annule"].includes(data.statut) ? data.statut : "en_cours",
+      String((data.bien && data.bien.adresse) || "").slice(0, 200),
+      String(data.conseillers || "").slice(0, 100),
+      String(data.date_compromis || "").slice(0, 10),
+      String(data.echeance || "").slice(0, 10)
+    ];
+    // Mise à jour par id (permet de renommer) ou, à défaut, par nom (upsert).
+    let existing = null;
+    if (b.id) {
+      existing = await db.get("SELECT id, updated_at FROM dossiers WHERE id = ? AND agency_id = ?", [String(b.id), ctx.agency.id]);
+      if (!existing) return err(c, 404, "Dossier introuvable.");
+      const clash = await db.get("SELECT id FROM dossiers WHERE agency_id = ? AND name = ? AND id != ?", [ctx.agency.id, name, existing.id]);
+      if (clash) return err(c, 409, "Un autre dossier porte déjà ce nom.");
+    } else {
+      existing = await db.get("SELECT id, updated_at FROM dossiers WHERE agency_id = ? AND name = ?", [ctx.agency.id, name]);
+    }
+    // Garde anti-écrasement (collaboratif) : si le client annonce la version
+    // qu'il avait chargée et qu'un collègue a enregistré depuis, on refuse.
+    if (existing && b.base_updated_at != null && Number(b.base_updated_at) !== existing.updated_at) {
+      return err(c, 409, "Ce dossier a été modifié par quelqu'un d'autre — rechargez-le avant d'enregistrer.");
+    }
+    if (existing) {
+      await db.run(
+        "UPDATE dossiers SET name = ?, data = ?, statut = ?, adresse = ?, conseillers = ?, date_ssp = ?, echeance = ?, user_id = ?, updated_at = ? WHERE id = ?",
+        [name, json, meta[0], meta[1], meta[2], meta[3], meta[4], ctx.user.id, now(), existing.id]);
+      const fresh = await db.get("SELECT updated_at FROM dossiers WHERE id = ?", [existing.id]);
+      return c.json({ ok: true, id: existing.id, name, updated: true, updated_at: fresh.updated_at });
+    }
+    const count = await db.get("SELECT COUNT(*) AS n FROM dossiers WHERE agency_id = ?", [ctx.agency.id]);
+    if ((count?.n || 0) >= DOSSIERS_MAX) return err(c, 409, "Limite de dossiers atteinte (" + DOSSIERS_MAX + ") — archivez ou supprimez-en d'abord.");
+    const id = randId("do");
+    const ts = now();
+    await db.run(
+      "INSERT INTO dossiers (id, agency_id, user_id, name, statut, adresse, conseillers, date_ssp, echeance, compromis_size, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)",
+      [id, ctx.agency.id, ctx.user.id, name, meta[0], meta[1], meta[2], meta[3], meta[4], json, ts, ts]);
+    return c.json({ ok: true, id, name, updated: false, updated_at: ts });
+  });
+
+  app.delete("/dossiers/:id", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const row = await db.get("SELECT id, compromis_size FROM dossiers WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (row) {
+      await db.run("DELETE FROM dossiers WHERE id = ?", [row.id]);
+      if (row.compromis_size && env.files) await env.files.delete(doKey(ctx.agency.id, row.id)).catch?.(() => { });
+    }
+    return c.json({ ok: true });
+  });
+
+  // Compromis PDF attaché au dossier (R2). Corps = octets bruts du PDF.
+  app.put("/dossiers/:id/compromis", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif.");
+    if (!filesReady()) return err(c, 501, "Stockage des fichiers non configuré sur le serveur.");
+    const row = await db.get("SELECT id FROM dossiers WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!row) return err(c, 404, "Dossier introuvable.");
+    const buf = await c.req.arrayBuffer();
+    if (!buf || buf.byteLength < 100) return err(c, 400, "PDF vide ou illisible.");
+    if (buf.byteLength > COMPROMIS_MAX_BYTES) return err(c, 413, "PDF trop volumineux (15 Mo max).");
+    // Signature %PDF- en tête : on ne stocke que des PDF.
+    const head = new Uint8Array(buf.slice(0, 5));
+    if (String.fromCharCode(...head) !== "%PDF-") return err(c, 400, "Le fichier n'est pas un PDF.");
+    await env.files.put(doKey(ctx.agency.id, row.id), buf);
+    await db.run("UPDATE dossiers SET compromis_size = ?, user_id = ?, updated_at = ? WHERE id = ?",
+      [buf.byteLength, ctx.user.id, now(), row.id]);
+    return c.json({ ok: true, size: buf.byteLength });
+  });
+
+  app.get("/dossiers/:id/compromis", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!filesReady()) return err(c, 501, "Stockage des fichiers non configuré sur le serveur.");
+    const row = await db.get("SELECT id, name FROM dossiers WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!row) return err(c, 404, "Dossier introuvable.");
+    const obj = await env.files.get(doKey(ctx.agency.id, row.id));
+    if (!obj) return err(c, 404, "Aucun compromis attaché à ce dossier.");
+    const buf = await obj.arrayBuffer();
+    return c.body(buf, 200, {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": "inline; filename=\"compromis.pdf\""
+    });
+  });
+
+  /* -------------- Modèles d'e-mails de relance (app Suivi) ---------------- */
+  const MODELE_MAX_BYTES = 20000, MODELES_MAX = 100;
+  app.get("/modeles", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const rows = await db.all(
+      "SELECT id, name, cible, sujet, corps, updated_at FROM modeles WHERE agency_id = ? ORDER BY name ASC",
+      [ctx.agency.id]);
+    return c.json({ modeles: rows });
+  });
+
+  app.put("/modeles", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif.");
+    const b = await c.req.json().catch(() => null);
+    const name = cleanName(b && b.name);
+    const sujet = String((b && b.sujet) || "").slice(0, 300);
+    const corps = String((b && b.corps) || "");
+    const cible = String((b && b.cible) || "").slice(0, 40);
+    if (!name) return err(c, 400, "name requis.");
+    if (corps.length > MODELE_MAX_BYTES) return err(c, 413, "Modèle trop long.");
+    let existing = null;
+    if (b.id) existing = await db.get("SELECT id FROM modeles WHERE id = ? AND agency_id = ?", [String(b.id), ctx.agency.id]);
+    if (!existing) existing = await db.get("SELECT id FROM modeles WHERE agency_id = ? AND name = ?", [ctx.agency.id, name]);
+    if (existing) {
+      await db.run("UPDATE modeles SET name = ?, cible = ?, sujet = ?, corps = ?, user_id = ?, updated_at = ? WHERE id = ?",
+        [name, cible, sujet, corps, ctx.user.id, now(), existing.id]);
+      return c.json({ ok: true, id: existing.id, updated: true });
+    }
+    const count = await db.get("SELECT COUNT(*) AS n FROM modeles WHERE agency_id = ?", [ctx.agency.id]);
+    if ((count?.n || 0) >= MODELES_MAX) return err(c, 409, "Limite de modèles atteinte (" + MODELES_MAX + ").");
+    const id = randId("mo");
+    await db.run(
+      "INSERT INTO modeles (id, agency_id, user_id, name, cible, sujet, corps, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [id, ctx.agency.id, ctx.user.id, name, cible, sujet, corps, now(), now()]);
+    return c.json({ ok: true, id, updated: false });
+  });
+
+  app.delete("/modeles/:id", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    await db.run("DELETE FROM modeles WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    return c.json({ ok: true });
+  });
+
   /* --------- Brochures synchronisées (métadonnées D1 + contenu R2) -------- */
   // Une brochure embarque ses photos (data-URLs) : plusieurs Mo, trop lourd
   // pour une ligne D1. Le JSON complet vit dans R2 (env.files), la liste et

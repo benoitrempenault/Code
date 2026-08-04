@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; media-src 'self' blob:; frame-src blob:; connect-src 'self' https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev https://fonts.googleapis.com https://fonts.gstatic.com" />
+  <title>Studio Suivi — Dossiers de vente (compromis → acte)</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <meta name="robots" content="noindex" />
+  <meta name="description" content="Suivi collaboratif des dossiers de vente entre compromis et acte authentique : extraction du compromis par IA, échéancier, relances notaires, financement, séquestre." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/suivi.css" />
+</head>
+<body>
+
+  <!-- Écran de connexion (affiché tant qu'aucun compte n'est connecté) -->
+  <div class="gate" id="gate" hidden>
+    <img id="gateLogo" alt="Century 21 Kadima" />
+    <h1>Studio <em style="font-style:normal;color:var(--accent)">Suivi</em></h1>
+    <p>Le suivi collaboratif des dossiers de vente, du compromis à l'acte authentique :
+      échéancier automatique, relances notaires &amp; financement, journal partagé de l'agence.</p>
+    <p>Connectez-vous à votre compte pour accéder aux dossiers de l'agence.</p>
+    <a class="btn btn--primary" href="../mandat-pro/compte.html">Se connecter (Mon compte)</a>
+    <p class="hintline" style="margin-top:14px">Déjà connecté sur un autre onglet ? <a href="#" id="gateRetry">Réessayer</a></p>
+  </div>
+
+  <div id="app" hidden>
+    <header class="topbar">
+      <div class="topbar__brand">
+        <img id="topbarLogo" alt="" />
+        <div>
+          <strong>Studio&nbsp;Suivi</strong>
+          <small>Dossiers de vente · compromis → acte</small>
+        </div>
+      </div>
+      <nav id="nav">
+        <a href="#board" data-v="board">Tableau de bord</a>
+        <a href="#dossiers" data-v="dossiers">Dossiers</a>
+        <a href="#modeles" data-v="modeles">Modèles d'e-mails</a>
+      </nav>
+      <div class="spacer"></div>
+      <button class="btn btn--primary" id="btnNew">+ Nouveau dossier</button>
+      <div class="who" id="who"></div>
+    </header>
+
+    <main class="wrap">
+
+      <!-- ========================= TABLEAU DE BORD ======================== -->
+      <section class="view" id="view-board">
+        <h2 class="viewtitle">Tableau de bord <small id="boardDate"></small></h2>
+        <div class="kpis" id="kpis"></div>
+        <div class="card">
+          <h3>⏰ Actions à mener <span class="cnt" id="todoCount"></span></h3>
+          <div class="todo" id="todoList"></div>
+          <p class="hintline">Les actions en retard sont en rouge, celles des 7 prochains jours en orange.
+            « ✉ Relancer » prépare l'e-mail à partir du modèle de l'agence ; « ✓ » marque l'étape faite.</p>
+        </div>
+        <div class="card">
+          <h3>📞 Points d'étape vendeurs <span class="cnt">dossiers sans nouvelle depuis 15 jours</span></h3>
+          <div class="todo" id="staleList"></div>
+        </div>
+      </section>
+
+      <!-- ============================ DOSSIERS ============================ -->
+      <section class="view" id="view-dossiers">
+        <h2 class="viewtitle">Dossiers</h2>
+        <div class="toolrow">
+          <input type="search" id="search" placeholder="Rechercher un nom, une adresse, un notaire…" />
+          <select id="filtreStatut">
+            <option value="">Tous les statuts</option>
+            <option value="en_cours">En cours</option>
+            <option value="signe">Acte signé</option>
+            <option value="clos">Clos</option>
+            <option value="annule">Annulé</option>
+          </select>
+          <button class="btn" id="btnRefresh" title="Recharger depuis le serveur">↻ Actualiser</button>
+        </div>
+        <div class="card tablewrap">
+          <table class="liste">
+            <thead>
+              <tr><th></th><th>Dossier</th><th>Bien</th><th>Compromis</th><th>Prochaine échéance</th><th>Conseillers</th><th>Statut</th></tr>
+            </thead>
+            <tbody id="listBody"></tbody>
+          </table>
+          <div class="todo__empty" id="listEmpty" hidden>Aucun dossier. Créez le premier avec « + Nouveau dossier » : déposez le compromis, l'IA remplit la fiche.</div>
+        </div>
+      </section>
+
+      <!-- ======================== DÉTAIL D'UN DOSSIER ===================== -->
+      <section class="view" id="view-dossier"></section>
+
+      <!-- ======================== MODÈLES D'E-MAILS ======================= -->
+      <section class="view" id="view-modeles">
+        <h2 class="viewtitle">Modèles d'e-mails <small>partagés par toute l'agence</small></h2>
+        <div class="card">
+          <p class="mergehelp">Champs de fusion disponibles (remplacés automatiquement à la composition) :
+            <code>{{reference}}</code> <code>{{adresse_bien}}</code> <code>{{ville}}</code> <code>{{prix}}</code>
+            <code>{{vendeurs}}</code> <code>{{acquereurs}}</code> <code>{{notaire_vendeur}}</code> <code>{{notaire_acquereur}}</code>
+            <code>{{date_compromis}}</code> <code>{{date_butoir}}</code> <code>{{fin_retractation}}</code>
+            <code>{{sequestre_montant}}</code> <code>{{sequestre_depositaire}}</code> <code>{{date_limite_depot}}</code>
+            <code>{{echeance_pret}}</code> <code>{{signature_prevue}}</code> <code>{{conseiller}}</code> <code>{{agence}}</code> <code>{{date}}</code></p>
+        </div>
+        <div id="modelesList"></div>
+        <div class="toolrow">
+          <button class="btn" id="btnAddModele">+ Nouveau modèle</button>
+          <button class="btn" id="btnSeedModeles">Restaurer les modèles par défaut manquants</button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ===================== MODALE : NOUVEAU DOSSIER ====================== -->
+  <div class="overlay" id="ovNew">
+    <div class="modal">
+      <h3>Nouveau dossier de vente</h3>
+      <p class="hintline" style="margin-bottom:12px">Déposez le compromis signé (PDF, ou photos des pages) :
+        Claude en extrait les vendeurs, acquéreurs, notaires, prix, séquestre et conditions suspensives,
+        puis l'échéancier de suivi se construit tout seul. Vous pourrez tout corriger ensuite.</p>
+      <label class="drop" id="drop">
+        <input type="file" id="fileInput" accept="application/pdf,image/*" multiple />
+        <div><b>Déposez le compromis ici</b> ou cliquez pour choisir un fichier<br /><small>PDF ou photos des pages (JPG, PNG, HEIC iPhone)</small></div>
+      </label>
+      <div class="filelist" id="fileList"></div>
+      <div class="foot">
+        <button class="btn" id="btnManual">Créer à la main (sans analyse)</button>
+        <button class="btn" id="btnCancelNew">Annuler</button>
+        <button class="btn btn--primary" id="btnAnalyse" disabled>✨ Analyser le compromis</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== MODALE : COMPOSER UN E-MAIL =================== -->
+  <div class="overlay" id="ovMail">
+    <div class="modal">
+      <h3 id="mailTitle">Composer la relance</h3>
+      <div class="field"><label>Destinataire</label><input type="text" id="mailTo" placeholder="adresse@exemple.fr" /></div>
+      <div class="field"><label>Objet</label><input type="text" id="mailSubject" /></div>
+      <div class="field"><label>Message</label><textarea id="mailBody" style="min-height:230px"></textarea></div>
+      <div class="foot">
+        <button class="btn" id="btnMailCopy">Copier le texte</button>
+        <button class="btn" id="btnMailClose">Fermer</button>
+        <button class="btn btn--primary" id="btnMailOpen">✉ Ouvrir dans la messagerie</button>
+      </div>
+      <p class="hintline">L'ouverture crée un brouillon dans votre messagerie (Outlook…) — rien n'est envoyé sans vous.
+        La relance est consignée dans le journal du dossier.</p>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/logo.js"></script>
+  <script src="assets/js/heic.js"></script>
+  <script src="assets/js/etapes.js"></script>
+  <script src="assets/js/ai.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

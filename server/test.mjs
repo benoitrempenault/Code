@@ -33,8 +33,15 @@ const db = await createNodeDb(":memory:", schema);
 // Faux bucket R2 (contenu des brochures) — même contrat que le binding FILES.
 const filesMem = new Map();
 const files = {
-  async put(k, v) { filesMem.set(k, String(v)); },
-  async get(k) { return filesMem.has(k) ? { text: async () => filesMem.get(k) } : null; },
+  async put(k, v) { filesMem.set(k, v); },
+  async get(k) {
+    if (!filesMem.has(k)) return null;
+    const v = filesMem.get(k);
+    return {
+      text: async () => (typeof v === "string" ? v : new TextDecoder().decode(v)),
+      arrayBuffer: async () => (typeof v === "string" ? new TextEncoder().encode(v).buffer : v)
+    };
+  },
   async delete(k) { filesMem.delete(k); }
 };
 const app = createApp({
@@ -163,6 +170,71 @@ const appNoFiles = createApp({ db, SESSION_SECRET: "test-secret", ADMIN_KEY: "te
 const noFiles = await appNoFiles.fetch(new Request("http://api.test/brochures", { headers: { Authorization: "Bearer " + s3 } }));
 ok(noFiles.status === 501, "sans bucket R2 configuré → 501 propre");
 
+console.log("— Dossiers de vente (app Suivi)");
+const dosData = {
+  _app: "studio-suivi", version: 1,
+  reference: "MARTIN / DURAND", statut: "en_cours", conseillers: "BR",
+  date_compromis: "2026-08-01", echeance: "2026-08-16",
+  bien: { adresse: "12 rue des Acacias, Saint-Médard" },
+  notaire_vendeur: { nom: "Me MOREAU" }, journal: []
+};
+const dput = await call("/dossiers", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { name: "MARTIN / DURAND", data: dosData } });
+ok(dput.status === 200 && dput.json.id.startsWith("do_") && dput.json.updated === false && dput.json.updated_at > 0, "dossier créé");
+const dosId = dput.json.id;
+const dlist = await call("/dossiers", { headers: { Authorization: "Bearer " + s3 } });
+ok(dlist.status === 200 && dlist.json.dossiers.length === 1
+  && dlist.json.dossiers[0].adresse === "12 rue des Acacias, Saint-Médard"
+  && dlist.json.dossiers[0].echeance === "2026-08-16"
+  && dlist.json.dossiers[0].statut === "en_cours", "liste avec métadonnées (adresse, échéance, statut)");
+const dget = await call("/dossiers/" + dosId, { headers: { Authorization: "Bearer " + s3 } });
+ok(dget.status === 200 && dget.json.data.reference === "MARTIN / DURAND", "lecture du dossier complet");
+// Mise à jour par id (renommage possible) + garde anti-écrasement.
+const dupd = await call("/dossiers", {
+  method: "PUT", headers: { Authorization: "Bearer " + s3 },
+  body: { id: dosId, name: "MARTIN-LEROY / DURAND", data: { ...dosData, reference: "MARTIN-LEROY / DURAND" }, base_updated_at: dget.json.updated_at }
+});
+ok(dupd.status === 200 && dupd.json.updated === true && dupd.json.name === "MARTIN-LEROY / DURAND", "mise à jour + renommage par id");
+const dstale = await call("/dossiers", {
+  method: "PUT", headers: { Authorization: "Bearer " + s3 },
+  body: { id: dosId, name: "MARTIN-LEROY / DURAND", data: dosData, base_updated_at: dget.json.updated_at - 10 }
+});
+ok(dstale.status === 409 && /modifié par quelqu'un/.test(dstale.json.error), "version périmée → 409 (pas d'écrasement silencieux)");
+ok((await call("/dossiers", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { name: "X", data: { _app: "studio-fiche" } } })).status === 400, "mauvais type de document refusé");
+ok((await call("/dossiers", { headers: { Authorization: "Bearer " + s2b } })).json.dossiers.length === 0, "l'autre agence ne voit aucun dossier");
+ok((await call("/dossiers/" + dosId, { headers: { Authorization: "Bearer " + s2b } })).status === 404, "l'autre agence ne peut pas ouvrir");
+
+console.log("— Compromis PDF attaché (R2)");
+const pdfBytes = new TextEncoder().encode("%PDF-1.4 faux compromis de test " + "x".repeat(200));
+const pup = await app.fetch(new Request("http://api.test/dossiers/" + dosId + "/compromis", {
+  method: "PUT", headers: { Authorization: "Bearer " + s3, "Content-Type": "application/pdf" }, body: pdfBytes
+}));
+ok(pup.status === 200 && (await pup.json()).size === pdfBytes.length, "PDF stocké");
+ok(filesMem.has("do/" + agencyId + "/" + dosId + ".pdf"), "clé R2 par agence");
+const pget = await app.fetch(new Request("http://api.test/dossiers/" + dosId + "/compromis", { headers: { Authorization: "Bearer " + s3 } }));
+ok(pget.status === 200 && pget.headers.get("Content-Type") === "application/pdf"
+  && (await pget.arrayBuffer()).byteLength === pdfBytes.length, "PDF restitué");
+const notPdf = await app.fetch(new Request("http://api.test/dossiers/" + dosId + "/compromis", {
+  method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: new TextEncoder().encode("<html>pas un pdf</html>" + "x".repeat(200))
+}));
+ok(notPdf.status === 400, "fichier sans signature %PDF refusé");
+ok((await app.fetch(new Request("http://api.test/dossiers/" + dosId + "/compromis", {
+  method: "PUT", headers: { Authorization: "Bearer " + s2b }, body: pdfBytes
+}))).status === 404, "l'autre agence ne peut pas y attacher de PDF");
+const ddel = await call("/dossiers/" + dosId, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
+ok(ddel.status === 200 && !filesMem.has("do/" + agencyId + "/" + dosId + ".pdf")
+  && (await call("/dossiers", { headers: { Authorization: "Bearer " + s3 } })).json.dossiers.length === 0, "suppression : base + PDF R2 nettoyés");
+
+console.log("— Modèles d'e-mails");
+const mput = await call("/modeles", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { name: "Relance DIA", cible: "notaire_vendeur", sujet: "Vente {{reference}}", corps: "Maître, …" } });
+ok(mput.status === 200 && mput.json.id.startsWith("mo_"), "modèle créé");
+const mupd = await call("/modeles", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { name: "Relance DIA", cible: "notaire_vendeur", sujet: "Vente {{reference}} — DIA", corps: "Maître, …" } });
+ok(mupd.status === 200 && mupd.json.updated === true && mupd.json.id === mput.json.id, "même nom → mise à jour");
+const mlist = await call("/modeles", { headers: { Authorization: "Bearer " + s3 } });
+ok(mlist.status === 200 && mlist.json.modeles.length === 1 && mlist.json.modeles[0].sujet === "Vente {{reference}} — DIA", "liste des modèles");
+ok((await call("/modeles", { headers: { Authorization: "Bearer " + s2b } })).json.modeles.length === 0, "modèles isolés par agence");
+ok((await call("/modeles/" + mput.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 200
+  && (await call("/modeles", { headers: { Authorization: "Bearer " + s3 } })).json.modeles.length === 0, "suppression d'un modèle");
+
 console.log("— Proxy IA");
 const gen = await call("/v1/messages", {
   headers: { Authorization: "Bearer " + s3 },
@@ -199,6 +271,12 @@ const legacy = await call("/v1/messages", {
   body: { model: "claude-opus-4-8", max_tokens: 100, system: "ancien client", messages: [{ role: "user", content: "test" }] }
 });
 ok(legacy.status === 200 && upstreamCalls[upstreamCalls.length - 1].body.system === "ancien client", "ancien client (system embarqué) toujours accepté");
+const extr = await call("/v1/messages", {
+  headers: { Authorization: "Bearer " + s3 },
+  body: { model: "claude-sonnet-5", max_tokens: 6000, task: "extract_compromis", messages: [{ role: "user", content: "compromis" }] }
+});
+ok(extr.status === 200 && /COMPROMIS DE VENTE/.test(upstreamCalls[upstreamCalls.length - 1].body.system || ""), "task=extract_compromis → prompt injecté");
+ok(upstreamCalls[upstreamCalls.length - 1].body.output_config.format.schema.properties.sequestre != null, "schéma JSON du compromis (séquestre, conditions…) injecté");
 
 console.log("— Relais « clé personnelle » (X-User-Key)");
 const byo = await call("/v1/messages", {
