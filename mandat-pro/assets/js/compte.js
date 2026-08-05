@@ -22,6 +22,35 @@
 
   let meUserId = null;
 
+  /* ---------------------- Retour vers l'app d'origine --------------------
+     Les autres apps (ex. Studio Suivi) envoient ici avec ?retour=…  : on
+     mémorise la destination (localStorage, car le lien magique reçu par
+     e-mail rouvre souvent la page dans un AUTRE onglet), puis on y renvoie
+     l'utilisateur dès que la session est ouverte. Même origine uniquement
+     (pas de redirection ouverte), et au plus 1 h après la demande.        */
+  const RETOUR_KEY = "studio-compte-retour";
+  function stashRetour() {
+    try {
+      const q = new URLSearchParams(location.search).get("retour");
+      if (!q) return false;
+      const u = new URL(q, location.href);
+      if (u.origin !== location.origin) return false;
+      localStorage.setItem(RETOUR_KEY, JSON.stringify({ url: u.href, ts: Date.now() }));
+      return true;
+    } catch (e) { return false; }
+  }
+  function goRetour() {
+    try {
+      const r = JSON.parse(localStorage.getItem(RETOUR_KEY) || "null");
+      localStorage.removeItem(RETOUR_KEY);
+      if (!r || !r.url || Date.now() - (r.ts || 0) > 3600000) return false;
+      const u = new URL(r.url);
+      if (u.origin !== location.origin || u.href === location.href) return false;
+      location.href = u.href;
+      return true;
+    } catch (e) { return false; }
+  }
+
   function show(card) {
     ["cardOff", "cardLogin", "cardMe"].forEach(function (id) { $("#" + id).hidden = id !== card; });
     $("#cardTeam").hidden = true; // géré à part (affiché sous le profil pour les admins)
@@ -46,6 +75,8 @@
     const r = await api("/me", { auth: a.session }).catch(function () { return { status: 0 }; });
     if (r.status === 401) { clearAccount(); show("cardLogin"); $("#loginMsg").className = "msg is-error"; $("#loginMsg").textContent = "Session expirée — reconnectez-vous."; return; }
     if (r.status !== 200 || !r.data) { show("cardLogin"); $("#loginMsg").className = "msg is-error"; $("#loginMsg").textContent = "Serveur injoignable — réessayez."; return; }
+    // Déjà connecté et arrivé avec ?retour=… : on repart aussitôt vers l'app.
+    if (new URLSearchParams(location.search).get("retour") && goRetour()) return;
     const d = r.data;
     $("#meAgency").textContent = d.agency.name;
     $("#meUser").textContent = (d.user.name ? d.user.name + " · " : "") + d.user.email;
@@ -135,6 +166,7 @@
     try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { }
     if (r.status === 200 && r.data && r.data.session) {
       setAccount({ session: r.data.session, user: r.data.user, agency: r.data.agency });
+      if (goRetour()) return; // venu d'une autre app (ex. Suivi) : on y retourne
       await paintMe();
     } else {
       // Re-clic sur un vieux lien : si une session valide existe déjà sur cet
@@ -142,7 +174,7 @@
       const a = getAccount();
       if (a && a.session) {
         const r2 = await api("/me", { auth: a.session }).catch(function () { return { status: 0 }; });
-        if (r2.status === 200) { await paintMe(); return; }
+        if (r2.status === 200) { if (goRetour()) return; await paintMe(); return; }
       }
       show("cardLogin");
       $("#loginMsg").className = "msg is-error";
@@ -215,6 +247,7 @@
   }
   function init() {
     if (!API) { show("cardOff"); return; }
+    stashRetour();
     wire();
     // le lien peut arriver alors que la page est déjà ouverte (pas de rechargement)
     window.addEventListener("hashchange", consumeHashToken);
