@@ -35,6 +35,15 @@ CREATE TABLE IF NOT EXISTS login_tokens (
   created_at INTEGER NOT NULL
 );
 
+-- Mots de passe (connexion e-mail + mot de passe, en complément du lien
+-- magique). Table séparée de users pour rester déployable par simple
+-- ré-exécution du schéma (pas d'ALTER TABLE sur une base existante).
+CREATE TABLE IF NOT EXISTS credentials (
+  user_id       TEXT PRIMARY KEY REFERENCES users(id),
+  password_hash TEXT NOT NULL,               -- pbkdf2$iter$sel$empreinte (util.js)
+  updated_at    INTEGER NOT NULL
+);
+
 -- Sessions « bearer » révocables ; nombre limité par utilisateur
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,                -- sha256(bearer)

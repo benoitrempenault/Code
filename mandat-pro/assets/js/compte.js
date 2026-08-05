@@ -125,11 +125,20 @@
       if (u.id === meUserId) {
         const me = document.createElement("b"); me.textContent = "vous"; row.appendChild(me);
       } else {
+        const wrap = document.createElement("span");
+        wrap.style.display = "flex"; wrap.style.gap = "6px";
+        const pw = document.createElement("button");
+        pw.className = "btn"; pw.type = "button"; pw.textContent = "Mot de passe";
+        pw.style.padding = "5px 12px"; pw.style.fontSize = "12.5px";
+        pw.title = "Définir ou réinitialiser le mot de passe de ce conseiller";
+        pw.addEventListener("click", function () { setConseillerPassword(u); });
+        wrap.appendChild(pw);
         const b = document.createElement("button");
         b.className = "btn"; b.type = "button"; b.textContent = "Retirer";
         b.style.padding = "5px 12px"; b.style.fontSize = "12.5px";
         b.addEventListener("click", function () { removeConseiller(u); });
-        row.appendChild(b);
+        wrap.appendChild(b);
+        row.appendChild(wrap);
       }
       list.appendChild(row);
     });
@@ -152,6 +161,17 @@
       msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Impossible d'ajouter ce conseiller.";
     }
   }
+  async function setConseillerPassword(u) {
+    const pwd = window.prompt("Nouveau mot de passe pour " + (u.name || u.email) + " (8 caractères minimum) :", "");
+    if (pwd == null) return;
+    const msg = $("#teamMsg");
+    if (pwd.length < 8) { msg.className = "msg is-error"; msg.textContent = "Mot de passe trop court (8 caractères minimum)."; return; }
+    const a = getAccount();
+    const r = await api("/agency/users/" + u.id + "/password", { auth: a.session, body: { password: pwd } }).catch(function () { return { status: 0 }; });
+    if (r.status === 200) { msg.className = "msg is-ok"; msg.textContent = "Mot de passe défini pour " + (u.name || u.email) + " — communiquez-le-lui de vive voix."; }
+    else { msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Impossible de définir ce mot de passe."; }
+  }
+
   async function removeConseiller(u) {
     if (!window.confirm("Retirer " + (u.name || u.email) + " ? Son accès sera coupé immédiatement.")) return;
     const a = getAccount();
@@ -202,7 +222,53 @@
         msg.textContent = (r.data && r.data.error) || "Serveur injoignable — réessayez.";
       }
     });
-    $("#email").addEventListener("keydown", function (e) { if (e.key === "Enter") $("#btnSend").click(); });
+    $("#email").addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") return;
+      if ($("#pw").value) $("#btnPwLogin").click(); else $("#pw").focus();
+    });
+
+    // Connexion par mot de passe (la session obtenue est identique à celle
+    // du lien magique — et le ?retour=… fonctionne pareil).
+    $("#btnPwLogin").addEventListener("click", async function () {
+      const email = ($("#email").value || "").trim();
+      const pwd = $("#pw").value || "";
+      const msg = $("#loginMsg");
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { msg.className = "msg is-error"; msg.textContent = "Adresse e-mail invalide."; return; }
+      if (!pwd) { msg.className = "msg is-error"; msg.textContent = "Saisissez votre mot de passe (ou demandez un lien ci-dessous)."; return; }
+      this.disabled = true;
+      msg.className = "msg"; msg.textContent = "Connexion…";
+      const r = await api("/auth/password-login", { body: { email: email, password: pwd } }).catch(function () { return { status: 0 }; });
+      this.disabled = false;
+      if (r.status === 200 && r.data && r.data.session) {
+        setAccount({ session: r.data.session, user: r.data.user, agency: r.data.agency });
+        $("#pw").value = "";
+        if (goRetour()) return;
+        await paintMe();
+      } else {
+        msg.className = "msg is-error";
+        msg.textContent = (r.data && r.data.error) || "Serveur injoignable — réessayez.";
+      }
+    });
+    $("#pw").addEventListener("keydown", function (e) { if (e.key === "Enter") $("#btnPwLogin").click(); });
+
+    // Définir / changer SON mot de passe (connecté).
+    $("#btnSetPw").addEventListener("click", async function () {
+      const p1 = $("#pwNew").value || "", p2 = $("#pwNew2").value || "";
+      const msg = $("#pwMsg");
+      if (p1.length < 8) { msg.className = "msg is-error"; msg.textContent = "8 caractères minimum."; return; }
+      if (p1 !== p2) { msg.className = "msg is-error"; msg.textContent = "Les deux saisies ne correspondent pas."; return; }
+      const a = getAccount();
+      if (!a || !a.session) return;
+      this.disabled = true;
+      const r = await api("/auth/set-password", { auth: a.session, body: { password: p1 } }).catch(function () { return { status: 0 }; });
+      this.disabled = false;
+      if (r.status === 200) {
+        $("#pwNew").value = ""; $("#pwNew2").value = "";
+        msg.className = "msg is-ok"; msg.textContent = "Mot de passe enregistré ✓ — vous pouvez maintenant vous connecter avec.";
+      } else {
+        msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Enregistrement impossible — réessayez.";
+      }
+    });
     // iPhone : l'app « écran d'accueil » a sa propre session — le lien cliqué
     // s'ouvre dans Safari, donc on accepte aussi le lien collé directement ici.
     $("#linkPaste").addEventListener("input", function () {

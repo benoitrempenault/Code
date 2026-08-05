@@ -6,6 +6,14 @@ Studio Brochure (D1 + R2) et partagés par toute l'agence — chacun voit et met
 les mêmes dossiers, depuis n'importe quel poste (connexion « Mon compte »,
 `/mandat-pro/compte.html`).
 
+**Connexion** : e-mail + mot de passe directement sur l'écran d'accueil (routes
+`/auth/password-login` et `/auth/set-password`, hachage PBKDF2-SHA256, table D1
+`credentials`, 5 essais/minute max), ou lien magique via `/mandat-pro/compte.html?retour=…`
+(le paramètre `retour` ramène automatiquement dans l'app d'origine après connexion).
+Chacun définit son mot de passe sur la page « Mon compte » ; l'admin de l'agence peut
+aussi poser/réinitialiser celui d'un conseiller (bouton « Mot de passe » de la liste
+« Mes conseillers »).
+
 Elle remplace le classeur Excel `SUIVI_DOSSIER_VENTES.xlsx` (2016-2023, 480 dossiers)
 dont elle reprend toutes les colonnes : date SSP, envoi/retour SRU, purge, DIA,
 relance ODP, échéance des conditions suspensives, notaires, séquestre, réitération,

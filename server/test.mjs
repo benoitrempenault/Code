@@ -170,6 +170,29 @@ const appNoFiles = createApp({ db, SESSION_SECRET: "test-secret", ADMIN_KEY: "te
 const noFiles = await appNoFiles.fetch(new Request("http://api.test/brochures", { headers: { Authorization: "Bearer " + s3 } }));
 ok(noFiles.status === 501, "sans bucket R2 configuré → 501 propre");
 
+console.log("— Connexion par mot de passe");
+ok((await call("/auth/set-password", { headers: { Authorization: "Bearer " + s3 }, body: { password: "court" } })).status === 400, "mot de passe trop court refusé");
+ok((await call("/auth/set-password", { body: { password: "MonMotDePasse21!" } })).status === 401, "définir un mot de passe sans session : refusé");
+ok((await call("/auth/set-password", { headers: { Authorization: "Bearer " + s3 }, body: { password: "MonMotDePasse21!" } })).status === 200, "l'utilisateur définit son mot de passe");
+const pwBad = await call("/auth/password-login", { body: { email: "claire@azur-immo.fr", password: "mauvais-mdp" } });
+ok(pwBad.status === 401 && /incorrect/.test(pwBad.json.error), "mauvais mot de passe → 401 générique");
+const pwOk = await call("/auth/password-login", { body: { email: "claire@azur-immo.fr", password: "MonMotDePasse21!" } });
+ok(pwOk.status === 200 && pwOk.json.session && pwOk.json.user.email === "claire@azur-immo.fr", "bon mot de passe → session ouverte");
+ok((await call("/me", { headers: { Authorization: "Bearer " + pwOk.json.session } })).status === 200, "la session mot de passe fonctionne comme les autres");
+ok((await call("/auth/password-login", { body: { email: "inconnu@nulle-part.fr", password: "PeuImporte123" } })).status === 401, "e-mail inconnu → même 401 générique (pas de fuite)");
+let pwLast = null;
+for (let i = 0; i < 6; i++) pwLast = await call("/auth/password-login", { body: { email: "claire@azur-immo.fr", password: "mauvais-" + i } });
+ok(pwLast.status === 429, "force brute bloquée (5 essais / minute)");
+await db.run("DELETE FROM ai_rate WHERE scope LIKE 'pw:%'", []);
+// L'admin pose le mot de passe d'un conseiller de SON agence.
+const teamUser = await db.get("SELECT id FROM users WHERE email = 'u2@azur-immo.fr'");
+ok((await call("/agency/users/" + teamUser.id + "/password", { headers: { Authorization: "Bearer " + s3 }, body: { password: "MdpConseiller1" } })).status === 200, "l'admin définit le mot de passe d'un conseiller");
+const pwTeam = await call("/auth/password-login", { body: { email: "u2@azur-immo.fr", password: "MdpConseiller1" } });
+ok(pwTeam.status === 200 && pwTeam.json.session, "le conseiller se connecte avec ce mot de passe");
+ok((await call("/agency/users/" + teamUser.id + "/password", { headers: { Authorization: "Bearer " + pwTeam.json.session }, body: { password: "TentativeMembre1" } })).status === 403, "un membre non-admin ne peut pas poser de mot de passe");
+ok((await call("/agency/users/" + teamUser.id + "/password", { headers: { Authorization: "Bearer " + s2b }, body: { password: "AutreAgence123" } })).status === 404, "une autre agence ne peut pas poser de mot de passe (isolation)");
+await db.run("DELETE FROM ai_rate WHERE scope LIKE 'pw:%'", []);
+
 console.log("— Dossiers de vente (app Suivi)");
 const dosData = {
   _app: "studio-suivi", version: 1,

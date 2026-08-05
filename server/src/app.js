@@ -18,7 +18,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { changesOf } from "./db.js";
 import { promptFor } from "./prompts.js";
-import { now, monthKey, randId, randToken, sha256hex, hmacHex, safeEqual, costMicros } from "./util.js";
+import { now, monthKey, randId, randToken, sha256hex, hmacHex, safeEqual, costMicros, hashPassword, verifyPassword } from "./util.js";
 
 const SESSION_TTL = 30 * 24 * 3600;   // 30 jours d'inactivité
 const MAX_SESSIONS = 3;               // appareils simultanés (PC + téléphone : Safari ET app écran d'accueil comptent chacun)
@@ -162,7 +162,17 @@ export function createApp(env) {
     if (!user) return err(c, 401, "Compte introuvable.");
     const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [user.agency_id]);
     if (!agency || agency.status === "suspended") return err(c, 403, "Abonnement suspendu — contactez Studio Brochure.");
-    // Limite d'appareils : révoque la session la plus ancienne au-delà du plafond.
+    const bearer = await openSession(user);
+    return c.json({
+      ok: true, session: bearer,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      agency: { id: agency.id, name: agency.name, status: agency.status, plan: agency.plan }
+    });
+  });
+
+  // Ouvre une session pour un utilisateur (limite d'appareils : révoque la
+  // plus ancienne au-delà du plafond). Partagé lien magique / mot de passe.
+  async function openSession(user) {
     const actives = await db.all(
       "SELECT token_hash FROM sessions WHERE user_id = ? AND revoked = 0 AND last_seen > ? ORDER BY last_seen DESC, rowid DESC",
       [user.id, now() - SESSION_TTL]
@@ -175,11 +185,70 @@ export function createApp(env) {
       "INSERT INTO sessions (token_hash, user_id, created_at, last_seen, revoked) VALUES (?, ?, ?, ?, 0)",
       [await sha256hex(bearer), user.id, now(), now()]
     );
+    return bearer;
+  }
+
+  /* ---------------- Connexion par e-mail + mot de passe ------------------ */
+  // En complément du lien magique. Le mot de passe se définit une fois
+  // connecté (page « Mon compte »), ou est posé par l'admin de l'agence.
+  const PW_MIN = 8, PW_MAX = 200, PW_TRIES_PER_MIN = 5;
+  app.post("/auth/password-login", async (c) => {
+    const b = await c.req.json().catch(() => ({}));
+    const email = String(b.email || "").trim().toLowerCase();
+    const password = String(b.password || "");
+    const generic = () => err(c, 401, "E-mail ou mot de passe incorrect.");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || !password) return generic();
+    // Anti-force brute : 5 essais par minute et par adresse (réussi ou non).
+    const scope = "pw:" + (await sha256hex(email)).slice(0, 16);
+    const minute = Math.floor(now() / 60);
+    await db.run("INSERT OR IGNORE INTO ai_rate (scope, minute, n) VALUES (?, ?, 0)", [scope, minute]);
+    const rl = await db.run("UPDATE ai_rate SET n = n + 1 WHERE scope = ? AND minute = ? AND n < ?", [scope, minute, PW_TRIES_PER_MIN]);
+    if (changesOf(rl) !== 1) return err(c, 429, "Trop d'essais — patientez une minute.");
+    const user = await db.get("SELECT * FROM users WHERE email = ?", [email]);
+    if (!user) return generic();
+    const cred = await db.get("SELECT password_hash FROM credentials WHERE user_id = ?", [user.id]);
+    if (!cred || !(await verifyPassword(password, cred.password_hash))) return generic();
+    const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [user.agency_id]);
+    if (!agency || agency.status === "suspended") return err(c, 403, "Abonnement suspendu — contactez Studio Brochure.");
+    const bearer = await openSession(user);
     return c.json({
       ok: true, session: bearer,
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
       agency: { id: agency.id, name: agency.name, status: agency.status, plan: agency.plan }
     });
+  });
+
+  // Définir / changer SON mot de passe (session requise).
+  app.post("/auth/set-password", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const b = await c.req.json().catch(() => ({}));
+    const password = String(b.password || "");
+    if (password.length < PW_MIN) return err(c, 400, "Mot de passe trop court (" + PW_MIN + " caractères minimum).");
+    if (password.length > PW_MAX) return err(c, 400, "Mot de passe trop long.");
+    await db.run(
+      "INSERT OR REPLACE INTO credentials (user_id, password_hash, updated_at) VALUES (?, ?, ?)",
+      [ctx.user.id, await hashPassword(password), now()]
+    );
+    return c.json({ ok: true });
+  });
+
+  // L'admin de l'agence pose/réinitialise le mot de passe d'un conseiller.
+  app.post("/agency/users/:id/password", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!isAgencyAdmin(ctx)) return err(c, 403, "Réservé à l'administrateur de l'agence.");
+    const target = await db.get("SELECT id FROM users WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!target) return err(c, 404, "Conseiller introuvable dans votre agence.");
+    const b = await c.req.json().catch(() => ({}));
+    const password = String(b.password || "");
+    if (password.length < PW_MIN) return err(c, 400, "Mot de passe trop court (" + PW_MIN + " caractères minimum).");
+    if (password.length > PW_MAX) return err(c, 400, "Mot de passe trop long.");
+    await db.run(
+      "INSERT OR REPLACE INTO credentials (user_id, password_hash, updated_at) VALUES (?, ?, ?)",
+      [target.id, await hashPassword(password), now()]
+    );
+    return c.json({ ok: true });
   });
 
   app.post("/auth/logout", async (c) => {
@@ -258,6 +327,7 @@ export function createApp(env) {
     if (!u) return err(c, 404, "Conseiller introuvable dans votre agence.");
     await db.run("UPDATE sessions SET revoked = 1 WHERE user_id = ?", [id]);
     await db.run("DELETE FROM login_tokens WHERE user_id = ?", [id]);
+    await db.run("DELETE FROM credentials WHERE user_id = ?", [id]);
     await db.run("DELETE FROM users WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);
     return c.json({ ok: true });
   });

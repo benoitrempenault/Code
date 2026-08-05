@@ -21,10 +21,19 @@
     <h1>Studio <em style="font-style:normal;color:var(--accent)">Suivi</em></h1>
     <p>Le suivi collaboratif des dossiers de vente, du compromis à l'acte authentique :
       échéancier automatique, relances notaires &amp; financement, journal partagé de l'agence.</p>
-    <p>Connectez-vous à votre compte pour accéder aux dossiers de l'agence —
-      une fois la session ouverte, vous reviendrez automatiquement ici.</p>
-    <a class="btn btn--primary" href="../mandat-pro/compte.html?retour=../suivi/">Se connecter (Mon compte)</a>
-    <p class="hintline" style="margin-top:14px">Déjà connecté sur un autre onglet ? <a href="#" id="gateRetry">Réessayer</a></p>
+    <div style="max-width:340px;margin:0 auto;text-align:left">
+      <div class="field"><label>E-mail</label>
+        <input type="email" id="gateEmail" autocomplete="email" placeholder="prenom.nom@century21.fr" /></div>
+      <div class="field"><label>Mot de passe</label>
+        <input type="password" id="gatePass" autocomplete="current-password" /></div>
+      <button class="btn btn--primary" id="gateLogin" style="width:100%">Se connecter</button>
+      <p class="hintline" id="gateMsg" style="min-height:16px;text-align:center"></p>
+    </div>
+    <p class="hintline" style="margin-top:10px">Pas encore de mot de passe ?
+      <a href="../mandat-pro/compte.html?retour=../suivi/">Connectez-vous par lien e-mail</a> —
+      vous pourrez ensuite définir votre mot de passe sur la page « Mon compte »
+      (et vous reviendrez automatiquement ici).</p>
+    <p class="hintline" style="margin-top:8px">Déjà connecté sur un autre onglet ? <a href="#" id="gateRetry">Réessayer</a></p>
   </div>
 
   <div id="app" hidden>

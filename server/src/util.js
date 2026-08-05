@@ -41,6 +41,41 @@ export async function hmacHex(secret, text) {
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/* ------------------- Mots de passe (PBKDF2-SHA256) ----------------------
+   Format stocké : pbkdf2$<itérations>$<sel b64url>$<empreinte b64url>.
+   100 000 itérations = le plafond autorisé par Cloudflare Workers.          */
+const PBKDF2_ITER = 100000;
+async function pbkdf2(password, salt, iterations) {
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, 256
+  );
+  return b64url(bits);
+}
+function fromB64url(s) {
+  const b = atob(String(s).replace(/-/g, "+").replace(/_/g, "/"));
+  const out = new Uint8Array(b.length);
+  for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i);
+  return out;
+}
+export async function hashPassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const h = await pbkdf2(password, salt, PBKDF2_ITER);
+  return "pbkdf2$" + PBKDF2_ITER + "$" + b64url(salt) + "$" + h;
+}
+export async function verifyPassword(password, stored) {
+  try {
+    const [scheme, iterStr, saltB64, expected] = String(stored || "").split("$");
+    if (scheme !== "pbkdf2") return false;
+    const iterations = Math.min(parseInt(iterStr, 10) || 0, 200000);
+    if (iterations < 1000) return false;
+    const h = await pbkdf2(password, fromB64url(saltB64), iterations);
+    return safeEqual(h, expected);
+  } catch (e) { return false; }
+}
+
 // Comparaison en temps constant (égalité de chaînes hex/base64)
 export function safeEqual(a, b) {
   if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;

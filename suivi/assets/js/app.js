@@ -964,6 +964,40 @@
     });
   }
 
+  // Connexion e-mail + mot de passe depuis l'écran d'accueil (la session
+  // obtenue est la même que par lien magique, partagée avec les autres apps).
+  function wireGateLogin() {
+    const msg = $("#gateMsg"), btn = $("#gateLogin");
+    async function login() {
+      const email = ($("#gateEmail").value || "").trim();
+      const password = $("#gatePass").value || "";
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { msg.style.color = "var(--bad)"; msg.textContent = "Adresse e-mail invalide."; return; }
+      if (!password) { msg.style.color = "var(--bad)"; msg.textContent = "Saisissez votre mot de passe."; return; }
+      btn.disabled = true;
+      msg.style.color = "var(--muted)"; msg.textContent = "Connexion…";
+      let res, data;
+      try {
+        res = await fetch(API + "/auth/password-login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password })
+        });
+        data = await res.json().catch(() => ({}));
+      } catch (e) { btn.disabled = false; msg.style.color = "var(--bad)"; msg.textContent = "Serveur injoignable — réessayez."; return; }
+      btn.disabled = false;
+      if (res.ok && data.session) {
+        try { localStorage.setItem("studio-mandatpro-account", JSON.stringify({ session: data.session, user: data.user, agency: data.agency })); } catch (e) { }
+        msg.style.color = "var(--ok)"; msg.textContent = "Connecté ✓";
+        location.reload();
+      } else {
+        msg.style.color = "var(--bad)";
+        msg.textContent = data.error || "Connexion impossible (" + res.status + ").";
+      }
+    }
+    btn.addEventListener("click", login);
+    [$("#gateEmail"), $("#gatePass")].forEach((el) => el.addEventListener("keydown", (e) => { if (e.key === "Enter") login(); }));
+  }
+
   async function start() {
     // Logos.
     if (window.KADIMA && window.KADIMA.full) {
@@ -975,6 +1009,7 @@
     if (!a || !a.session) {
       $("#gate").hidden = false;
       $("#gateRetry").addEventListener("click", (ev) => { ev.preventDefault(); location.reload(); });
+      wireGateLogin();
       return;
     }
     $("#app").hidden = false;

@@ -34,7 +34,7 @@
     .card h2 { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 20px; margin-bottom: 6px; }
     .hint { color: var(--muted); font-size: 13px; line-height: 1.55; }
     label { display: block; font-size: 13px; font-weight: 500; margin: 14px 0 0; }
-    input[type="email"], input[type="text"] {
+    input[type="email"], input[type="text"], input[type="password"] {
       width: 100%; margin-top: 6px; padding: 11px 13px; border-radius: 10px;
       border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit;
     }
@@ -78,13 +78,19 @@
   <!-- Connexion -->
   <div class="card" id="cardLogin" hidden>
     <h2>Connexion</h2>
-    <p class="hint">Saisissez l'adresse e-mail de votre compte : nous vous envoyons un lien de
-      connexion (valable 15 minutes). Pas de mot de passe à retenir.</p>
+    <p class="hint">Avec votre mot de passe si vous en avez défini un — sinon, recevez un lien de
+      connexion par e-mail (valable 15 minutes).</p>
     <button class="btn btn--primary btn--full" id="btnConfirm" type="button" hidden>Ouvrir ma session</button>
     <label>Adresse e-mail
       <input type="email" id="email" placeholder="vous@votre-agence.fr" autocomplete="email" />
     </label>
-    <button class="btn btn--primary btn--full" id="btnSend" type="button">Recevoir mon lien de connexion</button>
+    <label>Mot de passe
+      <input type="password" id="pw" autocomplete="current-password" />
+    </label>
+    <button class="btn btn--primary btn--full" id="btnPwLogin" type="button">Se connecter</button>
+    <p class="hint" style="margin-top:12px">Pas (encore) de mot de passe ? Recevez un lien de connexion —
+      vous pourrez ensuite définir votre mot de passe ci-dessous, une fois connecté.</p>
+    <button class="btn btn--full" id="btnSend" type="button">Recevoir mon lien de connexion</button>
     <p class="msg" id="loginMsg" role="status" aria-live="polite"></p>
     <p class="hint" style="margin-top:8px">📱 Depuis l'app de l'écran d'accueil, le lien de l'e-mail s'ouvre
       dans Safari au lieu d'ici. Dans ce cas : restez appuyé sur le lien dans l'e-mail → <b>Copier</b>,
@@ -106,6 +112,19 @@
     <p class="hint" style="margin-top:12px">Sur cet appareil, la rédaction IA passe par votre
       abonnement — aucune clé API à configurer. Valable sur 2 appareils par utilisateur.</p>
     <a class="btn btn--primary btn--full" id="btnGoTools" href="index.html" style="margin-top:14px">Ouvrir mes outils →</a>
+    <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:14px">
+      <h2 style="font-size:16.5px">Mon mot de passe</h2>
+      <p class="hint">Définissez (ou changez) votre mot de passe pour vous connecter directement,
+        sans attendre le lien e-mail — dans Studio Suivi comme ici.</p>
+      <label>Nouveau mot de passe (8 caractères minimum)
+        <input type="password" id="pwNew" autocomplete="new-password" />
+      </label>
+      <label>Confirmez-le
+        <input type="password" id="pwNew2" autocomplete="new-password" />
+      </label>
+      <button class="btn btn--full" id="btnSetPw" type="button">Enregistrer mon mot de passe</button>
+      <p class="msg" id="pwMsg" role="status" aria-live="polite"></p>
+    </div>
     <div class="foot">
       <a class="back" href="index.html">⌂ Retour à l'accueil</a>
       <button class="btn" id="btnLogout" type="button">Se déconnecter</button>
@@ -130,6 +149,6 @@
   </div>
 
   <script src="assets/js/config.js?v=3"></script>
-  <script src="assets/js/compte.js?v=4"></script>
+  <script src="assets/js/compte.js?v=5"></script>
 </body>
 </html>
