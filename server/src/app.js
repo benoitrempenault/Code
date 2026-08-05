@@ -92,17 +92,27 @@ export function createApp(env) {
   // Administrateur d'une agence (peut gérer les conseillers de SON agence).
   function isAgencyAdmin(ctx) { return !!(ctx && ctx.user && ctx.user.role === "admin"); }
 
+  // Chemin de retour vers l'app d'origine (ex. « ../suivi/ ») transporté par
+  // le lien magique : uniquement un chemin RELATIF sûr — jamais d'URL absolue
+  // ni de « // » (pas de redirection ouverte ; le client re-vérifie l'origine).
+  function safeRetour(v) {
+    const s = String(v || "").slice(0, 120);
+    if (!s || !/^[A-Za-z0-9._/-]+$/.test(s) || s.includes("//") || s.startsWith("/")) return "";
+    return s;
+  }
+
   // Crée un jeton de connexion pour un utilisateur et lui envoie le lien
   // (si Resend est configuré). Renvoie { token, link }. Factorisé pour être
   // partagé entre la demande de lien et l'ajout d'un conseiller.
-  async function issueLoginLink(user, ttl, mail) {
+  async function issueLoginLink(user, ttl, mail, retour) {
     const token = randToken(32);
     await db.run(
       "INSERT INTO login_tokens (token_hash, user_id, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)",
       [await sha256hex(token), user.id, now() + ttl, now()]
     );
     const ag = await db.get("SELECT app_base FROM agencies WHERE id = ?", [user.agency_id]);
-    const link = appBase(ag) + "/compte.html#token=" + token;
+    const r = safeRetour(retour);
+    const link = appBase(ag) + "/compte.html" + (r ? "?retour=" + encodeURIComponent(r) : "") + "#token=" + token;
     if (env.RESEND_API_KEY) {
       const intro = (mail && mail.intro) || "Voici votre lien de connexion (valable 15 minutes) :";
       await fetch("https://api.resend.com/emails", {
@@ -142,7 +152,7 @@ export function createApp(env) {
       [user.id, now() - 3600]
     );
     if ((recent?.n || 0) >= MAX_LINKS_PER_HOUR) return err(c, 429, "Trop de demandes — réessayez dans une heure.");
-    const { token, link } = await issueLoginLink(user, LINK_TTL);
+    const { token, link } = await issueLoginLink(user, LINK_TTL, null, body.retour);
     if (env.DEV_MODE) return c.json({ ...generic, dev_token: token, dev_link: link });
     return c.json(generic);
   });

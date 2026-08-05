@@ -209,7 +209,10 @@
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { msg.className = "msg is-error"; msg.textContent = "Adresse e-mail invalide."; return; }
       this.disabled = true;
       msg.className = "msg"; msg.textContent = "Envoi du lien…";
-      const r = await api("/auth/request-link", { body: { email: email } }).catch(function () { return { status: 0 }; });
+      // Transporte le retour (ex. venu de Studio Suivi) DANS le lien e-mail :
+      // il fonctionne ainsi même si l'e-mail s'ouvre dans un autre navigateur.
+      const retour = new URLSearchParams(location.search).get("retour") || "";
+      const r = await api("/auth/request-link", { body: { email: email, retour: retour } }).catch(function () { return { status: 0 }; });
       this.disabled = false;
       if (r.status === 200 && r.data) {
         msg.className = "msg is-ok";

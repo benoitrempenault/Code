@@ -170,6 +170,16 @@ const appNoFiles = createApp({ db, SESSION_SECRET: "test-secret", ADMIN_KEY: "te
 const noFiles = await appNoFiles.fetch(new Request("http://api.test/brochures", { headers: { Authorization: "Bearer " + s3 } }));
 ok(noFiles.status === 501, "sans bucket R2 configuré → 501 propre");
 
+console.log("— Retour transporté par le lien magique");
+await db.run("DELETE FROM login_tokens", []); // remet le compteur anti-rafale à zéro
+const lr1 = await call("/auth/request-link", { body: { email: "claire@azur-immo.fr", retour: "../suivi/" } });
+ok(lr1.status === 200 && /compte\.html\?retour=\.\.%2Fsuivi%2F#token=/.test(lr1.json.dev_link), "retour relatif inclus dans le lien e-mail");
+const lr2 = await call("/auth/request-link", { body: { email: "claire@azur-immo.fr", retour: "https://pirate.example/vol" } });
+ok(lr2.status === 200 && !lr2.json.dev_link.includes("retour"), "retour absolu (URL externe) ignoré");
+const lr3 = await call("/auth/request-link", { body: { email: "claire@azur-immo.fr", retour: "//pirate.example" } });
+ok(lr3.status === 200 && !lr3.json.dev_link.includes("retour"), "retour « //hôte » ignoré (pas de redirection ouverte)");
+await db.run("DELETE FROM login_tokens", []);
+
 console.log("— Connexion par mot de passe");
 ok((await call("/auth/set-password", { headers: { Authorization: "Bearer " + s3 }, body: { password: "court" } })).status === 400, "mot de passe trop court refusé");
 ok((await call("/auth/set-password", { body: { password: "MonMotDePasse21!" } })).status === 401, "définir un mot de passe sans session : refusé");
