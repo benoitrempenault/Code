@@ -1,0 +1,57 @@
+name: Déploiement serveur (Worker + schéma D1)
+
+# Applique le schéma D1 (CREATE TABLE IF NOT EXISTS — idempotent, ne touche pas
+# aux données existantes) puis déploie le Worker studio-brochure-api.
+# Déclenchement MANUEL uniquement (onglet Actions → Run workflow), pour garder
+# la main sur les mises en production du serveur.
+#
+# Secrets requis (Settings → Secrets and variables → Actions) :
+#   CLOUDFLARE_API_TOKEN   jeton avec édition Workers + D1 (le jeton lecture
+#                          seule de la sauvegarde ne suffit pas — dans ce cas,
+#                          créer un jeton « Edit Cloudflare Workers » + D1 write)
+#   CLOUDFLARE_ACCOUNT_ID  (optionnel) identifiant de compte si le jeton couvre
+#                          plusieurs comptes
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Vérifier la présence du jeton
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Secret CLOUDFLARE_API_TOKEN manquant — déploiement impossible."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Tests du serveur (bloque le déploiement si cassé)
+        working-directory: server
+        run: |
+          npm install --no-audit --no-fund
+          node test.mjs
+
+      - name: Appliquer le schéma D1 (idempotent)
+        working-directory: server
+        run: npx --yes wrangler@4 d1 execute studio-brochure --remote --yes --file=schema.sql
+
+      - name: Déployer le Worker
+        working-directory: server
+        run: npx --yes wrangler@4 deploy
