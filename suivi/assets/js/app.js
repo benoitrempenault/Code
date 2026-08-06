@@ -203,7 +203,22 @@
         try { await api("/modeles", { method: "PUT", json: m }); } catch (e) { break; }
       }
       try { modeles = (await api("/modeles")).modeles || []; } catch (e) { }
+      return;
     }
+    // Migration douce : la relance séquestre vise désormais le notaire
+    // DÉPOSITAIRE (celui désigné au compromis), et sa jumelle côté acquéreur
+    // est ajoutée si l'agence a le jeu de modèles d'origine.
+    try {
+      const seq = modeles.find((m) => m.name === "Relance séquestre");
+      if (seq && seq.cible === "notaire_acquereur") {
+        seq.cible = "depositaire";
+        await api("/modeles", { method: "PUT", json: seq });
+      }
+      if (seq && !modeles.some((m) => m.name === "Relance séquestre acquéreur")) {
+        const def = E.DEFAULT_MODELES.find((m) => m.name === "Relance séquestre acquéreur");
+        if (def) { await api("/modeles", { method: "PUT", json: def }); modeles = (await api("/modeles")).modeles || modeles; }
+      }
+    } catch (e) { /* la migration réessaiera au prochain chargement */ }
   }
 
   /* ------------------------------ Sauvegarde ------------------------------ */
@@ -405,13 +420,19 @@
     $("#todoCount").textContent = show.length ? show.length + " action(s)" : "";
     $("#todoList").innerHTML = show.length ? show.map((a) => {
       const s = a.step;
+      const d = details[a.id].data;
       const cls = s.days < 0 ? "late" : "soon";
-      const mailBtn = (s.modele && recipientFor(details[a.id].data, s.cible)) ?
-        '<button class="btn btn--sm" data-act="mail" data-id="' + esc(a.id) + '" data-step="' + esc(s.id) + '">✉ Relancer</button>' : "";
+      // Dernière note du journal : le contexte du dossier en un coup d'œil.
+      const lastJ = d.journal.length ? d.journal[d.journal.length - 1] : null;
+      const noteTxt = lastJ
+        ? "📝 " + new Date((lastJ.ts || 0) * 1000).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) +
+          " — " + (lastJ.text.length > 110 ? lastJ.text.slice(0, 110) + "…" : lastJ.text)
+        : "";
       return '<div class="todo__item ' + cls + '">' +
         '<span class="when">' + frDate(s.due) + "<br><small>" + deltaLabel(s.days) + "</small></span>" +
-        '<span class="what"><b>' + esc(a.ref) + "</b><small>" + esc(s.label) + "</small></span>" +
-        mailBtn +
+        '<span class="what"><b>' + esc(a.ref) + "</b><small>" + esc(s.label) + "</small>" +
+        (noteTxt ? '<small style="color:var(--accent);opacity:.85">' + esc(noteTxt) + "</small>" : "") + "</span>" +
+        mailButtons(a.id, s, d) +
         '<button class="btn btn--sm" data-act="done" data-id="' + esc(a.id) + '" data-step="' + esc(s.id) + '" title="Marquer fait">✓ Fait</button>' +
         '<button class="btn btn--sm" data-act="open" data-id="' + esc(a.id) + '">Ouvrir →</button>' +
         "</div>";
@@ -540,13 +561,18 @@
       '<div class="phase">' + esc(ph) + "</div>" +
       steps.filter((s) => s.phase === ph).map((s) => {
         const deltaCls = s.done ? "okd" : s.days == null ? "far" : s.days < 0 ? "late" : s.days <= 7 ? "soon" : "far";
-        const deltaTxt = s.done ? (s.date ? "fait le " + frDate(s.date) : "fait") : (s.days == null ? "" : deltaLabel(s.days));
-        const mailBtn = (s.modele && recipientFor(d, s.cible)) ?
-          '<button class="btn btn--sm" data-act="mail" data-id="' + esc(currentId) + '" data-step="' + esc(s.id) + '">✉ Relancer</button>' : "";
+        const deltaTxt = s.done ? "✓ fait" : (s.days == null ? "" : deltaLabel(s.days));
+        const mailBtn = s.done ? "" : mailButtons(currentId, s, d);
+        // Étape faite : la date « fait le » est modifiable (et suit les dates
+        // clés correspondantes). Étape à faire : c'est l'échéance qui s'édite.
+        const dateCtl = s.done
+          ? '<span class="due"><small style="color:var(--muted);font-size:11px">fait le</small>' +
+            '<input type="date" data-step-date="' + esc(s.id) + '" value="' + esc(s.date || "") + '" title="Date de réalisation (modifiable)" /></span>'
+          : '<span class="due"><input type="date" data-step-due="' + esc(s.id) + '" value="' + esc(s.due || "") + '" title="Échéance (modifiable)" /></span>';
         return '<div class="etape' + (s.done ? " done" : "") + '">' +
           '<input type="checkbox" data-step-done="' + esc(s.id) + '"' + (s.done ? " checked" : "") + " />" +
           '<span class="lab">' + esc(s.label) + (s.hint ? "<small>" + esc(s.hint) + "</small>" : "") + "</span>" +
-          '<span class="due"><input type="date" data-step-due="' + esc(s.id) + '" value="' + esc(s.due || "") + '" title="Échéance (modifiable)" /></span>' +
+          dateCtl +
           '<span class="delta ' + deltaCls + '">' + esc(deltaTxt) + "</span>" + mailBtn +
           "</div>";
       }).join("")
@@ -587,8 +613,13 @@
       '<button class="btn btn--danger" id="btnDelete">Supprimer</button>' +
       "</div></div>" +
 
+      '<div class="card"><h3>📝 Journal du dossier <span class="cnt">partagé avec toute l\'agence</span></h3>' +
+      '<div class="journal__add" style="margin:0 0 10px"><input type="text" id="journalInput" placeholder="Ajouter une note (appel, réponse du notaire, avancement…)" />' +
+      '<button class="btn" id="journalAdd">Ajouter</button></div>' +
+      '<div class="journal">' + (journalHtml || '<p class="hintline">Aucune note pour l\'instant.</p>') + "</div></div>" +
+
       '<div class="card"><h3>🗓 Échéancier du dossier</h3>' + echHtml +
-      '<p class="hintline">Cochez une étape quand elle est faite (la date du jour est consignée). Les échéances sont calculées ' +
+      '<p class="hintline">Cochez une étape quand elle est faite (la date du jour est consignée — modifiable ensuite via « fait le »). Les échéances sont calculées ' +
       "depuis les dates du dossier — modifiez-les librement si le compromis prévoit d'autres délais.</p></div>" +
 
       '<div class="grid2">' +
@@ -680,10 +711,6 @@
       input("Acte signé le", "dates.signature_acte", d, "date") +
       "</div></div>" +
 
-      '<div class="card"><h3>📝 Journal du dossier <span class="cnt">partagé avec toute l\'agence</span></h3>' +
-      '<div class="journal">' + (journalHtml || '<p class="hintline">Aucune note pour l\'instant.</p>') + "</div>" +
-      '<div class="journal__add"><input type="text" id="journalInput" placeholder="Ajouter une note (appel, réponse du notaire, avancement…)" />' +
-      '<button class="btn" id="journalAdd">Ajouter</button></div></div>' +
       "</div>" + // grid2
 
       // Suggestions issues de l'annuaire partagé (notaires, conseillers, syndics).
@@ -694,12 +721,15 @@
     setSaveState(saveState === "dirty" || saveState === "saving" ? saveState : "");
   }
 
-  // Cocher une étape peut renseigner la date clé correspondante (et vice-versa).
+  // Cocher une étape peut renseigner la date clé correspondante (et vice-versa) ;
+  // la date « fait le » d'une étape suit sa date clé, et réciproquement.
   const STEP_DATE = {
     envoi_sru: "dates.envoi_sru", envoi_notaires: "dates.envoi_notaires",
     retour_sru: "dates.presentation_sru", envoi_dia: "dates.envoi_dia",
     signature: "dates.signature_acte"
   };
+  const DATE_STEP = {};
+  Object.keys(STEP_DATE).forEach((k) => { DATE_STEP[STEP_DATE[k]] = k; });
 
   // Écouteurs délégués du détail de dossier — attachés UNE fois au démarrage
   // (le contenu de la vue est re-rendu à chaque changement structurel).
@@ -739,6 +769,16 @@
         d.etapes[id].due = t.value;
         markDirty(); renderDossier(); return;
       }
+      // Date « fait le » d'une étape : modifiable, et répercutée sur la date
+      // clé correspondante (envoi SRU, DIA, acte…) quand il y en a une.
+      if (t.dataset.stepDate != null) {
+        const id = t.dataset.stepDate;
+        d.etapes[id] = d.etapes[id] || {};
+        d.etapes[id].date = t.value;
+        const datePath = STEP_DATE[id];
+        if (datePath) setByPath(d, datePath, t.value);
+        markDirty(); renderDossier(); return;
+      }
       // Auto-remplissage depuis l'annuaire quand un nom connu est saisi.
       if (t.dataset.path === "notaire_vendeur.nom" || t.dataset.path === "notaire_acquereur.nom") {
         const e = annByNom(["notaire"], t.value);
@@ -761,11 +801,16 @@
       }
       // Initiales de conseiller : rafraîchit l'indication « → Nom · e-mail ».
       if (t.dataset.path === "conseiller_vendeur" || t.dataset.path === "conseiller_acquereur") { renderDossier(); return; }
+      // Une date clé modifiée met à jour le « fait le » de l'étape liée déjà cochée.
+      if (t.dataset.path && DATE_STEP[t.dataset.path]) {
+        const stepId = DATE_STEP[t.dataset.path];
+        if (d.etapes[stepId] && d.etapes[stepId].done) { d.etapes[stepId].date = t.value; markDirty(); renderDossier(); return; }
+      }
       if (t.dataset.path && (t.type === "date" || t.tagName === "SELECT")) { renderDossierSoon(); }
     });
     view.addEventListener("click", (ev) => {
       const d = cur();
-      const t = ev.target.closest("[data-add],[data-rm],#journalAdd,#btnDelete,#btnVoirPdf,#btnJoindrePdf,[data-act='mail']");
+      const t = ev.target.closest("[data-add],[data-rm],#journalAdd,#btnDelete,#btnVoirPdf,#btnJoindrePdf,[data-act='mailname']");
       if (!d || !t) return;
       if (t.dataset.add) {
         const k = t.dataset.add;
@@ -789,7 +834,7 @@
       if (t.id === "btnDelete") { deleteCurrent(); return; }
       if (t.id === "btnVoirPdf") { viewCompromis(currentId); return; }
       if (t.id === "btnJoindrePdf") { const pi = $("#pdfReplace"); if (pi) pi.click(); return; }
-      if (t.dataset.act === "mail") { openMailForStep(t.dataset.id, t.dataset.step); return; }
+      if (t.dataset.act === "mailname") { openMailByName(t.dataset.id, t.dataset.modele); return; }
     });
   }
   const renderDossierSoon = debounce(() => { if ((location.hash || "").startsWith("#dossier/")) renderDossier(); }, 1200);
@@ -848,7 +893,42 @@
     if (cible === "conseiller_vendeur") return (annConseiller(d.conseiller_vendeur) || {}).email || "";
     if (cible === "conseiller_acquereur") return (annConseiller(d.conseiller_acquereur) || {}).email || "";
     if (cible === "syndic") return (d.syndic && d.syndic.email) || (annByNom(["syndic", "president"], d.syndic && d.syndic.nom) || {}).email || "";
+    if (cible === "depositaire") {
+      // Le notaire désigné pour recevoir le séquestre : on retrouve son e-mail
+      // en comparant le nom du dépositaire aux notaires du dossier puis de l'annuaire.
+      const depo = String((d.sequestre && d.sequestre.depositaire) || "").toLowerCase();
+      const lastWord = (nom) => {
+        const parts = String(nom || "").trim().split(/\s+/).filter((w) => w.length >= 3 && !/^me$/i.test(w));
+        return (parts[parts.length - 1] || "").toLowerCase();
+      };
+      for (const key of ["notaire_vendeur", "notaire_acquereur"]) {
+        const w = lastWord(d[key].nom);
+        if (w && depo.includes(w)) return d[key].email || (annByNom(["notaire"], d[key].nom) || {}).email || "";
+      }
+      const hit = annOf("notaire").find((a) => { const w = lastWord(a.nom); return w && depo.includes(w); });
+      if (hit && hit.email) return hit.email;
+      return recipientFor(d, "notaire_acquereur");
+    }
     return "";
+  }
+  const CIBLE_COURT = {
+    notaire_vendeur: "Not. vendeur", notaire_acquereur: "Not. acquéreur", depositaire: "Dépositaire",
+    acquereur: "Acquéreur", vendeur: "Vendeur", syndic: "Syndic",
+    conseiller_vendeur: "Conseiller", conseiller_acquereur: "Conseiller", banque: "Banque", autre: "Relancer"
+  };
+  function modeleByName(name) {
+    return modeles.find((x) => x.name === name) || E.DEFAULT_MODELES.find((x) => x.name === name) || null;
+  }
+  // Boutons de relance d'une étape : un par modèle qui a un destinataire.
+  function mailButtons(dossierId, step, d) {
+    const names = step.modeles || [];
+    const btns = names.map((n) => {
+      const m = modeleByName(n);
+      if (!m || !recipientFor(d, m.cible)) return "";
+      const label = names.length > 1 ? "✉ " + (CIBLE_COURT[m.cible] || "Relancer") : "✉ Relancer";
+      return '<button class="btn btn--sm" data-act="mailname" data-id="' + esc(dossierId) + '" data-modele="' + esc(n) + '">' + label + "</button>";
+    }).join("");
+    return btns;
   }
   function mergeFields(d) {
     const fin = d.financement || {};
@@ -886,16 +966,10 @@
     $("#mailBody").value = fill(modele.corps, f);
     $("#ovMail").classList.add("on");
   }
-  function openMailForStep(dossierId, stepId) {
-    const step = E.ETAPES.find((e) => e.id === stepId);
-    if (!step || !step.modele) return;
-    const m = modeles.find((x) => x.name === step.modele) || E.DEFAULT_MODELES.find((x) => x.name === step.modele);
-    if (!m) { toast("Modèle « " + step.modele + " » introuvable — voir l'onglet Modèles.", true); return; }
-    openMail(dossierId, m);
-  }
   function openMailByName(dossierId, name) {
-    const m = modeles.find((x) => x.name === name) || E.DEFAULT_MODELES.find((x) => x.name === name);
+    const m = modeleByName(name);
     if (m) openMail(dossierId, m);
+    else toast("Modèle « " + name + " » introuvable — voir l'onglet Modèles.", true);
   }
   function logRelance(kind) {
     if (!mailCtx) return;
@@ -916,6 +990,7 @@
     const CIBLES = [["notaire_vendeur", "Notaire vendeur"], ["notaire_acquereur", "Notaire acquéreur"],
       ["acquereur", "Acquéreur(s)"], ["vendeur", "Vendeur(s)"],
       ["conseiller_vendeur", "Conseiller vendeur"], ["conseiller_acquereur", "Conseiller acquéreur"],
+      ["depositaire", "Notaire dépositaire (séquestre)"],
       ["syndic", "Syndic / Président"], ["banque", "Banque / courtier"], ["autre", "Autre"]];
     $("#modelesList").innerHTML = modeles.map((m) =>
       '<div class="modele" data-mid="' + esc(m.id) + '">' +
@@ -1139,7 +1214,6 @@
       if (!t) return;
       const id = t.dataset.id;
       if (t.dataset.act === "open") { location.hash = "#dossier/" + id; return; }
-      if (t.dataset.act === "mail") { openMailForStep(id, t.dataset.step); return; }
       if (t.dataset.act === "mailname") { openMailByName(id, t.dataset.modele); return; }
       if (t.dataset.act === "done") {
         const det = details[id];
