@@ -76,10 +76,10 @@
       due: (d) => finRetract(d) },
 
     { id: "sequestre", phase: "Séquestre", label: "Dépôt de garantie (séquestre) reçu chez le dépositaire",
-      cible: "notaire_acquereur", modele: "Relance séquestre",
+      cible: "depositaire", modeles: ["Relance séquestre", "Relance séquestre acquéreur"],
       due: (d) => (d.sequestre && parseDate(d.sequestre.delai)) ? d.sequestre.delai : addDays(ssp(d), 12),
       applies: (d) => !!(d.sequestre && (d.sequestre.montant || "").trim()),
-      hint: "Versement usuel sous 8 à 10 jours — confirmer la réception auprès de l'étude." },
+      hint: "Versement usuel sous 8 à 10 jours — double relance : le notaire dépositaire (réception ?) et l'acquéreur (versement fait ?)." },
 
     { id: "envoi_dia", phase: "Préemption (DIA)", label: "DIA envoyée en mairie par le notaire",
       cible: "notaire_vendeur", modele: "Relance DIA", due: (d) => addDays(ssp(d), 15),
@@ -140,7 +140,8 @@
         const s = st[e.id] || {};
         const due = s.due || (e.due ? e.due(d) : "");
         return {
-          def: e, id: e.id, label: e.label, phase: e.phase, cible: e.cible, modele: e.modele, hint: e.hint,
+          def: e, id: e.id, label: e.label, phase: e.phase, cible: e.cible, hint: e.hint,
+          modele: e.modele, modeles: e.modeles || (e.modele ? [e.modele] : []),
           done: !!s.done, date: s.date || "", note: s.note || "", due,
           days: due ? daysUntil(due) : null
         };
@@ -183,9 +184,14 @@
       corps: "Maître,\n\nDans le cadre de la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}), pourriez-vous nous confirmer que la déclaration d'intention d'aliéner (DIA) a bien été adressée à la mairie, et nous communiquer sa date d'envoi ?\n\nLa purge du droit de préemption conditionnant la date de signature (butoir : {{date_butoir}}), nous vous serions reconnaissants, le cas échéant, de solliciter une renonciation expresse de la commune afin de gagner du temps.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
     },
     {
-      name: "Relance séquestre", cible: "notaire_acquereur",
+      name: "Relance séquestre", cible: "depositaire",
       sujet: "Vente {{reference}} — Confirmation de réception du dépôt de garantie",
       corps: "Maître,\n\nConcernant la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}), pourriez-vous nous confirmer la bonne réception du dépôt de garantie de {{sequestre_montant}} qui devait être versé entre vos mains ({{sequestre_depositaire}}) ?\n\nÀ défaut, nous relancerons les acquéreurs sans délai.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+    },
+    {
+      name: "Relance séquestre acquéreur", cible: "acquereur",
+      sujet: "Votre achat {{adresse_bien}} — Versement du dépôt de garantie",
+      corps: "Bonjour,\n\nSuite à la signature de votre compromis le {{date_compromis}}, celui-ci prévoit le versement du dépôt de garantie de {{sequestre_montant}} entre les mains de {{sequestre_depositaire}}, par virement.\n\nPourriez-vous nous confirmer que le virement a bien été effectué (ou nous transmettre la preuve de virement) ? À défaut de versement à la date prévue, le compromis pourrait être remis en cause — n'hésitez pas à nous appeler en cas de difficulté.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
     },
     {
       name: "Relance dépôt du dossier de prêt", cible: "acquereur",
