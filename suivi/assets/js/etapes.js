@@ -65,7 +65,8 @@
       cible: "notaire_vendeur", due: (d) => addDays(ssp(d), 2),
       hint: "Le délai de rétractation ne court qu'à partir d'une notification complète (compromis + annexes)." },
     { id: "envoi_notaires", phase: "Notification & rétractation", label: "Dossier envoyé aux notaires (compromis + coordonnées clients)",
-      cible: "notaire_vendeur", modele: "Envoi du dossier aux notaires", due: (d) => addDays(ssp(d), 3) },
+      cible: "notaires", modele: "Envoi du dossier aux notaires", due: (d) => addDays(ssp(d), 3),
+      hint: "Un seul e-mail aux deux études : lien de téléchargement + coordonnées détaillées des parties." },
     { id: "retour_sru", phase: "Notification & rétractation", label: "AR de la notification SRU reçu (noter la date de présentation)",
       due: (d) => addDays(ssp(d), 8),
       hint: "Renseignez la date de présentation dans « Dates clés » : la fin de rétractation se calcule dessus." },
@@ -189,9 +190,9 @@
      {{conseiller}} {{agence}} {{date}}                                      */
   const DEFAULT_MODELES = [
     {
-      name: "Envoi du dossier aux notaires", cible: "notaire_vendeur",
-      sujet: "Vente {{reference}} — {{adresse_bien}} : compromis et coordonnées des parties",
-      corps: "Maître,\n\nVeuillez trouver ci-joint le compromis de vente signé le {{date_compromis}} concernant le bien situé {{adresse_bien}}, ainsi que les coordonnées des parties :\n\nVendeur(s) : {{vendeurs}}\nAcquéreur(s) : {{acquereurs}}\nPrix : {{prix}}\nNotaire vendeur : {{notaire_vendeur}}\nNotaire acquéreur : {{notaire_acquereur}}\n\nNous restons à votre disposition pour toute pièce complémentaire, et vous remercions de bien vouloir nous confirmer la prise en charge du dossier ainsi que l'envoi de la notification SRU aux acquéreurs.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      name: "Envoi du dossier aux notaires", cible: "notaires",
+      sujet: "Vente {{reference}} — {{adresse_bien}} : compromis signé, annexes et coordonnées des parties",
+      corps: "Bonjour Maîtres,\n\nDans le cadre de la vente citée en objet ({{reference}} — {{adresse_bien}}, compromis du {{date_compromis}}), je vous prie de bien vouloir trouver ci-après le lien pour télécharger le compromis de vente et les annexes signés ainsi que la preuve de dépôt de la SRU :\n\n[COLLEZ ICI LE LIEN DE TÉLÉCHARGEMENT]\n\n{{notaire_vendeur_nom}}, vous représentez le(s) vendeur(s) dont les coordonnées sont les suivantes :\n\n{{vendeurs_detail}}\n\n{{notaire_acquereur_nom}}, vous représentez le(s) acquéreur(s) dont les coordonnées sont les suivantes :\n\n{{acquereurs_detail}}\n\nVous en souhaitant bonne réception et restant à votre disposition,\n\n{{conseiller}}\n{{agence}}"
     },
     {
       name: "Demande d'envoi de la DIA", cible: "notaire_vendeur",
