@@ -1007,12 +1007,38 @@
     const r = new FileReader();
     r.onload = function () {
       try {
-        loadData(JSON.parse(r.result));
+        const d = JSON.parse(r.result);
+        if (d && d._app === "studio-fiche") { importFichePresta(d); return; }
+        loadData(d);
         currentFileName = null; // fichier importé : « Enregistrer » créera une entrée dans le dossier
         toast("Projet chargé.");
       } catch (e) { toast("Fichier .json invalide.", true); }
     };
     r.readAsText(file);
+  }
+  // Import d'une FICHE PRESTATION (.json de l'app Fiche prestation) : brochure
+  // vierge + type/adresse/notes injectés (comme « Injecter dans la brochure »),
+  // puis la rédaction est lancée automatiquement — il ne reste qu'à ajuster
+  // (prix, photos…), sans recoller les notes ni cliquer « Rédiger ».
+  function importFichePresta(d) {
+    const sections = [["fCarac", "Caractéristiques"], ["fInterieur", "Intérieur"], ["fExterieur", "Extérieur"], ["fCopro", "Copropriété / Lotissement"], ["fASavoir", "À savoir"]];
+    const parts = [];
+    sections.forEach(function (s) {
+      const items = String(d[s[0]] || "").split("\n").map(function (l) { return l.trim(); }).filter(Boolean);
+      if (items.length) parts.push(s[1] + " :\n" + items.map(function (l) { return "- " + l; }).join("\n"));
+    });
+    const notes = parts.length ? parts.join("\n\n") : String(d.fNotes || "").trim();
+    if (!notes) { toast("Cette fiche prestation est vide — dictez ou structurez-la d'abord dans l'app Fiche prestation.", true); return; }
+    resetBlank(); // nouveau bien = brochure vierge (pas d'héritage du bien précédent)
+    if (d.fType) setPath(state, "property.type", String(d.fType));
+    if (d.fAdresse) setPath(state, "property.address", String(d.fAdresse));
+    const ta = document.getElementById("aiNotes");
+    if (ta) ta.value = notes;
+    hydrateForm(); render(); save();
+    currentFileName = null;
+    toast("Fiche prestation importée ✓ — rédaction de la brochure en cours…");
+    const btn = document.getElementById("btnAIGenerate");
+    if (btn) btn.click();
   }
   function doNew() {
     if (!confirm("Repartir d'une fiche vierge ? Le projet actuel sera remplacé (pensez à le sauvegarder).")) return;
