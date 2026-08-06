@@ -105,6 +105,16 @@
   async function loadAnnuaire() {
     try { annuaire = (await api("/annuaire")).annuaire || []; } catch (e) { annuaire = []; }
   }
+  // Importe les conseillers depuis les comptes de l'agence (n'ajoute que les
+  // absents). Appelé automatiquement au premier lancement, et via le bouton.
+  async function seedConseillers(silencieux) {
+    try {
+      const r = await api("/annuaire/seed-conseillers", { method: "POST", json: {} });
+      if (r.added) await loadAnnuaire();
+      if (!silencieux) toast(r.added ? r.added + " conseiller(s) importé(s) depuis les comptes de l'agence." : "Tous les conseillers du compte sont déjà dans l'annuaire.");
+      return r.added || 0;
+    } catch (e) { if (!silencieux) toast(e.message, true); return 0; }
+  }
   // Après enregistrement d'un dossier : les coordonnées saisies (notaires,
   // syndic/président) enrichissent l'annuaire — sans écraser une valeur par
   // du vide, et seulement si quelque chose a changé.
@@ -290,7 +300,9 @@
       return '<div class="card"><h3>' + titre + ' <span class="cnt">' + annOf(type).length + "</span></h3>" +
         (hint ? '<p class="hintline" style="margin-top:0">' + hint + "</p>" : "") +
         (rows || '<p class="hintline">Aucune entrée pour l\'instant.</p>') +
-        '<button class="btn btn--sm addrow" data-aadd="' + type + '">+ Ajouter</button></div>';
+        '<button class="btn btn--sm addrow" data-aadd="' + type + '">+ Ajouter</button>' +
+        (type === "conseiller" ? ' <button class="btn btn--sm addrow" data-aseed title="Ajoute les conseillers des comptes de l\'agence absents de l\'annuaire">⇩ Importer depuis les comptes de l\'agence</button>' : "") +
+        "</div>";
     }).join("");
   }
   const saveAnnSoon = {};
@@ -310,6 +322,14 @@
       saveAnnSoon[a.id]();
     });
     root.addEventListener("click", async (ev) => {
+      const seed = ev.target.closest("[data-aseed]");
+      if (seed) {
+        seed.disabled = true;
+        await seedConseillers(false);
+        seed.disabled = false;
+        renderAnnuaire();
+        return;
+      }
       const add = ev.target.closest("[data-aadd]");
       if (add) {
         const type = add.dataset.aadd;
@@ -1213,6 +1233,9 @@
       await loadList();
       await loadModeles();
       await loadAnnuaire();
+      // Premier lancement : l'annuaire des conseillers se remplit tout seul
+      // depuis les comptes de l'agence.
+      if (!annOf("conseiller").length) await seedConseillers(true);
     } catch (e) {
       if (e.status === 401) {
         $("#app").hidden = true;

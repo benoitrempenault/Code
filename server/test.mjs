@@ -272,6 +272,15 @@ ok((await call("/annuaire", { headers: { Authorization: "Bearer " + s2b } })).js
 ok((await call("/annuaire/" + an1.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 200
   && (await call("/annuaire", { headers: { Authorization: "Bearer " + s3 } })).json.annuaire.length === 1, "suppression d'une entrée");
 await call("/annuaire/" + an2.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
+// Pré-remplissage depuis les comptes de l'agence (claire + u2..u5).
+const seed1 = await call("/annuaire/seed-conseillers", { method: "POST", headers: { Authorization: "Bearer " + s3 }, body: {} });
+ok(seed1.status === 200 && seed1.json.added === 5, "5 conseillers importés depuis les comptes (" + seed1.json.added + ")");
+const seeded = (await call("/annuaire", { headers: { Authorization: "Bearer " + s3 } })).json.annuaire.filter((a) => a.type === "conseiller");
+ok(seeded.find((a) => a.nom === "Claire Fontaine" && a.initiales === "CF" && a.email === "claire@azur-immo.fr"), "nom, initiales et e-mail repris du compte");
+ok(new Set(seeded.map((a) => a.initiales)).size === seeded.length, "initiales toutes différentes (dédoublonnées)");
+const seed2 = await call("/annuaire/seed-conseillers", { method: "POST", headers: { Authorization: "Bearer " + s3 }, body: {} });
+ok(seed2.status === 200 && seed2.json.added === 0, "second import : rien à ajouter (idempotent)");
+for (const a of seeded) await call("/annuaire/" + a.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
 
 console.log("— Modèles d'e-mails");
 const mput = await call("/modeles", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { name: "Relance DIA", cible: "notaire_vendeur", sujet: "Vente {{reference}}", corps: "Maître, …" } });

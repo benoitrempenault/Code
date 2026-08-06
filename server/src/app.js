@@ -575,6 +575,39 @@ export function createApp(env) {
     return c.json({ ok: true, id, updated: false });
   });
 
+  // Pré-remplit les conseillers de l'annuaire depuis les comptes de l'agence
+  // (nom + e-mail des utilisateurs). N'écrase rien : ajoute seulement les
+  // conseillers absents, avec des initiales générées et dédoublonnées.
+  function initialesOf(nom) {
+    const parts = String(nom || "").split(/[\s.\-_]+/).filter(Boolean);
+    return parts.map((p) => p[0]).join("").toUpperCase().slice(0, 4);
+  }
+  app.post("/annuaire/seed-conseillers", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif.");
+    const users = await db.all("SELECT name, email FROM users WHERE agency_id = ? ORDER BY created_at ASC", [ctx.agency.id]);
+    const existing = await db.all("SELECT nom, initiales, email FROM annuaire WHERE agency_id = ? AND type = 'conseiller'", [ctx.agency.id]);
+    const taken = new Set(existing.map((e) => (e.initiales || "").toLowerCase()).filter(Boolean));
+    const emails = new Set(existing.map((e) => (e.email || "").toLowerCase()).filter(Boolean));
+    const noms = new Set(existing.map((e) => e.nom.toLowerCase()));
+    let added = 0;
+    for (const u of users) {
+      const email = String(u.email || "").toLowerCase();
+      const nom = cleanName(u.name || (email.split("@")[0] || "").replace(/[._-]+/g, " "));
+      if (!nom || emails.has(email) || noms.has(nom.toLowerCase())) continue;
+      const base = initialesOf(nom) || "X";
+      let ini = base, n = 2;
+      while (taken.has(ini.toLowerCase())) ini = base + n++;
+      taken.add(ini.toLowerCase()); emails.add(email); noms.add(nom.toLowerCase());
+      await db.run(
+        "INSERT INTO annuaire (id, agency_id, user_id, type, nom, initiales, ville, telephone, email, notes, created_at, updated_at) VALUES (?, ?, ?, 'conseiller', ?, ?, '', '', ?, '', ?, ?)",
+        [randId("an"), ctx.agency.id, ctx.user.id, nom, ini, u.email, now(), now()]);
+      added++;
+    }
+    return c.json({ ok: true, added });
+  });
+
   app.delete("/annuaire/:id", async (c) => {
     const ctx = await sessionFrom(c);
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
