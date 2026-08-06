@@ -83,6 +83,7 @@
     <div class="topbar__actions">
       <a class="btn btn--ghost" href="index.html" title="Retour à l'accueil" style="text-decoration:none">⌂ Accueil</a>
       <button class="btn btn--ghost" id="btnFicheNew" title="Repartir d'une fiche vierge">Nouveau</button>
+      <button class="btn btn--ghost" id="btnFicheSave" title="Sans enregistrement, la fiche reste uniquement sur cet appareil. Le nom n'est demandé qu'au premier enregistrement.">Enregistrer dans la bibliothèque</button>
       <button class="btn btn--ghost" id="btnFicheLib" title="Ouvrir ou enregistrer une fiche dans votre dossier">▤ Bibliothèque</button>
       <span class="topbar__sep" aria-hidden="true"></span>
       <button class="btn btn--ghost" id="btnWord" title="Télécharger la fiche au format Word">📄 Exporter en Word</button>
@@ -90,7 +91,7 @@
       <button class="btn btn--ghost" id="btnFicheImport" title="Reprendre une fiche depuis un fichier .json">📂 Importer</button>
       <input type="file" id="ficheImportFile" accept="application/json,.json" hidden />
       <button class="btn btn--ghost" id="btnFichePrint" title="Imprimer ou enregistrer en PDF">🖨 Imprimer / PDF</button>
-      <button class="btn btn--primary" id="btnInject" title="Ouvrir la brochure pré-remplie avec cette fiche">📖 Injecter dans la brochure</button>
+      <button class="btn btn--primary" id="btnInject" title="Enregistrez d'abord la fiche dans la bibliothèque — l'injection ouvre ensuite la brochure pré-remplie">📖 Injecter dans la brochure</button>
     </div>
   </header>
 
@@ -227,6 +228,6 @@
   <script src="assets/js/logo.js?v=9"></script>
   <script src="assets/js/library.js?v=1"></script>
   <script src="assets/js/ai.js?v=13"></script>
-  <script src="assets/js/fiche.js?v=10"></script>
+  <script src="assets/js/fiche.js?v=11"></script>
 </body>
 </html>

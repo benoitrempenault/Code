@@ -625,6 +625,13 @@
 
   /* -------------------------- Injection brochure ------------------------- */
   function inject() {
+    // La fiche doit d'abord être enregistrée dans la bibliothèque : elle reste
+    // ainsi retrouvable (et partagée) par toute l'agence avant de partir dans
+    // la brochure.
+    if (!currentFicheFile) {
+      toast("Enregistrez d'abord la fiche dans la bibliothèque (bouton « Enregistrer dans la bibliothèque ») — l'injection se débloque ensuite.", true);
+      return;
+    }
     sweepConfidential(); // les notes confidentielles ne partent jamais dans la brochure
     const notesParts = [];
     const type = $("#fType").value.trim();
@@ -793,14 +800,24 @@
       try { items = await Lib().listFiches(); } catch (e) { listEl.innerHTML = ""; $("#libHint").textContent = "Impossible de lire le dossier."; return; }
       paintList();
     }
-    async function saveCurrent() {
-      if (cloudMode) {
-        const suggested = currentFicheFile
-          ? currentFicheFile.replace(/\.json$/i, "")
-          : ("FICHE " + (safeName($("#fAdresse").value || $("#fVendeur").value) || "sans nom"));
-        const input = prompt("Nom de la fiche :", suggested);
-        if (input == null) return;
-        const name = (input.trim() || "fiche").slice(0, 120);
+    // askName : true = demander/permettre de changer le nom (« Enregistrer sous »,
+    // depuis la Bibliothèque) ; false = ré-enregistrer directement sous le nom
+    // courant, comme Word. mode ("cloud"|"folder") force la destination (bouton
+    // de la barre du haut) ; sinon on suit le mode courant de la bibliothèque.
+    async function saveCurrent(askName, mode) {
+      const useCloud = mode ? (mode === "cloud") : cloudMode;
+      if (useCloud) {
+        let name;
+        if (!askName && currentFicheFile) {
+          name = currentFicheFile.replace(/\.json$/i, "");
+        } else {
+          const suggested = currentFicheFile
+            ? currentFicheFile.replace(/\.json$/i, "")
+            : ("FICHE " + (safeName($("#fAdresse").value || $("#fVendeur").value) || "sans nom"));
+          const input = prompt("Nom de la fiche :", suggested);
+          if (input == null) return;
+          name = (input.trim() || "fiche").slice(0, 120);
+        }
         const data = collect(); data._app = "studio-fiche"; data._v = 1;
         try {
           const r = await cloudApi("/fiches", { body: { name: name, data: data } });
@@ -815,22 +832,36 @@
         try { await Lib().chooseFolder(); paintFolder(); } catch (e) { return; }
       }
       if (!(await Lib().ensurePermission())) { toast("Autorisation requise pour écrire dans le dossier.", true); return; }
-      const suggested = currentFicheFile
-        ? currentFicheFile.replace(/\.json$/i, "")
-        : ("FICHE " + (safeName($("#fAdresse").value || $("#fVendeur").value) || "sans nom"));
-      const input = prompt("Nom de la fiche :", suggested);
-      if (input == null) return;
-      const name = (safeName(input) || "fiche") + ".json";
-      if (name !== currentFicheFile && await Lib().exists(name)) {
-        if (!confirm("Une fiche « " + name + " » existe déjà. La remplacer ?")) return;
+      let name;
+      if (!askName && currentFicheFile) {
+        name = currentFicheFile;
+      } else {
+        const suggested = currentFicheFile
+          ? currentFicheFile.replace(/\.json$/i, "")
+          : ("FICHE " + (safeName($("#fAdresse").value || $("#fVendeur").value) || "sans nom"));
+        const input = prompt("Nom de la fiche :", suggested);
+        if (input == null) return;
+        name = (safeName(input) || "fiche") + ".json";
+        if (name !== currentFicheFile && await Lib().exists(name)) {
+          if (!confirm("Une fiche « " + name + " » existe déjà. La remplacer ?")) return;
+        }
       }
       const data = collect(); data._app = "studio-fiche"; data._v = 1;
       try {
         await Lib().saveState(data, name);
         currentFicheFile = name;
         toast("Fiche enregistrée : " + name);
+        pushFicheToCloud(name); // copie « compte » silencieuse (téléphones + autres postes)
         if (!overlay.hidden) refresh();
       } catch (e) { toast("Enregistrement impossible.", true); }
+    }
+    // Après un enregistrement dans le dossier : pousse la même fiche sur le
+    // compte (même nom), pour qu'elle suive le conseiller sur téléphone.
+    function pushFicheToCloud(name) {
+      if (!cloudOn()) return;
+      const data = collect(); data._app = "studio-fiche"; data._v = 1;
+      cloudApi("/fiches", { body: { name: String(name || "").replace(/\.json$/i, ""), data: data } })
+        .then(function (r) { currentCloudId = r.id; }, function () { /* le dossier reste la référence */ });
     }
     async function openCloud(id) {
       try {
@@ -866,7 +897,14 @@
       }
       try { await Lib().chooseFolder(); paintFolder(); refresh(); } catch (e) { }
     });
-    $("#libSave").addEventListener("click", saveCurrent);
+    $("#libSave").addEventListener("click", function () { saveCurrent(true); });
+    // Barre du haut : enregistrement rapide (nom demandé au 1er enregistrement).
+    const btnQuick = $("#btnFicheSave");
+    if (btnQuick) btnQuick.addEventListener("click", function () {
+      if (cloudOn()) { saveCurrent(false, "cloud"); return; }
+      if (Lib() && Lib().isSupported()) { saveCurrent(false, "folder"); return; }
+      toast("Connectez-vous à votre compte (page « Mon compte ») ou utilisez « 💾 Fichier .json ».", true);
+    });
     $("#libSearch").addEventListener("input", paintList);
     $("#libList").addEventListener("click", function (e) {
       const btn = e.target.closest && e.target.closest("button[data-act]");
