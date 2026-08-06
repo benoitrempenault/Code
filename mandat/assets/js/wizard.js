@@ -397,5 +397,9 @@
     if (injected) App().toast("Fiche prestation injectée ✓ — vérifiez l'adresse puis lancez la recherche du quartier.");
   }
 
+  // Navigation programmée (ex. l'import d'une fiche prestation amène à
+  // l'étape 8 pour rendre la rédaction automatique visible).
+  window.StudioWizard = { goto: show };
+
   document.addEventListener("DOMContentLoaded", init);
 })();

@@ -1044,6 +1044,9 @@
     hydrateForm(); render(); save();
     currentFileName = null;
     toast("Fiche prestation importée ✓ — rédaction de la brochure en cours…");
+    // Étape 8 : l'utilisateur voit « Claude rédige… » puis « Fiche générée ✓ »
+    // (sinon la rédaction tourne hors écran et semble ne produire que la couverture).
+    if (window.StudioWizard && window.StudioWizard.goto) window.StudioWizard.goto(8);
     const btn = document.getElementById("btnAIGenerate");
     if (btn) btn.click();
   }

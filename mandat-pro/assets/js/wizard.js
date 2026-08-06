@@ -483,5 +483,9 @@
     if (!App().agencyConfigured()) openSetup(true);
   }
 
+  // Navigation programmée (ex. l'import d'une fiche prestation amène à
+  // l'étape 8 pour rendre la rédaction automatique visible).
+  window.StudioWizard = { goto: show };
+
   document.addEventListener("DOMContentLoaded", init);
 })();
