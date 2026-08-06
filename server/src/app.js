@@ -19,7 +19,7 @@ import { cors } from "hono/cors";
 import { changesOf } from "./db.js";
 import { promptFor } from "./prompts.js";
 import { now, monthKey, randId, randToken, sha256hex, hmacHex, safeEqual, costMicros, hashPassword, verifyPassword } from "./util.js";
-import { runRecap } from "./recap.js";
+import { runRecap, buildRecap, envoyerMail } from "./recap.js";
 
 const SESSION_TTL = 30 * 24 * 3600;   // 30 jours d'inactivité
 const MAX_SESSIONS = 3;               // appareils simultanés (PC + téléphone : Safari ET app écran d'accueil comptent chacun)
@@ -614,6 +614,18 @@ export function createApp(env) {
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
     await db.run("DELETE FROM annuaire WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
     return c.json({ ok: true });
+  });
+
+  /* --------------- Récapitulatif à la demande (app Suivi) ----------------- */
+  // « Recevoir le récap maintenant » : calcule le récap de SON agence et
+  // l'envoie uniquement au demandeur (pour tester sans spammer l'équipe).
+  app.post("/recap/apercu", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const r = await buildRecap(env, db, ctx.agency);
+    if (!r) return c.json({ ok: true, vide: true, message: "Rien à signaler aujourd'hui — aucun e-mail envoyé." });
+    const sent = await envoyerMail(env, [ctx.user.email], r.sujet, r.texte);
+    return c.json({ ok: true, vide: false, sent, actions: r.nLate + r.nSoon, retards: r.nLate, sujet: r.sujet, texte: sent ? undefined : r.texte });
   });
 
   /* -------------- Modèles d'e-mails de relance (app Suivi) ---------------- */

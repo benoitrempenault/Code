@@ -48,6 +48,7 @@
       <nav id="nav">
         <a href="#board" data-v="board">Tableau de bord</a>
         <a href="#dossiers" data-v="dossiers">Dossiers</a>
+        <a href="#stats" data-v="stats">Stats</a>
         <a href="#modeles" data-v="modeles">Modèles d'e-mails</a>
         <a href="#annuaire" data-v="annuaire">Annuaire</a>
       </nav>
@@ -63,7 +64,9 @@
         <h2 class="viewtitle">Tableau de bord <small id="boardDate"></small></h2>
         <div class="kpis" id="kpis"></div>
         <div class="card">
-          <h3>⏰ Actions à mener <span class="cnt" id="todoCount"></span></h3>
+          <h3>⏰ Actions à mener <span class="cnt" id="todoCount"></span>
+            <span style="flex:1"></span>
+            <button class="btn btn--sm" id="btnRecapNow" title="Reçois par e-mail le récapitulatif que le serveur envoie chaque matin à l'équipe">📬 Recevoir le récap maintenant</button></h3>
           <div class="todo" id="todoList"></div>
           <p class="hintline">Les actions en retard sont en rouge, celles des 7 prochains jours en orange.
             « ✉ Relancer » prépare l'e-mail à partir du modèle de l'agence ; « ✓ » marque l'étape faite.</p>
@@ -119,6 +122,30 @@
         <div class="toolrow">
           <button class="btn" id="btnAddModele">+ Nouveau modèle</button>
           <button class="btn" id="btnSeedModeles">Restaurer les modèles par défaut manquants</button>
+        </div>
+      </section>
+
+      <!-- ======================== STATS PAR ÉTAPE ========================= -->
+      <section class="view" id="view-stats">
+        <h2 class="viewtitle">Suivi par étape <small>crémaillères, panneaux, avis, factures… en un coup d'œil</small></h2>
+        <div class="toolrow">
+          <label style="color:var(--muted);font-size:12.5px">Étape suivie</label>
+          <select id="statsEtape" style="min-width:280px"></select>
+          <label style="color:var(--muted);font-size:12.5px;margin-left:10px">
+            <input type="checkbox" id="statsInclureClos" style="vertical-align:-3px" /> inclure les dossiers clos
+          </label>
+        </div>
+        <div class="kpis" id="statsKpis"></div>
+        <div class="card">
+          <h3>👥 Par conseiller</h3>
+          <div class="tablewrap"><table class="liste">
+            <thead><tr><th>Conseiller</th><th>Fait</th><th>En attente</th><th>Dont en retard</th></tr></thead>
+            <tbody id="statsConseillers"></tbody>
+          </table></div>
+        </div>
+        <div class="card">
+          <h3>⏳ En attente <span class="cnt" id="statsPendingCount"></span></h3>
+          <div class="todo" id="statsPending"></div>
         </div>
       </section>
 

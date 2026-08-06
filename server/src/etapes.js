@@ -81,6 +81,9 @@ const ETAPES = [
     applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" },
   { id: "cloture", label: "Dossier clôturé",
     due: (d) => (d.dates && d.dates.signature_acte) ? addDays(d.dates.signature_acte, 30) : "",
+    applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" },
+  { id: "cremaillere", label: "Crémaillère / cadeau de bienvenue organisé",
+    due: (d) => (d.dates && d.dates.signature_acte) ? addDays(d.dates.signature_acte, 45) : "",
     applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" }
 ];
 
