@@ -19,6 +19,7 @@ import { cors } from "hono/cors";
 import { changesOf } from "./db.js";
 import { promptFor } from "./prompts.js";
 import { now, monthKey, randId, randToken, sha256hex, hmacHex, safeEqual, costMicros, hashPassword, verifyPassword } from "./util.js";
+import { runRecap } from "./recap.js";
 
 const SESSION_TTL = 30 * 24 * 3600;   // 30 jours d'inactivité
 const MAX_SESSIONS = 3;               // appareils simultanés (PC + téléphone : Safari ET app écran d'accueil comptent chacun)
@@ -983,6 +984,14 @@ export function createApp(env) {
     if (!user) return err(c, 404, "Aucun compte pour cet e-mail.");
     await db.run("DELETE FROM login_tokens WHERE user_id = ?", [user.id]);
     return c.json({ ok: true, email });
+  });
+
+  // Déclenchement manuel du récapitulatif quotidien (test / rattrapage).
+  // Sans RESEND_API_KEY : dry run, renvoie ce qui serait envoyé.
+  app.post("/admin/recap", async (c) => {
+    if (!requireAdmin(c)) return err(c, 401, "Clé admin invalide.");
+    const out = await runRecap(env, db);
+    return c.json({ ok: true, recaps: out });
   });
 
   app.post("/admin/licenses", async (c) => {

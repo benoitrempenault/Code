@@ -588,9 +588,12 @@
       "</div>"
     ).join("");
 
-    const journalHtml = d.journal.slice().reverse().map((j) => {
+    const journalHtml = d.journal.map((j, i) => ({ j, i })).reverse().map(({ j, i }) => {
       const dt = new Date((j.ts || 0) * 1000);
-      return '<div class="journal__item"><div class="meta">' +
+      return '<div class="journal__item" style="position:relative">' +
+        '<button class="btn btn--sm btn--danger" data-jdel="' + i + '" title="Supprimer cette note" ' +
+        'style="position:absolute;top:6px;right:6px;padding:1px 7px">✕</button>' +
+        '<div class="meta">' +
         esc(dt.toLocaleDateString("fr-FR") + " " + dt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })) +
         " — " + esc(j.user || "") + "</div>" + esc(j.text || "") + "</div>";
     }).join("");
@@ -810,7 +813,7 @@
     });
     view.addEventListener("click", (ev) => {
       const d = cur();
-      const t = ev.target.closest("[data-add],[data-rm],#journalAdd,#btnDelete,#btnVoirPdf,#btnJoindrePdf,[data-act='mailname']");
+      const t = ev.target.closest("[data-add],[data-rm],[data-jdel],#journalAdd,#btnDelete,#btnVoirPdf,#btnJoindrePdf,[data-act='mailname']");
       if (!d || !t) return;
       if (t.dataset.add) {
         const k = t.dataset.add;
@@ -829,6 +832,14 @@
         const txt = (inp.value || "").trim();
         if (!txt) return;
         d.journal.push({ ts: Math.floor(Date.now() / 1000), user: userName(), text: txt });
+        markDirty(); renderDossier(); return;
+      }
+      if (t.dataset.jdel != null) {
+        const i = Number(t.dataset.jdel);
+        const j = d.journal[i];
+        if (!j) return;
+        if (!confirm("Supprimer cette note du journal (pour toute l'agence) ?\n\n« " + (j.text || "").slice(0, 120) + " »")) return;
+        d.journal.splice(i, 1);
         markDirty(); renderDossier(); return;
       }
       if (t.id === "btnDelete") { deleteCurrent(); return; }

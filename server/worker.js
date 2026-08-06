@@ -4,8 +4,15 @@
    ========================================================================= */
 import { wrapD1 } from "./src/db.js";
 import { createApp } from "./src/app.js";
+import { runRecap } from "./src/recap.js";
 
 export default {
+  // Cron quotidien (wrangler.toml [triggers]) : récapitulatif des actions
+  // à mener envoyé aux comptes de chaque agence (app Suivi).
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runRecap(env, wrapD1(env.DB)));
+  },
+
   async fetch(request, env, ctx) {
     const app = createApp({
       db: wrapD1(env.DB),
