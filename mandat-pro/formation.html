@@ -193,6 +193,8 @@ h1, .fh .ft, .dh1 { font-family: "Fraunces", Georgia, serif; font-weight: 550; }
 .pa-rev-box { background: var(--ui-panel); border: 1px solid var(--ui-line); color: var(--ui-text); font-weight: 600; }
 .pa-now .pa-prix-bar { box-shadow: 0 0 0 1.5px var(--ui-accent); }
 
+#docsPrint { display: none; }
+
 /* ---------- Impression : liste des documents en clair ---------- */
 @media print {
   @page { size: A4; margin: 0; } /* supprime l'horodatage et l'URL ajoutés par le navigateur */
@@ -216,6 +218,16 @@ h1, .fh .ft, .dh1 { font-family: "Fraunces", Georgia, serif; font-weight: 550; }
   body[data-print="tools"] .thbtn.active { background: #8a6a3c; color: #fff; border-color: #8a6a3c; }
   body[data-print="tools"] .crow.ctotal { border-top-color: #8a6a3c; }
   .fd-wrap { max-width: none; padding: 0; }
+  /* La liste des documents s'imprime en version « à cocher » : seuls les
+     documents cochés, une case devant chaque nom, sans badge ni mention. */
+  #docsApp > *:not(#docsPrint) { display: none !important; }
+  #docsPrint { display: block !important; color: #111; max-width: 165mm; }
+  #docsPrint .ph-eyebrow { color: #8a6a3c; font-size: 10pt; letter-spacing: .18em; text-transform: uppercase; }
+  #docsPrint h1 { font-size: 21pt; margin: 2mm 0 1mm; color: #111; }
+  #docsPrint .ph-sub { color: #555; margin: 0 0 6mm; }
+  #docsPrint h2 { font-size: 12.5pt; color: #8a6a3c; margin: 7mm 0 2.5mm; border-bottom: 1px solid #ddd; padding-bottom: 1.5mm; page-break-after: avoid; }
+  #docsPrint .pline { padding: 2.6mm 0; font-size: 11.5pt; border-bottom: 1px solid #eee; page-break-inside: avoid; }
+  #docsPrint .pbox { display: inline-block; width: 4mm; height: 4mm; border: 1.4px solid #555; border-radius: 0.6mm; margin-right: 4mm; vertical-align: -0.4mm; }
   .dcard, .ddoc { background: #fff; border-color: #bbb; color: #111; box-shadow: none; page-break-inside: avoid; }
   .ddoc-t, .dh1, .dh2 { color: #111; }
   .ddoc-d, .src-conseil, .dmuted, .dchip { color: #444; }
@@ -754,6 +766,6 @@ h1, .fh .ft, .dh1 { font-family: "Fraunces", Georgia, serif; font-weight: 550; }
   </main>
 
   <script src="assets/js/formation-gate.js"></script>
-  <script src="assets/js/formation.js?v=2"></script>
+  <script src="assets/js/formation.js?v=3"></script>
 </body>
 </html>

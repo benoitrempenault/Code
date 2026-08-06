@@ -821,18 +821,40 @@ function resumeLabel(a){
   return bits.join(" · ");
 }
 
+function checkedDocs(){
+  return docsFor(docsDossier.answers).filter(function(d){return docsDossier.checked[d.id];});
+}
+
+// Liste envoyée / copiée / imprimée : UNIQUEMENT les documents cochés
+// (« à demander »), sans niveau ni délai — juste les noms, groupés par source.
 function docsListText(){
-  var a = docsDossier.answers;
-  var docs = docsFor(a);
+  var docs = checkedDocs();
   var bySrc = {};
   docs.forEach(function(d){ (bySrc[d.src] = bySrc[d.src]||[]).push(d); });
-  var lines = ["Dossier de vente — " + resumeLabel(a), ""];
+  var lines = ["Documents à réunir — " + resumeLabel(docsDossier.answers), ""];
   Object.keys(bySrc).forEach(function(src){
     lines.push("■ " + SOURCES[src].label.toUpperCase());
-    bySrc[src].forEach(function(d){ lines.push((docsDossier.checked[d.id]?"[x] ":"[ ] ") + d.nom + " — " + NIV_LABEL[d.niv].t + " (" + d.delai + ")"); });
+    bySrc[src].forEach(function(d){ lines.push("- " + d.nom); });
     lines.push("");
   });
   return lines.join("\n");
+}
+
+// Vue d'impression : seuls les documents cochés, une case à cocher devant
+// chaque nom (le vendeur coche au fur et à mesure qu'il les réunit).
+function docsPrintHtml(){
+  var docs = checkedDocs();
+  var bySrc = {};
+  docs.forEach(function(d){ (bySrc[d.src] = bySrc[d.src]||[]).push(d); });
+  return '<div id="docsPrint">'+
+    '<div class="ph-eyebrow">Dossier de vente</div>'+
+    '<h1>Documents à réunir</h1>'+
+    '<p class="ph-sub">'+dEsc(resumeLabel(docsDossier.answers))+'</p>'+
+    Object.keys(bySrc).map(function(src){
+      return '<h2>'+dEsc(SOURCES[src].label)+'</h2>'+
+        bySrc[src].map(function(d){ return '<div class="pline"><span class="pbox"></span>'+dEsc(d.nom)+'</div>'; }).join("");
+    }).join("")+
+    '</div>';
 }
 
 function renderDocResults(){
@@ -849,22 +871,22 @@ function renderDocResults(){
 
   docsApp.innerHTML =
     '<div class="dcard no-print" style="margin-bottom:20px"><div class="gauge-wrap">'+
-      '<svg class="gauge" viewBox="0 0 100 100" role="img" aria-label="Dossier complet à '+pct+'%">'+
+      '<svg class="gauge" viewBox="0 0 100 100" role="img" aria-label="'+done+' document(s) à demander sur '+total+'">'+
         '<circle cx="50" cy="50" r="40" fill="none" stroke="var(--ui-line)" stroke-width="10"/>'+
         '<circle cx="50" cy="50" r="40" fill="none" stroke="var(--ui-accent)" stroke-width="10" stroke-linecap="round" stroke-dasharray="'+circ+'" stroke-dashoffset="'+(circ*(1-pct/100))+'" transform="rotate(-90 50 50)"/>'+
         '<text x="50" y="55" text-anchor="middle">'+pct+'%</text></svg>'+
       '<div style="flex:1;min-width:220px">'+
         '<div class="deyebrow">Votre dossier de vente</div>'+
         '<h2 class="dh1" style="margin:.15em 0 .2em">'+resumeLabel(a)+'</h2>'+
-        '<p class="dmuted dsmall" style="margin:0">'+done+' document'+(done>1?"s":"")+' sur '+total+' réuni'+(done>1?"s":"")+' — '+byNiv.oblig.length+' obligatoires, '+byNiv.reco.length+' recommandés, '+byNiv.zone.length+' selon zone ou cas particulier.</p>'+
+        '<p class="dmuted dsmall" style="margin:0">'+total+' documents proposés — '+byNiv.oblig.length+' obligatoires, '+byNiv.reco.length+' recommandés, '+byNiv.zone.length+' selon zone ou cas particulier.</p>'+
+        '<p class="dsmall" style="margin:8px 0 0;color:var(--ui-accent);font-weight:600">Cochez les documents à demander au vendeur ('+done+' coché'+(done>1?"s":"")+') — seuls les documents cochés partent dans « Copier », « E-mail » et « Imprimer ».</p>'+
         '<div class="pill-row" style="margin-top:12px">'+
           '<button class="dbtn sm secondary" id="docEdit">✎ Modifier les réponses</button>'+
           '<button class="dbtn sm secondary" id="docRestart">↺ Nouveau dossier</button>'+
           '<button class="dbtn sm secondary" id="docCopy">⧉ Copier la liste</button>'+
           '<button class="dbtn sm secondary" id="docMail">✉️ Envoyer par e-mail</button>'+
-          '<button class="dbtn sm secondary" onclick="window.print()">🖨 Imprimer</button>'+
+          '<button class="dbtn sm secondary" id="docPrint">🖨 Imprimer</button>'+
         '</div></div></div></div>'+
-    (pct===100 ? '<div class="dfb good" style="margin-bottom:18px">🎉 Dossier complet ! Vous pouvez commercialiser sereinement — et le montrer au vendeur : un dossier complet, c\'est votre premier argument d\'exclusivité.</div>' : "")+
     Object.keys(bySrc).map(function(src){
       var s = SOURCES[src];
       var items = bySrc[src];
@@ -874,14 +896,15 @@ function renderDocResults(){
         '<p class="src-conseil">'+s.conseil+'</p>'+
         items.map(function(d){
           return '<div class="ddoc '+(docsDossier.checked[d.id]?"done":"")+'">'+
-            '<input type="checkbox" id="ck-'+d.id+'" data-doc="'+d.id+'" '+(docsDossier.checked[d.id]?"checked":"")+' aria-label="Obtenu : '+dEsc(d.nom)+'">'+
+            '<input type="checkbox" id="ck-'+d.id+'" data-doc="'+d.id+'" '+(docsDossier.checked[d.id]?"checked":"")+' aria-label="À demander : '+dEsc(d.nom)+'">'+
             '<div style="flex:1"><label class="ddoc-t" for="ck-'+d.id+'">'+d.nom+'</label>'+
             '<div class="ddoc-d">'+d.d+'</div>'+
             '<div class="ddoc-meta"><span class="dbadge '+NIV_LABEL[d.niv].c+'">'+NIV_LABEL[d.niv].t+'</span><span class="dchip">⏱ '+d.delai+'</span></div>'+
             '<div class="ddoc-astuce"><b>Astuce conseiller :</b> '+d.astuce+'</div></div></div>';
         }).join("")+'</section>';
     }).join("")+
-    '<p class="dmuted dsmall" style="margin-top:26px">Liste indicative à visée pédagogique : les obligations exactes dépendent de la commune et de la situation. En cas de doute, validez avec le notaire.</p>';
+    '<p class="dmuted dsmall" style="margin-top:26px">Liste indicative à visée pédagogique : les obligations exactes dépendent de la commune et de la situation. En cas de doute, validez avec le notaire.</p>'+
+    docsPrintHtml();
 
   docsApp.querySelectorAll("input[data-doc]").forEach(function(c){ c.addEventListener("change", function(){
     docsDossier.checked[c.dataset.doc] = c.checked;
@@ -892,13 +915,24 @@ function renderDocResults(){
   document.getElementById("docRestart").addEventListener("click", function(){
     if(confirm("Repartir de zéro ? Les cases cochées seront effacées.")){ docsDossier = null; wizAnswers = null; wizIdx = 0; c21store.set("dossier", null); renderWizard(); }
   });
+  function requireChecked(){
+    if(checkedDocs().length) return true;
+    alert("Cochez d'abord les documents à demander au vendeur : seuls les documents cochés partent dans la liste.");
+    return false;
+  }
   document.getElementById("docCopy").addEventListener("click", function(e){
+    if(!requireChecked()) return;
     if(navigator.clipboard) navigator.clipboard.writeText(docsListText()).then(function(){ e.target.textContent = "✓ Copié !"; setTimeout(function(){e.target.textContent="⧉ Copier la liste";}, 1600); });
   });
   document.getElementById("docMail").addEventListener("click", function(){
+    if(!requireChecked()) return;
     var subject = "Dossier de vente — documents à réunir (" + resumeLabel(docsDossier.answers) + ")";
     var body = "Bonjour,\n\nVoici la liste des documents à réunir pour la vente de votre bien. Je reste à votre disposition pour vous aider à les obtenir.\n\n" + docsListText() + "\nBien cordialement";
     location.href = "mailto:?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body);
+  });
+  document.getElementById("docPrint").addEventListener("click", function(){
+    if(!requireChecked()) return;
+    window.print();
   });
 }
 
