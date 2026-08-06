@@ -69,9 +69,10 @@
     { id: "retour_sru", phase: "Notification & rétractation", label: "AR de la notification SRU reçu (noter la date de présentation)",
       due: (d) => addDays(ssp(d), 8),
       hint: "Renseignez la date de présentation dans « Dates clés » : la fin de rétractation se calcule dessus." },
-    { id: "fin_retractation", phase: "Notification & rétractation", label: "Fin du délai de rétractation (10 jours)",
+    { id: "fin_retractation", phase: "Notification & rétractation", label: "Fin du délai de rétractation (10 jours) — informer le vendeur",
+      cible: "vendeur", modele: "Information vendeur — rétractation purgée",
       due: (d) => finRetract(d),
-      hint: "10 jours calendaires à compter du lendemain de la première présentation." },
+      hint: "10 jours calendaires à compter du lendemain de la première présentation. Bonne nouvelle à annoncer au vendeur." },
     { id: "panneau_vendu", phase: "Notification & rétractation", label: "Panneau / bandeau « VENDU » posé",
       due: (d) => finRetract(d) },
 
@@ -82,8 +83,9 @@
       hint: "Versement usuel sous 8 à 10 jours — double relance : le notaire dépositaire (réception ?) et l'acquéreur (versement fait ?)." },
 
     { id: "envoi_dia", phase: "Préemption (DIA)", label: "DIA envoyée en mairie par le notaire",
-      cible: "notaire_vendeur", modele: "Relance DIA", due: (d) => addDays(ssp(d), 15),
-      hint: "LA relance qui fait gagner un mois : vérifier l'envoi à J+15, demander une renonciation expresse si possible." },
+      cible: "notaire_vendeur", modeles: ["Demande d'envoi de la DIA", "Relance DIA"],
+      due: (d) => addDays(ssp(d), 15),
+      hint: "LA relance qui fait gagner un mois : demander l'envoi dès la rétractation purgée, relancer à J+15." },
     { id: "purge_dia", phase: "Préemption (DIA)", label: "Droit de préemption purgé (réponse mairie ou silence 2 mois)",
       cible: "notaire_vendeur", modele: "Relance DIA",
       due: (d) => d.dates.envoi_dia ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77) },
@@ -136,7 +138,12 @@
       hint: "Le règlement vient en général du notaire à l'acte — vérifier le virement." },
     { id: "cloture", phase: "Après-vente", label: "Dossier clôturé (archivage, Tracfin)",
       due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 30) : "",
-      applies: (d) => !!d.dates.signature_acte || d.statut === "signe" }
+      applies: (d) => !!d.dates.signature_acte || d.statut === "signe" },
+    { id: "cremaillere", phase: "Après-vente", label: "Crémaillère / cadeau de bienvenue organisé",
+      cible: "acquereur", modele: "Invitation crémaillère",
+      due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 45) : "",
+      applies: (d) => !!d.dates.signature_acte || d.statut === "signe",
+      hint: "Le moment relationnel : cadeau, passage ou crémaillère chez les nouveaux propriétaires." }
   ];
 
   // Étapes applicables à un dossier, avec leur état et leur échéance effective.
@@ -187,6 +194,11 @@
       corps: "Maître,\n\nVeuillez trouver ci-joint le compromis de vente signé le {{date_compromis}} concernant le bien situé {{adresse_bien}}, ainsi que les coordonnées des parties :\n\nVendeur(s) : {{vendeurs}}\nAcquéreur(s) : {{acquereurs}}\nPrix : {{prix}}\nNotaire vendeur : {{notaire_vendeur}}\nNotaire acquéreur : {{notaire_acquereur}}\n\nNous restons à votre disposition pour toute pièce complémentaire, et vous remercions de bien vouloir nous confirmer la prise en charge du dossier ainsi que l'envoi de la notification SRU aux acquéreurs.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
     },
     {
+      name: "Demande d'envoi de la DIA", cible: "notaire_vendeur",
+      sujet: "Vente {{reference}} — Envoi de la DIA en mairie ({{adresse_bien}})",
+      corps: "Maître,\n\nLe délai de rétractation de la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}) est purgé depuis le {{fin_retractation}}.\n\nNous vous remercions de bien vouloir adresser la déclaration d'intention d'aliéner (DIA) à la mairie sans attendre, et de nous communiquer sa date d'envoi dès transmission — nous la reportons dans notre suivi.\n\nSi la commune l'accepte, une renonciation expresse à son droit de préemption nous ferait gagner un temps précieux sur le calendrier (butoir de réitération : {{date_butoir}}).\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+    },
+    {
       name: "Relance DIA", cible: "notaire_vendeur",
       sujet: "Vente {{reference}} — Demande d'envoi de la DIA ({{adresse_bien}})",
       corps: "Maître,\n\nDans le cadre de la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}), pourriez-vous nous confirmer que la déclaration d'intention d'aliéner (DIA) a bien été adressée à la mairie, et nous communiquer sa date d'envoi ?\n\nLa purge du droit de préemption conditionnant la date de signature (butoir : {{date_butoir}}), nous vous serions reconnaissants, le cas échéant, de solliciter une renonciation expresse de la commune afin de gagner du temps.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
@@ -225,6 +237,16 @@
       name: "Point d'étape vendeur", cible: "vendeur",
       sujet: "Votre vente {{adresse_bien}} — Point d'étape",
       corps: "Bonjour,\n\nComme convenu, voici un point d'étape sur votre vente ({{reference}}, compromis signé le {{date_compromis}}) :\n\n- Délai de rétractation : purgé le {{fin_retractation}}\n- Dépôt de garantie : {{sequestre_montant}}\n- Financement des acquéreurs : en cours, condition suspensive au {{echeance_pret}}\n- Signature prévue : {{signature_prevue}} (butoir : {{date_butoir}})\n\n[Complétez / ajustez selon le dossier]\n\nNous suivons chaque étape auprès des notaires et des acquéreurs, et revenons vers vous dès la prochaine avancée.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+    },
+    {
+      name: "Information vendeur — rétractation purgée", cible: "vendeur",
+      sujet: "Votre vente {{adresse_bien}} — Le délai de rétractation est purgé ✔",
+      corps: "Bonjour,\n\nBonne nouvelle : le délai légal de rétractation de 10 jours de vos acquéreurs a expiré le {{fin_retractation}} sans qu'ils ne se soient rétractés. Votre vente ({{reference}}, compromis du {{date_compromis}}) franchit donc une étape importante.\n\nLa suite du calendrier :\n- purge du droit de préemption de la mairie (environ 2 mois),\n- financement des acquéreurs (condition suspensive au {{echeance_pret}}),\n- signature de l'acte authentique (butoir : {{date_butoir}}).\n\nNous suivons chaque étape auprès des notaires et des acquéreurs, et revenons vers vous à chaque avancée.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+    },
+    {
+      name: "Invitation crémaillère", cible: "acquereur",
+      sujet: "Bienvenue chez vous ! 🏡",
+      corps: "Bonjour,\n\nToute l'équipe espère que votre installation au {{adresse_bien}} se passe à merveille !\n\nNous serions ravis de venir trinquer à votre nouvelle vie chez vous — dites-nous quand cela vous arrange, ou passez simplement à l'agence : un petit cadeau de bienvenue vous y attend.\n\n[Personnalisez : crémaillère, cadeau, passage…]\n\nEncore toutes nos félicitations,\n{{conseiller}}\n{{agence}}"
     },
     {
       name: "Demande de pré-état daté au syndic", cible: "syndic",

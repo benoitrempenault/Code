@@ -287,6 +287,75 @@
     else if (view === "dossier") openDossier(currentId);
     else if (view === "modeles") renderModeles();
     else if (view === "annuaire") renderAnnuaire();
+    else if (view === "stats") renderStats();
+  }
+
+  /* ------------------- Stats par étape (crémaillère & Cie) ---------------- */
+  function statsInit() {
+    const sel = $("#statsEtape");
+    if (sel.options.length) return;
+    E.ETAPES.forEach((e) => {
+      const o = document.createElement("option");
+      o.value = e.id; o.textContent = e.label;
+      sel.appendChild(o);
+    });
+    sel.value = "cremaillere";
+  }
+  async function renderStats() {
+    statsInit();
+    const stepId = $("#statsEtape").value;
+    const inclureClos = $("#statsInclureClos").checked;
+    const statuts = inclureClos ? ["en_cours", "signe", "clos"] : ["en_cours", "signe"];
+    const metas = list.filter((m) => statuts.includes(m.statut));
+    for (const m of metas) {
+      if (!details[m.id]) { try { await loadDetail(m.id); } catch (e) { } }
+    }
+    const rows = [];
+    for (const m of metas) {
+      if (!details[m.id]) continue;
+      const d = details[m.id].data;
+      const s = E.compute(d).find((x) => x.id === stepId);
+      if (!s) continue; // étape non applicable à ce dossier
+      const cons = [(d.conseiller_vendeur || "").trim(), (d.conseiller_acquereur || "").trim()].filter(Boolean);
+      rows.push({ id: m.id, ref: d.reference || m.name, d, s, cons: cons.length ? cons : ["—"] });
+    }
+    const faits = rows.filter((r) => r.s.done);
+    const attente = rows.filter((r) => !r.s.done);
+    const retard = attente.filter((r) => r.s.days != null && r.s.days < 0);
+    $("#statsKpis").innerHTML =
+      '<div class="kpi"><b>' + rows.length + "</b><span>dossiers concernés</span></div>" +
+      '<div class="kpi ok"><b>' + faits.length + "</b><span>faites</span></div>" +
+      '<div class="kpi ' + (attente.length ? "warn" : "ok") + '"><b>' + attente.length + "</b><span>en attente</span></div>" +
+      '<div class="kpi ' + (retard.length ? "bad" : "ok") + '"><b>' + retard.length + "</b><span>en retard</span></div>" +
+      '<div class="kpi"><b>' + (rows.length ? Math.round(faits.length / rows.length * 100) : 0) + " %</b><span>taux de réalisation</span></div>";
+
+    // Répartition par conseiller (un dossier crédite chacun de ses conseillers).
+    const parCons = {};
+    rows.forEach((r) => r.cons.forEach((c) => {
+      const k = c.toUpperCase();
+      parCons[k] = parCons[k] || { fait: 0, attente: 0, retard: 0 };
+      if (r.s.done) parCons[k].fait++;
+      else { parCons[k].attente++; if (r.s.days != null && r.s.days < 0) parCons[k].retard++; }
+    }));
+    $("#statsConseillers").innerHTML = Object.keys(parCons).sort().map((k) => {
+      const e = annConseiller(k);
+      return "<tr><td><b>" + esc(k) + "</b>" + (e ? ' <small style="color:var(--muted)">' + esc(e.nom) + "</small>" : "") + "</td>" +
+        "<td>" + parCons[k].fait + "</td><td>" + parCons[k].attente + "</td>" +
+        '<td style="color:' + (parCons[k].retard ? "var(--bad)" : "inherit") + '">' + parCons[k].retard + "</td></tr>";
+    }).join("") || '<tr><td colspan="4" style="color:var(--muted)">Aucun dossier concerné.</td></tr>';
+
+    attente.sort((a, b) => ((a.s.due || "9999") < (b.s.due || "9999") ? -1 : 1));
+    $("#statsPendingCount").textContent = attente.length ? attente.length + " dossier(s)" : "";
+    $("#statsPending").innerHTML = attente.map((r) => {
+      const cls = r.s.days != null && r.s.days < 0 ? "late" : (r.s.days != null && r.s.days <= 7 ? "soon" : "");
+      return '<div class="todo__item ' + cls + '">' +
+        '<span class="when">' + (r.s.due ? frDate(r.s.due) + "<br><small>" + deltaLabel(r.s.days) + "</small>" : "—") + "</span>" +
+        '<span class="what"><b>' + esc(r.ref) + "</b><small>" + esc(r.cons.join(" / ")) + "</small></span>" +
+        mailButtons(r.id, r.s, r.d) +
+        '<button class="btn btn--sm" data-act="done" data-id="' + esc(r.id) + '" data-step="' + esc(stepId) + '">✓ Fait</button>' +
+        '<button class="btn btn--sm" data-act="open" data-id="' + esc(r.id) + '">Ouvrir →</button>' +
+        "</div>";
+    }).join("") || '<div class="todo__empty">Rien en attente pour cette étape. 🎉</div>';
   }
 
   /* ------------------------------ Annuaire (vue) -------------------------- */
@@ -930,16 +999,25 @@
   function modeleByName(name) {
     return modeles.find((x) => x.name === name) || E.DEFAULT_MODELES.find((x) => x.name === name) || null;
   }
-  // Boutons de relance d'une étape : un par modèle qui a un destinataire.
+  // Boutons de relance d'une étape : un par modèle. Toujours affichés — si
+  // l'e-mail du destinataire est inconnu, le composeur s'ouvre avec le champ
+  // vide et une consigne (le masquer rendait la relance introuvable).
   function mailButtons(dossierId, step, d) {
     const names = step.modeles || [];
-    const btns = names.map((n) => {
+    // Libellés : par cible quand elles diffèrent (Dépositaire / Acquéreur),
+    // par premier mot du modèle sinon (Demande / Relance vers le même notaire).
+    const cibles = names.map((n) => (modeleByName(n) || {}).cible);
+    const ciblesDistinctes = new Set(cibles.filter(Boolean)).size === names.length;
+    return names.map((n) => {
       const m = modeleByName(n);
-      if (!m || !recipientFor(d, m.cible)) return "";
-      const label = names.length > 1 ? "✉ " + (CIBLE_COURT[m.cible] || "Relancer") : "✉ Relancer";
-      return '<button class="btn btn--sm" data-act="mailname" data-id="' + esc(dossierId) + '" data-modele="' + esc(n) + '">' + label + "</button>";
+      if (!m) return "";
+      const known = !!recipientFor(d, m.cible);
+      const court = ciblesDistinctes ? (CIBLE_COURT[m.cible] || "Relancer") : (n.split(/\s+/)[0] || "Relancer");
+      const label = (names.length > 1 ? "✉ " + court : "✉ Relancer") + (known ? "" : " ⚠");
+      return '<button class="btn btn--sm" data-act="mailname" data-id="' + esc(dossierId) + '" data-modele="' + esc(n) + '"' +
+        (known ? "" : ' title="E-mail du destinataire inconnu — à saisir dans le message (pensez à le renseigner dans le dossier ou l\'annuaire)"') +
+        ">" + label + "</button>";
     }).join("");
-    return btns;
   }
   function mergeFields(d) {
     const fin = d.financement || {};
@@ -972,10 +1050,16 @@
     const f = mergeFields(d);
     mailCtx = { dossierId, modeleName: modele.name };
     $("#mailTitle").textContent = modele.name + " — " + (d.reference || "");
-    $("#mailTo").value = recipientFor(d, modele.cible) || "";
+    const to = recipientFor(d, modele.cible) || "";
+    $("#mailTo").value = to;
     $("#mailSubject").value = fill(modele.sujet, f);
     $("#mailBody").value = fill(modele.corps, f);
     $("#ovMail").classList.add("on");
+    if (!to) {
+      $("#mailTo").placeholder = "E-mail inconnu — saisissez-le ici (et notez-le dans le dossier ou l'annuaire pour la prochaine fois)";
+      $("#mailTo").focus();
+      toast("E-mail du destinataire inconnu : saisissez-le, puis renseignez-le dans la fiche du dossier ou l'annuaire.", true);
+    }
   }
   function openMailByName(dossierId, name) {
     const m = modeleByName(name);
@@ -1219,11 +1303,12 @@
       const tr = ev.target.closest("tr.row");
       if (tr) location.hash = "#dossier/" + tr.dataset.id;
     });
-    // Actions déléguées du tableau de bord.
+    // Actions déléguées du tableau de bord et de la vue Stats.
     document.addEventListener("click", async (ev) => {
-      const t = ev.target.closest("#todoList [data-act],#staleList [data-act]");
+      const t = ev.target.closest("#todoList [data-act],#staleList [data-act],#statsPending [data-act]");
       if (!t) return;
       const id = t.dataset.id;
+      const inStats = !!ev.target.closest("#statsPending");
       if (t.dataset.act === "open") { location.hash = "#dossier/" + id; return; }
       if (t.dataset.act === "mailname") { openMailByName(id, t.dataset.modele); return; }
       if (t.dataset.act === "done") {
@@ -1231,8 +1316,32 @@
         if (!det) return;
         det.data.etapes[t.dataset.step] = { done: true, date: E.today() };
         await saveDossier(id);
-        renderBoard();
+        if (inStats) renderStats(); else renderBoard();
       }
+    });
+    // Récap quotidien à la demande : envoyé à l'adresse du compte connecté.
+    $("#statsEtape").addEventListener("change", renderStats);
+    $("#statsInclureClos").addEventListener("change", renderStats);
+    $("#btnRecapNow").addEventListener("click", async () => {
+      const btn = $("#btnRecapNow");
+      btn.disabled = true;
+      btn.textContent = "📬 Envoi en cours…";
+      try {
+        const r = await api("/recap/apercu", { method: "POST", json: {} });
+        if (r.vide) toast(r.message || "Rien à signaler aujourd'hui.");
+        else if (r.sent) toast("Récap envoyé à votre adresse (" + (r.actions || 0) + " action(s)" + (r.retards ? ", dont " + r.retards + " en retard" : "") + ") — regardez votre boîte mail.");
+        else if (r.texte) {
+          // Serveur d'e-mails non configuré : on montre le contenu ici.
+          mailCtx = null;
+          $("#mailTitle").textContent = r.sujet || "Récapitulatif du jour";
+          $("#mailTo").value = userName();
+          $("#mailSubject").value = r.sujet || "";
+          $("#mailBody").value = r.texte;
+          $("#ovMail").classList.add("on");
+        }
+      } catch (e) { toast(e.message, true); }
+      btn.disabled = false;
+      btn.textContent = "📬 Recevoir le récap maintenant";
     });
     // Composeur d'e-mail.
     $("#btnMailClose").addEventListener("click", () => $("#ovMail").classList.remove("on"));

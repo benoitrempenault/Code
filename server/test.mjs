@@ -321,6 +321,13 @@ ok(r0 && /Dépôt de garantie/.test(r0.texte) && /DIA envoyée/.test(r0.texte), 
 ok(r0 && r0.stales >= 1 && /appelez le vendeur/.test(r0.texte), "dossier sans nouvelle → point d'étape vendeur signalé");
 ok(r0 && r0.to.length >= 1 && r0.to.includes("claire@azur-immo.fr"), "destinataires = comptes de l'agence");
 ok((await call("/admin/recap", { headers: { "X-Admin-Key": "mauvaise" }, body: {} })).status === 401, "récap manuel protégé par la clé admin");
+// « Recevoir le récap maintenant » (session utilisateur, envoi au demandeur).
+const ap = await call("/recap/apercu", { method: "POST", headers: { Authorization: "Bearer " + s3 }, body: {} });
+ok(ap.status === 200 && ap.json.vide === false && ap.json.actions > 0, "aperçu à la demande : récap de SON agence calculé");
+ok(ap.json.sent === false && /RECAP \/ TEST/.test(ap.json.texte || ""), "sans Resend : dry run, texte renvoyé");
+const apVide = await call("/recap/apercu", { method: "POST", headers: { Authorization: "Bearer " + s2b }, body: {} });
+ok(apVide.status === 200 && apVide.json.vide === true, "agence sans dossier : « rien à signaler »");
+ok((await call("/recap/apercu", { method: "POST", body: {} })).status === 401, "aperçu sans session refusé");
 await call("/dossiers/" + rdos.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
 
 console.log("— Proxy IA");
