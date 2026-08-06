@@ -79,11 +79,24 @@ appel après-vente, clôture.
 4. À la première ouverture par un compte de l'agence, les 9 modèles d'e-mails par
    défaut s'installent automatiquement (modifiables dans l'onglet Modèles).
 
+## Récapitulatif quotidien automatique
+
+Cron Cloudflare (`wrangler.toml [triggers]`, 05:00 UTC) → `server/src/recap.js` :
+pour chaque agence avec des dossiers en cours, e-mail Resend à tous ses comptes
+listant les actions en retard + à 7 jours (mêmes calculs que le tableau de bord,
+portés côté serveur dans `server/src/etapes.js` — **miroir de
+`suivi/assets/js/etapes.js`, modifier les deux ensemble**) et les dossiers sans
+nouvelle depuis 15 jours, avec la dernière note du journal et le lien direct
+(`SUIVI_BASE`). Aucun e-mail n'est envoyé aux tiers (notaires, clients) sans
+action humaine — les relances externes restent « un clic ». Test manuel :
+`POST /admin/recap` (X-Admin-Key) ; sans `RESEND_API_KEY`, dry run.
+
 ## Pistes prévues (v2)
 
-- Relances réellement automatiques (cron Worker + Resend) avec récapitulatif
-  quotidien par e-mail ; l'app privilégie pour l'instant le « un clic » (brouillon
-  mailto) pour garder l'agent dans la boucle.
+- Facturation électronique : brancher l'étape « Facture d'honoraires agence
+  éditée » sur l'éditeur de factures (lien à fournir).
+- Relances externes réellement automatiques au cas par cas (ex. point vendeur
+  J+15), avec opt-in par dossier.
 - Portail de suivi en lecture seule pour vendeur/acquéreur (lien partagé), façon
   MonDossierNotaire.
 - Checklist de pièces par type de bien (copro : pré-état daté/état daté ; maison :

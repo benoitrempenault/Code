@@ -293,6 +293,36 @@ ok((await call("/modeles", { headers: { Authorization: "Bearer " + s2b } })).jso
 ok((await call("/modeles/" + mput.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 200
   && (await call("/modeles", { headers: { Authorization: "Bearer " + s3 } })).json.modeles.length === 0, "suppression d'un modèle");
 
+console.log("— Récapitulatif quotidien (dry run sans Resend)");
+const rdos = await call("/dossiers", {
+  method: "PUT", headers: { Authorization: "Bearer " + s3 },
+  body: {
+    name: "RECAP / TEST",
+    data: {
+      _app: "studio-suivi", reference: "RECAP / TEST", statut: "en_cours",
+      date_compromis: "2020-01-06", // très ancien : toutes les étapes en retard
+      bien: { adresse: "1 rue du Test" }, sequestre: { montant: "5 000 €" },
+      financement: { recours_pret: "oui" },
+      journal: [{ ts: 1578300000, user: "T", text: "Note ancienne de test." }],
+      etapes: { envoi_sru: { done: true, date: "2020-01-07" } }
+    }
+  }
+});
+ok(rdos.status === 200, "dossier de test en retard créé");
+// Antidate la dernière activité : un dossier fraîchement enregistré n'est
+// pas « sans nouvelle » — on simule 20 jours de silence.
+await db.run("UPDATE dossiers SET updated_at = ? WHERE id = ?", [Math.floor(Date.now() / 1000) - 20 * 86400, rdos.json.id]);
+const recap = await call("/admin/recap", { headers: admin, body: {} });
+ok(recap.status === 200 && recap.json.recaps.length >= 1, "récap calculé pour l'agence");
+const r0 = recap.json.recaps.find((r) => r.agency === agencyId);
+ok(r0 && r0.retards > 0 && r0.sent === false, "actions en retard détectées, rien d'envoyé sans Resend (dry run)");
+ok(r0 && r0.texte.includes("RECAP / TEST") && !r0.texte.includes("Notification SRU"), "le récap liste le dossier, sans l'étape déjà faite (SRU)");
+ok(r0 && /Dépôt de garantie/.test(r0.texte) && /DIA envoyée/.test(r0.texte), "séquestre et DIA en retard présents");
+ok(r0 && r0.stales >= 1 && /appelez le vendeur/.test(r0.texte), "dossier sans nouvelle → point d'étape vendeur signalé");
+ok(r0 && r0.to.length >= 1 && r0.to.includes("claire@azur-immo.fr"), "destinataires = comptes de l'agence");
+ok((await call("/admin/recap", { headers: { "X-Admin-Key": "mauvaise" }, body: {} })).status === 401, "récap manuel protégé par la clé admin");
+await call("/dossiers/" + rdos.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
+
 console.log("— Proxy IA");
 const gen = await call("/v1/messages", {
   headers: { Authorization: "Bearer " + s3 },

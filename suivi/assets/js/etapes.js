@@ -126,7 +126,15 @@
       cible: "vendeur", modele: "Demande d'avis client",
       due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 10) : "",
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe" },
-    { id: "cloture", phase: "Après-vente", label: "Dossier clôturé (honoraires encaissés, archivage, Tracfin)",
+    { id: "facture_emise", phase: "Après-vente", label: "Facture d'honoraires agence éditée",
+      due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 2) : "",
+      applies: (d) => !!d.dates.signature_acte || d.statut === "signe",
+      hint: "Facturation électronique : le lien vers l'éditeur de factures sera branché ici." },
+    { id: "facture_payee", phase: "Après-vente", label: "Facture agence payée (honoraires encaissés)",
+      due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 15) : "",
+      applies: (d) => !!d.dates.signature_acte || d.statut === "signe",
+      hint: "Le règlement vient en général du notaire à l'acte — vérifier le virement." },
+    { id: "cloture", phase: "Après-vente", label: "Dossier clôturé (archivage, Tracfin)",
       due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 30) : "",
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe" }
   ];

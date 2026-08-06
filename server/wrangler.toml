@@ -17,8 +17,15 @@ database_id = "1731dcd7-6981-43e0-ac11-5538d0042a5b"  # créé le 17/07/2026 (r�
 binding = "FILES"
 bucket_name = "studio-brochure-files"
 
+# Récapitulatif quotidien de l'app Suivi : tous les matins à 05:00 UTC
+# (07:00 à Paris l'été, 06:00 l'hiver). Envoi via Resend aux comptes des
+# agences qui ont des dossiers en cours. Test manuel : POST /admin/recap.
+[triggers]
+crons = ["0 5 * * *"]
+
 [vars]
 APP_ORIGINS = "https://benoitrempenault.github.io,https://studiobrochure.fr"
+SUIVI_BASE = "https://benoitrempenault.github.io/Code/suivi"  # liens des récaps quotidiens
 APP_BASE = "https://studiobrochure.fr/app"  # dossier de l'app compte par défaut (clients) ; Kadima a son app_base en base
 MAIL_FROM = "Studio Brochure <connexion@studiobrochure.fr>"
 # Garde-fous du proxy IA (surchargeables sans redéployer le code) :
