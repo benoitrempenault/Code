@@ -49,6 +49,7 @@
         <a href="#board" data-v="board">Tableau de bord</a>
         <a href="#dossiers" data-v="dossiers">Dossiers</a>
         <a href="#modeles" data-v="modeles">Modèles d'e-mails</a>
+        <a href="#annuaire" data-v="annuaire">Annuaire</a>
       </nav>
       <div class="spacer"></div>
       <button class="btn btn--primary" id="btnNew">+ Nouveau dossier</button>
@@ -110,13 +111,28 @@
             <code>{{vendeurs}}</code> <code>{{acquereurs}}</code> <code>{{notaire_vendeur}}</code> <code>{{notaire_acquereur}}</code>
             <code>{{date_compromis}}</code> <code>{{date_butoir}}</code> <code>{{fin_retractation}}</code>
             <code>{{sequestre_montant}}</code> <code>{{sequestre_depositaire}}</code> <code>{{date_limite_depot}}</code>
-            <code>{{echeance_pret}}</code> <code>{{signature_prevue}}</code> <code>{{conseiller}}</code> <code>{{agence}}</code> <code>{{date}}</code></p>
+            <code>{{echeance_pret}}</code> <code>{{signature_prevue}}</code> <code>{{syndic}}</code>
+            <code>{{conseiller_vendeur}}</code> <code>{{conseiller_acquereur}}</code>
+            <code>{{conseiller}}</code> <code>{{agence}}</code> <code>{{date}}</code></p>
         </div>
         <div id="modelesList"></div>
         <div class="toolrow">
           <button class="btn" id="btnAddModele">+ Nouveau modèle</button>
           <button class="btn" id="btnSeedModeles">Restaurer les modèles par défaut manquants</button>
         </div>
+      </section>
+
+      <!-- ============================ ANNUAIRE ============================ -->
+      <section class="view" id="view-annuaire">
+        <h2 class="viewtitle">Annuaire de l'agence <small>partagé — coordonnées saisies une fois, réutilisées partout</small></h2>
+        <div class="card">
+          <p class="hintline" style="margin-top:0">
+            <b>Conseillers</b> : les initiales saisies dans un dossier sont reliées au nom et à l'e-mail
+            ci-dessous (relances « Conseiller vendeur / acquéreur »). ·
+            <b>Notaires, syndics et présidents de lotissement</b> : tapez le nom dans un dossier et les
+            coordonnées se remplissent seules ; celles saisies dans un dossier enrichissent l'annuaire automatiquement.</p>
+        </div>
+        <div id="annuaireList"></div>
       </section>
 
     </main>

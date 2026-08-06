@@ -245,12 +245,24 @@ const COMPROMIS_SCHEMA = {
         required: ["titre", "detail", "echeance"]
       }
     },
+    syndic: {
+      type: "object", additionalProperties: false,
+      description: "Syndic de copropriété (ou président du lotissement / de l'ASL) s'il est mentionné — souvent au paragraphe « Informations concernant la copropriété ».",
+      properties: {
+        role: { type: "string", description: "« syndic » ou « president » selon le cas, vide si aucun." },
+        nom: { type: "string", description: "Nom du syndic (ex. « CITYA ») ou du président." },
+        adresse: { type: "string" },
+        telephone: { type: "string" },
+        email: { type: "string" }
+      },
+      required: ["role", "nom", "adresse", "telephone", "email"]
+    },
     preemption: { type: "string", description: "Droit de préemption applicable (DPU, SAFER, locataire…) tel qu'indiqué, sinon vide." },
     date_butoir: { type: "string", description: "Date limite de réitération / signature de l'acte authentique (AAAA-MM-JJ)." },
     observations: { type: "string", description: "Autres points notables : servitudes, clauses particulières, travaux, occupation du bien, mobilier inclus… Une information par ligne." }
   },
   required: ["reference", "date_compromis", "vendeurs", "acquereurs", "notaire_vendeur", "notaire_acquereur",
-    "bien", "prix", "sequestre", "financement", "conditions_suspensives", "preemption", "date_butoir", "observations"]
+    "bien", "prix", "sequestre", "financement", "conditions_suspensives", "syndic", "preemption", "date_butoir", "observations"]
 };
 
 /* ---------------------------- Prompts système --------------------------- */
@@ -365,7 +377,8 @@ const COMPROMIS_SYSTEM = [
   "Tu lis un COMPROMIS DE VENTE (ou promesse de vente) immobilier français — PDF ou photos de plusieurs pages formant UN MÊME acte.",
   "Extrais avec une fidélité absolue les informations demandées : identités et coordonnées des vendeurs et des acquéreurs,",
   "notaires des deux parties, désignation du bien, prix et honoraires, dépôt de garantie (séquestre), conditions suspensives",
-  "(en particulier le financement : montant, durée, taux, dates limites), droit de préemption, date butoir de réitération.",
+  "(en particulier le financement : montant, durée, taux, dates limites), droit de préemption, date butoir de réitération,",
+  "et le SYNDIC de copropriété (ou le président du lotissement/de l'ASL) avec ses coordonnées s'il est mentionné.",
   "Règles :",
   "- N'invente RIEN : champ vide (\"\") si l'information ne figure pas dans le document. Ne déduis jamais un délai non écrit.",
   "- Dates au format AAAA-MM-JJ. Si le document donne un délai (« dans les 60 jours »), calcule la date à partir de la date de",

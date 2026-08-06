@@ -85,8 +85,53 @@
   let list = [];              // métadonnées de la liste (GET /dossiers)
   const details = {};         // id -> { id, name, updated_at, data } (cache)
   let modeles = [];           // modèles d'e-mails de l'agence
+  let annuaire = [];          // annuaire partagé (conseillers, notaires, syndics…)
   let currentId = null;       // dossier ouvert
   let saveState = "";         // "" | "dirty" | "saving" | "saved" | "error"
+
+  /* ------------------------- Annuaire (partagé) --------------------------- */
+  const annOf = (type) => annuaire.filter((a) => a.type === type);
+  // Initiales d'un conseiller → son entrée (nom + e-mail) dans l'annuaire.
+  function annConseiller(ini) {
+    ini = String(ini || "").trim().toLowerCase();
+    if (!ini) return null;
+    return annOf("conseiller").find((a) => (a.initiales || "").toLowerCase() === ini) || null;
+  }
+  function annByNom(types, nom) {
+    nom = String(nom || "").trim().toLowerCase();
+    if (!nom) return null;
+    return annuaire.find((a) => types.includes(a.type) && a.nom.toLowerCase() === nom) || null;
+  }
+  async function loadAnnuaire() {
+    try { annuaire = (await api("/annuaire")).annuaire || []; } catch (e) { annuaire = []; }
+  }
+  // Après enregistrement d'un dossier : les coordonnées saisies (notaires,
+  // syndic/président) enrichissent l'annuaire — sans écraser une valeur par
+  // du vide, et seulement si quelque chose a changé.
+  async function syncAnnuaireFromDossier(d) {
+    const jobs = [];
+    [d.notaire_vendeur, d.notaire_acquereur].forEach((n) => {
+      if (n && (n.nom || "").trim() && (n.email || n.telephone || n.ville)) {
+        jobs.push({ type: "notaire", nom: n.nom.trim(), ville: n.ville, telephone: n.telephone, email: n.email });
+      }
+    });
+    const s = d.syndic;
+    if (s && (s.nom || "").trim() && (s.email || s.telephone)) {
+      jobs.push({ type: s.role === "president" ? "president" : "syndic", nom: s.nom.trim(), telephone: s.telephone, email: s.email });
+    }
+    for (const j of jobs) {
+      const ex = annByNom([j.type], j.nom);
+      const fields = ["ville", "telephone", "email"];
+      const changed = !ex || fields.some((k) => (j[k] || "").trim() && (j[k] || "").trim() !== (ex[k] || ""));
+      if (!changed) continue;
+      const payload = Object.assign({}, ex || {}, { type: j.type, nom: j.nom });
+      fields.forEach((k) => { if ((j[k] || "").trim()) payload[k] = j[k].trim(); });
+      try {
+        await api("/annuaire", { method: "PUT", json: payload });
+      } catch (e) { continue; }
+    }
+    if (jobs.length) await loadAnnuaire();
+  }
 
   function defPartie() { return { nom: "", adresse: "", telephone: "", email: "", naissance: "", situation: "" }; }
   function defNotaire() { return { nom: "", ville: "", adresse: "", telephone: "", email: "" }; }
@@ -94,12 +139,14 @@
     return {
       _app: "studio-suivi", version: 1,
       reference: "", statut: "en_cours", conseillers: "",
+      conseiller_vendeur: "", conseiller_acquereur: "",
       date_compromis: "", date_butoir: "", preemption: "",
       bien: { type: "", adresse: "", ville: "", description: "", copropriete: "", lots: "", cadastre: "" },
       prix: { prix_vente: "", honoraires: "", charge_honoraires: "" },
       vendeurs: [], acquereurs: [],
       notaire_vendeur: defNotaire(), notaire_acquereur: defNotaire(),
       sequestre: { montant: "", depositaire: "", delai: "" },
+      syndic: { role: "", nom: "", telephone: "", email: "" },
       financement: { recours_pret: "", montant_pret: "", duree: "", taux_max: "", banques: "", date_limite_depot: "", date_limite_obtention: "" },
       conditions_suspensives: [],
       dates: { envoi_sru: "", presentation_sru: "", envoi_notaires: "", envoi_dia: "", ar_dia: "", signature_prevue: "", signature_acte: "" },
@@ -162,6 +209,10 @@
     if (!d) return;
     if (id === currentId) setSaveState("saving");
     d.data.echeance = E.nextDue(d.data);
+    // Métadonnée « conseillers » de la liste : « CV / CA » depuis les champs
+    // par partie (repli sur l'ancien champ libre pour les dossiers existants).
+    const cv = (d.data.conseiller_vendeur || "").trim(), ca = (d.data.conseiller_acquereur || "").trim();
+    if (cv || ca) d.data.conseillers = [cv, ca].filter(Boolean).join(" / ");
     const name = (d.data.reference || d.name || "Dossier sans nom").trim() || "Dossier sans nom";
     try {
       const r = await api("/dossiers", {
@@ -172,6 +223,7 @@
       d.name = name;
       if (id === currentId) setSaveState("saved");
       refreshListRow(d);
+      syncAnnuaireFromDossier(d.data); // enrichit l'annuaire en arrière-plan
     } catch (e) {
       if (id === currentId) setSaveState("error");
       if (e.status === 409) {
@@ -209,6 +261,80 @@
     else if (view === "dossiers") renderList();
     else if (view === "dossier") openDossier(currentId);
     else if (view === "modeles") renderModeles();
+    else if (view === "annuaire") renderAnnuaire();
+  }
+
+  /* ------------------------------ Annuaire (vue) -------------------------- */
+  const ANN_SECTIONS = [
+    ["conseiller", "👤 Conseillers", "Les initiales saisies dans un dossier sont reliées au nom et à l'e-mail ci-dessous."],
+    ["notaire", "⚖️ Notaires", "Suggérés et pré-remplis dans les dossiers dès que le nom est reconnu."],
+    ["syndic", "🏢 Syndics de copropriété", ""],
+    ["president", "🏘 Présidents de lotissement / ASL", ""]
+  ];
+  function annInput(a, field, label, width) {
+    return '<div class="field" style="flex:1 1 ' + (width || 140) + 'px;margin-bottom:0"><label>' + label + "</label>" +
+      '<input type="text" data-afield="' + field + '" value="' + esc(a[field] || "") + '" /></div>';
+  }
+  function renderAnnuaire() {
+    $("#annuaireList").innerHTML = ANN_SECTIONS.map(([type, titre, hint]) => {
+      const rows = annOf(type).map((a) =>
+        '<div class="annrow" data-aid="' + esc(a.id) + '">' +
+        (type === "conseiller" ? annInput(a, "initiales", "Initiales", 70) : "") +
+        annInput(a, "nom", "Nom", 200) +
+        (type === "notaire" ? annInput(a, "ville", "Ville", 120) : "") +
+        annInput(a, "telephone", "Téléphone", 120) +
+        annInput(a, "email", "E-mail", 200) +
+        '<button class="btn btn--sm btn--danger" data-adel="' + esc(a.id) + '">✕</button>' +
+        "</div>"
+      ).join("");
+      return '<div class="card"><h3>' + titre + ' <span class="cnt">' + annOf(type).length + "</span></h3>" +
+        (hint ? '<p class="hintline" style="margin-top:0">' + hint + "</p>" : "") +
+        (rows || '<p class="hintline">Aucune entrée pour l\'instant.</p>') +
+        '<button class="btn btn--sm addrow" data-aadd="' + type + '">+ Ajouter</button></div>';
+    }).join("");
+  }
+  const saveAnnSoon = {};
+  function wireAnnuaire() {
+    const root = $("#annuaireList");
+    root.addEventListener("input", (ev) => {
+      const row = ev.target.closest("[data-aid]");
+      const f = ev.target.dataset.afield;
+      if (!row || !f) return;
+      const a = annuaire.find((x) => x.id === row.dataset.aid);
+      if (!a) return;
+      a[f] = ev.target.value;
+      saveAnnSoon[a.id] = saveAnnSoon[a.id] || debounce(async () => {
+        try { await api("/annuaire", { method: "PUT", json: a }); toast("Annuaire enregistré ✓"); }
+        catch (e) { toast(e.message, true); }
+      }, 1200);
+      saveAnnSoon[a.id]();
+    });
+    root.addEventListener("click", async (ev) => {
+      const add = ev.target.closest("[data-aadd]");
+      if (add) {
+        const type = add.dataset.aadd;
+        const nom = prompt(type === "conseiller" ? "Nom du conseiller :" : "Nom (ex. « Me NAUTIACQ », « CITYA ») :", "");
+        if (!nom || !nom.trim()) return;
+        const body = { type, nom: nom.trim() };
+        if (type === "conseiller") {
+          const ini = prompt("Ses initiales (telles que saisies dans les dossiers) :", "");
+          if (ini) body.initiales = ini.trim();
+        }
+        try { await api("/annuaire", { method: "PUT", json: body }); await loadAnnuaire(); renderAnnuaire(); }
+        catch (e) { toast(e.message, true); }
+        return;
+      }
+      const del = ev.target.closest("[data-adel]");
+      if (del) {
+        const a = annuaire.find((x) => x.id === del.dataset.adel);
+        if (!a || !confirm("Supprimer « " + a.nom + " » de l'annuaire de l'agence ?")) return;
+        try {
+          await api("/annuaire/" + encodeURIComponent(a.id), { method: "DELETE" });
+          annuaire = annuaire.filter((x) => x.id !== a.id);
+          renderAnnuaire();
+        } catch (e) { toast(e.message, true); }
+      }
+    });
   }
 
   /* --------------------------- Tableau de bord ---------------------------- */
@@ -347,13 +473,27 @@
   function notaireHtml(titre, key, d) {
     return "<div>" +
       '<div class="field"><label>' + esc(titre) + "</label>" +
-      '<input type="text" data-path="' + key + '.nom" value="' + esc(d[key].nom) + '" placeholder="Me …" /></div>' +
+      '<input type="text" data-path="' + key + '.nom" list="dlNotaires" value="' + esc(d[key].nom) + '" placeholder="Me …" /></div>' +
       '<div class="grid2">' +
       input("Ville", key + ".ville", d) +
       input("Téléphone", key + ".telephone", d) +
       "</div>" +
       input("E-mail", key + ".email", d, "email") +
       "</div>";
+  }
+  // Champ « conseiller (initiales) » relié à l'annuaire : on affiche à qui
+  // les initiales correspondent (nom + e-mail), ou une alerte si inconnues.
+  function conseillerField(label, path, d) {
+    const val = (getByPath(d, path) || "").trim();
+    const e = annConseiller(val);
+    const hint = !val
+      ? "Relié au nom et à l'e-mail du conseiller via l'annuaire."
+      : e
+        ? "→ " + e.nom + (e.email ? " · " + e.email : " (e-mail à compléter dans l'annuaire)")
+        : "⚠ Initiales inconnues — ajoutez ce conseiller dans l'onglet Annuaire.";
+    return '<div class="field"><label>' + esc(label) + "</label>" +
+      '<input type="text" data-path="' + esc(path) + '" list="dlConseillers" value="' + esc(val) + '" placeholder="ex. SM" style="max-width:140px" />' +
+      '<small style="color:var(--muted);font-size:11.5px">' + esc(hint) + "</small></div>";
   }
 
   async function openDossier(id) {
@@ -437,7 +577,6 @@
       '<div class="grid2">' +
       input("Date du compromis", "date_compromis", d, "date") +
       input("Date butoir (réitération)", "date_butoir", d, "date") +
-      input("Conseillers (initiales)", "conseillers", d) +
       input("Droit de préemption", "preemption", d, "text", 'placeholder="DPU, SAFER, locataire…"') +
       "</div>" +
       '<div class="field"><label>Observations (extraites du compromis + notes)</label>' +
@@ -460,17 +599,32 @@
       "</div></div>" +
 
       '<div class="card"><h3>👤 Vendeurs <span class="cnt">' + d.vendeurs.length + "</span></h3>" +
+      conseillerField("Conseiller vendeur (initiales)", "conseiller_vendeur", d) +
       d.vendeurs.map((p, i) => partieHtml("vendeurs", i, p)).join("") +
       '<button class="btn btn--sm addrow" data-add="vendeurs">+ Ajouter un vendeur</button></div>' +
 
       '<div class="card"><h3>🔑 Acquéreurs <span class="cnt">' + d.acquereurs.length + "</span></h3>" +
+      conseillerField("Conseiller acquéreur (initiales)", "conseiller_acquereur", d) +
       d.acquereurs.map((p, i) => partieHtml("acquereurs", i, p)).join("") +
       '<button class="btn btn--sm addrow" data-add="acquereurs">+ Ajouter un acquéreur</button></div>' +
 
       '<div class="card"><h3>⚖️ Notaires</h3><div class="grid2">' +
       notaireHtml("Notaire vendeur", "notaire_vendeur", d) +
       notaireHtml("Notaire acquéreur", "notaire_acquereur", d) +
-      "</div></div>" +
+      "</div>" +
+      '<p class="hintline">Tapez le nom : les coordonnées connues de l\'annuaire se remplissent seules ; celles que vous saisissez ici enrichissent l\'annuaire pour les prochains dossiers.</p></div>' +
+
+      '<div class="card"><h3>🏢 Syndic / Lotissement</h3><div class="grid3">' +
+      '<div class="field"><label>Rôle</label><select data-path="syndic.role">' +
+      ["|—", "syndic|Syndic de copropriété", "president|Président de lotissement / ASL"].map((o) => {
+        const [v, l] = o.split("|");
+        return '<option value="' + v + '"' + (d.syndic.role === v ? " selected" : "") + ">" + l + "</option>";
+      }).join("") + "</select></div>" +
+      '<div class="field"><label>Nom</label><input type="text" data-path="syndic.nom" list="dlSyndics" value="' + esc(d.syndic.nom) + '" placeholder="ex. CITYA" /></div>' +
+      input("Téléphone", "syndic.telephone", d) +
+      input("E-mail", "syndic.email", d, "email") +
+      "</div>" +
+      '<p class="hintline">Pour les biens en copropriété ou en lotissement — extrait du compromis quand il y figure, relié à l\'annuaire comme les notaires (relances « pré-état daté / état daté »).</p></div>' +
 
       '<div class="card"><h3>🏦 Séquestre &amp; financement</h3>' +
       '<div class="grid3">' +
@@ -510,7 +664,12 @@
       '<div class="journal">' + (journalHtml || '<p class="hintline">Aucune note pour l\'instant.</p>') + "</div>" +
       '<div class="journal__add"><input type="text" id="journalInput" placeholder="Ajouter une note (appel, réponse du notaire, avancement…)" />' +
       '<button class="btn" id="journalAdd">Ajouter</button></div></div>' +
-      "</div>"; // grid2
+      "</div>" + // grid2
+
+      // Suggestions issues de l'annuaire partagé (notaires, conseillers, syndics).
+      '<datalist id="dlNotaires">' + annOf("notaire").map((a) => '<option value="' + esc(a.nom) + '">' + esc(a.ville || "") + "</option>").join("") + "</datalist>" +
+      '<datalist id="dlConseillers">' + annOf("conseiller").map((a) => '<option value="' + esc(a.initiales || a.nom) + '">' + esc(a.nom) + "</option>").join("") + "</datalist>" +
+      '<datalist id="dlSyndics">' + annuaire.filter((a) => a.type === "syndic" || a.type === "president").map((a) => '<option value="' + esc(a.nom) + '">' + esc(a.type === "president" ? "Président" : "Syndic") + "</option>").join("") + "</datalist>";
 
     setSaveState(saveState === "dirty" || saveState === "saving" ? saveState : "");
   }
@@ -560,6 +719,28 @@
         d.etapes[id].due = t.value;
         markDirty(); renderDossier(); return;
       }
+      // Auto-remplissage depuis l'annuaire quand un nom connu est saisi.
+      if (t.dataset.path === "notaire_vendeur.nom" || t.dataset.path === "notaire_acquereur.nom") {
+        const e = annByNom(["notaire"], t.value);
+        if (e) {
+          const key = t.dataset.path.split(".")[0];
+          ["ville", "telephone", "email"].forEach((k) => {
+            if (!getByPath(d, key + "." + k) && e[k]) setByPath(d, key + "." + k, e[k]);
+          });
+          markDirty(); renderDossier(); return;
+        }
+      }
+      if (t.dataset.path === "syndic.nom") {
+        const e = annByNom(["syndic", "president"], t.value);
+        if (e) {
+          if (!d.syndic.telephone && e.telephone) d.syndic.telephone = e.telephone;
+          if (!d.syndic.email && e.email) d.syndic.email = e.email;
+          if (!d.syndic.role) d.syndic.role = e.type === "president" ? "president" : "syndic";
+          markDirty(); renderDossier(); return;
+        }
+      }
+      // Initiales de conseiller : rafraîchit l'indication « → Nom · e-mail ».
+      if (t.dataset.path === "conseiller_vendeur" || t.dataset.path === "conseiller_acquereur") { renderDossier(); return; }
       if (t.dataset.path && (t.type === "date" || t.tagName === "SELECT")) { renderDossierSoon(); }
     });
     view.addEventListener("click", (ev) => {
@@ -640,10 +821,13 @@
   /* --------------------------- Relances e-mail ---------------------------- */
   function joinNoms(arr) { return (arr || []).map((p) => p.nom).filter(Boolean).join(" et "); }
   function recipientFor(d, cible) {
-    if (cible === "notaire_vendeur") return d.notaire_vendeur.email;
-    if (cible === "notaire_acquereur") return d.notaire_acquereur.email || d.notaire_vendeur.email;
+    if (cible === "notaire_vendeur") return d.notaire_vendeur.email || (annByNom(["notaire"], d.notaire_vendeur.nom) || {}).email || "";
+    if (cible === "notaire_acquereur") return d.notaire_acquereur.email || (annByNom(["notaire"], d.notaire_acquereur.nom) || {}).email || recipientFor(d, "notaire_vendeur");
     if (cible === "acquereur") return (d.acquereurs || []).map((p) => p.email).filter(Boolean).join(",");
     if (cible === "vendeur") return (d.vendeurs || []).map((p) => p.email).filter(Boolean).join(",");
+    if (cible === "conseiller_vendeur") return (annConseiller(d.conseiller_vendeur) || {}).email || "";
+    if (cible === "conseiller_acquereur") return (annConseiller(d.conseiller_acquereur) || {}).email || "";
+    if (cible === "syndic") return (d.syndic && d.syndic.email) || (annByNom(["syndic", "president"], d.syndic && d.syndic.nom) || {}).email || "";
     return "";
   }
   function mergeFields(d) {
@@ -658,6 +842,9 @@
       sequestre_montant: d.sequestre.montant, sequestre_depositaire: d.sequestre.depositaire,
       date_limite_depot: E.fmtFr(fin.date_limite_depot), echeance_pret: E.fmtFr(fin.date_limite_obtention),
       signature_prevue: E.fmtFr(d.dates.signature_prevue),
+      syndic: (d.syndic && d.syndic.nom) || "",
+      conseiller_vendeur: (annConseiller(d.conseiller_vendeur) || {}).nom || d.conseiller_vendeur || "",
+      conseiller_acquereur: (annConseiller(d.conseiller_acquereur) || {}).nom || d.conseiller_acquereur || "",
       conseiller: userName(), agence: AGENCE, date: new Date().toLocaleDateString("fr-FR")
     };
   }
@@ -707,7 +894,9 @@
   /* ------------------------------ Modèles --------------------------------- */
   function renderModeles() {
     const CIBLES = [["notaire_vendeur", "Notaire vendeur"], ["notaire_acquereur", "Notaire acquéreur"],
-      ["acquereur", "Acquéreur(s)"], ["vendeur", "Vendeur(s)"], ["banque", "Banque / courtier"], ["autre", "Autre"]];
+      ["acquereur", "Acquéreur(s)"], ["vendeur", "Vendeur(s)"],
+      ["conseiller_vendeur", "Conseiller vendeur"], ["conseiller_acquereur", "Conseiller acquéreur"],
+      ["syndic", "Syndic / Président"], ["banque", "Banque / courtier"], ["autre", "Autre"]];
     $("#modelesList").innerHTML = modeles.map((m) =>
       '<div class="modele" data-mid="' + esc(m.id) + '">' +
       '<div class="head">' +
@@ -834,6 +1023,11 @@
     d.prix = { prix_vente: S(pr.prix_vente), honoraires: S(pr.honoraires), charge_honoraires: S(pr.charge_honoraires) };
     const sq = x.sequestre || {};
     d.sequestre = { montant: S(sq.montant), depositaire: S(sq.depositaire), delai: S(sq.delai) };
+    const sy = x.syndic || {};
+    d.syndic = {
+      role: S(sy.role) || (S(sy.nom) ? "syndic" : ""),
+      nom: S(sy.nom), telephone: S(sy.telephone), email: S(sy.email)
+    };
     const fi = x.financement || {};
     d.financement = {
       recours_pret: S(fi.recours_pret), montant_pret: S(fi.montant_pret), duree: S(fi.duree), taux_max: S(fi.taux_max),
@@ -1014,10 +1208,11 @@
     }
     $("#app").hidden = false;
     $("#who").textContent = (a.user && (a.user.name || a.user.email) || "") + (a.agency && a.agency.name ? " · " + a.agency.name : "");
-    wireGlobal(); wireDossier(); wireNewModal(); wireModeles();
+    wireGlobal(); wireDossier(); wireNewModal(); wireModeles(); wireAnnuaire();
     try {
       await loadList();
       await loadModeles();
+      await loadAnnuaire();
     } catch (e) {
       if (e.status === 401) {
         $("#app").hidden = true;

@@ -139,6 +139,26 @@ CREATE TABLE IF NOT EXISTS dossiers (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dossiers_name   ON dossiers(agency_id, name);
 CREATE INDEX        IF NOT EXISTS idx_dossiers_agency ON dossiers(agency_id, updated_at);
 
+-- Annuaire partagé de l'agence (app Suivi) : conseillers (initiales → nom +
+-- e-mail), notaires, syndics et présidents de lotissement — pour ne saisir
+-- les coordonnées qu'une fois et pré-remplir les dossiers et relances.
+CREATE TABLE IF NOT EXISTS annuaire (
+  id         TEXT PRIMARY KEY,               -- an_xxxxxxxx
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  user_id    TEXT NOT NULL,                  -- dernier auteur
+  type       TEXT NOT NULL,                  -- conseiller | notaire | syndic | president
+  nom        TEXT NOT NULL,
+  initiales  TEXT NOT NULL DEFAULT '',       -- conseillers (clé de saisie rapide)
+  ville      TEXT NOT NULL DEFAULT '',
+  telephone  TEXT NOT NULL DEFAULT '',
+  email      TEXT NOT NULL DEFAULT '',
+  notes      TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_annuaire_nom    ON annuaire(agency_id, type, nom);
+CREATE INDEX        IF NOT EXISTS idx_annuaire_agency ON annuaire(agency_id, type);
+
 -- Modèles d'e-mails de relance (DIA, séquestre, financement…), partagés par
 -- agence et modifiables dans l'app Suivi.
 CREATE TABLE IF NOT EXISTS modeles (

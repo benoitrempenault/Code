@@ -532,6 +532,56 @@ export function createApp(env) {
     });
   });
 
+  /* ------------------ Annuaire partagé (app Suivi) ------------------------ */
+  // Conseillers (initiales → nom + e-mail), notaires, syndics, présidents de
+  // lotissement. Upsert par id ou par (type, nom) — mêmes règles que le reste.
+  const ANNUAIRE_TYPES = ["conseiller", "notaire", "syndic", "president"];
+  const ANNUAIRE_MAX = 500;
+  app.get("/annuaire", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const rows = await db.all(
+      "SELECT id, type, nom, initiales, ville, telephone, email, notes, updated_at FROM annuaire WHERE agency_id = ? ORDER BY type, nom ASC",
+      [ctx.agency.id]);
+    return c.json({ annuaire: rows });
+  });
+
+  app.put("/annuaire", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif.");
+    const b = await c.req.json().catch(() => null);
+    const type = String((b && b.type) || "");
+    const nom = cleanName(b && b.nom);
+    if (!ANNUAIRE_TYPES.includes(type)) return err(c, 400, "type invalide (conseiller | notaire | syndic | president).");
+    if (!nom) return err(c, 400, "nom requis.");
+    const f = (k, max) => String((b && b[k]) || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max || 160);
+    const vals = { initiales: f("initiales", 10), ville: f("ville"), telephone: f("telephone", 40), email: f("email"), notes: f("notes", 500) };
+    let existing = null;
+    if (b.id) existing = await db.get("SELECT id FROM annuaire WHERE id = ? AND agency_id = ?", [String(b.id), ctx.agency.id]);
+    if (!existing) existing = await db.get("SELECT id FROM annuaire WHERE agency_id = ? AND type = ? AND nom = ?", [ctx.agency.id, type, nom]);
+    if (existing) {
+      await db.run(
+        "UPDATE annuaire SET type = ?, nom = ?, initiales = ?, ville = ?, telephone = ?, email = ?, notes = ?, user_id = ?, updated_at = ? WHERE id = ?",
+        [type, nom, vals.initiales, vals.ville, vals.telephone, vals.email, vals.notes, ctx.user.id, now(), existing.id]);
+      return c.json({ ok: true, id: existing.id, updated: true });
+    }
+    const count = await db.get("SELECT COUNT(*) AS n FROM annuaire WHERE agency_id = ?", [ctx.agency.id]);
+    if ((count?.n || 0) >= ANNUAIRE_MAX) return err(c, 409, "Annuaire plein (" + ANNUAIRE_MAX + " entrées) — supprimez-en d'abord.");
+    const id = randId("an");
+    await db.run(
+      "INSERT INTO annuaire (id, agency_id, user_id, type, nom, initiales, ville, telephone, email, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [id, ctx.agency.id, ctx.user.id, type, nom, vals.initiales, vals.ville, vals.telephone, vals.email, vals.notes, now(), now()]);
+    return c.json({ ok: true, id, updated: false });
+  });
+
+  app.delete("/annuaire/:id", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    await db.run("DELETE FROM annuaire WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    return c.json({ ok: true });
+  });
+
   /* -------------- Modèles d'e-mails de relance (app Suivi) ---------------- */
   const MODELE_MAX_BYTES = 20000, MODELES_MAX = 100;
   app.get("/modeles", async (c) => {

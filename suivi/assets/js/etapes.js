@@ -213,6 +213,11 @@
       corps: "Bonjour,\n\nComme convenu, voici un point d'étape sur votre vente ({{reference}}, compromis signé le {{date_compromis}}) :\n\n- Délai de rétractation : purgé le {{fin_retractation}}\n- Dépôt de garantie : {{sequestre_montant}}\n- Financement des acquéreurs : en cours, condition suspensive au {{echeance_pret}}\n- Signature prévue : {{signature_prevue}} (butoir : {{date_butoir}})\n\n[Complétez / ajustez selon le dossier]\n\nNous suivons chaque étape auprès des notaires et des acquéreurs, et revenons vers vous dès la prochaine avancée.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
     },
     {
+      name: "Demande de pré-état daté au syndic", cible: "syndic",
+      sujet: "Vente {{reference}} — {{adresse_bien}} : pré-état daté / questionnaire syndic",
+      corps: "Bonjour,\n\nDans le cadre de la vente {{reference}} portant sur le bien situé {{adresse_bien}} (copropriété administrée par vos soins), nous vous remercions de bien vouloir établir le pré-état daté (puis l'état daté) ainsi que le questionnaire syndic, à transmettre au notaire chargé de la vente ({{notaire_vendeur}}).\n\nLa signature de l'acte authentique est envisagée autour du {{signature_prevue}} (date butoir : {{date_butoir}}) — ces pièces conditionnent le calendrier.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+    },
+    {
       name: "Demande d'avis client", cible: "vendeur",
       sujet: "Félicitations pour votre vente — votre avis compte pour nous",
       corps: "Bonjour,\n\nEncore toutes nos félicitations pour la signature de votre vente ({{adresse_bien}}) !\n\nSi vous avez été satisfait de notre accompagnement, votre avis nous aiderait beaucoup : il ne prend que deux minutes.\n\n→ Laisser un avis Google : [collez ici le lien avis Google de l'agence]\n\nMerci infiniment pour votre confiance, et bienvenue chez vous !\n\n{{conseiller}}\n{{agence}}"

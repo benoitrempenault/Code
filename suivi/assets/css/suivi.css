@@ -170,6 +170,12 @@ table.liste tr.row:hover td { background: var(--panel-2); }
 .cond input[type="text"] { flex: 1 1 180px; }
 .cond textarea { flex: 2 1 260px; min-height: 38px; }
 
+/* ------------------------------ Annuaire --------------------------------- */
+.annrow { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.annrow:last-of-type { border-bottom: none; }
+.annrow .field { margin-bottom: 0; }
+.annrow .btn { margin-bottom: 2px; }
+
 /* ------------------------------- Modales -------------------------------- */
 .overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,.66); z-index: 90;

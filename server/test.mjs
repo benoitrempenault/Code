@@ -257,6 +257,22 @@ const ddel = await call("/dossiers/" + dosId, { method: "DELETE", headers: { Aut
 ok(ddel.status === 200 && !filesMem.has("do/" + agencyId + "/" + dosId + ".pdf")
   && (await call("/dossiers", { headers: { Authorization: "Bearer " + s3 } })).json.dossiers.length === 0, "suppression : base + PDF R2 nettoyés");
 
+console.log("— Annuaire partagé (conseillers, notaires, syndics)");
+const an1 = await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { type: "conseiller", nom: "Sophie Martin", initiales: "SM", email: "sm@azur-immo.fr" } });
+ok(an1.status === 200 && an1.json.id.startsWith("an_"), "conseiller ajouté (initiales SM)");
+const an2 = await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { type: "notaire", nom: "Me NAUTIACQ", ville: "Saint-Médard-en-Jalles", telephone: "05 56 00 00 00", email: "office@nautiacq.fr" } });
+ok(an2.status === 200, "notaire ajouté");
+const an2b = await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { type: "notaire", nom: "Me NAUTIACQ", email: "b.nautiacq@notaires.fr" } });
+ok(an2b.status === 200 && an2b.json.updated === true && an2b.json.id === an2.json.id, "même (type, nom) → mise à jour, pas de doublon");
+ok((await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { type: "hacker", nom: "X" } })).status === 400, "type hors liste refusé");
+const anList = await call("/annuaire", { headers: { Authorization: "Bearer " + s3 } });
+ok(anList.status === 200 && anList.json.annuaire.length === 2
+  && anList.json.annuaire.find((a) => a.type === "conseiller").initiales === "SM", "liste triée avec initiales");
+ok((await call("/annuaire", { headers: { Authorization: "Bearer " + s2b } })).json.annuaire.length === 0, "annuaire isolé par agence");
+ok((await call("/annuaire/" + an1.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 200
+  && (await call("/annuaire", { headers: { Authorization: "Bearer " + s3 } })).json.annuaire.length === 1, "suppression d'une entrée");
+await call("/annuaire/" + an2.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
+
 console.log("— Modèles d'e-mails");
 const mput = await call("/modeles", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { name: "Relance DIA", cible: "notaire_vendeur", sujet: "Vente {{reference}}", corps: "Maître, …" } });
 ok(mput.status === 200 && mput.json.id.startsWith("mo_"), "modèle créé");
