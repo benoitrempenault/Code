@@ -218,6 +218,17 @@
         const def = E.DEFAULT_MODELES.find((m) => m.name === "Relance séquestre acquéreur");
         if (def) { await api("/modeles", { method: "PUT", json: def }); modeles = (await api("/modeles")).modeles || modeles; }
       }
+      // L'envoi aux notaires passe au gabarit « deux études » (lien de
+      // téléchargement + coordonnées détaillées) — uniquement si le modèle
+      // stocké est encore l'ancien défaut (cible notaire_vendeur).
+      const env2 = modeles.find((m) => m.name === "Envoi du dossier aux notaires");
+      if (env2 && env2.cible === "notaire_vendeur") {
+        const def2 = E.DEFAULT_MODELES.find((m) => m.name === "Envoi du dossier aux notaires");
+        if (def2) {
+          env2.cible = def2.cible; env2.sujet = def2.sujet; env2.corps = def2.corps;
+          await api("/modeles", { method: "PUT", json: env2 });
+        }
+      }
     } catch (e) { /* la migration réessaiera au prochain chargement */ }
   }
 
@@ -966,6 +977,11 @@
   /* --------------------------- Relances e-mail ---------------------------- */
   function joinNoms(arr) { return (arr || []).map((p) => p.nom).filter(Boolean).join(" et "); }
   function recipientFor(d, cible) {
+    if (cible === "notaires") {
+      // Les deux études en destinataires (dédoublonnées).
+      const both = [recipientFor(d, "notaire_vendeur"), recipientFor(d, "notaire_acquereur")].filter(Boolean);
+      return Array.from(new Set(both)).join(",");
+    }
     if (cible === "notaire_vendeur") return d.notaire_vendeur.email || (annByNom(["notaire"], d.notaire_vendeur.nom) || {}).email || "";
     if (cible === "notaire_acquereur") return d.notaire_acquereur.email || (annByNom(["notaire"], d.notaire_acquereur.nom) || {}).email || recipientFor(d, "notaire_vendeur");
     if (cible === "acquereur") return (d.acquereurs || []).map((p) => p.email).filter(Boolean).join(",");
@@ -992,7 +1008,7 @@
     return "";
   }
   const CIBLE_COURT = {
-    notaire_vendeur: "Not. vendeur", notaire_acquereur: "Not. acquéreur", depositaire: "Dépositaire",
+    notaires: "Notaires", notaire_vendeur: "Not. vendeur", notaire_acquereur: "Not. acquéreur", depositaire: "Dépositaire",
     acquereur: "Acquéreur", vendeur: "Vendeur", syndic: "Syndic",
     conseiller_vendeur: "Conseiller", conseiller_acquereur: "Conseiller", banque: "Banque", autre: "Relancer"
   };
@@ -1019,11 +1035,19 @@
         ">" + label + "</button>";
     }).join("");
   }
+  // Liste détaillée « - Nom / tél / e-mail », une ligne par personne.
+  function detailPersonnes(arr) {
+    return (arr || []).filter((p) => (p.nom || "").trim()).map((p) =>
+      "- " + p.nom + " / " + (p.telephone || "tél. ?") + " / " + (p.email || "e-mail ?")
+    ).join("\n");
+  }
   function mergeFields(d) {
     const fin = d.financement || {};
     return {
       reference: d.reference, adresse_bien: d.bien.adresse, ville: d.bien.ville,
       prix: d.prix.prix_vente, vendeurs: joinNoms(d.vendeurs), acquereurs: joinNoms(d.acquereurs),
+      vendeurs_detail: detailPersonnes(d.vendeurs), acquereurs_detail: detailPersonnes(d.acquereurs),
+      notaire_vendeur_nom: d.notaire_vendeur.nom, notaire_acquereur_nom: d.notaire_acquereur.nom,
       notaire_vendeur: [d.notaire_vendeur.nom, d.notaire_vendeur.ville].filter(Boolean).join(", "),
       notaire_acquereur: [d.notaire_acquereur.nom, d.notaire_acquereur.ville].filter(Boolean).join(", "),
       date_compromis: E.fmtFr(d.date_compromis), date_butoir: E.fmtFr(d.date_butoir),
@@ -1082,7 +1106,8 @@
 
   /* ------------------------------ Modèles --------------------------------- */
   function renderModeles() {
-    const CIBLES = [["notaire_vendeur", "Notaire vendeur"], ["notaire_acquereur", "Notaire acquéreur"],
+    const CIBLES = [["notaires", "Les deux notaires"],
+      ["notaire_vendeur", "Notaire vendeur"], ["notaire_acquereur", "Notaire acquéreur"],
       ["acquereur", "Acquéreur(s)"], ["vendeur", "Vendeur(s)"],
       ["conseiller_vendeur", "Conseiller vendeur"], ["conseiller_acquereur", "Conseiller acquéreur"],
       ["depositaire", "Notaire dépositaire (séquestre)"],
