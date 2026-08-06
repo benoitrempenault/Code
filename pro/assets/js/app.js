@@ -868,12 +868,12 @@
           await Lib.chooseFolder();
         }
       } catch (e) { downloadJson(); return; } // sélection annulée → repli téléchargement
-      await saveCurrentToFolder();
+      await saveCurrentToFolder(false);
       return;
     }
     // Sur téléphone (pas d'accès au dossier) : la brochure part sur le compte
     // — visible ensuite sur l'ordinateur dans « ☁ Brochures du compte ».
-    if (cloudOn()) { await cloudSaveCurrent(); return; }
+    if (cloudOn()) { await cloudSaveCurrent(false); return; }
     downloadJson();
   }
   function downloadJson() {
@@ -892,16 +892,23 @@
   }
   // Demande un nom puis enregistre la brochure courante dans le dossier OneDrive.
   // Partagé par « Sauvegarder » et « Bibliothèque → Enregistrer ».
-  async function saveCurrentToFolder() {
+  // askName : true = demander/permettre de changer le nom (« Enregistrer sous »,
+  // depuis la Bibliothèque) ; false = ré-enregistrer directement sous le nom
+  // courant, comme Word (le nom n'est demandé qu'au premier enregistrement).
+  async function saveCurrentToFolder(askName) {
     const Lib = window.BrochureLibrary;
     if (!(await Lib.ensurePermission())) { toast("Autorisation requise pour écrire dans le dossier.", true); return false; }
-    const suggested = currentFileName ? currentFileName.replace(/\.json$/i, "") : (state.property.title || fileSlug());
-    const input = prompt("Nom de la brochure :", suggested);
-    if (input == null) return false; // annulé
-    const base = safeName(input) || fileSlug();
-    const name = base + ".json";
-    if (name !== currentFileName && await Lib.exists(name)) {
-      if (!confirm("Une brochure « " + name + " » existe déjà. La remplacer ?")) return false;
+    let name;
+    if (!askName && currentFileName) {
+      name = currentFileName;
+    } else {
+      const suggested = currentFileName ? currentFileName.replace(/\.json$/i, "") : (state.property.title || fileSlug());
+      const input = prompt("Nom de la brochure :", suggested);
+      if (input == null) return false; // annulé
+      name = (safeName(input) || fileSlug()) + ".json";
+      if (name !== currentFileName && await Lib.exists(name)) {
+        if (!confirm("Une brochure « " + name + " » existe déjà. La remplacer ?")) return false;
+      }
     }
     const data = clone(state); data._app = "studio-brochure"; data._v = 2;
     try {
@@ -943,11 +950,16 @@
   }
   let libCloudMode = false, currentCloudId = null;
   // Enregistre la brochure courante sur le compte (nom demandé).
-  async function cloudSaveCurrent() {
-    const suggested = currentFileName ? currentFileName.replace(/\.json$/i, "") : (state.property.title || fileSlug());
-    const input = prompt("Nom de la brochure :", suggested);
-    if (input == null) return false;
-    const name = (safeName(input) || fileSlug()).slice(0, 120);
+  async function cloudSaveCurrent(askName) {
+    let name;
+    if (!askName && currentFileName) {
+      name = currentFileName.replace(/\.json$/i, "");
+    } else {
+      const suggested = currentFileName ? currentFileName.replace(/\.json$/i, "") : (state.property.title || fileSlug());
+      const input = prompt("Nom de la brochure :", suggested);
+      if (input == null) return false;
+      name = (safeName(input) || fileSlug()).slice(0, 120);
+    }
     const data = clone(state); data._app = "studio-brochure"; data._v = 2;
     try {
       const r = await cloudApi("/brochures", { body: { name: name, data: data } });
@@ -1468,13 +1480,13 @@
   }
 
   async function libSaveCurrent() {
-    if (libCloudMode) { await cloudSaveCurrent(); return; }
+    if (libCloudMode) { await cloudSaveCurrent(true); return; }
     if (!Lib || !Lib.isSupported()) { toast("Sur ce navigateur, utilisez « Sauvegarder » (.json).", true); return; }
     if (!Lib.folderName()) {
       try { await Lib.chooseFolder(); await libRefresh(); }
       catch (e) { return; } // sélection annulée
     }
-    await saveCurrentToFolder(); // demande un nom puis écrit dans le dossier
+    await saveCurrentToFolder(true); // demande / permet de changer le nom
   }
 
   function wireLibrary() {
