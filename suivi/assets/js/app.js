@@ -382,9 +382,13 @@
     $("#statsPendingCount").textContent = attente.length ? attente.length + " dossier(s)" : "";
     $("#statsPending").innerHTML = attente.map((r) => {
       const cls = r.s.days != null && r.s.days < 0 ? "late" : (r.s.days != null && r.s.days <= 7 ? "soon" : "");
+      const relTxt = r.s.relance && r.s.relance.ts
+        ? "✉ Dernière relance le " + new Date(r.s.relance.ts * 1000).toLocaleDateString("fr-FR")
+        : "";
       return '<div class="todo__item ' + cls + '">' +
         '<span class="when">' + (r.s.due ? frDate(r.s.due) + "<br><small>" + deltaLabel(r.s.days) + "</small>" : "—") + "</span>" +
-        '<span class="what"><b>' + esc(r.ref) + "</b><small>" + esc(r.cons.join(" / ")) + "</small></span>" +
+        '<span class="what"><b>' + esc(r.ref) + "</b><small>" + esc(r.cons.join(" / ")) + "</small>" +
+        (relTxt ? '<small style="color:var(--warn)">' + esc(relTxt) + "</small>" : "") + "</span>" +
         mailButtons(r.id, r.s, r.d) +
         '<button class="btn btn--sm" data-act="done" data-id="' + esc(r.id) + '" data-step="' + esc(stepId) + '">✓ Fait</button>' +
         '<button class="btn btn--sm" data-act="open" data-id="' + esc(r.id) + '">Ouvrir →</button>' +
@@ -531,9 +535,13 @@
         ? "📝 " + new Date((lastJ.ts || 0) * 1000).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) +
           " — " + (lastJ.text.length > 110 ? lastJ.text.slice(0, 110) + "…" : lastJ.text)
         : "";
+      const relTxt = s.relance && s.relance.ts
+        ? "✉ Dernière relance le " + new Date(s.relance.ts * 1000).toLocaleDateString("fr-FR")
+        : "";
       return '<div class="todo__item ' + cls + '">' +
         '<span class="when">' + frDate(s.due) + "<br><small>" + deltaLabel(s.days) + "</small></span>" +
         '<span class="what"><b>' + esc(a.ref) + "</b><small>" + esc(s.label) + "</small>" +
+        (relTxt ? '<small style="color:var(--warn)">' + esc(relTxt) + "</small>" : "") +
         (noteTxt ? '<small style="color:var(--accent);opacity:.85">' + esc(noteTxt) + "</small>" : "") + "</span>" +
         mailButtons(a.id, s, d) +
         '<button class="btn btn--sm" data-act="done" data-id="' + esc(a.id) + '" data-step="' + esc(s.id) + '" title="Marquer fait">✓ Fait</button>' +
@@ -672,9 +680,13 @@
           ? '<span class="due"><small style="color:var(--muted);font-size:11px">fait le</small>' +
             '<input type="date" data-step-date="' + esc(s.id) + '" value="' + esc(s.date || "") + '" title="Date de réalisation (modifiable)" /></span>'
           : '<span class="due"><input type="date" data-step-due="' + esc(s.id) + '" value="' + esc(s.due || "") + '" title="Échéance (modifiable)" /></span>';
+        const relTxt = s.relance && s.relance.ts
+          ? "✉ Dernière relance le " + new Date(s.relance.ts * 1000).toLocaleDateString("fr-FR") + (s.relance.user ? " (" + s.relance.user + ")" : "")
+          : "";
         return '<div class="etape' + (s.done ? " done" : "") + '">' +
           '<input type="checkbox" data-step-done="' + esc(s.id) + '"' + (s.done ? " checked" : "") + " />" +
-          '<span class="lab">' + esc(s.label) + (s.hint ? "<small>" + esc(s.hint) + "</small>" : "") + "</span>" +
+          '<span class="lab">' + esc(s.label) + (s.hint ? "<small>" + esc(s.hint) + "</small>" : "") +
+          (relTxt ? '<small style="color:var(--warn)">' + esc(relTxt) + "</small>" : "") + "</span>" +
           dateCtl +
           '<span class="delta ' + deltaCls + '">' + esc(deltaTxt) + "</span>" + mailBtn +
           "</div>";
@@ -948,7 +960,7 @@
       if (t.id === "btnDelete") { deleteCurrent(); return; }
       if (t.id === "btnVoirPdf") { viewCompromis(currentId); return; }
       if (t.id === "btnJoindrePdf") { const pi = $("#pdfReplace"); if (pi) pi.click(); return; }
-      if (t.dataset.act === "mailname") { openMailByName(t.dataset.id, t.dataset.modele); return; }
+      if (t.dataset.act === "mailname") { openMailByName(t.dataset.id, t.dataset.modele, t.dataset.step); return; }
     });
   }
   const renderDossierSoon = debounce(() => { if ((location.hash || "").startsWith("#dossier/")) renderDossier(); }, 1200);
@@ -1053,7 +1065,7 @@
       const known = !!recipientFor(d, m.cible);
       const court = ciblesDistinctes ? (CIBLE_COURT[m.cible] || "Relancer") : (n.split(/\s+/)[0] || "Relancer");
       const label = (names.length > 1 ? "✉ " + court : "✉ Relancer") + (known ? "" : " ⚠");
-      return '<button class="btn btn--sm" data-act="mailname" data-id="' + esc(dossierId) + '" data-modele="' + esc(n) + '"' +
+      return '<button class="btn btn--sm" data-act="mailname" data-id="' + esc(dossierId) + '" data-modele="' + esc(n) + '" data-step="' + esc(step.id) + '"' +
         (known ? "" : ' title="E-mail du destinataire inconnu — à saisir dans le message (pensez à le renseigner dans le dossier ou l\'annuaire)"') +
         ">" + label + "</button>";
     }).join("");
@@ -1092,11 +1104,11 @@
     });
   }
 
-  let mailCtx = null; // { dossierId, modeleName }
-  function openMail(dossierId, modele) {
+  let mailCtx = null; // { dossierId, modeleName, stepId }
+  function openMail(dossierId, modele, stepId) {
     const d = details[dossierId].data;
     const f = mergeFields(d);
-    mailCtx = { dossierId, modeleName: modele.name };
+    mailCtx = { dossierId, modeleName: modele.name, stepId: stepId || "" };
     $("#mailTitle").textContent = modele.name + " — " + (d.reference || "");
     const to = recipientFor(d, modele.cible) || "";
     $("#mailTo").value = to;
@@ -1109,9 +1121,9 @@
       toast("E-mail du destinataire inconnu : saisissez-le, puis renseignez-le dans la fiche du dossier ou l'annuaire.", true);
     }
   }
-  function openMailByName(dossierId, name) {
+  function openMailByName(dossierId, name, stepId) {
     const m = modeleByName(name);
-    if (m) openMail(dossierId, m);
+    if (m) openMail(dossierId, m, stepId);
     else toast("Modèle « " + name + " » introuvable — voir l'onglet Modèles.", true);
   }
   function logRelance(kind) {
@@ -1122,6 +1134,11 @@
       ts: Math.floor(Date.now() / 1000), user: userName(),
       text: "✉ Relance « " + mailCtx.modeleName + " » " + kind + " (à : " + ($("#mailTo").value || "?") + ")"
     });
+    // Mémorise la relance sur son étape : la date s'affiche sur la ligne.
+    if (mailCtx.stepId) {
+      det.data.etapes[mailCtx.stepId] = det.data.etapes[mailCtx.stepId] || {};
+      det.data.etapes[mailCtx.stepId].relance = { ts: Math.floor(Date.now() / 1000), modele: mailCtx.modeleName, user: userName() };
+    }
     const wasCurrent = currentId === mailCtx.dossierId;
     saveDossier(mailCtx.dossierId).then(() => {
       if (wasCurrent && (location.hash || "").startsWith("#dossier/")) renderDossier();
@@ -1359,7 +1376,7 @@
       const id = t.dataset.id;
       const inStats = !!ev.target.closest("#statsPending");
       if (t.dataset.act === "open") { location.hash = "#dossier/" + id; return; }
-      if (t.dataset.act === "mailname") { openMailByName(id, t.dataset.modele); return; }
+      if (t.dataset.act === "mailname") { openMailByName(id, t.dataset.modele, t.dataset.step); return; }
       if (t.dataset.act === "done") {
         const det = details[id];
         if (!det) return;
