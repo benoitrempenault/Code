@@ -1120,6 +1120,13 @@
   }
   function mergeFields(d) {
     const fin = d.financement || {};
+    // Mêmes valeurs par défaut que l'échéancier quand le compromis ne donne
+    // pas de date précise (« dans les 10 jours ») : dépôt du prêt = compromis
+    // + 10 j ; échéance de la condition de prêt = celle de la condition
+    // suspensive « prêt » si listée, sinon compromis + 60 j.
+    const depotDefaut = fin.date_limite_depot || E.addDays(d.date_compromis, 10);
+    const condPret = (d.conditions_suspensives || []).find((c) => /pr[êe]t|financement/i.test(c.titre || ""));
+    const echPretDefaut = fin.date_limite_obtention || (condPret && condPret.echeance) || E.addDays(d.date_compromis, 60);
     return {
       reference: d.reference, adresse_bien: d.bien.adresse, ville: d.bien.ville,
       prix: d.prix.prix_vente, honoraires: d.prix.honoraires,
@@ -1129,9 +1136,9 @@
       notaire_vendeur: [d.notaire_vendeur.nom, d.notaire_vendeur.ville].filter(Boolean).join(", "),
       notaire_acquereur: [d.notaire_acquereur.nom, d.notaire_acquereur.ville].filter(Boolean).join(", "),
       date_compromis: E.fmtFr(d.date_compromis), date_butoir: E.fmtFr(d.date_butoir),
-      fin_retractation: E.fmtFr(d.dates.presentation_sru ? E.addDays(d.dates.presentation_sru, 11) : ""),
+      fin_retractation: E.fmtFr(d.dates.presentation_sru ? E.addDays(d.dates.presentation_sru, 11) : E.addDays(d.date_compromis, 14)),
       sequestre_montant: d.sequestre.montant, sequestre_depositaire: d.sequestre.depositaire,
-      date_limite_depot: E.fmtFr(fin.date_limite_depot), echeance_pret: E.fmtFr(fin.date_limite_obtention),
+      date_limite_depot: E.fmtFr(depotDefaut), echeance_pret: E.fmtFr(echPretDefaut),
       signature_prevue: E.fmtFr(d.dates.signature_prevue),
       syndic: (d.syndic && d.syndic.nom) || "",
       conseiller_vendeur: (annConseiller(d.conseiller_vendeur) || {}).nom || d.conseiller_vendeur || "",
