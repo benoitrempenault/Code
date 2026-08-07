@@ -84,9 +84,9 @@
       hint: "Versement usuel sous 8 à 10 jours — double relance : le notaire dépositaire (réception ?) et l'acquéreur (versement fait ?)." },
 
     { id: "envoi_dia", phase: "Préemption (DIA)", label: "DIA envoyée en mairie par le notaire",
-      cible: "notaire_vendeur", modeles: ["Demande d'envoi de la DIA", "Relance DIA"],
+      cible: "notaire_vendeur", modele: "Relance DIA",
       due: (d) => addDays(ssp(d), 15),
-      hint: "LA relance qui fait gagner un mois : demander l'envoi dès la rétractation purgée, relancer à J+15." },
+      hint: "LA relance qui fait gagner un mois : vérifier l'envoi à J+15, demander une renonciation expresse si possible." },
     { id: "purge_dia", phase: "Préemption (DIA)", label: "Droit de préemption purgé (réponse mairie ou silence 2 mois)",
       cible: "notaire_vendeur", modele: "Relance DIA",
       due: (d) => d.dates.envoi_dia ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77) },
@@ -160,6 +160,7 @@
           def: e, id: e.id, label: e.label, phase: e.phase, cible: e.cible, hint: e.hint,
           modele: e.modele, modeles: e.modeles || (e.modele ? [e.modele] : []),
           done: !!s.done, date: s.date || "", note: s.note || "", due,
+          relance: s.relance || null, // dernière relance envoyée depuis cette étape
           days: due ? daysUntil(due) : null
         };
       });
