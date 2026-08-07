@@ -93,6 +93,15 @@ action humaine — les relances externes restent « un clic ». Test manuel :
 
 ## Pistes prévues (v2)
 
+- **Séparation Kadima / Kadima Caudéran** (à faire une fois l'app peaufinée) :
+  onglet ou filtre par bureau, avec à Caudéran : Benjamin, Natha, Florian,
+  Maxime et Laura. Deux options à trancher le moment venu : deuxième agence
+  serveur (isolation D1 native, annuaires et modèles séparés) ou champ
+  « bureau » dans la même agence (tout partagé, filtres par bureau).
+- **Version marque blanche** de la brique Suivi (pattern `pro/` :
+  fork + branding agence + clés de stockage dédiées) — après stabilisation
+  chez Kadima.
+
 - Facturation électronique : brancher l'étape « Facture d'honoraires agence
   éditée » sur l'éditeur de factures (lien à fournir).
 - Relances externes réellement automatiques au cas par cas (ex. point vendeur
