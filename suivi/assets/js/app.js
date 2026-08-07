@@ -102,6 +102,45 @@
     if (!nom) return null;
     return annuaire.find((a) => types.includes(a.type) && a.nom.toLowerCase() === nom) || null;
   }
+  // Dernier mot significatif d'un nom (« Me Bertrand NAUTIACQ » → nautiacq).
+  function motCle(nom) {
+    const parts = String(nom || "").trim().split(/\s+/).filter((w) => w.length >= 3 && !/^(me|maitre|maître)$/i.test(w));
+    return (parts[parts.length - 1] || "").toLowerCase();
+  }
+  // Correspondance souple : exacte d'abord, puis par dernier mot du nom —
+  // ainsi « Me Bertrand NAUTIACQ » (dossier) retrouve « Me NAUTIACQ » (annuaire).
+  function annFuzzy(types, nom) {
+    const exact = annByNom(types, nom);
+    if (exact) return exact;
+    const w = motCle(nom);
+    if (!w) return null;
+    return annuaire.find((a) => types.includes(a.type) && motCle(a.nom) === w) || null;
+  }
+  // Complète depuis l'annuaire les coordonnées vides des notaires et du
+  // syndic d'un dossier (jamais d'écrasement). Renvoie vrai si modifié.
+  function autofillFromAnnuaire(d) {
+    let changed = false;
+    for (const key of ["notaire_vendeur", "notaire_acquereur"]) {
+      const n = d[key];
+      if (!n || !(n.nom || "").trim()) continue;
+      const e = annFuzzy(["notaire"], n.nom);
+      if (!e) continue;
+      ["ville", "telephone", "email"].forEach((k) => {
+        if (!(n[k] || "").trim() && (e[k] || "").trim()) { n[k] = e[k]; changed = true; }
+      });
+    }
+    const s = d.syndic;
+    if (s && (s.nom || "").trim()) {
+      const e = annFuzzy(["syndic", "president"], s.nom);
+      if (e) {
+        ["telephone", "email"].forEach((k) => {
+          if (!(s[k] || "").trim() && (e[k] || "").trim()) { s[k] = e[k]; changed = true; }
+        });
+        if (!s.role) { s.role = e.type === "president" ? "president" : "syndic"; changed = true; }
+      }
+    }
+    return changed;
+  }
   async function loadAnnuaire() {
     try { annuaire = (await api("/annuaire")).annuaire || []; } catch (e) { annuaire = []; }
   }
@@ -655,6 +694,9 @@
       view.innerHTML = '<p style="color:var(--bad)">' + esc(e.message) + "</p>";
       return;
     }
+    // Coordonnées des notaires / du syndic complétées depuis l'annuaire dès
+    // l'ouverture (nom reconnu → tél, e-mail, ville remplis s'ils sont vides).
+    if (autofillFromAnnuaire(details[id].data)) markDirty();
     renderDossier();
   }
 
@@ -899,7 +941,7 @@
       }
       // Auto-remplissage depuis l'annuaire quand un nom connu est saisi.
       if (t.dataset.path === "notaire_vendeur.nom" || t.dataset.path === "notaire_acquereur.nom") {
-        const e = annByNom(["notaire"], t.value);
+        const e = annFuzzy(["notaire"], t.value);
         if (e) {
           const key = t.dataset.path.split(".")[0];
           ["ville", "telephone", "email"].forEach((k) => {
@@ -909,7 +951,7 @@
         }
       }
       if (t.dataset.path === "syndic.nom") {
-        const e = annByNom(["syndic", "president"], t.value);
+        const e = annFuzzy(["syndic", "president"], t.value);
         if (e) {
           if (!d.syndic.telephone && e.telephone) d.syndic.telephone = e.telephone;
           if (!d.syndic.email && e.email) d.syndic.email = e.email;
@@ -1017,8 +1059,8 @@
       const both = [recipientFor(d, "notaire_vendeur"), recipientFor(d, "notaire_acquereur")].filter(Boolean);
       return Array.from(new Set(both)).join("; ");
     }
-    if (cible === "notaire_vendeur") return d.notaire_vendeur.email || (annByNom(["notaire"], d.notaire_vendeur.nom) || {}).email || "";
-    if (cible === "notaire_acquereur") return d.notaire_acquereur.email || (annByNom(["notaire"], d.notaire_acquereur.nom) || {}).email || recipientFor(d, "notaire_vendeur");
+    if (cible === "notaire_vendeur") return d.notaire_vendeur.email || (annFuzzy(["notaire"], d.notaire_vendeur.nom) || {}).email || "";
+    if (cible === "notaire_acquereur") return d.notaire_acquereur.email || (annFuzzy(["notaire"], d.notaire_acquereur.nom) || {}).email || recipientFor(d, "notaire_vendeur");
     if (cible === "acquereur") return (d.acquereurs || []).map((p) => p.email).filter(Boolean).join("; ");
     if (cible === "vendeur") return (d.vendeurs || []).map((p) => p.email).filter(Boolean).join("; ");
     if (cible === "conseiller_vendeur") return (annConseiller(d.conseiller_vendeur) || {}).email || "";
