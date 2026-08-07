@@ -7,9 +7,12 @@ import { createApp } from "./src/app.js";
 import { runRecap } from "./src/recap.js";
 
 export default {
-  // Cron quotidien (wrangler.toml [triggers]) : récapitulatif des actions
-  // à mener envoyé aux comptes de chaque agence (app Suivi).
+  // Cron (wrangler.toml [triggers]) : récapitulatif des actions à mener
+  // envoyé aux comptes de chaque agence (app Suivi). Interrupteur RECAP_AUTO :
+  // tant qu'il ne vaut pas "1", le cron ne fait RIEN (l'envoi à la demande
+  // via le bouton de l'app reste actif, lui).
   async scheduled(event, env, ctx) {
+    if (env.RECAP_AUTO !== "1") return;
     ctx.waitUntil(runRecap(env, wrapD1(env.DB)));
   },
 
