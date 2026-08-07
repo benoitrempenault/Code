@@ -218,6 +218,18 @@
         const def = E.DEFAULT_MODELES.find((m) => m.name === "Relance séquestre acquéreur");
         if (def) { await api("/modeles", { method: "PUT", json: def }); modeles = (await api("/modeles")).modeles || modeles; }
       }
+      // Variante vendeur de la demande d'avis : ajoutée si absente.
+      if (modeles.some((m) => m.name === "Demande d'avis client") && !modeles.some((m) => m.name === "Demande d'avis client vendeur")) {
+        const defAV = E.DEFAULT_MODELES.find((m) => m.name === "Demande d'avis client vendeur");
+        if (defAV) { await api("/modeles", { method: "PUT", json: defAV }); modeles = (await api("/modeles")).modeles || modeles; }
+      }
+      // Projet d'acte : nouveau gabarit (offre de prêt jointe, sans la phrase
+      // de coordination) — uniquement si le corps stocké est l'ancien défaut.
+      const pacte = modeles.find((m) => m.name === "Demande du projet d'acte");
+      if (pacte && /coordonner la disponibilité des parties/.test(pacte.corps || "")) {
+        const defP = E.DEFAULT_MODELES.find((m) => m.name === "Demande du projet d'acte");
+        if (defP) { pacte.sujet = defP.sujet; pacte.corps = defP.corps; await api("/modeles", { method: "PUT", json: pacte }); }
+      }
       // La demande d'avis passe au gabarit fourni par l'agence (lien Google
       // réel, adressé aux acquéreurs) — uniquement si le modèle stocké est
       // encore l'ancien défaut (cible vendeur).
