@@ -125,8 +125,8 @@
     { id: "appel_apres_vente", phase: "Après-vente", label: "Appel des clients après la vente",
       cible: "vendeur", due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 7) : "",
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe" },
-    { id: "avis", phase: "Après-vente", label: "Demande d'avis clients envoyée (Google / Immodvisor)",
-      cible: "vendeur", modele: "Demande d'avis client",
+    { id: "avis", phase: "Après-vente", label: "Demande d'avis clients envoyée (Google)",
+      cible: "acquereur", modele: "Demande d'avis client",
       due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 10) : "",
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe" },
     { id: "facture_emise", phase: "Après-vente", label: "Facture d'honoraires agence éditée",
@@ -255,9 +255,9 @@
       corps: "Bonjour,\n\nDans le cadre de la vente {{reference}} portant sur le bien situé {{adresse_bien}} (copropriété administrée par vos soins), nous vous remercions de bien vouloir établir le pré-état daté (puis l'état daté) ainsi que le questionnaire syndic, à transmettre au notaire chargé de la vente ({{notaire_vendeur}}).\n\nLa signature de l'acte authentique est envisagée autour du {{signature_prevue}} (date butoir : {{date_butoir}}) — ces pièces conditionnent le calendrier.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
     },
     {
-      name: "Demande d'avis client", cible: "vendeur",
-      sujet: "Félicitations pour votre vente — votre avis compte pour nous",
-      corps: "Bonjour,\n\nEncore toutes nos félicitations pour la signature de votre vente ({{adresse_bien}}) !\n\nSi vous avez été satisfait de notre accompagnement, votre avis nous aiderait beaucoup : il ne prend que deux minutes.\n\n→ Laisser un avis Google : [collez ici le lien avis Google de l'agence]\n\nMerci infiniment pour votre confiance, et bienvenue chez vous !\n\n{{conseiller}}\n{{agence}}"
+      name: "Demande d'avis client", cible: "acquereur",
+      sujet: "Votre avis compte pour nous ⭐",
+      corps: "Bonjour {{acquereurs}},\n\nPermettez-moi encore de vous féliciter pour votre achat et vous remercier pour votre confiance.\n\nJe vous contacte pour un service : la notoriété internet étant importante pour nous, auriez-vous la possibilité de mettre un avis « 5 étoiles » sur Google en cliquant sur le lien suivant :\nhttps://g.page/r/CUA5uMo-Z_RcEAg/review\nnotamment en citant le travail de {{conseiller_acquereur}}.\n\nVous en remerciant par avance et vous souhaitant une belle journée.\n\n{{conseiller}}\n{{agence}}"
     }
   ];
 
