@@ -129,10 +129,11 @@
       cible: "acquereur", modeles: ["Demande d'avis client", "Demande d'avis client vendeur"],
       due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 10) : "",
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe" },
-    { id: "facture_emise", phase: "Après-vente", label: "Facture d'honoraires agence éditée",
+    { id: "facture_emise", phase: "Après-vente", label: "Facture d'honoraires agence éditée et envoyée au notaire",
+      cible: "notaire_vendeur", modele: "Envoi de la facture au notaire",
       due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 2) : "",
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe",
-      hint: "Facturation électronique : le lien vers l'éditeur de factures sera branché ici." },
+      hint: "Joindre la facture électronique et le RIB (KADIMA-TB › Kadima - General › ASSISTANTE › RIB AGENCE). Branchement de l'éditeur de facturation à venir." },
     { id: "facture_payee", phase: "Après-vente", label: "Facture agence payée (honoraires encaissés)",
       due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 15) : "",
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe",
@@ -248,6 +249,11 @@
       name: "Invitation crémaillère", cible: "acquereur",
       sujet: "Bienvenue chez vous ! 🏡",
       corps: "Bonjour,\n\nToute l'équipe espère que votre installation au {{adresse_bien}} se passe à merveille !\n\nNous serions ravis de venir trinquer à votre nouvelle vie chez vous — dites-nous quand cela vous arrange, ou passez simplement à l'agence : un petit cadeau de bienvenue vous y attend.\n\n[Personnalisez : crémaillère, cadeau, passage…]\n\nEncore toutes nos félicitations,\n{{conseiller}}\n{{agence}}"
+    },
+    {
+      name: "Envoi de la facture au notaire", cible: "notaire_vendeur",
+      sujet: "Vente {{reference}} — Facture d'honoraires de l'agence",
+      corps: "Maître,\n\nDans le cadre de la vente citée en objet ({{reference}} — {{adresse_bien}}), je vous prie de bien vouloir trouver ci-joint notre facture d'honoraires d'un montant de {{honoraires}}, ainsi que notre RIB pour le règlement par virement.\n\nVous en remerciant par avance et restant à votre disposition,\n\n{{conseiller}}\n{{agence}}"
     },
     {
       name: "Demande de pré-état daté au syndic", cible: "syndic",

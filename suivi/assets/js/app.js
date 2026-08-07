@@ -1068,7 +1068,8 @@
     const fin = d.financement || {};
     return {
       reference: d.reference, adresse_bien: d.bien.adresse, ville: d.bien.ville,
-      prix: d.prix.prix_vente, vendeurs: joinNoms(d.vendeurs), acquereurs: joinNoms(d.acquereurs),
+      prix: d.prix.prix_vente, honoraires: d.prix.honoraires,
+      vendeurs: joinNoms(d.vendeurs), acquereurs: joinNoms(d.acquereurs),
       vendeurs_detail: detailPersonnes(d.vendeurs), acquereurs_detail: detailPersonnes(d.acquereurs),
       notaire_vendeur_nom: d.notaire_vendeur.nom, notaire_acquereur_nom: d.notaire_acquereur.nom,
       notaire_vendeur: [d.notaire_vendeur.nom, d.notaire_vendeur.ville].filter(Boolean).join(", "),
