@@ -75,7 +75,9 @@
       due: (d) => finRetract(d),
       hint: "10 jours calendaires à compter du lendemain de la première présentation. Bonne nouvelle à annoncer au vendeur." },
     { id: "panneau_vendu", phase: "Notification & rétractation", label: "Panneau / bandeau « VENDU » posé",
-      due: (d) => finRetract(d) },
+      cible: "conseiller_vendeur", modele: "Relance panneau VENDU",
+      due: (d) => finRetract(d),
+      hint: "Dès la rétractation purgée — relance interne au conseiller vendeur." },
 
     { id: "sequestre", phase: "Séquestre", label: "Dépôt de garantie (séquestre) reçu chez le dépositaire",
       cible: "depositaire", modeles: ["Relance séquestre", "Relance séquestre acquéreur"],
@@ -118,6 +120,11 @@
     { id: "projet_acte", phase: "Acte authentique", label: "Projet d'acte demandé et date de signature calée",
       cible: "notaire_vendeur", modele: "Demande du projet d'acte",
       due: (d) => d.date_butoir ? addDays(d.date_butoir, -21) : addDays(ssp(d), 70) },
+    { id: "avenant", phase: "Acte authentique", label: "Avenant de prorogation si la signature ne tient pas la date butoir",
+      cible: "notaires", modele: "Avenant de prorogation",
+      due: (d) => d.date_butoir ? addDays(d.date_butoir, -10) : "",
+      applies: (d) => !!d.date_butoir && !d.dates.signature_acte,
+      hint: "À la date butoir − 10 jours : si la signature ne peut pas intervenir à temps, proposer l'avenant aux deux études. (Disparaît une fois l'acte signé.)" },
     { id: "signature", phase: "Acte authentique", label: "Acte authentique signé (réitération)",
       due: (d) => d.dates.signature_prevue || d.date_butoir || addDays(ssp(d), 92),
       hint: "Renseignez la date prévue dans « Dates clés » ; appel de fonds du notaire quelques jours avant." },
@@ -250,6 +257,16 @@
       name: "Invitation crémaillère", cible: "acquereur",
       sujet: "Bienvenue chez vous ! 🏡",
       corps: "Bonjour,\n\nToute l'équipe espère que votre installation au {{adresse_bien}} se passe à merveille !\n\nNous serions ravis de venir trinquer à votre nouvelle vie chez vous — dites-nous quand cela vous arrange, ou passez simplement à l'agence : un petit cadeau de bienvenue vous y attend.\n\n[Personnalisez : crémaillère, cadeau, passage…]\n\nEncore toutes nos félicitations,\n{{conseiller}}\n{{agence}}"
+    },
+    {
+      name: "Relance panneau VENDU", cible: "conseiller_vendeur",
+      sujet: "{{reference}} — Panneau « VENDU » à poser ({{adresse_bien}})",
+      corps: "Bonjour {{conseiller_vendeur}},\n\nLe délai de rétractation de la vente {{reference}} est purgé depuis le {{fin_retractation}} : peux-tu faire poser le panneau / bandeau « VENDU » sur le bien ({{adresse_bien}}) ?\n\nMerci !\n\n{{conseiller}}"
+    },
+    {
+      name: "Avenant de prorogation", cible: "notaires",
+      sujet: "Vente {{reference}} — Avenant de prorogation de la date de réitération",
+      corps: "Bonjour Maîtres,\n\nLa date butoir de réitération de la vente citée en objet ({{reference}} — {{adresse_bien}}) est fixée au {{date_butoir}}, et il apparaît que la signature ne pourra pas intervenir avant cette échéance.\n\nAfin de sécuriser la vente, nous vous remercions de bien vouloir préparer un avenant de prorogation des présentes, en concertation avec les parties, et de nous indiquer la nouvelle date envisageable pour la signature de l'acte authentique.\n\nNous restons à votre disposition pour recueillir l'accord des vendeurs et des acquéreurs.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
     },
     {
       name: "Envoi de la facture au notaire", cible: "notaire_vendeur",
