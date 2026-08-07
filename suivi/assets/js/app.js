@@ -980,12 +980,12 @@
     if (cible === "notaires") {
       // Les deux études en destinataires (dédoublonnées).
       const both = [recipientFor(d, "notaire_vendeur"), recipientFor(d, "notaire_acquereur")].filter(Boolean);
-      return Array.from(new Set(both)).join(",");
+      return Array.from(new Set(both)).join("; ");
     }
     if (cible === "notaire_vendeur") return d.notaire_vendeur.email || (annByNom(["notaire"], d.notaire_vendeur.nom) || {}).email || "";
     if (cible === "notaire_acquereur") return d.notaire_acquereur.email || (annByNom(["notaire"], d.notaire_acquereur.nom) || {}).email || recipientFor(d, "notaire_vendeur");
-    if (cible === "acquereur") return (d.acquereurs || []).map((p) => p.email).filter(Boolean).join(",");
-    if (cible === "vendeur") return (d.vendeurs || []).map((p) => p.email).filter(Boolean).join(",");
+    if (cible === "acquereur") return (d.acquereurs || []).map((p) => p.email).filter(Boolean).join("; ");
+    if (cible === "vendeur") return (d.vendeurs || []).map((p) => p.email).filter(Boolean).join("; ");
     if (cible === "conseiller_vendeur") return (annConseiller(d.conseiller_vendeur) || {}).email || "";
     if (cible === "conseiller_acquereur") return (annConseiller(d.conseiller_acquereur) || {}).email || "";
     if (cible === "syndic") return (d.syndic && d.syndic.email) || (annByNom(["syndic", "president"], d.syndic && d.syndic.nom) || {}).email || "";
