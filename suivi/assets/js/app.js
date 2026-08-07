@@ -218,6 +218,17 @@
         const def = E.DEFAULT_MODELES.find((m) => m.name === "Relance séquestre acquéreur");
         if (def) { await api("/modeles", { method: "PUT", json: def }); modeles = (await api("/modeles")).modeles || modeles; }
       }
+      // La demande d'avis passe au gabarit fourni par l'agence (lien Google
+      // réel, adressé aux acquéreurs) — uniquement si le modèle stocké est
+      // encore l'ancien défaut (cible vendeur).
+      const avis = modeles.find((m) => m.name === "Demande d'avis client");
+      if (avis && avis.cible === "vendeur") {
+        const defA = E.DEFAULT_MODELES.find((m) => m.name === "Demande d'avis client");
+        if (defA) {
+          avis.cible = defA.cible; avis.sujet = defA.sujet; avis.corps = defA.corps;
+          await api("/modeles", { method: "PUT", json: avis });
+        }
+      }
       // L'envoi aux notaires passe au gabarit « deux études » (lien de
       // téléchargement + coordonnées détaillées) — uniquement si le modèle
       // stocké est encore l'ancien défaut (cible notaire_vendeur).
