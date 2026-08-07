@@ -1385,6 +1385,18 @@
       logRelance("ouverte dans la messagerie");
       $("#ovMail").classList.remove("on");
     });
+    // Nouveau Outlook (web) : brouillon ouvert directement dans le compte du
+    // navigateur — l'envoi apparaît dans SES Éléments envoyés (contourne le
+    // choix d'application par défaut de Windows).
+    $("#btnMailOutlookWeb").addEventListener("click", () => {
+      const url = "https://outlook.office.com/mail/deeplink/compose" +
+        "?to=" + encodeURIComponent($("#mailTo").value) +
+        "&subject=" + encodeURIComponent($("#mailSubject").value) +
+        "&body=" + encodeURIComponent($("#mailBody").value);
+      window.open(url, "_blank");
+      logRelance("ouverte dans Outlook web");
+      $("#ovMail").classList.remove("on");
+    });
     // Recharge silencieuse au retour sur l'onglet (travail à plusieurs).
     window.addEventListener("focus", async () => {
       if (!account()) return;
