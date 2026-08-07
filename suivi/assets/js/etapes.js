@@ -126,7 +126,7 @@
       cible: "vendeur", due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 7) : "",
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe" },
     { id: "avis", phase: "Après-vente", label: "Demande d'avis clients envoyée (Google)",
-      cible: "acquereur", modele: "Demande d'avis client",
+      cible: "acquereur", modeles: ["Demande d'avis client", "Demande d'avis client vendeur"],
       due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 10) : "",
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe" },
     { id: "facture_emise", phase: "Après-vente", label: "Facture d'honoraires agence éditée",
@@ -232,7 +232,7 @@
     {
       name: "Demande du projet d'acte", cible: "notaire_vendeur",
       sujet: "Vente {{reference}} — Projet d'acte et date de signature",
-      corps: "Maître,\n\nLa date butoir de réitération de la vente {{reference}} ({{adresse_bien}}) est fixée au {{date_butoir}}.\n\nPourriez-vous nous indiquer l'état d'avancement du dossier (pièces manquantes éventuelles), nous adresser le projet d'acte, et nous proposer une date de signature ?\n\nNous nous chargeons de coordonner la disponibilité des parties.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      corps: "Maître,\n\nLa date butoir de réitération de la vente {{reference}} ({{adresse_bien}}) est fixée au {{date_butoir}}.\n\nJe vous prie de trouver ci-joint l'offre de prêt de {{acquereurs}}.\n\nPourriez-vous nous indiquer l'état d'avancement du dossier (pièces manquantes éventuelles), nous adresser le projet d'acte, et nous proposer une date de signature ?\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
     },
     {
       name: "Point d'étape vendeur", cible: "vendeur",
@@ -258,6 +258,11 @@
       name: "Demande d'avis client", cible: "acquereur",
       sujet: "Votre avis compte pour nous ⭐",
       corps: "Bonjour {{acquereurs}},\n\nPermettez-moi encore de vous féliciter pour votre achat et vous remercier pour votre confiance.\n\nJe vous contacte pour un service : la notoriété internet étant importante pour nous, auriez-vous la possibilité de mettre un avis « 5 étoiles » sur Google en cliquant sur le lien suivant :\nhttps://g.page/r/CUA5uMo-Z_RcEAg/review\nnotamment en citant le travail de {{conseiller_acquereur}}.\n\nVous en remerciant par avance et vous souhaitant une belle journée.\n\n{{conseiller}}\n{{agence}}"
+    },
+    {
+      name: "Demande d'avis client vendeur", cible: "vendeur",
+      sujet: "Votre avis compte pour nous ⭐",
+      corps: "Bonjour {{vendeurs}},\n\nPermettez-moi encore de vous féliciter pour votre vente et vous remercier pour votre confiance.\n\nJe vous contacte pour un service : la notoriété internet étant importante pour nous, auriez-vous la possibilité de mettre un avis « 5 étoiles » sur Google en cliquant sur le lien suivant :\nhttps://g.page/r/CUA5uMo-Z_RcEAg/review\nnotamment en citant le travail de {{conseiller_vendeur}}.\n\nVous en remerciant par avance et vous souhaitant une belle journée.\n\n{{conseiller}}\n{{agence}}"
     }
   ];
 
