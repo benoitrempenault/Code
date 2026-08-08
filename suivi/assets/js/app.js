@@ -284,6 +284,11 @@
       // téléchargement + coordonnées détaillées) — uniquement si le modèle
       // stocké est encore l'ancien défaut (cible notaire_vendeur).
       const env2 = modeles.find((m) => m.name === "Envoi du dossier aux notaires");
+      // Gabarit « deux études » figé → gabarit adaptatif (notaire unique).
+      if (env2 && /\{\{vendeurs_detail\}\}/.test(env2.corps || "")) {
+        const defB = E.DEFAULT_MODELES.find((m) => m.name === "Envoi du dossier aux notaires");
+        if (defB) { env2.sujet = defB.sujet; env2.corps = defB.corps; await api("/modeles", { method: "PUT", json: env2 }); }
+      }
       if (env2 && env2.cible === "notaire_vendeur") {
         const def2 = E.DEFAULT_MODELES.find((m) => m.name === "Envoi du dossier aux notaires");
         if (def2) {
@@ -1118,6 +1123,24 @@
       "- " + p.nom + " / " + (p.telephone || "tél. ?") + " / " + (p.email || "e-mail ?")
     ).join("\n");
   }
+  // Un seul notaire au dossier (même étude des deux côtés, ou une seule
+  // renseignée) : il représente le vendeur ET l'acquéreur.
+  function notaireUnique(d) {
+    const a = motCle(d.notaire_vendeur.nom), b = motCle(d.notaire_acquereur.nom);
+    return !a || !b || a === b;
+  }
+  // Bloc « Maître X, vous représentez… » du mail d'envoi aux notaires,
+  // adapté au cas d'un notaire unique pour les deux parties.
+  function partiesDetail(d) {
+    const v = detailPersonnes(d.vendeurs) || "- (coordonnées à compléter)";
+    const a = detailPersonnes(d.acquereurs) || "- (coordonnées à compléter)";
+    if (notaireUnique(d)) {
+      return "Vous représentez le vendeur et l'acquéreur, dont les coordonnées sont les suivantes :\n\n" +
+        "Vendeur(s) :\n" + v + "\n\nAcquéreur(s) :\n" + a;
+    }
+    return d.notaire_vendeur.nom + ", vous représentez le(s) vendeur(s) dont les coordonnées sont les suivantes :\n\n" + v +
+      "\n\n" + d.notaire_acquereur.nom + ", vous représentez le(s) acquéreur(s) dont les coordonnées sont les suivantes :\n\n" + a;
+  }
   function mergeFields(d) {
     const fin = d.financement || {};
     // Mêmes valeurs par défaut que l'échéancier quand le compromis ne donne
@@ -1133,6 +1156,8 @@
       vendeurs: joinNoms(d.vendeurs), acquereurs: joinNoms(d.acquereurs),
       vendeurs_detail: detailPersonnes(d.vendeurs), acquereurs_detail: detailPersonnes(d.acquereurs),
       notaire_vendeur_nom: d.notaire_vendeur.nom, notaire_acquereur_nom: d.notaire_acquereur.nom,
+      salutation_notaires: notaireUnique(d) ? "Maître," : "Bonjour Maîtres,",
+      parties_detail: partiesDetail(d),
       notaire_vendeur: [d.notaire_vendeur.nom, d.notaire_vendeur.ville].filter(Boolean).join(", "),
       notaire_acquereur: [d.notaire_acquereur.nom, d.notaire_acquereur.ville].filter(Boolean).join(", "),
       date_compromis: E.fmtFr(d.date_compromis), date_butoir: E.fmtFr(d.date_butoir),
@@ -1322,6 +1347,9 @@
     const notaire = (n) => ({ nom: S(n && n.nom), ville: S(n && n.ville), adresse: S(n && n.adresse), telephone: S(n && n.telephone), email: S(n && n.email) });
     d.notaire_vendeur = notaire(x.notaire_vendeur);
     d.notaire_acquereur = notaire(x.notaire_acquereur);
+    // Un seul notaire au compromis : il représente les deux parties.
+    if (d.notaire_vendeur.nom && !d.notaire_acquereur.nom) d.notaire_acquereur = Object.assign({}, d.notaire_vendeur);
+    else if (d.notaire_acquereur.nom && !d.notaire_vendeur.nom) d.notaire_vendeur = Object.assign({}, d.notaire_acquereur);
     const b = x.bien || {};
     d.bien = { type: S(b.type), adresse: S(b.adresse), ville: S(b.ville), description: S(b.description), copropriete: S(b.copropriete), lots: S(b.lots), cadastre: S(b.cadastre) };
     const pr = x.prix || {};
