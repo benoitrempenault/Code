@@ -187,7 +187,7 @@ const COMPROMIS_SCHEMA = {
     vendeurs: { type: "array", items: PARTIE },
     acquereurs: { type: "array", items: PARTIE },
     notaire_vendeur: NOTAIRE,
-    notaire_acquereur: NOTAIRE,
+    notaire_acquereur: { ...NOTAIRE, description: "Notaire de l'acquéreur. Si l'acte ne désigne QU'UN SEUL notaire (il représente alors les deux parties), recopie ici les mêmes informations que notaire_vendeur." },
     bien: {
       type: "object", additionalProperties: false,
       properties: {
@@ -383,6 +383,7 @@ const COMPROMIS_SYSTEM = [
   "et le SYNDIC de copropriété (ou le président du lotissement/de l'ASL) avec ses coordonnées s'il est mentionné.",
   "Règles :",
   "- N'invente RIEN : champ vide (\"\") si l'information ne figure pas dans le document. Ne déduis jamais un délai non écrit.",
+  "- UN SEUL NOTAIRE désigné à l'acte = il représente le vendeur ET l'acquéreur : recopie alors les mêmes informations dans notaire_vendeur et notaire_acquereur.",
   "- Dates au format AAAA-MM-JJ. Si le document donne un délai (« dans les 60 jours »), calcule la date à partir de la date de",
   "  signature UNIQUEMENT si celle-ci est connue, sinon recopie le délai en toutes lettres dans le champ concerné.",
   "- Montants recopiés en chiffres avec le symbole € (ex. « 285 000 € »).",

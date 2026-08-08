@@ -201,7 +201,7 @@
     {
       name: "Envoi du dossier aux notaires", cible: "notaires",
       sujet: "Vente {{reference}} — {{adresse_bien}} : compromis signé, annexes et coordonnées des parties",
-      corps: "Bonjour Maîtres,\n\nDans le cadre de la vente citée en objet ({{reference}} — {{adresse_bien}}, compromis du {{date_compromis}}), je vous prie de bien vouloir trouver ci-après le lien pour télécharger le compromis de vente et les annexes signés ainsi que la preuve de dépôt de la SRU :\n\n[COLLEZ ICI LE LIEN DE TÉLÉCHARGEMENT]\n\n{{notaire_vendeur_nom}}, vous représentez le(s) vendeur(s) dont les coordonnées sont les suivantes :\n\n{{vendeurs_detail}}\n\n{{notaire_acquereur_nom}}, vous représentez le(s) acquéreur(s) dont les coordonnées sont les suivantes :\n\n{{acquereurs_detail}}\n\nVous en souhaitant bonne réception et restant à votre disposition,\n\n{{conseiller}}\n{{agence}}"
+      corps: "{{salutation_notaires}}\n\nDans le cadre de la vente citée en objet ({{reference}} — {{adresse_bien}}, compromis du {{date_compromis}}), je vous prie de bien vouloir trouver ci-après le lien pour télécharger le compromis de vente et les annexes signés ainsi que la preuve de dépôt de la SRU :\n\n[COLLEZ ICI LE LIEN DE TÉLÉCHARGEMENT]\n\n{{parties_detail}}\n\nVous en souhaitant bonne réception et restant à votre disposition,\n\n{{conseiller}}\n{{agence}}"
     },
     {
       name: "Demande d'envoi de la DIA", cible: "notaire_vendeur",
