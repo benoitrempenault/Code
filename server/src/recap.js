@@ -27,18 +27,37 @@ function deltaTxt(days) {
   return "dans " + days + " j";
 }
 
-// Compose le récap d'UNE agence (null si rien à signaler).
-export async function buildRecap(env, db, agency) {
+/* --------- À qui appartient un dossier : ses conseillers ---------------
+   Chaque conseiller ne reçoit QUE ses dossiers (initiales du dossier
+   rapprochées de son entrée « conseiller » dans l'annuaire, retrouvée par
+   e-mail). Les dossiers sans conseiller reconnu partent aux administrateurs
+   de l'agence, pour que personne ne les perde de vue.                    */
+const majuscules = (s) => String(s || "").trim().toUpperCase();
+export function initialesDuDossier(data) {
+  return [majuscules(data.conseiller_vendeur), majuscules(data.conseiller_acquereur)].filter(Boolean);
+}
+// Dossiers destinés à un utilisateur donné (lignes SQL + data déjà parsé).
+export function dossiersPourUtilisateur(dossiers, initiales, estAdmin, toutesInitiales) {
+  const mine = majuscules(initiales);
+  return dossiers.filter((dos) => {
+    const ini = initialesDuDossier(dos.data);
+    if (mine && ini.includes(mine)) return true;
+    // Dossier sans conseiller renseigné (ou initiales inconnues de l'agence) :
+    // il revient aux administrateurs.
+    const orphelin = !ini.length || !ini.some((i) => toutesInitiales.includes(i));
+    return estAdmin && orphelin;
+  });
+}
+
+// Compose le récap à partir d'une liste de dossiers (null si rien à signaler).
+export function buildRecapFrom(env, dossiers) {
   const base = String(env.SUIVI_BASE || "").replace(/\/$/, "");
   const today = todayParis();
-  const dossiers = await db.all(
-    "SELECT id, name, statut, updated_at, data FROM dossiers WHERE agency_id = ? AND statut IN ('en_cours','signe')",
-    [agency.id]);
 
   let nLate = 0, nSoon = 0;
   const blocs = [], stales = [];
   for (const dos of dossiers) {
-    let data; try { data = JSON.parse(dos.data); } catch (e) { continue; }
+    const data = dos.data;
     const acts = actionsFor(data, today).filter((a) => a.days != null && a.days <= 7);
     const lastJ = (data.journal || []).reduce((m, j) => Math.max(m, j.ts || 0), 0);
     const lien = base ? "\n   → " + base + "/#dossier/" + dos.id : "";
@@ -58,7 +77,7 @@ export async function buildRecap(env, db, agency) {
   if (!blocs.length && !stales.length) return null;
 
   const sujet = "Studio Suivi — " + (nLate + nSoon) + " action(s) à mener" + (nLate ? " dont " + nLate + " en retard" : "");
-  const texte = "Bonjour,\n\nVoici le point du jour sur les dossiers de vente de l'agence (" +
+  const texte = "Bonjour,\n\nVoici le point du jour sur vos dossiers de vente (" +
     new Date().toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", weekday: "long", day: "numeric", month: "long" }) + ") :\n\n" +
     (blocs.length ? "ACTIONS À MENER (retard + 7 prochains jours)\n\n" + blocs.join("\n\n") + "\n\n" : "") +
     (stales.length ? "POINTS D'ÉTAPE VENDEURS\n\n" + stales.join("\n\n") + "\n\n" : "") +
@@ -80,18 +99,56 @@ export async function envoyerMail(env, to, sujet, texte) {
   return !!(res && res.ok);
 }
 
+// Charge les dossiers ouverts d'une agence (data parsé) + l'annuaire des
+// conseillers, pour répartir le récap entre eux.
+export async function contexteAgence(db, agencyId) {
+  const rows = await db.all(
+    "SELECT id, name, statut, updated_at, data FROM dossiers WHERE agency_id = ? AND statut IN ('en_cours','signe')",
+    [agencyId]);
+  const dossiers = [];
+  for (const r of rows) {
+    try { dossiers.push({ ...r, data: JSON.parse(r.data) }); } catch (e) { /* dossier illisible : ignoré */ }
+  }
+  const conseillers = await db.all(
+    "SELECT nom, initiales, email FROM annuaire WHERE agency_id = ? AND type = 'conseiller'", [agencyId]);
+  const toutesInitiales = conseillers.map((c) => majuscules(c.initiales)).filter(Boolean);
+  const initialesDe = (email) => {
+    const e = String(email || "").toLowerCase();
+    const hit = conseillers.find((c) => String(c.email || "").toLowerCase() === e);
+    return hit ? majuscules(hit.initiales) : "";
+  };
+  return { dossiers, toutesInitiales, initialesDe };
+}
+
+// Récap d'UN utilisateur (ses dossiers uniquement). null si rien à signaler.
+export async function buildRecap(env, db, agency, user) {
+  const ctx = await contexteAgence(db, agency.id);
+  const mine = dossiersPourUtilisateur(
+    ctx.dossiers, ctx.initialesDe(user.email), user.role === "admin", ctx.toutesInitiales);
+  return buildRecapFrom(env, mine);
+}
+
 export async function runRecap(env, db) {
   const rows = await db.all("SELECT DISTINCT agency_id FROM dossiers WHERE statut IN ('en_cours','signe')", []);
   const results = [];
   for (const row of rows) {
     const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [row.agency_id]);
     if (!agency || !agencyOpen(agency)) continue;
-    const r = await buildRecap(env, db, agency);
-    if (!r) continue;
-    const users = await db.all("SELECT email FROM users WHERE agency_id = ?", [agency.id]);
-    const to = users.map((u) => u.email).filter(Boolean);
-    const sent = await envoyerMail(env, to, r.sujet, r.texte);
-    results.push({ agency: agency.id, actions: r.nLate + r.nSoon, retards: r.nLate, stales: r.stales, to, sent, sujet: r.sujet, texte: r.texte });
+    const ctx = await contexteAgence(db, agency.id);
+    const users = await db.all("SELECT email, role FROM users WHERE agency_id = ?", [agency.id]);
+    // Un e-mail par conseiller, avec SES dossiers (jamais ceux des autres).
+    for (const u of users) {
+      if (!u.email) continue;
+      const mine = dossiersPourUtilisateur(ctx.dossiers, ctx.initialesDe(u.email), u.role === "admin", ctx.toutesInitiales);
+      if (!mine.length) continue;
+      const r = buildRecapFrom(env, mine);
+      if (!r) continue;
+      const sent = await envoyerMail(env, [u.email], r.sujet, r.texte);
+      results.push({
+        agency: agency.id, to: [u.email], dossiers: mine.length,
+        actions: r.nLate + r.nSoon, retards: r.nLate, stales: r.stales, sent, sujet: r.sujet, texte: r.texte
+      });
+    }
   }
   return results;
 }

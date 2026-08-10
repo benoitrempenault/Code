@@ -622,8 +622,8 @@ export function createApp(env) {
   app.post("/recap/apercu", async (c) => {
     const ctx = await sessionFrom(c);
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
-    const r = await buildRecap(env, db, ctx.agency);
-    if (!r) return c.json({ ok: true, vide: true, message: "Rien à signaler aujourd'hui — aucun e-mail envoyé." });
+    const r = await buildRecap(env, db, ctx.agency, ctx.user);
+    if (!r) return c.json({ ok: true, vide: true, message: "Rien à signaler sur vos dossiers aujourd'hui — aucun e-mail envoyé." });
     const sent = await envoyerMail(env, [ctx.user.email], r.sujet, r.texte);
     return c.json({ ok: true, vide: false, sent, actions: r.nLate + r.nSoon, retards: r.nLate, sujet: r.sujet, texte: sent ? undefined : r.texte });
   });
