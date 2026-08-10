@@ -198,6 +198,9 @@
       notaire_vendeur: defNotaire(), notaire_acquereur: defNotaire(),
       sequestre: { montant: "", depositaire: "", delai: "" },
       syndic: { role: "", nom: "", telephone: "", email: "" },
+      equipements: { cheminee: false, chaudiere: false, climatisation: false },
+      entretiens: { ramonage: "", chaudiere: "", climatisation: "" },
+      diagnostics: {}, diag_presence: {},
       financement: { recours_pret: "", montant_pret: "", duree: "", taux_max: "", banques: "", date_limite_depot: "", date_limite_obtention: "" },
       conditions_suspensives: [],
       dates: {
@@ -701,6 +704,59 @@
       '<small style="color:var(--muted);font-size:11.5px">' + esc(hint) + "</small></div>";
   }
 
+  /* -------------- Entretiens obligatoires & diagnostics ------------------ */
+  // Pastille d'état commune : périmé (rouge), bientôt / avant l'acte (orange),
+  // valide (vert). `limite` = date de fin de validité, `cible` = date d'acte.
+  function statutValidite(exp, cible) {
+    if (!exp) return "";
+    const j = E.daysUntil(exp);
+    if (j < 0) return '<b style="color:var(--bad)">⚠ périmé le ' + E.fmtFr(exp) + "</b>";
+    if (cible && exp < cible) return '<b style="color:var(--bad)">⚠ expire le ' + E.fmtFr(exp) + " — avant la signature</b>";
+    if (j <= 30) return '<b style="color:var(--warn)">expire le ' + E.fmtFr(exp) + " (dans " + j + " j)</b>";
+    return '<span style="color:var(--ok)">valide jusqu\'au ' + E.fmtFr(exp) + "</span>";
+  }
+  const ENTRETIENS_UI = [
+    ["cheminee", "ramonage", "Cheminée / insert / poêle", "Dernier ramonage", 12],
+    ["chaudiere", "chaudiere", "Chaudière", "Dernier entretien", 12],
+    ["climatisation", "climatisation", "Climatisation / PAC", "Dernier entretien", 24]
+  ];
+  function entretiensHtml(d) {
+    const cible = E.dateActe(d);
+    return ENTRETIENS_UI.map(([eq, ent, titre, labelDate, mois]) => {
+      const dt = d.entretiens[ent] || "";
+      const exp = dt ? E.addMonths(dt, mois) : "";
+      return '<div class="annrow">' +
+        '<label style="flex:1 1 210px;display:flex;align-items:center;gap:8px;margin-bottom:0">' +
+        '<input type="checkbox" data-path-check="equipements.' + eq + '"' + (d.equipements[eq] ? " checked" : "") + " />" +
+        esc(titre) + "</label>" +
+        '<div class="field" style="flex:0 0 190px;margin-bottom:0"><label>' + esc(labelDate) + "</label>" +
+        '<input type="date" data-path="entretiens.' + ent + '" value="' + esc(dt) + '" /></div>' +
+        '<span style="flex:1 1 220px;font-size:12.5px">' + (d.equipements[eq] ? (statutValidite(exp, cible) || '<span style="color:var(--muted)">date à renseigner</span>') : '<span style="color:var(--muted)">équipement non concerné</span>') + "</span>" +
+        "</div>";
+    }).join("");
+  }
+  function diagsHtml(d) {
+    const cible = E.dateActe(d);
+    return E.DIAGS.map((x) => {
+      const dt = (d.diagnostics || {})[x.key] || "";
+      const exp = E.diagExpiration(d, x);
+      const presence = x.moisSiPresence
+        ? '<label style="flex:0 0 130px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-bottom:0">' +
+          '<input type="checkbox" data-path-check="diag_presence.' + x.key + '"' + ((d.diag_presence || {})[x.key] ? " checked" : "") + " /> présence</label>"
+        : "";
+      const etat = dt
+        ? (E.dureeDiag(d, x) ? statutValidite(exp, cible) : '<span style="color:var(--ok)">validité illimitée</span>')
+        : '<span style="color:var(--muted)">' + (x.note ? esc(x.note) : "non renseigné") + "</span>";
+      return '<div class="annrow">' +
+        '<span style="flex:1 1 180px;font-weight:500">' + esc(x.label) + "</span>" +
+        '<div class="field" style="flex:0 0 190px;margin-bottom:0"><label>Réalisé le</label>' +
+        '<input type="date" data-path="diagnostics.' + x.key + '" value="' + esc(dt) + '" /></div>' +
+        presence +
+        '<span style="flex:1 1 200px;font-size:12.5px">' + etat + "</span>" +
+        "</div>";
+    }).join("");
+  }
+
   async function openDossier(id) {
     const view = $("#view-dossier");
     view.innerHTML = '<p style="color:var(--muted)"><span class="spin"></span>Chargement du dossier…</p>';
@@ -885,6 +941,14 @@
       input("Acte signé le", "dates.signature_acte", d, "date") +
       "</div></div>" +
 
+      '<div class="card"><h3>🔧 Équipements &amp; entretiens</h3>' + entretiensHtml(d) +
+      '<p class="hintline">Cochez les équipements présents : l\'échéancier réclame alors le justificatif et alerte à l\'approche de la péremption ' +
+      "(ramonage et chaudière : un an ; climatisation / PAC : deux ans).</p></div>" +
+
+      '<div class="card"><h3>🧪 Diagnostics <span class="cnt">validité au jour de la signature</span></h3>' + diagsHtml(d) +
+      '<p class="hintline">Saisissez la date de réalisation : la date de fin de validité et l\'alerte se calculent seules. ' +
+      "Amiante et plomb sont illimités en l'absence d'anomalie — cochez « présence » pour ramener la validité à 3 ans / 1 an.</p></div>" +
+
       // Terrain : dates d'urbanisme (les purges se calculent sur l'affichage).
       (E.estTerrain(d)
         ? '<div class="card"><h3>🏗 Urbanisme (terrain)</h3><div class="grid3">' +
@@ -990,6 +1054,8 @@
       }
       // Initiales de conseiller : rafraîchit l'indication « → Nom · e-mail ».
       if (t.dataset.path === "conseiller_vendeur" || t.dataset.path === "conseiller_acquereur") { renderDossier(); return; }
+      // Dates d'entretien / de diagnostic : recalcule aussitôt la validité.
+      if (t.dataset.path && /^(diagnostics|entretiens)\./.test(t.dataset.path)) { markDirty(); renderDossier(); return; }
       // Une date clé modifiée met à jour le « fait le » de l'étape liée déjà cochée.
       if (t.dataset.path && DATE_STEP[t.dataset.path]) {
         const stepId = DATE_STEP[t.dataset.path];
@@ -1388,6 +1454,14 @@
     d.prix = { prix_vente: S(pr.prix_vente), honoraires: S(pr.honoraires), charge_honoraires: S(pr.charge_honoraires) };
     const sq = x.sequestre || {};
     d.sequestre = { montant: S(sq.montant), depositaire: S(sq.depositaire), delai: S(sq.delai) };
+    const eq = x.equipements || {};
+    d.equipements = {
+      cheminee: /^oui/i.test(S(eq.cheminee)), chaudiere: /^oui/i.test(S(eq.chaudiere)),
+      climatisation: /^oui/i.test(S(eq.climatisation))
+    };
+    const dg = x.diagnostics || {};
+    d.diagnostics = {};
+    E.DIAGS.forEach((y) => { if (S(dg[y.key])) d.diagnostics[y.key] = S(dg[y.key]); });
     const sy = x.syndic || {};
     d.syndic = {
       role: S(sy.role) || (S(sy.nom) ? "syndic" : ""),

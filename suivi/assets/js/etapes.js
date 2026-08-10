@@ -74,6 +74,48 @@
      DP 1 mois, PC 2 mois (maison individuelle), affichage sous 8 jours.
      Les purges courent 3 mois après l'affichage constaté par huissier.     */
   const estTerrain = (d) => /terrain/i.test(((d.bien && d.bien.type) || "") + " " + ((d.bien && d.bien.description) || ""));
+
+  /* ------------- Entretiens obligatoires & diagnostics -------------------
+     Entretiens : ramonage et chaudière = tous les ans, PAC/climatisation =
+     tous les 2 ans. Diagnostics : chacun doit être EN COURS DE VALIDITÉ le
+     jour de la signature — c'est cette date qui sert de référence.
+     Amiante et plomb sont illimités en l'absence d'anomalie ; cocher
+     « présence constatée » ramène la validité à 3 ans / 1 an.            */
+  const equip = (d, k) => !!(d.equipements && d.equipements[k]);
+  const ENTRETIENS = { ramonage: 12, chaudiere: 12, climatisation: 24 };
+
+  const DIAGS = [
+    { key: "dpe", label: "DPE", mois: 120 },
+    { key: "audit", label: "Audit énergétique", mois: 60 },
+    { key: "erp", label: "ERP (état des risques)", mois: 6 },
+    { key: "termites", label: "Termites", mois: 6 },
+    { key: "gaz", label: "Gaz", mois: 36 },
+    { key: "electricite", label: "Électricité", mois: 36 },
+    { key: "assainissement", label: "Assainissement (SPANC)", mois: 36 },
+    { key: "amiante", label: "Amiante", mois: 0, moisSiPresence: 36, note: "illimité si absence constatée, 3 ans en cas de présence" },
+    { key: "plomb", label: "Plomb (CREP)", mois: 0, moisSiPresence: 12, note: "illimité si absence, 1 an en cas de présence" },
+    { key: "carrez", label: "Surface (Carrez / Boutin)", mois: 0, note: "illimitée, sauf travaux modifiant la surface" }
+  ];
+  // Durée retenue pour un diagnostic (0 = pas d'alerte : validité illimitée).
+  function dureeDiag(d, x) {
+    if (x.moisSiPresence && d.diag_presence && d.diag_presence[x.key]) return x.moisSiPresence;
+    return x.mois;
+  }
+  // Date à laquelle les diagnostics doivent être valides : l'acte.
+  const dateActe = (d) => d.dates.signature_acte || d.dates.signature_prevue || d.date_butoir || "";
+  function diagExpiration(d, x) {
+    const dt = (d.diagnostics || {})[x.key];
+    const mois = dureeDiag(d, x);
+    return (dt && mois) ? addMonths(dt, mois) : "";
+  }
+  // Diagnostics qui ne tiendront pas jusqu'à la signature (ou déjà périmés).
+  function diagsARefaire(d) {
+    const cible = dateActe(d) || today();
+    return DIAGS.map((x) => {
+      const exp = diagExpiration(d, x);
+      return (exp && exp < cible) ? { key: x.key, label: x.label, exp } : null;
+    }).filter(Boolean);
+  }
   const dpDepot = (d) => d.dates.dp_depot || addDays(ssp(d), 15);
   const dpAccord = (d) => d.dates.dp_accord || addMonths(dpDepot(d), 1);
   const dpAffichage = (d) => d.dates.dp_affichage || addDays(dpAccord(d), 8);
@@ -163,6 +205,41 @@
         return dates.length ? dates[dates.length - 1] : addDays(ssp(d), 60);
       } },
 
+    { id: "ramonage", phase: "Entretiens & diagnostics",
+      label: (d) => d.entretiens.ramonage
+        ? "Ramonage — certificat du " + fmtFr(d.entretiens.ramonage) + " (valable un an)"
+        : "Certificat de ramonage à récupérer (cheminée / insert / poêle)",
+      due: (d) => d.entretiens.ramonage ? addMonths(d.entretiens.ramonage, ENTRETIENS.ramonage) : addDays(ssp(d), 15),
+      applies: (d) => equip(d, "cheminee") && !d.dates.signature_acte,
+      hint: "Ramonage annuel obligatoire (deux fois par an dans certains départements) : le certificat doit être à jour à la signature." },
+    { id: "entretien_chaudiere", phase: "Entretiens & diagnostics",
+      label: (d) => d.entretiens.chaudiere
+        ? "Entretien chaudière — attestation du " + fmtFr(d.entretiens.chaudiere) + " (valable un an)"
+        : "Attestation d'entretien de la chaudière à récupérer",
+      due: (d) => d.entretiens.chaudiere ? addMonths(d.entretiens.chaudiere, ENTRETIENS.chaudiere) : addDays(ssp(d), 15),
+      applies: (d) => equip(d, "chaudiere") && !d.dates.signature_acte,
+      hint: "Entretien annuel obligatoire (chaudières 4 à 400 kW)." },
+    { id: "entretien_clim", phase: "Entretiens & diagnostics",
+      label: (d) => d.entretiens.climatisation
+        ? "Entretien climatisation / PAC — attestation du " + fmtFr(d.entretiens.climatisation) + " (valable deux ans)"
+        : "Attestation d'entretien de la climatisation / PAC à récupérer",
+      due: (d) => d.entretiens.climatisation ? addMonths(d.entretiens.climatisation, ENTRETIENS.climatisation) : addDays(ssp(d), 15),
+      applies: (d) => equip(d, "climatisation") && !d.dates.signature_acte,
+      hint: "Entretien obligatoire tous les deux ans (pompes à chaleur et climatisations)." },
+    { id: "diagnostics", phase: "Entretiens & diagnostics",
+      label: (d) => {
+        const l = diagsARefaire(d);
+        return l.length
+          ? "Diagnostics à renouveler avant l'acte : " + l.map((x) => x.label + " (expire le " + fmtFr(x.exp) + ")").join(", ")
+          : "Diagnostics valides jusqu'à la signature";
+      },
+      due: (d) => {
+        const l = diagsARefaire(d).map((x) => x.exp).sort();
+        return l.length ? l[0] : "";
+      },
+      applies: (d) => Object.keys(d.diagnostics || {}).some((k) => d.diagnostics[k]) && !d.dates.signature_acte,
+      hint: "Chaque diagnostic doit être en cours de validité le jour de la signature (ERP et termites : 6 mois)." },
+
     { id: "projet_acte", phase: "Acte authentique", label: "Projet d'acte demandé et date de signature calée",
       cible: "notaire_vendeur", modele: "Demande du projet d'acte",
       due: (d) => d.date_butoir ? addDays(d.date_butoir, -21) : addDays(ssp(d), 70) },
@@ -176,8 +253,7 @@
       hint: "Renseignez la date prévue dans « Dates clés » ; appel de fonds du notaire quelques jours avant." },
     { id: "facture_emise", phase: "Acte authentique", label: "Facture d'honoraires agence éditée et envoyée au notaire",
       cible: "notaire_vendeur", modele: "Envoi de la facture au notaire",
-      due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 2) : (d.dates.signature_prevue || d.date_butoir || ""),
-      applies: (d) => !!d.dates.signature_acte || !!d.dates.signature_prevue || d.statut === "signe",
+      due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 2) : (d.dates.signature_prevue || d.date_butoir || addDays(ssp(d), 92)),
       hint: "Joindre la facture électronique et le RIB (KADIMA-TB › Kadima - General › ASSISTANTE › RIB AGENCE). Branchement de l'éditeur de facturation à venir." },
 
     { id: "appel_apres_vente", phase: "Après-vente", label: "Appel des clients après la vente",
@@ -210,7 +286,8 @@
         const s = st[e.id] || {};
         const due = s.due || (e.due ? e.due(d) : "");
         return {
-          def: e, id: e.id, label: e.label, phase: e.phase, cible: e.cible, hint: e.hint,
+          def: e, id: e.id, label: (typeof e.label === "function" ? e.label(d) : e.label),
+          phase: e.phase, cible: e.cible, hint: e.hint,
           modele: e.modele, modeles: e.modeles || (e.modele ? [e.modele] : []),
           done: !!s.done, date: s.date || "", note: s.note || "", due,
           relance: s.relance || null, // dernière relance envoyée depuis cette étape
@@ -336,5 +413,9 @@
     }
   ];
 
-  window.SuiviEtapes = { ETAPES, compute, nextDue, sante, DEFAULT_MODELES, estTerrain, addDays, addMonths, daysUntil, fmtFr, fmtIso, parseDate, today };
+  window.SuiviEtapes = {
+    ETAPES, compute, nextDue, sante, DEFAULT_MODELES, estTerrain,
+    DIAGS, dureeDiag, diagExpiration, dateActe, ENTRETIENS,
+    addDays, addMonths, daysUntil, fmtFr, fmtIso, parseDate, today
+  };
 })();

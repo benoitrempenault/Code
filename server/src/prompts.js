@@ -257,12 +257,35 @@ const COMPROMIS_SCHEMA = {
       },
       required: ["role", "nom", "adresse", "telephone", "email"]
     },
+    equipements: {
+      type: "object", additionalProperties: false,
+      description: "Équipements soumis à entretien obligatoire, d'après la désignation du bien, les diagnostics annexés et les déclarations du vendeur.",
+      properties: {
+        cheminee: { type: "string", description: "« oui » si le bien comporte une cheminée, un insert ou un poêle, sinon « non »." },
+        chaudiere: { type: "string", description: "« oui » si le bien comporte une chaudière (gaz, fioul, bois), sinon « non »." },
+        climatisation: { type: "string", description: "« oui » si le bien comporte une climatisation ou une pompe à chaleur, sinon « non »." }
+      },
+      required: ["cheminee", "chaudiere", "climatisation"]
+    },
+    diagnostics: {
+      type: "object", additionalProperties: false,
+      description: "Date de RÉALISATION de chaque diagnostic annexé au compromis (AAAA-MM-JJ), vide si le diagnostic n'est pas mentionné ou sans date.",
+      properties: {
+        dpe: { type: "string" }, audit: { type: "string", description: "Audit énergétique." },
+        erp: { type: "string", description: "État des risques et pollutions." },
+        termites: { type: "string" }, gaz: { type: "string" }, electricite: { type: "string" },
+        assainissement: { type: "string" }, amiante: { type: "string" }, plomb: { type: "string", description: "CREP." },
+        carrez: { type: "string", description: "Mesurage loi Carrez / Boutin." }
+      },
+      required: ["dpe", "audit", "erp", "termites", "gaz", "electricite", "assainissement", "amiante", "plomb", "carrez"]
+    },
     preemption: { type: "string", description: "Droit de préemption applicable (DPU, SAFER, locataire…) tel qu'indiqué, sinon vide." },
     date_butoir: { type: "string", description: "Date limite de réitération / signature de l'acte authentique (AAAA-MM-JJ)." },
     observations: { type: "string", description: "Autres points notables : servitudes, clauses particulières, travaux, occupation du bien, mobilier inclus… Une information par ligne." }
   },
   required: ["reference", "date_compromis", "vendeurs", "acquereurs", "notaire_vendeur", "notaire_acquereur",
-    "bien", "prix", "sequestre", "financement", "conditions_suspensives", "syndic", "preemption", "date_butoir", "observations"]
+    "bien", "prix", "sequestre", "financement", "conditions_suspensives", "syndic", "equipements", "diagnostics",
+    "preemption", "date_butoir", "observations"]
 };
 
 /* ---------------------------- Prompts système --------------------------- */
@@ -379,6 +402,8 @@ const COMPROMIS_SYSTEM = [
   "notaires des deux parties, désignation du bien, prix et honoraires, dépôt de garantie (séquestre), conditions suspensives",
   "(en particulier le financement : montant, durée, taux, dates limites), droit de préemption, date butoir de réitération,",
   "et le SYNDIC de copropriété (ou le président du lotissement/de l'ASL) avec ses coordonnées s'il est mentionné.",
+  "Relève aussi les ÉQUIPEMENTS soumis à entretien obligatoire (cheminée/insert/poêle, chaudière, climatisation/PAC) et la DATE DE RÉALISATION",
+  "de chaque diagnostic annexé (DPE, ERP, termites, gaz, électricité, amiante, plomb, assainissement, Carrez, audit énergétique).",
   "Règles :",
   "- N'invente RIEN : champ vide (\"\") si l'information ne figure pas dans le document. Ne déduis jamais un délai non écrit.",
   "- UN SEUL NOTAIRE désigné à l'acte = il représente le vendeur ET l'acquéreur : recopie alors les mêmes informations dans notaire_vendeur et notaire_acquereur.",
