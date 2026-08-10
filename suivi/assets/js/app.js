@@ -183,7 +183,9 @@
   }
 
   function defPartie() { return { nom: "", adresse: "", telephone: "", email: "", naissance: "", situation: "" }; }
-  function defNotaire() { return { nom: "", ville: "", adresse: "", telephone: "", email: "" }; }
+  // Le clerc en charge du dossier est propre au dossier (il change d'une
+  // vente à l'autre) : il n'est jamais enregistré dans l'annuaire.
+  function defNotaire() { return { nom: "", ville: "", adresse: "", telephone: "", email: "", clerc: "", clerc_email: "" }; }
   function newDossier() {
     return {
       _app: "studio-suivi", version: 1,
@@ -678,6 +680,10 @@
       input("Téléphone", key + ".telephone", d) +
       "</div>" +
       input("E-mail", key + ".email", d, "email") +
+      '<div class="grid2">' +
+      input("Clerc en charge", key + ".clerc", d) +
+      input("E-mail du clerc", key + ".clerc_email", d, "email") +
+      "</div>" +
       "</div>";
   }
   // Champ « conseiller (initiales) » relié à l'annuaire : on affiche à qui
@@ -1076,14 +1082,22 @@
 
   /* --------------------------- Relances e-mail ---------------------------- */
   function joinNoms(arr) { return (arr || []).map((p) => p.nom).filter(Boolean).join(" et "); }
+  // Adresses d'une étude : le notaire (dossier, sinon annuaire) ET son clerc
+  // en charge du dossier (saisi au dossier uniquement, jamais dans l'annuaire).
+  function mailsEtude(d, key) {
+    const n = d[key] || {};
+    const notaire = (n.email || "").trim() || ((annFuzzy(["notaire"], n.nom) || {}).email || "");
+    return [notaire, (n.clerc_email || "").trim()].filter(Boolean);
+  }
+  const joinMails = (arr) => Array.from(new Set(arr.filter(Boolean))).join("; ");
+
   function recipientFor(d, cible) {
     if (cible === "notaires") {
-      // Les deux études en destinataires (dédoublonnées).
-      const both = [recipientFor(d, "notaire_vendeur"), recipientFor(d, "notaire_acquereur")].filter(Boolean);
-      return Array.from(new Set(both)).join("; ");
+      // Les deux études (notaires + clercs), dédoublonnées.
+      return joinMails(mailsEtude(d, "notaire_vendeur").concat(mailsEtude(d, "notaire_acquereur")));
     }
-    if (cible === "notaire_vendeur") return d.notaire_vendeur.email || (annFuzzy(["notaire"], d.notaire_vendeur.nom) || {}).email || "";
-    if (cible === "notaire_acquereur") return d.notaire_acquereur.email || (annFuzzy(["notaire"], d.notaire_acquereur.nom) || {}).email || recipientFor(d, "notaire_vendeur");
+    if (cible === "notaire_vendeur") return joinMails(mailsEtude(d, "notaire_vendeur"));
+    if (cible === "notaire_acquereur") return joinMails(mailsEtude(d, "notaire_acquereur")) || recipientFor(d, "notaire_vendeur");
     if (cible === "acquereur") return (d.acquereurs || []).map((p) => p.email).filter(Boolean).join("; ");
     if (cible === "vendeur") return (d.vendeurs || []).map((p) => p.email).filter(Boolean).join("; ");
     if (cible === "conseiller_vendeur") return (annConseiller(d.conseiller_vendeur) || {}).email || "";
@@ -1099,7 +1113,7 @@
       };
       for (const key of ["notaire_vendeur", "notaire_acquereur"]) {
         const w = lastWord(d[key].nom);
-        if (w && depo.includes(w)) return d[key].email || (annByNom(["notaire"], d[key].nom) || {}).email || "";
+        if (w && depo.includes(w)) return joinMails(mailsEtude(d, key));
       }
       const hit = annOf("notaire").find((a) => { const w = lastWord(a.nom); return w && depo.includes(w); });
       if (hit && hit.email) return hit.email;
