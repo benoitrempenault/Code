@@ -17,6 +17,14 @@ function addDays(s, n) {
   const t = parseDate(s);
   return t == null ? "" : fmtIso(t + n * 86400000);
 }
+function addMonths(s, n) {
+  const t = parseDate(s);
+  if (t == null) return "";
+  const d = new Date(t), jour = d.getUTCDate();
+  d.setUTCMonth(d.getUTCMonth() + n);
+  if (d.getUTCDate() < jour) d.setUTCDate(0);
+  return fmtIso(d.getTime());
+}
 // « Aujourd'hui » au sens de l'agence (heure de Paris), pas de l'UTC du cron.
 export function todayParis() {
   return new Date().toLocaleDateString("fr-CA", { timeZone: "Europe/Paris" });
@@ -35,6 +43,16 @@ export function fmtFr(s) {
 const ssp = (d) => d.date_compromis || "";
 const finRetract = (d) => (d.dates && d.dates.presentation_sru) ? addDays(d.dates.presentation_sru, 11) : addDays(ssp(d), 14);
 const pret = (d) => (d.financement && d.financement.recours_pret === "oui");
+// Urbanisme (terrains) : mêmes règles que le client — DP puis PC, purges à
+// 3 mois de l'affichage constaté.
+const estTerrain = (d) => /terrain/i.test(((d.bien && d.bien.type) || "") + " " + ((d.bien && d.bien.description) || ""));
+const dt = (d, k) => (d.dates && d.dates[k]) || "";
+const dpDepot = (d) => dt(d, "dp_depot") || addDays(ssp(d), 15);
+const dpAccord = (d) => dt(d, "dp_accord") || addMonths(dpDepot(d), 1);
+const dpAffichage = (d) => dt(d, "dp_affichage") || addDays(dpAccord(d), 8);
+const pcDepot = (d) => dt(d, "pc_depot") || addDays(ssp(d), 30);
+const pcAccord = (d) => dt(d, "pc_accord") || addMonths(pcDepot(d), 2);
+const pcAffichage = (d) => dt(d, "pc_affichage") || addDays(pcAccord(d), 8);
 
 const ETAPES = [
   { id: "envoi_sru", label: "Notification SRU envoyée (LRAR / AR24)", due: (d) => addDays(ssp(d), 2) },
@@ -48,6 +66,14 @@ const ETAPES = [
   { id: "envoi_dia", label: "DIA envoyée en mairie par le notaire", due: (d) => addDays(ssp(d), 15) },
   { id: "purge_dia", label: "Droit de préemption purgé (2 mois)",
     due: (d) => (d.dates && d.dates.envoi_dia) ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77) },
+  { id: "dp_depot", label: "Déclaration préalable (DP) déposée en mairie", due: dpDepot, applies: estTerrain },
+  { id: "dp_accord", label: "Accord de la DP (non-opposition) obtenu", due: dpAccord, applies: estTerrain },
+  { id: "dp_affichage", label: "Affichage de la DP + constat d'huissier", due: dpAffichage, applies: estTerrain },
+  { id: "dp_purgee", label: "DP purgée de tout recours", due: (d) => addMonths(dpAffichage(d), 3), applies: estTerrain },
+  { id: "pc_depot", label: "Permis de construire (PC) déposé", due: pcDepot, applies: estTerrain },
+  { id: "pc_accord", label: "PC accordé", due: pcAccord, applies: estTerrain },
+  { id: "pc_affichage", label: "Affichage du PC + constat d'huissier", due: pcAffichage, applies: estTerrain },
+  { id: "pc_purge", label: "PC purgé de tout recours", due: (d) => addMonths(pcAffichage(d), 3), applies: estTerrain },
   { id: "pret_depot", label: "Dossier de prêt déposé par l'acquéreur",
     due: (d) => (d.financement && parseDate(d.financement.date_limite_depot) != null) ? d.financement.date_limite_depot : addDays(ssp(d), 10),
     applies: pret },

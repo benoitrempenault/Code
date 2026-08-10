@@ -198,7 +198,10 @@
       syndic: { role: "", nom: "", telephone: "", email: "" },
       financement: { recours_pret: "", montant_pret: "", duree: "", taux_max: "", banques: "", date_limite_depot: "", date_limite_obtention: "" },
       conditions_suspensives: [],
-      dates: { envoi_sru: "", presentation_sru: "", envoi_notaires: "", envoi_dia: "", ar_dia: "", signature_prevue: "", signature_acte: "" },
+      dates: {
+        envoi_sru: "", presentation_sru: "", envoi_notaires: "", envoi_dia: "", ar_dia: "", signature_prevue: "", signature_acte: "",
+        dp_depot: "", dp_accord: "", dp_affichage: "", pc_depot: "", pc_accord: "", pc_affichage: ""
+      },
       etapes: {}, journal: [], observations: "", echeance: ""
     };
   }
@@ -876,6 +879,19 @@
       input("Acte signé le", "dates.signature_acte", d, "date") +
       "</div></div>" +
 
+      // Terrain : dates d'urbanisme (les purges se calculent sur l'affichage).
+      (E.estTerrain(d)
+        ? '<div class="card"><h3>🏗 Urbanisme (terrain)</h3><div class="grid3">' +
+          input("DP déposée le", "dates.dp_depot", d, "date") +
+          input("Accord DP le", "dates.dp_accord", d, "date") +
+          input("Affichage DP + constat", "dates.dp_affichage", d, "date") +
+          input("PC déposé le", "dates.pc_depot", d, "date") +
+          input("PC accordé le", "dates.pc_accord", d, "date") +
+          input("Affichage PC + constat", "dates.pc_affichage", d, "date") +
+          '</div><p class="hintline">Les purges (DP et PC) se calculent à 3 mois après la date d\'affichage constatée par huissier. ' +
+          "Cocher l'étape d'affichage dans l'échéancier renseigne automatiquement la date ici.</p></div>"
+        : "") +
+
       "</div>" + // grid2
 
       // Suggestions issues de l'annuaire partagé (notaires, conseillers, syndics).
@@ -891,7 +907,9 @@
   const STEP_DATE = {
     envoi_sru: "dates.envoi_sru", envoi_notaires: "dates.envoi_notaires",
     retour_sru: "dates.presentation_sru", envoi_dia: "dates.envoi_dia",
-    signature: "dates.signature_acte"
+    signature: "dates.signature_acte",
+    dp_depot: "dates.dp_depot", dp_accord: "dates.dp_accord", dp_affichage: "dates.dp_affichage",
+    pc_depot: "dates.pc_depot", pc_accord: "dates.pc_accord", pc_affichage: "dates.pc_affichage"
   };
   const DATE_STEP = {};
   Object.keys(STEP_DATE).forEach((k) => { DATE_STEP[STEP_DATE[k]] = k; });

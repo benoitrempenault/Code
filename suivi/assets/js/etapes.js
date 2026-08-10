@@ -34,6 +34,14 @@
     d.setDate(d.getDate() + n);
     return fmtIso(d);
   }
+  function addMonths(s, n) {
+    const d = parseDate(s);
+    if (!d) return "";
+    const jour = d.getDate();
+    d.setMonth(d.getMonth() + n);
+    if (d.getDate() < jour) d.setDate(0); // 31 → dernier jour du mois plus court
+    return fmtIso(d);
+  }
   function fmtFr(s) {
     const d = parseDate(s);
     if (!d) return "";
@@ -59,6 +67,19 @@
   const ssp = (d) => d.date_compromis || "";
   const finRetract = (d) => d.dates.presentation_sru ? addDays(d.dates.presentation_sru, 11) : addDays(ssp(d), 14);
   const pret = (d) => (d.financement && d.financement.recours_pret === "oui");
+
+  /* -------- Urbanisme : uniquement pour les terrains (DP puis PC) --------
+     Les étapes s'enchaînent sur les dates réelles dès qu'elles sont saisies
+     (dépôt, accord, affichage) ; sinon sur des délais d'instruction usuels :
+     DP 1 mois, PC 2 mois (maison individuelle), affichage sous 8 jours.
+     Les purges courent 3 mois après l'affichage constaté par huissier.     */
+  const estTerrain = (d) => /terrain/i.test(((d.bien && d.bien.type) || "") + " " + ((d.bien && d.bien.description) || ""));
+  const dpDepot = (d) => d.dates.dp_depot || addDays(ssp(d), 15);
+  const dpAccord = (d) => d.dates.dp_accord || addMonths(dpDepot(d), 1);
+  const dpAffichage = (d) => d.dates.dp_affichage || addDays(dpAccord(d), 8);
+  const pcDepot = (d) => d.dates.pc_depot || addDays(ssp(d), 30);
+  const pcAccord = (d) => d.dates.pc_accord || addMonths(pcDepot(d), 2);
+  const pcAffichage = (d) => d.dates.pc_affichage || addDays(pcAccord(d), 8);
 
   const ETAPES = [
     { id: "envoi_sru", phase: "Notification & rétractation", label: "Notification SRU envoyée (LRAR / AR24, annexes complètes)",
@@ -92,6 +113,31 @@
     { id: "purge_dia", phase: "Préemption (DIA)", label: "Droit de préemption purgé (réponse mairie ou silence 2 mois)",
       cible: "notaire_vendeur", modele: "Relance DIA",
       due: (d) => d.dates.envoi_dia ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77) },
+
+    { id: "dp_depot", phase: "Urbanisme (terrain)", label: "Déclaration préalable (DP) déposée en mairie",
+      due: (d) => dpDepot(d), applies: estTerrain,
+      hint: "Division / détachement de parcelle — récupérer le récépissé de dépôt." },
+    { id: "dp_accord", phase: "Urbanisme (terrain)", label: "Accord de la DP (non-opposition) obtenu",
+      due: (d) => dpAccord(d), applies: estTerrain,
+      hint: "Instruction d'un mois : le silence de la mairie vaut non-opposition." },
+    { id: "dp_affichage", phase: "Urbanisme (terrain)", label: "Affichage de la DP sur le terrain + constat d'huissier",
+      due: (d) => dpAffichage(d), applies: estTerrain,
+      hint: "C'est l'affichage constaté qui fait courir le délai de purge — cochez-le à la date réelle." },
+    { id: "dp_purgee", phase: "Urbanisme (terrain)", label: "DP purgée de tout recours",
+      due: (d) => addMonths(dpAffichage(d), 3), applies: estTerrain,
+      hint: "3 mois après l'affichage constaté par huissier." },
+    { id: "pc_depot", phase: "Urbanisme (terrain)", label: "Permis de construire (PC) déposé",
+      cible: "acquereur", due: (d) => pcDepot(d), applies: estTerrain,
+      hint: "Dépôt par l'acquéreur — demander le récépissé." },
+    { id: "pc_accord", phase: "Urbanisme (terrain)", label: "PC accordé",
+      due: (d) => pcAccord(d), applies: estTerrain,
+      hint: "Instruction de deux mois pour une maison individuelle." },
+    { id: "pc_affichage", phase: "Urbanisme (terrain)", label: "Affichage du PC sur le terrain + constat d'huissier",
+      due: (d) => pcAffichage(d), applies: estTerrain,
+      hint: "Panneau réglementaire + constat : point de départ de la purge." },
+    { id: "pc_purge", phase: "Urbanisme (terrain)", label: "PC purgé de tout recours",
+      due: (d) => addMonths(pcAffichage(d), 3), applies: estTerrain,
+      hint: "3 mois après l'affichage constaté (recours des tiers 2 mois, retrait administratif 3 mois)." },
 
     { id: "pret_depot", phase: "Financement", label: "Dossier de prêt déposé par l'acquéreur (justificatif)",
       cible: "acquereur", modele: "Relance dépôt du dossier de prêt",
@@ -128,6 +174,11 @@
     { id: "signature", phase: "Acte authentique", label: "Acte authentique signé (réitération)",
       due: (d) => d.dates.signature_prevue || d.date_butoir || addDays(ssp(d), 92),
       hint: "Renseignez la date prévue dans « Dates clés » ; appel de fonds du notaire quelques jours avant." },
+    { id: "facture_emise", phase: "Acte authentique", label: "Facture d'honoraires agence éditée et envoyée au notaire",
+      cible: "notaire_vendeur", modele: "Envoi de la facture au notaire",
+      due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 2) : (d.dates.signature_prevue || d.date_butoir || ""),
+      applies: (d) => !!d.dates.signature_acte || !!d.dates.signature_prevue || d.statut === "signe",
+      hint: "Joindre la facture électronique et le RIB (KADIMA-TB › Kadima - General › ASSISTANTE › RIB AGENCE). Branchement de l'éditeur de facturation à venir." },
 
     { id: "appel_apres_vente", phase: "Après-vente", label: "Appel des clients après la vente",
       cible: "vendeur", due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 7) : "",
@@ -136,11 +187,6 @@
       cible: "acquereur", modeles: ["Demande d'avis client", "Demande d'avis client vendeur"],
       due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 10) : "",
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe" },
-    { id: "facture_emise", phase: "Après-vente", label: "Facture d'honoraires agence éditée et envoyée au notaire",
-      cible: "notaire_vendeur", modele: "Envoi de la facture au notaire",
-      due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 2) : "",
-      applies: (d) => !!d.dates.signature_acte || d.statut === "signe",
-      hint: "Joindre la facture électronique et le RIB (KADIMA-TB › Kadima - General › ASSISTANTE › RIB AGENCE). Branchement de l'éditeur de facturation à venir." },
     { id: "facture_payee", phase: "Après-vente", label: "Facture agence payée (honoraires encaissés)",
       due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 15) : "",
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe",
@@ -290,5 +336,5 @@
     }
   ];
 
-  window.SuiviEtapes = { ETAPES, compute, nextDue, sante, DEFAULT_MODELES, addDays, daysUntil, fmtFr, fmtIso, parseDate, today };
+  window.SuiviEtapes = { ETAPES, compute, nextDue, sante, DEFAULT_MODELES, estTerrain, addDays, addMonths, daysUntil, fmtFr, fmtIso, parseDate, today };
 })();
