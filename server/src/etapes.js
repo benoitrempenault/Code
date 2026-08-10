@@ -83,6 +83,8 @@ const ETAPES = [
   { id: "envoi_dia", label: "DIA envoyée en mairie par le notaire", due: (d) => addDays(ssp(d), 15) },
   { id: "purge_dia", label: "Droit de préemption purgé (2 mois)",
     due: (d) => (d.dates && d.dates.envoi_dia) ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77) },
+  { id: "cs_urbanisme", label: "Certificat d'urbanisme obtenu", due: (d) => addDays(ssp(d), 60) },
+  { id: "cs_hypotheque", label: "État hypothécaire obtenu", due: (d) => addDays(ssp(d), 45) },
   { id: "dp_depot", label: "Déclaration préalable (DP) déposée en mairie", due: dpDepot, applies: estTerrain },
   { id: "dp_accord", label: "Accord de la DP (non-opposition) obtenu", due: dpAccord, applies: estTerrain },
   { id: "dp_affichage", label: "Affichage de la DP + constat d'huissier", due: dpAffichage, applies: estTerrain },
@@ -101,11 +103,6 @@ const ETAPES = [
   { id: "pret_acceptation", label: "Offre acceptée — condition levée",
     due: (d) => (d.financement && parseDate(d.financement.date_limite_obtention) != null) ? d.financement.date_limite_obtention : addDays(ssp(d), 56),
     applies: pret },
-  { id: "conditions", label: "Toutes les conditions suspensives levées",
-    due: (d) => {
-      const dates = ((d.conditions_suspensives || []).map((x) => x.echeance).filter((x) => parseDate(x) != null)).sort();
-      return dates.length ? dates[dates.length - 1] : addDays(ssp(d), 60);
-    } },
   // Entretiens obligatoires (ramonage / chaudière : 1 an ; clim-PAC : 2 ans)
   // et diagnostics, qui doivent être valides le jour de la signature.
   { id: "ramonage", label: "Ramonage annuel — certificat à jour",

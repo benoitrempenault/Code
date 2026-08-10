@@ -152,9 +152,6 @@
       cible: "notaire_vendeur", modele: "Relance DIA",
       due: (d) => addDays(ssp(d), 15),
       hint: "LA relance qui fait gagner un mois : vérifier l'envoi à J+15, demander une renonciation expresse si possible." },
-    { id: "purge_dia", phase: "Préemption (DIA)", label: "Droit de préemption purgé (réponse mairie ou silence 2 mois)",
-      cible: "notaire_vendeur", modele: "Relance DIA",
-      due: (d) => d.dates.envoi_dia ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77) },
 
     { id: "dp_depot", phase: "Urbanisme (terrain)", label: "Déclaration préalable (DP) déposée en mairie",
       due: (d) => dpDepot(d), applies: estTerrain,
@@ -198,12 +195,18 @@
       applies: pret,
       hint: "L'offre ne peut être acceptée qu'à partir du 11e jour après réception — demander copie de l'acceptation datée." },
 
-    { id: "conditions", phase: "Conditions suspensives", label: "Toutes les conditions suspensives levées",
-      cible: "notaire_vendeur",
-      due: (d) => {
-        const dates = (d.conditions_suspensives || []).map((x) => x.echeance).filter((x) => parseDate(x)).sort();
-        return dates.length ? dates[dates.length - 1] : addDays(ssp(d), 60);
-      } },
+    { id: "purge_dia", phase: "Conditions suspensives", label: "Droit de préemption purgé (réponse de la mairie ou silence de 2 mois)",
+      cible: "notaire_vendeur", modele: "Relance DIA",
+      due: (d) => d.dates.envoi_dia ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77),
+      hint: "Court à compter de l'envoi de la DIA : renseignez cette date pour un calcul juste." },
+    { id: "cs_urbanisme", phase: "Conditions suspensives", label: "Certificat d'urbanisme obtenu (pas de servitude ni de projet gênant)",
+      cible: "notaire_vendeur", modele: "Relance pièces du notaire",
+      due: (d) => addDays(ssp(d), 60),
+      hint: "Demandé en mairie par le notaire : instruction d'un mois (CU d'information) à deux mois (CU opérationnel)." },
+    { id: "cs_hypotheque", phase: "Conditions suspensives", label: "État hypothécaire obtenu (absence d'inscription non purgeable)",
+      cible: "notaire_vendeur", modele: "Relance pièces du notaire",
+      due: (d) => addDays(ssp(d), 45),
+      hint: "Relevé des inscriptions demandé par le notaire au service de la publicité foncière." },
 
     { id: "ramonage", phase: "Entretiens & diagnostics",
       label: (d) => d.entretiens.ramonage
@@ -360,6 +363,11 @@
       name: "Relance offre de prêt", cible: "acquereur",
       sujet: "Votre achat {{adresse_bien}} — Offre de prêt et levée de la condition suspensive",
       corps: "Bonjour,\n\nL'échéance de la condition suspensive de prêt de votre compromis approche ({{echeance_pret}}).\n\nAvez-vous reçu votre offre de prêt ? Pour rappel, elle ne peut être acceptée qu'à compter du 11e jour suivant sa réception : pensez à nous transmettre, ainsi qu'au notaire, la copie de l'offre puis de son acceptation datée — c'est elle qui lève officiellement la condition suspensive.\n\nSi l'offre tarde, dites-le-nous vite : nous préparerons si besoin un avenant de prorogation avec les notaires.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+    },
+    {
+      name: "Relance pièces du notaire", cible: "notaire_vendeur",
+      sujet: "Vente {{reference}} — Pièces du dossier (urbanisme, hypothèques, préemption)",
+      corps: "Maître,\n\nDans le cadre de la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}), pourriez-vous nous indiquer où en sont les pièces conditionnant la vente :\n\n- le certificat d'urbanisme,\n- l'état hypothécaire,\n- la purge du droit de préemption (DIA).\n\nLa signature est envisagée autour du {{signature_prevue}} (date butoir : {{date_butoir}}) : merci de nous signaler tout point susceptible de retarder ce calendrier.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
     },
     {
       name: "Demande du projet d'acte", cible: "notaire_vendeur",
