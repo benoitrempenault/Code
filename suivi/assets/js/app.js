@@ -102,19 +102,59 @@
     if (!nom) return null;
     return annuaire.find((a) => types.includes(a.type) && a.nom.toLowerCase() === nom) || null;
   }
+  // Mot normalisé : minuscules, sans accents ni ponctuation.
+  function normMot(w) {
+    return String(w || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "");
+  }
+  // Mots significatifs d'un nom, titres et formes juridiques retirés
+  // (« Me Bertrand NAUTIACQ » → ["bertrand", "nautiacq"]).
+  const MOTS_VIDES = /^(me|mes|maitre|maitres|notaire|notaires|etude|office|notarial|notariale|scp|selarl|selas|sarl|sas|sa|et|de|du|des|la|le|les|d)$/;
+  function motsNom(nom) {
+    return String(nom || "").trim().split(/[\s,'’.-]+/).map(normMot).filter((w) => w && !MOTS_VIDES.test(w));
+  }
   // Dernier mot significatif d'un nom (« Me Bertrand NAUTIACQ » → nautiacq).
   function motCle(nom) {
-    const parts = String(nom || "").trim().split(/\s+/).filter((w) => w.length >= 3 && !/^(me|maitre|maître)$/i.test(w));
-    return (parts[parts.length - 1] || "").toLowerCase();
+    const parts = motsNom(nom);
+    return parts[parts.length - 1] || "";
   }
-  // Correspondance souple : exacte d'abord, puis par dernier mot du nom —
-  // ainsi « Me Bertrand NAUTIACQ » (dossier) retrouve « Me NAUTIACQ » (annuaire).
+  // Un mot en couvre un autre : identiques, ou l'un est l'initiale de l'autre
+  // (« B. NAUTIACQ » ↔ « Bertrand NAUTIACQ »).
+  function motCouvre(a, b) {
+    if (a === b) return true;
+    if (a.length === 1) return b.indexOf(a) === 0;
+    if (b.length === 1) return a.indexOf(b) === 0;
+    return false;
+  }
+  // Deux noms peuvent-ils désigner la même personne ? Tous les mots du nom le
+  // plus court doivent être couverts par le plus long : « Me NAUTIACQ » ↔
+  // « Me Bertrand NAUTIACQ » oui, mais « Antoine PULON » ↔ « Bertrand PULON »
+  // non — même famille, notaires différents.
+  function nomsCompatibles(a, b) {
+    const A = motsNom(a), B = motsNom(b);
+    if (!A.length || !B.length) return false;
+    const court = A.length <= B.length ? A : B;
+    const reste = (A.length <= B.length ? B : A).slice();
+    return court.every((w) => {
+      const i = reste.findIndex((x) => motCouvre(w, x));
+      if (i < 0) return false;
+      reste.splice(i, 1);
+      return true;
+    });
+  }
+  // Correspondance souple : exacte d'abord, puis par nom compatible — ainsi
+  // « Me Bertrand NAUTIACQ » (dossier) retrouve « Me NAUTIACQ » (annuaire).
+  // En cas d'homonymes (même patronyme, prénoms différents), on ne devine pas.
   function annFuzzy(types, nom) {
     const exact = annByNom(types, nom);
     if (exact) return exact;
-    const w = motCle(nom);
-    if (!w) return null;
-    return annuaire.find((a) => types.includes(a.type) && motCle(a.nom) === w) || null;
+    const n = motsNom(nom).length;
+    if (!n) return null;
+    const cand = annuaire.filter((a) => types.includes(a.type) && nomsCompatibles(a.nom, nom));
+    if (cand.length <= 1) return cand[0] || null;
+    // Plusieurs fiches compatibles : on ne retient que celle qui a exactement
+    // le même niveau de détail (prénom compris), sinon rien.
+    const precis = cand.filter((a) => motsNom(a.nom).length === n);
+    return precis.length === 1 ? precis[0] : null;
   }
   // Complète depuis l'annuaire les coordonnées vides des notaires et du
   // syndic d'un dossier (jamais d'écrasement). Renvoie vrai si modifié.
@@ -264,6 +304,11 @@
       if (seq && !modeles.some((m) => m.name === "Relance séquestre acquéreur")) {
         const def = E.DEFAULT_MODELES.find((m) => m.name === "Relance séquestre acquéreur");
         if (def) { await api("/modeles", { method: "PUT", json: def }); modeles = (await api("/modeles")).modeles || modeles; }
+      }
+      // Modèle « pièces du notaire » (CU, hypothèques, préemption) : ajouté si absent.
+      if (!modeles.some((m) => m.name === "Relance pièces du notaire")) {
+        const defP2 = E.DEFAULT_MODELES.find((m) => m.name === "Relance pièces du notaire");
+        if (defP2) { await api("/modeles", { method: "PUT", json: defP2 }); modeles = (await api("/modeles")).modeles || modeles; }
       }
       // Variante vendeur de la demande d'avis : ajoutée si absente.
       if (modeles.some((m) => m.name === "Demande d'avis client") && !modeles.some((m) => m.name === "Demande d'avis client vendeur")) {
@@ -1254,8 +1299,9 @@
   // Un seul notaire au dossier (même étude des deux côtés, ou une seule
   // renseignée) : il représente le vendeur ET l'acquéreur.
   function notaireUnique(d) {
-    const a = motCle(d.notaire_vendeur.nom), b = motCle(d.notaire_acquereur.nom);
-    return !a || !b || a === b;
+    const a = d.notaire_vendeur.nom, b = d.notaire_acquereur.nom;
+    if (!motCle(a) || !motCle(b)) return true;
+    return nomsCompatibles(a, b);
   }
   // Bloc « Maître X, vous représentez… » du mail d'envoi aux notaires,
   // adapté au cas d'un notaire unique pour les deux parties.
