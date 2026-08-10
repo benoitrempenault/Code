@@ -720,41 +720,58 @@
     ["chaudiere", "chaudiere", "Chaudière", "Dernier entretien", 12],
     ["climatisation", "climatisation", "Climatisation / PAC", "Dernier entretien", 24]
   ];
+  // Seuls les équipements présents au bien sont listés (les autres s'ajoutent
+  // au besoin) — le compromis les renseigne le plus souvent tout seul.
   function entretiensHtml(d) {
     const cible = E.dateActe(d);
-    return ENTRETIENS_UI.map(([eq, ent, titre, labelDate, mois]) => {
+    const presents = ENTRETIENS_UI.filter(([eq]) => d.equipements[eq]);
+    const rows = presents.map(([eq, ent, titre, labelDate, mois]) => {
       const dt = d.entretiens[ent] || "";
       const exp = dt ? E.addMonths(dt, mois) : "";
       return '<div class="annrow">' +
-        '<label style="flex:1 1 210px;display:flex;align-items:center;gap:8px;margin-bottom:0">' +
-        '<input type="checkbox" data-path-check="equipements.' + eq + '"' + (d.equipements[eq] ? " checked" : "") + " />" +
-        esc(titre) + "</label>" +
+        '<span style="flex:1 1 200px;font-weight:500">' + esc(titre) + "</span>" +
         '<div class="field" style="flex:0 0 190px;margin-bottom:0"><label>' + esc(labelDate) + "</label>" +
         '<input type="date" data-path="entretiens.' + ent + '" value="' + esc(dt) + '" /></div>' +
-        '<span style="flex:1 1 220px;font-size:12.5px">' + (d.equipements[eq] ? (statutValidite(exp, cible) || '<span style="color:var(--muted)">date à renseigner</span>') : '<span style="color:var(--muted)">équipement non concerné</span>') + "</span>" +
+        '<span style="flex:1 1 220px;font-size:12.5px">' + (statutValidite(exp, cible) || '<span style="color:var(--muted)">date à renseigner</span>') + "</span>" +
+        '<button class="btn btn--sm btn--danger" data-rm-equip="' + eq + '" title="Cet équipement n\'est pas au bien">✕</button>' +
         "</div>";
     }).join("");
+    const absents = ENTRETIENS_UI.filter(([eq]) => !d.equipements[eq]);
+    const ajout = absents.length
+      ? '<select class="addrow" data-add-equip style="margin-top:8px;max-width:280px"><option value="">＋ Ajouter un équipement…</option>' +
+        absents.map(([eq, , titre]) => '<option value="' + eq + '">' + esc(titre) + "</option>").join("") + "</select>"
+      : "";
+    return (rows || '<p class="hintline">Aucun équipement soumis à entretien relevé au compromis.</p>') + ajout;
   }
+  // Idem pour les diagnostics : on n'affiche que ceux annexés au compromis.
   function diagsHtml(d) {
     const cible = E.dateActe(d);
-    return E.DIAGS.map((x) => {
+    const dispo = E.DIAGS.filter((x) => (d.diagnostics || {})[x.key] !== undefined);
+    const rows = dispo.map((x) => {
       const dt = (d.diagnostics || {})[x.key] || "";
       const exp = E.diagExpiration(d, x);
       const presence = x.moisSiPresence
-        ? '<label style="flex:0 0 130px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-bottom:0">' +
+        ? '<label style="flex:0 0 120px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-bottom:0">' +
           '<input type="checkbox" data-path-check="diag_presence.' + x.key + '"' + ((d.diag_presence || {})[x.key] ? " checked" : "") + " /> présence</label>"
         : "";
       const etat = dt
         ? (E.dureeDiag(d, x) ? statutValidite(exp, cible) : '<span style="color:var(--ok)">validité illimitée</span>')
-        : '<span style="color:var(--muted)">' + (x.note ? esc(x.note) : "non renseigné") + "</span>";
+        : '<span style="color:var(--muted)">date à renseigner</span>';
       return '<div class="annrow">' +
-        '<span style="flex:1 1 180px;font-weight:500">' + esc(x.label) + "</span>" +
+        '<span style="flex:1 1 170px;font-weight:500">' + esc(x.label) + "</span>" +
         '<div class="field" style="flex:0 0 190px;margin-bottom:0"><label>Réalisé le</label>' +
         '<input type="date" data-path="diagnostics.' + x.key + '" value="' + esc(dt) + '" /></div>' +
         presence +
-        '<span style="flex:1 1 200px;font-size:12.5px">' + etat + "</span>" +
+        '<span style="flex:1 1 190px;font-size:12.5px">' + etat + "</span>" +
+        '<button class="btn btn--sm btn--danger" data-rm-diag="' + x.key + '" title="Ce diagnostic n\'est pas au dossier">✕</button>' +
         "</div>";
     }).join("");
+    const absents = E.DIAGS.filter((x) => (d.diagnostics || {})[x.key] === undefined);
+    const ajout = absents.length
+      ? '<select class="addrow" data-add-diag style="margin-top:8px;max-width:280px"><option value="">＋ Ajouter un diagnostic…</option>' +
+        absents.map((x) => '<option value="' + x.key + '">' + esc(x.label) + "</option>").join("") + "</select>"
+      : "";
+    return (rows || '<p class="hintline">Aucun diagnostic relevé au compromis.</p>') + ajout;
   }
 
   async function openDossier(id) {
@@ -1007,6 +1024,9 @@
         return;
       }
       if (t.dataset.pathCheck) { setByPath(d, t.dataset.pathCheck, t.checked); markDirty(); renderDossier(); return; }
+      // Ajout d'un équipement / d'un diagnostic absent du compromis.
+      if (t.dataset.addEquip !== undefined && t.value) { d.equipements[t.value] = true; markDirty(); renderDossier(); return; }
+      if (t.dataset.addDiag !== undefined && t.value) { d.diagnostics[t.value] = ""; markDirty(); renderDossier(); return; }
       if (t.dataset.stepDone != null) {
         const id = t.dataset.stepDone;
         d.etapes[id] = d.etapes[id] || {};
@@ -1065,7 +1085,7 @@
     });
     view.addEventListener("click", (ev) => {
       const d = cur();
-      const t = ev.target.closest("[data-add],[data-rm],[data-jdel],#journalAdd,#btnDelete,#btnVoirPdf,#btnJoindrePdf,[data-act='mailname']");
+      const t = ev.target.closest("[data-add],[data-rm],[data-jdel],[data-rm-equip],[data-rm-diag],#journalAdd,#btnDelete,#btnVoirPdf,#btnJoindrePdf,[data-act='mailname']");
       if (!d || !t) return;
       if (t.dataset.add) {
         const k = t.dataset.add;
@@ -1084,6 +1104,16 @@
         const txt = (inp.value || "").trim();
         if (!txt) return;
         d.journal.push({ ts: Math.floor(Date.now() / 1000), user: userName(), text: txt });
+        markDirty(); renderDossier(); return;
+      }
+      if (t.dataset.rmEquip) {
+        d.equipements[t.dataset.rmEquip] = false;
+        d.entretiens[t.dataset.rmEquip === "cheminee" ? "ramonage" : t.dataset.rmEquip] = "";
+        markDirty(); renderDossier(); return;
+      }
+      if (t.dataset.rmDiag) {
+        delete d.diagnostics[t.dataset.rmDiag];
+        if (d.diag_presence) delete d.diag_presence[t.dataset.rmDiag];
         markDirty(); renderDossier(); return;
       }
       if (t.dataset.jdel != null) {
@@ -1454,11 +1484,15 @@
     d.prix = { prix_vente: S(pr.prix_vente), honoraires: S(pr.honoraires), charge_honoraires: S(pr.charge_honoraires) };
     const sq = x.sequestre || {};
     d.sequestre = { montant: S(sq.montant), depositaire: S(sq.depositaire), delai: S(sq.delai) };
-    const eq = x.equipements || {};
+    // Équipements et entretiens : une date d'entretien vaut présence.
+    const eq = x.equipements || {}, en = x.entretiens || {};
+    d.entretiens = { ramonage: S(en.ramonage), chaudiere: S(en.chaudiere), climatisation: S(en.climatisation) };
     d.equipements = {
-      cheminee: /^oui/i.test(S(eq.cheminee)), chaudiere: /^oui/i.test(S(eq.chaudiere)),
-      climatisation: /^oui/i.test(S(eq.climatisation))
+      cheminee: /^oui/i.test(S(eq.cheminee)) || !!d.entretiens.ramonage,
+      chaudiere: /^oui/i.test(S(eq.chaudiere)) || !!d.entretiens.chaudiere,
+      climatisation: /^oui/i.test(S(eq.climatisation)) || !!d.entretiens.climatisation
     };
+    // Diagnostics : uniquement ceux réellement annexés au compromis.
     const dg = x.diagnostics || {};
     d.diagnostics = {};
     E.DIAGS.forEach((y) => { if (S(dg[y.key])) d.diagnostics[y.key] = S(dg[y.key]); });

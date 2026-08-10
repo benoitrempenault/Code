@@ -319,7 +319,33 @@ ok(r0 && r0.retards > 0 && r0.sent === false, "actions en retard détectées, ri
 ok(r0 && r0.texte.includes("RECAP / TEST") && !r0.texte.includes("Notification SRU"), "le récap liste le dossier, sans l'étape déjà faite (SRU)");
 ok(r0 && /Dépôt de garantie/.test(r0.texte) && /DIA envoyée/.test(r0.texte), "séquestre et DIA en retard présents");
 ok(r0 && r0.stales >= 1 && /appelez le vendeur/.test(r0.texte), "dossier sans nouvelle → point d'étape vendeur signalé");
-ok(r0 && r0.to.length >= 1 && r0.to.includes("claire@azur-immo.fr"), "destinataires = comptes de l'agence");
+ok(r0 && r0.to.length === 1 && r0.to[0] === "claire@azur-immo.fr", "un e-mail par personne (dossier non attribué → admin)");
+ok(recap.json.recaps.every((r) => r.to.length === 1), "jamais d'envoi groupé : un destinataire par récap");
+
+console.log("— Récap : chaque conseiller ne reçoit que SES dossiers");
+// SM = Sophie (u2), LG = Luc (u3) ; un dossier chacun.
+await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { type: "conseiller", nom: "Sophie Martin", initiales: "SM", email: "u2@azur-immo.fr" } });
+await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { type: "conseiller", nom: "Luc Garnier", initiales: "LG", email: "u3@azur-immo.fr" } });
+const dosSM = await call("/dossiers", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: {
+  name: "SOPHIE / DOSSIER", data: { _app: "studio-suivi", reference: "SOPHIE / DOSSIER", statut: "en_cours", date_compromis: "2020-01-06", conseiller_vendeur: "SM", bien: {}, journal: [], etapes: {} }
+} });
+const dosLG = await call("/dossiers", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: {
+  name: "LUC / DOSSIER", data: { _app: "studio-suivi", reference: "LUC / DOSSIER", statut: "en_cours", date_compromis: "2020-01-06", conseiller_acquereur: "LG", bien: {}, journal: [], etapes: {} }
+} });
+const recap2 = await call("/admin/recap", { headers: admin, body: {} });
+const rSM = recap2.json.recaps.find((r) => r.to[0] === "u2@azur-immo.fr");
+const rLG = recap2.json.recaps.find((r) => r.to[0] === "u3@azur-immo.fr");
+ok(rSM && /SOPHIE \/ DOSSIER/.test(rSM.texte) && !/LUC \/ DOSSIER/.test(rSM.texte), "Sophie reçoit son dossier, pas celui de Luc");
+ok(rLG && /LUC \/ DOSSIER/.test(rLG.texte) && !/SOPHIE \/ DOSSIER/.test(rLG.texte), "Luc reçoit son dossier, pas celui de Sophie");
+const rAdmin = recap2.json.recaps.find((r) => r.to[0] === "claire@azur-immo.fr");
+ok(rAdmin && /RECAP \/ TEST/.test(rAdmin.texte) && !/SOPHIE \/ DOSSIER/.test(rAdmin.texte), "l'admin reçoit les dossiers non attribués, pas ceux des conseillers");
+// L'aperçu à la demande suit la même règle.
+const apSM = await call("/recap/apercu", { method: "POST", headers: { Authorization: "Bearer " + (await call("/auth/password-login", { body: { email: "u2@azur-immo.fr", password: "MdpConseiller1" } })).json.session }, body: {} });
+ok(apSM.status === 200 && apSM.json.vide === false && /SOPHIE \/ DOSSIER/.test(apSM.json.texte || "") && !/LUC/.test(apSM.json.texte || ""), "aperçu : Sophie ne voit que ses dossiers");
+await call("/dossiers/" + dosSM.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
+await call("/dossiers/" + dosLG.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
+await db.run("DELETE FROM annuaire WHERE agency_id = ?", [agencyId]);
+await db.run("DELETE FROM ai_rate WHERE scope LIKE 'pw:%'", []);
 ok((await call("/admin/recap", { headers: { "X-Admin-Key": "mauvaise" }, body: {} })).status === 401, "récap manuel protégé par la clé admin");
 // « Recevoir le récap maintenant » (session utilisateur, envoi au demandeur).
 const ap = await call("/recap/apercu", { method: "POST", headers: { Authorization: "Bearer " + s3 }, body: {} });

@@ -81,9 +81,12 @@ appel après-vente, clôture.
 
 ## Récapitulatif quotidien automatique
 
-Cron Cloudflare (`wrangler.toml [triggers]`, 05:00 UTC) → `server/src/recap.js` :
-pour chaque agence avec des dossiers en cours, e-mail Resend à tous ses comptes
-listant les actions en retard + à 7 jours (mêmes calculs que le tableau de bord,
+Cron Cloudflare (`wrangler.toml [triggers]`, lundi et vendredi 05:00 UTC —
+**désactivé tant que `RECAP_AUTO` ≠ "1"**) → `server/src/recap.js` : **un e-mail
+par conseiller, avec SES dossiers uniquement** (initiales du dossier rapprochées
+de son entrée « conseiller » de l'annuaire, retrouvée par e-mail ; les dossiers
+sans conseiller reconnu vont aux administrateurs de l'agence). Jamais d'envoi
+groupé ni à un tiers (notaires, clercs, clients). Contenu : actions en retard + à 7 jours (mêmes calculs que le tableau de bord,
 portés côté serveur dans `server/src/etapes.js` — **miroir de
 `suivi/assets/js/etapes.js`, modifier les deux ensemble**) et les dossiers sans
 nouvelle depuis 15 jours, avec la dernière note du journal et le lien direct

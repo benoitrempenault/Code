@@ -267,6 +267,16 @@ const COMPROMIS_SCHEMA = {
       },
       required: ["cheminee", "chaudiere", "climatisation"]
     },
+    entretiens: {
+      type: "object", additionalProperties: false,
+      description: "Dates du dernier entretien mentionnées dans l'acte ou ses annexes (AAAA-MM-JJ), vide si absent.",
+      properties: {
+        ramonage: { type: "string", description: "Dernier ramonage du conduit." },
+        chaudiere: { type: "string", description: "Dernier entretien de la chaudière." },
+        climatisation: { type: "string", description: "Dernier entretien de la climatisation / PAC." }
+      },
+      required: ["ramonage", "chaudiere", "climatisation"]
+    },
     diagnostics: {
       type: "object", additionalProperties: false,
       description: "Date de RÉALISATION de chaque diagnostic annexé au compromis (AAAA-MM-JJ), vide si le diagnostic n'est pas mentionné ou sans date.",
@@ -284,8 +294,8 @@ const COMPROMIS_SCHEMA = {
     observations: { type: "string", description: "Autres points notables : servitudes, clauses particulières, travaux, occupation du bien, mobilier inclus… Une information par ligne." }
   },
   required: ["reference", "date_compromis", "vendeurs", "acquereurs", "notaire_vendeur", "notaire_acquereur",
-    "bien", "prix", "sequestre", "financement", "conditions_suspensives", "syndic", "equipements", "diagnostics",
-    "preemption", "date_butoir", "observations"]
+    "bien", "prix", "sequestre", "financement", "conditions_suspensives", "syndic", "equipements", "entretiens",
+    "diagnostics", "preemption", "date_butoir", "observations"]
 };
 
 /* ---------------------------- Prompts système --------------------------- */
@@ -404,8 +414,10 @@ const COMPROMIS_SYSTEM = [
   "notaires des deux parties, désignation du bien, prix et honoraires, dépôt de garantie (séquestre), conditions suspensives",
   "(en particulier le financement : montant, durée, taux, dates limites), droit de préemption, date butoir de réitération,",
   "et le SYNDIC de copropriété (ou le président du lotissement/de l'ASL) avec ses coordonnées s'il est mentionné.",
-  "Relève aussi les ÉQUIPEMENTS soumis à entretien obligatoire (cheminée/insert/poêle, chaudière, climatisation/PAC) et la DATE DE RÉALISATION",
-  "de chaque diagnostic annexé (DPE, ERP, termites, gaz, électricité, amiante, plomb, assainissement, Carrez, audit énergétique).",
+  "Relève aussi les ÉQUIPEMENTS soumis à entretien obligatoire (cheminée/insert/poêle, chaudière, climatisation/PAC), les DATES DU DERNIER",
+  "ENTRETIEN de ces équipements quand elles figurent (ramonage, chaudière, climatisation), et la DATE DE RÉALISATION de chaque diagnostic",
+  "RÉELLEMENT ANNEXÉ (DPE, ERP, termites, gaz, électricité, amiante, plomb, assainissement, Carrez, audit énergétique) — laisse vides les",
+  "diagnostics qui ne figurent pas au dossier de diagnostics : ils ne doivent pas apparaître comme manquants.",
   "Règles :",
   "- N'invente RIEN : champ vide (\"\") si l'information ne figure pas dans le document. Ne déduis jamais un délai non écrit.",
   "- UN SEUL NOTAIRE désigné à l'acte = il représente le vendeur ET l'acquéreur : recopie alors les mêmes informations dans notaire_vendeur et notaire_acquereur.",
