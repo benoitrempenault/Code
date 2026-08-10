@@ -54,6 +54,23 @@ const pcDepot = (d) => dt(d, "pc_depot") || addDays(ssp(d), 30);
 const pcAccord = (d) => dt(d, "pc_accord") || addMonths(pcDepot(d), 2);
 const pcAffichage = (d) => dt(d, "pc_affichage") || addDays(pcAccord(d), 8);
 
+// Durées de validité des diagnostics (mois ; 0 = illimité). Miroir du client.
+const DIAGS = [
+  { key: "dpe", mois: 120 }, { key: "audit", mois: 60 },
+  { key: "erp", mois: 6 }, { key: "termites", mois: 6 },
+  { key: "gaz", mois: 36 }, { key: "electricite", mois: 36 }, { key: "assainissement", mois: 36 },
+  { key: "amiante", mois: 0, moisSiPresence: 36 }, { key: "plomb", mois: 0, moisSiPresence: 12 },
+  { key: "carrez", mois: 0 }
+];
+const dateActe = (d) => dt(d, "signature_acte") || dt(d, "signature_prevue") || d.date_butoir || "";
+function diagExpirations(d) {
+  return DIAGS.map((x) => {
+    const date = (d.diagnostics || {})[x.key];
+    const mois = (x.moisSiPresence && d.diag_presence && d.diag_presence[x.key]) ? x.moisSiPresence : x.mois;
+    return (date && mois) ? addMonths(date, mois) : "";
+  }).filter(Boolean);
+}
+
 const ETAPES = [
   { id: "envoi_sru", label: "Notification SRU envoyée (LRAR / AR24)", due: (d) => addDays(ssp(d), 2) },
   { id: "envoi_notaires", label: "Dossier envoyé aux notaires", due: (d) => addDays(ssp(d), 3) },
@@ -89,6 +106,23 @@ const ETAPES = [
       const dates = ((d.conditions_suspensives || []).map((x) => x.echeance).filter((x) => parseDate(x) != null)).sort();
       return dates.length ? dates[dates.length - 1] : addDays(ssp(d), 60);
     } },
+  // Entretiens obligatoires (ramonage / chaudière : 1 an ; clim-PAC : 2 ans)
+  // et diagnostics, qui doivent être valides le jour de la signature.
+  { id: "ramonage", label: "Ramonage annuel — certificat à jour",
+    due: (d) => (d.entretiens && d.entretiens.ramonage) ? addMonths(d.entretiens.ramonage, 12) : addDays(ssp(d), 15),
+    applies: (d) => !!(d.equipements && d.equipements.cheminee) && !dt(d, "signature_acte") },
+  { id: "entretien_chaudiere", label: "Entretien annuel de la chaudière — attestation à jour",
+    due: (d) => (d.entretiens && d.entretiens.chaudiere) ? addMonths(d.entretiens.chaudiere, 12) : addDays(ssp(d), 15),
+    applies: (d) => !!(d.equipements && d.equipements.chaudiere) && !dt(d, "signature_acte") },
+  { id: "entretien_clim", label: "Entretien de la climatisation / PAC (2 ans) — attestation à jour",
+    due: (d) => (d.entretiens && d.entretiens.climatisation) ? addMonths(d.entretiens.climatisation, 24) : addDays(ssp(d), 15),
+    applies: (d) => !!(d.equipements && d.equipements.climatisation) && !dt(d, "signature_acte") },
+  { id: "diagnostics", label: "Diagnostics à renouveler avant l'acte",
+    due: (d) => {
+      const exps = diagExpirations(d).filter((e) => e < (dateActe(d) || todayParis())).sort();
+      return exps.length ? exps[0] : "";
+    },
+    applies: (d) => !!d.diagnostics && Object.keys(d.diagnostics).some((k) => d.diagnostics[k]) && !dt(d, "signature_acte") },
   { id: "projet_acte", label: "Projet d'acte demandé / date de signature calée",
     due: (d) => d.date_butoir ? addDays(d.date_butoir, -21) : addDays(ssp(d), 70) },
   { id: "avenant", label: "Avenant de prorogation si la signature ne tient pas la date butoir",
