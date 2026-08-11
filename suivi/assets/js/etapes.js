@@ -116,11 +116,23 @@
       return (exp && exp < cible) ? { key: x.key, label: x.label, exp } : null;
     }).filter(Boolean);
   }
-  // Première expiration à traiter, et délai d'alerte : la ligne n'apparaît
-  // dans l'échéancier que 30 jours avant (inutile de l'afficher toute l'année).
+  /* Fenêtre d'alerte commune aux diagnostics et aux entretiens : la ligne
+     n'apparaît dans l'échéancier que 30 jours avant l'expiration (elle passe
+     en orange à 7 jours, en rouge une fois périmée). Inutile d'afficher toute
+     l'année une pièce qui est valide. Exception : tant que la date du dernier
+     entretien est inconnue, la pièce est à récupérer — la ligne reste. */
   const ALERTE_DIAG = 30;
   function premiereExpiration(d) {
     return diagsARefaire(d).map((x) => x.exp).sort()[0] || "";
+  }
+  function echeanceEntretien(d, k) {
+    return d.entretiens[k] ? addMonths(d.entretiens[k], ENTRETIENS[k]) : addDays(ssp(d), 15);
+  }
+  function alerteEntretien(d, k) {
+    if (d.dates.signature_acte) return false;
+    if (!d.entretiens[k]) return true; // attestation manquante : à récupérer
+    const j = daysUntil(echeanceEntretien(d, k));
+    return j == null || j <= ALERTE_DIAG;
   }
   /* ------------- Conditions suspensives hors prêt ------------------------
      Elles sont propres à chaque compromis (revente d'un bien de l'acquéreur,
@@ -297,30 +309,34 @@
 
 
     { id: "ramonage", phase: "Entretiens & diagnostics",
+      cible: "conseiller_vendeur", modele: "Relance entretiens & diagnostics",
       label: (d) => d.entretiens.ramonage
         ? "Ramonage — certificat du " + fmtFr(d.entretiens.ramonage) + " (valable un an)"
         : "Certificat de ramonage à récupérer (cheminée / insert / poêle)",
-      due: (d) => d.entretiens.ramonage ? addMonths(d.entretiens.ramonage, ENTRETIENS.ramonage) : addDays(ssp(d), 15),
-      applies: (d) => equip(d, "cheminee") && !d.dates.signature_acte,
+      due: (d) => echeanceEntretien(d, "ramonage"),
+      applies: (d) => equip(d, "cheminee") && alerteEntretien(d, "ramonage"),
       hint: "Ramonage annuel obligatoire (deux fois par an dans certains départements) : le certificat doit être à jour à la signature." },
     { id: "entretien_chaudiere", phase: "Entretiens & diagnostics",
+      cible: "conseiller_vendeur", modele: "Relance entretiens & diagnostics",
       label: (d) => d.entretiens.chaudiere
         ? "Entretien chaudière — attestation du " + fmtFr(d.entretiens.chaudiere) + " (valable un an)"
         : "Attestation d'entretien de la chaudière à récupérer",
-      due: (d) => d.entretiens.chaudiere ? addMonths(d.entretiens.chaudiere, ENTRETIENS.chaudiere) : addDays(ssp(d), 15),
-      applies: (d) => equip(d, "chaudiere") && !d.dates.signature_acte,
+      due: (d) => echeanceEntretien(d, "chaudiere"),
+      applies: (d) => equip(d, "chaudiere") && alerteEntretien(d, "chaudiere"),
       hint: "Entretien annuel obligatoire (chaudières 4 à 400 kW)." },
     { id: "entretien_clim", phase: "Entretiens & diagnostics",
+      cible: "conseiller_vendeur", modele: "Relance entretiens & diagnostics",
       label: (d) => d.entretiens.climatisation
         ? "Entretien climatisation / PAC — attestation du " + fmtFr(d.entretiens.climatisation) + " (valable deux ans)"
         : "Attestation d'entretien de la climatisation / PAC à récupérer",
-      due: (d) => d.entretiens.climatisation ? addMonths(d.entretiens.climatisation, ENTRETIENS.climatisation) : addDays(ssp(d), 15),
-      applies: (d) => equip(d, "climatisation") && !d.dates.signature_acte,
+      due: (d) => echeanceEntretien(d, "climatisation"),
+      applies: (d) => equip(d, "climatisation") && alerteEntretien(d, "climatisation"),
       hint: "Entretien obligatoire tous les deux ans (pompes à chaleur et climatisations)." },
     // Pas de ligne « tout va bien » : l'étape n'apparaît QUE s'il y a quelque
     // chose à refaire, 30 jours avant l'expiration (elle passe en orange à 7
     // jours, puis en rouge une fois le diagnostic périmé).
     { id: "diagnostics", phase: "Entretiens & diagnostics",
+      cible: "conseiller_vendeur", modele: "Relance entretiens & diagnostics",
       label: (d) => "Diagnostics à renouveler avant l'acte : " +
         diagsARefaire(d).map((x) => x.label + " (expire le " + fmtFr(x.exp) + ")").join(", "),
       due: (d) => premiereExpiration(d),
@@ -492,6 +508,11 @@
       name: "Relance panneau VENDU", cible: "conseiller_vendeur",
       sujet: "{{reference}} — Panneau « VENDU » à poser ({{adresse_bien}})",
       corps: "Bonjour {{conseiller_vendeur}},\n\nLe délai de rétractation de la vente {{reference}} est purgé depuis le {{fin_retractation}} : peux-tu faire poser le panneau / bandeau « VENDU » sur le bien ({{adresse_bien}}) ?\n\nMerci !\n\n{{conseiller}}"
+    },
+    {
+      name: "Relance entretiens & diagnostics", cible: "conseiller_vendeur",
+      sujet: "{{reference}} — Pièce à récupérer auprès du vendeur ({{adresse_bien}})",
+      corps: "Bonjour {{conseiller_vendeur}},\n\nSur le dossier {{reference}} ({{adresse_bien}}, vendeurs : {{vendeurs}}), il manque une pièce au dossier :\n\n{{etape}}\n\nPeux-tu la demander au vendeur et nous transmettre le justificatif ? La signature est prévue le {{signature_prevue}} (date butoir : {{date_butoir}}) et la pièce doit être en cours de validité ce jour-là — sans quoi le notaire nous la réclamera la veille de l'acte.\n\nMerci !\n\n{{conseiller}}"
     },
     {
       name: "Avenant de prorogation", cible: "notaires",
