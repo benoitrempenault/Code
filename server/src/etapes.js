@@ -70,6 +70,10 @@ function diagExpirations(d) {
     return (date && mois) ? addMonths(date, mois) : "";
   }).filter(Boolean);
 }
+// Première expiration qui tombe avant l'acte (rien à refaire sinon).
+function premiereExpiration(d) {
+  return diagExpirations(d).filter((e) => e < (dateActe(d) || todayParis())).sort()[0] || "";
+}
 
 const ETAPES = [
   { id: "envoi_sru", label: "Notification SRU envoyée (LRAR / AR24)", due: (d) => addDays(ssp(d), 2) },
@@ -112,12 +116,14 @@ const ETAPES = [
   { id: "entretien_clim", label: "Entretien de la climatisation / PAC (2 ans) — attestation à jour",
     due: (d) => (d.entretiens && d.entretiens.climatisation) ? addMonths(d.entretiens.climatisation, 24) : addDays(ssp(d), 15),
     applies: (d) => !!(d.equipements && d.equipements.climatisation) && !dt(d, "signature_acte") },
+  // Alerte seulement quand un diagnostic ne tiendra pas jusqu'à l'acte, et
+  // 30 jours avant son expiration au plus tôt. Miroir du client.
   { id: "diagnostics", label: "Diagnostics à renouveler avant l'acte",
-    due: (d) => {
-      const exps = diagExpirations(d).filter((e) => e < (dateActe(d) || todayParis())).sort();
-      return exps.length ? exps[0] : "";
-    },
-    applies: (d) => !!d.diagnostics && Object.keys(d.diagnostics).some((k) => d.diagnostics[k]) && !dt(d, "signature_acte") },
+    due: (d) => premiereExpiration(d),
+    applies: (d) => {
+      const exp = premiereExpiration(d);
+      return !!exp && !dt(d, "signature_acte") && daysUntil(exp) <= 30;
+    } },
   { id: "projet_acte", label: "Projet d'acte demandé / date de signature calée",
     due: (d) => d.date_butoir ? addDays(d.date_butoir, -21) : addDays(ssp(d), 70) },
   { id: "avenant", label: "Avenant de prorogation si la signature ne tient pas la date butoir",

@@ -116,6 +116,12 @@
       return (exp && exp < cible) ? { key: x.key, label: x.label, exp } : null;
     }).filter(Boolean);
   }
+  // Première expiration à traiter, et délai d'alerte : la ligne n'apparaît
+  // dans l'échéancier que 30 jours avant (inutile de l'afficher toute l'année).
+  const ALERTE_DIAG = 30;
+  function premiereExpiration(d) {
+    return diagsARefaire(d).map((x) => x.exp).sort()[0] || "";
+  }
   /* ------------- Conditions suspensives hors prêt ------------------------
      Elles sont propres à chaque compromis (revente d'un bien de l'acquéreur,
      régularisation de travaux, succession à régler, accord de l'AG…) : plutôt
@@ -311,18 +317,17 @@
       due: (d) => d.entretiens.climatisation ? addMonths(d.entretiens.climatisation, ENTRETIENS.climatisation) : addDays(ssp(d), 15),
       applies: (d) => equip(d, "climatisation") && !d.dates.signature_acte,
       hint: "Entretien obligatoire tous les deux ans (pompes à chaleur et climatisations)." },
+    // Pas de ligne « tout va bien » : l'étape n'apparaît QUE s'il y a quelque
+    // chose à refaire, 30 jours avant l'expiration (elle passe en orange à 7
+    // jours, puis en rouge une fois le diagnostic périmé).
     { id: "diagnostics", phase: "Entretiens & diagnostics",
-      label: (d) => {
-        const l = diagsARefaire(d);
-        return l.length
-          ? "Diagnostics à renouveler avant l'acte : " + l.map((x) => x.label + " (expire le " + fmtFr(x.exp) + ")").join(", ")
-          : "Diagnostics valides jusqu'à la signature";
+      label: (d) => "Diagnostics à renouveler avant l'acte : " +
+        diagsARefaire(d).map((x) => x.label + " (expire le " + fmtFr(x.exp) + ")").join(", "),
+      due: (d) => premiereExpiration(d),
+      applies: (d) => {
+        const exp = premiereExpiration(d);
+        return !!exp && !d.dates.signature_acte && daysUntil(exp) <= ALERTE_DIAG;
       },
-      due: (d) => {
-        const l = diagsARefaire(d).map((x) => x.exp).sort();
-        return l.length ? l[0] : "";
-      },
-      applies: (d) => Object.keys(d.diagnostics || {}).some((k) => d.diagnostics[k]) && !d.dates.signature_acte,
       hint: "Chaque diagnostic doit être en cours de validité le jour de la signature (ERP et termites : 6 mois)." },
 
     { id: "projet_acte", phase: "Acte authentique", label: "Projet d'acte demandé et date de signature calée",
