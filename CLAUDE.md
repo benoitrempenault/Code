@@ -95,6 +95,13 @@ logo Kadima via `logo.js`) — mêmes règles de séparation que `/` et `/mandat
   the exported `.json`. When adding an AI feature: add the prompt+schema to
   `server/src/prompts.js` and send only `task`/`task_arg` from the client — never embed prompt
   text in client JS (copy-protection), and mirror client changes in all four `ai.js` forks.
+  **Watch the schema size**: `output_config` is compiled into a decoding grammar, and the API
+  rejects one that is too large (« The compiled grammar is too large »). Keep schemas around
+  20-25 properties. `extract_compromis` (~85 fields) is the exception: it returns
+  `output_config: null`, its JSON contract being rendered into the system prompt by
+  `skeleton(COMPROMIS_SCHEMA)` — the schema stays the single source of truth — and
+  `suivi/assets/js/ai.js` parses the answer leniently (```json fence, surrounding prose,
+  trailing comma). A server test guards both the exception and the size of the other schemas.
 - `assets/js/heic.js` — `window.SBHeic`: iPhone **HEIC/HEIF photo support**. `toJpeg(file)` tries
   native decode first (Safari reads HEIC), then falls back to the vendored WASM decoder
   (`assets/js/vendor/libheif-bundle.js`, ~1.4 MB, wasm embedded, loaded lazily on the first HEIC).

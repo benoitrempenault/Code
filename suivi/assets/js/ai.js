@@ -95,7 +95,23 @@
     if (data.stop_reason === "refusal") throw new Error("Analyse déclinée par le modèle — réessayez.");
     const tb = (data.content || []).find(function (b) { return b.type === "text"; });
     if (!tb) throw new Error("Réponse vide du modèle.");
-    try { return JSON.parse(tb.text); } catch (e) { throw new Error("Réponse illisible (JSON invalide)."); }
+    return parseJson(tb.text);
+  }
+
+  // Le compromis n'utilise pas la sortie structurée (son schéma dépasse la
+  // taille de grammaire admise) : on lit donc le JSON avec indulgence — bloc
+  // ```json, phrase d'introduction ou virgule finale ne doivent pas tout
+  // faire échouer après une analyse de plusieurs dizaines de secondes.
+  function parseJson(txt) {
+    let t = String(txt || "").trim();
+    const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(t);
+    if (fence) t = fence[1].trim();
+    const i = t.indexOf("{"), j = t.lastIndexOf("}");
+    if (i > 0 || (j > -1 && j < t.length - 1)) t = t.slice(i < 0 ? 0 : i, j < 0 ? t.length : j + 1);
+    try { return JSON.parse(t); } catch (e) { /* deuxième chance ci-dessous */ }
+    // Virgules en trop avant une fermeture, commentaires // recopiés du modèle.
+    const nettoye = t.replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1");
+    try { return JSON.parse(nettoye); } catch (e) { throw new Error("Réponse illisible (JSON invalide)."); }
   }
 
   window.SuiviAI = { extractCompromis, canUseAI };
