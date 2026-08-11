@@ -130,6 +130,12 @@
     /pr[êe]t|financement|emprunt|offre de pr[êe]t|\bodp\b/i,
     /pr[ée]emption|d[ée]claration d'intention d'ali[ée]ner|\bdia\b/i
   ];
+  /* Conditions de pur droit, du ressort du notaire : elles figurent dans tous
+     les compromis, se règlent sans nous et n'appellent aucune relance — on ne
+     les met pas dans l'échéancier (elles restent dans la fiche du dossier).
+     Testées sur le SEUL intitulé, pour ne pas écarter par erreur une vraie
+     condition dont le détail les mentionnerait au passage.                  */
+  const CS_DROIT = /certificat d'urbanisme|titres? de propri[ée]t[ée]|[ée]tat hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur/i;
   const CS_TYPES = [
     { key: "revente", cible: "acquereur", modele: "Relance condition suspensive", jours: 60,
       re: /revente|vente pr[ée]alable|vente de (?:son|leur|sa)|vente d'un (?:autre )?bien|vente du bien (?:de l'|des )acqu|mise en vente/i,
@@ -152,12 +158,9 @@
     { key: "copropriete", cible: "syndic", modele: "Relance condition suspensive", jours: 60,
       re: /assembl[ée]e g[ée]n[ée]rale|copropri[ée]t[ée]|syndicat des copropri[ée]taires|pr[ée]-?[ée]tat dat[ée]|carnet d'entretien/i,
       hint: "Copropriété : autorisation de l'AG, pré-état daté et pièces du syndic — relancer le syndic dès la rétractation purgée." },
-    { key: "hypotheque", cible: "notaire_vendeur", modele: "Relance condition suspensive", jours: 45,
-      re: /mainlev[ée]e|hypoth[èe]que|privil[èe]ge|saisie|inscription/i,
-      hint: "État hypothécaire / mainlevée : le prix de vente doit couvrir les inscriptions, accord du créancier à obtenir." },
     { key: "urbanisme", cible: "notaire_vendeur", modele: "Relance condition suspensive", jours: 60,
-      re: /servitude|certificat d'urbanisme|note de renseignement|alignement|emplacement r[ée]serv[ée]/i,
-      hint: "Urbanisme : certificat demandé en mairie par le notaire, instruction d'un à deux mois." },
+      re: /autorisation d'urbanisme|note de renseignement|alignement|emplacement r[ée]serv[ée]|servitude/i,
+      hint: "Autorisation d'urbanisme : instruction en mairie d'un à deux mois, puis purge des recours et du retrait administratif." },
     { key: "autorisation", cible: "vendeur", modele: "Relance condition suspensive", jours: 60,
       re: /changement d'usage|autorisation administrative|\berp\b|exploitation|licence|meubl[ée] de tourisme/i,
       hint: "Autorisation administrative : délai variable selon la commune, à demander sans attendre." },
@@ -183,6 +186,7 @@
       const txt = (c.titre || "") + " " + (c.detail || "");
       if (!txt.trim()) return null;
       if (CS_HORS.some((re) => re.test(txt))) return null;
+      if (CS_DROIT.test((c.titre || "").trim() || c.detail || "")) return null;
       // Sur un terrain, DP et PC sont déjà détaillés dans la phase Urbanisme.
       if (terrain && /permis de construire|d[ée]claration pr[ée]alable/i.test(txt) && !/r[ée]gularisation/i.test(txt)) return null;
       const t = typeCS(txt);
