@@ -81,6 +81,28 @@ h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font
 .kpi span { color: var(--muted); font-size: 12px; }
 .kpi.bad b { color: var(--bad); } .kpi.warn b { color: var(--warn); } .kpi.ok b { color: var(--ok); }
 
+/* Barre de répartition (part du CA par étape d'avancement). */
+.bar {
+  display: inline-block; width: 110px; height: 8px; border-radius: 4px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  vertical-align: middle; margin-right: 9px; overflow: hidden;
+}
+.bar i { display: block; height: 100%; background: var(--accent); }
+
+/* Vigies : compteurs cliquables des points de vigilance (onglet Stats). */
+.vigies { display: flex; flex-wrap: wrap; gap: 8px; }
+.vigie {
+  display: flex; align-items: baseline; gap: 8px; cursor: pointer;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 9px 13px; color: var(--text); font-size: 13px; font-family: inherit;
+  transition: border-color .12s, background .12s;
+}
+.vigie:hover { border-color: var(--accent); }
+.vigie.on { border-color: var(--accent); background: var(--panel); }
+.vigie b { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 18px; }
+.vigie.alerte b { color: var(--warn); }
+.vigie.vide b { color: var(--muted); }
+
 .todo { display: flex; flex-direction: column; gap: 8px; }
 .todo__item {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
