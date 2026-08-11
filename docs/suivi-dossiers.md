@@ -28,7 +28,10 @@ appel après-vente, clôture.
    limites de dépôt et d'obtention), droit de préemption et **date butoir**. Le PDF est
    attaché au dossier (R2) et consultable par tous.
 2. **Échéancier automatique** (`suivi/assets/js/etapes.js`) : chaque dossier déroule
-   ~15 étapes datées à partir des dates du compromis, toutes modifiables.
+   ~15 étapes datées à partir des dates du compromis, toutes modifiables. Les **dates
+   clés** et les étapes sont liées dans les deux sens : renseigner « DIA envoyée le … »
+   coche l'étape correspondante à cette date (et l'effacer la décoche), cocher l'étape
+   renseigne la date clé — la table de correspondance est `STEP_DATE` dans `app.js`.
 3. **Tableau de bord** : actions en retard / à 7 jours pour toute l'agence, pastille de
    santé par dossier (vert / orange / rouge), rappel « point d'étape vendeur » quand un
    dossier n'a plus de nouvelle depuis 15 jours.
@@ -55,8 +58,8 @@ appel après-vente, clôture.
 | Offre de prêt (ODP) | échéance condition − 10 j, sinon J+45 | émission usuelle 30-45 jours ; L313-41 : durée min. de la condition 30 jours |
 | Acceptation de l'offre | échéance condition | acceptation possible à partir du 11ᵉ jour après réception (L313-34) |
 | Conditions suspensives hors prêt | échéance du compromis, sinon J+45 à J+60 selon le type, sinon butoir − 15 j | une étape **par condition extraite du compromis** (revente d'un bien de l'acquéreur, régularisation de travaux, assainissement, locataire, succession, bornage, copropriété, autorisation d'urbanisme ou administrative…) ; prêt et préemption sont exclus, ils ont leur propre phase, et les conditions de pur droit réglées par le notaire (certificat d'urbanisme, titres de propriété, état hypothécaire, mainlevée) ne sont pas suivies — elles restent dans la fiche du dossier. Cocher l'étape lève la condition dans la fiche, et inversement |
-| Entretiens (ramonage, chaudière, clim/PAC) | dernier entretien + 12 mois (24 pour la clim/PAC) | seulement pour les équipements présents au compromis |
-| Diagnostics à renouveler | première expiration tombant avant l'acte | **alerte à J-30**, orange à J-7, rouge une fois périmé ; aucune ligne tant que tout tient jusqu'à la signature (DPE 10 ans, audit 5 ans, ERP et termites 6 mois, gaz/élec/assainissement 3 ans, amiante et plomb illimités sauf présence : 3 ans / 1 an) |
+| Entretiens (ramonage, chaudière, clim/PAC) | dernier entretien + 12 mois (24 pour la clim/PAC) | seulement pour les équipements présents au compromis ; **alerte à J-30**, orange à J-7, rouge une fois périmé — la ligne reste en revanche affichée tant que la date du dernier entretien est inconnue (attestation à récupérer). Relance interne au **conseiller vendeur** |
+| Diagnostics à renouveler | première expiration tombant avant l'acte | **alerte à J-30**, orange à J-7, rouge une fois périmé ; aucune ligne tant que tout tient jusqu'à la signature (DPE 10 ans, audit 5 ans, ERP et termites 6 mois, gaz/élec/assainissement 3 ans, amiante et plomb illimités sauf présence : 3 ans / 1 an). Relance interne au **conseiller vendeur** |
 | Projet d'acte + date de signature | butoir − 21 jours | demander pièces manquantes, caler le RDV |
 | Acte authentique | date prévue, sinon butoir (≈ J+92 en moyenne nationale) | |
 | Après-vente | appel J+7, avis clients J+10, clôture J+30 après l'acte | le moment où la satisfaction est maximale |

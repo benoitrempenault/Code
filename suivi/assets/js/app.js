@@ -317,6 +317,11 @@
         const defCS = E.DEFAULT_MODELES.find((m) => m.name === "Relance condition suspensive");
         if (defCS) { await api("/modeles", { method: "PUT", json: defCS }); modeles = (await api("/modeles")).modeles || modeles; }
       }
+      // Relance interne au conseiller vendeur pour les entretiens et diagnostics.
+      if (!modeles.some((m) => m.name === "Relance entretiens & diagnostics")) {
+        const defED = E.DEFAULT_MODELES.find((m) => m.name === "Relance entretiens & diagnostics");
+        if (defED) { await api("/modeles", { method: "PUT", json: defED }); modeles = (await api("/modeles")).modeles || modeles; }
+      }
       // Variante vendeur de la demande d'avis : ajoutée si absente.
       if (modeles.some((m) => m.name === "Demande d'avis client") && !modeles.some((m) => m.name === "Demande d'avis client vendeur")) {
         const defAV = E.DEFAULT_MODELES.find((m) => m.name === "Demande d'avis client vendeur");
@@ -1138,10 +1143,15 @@
       if (t.dataset.path === "conseiller_vendeur" || t.dataset.path === "conseiller_acquereur") { renderDossier(); return; }
       // Dates d'entretien / de diagnostic : recalcule aussitôt la validité.
       if (t.dataset.path && /^(diagnostics|entretiens)\./.test(t.dataset.path)) { markDirty(); renderDossier(); return; }
-      // Une date clé modifiée met à jour le « fait le » de l'étape liée déjà cochée.
+      // Une date clé renseignée coche l'étape liée et lui donne CETTE date
+      // (saisir « DIA envoyée le 12/09 » dans les dates clés coche l'étape
+      // « DIA envoyée en mairie » au 12/09) ; l'effacer la décoche.
       if (t.dataset.path && DATE_STEP[t.dataset.path]) {
         const stepId = DATE_STEP[t.dataset.path];
-        if (d.etapes[stepId] && d.etapes[stepId].done) { d.etapes[stepId].date = t.value; markDirty(); renderDossier(); return; }
+        d.etapes[stepId] = d.etapes[stepId] || {};
+        if (t.value) { d.etapes[stepId].done = true; d.etapes[stepId].date = t.value; }
+        else if (d.etapes[stepId].done) { d.etapes[stepId].done = false; d.etapes[stepId].date = ""; }
+        markDirty(); renderDossier(); return;
       }
       if (t.dataset.path && (t.type === "date" || t.tagName === "SELECT")) { renderDossierSoon(); }
     });
@@ -1359,6 +1369,7 @@
       notaire_vendeur_nom: d.notaire_vendeur.nom, notaire_acquereur_nom: d.notaire_acquereur.nom,
       salutation_notaires: notaireUnique(d) ? "Maître," : "Bonjour Maîtres,",
       salutation: salutation,
+      etape: step ? step.label : "",
       condition: cond ? (cond.titre || "condition suspensive") : "",
       condition_detail: cond ? (cond.detail || "") : "",
       condition_echeance: cond ? E.fmtFr(cond.echeance) : "",

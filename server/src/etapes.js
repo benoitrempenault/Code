@@ -74,6 +74,19 @@ function diagExpirations(d) {
 function premiereExpiration(d) {
   return diagExpirations(d).filter((e) => e < (dateActe(d) || todayParis())).sort()[0] || "";
 }
+// Entretiens : même fenêtre d'alerte que les diagnostics (30 jours avant
+// l'expiration), sauf attestation manquante — elle reste à récupérer.
+const ENTRETIENS_MOIS = { ramonage: 12, chaudiere: 12, climatisation: 24 };
+function echeanceEntretien(d, k) {
+  const dernier = (d.entretiens || {})[k];
+  return dernier ? addMonths(dernier, ENTRETIENS_MOIS[k]) : addDays(ssp(d), 15);
+}
+function alerteEntretien(d, k) {
+  if (dt(d, "signature_acte")) return false;
+  if (!(d.entretiens || {})[k]) return true;
+  const j = daysUntil(echeanceEntretien(d, k));
+  return j == null || j <= 30;
+}
 
 const ETAPES = [
   { id: "envoi_sru", label: "Notification SRU envoyée (LRAR / AR24)", due: (d) => addDays(ssp(d), 2) },
@@ -108,14 +121,14 @@ const ETAPES = [
   // Entretiens obligatoires (ramonage / chaudière : 1 an ; clim-PAC : 2 ans)
   // et diagnostics, qui doivent être valides le jour de la signature.
   { id: "ramonage", label: "Ramonage annuel — certificat à jour",
-    due: (d) => (d.entretiens && d.entretiens.ramonage) ? addMonths(d.entretiens.ramonage, 12) : addDays(ssp(d), 15),
-    applies: (d) => !!(d.equipements && d.equipements.cheminee) && !dt(d, "signature_acte") },
+    due: (d) => echeanceEntretien(d, "ramonage"),
+    applies: (d) => !!(d.equipements && d.equipements.cheminee) && alerteEntretien(d, "ramonage") },
   { id: "entretien_chaudiere", label: "Entretien annuel de la chaudière — attestation à jour",
-    due: (d) => (d.entretiens && d.entretiens.chaudiere) ? addMonths(d.entretiens.chaudiere, 12) : addDays(ssp(d), 15),
-    applies: (d) => !!(d.equipements && d.equipements.chaudiere) && !dt(d, "signature_acte") },
+    due: (d) => echeanceEntretien(d, "chaudiere"),
+    applies: (d) => !!(d.equipements && d.equipements.chaudiere) && alerteEntretien(d, "chaudiere") },
   { id: "entretien_clim", label: "Entretien de la climatisation / PAC (2 ans) — attestation à jour",
-    due: (d) => (d.entretiens && d.entretiens.climatisation) ? addMonths(d.entretiens.climatisation, 24) : addDays(ssp(d), 15),
-    applies: (d) => !!(d.equipements && d.equipements.climatisation) && !dt(d, "signature_acte") },
+    due: (d) => echeanceEntretien(d, "climatisation"),
+    applies: (d) => !!(d.equipements && d.equipements.climatisation) && alerteEntretien(d, "climatisation") },
   // Alerte seulement quand un diagnostic ne tiendra pas jusqu'à l'acte, et
   // 30 jours avant son expiration au plus tôt. Miroir du client.
   { id: "diagnostics", label: "Diagnostics à renouveler avant l'acte",
