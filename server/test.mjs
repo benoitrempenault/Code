@@ -538,6 +538,38 @@ ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Autho
 ok((await call("/agency/users/" + addC.json.user.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 200, "l'admin retire un conseiller");
 ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Authorization: "Bearer " + s2b } })).status === 404, "une autre agence ne peut pas retirer un conseiller (isolation)");
 
+/* ---- Échéancier : conditions suspensives hors prêt ---------------------- */
+{
+  const { actionsFor } = await import("./src/etapes.js");
+  const d = {
+    statut: "en_cours", date_compromis: "2026-06-01", date_butoir: "2026-09-30",
+    dates: {}, sequestre: {}, financement: { recours_pret: "oui" }, bien: { type: "maison" },
+    equipements: {}, entretiens: {}, diagnostics: {}, etapes: {},
+    conditions_suspensives: [
+      { titre: "Obtention d'un prêt", detail: "250 000 €" },
+      { titre: "Purge du droit de préemption", detail: "DIA en mairie" },
+      { titre: "Revente du bien de l'acquéreur", detail: "Appartement à Mérignac" },
+      { titre: "Régularisation des travaux", detail: "Véranda non déclarée" },
+      { titre: "Succession à régler", detail: "Attestation de propriété", levee: true },
+      { titre: "Enlèvement de la cuve à fioul", detail: "" }
+    ]
+  };
+  const ids = actionsFor(d, "2026-06-10").map((a) => a.id);
+  ok(ids.includes("cs_revente_du_bien_de_l_acquereur"), "la revente du bien de l'acquéreur devient une étape");
+  ok(ids.includes("cs_regularisation_des_travaux"), "la régularisation de travaux devient une étape");
+  ok(ids.includes("cs_enlevement_de_la_cuve_a_fioul"), "une condition non répertoriée est suivie telle quelle");
+  ok(!ids.includes("cs_succession_a_regler"), "une condition déjà levée disparaît de l'échéancier");
+  ok(!ids.some((i) => /cs_obtention_d_un_pret|cs_purge/.test(i)), "prêt et préemption ne sont pas dupliqués (phases dédiées)");
+  ok(!ids.includes("cs_urbanisme") && !ids.includes("cs_hypotheque"), "les étapes génériques d'urbanisme et d'hypothèque ont disparu");
+  const revente = actionsFor(d, "2026-06-10").find((a) => a.id === "cs_revente_du_bien_de_l_acquereur");
+  ok(revente.due === "2026-07-31", "délai par défaut d'une revente : compromis + 60 jours");
+  const fioul = actionsFor(d, "2026-06-10").find((a) => a.id === "cs_enlevement_de_la_cuve_a_fioul");
+  ok(fioul.due === "2026-09-15", "condition non répertoriée : échéance à la date butoir − 15 jours");
+  d.conditions_suspensives[2].echeance = "2026-07-01";
+  ok(actionsFor(d, "2026-06-10").find((a) => a.id === "cs_revente_du_bien_de_l_acquereur").due === "2026-07-01",
+    "l'échéance lue dans le compromis prime sur le délai par défaut");
+}
+
 fake.close();
 console.log("\n" + passed + " réussis, " + failed + " échec(s)");
 process.exit(failed ? 1 : 0);

@@ -305,10 +305,17 @@
         const def = E.DEFAULT_MODELES.find((m) => m.name === "Relance séquestre acquéreur");
         if (def) { await api("/modeles", { method: "PUT", json: def }); modeles = (await api("/modeles")).modeles || modeles; }
       }
-      // Modèle « pièces du notaire » (CU, hypothèques, préemption) : ajouté si absent.
-      if (!modeles.some((m) => m.name === "Relance pièces du notaire")) {
-        const defP2 = E.DEFAULT_MODELES.find((m) => m.name === "Relance pièces du notaire");
-        if (defP2) { await api("/modeles", { method: "PUT", json: defP2 }); modeles = (await api("/modeles")).modeles || modeles; }
+      // Modèle de relance des conditions suspensives (revente d'un bien,
+      // régularisation de travaux, succession…) : ajouté si absent. Il remplace
+      // l'éphémère « Relance pièces du notaire », supprimé s'il traîne encore.
+      const anciennePieces = modeles.find((m) => m.name === "Relance pièces du notaire");
+      if (anciennePieces) {
+        try { await api("/modeles/" + encodeURIComponent(anciennePieces.id), { method: "DELETE" }); } catch (e) { /* sans gravité */ }
+        modeles = modeles.filter((m) => m.id !== anciennePieces.id);
+      }
+      if (!modeles.some((m) => m.name === "Relance condition suspensive")) {
+        const defCS = E.DEFAULT_MODELES.find((m) => m.name === "Relance condition suspensive");
+        if (defCS) { await api("/modeles", { method: "PUT", json: defCS }); modeles = (await api("/modeles")).modeles || modeles; }
       }
       // Variante vendeur de la demande d'avis : ajoutée si absente.
       if (modeles.some((m) => m.name === "Demande d'avis client") && !modeles.some((m) => m.name === "Demande d'avis client vendeur")) {
@@ -1046,6 +1053,21 @@
   const DATE_STEP = {};
   Object.keys(STEP_DATE).forEach((k) => { DATE_STEP[STEP_DATE[k]] = k; });
 
+  // Marque une étape faite / à faire. Pour les conditions suspensives, l'état
+  // vit dans la condition elle-même (case « levée » de la carte) : les deux
+  // cases restent ainsi synchronisées.
+  function marquerEtape(d, id, fait) {
+    const step = E.compute(d).find((s) => s.id === id);
+    if (step && step.csIndex != null && d.conditions_suspensives[step.csIndex]) {
+      d.conditions_suspensives[step.csIndex].levee = fait;
+    }
+    d.etapes[id] = d.etapes[id] || {};
+    d.etapes[id].done = fait;
+    d.etapes[id].date = fait ? E.today() : "";
+    const datePath = STEP_DATE[id];
+    if (fait && datePath && !getByPath(d, datePath)) setByPath(d, datePath, E.today());
+  }
+
   // Écouteurs délégués du détail de dossier — attachés UNE fois au démarrage
   // (le contenu de la vue est re-rendu à chaque changement structurel).
   function wireDossier() {
@@ -1073,12 +1095,7 @@
       if (t.dataset.addEquip !== undefined && t.value) { d.equipements[t.value] = true; markDirty(); renderDossier(); return; }
       if (t.dataset.addDiag !== undefined && t.value) { d.diagnostics[t.value] = ""; markDirty(); renderDossier(); return; }
       if (t.dataset.stepDone != null) {
-        const id = t.dataset.stepDone;
-        d.etapes[id] = d.etapes[id] || {};
-        d.etapes[id].done = t.checked;
-        d.etapes[id].date = t.checked ? E.today() : "";
-        const datePath = STEP_DATE[id];
-        if (t.checked && datePath && !getByPath(d, datePath)) setByPath(d, datePath, E.today());
+        marquerEtape(d, t.dataset.stepDone, t.checked);
         markDirty(); renderDossier(); return;
       }
       if (t.dataset.stepDue != null) {
@@ -1282,8 +1299,11 @@
     return names.map((n) => {
       const m = modeleByName(n);
       if (!m) return "";
-      const known = !!recipientFor(d, m.cible);
-      const court = ciblesDistinctes ? (CIBLE_COURT[m.cible] || "Relancer") : (n.split(/\s+/)[0] || "Relancer");
+      // Une condition suspensive impose son propre destinataire (acquéreur
+      // pour une revente, syndic pour la copropriété…), pas celui du modèle.
+      const cible = (step.csIndex != null && step.cible) || m.cible;
+      const known = !!recipientFor(d, cible);
+      const court = ciblesDistinctes ? (CIBLE_COURT[cible] || "Relancer") : (n.split(/\s+/)[0] || "Relancer");
       const label = (names.length > 1 ? "✉ " + court : "✉ Relancer") + (known ? "" : " ⚠");
       return '<button class="btn btn--sm" data-act="mailname" data-id="' + esc(dossierId) + '" data-modele="' + esc(n) + '" data-step="' + esc(step.id) + '"' +
         (known ? "" : ' title="E-mail du destinataire inconnu — à saisir dans le message (pensez à le renseigner dans le dossier ou l\'annuaire)"') +
@@ -1315,8 +1335,15 @@
     return d.notaire_vendeur.nom + ", vous représentez le(s) vendeur(s) dont les coordonnées sont les suivantes :\n\n" + v +
       "\n\n" + d.notaire_acquereur.nom + ", vous représentez le(s) acquéreur(s) dont les coordonnées sont les suivantes :\n\n" + a;
   }
-  function mergeFields(d) {
+  // Champs de fusion. `step` (facultatif) est l'étape d'où part la relance :
+  // il apporte la salutation adaptée au destinataire et, pour une condition
+  // suspensive, son intitulé, son détail et son échéance.
+  function mergeFields(d, step) {
     const fin = d.financement || {};
+    const cond = (step && step.csIndex != null) ? (d.conditions_suspensives[step.csIndex] || {}) : null;
+    const cible = step ? step.cible : "";
+    const salutation = cible === "notaires" ? (notaireUnique(d) ? "Maître," : "Bonjour Maîtres,")
+      : /^notaire/.test(cible || "") || cible === "depositaire" ? "Maître," : "Bonjour,";
     // Mêmes valeurs par défaut que l'échéancier quand le compromis ne donne
     // pas de date précise (« dans les 10 jours ») : dépôt du prêt = compromis
     // + 10 j ; échéance de la condition de prêt = celle de la condition
@@ -1331,6 +1358,10 @@
       vendeurs_detail: detailPersonnes(d.vendeurs), acquereurs_detail: detailPersonnes(d.acquereurs),
       notaire_vendeur_nom: d.notaire_vendeur.nom, notaire_acquereur_nom: d.notaire_acquereur.nom,
       salutation_notaires: notaireUnique(d) ? "Maître," : "Bonjour Maîtres,",
+      salutation: salutation,
+      condition: cond ? (cond.titre || "condition suspensive") : "",
+      condition_detail: cond ? (cond.detail || "") : "",
+      condition_echeance: cond ? E.fmtFr(cond.echeance) : "",
       parties_detail: partiesDetail(d),
       notaire_vendeur: [d.notaire_vendeur.nom, d.notaire_vendeur.ville].filter(Boolean).join(", "),
       notaire_acquereur: [d.notaire_acquereur.nom, d.notaire_acquereur.ville].filter(Boolean).join(", "),
@@ -1355,10 +1386,13 @@
   let mailCtx = null; // { dossierId, modeleName, stepId }
   function openMail(dossierId, modele, stepId) {
     const d = details[dossierId].data;
-    const f = mergeFields(d);
+    const step = stepId ? E.compute(d).find((s) => s.id === stepId) : null;
+    const f = mergeFields(d, step);
     mailCtx = { dossierId, modeleName: modele.name, stepId: stepId || "" };
     $("#mailTitle").textContent = modele.name + " — " + (d.reference || "");
-    const to = recipientFor(d, modele.cible) || "";
+    // Une condition suspensive s'adresse au destinataire de SON étape
+    // (acquéreur pour une revente, syndic pour la copropriété…).
+    const to = recipientFor(d, (step && step.csIndex != null && step.cible) || modele.cible) || "";
     $("#mailTo").value = to;
     $("#mailSubject").value = fill(modele.sujet, f);
     $("#mailBody").value = fill(modele.corps, f);
@@ -1643,7 +1677,7 @@
       if (t.dataset.act === "done") {
         const det = details[id];
         if (!det) return;
-        det.data.etapes[t.dataset.step] = { done: true, date: E.today() };
+        marquerEtape(det.data, t.dataset.step, true);
         await saveDossier(id);
         if (inStats) renderStats(); else renderBoard();
       }
