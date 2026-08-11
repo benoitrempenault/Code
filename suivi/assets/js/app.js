@@ -433,76 +433,228 @@
     else if (view === "stats") renderStats();
   }
 
-  /* ------------------- Stats par étape (crémaillère & Cie) ---------------- */
+  /* --------------- Portefeuille : CA, avancement, vigilance ---------------
+     L'onglet répond à trois questions : combien de compromis en cours et pour
+     quels honoraires (agence puis conseiller), où en sont-ils, et qu'est-ce
+     qui traîne (rétractation, prêt, conditions, panneau, facture,
+     crémaillère). Les montants sont ceux saisis dans le dossier, lus depuis
+     des chaînes libres (« 12 500 € », « 12.500,00 »).                      */
+
+  // Lecture d'un montant écrit à la française ou à l'anglaise.
+  function euros(v) {
+    let t = String(v == null ? "" : v).replace(/\s/g, "").replace(/[^\d,.\-]/g, "");
+    if (!t) return 0;
+    if (t.indexOf(",") > -1) t = t.replace(/\./g, "").replace(",", ".");
+    else if (/\.\d{3}(\D|$)/.test(t)) t = t.replace(/\./g, "");
+    const n = parseFloat(t);
+    return isFinite(n) ? n : 0;
+  }
+  const fmtEur = (n) => Math.round(n).toLocaleString("fr-FR") + " €";
+  const honoraires = (d) => euros(d.prix && d.prix.honoraires);
+
+  /* Étape de vie du dossier — six états lisibles, dans l'ordre du processus.
+     Volontairement plus grossier que l'échéancier : c'est le stade auquel le
+     dossier se trouve, pas la prochaine tâche à faire.                      */
+  const AVANCEMENTS = [
+    "Rétractation (10 jours)", "Conditions suspensives", "Préemption (DIA)",
+    "Acte à signer", "Acte signé", "Après-vente", "Clos"
+  ];
+  // « Sécurisé » = plus aucune condition à lever, il ne reste qu'à signer.
+  const SECURISE = ["Acte à signer"];
+  const SIGNE = ["Acte signé", "Après-vente", "Clos"];
+  function avancement(d, steps) {
+    if (d.statut === "clos") return "Clos";
+    if (d.dates.signature_acte || d.statut === "signe") {
+      return steps.some((s) => s.phase === "Après-vente" && !s.done) ? "Après-vente" : "Clos";
+    }
+    const etat = (id) => steps.find((s) => s.id === id);
+    const enAttente = (id) => { const s = etat(id); return !!s && !s.done; };
+    if (enAttente("fin_retractation")) return "Rétractation (10 jours)";
+    if (enAttente("pret_acceptation")) return "Conditions suspensives";
+    if (steps.some((s) => s.phase === "Conditions suspensives" && !s.done)) return "Conditions suspensives";
+    if (enAttente("purge_dia")) return "Préemption (DIA)";
+    return "Acte à signer";
+  }
+
+  /* Points de vigilance : chacun désigne, pour un dossier, l'étape à montrer
+     (d'où les boutons ✉ Relancer et ✓ Fait de la liste). Renvoyer null =
+     le dossier n'est pas concerné.                                         */
+  const estSigne = (d) => !!d.dates.signature_acte || d.statut === "signe" || d.statut === "clos";
+  const aFaire = (st, id) => st.find((s) => s.id === id && !s.done);
+  const VIGIES = [
+    // « Sous les 10 jours » = la rétractation court encore : rien ne doit être
+    // engagé (DIA, panneau, dossier notaire) tant qu'elle n'est pas purgée.
+    { key: "retractation", label: "Rétractation en cours (10 j)", titre: "Délai de rétractation encore ouvert",
+      pick: (st, d) => { const s = estSigne(d) ? null : aFaire(st, "fin_retractation"); return (s && s.days != null && s.days >= 0) ? s : null; } },
+    { key: "pret", label: "En attente de prêt", titre: "Condition suspensive de prêt non levée",
+      pick: (st, d) => estSigne(d) ? null : aFaire(st, "pret_acceptation") },
+    { key: "cs", label: "Conditions à lever", titre: "Conditions suspensives hors prêt non levées",
+      pick: (st, d) => estSigne(d) ? null : st.find((s) => s.phase === "Conditions suspensives" && !s.done) },
+    { key: "panneau", label: "Panneau non posé", titre: "Panneau / bandeau « VENDU » à poser",
+      pick: (st, d) => estSigne(d) ? null : aFaire(st, "panneau_vendu") },
+    // La facture se prépare une semaine avant l'acte : on n'alerte qu'à un
+    // mois de l'échéance, sinon elle traînerait dans la liste dès le compromis.
+    { key: "facture", label: "Facture à éditer", titre: "Facture d'honoraires non éditée (acte proche ou signé)",
+      pick: (st, d) => { const s = aFaire(st, "facture_emise"); return (s && (estSigne(d) || (s.days != null && s.days <= 30))) ? s : null; } },
+    { key: "impayee", label: "Facture impayée", titre: "Honoraires non encaissés (acte signé)",
+      pick: (st, d) => estSigne(d) ? aFaire(st, "facture_payee") : null },
+    { key: "cremaillere", label: "Crémaillère à faire", titre: "Crémaillère / cadeau de bienvenue",
+      pick: (st, d) => estSigne(d) ? aFaire(st, "cremaillere") : null }
+  ];
+  let statsVigie = "retractation"; // vigie sélectionnée (ou "" = étape libre)
+
   function statsInit() {
     const sel = $("#statsEtape");
-    if (sel.options.length) return;
-    E.ETAPES.forEach((e) => {
-      const o = document.createElement("option");
-      o.value = e.id; o.textContent = e.label;
-      sel.appendChild(o);
+    if (!sel.options.length) {
+      const vide = document.createElement("option");
+      vide.value = ""; vide.textContent = "— choisir une étape —";
+      sel.appendChild(vide);
+      E.ETAPES.forEach((e) => {
+        const o = document.createElement("option");
+        o.value = e.id;
+        o.textContent = (typeof e.label === "function" ? e.id : e.label);
+        sel.appendChild(o);
+      });
+      sel.value = "";
+    }
+    // Liste des conseillers : initiales rencontrées dans les dossiers.
+    const selC = $("#statsConseiller"), avant = selC.value;
+    const inis = new Set();
+    list.forEach((m) => {
+      const d = details[m.id] && details[m.id].data;
+      if (!d) return;
+      [d.conseiller_vendeur, d.conseiller_acquereur].forEach((c) => {
+        if ((c || "").trim()) inis.add(c.trim().toUpperCase());
+      });
     });
-    sel.value = "cremaillere";
+    const options = ['<option value="">Toute l\'agence</option>'].concat(
+      Array.from(inis).sort().map((k) => {
+        const e = annConseiller(k);
+        return '<option value="' + esc(k) + '">' + esc(k + (e ? " — " + e.nom : "")) + "</option>";
+      })
+    ).join("");
+    if (selC.innerHTML !== options) { selC.innerHTML = options; selC.value = avant; }
   }
+
   async function renderStats() {
-    statsInit();
-    const stepId = $("#statsEtape").value;
     const inclureClos = $("#statsInclureClos").checked;
     const statuts = inclureClos ? ["en_cours", "signe", "clos"] : ["en_cours", "signe"];
     const metas = list.filter((m) => statuts.includes(m.statut));
     for (const m of metas) {
       if (!details[m.id]) { try { await loadDetail(m.id); } catch (e) { } }
     }
-    const rows = [];
+    statsInit();
+    const filtreCons = $("#statsConseiller").value;
+
+    // Un enregistrement par dossier : montant, avancement, étapes calculées.
+    const dossiers = [];
     for (const m of metas) {
       if (!details[m.id]) continue;
       const d = details[m.id].data;
-      const s = E.compute(d).find((x) => x.id === stepId);
-      if (!s) continue; // étape non applicable à ce dossier
-      const cons = [(d.conseiller_vendeur || "").trim(), (d.conseiller_acquereur || "").trim()].filter(Boolean);
-      rows.push({ id: m.id, ref: d.reference || m.name, d, s, cons: cons.length ? cons : ["—"] });
+      // Dédoublonné : le même conseiller des deux côtés ne compte qu'une fois.
+      const cons = Array.from(new Set([(d.conseiller_vendeur || "").trim(), (d.conseiller_acquereur || "").trim()]
+        .filter(Boolean).map((c) => c.toUpperCase())));
+      if (filtreCons && !cons.includes(filtreCons)) continue;
+      const steps = E.compute(d);
+      dossiers.push({
+        id: m.id, ref: d.reference || m.name, d, steps,
+        cons: cons.length ? cons : ["—"], ca: honoraires(d),
+        etat: avancement(d, steps),
+        retards: steps.filter((s) => !s.done && s.days != null && s.days < 0).length
+      });
     }
-    const faits = rows.filter((r) => r.s.done);
-    const attente = rows.filter((r) => !r.s.done);
-    const retard = attente.filter((r) => r.s.days != null && r.s.days < 0);
+
+    const somme = (arr) => arr.reduce((t, x) => t + x.ca, 0);
+    const enCours = dossiers.filter((x) => !SIGNE.includes(x.etat) && !SECURISE.includes(x.etat));
+    const securise = dossiers.filter((x) => SECURISE.includes(x.etat));
+    const signes = dossiers.filter((x) => SIGNE.includes(x.etat));
+    const encaisse = dossiers.filter((x) => (x.steps.find((s) => s.id === "facture_payee") || {}).done);
+    const sansMontant = dossiers.filter((x) => !x.ca).length;
+
     $("#statsKpis").innerHTML =
-      '<div class="kpi"><b>' + rows.length + "</b><span>dossiers concernés</span></div>" +
-      '<div class="kpi ok"><b>' + faits.length + "</b><span>faites</span></div>" +
-      '<div class="kpi ' + (attente.length ? "warn" : "ok") + '"><b>' + attente.length + "</b><span>en attente</span></div>" +
-      '<div class="kpi ' + (retard.length ? "bad" : "ok") + '"><b>' + retard.length + "</b><span>en retard</span></div>" +
-      '<div class="kpi"><b>' + (rows.length ? Math.round(faits.length / rows.length * 100) : 0) + " %</b><span>taux de réalisation</span></div>";
+      '<div class="kpi"><b>' + (dossiers.length - signes.length) + "</b><span>compromis en cours</span></div>" +
+      '<div class="kpi warn"><b>' + fmtEur(somme(enCours)) + "</b><span>CA en attente (conditions en cours)</span></div>" +
+      '<div class="kpi"><b>' + fmtEur(somme(securise)) + "</b><span>CA sécurisé (reste à signer)</span></div>" +
+      '<div class="kpi ok"><b>' + fmtEur(somme(signes)) + "</b><span>CA signé</span></div>" +
+      '<div class="kpi ok"><b>' + fmtEur(somme(encaisse)) + "</b><span>CA encaissé</span></div>" +
+      '<div class="kpi"><b>' + fmtEur(somme(dossiers)) + "</b><span>CA total du portefeuille</span></div>";
 
-    // Répartition par conseiller (un dossier crédite chacun de ses conseillers).
+    // Avancement : combien de dossiers et quel CA à chaque stade.
+    const total = somme(dossiers);
+    $("#statsAvancement").innerHTML = AVANCEMENTS.map((etat) => {
+      const l = dossiers.filter((x) => x.etat === etat);
+      if (!l.length) return "";
+      const ca = somme(l);
+      const part = total ? Math.round(ca / total * 100) : 0;
+      return "<tr><td><b>" + esc(etat) + "</b></td><td>" + l.length + "</td><td>" + fmtEur(ca) + "</td>" +
+        '<td><span class="bar"><i style="width:' + part + '%"></i></span>' + part + " %</td></tr>";
+    }).join("") || '<tr><td colspan="4" style="color:var(--muted)">Aucun dossier.</td></tr>';
+
+    // Par conseiller (un dossier à deux conseillers compte pour chacun).
     const parCons = {};
-    rows.forEach((r) => r.cons.forEach((c) => {
-      const k = c.toUpperCase();
-      parCons[k] = parCons[k] || { fait: 0, attente: 0, retard: 0 };
-      if (r.s.done) parCons[k].fait++;
-      else { parCons[k].attente++; if (r.s.days != null && r.s.days < 0) parCons[k].retard++; }
+    dossiers.forEach((x) => x.cons.forEach((c) => {
+      parCons[c] = parCons[c] || { n: 0, encours: 0, securise: 0, signe: 0, retards: 0 };
+      parCons[c].n++;
+      parCons[c].retards += x.retards;
+      if (SIGNE.includes(x.etat)) parCons[c].signe += x.ca;
+      else if (SECURISE.includes(x.etat)) parCons[c].securise += x.ca;
+      else parCons[c].encours += x.ca;
     }));
-    $("#statsConseillers").innerHTML = Object.keys(parCons).sort().map((k) => {
-      const e = annConseiller(k);
-      return "<tr><td><b>" + esc(k) + "</b>" + (e ? ' <small style="color:var(--muted)">' + esc(e.nom) + "</small>" : "") + "</td>" +
-        "<td>" + parCons[k].fait + "</td><td>" + parCons[k].attente + "</td>" +
-        '<td style="color:' + (parCons[k].retard ? "var(--bad)" : "inherit") + '">' + parCons[k].retard + "</td></tr>";
-    }).join("") || '<tr><td colspan="4" style="color:var(--muted)">Aucun dossier concerné.</td></tr>';
+    $("#statsConseillers").innerHTML = Object.keys(parCons)
+      .sort((a, b) => (parCons[b].encours + parCons[b].securise + parCons[b].signe) - (parCons[a].encours + parCons[a].securise + parCons[a].signe))
+      .map((k) => {
+        const e = annConseiller(k), v = parCons[k];
+        return "<tr><td><b>" + esc(k) + "</b>" + (e ? ' <small style="color:var(--muted)">' + esc(e.nom) + "</small>" : "") + "</td>" +
+          "<td>" + v.n + "</td><td>" + fmtEur(v.encours) + "</td><td>" + fmtEur(v.securise) + "</td>" +
+          '<td style="color:var(--ok)">' + fmtEur(v.signe) + "</td>" +
+          '<td style="color:' + (v.retards ? "var(--bad)" : "inherit") + '">' + v.retards + "</td></tr>";
+      }).join("") || '<tr><td colspan="6" style="color:var(--muted)">Aucun dossier.</td></tr>';
 
-    attente.sort((a, b) => ((a.s.due || "9999") < (b.s.due || "9999") ? -1 : 1));
-    $("#statsPendingCount").textContent = attente.length ? attente.length + " dossier(s)" : "";
-    $("#statsPending").innerHTML = attente.map((r) => {
-      const cls = r.s.days != null && r.s.days < 0 ? "late" : (r.s.days != null && r.s.days <= 7 ? "soon" : "");
-      const relTxt = r.s.relance && r.s.relance.ts
-        ? "✉ Dernière relance le " + new Date(r.s.relance.ts * 1000).toLocaleDateString("fr-FR")
+    // Vigies : compteur par point de vigilance, puis liste du point retenu.
+    const trouve = {};
+    VIGIES.forEach((v) => {
+      trouve[v.key] = dossiers.map((x) => ({ x, s: v.pick(x.steps, x.d) })).filter((r) => r.s);
+    });
+    const libre = $("#statsEtape").value;
+    $("#statsVigies").innerHTML = VIGIES.map((v) => {
+      const n = trouve[v.key].length;
+      return '<button class="vigie ' + (statsVigie === v.key ? "on " : "") + (n ? "alerte" : "vide") +
+        '" data-vigie="' + v.key + '" title="' + esc(v.titre) + '"><b>' + n + "</b> " + esc(v.label) + "</button>";
+    }).join("");
+
+    let titre, sel;
+    if (statsVigie && trouve[statsVigie]) {
+      const v = VIGIES.find((x) => x.key === statsVigie);
+      titre = "⏳ " + v.titre;
+      sel = trouve[statsVigie];
+    } else {
+      const s = E.ETAPES.find((e) => e.id === libre);
+      titre = "⏳ " + (s ? (typeof s.label === "function" ? libre : s.label) : "Dossiers concernés");
+      sel = dossiers.map((x) => ({ x, s: x.steps.find((y) => y.id === libre && !y.done) })).filter((r) => r.s);
+    }
+    sel.sort((a, b) => ((a.s.due || "9999") < (b.s.due || "9999") ? -1 : 1));
+    $("#statsListeTitre").innerHTML = esc(titre) + ' <span class="cnt" id="statsPendingCount">' +
+      (sel.length ? sel.length + " dossier(s) · " + fmtEur(sel.reduce((t, r) => t + r.x.ca, 0)) + " d'honoraires" : "") + "</span>";
+    $("#statsPending").innerHTML = sel.map((r) => {
+      const s = r.s, cls = s.days != null && s.days < 0 ? "late" : (s.days != null && s.days <= 7 ? "soon" : "");
+      const relTxt = s.relance && s.relance.ts
+        ? "✉ Dernière relance le " + new Date(s.relance.ts * 1000).toLocaleDateString("fr-FR")
         : "";
       return '<div class="todo__item ' + cls + '">' +
-        '<span class="when">' + (r.s.due ? frDate(r.s.due) + "<br><small>" + deltaLabel(r.s.days) + "</small>" : "—") + "</span>" +
-        '<span class="what"><b>' + esc(r.ref) + "</b><small>" + esc(r.cons.join(" / ")) + "</small>" +
+        '<span class="when">' + (s.due ? frDate(s.due) + "<br><small>" + deltaLabel(s.days) + "</small>" : "—") + "</span>" +
+        '<span class="what"><b>' + esc(r.x.ref) + "</b><small>" + esc(r.x.cons.join(" / ")) +
+        (r.x.ca ? " · " + fmtEur(r.x.ca) + " d'honoraires" : "") + "</small>" +
+        "<small>" + esc(s.label.slice(0, 90)) + "</small>" +
         (relTxt ? '<small style="color:var(--warn)">' + esc(relTxt) + "</small>" : "") + "</span>" +
-        mailButtons(r.id, r.s, r.d) +
-        '<button class="btn btn--sm" data-act="done" data-id="' + esc(r.id) + '" data-step="' + esc(stepId) + '">✓ Fait</button>' +
-        '<button class="btn btn--sm" data-act="open" data-id="' + esc(r.id) + '">Ouvrir →</button>' +
+        mailButtons(r.x.id, s, r.x.d) +
+        '<button class="btn btn--sm" data-act="done" data-id="' + esc(r.x.id) + '" data-step="' + esc(s.id) + '">✓ Fait</button>' +
+        '<button class="btn btn--sm" data-act="open" data-id="' + esc(r.x.id) + '">Ouvrir →</button>' +
         "</div>";
-    }).join("") || '<div class="todo__empty">Rien en attente pour cette étape. 🎉</div>';
+    }).join("") || '<div class="todo__empty">Rien à signaler ici. 🎉</div>';
+    if (sansMontant) {
+      $("#statsPending").insertAdjacentHTML("beforeend", '<p class="hintline">' + sansMontant +
+        " dossier(s) sans honoraires renseignés dans la fiche : ils ne comptent pas dans le CA.</p>");
+    }
   }
 
   /* ------------------------------ Annuaire (vue) -------------------------- */
@@ -1712,8 +1864,16 @@
         if (inStats) renderStats(); else renderBoard();
       }
     });
-    // Récap quotidien à la demande : envoyé à l'adresse du compte connecté.
-    $("#statsEtape").addEventListener("change", renderStats);
+    // Portefeuille : vigies cliquables, filtre conseiller, étape libre.
+    $("#statsVigies").addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-vigie]");
+      if (!b) return;
+      statsVigie = b.dataset.vigie;
+      $("#statsEtape").value = "";
+      renderStats();
+    });
+    $("#statsEtape").addEventListener("change", () => { statsVigie = ""; renderStats(); });
+    $("#statsConseiller").addEventListener("change", renderStats);
     $("#statsInclureClos").addEventListener("change", renderStats);
     $("#btnRecapNow").addEventListener("click", async () => {
       const btn = $("#btnRecapNow");

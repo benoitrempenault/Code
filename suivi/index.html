@@ -49,7 +49,7 @@
         <a href="../mandat/" title="Retour à l'accueil des outils (fiche, brochure, suivi, formation)">⌂ Accueil</a>
         <a href="#board" data-v="board">Tableau de bord</a>
         <a href="#dossiers" data-v="dossiers">Dossiers</a>
-        <a href="#stats" data-v="stats">Stats</a>
+        <a href="#stats" data-v="stats">Portefeuille</a>
         <a href="#modeles" data-v="modeles">Modèles d'e-mails</a>
         <a href="#annuaire" data-v="annuaire">Annuaire</a>
       </nav>
@@ -116,7 +116,8 @@
             <code>{{vendeurs_detail}}</code> <code>{{acquereurs_detail}}</code>
             <code>{{notaire_vendeur}}</code> <code>{{notaire_acquereur}}</code>
             <code>{{notaire_vendeur_nom}}</code> <code>{{notaire_acquereur_nom}}</code>
-            <code>{{salutation_notaires}}</code> <code>{{parties_detail}}</code>
+            <code>{{salutation_notaires}}</code> <code>{{salutation}}</code> <code>{{parties_detail}}</code>
+            <code>{{etape}}</code> <code>{{condition}}</code> <code>{{condition_detail}}</code> <code>{{condition_echeance}}</code>
             <code>{{date_compromis}}</code> <code>{{date_butoir}}</code> <code>{{fin_retractation}}</code>
             <code>{{sequestre_montant}}</code> <code>{{sequestre_depositaire}}</code> <code>{{date_limite_depot}}</code>
             <code>{{echeance_pret}}</code> <code>{{signature_prevue}}</code> <code>{{syndic}}</code>
@@ -132,24 +133,42 @@
 
       <!-- ======================== STATS PAR ÉTAPE ========================= -->
       <section class="view" id="view-stats">
-        <h2 class="viewtitle">Suivi par étape <small>crémaillères, panneaux, avis, factures… en un coup d'œil</small></h2>
+        <h2 class="viewtitle">Portefeuille &amp; chiffre d'affaires <small>les compromis en cours, leur avancement et les honoraires attendus</small></h2>
         <div class="toolrow">
-          <label style="color:var(--muted);font-size:12.5px">Étape suivie</label>
-          <select id="statsEtape" style="min-width:280px"></select>
+          <label style="color:var(--muted);font-size:12.5px">Conseiller</label>
+          <select id="statsConseiller" style="min-width:200px"></select>
           <label style="color:var(--muted);font-size:12.5px;margin-left:10px">
             <input type="checkbox" id="statsInclureClos" style="vertical-align:-3px" /> inclure les dossiers clos
           </label>
         </div>
         <div class="kpis" id="statsKpis"></div>
         <div class="card">
-          <h3>👥 Par conseiller</h3>
+          <h3>📈 Avancement du portefeuille <span class="cnt">où en sont les compromis, et le CA correspondant</span></h3>
           <div class="tablewrap"><table class="liste">
-            <thead><tr><th>Conseiller</th><th>Fait</th><th>En attente</th><th>Dont en retard</th></tr></thead>
-            <tbody id="statsConseillers"></tbody>
+            <thead><tr><th>Étape du dossier</th><th>Dossiers</th><th>Honoraires</th><th>Part du CA</th></tr></thead>
+            <tbody id="statsAvancement"></tbody>
           </table></div>
         </div>
         <div class="card">
-          <h3>⏳ En attente <span class="cnt" id="statsPendingCount"></span></h3>
+          <h3>👥 Par conseiller</h3>
+          <div class="tablewrap"><table class="liste">
+            <thead><tr><th>Conseiller</th><th>Dossiers</th><th>CA en cours</th><th>CA sécurisé</th><th>CA signé</th><th>Actions en retard</th></tr></thead>
+            <tbody id="statsConseillers"></tbody>
+          </table></div>
+          <p class="hintline"><b>En cours</b> : conditions suspensives ou rétractation en cours — le CA n'est pas acquis.
+            <b>Sécurisé</b> : toutes les conditions sont levées, il reste à signer. <b>Signé</b> : acte fait.
+            Un dossier à deux conseillers compte pour chacun.</p>
+        </div>
+        <div class="card">
+          <h3>🔎 Points de vigilance <span class="cnt">cliquez pour voir les dossiers concernés</span></h3>
+          <div class="vigies" id="statsVigies"></div>
+          <div class="toolrow" style="margin:12px 0 0">
+            <label style="color:var(--muted);font-size:12.5px">… ou n'importe quelle autre étape</label>
+            <select id="statsEtape" style="min-width:280px"></select>
+          </div>
+        </div>
+        <div class="card">
+          <h3 id="statsListeTitre">⏳ Dossiers concernés <span class="cnt" id="statsPendingCount"></span></h3>
           <div class="todo" id="statsPending"></div>
         </div>
       </section>
