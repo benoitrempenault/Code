@@ -83,8 +83,6 @@ const ETAPES = [
   { id: "envoi_dia", label: "DIA envoyée en mairie par le notaire", due: (d) => addDays(ssp(d), 15) },
   { id: "purge_dia", label: "Droit de préemption purgé (2 mois)",
     due: (d) => (d.dates && d.dates.envoi_dia) ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77) },
-  { id: "cs_urbanisme", label: "Certificat d'urbanisme obtenu", due: (d) => addDays(ssp(d), 60) },
-  { id: "cs_hypotheque", label: "État hypothécaire obtenu", due: (d) => addDays(ssp(d), 45) },
   { id: "dp_depot", label: "Déclaration préalable (DP) déposée en mairie", due: dpDepot, applies: estTerrain },
   { id: "dp_accord", label: "Accord de la DP (non-opposition) obtenu", due: dpAccord, applies: estTerrain },
   { id: "dp_affichage", label: "Affichage de la DP + constat d'huissier", due: dpAffichage, applies: estTerrain },
@@ -147,14 +145,63 @@ const ETAPES = [
     applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" }
 ];
 
+/* Conditions suspensives hors prêt (revente d'un bien, régularisation de
+   travaux, succession…) : une étape par condition extraite du compromis.
+   Miroir simplifié de csEtapes() côté client — mêmes exclusions (prêt et
+   préemption ont leur propre étape) et mêmes délais par défaut.            */
+const CS_HORS = [
+  /pr[êe]t|financement|emprunt|offre de pr[êe]t|\bodp\b/i,
+  /pr[ée]emption|d[ée]claration d'intention d'ali[ée]ner|\bdia\b/i
+];
+const CS_JOURS = [
+  { re: /revente|vente pr[ée]alable|vente de (?:son|leur|sa)|vente d'un (?:autre )?bien|vente du bien (?:de l'|des )acqu|mise en vente/i, jours: 60 },
+  { re: /r[ée]gularisation|non d[ée]clar|conformit[ée]|\bdaact\b|ach[èe]vement des travaux|attestation de non-?contestation/i, jours: 60 },
+  { re: /assainissement|\bspanc\b|fosse septique|micro-?station/i, jours: 60 },
+  { re: /locataire|cong[ée] pour vendre|\bbail\b|occupant|pr[ée]avis/i, jours: 45 },
+  { re: /succession|d[ée]volution|notori[ée]t[ée]|h[ée]ritier|indivision|attestation (?:notari[ée]e )?de propri[ée]t[ée]/i, jours: 60 },
+  { re: /bornage|arpentage|g[ée]om[èe]tre|division (?:parcellaire|de la parcelle|du terrain)|d[ée]tachement/i, jours: 60 },
+  { re: /assembl[ée]e g[ée]n[ée]rale|copropri[ée]t[ée]|syndicat des copropri[ée]taires|pr[ée]-?[ée]tat dat[ée]|carnet d'entretien/i, jours: 60 },
+  { re: /mainlev[ée]e|hypoth[èe]que|privil[èe]ge|saisie|inscription/i, jours: 45 },
+  { re: /servitude|certificat d'urbanisme|note de renseignement|alignement|emplacement r[ée]serv[ée]/i, jours: 60 },
+  { re: /changement d'usage|autorisation administrative|\berp\b|exploitation|licence|meubl[ée] de tourisme/i, jours: 60 }
+];
+function slug(s) {
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+}
+function csEtapes(d) {
+  const terrain = estTerrain(d);
+  const vus = {};
+  const out = [];
+  (d.conditions_suspensives || []).forEach((c, i) => {
+    const txt = (c.titre || "") + " " + (c.detail || "");
+    if (!txt.trim()) return;
+    if (CS_HORS.some((re) => re.test(txt))) return;
+    if (terrain && /permis de construire|d[ée]claration pr[ée]alable/i.test(txt) && !/r[ée]gularisation/i.test(txt)) return;
+    const t = CS_JOURS.find((x) => x.re.test(txt));
+    let id = "cs_" + (slug(c.titre) || slug(c.detail) || i);
+    if (vus[id]) id += "_" + i;
+    vus[id] = true;
+    out.push({
+      id, csIndex: i,
+      label: "Condition suspensive : " + ((c.titre || "").trim() || "à lever"),
+      due: () => c.echeance || (t ? addDays(ssp(d), t.jours)
+        : (d.date_butoir ? addDays(d.date_butoir, -15) : addDays(ssp(d), 60)))
+    });
+  });
+  return out;
+}
+
 // Actions non faites d'un dossier, avec échéance effective (surcharge comprise).
 export function actionsFor(data, today) {
   const st = data.etapes || {};
   const out = [];
-  for (const e of ETAPES) {
+  for (const e of ETAPES.concat(csEtapes(data))) {
     if (e.applies && !e.applies(data)) continue;
     const s = st[e.id] || {};
-    if (s.done) continue;
+    // Une condition suspensive est « faite » quand elle est levée.
+    const cond = e.csIndex == null ? null : (data.conditions_suspensives || [])[e.csIndex];
+    if (cond ? cond.levee : s.done) continue;
     const due = s.due || e.due(data);
     if (!due) continue;
     out.push({ id: e.id, label: e.label, due, days: daysUntil(due, today) });

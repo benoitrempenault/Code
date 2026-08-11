@@ -116,6 +116,92 @@
       return (exp && exp < cible) ? { key: x.key, label: x.label, exp } : null;
     }).filter(Boolean);
   }
+  /* ------------- Conditions suspensives hors prêt ------------------------
+     Elles sont propres à chaque compromis (revente d'un bien de l'acquéreur,
+     régularisation de travaux, succession à régler, accord de l'AG…) : plutôt
+     que de figer une liste, l'échéancier reprend UNE PAR UNE les conditions
+     extraites du compromis (carte « Conditions suspensives » du dossier).
+     Le tableau ci-dessous ne sert qu'à reconnaître les cas courants pour
+     proposer le bon destinataire, un délai par défaut et le bon conseil ;
+     toute condition non reconnue est suivie telle quelle.
+     Prêt, préemption et permis (terrain) ont déjà leur propre phase : ils
+     sont écartés d'ici pour ne pas apparaître deux fois.                    */
+  const CS_HORS = [
+    /pr[êe]t|financement|emprunt|offre de pr[êe]t|\bodp\b/i,
+    /pr[ée]emption|d[ée]claration d'intention d'ali[ée]ner|\bdia\b/i
+  ];
+  const CS_TYPES = [
+    { key: "revente", cible: "acquereur", modele: "Relance condition suspensive", jours: 60,
+      re: /revente|vente pr[ée]alable|vente de (?:son|leur|sa)|vente d'un (?:autre )?bien|vente du bien (?:de l'|des )acqu|mise en vente/i,
+      hint: "Vente du bien de l'acquéreur : demander copie du compromis signé et la date de réitération prévue." },
+    { key: "travaux_regul", cible: "vendeur", modele: "Relance condition suspensive", jours: 60,
+      re: /r[ée]gularisation|non d[ée]clar|conformit[ée]|\bdaact\b|ach[èe]vement des travaux|attestation de non-?contestation/i,
+      hint: "Régularisation de travaux : DP ou PC de régularisation, DAACT puis attestation de non-contestation (délai mairie : 3 mois)." },
+    { key: "assainissement", cible: "vendeur", modele: "Relance condition suspensive", jours: 60,
+      re: /assainissement|\bspanc\b|fosse septique|micro-?station/i,
+      hint: "Contrôle SPANC : en cas de non-conformité, travaux à la charge du vendeur ou reprise par l'acquéreur sous un an." },
+    { key: "locataire", cible: "notaire_vendeur", modele: "Relance condition suspensive", jours: 45,
+      re: /locataire|cong[ée] pour vendre|\bbail\b|occupant|pr[ée]avis/i,
+      hint: "Bien loué : congé pour vendre valablement délivré, ou renonciation du locataire à son droit de préemption." },
+    { key: "succession", cible: "notaire_vendeur", modele: "Relance condition suspensive", jours: 60,
+      re: /succession|d[ée]volution|notori[ée]t[ée]|h[ée]ritier|indivision|attestation (?:notari[ée]e )?de propri[ée]t[ée]/i,
+      hint: "Succession : l'attestation de propriété doit être publiée au service de la publicité foncière avant l'acte." },
+    { key: "division", cible: "notaire_vendeur", modele: "Relance condition suspensive", jours: 60,
+      re: /bornage|arpentage|g[ée]om[èe]tre|division (?:parcellaire|de la parcelle|du terrain)|d[ée]tachement/i,
+      hint: "Document d'arpentage / bornage : compter 1 à 2 mois de géomètre puis le numérotage cadastral." },
+    { key: "copropriete", cible: "syndic", modele: "Relance condition suspensive", jours: 60,
+      re: /assembl[ée]e g[ée]n[ée]rale|copropri[ée]t[ée]|syndicat des copropri[ée]taires|pr[ée]-?[ée]tat dat[ée]|carnet d'entretien/i,
+      hint: "Copropriété : autorisation de l'AG, pré-état daté et pièces du syndic — relancer le syndic dès la rétractation purgée." },
+    { key: "hypotheque", cible: "notaire_vendeur", modele: "Relance condition suspensive", jours: 45,
+      re: /mainlev[ée]e|hypoth[èe]que|privil[èe]ge|saisie|inscription/i,
+      hint: "État hypothécaire / mainlevée : le prix de vente doit couvrir les inscriptions, accord du créancier à obtenir." },
+    { key: "urbanisme", cible: "notaire_vendeur", modele: "Relance condition suspensive", jours: 60,
+      re: /servitude|certificat d'urbanisme|note de renseignement|alignement|emplacement r[ée]serv[ée]/i,
+      hint: "Urbanisme : certificat demandé en mairie par le notaire, instruction d'un à deux mois." },
+    { key: "autorisation", cible: "vendeur", modele: "Relance condition suspensive", jours: 60,
+      re: /changement d'usage|autorisation administrative|\berp\b|exploitation|licence|meubl[ée] de tourisme/i,
+      hint: "Autorisation administrative : délai variable selon la commune, à demander sans attendre." },
+    { key: "travaux_vendeur", cible: "vendeur", modele: "Relance condition suspensive", jours: 0,
+      re: /travaux (?:à|a) la charge du vendeur|travaux avant (?:la )?(?:signature|vente)|remise en [ée]tat/i,
+      hint: "Travaux à la charge du vendeur : à réceptionner avant l'acte, facture à joindre au dossier du notaire." }
+  ];
+  // Identifiant stable dérivé de l'intitulé de la condition.
+  function slug(s) {
+    return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+  }
+  function typeCS(txt) {
+    return CS_TYPES.find((t) => t.re.test(txt)) || null;
+  }
+  // Une étape par condition suspensive du compromis (hors prêt et préemption,
+  // qui ont leur propre phase). L'état « levée » de la condition et l'étape
+  // sont un seul et même bouton : cocher l'un coche l'autre.
+  function csEtapes(d) {
+    const terrain = estTerrain(d);
+    const vus = {};
+    return (d.conditions_suspensives || []).map((c, i) => {
+      const txt = (c.titre || "") + " " + (c.detail || "");
+      if (!txt.trim()) return null;
+      if (CS_HORS.some((re) => re.test(txt))) return null;
+      // Sur un terrain, DP et PC sont déjà détaillés dans la phase Urbanisme.
+      if (terrain && /permis de construire|d[ée]claration pr[ée]alable/i.test(txt) && !/r[ée]gularisation/i.test(txt)) return null;
+      const t = typeCS(txt);
+      let id = "cs_" + (slug(c.titre) || slug(c.detail) || i);
+      if (vus[id]) id += "_" + i;
+      vus[id] = true;
+      return {
+        id, phase: "Conditions suspensives", csIndex: i,
+        label: (c.titre || "").trim() || "Condition suspensive à lever",
+        cible: t ? t.cible : "notaire_vendeur",
+        modele: "Relance condition suspensive",
+        due: () => c.echeance || (t && t.jours ? addDays(ssp(d), t.jours)
+          : (d.date_butoir ? addDays(d.date_butoir, -15) : addDays(ssp(d), 60))),
+        hint: [(c.detail || "").trim(), t ? t.hint : ""].filter(Boolean).join(" — ")
+          || "Condition reprise du compromis : à lever avant la réitération."
+      };
+    }).filter(Boolean);
+  }
+
   const dpDepot = (d) => d.dates.dp_depot || addDays(ssp(d), 15);
   const dpAccord = (d) => d.dates.dp_accord || addMonths(dpDepot(d), 1);
   const dpAffichage = (d) => d.dates.dp_affichage || addDays(dpAccord(d), 8);
@@ -152,6 +238,10 @@
       cible: "notaire_vendeur", modele: "Relance DIA",
       due: (d) => addDays(ssp(d), 15),
       hint: "LA relance qui fait gagner un mois : vérifier l'envoi à J+15, demander une renonciation expresse si possible." },
+    { id: "purge_dia", phase: "Préemption (DIA)", label: "Droit de préemption purgé (réponse de la mairie ou silence de 2 mois)",
+      cible: "notaire_vendeur", modele: "Relance DIA",
+      due: (d) => d.dates.envoi_dia ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77),
+      hint: "Court à compter de l'envoi de la DIA : renseignez cette date pour un calcul juste." },
 
     { id: "dp_depot", phase: "Urbanisme (terrain)", label: "Déclaration préalable (DP) déposée en mairie",
       due: (d) => dpDepot(d), applies: estTerrain,
@@ -195,18 +285,6 @@
       applies: pret,
       hint: "L'offre ne peut être acceptée qu'à partir du 11e jour après réception — demander copie de l'acceptation datée." },
 
-    { id: "purge_dia", phase: "Conditions suspensives", label: "Droit de préemption purgé (réponse de la mairie ou silence de 2 mois)",
-      cible: "notaire_vendeur", modele: "Relance DIA",
-      due: (d) => d.dates.envoi_dia ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77),
-      hint: "Court à compter de l'envoi de la DIA : renseignez cette date pour un calcul juste." },
-    { id: "cs_urbanisme", phase: "Conditions suspensives", label: "Certificat d'urbanisme obtenu (pas de servitude ni de projet gênant)",
-      cible: "notaire_vendeur", modele: "Relance pièces du notaire",
-      due: (d) => addDays(ssp(d), 60),
-      hint: "Demandé en mairie par le notaire : instruction d'un mois (CU d'information) à deux mois (CU opérationnel)." },
-    { id: "cs_hypotheque", phase: "Conditions suspensives", label: "État hypothécaire obtenu (absence d'inscription non purgeable)",
-      cible: "notaire_vendeur", modele: "Relance pièces du notaire",
-      due: (d) => addDays(ssp(d), 45),
-      hint: "Relevé des inscriptions demandé par le notaire au service de la publicité foncière." },
 
     { id: "ramonage", phase: "Entretiens & diagnostics",
       label: (d) => d.entretiens.ramonage
@@ -280,19 +358,31 @@
       hint: "Le moment relationnel : cadeau, passage ou crémaillère chez les nouveaux propriétaires." }
   ];
 
+  // Étapes fixes + une étape par condition suspensive du compromis, insérées
+  // juste avant la phase « Entretiens & diagnostics ».
+  function toutesEtapes(d) {
+    const cs = csEtapes(d);
+    if (!cs.length) return ETAPES;
+    const i = ETAPES.findIndex((e) => e.phase === "Entretiens & diagnostics");
+    return i < 0 ? ETAPES.concat(cs) : ETAPES.slice(0, i).concat(cs, ETAPES.slice(i));
+  }
+
   // Étapes applicables à un dossier, avec leur état et leur échéance effective.
   function compute(d) {
     const st = d.etapes || {};
-    return ETAPES
+    return toutesEtapes(d)
       .filter((e) => (e.applies ? e.applies(d) : true))
       .map((e) => {
         const s = st[e.id] || {};
         const due = s.due || (e.due ? e.due(d) : "");
+        // Condition suspensive : la case « levée » de la carte et la case de
+        // l'échéancier sont le même interrupteur.
+        const cond = e.csIndex == null ? null : (d.conditions_suspensives || [])[e.csIndex];
         return {
           def: e, id: e.id, label: (typeof e.label === "function" ? e.label(d) : e.label),
-          phase: e.phase, cible: e.cible, hint: e.hint,
+          phase: e.phase, cible: e.cible, hint: e.hint, csIndex: e.csIndex,
           modele: e.modele, modeles: e.modeles || (e.modele ? [e.modele] : []),
-          done: !!s.done, date: s.date || "", note: s.note || "", due,
+          done: cond ? !!cond.levee : !!s.done, date: s.date || "", note: s.note || "", due,
           relance: s.relance || null, // dernière relance envoyée depuis cette étape
           days: due ? daysUntil(due) : null
         };
@@ -365,9 +455,9 @@
       corps: "Bonjour,\n\nL'échéance de la condition suspensive de prêt de votre compromis approche ({{echeance_pret}}).\n\nAvez-vous reçu votre offre de prêt ? Pour rappel, elle ne peut être acceptée qu'à compter du 11e jour suivant sa réception : pensez à nous transmettre, ainsi qu'au notaire, la copie de l'offre puis de son acceptation datée — c'est elle qui lève officiellement la condition suspensive.\n\nSi l'offre tarde, dites-le-nous vite : nous préparerons si besoin un avenant de prorogation avec les notaires.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
     },
     {
-      name: "Relance pièces du notaire", cible: "notaire_vendeur",
-      sujet: "Vente {{reference}} — Pièces du dossier (urbanisme, hypothèques, préemption)",
-      corps: "Maître,\n\nDans le cadre de la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}), pourriez-vous nous indiquer où en sont les pièces conditionnant la vente :\n\n- le certificat d'urbanisme,\n- l'état hypothécaire,\n- la purge du droit de préemption (DIA).\n\nLa signature est envisagée autour du {{signature_prevue}} (date butoir : {{date_butoir}}) : merci de nous signaler tout point susceptible de retarder ce calendrier.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      name: "Relance condition suspensive", cible: "notaire_vendeur",
+      sujet: "Vente {{reference}} — Condition suspensive : {{condition}}",
+      corps: "{{salutation}}\n\nDans le cadre de la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}), nous suivons la condition suspensive suivante :\n\n« {{condition}} »\n{{condition_detail}}\n\nPourriez-vous nous indiquer où en est cette condition et nous adresser, dès que possible, le justificatif permettant de la lever ?\n\nLa date butoir de réitération est fixée au {{date_butoir}} : merci de nous signaler tout point susceptible de retarder ce calendrier.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
     },
     {
       name: "Demande du projet d'acte", cible: "notaire_vendeur",
