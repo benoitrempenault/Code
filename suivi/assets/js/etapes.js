@@ -103,6 +103,10 @@
   }
   // Date à laquelle les diagnostics doivent être valides : l'acte.
   const dateActe = (d) => d.dates.signature_acte || d.dates.signature_prevue || d.date_butoir || "";
+  // Date de l'acte pour l'échéancier : la date réelle si l'acte est signé,
+  // sinon la date prévue, à défaut la date butoir. Les étapes de la phase
+  // « Acte authentique » s'y accrochent — bouger la signature les bouge toutes.
+  const dateSignature = (d) => dateActe(d) || addDays(ssp(d), 92);
   function diagExpiration(d, x) {
     const dt = (d.diagnostics || {})[x.key];
     const mois = dureeDiag(d, x);
@@ -355,12 +359,12 @@
       applies: (d) => !!d.date_butoir && !d.dates.signature_acte,
       hint: "À la date butoir − 10 jours : si la signature ne peut pas intervenir à temps, proposer l'avenant aux deux études. (Disparaît une fois l'acte signé.)" },
     { id: "signature", phase: "Acte authentique", label: "Acte authentique signé (réitération)",
-      due: (d) => d.dates.signature_prevue || d.date_butoir || addDays(ssp(d), 92),
-      hint: "Renseignez la date prévue dans « Dates clés » ; appel de fonds du notaire quelques jours avant." },
+      due: (d) => dateSignature(d),
+      hint: "L'échéance ci-contre EST la date de signature prévue des « Dates clés » : la modifier ici la modifie là-bas, et l'inverse." },
     { id: "facture_emise", phase: "Acte authentique", label: "Facture d'honoraires agence éditée et envoyée au notaire",
       cible: "notaire_vendeur", modele: "Envoi de la facture au notaire",
-      due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 2) : (d.dates.signature_prevue || d.date_butoir || addDays(ssp(d), 92)),
-      hint: "Joindre la facture électronique et le RIB (KADIMA-TB › Kadima - General › ASSISTANTE › RIB AGENCE). Branchement de l'éditeur de facturation à venir." },
+      due: (d) => addDays(dateSignature(d), -7),
+      hint: "Une semaine avant l'acte, pour que le notaire l'ait au dossier au moment de l'appel de fonds — la date suit celle de la signature. Joindre la facture électronique et le RIB (KADIMA-TB › Kadima - General › ASSISTANTE › RIB AGENCE)." },
 
     { id: "appel_apres_vente", phase: "Après-vente", label: "Appel des clients après la vente",
       cible: "vendeur", due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 7) : "",

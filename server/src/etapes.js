@@ -63,6 +63,9 @@ const DIAGS = [
   { key: "carrez", mois: 0 }
 ];
 const dateActe = (d) => dt(d, "signature_acte") || dt(d, "signature_prevue") || d.date_butoir || "";
+// Date de l'acte pour l'échéancier (miroir du client) : la phase « Acte
+// authentique » s'y accroche — la facture d'honoraires tombe une semaine avant.
+const dateSignature = (d) => dateActe(d) || addDays(ssp(d), 92);
 function diagExpirations(d) {
   return DIAGS.map((x) => {
     const date = (d.diagnostics || {})[x.key];
@@ -142,17 +145,15 @@ const ETAPES = [
   { id: "avenant", label: "Avenant de prorogation si la signature ne tient pas la date butoir",
     due: (d) => d.date_butoir ? addDays(d.date_butoir, -10) : "",
     applies: (d) => !!d.date_butoir && !(d.dates && d.dates.signature_acte) },
-  { id: "signature", label: "Acte authentique signé",
-    due: (d) => (d.dates && d.dates.signature_prevue) || d.date_butoir || addDays(ssp(d), 92) },
+  { id: "signature", label: "Acte authentique signé", due: (d) => dateSignature(d) },
   { id: "appel_apres_vente", label: "Appel des clients après la vente",
     due: (d) => (d.dates && d.dates.signature_acte) ? addDays(d.dates.signature_acte, 7) : "",
     applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" },
   { id: "avis", label: "Demande d'avis clients envoyée",
     due: (d) => (d.dates && d.dates.signature_acte) ? addDays(d.dates.signature_acte, 10) : "",
     applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" },
-  { id: "facture_emise", label: "Facture d'honoraires agence éditée",
-    due: (d) => (d.dates && d.dates.signature_acte) ? addDays(d.dates.signature_acte, 2) : "",
-    applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" },
+  { id: "facture_emise", label: "Facture d'honoraires agence éditée et envoyée au notaire",
+    due: (d) => addDays(dateSignature(d), -7) },
   { id: "facture_payee", label: "Facture agence payée (honoraires encaissés)",
     due: (d) => (d.dates && d.dates.signature_acte) ? addDays(d.dates.signature_acte, 15) : "",
     applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" },

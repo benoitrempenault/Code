@@ -1058,6 +1058,14 @@
   const DATE_STEP = {};
   Object.keys(STEP_DATE).forEach((k) => { DATE_STEP[STEP_DATE[k]] = k; });
 
+  // Étapes dont l'ÉCHÉANCE est une date clé du dossier (et non une surcharge
+  // locale) : déplacer la signature dans l'échéancier déplace « signature
+  // prévue » dans les dates clés, et réciproquement. Toute la phase « Acte
+  // authentique » suit — dont la facture d'honoraires, une semaine avant.
+  const STEP_DUE_DATE = { signature: "dates.signature_prevue" };
+  const DUE_DATE_STEP = {};
+  Object.keys(STEP_DUE_DATE).forEach((k) => { DUE_DATE_STEP[STEP_DUE_DATE[k]] = k; });
+
   // Marque une étape faite / à faire. Pour les conditions suspensives, l'état
   // vit dans la condition elle-même (case « levée » de la carte) : les deux
   // cases restent ainsi synchronisées.
@@ -1106,7 +1114,11 @@
       if (t.dataset.stepDue != null) {
         const id = t.dataset.stepDue;
         d.etapes[id] = d.etapes[id] || {};
-        d.etapes[id].due = t.value;
+        // Étape adossée à une date clé : on écrit LA date clé (pas une
+        // surcharge locale), pour que les deux champs restent le même.
+        const duePath = STEP_DUE_DATE[id];
+        if (duePath) { setByPath(d, duePath, t.value); d.etapes[id].due = ""; }
+        else d.etapes[id].due = t.value;
         markDirty(); renderDossier(); return;
       }
       // Date « fait le » d'une étape : modifiable, et répercutée sur la date
@@ -1143,6 +1155,13 @@
       if (t.dataset.path === "conseiller_vendeur" || t.dataset.path === "conseiller_acquereur") { renderDossier(); return; }
       // Dates d'entretien / de diagnostic : recalcule aussitôt la validité.
       if (t.dataset.path && /^(diagnostics|entretiens)\./.test(t.dataset.path)) { markDirty(); renderDossier(); return; }
+      // Date clé qui EST l'échéance d'une étape (signature prévue) : on efface
+      // une éventuelle surcharge locale pour que l'étape suive la date clé.
+      if (t.dataset.path && DUE_DATE_STEP[t.dataset.path]) {
+        const stepId = DUE_DATE_STEP[t.dataset.path];
+        if (d.etapes[stepId] && d.etapes[stepId].due) d.etapes[stepId].due = "";
+        markDirty(); renderDossier(); return;
+      }
       // Une date clé renseignée coche l'étape liée et lui donne CETTE date
       // (saisir « DIA envoyée le 12/09 » dans les dates clés coche l'étape
       // « DIA envoyée en mairie » au 12/09) ; l'effacer la décoche.

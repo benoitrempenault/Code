@@ -61,7 +61,8 @@ appel après-vente, clôture.
 | Entretiens (ramonage, chaudière, clim/PAC) | dernier entretien + 12 mois (24 pour la clim/PAC) | seulement pour les équipements présents au compromis ; **alerte à J-30**, orange à J-7, rouge une fois périmé — la ligne reste en revanche affichée tant que la date du dernier entretien est inconnue (attestation à récupérer). Relance interne au **conseiller vendeur** |
 | Diagnostics à renouveler | première expiration tombant avant l'acte | **alerte à J-30**, orange à J-7, rouge une fois périmé ; aucune ligne tant que tout tient jusqu'à la signature (DPE 10 ans, audit 5 ans, ERP et termites 6 mois, gaz/élec/assainissement 3 ans, amiante et plomb illimités sauf présence : 3 ans / 1 an). Relance interne au **conseiller vendeur** |
 | Projet d'acte + date de signature | butoir − 21 jours | demander pièces manquantes, caler le RDV |
-| Acte authentique | date prévue, sinon butoir (≈ J+92 en moyenne nationale) | |
+| Acte authentique | date prévue, sinon butoir (≈ J+92 en moyenne nationale) | l'échéance de l'étape **est** la date clé « signature prévue » : modifier l'une modifie l'autre |
+| Facture d'honoraires agence | acte − 7 jours | suit automatiquement la date de l'acte, pour que le notaire l'ait au dossier à l'appel de fonds |
 | Après-vente | appel J+7, avis clients J+10, clôture J+30 après l'acte | le moment où la satisfaction est maximale |
 
 ## Côté serveur
