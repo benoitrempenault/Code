@@ -578,7 +578,10 @@ ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Autho
       { titre: "Revente du bien de l'acquéreur", detail: "Appartement à Mérignac" },
       { titre: "Régularisation des travaux", detail: "Véranda non déclarée" },
       { titre: "Succession à régler", detail: "Attestation de propriété", levee: true },
-      { titre: "Enlèvement de la cuve à fioul", detail: "" }
+      { titre: "Enlèvement de la cuve à fioul", detail: "" },
+      { titre: "Certificat d'urbanisme / titres de propriété", detail: "Absence de charge réelle ou servitude grave" },
+      { titre: "État hypothécaire", detail: "Absence d'inscription de privilège ou d'hypothèque" },
+      { titre: "Autorisation d'urbanisme piscine", detail: "Piscine enterrée, purgée de tous recours" }
     ]
   };
   const ids = actionsFor(d, "2026-06-10").map((a) => a.id);
@@ -588,6 +591,9 @@ ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Autho
   ok(!ids.includes("cs_succession_a_regler"), "une condition déjà levée disparaît de l'échéancier");
   ok(!ids.some((i) => /cs_obtention_d_un_pret|cs_purge/.test(i)), "prêt et préemption ne sont pas dupliqués (phases dédiées)");
   ok(!ids.includes("cs_urbanisme") && !ids.includes("cs_hypotheque"), "les étapes génériques d'urbanisme et d'hypothèque ont disparu");
+  // Conditions de pur droit : réglées par le notaire, jamais relancées.
+  ok(!ids.some((i) => /certificat_d_urbanisme|etat_hypothecaire/.test(i)), "certificat d'urbanisme et état hypothécaire écartés de l'échéancier");
+  ok(ids.includes("cs_autorisation_d_urbanisme_piscine"), "une vraie autorisation d'urbanisme reste suivie");
   const revente = actionsFor(d, "2026-06-10").find((a) => a.id === "cs_revente_du_bien_de_l_acquereur");
   ok(revente.due === "2026-07-31", "délai par défaut d'une revente : compromis + 60 jours");
   const fioul = actionsFor(d, "2026-06-10").find((a) => a.id === "cs_enlevement_de_la_cuve_a_fioul");

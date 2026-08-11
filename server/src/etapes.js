@@ -153,6 +153,9 @@ const CS_HORS = [
   /pr[êe]t|financement|emprunt|offre de pr[êe]t|\bodp\b/i,
   /pr[ée]emption|d[ée]claration d'intention d'ali[ée]ner|\bdia\b/i
 ];
+// Conditions de pur droit (travail du notaire, aucune relance) : écartées de
+// l'échéancier. Testées sur le seul intitulé. Miroir du client.
+const CS_DROIT = /certificat d'urbanisme|titres? de propri[ée]t[ée]|[ée]tat hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur/i;
 const CS_JOURS = [
   { re: /revente|vente pr[ée]alable|vente de (?:son|leur|sa)|vente d'un (?:autre )?bien|vente du bien (?:de l'|des )acqu|mise en vente/i, jours: 60 },
   { re: /r[ée]gularisation|non d[ée]clar|conformit[ée]|\bdaact\b|ach[èe]vement des travaux|attestation de non-?contestation/i, jours: 60 },
@@ -161,8 +164,7 @@ const CS_JOURS = [
   { re: /succession|d[ée]volution|notori[ée]t[ée]|h[ée]ritier|indivision|attestation (?:notari[ée]e )?de propri[ée]t[ée]/i, jours: 60 },
   { re: /bornage|arpentage|g[ée]om[èe]tre|division (?:parcellaire|de la parcelle|du terrain)|d[ée]tachement/i, jours: 60 },
   { re: /assembl[ée]e g[ée]n[ée]rale|copropri[ée]t[ée]|syndicat des copropri[ée]taires|pr[ée]-?[ée]tat dat[ée]|carnet d'entretien/i, jours: 60 },
-  { re: /mainlev[ée]e|hypoth[èe]que|privil[èe]ge|saisie|inscription/i, jours: 45 },
-  { re: /servitude|certificat d'urbanisme|note de renseignement|alignement|emplacement r[ée]serv[ée]/i, jours: 60 },
+  { re: /autorisation d'urbanisme|note de renseignement|alignement|emplacement r[ée]serv[ée]|servitude/i, jours: 60 },
   { re: /changement d'usage|autorisation administrative|\berp\b|exploitation|licence|meubl[ée] de tourisme/i, jours: 60 }
 ];
 function slug(s) {
@@ -177,6 +179,7 @@ function csEtapes(d) {
     const txt = (c.titre || "") + " " + (c.detail || "");
     if (!txt.trim()) return;
     if (CS_HORS.some((re) => re.test(txt))) return;
+    if (CS_DROIT.test((c.titre || "").trim() || c.detail || "")) return;
     if (terrain && /permis de construire|d[ée]claration pr[ée]alable/i.test(txt) && !/r[ée]gularisation/i.test(txt)) return;
     const t = CS_JOURS.find((x) => x.re.test(txt));
     let id = "cs_" + (slug(c.titre) || slug(c.detail) || i);
