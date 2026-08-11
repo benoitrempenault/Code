@@ -397,7 +397,16 @@ const extr = await call("/v1/messages", {
   body: { model: "claude-sonnet-5", max_tokens: 6000, task: "extract_compromis", messages: [{ role: "user", content: "compromis" }] }
 });
 ok(extr.status === 200 && /COMPROMIS DE VENTE/.test(upstreamCalls[upstreamCalls.length - 1].body.system || ""), "task=extract_compromis → prompt injecté");
-ok(upstreamCalls[upstreamCalls.length - 1].body.output_config.format.schema.properties.sequestre != null, "schéma JSON du compromis (séquestre, conditions…) injecté");
+// Pas de sortie structurée pour le compromis (grammaire trop volumineuse) :
+// le contrat JSON est décrit dans le prompt, et rien ne doit fuir vers l'API.
+ok(upstreamCalls[upstreamCalls.length - 1].body.output_config === undefined, "compromis : aucune sortie structurée envoyée à l'API");
+ok(/"sequestre"[\s\S]*"conditions_suspensives"/.test(upstreamCalls[upstreamCalls.length - 1].body.system || ""), "contrat JSON du compromis (séquestre, conditions…) décrit dans le prompt");
+// Un client ne peut pas glisser son propre format de sortie sur cette tâche.
+const extrHack = await call("/v1/messages", {
+  headers: { Authorization: "Bearer " + s3 },
+  body: { model: "claude-sonnet-5", max_tokens: 6000, task: "extract_compromis", output_config: { format: { type: "json_schema", schema: {} } }, messages: [{ role: "user", content: "compromis" }] }
+});
+ok(extrHack.status === 200 && upstreamCalls[upstreamCalls.length - 1].body.output_config === undefined, "output_config envoyé par le client ignoré");
 
 console.log("— Relais « clé personnelle » (X-User-Key)");
 const byo = await call("/v1/messages", {
@@ -537,6 +546,24 @@ ok((await call("/agency/users", { headers: { Authorization: "Bearer " + u2sess }
 ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 400, "l'admin ne peut pas se retirer lui-même");
 ok((await call("/agency/users/" + addC.json.user.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 200, "l'admin retire un conseiller");
 ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Authorization: "Bearer " + s2b } })).status === 404, "une autre agence ne peut pas retirer un conseiller (isolation)");
+
+/* ---- Prompts : taille des schémas de sortie structurée ------------------ */
+{
+  const { promptFor } = await import("./src/prompts.js");
+  // La sortie structurée est compilée en grammaire de décodage par l'API :
+  // au-delà d'une certaine taille elle est refusée. Le compromis passe donc
+  // par un contrat décrit dans le prompt ; les autres tâches restent petites.
+  const compte = (s) => { let n = 0; const w = (o) => { if (o && typeof o === "object") { if (o.properties) n += Object.keys(o.properties).length; Object.values(o).forEach(w); } }; w(s); return n; };
+  const cp = promptFor("extract_compromis", "");
+  ok(cp.output_config == null, "extract_compromis n'utilise pas la sortie structurée");
+  ok(/"conditions_suspensives"/.test(cp.system) && /"date_butoir"/.test(cp.system), "le contrat JSON du compromis est décrit dans le prompt");
+  ok(/aucun commentaire dans ta réponse/.test(cp.system), "le prompt interdit de recopier les commentaires du squelette");
+  for (const t of ["brochure", "caption_photos", "diagnostics", "surfaces", "ad_text", "extract_notes", "city_intro", "structure_fiche"]) {
+    const p = promptFor(t, "");
+    ok(p.output_config && compte(p.output_config.format.schema) <= 25, "schéma de sortie raisonnable pour la tâche « " + t + " »");
+  }
+  ok(promptFor("tache_inconnue", "") === null, "tâche IA inconnue rejetée");
+}
 
 /* ---- Échéancier : conditions suspensives hors prêt ---------------------- */
 {

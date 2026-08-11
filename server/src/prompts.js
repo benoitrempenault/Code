@@ -427,12 +427,45 @@ const COMPROMIS_SYSTEM = [
   "- reference : « NOM(S) VENDEUR / NOM(S) ACQUÉREUR » — noms de famille seuls, en capitales.",
   "- conditions_suspensives : liste TOUTES les conditions, une entrée par condition, détail court mais complet (chiffres et délais conservés).",
   "- observations : servitudes, clauses particulières (travaux, diagnostics à refaire, occupation, mobilier…), une par ligne.",
-  "Réponds uniquement via le format JSON demandé."
+  "FORMAT DE RÉPONSE — réponds par un objet JSON valide et RIEN d'autre :",
+  "pas de texte avant ou après, pas de bloc ```json, toutes les clés présentes",
+  "(chaîne vide \"\" si l'information manque), et surtout aucun commentaire dans ta réponse.",
+  "Le squelette ci-dessous donne les clés attendues ; le texte après // est une consigne, à ne pas recopier.",
+  "",
+  skeleton(COMPROMIS_SCHEMA, 0)
 ].join("\n");
 
 /* ------------------------------- Registre ------------------------------- */
 
 const fmt = (schema) => ({ format: { type: "json_schema", schema } });
+
+/* Squelette JSON annoté rendu depuis un schéma.
+   La sortie structurée compile le schéma en grammaire de décodage : au-delà
+   d'une certaine taille l'API la refuse (« compiled grammar is too large »).
+   Le compromis, avec ses ~85 champs, dépasse cette limite — on lui décrit
+   donc le contrat DANS le prompt (une seule source de vérité : le schéma
+   ci-dessus) et le client parse le JSON renvoyé. Les autres tâches, bien plus
+   petites, gardent la sortie structurée. */
+function skeleton(schema, indent) {
+  const pad = " ".repeat(indent);
+  if (schema.type === "array") return "[" + skeleton(schema.items, indent) + "]";
+  if (schema.type !== "object" || !schema.properties) return '""';
+  const keys = Object.keys(schema.properties);
+  const lignes = keys.map((k, i) => {
+    const p = schema.properties[k];
+    const virgule = i < keys.length - 1 ? "," : "";
+    const note = p.description ? "   // " + p.description : "";
+    if (p.type !== "object" && p.type !== "array") {
+      return pad + "  " + JSON.stringify(k) + ': ""' + virgule + note;
+    }
+    // Conteneur : la consigne se lit mieux sur la ligne d'ouverture.
+    const val = skeleton(p, indent + 2);
+    const nl = val.indexOf("\n");
+    return pad + "  " + JSON.stringify(k) + ": " +
+      (nl < 0 ? val + virgule + note : val.slice(0, nl) + note + val.slice(nl) + virgule);
+  });
+  return "{\n" + lignes.join("\n") + "\n" + pad + "}";
+}
 
 export function promptFor(task, arg) {
   switch (task) {
@@ -444,7 +477,9 @@ export function promptFor(task, arg) {
     case "extract_notes": return { system: NOTES_SYSTEM, output_config: fmt(NOTES_SCHEMA) };
     case "city_intro": return { system: citySystem(arg), output_config: { effort: "low", ...fmt(CITY_SCHEMA) } };
     case "structure_fiche": return { system: FICHE_SYSTEM, output_config: fmt(FICHE_SCHEMA) };
-    case "extract_compromis": return { system: COMPROMIS_SYSTEM, output_config: fmt(COMPROMIS_SCHEMA) };
+    // Pas de sortie structurée ici : le schéma du compromis est trop gros pour
+    // la grammaire de décodage. Le contrat est décrit dans COMPROMIS_SYSTEM.
+    case "extract_compromis": return { system: COMPROMIS_SYSTEM, output_config: null };
     default: return null;
   }
 }

@@ -799,7 +799,10 @@ export function createApp(env) {
       const p = promptFor(String(body.task), body.task_arg == null ? "" : String(body.task_arg).slice(0, 300));
       if (!p) return err(c, 400, "Tâche IA inconnue.");
       body.system = p.system;
-      body.output_config = p.output_config;
+      // output_config null : tâche sans sortie structurée (schéma trop gros
+      // pour la grammaire) — le format attendu est décrit dans le prompt.
+      if (p.output_config) body.output_config = p.output_config;
+      else delete body.output_config;
       delete body.task; delete body.task_arg;
     }
 
