@@ -362,9 +362,9 @@
       due: (d) => dateSignature(d),
       hint: "L'échéance ci-contre EST la date de signature prévue des « Dates clés » : la modifier ici la modifie là-bas, et l'inverse." },
     { id: "facture_emise", phase: "Acte authentique", label: "Facture d'honoraires agence éditée et envoyée au notaire",
-      cible: "notaire_vendeur", modele: "Envoi de la facture au notaire",
+      cible: "notaires", modele: "Envoi de la facture au notaire",
       due: (d) => addDays(dateSignature(d), -7),
-      hint: "Une semaine avant l'acte, pour que le notaire l'ait au dossier au moment de l'appel de fonds — la date suit celle de la signature. Joindre la facture électronique et le RIB (KADIMA-TB › Kadima - General › ASSISTANTE › RIB AGENCE)." },
+      hint: "Une semaine avant l'acte, aux DEUX études, pour que la facture soit au dossier au moment de l'appel de fonds — la date suit celle de la signature. Joindre la facture électronique et le RIB (KADIMA-TB › Kadima - General › ASSISTANTE › RIB AGENCE)." },
 
     { id: "appel_apres_vente", phase: "Après-vente", label: "Appel des clients après la vente",
       cible: "vendeur", due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 7) : "",
@@ -524,9 +524,9 @@
       corps: "Bonjour Maîtres,\n\nLa date butoir de réitération de la vente citée en objet ({{reference}} — {{adresse_bien}}) est fixée au {{date_butoir}}, et il apparaît que la signature ne pourra pas intervenir avant cette échéance.\n\nAfin de sécuriser la vente, nous vous remercions de bien vouloir préparer un avenant de prorogation des présentes, en concertation avec les parties, et de nous indiquer la nouvelle date envisageable pour la signature de l'acte authentique.\n\nNous restons à votre disposition pour recueillir l'accord des vendeurs et des acquéreurs.\n\nBien cordialement,\n{{signature}}"
     },
     {
-      name: "Envoi de la facture au notaire", cible: "notaire_vendeur",
+      name: "Envoi de la facture au notaire", cible: "notaires",
       sujet: "Vente {{reference}} — Facture d'honoraires de l'agence",
-      corps: "Maître,\n\nDans le cadre de la vente citée en objet ({{reference}} — {{adresse_bien}}), je vous prie de bien vouloir trouver ci-joint notre facture d'honoraires d'un montant de {{honoraires}}, ainsi que notre RIB pour le règlement par virement.\n\nVous en remerciant par avance et restant à votre disposition,\n\n{{signature}}"
+      corps: "{{salutation_notaires}}\n\nDans le cadre de la vente citée en objet ({{reference}} — {{adresse_bien}}), je vous prie de bien vouloir trouver ci-joint notre facture d'honoraires d'un montant de {{honoraires}}, ainsi que notre RIB pour le règlement par virement.\n\nVous en remerciant par avance et restant à votre disposition,\n\n{{signature}}"
     },
     {
       name: "Demande de pré-état daté au syndic", cible: "syndic",

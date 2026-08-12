@@ -159,7 +159,7 @@ const FICHE_SCHEMA = {
 const PARTIE = {
   type: "object", additionalProperties: false,
   properties: {
-    nom: { type: "string", description: "Civilité + NOM DE FAMILLE EN CAPITALES + prénoms, dans cet ordre : « M. DUPONT Jean-Pierre », « Mme MARTIN Sophie Claire ». Pour une société, sa dénomination seule." },
+    nom: { type: "string", description: "Civilité + NOM DE FAMILLE EN CAPITALES + prénoms, dans cet ordre : « Mr DUPONT Jean-Pierre », « Mme MARTIN Sophie Claire ». Pour une société, sa dénomination seule." },
     adresse: { type: "string", description: "Adresse postale complète du domicile/siège." },
     telephone: { type: "string" },
     email: { type: "string" },
@@ -192,7 +192,7 @@ const COMPROMIS_SCHEMA = {
       type: "object", additionalProperties: false,
       properties: {
         type: { type: "string", description: "Maison, appartement, terrain…" },
-        adresse: { type: "string", description: "Adresse complète du bien vendu." },
+        adresse: { type: "string", description: "Adresse postale COMPLÈTE du bien : numéro, voie, code postal et ville (« 12 rue des Lilas, 33160 Saint-Médard-en-Jalles »)." },
         ville: { type: "string" },
         description: { type: "string", description: "Désignation courte du bien (surface, pièces, dépendances)." },
         copropriete: { type: "string", description: "« oui » si le bien est en copropriété, sinon « non » ; lots et tantièmes dans lots." },
@@ -426,7 +426,8 @@ const COMPROMIS_SYSTEM = [
   "- Montants recopiés en chiffres avec le symbole € (ex. « 285 000 € »).",
   "- reference : « NOM(S) VENDEUR / NOM(S) ACQUÉREUR » — noms de famille seuls, en capitales.",
   "- nom des vendeurs et des acquéreurs : TOUJOURS « civilité + NOM en capitales + prénoms », dans cet ordre",
-  "  (« M. DUPONT Jean-Pierre », « Mme MARTIN Sophie Claire ») — jamais « M. Jean-Pierre Dupont ».",
+  "  (« Mr DUPONT Jean-Pierre », « Mme MARTIN Sophie Claire ») — jamais « Mr Jean-Pierre Dupont ».",
+  "  Civilités : Mr, Mme, Mlle. Le nom de famille reste EN CAPITALES, les prénoms en minuscules accentuées.",
   "  Une personne par entrée, même pour un couple. Pour une société, sa seule dénomination (« SCI LES TILLEULS »).",
   "- conditions_suspensives : liste TOUTES les conditions, une entrée par condition, détail court mais complet (chiffres et délais conservés).",
   "- observations : servitudes, clauses particulières (travaux, diagnostics à refaire, occupation, mobilier…), une par ligne.",

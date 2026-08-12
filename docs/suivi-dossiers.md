@@ -23,8 +23,7 @@ appel après-vente, clôture.
 
 1. **Création par lecture du compromis** : on dépose le compromis signé (PDF ou photos
    des pages) ; Claude en extrait vendeurs, acquéreurs (identités, adresses, téléphones,
-   e-mails — nommés « M. DUPONT Jean-Pierre », civilité + NOM en capitales + prénoms),
-   notaires des deux parties, bien, prix et honoraires, **séquestre** (montant,
+   e-mails), notaires des deux parties, bien, prix et honoraires, **séquestre** (montant,
    dépositaire), **conditions suspensives** (dont financement : montant, taux, dates
    limites de dépôt et d'obtention), droit de préemption et **date butoir**. Le PDF est
    attaché au dossier (R2) et consultable par tous.
@@ -49,7 +48,21 @@ appel après-vente, clôture.
    « ✉ Relancer » prépare le message (destinataire + objet + corps), l'ouvre dans la
    messagerie (mailto) et consigne la relance dans le journal du dossier.
 5. **Journal partagé** : notes horodatées et signées (qui a appelé qui, réponses des
-   notaires…), visible par toute l'agence.
+   notaires…), visible par toute l'agence. Une note longue (un e-mail collé) est repliée
+   et se déploie au survol ; elle peut porter le lien d'un message, et les relances
+   envoyées depuis l'app y archivent leur texte.
+
+### Écriture des noms de clients
+
+Un même nom s'écrit de deux façons, calculées par `nomStandard()` / `nomCourriel()` :
+**dans l'app** « Mr DUPONT Jean-Pierre » (patronyme d'abord, pour repérer un dossier
+dans une liste), **dans les e-mails** « Mr Jean-Pierre DUPONT » (l'ordre naturel attendu
+par un notaire ou un client). Le patronyme est reconnu à ses CAPITALES, telles que les
+écrivent les compromis ; sans capitales le nom est laissé tel quel plutôt que d'inverser
+un prénom composé au hasard. Les dossiers anciens sont reformatés à l'ouverture
+(`normalize()`). Les adresses de bien insérées dans les courriers sont complètes
+(numéro, voie, code postal, ville — `adresseComplete()`), et `{{honoraires}}` ne rend
+que le montant, jamais la phrase entière du compromis.
 
 ## Délais utilisés par l'échéancier (vérifiés 2025-2026)
 
