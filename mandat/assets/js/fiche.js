@@ -65,6 +65,13 @@
   // Une ligne courte se terminant par « : » est un en-tête de niveau
   // (« Rez-de-chaussée : », « À l'étage : ») mis en avant dans le document.
   function isLevelLine(l) { return /:$/.test(l) && l.length <= 40; }
+  // Superficies en gras (« 18,83 m² », « 1 223 m2 », « 45m² ») : les surfaces
+  // sautent aux yeux dans la fiche. S'applique à du texte DÉJÀ échappé (le
+  // gras est du balisage, il ne doit pas repasser dans esc()).
+  const SURFACE_RE = /\d[\d\s.,]*m(?:²|2)(?![\w²])/gi;
+  function boldSurfaces(escaped) {
+    return String(escaped).replace(SURFACE_RE, function (m) { return "<b>" + m + "</b>"; });
+  }
   function listHtml(items, lvlClass) {
     let html = "", open = false;
     items.forEach(function (l) {
@@ -73,7 +80,7 @@
         html += '<div class="' + lvlClass + '">' + esc(l.replace(/\s*:$/, "")) + "</div>";
       } else {
         if (!open) { html += "<ul>"; open = true; }
-        html += "<li>" + esc(l) + "</li>";
+        html += "<li>" + boldSurfaces(esc(l)) + "</li>";
       }
     });
     if (open) html += "</ul>";
@@ -96,7 +103,7 @@
     const items = lines($("#fConf").value);
     return '<div class="fdoc__conf"><h2>Notes confidentielles — usage interne</h2>' +
       (items.length
-        ? "<ul>" + items.map(function (l) { return "<li" + (CONF_ALERT.test(l) ? ' class="fdoc__alert"' : "") + ">" + esc(l) + "</li>"; }).join("") + "</ul>"
+        ? "<ul>" + items.map(function (l) { return "<li" + (CONF_ALERT.test(l) ? ' class="fdoc__alert"' : "") + ">" + boldSurfaces(esc(l)) + "</li>"; }).join("") + "</ul>"
         : '<p class="fdoc__empty">— aucune note confidentielle —</p>') +
       "</div>";
   }
@@ -470,7 +477,7 @@
         html += '<p style="font-weight:bold;margin:8pt 0 3pt 0;">' + esc(l.replace(/\s*:$/, "")) + "</p>";
       } else {
         if (!open) { html += "<ul>"; open = true; }
-        html += "<li>" + esc(l) + "</li>";
+        html += "<li>" + boldSurfaces(esc(l)) + "</li>";
       }
     });
     if (open) html += "</ul>";
@@ -486,7 +493,7 @@
       const items = lines($("#fConf").value);
       confBlock = '<h2 style="color:#b3452e;border-bottom:1pt solid #e0b7aa;">Notes confidentielles — usage interne</h2>' +
         (items.length
-          ? "<ul>" + items.map(function (l) { return "<li" + (CONF_ALERT.test(l) ? ' style="color:#b3261e;font-weight:bold"' : "") + ">" + esc(l) + "</li>"; }).join("") + "</ul>"
+          ? "<ul>" + items.map(function (l) { return "<li" + (CONF_ALERT.test(l) ? ' style="color:#b3261e;font-weight:bold"' : "") + ">" + boldSurfaces(esc(l)) + "</li>"; }).join("") + "</ul>"
           : '<p style="color:#9a968c;font-style:italic;">— aucune note confidentielle —</p>');
     }
     return "<h1>PRESTATIONS ET MATÉRIAUX</h1>" +
