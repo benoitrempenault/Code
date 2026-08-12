@@ -159,7 +159,7 @@ const FICHE_SCHEMA = {
 const PARTIE = {
   type: "object", additionalProperties: false,
   properties: {
-    nom: { type: "string", description: "Nom complet (M./Mme Prénom NOM, ou dénomination de la société)." },
+    nom: { type: "string", description: "Civilité + NOM DE FAMILLE EN CAPITALES + prénoms, dans cet ordre : « M. DUPONT Jean-Pierre », « Mme MARTIN Sophie Claire ». Pour une société, sa dénomination seule." },
     adresse: { type: "string", description: "Adresse postale complète du domicile/siège." },
     telephone: { type: "string" },
     email: { type: "string" },
@@ -425,6 +425,9 @@ const COMPROMIS_SYSTEM = [
   "  signature UNIQUEMENT si celle-ci est connue, sinon recopie le délai en toutes lettres dans le champ concerné.",
   "- Montants recopiés en chiffres avec le symbole € (ex. « 285 000 € »).",
   "- reference : « NOM(S) VENDEUR / NOM(S) ACQUÉREUR » — noms de famille seuls, en capitales.",
+  "- nom des vendeurs et des acquéreurs : TOUJOURS « civilité + NOM en capitales + prénoms », dans cet ordre",
+  "  (« M. DUPONT Jean-Pierre », « Mme MARTIN Sophie Claire ») — jamais « M. Jean-Pierre Dupont ».",
+  "  Une personne par entrée, même pour un couple. Pour une société, sa seule dénomination (« SCI LES TILLEULS »).",
   "- conditions_suspensives : liste TOUTES les conditions, une entrée par condition, détail court mais complet (chiffres et délais conservés).",
   "- observations : servitudes, clauses particulières (travaux, diagnostics à refaire, occupation, mobilier…), une par ligne.",
   "FORMAT DE RÉPONSE — réponds par un objet JSON valide et RIEN d'autre :",

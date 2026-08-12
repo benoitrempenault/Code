@@ -254,7 +254,7 @@
       financement: { recours_pret: "", montant_pret: "", duree: "", taux_max: "", banques: "", date_limite_depot: "", date_limite_obtention: "" },
       conditions_suspensives: [],
       dates: {
-        envoi_sru: "", presentation_sru: "", envoi_notaires: "", envoi_dia: "", ar_dia: "", signature_prevue: "", signature_acte: "",
+        envoi_sru: "", presentation_sru: "", envoi_notaires: "", envoi_dia: "", ar_dia: "", signature_prevue: "", signature_heure: "", signature_lieu_vendeur: "", signature_lieu_acquereur: "", signature_acte: "",
         dp_depot: "", dp_accord: "", dp_affichage: "", pc_depot: "", pc_accord: "", pc_affichage: ""
       },
       etapes: {}, journal: [], observations: "", echeance: ""
@@ -1231,9 +1231,20 @@
       input("Dossier envoyé aux notaires", "dates.envoi_notaires", d, "date") +
       input("DIA envoyée", "dates.envoi_dia", d, "date") +
       input("AR de la DIA", "dates.ar_dia", d, "date") +
-      input("Signature prévue", "dates.signature_prevue", d, "date") +
       input("Acte signé le", "dates.signature_acte", d, "date") +
       "</div></div>" +
+
+      // Le rendez-vous de signature : date, heure, et le lieu de CHAQUE partie
+      // — vendeur et acquéreur ne signent pas toujours à la même étude.
+      '<div class="card"><h3>✍ Rendez-vous de signature</h3><div class="grid3">' +
+      input("Date prévue", "dates.signature_prevue", d, "date") +
+      input("Heure", "dates.signature_heure", d, "time") +
+      "</div><div class=\"grid2\">" +
+      input("Lieu — vendeurs", "dates.signature_lieu_vendeur", d, "text", 'list="dlEtudes" placeholder="Étude de Me…"') +
+      input("Lieu — acquéreurs", "dates.signature_lieu_acquereur", d, "text", 'list="dlEtudes" placeholder="Étude de Me…"') +
+      "</div>" +
+      '<p class="hintline">Les deux parties signent parfois dans des études différentes (acte à distance, procuration). ' +
+      "Ces informations alimentent le champ {{signature_prevue}} et {{signature_lieu}} des relances.</p></div>" +
 
       '<div class="card"><h3>🔧 Équipements &amp; entretiens</h3>' + entretiensHtml(d) +
       '<p class="hintline">Cochez les équipements présents : l\'échéancier réclame alors le justificatif et alerte à l\'approche de la péremption ' +
@@ -1259,6 +1270,10 @@
       "</div>" + // grid2
 
       // Suggestions issues de l'annuaire partagé (notaires, conseillers, syndics).
+      '<datalist id="dlEtudes">' + Array.from(new Set([d.notaire_vendeur, d.notaire_acquereur]
+        .filter((n) => (n.nom || "").trim())
+        .map((n) => "Étude de " + n.nom + (n.ville ? " — " + n.ville : ""))))
+        .map((v) => '<option value="' + esc(v) + '"></option>').join("") + "</datalist>" +
       '<datalist id="dlNotaires">' + annOf("notaire").map((a) => '<option value="' + esc(a.nom) + '">' + esc(a.ville || "") + "</option>").join("") + "</datalist>" +
       '<datalist id="dlConseillers">' + annOf("conseiller").map((a) => '<option value="' + esc(a.initiales || a.nom) + '">' + esc(a.nom) + "</option>").join("") + "</datalist>" +
       '<datalist id="dlSyndics">' + annuaire.filter((a) => a.type === "syndic" || a.type === "president").map((a) => '<option value="' + esc(a.nom) + '">' + esc(a.type === "president" ? "Président" : "Syndic") + "</option>").join("") + "</datalist>";
@@ -1647,12 +1662,32 @@
       fin_retractation: E.fmtFr(d.dates.presentation_sru ? E.addDays(d.dates.presentation_sru, 11) : E.addDays(d.date_compromis, 14)),
       sequestre_montant: d.sequestre.montant, sequestre_depositaire: d.sequestre.depositaire,
       date_limite_depot: E.fmtFr(depotDefaut), echeance_pret: E.fmtFr(echPretDefaut),
-      signature_prevue: E.fmtFr(d.dates.signature_prevue),
+      signature_prevue: dateHeure(d.dates.signature_prevue, d.dates.signature_heure),
+      signature_lieu_vendeur: d.dates.signature_lieu_vendeur || "",
+      signature_lieu_acquereur: d.dates.signature_lieu_acquereur || "",
+      signature_lieu: lieuxSignature(d),
       syndic: (d.syndic && d.syndic.nom) || "",
       conseiller_vendeur: (annConseiller(d.conseiller_vendeur) || {}).nom || d.conseiller_vendeur || "",
       conseiller_acquereur: (annConseiller(d.conseiller_acquereur) || {}).nom || d.conseiller_acquereur || "",
       conseiller: userName(), agence: AGENCE, date: new Date().toLocaleDateString("fr-FR")
     };
+  }
+  // « 20/11/2026 » ou « 20/11/2026 à 14 h 30 » — le rendez-vous chez le notaire
+  // se donne avec son heure dès qu'elle est calée.
+  function dateHeure(iso, heure) {
+    const j = E.fmtFr(iso);
+    const m = /^(\d{1,2}):(\d{2})/.exec(String(heure || "").trim());
+    if (!j || !m) return j;
+    return j + " à " + Number(m[1]) + " h" + (m[2] === "00" ? "" : " " + m[2]);
+  }
+  // « à l'étude de Me X » si tout le monde signe au même endroit, sinon
+  // « les vendeurs à …, les acquéreurs à … ».
+  function lieuxSignature(d) {
+    const v = (d.dates.signature_lieu_vendeur || "").trim();
+    const a = (d.dates.signature_lieu_acquereur || "").trim();
+    if (v && a && v.toLowerCase() === a.toLowerCase()) return v;
+    if (v && a) return "vendeurs : " + v + " ; acquéreurs : " + a;
+    return v || a || "";
   }
   function fill(tpl, fields) {
     return String(tpl || "").replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (m, k) => {

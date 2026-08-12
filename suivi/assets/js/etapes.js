@@ -491,12 +491,12 @@
     {
       name: "Demande du projet d'acte", cible: "notaire_vendeur",
       sujet: "Vente {{reference}} — Projet d'acte et date de signature",
-      corps: "Maître,\n\nLa date butoir de réitération de la vente {{reference}} ({{adresse_bien}}) est fixée au {{date_butoir}}.\n\nJe vous prie de trouver ci-joint l'offre de prêt de {{acquereurs}}.\n\nPourriez-vous nous indiquer l'état d'avancement du dossier (pièces manquantes éventuelles), nous adresser le projet d'acte, et nous proposer une date de signature ?\n\nBien cordialement,\n{{signature}}"
+      corps: "Maître,\n\nLa date butoir de réitération de la vente {{reference}} ({{adresse_bien}}) est fixée au {{date_butoir}}.\n\nJe vous prie de trouver ci-joint l'offre de prêt de {{acquereurs}}.\n\nPourriez-vous nous indiquer l'état d'avancement du dossier (pièces manquantes éventuelles), nous adresser le projet d'acte, et nous confirmer le rendez-vous de signature ({{signature_prevue}}) ainsi que le lieu de comparution de chaque partie ?\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Point d'étape vendeur", cible: "vendeur",
       sujet: "Votre vente {{adresse_bien}} — Point d'étape",
-      corps: "Bonjour,\n\nComme convenu, voici un point d'étape sur votre vente ({{reference}}, compromis signé le {{date_compromis}}) :\n\n- Délai de rétractation : purgé le {{fin_retractation}}\n- Dépôt de garantie : {{sequestre_montant}}\n- Financement des acquéreurs : en cours, condition suspensive au {{echeance_pret}}\n- Signature prévue : {{signature_prevue}} (butoir : {{date_butoir}})\n\n[Complétez / ajustez selon le dossier]\n\nNous suivons chaque étape auprès des notaires et des acquéreurs, et revenons vers vous dès la prochaine avancée.\n\nBien cordialement,\n{{signature}}"
+      corps: "Bonjour,\n\nComme convenu, voici un point d'étape sur votre vente ({{reference}}, compromis signé le {{date_compromis}}) :\n\n- Délai de rétractation : purgé le {{fin_retractation}}\n- Dépôt de garantie : {{sequestre_montant}}\n- Financement des acquéreurs : en cours, condition suspensive au {{echeance_pret}}\n- Signature prévue : {{signature_prevue}} (butoir : {{date_butoir}})\n- Lieu de signature : {{signature_lieu}}\n\n[Complétez / ajustez selon le dossier]\n\nNous suivons chaque étape auprès des notaires et des acquéreurs, et revenons vers vous dès la prochaine avancée.\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Information vendeur — rétractation purgée", cible: "vendeur",
