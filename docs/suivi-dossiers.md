@@ -23,7 +23,8 @@ appel après-vente, clôture.
 
 1. **Création par lecture du compromis** : on dépose le compromis signé (PDF ou photos
    des pages) ; Claude en extrait vendeurs, acquéreurs (identités, adresses, téléphones,
-   e-mails), notaires des deux parties, bien, prix et honoraires, **séquestre** (montant,
+   e-mails — nommés « M. DUPONT Jean-Pierre », civilité + NOM en capitales + prénoms),
+   notaires des deux parties, bien, prix et honoraires, **séquestre** (montant,
    dépositaire), **conditions suspensives** (dont financement : montant, taux, dates
    limites de dépôt et d'obtention), droit de préemption et **date butoir**. Le PDF est
    attaché au dossier (R2) et consultable par tous.
@@ -69,7 +70,7 @@ appel après-vente, clôture.
 | Entretiens (ramonage, chaudière, clim/PAC) | dernier entretien + 12 mois (24 pour la clim/PAC) | seulement pour les équipements présents au compromis ; **alerte à J-30**, orange à J-7, rouge une fois périmé — la ligne reste en revanche affichée tant que la date du dernier entretien est inconnue (attestation à récupérer). Relance interne au **conseiller vendeur** |
 | Diagnostics à renouveler | première expiration tombant avant l'acte | **alerte à J-30**, orange à J-7, rouge une fois périmé ; aucune ligne tant que tout tient jusqu'à la signature (DPE 10 ans, audit 5 ans, ERP et termites 6 mois, gaz/élec/assainissement 3 ans, amiante et plomb illimités sauf présence : 3 ans / 1 an). Relance interne au **conseiller vendeur** |
 | Projet d'acte + date de signature | butoir − 21 jours | demander pièces manquantes, caler le RDV |
-| Acte authentique | date prévue, sinon butoir (≈ J+92 en moyenne nationale) | l'échéance de l'étape **est** la date clé « signature prévue » : modifier l'une modifie l'autre |
+| Acte authentique | date prévue, sinon butoir (≈ J+92 en moyenne nationale) | l'échéance de l'étape **est** la date clé « signature prévue » : modifier l'une modifie l'autre. La carte « Rendez-vous de signature » porte en plus l'**heure** et le **lieu de chaque partie** (les deux ne comparaissent pas toujours à la même étude) → `{{signature_prevue}}` (« 20/11/2026 à 14 h 30 »), `{{signature_lieu}}`, `{{signature_lieu_vendeur}}`, `{{signature_lieu_acquereur}}` |
 | Facture d'honoraires agence | acte − 7 jours | suit automatiquement la date de l'acte, pour que le notaire l'ait au dossier à l'appel de fonds |
 | Après-vente | appel J+7, avis clients J+10, clôture J+30 après l'acte | le moment où la satisfaction est maximale |
 
