@@ -289,6 +289,7 @@
       st.pieces ? "Pièces : " + st.pieces : "",
       st.chambres ? "Chambres : " + st.chambres : "",
       st.sdb ? "Points d'eau (salles d'eau/bains) : " + st.sdb : "",
+      st.bureaux ? "Bureaux : " + st.bureaux : "",
       st.surface ? "Surface habitable : " + st.surface : "",
       st.terrain ? "Terrain : " + st.terrain : "",
       p.price ? "Prix : " + p.price : "",

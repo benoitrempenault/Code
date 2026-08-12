@@ -123,6 +123,10 @@
 .stat:last-child { border-right: 0; }
 .stat__num { font-family: var(--serif); font-size: 22pt; line-height: 1; }
 .stat__lbl { font-size: 8pt; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-soft); margin-top: 7px; }
+/* Six chiffres clés (quand le bien a un bureau) : cellules plus étroites. */
+.stats--tight .stat { padding: 13px 5px; }
+.stats--tight .stat__num { font-size: 17pt; }
+.stats--tight .stat__lbl { font-size: 7pt; letter-spacing: .1em; }
 .prose { columns: 2; column-gap: 11mm; font-size: 10.5pt; line-height: 1.72; color: var(--ink-soft); text-align: justify; hyphens: auto; }
 .prose p { margin: 0 0 10px; break-inside: avoid; }
 .prose p:first-child::first-letter {

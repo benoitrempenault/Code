@@ -53,9 +53,9 @@ const BROCHURE_SCHEMA = {
       additionalProperties: false,
       properties: {
         pieces: { type: "string" }, chambres: { type: "string" }, sdb: { type: "string" },
-        surface: { type: "string" }, terrain: { type: "string" }
+        bureaux: { type: "string" }, surface: { type: "string" }, terrain: { type: "string" }
       },
-      required: ["pieces", "chambres", "sdb", "surface", "terrain"]
+      required: ["pieces", "chambres", "sdb", "bureaux", "surface", "terrain"]
     }
   },
   required: ["coverTitle", "hook", "description", "features", "quartierIntro", "quartier", "stats"]
@@ -324,7 +324,8 @@ function brochureSystem(tone) {
     "- features.aSavoir : taxes, charges, copropriété, etc. si présentes dans les notes (sinon liste vide).",
     "- quartierIntro : 2 à 3 phrases sur l'attrait de la ville si l'information existe (sinon chaîne vide).",
     "- quartier : commodités sous forme {label, value} (Écoles, Centre-ville, Transports, Points d'intérêt, Commerces & services) si présentes (sinon liste vide).",
-    "- stats : pièces, chambres, points d'eau (salles d'eau + salles de bains), surface habitable, terrain — uniquement si l'information existe (chaîne vide sinon).",
+    "- stats : pièces, chambres, points d'eau (salles d'eau + salles de bains), bureaux, surface habitable, terrain — uniquement si l'information existe (chaîne vide sinon).",
+    "  bureaux : le NOMBRE de bureaux si les notes en mentionnent (« bureau », « pièce de bureau ») — chaîne vide si aucun (n'écris jamais « 0 »).",
     "  Pour surface et terrain, inclure l'unité (ex : « 198 m² », « 1 223 m² »)."
   ].join("\n");
 }

@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Inter:wght@300;400;500;600&family=Cormorant+Garamond:wght@400;500;600&family=Montserrat:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="assets/css/app.css" />
-  <link rel="stylesheet" href="assets/css/brochure.css?v=2" />
+  <link rel="stylesheet" href="assets/css/brochure.css?v=3" />
 </head>
 <body>
   <!-- ======================= BARRE D'ACTIONS ======================= -->
@@ -277,6 +277,7 @@
               <label>Pièces<input type="text" data-bind="property.stats.pieces" placeholder="7" /></label>
               <label>Chambres<input type="text" data-bind="property.stats.chambres" placeholder="5" /></label>
               <label>Points d'eau <small class="hint">(salles d'eau + salles de bains)</small><input type="text" data-bind="property.stats.sdb" placeholder="4" /></label>
+              <label>Bureaux <small class="hint">(laissez vide s'il n'y en a pas)</small><input type="text" data-bind="property.stats.bureaux" placeholder="1" /></label>
               <label>Surface hab.<input type="text" data-bind="property.stats.surface" placeholder="198 m²" /></label>
               <label>Terrain<input type="text" data-bind="property.stats.terrain" placeholder="1 223 m²" /></label>
             </div>
@@ -524,7 +525,7 @@
   <script src="assets/js/geo.js"></script>
   <script src="assets/js/ai.js?v=4"></script>
   <script src="assets/js/library.js"></script>
-  <script src="assets/js/app.js?v=6"></script>
+  <script src="assets/js/app.js?v=7"></script>
   <script src="assets/js/wizard.js?v=3"></script>
 </body>
 </html>

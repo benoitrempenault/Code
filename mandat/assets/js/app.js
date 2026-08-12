@@ -28,7 +28,7 @@
       hook: "Le matin, la lumière entre par l'est et glisse sur le parquet ; le soir, la terrasse s'ouvre sur la piscine et le jardin. Une maison pensée pour les vrais moments de vie.",
       description:
         "Dès l'entrée, un vaste hall et son vestiaire ouvrent sur une pièce de vie magistrale de plus de 70 m², baignée de lumière et tournée vers un jardin paysager apaisant. Les volumes, la clarté et l'harmonie des espaces créent une atmosphère à la fois moderne et chaleureuse.\n\nLa cuisine ouverte, sobre et raffinée, prolonge l'esprit de convivialité. Parfaitement équipée et agrémentée de nombreux rangements, elle s'ouvre sur une buanderie, un vaste cellier et un garage qui complète le quotidien.\n\nAu rez-de-chaussée, une suite parentale de près de 37 m² — digne d'un hôtel de charme — offre une vue sur la piscine, un dressing aménagé et une salle d'eau raffinée.\n\nÀ l'étage, un escalier maçonné conduit à l'espace enfants : deux chambres lumineuses, chacune avec sa salle d'eau, et une intimité parfaite pour toute la famille.\n\nÀ l'extérieur, place à la détente : terrasse ensoleillée, jardin paysager et piscine de 11 mètres à l'abri des regards. Le mariage rare du design, du confort et de la sérénité.",
-      stats: { pieces: "7", chambres: "5", sdb: "4", surface: "198 m²", terrain: "1 223 m²" },
+      stats: { pieces: "7", chambres: "5", sdb: "4", bureaux: "", surface: "198 m²", terrain: "1 223 m²" },
       price: "950 000 € FAI",
       priceNote: "Honoraires à la charge du vendeur",
       quartierIntro: "Saint-Médard-en-Jalles conjugue la douceur d'une ville à taille humaine et la proximité immédiate de Bordeaux : forêts et pistes cyclables, tissu commerçant vivant et bassin d'emploi dynamique."
@@ -563,11 +563,16 @@
       [one(s.pieces) ? "Pièce" : "Pièces", s.pieces],
       [one(s.chambres) ? "Chambre" : "Chambres", s.chambres],
       [one(s.sdb) ? "Point d'eau" : "Points d'eau", s.sdb],
+      [one(s.bureaux) ? "Bureau" : "Bureaux", s.bureaux],
       ["Surface", s.surface], ["Terrain", s.terrain]
     ].filter(function (c) { return c[1]; });
     if (!p.description && !cells.length) return "";
+    // La grille garde ses 5 colonnes ; avec un bureau (6 chiffres) elle
+    // s'élargit d'une colonne et resserre les chiffres pour tenir sur l'A4.
+    const cols = Math.max(5, cells.length);
     const stats = cells.length
-      ? '<div class="stats">' + cells.map(function (c) {
+      ? '<div class="stats' + (cells.length > 5 ? " stats--tight" : "") +
+        '" style="grid-template-columns:repeat(' + cols + ',1fr)">' + cells.map(function (c) {
           return '<div class="stat"><div class="stat__num">' + esc(c[1]) + '</div><div class="stat__lbl">' + esc(c[0]) + "</div></div>";
         }).join("") + "</div>"
       : "";
@@ -1005,7 +1010,7 @@
     s.property.type = ""; s.property.exclusivite = false;
     s.property.title = ""; s.property.location = ""; s.property.address = "";
     s.property.hook = ""; s.property.description = ""; s.property.quartierIntro = "";
-    s.property.stats = { pieces: "", chambres: "", sdb: "", surface: "", terrain: "" };
+    s.property.stats = { pieces: "", chambres: "", sdb: "", bureaux: "", surface: "", terrain: "" };
     s.property.price = ""; s.features = { interieur: [], exterieur: [], aSavoir: [] };
     s.quartier = []; s.diagnostics = { dpe: "", dpeValue: "", ges: "", gesValue: "", note: "Document non contractuel.", summary: [] };
     s.coverPhoto = null; s.gallery = []; s.plans = []; s.surfaces = []; s.surfacesTotal = "";
