@@ -38,9 +38,12 @@ appel après-vente, clôture.
 4. **Relances par e-mail** : modèles partagés de l'agence (onglet « Modèles »), champs
    de fusion `{{reference}}`, `{{notaire_vendeur}}`, `{{echeance_pret}}`… Le pied de
    message est `{{signature}}` : la signature personnelle du conseiller connecté, saisie
-   dans l'annuaire (colonne `notes` de la table `annuaire`). C'est nécessaire parce
-   qu'Outlook **n'insère jamais la signature** dans un message ouvert par un lien
-   `mailto:` contenant un corps — sans ce champ, les relances partiraient non signées.
+   dans l'annuaire (colonne `notes` de la table `annuaire`). Utile parce que le
+   comportement dépend du client : l'**Outlook classique** n'insère pas la signature
+   dans un message ouvert par un lien `mailto:` contenant un corps, alors que le
+   **nouvel Outlook** ajoute la vraie signature HTML (logo compris). Le champ laissé
+   vide, le pied de message reste « nom du conseiller + agence » comme avant.
+   Un `mailto:` ne transportant que du texte brut, l'app ne peut pas y placer d'image.
    Le bouton
    « ✉ Relancer » prépare le message (destinataire + objet + corps), l'ouvre dans la
    messagerie (mailto) et consigne la relance dans le journal du dossier.
