@@ -260,6 +260,39 @@
       etapes: {}, journal: [], observations: "", echeance: ""
     };
   }
+  /* --------------------------- Noms des clients --------------------------
+     Deux écritures d'un même nom :
+     - dans l'app, « Mr DUPONT Jean-Pierre » — le patronyme d'abord, pour
+       retrouver un dossier d'un coup d'œil dans une liste ;
+     - dans les e-mails, « Mr Jean-Pierre DUPONT » — l'ordre naturel, celui
+       qu'attend un notaire ou un client.
+     Le patronyme est reconnu à ses CAPITALES, comme il est écrit dans tous
+     les compromis. Sans capitales, on ne devine pas : le nom est laissé tel
+     quel plutôt que d'inverser un prénom composé au hasard.                */
+  const CIVILITES = { "m": "Mr", "m.": "Mr", "mr": "Mr", "mr.": "Mr", "monsieur": "Mr",
+    "mme": "Mme", "mme.": "Mme", "madame": "Mme", "mlle": "Mlle", "mademoiselle": "Mlle" };
+  function decoupeNom(nom) {
+    const mots = String(nom || "").trim().split(/\s+/).filter(Boolean);
+    if (!mots.length) return null;
+    let civ = "";
+    if (CIVILITES[mots[0].toLowerCase()]) civ = CIVILITES[mots.shift().toLowerCase()];
+    // Patronyme = les mots en capitales (au moins deux lettres).
+    const estCap = (w) => /[A-ZÀ-Þ]{2}/.test(w) && w === w.toUpperCase();
+    const nomFamille = mots.filter(estCap), prenoms = mots.filter((w) => !estCap(w));
+    if (!nomFamille.length || !prenoms.length) return { civ, reste: mots.join(" ") };
+    return { civ, nomFamille, prenoms };
+  }
+  function assemble(p, patronymeDabord) {
+    if (!p) return "";
+    if (p.reste != null) return [p.civ, p.reste].filter(Boolean).join(" ");
+    const ordre = patronymeDabord ? p.nomFamille.concat(p.prenoms) : p.prenoms.concat(p.nomFamille);
+    return [p.civ].concat(ordre).filter(Boolean).join(" ");
+  }
+  // Écriture retenue dans l'app : « Mr DUPONT Jean-Pierre ».
+  function nomStandard(nom) { return assemble(decoupeNom(nom), true) || String(nom || ""); }
+  // Écriture retenue dans les e-mails : « Mr Jean-Pierre DUPONT ».
+  function nomCourriel(nom) { return assemble(decoupeNom(nom), false) || String(nom || ""); }
+
   // Consolide un dossier chargé (ancien, partiel ou importé) sur le gabarit.
   function normalize(data) {
     const base = newDossier();
@@ -276,6 +309,10 @@
     if (!Array.isArray(data.acquereurs)) data.acquereurs = [];
     if (!Array.isArray(data.conditions_suspensives)) data.conditions_suspensives = [];
     if (!Array.isArray(data.journal)) data.journal = [];
+    // Anciens dossiers : les noms passent à l'écriture « Mr DUPONT Jean-Pierre ».
+    ["vendeurs", "acquereurs"].forEach((k) => data[k].forEach((p) => {
+      if (p && p.nom) p.nom = nomStandard(p.nom);
+    }));
     return data;
   }
 
@@ -335,6 +372,14 @@
       for (const m of modeles.filter((x) => (x.corps || "").endsWith(ancienPied))) {
         m.corps = m.corps.slice(0, -ancienPied.length) + "{{signature}}";
         try { await api("/modeles", { method: "PUT", json: m }); } catch (e) { /* sans gravité */ }
+      }
+      // La facture d'honoraires part désormais aux DEUX études (l'acquéreur
+      // règle souvent par son notaire) : on bascule le modèle enregistré.
+      const fact = modeles.find((m) => m.name === "Envoi de la facture au notaire");
+      if (fact && fact.cible === "notaire_vendeur") {
+        fact.cible = "notaires";
+        if ((fact.corps || "").startsWith("Maître,")) fact.corps = "{{salutation_notaires}}" + fact.corps.slice("Maître,".length);
+        try { await api("/modeles", { method: "PUT", json: fact }); } catch (e) { /* sans gravité */ }
       }
       // Relance interne au conseiller vendeur pour les entretiens et diagnostics.
       if (!modeles.some((m) => m.name === "Relance entretiens & diagnostics")) {
@@ -1528,7 +1573,7 @@
   }
 
   /* --------------------------- Relances e-mail ---------------------------- */
-  function joinNoms(arr) { return (arr || []).map((p) => p.nom).filter(Boolean).join(" et "); }
+  function joinNoms(arr) { return (arr || []).map((p) => nomCourriel(p.nom)).filter(Boolean).join(" et "); }
   // Adresses d'une étude : le notaire (dossier, sinon annuaire) ET son clerc
   // en charge du dossier (saisi au dossier uniquement, jamais dans l'annuaire).
   function mailsEtude(d, key) {
@@ -1602,7 +1647,7 @@
   // Liste détaillée « - Nom / tél / e-mail », une ligne par personne.
   function detailPersonnes(arr) {
     return (arr || []).filter((p) => (p.nom || "").trim()).map((p) =>
-      "- " + p.nom + " / " + (p.telephone || "tél. ?") + " / " + (p.email || "e-mail ?")
+      "- " + nomCourriel(p.nom) + " / " + (p.telephone || "tél. ?") + " / " + (p.email || "e-mail ?")
     ).join("\n");
   }
   // Un seul notaire au dossier (même étude des deux côtés, ou une seule
@@ -1641,8 +1686,11 @@
     const condPret = (d.conditions_suspensives || []).find((c) => /pr[êe]t|financement/i.test(c.titre || ""));
     const echPretDefaut = fin.date_limite_obtention || (condPret && condPret.echeance) || E.addDays(d.date_compromis, 60);
     return {
-      reference: d.reference, adresse_bien: d.bien.adresse, ville: d.bien.ville,
-      prix: d.prix.prix_vente, honoraires: d.prix.honoraires,
+      reference: d.reference, adresse_bien: adresseComplete(d.bien), ville: d.bien.ville,
+      prix: d.prix.prix_vente,
+      // Le compromis écrit souvent une phrase entière dans « honoraires » :
+      // dans un courrier, seul le montant a sa place.
+      honoraires: honoraires(d) ? fmtEur(honoraires(d)) : (d.prix.honoraires || ""),
       vendeurs: joinNoms(d.vendeurs), acquereurs: joinNoms(d.acquereurs),
       vendeurs_detail: detailPersonnes(d.vendeurs), acquereurs_detail: detailPersonnes(d.acquereurs),
       notaire_vendeur_nom: d.notaire_vendeur.nom, notaire_acquereur_nom: d.notaire_acquereur.nom,
@@ -1671,6 +1719,16 @@
       conseiller_acquereur: (annConseiller(d.conseiller_acquereur) || {}).nom || d.conseiller_acquereur || "",
       conseiller: userName(), agence: AGENCE, date: new Date().toLocaleDateString("fr-FR")
     };
+  }
+  // Adresse postale complète dans les courriers : numéro, voie, code postal
+  // et ville. La ville n'est ajoutée que si l'adresse ne la contient pas déjà.
+  function adresseComplete(b) {
+    const a = String((b && b.adresse) || "").trim().replace(/[,\s]+$/, "");
+    const v = String((b && b.ville) || "").trim();
+    if (!a) return v;
+    if (!v) return a;
+    const sansAccent = (x) => x.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+    return sansAccent(a).includes(sansAccent(v)) ? a : a + ", " + v;
   }
   // « 20/11/2026 » ou « 20/11/2026 à 14 h 30 » — le rendez-vous chez le notaire
   // se donne avec son heure dès qu'elle est calée.
