@@ -701,8 +701,10 @@
   /* ------------------------------ Annuaire (vue) -------------------------- */
   const ANN_SECTIONS = [
     ["conseiller", "👤 Conseillers", "Les initiales saisies dans un dossier sont reliées au nom et à l'e-mail ci-dessous. " +
-      "La <b>signature</b> de chacun est ajoutée au bas des relances qu'il compose : Outlook ne peut pas insérer la sienne " +
-      "dans un message pré-rempli, c'est donc celle-ci qui part."],
+      "La <b>signature</b> de chacun est ajoutée au bas des relances qu'il compose. " +
+      "À remplir <b>si votre messagerie ne signe pas toute seule</b> : le nouvel Outlook ajoute votre vraie signature " +
+      "(logo compris) aux messages préparés par l'app, l'Outlook classique ne le fait pas. " +
+      "Laissée vide, la relance se termine simplement par votre nom et l'agence."],
     ["notaire", "⚖️ Notaires", "Suggérés et pré-remplis dans les dossiers dès que le nom est reconnu."],
     ["syndic", "🏢 Syndics de copropriété", ""],
     ["president", "🏘 Présidents de lotissement / ASL", ""]
