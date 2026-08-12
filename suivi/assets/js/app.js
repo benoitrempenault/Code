@@ -1094,15 +1094,20 @@
     const journalHtml = d.journal.map((j, i) => ({ j, i })).reverse().map(({ j, i }) => {
       const dt = new Date((j.ts || 0) * 1000);
       const txt = j.text || "";
-      const lignes = Math.min(10, Math.max(1, txt.split("\n").length, Math.ceil(txt.length / 95)));
+      // Un message d'e-mail collé fait des dizaines de lignes : la note est
+      // repliée à quelques lignes et se déploie au survol ou au clic.
+      const lignes = Math.max(1, txt.split("\n").length, Math.ceil(txt.length / 95));
+      const longue = lignes > 4;
       const lien = lienExterne(j.lien);
       return '<div class="journal__item">' +
         '<button class="btn btn--sm btn--danger jdel" data-jdel="' + i + '" title="Supprimer cette note">✕</button>' +
         '<div class="meta">' +
         esc(dt.toLocaleDateString("fr-FR") + " " + dt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })) +
         " — " + esc(j.user || "") + (j.edite ? " · modifiée" : "") + "</div>" +
-        '<textarea class="journal__text" data-jedit="' + i + '" rows="' + lignes +
+        '<div class="journal__body' + (longue ? " long" : "") + '">' +
+        '<textarea class="journal__text" data-jedit="' + i + '" rows="' + Math.min(60, lignes) +
         '" title="Cliquez dans la note pour la corriger">' + esc(txt) + "</textarea>" +
+        (longue ? '<span class="journal__more">▾ message complet</span>' : "") + "</div>" +
         (lien ? '<a class="journal__lien" href="' + esc(lien) + '" target="_blank" rel="noopener noreferrer">🔗 Ouvrir le message lié</a>' : "") +
         (j.mail ? '<details class="journal__mail"><summary>✉ Relire le message envoyé</summary>' +
           "<div><b>À :</b> " + esc(j.mail.to || "?") + "<br><b>Objet :</b> " + esc(j.mail.sujet || "") + "</div>" +
