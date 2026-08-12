@@ -36,7 +36,12 @@ appel après-vente, clôture.
    santé par dossier (vert / orange / rouge), rappel « point d'étape vendeur » quand un
    dossier n'a plus de nouvelle depuis 15 jours.
 4. **Relances par e-mail** : modèles partagés de l'agence (onglet « Modèles »), champs
-   de fusion `{{reference}}`, `{{notaire_vendeur}}`, `{{echeance_pret}}`… Le bouton
+   de fusion `{{reference}}`, `{{notaire_vendeur}}`, `{{echeance_pret}}`… Le pied de
+   message est `{{signature}}` : la signature personnelle du conseiller connecté, saisie
+   dans l'annuaire (colonne `notes` de la table `annuaire`). C'est nécessaire parce
+   qu'Outlook **n'insère jamais la signature** dans un message ouvert par un lien
+   `mailto:` contenant un corps — sans ce champ, les relances partiraient non signées.
+   Le bouton
    « ✉ Relancer » prépare le message (destinataire + objet + corps), l'ouvre dans la
    messagerie (mailto) et consigne la relance dans le journal du dossier.
 5. **Journal partagé** : notes horodatées et signées (qui a appelé qui, réponses des

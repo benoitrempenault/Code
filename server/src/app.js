@@ -557,7 +557,7 @@ export function createApp(env) {
     if (!ANNUAIRE_TYPES.includes(type)) return err(c, 400, "type invalide (conseiller | notaire | syndic | president).");
     if (!nom) return err(c, 400, "nom requis.");
     const f = (k, max) => String((b && b[k]) || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max || 160);
-    const vals = { initiales: f("initiales", 10), ville: f("ville"), telephone: f("telephone", 40), email: f("email"), notes: f("notes", 500) };
+    const vals = { initiales: f("initiales", 10), ville: f("ville"), telephone: f("telephone", 40), email: f("email"), notes: f("notes", 1200) };
     let existing = null;
     if (b.id) existing = await db.get("SELECT id FROM annuaire WHERE id = ? AND agency_id = ?", [String(b.id), ctx.agency.id]);
     if (!existing) existing = await db.get("SELECT id FROM annuaire WHERE agency_id = ? AND type = ? AND nom = ?", [ctx.agency.id, type, nom]);

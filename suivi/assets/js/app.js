@@ -54,6 +54,16 @@
     try { return JSON.parse(localStorage.getItem("studio-mandatpro-account") || "null"); }
     catch (e) { return null; }
   }
+  // Fiche annuaire du conseiller connecté : par e-mail d'abord (fiable),
+  // par nom ensuite. Sert à retrouver SA signature d'e-mail.
+  function annMoi() {
+    const a = account(), u = (a && a.user) || {};
+    const mail = String(u.email || "").trim().toLowerCase();
+    const nom = String(u.name || "").trim().toLowerCase();
+    return annOf("conseiller").find((x) => mail && (x.email || "").trim().toLowerCase() === mail)
+      || annOf("conseiller").find((x) => nom && (x.nom || "").trim().toLowerCase() === nom)
+      || null;
+  }
   function userName() {
     const a = account();
     return (a && a.user && (a.user.name || a.user.email)) || "moi";
@@ -316,6 +326,15 @@
       if (!modeles.some((m) => m.name === "Relance condition suspensive")) {
         const defCS = E.DEFAULT_MODELES.find((m) => m.name === "Relance condition suspensive");
         if (defCS) { await api("/modeles", { method: "PUT", json: defCS }); modeles = (await api("/modeles")).modeles || modeles; }
+      }
+      // Pied de message : « {{conseiller}} / {{agence}} » devient {{signature}},
+      // qui reprend la signature personnelle saisie dans l'annuaire (Outlook ne
+      // peut pas insérer la sienne dans un message pré-rempli). On ne touche
+      // qu'aux modèles qui se terminent encore par l'ancien pied.
+      const ancienPied = "{{conseiller}}\n{{agence}}";
+      for (const m of modeles.filter((x) => (x.corps || "").endsWith(ancienPied))) {
+        m.corps = m.corps.slice(0, -ancienPied.length) + "{{signature}}";
+        try { await api("/modeles", { method: "PUT", json: m }); } catch (e) { /* sans gravité */ }
       }
       // Relance interne au conseiller vendeur pour les entretiens et diagnostics.
       if (!modeles.some((m) => m.name === "Relance entretiens & diagnostics")) {
@@ -681,7 +700,9 @@
 
   /* ------------------------------ Annuaire (vue) -------------------------- */
   const ANN_SECTIONS = [
-    ["conseiller", "👤 Conseillers", "Les initiales saisies dans un dossier sont reliées au nom et à l'e-mail ci-dessous."],
+    ["conseiller", "👤 Conseillers", "Les initiales saisies dans un dossier sont reliées au nom et à l'e-mail ci-dessous. " +
+      "La <b>signature</b> de chacun est ajoutée au bas des relances qu'il compose : Outlook ne peut pas insérer la sienne " +
+      "dans un message pré-rempli, c'est donc celle-ci qui part."],
     ["notaire", "⚖️ Notaires", "Suggérés et pré-remplis dans les dossiers dès que le nom est reconnu."],
     ["syndic", "🏢 Syndics de copropriété", ""],
     ["president", "🏘 Présidents de lotissement / ASL", ""]
@@ -700,6 +721,11 @@
         annInput(a, "telephone", "Téléphone", 120) +
         annInput(a, "email", "E-mail", 200) +
         '<button class="btn btn--sm btn--danger" data-adel="' + esc(a.id) + '">✕</button>' +
+        (type === "conseiller"
+          ? '<div class="field" style="flex:1 1 100%;margin:6px 0 0"><label>Signature des e-mails ({{signature}})</label>' +
+            '<textarea data-afield="notes" rows="4" placeholder="Prénom NOM&#10;Conseiller en immobilier&#10;CENTURY 21 Kadima — 05 56 00 00 00">' +
+            esc(a.notes || "") + "</textarea></div>"
+          : "") +
         "</div>"
       ).join("");
       return '<div class="card"><h3>' + titre + ' <span class="cnt">' + annOf(type).length + "</span></h3>" +
@@ -1600,6 +1626,9 @@
       notaire_vendeur_nom: d.notaire_vendeur.nom, notaire_acquereur_nom: d.notaire_acquereur.nom,
       salutation_notaires: notaireUnique(d) ? "Maître," : "Bonjour Maîtres,",
       salutation: salutation,
+      // Signature du conseiller connecté, saisie dans l'annuaire. À défaut,
+      // on retombe sur l'ancien pied de message (nom + agence).
+      signature: ((annMoi() || {}).notes || "").trim() || (userName() + "\n" + AGENCE),
       etape: step ? step.label : "",
       condition: cond ? (cond.titre || "condition suspensive") : "",
       condition_detail: cond ? (cond.detail || "") : "",
