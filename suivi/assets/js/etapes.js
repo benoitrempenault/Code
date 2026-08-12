@@ -446,67 +446,67 @@
     {
       name: "Envoi du dossier aux notaires", cible: "notaires",
       sujet: "Vente {{reference}} — {{adresse_bien}} : compromis signé, annexes et coordonnées des parties",
-      corps: "{{salutation_notaires}}\n\nDans le cadre de la vente citée en objet ({{reference}} — {{adresse_bien}}, compromis du {{date_compromis}}), je vous prie de bien vouloir trouver ci-après le lien pour télécharger le compromis de vente et les annexes signés ainsi que la preuve de dépôt de la SRU :\n\n[COLLEZ ICI LE LIEN DE TÉLÉCHARGEMENT]\n\n{{parties_detail}}\n\nVous en souhaitant bonne réception et restant à votre disposition,\n\n{{conseiller}}\n{{agence}}"
+      corps: "{{salutation_notaires}}\n\nDans le cadre de la vente citée en objet ({{reference}} — {{adresse_bien}}, compromis du {{date_compromis}}), je vous prie de bien vouloir trouver ci-après le lien pour télécharger le compromis de vente et les annexes signés ainsi que la preuve de dépôt de la SRU :\n\n[COLLEZ ICI LE LIEN DE TÉLÉCHARGEMENT]\n\n{{parties_detail}}\n\nVous en souhaitant bonne réception et restant à votre disposition,\n\n{{signature}}"
     },
     {
       name: "Demande d'envoi de la DIA", cible: "notaire_vendeur",
       sujet: "Vente {{reference}} — Envoi de la DIA en mairie ({{adresse_bien}})",
-      corps: "Maître,\n\nLe délai de rétractation de la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}) est purgé depuis le {{fin_retractation}}.\n\nNous vous remercions de bien vouloir adresser la déclaration d'intention d'aliéner (DIA) à la mairie sans attendre, et de nous communiquer sa date d'envoi dès transmission — nous la reportons dans notre suivi.\n\nSi la commune l'accepte, une renonciation expresse à son droit de préemption nous ferait gagner un temps précieux sur le calendrier (butoir de réitération : {{date_butoir}}).\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      corps: "Maître,\n\nLe délai de rétractation de la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}) est purgé depuis le {{fin_retractation}}.\n\nNous vous remercions de bien vouloir adresser la déclaration d'intention d'aliéner (DIA) à la mairie sans attendre, et de nous communiquer sa date d'envoi dès transmission — nous la reportons dans notre suivi.\n\nSi la commune l'accepte, une renonciation expresse à son droit de préemption nous ferait gagner un temps précieux sur le calendrier (butoir de réitération : {{date_butoir}}).\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Relance DIA", cible: "notaire_vendeur",
       sujet: "Vente {{reference}} — Demande d'envoi de la DIA ({{adresse_bien}})",
-      corps: "Maître,\n\nDans le cadre de la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}), pourriez-vous nous confirmer que la déclaration d'intention d'aliéner (DIA) a bien été adressée à la mairie, et nous communiquer sa date d'envoi ?\n\nLa purge du droit de préemption conditionnant la date de signature (butoir : {{date_butoir}}), nous vous serions reconnaissants, le cas échéant, de solliciter une renonciation expresse de la commune afin de gagner du temps.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      corps: "Maître,\n\nDans le cadre de la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}), pourriez-vous nous confirmer que la déclaration d'intention d'aliéner (DIA) a bien été adressée à la mairie, et nous communiquer sa date d'envoi ?\n\nLa purge du droit de préemption conditionnant la date de signature (butoir : {{date_butoir}}), nous vous serions reconnaissants, le cas échéant, de solliciter une renonciation expresse de la commune afin de gagner du temps.\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Relance séquestre", cible: "depositaire",
       sujet: "Vente {{reference}} — Confirmation de réception du dépôt de garantie",
-      corps: "Maître,\n\nConcernant la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}), pourriez-vous nous confirmer la bonne réception du dépôt de garantie de {{sequestre_montant}} qui devait être versé entre vos mains ({{sequestre_depositaire}}) ?\n\nÀ défaut, nous relancerons les acquéreurs sans délai.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      corps: "Maître,\n\nConcernant la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}), pourriez-vous nous confirmer la bonne réception du dépôt de garantie de {{sequestre_montant}} qui devait être versé entre vos mains ({{sequestre_depositaire}}) ?\n\nÀ défaut, nous relancerons les acquéreurs sans délai.\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Relance séquestre acquéreur", cible: "acquereur",
       sujet: "Votre achat {{adresse_bien}} — Versement du dépôt de garantie",
-      corps: "Bonjour,\n\nSuite à la signature de votre compromis le {{date_compromis}}, celui-ci prévoit le versement du dépôt de garantie de {{sequestre_montant}} entre les mains de {{sequestre_depositaire}}, par virement.\n\nPourriez-vous nous confirmer que le virement a bien été effectué (ou nous transmettre la preuve de virement) ? À défaut de versement à la date prévue, le compromis pourrait être remis en cause — n'hésitez pas à nous appeler en cas de difficulté.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      corps: "Bonjour,\n\nSuite à la signature de votre compromis le {{date_compromis}}, celui-ci prévoit le versement du dépôt de garantie de {{sequestre_montant}} entre les mains de {{sequestre_depositaire}}, par virement.\n\nPourriez-vous nous confirmer que le virement a bien été effectué (ou nous transmettre la preuve de virement) ? À défaut de versement à la date prévue, le compromis pourrait être remis en cause — n'hésitez pas à nous appeler en cas de difficulté.\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Relance dépôt du dossier de prêt", cible: "acquereur",
       sujet: "Votre achat {{adresse_bien}} — Dépôt de votre dossier de financement",
-      corps: "Bonjour,\n\nSuite à la signature de votre compromis le {{date_compromis}}, celui-ci prévoit le dépôt de votre demande de prêt avant le {{date_limite_depot}}.\n\nPourriez-vous nous confirmer que votre dossier a bien été déposé auprès de votre banque ou courtier, et nous transmettre le justificatif de dépôt (il est à adresser au notaire) ?\n\nN'hésitez pas à nous solliciter si vous rencontrez la moindre difficulté : nous pouvons vous mettre en relation avec nos partenaires financement.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      corps: "Bonjour,\n\nSuite à la signature de votre compromis le {{date_compromis}}, celui-ci prévoit le dépôt de votre demande de prêt avant le {{date_limite_depot}}.\n\nPourriez-vous nous confirmer que votre dossier a bien été déposé auprès de votre banque ou courtier, et nous transmettre le justificatif de dépôt (il est à adresser au notaire) ?\n\nN'hésitez pas à nous solliciter si vous rencontrez la moindre difficulté : nous pouvons vous mettre en relation avec nos partenaires financement.\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Suivi du financement", cible: "acquereur",
       sujet: "Votre achat {{adresse_bien}} — Où en est votre financement ?",
-      corps: "Bonjour,\n\nPetit point d'étape sur votre acquisition ({{adresse_bien}}) : avez-vous reçu l'accord de principe de votre banque ?\n\nPour rappel, la condition suspensive de prêt court jusqu'au {{echeance_pret}} : il est important que l'édition de l'offre soit lancée dès l'accord obtenu.\n\nTenez-nous informés de l'avancement — nous coordonnons la suite avec les notaires.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      corps: "Bonjour,\n\nPetit point d'étape sur votre acquisition ({{adresse_bien}}) : avez-vous reçu l'accord de principe de votre banque ?\n\nPour rappel, la condition suspensive de prêt court jusqu'au {{echeance_pret}} : il est important que l'édition de l'offre soit lancée dès l'accord obtenu.\n\nTenez-nous informés de l'avancement — nous coordonnons la suite avec les notaires.\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Relance offre de prêt", cible: "acquereur",
       sujet: "Votre achat {{adresse_bien}} — Offre de prêt et levée de la condition suspensive",
-      corps: "Bonjour,\n\nL'échéance de la condition suspensive de prêt de votre compromis approche ({{echeance_pret}}).\n\nAvez-vous reçu votre offre de prêt ? Pour rappel, elle ne peut être acceptée qu'à compter du 11e jour suivant sa réception : pensez à nous transmettre, ainsi qu'au notaire, la copie de l'offre puis de son acceptation datée — c'est elle qui lève officiellement la condition suspensive.\n\nSi l'offre tarde, dites-le-nous vite : nous préparerons si besoin un avenant de prorogation avec les notaires.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      corps: "Bonjour,\n\nL'échéance de la condition suspensive de prêt de votre compromis approche ({{echeance_pret}}).\n\nAvez-vous reçu votre offre de prêt ? Pour rappel, elle ne peut être acceptée qu'à compter du 11e jour suivant sa réception : pensez à nous transmettre, ainsi qu'au notaire, la copie de l'offre puis de son acceptation datée — c'est elle qui lève officiellement la condition suspensive.\n\nSi l'offre tarde, dites-le-nous vite : nous préparerons si besoin un avenant de prorogation avec les notaires.\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Relance condition suspensive", cible: "notaire_vendeur",
       sujet: "Vente {{reference}} — Condition suspensive : {{condition}}",
-      corps: "{{salutation}}\n\nDans le cadre de la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}), nous suivons la condition suspensive suivante :\n\n« {{condition}} »\n{{condition_detail}}\n\nPourriez-vous nous indiquer où en est cette condition et nous adresser, dès que possible, le justificatif permettant de la lever ?\n\nLa date butoir de réitération est fixée au {{date_butoir}} : merci de nous signaler tout point susceptible de retarder ce calendrier.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      corps: "{{salutation}}\n\nDans le cadre de la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}), nous suivons la condition suspensive suivante :\n\n« {{condition}} »\n{{condition_detail}}\n\nPourriez-vous nous indiquer où en est cette condition et nous adresser, dès que possible, le justificatif permettant de la lever ?\n\nLa date butoir de réitération est fixée au {{date_butoir}} : merci de nous signaler tout point susceptible de retarder ce calendrier.\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Demande du projet d'acte", cible: "notaire_vendeur",
       sujet: "Vente {{reference}} — Projet d'acte et date de signature",
-      corps: "Maître,\n\nLa date butoir de réitération de la vente {{reference}} ({{adresse_bien}}) est fixée au {{date_butoir}}.\n\nJe vous prie de trouver ci-joint l'offre de prêt de {{acquereurs}}.\n\nPourriez-vous nous indiquer l'état d'avancement du dossier (pièces manquantes éventuelles), nous adresser le projet d'acte, et nous proposer une date de signature ?\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      corps: "Maître,\n\nLa date butoir de réitération de la vente {{reference}} ({{adresse_bien}}) est fixée au {{date_butoir}}.\n\nJe vous prie de trouver ci-joint l'offre de prêt de {{acquereurs}}.\n\nPourriez-vous nous indiquer l'état d'avancement du dossier (pièces manquantes éventuelles), nous adresser le projet d'acte, et nous proposer une date de signature ?\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Point d'étape vendeur", cible: "vendeur",
       sujet: "Votre vente {{adresse_bien}} — Point d'étape",
-      corps: "Bonjour,\n\nComme convenu, voici un point d'étape sur votre vente ({{reference}}, compromis signé le {{date_compromis}}) :\n\n- Délai de rétractation : purgé le {{fin_retractation}}\n- Dépôt de garantie : {{sequestre_montant}}\n- Financement des acquéreurs : en cours, condition suspensive au {{echeance_pret}}\n- Signature prévue : {{signature_prevue}} (butoir : {{date_butoir}})\n\n[Complétez / ajustez selon le dossier]\n\nNous suivons chaque étape auprès des notaires et des acquéreurs, et revenons vers vous dès la prochaine avancée.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      corps: "Bonjour,\n\nComme convenu, voici un point d'étape sur votre vente ({{reference}}, compromis signé le {{date_compromis}}) :\n\n- Délai de rétractation : purgé le {{fin_retractation}}\n- Dépôt de garantie : {{sequestre_montant}}\n- Financement des acquéreurs : en cours, condition suspensive au {{echeance_pret}}\n- Signature prévue : {{signature_prevue}} (butoir : {{date_butoir}})\n\n[Complétez / ajustez selon le dossier]\n\nNous suivons chaque étape auprès des notaires et des acquéreurs, et revenons vers vous dès la prochaine avancée.\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Information vendeur — rétractation purgée", cible: "vendeur",
       sujet: "Votre vente {{adresse_bien}} — Le délai de rétractation est purgé ✔",
-      corps: "Bonjour,\n\nBonne nouvelle : le délai légal de rétractation de 10 jours de vos acquéreurs a expiré le {{fin_retractation}} sans qu'ils ne se soient rétractés. Votre vente ({{reference}}, compromis du {{date_compromis}}) franchit donc une étape importante.\n\nLa suite du calendrier :\n- purge du droit de préemption de la mairie (environ 2 mois),\n- financement des acquéreurs (condition suspensive au {{echeance_pret}}),\n- signature de l'acte authentique (butoir : {{date_butoir}}).\n\nNous suivons chaque étape auprès des notaires et des acquéreurs, et revenons vers vous à chaque avancée.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      corps: "Bonjour,\n\nBonne nouvelle : le délai légal de rétractation de 10 jours de vos acquéreurs a expiré le {{fin_retractation}} sans qu'ils ne se soient rétractés. Votre vente ({{reference}}, compromis du {{date_compromis}}) franchit donc une étape importante.\n\nLa suite du calendrier :\n- purge du droit de préemption de la mairie (environ 2 mois),\n- financement des acquéreurs (condition suspensive au {{echeance_pret}}),\n- signature de l'acte authentique (butoir : {{date_butoir}}).\n\nNous suivons chaque étape auprès des notaires et des acquéreurs, et revenons vers vous à chaque avancée.\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Invitation crémaillère", cible: "acquereur",
       sujet: "Bienvenue chez vous ! 🏡",
-      corps: "Bonjour,\n\nToute l'équipe espère que votre installation au {{adresse_bien}} se passe à merveille !\n\nNous serions ravis de venir trinquer à votre nouvelle vie chez vous — dites-nous quand cela vous arrange, ou passez simplement à l'agence : un petit cadeau de bienvenue vous y attend.\n\n[Personnalisez : crémaillère, cadeau, passage…]\n\nEncore toutes nos félicitations,\n{{conseiller}}\n{{agence}}"
+      corps: "Bonjour,\n\nToute l'équipe espère que votre installation au {{adresse_bien}} se passe à merveille !\n\nNous serions ravis de venir trinquer à votre nouvelle vie chez vous — dites-nous quand cela vous arrange, ou passez simplement à l'agence : un petit cadeau de bienvenue vous y attend.\n\n[Personnalisez : crémaillère, cadeau, passage…]\n\nEncore toutes nos félicitations,\n{{signature}}"
     },
     {
       name: "Relance panneau VENDU", cible: "conseiller_vendeur",
@@ -521,27 +521,27 @@
     {
       name: "Avenant de prorogation", cible: "notaires",
       sujet: "Vente {{reference}} — Avenant de prorogation de la date de réitération",
-      corps: "Bonjour Maîtres,\n\nLa date butoir de réitération de la vente citée en objet ({{reference}} — {{adresse_bien}}) est fixée au {{date_butoir}}, et il apparaît que la signature ne pourra pas intervenir avant cette échéance.\n\nAfin de sécuriser la vente, nous vous remercions de bien vouloir préparer un avenant de prorogation des présentes, en concertation avec les parties, et de nous indiquer la nouvelle date envisageable pour la signature de l'acte authentique.\n\nNous restons à votre disposition pour recueillir l'accord des vendeurs et des acquéreurs.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      corps: "Bonjour Maîtres,\n\nLa date butoir de réitération de la vente citée en objet ({{reference}} — {{adresse_bien}}) est fixée au {{date_butoir}}, et il apparaît que la signature ne pourra pas intervenir avant cette échéance.\n\nAfin de sécuriser la vente, nous vous remercions de bien vouloir préparer un avenant de prorogation des présentes, en concertation avec les parties, et de nous indiquer la nouvelle date envisageable pour la signature de l'acte authentique.\n\nNous restons à votre disposition pour recueillir l'accord des vendeurs et des acquéreurs.\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Envoi de la facture au notaire", cible: "notaire_vendeur",
       sujet: "Vente {{reference}} — Facture d'honoraires de l'agence",
-      corps: "Maître,\n\nDans le cadre de la vente citée en objet ({{reference}} — {{adresse_bien}}), je vous prie de bien vouloir trouver ci-joint notre facture d'honoraires d'un montant de {{honoraires}}, ainsi que notre RIB pour le règlement par virement.\n\nVous en remerciant par avance et restant à votre disposition,\n\n{{conseiller}}\n{{agence}}"
+      corps: "Maître,\n\nDans le cadre de la vente citée en objet ({{reference}} — {{adresse_bien}}), je vous prie de bien vouloir trouver ci-joint notre facture d'honoraires d'un montant de {{honoraires}}, ainsi que notre RIB pour le règlement par virement.\n\nVous en remerciant par avance et restant à votre disposition,\n\n{{signature}}"
     },
     {
       name: "Demande de pré-état daté au syndic", cible: "syndic",
       sujet: "Vente {{reference}} — {{adresse_bien}} : pré-état daté / questionnaire syndic",
-      corps: "Bonjour,\n\nDans le cadre de la vente {{reference}} portant sur le bien situé {{adresse_bien}} (copropriété administrée par vos soins), nous vous remercions de bien vouloir établir le pré-état daté (puis l'état daté) ainsi que le questionnaire syndic, à transmettre au notaire chargé de la vente ({{notaire_vendeur}}).\n\nLa signature de l'acte authentique est envisagée autour du {{signature_prevue}} (date butoir : {{date_butoir}}) — ces pièces conditionnent le calendrier.\n\nBien cordialement,\n{{conseiller}}\n{{agence}}"
+      corps: "Bonjour,\n\nDans le cadre de la vente {{reference}} portant sur le bien situé {{adresse_bien}} (copropriété administrée par vos soins), nous vous remercions de bien vouloir établir le pré-état daté (puis l'état daté) ainsi que le questionnaire syndic, à transmettre au notaire chargé de la vente ({{notaire_vendeur}}).\n\nLa signature de l'acte authentique est envisagée autour du {{signature_prevue}} (date butoir : {{date_butoir}}) — ces pièces conditionnent le calendrier.\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Demande d'avis client", cible: "acquereur",
       sujet: "Votre avis compte pour nous ⭐",
-      corps: "Bonjour {{acquereurs}},\n\nPermettez-moi encore de vous féliciter pour votre achat et vous remercier pour votre confiance.\n\nJe vous contacte pour un service : la notoriété internet étant importante pour nous, auriez-vous la possibilité de mettre un avis « 5 étoiles » sur Google en cliquant sur le lien suivant :\nhttps://g.page/r/CUA5uMo-Z_RcEAg/review\nnotamment en citant le travail de {{conseiller_acquereur}}.\n\nVous en remerciant par avance et vous souhaitant une belle journée.\n\n{{conseiller}}\n{{agence}}"
+      corps: "Bonjour {{acquereurs}},\n\nPermettez-moi encore de vous féliciter pour votre achat et vous remercier pour votre confiance.\n\nJe vous contacte pour un service : la notoriété internet étant importante pour nous, auriez-vous la possibilité de mettre un avis « 5 étoiles » sur Google en cliquant sur le lien suivant :\nhttps://g.page/r/CUA5uMo-Z_RcEAg/review\nnotamment en citant le travail de {{conseiller_acquereur}}.\n\nVous en remerciant par avance et vous souhaitant une belle journée.\n\n{{signature}}"
     },
     {
       name: "Demande d'avis client vendeur", cible: "vendeur",
       sujet: "Votre avis compte pour nous ⭐",
-      corps: "Bonjour {{vendeurs}},\n\nPermettez-moi encore de vous féliciter pour votre vente et vous remercier pour votre confiance.\n\nJe vous contacte pour un service : la notoriété internet étant importante pour nous, auriez-vous la possibilité de mettre un avis « 5 étoiles » sur Google en cliquant sur le lien suivant :\nhttps://g.page/r/CUA5uMo-Z_RcEAg/review\nnotamment en citant le travail de {{conseiller_vendeur}}.\n\nVous en remerciant par avance et vous souhaitant une belle journée.\n\n{{conseiller}}\n{{agence}}"
+      corps: "Bonjour {{vendeurs}},\n\nPermettez-moi encore de vous féliciter pour votre vente et vous remercier pour votre confiance.\n\nJe vous contacte pour un service : la notoriété internet étant importante pour nous, auriez-vous la possibilité de mettre un avis « 5 étoiles » sur Google en cliquant sur le lien suivant :\nhttps://g.page/r/CUA5uMo-Z_RcEAg/review\nnotamment en citant le travail de {{conseiller_vendeur}}.\n\nVous en remerciant par avance et vous souhaitant une belle journée.\n\n{{signature}}"
     }
   ];
 

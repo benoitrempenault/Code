@@ -152,7 +152,7 @@ CREATE TABLE IF NOT EXISTS annuaire (
   ville      TEXT NOT NULL DEFAULT '',
   telephone  TEXT NOT NULL DEFAULT '',
   email      TEXT NOT NULL DEFAULT '',
-  notes      TEXT NOT NULL DEFAULT '',
+  notes      TEXT NOT NULL DEFAULT '',    -- conseillers : signature d'e-mail ({{signature}})
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
