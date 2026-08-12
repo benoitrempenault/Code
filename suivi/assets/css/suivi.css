@@ -181,10 +181,27 @@ table.liste tr.row:hover td { background: var(--panel-2); }
 
 /* ------------------------------- Journal -------------------------------- */
 .journal { display: flex; flex-direction: column; gap: 8px; }
-.journal__item { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; }
+.journal__item { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; position: relative; }
 .journal__item .meta { color: var(--muted); font-size: 11.5px; margin-bottom: 3px; }
-.journal__add { display: flex; gap: 8px; margin-top: 10px; }
-.journal__add input { flex: 1; }
+.journal__item .jdel { position: absolute; top: 6px; right: 6px; padding: 1px 7px; opacity: 0; transition: opacity .12s; }
+.journal__item:hover .jdel, .journal__item:focus-within .jdel { opacity: 1; }
+/* La note se corrige sur place : un textarea déguisé en texte courant. */
+.journal__text {
+  display: block; width: 100%; resize: vertical; padding: 2px 60px 2px 0;
+  background: transparent; border: none; border-radius: 6px; line-height: 1.5;
+}
+.journal__text:hover { background: rgba(255,255,255,.03); }
+.journal__text:focus { outline: none; background: var(--panel); box-shadow: 0 0 0 1px var(--accent); padding-left: 6px; }
+.journal__lien { display: inline-block; margin-top: 5px; font-size: 12.5px; }
+.journal__mail { margin-top: 6px; font-size: 12.5px; }
+.journal__mail summary { color: var(--accent); cursor: pointer; }
+.journal__mail > div { color: var(--muted); margin: 6px 0; }
+.journal__mail pre {
+  white-space: pre-wrap; font: inherit; color: var(--text);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; max-height: 260px; overflow: auto;
+}
+.journal__add { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.journal__add input { flex: 1 1 240px; }
 
 /* ----------------------------- Conditions ------------------------------- */
 .cond { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }

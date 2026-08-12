@@ -440,17 +440,33 @@
      crémaillère). Les montants sont ceux saisis dans le dossier, lus depuis
      des chaînes libres (« 12 500 € », « 12.500,00 »).                      */
 
-  // Lecture d'un montant écrit à la française ou à l'anglaise.
+  /* Lecture d'un montant dans un champ libre. Le champ « honoraires » du
+     compromis n'est pas toujours un nombre nu : « 14 250 € TTC à la charge de
+     l'acquéreur », « 5 % du prix soit 14 250 € »… On retient donc le PREMIER
+     nombre suivi d'un €, sinon le premier nombre — surtout pas tous les
+     chiffres de la phrase collés bout à bout, ce qui donnait des totaux
+     astronomiques. Formats français (14 250,50 / 14.250,50) et anglais
+     (14,250.50) reconnus. */
+  const RE_NOMBRE = "\\d[\\d\u00a0\u202f .,]*";
   function euros(v) {
-    let t = String(v == null ? "" : v).replace(/\s/g, "").replace(/[^\d,.\-]/g, "");
-    if (!t) return 0;
-    if (t.indexOf(",") > -1) t = t.replace(/\./g, "").replace(",", ".");
-    else if (/\.\d{3}(\D|$)/.test(t)) t = t.replace(/\./g, "");
-    const n = parseFloat(t);
-    return isFinite(n) ? n : 0;
+    const t = String(v == null ? "" : v);
+    const m = new RegExp("(" + RE_NOMBRE + ")\\s*(?:€|EUR\\b|euros?\\b)", "i").exec(t)
+      || new RegExp(RE_NOMBRE).exec(t);
+    if (!m) return 0;
+    let n = String(m[1] || m[0]).replace(/[\s\u00a0\u202f]/g, "").replace(/[.,]+$/, "");
+    // Séparateur décimal = le dernier des deux signes présents.
+    const iv = n.lastIndexOf(","), ip = n.lastIndexOf(".");
+    if (iv > -1 && ip > -1) n = iv > ip ? n.replace(/\./g, "").replace(",", ".") : n.replace(/,/g, "");
+    else if (iv > -1) n = /,\d{3}(?:\D|$)/.test(n) ? n.replace(/,/g, "") : n.replace(",", ".");
+    else if (/\.\d{3}(?:\D|$)/.test(n)) n = n.replace(/\./g, "");
+    const r = parseFloat(n);
+    return isFinite(r) ? r : 0;
   }
+  // Garde-fou : au-delà, c'est un champ mal saisi, pas des honoraires. On
+  // l'exclut du CA et on le signale plutôt que de fausser tous les totaux.
+  const HONO_MAX = 500000;
   const fmtEur = (n) => Math.round(n).toLocaleString("fr-FR") + " €";
-  const honoraires = (d) => euros(d.prix && d.prix.honoraires);
+  const honoraires = (d) => { const n = euros(d.prix && d.prix.honoraires); return n > 0 && n <= HONO_MAX ? n : 0; };
 
   /* Étape de vie du dossier — six états lisibles, dans l'ordre du processus.
      Volontairement plus grossier que l'échéancier : c'est le stade auquel le
@@ -569,7 +585,8 @@
     const securise = dossiers.filter((x) => SECURISE.includes(x.etat));
     const signes = dossiers.filter((x) => SIGNE.includes(x.etat));
     const encaisse = dossiers.filter((x) => (x.steps.find((s) => s.id === "facture_payee") || {}).done);
-    const sansMontant = dossiers.filter((x) => !x.ca).length;
+    const sansMontant = dossiers.filter((x) => !x.ca && !(x.d.prix && (x.d.prix.honoraires || "").trim())).length;
+    const illisibles = dossiers.filter((x) => !x.ca && (x.d.prix && (x.d.prix.honoraires || "").trim()));
 
     $("#statsKpis").innerHTML =
       '<div class="kpi"><b>' + (dossiers.length - signes.length) + "</b><span>compromis en cours</span></div>" +
@@ -654,6 +671,11 @@
     if (sansMontant) {
       $("#statsPending").insertAdjacentHTML("beforeend", '<p class="hintline">' + sansMontant +
         " dossier(s) sans honoraires renseignés dans la fiche : ils ne comptent pas dans le CA.</p>");
+    }
+    if (illisibles.length) {
+      $("#statsPending").insertAdjacentHTML("beforeend", '<p class="hintline" style="color:var(--warn)">' +
+        "⚠ Honoraires illisibles (hors CA) — corrigez le champ dans la fiche : " +
+        illisibles.map((x) => esc(x.ref) + " (« " + esc(String(x.d.prix.honoraires).slice(0, 40)) + " »)").join(", ") + "</p>");
     }
   }
 
@@ -1043,12 +1065,21 @@
 
     const journalHtml = d.journal.map((j, i) => ({ j, i })).reverse().map(({ j, i }) => {
       const dt = new Date((j.ts || 0) * 1000);
-      return '<div class="journal__item" style="position:relative">' +
-        '<button class="btn btn--sm btn--danger" data-jdel="' + i + '" title="Supprimer cette note" ' +
-        'style="position:absolute;top:6px;right:6px;padding:1px 7px">✕</button>' +
+      const txt = j.text || "";
+      const lignes = Math.min(10, Math.max(1, txt.split("\n").length, Math.ceil(txt.length / 95)));
+      const lien = lienExterne(j.lien);
+      return '<div class="journal__item">' +
+        '<button class="btn btn--sm btn--danger jdel" data-jdel="' + i + '" title="Supprimer cette note">✕</button>' +
         '<div class="meta">' +
         esc(dt.toLocaleDateString("fr-FR") + " " + dt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })) +
-        " — " + esc(j.user || "") + "</div>" + esc(j.text || "") + "</div>";
+        " — " + esc(j.user || "") + (j.edite ? " · modifiée" : "") + "</div>" +
+        '<textarea class="journal__text" data-jedit="' + i + '" rows="' + lignes +
+        '" title="Cliquez dans la note pour la corriger">' + esc(txt) + "</textarea>" +
+        (lien ? '<a class="journal__lien" href="' + esc(lien) + '" target="_blank" rel="noopener noreferrer">🔗 Ouvrir le message lié</a>' : "") +
+        (j.mail ? '<details class="journal__mail"><summary>✉ Relire le message envoyé</summary>' +
+          "<div><b>À :</b> " + esc(j.mail.to || "?") + "<br><b>Objet :</b> " + esc(j.mail.sujet || "") + "</div>" +
+          "<pre>" + esc(j.mail.corps || "") + "</pre></details>" : "") +
+        "</div>";
     }).join("");
 
     view.innerHTML =
@@ -1070,8 +1101,12 @@
       "</div></div>" +
 
       '<div class="card"><h3>📝 Journal du dossier <span class="cnt">partagé avec toute l\'agence</span></h3>' +
-      '<div class="journal__add" style="margin:0 0 10px"><input type="text" id="journalInput" placeholder="Ajouter une note (appel, réponse du notaire, avancement…)" />' +
+      '<div class="journal__add" style="margin:0 0 4px"><input type="text" id="journalInput" placeholder="Ajouter une note (appel, réponse du notaire, avancement…)" />' +
+      '<input type="url" id="journalLien" placeholder="🔗 lien d\'un message ou d\'un document (facultatif)" />' +
       '<button class="btn" id="journalAdd">Ajouter</button></div>' +
+      '<p class="hintline" style="margin:0 0 10px">Entrée pour valider. Cliquez dans une note pour la corriger. ' +
+      "Le lien s'ouvre d'ici : collez le permalien d'un message (Outlook web : « … » › Ouvrir dans une nouvelle fenêtre, puis l'adresse) " +
+      "ou d'un document OneDrive. Les relances envoyées depuis l'app sont archivées ici avec leur texte.</p>" +
       '<div class="journal">' + (journalHtml || '<p class="hintline">Aucune note pour l\'instant.</p>') + "</div></div>" +
 
       '<div class="card"><h3>🗓 Échéancier du dossier</h3>' + echHtml +
@@ -1241,7 +1276,14 @@
 
     view.addEventListener("input", (ev) => {
       const d = cur(), t = ev.target;
-      if (d && t.dataset.path) {
+      if (!d) return;
+      // Correction d'une note du journal : pas de re-rendu, sinon le curseur saute.
+      if (t.dataset.jedit != null) {
+        const j = d.journal[Number(t.dataset.jedit)];
+        if (j && j.text !== t.value) { j.text = t.value; j.edite = true; markDirty(); }
+        return;
+      }
+      if (t.dataset.path) {
         setByPath(d, t.dataset.path, t.value);
         markDirty();
       }
@@ -1326,6 +1368,12 @@
       }
       if (t.dataset.path && (t.type === "date" || t.tagName === "SELECT")) { renderDossierSoon(); }
     });
+    // Entrée dans la zone d'ajout du journal = « Ajouter » (Maj+Entrée exclu).
+    view.addEventListener("keydown", (ev) => {
+      const d = cur(), t = ev.target;
+      if (!d || ev.key !== "Enter" || ev.shiftKey) return;
+      if (t.id === "journalInput" || t.id === "journalLien") { ev.preventDefault(); ajouterNote(d); }
+    });
     view.addEventListener("click", (ev) => {
       const d = cur();
       const t = ev.target.closest("[data-add],[data-rm],[data-jdel],[data-rm-equip],[data-rm-diag],#journalAdd,#btnDelete,#btnVoirPdf,#btnJoindrePdf,[data-act='mailname']");
@@ -1342,13 +1390,7 @@
         if (Array.isArray(arr)) arr.splice(Number(parts[parts.length - 1]), 1);
         markDirty(); renderDossier(); return;
       }
-      if (t.id === "journalAdd") {
-        const inp = $("#journalInput");
-        const txt = (inp.value || "").trim();
-        if (!txt) return;
-        d.journal.push({ ts: Math.floor(Date.now() / 1000), user: userName(), text: txt });
-        markDirty(); renderDossier(); return;
-      }
+      if (t.id === "journalAdd") { ajouterNote(d); return; }
       if (t.dataset.rmEquip) {
         d.equipements[t.dataset.rmEquip] = false;
         d.entretiens[t.dataset.rmEquip === "cheminee" ? "ramonage" : t.dataset.rmEquip] = "";
@@ -1372,6 +1414,24 @@
       if (t.id === "btnJoindrePdf") { const pi = $("#pdfReplace"); if (pi) pi.click(); return; }
       if (t.dataset.act === "mailname") { openMailByName(t.dataset.id, t.dataset.modele, t.dataset.step); return; }
     });
+  }
+  // Seules les adresses http(s) sont cliquables depuis le journal (le contenu
+  // vient d'un collègue : pas de javascript:, pas de data:).
+  function lienExterne(u) {
+    const t = String(u || "").trim();
+    return (/^https?:\/\//i.test(t) && !/[<>"'`\s]/.test(t)) ? t : "";
+  }
+  function ajouterNote(d) {
+    const inp = $("#journalInput"), lienInp = $("#journalLien");
+    const txt = (inp.value || "").trim(), lien = lienExterne(lienInp && lienInp.value);
+    if (!txt && !lien) return;
+    const note = { ts: Math.floor(Date.now() / 1000), user: userName(), text: txt || "Message lié" };
+    if (lien) note.lien = lien;
+    d.journal.push(note);
+    if (lienInp && lienInp.value.trim() && !lien) toast("Lien ignoré : seules les adresses http(s) sont acceptées.", true);
+    markDirty(); renderDossier();
+    const focus = $("#journalInput");
+    if (focus) focus.focus();
   }
   const renderDossierSoon = debounce(() => { if ((location.hash || "").startsWith("#dossier/")) renderDossier(); }, 1200);
 
@@ -1594,9 +1654,12 @@
     if (!mailCtx) return;
     const det = details[mailCtx.dossierId];
     if (!det) return;
+    // Le message est archivé avec la note : on peut le relire depuis le
+    // journal sans rouvrir sa messagerie.
     det.data.journal.push({
       ts: Math.floor(Date.now() / 1000), user: userName(),
-      text: "✉ Relance « " + mailCtx.modeleName + " » " + kind + " (à : " + ($("#mailTo").value || "?") + ")"
+      text: "✉ Relance « " + mailCtx.modeleName + " » " + kind + " (à : " + ($("#mailTo").value || "?") + ")",
+      mail: { to: $("#mailTo").value || "", sujet: $("#mailSubject").value || "", corps: $("#mailBody").value || "" }
     });
     // Mémorise la relance sur son étape : la date s'affiche sur la ligne.
     if (mailCtx.stepId) {
