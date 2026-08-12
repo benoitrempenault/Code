@@ -276,6 +276,11 @@
     if (!mots.length) return null;
     let civ = "";
     if (CIVILITES[mots[0].toLowerCase()]) civ = CIVILITES[mots.shift().toLowerCase()];
+    // On ne réordonne que des mots qui sont des noms : dès qu'il y a autre
+    // chose (date de naissance, profession, ponctuation recopiée du
+    // compromis), le nom est laissé intact — mieux vaut un nom un peu long
+    // qu'un nom mélangé.
+    if (!mots.every((w) => /^[A-Za-zÀ-ÿ'’-]+$/.test(w))) return { civ, reste: mots.join(" ") };
     // Patronyme = les mots en capitales (au moins deux lettres).
     const estCap = (w) => /[A-ZÀ-Þ]{2}/.test(w) && w === w.toUpperCase();
     const nomFamille = mots.filter(estCap), prenoms = mots.filter((w) => !estCap(w));
