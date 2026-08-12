@@ -547,6 +547,31 @@ ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Autho
 ok((await call("/agency/users/" + addC.json.user.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 200, "l'admin retire un conseiller");
 ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Authorization: "Bearer " + s2b } })).status === 404, "une autre agence ne peut pas retirer un conseiller (isolation)");
 
+/* ---- Écriture des noms de clients (app.js, testée par extraction) ------- */
+{
+  // nomStandard/nomCourriel vivent dans l'IIFE du client : on isole le bloc
+  // pour le vérifier ici, faute d'un autre banc de test côté navigateur.
+  const src = readFileSync(new URL("../suivi/assets/js/app.js", import.meta.url), "utf8");
+  const bloc = src.slice(src.indexOf("  const CIVILITES ="), src.indexOf("  // Consolide un dossier"));
+  const { nomStandard, nomCourriel } = new Function(bloc + "\nreturn { nomStandard, nomCourriel };")();
+  const paires = [
+    ["Monsieur Didier Serge KASPAR", "Mr KASPAR Didier Serge", "Mr Didier Serge KASPAR"],
+    ["Madame Florence DONDARINI", "Mme DONDARINI Florence", "Mme Florence DONDARINI"],
+    ["M. Claude BOURIANNE", "Mr BOURIANNE Claude", "Mr Claude BOURIANNE"],
+    ["Madame Marie-José DUPONT-LEROY", "Mme DUPONT-LEROY Marie-José", "Mme Marie-José DUPONT-LEROY"],
+    // Laissés intacts : société, nom sans capitales, mention parasite.
+    ["SCI LES TILLEULS", "SCI LES TILLEULS", "SCI LES TILLEULS"],
+    ["Jean-Pierre Dupont", "Jean-Pierre Dupont", "Jean-Pierre Dupont"],
+    ["Monsieur Didier KASPAR né le 23/10/1959", "Mr Didier KASPAR né le 23/10/1959", "Mr Didier KASPAR né le 23/10/1959"],
+    ["Monsieur Claude BOURIANNE, retraité", "Mr Claude BOURIANNE, retraité", "Mr Claude BOURIANNE, retraité"]
+  ];
+  for (const [brut, app, mail] of paires) {
+    ok(nomStandard(brut) === app, "app : « " + brut + " » → « " + app + " »");
+    ok(nomCourriel(brut) === mail, "mail : « " + brut + " » → « " + mail + " »");
+    ok(nomStandard(app) === app, "conversion stable : « " + app + " » ne bouge plus");
+  }
+}
+
 /* ---- Prompts : taille des schémas de sortie structurée ------------------ */
 {
   const { promptFor } = await import("./src/prompts.js");
