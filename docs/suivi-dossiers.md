@@ -32,9 +32,16 @@ appel après-vente, clôture.
    clés** et les étapes sont liées dans les deux sens : renseigner « DIA envoyée le … »
    coche l'étape correspondante à cette date (et l'effacer la décoche), cocher l'étape
    renseigne la date clé — la table de correspondance est `STEP_DATE` dans `app.js`.
-3. **Tableau de bord** : actions en retard / à 7 jours pour toute l'agence, pastille de
-   santé par dossier (vert / orange / rouge), rappel « point d'étape vendeur » quand un
-   dossier n'a plus de nouvelle depuis 15 jours.
+3. **Tableau de bord** : ne liste que l'urgent, en rouge — les actions **en retard**, plus
+   les **pièces à obtenir d'un tiers** (diagnostics, ramonage, chaudière, clim/PAC,
+   facture d'honoraires — `CRITIQUES` dans `app.js`) dès 7 jours avant l'échéance, parce
+   que s'y prendre la veille reporte la signature. Le reste attend l'échéancier du
+   dossier. Envoyer une relance depuis une ligne **repousse l'action de 7 jours**
+   (`REPORT_RELANCE`) : la balle est dans l'autre camp, elle sort du tableau de bord —
+   le report ne fait jamais avancer une échéance ni bouger une date clé. La note de
+   contexte affichée sous chaque action ignore les relances portant sur une autre étape.
+   Pastille de santé par dossier (vert / orange / rouge), rappel « point d'étape vendeur »
+   quand un dossier n'a plus de nouvelle depuis 15 jours.
 4. **Relances par e-mail** : modèles partagés de l'agence (onglet « Modèles »), champs
    de fusion `{{reference}}`, `{{notaire_vendeur}}`, `{{echeance_pret}}`… Le pied de
    message est `{{signature}}` : la signature personnelle du conseiller connecté, saisie
