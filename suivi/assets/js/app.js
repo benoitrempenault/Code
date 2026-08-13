@@ -841,6 +841,11 @@
   }
 
   /* --------------------------- Tableau de bord ---------------------------- */
+  // Étapes qui remontent en rouge dès 7 jours avant l'échéance : ce sont des
+  // pièces à obtenir d'un tiers (laboratoire, chauffagiste, comptabilité) —
+  // s'y prendre la veille, c'est reporter la signature.
+  const CRITIQUES = ["diagnostics", "ramonage", "entretien_chaudiere", "entretien_clim", "facture_emise"];
+  const REPORT_RELANCE = 7; // jours gagnés par une relance envoyée
   function frDate(iso) { return E.fmtFr(iso) || "—"; }
   function deltaLabel(days) {
     if (days == null) return "";
@@ -875,23 +880,29 @@
     }
     actions.sort((a, b) => (a.step.due < b.step.due ? -1 : 1));
     const late = actions.filter((a) => a.step.days < 0);
-    const soon = actions.filter((a) => a.step.days >= 0 && a.step.days <= 7);
+    // Les pièces qui bloquent une signature (diagnostics, entretiens, facture)
+    // ne souffrent pas d'attendre le dernier jour : elles passent au rouge une
+    // semaine avant l'échéance, comme un retard.
+    const critiques = actions.filter((a) => CRITIQUES.includes(a.step.id) && a.step.days >= 0 && a.step.days <= 7);
     const sigs = actions.filter((a) => a.step.id === "signature" && a.step.days != null && a.step.days <= 30 && a.step.days >= 0);
 
     $("#kpis").innerHTML =
       '<div class="kpi"><b>' + list.filter((x) => x.statut === "en_cours").length + "</b><span>dossiers en cours</span></div>" +
       '<div class="kpi ' + (late.length ? "bad" : "ok") + '"><b>' + late.length + "</b><span>actions en retard</span></div>" +
-      '<div class="kpi ' + (soon.length ? "warn" : "ok") + '"><b>' + soon.length + "</b><span>à faire sous 7 jours</span></div>" +
+      '<div class="kpi ' + (critiques.length ? "bad" : "ok") + '"><b>' + critiques.length + "</b><span>pièces à obtenir sous 7 jours</span></div>" +
       '<div class="kpi"><b>' + sigs.length + "</b><span>signatures sous 30 jours</span></div>";
 
-    const show = late.concat(soon);
+    const show = late.concat(critiques).sort((a, b) => (a.step.due < b.step.due ? -1 : 1));
     $("#todoCount").textContent = show.length ? show.length + " action(s)" : "";
     $("#todoList").innerHTML = show.length ? show.map((a) => {
       const s = a.step;
       const d = details[a.id].data;
-      const cls = s.days < 0 ? "late" : "soon";
+      const cls = "late"; // seules les urgences sont listées ici
       // Dernière note du journal : le contexte du dossier en un coup d'œil.
-      const lastJ = d.journal.length ? d.journal[d.journal.length - 1] : null;
+      // Les relances portant sur une AUTRE étape sont écartées — elles
+      // parlaient d'autre chose, elles n'éclairent pas cette action-ci.
+      const notes = d.journal.filter((j) => !j.mail || j.step === s.id);
+      const lastJ = notes.length ? notes[notes.length - 1] : null;
       const noteTxt = lastJ
         ? "📝 " + new Date((lastJ.ts || 0) * 1000).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) +
           " — " + (lastJ.text.length > 110 ? lastJ.text.slice(0, 110) + "…" : lastJ.text)
@@ -1792,17 +1803,30 @@
     // journal sans rouvrir sa messagerie.
     det.data.journal.push({
       ts: Math.floor(Date.now() / 1000), user: userName(),
+      step: mailCtx.stepId || "", // à quelle action se rapporte ce message
       text: "✉ Relance « " + mailCtx.modeleName + " » " + kind + " (à : " + ($("#mailTo").value || "?") + ")",
       mail: { to: $("#mailTo").value || "", sujet: $("#mailSubject").value || "", corps: $("#mailBody").value || "" }
     });
     // Mémorise la relance sur son étape : la date s'affiche sur la ligne.
     if (mailCtx.stepId) {
-      det.data.etapes[mailCtx.stepId] = det.data.etapes[mailCtx.stepId] || {};
-      det.data.etapes[mailCtx.stepId].relance = { ts: Math.floor(Date.now() / 1000), modele: mailCtx.modeleName, user: userName() };
+      const et = det.data.etapes[mailCtx.stepId] = det.data.etapes[mailCtx.stepId] || {};
+      et.relance = { ts: Math.floor(Date.now() / 1000), modele: mailCtx.modeleName, user: userName() };
+      // La balle est dans le camp d'en face : l'action sort du tableau de bord
+      // pour une semaine. Une relance ne fait que REPOUSSER — jamais avancer —
+      // et n'a pas à déplacer une date clé (la signature reste où elle est).
+      if (!STEP_DUE_DATE[mailCtx.stepId]) {
+        const step = E.compute(det.data).find((x) => x.id === mailCtx.stepId);
+        const report = E.addDays(E.today(), REPORT_RELANCE);
+        if (step && (!step.due || step.due < report)) et.due = report;
+      }
     }
     const wasCurrent = currentId === mailCtx.dossierId;
     saveDossier(mailCtx.dossierId).then(() => {
-      if (wasCurrent && (location.hash || "").startsWith("#dossier/")) renderDossier();
+      const vue = location.hash || "";
+      if (wasCurrent && vue.startsWith("#dossier/")) renderDossier();
+      // Le tableau de bord doit voir l'action repartir pour une semaine.
+      else if (vue.startsWith("#board") || vue === "" || vue === "#") renderBoard();
+      else if (vue.startsWith("#stats")) renderStats();
     });
   }
 
