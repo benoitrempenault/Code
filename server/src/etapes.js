@@ -94,7 +94,7 @@ function alerteEntretien(d, k) {
 const ETAPES = [
   { id: "envoi_sru", label: "Notification SRU envoyée (LRAR / AR24)", due: (d) => addDays(ssp(d), 2) },
   { id: "envoi_notaires", label: "Dossier envoyé aux notaires", due: (d) => addDays(ssp(d), 3) },
-  { id: "retour_sru", label: "AR de la notification SRU reçu", due: (d) => addDays(ssp(d), 8) },
+  { id: "retour_sru", label: "AR de la notification SRU envoyé au notaire", due: (d) => addDays(ssp(d), 8) },
   { id: "fin_retractation", label: "Fin du délai de rétractation (10 jours)", due: (d) => finRetract(d) },
   { id: "panneau_vendu", label: "Panneau « VENDU » posé", due: (d) => finRetract(d) },
   { id: "sequestre", label: "Dépôt de garantie (séquestre) reçu",
