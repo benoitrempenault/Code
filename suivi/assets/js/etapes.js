@@ -261,6 +261,11 @@
       due: (d) => finRetract(d),
       hint: "Dès la rétractation purgée — relance interne au conseiller vendeur." },
 
+    { id: "rib_sequestre", phase: "Séquestre", label: "RIB du notaire dépositaire envoyé à l'acquéreur",
+      cible: "acquereur", modele: "Envoi du RIB pour le séquestre",
+      due: (d) => addDays(ssp(d), 5),
+      applies: (d) => montantPositif(d.sequestre && d.sequestre.montant),
+      hint: "Sans RIB, pas de virement : à envoyer dès l'envoi du dossier aux notaires. Si l'étude ne l'a pas encore transmis, demandez-le en même temps que l'accusé de réception." },
     { id: "sequestre", phase: "Séquestre", label: "Dépôt de garantie (séquestre) reçu chez le dépositaire",
       cible: "depositaire", modeles: ["Relance séquestre", "Relance séquestre acquéreur"],
       due: (d) => (d.sequestre && parseDate(d.sequestre.delai)) ? d.sequestre.delai : addDays(ssp(d), 12),
@@ -469,6 +474,11 @@
       name: "Relance séquestre", cible: "depositaire",
       sujet: "Vente {{reference}} — Confirmation de réception du dépôt de garantie",
       corps: "Maître,\n\nConcernant la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}), pourriez-vous nous confirmer la bonne réception du dépôt de garantie de {{sequestre_montant}} qui devait être versé entre vos mains ({{sequestre_depositaire}}) ?\n\nÀ défaut, nous relancerons les acquéreurs sans délai.\n\nBien cordialement,\n{{signature}}"
+    },
+    {
+      name: "Envoi du RIB pour le séquestre", cible: "acquereur",
+      sujet: "Vente {{reference}} — Versement du dépôt de garantie de {{sequestre_montant}}",
+      corps: "Bonjour,\n\nSuite à la signature de votre compromis le {{date_compromis}} pour le bien situé {{adresse_bien}}, celui-ci prévoit le versement d'un dépôt de garantie de {{sequestre_montant}}.\n\nDépositaire des fonds : {{sequestre_depositaire}}.\n\nVous trouverez ci-joint le relevé d'identité bancaire de l'étude pour effectuer le virement. Merci d'indiquer en référence les noms des vendeurs et des acquéreurs ainsi que l'adresse du bien, et de nous transmettre la preuve de virement dès qu'il est effectué.\n\nUn point de vigilance : ces coordonnées bancaires ne changeront jamais en cours de dossier. Si vous receviez un message vous annonçant un nouveau RIB, ne virez rien et appelez-nous — ou appelez directement l'étude au numéro que vous avez déjà.\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Relance séquestre acquéreur", cible: "acquereur",
