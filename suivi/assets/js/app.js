@@ -1239,7 +1239,7 @@
     view.innerHTML =
       '<div class="doshead">' +
       "<div><h2><span class=\"dot " + santeD + "\"></span>" + esc(d.reference || det.name) + "</h2>" +
-      '<div class="sub">' + esc([d.bien.type, d.bien.adresse, d.prix.prix_vente].filter(Boolean).join(" · ")) + "</div></div>" +
+      '<div class="sub">' + esc([d.bien.type, adresseComplete(d.bien), d.prix.prix_vente].filter(Boolean).join(" · ")) + "</div></div>" +
       '<div class="spacer"></div>' +
       '<div class="actions">' +
       '<span id="saveState" style="font-size:12px;color:var(--muted)"></span>' +
@@ -1248,11 +1248,14 @@
         const [v, l] = o.split("|");
         return '<option value="' + v + '"' + (d.statut === v ? " selected" : "") + ">" + l + "</option>";
       }).join("") + "</select>" +
-      (det.compromis_size ? '<button class="btn" id="btnVoirPdf">📄 Voir le compromis</button>' : "") +
+      (det.compromis_size ? '<button class="btn" id="btnVoirPdf">📄 Voir le compromis</button>' +
+        '<button class="btn" id="btnRelire" title="Relit le PDF et complète les champs vides — aucune saisie existante n\'est écrasée">🔄 Relire le compromis</button>' : "") +
       '<button class="btn" id="btnJoindrePdf">' + (det.compromis_size ? "Remplacer le PDF" : "📎 Joindre le compromis PDF") + "</button>" +
       '<input type="file" id="pdfReplace" accept="application/pdf" style="display:none" />' +
       '<button class="btn btn--danger" id="btnDelete">Supprimer</button>' +
       "</div></div>" +
+
+      rappelSignature(d) +
 
       '<div class="card"><h3>📝 Journal du dossier <span class="cnt">partagé avec toute l\'agence</span></h3>' +
       '<div class="journal__add" style="margin:0 0 4px"><input type="text" id="journalInput" placeholder="Ajouter une note (appel, réponse du notaire, avancement…)" />' +
@@ -1405,6 +1408,25 @@
     setSaveState(saveState === "dirty" || saveState === "saving" ? saveState : "");
   }
 
+  /* Rappel du rendez-vous de signature, en tête du dossier : c'est la date
+     autour de laquelle tout s'organise. Il lit les MÊMES champs que la carte
+     « Rendez-vous de signature » et que l'étape « Acte authentique signé » —
+     corriger l'un des trois corrige les trois. */
+  function rappelSignature(d) {
+    const fait = d.dates.signature_acte;
+    const iso = fait || d.dates.signature_prevue || d.date_butoir;
+    if (!iso) return "";
+    const j = E.daysUntil(iso);
+    const quand = fait ? "Acte signé le " : (d.dates.signature_prevue ? "Signature prévue le " : "Date butoir (signature non calée) : ");
+    const lieux = lieuxSignature(d);
+    const cls = fait ? "rdv rdv--fait" : (j != null && j < 0 ? "rdv rdv--tard" : (j != null && j <= 14 ? "rdv rdv--proche" : "rdv"));
+    return '<div class="' + cls + '">' +
+      '<span class="rdv__quoi">✍ ' + esc(quand) + "<b>" + esc(dateHeure(iso, fait ? "" : d.dates.signature_heure)) + "</b></span>" +
+      (fait ? "" : '<span class="rdv__delai">' + esc(deltaLabel(j)) + "</span>") +
+      (lieux ? '<span class="rdv__lieu">' + esc(lieux) + "</span>" : "") +
+      "</div>";
+  }
+
   // Cocher une étape peut renseigner la date clé correspondante (et vice-versa) ;
   // la date « fait le » d'une étape suit sa date clé, et réciproquement.
   const STEP_DATE = {
@@ -1554,9 +1576,9 @@
       if (!d || ev.key !== "Enter" || ev.shiftKey) return;
       if (t.id === "journalInput" || t.id === "journalLien") { ev.preventDefault(); ajouterNote(d); }
     });
-    view.addEventListener("click", (ev) => {
+    view.addEventListener("click", async (ev) => {
       const d = cur();
-      const t = ev.target.closest("[data-add],[data-rm],[data-jdel],[data-rm-equip],[data-rm-diag],#journalAdd,#btnDelete,#btnVoirPdf,#btnJoindrePdf,[data-act='mailname']");
+      const t = ev.target.closest("[data-add],[data-rm],[data-jdel],[data-rm-equip],[data-rm-diag],#journalAdd,#btnDelete,#btnVoirPdf,#btnRelire,#btnJoindrePdf,[data-act='mailname']");
       if (!d || !t) return;
       if (t.dataset.add) {
         const k = t.dataset.add;
@@ -1596,6 +1618,17 @@
       }
       if (t.id === "btnDelete") { deleteCurrent(); return; }
       if (t.id === "btnVoirPdf") { viewCompromis(currentId); return; }
+      if (t.id === "btnRelire") {
+        const b = t;
+        b.disabled = true; b.textContent = "Relecture en cours (30 s à 2 min)…";
+        try {
+          const faits = await relireCompromis(currentId);
+          toast(faits.length ? faits.length + " champ(s) complété(s) — voir le journal." : "Rien à compléter : le dossier est déjà à jour.");
+          renderDossier();
+        } catch (e) { toast(e.message, true); }
+        b.disabled = false; b.textContent = "🔄 Relire le compromis";
+        return;
+      }
       if (t.id === "btnJoindrePdf") { const pi = $("#pdfReplace"); if (pi) pi.click(); return; }
       if (t.dataset.act === "mailname") { openMailByName(t.dataset.id, t.dataset.modele, t.dataset.step); return; }
     });
@@ -2076,6 +2109,88 @@
     renderFileList();
   }
 
+  /* ------------------ Relecture du compromis (rattrapage) -----------------
+     Les dossiers créés avant telle ou telle amélioration n'ont pas les champs
+     apparus depuis (équipements, entretiens, diagnostics, syndic, adresse
+     complète…). Relire le PDF les complète — SANS JAMAIS écraser une saisie :
+     on ne remplit que ce qui est vide. Deux exceptions assumées, où la valeur
+     existante est manifestement incomplète : l'adresse du bien sans code
+     postal, et les conditions suspensives absentes de la liste.            */
+  function fusionExtraction(d, x) {
+    const neuf = extractionToDossier(x);
+    const faits = [];
+    const remplir = (obj, ref, champs, quoi) => champs.forEach((k) => {
+      if (!String(obj[k] || "").trim() && String(ref[k] || "").trim()) { obj[k] = ref[k]; faits.push(quoi + " : " + k); }
+    });
+
+    remplir(d, neuf, ["reference", "date_compromis", "date_butoir", "preemption", "observations"], "dossier");
+    remplir(d.bien, neuf.bien, ["type", "adresse", "ville", "description", "copropriete", "lots", "cadastre"], "bien");
+    // Adresse déjà saisie mais sans code postal : la nouvelle le porte.
+    if (/\b\d{5}\b/.test(neuf.bien.adresse) && !/\b\d{5}\b/.test(d.bien.adresse)) {
+      d.bien.adresse = neuf.bien.adresse; faits.push("bien : adresse complétée (code postal)");
+    }
+    remplir(d.prix, neuf.prix, ["prix_vente", "honoraires", "charge_honoraires"], "prix");
+    remplir(d.sequestre, neuf.sequestre, ["montant", "depositaire", "delai"], "séquestre");
+    remplir(d.syndic, neuf.syndic, ["role", "nom", "telephone", "email"], "syndic");
+    remplir(d.financement, neuf.financement,
+      ["recours_pret", "montant_pret", "duree", "taux_max", "banques", "date_limite_depot", "date_limite_obtention"], "financement");
+    ["notaire_vendeur", "notaire_acquereur"].forEach((k) =>
+      remplir(d[k], neuf[k], ["nom", "ville", "adresse", "telephone", "email"], k.replace("_", " ")));
+
+    // Personnes : on complète les fiches existantes (rapprochées par le nom)
+    // et on n'ajoute personne — une partie retirée à la main l'a été exprès.
+    ["vendeurs", "acquereurs"].forEach((k) => {
+      if (!d[k].length) { if (neuf[k].length) { d[k] = neuf[k]; faits.push(k + " : " + neuf[k].length + " personne(s)"); } return; }
+      d[k].forEach((p) => {
+        const n = neuf[k].find((y) => nomsCompatibles(y.nom, p.nom));
+        if (n) remplir(p, n, ["adresse", "telephone", "email", "naissance", "situation"], k);
+      });
+    });
+
+    // Champs apparus après coup : vides sur les anciens dossiers.
+    ["ramonage", "chaudiere", "climatisation"].forEach((k) => {
+      if (!d.entretiens[k] && neuf.entretiens[k]) { d.entretiens[k] = neuf.entretiens[k]; faits.push("entretien : " + k); }
+    });
+    ["cheminee", "chaudiere", "climatisation"].forEach((k) => {
+      if (!d.equipements[k] && neuf.equipements[k]) { d.equipements[k] = true; faits.push("équipement : " + k); }
+    });
+    Object.keys(neuf.diagnostics).forEach((k) => {
+      if (!d.diagnostics[k]) { d.diagnostics[k] = neuf.diagnostics[k]; faits.push("diagnostic : " + k); }
+    });
+    // Conditions suspensives : on ajoute celles qui manquent, sans toucher
+    // aux existantes (leur case « levée » est un état de travail).
+    neuf.conditions_suspensives.forEach((c) => {
+      const deja = d.conditions_suspensives.some((y) => motCle(y.titre) && motCle(y.titre) === motCle(c.titre));
+      if (!deja && (c.titre || "").trim()) { d.conditions_suspensives.push(c); faits.push("condition : " + c.titre); }
+    });
+    return faits;
+  }
+
+  // Relit le compromis d'un dossier et complète ce qui manque.
+  async function relireCompromis(id) {
+    const det = details[id];
+    if (!det) throw new Error("Dossier non chargé.");
+    if (!det.compromis_size) throw new Error("Aucun compromis PDF attaché à ce dossier.");
+    const res = await api("/dossiers/" + encodeURIComponent(id) + "/compromis", { raw: true });
+    if (!res.ok) throw new Error("PDF illisible.");
+    const blob = await res.blob();
+    const dataUrl = await new Promise((ok, ko) => {
+      const r = new FileReader();
+      r.onload = () => ok(r.result); r.onerror = () => ko(new Error("PDF illisible."));
+      r.readAsDataURL(blob);
+    });
+    const x = await window.SuiviAI.extractCompromis({ files: [{ dataUrl, isPdf: true, name: "compromis.pdf" }] });
+    const faits = fusionExtraction(det.data, x);
+    if (faits.length) {
+      det.data.journal.push({
+        ts: Math.floor(Date.now() / 1000), user: userName(),
+        text: "🔄 Relecture du compromis : " + faits.length + " champ(s) complété(s) — " + faits.join(", ")
+      });
+      await saveDossier(id);
+    }
+    return faits;
+  }
+
   function extractionToDossier(x) {
     const d = newDossier();
     const S = (v) => String(v == null ? "" : v).trim();
@@ -2188,6 +2303,30 @@
     window.addEventListener("hashchange", route);
     $("#search").addEventListener("input", debounce(renderList, 200));
     $("#filtreStatut").addEventListener("change", renderList);
+    // Rattrapage en série : les dossiers d'avant les derniers champs.
+    $("#btnRelireTout").addEventListener("click", async () => {
+      const b = $("#btnRelireTout");
+      const ouverts = list.filter((m) => m.statut === "en_cours" || m.statut === "signe");
+      for (const m of ouverts) { if (!details[m.id]) { try { await loadDetail(m.id); } catch (e) { } } }
+      const avecPdf = ouverts.filter((m) => details[m.id] && details[m.id].compromis_size);
+      if (!avecPdf.length) { toast("Aucun dossier en cours n'a de compromis PDF attaché.", true); return; }
+      if (!confirm("Relire " + avecPdf.length + " compromis pour compléter les champs restés vides ?\n\n" +
+        "Chaque lecture prend 30 s à 2 min et consomme du quota IA — comptez « " +
+        Math.ceil(avecPdf.length * 1.5) + " minutes environ.\n\n" +
+        "Aucune saisie existante ne sera écrasée : seuls les champs vides sont remplis.")) return;
+      b.disabled = true;
+      let n = 0, total = 0, echecs = 0;
+      for (const m of avecPdf) {
+        n++;
+        b.textContent = "Relecture " + n + "/" + avecPdf.length + "…";
+        try { total += (await relireCompromis(m.id)).length; }
+        catch (e) { echecs++; }
+      }
+      b.disabled = false; b.textContent = "🔄 Relire les compromis";
+      await loadList(); renderList();
+      toast(total + " champ(s) complété(s) sur " + avecPdf.length + " dossier(s)" +
+        (echecs ? " — " + echecs + " relecture(s) en échec" : "") + ". Détail dans le journal de chaque dossier.", !!echecs);
+    });
     $("#btnRefresh").addEventListener("click", async () => {
       try {
         await loadList();

@@ -69,8 +69,9 @@
             <span style="flex:1"></span>
             <button class="btn btn--sm" id="btnRecapNow" title="Reçois par e-mail le récapitulatif que le serveur envoie chaque matin à l'équipe">📬 Recevoir le récap maintenant</button></h3>
           <div class="todo" id="todoList"></div>
-          <p class="hintline">Les actions en retard sont en rouge, celles des 7 prochains jours en orange.
-            « ✉ Relancer » prépare l'e-mail à partir du modèle de l'agence ; « ✓ » marque l'étape faite.</p>
+          <p class="hintline">Une ligne par vente : dépliez-la pour voir ce qu'elle réclame. Seul l'urgent est listé —
+            les actions en retard, et les pièces à obtenir d'un tiers (diagnostics, entretiens, facture) dès 7 jours avant l'échéance.
+            « ✉ Relancer » prépare l'e-mail à partir du modèle de l'agence et repousse l'action d'une semaine ; « ✓ » marque l'étape faite.</p>
         </div>
         <div class="card">
           <h3>📞 Points d'étape vendeurs <span class="cnt">dossiers sans nouvelle depuis 15 jours</span></h3>
@@ -91,6 +92,7 @@
             <option value="annule">Annulé</option>
           </select>
           <button class="btn" id="btnRefresh" title="Recharger depuis le serveur">↻ Actualiser</button>
+          <button class="btn" id="btnRelireTout" title="Relit les compromis PDF des dossiers en cours et complète les champs restés vides (équipements, entretiens, diagnostics, syndic…). Aucune saisie existante n'est écrasée.">🔄 Relire les compromis</button>
         </div>
         <div class="card tablewrap">
           <table class="liste">
