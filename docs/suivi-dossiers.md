@@ -27,6 +27,11 @@ appel après-vente, clôture.
    dépositaire), **conditions suspensives** (dont financement : montant, taux, dates
    limites de dépôt et d'obtention), droit de préemption et **date butoir**. Le PDF est
    attaché au dossier (R2) et consultable par tous.
+   En tête du dossier, un **rappel du rendez-vous de signature** (`rappelSignature()`) :
+   date, heure et lieu de chaque partie, avec le nombre de jours restants — bordure orange
+   à deux semaines, rouge une fois la date passée, verte quand l'acte est signé. Il lit les
+   mêmes champs que la carte « Rendez-vous de signature » et que l'étape « Acte authentique
+   signé » : corriger l'un des trois corrige les trois.
 2. **Échéancier automatique** (`suivi/assets/js/etapes.js`) : chaque dossier déroule
    ~15 étapes datées à partir des dates du compromis, toutes modifiables. Les **dates
    clés** et les étapes sont liées dans les deux sens : renseigner « DIA envoyée le … »
@@ -65,6 +70,20 @@ appel après-vente, clôture.
    reste en tête du journal, en rouge, et s'affiche sur la vente au tableau de bord
    jusqu'à ce qu'on la décoche. Supprimer la note d'une relance efface aussi sa trace
    dans l'échéancier — date de relance et report d'échéance (`rebaseRelance()`).
+
+### Relire un compromis (rattrapage des anciens dossiers)
+
+Les dossiers créés avant l'apparition d'un champ (équipements, entretiens, diagnostics,
+syndic, adresse avec code postal…) n'en ont pas la valeur. Le bouton **« 🔄 Relire le
+compromis »** du dossier — et **« 🔄 Relire les compromis »** de la liste, pour tous les
+dossiers en cours d'un coup — relance l'extraction IA sur le PDF stocké et **ne remplit
+que les champs vides** (`fusionExtraction()`) : aucune saisie n'est jamais écrasée, aucune
+partie n'est ajoutée ni retirée, et la case « levée » des conditions suspensives est
+préservée. Deux valeurs existantes mais manifestement incomplètes font exception : une
+adresse de bien sans code postal, et les conditions suspensives absentes de la liste (elles
+sont ajoutées). Chaque relecture consigne au journal le détail de ce qu'elle a complété.
+Le traitement en série est séquentiel, annonce sa durée et consomme le quota IA — un PDF
+complet par dossier.
 
 ### Destinataires particuliers
 

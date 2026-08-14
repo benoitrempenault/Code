@@ -105,6 +105,22 @@ h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font
 .vente__actions { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 12px; }
 .vente__actions .todo__item { background: var(--panel); }
 
+/* Rappel du rendez-vous de signature, en tête du dossier. */
+.rdv {
+  display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: 12px; padding: 12px 16px; margin-bottom: 16px;
+}
+.rdv__quoi { font-size: 15px; }
+.rdv__quoi b { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 17px; }
+.rdv__delai { color: var(--muted); font-size: 13px; }
+.rdv__lieu { color: var(--muted); font-size: 12.5px; flex: 1 1 240px; }
+.rdv--proche { border-left-color: var(--warn); }
+.rdv--proche .rdv__delai { color: var(--warn); font-weight: 600; }
+.rdv--tard { border-left-color: var(--bad); }
+.rdv--tard .rdv__delai { color: var(--bad); font-weight: 600; }
+.rdv--fait { border-left-color: var(--ok); }
+
 /* Info capitale : une note épinglée en haut du journal, et rappelée sur la
    vente au tableau de bord. */
 .capital {
