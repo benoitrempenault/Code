@@ -72,7 +72,9 @@ Certaines études confient les séquestres à leur comptable. La règle vit dans
 section **Comptabilité des études** (type `comptable`) : une fiche porte l'adresse et, dans
 ses notes, la liste des études couvertes (une par ligne). La relance « dépôt de garantie »
 part alors chez le comptable plutôt que chez le notaire — modifiable sans toucher au code
-le jour où le comptable change. Les études de Kadima (NAUTIACQ, PULON Antoine, PULON
+le jour où le comptable change. La règle ne regarde que l'étude **qui tient réellement
+les fonds** (le dépositaire du compromis) : qu'un autre notaire du dossier figure sur la
+liste ne déclenche rien. Les études de Kadima (NAUTIACQ, PULON Antoine, PULON
 Bertrand, AVINEN BABIN, MELLAC DUPIN, AMOUROUX, SCHREIBER) sont posées à la première
 ouverture. Les numéros de téléphone insérés dans les courriers sont espacés par paires
 (`telFr()`), et l'étape « dépôt de garantie » disparaît quand le compromis n'en prévoit

@@ -1723,20 +1723,27 @@
     if (cible === "depositaire") {
       // Le notaire désigné pour recevoir le séquestre : on retrouve son e-mail
       // en comparant le nom du dépositaire aux notaires du dossier puis de l'annuaire.
-      const depo = String((d.sequestre && d.sequestre.depositaire) || "").toLowerCase();
+      const depoTxt = String((d.sequestre && d.sequestre.depositaire) || "").trim();
+      const depo = depoTxt.toLowerCase();
       const lastWord = (nom) => {
         const parts = String(nom || "").trim().split(/\s+/).filter((w) => w.length >= 3 && !/^me$/i.test(w));
         return (parts[parts.length - 1] || "").toLowerCase();
       };
-      // Étude dont la comptabilité traite les séquestres : c'est elle qu'on
-      // écrit, pas le notaire (règle tenue dans l'annuaire, section Comptabilité).
-      const etudes = [d.notaire_vendeur.nom, d.notaire_acquereur.nom].filter(Boolean);
-      const compta = comptableDe([depo].concat(etudes));
-      if (compta) return compta;
+      // Quelle étude tient les fonds : celle nommée au compromis quand on la
+      // reconnaît, sinon le texte du dépositaire tel quel, sinon celle vers
+      // laquelle on se rabat. C'est la SEULE dont la comptabilité compte —
+      // que l'autre notaire du dossier soit sur la liste n'y change rien.
+      let etudeDepo = "", cleDepo = "";
       for (const key of ["notaire_vendeur", "notaire_acquereur"]) {
         const w = lastWord(d[key].nom);
-        if (w && depo.includes(w)) return joinMails(mailsEtude(d, key));
+        if (w && depo.includes(w)) { etudeDepo = d[key].nom; cleDepo = key; }
       }
+      if (!etudeDepo) etudeDepo = depoTxt || d.notaire_acquereur.nom || d.notaire_vendeur.nom;
+      // Étude dont la comptabilité traite les séquestres : c'est elle qu'on
+      // écrit, pas le notaire (règle tenue dans l'annuaire, section Comptabilité).
+      const compta = comptableDe([etudeDepo]);
+      if (compta) return compta;
+      if (cleDepo) return joinMails(mailsEtude(d, cleDepo));
       const hit = annOf("notaire").find((a) => { const w = lastWord(a.nom); return w && depo.includes(w); });
       if (hit && hit.email) return hit.email;
       return recipientFor(d, "notaire_acquereur");
