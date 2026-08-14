@@ -168,6 +168,11 @@ table.liste th {
   letter-spacing: .05em; font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--line);
 }
 table.liste td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+/* En-têtes triables de la liste des dossiers. */
+table.liste th[data-tri] { cursor: pointer; user-select: none; }
+table.liste th[data-tri]:hover { color: var(--text); }
+table.liste th[data-tri]::after { content: attr(data-sens); margin-left: 5px; color: var(--accent); }
+table.liste th.tri { color: var(--accent); }
 table.liste tr.row { cursor: pointer; }
 table.liste tr.row:hover td { background: var(--panel-2); }
 .tablewrap { overflow-x: auto; }

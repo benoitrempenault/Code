@@ -71,6 +71,14 @@ appel après-vente, clôture.
    jusqu'à ce qu'on la décoche. Supprimer la note d'une relance efface aussi sa trace
    dans l'échéancier — date de relance et report d'échéance (`rebaseRelance()`).
 
+### Liste des dossiers
+
+Par défaut l'ordre de travail : dossiers en cours d'abord, puis l'échéance la plus proche.
+Les en-têtes **Dossier**, **Compromis** et **Prochaine échéance** sont cliquables — premier
+clic croissant, deuxième décroissant, troisième retour à l'ordre de travail. Le tri par nom
+ignore casse et accents (`localeCompare` fr), et les valeurs vides finissent toujours en bas
+quel que soit le sens.
+
 ### Relire un compromis (rattrapage des anciens dossiers)
 
 Les dossiers créés avant l'apparition d'un champ (équipements, entretiens, diagnostics,

@@ -994,6 +994,8 @@
   }
 
   /* ----------------------------- Liste dossiers --------------------------- */
+  // Colonne de tri choisie dans l'en-tête ("" = ordre de travail par défaut).
+  let triCol = "", triSens = 1;
   function renderList() {
     const q = ($("#search").value || "").toLowerCase();
     const fs = $("#filtreStatut").value;
@@ -1005,12 +1007,31 @@
         d && d.notaire_vendeur.nom, d && d.notaire_acquereur.nom].join(" ").toLowerCase();
       return hay.includes(q);
     });
-    // Tri : en cours d'abord, puis par échéance la plus proche.
-    rows.sort((a, b) => {
-      const oa = a.statut === "en_cours" ? 0 : a.statut === "signe" ? 1 : 2;
-      const ob = b.statut === "en_cours" ? 0 : b.statut === "signe" ? 1 : 2;
-      if (oa !== ob) return oa - ob;
-      return (a.echeance || "9999") < (b.echeance || "9999") ? -1 : 1;
+    /* Tri : par défaut les dossiers en cours d'abord, puis l'échéance la plus
+       proche — c'est l'ordre de travail. Un clic sur « Dossier », « Compromis »
+       ou « Prochaine échéance » impose l'ordre demandé (re-clic = sens
+       inverse), sans distinguer les statuts. Les valeurs vides finissent
+       toujours en bas, quel que soit le sens. */
+    if (triCol) {
+      const cle = (m) => triCol === "nom" ? (m.name || "") : (m[triCol] || "");
+      rows.sort((a, b) => {
+        const x = cle(a), y = cle(b);
+        if (!x !== !y) return x ? -1 : 1;
+        const c = triCol === "nom" ? x.localeCompare(y, "fr", { sensitivity: "base" }) : (x < y ? -1 : x > y ? 1 : 0);
+        return c * triSens;
+      });
+    } else {
+      rows.sort((a, b) => {
+        const oa = a.statut === "en_cours" ? 0 : a.statut === "signe" ? 1 : 2;
+        const ob = b.statut === "en_cours" ? 0 : b.statut === "signe" ? 1 : 2;
+        if (oa !== ob) return oa - ob;
+        return (a.echeance || "9999") < (b.echeance || "9999") ? -1 : 1;
+      });
+    }
+    $$("#listHead [data-tri]").forEach((th) => {
+      const on = th.dataset.tri === triCol;
+      th.classList.toggle("tri", on);
+      th.dataset.sens = on ? (triSens > 0 ? "▲" : "▼") : "";
     });
     const STATUTS = { en_cours: "En cours", signe: "Acte signé", clos: "Clos", annule: "Annulé" };
     $("#listBody").innerHTML = rows.map((m) => {
@@ -2303,6 +2324,17 @@
     window.addEventListener("hashchange", route);
     $("#search").addEventListener("input", debounce(renderList, 200));
     $("#filtreStatut").addEventListener("change", renderList);
+    // En-tête cliquable : 1er clic = croissant, 2e = décroissant, 3e = retour
+    // à l'ordre de travail (en cours d'abord, échéance la plus proche).
+    $("#listHead").addEventListener("click", (ev) => {
+      const th = ev.target.closest("[data-tri]");
+      if (!th) return;
+      const col = th.dataset.tri;
+      if (triCol !== col) { triCol = col; triSens = 1; }
+      else if (triSens > 0) triSens = -1;
+      else { triCol = ""; triSens = 1; }
+      renderList();
+    });
     // Rattrapage en série : les dossiers d'avant les derniers champs.
     $("#btnRelireTout").addEventListener("click", async () => {
       const b = $("#btnRelireTout");
