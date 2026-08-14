@@ -41,6 +41,13 @@ export function fmtFr(s) {
 }
 
 const ssp = (d) => d.date_compromis || "";
+// « néant », « 0 € », vide : pas de dépôt de garantie, pas d'étape.
+function montantPositif(v) {
+  const m = /(\d[\d\u00a0\u202f .,]*)/.exec(String(v == null ? "" : v));
+  if (!m) return false;
+  const n = parseFloat(m[1].replace(/[\s\u00a0\u202f.]/g, "").replace(",", "."));
+  return isFinite(n) && n > 0;
+}
 const finRetract = (d) => (d.dates && d.dates.presentation_sru) ? addDays(d.dates.presentation_sru, 11) : addDays(ssp(d), 14);
 const pret = (d) => (d.financement && d.financement.recours_pret === "oui");
 // Urbanisme (terrains) : mêmes règles que le client — DP puis PC, purges à
@@ -99,7 +106,7 @@ const ETAPES = [
   { id: "panneau_vendu", label: "Panneau « VENDU » posé", due: (d) => finRetract(d) },
   { id: "sequestre", label: "Dépôt de garantie (séquestre) reçu",
     due: (d) => (d.sequestre && parseDate(d.sequestre.delai) != null) ? d.sequestre.delai : addDays(ssp(d), 12),
-    applies: (d) => !!(d.sequestre && (d.sequestre.montant || "").trim()) },
+    applies: (d) => montantPositif(d.sequestre && d.sequestre.montant) },
   { id: "envoi_dia", label: "DIA envoyée en mairie par le notaire", due: (d) => addDays(ssp(d), 15) },
   { id: "purge_dia", label: "Droit de préemption purgé (2 mois)",
     due: (d) => (d.dates && d.dates.envoi_dia) ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77) },
@@ -140,7 +147,7 @@ const ETAPES = [
       const exp = premiereExpiration(d);
       return !!exp && !dt(d, "signature_acte") && daysUntil(exp) <= 30;
     } },
-  { id: "projet_acte", label: "Projet d'acte demandé / date de signature calée",
+  { id: "projet_acte", label: "Demande de date de signature",
     due: (d) => d.date_butoir ? addDays(d.date_butoir, -21) : addDays(ssp(d), 70) },
   { id: "avenant", label: "Avenant de prorogation si la signature ne tient pas la date butoir",
     due: (d) => d.date_butoir ? addDays(d.date_butoir, -10) : "",

@@ -536,7 +536,10 @@ export function createApp(env) {
   /* ------------------ Annuaire partagé (app Suivi) ------------------------ */
   // Conseillers (initiales → nom + e-mail), notaires, syndics, présidents de
   // lotissement. Upsert par id ou par (type, nom) — mêmes règles que le reste.
-  const ANNUAIRE_TYPES = ["conseiller", "notaire", "syndic", "president"];
+  // « comptable » : service comptabilité d'une ou plusieurs études, à qui les
+  // relances de séquestre s'adressent plutôt qu'au notaire (notes = la liste
+  // des études couvertes, une par ligne).
+  const ANNUAIRE_TYPES = ["conseiller", "notaire", "syndic", "president", "comptable"];
   const ANNUAIRE_MAX = 500;
   app.get("/annuaire", async (c) => {
     const ctx = await sessionFrom(c);
@@ -554,7 +557,7 @@ export function createApp(env) {
     const b = await c.req.json().catch(() => null);
     const type = String((b && b.type) || "");
     const nom = cleanName(b && b.nom);
-    if (!ANNUAIRE_TYPES.includes(type)) return err(c, 400, "type invalide (conseiller | notaire | syndic | president).");
+    if (!ANNUAIRE_TYPES.includes(type)) return err(c, 400, "type invalide (" + ANNUAIRE_TYPES.join(" | ") + ").");
     if (!nom) return err(c, 400, "nom requis.");
     const f = (k, max) => String((b && b[k]) || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max || 160);
     const vals = { initiales: f("initiales", 10), ville: f("ville"), telephone: f("telephone", 40), email: f("email"), notes: f("notes", 1200) };

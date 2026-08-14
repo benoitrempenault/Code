@@ -65,6 +65,13 @@
      applies(d): l'étape concerne-t-elle ce dossier ?
      hint     : aide affichée sous l'étape                                     */
   const ssp = (d) => d.date_compromis || "";
+  // « néant », « 0 € », vide : pas de dépôt de garantie, pas d'étape.
+  function montantPositif(v) {
+    const m = /(\d[\d\u00a0\u202f .,]*)/.exec(String(v == null ? "" : v));
+    if (!m) return false;
+    const n = parseFloat(m[1].replace(/[\s\u00a0\u202f.]/g, "").replace(",", "."));
+    return isFinite(n) && n > 0;
+  }
   const finRetract = (d) => d.dates.presentation_sru ? addDays(d.dates.presentation_sru, 11) : addDays(ssp(d), 14);
   const pret = (d) => (d.financement && d.financement.recours_pret === "oui");
 
@@ -257,7 +264,7 @@
     { id: "sequestre", phase: "Séquestre", label: "Dépôt de garantie (séquestre) reçu chez le dépositaire",
       cible: "depositaire", modeles: ["Relance séquestre", "Relance séquestre acquéreur"],
       due: (d) => (d.sequestre && parseDate(d.sequestre.delai)) ? d.sequestre.delai : addDays(ssp(d), 12),
-      applies: (d) => !!(d.sequestre && (d.sequestre.montant || "").trim()),
+      applies: (d) => montantPositif(d.sequestre && d.sequestre.montant),
       hint: "Versement usuel sous 8 à 10 jours — double relance : le notaire dépositaire (réception ?) et l'acquéreur (versement fait ?)." },
 
     { id: "envoi_dia", phase: "Préemption (DIA)", label: "DIA envoyée en mairie par le notaire",
@@ -350,7 +357,7 @@
       },
       hint: "Chaque diagnostic doit être en cours de validité le jour de la signature (ERP et termites : 6 mois)." },
 
-    { id: "projet_acte", phase: "Acte authentique", label: "Projet d'acte demandé et date de signature calée",
+    { id: "projet_acte", phase: "Acte authentique", label: "Demande de date de signature",
       cible: "notaire_vendeur", modele: "Demande du projet d'acte",
       due: (d) => d.date_butoir ? addDays(d.date_butoir, -21) : addDays(ssp(d), 70) },
     { id: "avenant", phase: "Acte authentique", label: "Avenant de prorogation si la signature ne tient pas la date butoir",

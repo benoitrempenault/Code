@@ -89,6 +89,34 @@ h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font
 }
 .bar i { display: block; height: 100%; background: var(--accent); }
 
+/* Tableau de bord : une ligne dépliable par vente. */
+.vente { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; }
+.vente > summary {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  padding: 11px 14px; cursor: pointer; list-style: none;
+}
+.vente > summary::-webkit-details-marker { display: none; }
+.vente > summary::before { content: "▸"; color: var(--muted); }
+.vente[open] > summary::before { content: "▾"; }
+.vente > summary:hover { color: var(--accent); }
+.vente__ref { font-weight: 600; flex: 1 1 220px; }
+.vente__n { color: var(--bad); font-size: 12.5px; font-weight: 600; }
+.vente__due { color: var(--muted); font-size: 12.5px; }
+.vente__actions { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 12px; }
+.vente__actions .todo__item { background: var(--panel); }
+
+/* Info capitale : une note épinglée en haut du journal, et rappelée sur la
+   vente au tableau de bord. */
+.capital {
+  background: rgba(224,122,106,.12); border: 1px solid var(--bad); border-radius: 10px;
+  color: var(--bad); font-weight: 600; font-size: 15.5px; line-height: 1.45; padding: 11px 14px;
+}
+.capital--board { margin: 0 12px 10px; font-size: 14px; }
+.journal__item--capital { border-color: var(--bad); background: rgba(224,122,106,.10); }
+.journal__item--capital .journal__text { color: var(--bad); font-weight: 600; font-size: 15.5px; }
+.journal__cap { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.journal__cap input { width: 14px; height: 14px; }
+
 /* Vigies : compteurs cliquables des points de vigilance (onglet Stats). */
 .vigies { display: flex; flex-wrap: wrap; gap: 8px; }
 .vigie {

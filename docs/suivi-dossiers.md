@@ -32,7 +32,9 @@ appel après-vente, clôture.
    clés** et les étapes sont liées dans les deux sens : renseigner « DIA envoyée le … »
    coche l'étape correspondante à cette date (et l'effacer la décoche), cocher l'étape
    renseigne la date clé — la table de correspondance est `STEP_DATE` dans `app.js`.
-3. **Tableau de bord** : ne liste que l'urgent, en rouge — les actions **en retard**, plus
+3. **Tableau de bord** : **une ligne dépliable par vente** (on entre dans le dossier qui
+   nous occupe pour voir ses actions ; sans ce regroupement un dossier en souffrance
+   occupait dix lignes et masquait les autres). Ne liste que l'urgent, en rouge — les actions **en retard**, plus
    les **pièces à obtenir d'un tiers** (diagnostics, ramonage, chaudière, clim/PAC,
    facture d'honoraires — `CRITIQUES` dans `app.js`) dès 7 jours avant l'échéance, parce
    que s'y prendre la veille reporte la signature. Le reste attend l'échéancier du
@@ -57,7 +59,22 @@ appel après-vente, clôture.
 5. **Journal partagé** : notes horodatées et signées (qui a appelé qui, réponses des
    notaires…), visible par toute l'agence. Une note longue (un e-mail collé) est repliée
    et se déploie au survol ; elle peut porter le lien d'un message, et les relances
-   envoyées depuis l'app y archivent leur texte.
+   envoyées depuis l'app y archivent leur texte. Une note cochée **« info capitale »**
+   reste en tête du journal, en rouge, et s'affiche sur la vente au tableau de bord
+   jusqu'à ce qu'on la décoche. Supprimer la note d'une relance efface aussi sa trace
+   dans l'échéancier — date de relance et report d'échéance (`rebaseRelance()`).
+
+### Destinataires particuliers
+
+Certaines études confient les séquestres à leur comptable. La règle vit dans l'annuaire,
+section **Comptabilité des études** (type `comptable`) : une fiche porte l'adresse et, dans
+ses notes, la liste des études couvertes (une par ligne). La relance « dépôt de garantie »
+part alors chez le comptable plutôt que chez le notaire — modifiable sans toucher au code
+le jour où le comptable change. Les études de Kadima (NAUTIACQ, PULON Antoine, PULON
+Bertrand, AVINEN BABIN, MELLAC DUPIN, AMOUROUX, SCHREIBER) sont posées à la première
+ouverture. Les numéros de téléphone insérés dans les courriers sont espacés par paires
+(`telFr()`), et l'étape « dépôt de garantie » disparaît quand le compromis n'en prévoit
+pas (montant absent, « néant » ou zéro).
 
 ### Écriture des noms de clients
 
