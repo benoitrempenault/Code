@@ -388,6 +388,11 @@
         m.corps = m.corps.slice(0, -ancienPied.length) + "{{signature}}";
         try { await api("/modeles", { method: "PUT", json: m }); } catch (e) { /* sans gravité */ }
       }
+      // Envoi du RIB de l'étude à l'acquéreur : modèle ajouté s'il manque.
+      if (!modeles.some((m) => m.name === "Envoi du RIB pour le séquestre")) {
+        const defRIB = E.DEFAULT_MODELES.find((m) => m.name === "Envoi du RIB pour le séquestre");
+        if (defRIB) { await api("/modeles", { method: "PUT", json: defRIB }); modeles = (await api("/modeles")).modeles || modeles; }
+      }
       // Comptabilité des études : règle connue de l'agence, posée une fois puis
       // modifiable dans l'annuaire (l'e-mail comme la liste des études).
       if (!annOf("comptable").length) {

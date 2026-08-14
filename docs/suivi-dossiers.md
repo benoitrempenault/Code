@@ -98,7 +98,8 @@ que le montant, jamais la phrase entière du compromis.
 | Envoi du dossier aux notaires | J+3 | pratique agence |
 | Retour AR SRU | J+8 | pratique |
 | Fin de rétractation | présentation + 10 jours calendaires (lendemain) | L271-1 CCH |
-| Séquestre reçu | délai du compromis, sinon J+12 | versement usuel 5-10 % sous 8-10 jours |
+| RIB du dépositaire envoyé à l'acquéreur | J+5 | sans RIB, pas de virement possible — l'e-mail joint le relevé de l'étude et met en garde contre la fraude au faux RIB |
+| Séquestre reçu | délai du compromis, sinon J+12 | versement usuel 5-10 % sous 8-10 jours ; les deux lignes disparaissent quand le compromis ne prévoit pas de dépôt |
 | DIA envoyée | J+15 | **la** relance qui fait gagner un mois ; demander une renonciation expresse à la mairie si possible |
 | Purge du droit de préemption | envoi DIA + 2 mois (art. L213-2 C. urb., silence = renonciation) | |
 | Dépôt du dossier de prêt | date du compromis, sinon J+10 | clause usuelle 10-15 jours |
