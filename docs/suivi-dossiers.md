@@ -55,7 +55,9 @@ appel après-vente, clôture.
    Un `mailto:` ne transportant que du texte brut, l'app ne peut pas y placer d'image.
    Le bouton
    « ✉ Relancer » prépare le message (destinataire + objet + corps), l'ouvre dans la
-   messagerie (mailto) et consigne la relance dans le journal du dossier.
+   messagerie (mailto) et consigne la relance dans le journal du dossier. Tout objet
+   s'ouvre sur **« CENTURY 21 Kadima — … »** (`objetAvecAgence()`, ajouté à la
+   composition, donc valable aussi pour les modèles réécrits à la main).
 5. **Journal partagé** : notes horodatées et signées (qui a appelé qui, réponses des
    notaires…), visible par toute l'agence. Une note longue (un e-mail collé) est repliée
    et se déploie au survol ; elle peut porter le lien d'un message, et les relances
