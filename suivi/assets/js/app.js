@@ -378,6 +378,17 @@
         m.corps = m.corps.slice(0, -ancienPied.length) + "{{signature}}";
         try { await api("/modeles", { method: "PUT", json: m }); } catch (e) { /* sans gravité */ }
       }
+      // Comptabilité des études : règle connue de l'agence, posée une fois puis
+      // modifiable dans l'annuaire (l'e-mail comme la liste des études).
+      if (!annOf("comptable").length) {
+        try {
+          await api("/annuaire", { method: "PUT", json: {
+            type: "comptable", nom: "Comptabilité des études", email: "cyrillouveau@notaires.fr",
+            notes: ["NAUTIACQ", "PULON Antoine", "PULON Bertrand", "AVINEN BABIN", "MELLAC DUPIN", "AMOUROUX", "SCHREIBER"].join("\n")
+          } });
+          await loadAnnuaire();
+        } catch (e) { /* sans gravité */ }
+      }
       // La facture d'honoraires part désormais aux DEUX études (l'acquéreur
       // règle souvent par son notaire) : on bascule le modèle enregistré.
       const fact = modeles.find((m) => m.name === "Envoi de la facture au notaire");
@@ -756,6 +767,9 @@
       "(logo compris) aux messages préparés par l'app, l'Outlook classique ne le fait pas. " +
       "Laissée vide, la relance se termine simplement par votre nom et l'agence."],
     ["notaire", "⚖️ Notaires", "Suggérés et pré-remplis dans les dossiers dès que le nom est reconnu."],
+    ["comptable", "💶 Comptabilité des études", "Certaines études font traiter les séquestres par leur comptable. " +
+      "Indiquez son adresse, puis la liste des notaires concernés (un par ligne, le nom suffit) : " +
+      "la relance « dépôt de garantie » partira chez lui plutôt que chez le notaire."],
     ["syndic", "🏢 Syndics de copropriété", ""],
     ["president", "🏘 Présidents de lotissement / ASL", ""]
   ];
@@ -773,10 +787,12 @@
         annInput(a, "telephone", "Téléphone", 120) +
         annInput(a, "email", "E-mail", 200) +
         '<button class="btn btn--sm btn--danger" data-adel="' + esc(a.id) + '">✕</button>' +
-        (type === "conseiller"
-          ? '<div class="field" style="flex:1 1 100%;margin:6px 0 0"><label>Signature des e-mails ({{signature}})</label>' +
-            '<textarea data-afield="notes" rows="4" placeholder="Prénom NOM&#10;Conseiller en immobilier&#10;CENTURY 21 Kadima — 05 56 00 00 00">' +
-            esc(a.notes || "") + "</textarea></div>"
+        (type === "conseiller" || type === "comptable"
+          ? '<div class="field" style="flex:1 1 100%;margin:6px 0 0"><label>' +
+            (type === "conseiller" ? "Signature des e-mails ({{signature}})" : "Études dont il traite les séquestres (une par ligne)") + "</label>" +
+            '<textarea data-afield="notes" rows="4" placeholder="' +
+            (type === "conseiller" ? "Prénom NOM&#10;Conseiller en immobilier&#10;CENTURY 21 Kadima — 05 56 00 00 00" : "NAUTIACQ&#10;PULON Antoine&#10;PULON Bertrand") +
+            '">' + esc(a.notes || "") + "</textarea></div>"
           : "") +
         "</div>"
       ).join("");
@@ -892,33 +908,56 @@
       '<div class="kpi ' + (critiques.length ? "bad" : "ok") + '"><b>' + critiques.length + "</b><span>pièces à obtenir sous 7 jours</span></div>" +
       '<div class="kpi"><b>' + sigs.length + "</b><span>signatures sous 30 jours</span></div>";
 
-    const show = late.concat(critiques).sort((a, b) => (a.step.due < b.step.due ? -1 : 1));
-    $("#todoCount").textContent = show.length ? show.length + " action(s)" : "";
-    $("#todoList").innerHTML = show.length ? show.map((a) => {
-      const s = a.step;
-      const d = details[a.id].data;
-      const cls = "late"; // seules les urgences sont listées ici
-      // Dernière note du journal : le contexte du dossier en un coup d'œil.
-      // Les relances portant sur une AUTRE étape sont écartées — elles
-      // parlaient d'autre chose, elles n'éclairent pas cette action-ci.
-      const notes = d.journal.filter((j) => !j.mail || j.step === s.id);
-      const lastJ = notes.length ? notes[notes.length - 1] : null;
-      const noteTxt = lastJ
-        ? "📝 " + new Date((lastJ.ts || 0) * 1000).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) +
-          " — " + (lastJ.text.length > 110 ? lastJ.text.slice(0, 110) + "…" : lastJ.text)
-        : "";
-      const relTxt = s.relance && s.relance.ts
-        ? "✉ Dernière relance le " + new Date(s.relance.ts * 1000).toLocaleDateString("fr-FR")
-        : "";
-      return '<div class="todo__item ' + cls + '">' +
-        '<span class="when">' + frDate(s.due) + "<br><small>" + deltaLabel(s.days) + "</small></span>" +
-        '<span class="what"><b>' + esc(a.ref) + "</b><small>" + esc(s.label) + "</small>" +
-        (relTxt ? '<small style="color:var(--warn)">' + esc(relTxt) + "</small>" : "") +
-        (noteTxt ? '<small style="color:var(--accent);opacity:.85">' + esc(noteTxt) + "</small>" : "") + "</span>" +
-        mailButtons(a.id, s, d) +
-        '<button class="btn btn--sm" data-act="done" data-id="' + esc(a.id) + '" data-step="' + esc(s.id) + '" title="Marquer fait">✓ Fait</button>' +
-        '<button class="btn btn--sm" data-act="open" data-id="' + esc(a.id) + '">Ouvrir →</button>' +
-        "</div>";
+    /* Une ligne par VENTE, dépliable : le tableau de bord dit d'abord quels
+       dossiers réclament quelque chose, et l'on entre dans celui qu'on traite
+       pour voir le détail des actions. Sans ce regroupement, un dossier en
+       souffrance occupait dix lignes et masquait les autres. */
+    const ventes = [];
+    for (const a of late.concat(critiques)) {
+      let v = ventes.find((x) => x.id === a.id);
+      if (!v) ventes.push(v = { id: a.id, ref: a.ref, actions: [] });
+      v.actions.push(a.step);
+    }
+    ventes.forEach((v) => v.actions.sort((x, y) => (x.due < y.due ? -1 : 1)));
+    ventes.sort((a, b) => (a.actions[0].due < b.actions[0].due ? -1 : 1));
+
+    const nbActions = ventes.reduce((t, v) => t + v.actions.length, 0);
+    $("#todoCount").textContent = ventes.length
+      ? ventes.length + " vente(s) · " + nbActions + " action(s)" : "";
+    $("#todoList").innerHTML = ventes.length ? ventes.map((v) => {
+      const d = details[v.id].data;
+      const tete = v.actions[0];
+      // Une info capitale du journal remonte jusqu'ici : c'est son objet.
+      const capital = (d.journal || []).filter((j) => j.capital).slice(-1)[0];
+      const lignes = v.actions.map((s) => {
+        // Note de contexte propre à CETTE action : les relances portant sur
+        // une autre étape parlaient d'autre chose, elles sont écartées.
+        const notes = d.journal.filter((j) => !j.mail || j.step === s.id);
+        const lastJ = notes.length ? notes[notes.length - 1] : null;
+        const noteTxt = lastJ
+          ? "📝 " + new Date((lastJ.ts || 0) * 1000).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) +
+            " — " + (lastJ.text.length > 110 ? lastJ.text.slice(0, 110) + "…" : lastJ.text)
+          : "";
+        const relTxt = s.relance && s.relance.ts
+          ? "✉ Dernière relance le " + new Date(s.relance.ts * 1000).toLocaleDateString("fr-FR")
+          : "";
+        return '<div class="todo__item late">' +
+          '<span class="when">' + frDate(s.due) + "<br><small>" + deltaLabel(s.days) + "</small></span>" +
+          '<span class="what"><b>' + esc(s.label) + "</b>" +
+          (relTxt ? '<small style="color:var(--warn)">' + esc(relTxt) + "</small>" : "") +
+          (noteTxt ? '<small style="color:var(--accent);opacity:.85">' + esc(noteTxt) + "</small>" : "") + "</span>" +
+          mailButtons(v.id, s, d) +
+          '<button class="btn btn--sm" data-act="done" data-id="' + esc(v.id) + '" data-step="' + esc(s.id) + '" title="Marquer fait">✓ Fait</button>' +
+          "</div>";
+      }).join("");
+      return '<details class="vente"' + (ventes.length === 1 ? " open" : "") + ">" +
+        '<summary><span class="vente__ref">' + esc(v.ref) + "</span>" +
+        '<span class="vente__n">' + v.actions.length + (v.actions.length > 1 ? " actions" : " action") + "</span>" +
+        '<span class="vente__due">' + frDate(tete.due) + " · " + deltaLabel(tete.days) + "</span></summary>" +
+        (capital ? '<p class="capital capital--board">⚠ ' + esc(capital.text) + "</p>" : "") +
+        '<div class="vente__actions">' + lignes +
+        '<div style="text-align:right"><button class="btn btn--sm" data-act="open" data-id="' + esc(v.id) + '">Ouvrir le dossier →</button></div>' +
+        "</div></details>";
     }).join("") : '<div class="todo__empty">Rien d\'urgent — tous les dossiers sont à jour. ☕</div>';
 
     // Vendeurs sans nouvelle depuis 15 jours (journal ou dernière modification).
@@ -1152,7 +1191,11 @@
       "</div>"
     ).join("");
 
-    const journalHtml = d.journal.map((j, i) => ({ j, i })).reverse().map(({ j, i }) => {
+    // Les infos capitales restent en haut du journal, en rouge, jusqu'à ce
+    // qu'on les décoche — le reste suit dans l'ordre chronologique inverse.
+    const journalOrdre = d.journal.map((j, i) => ({ j, i })).reverse()
+      .sort((a, b) => (b.j.capital ? 1 : 0) - (a.j.capital ? 1 : 0));
+    const journalHtml = journalOrdre.map(({ j, i }) => {
       const dt = new Date((j.ts || 0) * 1000);
       const txt = j.text || "";
       // Un message d'e-mail collé fait des dizaines de lignes : la note est
@@ -1160,11 +1203,13 @@
       const lignes = Math.max(1, txt.split("\n").length, Math.ceil(txt.length / 95));
       const longue = lignes > 4;
       const lien = lienExterne(j.lien);
-      return '<div class="journal__item">' +
+      return '<div class="journal__item' + (j.capital ? " journal__item--capital" : "") + '">' +
         '<button class="btn btn--sm btn--danger jdel" data-jdel="' + i + '" title="Supprimer cette note">✕</button>' +
         '<div class="meta">' +
         esc(dt.toLocaleDateString("fr-FR") + " " + dt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })) +
-        " — " + esc(j.user || "") + (j.edite ? " · modifiée" : "") + "</div>" +
+        " — " + esc(j.user || "") + (j.edite ? " · modifiée" : "") +
+        ' · <label class="journal__cap"><input type="checkbox" data-jcap="' + i + '"' + (j.capital ? " checked" : "") +
+        ' /> info capitale</label></div>' +
         '<div class="journal__body' + (longue ? " long" : "") + '">' +
         '<textarea class="journal__text" data-jedit="' + i + '" rows="' + Math.min(60, lignes) +
         '" title="Cliquez dans la note pour la corriger">' + esc(txt) + "</textarea>" +
@@ -1197,10 +1242,13 @@
       '<div class="card"><h3>📝 Journal du dossier <span class="cnt">partagé avec toute l\'agence</span></h3>' +
       '<div class="journal__add" style="margin:0 0 4px"><input type="text" id="journalInput" placeholder="Ajouter une note (appel, réponse du notaire, avancement…)" />' +
       '<input type="url" id="journalLien" placeholder="🔗 lien d\'un message ou d\'un document (facultatif)" />' +
+      '<label class="journal__cap" style="white-space:nowrap"><input type="checkbox" id="journalCapital" /> info capitale</label>' +
       '<button class="btn" id="journalAdd">Ajouter</button></div>' +
       '<p class="hintline" style="margin:0 0 10px">Entrée pour valider. Cliquez dans une note pour la corriger. ' +
       "Le lien s'ouvre d'ici : collez le permalien d'un message (Outlook web : « … » › Ouvrir dans une nouvelle fenêtre, puis l'adresse) " +
-      "ou d'un document OneDrive. Les relances envoyées depuis l'app sont archivées ici avec leur texte.</p>" +
+      "ou d'un document OneDrive. Les relances envoyées depuis l'app sont archivées ici avec leur texte. " +
+      "<b>Info capitale</b> : la note reste en haut du journal, en rouge, et s'affiche sur la vente au tableau de bord — " +
+      "décochez-la une fois le point réglé.</p>" +
       '<div class="journal">' + (journalHtml || '<p class="hintline">Aucune note pour l\'instant.</p>') + "</div></div>" +
 
       '<div class="card"><h3>🗓 Échéancier du dossier</h3>' + echHtml +
@@ -1406,6 +1454,11 @@
         t.value = "";
         return;
       }
+      if (t.dataset.jcap != null) {
+        const j = d.journal[Number(t.dataset.jcap)];
+        if (j) { if (t.checked) j.capital = true; else delete j.capital; markDirty(); renderDossier(); }
+        return;
+      }
       if (t.dataset.pathCheck) { setByPath(d, t.dataset.pathCheck, t.checked); markDirty(); renderDossier(); return; }
       // Ajout d'un équipement / d'un diagnostic absent du compromis.
       if (t.dataset.addEquip !== undefined && t.value) { d.equipements[t.value] = true; markDirty(); renderDossier(); return; }
@@ -1475,7 +1528,10 @@
         else if (d.etapes[stepId].done) { d.etapes[stepId].done = false; d.etapes[stepId].date = ""; }
         markDirty(); renderDossier(); return;
       }
-      if (t.dataset.path && (t.type === "date" || t.tagName === "SELECT")) { renderDossierSoon(); }
+      // Champ quitté : l'échéancier peut en dépendre (montant du séquestre,
+      // recours au prêt, type de bien…). Le rendu est différé, et cet
+      // événement ne survient qu'à la sortie du champ — pas pendant la saisie.
+      if (t.dataset.path) renderDossierSoon();
     });
     // Entrée dans la zone d'ajout du journal = « Ajouter » (Maj+Entrée exclu).
     view.addEventListener("keydown", (ev) => {
@@ -1516,6 +1572,11 @@
         if (!j) return;
         if (!confirm("Supprimer cette note du journal (pour toute l'agence) ?\n\n« " + (j.text || "").slice(0, 120) + " »")) return;
         d.journal.splice(i, 1);
+        // Relance effacée : l'échéancier ne doit plus en porter la trace. On
+        // reprend la dernière relance qui SUBSISTE au journal pour cette
+        // étape ; s'il n'en reste aucune, la ligne repart comme avant l'envoi
+        // (report d'échéance compris).
+        if (j.mail && j.step) rebaseRelance(d, j.step);
         markDirty(); renderDossier(); return;
       }
       if (t.id === "btnDelete") { deleteCurrent(); return; }
@@ -1530,12 +1591,28 @@
     const t = String(u || "").trim();
     return (/^https?:\/\//i.test(t) && !/[<>"'`\s]/.test(t)) ? t : "";
   }
+  // Recale l'étape sur les relances qui restent au journal (aucune = on
+  // efface la trace et le report d'échéance qu'elle avait provoqué).
+  function rebaseRelance(d, stepId) {
+    const et = d.etapes[stepId];
+    if (!et) return;
+    const reste = d.journal.filter((x) => x.mail && x.step === stepId);
+    if (reste.length) {
+      const dernier = reste[reste.length - 1];
+      et.relance = { ts: dernier.ts, modele: et.relance ? et.relance.modele : "", user: dernier.user || "" };
+    } else {
+      delete et.relance;
+      delete et.due;
+    }
+  }
   function ajouterNote(d) {
     const inp = $("#journalInput"), lienInp = $("#journalLien");
     const txt = (inp.value || "").trim(), lien = lienExterne(lienInp && lienInp.value);
     if (!txt && !lien) return;
     const note = { ts: Math.floor(Date.now() / 1000), user: userName(), text: txt || "Message lié" };
     if (lien) note.lien = lien;
+    const cap = $("#journalCapital");
+    if (cap && cap.checked) note.capital = true;
     d.journal.push(note);
     if (lienInp && lienInp.value.trim() && !lien) toast("Lien ignoré : seules les adresses http(s) sont acceptées.", true);
     markDirty(); renderDossier();
@@ -1599,6 +1676,23 @@
   }
   const joinMails = (arr) => Array.from(new Set(arr.filter(Boolean))).join("; ");
 
+  /* Comptabilité d'étude : une fiche « comptable » de l'annuaire porte son
+     e-mail et, dans ses notes, la liste des études dont elle traite les
+     séquestres (une par ligne). On rapproche ces lignes des noms de notaires
+     du dossier — « PULON Antoine » et « Me Antoine PULON » désignant le même,
+     la comparaison passe par nomsCompatibles(). Renvoie "" si aucune règle. */
+  function comptableDe(noms) {
+    const cibles = (noms || []).map((x) => String(x || "").trim()).filter(Boolean);
+    if (!cibles.length) return "";
+    for (const c of annOf("comptable")) {
+      if (!(c.email || "").trim()) continue;
+      const etudes = String(c.notes || "").split(/[\n;]+/).map((x) => x.trim()).filter(Boolean);
+      for (const e of etudes) {
+        if (cibles.some((n) => nomsCompatibles(e, n))) return c.email.trim();
+      }
+    }
+    return "";
+  }
   function recipientFor(d, cible) {
     if (cible === "notaires") {
       // Les deux études (notaires + clercs), dédoublonnées.
@@ -1619,6 +1713,11 @@
         const parts = String(nom || "").trim().split(/\s+/).filter((w) => w.length >= 3 && !/^me$/i.test(w));
         return (parts[parts.length - 1] || "").toLowerCase();
       };
+      // Étude dont la comptabilité traite les séquestres : c'est elle qu'on
+      // écrit, pas le notaire (règle tenue dans l'annuaire, section Comptabilité).
+      const etudes = [d.notaire_vendeur.nom, d.notaire_acquereur.nom].filter(Boolean);
+      const compta = comptableDe([depo].concat(etudes));
+      if (compta) return compta;
       for (const key of ["notaire_vendeur", "notaire_acquereur"]) {
         const w = lastWord(d[key].nom);
         if (w && depo.includes(w)) return joinMails(mailsEtude(d, key));
@@ -1660,10 +1759,20 @@
         ">" + label + "</button>";
     }).join("");
   }
+  /* Un numéro se lit par paires : « 0612345678 » devient « 06 12 34 56 78 ».
+     Les formats déjà espacés, les numéros courts ou étrangers sont laissés
+     tels quels — on ne reformate que ce qu'on reconnaît avec certitude. */
+  function telFr(t) {
+    const brut = String(t || "").trim();
+    const n = brut.replace(/[\s.\-\u00a0]/g, "");
+    if (/^\+33\d{9}$/.test(n)) return telFr("0" + n.slice(3));
+    if (/^0\d{9}$/.test(n)) return n.replace(/(\d{2})(?=\d)/g, "$1 ");
+    return brut;
+  }
   // Liste détaillée « - Nom / tél / e-mail », une ligne par personne.
   function detailPersonnes(arr) {
     return (arr || []).filter((p) => (p.nom || "").trim()).map((p) =>
-      "- " + nomCourriel(p.nom) + " / " + (p.telephone || "tél. ?") + " / " + (p.email || "e-mail ?")
+      "- " + nomCourriel(p.nom) + " / " + (telFr(p.telephone) || "tél. ?") + " / " + (p.email || "e-mail ?")
     ).join("\n");
   }
   // Un seul notaire au dossier (même étude des deux côtés, ou une seule
