@@ -97,7 +97,12 @@
         <div class="card tablewrap">
           <table class="liste">
             <thead>
-              <tr><th></th><th>Dossier</th><th>Bien</th><th>Compromis</th><th>Prochaine échéance</th><th>Conseillers</th><th>Statut</th></tr>
+              <tr id="listHead"><th></th>
+                <th data-tri="nom" title="Trier par nom de dossier">Dossier</th>
+                <th>Bien</th>
+                <th data-tri="date_ssp" title="Trier par date de compromis">Compromis</th>
+                <th data-tri="echeance" title="Trier par échéance la plus proche">Prochaine échéance</th>
+                <th>Conseillers</th><th>Statut</th></tr>
             </thead>
             <tbody id="listBody"></tbody>
           </table>
