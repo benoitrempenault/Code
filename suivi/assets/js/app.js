@@ -15,6 +15,16 @@
 
   const E = window.SuiviEtapes;
   const AGENCE = "CENTURY 21 Kadima — Saint-Médard-en-Jalles";
+  // Tout objet d'e-mail s'ouvre sur le nom de l'agence : le destinataire sait
+  // d'où vient le message avant même de l'ouvrir, et il retrouve nos échanges
+  // en cherchant ce seul mot dans sa messagerie.
+  const PREFIXE_OBJET = "CENTURY 21 Kadima";
+  function objetAvecAgence(sujet) {
+    const t = String(sujet || "").trim();
+    const sansAccent = (x) => x.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (!t) return PREFIXE_OBJET;
+    return sansAccent(t).indexOf(sansAccent(PREFIXE_OBJET)) === 0 ? t : PREFIXE_OBJET + " — " + t;
+  }
 
   /* ------------------------------ Utilitaires ---------------------------- */
   const $ = (s, r) => (r || document).querySelector(s);
@@ -1890,7 +1900,7 @@
     // (acquéreur pour une revente, syndic pour la copropriété…).
     const to = recipientFor(d, (step && step.csIndex != null && step.cible) || modele.cible) || "";
     $("#mailTo").value = to;
-    $("#mailSubject").value = fill(modele.sujet, f);
+    $("#mailSubject").value = objetAvecAgence(fill(modele.sujet, f));
     $("#mailBody").value = fill(modele.corps, f);
     $("#ovMail").classList.add("on");
     if (!to) {
