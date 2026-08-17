@@ -20,6 +20,7 @@ import { changesOf } from "./db.js";
 import { promptFor } from "./prompts.js";
 import { now, monthKey, randId, randToken, sha256hex, hmacHex, safeEqual, costMicros, hashPassword, verifyPassword } from "./util.js";
 import { runRecap, buildRecap, envoyerMail } from "./recap.js";
+import * as PERM from "./permanence.js";
 
 const SESSION_TTL = 30 * 24 * 3600;   // 30 jours d'inactivité
 const MAX_SESSIONS = 3;               // appareils simultanés (PC + téléphone : Safari ET app écran d'accueil comptent chacun)
@@ -63,6 +64,8 @@ export function createApp(env) {
   }));
 
   const err = (c, status, message) => c.json({ error: message }, status);
+  // Date « AAAA-MM-JJ » d'un epoch en secondes (bornes des fenêtres glissantes).
+  const isoJour = (ts) => new Date(ts * 1000).toISOString().slice(0, 10);
 
   /* ------------------------------ Session ------------------------------- */
   async function sessionFrom(c) {
@@ -620,6 +623,366 @@ export function createApp(env) {
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
     await db.run("DELETE FROM annuaire WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
     return c.json({ ok: true });
+  });
+
+  /* ===================== Permanences (app Permanence) ======================
+     Le tour de permanence physique de chaque point de vente, partagé par
+     toute l'agence, plus la prise de rendez-vous en ligne depuis le site
+     internet. Le CALCUL du tour (équité, absences, préavis) vit côté
+     navigateur ; le serveur stocke, sert et signe.
+     ---------------------------------------------------------------------- */
+  const PERM_MAX_LIGNES = 4000;      // ~3 mois × 4 points de vente × 5 créneaux
+  const PERM_MAX_ABSENCES = 2000;
+  const RDV_MAX_PAR_HEURE = 30;      // garde-fou anti-robot sur la page publique
+  const RDV_MAX_PAR_CLIENT_JOUR = 3;
+
+  async function permConfigRow(agencyId) {
+    return await db.get("SELECT agency_id, slug, data, updated_at FROM perm_config WHERE agency_id = ?", [agencyId]);
+  }
+
+  app.get("/permanence/config", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const row = await permConfigRow(ctx.agency.id);
+    return c.json({ config: PERM.parseConfig(row), updated_at: (row && row.updated_at) || 0 });
+  });
+
+  // Réglages (points de vente, créneaux, règles, rattachement des
+  // conseillers) : réservés à l'administrateur de l'agence — ce sont eux qui
+  // décident qui est dans le cycle.
+  app.put("/permanence/config", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif.");
+    if (!isAgencyAdmin(ctx)) return err(c, 403, "Réservé à la direction de l'agence.");
+    const b = await c.req.json().catch(() => null);
+    if (!b || typeof b.config !== "object" || !b.config) return err(c, 400, "config attendue.");
+    const cfg = PERM.parseConfig({ data: JSON.stringify(b.config) });
+    // Le slug est la clé publique de la page de prise de rendez-vous : il
+    // sort en colonne pour être trouvable sans session, et reste unique.
+    let slug = String((cfg.public && cfg.public.slug) || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40);
+    if (slug && cfg.public.actif === false) { /* conservé mais inactif */ }
+    if (slug) {
+      const pris = await db.get("SELECT agency_id FROM perm_config WHERE slug = ? AND agency_id <> ?", [slug, ctx.agency.id]);
+      if (pris) return err(c, 409, "Cette adresse publique est déjà prise — choisissez-en une autre.");
+    }
+    cfg.public.slug = slug;
+    const json = JSON.stringify(cfg);
+    if (json.length > 200000) return err(c, 413, "Réglages trop volumineux.");
+    const existe = await permConfigRow(ctx.agency.id);
+    if (existe) {
+      await db.run("UPDATE perm_config SET slug = ?, data = ?, user_id = ?, updated_at = ? WHERE agency_id = ?",
+        [slug, json, ctx.user.id, now(), ctx.agency.id]);
+    } else {
+      await db.run("INSERT INTO perm_config (agency_id, slug, data, user_id, updated_at) VALUES (?, ?, ?, ?, ?)",
+        [ctx.agency.id, slug, json, ctx.user.id, now()]);
+    }
+    return c.json({ ok: true, config: cfg });
+  });
+
+  /* ------------------------------ Absences ------------------------------- */
+  app.get("/permanence/absences", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const from = PERM.estDate(c.req.query("from")) ? c.req.query("from") : "0000-01-01";
+    const to = PERM.estDate(c.req.query("to")) ? c.req.query("to") : "9999-12-31";
+    const rows = await db.all(
+      "SELECT id, cle, nom, type, debut, fin, motif, updated_at FROM perm_absences WHERE agency_id = ? AND fin >= ? AND debut <= ? ORDER BY debut ASC",
+      [ctx.agency.id, from, to]);
+    return c.json({ absences: rows });
+  });
+
+  app.put("/permanence/absences", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif.");
+    const b = await c.req.json().catch(() => null);
+    const cle = PERM.cleConseiller(b && b.cle);
+    const debut = String((b && b.debut) || ""), fin = String((b && b.fin) || debut);
+    if (!cle) return err(c, 400, "Conseiller manquant.");
+    if (!PERM.estDate(debut) || !PERM.estDate(fin) || fin < debut) return err(c, 400, "Dates invalides.");
+    const type = ["conge", "weekend", "formation", "absence"].includes(String(b && b.type)) ? b.type : "absence";
+    const vals = [cle, PERM.propre(b && b.nom), type, debut, fin, PERM.propre(b && b.motif, 200)];
+    if (b && b.id) {
+      const ex = await db.get("SELECT id FROM perm_absences WHERE id = ? AND agency_id = ?", [String(b.id), ctx.agency.id]);
+      if (ex) {
+        await db.run("UPDATE perm_absences SET cle = ?, nom = ?, type = ?, debut = ?, fin = ?, motif = ?, user_id = ?, updated_at = ? WHERE id = ?",
+          vals.concat([ctx.user.id, now(), ex.id]));
+        return c.json({ ok: true, id: ex.id, updated: true });
+      }
+    }
+    const n = await db.get("SELECT COUNT(*) AS n FROM perm_absences WHERE agency_id = ?", [ctx.agency.id]);
+    if ((n?.n || 0) >= PERM_MAX_ABSENCES) return err(c, 409, "Trop d'absences enregistrées — purgez les plus anciennes.");
+    const id = randId("ab");
+    await db.run("INSERT INTO perm_absences (id, agency_id, user_id, cle, nom, type, debut, fin, motif, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [id, ctx.agency.id, ctx.user.id].concat(vals).concat([now(), now()]));
+    return c.json({ ok: true, id, updated: false });
+  });
+
+  app.delete("/permanence/absences/:id", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    await db.run("DELETE FROM perm_absences WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    return c.json({ ok: true });
+  });
+
+  /* ------------------------------ Planning -------------------------------- */
+  app.get("/permanence/planning", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const from = PERM.estDate(c.req.query("from")) ? c.req.query("from") : "0000-01-01";
+    const to = PERM.estDate(c.req.query("to")) ? c.req.query("to") : "9999-12-31";
+    const rows = await db.all(
+      "SELECT id, pv, date, creneau, debut, fin, cle, nom, email, telephone, fige FROM permanences WHERE agency_id = ? AND date >= ? AND date <= ? ORDER BY date, pv, debut",
+      [ctx.agency.id, from, to]);
+    return c.json({ permanences: rows });
+  });
+
+  // Publication d'une génération : remplace la période pour les points de
+  // vente concernés (sauf les lignes figées à la main, que le client renvoie
+  // telles quelles). Tout ou rien du point de vue de l'utilisateur.
+  app.put("/permanence/planning", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif.");
+    const b = await c.req.json().catch(() => null);
+    const from = String((b && b.from) || ""), to = String((b && b.to) || "");
+    if (!PERM.estDate(from) || !PERM.estDate(to) || to < from) return err(c, 400, "Période invalide.");
+    const pvs = Array.isArray(b && b.pvs) ? b.pvs.map((p) => PERM.propre(p, 40)).filter(Boolean) : [];
+    if (!pvs.length) return err(c, 400, "Aucun point de vente indiqué.");
+    const lignes = Array.isArray(b && b.lignes) ? b.lignes : [];
+    if (lignes.length > PERM_MAX_LIGNES) return err(c, 413, "Trop de créneaux d'un coup — générez sur une période plus courte.");
+    const marques = pvs.map(() => "?").join(",");
+    await db.run("DELETE FROM permanences WHERE agency_id = ? AND date >= ? AND date <= ? AND pv IN (" + marques + ")",
+      [ctx.agency.id, from, to].concat(pvs));
+    let n = 0;
+    for (const l of lignes) {
+      const date = String(l.date || ""), pv = PERM.propre(l.pv, 40), cle = PERM.cleConseiller(l.cle);
+      if (!PERM.estDate(date) || date < from || date > to || pvs.indexOf(pv) < 0 || !cle) continue;
+      if (!PERM.estHeure(l.debut) || !PERM.estHeure(l.fin) || l.fin <= l.debut) continue;
+      await db.run(
+        "INSERT OR REPLACE INTO permanences (id, agency_id, user_id, pv, date, creneau, debut, fin, cle, nom, email, telephone, fige, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [randId("pe"), ctx.agency.id, ctx.user.id, pv, date, PERM.propre(l.creneau, 20), l.debut, l.fin,
+          cle, PERM.propre(l.nom), PERM.propre(l.email), PERM.propre(l.telephone, 40), l.fige ? 1 : 0, now(), now()]);
+      n++;
+    }
+    return c.json({ ok: true, ecrits: n });
+  });
+
+  // Retouche d'une case du tableau (remplacer ou retirer un conseiller sur un
+  // créneau précis) sans relancer toute la génération.
+  app.put("/permanence/planning/ligne", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif.");
+    const b = await c.req.json().catch(() => null);
+    const pv = PERM.propre(b && b.pv, 40), date = String((b && b.date) || ""), cle = PERM.cleConseiller(b && b.cle);
+    if (!pv || !PERM.estDate(date) || !cle) return err(c, 400, "pv, date et conseiller requis.");
+    if (!PERM.estHeure(b.debut) || !PERM.estHeure(b.fin) || b.fin <= b.debut) return err(c, 400, "Horaires invalides.");
+    // `remplace` = le conseiller qui était sur la case : on le retire d'abord,
+    // sinon on ajouterait un deuxième conseiller au lieu d'en changer.
+    const sortant = PERM.cleConseiller(b && b.remplace);
+    if (sortant) {
+      await db.run("DELETE FROM permanences WHERE agency_id = ? AND pv = ? AND date = ? AND creneau = ? AND cle = ?",
+        [ctx.agency.id, pv, date, PERM.propre(b.creneau, 20), sortant]);
+    }
+    await db.run(
+      "INSERT OR REPLACE INTO permanences (id, agency_id, user_id, pv, date, creneau, debut, fin, cle, nom, email, telephone, fige, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [randId("pe"), ctx.agency.id, ctx.user.id, pv, date, PERM.propre(b.creneau, 20), b.debut, b.fin,
+        cle, PERM.propre(b.nom), PERM.propre(b.email), PERM.propre(b.telephone, 40), b.fige === false ? 0 : 1, now(), now()]);
+    return c.json({ ok: true });
+  });
+
+  app.delete("/permanence/planning/:id", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    await db.run("DELETE FROM permanences WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    return c.json({ ok: true });
+  });
+
+  /* ------------------------- Agenda (flux .ics) --------------------------- */
+  // Un agenda ne peut pas envoyer d'en-tête d'authentification : le lien
+  // porte donc une signature HMAC (illisible, révocable en changeant le
+  // secret) au lieu de la session.
+  const icsSig = async (agencyId, cle) => (await hmacHex(env.SESSION_SECRET || "dev", "ics:" + agencyId + ":" + cle)).slice(0, 32);
+
+  app.get("/permanence/liens-agenda", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const moi = String(ctx.user.email || "").toLowerCase();
+    const base = new URL(c.req.url).origin + "/permanence/agenda.ics";
+    return c.json({
+      moi: base + "?ag=" + ctx.agency.id + "&c=" + encodeURIComponent(moi) + "&sig=" + (await icsSig(ctx.agency.id, moi)),
+      agence: base + "?ag=" + ctx.agency.id + "&c=*&sig=" + (await icsSig(ctx.agency.id, "*")),
+      cle: moi
+    });
+  });
+
+  // Lien d'abonnement d'un conseiller donné (la direction distribue les
+  // liens à l'équipe depuis l'app).
+  app.get("/permanence/liens-agenda/:cle", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const cle = PERM.cleConseiller(decodeURIComponent(c.req.param("cle")));
+    if (!cle) return err(c, 400, "Conseiller manquant.");
+    const base = new URL(c.req.url).origin + "/permanence/agenda.ics";
+    return c.json({ lien: base + "?ag=" + ctx.agency.id + "&c=" + encodeURIComponent(cle) + "&sig=" + (await icsSig(ctx.agency.id, cle)) });
+  });
+
+  app.get("/permanence/agenda.ics", async (c) => {
+    const ag = String(c.req.query("ag") || ""), cle = PERM.cleConseiller(c.req.query("c")), sig = String(c.req.query("sig") || "");
+    if (!ag || !cle || !safeEqual(sig, await icsSig(ag, cle))) return err(c, 403, "Lien d'agenda invalide.");
+    const agency = await db.get("SELECT id, name FROM agencies WHERE id = ?", [ag]);
+    if (!agency) return err(c, 404, "Agence inconnue.");
+    // Fenêtre glissante : 60 jours en arrière (historique visible), 180 devant.
+    const jour = 86400, from = isoJour(now() - 60 * jour), to = isoJour(now() + 180 * jour);
+    const tous = cle === "*";
+    const perms = tous
+      ? await db.all("SELECT * FROM permanences WHERE agency_id = ? AND date >= ? AND date <= ? ORDER BY date, debut", [ag, from, to])
+      : await db.all("SELECT * FROM permanences WHERE agency_id = ? AND cle = ? AND date >= ? AND date <= ? ORDER BY date, debut", [ag, cle, from, to]);
+    const rdvs = tous
+      ? await db.all("SELECT * FROM rdv WHERE agency_id = ? AND date >= ? AND date <= ? AND statut <> 'annule' ORDER BY date, debut", [ag, from, to])
+      : await db.all("SELECT * FROM rdv WHERE agency_id = ? AND cle = ? AND date >= ? AND date <= ? AND statut <> 'annule' ORDER BY date, debut", [ag, cle, from, to]);
+    const config = PERM.parseConfig(await permConfigRow(ag));
+    const pvNoms = {};
+    (config.pvs || []).forEach((p) => { pvNoms[p.id] = p.nom || p.id; });
+    const nom = (tous ? "Permanences " : "Mes permanences ") + (agency.name || "");
+    const body = PERM.fluxIcs({ nom, permanences: perms, rdv: rdvs, pvNoms, maintenant: now() });
+    return new Response(body, {
+      headers: {
+        "Content-Type": "text/calendar; charset=utf-8",
+        "Cache-Control": "public, max-age=900",
+        "Content-Disposition": 'inline; filename="permanences.ics"'
+      }
+    });
+  });
+
+  /* ----------------- Rendez-vous pris en ligne (côté agence) -------------- */
+  app.get("/rdv", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const from = PERM.estDate(c.req.query("from")) ? c.req.query("from") : "0000-01-01";
+    const to = PERM.estDate(c.req.query("to")) ? c.req.query("to") : "9999-12-31";
+    const rows = await db.all(
+      "SELECT * FROM rdv WHERE agency_id = ? AND date >= ? AND date <= ? ORDER BY date, debut", [ctx.agency.id, from, to]);
+    return c.json({ rdv: rows });
+  });
+
+  app.post("/rdv/:id/statut", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const b = await c.req.json().catch(() => null);
+    const statut = ["demande", "confirme", "annule", "honore"].includes(String(b && b.statut)) ? b.statut : "";
+    if (!statut) return err(c, 400, "statut invalide.");
+    await db.run("UPDATE rdv SET statut = ?, updated_at = ? WHERE id = ? AND agency_id = ?",
+      [statut, now(), c.req.param("id"), ctx.agency.id]);
+    return c.json({ ok: true });
+  });
+
+  /* ------------- Page publique du site internet (sans session) ------------ */
+  // Le site de l'agence appelle ces deux routes : la première liste les
+  // rendez-vous libres du conseiller de permanence, la seconde en réserve un.
+  app.get("/public/permanence", async (c) => {
+    const slug = String(c.req.query("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40);
+    if (!slug) return err(c, 400, "slug requis.");
+    const row = await db.get("SELECT agency_id, slug, data FROM perm_config WHERE slug = ?", [slug]);
+    if (!row) return err(c, 404, "Prise de rendez-vous indisponible.");
+    const config = PERM.parseConfig(row);
+    if (!config.public.actif) return err(c, 403, "Prise de rendez-vous fermée.");
+    const agency = await db.get("SELECT name FROM agencies WHERE id = ?", [row.agency_id]);
+    const maintenant = PERM.parisIso(now() + (parseInt(config.regles.delaiRdvHeures, 10) || 0) * 3600);
+    const from = maintenant.slice(0, 10);
+    const to = isoJour(now() + 45 * 86400);
+    const pvFiltre = PERM.propre(c.req.query("pv"), 40);
+    const perms = await db.all(
+      "SELECT pv, date, creneau, debut, fin, cle, nom FROM permanences WHERE agency_id = ? AND date >= ? AND date <= ?" +
+      (pvFiltre ? " AND pv = ?" : "") + " ORDER BY date, debut",
+      pvFiltre ? [row.agency_id, from, to, pvFiltre] : [row.agency_id, from, to]);
+    const pris = await db.all(
+      "SELECT date, debut, cle, statut FROM rdv WHERE agency_id = ? AND date >= ? AND date <= ?", [row.agency_id, from, to]);
+    const creneaux = PERM.creneauxRdv(config, perms, pris, maintenant);
+    return c.json({
+      agence: (agency && agency.name) || "",
+      message: config.public.message || "",
+      dureeRdv: config.regles.dureeRdv,
+      pvs: (config.pvs || []).filter((p) => p.actif !== false)
+        .map((p) => ({ id: p.id, nom: p.nom, adresse: p.adresse || "", telephone: p.telephone || "" })),
+      creneaux
+    });
+  });
+
+  app.post("/public/rdv", async (c) => {
+    const b = await c.req.json().catch(() => null);
+    const slug = String((b && b.slug) || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40);
+    if (!slug) return err(c, 400, "slug requis.");
+    const row = await db.get("SELECT agency_id, slug, data FROM perm_config WHERE slug = ?", [slug]);
+    if (!row) return err(c, 404, "Prise de rendez-vous indisponible.");
+    const config = PERM.parseConfig(row);
+    if (!config.public.actif) return err(c, 403, "Prise de rendez-vous fermée.");
+    const agencyId = row.agency_id;
+
+    const date = String((b && b.date) || ""), debut = String((b && b.debut) || "");
+    const cle = PERM.cleConseiller(b && b.cle), pv = PERM.propre(b && b.pv, 40);
+    if (!PERM.estDate(date) || !PERM.estHeure(debut) || !cle || !pv) return err(c, 400, "Créneau invalide.");
+    const nom = PERM.propre(b && b.client_nom), tel = PERM.propre(b && b.client_tel, 40);
+    const mail = PERM.propre(b && b.client_email).toLowerCase();
+    if (nom.length < 2) return err(c, 400, "Indiquez votre nom.");
+    if (!tel && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return err(c, 400, "Indiquez un téléphone ou un e-mail pour être rappelé.");
+    if (mail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return err(c, 400, "Adresse e-mail invalide.");
+
+    // Garde-fous : rafale sur l'agence, et réservations en série d'un même visiteur.
+    const heure = await db.get("SELECT COUNT(*) AS n FROM rdv WHERE agency_id = ? AND created_at > ?", [agencyId, now() - 3600]);
+    if ((heure?.n || 0) >= RDV_MAX_PAR_HEURE) return err(c, 429, "Trop de demandes en ce moment — réessayez dans quelques minutes.");
+    if (mail) {
+      const jour = await db.get("SELECT COUNT(*) AS n FROM rdv WHERE agency_id = ? AND client_email = ? AND created_at > ?",
+        [agencyId, mail, now() - 86400]);
+      if ((jour?.n || 0) >= RDV_MAX_PAR_CLIENT_JOUR) return err(c, 429, "Vous avez déjà plusieurs rendez-vous en attente — l'agence vous rappelle.");
+    }
+
+    // Le créneau doit exister dans le planning ET être encore libre : on le
+    // recalcule côté serveur, jamais sur la foi de ce que le navigateur envoie.
+    const maintenant = PERM.parisIso(now() + (parseInt(config.regles.delaiRdvHeures, 10) || 0) * 3600);
+    const perms = await db.all(
+      "SELECT pv, date, creneau, debut, fin, cle, nom, email, telephone FROM permanences WHERE agency_id = ? AND date = ? AND pv = ? AND cle = ?",
+      [agencyId, date, pv, cle]);
+    const pris = await db.all("SELECT date, debut, cle, statut FROM rdv WHERE agency_id = ? AND date = ?", [agencyId, date]);
+    const libre = PERM.creneauxRdv(config, perms, pris, maintenant).find((x) => x.debut === debut);
+    if (!libre) return err(c, 409, "Ce créneau vient d'être pris — choisissez-en un autre.");
+    const perm = perms.find((p) => p.creneau === libre.creneau) || {};
+
+    const objets = ["estimation", "achat", "location", "gestion", "autre"];
+    const id = randId("rd");
+    await db.run(
+      "INSERT INTO rdv (id, agency_id, pv, date, debut, fin, cle, nom, email, objet, client_nom, client_email, client_tel, bien, message, statut, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'demande', ?, ?)",
+      [id, agencyId, pv, date, debut, libre.fin, cle, PERM.propre(perm.nom), PERM.propre(perm.email),
+        objets.includes(String(b && b.objet)) ? b.objet : "autre",
+        nom, mail, tel, PERM.propre(b && b.bien, 200), PERM.propre(b && b.message, 1000), now(), now()]);
+
+    // Le conseiller de permanence est prévenu tout de suite : le rendez-vous
+    // apparaît aussi dans son agenda au prochain rafraîchissement du flux.
+    const pvNom = ((config.pvs || []).find((p) => p.id === pv) || {}).nom || pv;
+    if (perm.email) {
+      await envoyerMail(env, [perm.email],
+        "Nouveau rendez-vous — " + date + " " + debut + " (" + pvNom + ")",
+        ["Un rendez-vous vient d'être pris sur le site internet pendant votre permanence.", "",
+          "Quand : " + date + " de " + debut + " à " + libre.fin,
+          "Où : " + pvNom,
+          "Objet : " + (objets.includes(String(b && b.objet)) ? b.objet : "à préciser"),
+          "Client : " + nom, tel ? "Téléphone : " + tel : "", mail ? "E-mail : " + mail : "",
+          b && b.bien ? "Bien : " + PERM.propre(b.bien, 200) : "",
+          b && b.message ? "Message : " + PERM.propre(b.message, 1000) : ""
+        ].filter(Boolean).join("\n")).catch(() => false);
+    }
+    if (mail) {
+      await envoyerMail(env, [mail], "Votre rendez-vous du " + date + " à " + debut,
+        ["Bonjour " + nom + ",", "",
+          "Votre demande de rendez-vous est enregistrée :",
+          "  " + date + " à " + debut + " — " + pvNom,
+          "  Conseiller : " + (perm.nom || "l'agence"),
+          "", "L'agence vous confirme ce rendez-vous par téléphone. À très vite."
+        ].join("\n")).catch(() => false);
+    }
+    return c.json({ ok: true, id, date, debut, fin: libre.fin, conseiller: perm.nom || "", pv: pvNom });
   });
 
   /* --------------- Récapitulatif à la demande (app Suivi) ----------------- */

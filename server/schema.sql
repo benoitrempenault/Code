@@ -191,3 +191,92 @@ CREATE TABLE IF NOT EXISTS fiches (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_fiches_name   ON fiches(agency_id, name);
 CREATE INDEX        IF NOT EXISTS idx_fiches_agency ON fiches(agency_id, updated_at);
+
+-- =========================================================================
+-- Permanences physiques (app Permanence) : tour de rôle des conseillers à
+-- l'accueil de chaque point de vente, et prise de rendez-vous en ligne
+-- depuis le site internet de l'agence.
+-- =========================================================================
+
+-- Réglages du tour de permanence, une ligne par agence : points de vente,
+-- créneaux (9-12, 12-14, 14-17, 17-19, samedi matin), règles d'équité et de
+-- préavis d'absence, paramètres du conseiller (hors cycle, poids, point de
+-- vente de rattachement). Tout vit dans `data` (JSON) — seul `slug` sort en
+-- colonne : c'est la clé publique utilisée par la page de prise de rendez-vous
+-- du site internet, qui n'a pas de session.
+CREATE TABLE IF NOT EXISTS perm_config (
+  agency_id  TEXT PRIMARY KEY REFERENCES agencies(id),
+  slug       TEXT NOT NULL DEFAULT '',      -- clé publique (a-z0-9-), '' = prise de RDV en ligne fermée
+  data       TEXT NOT NULL,                 -- JSON { pvs, creneaux, regles, conseillers, public }
+  user_id    TEXT NOT NULL DEFAULT '',      -- dernier auteur
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_perm_config_slug ON perm_config(slug) WHERE slug <> '';
+
+-- Absences déclarées (congés, week-end posé, formation, arrêt…). Elles
+-- sortent le conseiller du tirage sur la période ET pendant le préavis qui
+-- la précède (règle « pas de permanence 3 jours avant un départ »).
+CREATE TABLE IF NOT EXISTS perm_absences (
+  id         TEXT PRIMARY KEY,              -- ab_xxxxxxxx
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  user_id    TEXT NOT NULL DEFAULT '',      -- dernier auteur
+  cle        TEXT NOT NULL,                 -- clé du conseiller (e-mail en minuscules, ou nom normalisé)
+  nom        TEXT NOT NULL DEFAULT '',
+  type       TEXT NOT NULL DEFAULT 'absence', -- conge | weekend | formation | absence
+  debut      TEXT NOT NULL,                 -- AAAA-MM-JJ (inclus)
+  fin        TEXT NOT NULL,                 -- AAAA-MM-JJ (inclus)
+  motif      TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_perm_absences_ag ON perm_absences(agency_id, debut);
+
+-- Planning des permanences : une ligne = un conseiller, un point de vente,
+-- une date, un créneau. Le nom / téléphone / e-mail sont dénormalisés pour
+-- que la page publique de prise de rendez-vous (sans session) puisse les
+-- afficher sans lire l'annuaire de l'agence.
+CREATE TABLE IF NOT EXISTS permanences (
+  id         TEXT PRIMARY KEY,              -- pe_xxxxxxxx
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  user_id    TEXT NOT NULL DEFAULT '',
+  pv         TEXT NOT NULL,                 -- id du point de vente
+  date       TEXT NOT NULL,                 -- AAAA-MM-JJ
+  creneau    TEXT NOT NULL,                 -- id du créneau
+  debut      TEXT NOT NULL DEFAULT '',      -- HH:MM (dénormalisé)
+  fin        TEXT NOT NULL DEFAULT '',      -- HH:MM
+  cle        TEXT NOT NULL,                 -- clé du conseiller
+  nom        TEXT NOT NULL DEFAULT '',
+  email      TEXT NOT NULL DEFAULT '',
+  telephone  TEXT NOT NULL DEFAULT '',
+  fige       INTEGER NOT NULL DEFAULT 0,    -- 1 = posé à la main, la génération n'y touche pas
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_permanences_slot ON permanences(agency_id, pv, date, creneau, cle);
+CREATE INDEX        IF NOT EXISTS idx_permanences_date ON permanences(agency_id, date);
+
+-- Rendez-vous pris en ligne depuis le site internet (acheteur ou vendeur qui
+-- demande une estimation) : rattachés au conseiller de permanence sur le
+-- créneau choisi. Écrits sans session (page publique), lus avec session.
+CREATE TABLE IF NOT EXISTS rdv (
+  id           TEXT PRIMARY KEY,            -- rd_xxxxxxxx
+  agency_id    TEXT NOT NULL REFERENCES agencies(id),
+  pv           TEXT NOT NULL DEFAULT '',
+  date         TEXT NOT NULL,               -- AAAA-MM-JJ
+  debut        TEXT NOT NULL,               -- HH:MM
+  fin          TEXT NOT NULL,               -- HH:MM
+  cle          TEXT NOT NULL DEFAULT '',    -- conseiller de permanence
+  nom          TEXT NOT NULL DEFAULT '',
+  email        TEXT NOT NULL DEFAULT '',    -- e-mail du conseiller
+  objet        TEXT NOT NULL DEFAULT '',    -- estimation | achat | location | gestion | autre
+  client_nom   TEXT NOT NULL DEFAULT '',
+  client_email TEXT NOT NULL DEFAULT '',
+  client_tel   TEXT NOT NULL DEFAULT '',
+  bien         TEXT NOT NULL DEFAULT '',    -- adresse ou référence du bien
+  message      TEXT NOT NULL DEFAULT '',
+  statut       TEXT NOT NULL DEFAULT 'demande', -- demande | confirme | annule | honore
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rdv_slot   ON rdv(agency_id, pv, date, debut, cle);
+CREATE INDEX        IF NOT EXISTS idx_rdv_agency ON rdv(agency_id, date);
