@@ -55,7 +55,10 @@ export function createApp(env) {
 
   app.use("*", cors({
     origin: (o) => (origins.includes(o) ? o : origins[0] || "*"),
-    allowHeaders: ["Authorization", "Content-Type", "X-User-Key"],
+    // X-Admin-Key : console d'administration · X-User-Key : clé Anthropic
+    // personnelle relayée. Sans ces deux en-têtes ici, le navigateur bloque
+    // l'appel au vol plané (préflight) avant même de l'envoyer.
+    allowHeaders: ["Authorization", "Content-Type", "X-Admin-Key", "X-User-Key"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
   }));
 

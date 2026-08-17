@@ -67,6 +67,23 @@ async function call(path, opts = {}) {
 }
 const admin = { "X-Admin-Key": "test-admin" };
 
+console.log("— CORS : en-têtes autorisés au préflight");
+// Sans X-Admin-Key ici, la console d'administration est bloquée par le
+// navigateur (préflight refusé) alors que curl passe : bug invisible en test
+// serveur classique. Idem X-User-Key pour la formule « apportez votre clé ».
+const pre = await app.fetch(new Request("http://api.test/admin/agencies", {
+  method: "OPTIONS",
+  headers: {
+    Origin: "http://localhost:8014",
+    "Access-Control-Request-Method": "GET",
+    "Access-Control-Request-Headers": "x-admin-key"
+  }
+}));
+const allowed = (pre.headers.get("access-control-allow-headers") || "").toLowerCase();
+ok(allowed.includes("x-admin-key"), "préflight : X-Admin-Key autorisé (console admin)");
+ok(allowed.includes("x-user-key"), "préflight : X-User-Key autorisé (clé personnelle)");
+ok(allowed.includes("authorization"), "préflight : Authorization autorisé (sessions)");
+
 console.log("— Administration : création d'agence + compte");
 const created = await call("/admin/agencies", { headers: admin, body: { name: "Azur Immobilier", email: "claire@azur-immo.fr", user_name: "Claire Fontaine", status: "active" } });
 ok(created.status === 200 && created.json.agency.id.startsWith("ag_"), "agence créée");
