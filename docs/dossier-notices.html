@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Studio Brochure — Dossier des accès et notices</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 14mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Inter", "Segoe UI", Arial, sans-serif; font-size: 10.2pt; line-height: 1.5; color: #1c1813; }
+  h1, h2, h3 { font-family: Georgia, "Times New Roman", serif; font-weight: 600; color: #1c1813; }
+  a { color: #6d5327; text-decoration: none; }
+  code, .url { font-family: "Consolas", "SF Mono", monospace; font-size: 9.2pt; background: #f4f1ea; padding: 1px 4px; border-radius: 3px; word-break: break-all; }
+  pre { font-family: "Consolas", "SF Mono", monospace; font-size: 8.9pt; background: #f7f5ef; border-left: 3px solid #c2a36b;
+        padding: 7px 10px; margin: 6px 0 10px; white-space: pre-wrap; word-break: break-word; }
+
+  /* ------------------------------- Couverture ------------------------------ */
+  .cover { height: 250mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; }
+  .cover .eyebrow { font-size: 9pt; letter-spacing: .28em; text-transform: uppercase; color: #8a6a3c; margin-bottom: 8mm; }
+  .cover h1 { font-size: 30pt; line-height: 1.15; margin: 0 0 6mm; }
+  .cover .sub { font-size: 12.5pt; color: #56504a; max-width: 130mm; }
+  .cover .meta { margin-top: 14mm; font-size: 9.5pt; color: #6b6459; border-top: 1px solid #ddd6c8; padding-top: 5mm; }
+  .cover .conf { margin-top: 4mm; color: #b3452e; font-weight: 600; font-size: 9.5pt; }
+
+  /* --------------------------------- Sommaire ------------------------------ */
+  .toc { page-break-after: always; }
+  .toc ol { margin: 0; padding-left: 6mm; }
+  .toc li { margin-bottom: 3mm; font-size: 11pt; }
+  .toc small { color: #6b6459; display: block; font-size: 9.3pt; }
+
+  /* --------------------------------- Sections ------------------------------ */
+  section { page-break-before: always; }
+  section > h2 { font-size: 17pt; margin: 0 0 1mm; padding-bottom: 2mm; border-bottom: 2px solid #c2a36b; }
+  section > .lead { color: #56504a; margin: 0 0 6mm; font-size: 10.4pt; }
+  h3 { font-size: 12.2pt; margin: 7mm 0 2mm; color: #8a6a3c; page-break-after: avoid; }
+  h4 { font-size: 10.4pt; margin: 5mm 0 1mm; page-break-after: avoid; }
+  p { margin: 0 0 3mm; }
+  ul, ol { margin: 0 0 4mm; padding-left: 6mm; }
+  li { margin-bottom: 1.6mm; }
+
+  table { width: 100%; border-collapse: collapse; margin: 3mm 0 5mm; font-size: 9.4pt; page-break-inside: avoid; }
+  th, td { text-align: left; vertical-align: top; padding: 4px 6px; border-bottom: 1px solid #e6e0d4; }
+  th { background: #f7f5ef; font-weight: 600; font-size: 8.8pt; letter-spacing: .04em; text-transform: uppercase; color: #6b6459; }
+  td:first-child { white-space: nowrap; }
+
+  .box { border: 1px solid #ddd6c8; border-left: 3px solid #8a6a3c; background: #faf8f3; padding: 4mm 5mm; margin: 4mm 0; page-break-inside: avoid; }
+  .box.warn { border-left-color: #b3452e; background: #fdf4f1; }
+  .box.ok { border-left-color: #2a704a; background: #f2f8f4; }
+  .box h4 { margin-top: 0; }
+  .box p:last-child, .box ul:last-child { margin-bottom: 0; }
+  .steps { counter-reset: s; list-style: none; padding-left: 0; }
+  .steps > li { counter-increment: s; position: relative; padding-left: 9mm; margin-bottom: 3mm; }
+  .steps > li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 6mm; height: 6mm; border-radius: 50%;
+        background: #8a6a3c; color: #fff; font: 600 9pt/6mm "Inter", Arial, sans-serif; text-align: center; }
+  .foot { margin-top: 8mm; border-top: 1px solid #ddd6c8; padding-top: 3mm; font-size: 8.6pt; color: #9a938a; }
+</style>
+</head>
+<body>
+
+<!-- ============================== COUVERTURE ============================== -->
+<div class="cover">
+  <div class="eyebrow">Studio Brochure</div>
+  <h1>Les accès<br />&amp; toutes les notices</h1>
+  <p class="sub">Adresses de chaque outil, ajout et retrait des conseillers, modes d'emploi,
+     dépannage, administration du serveur et procédures de secours — tout en un seul document.</p>
+  <div class="meta">
+    Document interne — Benoît Rempenault · Century 21 Kadima / ABR IMMO<br />
+    Version du 12 août 2026 · remplace les notices séparées
+  </div>
+  <div class="conf">Contient des adresses d'administration : ne pas diffuser.</div>
+</div>
+
+<!-- =============================== SOMMAIRE =============================== -->
+<div class="toc">
+  <h2 style="font-size:17pt;margin:0 0 6mm;padding-bottom:2mm;border-bottom:2px solid #c2a36b">Sommaire</h2>
+  <ol>
+    <li>Toutes les adresses <small>Kadima, clients, serveur — qui accède à quoi</small></li>
+    <li>Ajouter ou retirer un conseiller <small>en 1 minute, sans PowerShell</small></li>
+    <li>Notice de démarrage conseiller <small>à envoyer à chaque nouvelle recrue</small></li>
+    <li>Mode d'emploi — fiche prestation &amp; brochure <small>le parcours complet d'un mandat</small></li>
+    <li>Mode d'emploi — Formation &amp; Documents <small>la liste des documents à demander au vendeur</small></li>
+    <li>Mode d'emploi — Suivi des ventes <small>du compromis à l'acte</small></li>
+    <li>Dépannage <small>les 12 problèmes courants et leur solution</small></li>
+    <li>Administration du serveur <small>déploiement, base, sauvegardes, plafonds</small></li>
+    <li>Procédures de secours <small>fuite de secret, base perdue, mauvais déploiement, absence</small></li>
+  </ol>
+  <div class="box">
+    <h4>Les 3 adresses à retenir</h4>
+    <ul>
+      <li><b>Mes outils (Kadima)</b> : <span class="url">benoitrempenault.github.io/Code/mandat/</span></li>
+      <li><b>Mon compte + mes conseillers</b> : <span class="url">benoitrempenault.github.io/Code/mandat-pro/compte.html</span></li>
+      <li><b>Console admin (toi seul)</b> : <span class="url">benoitrempenault.github.io/Code/admin.html</span></li>
+    </ul>
+    <p style="margin-top:3mm"><b>Attention à la casse :</b> <code>/Code/</code> avec un <b>C majuscule</b>.
+       En minuscules, GitHub répond « 404 ». Le plus sûr : passer par ses favoris.</p>
+  </div>
+</div>
+
+<!-- ========================== 1. LES ADRESSES ============================= -->
+<section>
+  <h2>1 · Toutes les adresses</h2>
+  <p class="lead">Deux mondes séparés : les outils internes Kadima (sur github.io) et le produit
+     commercial vendu aux agences (sur studiobrochure.fr). Le serveur est commun aux deux.</p>
+
+  <h3>Outils internes Century 21 Kadima</h3>
+  <table>
+    <tr><th>Outil</th><th>Adresse</th><th>Pour qui</th></tr>
+    <tr><td>Accueil des outils</td><td><span class="url">https://benoitrempenault.github.io/Code/mandat/</span></td><td>tous les conseillers</td></tr>
+    <tr><td>Fiche prestation</td><td><span class="url">…/Code/mandat/fiche.html</span></td><td>tous</td></tr>
+    <tr><td>Brochure acquéreur</td><td><span class="url">…/Code/mandat/brochure.html</span></td><td>tous</td></tr>
+    <tr><td>Formation &amp; Documents</td><td><span class="url">…/Code/mandat/formation.html</span></td><td>tous</td></tr>
+    <tr><td>Suivi des ventes</td><td><span class="url">https://benoitrempenault.github.io/Code/suivi/</span></td><td>tous (dossiers partagés)</td></tr>
+    <tr><td>Mon compte<br />+ Mes conseillers</td><td><span class="url">…/Code/mandat-pro/compte.html</span></td><td>tous pour se connecter ;<br />la carte « Mes conseillers »
+        n'apparaît qu'aux comptes <b>admin</b></td></tr>
+    <tr><td>Brochure (version d'origine)</td><td><span class="url">https://benoitrempenault.github.io/Code/</span></td><td>historique, toujours en ligne</td></tr>
+    <tr><td>Console d'administration</td><td><span class="url">…/Code/admin.html</span></td><td><b>toi uniquement</b> (clé admin)</td></tr>
+  </table>
+
+  <h3>Produit commercial (agences clientes)</h3>
+  <table>
+    <tr><th>Page</th><th>Adresse</th></tr>
+    <tr><td>Site de vente</td><td><span class="url">https://studiobrochure.fr</span></td></tr>
+    <tr><td>L'application</td><td><span class="url">https://studiobrochure.fr/app</span> (fiche, brochure, formation)</td></tr>
+    <tr><td>Connexion cliente</td><td><span class="url">https://studiobrochure.fr/app/compte.html</span></td></tr>
+    <tr><td>Brochure seule</td><td><span class="url">https://studiobrochure.fr/brochure</span></td></tr>
+    <tr><td>Vitrine brochure</td><td><span class="url">https://studiobrochure.fr/site-brochure</span></td></tr>
+    <tr><td>Mentions légales, CGU/CGV, RGPD</td><td><span class="url">https://studiobrochure.fr/legal</span></td></tr>
+  </table>
+
+  <h3>Serveur et outils techniques</h3>
+  <table>
+    <tr><th>Quoi</th><th>Où</th></tr>
+    <tr><td>Santé de l'API</td><td><span class="url">https://studio-brochure-api.studiobrochure.workers.dev/health</span> → doit répondre <code>{"ok":true}</code></td></tr>
+    <tr><td>Serveur, base, stockage</td><td>dashboard Cloudflare → Workers &amp; Pages → <code>studio-brochure-api</code> ·
+        D1 <code>studio-brochure</code> · R2 <code>studio-brochure-files</code></td></tr>
+    <tr><td>Envoi des e-mails</td><td><span class="url">resend.com</span> (expéditeur <code>connexion@studiobrochure.fr</code>)</td></tr>
+    <tr><td>Nom de domaine</td><td>manager OVH</td></tr>
+    <tr><td>Code &amp; sauvegardes</td><td>GitHub → dépôt <code>Code</code>, branche <code>claude/property-brochure-generator-645oap</code></td></tr>
+    <tr><td>Facturation IA</td><td><span class="url">console.anthropic.com</span></td></tr>
+    <tr><td>Identifiant agence Kadima</td><td><code>ag_8csricwct9</code></td></tr>
+  </table>
+
+  <div class="box warn">
+    <h4>Jamais dans un e-mail, une capture d'écran ou un chat</h4>
+    <p>ADMIN_KEY · jeton Cloudflare · clé Anthropic · clé Resend · BACKUP_PASSPHRASE · lien d'accueil
+       d'un client (<code>welcome_link</code>). En cas de doute ou de fuite : régénérer immédiatement
+       (voir section 9).</p>
+  </div>
+  <div class="foot">Studio Brochure · Dossier des accès et notices · 1 — Les adresses</div>
+</section>
+
+<!-- ===================== 2. AJOUTER UN CONSEILLER ========================= -->
+<section>
+  <h2>2 · Ajouter ou retirer un conseiller</h2>
+  <p class="lead">Tout se fait depuis ta page « Mon compte » — aucune commande, aucun PowerShell.
+     Le conseiller reçoit son lien de connexion par e-mail dans la minute.</p>
+
+  <h3>Ajouter</h3>
+  <ol class="steps">
+    <li>Ouvre <span class="url">https://benoitrempenault.github.io/Code/mandat-pro/compte.html</span>
+        (connecte-toi si besoin : ton e-mail → « Recevoir mon lien de connexion »).</li>
+    <li>Descends jusqu'à la carte <b>« Mes conseillers »</b> — elle liste tout le monde avec le nombre de
+        sièges utilisés.</li>
+    <li>Saisis son <b>e-mail @century21.fr</b> (et son nom, facultatif) → <b>« Ajouter »</b>.</li>
+    <li>C'est fini : il reçoit aussitôt un e-mail avec son lien de connexion. Envoie-lui la
+        <b>notice de démarrage</b> (section 3) pour qu'il sache quoi faire.</li>
+  </ol>
+
+  <h3>Retirer</h3>
+  <p>Même carte, bouton <b>✕</b> en face de la personne, puis confirmation. Son accès est coupé
+     immédiatement et le siège est libéré. Ses fiches et brochures enregistrées sur le compte
+     <b>restent</b> dans la bibliothèque de l'agence — rien n'est perdu.</p>
+
+  <h3>Donner un mot de passe sans passer par l'e-mail</h3>
+  <p>Sur la même carte, le bouton <b>« mot de passe »</b> en face d'un conseiller permet de lui
+     <b>définir directement un mot de passe</b> (8 caractères minimum) — pratique pour le connecter
+     sur place, sans attendre l'e-mail. À lui communiquer de vive voix ; il pourra le changer
+     lui-même depuis sa page « Mon compte ».</p>
+
+  <div class="box">
+    <h4>Si la carte « Mes conseillers » n'apparaît pas</h4>
+    <p>C'est que le compte n'a pas le rôle <b>admin</b>. Pour promouvoir quelqu'un (ou toi-même) —
+       PowerShell dans le dossier <code>server</code>, jeton posé (section 8) :</p>
+<pre>wrangler d1 execute studio-brochure --remote --command "UPDATE users SET role='admin' WHERE email='prenom.nom@century21.fr'"</pre>
+    <p>Puis la personne recharge sa page « Mon compte » (Ctrl+F5).</p>
+  </div>
+
+  <div class="box warn">
+    <h4>Les 3 pièges classiques</h4>
+    <ul>
+      <li><b>« Tous les sièges sont occupés »</b> : le nombre de sièges de l'agence est atteint →
+          retire un compte inactif, ou augmente les sièges depuis la console admin (section 8).</li>
+      <li><b>« Cet e-mail a déjà un compte »</b> : la personne existe déjà (peut-être dans une autre
+          agence) — vérifie la liste avant de recréer.</li>
+      <li><b>L'e-mail n'arrive pas</b> : courriers indésirables d'abord (expéditeur
+          <code>connexion@studiobrochure.fr</code>). Si la personne a cliqué plusieurs fois, elle voit
+          « Plusieurs liens viennent d'être envoyés » → elle utilise le <b>dernier</b> e-mail reçu, ou
+          attend 10 minutes. Tu peux aussi la débloquer depuis la console admin.</li>
+    </ul>
+  </div>
+
+  <h3>Ce que la console admin permet en plus (toi seul)</h3>
+  <p><span class="url">https://benoitrempenault.github.io/Code/admin.html</span> — connexion avec
+     l'ADMIN_KEY, gardée seulement le temps de l'onglet :</p>
+  <ul>
+    <li><b>Créer une agence cliente</b> → affiche le lien d'accueil à lui envoyer (valable 7 jours).</li>
+    <li><b>Lister les agences</b> avec statut et consommation IA du mois (coût, nombre de requêtes).</li>
+    <li><b>Modifier</b> sièges, plafond IA mensuel, nom ; <b>suspendre / réactiver</b> une agence.</li>
+    <li><b>Créer un conseiller</b> dans n'importe quelle agence ; <b>débloquer</b> un utilisateur coincé.</li>
+  </ul>
+  <div class="foot">Studio Brochure · Dossier des accès et notices · 2 — Conseillers</div>
+</section>
+
+<!-- ===================== 3. NOTICE DE DÉMARRAGE =========================== -->
+<section>
+  <h2>3 · Notice de démarrage conseiller</h2>
+  <p class="lead">Page à transmettre telle quelle à chaque nouvelle recrue : 5 minutes, une seule fois.
+     Rien à installer, aucun mot de passe à retenir.</p>
+
+  <h3>① Se connecter (une fois par appareil)</h3>
+  <ol class="steps">
+    <li>Sur l'ordinateur, ouvrir <span class="url">https://benoitrempenault.github.io/Code/mandat-pro/compte.html</span></li>
+    <li>Saisir son adresse <b>@century21.fr</b> → « Recevoir mon lien de connexion ».</li>
+    <li>Ouvrir l'e-mail « Studio Brochure » (la première fois, regarder les <b>courriers
+        indésirables</b>) → cliquer le lien → « Ouvrir ma session ». C'est fait.</li>
+  </ol>
+  <p>Un mot de passe peut aussi être défini depuis cette page, pour se reconnecter sans e-mail.</p>
+
+  <h3>② Mettre les outils en favori</h3>
+  <ol class="steps">
+    <li>Aller sur <span class="url">https://benoitrempenault.github.io/Code/mandat/</span></li>
+    <li><b>Ctrl + D</b> pour l'ajouter aux favoris : c'est la porte d'entrée (fiche prestation,
+        brochure, formation &amp; documents, suivi des ventes).</li>
+    <li><b>Test express</b> : ouvrir « Fiche prestation », coller trois lignes de notes, cliquer
+        « ✨ Structurer la fiche » — l'IA doit répondre sans rien demander.</li>
+  </ol>
+
+  <h3>③ Sur le téléphone (pour dicter en sortant de visite)</h3>
+  <ol class="steps">
+    <li>Refaire l'étape ① sur le téléphone. Si le lien de l'e-mail ne connecte pas la page : rester
+        appuyé sur le lien → <b>Copier</b>, puis le coller dans le champ prévu sur la page de connexion.</li>
+    <li>Ouvrir la fiche prestation → <b>Partager → « Sur l'écran d'accueil »</b> : l'outil aura son
+        icône, comme une vraie application.</li>
+    <li>En sortant de visite : <b>🎙️ Dicter la fiche</b> → <b>« Enregistrer dans la bibliothèque »</b>.
+        De retour à l'agence, la fiche attend sur l'ordinateur (▤ Bibliothèque) : on peaufine, on
+        exporte en Word, on injecte dans la brochure.</li>
+  </ol>
+
+  <div class="box ok">
+    <h4>Bon à savoir</h4>
+    <ul>
+      <li><b>Photos iPhone (HEIC)</b> : elles passent directement, aucune conversion à faire.</li>
+      <li><b>3 appareils maximum</b> par personne — une connexion sur un 4<sup>e</sup> déconnecte le plus
+          ancien, sans prévenir (Safari et l'icône « écran d'accueil » comptent pour deux appareils).</li>
+      <li><b>Fiche conseiller confidentielle</b> : en dictant, dire « <i>pour la fiche conseiller
+          ajoute…</i> » — ces informations restent sur une seconde fiche interne, jamais sur les
+          documents remis aux clients.</li>
+      <li>Si l'outil redemande une connexion (après 30 jours sans l'ouvrir) : refaire l'étape ①.</li>
+    </ul>
+  </div>
+  <div class="foot">Studio Brochure · Dossier des accès et notices · 3 — Démarrage conseiller</div>
+</section>
+
+<!-- ============ 4. FICHE PRESTATION & BROCHURE ============================ -->
+<section>
+  <h2>4 · Fiche prestation &amp; brochure</h2>
+  <p class="lead">Le parcours d'un mandat : je dicte en sortant de visite → l'IA structure → je relis
+     et j'exporte en Word → j'injecte dans la brochure → photos et quartier → brochure, annonce et
+     PDF prêts. Environ 10 minutes par mandat.</p>
+
+  <h3>La fiche prestation</h3>
+  <ol class="steps">
+    <li><b>Vendeur, adresse, type de bien</b> en haut du panneau — l'adresse sert aussi à nommer les
+        fichiers.</li>
+    <li><b>🎙️ Dicter la fiche</b> (ou coller ses notes, ou <b>photographier ses notes manuscrites</b> :
+        l'IA les transcrit). Parler naturellement, pièce par pièce, avec les chiffres : année,
+        surfaces, parcelle, constructeur, chauffage, menuiseries, fibre…
+        <br />« …<i>pour la fiche conseiller ajoute : la piscine n'a pas été déclarée… fin de note</i> »
+        → part sur la fiche interne, jamais sur les documents clients, et ressort <b>en rouge</b>.</li>
+    <li><b>✨ Structurer la fiche</b> : l'IA range tout — Caractéristiques par familles (Bien ·
+        Surfaces · Charpente &amp; toiture · Chauffage &amp; énergie · <b>Fibre</b> · Menuiseries ·
+        Assainissement · <b>Façade</b>), Intérieur niveau par niveau avec les <b>chambres numérotées
+        « Chambre n°1, n°2… »</b>, cuisine et pièces d'eau regroupées en une ligne, encart
+        Copropriété / Lotissement, et « À savoir » qui commence par les données financières.</li>
+    <li><b>Relire et ajuster</b> directement dans les champs — l'aperçu A4 se met à jour en direct.
+        Une ligne courte finissant par « : » devient un sous-titre (« Rez-de-chaussée : »).
+        <b>Chaque superficie apparaît en gras</b> sur le document.</li>
+    <li>Basculer <b>Fiche vendeur / Fiche conseiller</b> au-dessus de l'aperçu : la version conseiller
+        ajoute les notes confidentielles. Chaque version s'imprime et s'exporte séparément.</li>
+    <li><b>« Enregistrer dans la bibliothèque »</b> (barre du haut) : le nom n'est demandé qu'au
+        premier enregistrement, ensuite un clic suffit. La fiche suit le compte (téléphone ⇄
+        ordinateur) et est partagée avec toute l'agence. Puis <b>📄 Exporter en Word</b> (logo inclus)
+        ou <b>🖨 Imprimer / PDF</b>.</li>
+    <li><b>📖 Injecter dans la brochure</b> : ouvre la brochure pré-remplie (type, adresse, toute la
+        fiche en notes) — la partie confidentielle reste derrière.</li>
+  </ol>
+  <div class="box">
+    <p><b>L'injection exige un enregistrement préalable.</b> Si la fiche n'a jamais été enregistrée,
+       le bouton refuse et l'explique : c'est volontaire — ainsi aucune fiche injectée n'est
+       introuvable ensuite dans la bibliothèque. « Nouveau » et « Importer » réarment ce contrôle.</p>
+  </div>
+
+  <h3>La brochure — parcours guidé en 8 étapes</h3>
+  <ol class="steps">
+    <li><b>Type de bien</b>, puis <b>adresse</b> — la saisie s'auto-complète sur l'adresse officielle :
+        indispensable pour le quartier.</li>
+    <li><b>Quartier</b> : distances réelles calculées (écoles, commerces, transports) + un mot sur la
+        ville rédigé par l'IA. Cocher ce qu'on garde.</li>
+    <li><b>Diagnostics</b> : photographier le DPE (plusieurs photos possibles) → lettres et valeurs
+        extraites, échelles dessinées proprement.</li>
+    <li><b>Photos</b> : couverture + galerie (HEIC accepté). Réordonner à la souris ou avec ↑ ↓ ;
+        « Légender par l'IA » nomme les pièces sans toucher aux légendes déjà écrites.</li>
+    <li><b>Plans</b> (optionnel) : un ou plusieurs, pleine page.</li>
+    <li><b>Surfaces</b> (optionnel) : photo ou PDF du relevé → le tableau des pièces se remplit seul.</li>
+    <li><b>Notes du bien</b> : déjà remplies si l'on vient de la fiche prestation. Sinon dicter,
+        coller, ou photographier ses notes manuscrites.</li>
+    <li><b>Générer</b> : l'IA rédige les textes de la brochure (fidèles aux notes, rien d'inventé) +
+        le <b>texte publicitaire</b> prêt pour les portails (toujours « m² », jamais l'adresse exacte).
+        Prix, mentions et QR code vers la page web du bien sur la page de fin.</li>
+  </ol>
+
+  <h4>Les chiffres clés</h4>
+  <p>Pièces · chambres · points d'eau · <b>bureau(x)</b> · surface · terrain. Chaque chiffre
+     n'apparaît que s'il est renseigné : un bien sans bureau n'affiche rien de plus qu'avant.</p>
+
+  <h4>Enregistrer, rouvrir, exporter</h4>
+  <ul>
+    <li><b>« Enregistrer dans la bibliothèque »</b> : même principe que la fiche — nom demandé une
+        seule fois. Sur ordinateur, la brochure va dans le dossier OneDrive de l'agence <b>et</b> une
+        copie part sur le compte ; sur téléphone, directement sur le compte.</li>
+    <li><b>▤ Bibliothèque</b> a deux modes : <b>« ☁ Brochures du compte »</b> (partagées par toute
+        l'agence, visibles sur téléphone comme sur ordinateur) et le <b>dossier OneDrive</b> sur
+        Chrome/Edge. Le bouton de bascule passe de l'un à l'autre.</li>
+    <li><b>Réédition illimitée</b> : rouvrir, changer le prix, réimprimer.</li>
+    <li><b>Importer un fichier .json de fiche prestation</b> dans la brochure : elle repart d'une
+        brochure vierge, reprend type, adresse et notes, et <b>lance la rédaction automatiquement</b>
+        — il ne reste qu'à ajuster le prix et les photos.</li>
+  </ul>
+  <div class="box ok">
+    <p><b>Tout est modifiable après génération</b> : chaque texte, chaque légende, l'ordre des photos,
+       l'ambiance (couleurs, couverture sombre) — l'aperçu est toujours fidèle à l'impression.</p>
+  </div>
+  <div class="foot">Studio Brochure · Dossier des accès et notices · 4 — Fiche &amp; brochure</div>
+</section>
+
+<!-- ============ 5. FORMATION & DOCUMENTS ================================== -->
+<section>
+  <h2>5 · Formation &amp; Documents</h2>
+  <p class="lead">Deux usages : l'entraînement (quiz, mises en situation) et surtout
+     <b>l'assistant « dossier de vente »</b> — la liste des documents à réunir, adaptée au bien.</p>
+
+  <h3>La liste des documents à demander</h3>
+  <ol class="steps">
+    <li>Répondre à l'assistant (type de bien, copropriété, année de construction, situation du
+        vendeur, équipements…) — quelques questions, une minute.</li>
+    <li>La liste s'affiche, regroupée par interlocuteur : <b>le vendeur, le notaire, le syndic, le
+        diagnostiqueur, la mairie, les services en ligne</b>. Chaque document indique son niveau
+        (obligatoire, recommandé, selon zone), son délai d'obtention et une astuce conseiller.</li>
+    <li><b>Cocher les documents à demander</b> au vendeur. C'est le point important : seuls les
+        documents cochés partent dans les envois.</li>
+    <li><b>⧉ Copier</b>, <b>✉ Envoyer par e-mail</b> ou <b>🖨 Imprimer</b> : la sortie ne contient que
+        les documents cochés, <b>noms seuls</b> (sans niveau ni délai), groupés par interlocuteur.
+        À l'impression, chaque document est précédé d'une <b>case à cocher</b> — le vendeur coche au
+        fur et à mesure qu'il les réunit.</li>
+  </ol>
+  <div class="box">
+    <p>Si rien n'est coché, l'outil le signale au lieu d'envoyer une liste vide. Les réponses de
+       l'assistant et les cases cochées sont mémorisées : « ✎ Modifier les réponses » pour ajuster,
+       « ↺ Nouveau dossier » pour repartir de zéro.</p>
+  </div>
+  <p><b>Réservé à Century 21 Kadima</b> : cet onglet n'est pas proposé aux agences clientes.</p>
+  <div class="foot">Studio Brochure · Dossier des accès et notices · 5 — Formation &amp; Documents</div>
+</section>
+
+<!-- ============ 6. SUIVI DES VENTES ====================================== -->
+<section>
+  <h2>6 · Suivi des ventes</h2>
+  <p class="lead">Du compromis à l'acte authentique. Les dossiers vivent sur le serveur et sont
+     partagés par toute l'agence : chacun voit et met à jour les mêmes informations.</p>
+
+  <h3>Créer un dossier</h3>
+  <ol class="steps">
+    <li><b>Nouveau dossier</b> → déposer le <b>compromis en PDF</b> (ou des photos de ses pages) →
+        <b>✨ Analyser le compromis</b>. Compter 30 secondes à 2 minutes.</li>
+    <li>L'IA remplit tout : parties, notaires, prix et honoraires, séquestre, financement,
+        conditions suspensives, dates clés, syndic. <b>Tout est relisible et modifiable</b> — le PDF
+        reste attaché au dossier.</li>
+    <li>Sans compromis sous la main : « créer à la main » et saisir la référence.</li>
+  </ol>
+
+  <h3>L'échéancier</h3>
+  <p>Il se construit tout seul à partir des dates du dossier, en suivant les délais légaux et le
+     process de l'agence : notification SRU, fin de rétractation, séquestre, DIA et purge de
+     préemption, financement (dépôt, accord, offre, acceptation), conditions suspensives, projet
+     d'acte, signature, puis l'après-vente (appel client, avis, clôture).</p>
+  <ul>
+    <li><b>Cocher</b> une étape faite : la date du jour est consignée.</li>
+    <li><b>Chaque échéance est modifiable</b> si le compromis prévoit d'autres délais.</li>
+    <li><b>✉ Relancer</b> : le modèle d'e-mail correspondant s'ouvre, pré-rempli avec les données du
+        dossier (destinataire, référence, dates, montants) — à copier ou à ouvrir dans la messagerie.
+        Chaque relance est journalisée dans le dossier.</li>
+  </ul>
+
+  <h3>Le tableau de bord</h3>
+  <p>À l'ouverture : dossiers en cours, <b>actions en retard</b>, à faire sous 7 jours, signatures du
+     mois — et la liste des vendeurs <b>sans nouvelle depuis plus de 15 jours</b> (avec un bouton
+     « Point d'étape »). Chaque ligne permet de marquer fait, relancer, ou ouvrir le dossier.</p>
+
+  <h3>Les modèles et l'annuaire</h3>
+  <ul>
+    <li><b>Modèles</b> : les e-mails de relance de l'agence, modifiables et partagés (champs de fusion
+        automatiques). « Restaurer les modèles par défaut » remet la série complète.</li>
+    <li><b>Annuaire</b> : conseillers (initiales → nom et e-mail), notaires, syndics, présidents de
+        lotissement. Saisi une fois, il pré-remplit tous les dossiers suivants.</li>
+  </ul>
+  <div class="box">
+    <p><b>Journal du dossier</b> : chaque note (appel, réponse du notaire, avancement) est horodatée et
+       signée — c'est la mémoire commune de l'agence, et ce qui évite de rappeler deux fois le même
+       notaire.</p>
+  </div>
+  <div class="foot">Studio Brochure · Dossier des accès et notices · 6 — Suivi des ventes</div>
+</section>
+
+<!-- ============ 7. DÉPANNAGE ============================================= -->
+<section>
+  <h2>7 · Dépannage</h2>
+  <p class="lead">Les problèmes rencontrés sur le terrain, dans l'ordre de fréquence.</p>
+
+  <h3>🎙️ « Dictée bloquée » sur iPhone (Safari comme Chrome)</h3>
+  <p>Les navigateurs utilisent le service de dictée d'Apple : s'il est coupé, tout est bloqué.</p>
+  <ul>
+    <li><b>Réglages → Général → Clavier → activer « Dictée »</b> — c'est la cause n° 1.</li>
+    <li>Option grisée ? Réglages → Temps d'écran → Contenu et confidentialité → autoriser « Siri et dictée ».</li>
+    <li>Puis l'autorisation micro : Réglages → [Safari ou Chrome] → Micro → activer ; dans Safari,
+        bouton <b>aA</b> → Réglages du site web → Micro : Autoriser.</li>
+    <li>L'icône « écran d'accueil » a <b>sa propre</b> autorisation micro : accepter à la première dictée.</li>
+  </ul>
+
+  <h3>🎙️ Micro sur ordinateur (Chrome / Edge)</h3>
+  <p>Cliquer le cadenas à gauche de l'adresse → Micro : Autoriser → recharger. Toujours muet :
+     Paramètres Windows → Confidentialité → Microphone → autoriser le navigateur.</p>
+
+  <h3>🤖 « Connectez-vous à votre compte pour utiliser la rédaction IA »</h3>
+  <p>Cet appareil n'a plus de session : page <b>Mon compte</b> → e-mail → lien → « Ouvrir ma session »
+     → recharger (F5). Rappel : <b>3 appareils max</b>, le 4<sup>e</sup> déconnecte le plus ancien.</p>
+
+  <h3>📧 L'e-mail de connexion n'arrive pas</h3>
+  <ul>
+    <li>Courriers indésirables (expéditeur <code>connexion@studiobrochure.fr</code>) → marquer « non spam ».</li>
+    <li>« Plusieurs liens viennent d'être envoyés » : utiliser le <b>dernier</b> reçu, ou attendre 10 minutes.</li>
+    <li>Toujours rien : l'accès n'est peut-être pas encore créé (section 2).</li>
+  </ul>
+
+  <h3>🔗 « Lien invalide ou expiré »</h3>
+  <p>Un lien ne sert qu'<b>une fois</b> et dure <b>15 minutes</b>. En redemander un et cliquer le dernier reçu.</p>
+
+  <h3>🌐 « 404 — There isn't a GitHub Pages site here »</h3>
+  <p>Adresse mal tapée : c'est <code>/Code/</code> avec un <b>C majuscule</b>. Passer par ses favoris.</p>
+
+  <h3>📲 L'app de l'écran d'accueil demande de se connecter alors que Safari l'est</h3>
+  <p>L'app installée a sa propre mémoire. Dans l'app : Mon compte → « Recevoir mon lien » → dans
+     l'e-mail, <b>rester appuyé sur le lien → Copier</b> (ne pas cliquer) → revenir dans l'app →
+     coller le lien dans le champ prévu.</p>
+
+  <h3>📁 Bibliothèque : « Choisir le dossier » ne répond pas</h3>
+  <p>L'accès au dossier OneDrive n'existe que sur <b>Chrome/Edge ordinateur</b>. Sur téléphone,
+     connecté, la bibliothèque bascule sur « du compte » — elle fonctionne partout et se synchronise.</p>
+
+  <h3>📷 Photo iPhone (HEIC) « illisible » ou lente</h3>
+  <p>Le HEIC est accepté ; la première photo charge le décodeur (quelques secondes, normal).
+     En cas d'échec : réessayer ou re-sélectionner la photo.</p>
+
+  <h3>🗂️ « Fichier trop volumineux » en chargeant plusieurs photos</h3>
+  <p>Ne devrait plus arriver : les photos sont envoyées par lots automatiquement. Si le message
+     persiste, c'est qu'un <b>seul</b> fichier est trop lourd (gros PDF scanné) → ne charger que la
+     page utile.</p>
+
+  <h3>🔄 L'outil se comporte « comme avant la mise à jour »</h3>
+  <p>Le navigateur garde l'ancienne version en cache. <b>PC : Ctrl + F5</b>. Téléphone : fermer
+     l'onglet (ou l'app écran d'accueil) et rouvrir.</p>
+
+  <h3>📊 « Quota atteint » / IA refusée en fin de mois</h3>
+  <p>Le plafond mensuel d'usage IA de l'agence est atteint (compteur visible sur « Mon compte ») —
+     il peut être augmenté depuis la console admin.</p>
+
+  <h3>🖨️ L'impression coupe mal les pages</h3>
+  <p>Utiliser le bouton <b>🖨 Imprimer / PDF</b> de l'outil (pas Ctrl+P directement) : il pagine
+     proprement avant d'imprimer. Destination « Enregistrer en PDF » pour un fichier.</p>
+
+  <div class="box warn">
+    <p><b>Rien ne marche ?</b> Noter ce qu'on faisait + le <b>message exact</b> (capture d'écran) et
+       transmettre — c'est ce qui permet de corriger vite.</p>
+  </div>
+  <div class="foot">Studio Brochure · Dossier des accès et notices · 7 — Dépannage</div>
+</section>
+
+<!-- ============ 8. ADMINISTRATION ======================================== -->
+<section>
+  <h2>8 · Administration du serveur</h2>
+  <p class="lead">Le courant se fait sur la console web. PowerShell ne sert qu'au déploiement et à
+     quelques commandes ponctuelles.</p>
+
+  <div class="box warn">
+    <h4>Rituel PowerShell — dans CHAQUE nouvelle fenêtre</h4>
+    <p>Les variables meurent avec la fenêtre (sinon « clé invalide » / « référence non définie ») :</p>
+<pre>$env:CLOUDFLARE_API_TOKEN = Read-Host "Collez votre jeton Cloudflare"</pre>
+  </div>
+
+  <h3>Mettre à jour le serveur</h3>
+  <p><b>Toujours repartir d'un ZIP fraîchement téléchargé</b> — un ancien dossier redéploie l'ancien
+     code (routes manquantes = erreurs 404).</p>
+<pre>GitHub → dépôt Code → branche claude/property-brochure-generator-645oap
+→ « Code » → Download ZIP → extraire dans un NOUVEAU dossier
+→ PowerShell dans le sous-dossier server :
+
+$env:CLOUDFLARE_API_TOKEN = Read-Host "Jeton Cloudflare"
+npm install
+wrangler deploy</pre>
+  <p>Répondre <code>y</code> ; le warning jaune « node:sqlite » est normal.
+     <b>Vérification</b> : <code>/health</code> → <code>{"ok":true}</code>, et une route nouvelle doit
+     répondre <b>401</b> (et non 404).</p>
+  <p><b>Si une table a été ajoutée</b> (le message d'erreur parle d'une table manquante) — repasser le
+     schéma, sans risque (idempotent) :</p>
+<pre>wrangler d1 execute studio-brochure --remote --file schema.sql</pre>
+  <p><b>Une seule fois</b> — stockage des brochures synchronisées (si la commande demande d'activer
+     R2 : dashboard Cloudflare → R2 → Activer, gratuit jusqu'à 10 Go) :</p>
+<pre>wrangler r2 bucket create studio-brochure-files</pre>
+
+  <h3>Commandes utiles (dossier server, jeton posé)</h3>
+  <p>Promouvoir en admin d'agence (fait apparaître « Mes conseillers ») :</p>
+<pre>wrangler d1 execute studio-brochure --remote --command "UPDATE users SET role='admin' WHERE email='prenom.nom@century21.fr'"</pre>
+  <p>Débloquer quelqu'un (la console web le fait aussi) :</p>
+<pre>wrangler d1 execute studio-brochure --remote --command "DELETE FROM login_tokens WHERE user_id = (SELECT id FROM users WHERE email = 'son.email@exemple.fr')"</pre>
+  <p>Vérifier un rôle (lecture seule) :</p>
+<pre>wrangler d1 execute studio-brochure --remote --command "SELECT email, role FROM users WHERE email='prenom.nom@century21.fr'"</pre>
+
+  <h3>Modèles IA et coût</h3>
+  <p>Par défaut, la rédaction de brochure et la transcription de notes manuscrites tournent sur
+     <b>Claude Opus</b> (qualité) ; le reste — quartier, annonce, légendes, extraction DPE et
+     surfaces, structuration de fiche — sur <b>Sonnet</b> (environ 5 fois moins cher). Le sélecteur
+     « Tout en Opus » de l'app force le maximum partout. Les prompts métier vivent
+     <b>côté serveur</b> : ils ne sont pas lisibles depuis l'application, et une amélioration ne
+     demande qu'un redéploiement du serveur.</p>
+
+  <h3>Sauvegarde de la base (automatique)</h3>
+  <p>Workflow <b>« Sauvegarde D1 (chiffrée) »</b> : tous les jours à <b>03:00 UTC</b> (+ manuel via
+     Actions → Run workflow), export chiffré AES-256 conservé <b>90 jours</b> comme artefact.
+     Secrets à poser une fois (Settings → Secrets and variables → Actions) :
+     <code>CLOUDFLARE_API_TOKEN</code> et <code>BACKUP_PASSPHRASE</code> (à garder au coffre — sans
+     elle, la sauvegarde est illisible).</p>
+  <p><b>Restaurer</b> : Actions → run → télécharger l'artefact → déchiffrer et réimporter :</p>
+<pre>openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in d1-dump.sql.enc -out d1-dump.sql -pass pass:VOTRE_PHRASE
+wrangler d1 execute studio-brochure --remote --file d1-dump.sql</pre>
+  <p>Conseil : télécharger de temps en temps une sauvegarde sur un disque hors ligne (les artefacts
+     expirent à 90 jours).</p>
+
+  <h3>Filets de sécurité (coût et disponibilité)</h3>
+  <ul>
+    <li><b>Plafond de dépense Anthropic</b> : console.anthropic.com → réglages d'usage → limite
+        mensuelle + alertes e-mail. Filet ultime, indépendant des quotas par agence.</li>
+    <li><b>Surveillance</b> : UptimeRobot (gratuit) sur <code>…workers.dev/health</code>, type
+        « keyword », mot-clé <code>"ok":true</code> → alerte e-mail si l'API tombe.</li>
+    <li><b>Plafond global serveur</b> : coupe l'IA de tout le parc si un plafond mensuel est dépassé.</li>
+    <li><b>Par agence</b> : quota IA mensuel, limite d'appels par minute, taille de requête plafonnée,
+        liste blanche des modèles.</li>
+  </ul>
+  <div class="foot">Studio Brochure · Dossier des accès et notices · 8 — Administration</div>
+</section>
+
+<!-- ============ 9. SECOURS =============================================== -->
+<section>
+  <h2>9 · Procédures de secours</h2>
+  <p class="lead">Que faire quand ça va mal. À conserver aussi hors ligne (une copie imprimée).</p>
+
+  <h3>Fuite ou doute sur un secret</h3>
+  <ul>
+    <li><b>Clé Anthropic</b> : dashboard Anthropic → révoquer l'ancienne, créer une neuve →
+        <code>wrangler secret put ANTHROPIC_API_KEY</code> → <code>wrangler deploy</code>.</li>
+    <li><b>ADMIN_KEY</b> : générer une nouvelle valeur → <code>wrangler secret put ADMIN_KEY</code> →
+        <code>wrangler deploy</code>.</li>
+    <li><b>Clé Resend</b> : dashboard Resend → révoquer et recréer →
+        <code>wrangler secret put RESEND_API_KEY</code>.</li>
+    <li><b>Jeton Cloudflare, mots de passe GitHub / OVH</b> : rotation depuis le compte concerné.</li>
+  </ul>
+
+  <h3>Base perdue ou corrompue</h3>
+  <p>Restaurer la dernière sauvegarde chiffrée (procédure en section 8). Les brochures et compromis
+     stockés dans R2 ne sont pas dans cette sauvegarde : ils restent en place, seules leurs
+     références sont restaurées.</p>
+
+  <h3>Mauvais déploiement</h3>
+  <ul>
+    <li><b>Serveur</b> : <code>wrangler rollback</code> (ou Cloudflare → Workers → Deployments →
+        rollback).</li>
+    <li><b>Sites</b> : GitHub Pages → historique des déploiements → redéployer un précédent.</li>
+  </ul>
+
+  <h3>La facture IA s'emballe</h3>
+  <ol class="steps">
+    <li>Console admin → repérer l'agence dont le coût du mois est anormal.</li>
+    <li>La <b>suspendre</b> le temps de comprendre (coupe l'IA immédiatement).</li>
+    <li>Au besoin, baisser le plafond global du serveur, ou la limite mensuelle chez Anthropic.</li>
+  </ol>
+
+  <h3>Suspendre ou réactiver une agence (impayé)</h3>
+  <p>Console admin → Suspendre / Réactiver. Une suspension coupe l'IA et l'enregistrement des fiches
+     et brochures ; les données restent intactes. Quand Stripe sera branché, cela se fera tout seul
+     (impayé → suspension, paiement → réactivation).</p>
+
+  <h3>Si l'administrateur est indisponible</h3>
+  <p>Les outils continuent de fonctionner sans intervention : sites statiques, serveur autonome,
+     sauvegardes automatiques. Ne nécessitent une action que : créer une nouvelle agence cliente,
+     augmenter un quota, débloquer un compte. Prévoir que <b>les identifiants (gestionnaire de mots
+     de passe) et la BACKUP_PASSPHRASE soient accessibles à une personne de confiance</b>, sous
+     enveloppe scellée ou coffre.</p>
+
+  <h3>Contrôles périodiques (10 minutes par mois)</h3>
+  <ul>
+    <li><code>/health</code> répond <code>{"ok":true}</code> et l'alerte UptimeRobot est active.</li>
+    <li>La sauvegarde D1 du jour est bien présente dans Actions (et une copie hors ligne existe).</li>
+    <li>Console admin : coût IA du mois par agence, aucun écart anormal.</li>
+    <li>Plafond de dépense Anthropic toujours en place.</li>
+    <li>Un test complet : connexion, fiche, brochure, PDF.</li>
+  </ul>
+  <div class="foot">Studio Brochure · Dossier des accès et notices · 9 — Secours · Document interne, ne pas diffuser</div>
+</section>
+
+</body>
+</html>
