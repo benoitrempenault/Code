@@ -105,6 +105,27 @@ h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font
 .vente__actions { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 12px; }
 .vente__actions .todo__item { background: var(--panel); }
 
+/* Replis : étapes faites de l'échéancier, notes anciennes du journal. */
+.faites { margin-top: 6px; }
+.faites > summary {
+  cursor: pointer; color: var(--muted); font-size: 12.5px; padding: 5px 2px; list-style: none;
+}
+.faites > summary::-webkit-details-marker { display: none; }
+.faites > summary::before { content: "▸ "; }
+.faites[open] > summary::before { content: "▾ "; }
+.faites > summary:hover { color: var(--accent); }
+
+/* Fiches du dossier repliées : seul le titre reste visible. */
+.card--repli > h3 { cursor: pointer; margin-bottom: 0; }
+.card--repli > h3::before { content: "▸"; color: var(--muted); margin-right: 6px; font-family: "Inter", sans-serif; }
+.card--repli > h3:hover { color: var(--accent); }
+.card--repli.card--ouvert > h3 { margin-bottom: 12px; }
+.card--repli.card--ouvert > h3::before { content: "▾"; }
+.card--repli > :not(h3) { display: none; }
+.card--repli.card--ouvert > :not(h3) { display: revert; }
+.card--repli.card--ouvert > .grid2 { display: grid; }
+.card--repli.card--ouvert > .grid3 { display: grid; }
+
 /* Rappel du rendez-vous de signature, en tête du dossier. */
 .rdv {
   display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;

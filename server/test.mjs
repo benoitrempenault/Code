@@ -623,7 +623,8 @@ ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Autho
       { titre: "Enlèvement de la cuve à fioul", detail: "" },
       { titre: "Certificat d'urbanisme / titres de propriété", detail: "Absence de charge réelle ou servitude grave" },
       { titre: "État hypothécaire", detail: "Absence d'inscription de privilège ou d'hypothèque" },
-      { titre: "Autorisation d'urbanisme piscine", detail: "Piscine enterrée, purgée de tous recours" }
+      { titre: "Autorisation d'urbanisme piscine", detail: "Piscine enterrée, purgée de tous recours" },
+      { titre: "Réitération de l'acte authentique", detail: "Signature avant la date butoir" }
     ]
   };
   const ids = actionsFor(d, "2026-06-10").map((a) => a.id);
@@ -636,13 +637,18 @@ ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Autho
   // Conditions de pur droit : réglées par le notaire, jamais relancées.
   ok(!ids.some((i) => /certificat_d_urbanisme|etat_hypothecaire/.test(i)), "certificat d'urbanisme et état hypothécaire écartés de l'échéancier");
   ok(ids.includes("cs_autorisation_d_urbanisme_piscine"), "une vraie autorisation d'urbanisme reste suivie");
+  // Une condition portant sur la réitération se cale sur la date de signature.
+  const reit = actionsFor(d, "2026-06-10").find((a) => a.id === "cs_reiteration_de_l_acte_authentique");
+  ok(reit && reit.due === "2026-09-15", "réitération : première relance quinze jours avant la signature");
+  // L'échéance d'une étape de condition suspensive est la PREMIÈRE RELANCE,
+  // quinze jours avant l'échéance de la condition elle-même.
   const revente = actionsFor(d, "2026-06-10").find((a) => a.id === "cs_revente_du_bien_de_l_acquereur");
-  ok(revente.due === "2026-07-31", "délai par défaut d'une revente : compromis + 60 jours");
+  ok(revente.due === "2026-07-16", "revente : condition à J+60, première relance quinze jours avant");
   const fioul = actionsFor(d, "2026-06-10").find((a) => a.id === "cs_enlevement_de_la_cuve_a_fioul");
-  ok(fioul.due === "2026-09-15", "condition non répertoriée : échéance à la date butoir − 15 jours");
+  ok(fioul.due === "2026-09-15", "condition non répertoriée : butoir, première relance quinze jours avant");
   d.conditions_suspensives[2].echeance = "2026-07-01";
-  ok(actionsFor(d, "2026-06-10").find((a) => a.id === "cs_revente_du_bien_de_l_acquereur").due === "2026-07-01",
-    "l'échéance lue dans le compromis prime sur le délai par défaut");
+  ok(actionsFor(d, "2026-06-10").find((a) => a.id === "cs_revente_du_bien_de_l_acquereur").due === "2026-06-16",
+    "l'échéance lue dans le compromis prime, relance quinze jours avant");
 }
 
 fake.close();
