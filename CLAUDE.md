@@ -81,7 +81,9 @@ vendredi + samedi matin (au moins 1 conseiller par point de vente), nombre de co
 créneau réglable point de vente par point de vente. **Toutes les règles du tour vivent dans
 `permanence/assets/js/planning.js` (`window.Permanence`)** — absence = hors jeu, préavis de
 3 jours ouvrés avant un départ (congé, ou absence ≥ 3 jours week-end compris : un vendredi ou
-un lundi posé compte 3 jours), samedi réservé à qui est présent la semaine d'après, sortie du
+un lundi posé compte 3 jours), samedi réservé à qui est présent la semaine d'après, **créneau
+17h-19h marqué `nuit: true`** (celui qui ferme reprend les contacts arrivés après la fermeture
+— affiché 🌙, rappelé dans l'`.ics` et compté à part dans l'équité), sortie du
 cycle (« hors cycle »), poids (mi-temps), plafonds jour/semaine, et équité au conseiller le
 moins servi avec **compteurs repris sur 12 semaines glissantes**. Le serveur ne calcule rien :
 il stocke (`perm_config` / `perm_absences` / `permanences` / `rdv`, routes `/permanence/*`,

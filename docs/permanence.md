@@ -27,6 +27,13 @@ Par défaut, et modifiables point de vente par point de vente :
 | 17h – 19h | lundi → vendredi | 1 conseiller |
 | Samedi 9h – 12h | samedi | 1 conseiller **par point de vente** |
 
+**Le 17h – 19h emporte les contacts de la nuit** : celui qui ferme traite les demandes
+arrivées après la fermeture (portails, formulaires du site, messages), jusqu'à la réouverture
+le lendemain. C'est marqué 🌙 dans le tableau, rappelé dans l'agenda du conseiller
+(« Permanence — Saint-Médard (+ contacts de la nuit) ») et sur la feuille imprimée, et
+**compté à part dans le tableau d'équité** (colonne « 🌙 Nuits ») : les fermetures tournent
+comme le reste. La case se décoche dans Réglages si un point de vente ne fonctionne pas ainsi.
+
 Le « besoin » est le nombre de conseillers de permanence sur le créneau. C'est le seul
 réglage à toucher pour serrer ou desserrer le tour selon l'effectif du point de vente.
 
@@ -47,17 +54,19 @@ par défaut, modifiables dans l'onglet Réglages.
 4. **Samedi matin : présent la semaine d'après (3 jours ouvrés).** Un conseiller qui part en
    congé le lundi ne prend pas le samedi qui précède — il ne pourrait pas honorer les
    rendez-vous pris ce samedi-là.
-5. **Hors cycle.** Un conseiller peut être sorti du tour sans être supprimé (direction,
+5. **Le 17h – 19h emporte la nuit.** Celui qui ferme traite les contacts arrivés après la
+   fermeture. Ces créneaux tournent comme les autres et se comptent à part (colonne « 🌙 Nuits »).
+6. **Hors cycle.** Un conseiller peut être sorti du tour sans être supprimé (direction,
    gestion locative, arrêt long) : il garde ses rendez-vous, il ne prend plus de permanence.
-6. **Plafonds.** 2 créneaux par jour, 5 par semaine, et jamais deux points de vente à la
+7. **Plafonds.** 2 créneaux par jour, 5 par semaine, et jamais deux points de vente à la
    même heure.
-7. **Équité.** Chaque créneau va au conseiller le moins servi : volume pondéré par le poids
+8. **Équité.** Chaque créneau va au conseiller le moins servi : volume pondéré par le poids
    d'abord, puis répartition par type de créneau (pour que les 17h-19h ne tombent pas
    toujours sur les mêmes), puis ancienneté de la dernière permanence. Les samedis ont leur
    propre compteur. **Les compteurs repartent des 12 semaines écoulées**, pas de zéro : le
    tour reste juste dans la durée, pas seulement à l'intérieur d'une semaine.
-8. **Un créneau posé à la main est figé** : la génération suivante ne le réécrit pas.
-9. **Les trous sont affichés, jamais masqués.** Quand personne n'est éligible, le créneau
+9. **Un créneau posé à la main est figé** : la génération suivante ne le réécrit pas.
+10. **Les trous sont affichés, jamais masqués.** Quand personne n'est éligible, le créneau
    remonte dans « Créneaux non couverts » avec la raison (absences, préavis, plafonds).
 
 ## L'agenda
@@ -124,9 +133,16 @@ permet de regénérer et de comparer plusieurs versions avant de publier, sans c
 
 ## Mise en service
 
-1. Déployer le serveur (`cd server && npx wrangler deploy`) — le schéma ajoute les quatre
-   tables sans toucher aux existantes (`CREATE TABLE IF NOT EXISTS`).
-   Appliquer le schéma : `npx wrangler d1 execute studio-brochure --remote --file=schema.sql`.
+1. **Déployer le serveur.** Deux façons, au choix :
+   - **En un clic** : poser une fois les secrets `CLOUDFLARE_API_TOKEN` et
+     `CLOUDFLARE_ACCOUNT_ID` dans GitHub (Settings → Secrets → Actions), puis
+     Actions → « Déploiement de l'API » → Run workflow. Il applique le schéma, déploie et
+     vérifie `/health` — et refuse de partir si les tests échouent.
+   - **À la main** : `cd server && npx wrangler login` puis
+     `npx wrangler d1 execute studio-brochure --remote --file=schema.sql` et `npx wrangler deploy`.
+
+   Le schéma ajoute les quatre tables sans toucher aux existantes
+   (`CREATE TABLE IF NOT EXISTS`) : le rejouer ne détruit rien.
 2. Ouvrir `/permanence/`, se connecter, aller dans **Réglages** :
    créer les points de vente (Saint-Médard, Caudéran, Blanquefort…), régler le besoin par
    créneau, choisir l'adresse publique.

@@ -125,7 +125,7 @@ h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font
 .grille th.jour.off { color: #6a675f; }
 .grille td { vertical-align: top; }
 .grille td.creneau {
-  color: var(--muted); font-size: 12px; white-space: nowrap; padding: 8px 8px 0 0; width: 92px;
+  color: var(--muted); font-size: 12px; white-space: nowrap; padding: 8px 8px 0 0; width: 106px;
 }
 .grille td.creneau b { display: block; color: var(--text); font-size: 12.5px; font-weight: 600; }
 .case {
@@ -149,6 +149,12 @@ h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font
 }
 .pastille.fige .ini { background: var(--info); }
 .pastille .rdvn { margin-left: auto; color: var(--info); font-size: 11px; }
+/* 🌙 : ce conseiller reprend les contacts arrivés après la fermeture. */
+.pastille .lune { margin-left: auto; font-size: 11px; opacity: .85; }
+.pastille .lune + .rdvn { margin-left: 4px; }
+.grille td.creneau .nuitnote {
+  display: block; color: var(--info); font-size: 10.5px; margin-top: 2px; white-space: normal; line-height: 1.3;
+}
 .ajout {
   background: transparent; border: 1px dashed var(--line); border-radius: 7px;
   color: var(--muted); font-size: 12px; padding: 3px 7px; width: 100%;

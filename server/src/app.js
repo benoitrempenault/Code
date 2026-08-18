@@ -844,10 +844,13 @@ export function createApp(env) {
       ? await db.all("SELECT * FROM rdv WHERE agency_id = ? AND date >= ? AND date <= ? AND statut <> 'annule' ORDER BY date, debut", [ag, from, to])
       : await db.all("SELECT * FROM rdv WHERE agency_id = ? AND cle = ? AND date >= ? AND date <= ? AND statut <> 'annule' ORDER BY date, debut", [ag, cle, from, to]);
     const config = PERM.parseConfig(await permConfigRow(ag));
-    const pvNoms = {};
-    (config.pvs || []).forEach((p) => { pvNoms[p.id] = p.nom || p.id; });
+    const pvNoms = {}, nuitKeys = new Set();
+    (config.pvs || []).forEach((p) => {
+      pvNoms[p.id] = p.nom || p.id;
+      PERM.creneauxDe(config, p.id).forEach((cr) => { if (cr.nuit) nuitKeys.add(p.id + "|" + cr.id); });
+    });
     const nom = (tous ? "Permanences " : "Mes permanences ") + (agency.name || "");
-    const body = PERM.fluxIcs({ nom, permanences: perms, rdv: rdvs, pvNoms, maintenant: now() });
+    const body = PERM.fluxIcs({ nom, permanences: perms, rdv: rdvs, pvNoms, nuitKeys, maintenant: now() });
     return new Response(body, {
       headers: {
         "Content-Type": "text/calendar; charset=utf-8",

@@ -731,6 +731,18 @@ console.log("— Permanences : moteur du tour");
   ok(gFige.lignes.some((l) => l.date === "2026-09-01" && l.creneau === "soir" && l.cle === "emma@ex.fr"),
     "un créneau posé à la main est conservé par la génération");
 
+  // Le créneau de fermeture emporte les contacts de la nuit, et il tourne
+  // comme les autres : personne ne doit hériter de toutes les soirées.
+  const soirs = sansAbsence.lignes.filter((l) => l.creneau === "soir");
+  ok(soirs.every((l) => l.nuit === true), "le créneau 17h-19h est marqué « contacts de la nuit »");
+  ok(sansAbsence.lignes.filter((l) => l.creneau === "matin").every((l) => !l.nuit),
+    "les autres créneaux ne le sont pas");
+  const parPersonne = {};
+  soirs.forEach((l) => { parPersonne[l.cle] = (parPersonne[l.cle] || 0) + 1; });
+  ok(Object.keys(parPersonne).length >= 6 &&
+    Math.max(...Object.values(parPersonne)) - Math.min(...Object.values(parPersonne)) <= 1,
+    "les fermetures (et donc les nuits) sont réparties entre les conseillers");
+
   // Découpage en rendez-vous pour le site internet.
   const perms = [{ pv: "medard", date: "2026-09-01", creneau: "matin", debut: "09:00", fin: "12:00", cle: "emma@ex.fr", nom: "Emma" }];
   const libres = P.creneauxRdv({ config, permanences: perms, rdv: [{ date: "2026-09-01", debut: "09:45", cle: "emma@ex.fr", statut: "demande" }] });

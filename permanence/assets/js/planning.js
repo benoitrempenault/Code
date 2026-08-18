@@ -14,6 +14,8 @@
      pas prendre des contacts qu'il ne pourra pas suivre ;
    - le conseiller du samedi matin doit être présent la semaine d'après pour
      honorer les rendez-vous pris le samedi ;
+   - le créneau de fermeture (17h-19h) emporte les contacts de la nuit :
+     c'est la même personne qui traite les demandes arrivées après 19h ;
    - on peut sortir un conseiller du cycle (hors cycle) sans le supprimer ;
    - le tour est ÉQUITABLE : à chaque attribution, c'est le conseiller le
      moins servi (en volume pondéré, puis sur ce créneau, puis le plus
@@ -56,7 +58,9 @@
     { id: "matin", label: "9h – 12h", debut: "09:00", fin: "12:00", jours: [1, 2, 3, 4, 5], besoin: 2 },
     { id: "midi", label: "12h – 14h", debut: "12:00", fin: "14:00", jours: [1, 2, 3, 4, 5], besoin: 1 },
     { id: "aprem", label: "14h – 17h", debut: "14:00", fin: "17:00", jours: [1, 2, 3, 4, 5], besoin: 2 },
-    { id: "soir", label: "17h – 19h", debut: "17:00", fin: "19:00", jours: [1, 2, 3, 4, 5], besoin: 1 },
+    // 17h-19h : celui qui ferme prend aussi les contacts arrivés dans la nuit
+    // (portails, formulaires, messages) jusqu'à la réouverture le lendemain.
+    { id: "soir", label: "17h – 19h", debut: "17:00", fin: "19:00", jours: [1, 2, 3, 4, 5], besoin: 1, nuit: true },
     { id: "samedi", label: "Samedi 9h – 12h", debut: "09:00", fin: "12:00", jours: [6], besoin: 1, samedi: true }
   ];
 
@@ -106,6 +110,7 @@
       jours: Array.isArray(cr && cr.jours) ? cr.jours.map(Number).filter((j) => j >= 0 && j <= 6) : [1, 2, 3, 4, 5],
       besoin: Math.max(0, Math.min(20, parseInt((cr && cr.besoin), 10) || 0)),
       samedi: !!(cr && cr.samedi),
+      nuit: !!(cr && cr.nuit),        // le conseiller reprend les contacts de la nuit
       rdv: (cr && cr.rdv) !== false   // créneau ouvert à la prise de rendez-vous en ligne
     };
   }
@@ -346,7 +351,7 @@
         lignes.push({
           pv: pvId, date, creneau: cr.id, debut: cr.debut, fin: cr.fin,
           cle: choisi.cle, nom: choisi.nom, email: choisi.email, telephone: choisi.telephone,
-          fige: 0, samedi
+          fige: 0, samedi, nuit: !!cr.nuit
         });
         noter(choisi.cle, date, cr.id);
         const c = cpt[choisi.cle];
