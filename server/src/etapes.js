@@ -186,6 +186,9 @@ const CS_HORS = [
 // Conditions de pur droit (travail du notaire, aucune relance) : écartées de
 // l'échéancier. Testées sur le seul intitulé. Miroir du client.
 const CS_DROIT = /certificat d'urbanisme|titres? de propri[ée]t[ée]|[ée]tat hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur/i;
+// Conditions qu'on ne suit pas : le notaire les règle seul. Miroir du client.
+const CS_INUTILE = /certificat d'urbanisme|titres? de propri[ée]t[ée]|[ée]tat hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur|pr[ée]emption/i;
+const CS_REITERATION = /r[ée]it[ée]ration|acte authentique|signature de l'acte/i;
 const CS_JOURS = [
   { re: /revente|vente pr[ée]alable|vente de (?:son|leur|sa)|vente d'un (?:autre )?bien|vente du bien (?:de l'|des )acqu|mise en vente/i, jours: 60 },
   { re: /r[ée]gularisation|non d[ée]clar|conformit[ée]|\bdaact\b|ach[èe]vement des travaux|attestation de non-?contestation/i, jours: 60 },
@@ -211,6 +214,7 @@ function csEtapes(d) {
     if (CS_HORS.some((re) => re.test(txt))) return;
     if (CS_DROIT.test((c.titre || "").trim() || c.detail || "")) return;
     if (terrain && /permis de construire|d[ée]claration pr[ée]alable/i.test(txt) && !/r[ée]gularisation/i.test(txt)) return;
+    if (CS_INUTILE.test((c.titre || "").trim() || c.detail || "")) return;
     const t = CS_JOURS.find((x) => x.re.test(txt));
     let id = "cs_" + (slug(c.titre) || slug(c.detail) || i);
     if (vus[id]) id += "_" + i;
@@ -218,8 +222,11 @@ function csEtapes(d) {
     out.push({
       id, csIndex: i,
       label: "Condition suspensive : " + ((c.titre || "").trim() || "à lever"),
-      due: () => c.echeance || (t ? addDays(ssp(d), t.jours)
-        : (d.date_butoir ? addDays(d.date_butoir, -15) : addDays(ssp(d), 60)))
+      // Miroir du client : l'échéance de l'étape est la PREMIÈRE RELANCE,
+      // quinze jours avant celle de la condition.
+      due: () => addDays(
+        c.echeance || (CS_REITERATION.test(txt) ? dateSignature(d)
+          : (t ? addDays(ssp(d), t.jours) : (d.date_butoir || addDays(ssp(d), 75)))), -15)
     });
   });
   return out;

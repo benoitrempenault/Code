@@ -33,7 +33,10 @@ appel après-vente, clôture.
    mêmes champs que la carte « Rendez-vous de signature » et que l'étape « Acte authentique
    signé » : corriger l'un des trois corrige les trois.
 2. **Échéancier automatique** (`suivi/assets/js/etapes.js`) : chaque dossier déroule
-   ~15 étapes datées à partir des dates du compromis, toutes modifiables. Les **dates
+   ~15 étapes datées à partir des dates du compromis, toutes modifiables. Les étapes
+   **faites se replient** phase par phase (« ✓ 3 étapes faites »), et toutes les fiches
+   sous l'échéancier (dossier, bien, parties, notaires, dates…) sont **repliées par
+   défaut** : on ouvre celle qu'on vient corriger, l'ouverture survivant aux re-rendus. Les **dates
    clés** et les étapes sont liées dans les deux sens : renseigner « DIA envoyée le … »
    coche l'étape correspondante à cette date (et l'effacer la décoche), cocher l'étape
    renseigne la date clé — la table de correspondance est `STEP_DATE` dans `app.js`.
@@ -64,8 +67,9 @@ appel après-vente, clôture.
    s'ouvre sur **« CENTURY 21 Kadima — … »** (`objetAvecAgence()`, ajouté à la
    composition, donc valable aussi pour les modèles réécrits à la main).
 5. **Journal partagé** : notes horodatées et signées (qui a appelé qui, réponses des
-   notaires…), visible par toute l'agence. Une note longue (un e-mail collé) est repliée
-   et se déploie au survol ; elle peut porter le lien d'un message, et les relances
+   notaires…), visible par toute l'agence. Seules la **dernière note** et les **infos
+   capitales** sont affichées, le reste se déplie à la demande. Une note longue (un e-mail
+   collé) est repliée et se déploie au survol ; elle peut porter le lien d'un message, et les relances
    envoyées depuis l'app y archivent leur texte. Une note cochée **« info capitale »**
    reste en tête du journal, en rouge, et s'affiche sur la vente au tableau de bord
    jusqu'à ce qu'on la décoche. Supprimer la note d'une relance efface aussi sa trace
@@ -130,12 +134,12 @@ que le montant, jamais la phrase entière du compromis.
 | RIB du dépositaire envoyé à l'acquéreur | J+5 | sans RIB, pas de virement possible — l'e-mail joint le relevé de l'étude et met en garde contre la fraude au faux RIB |
 | Séquestre reçu | délai du compromis, sinon J+12 | versement usuel 5-10 % sous 8-10 jours ; les deux lignes disparaissent quand le compromis ne prévoit pas de dépôt |
 | DIA envoyée | J+15 | **la** relance qui fait gagner un mois ; demander une renonciation expresse à la mairie si possible |
-| Purge du droit de préemption | envoi DIA + 2 mois (art. L213-2 C. urb., silence = renonciation) | |
+| Purge du droit de préemption | envoi DIA + 2 mois (art. L213-2 C. urb., silence = renonciation) | pas de relance : le silence de la mairie suffit, on ne fait que constater |
 | Dépôt du dossier de prêt | date du compromis, sinon J+10 | clause usuelle 10-15 jours |
 | Accord de principe banque | J+30 | usage |
 | Offre de prêt (ODP) | échéance condition − 10 j, sinon J+45 | émission usuelle 30-45 jours ; L313-41 : durée min. de la condition 30 jours |
 | Acceptation de l'offre | échéance condition | acceptation possible à partir du 11ᵉ jour après réception (L313-34) |
-| Conditions suspensives hors prêt | échéance du compromis, sinon J+45 à J+60 selon le type, sinon butoir − 15 j | une étape **par condition extraite du compromis** (revente d'un bien de l'acquéreur, régularisation de travaux, assainissement, locataire, succession, bornage, copropriété, autorisation d'urbanisme ou administrative…) ; prêt et préemption sont exclus, ils ont leur propre phase, et les conditions de pur droit réglées par le notaire (certificat d'urbanisme, titres de propriété, état hypothécaire, mainlevée) ne sont pas suivies — elles restent dans la fiche du dossier. Cocher l'étape lève la condition dans la fiche, et inversement |
+| Conditions suspensives hors prêt | **première relance 15 jours avant** l'échéance de la condition (celle du compromis ; à défaut, pour une condition de réitération, la date de signature ; sinon le délai usuel du type, sinon la date butoir) | une étape **par condition extraite du compromis** (revente d'un bien de l'acquéreur, régularisation de travaux, assainissement, locataire, succession, bornage, copropriété, autorisation d'urbanisme ou administrative…) ; prêt et préemption sont exclus, ils ont leur propre phase, et les conditions de pur droit réglées par le notaire (certificat d'urbanisme, titres de propriété, état hypothécaire, mainlevée, préemption de la mairie) sont **retirées du dossier** à l'ouverture (`CS_INUTILE`) : elles figurent dans tous les compromis et n'apprennent rien. Cocher l'étape lève la condition dans la fiche, et inversement |
 | Entretiens (ramonage, chaudière, clim/PAC) | dernier entretien + 12 mois (24 pour la clim/PAC) | seulement pour les équipements présents au compromis ; **alerte à J-30**, orange à J-7, rouge une fois périmé — la ligne reste en revanche affichée tant que la date du dernier entretien est inconnue (attestation à récupérer). Relance interne au **conseiller vendeur** |
 | Diagnostics à renouveler | première expiration tombant avant l'acte | **alerte à J-30**, orange à J-7, rouge une fois périmé ; aucune ligne tant que tout tient jusqu'à la signature (DPE 10 ans, audit 5 ans, ERP et termites 6 mois, gaz/élec/assainissement 3 ans, amiante et plomb illimités sauf présence : 3 ans / 1 an). Relance interne au **conseiller vendeur** |
 | Projet d'acte + date de signature | butoir − 21 jours | demander pièces manquantes, caler le RDV |
