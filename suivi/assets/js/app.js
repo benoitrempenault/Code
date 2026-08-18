@@ -308,6 +308,13 @@
   // Écriture retenue dans les e-mails : « Mr Jean-Pierre DUPONT ».
   function nomCourriel(nom) { return assemble(decoupeNom(nom), false) || String(nom || ""); }
 
+  // Conditions qu'on ne suit pas : le notaire s'en charge seul, et leur
+  // présence dans la fiche n'apprend rien. Reconnue sur le seul intitulé.
+  const CS_INUTILE = /certificat d'urbanisme|titres? de propri[ée]t[ée]|[ée]tat hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur|pr[ée]emption/i;
+  function conditionInutile(c) {
+    return CS_INUTILE.test(String((c && c.titre) || "").trim() || String((c && c.detail) || ""));
+  }
+
   // Consolide un dossier chargé (ancien, partiel ou importé) sur le gabarit.
   function normalize(data) {
     const base = newDossier();
@@ -324,6 +331,11 @@
     if (!Array.isArray(data.acquereurs)) data.acquereurs = [];
     if (!Array.isArray(data.conditions_suspensives)) data.conditions_suspensives = [];
     if (!Array.isArray(data.journal)) data.journal = [];
+    // Conditions de pur droit (certificat d'urbanisme, titres de propriété,
+    // état hypothécaire, mainlevée, préemption de la mairie) : présentes dans
+    // tous les compromis, réglées par le notaire, sans intérêt de suivi — on
+    // ne les garde pas, même dans la fiche.
+    data.conditions_suspensives = data.conditions_suspensives.filter((c) => !conditionInutile(c));
     // Anciens dossiers : les noms passent à l'écriture « Mr DUPONT Jean-Pierre ».
     ["vendeurs", "acquereurs"].forEach((k) => data[k].forEach((p) => {
       if (p && p.nom) p.nom = nomStandard(p.nom);
@@ -386,6 +398,12 @@
       const ancienPied = "{{conseiller}}\n{{agence}}";
       for (const m of modeles.filter((x) => (x.corps || "").endsWith(ancienPied))) {
         m.corps = m.corps.slice(0, -ancienPied.length) + "{{signature}}";
+        try { await api("/modeles", { method: "PUT", json: m }); } catch (e) { /* sans gravité */ }
+      }
+      // Avis clients : on s'adresse aux clients par « Monsieur DUPONT »,
+      // civilité en toutes lettres et sans prénom.
+      for (const m of modeles.filter((x) => /^Bonjour \{\{(vendeurs|acquereurs)\}\},/.test(x.corps || ""))) {
+        m.corps = m.corps.replace(/^Bonjour \{\{(vendeurs|acquereurs)\}\},/, "Bonjour {{$1_formel}},");
         try { await api("/modeles", { method: "PUT", json: m }); } catch (e) { /* sans gravité */ }
       }
       // Envoi du RIB de l'étude à l'acquéreur : modèle ajouté s'il manque.
@@ -1192,9 +1210,9 @@
     const steps = E.compute(d);
     const phases = [];
     steps.forEach((s) => { if (!phases.includes(s.phase)) phases.push(s.phase); });
-    const echHtml = phases.map((ph) =>
-      '<div class="phase">' + esc(ph) + "</div>" +
-      steps.filter((s) => s.phase === ph).map((s) => {
+    /* L'échéancier ne montre que ce qui reste à faire : les étapes cochées
+       se replient derrière un « N étape(s) faite(s) », phase par phase. */
+    const ligneEtape = (s) => {
         const deltaCls = s.done ? "okd" : s.days == null ? "far" : s.days < 0 ? "late" : s.days <= 7 ? "soon" : "far";
         const deltaTxt = s.done ? "✓ fait" : (s.days == null ? "" : deltaLabel(s.days));
         const mailBtn = s.done ? "" : mailButtons(currentId, s, d);
@@ -1214,8 +1232,18 @@
           dateCtl +
           '<span class="delta ' + deltaCls + '">' + esc(deltaTxt) + "</span>" + mailBtn +
           "</div>";
-      }).join("")
-    ).join("");
+    };
+    const echHtml = phases.map((ph) => {
+      const dansPhase = steps.filter((s) => s.phase === ph);
+      const aFaire = dansPhase.filter((s) => !s.done), faites = dansPhase.filter((s) => s.done);
+      return '<div class="phase">' + esc(ph) + "</div>" +
+        aFaire.map(ligneEtape).join("") +
+        (faites.length
+          ? '<details class="faites"><summary>✓ ' + faites.length +
+            (faites.length > 1 ? " étapes faites" : " étape faite") + "</summary>" +
+            faites.map(ligneEtape).join("") + "</details>"
+          : "");
+    }).join("");
 
     const condHtml = d.conditions_suspensives.map((c, i) =>
       '<div class="cond">' +
@@ -1231,7 +1259,7 @@
     // qu'on les décoche — le reste suit dans l'ordre chronologique inverse.
     const journalOrdre = d.journal.map((j, i) => ({ j, i })).reverse()
       .sort((a, b) => (b.j.capital ? 1 : 0) - (a.j.capital ? 1 : 0));
-    const journalHtml = journalOrdre.map(({ j, i }) => {
+    const ligneJournal = ({ j, i }) => {
       const dt = new Date((j.ts || 0) * 1000);
       const txt = j.text || "";
       // Un message d'e-mail collé fait des dizaines de lignes : la note est
@@ -1255,7 +1283,18 @@
           "<div><b>À :</b> " + esc(j.mail.to || "?") + "<br><b>Objet :</b> " + esc(j.mail.sujet || "") + "</div>" +
           "<pre>" + esc(j.mail.corps || "") + "</pre></details>" : "") +
         "</div>";
-    }).join("");
+    };
+    /* Le journal n'affiche que l'essentiel : les infos capitales, qui doivent
+       sauter aux yeux, et la dernière note — l'historique complet se déplie
+       à la demande. Un journal de vingt notes n'est pas une lecture, c'est
+       une archive. */
+    const enVue = journalOrdre.filter((x, n) => x.j.capital || journalOrdre.findIndex((y) => !y.j.capital) === n);
+    const archive = journalOrdre.filter((x) => enVue.indexOf(x) < 0);
+    const journalHtml = enVue.map(ligneJournal).join("") +
+      (archive.length
+        ? '<details class="faites"><summary>Voir les ' + archive.length + " note(s) précédente(s)</summary>" +
+          archive.map(ligneJournal).join("") + "</details>"
+        : "");
 
     view.innerHTML =
       '<div class="doshead">' +
@@ -1426,7 +1465,23 @@
       '<datalist id="dlConseillers">' + annOf("conseiller").map((a) => '<option value="' + esc(a.initiales || a.nom) + '">' + esc(a.nom) + "</option>").join("") + "</datalist>" +
       '<datalist id="dlSyndics">' + annuaire.filter((a) => a.type === "syndic" || a.type === "president").map((a) => '<option value="' + esc(a.nom) + '">' + esc(a.type === "president" ? "Président" : "Syndic") + "</option>").join("") + "</datalist>";
 
+    replierCartes();
     setSaveState(saveState === "dirty" || saveState === "saving" ? saveState : "");
+  }
+
+  /* Sous l'échéancier, les fiches (dossier, bien, parties, notaires, dates…)
+     sont repliées : on ouvre celle qu'on vient corriger. L'ouverture survit
+     aux re-rendus, sinon la fiche se refermerait à chaque frappe. */
+  const cartesOuvertes = new Set();
+  function replierCartes() {
+    $$("#view-dossier .grid2 > .card").forEach((c) => {
+      const h = c.querySelector("h3");
+      if (!h) return;
+      const cle = h.textContent.trim();
+      h.dataset.carte = cle;
+      c.classList.add("card--repli");
+      c.classList.toggle("card--ouvert", cartesOuvertes.has(cle));
+    });
   }
 
   /* Rappel du rendez-vous de signature, en tête du dossier : c'est la date
@@ -1597,6 +1652,15 @@
       if (!d || ev.key !== "Enter" || ev.shiftKey) return;
       if (t.id === "journalInput" || t.id === "journalLien") { ev.preventDefault(); ajouterNote(d); }
     });
+    // Ouvrir / refermer une fiche du dossier (sans re-rendu : on garde la
+    // position dans la page et le contenu des champs en cours d'édition).
+    view.addEventListener("click", (ev) => {
+      const h = ev.target.closest("h3[data-carte]");
+      if (!h) return;
+      const carte = h.parentElement;
+      const ouvert = carte.classList.toggle("card--ouvert");
+      if (ouvert) cartesOuvertes.add(h.dataset.carte); else cartesOuvertes.delete(h.dataset.carte);
+    });
     view.addEventListener("click", async (ev) => {
       const d = cur();
       const t = ev.target.closest("[data-add],[data-rm],[data-jdel],[data-rm-equip],[data-rm-diag],#journalAdd,#btnDelete,#btnVoirPdf,#btnRelire,#btnJoindrePdf,[data-act='mailname']");
@@ -1736,6 +1800,18 @@
 
   /* --------------------------- Relances e-mail ---------------------------- */
   function joinNoms(arr) { return (arr || []).map((p) => nomCourriel(p.nom)).filter(Boolean).join(" et "); }
+  /* Adresse formelle : « Monsieur DUPONT et Madame MARTIN » — civilité en
+     toutes lettres, patronyme seul. C'est ainsi qu'on s'adresse à un client
+     qu'on vouvoie, et le prénom n'apporte rien dans une formule d'appel. */
+  const CIVILITE_LONGUE = { Mr: "Monsieur", Mme: "Madame", Mlle: "Mademoiselle" };
+  function nomFormel(nom) {
+    const p = decoupeNom(nom);
+    if (!p) return "";
+    const civ = CIVILITE_LONGUE[p.civ] || p.civ;
+    const patronyme = p.reste != null ? p.reste : p.nomFamille.join(" ");
+    return [civ, patronyme].filter(Boolean).join(" ");
+  }
+  function joinFormel(arr) { return (arr || []).map((p) => nomFormel(p.nom)).filter(Boolean).join(" et "); }
   // Adresses d'une étude : le notaire (dossier, sinon annuaire) ET son clerc
   // en charge du dossier (saisi au dossier uniquement, jamais dans l'annuaire).
   function mailsEtude(d, key) {
@@ -1893,6 +1969,7 @@
       // dans un courrier, seul le montant a sa place.
       honoraires: honoraires(d) ? fmtEur(honoraires(d)) : (d.prix.honoraires || ""),
       vendeurs: joinNoms(d.vendeurs), acquereurs: joinNoms(d.acquereurs),
+      vendeurs_formel: joinFormel(d.vendeurs), acquereurs_formel: joinFormel(d.acquereurs),
       vendeurs_detail: detailPersonnes(d.vendeurs), acquereurs_detail: detailPersonnes(d.acquereurs),
       notaire_vendeur_nom: d.notaire_vendeur.nom, notaire_acquereur_nom: d.notaire_acquereur.nom,
       salutation_notaires: notaireUnique(d) ? "Maître," : "Bonjour Maîtres,",
@@ -2256,7 +2333,9 @@
       recours_pret: S(fi.recours_pret), montant_pret: S(fi.montant_pret), duree: S(fi.duree), taux_max: S(fi.taux_max),
       banques: S(fi.banques), date_limite_depot: S(fi.date_limite_depot), date_limite_obtention: S(fi.date_limite_obtention)
     };
-    d.conditions_suspensives = (x.conditions_suspensives || []).map((c) => ({ titre: S(c.titre), detail: S(c.detail), echeance: S(c.echeance), levee: false }));
+    d.conditions_suspensives = (x.conditions_suspensives || [])
+      .map((c) => ({ titre: S(c.titre), detail: S(c.detail), echeance: S(c.echeance), levee: false }))
+      .filter((c) => !conditionInutile(c));
     d.observations = S(x.observations);
     d.journal.push({ ts: Math.floor(Date.now() / 1000), user: userName(), text: "Dossier créé par analyse du compromis (IA) — relisez et corrigez si besoin." });
     return d;

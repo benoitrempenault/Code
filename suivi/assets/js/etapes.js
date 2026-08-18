@@ -197,6 +197,17 @@
       re: /travaux (?:à|a) la charge du vendeur|travaux avant (?:la )?(?:signature|vente)|remise en [ée]tat/i,
       hint: "Travaux à la charge du vendeur : à réceptionner avant l'acte, facture à joindre au dossier du notaire." }
   ];
+  /* Date à laquelle une condition doit être levée : celle du compromis quand
+     elle est stipulée ; sinon, pour une condition portant sur la réitération,
+     la date de signature ; sinon le délai usuel du type de condition. */
+  const RELANCE_AVANT = 15;
+  const CS_REITERATION = /r[ée]it[ée]ration|acte authentique|signature de l'acte/i;
+  function echeanceCS(d, c, t) {
+    if (c.echeance) return c.echeance;
+    if (CS_REITERATION.test((c.titre || "") + " " + (c.detail || ""))) return dateSignature(d);
+    if (t && t.jours) return addDays(ssp(d), t.jours);
+    return d.date_butoir || addDays(ssp(d), 75);
+  }
   // Identifiant stable dérivé de l'intitulé de la condition.
   function slug(s) {
     return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -227,10 +238,17 @@
         label: (c.titre || "").trim() || "Condition suspensive à lever",
         cible: t ? t.cible : "notaire_vendeur",
         modele: "Relance condition suspensive",
-        due: () => c.echeance || (t && t.jours ? addDays(ssp(d), t.jours)
-          : (d.date_butoir ? addDays(d.date_butoir, -15) : addDays(ssp(d), 60))),
-        hint: [(c.detail || "").trim(), t ? t.hint : ""].filter(Boolean).join(" — ")
-          || "Condition reprise du compromis : à lever avant la réitération."
+        // L'échéance affichée est la date de PREMIÈRE RELANCE : quinze jours
+        // avant celle de la condition, quand il est encore temps d'agir. Une
+        // condition portant sur la réitération se cale sur la signature.
+        due: () => addDays(echeanceCS(d, c, t), -RELANCE_AVANT),
+        hint: (() => {
+          const lim = echeanceCS(d, c, t);
+          return [(c.detail || "").trim(), t ? t.hint : "",
+            lim ? "Échéance de la condition : " + fmtFr(lim) + " — première relance " + RELANCE_AVANT + " jours avant." : ""]
+            .filter(Boolean).join(" — ")
+            || "Condition reprise du compromis : à lever avant la réitération.";
+        })()
       };
     }).filter(Boolean);
   }
@@ -276,8 +294,9 @@
       cible: "notaire_vendeur", modele: "Relance DIA",
       due: (d) => addDays(ssp(d), 15),
       hint: "LA relance qui fait gagner un mois : vérifier l'envoi à J+15, demander une renonciation expresse si possible." },
+    // Purge du droit de préemption : rien à relancer, le silence de la mairie
+    // suffit — on se contente de constater l'échéance.
     { id: "purge_dia", phase: "Préemption (DIA)", label: "Droit de préemption purgé (réponse de la mairie ou silence de 2 mois)",
-      cible: "notaire_vendeur", modele: "Relance DIA",
       due: (d) => d.dates.envoi_dia ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77),
       hint: "Court à compter de l'envoi de la DIA : renseignez cette date pour un calcul juste." },
 
@@ -553,12 +572,12 @@
     {
       name: "Demande d'avis client", cible: "acquereur",
       sujet: "Votre avis compte pour nous ⭐",
-      corps: "Bonjour {{acquereurs}},\n\nPermettez-moi encore de vous féliciter pour votre achat et vous remercier pour votre confiance.\n\nJe vous contacte pour un service : la notoriété internet étant importante pour nous, auriez-vous la possibilité de mettre un avis « 5 étoiles » sur Google en cliquant sur le lien suivant :\nhttps://g.page/r/CUA5uMo-Z_RcEAg/review\nnotamment en citant le travail de {{conseiller_acquereur}}.\n\nVous en remerciant par avance et vous souhaitant une belle journée.\n\n{{signature}}"
+      corps: "Bonjour {{acquereurs_formel}},\n\nPermettez-moi encore de vous féliciter pour votre achat et vous remercier pour votre confiance.\n\nJe vous contacte pour un service : la notoriété internet étant importante pour nous, auriez-vous la possibilité de mettre un avis « 5 étoiles » sur Google en cliquant sur le lien suivant :\nhttps://g.page/r/CUA5uMo-Z_RcEAg/review\nnotamment en citant le travail de {{conseiller_acquereur}}.\n\nVous en remerciant par avance et vous souhaitant une belle journée.\n\n{{signature}}"
     },
     {
       name: "Demande d'avis client vendeur", cible: "vendeur",
       sujet: "Votre avis compte pour nous ⭐",
-      corps: "Bonjour {{vendeurs}},\n\nPermettez-moi encore de vous féliciter pour votre vente et vous remercier pour votre confiance.\n\nJe vous contacte pour un service : la notoriété internet étant importante pour nous, auriez-vous la possibilité de mettre un avis « 5 étoiles » sur Google en cliquant sur le lien suivant :\nhttps://g.page/r/CUA5uMo-Z_RcEAg/review\nnotamment en citant le travail de {{conseiller_vendeur}}.\n\nVous en remerciant par avance et vous souhaitant une belle journée.\n\n{{signature}}"
+      corps: "Bonjour {{vendeurs_formel}},\n\nPermettez-moi encore de vous féliciter pour votre vente et vous remercier pour votre confiance.\n\nJe vous contacte pour un service : la notoriété internet étant importante pour nous, auriez-vous la possibilité de mettre un avis « 5 étoiles » sur Google en cliquant sur le lien suivant :\nhttps://g.page/r/CUA5uMo-Z_RcEAg/review\nnotamment en citant le travail de {{conseiller_vendeur}}.\n\nVous en remerciant par avance et vous souhaitant une belle journée.\n\n{{signature}}"
     }
   ];
 
