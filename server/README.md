@@ -21,7 +21,14 @@ DEV_MODE=1 ADMIN_KEY=mon-admin ANTHROPIC_API_KEY=sk-ant-… node node.js
 En mode dev, `/auth/request-link` renvoie le lien de connexion dans la réponse
 (pas besoin d'e-mail configuré).
 
-## Déployer en production (une fois, ~30 min)
+## Déployer en production
+
+**Le plus simple : GitHub → Actions → « Déploiement de l'API » → Run workflow.** Il applique
+`schema.sql` sur D1, déploie le Worker et vérifie `/health`, après avoir fait passer les tests.
+Il faut avoir posé une fois les secrets `CLOUDFLARE_API_TOKEN` et `CLOUDFLARE_ACCOUNT_ID`
+(voir l'en-tête de `.github/workflows/deploy-api.yml`).
+
+### Première installation à la main (une fois, ~30 min)
 
 1. **Compte Cloudflare** (gratuit) + `npm install -g wrangler` puis `wrangler login`.
 2. **Base D1** : `wrangler d1 create studio-brochure` → copier l'ID dans `wrangler.toml`,

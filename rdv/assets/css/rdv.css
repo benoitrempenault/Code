@@ -1,0 +1,114 @@
+/* =========================================================================
+   rdv.css — page publique de prise de rendez-vous, destinée à être posée
+   sur le site internet de l'agence (lien direct ou cadre intégré).
+   Thème clair, neutre : elle s'insère dans n'importe quelle charte.
+   ========================================================================= */
+:root {
+  --bg: #ffffff; --panel: #faf8f4; --line: #e4ded2; --line-fort: #cfc5b2;
+  --text: #23201b; --muted: #6f6a60; --accent: #8a6a2f; --accent-clair: #f3ecdf;
+  --ok: #2f7d4f; --bad: #a8452f;
+}
+* { box-sizing: border-box; margin: 0; }
+/* `hidden` doit gagner sur les classes qui posent un `display` (étapes,
+   grilles) — sinon une étape masquée reste affichée. */
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: "Inter", system-ui, sans-serif; font-size: 15px; line-height: 1.5;
+}
+.wrap { max-width: 780px; margin: 0 auto; padding: 26px 18px 60px; }
+
+.tete { margin-bottom: 22px; }
+.tete h1 { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 27px; }
+.tete p { color: var(--muted); margin-top: 5px; }
+
+.alerte {
+  background: #fdf1ee; border: 1px solid #e8c4b8; color: var(--bad);
+  border-radius: 12px; padding: 14px 16px;
+}
+
+.etape { border-top: 1px solid var(--line); padding: 20px 0 4px; }
+.etape:first-of-type { border-top: none; padding-top: 0; }
+.etape h2 {
+  font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 18px;
+  display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+}
+.etape h2 .num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 25px; height: 25px; border-radius: 50%; background: var(--accent-clair);
+  color: var(--accent); font-family: "Inter", sans-serif; font-size: 13px; font-weight: 600;
+}
+
+.choix { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.carte {
+  display: flex; flex-direction: column; gap: 4px; text-align: left;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 13px 15px; font: inherit; color: var(--text); cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+.carte:hover { border-color: var(--line-fort); }
+.carte.on { border-color: var(--accent); background: var(--accent-clair); }
+.carte b { font-weight: 600; }
+.carte span { color: var(--muted); font-size: 13px; }
+
+.jours { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; }
+.jour {
+  flex: 0 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 11px;
+  padding: 9px 13px; font: inherit; color: var(--text); cursor: pointer; text-align: center; min-width: 92px;
+}
+.jour.on { border-color: var(--accent); background: var(--accent-clair); }
+.jour b { display: block; font-size: 15px; font-weight: 600; }
+.jour span { display: block; color: var(--muted); font-size: 12px; }
+
+.heures { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.heure {
+  background: #fff; border: 1px solid var(--line-fort); border-radius: 9px;
+  padding: 8px 12px; font: inherit; color: var(--text); cursor: pointer; text-align: left;
+}
+.heure b { display: block; font-weight: 600; }
+.heure span { color: var(--muted); font-size: 12px; }
+.heure.on { border-color: var(--accent); background: var(--accent-clair); }
+.heure:hover { border-color: var(--accent); }
+
+.recap {
+  background: var(--accent-clair); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 15px; margin-bottom: 16px; font-size: 14px;
+}
+.recap b { font-weight: 600; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+label { display: block; font-size: 13px; color: var(--muted); }
+label.plein { display: block; margin-top: 12px; }
+input, textarea {
+  display: block; width: 100%; margin-top: 5px; font: inherit; color: var(--text);
+  background: #fff; border: 1px solid var(--line-fort); border-radius: 9px; padding: 9px 11px;
+}
+input:focus, textarea:focus { outline: 2px solid var(--accent-clair); border-color: var(--accent); }
+
+.btn {
+  margin-top: 16px; background: var(--accent); color: #fff; border: none;
+  border-radius: 10px; padding: 12px 22px; font: inherit; font-weight: 600; cursor: pointer;
+}
+.btn:hover { filter: brightness(1.08); }
+.btn[disabled] { opacity: .55; cursor: default; }
+
+.aide { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+.aide.err { color: var(--bad); }
+
+.merci { text-align: center; padding: 40px 10px; }
+.merci .coche {
+  width: 54px; height: 54px; border-radius: 50%; background: var(--accent-clair); color: var(--ok);
+  font-size: 28px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;
+}
+.merci h2 { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 22px; }
+.merci p { color: var(--muted); margin-top: 8px; }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14140f; --panel: #1d1c17; --line: #322f27; --line-fort: #464236;
+    --text: #ece9e2; --muted: #a09a8c; --accent: #c2a36b; --accent-clair: #2a2519;
+  }
+  input, textarea, .heure { background: #1d1c17; }
+  .alerte { background: #2a1b17; border-color: #5a3229; color: #e5917c; }
+  .btn { color: #1a1714; }
+}

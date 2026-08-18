@@ -28,7 +28,7 @@ jobs:
         run: |
           set -e
           count=0
-          for f in $(find assets pro mandat mandat-pro server -name '*.js' -not -path '*/node_modules/*'); do
+          for f in $(find assets pro mandat mandat-pro suivi permanence rdv server -name '*.js' -not -path '*/node_modules/*'); do
             node --check "$f"
             count=$((count+1))
           done

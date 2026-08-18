@@ -74,6 +74,28 @@ partagés (table D1 `modeles`, routes `/modeles`, champs de fusion `{{reference}
 composition mailto + journalisation dans le dossier). Outil interne Century 21 (noindex,
 logo Kadima via `logo.js`) — mêmes règles de séparation que `/` et `/mandat/`.
 
+**`permanence/` — Studio Permanence**, l'app interne Kadima du **tour de permanence physique
+des points de vente** (Saint-Médard, Caudéran, Blanquefort…), avec sa page publique de prise
+de rendez-vous sous **`rdv/`**. Créneaux 9h-12h / 12h-14h / 14h-17h / 17h-19h du lundi au
+vendredi + samedi matin (au moins 1 conseiller par point de vente), nombre de conseillers par
+créneau réglable point de vente par point de vente. **Toutes les règles du tour vivent dans
+`permanence/assets/js/planning.js` (`window.Permanence`)** — absence = hors jeu, préavis de
+3 jours ouvrés avant un départ (congé, ou absence ≥ 3 jours week-end compris : un vendredi ou
+un lundi posé compte 3 jours), samedi réservé à qui est présent la semaine d'après, **créneau
+17h-19h marqué `nuit: true`** (celui qui ferme reprend les contacts arrivés après la fermeture
+— affiché 🌙, rappelé dans l'`.ics` et compté à part dans l'équité), sortie du
+cycle (« hors cycle »), poids (mi-temps), plafonds jour/semaine, et équité au conseiller le
+moins servi avec **compteurs repris sur 12 semaines glissantes**. Le serveur ne calcule rien :
+il stocke (`perm_config` / `perm_absences` / `permanences` / `rdv`, routes `/permanence/*`,
+`/rdv`, `/public/*`), sert un **flux `.ics` signé HMAC** par conseiller et pour l'agence
+(Outlook / Google / Apple s'abonnent à l'URL, permanences + rendez-vous), et **revalide tout
+créneau réservé** depuis la page publique (`/public/rdv`, garde-fous 30/h par agence,
+3/jour par e-mail). Les conseillers viennent de la table `annuaire` partagée avec Suivi ; la
+clé d'un conseiller est son e-mail en minuscules. `server/src/permanence.js` porte la
+validation, l'`.ics` et le découpage en rendez-vous. Règles, mise en service et pièges :
+`docs/permanence.md`. Outil interne Century 21 (noindex, logo Kadima) ; la page `rdv/` est
+publique mais **neutre** — ni marque Century 21 ni mention ABR IMMO, l'agence vient du serveur.
+
 ## Architecture
 
 - `index.html` — single-page shell: left **editor** panel (form), right **preview** (live A4).
@@ -171,13 +193,19 @@ documents (`*.pdf`, `*.docx`) present in the repo root — **do not publish thos
   the two accueil pages load `assets/js/home.js`), `connect-src` limited to the Anthropic API
   + OSM Overpass + BAN + qrserver + Google Fonts. When adding a new external call, widen the CSP in
   **all** affected pages or it will be blocked. The exported `.html` deliberately has no CSP (must
-  open offline from `file://`).
+  open offline from `file://`). `permanence/` and `rdv/` carry no WASM (no photo upload) and so
+  keep a plain `script-src 'self'`.
+- **`rdv/` is the only page open to the public internet.** Everything it renders comes from
+  `/public/permanence` (agency name, points de vente, créneaux) and is escaped before insertion;
+  it holds no session and writes nothing to `localStorage`. Any créneau it posts back is
+  recomputed server-side before insertion — never trust the browser's slot.
 - The Anthropic API key lives only in `localStorage` and is never written to exported `.json`/`.html`.
 
 ## Separation rule: Century 21 vs ABR IMMO
 
 The repo hosts two worlds that must stay visually and legally separate:
-- **Century 21 Kadima internal tools** (`/` and `/mandat/`): carry the KADIMA/Century 21 logo,
+- **Century 21 Kadima internal tools** (`/`, `/mandat/`, `/suivi/`, `/permanence/`): carry the
+  KADIMA/Century 21 logo,
   are `noindex`, and must **never** mention ABR IMMO nor link to `/legal/`.
 - **Commercial product** (`/pro/`, `/mandat-pro/`, `/site/`, `/site-mandat/`, `/legal/`):
   published by ABR IMMO (legal pages), must **never** contain Century 21 marks, logos, forms

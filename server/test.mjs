@@ -651,6 +651,215 @@ ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Autho
     "l'échéance lue dans le compromis prime, relance quinze jours avant");
 }
 
+// =========================================================================
+// Permanences : le moteur du tour (règles d'absence, samedi, équité) et les
+// routes qui le stockent, l'exposent en agenda et le servent au site.
+// =========================================================================
+console.log("— Permanences : moteur du tour");
+{
+  await import("../permanence/assets/js/planning.js");
+  const P = globalThis.Permanence;
+  const equipe = ["Nathalie", "Gaby", "Adeline", "Marine", "Teddy", "Lucie", "Emma", "Vincent"]
+    .map((n) => ({ cle: n.toLowerCase() + "@ex.fr", nom: n, email: n.toLowerCase() + "@ex.fr", pv: "medard" }));
+  const config = P.normaliseConfig({ pvs: [{ id: "medard", nom: "Saint-Médard", actif: true }] });
+
+  // Lundi 24 août 2026 → dimanche 20 septembre (4 semaines pleines).
+  const base = { config, conseillers: equipe, historique: [], from: "2026-08-24", to: "2026-09-20" };
+  const sansAbsence = P.genere({ ...base, absences: [] });
+  ok(sansAbsence.trous.length === 0, "8 conseillers couvrent 4 semaines sans trou");
+  const samedis = sansAbsence.lignes.filter((l) => l.creneau === "samedi");
+  ok(samedis.length === 4, "un conseiller de permanence chaque samedi matin");
+  ok(new Set(samedis.map((l) => l.cle)).size === 4, "les samedis tournent (jamais deux fois le même en 4 semaines)");
+  const parJour = {};
+  sansAbsence.lignes.forEach((l) => { parJour[l.cle + l.date] = (parJour[l.cle + l.date] || 0) + 1; });
+  ok(Object.values(parJour).every((n) => n <= 2), "plafond de 2 créneaux par jour respecté");
+  const eq = P.equite(sansAbsence.lignes, equipe);
+  ok(Math.max(...eq.rows.map((r) => Math.abs(r.ecart))) <= 2, "écart d'équité contenu (≤ 2 créneaux sur 4 semaines)");
+
+  // Congé d'une semaine : absence ET préavis de 3 jours ouvrés avant.
+  const conge = [{ cle: "gaby@ex.fr", type: "conge", debut: "2026-09-07", fin: "2026-09-11" }];
+  const idxConge = P.indispoIndex(conge, config.regles);
+  ok(/Absent/.test(idxConge.raison("gaby@ex.fr", "2026-09-09")), "pendant son congé, le conseiller est hors jeu");
+  ok(/Préavis/.test(idxConge.raison("gaby@ex.fr", "2026-09-04")), "préavis : vendredi avant le congé bloqué");
+  ok(/Préavis/.test(idxConge.raison("gaby@ex.fr", "2026-09-02")), "préavis : 3 jours ouvrés avant le départ");
+  ok(!idxConge.raison("gaby@ex.fr", "2026-09-01"), "le 4e jour avant le départ reste disponible");
+  const avecConge = P.genere({ ...base, absences: conge });
+  ok(!avecConge.lignes.some((l) => l.cle === "gaby@ex.fr" && l.date >= "2026-09-02" && l.date <= "2026-09-11"),
+    "aucune permanence pendant le congé ni son préavis");
+
+  // Vendredi posé = départ de 3 jours (week-end compris) → même préavis.
+  const vendredi = [{ cle: "teddy@ex.fr", type: "weekend", debut: "2026-09-04", fin: "2026-09-04" }];
+  const idxVen = P.indispoIndex(vendredi, config.regles);
+  ok(/Préavis/.test(idxVen.raison("teddy@ex.fr", "2026-09-03")), "vendredi posé : jeudi précédent bloqué");
+  ok(/Préavis/.test(idxVen.raison("teddy@ex.fr", "2026-09-01")), "vendredi posé : mardi précédent bloqué");
+  // Samedi + dimanche + lundi : le préavis part du samedi, pas du lundi.
+  const lundi = [{ cle: "emma@ex.fr", type: "weekend", debut: "2026-09-07", fin: "2026-09-07" }];
+  const idxLun = P.indispoIndex(lundi, config.regles);
+  ok(/Préavis/.test(idxLun.raison("emma@ex.fr", "2026-09-04")), "lundi posé : le vendredi d'avant est bloqué");
+  ok(/Préavis/.test(idxLun.raison("emma@ex.fr", "2026-09-02")), "lundi posé : préavis compté depuis le samedi");
+
+  // Samedi matin : il faut être là la semaine d'après pour honorer les RDV.
+  const partAprès = [{ cle: "marine@ex.fr", type: "conge", debut: "2026-09-07", fin: "2026-09-11" }];
+  const idxSam = P.indispoIndex(partAprès, config.regles);
+  ok(idxSam.raisonSamedi("marine@ex.fr", "2026-09-05") !== "", "pas de samedi juste avant un congé (RDV non suivis)");
+  ok(idxSam.raisonSamedi("marine@ex.fr", "2026-09-19") === "", "samedi autorisé quand la semaine suivante est libre");
+  const gSam = P.genere({ ...base, absences: partAprès });
+  ok(!gSam.lignes.some((l) => l.creneau === "samedi" && l.date === "2026-09-05" && l.cle === "marine@ex.fr"),
+    "la génération n'attribue pas ce samedi-là");
+
+  // Hors cycle : le conseiller reste dans l'agence, plus dans le tour.
+  const horsCycle = equipe.map((c) => (c.cle === "vincent@ex.fr" ? { ...c, horsCycle: true } : c));
+  const gHC = P.genere({ ...base, conseillers: horsCycle, absences: [] });
+  ok(!gHC.lignes.some((l) => l.cle === "vincent@ex.fr"), "un conseiller hors cycle ne prend aucune permanence");
+
+  // Le samedi passe avant les jours ouvrés : sinon les plafonds hebdomadaires
+  // sont mangés du lundi au vendredi et le point de vente ouvre sans personne.
+  const juste = ["A", "B", "C", "D", "E", "F"].map((n) => ({ cle: n + "@ex.fr", nom: "Cons " + n, pv: "medard" }));
+  const gJuste = P.genere({ ...base, conseillers: juste, absences: [] });
+  ok(gJuste.lignes.filter((l) => l.creneau === "samedi").length === 4,
+    "les 4 samedis sont pourvus même quand l'effectif est juste");
+
+  // Équipe trop petite : les créneaux non couverts sont signalés, pas masqués.
+  const petit = P.genere({ ...base, conseillers: equipe.slice(0, 1), absences: [] });
+  ok(petit.trous.length > 0, "créneaux non couverts remontés quand l'équipe est trop petite");
+
+  // Poids : un mi-temps prend deux fois moins de permanences.
+  const mitemps = equipe.map((c) => (c.cle === "lucie@ex.fr" ? { ...c, poids: 0.5 } : c));
+  const gPoids = P.genere({ ...base, conseillers: mitemps, absences: [] });
+  const eqPoids = P.equite(gPoids.lignes, mitemps);
+  const lucie = eqPoids.rows.find((r) => r.cle === "lucie@ex.fr");
+  const pleinTemps = eqPoids.rows.filter((r) => r.cle !== "lucie@ex.fr");
+  ok(lucie.total < Math.min(...pleinTemps.map((r) => r.total)), "le mi-temps prend moins de créneaux que les autres");
+
+  // Un créneau figé à la main survit à une regénération.
+  const fige = [{ pv: "medard", date: "2026-09-01", creneau: "soir", debut: "17:00", fin: "19:00", cle: "emma@ex.fr", nom: "Emma", fige: 1 }];
+  const gFige = P.genere({ ...base, absences: [], historique: fige });
+  ok(gFige.lignes.some((l) => l.date === "2026-09-01" && l.creneau === "soir" && l.cle === "emma@ex.fr"),
+    "un créneau posé à la main est conservé par la génération");
+
+  // Le créneau de fermeture emporte les contacts de la nuit, et il tourne
+  // comme les autres : personne ne doit hériter de toutes les soirées.
+  const soirs = sansAbsence.lignes.filter((l) => l.creneau === "soir");
+  ok(soirs.every((l) => l.nuit === true), "le créneau 17h-19h est marqué « contacts de la nuit »");
+  ok(sansAbsence.lignes.filter((l) => l.creneau === "matin").every((l) => !l.nuit),
+    "les autres créneaux ne le sont pas");
+  const parPersonne = {};
+  soirs.forEach((l) => { parPersonne[l.cle] = (parPersonne[l.cle] || 0) + 1; });
+  ok(Object.keys(parPersonne).length >= 6 &&
+    Math.max(...Object.values(parPersonne)) - Math.min(...Object.values(parPersonne)) <= 1,
+    "les fermetures (et donc les nuits) sont réparties entre les conseillers");
+
+  // Découpage en rendez-vous pour le site internet.
+  const perms = [{ pv: "medard", date: "2026-09-01", creneau: "matin", debut: "09:00", fin: "12:00", cle: "emma@ex.fr", nom: "Emma" }];
+  const libres = P.creneauxRdv({ config, permanences: perms, rdv: [{ date: "2026-09-01", debut: "09:45", cle: "emma@ex.fr", statut: "demande" }] });
+  ok(libres.length === 3, "3h de permanence → 4 rendez-vous de 45 min, moins celui déjà pris");
+  ok(!libres.some((c) => c.debut === "09:45"), "le créneau déjà réservé n'est plus proposé");
+}
+
+console.log("— Permanences : API, agenda et prise de rendez-vous");
+{
+  const auth = { Authorization: "Bearer " + s4 };
+  const cfg = {
+    pvs: [{ id: "medard", nom: "Saint-Médard", adresse: "20 rue F. Mitterrand", actif: true },
+      { id: "cauderan", nom: "Caudéran", actif: true }],
+    regles: { dureeRdv: 45, delaiRdvHeures: 0 },
+    conseillers: { "u2@azur-immo.fr": { pv: "medard", poids: 1 } },
+    public: { slug: "azur-test", actif: true, message: "Bienvenue" }
+  };
+  const put = await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfg } });
+  ok(put.status === 200 && put.json.config.pvs.length === 2, "réglages enregistrés (2 points de vente)");
+  const lu = await call("/permanence/config", { headers: auth });
+  ok(lu.json.config.public.slug === "azur-test", "adresse publique conservée");
+
+  // Un membre non-administrateur ne peut pas changer le tour de l'agence.
+  const t5 = (await call("/auth/request-link", { body: { email: "u2@azur-immo.fr" } })).json.dev_token;
+  const membre = (await call("/auth/exchange", { body: { token: t5 } })).json.session;
+  const refus = await call("/permanence/config", { method: "PUT", headers: { Authorization: "Bearer " + membre }, body: { config: cfg } });
+  ok(refus.status === 403, "réglages refusés à un conseiller non administrateur");
+  ok((await call("/permanence/config", { headers: { Authorization: "Bearer " + membre } })).status === 200,
+    "mais tout le monde peut consulter le tour");
+
+  // Absences.
+  const abs = await call("/permanence/absences", { method: "PUT", headers: auth, body: { cle: "u2@azur-immo.fr", nom: "U2", type: "conge", debut: "2026-10-05", fin: "2026-10-09" } });
+  ok(abs.status === 200 && abs.json.id.startsWith("ab_"), "absence enregistrée");
+  ok((await call("/permanence/absences?from=2026-10-01&to=2026-10-31", { headers: auth })).json.absences.length === 1, "absence relue sur la période");
+  ok((await call("/permanence/absences", { method: "PUT", headers: auth, body: { cle: "u2@azur-immo.fr", debut: "2026-10-09", fin: "2026-10-05" } })).status === 400,
+    "dates incohérentes refusées");
+
+  // Publication d'un planning.
+  const lignes = [
+    { pv: "medard", date: "2026-10-01", creneau: "matin", debut: "09:00", fin: "12:00", cle: "u2@azur-immo.fr", nom: "Claire Test", email: "u2@azur-immo.fr" },
+    { pv: "medard", date: "2026-10-01", creneau: "soir", debut: "17:00", fin: "19:00", cle: "u2@azur-immo.fr", nom: "Claire Test", email: "u2@azur-immo.fr" },
+    { pv: "cauderan", date: "2026-10-01", creneau: "matin", debut: "09:00", fin: "12:00", cle: "u3@azur-immo.fr", nom: "Autre", email: "u3@azur-immo.fr" }
+  ];
+  const pub = await call("/permanence/planning", { method: "PUT", headers: auth, body: { from: "2026-10-01", to: "2026-10-31", pvs: ["medard", "cauderan"], lignes } });
+  ok(pub.status === 200 && pub.json.ecrits === 3, "planning publié (3 créneaux)");
+  ok((await call("/permanence/planning?from=2026-10-01&to=2026-10-31", { headers: auth })).json.permanences.length === 3, "planning relu");
+  // Republier ne doit pas empiler les doublons.
+  await call("/permanence/planning", { method: "PUT", headers: auth, body: { from: "2026-10-01", to: "2026-10-31", pvs: ["medard"], lignes: lignes.slice(0, 1) } });
+  const apres = (await call("/permanence/planning?from=2026-10-01&to=2026-10-31", { headers: auth })).json.permanences;
+  ok(apres.length === 2, "regénérer un point de vente remplace ses créneaux sans toucher aux autres");
+  ok(apres.some((l) => l.pv === "cauderan"), "le planning de l'autre point de vente est intact");
+  ok((await call("/permanence/planning", { method: "PUT", headers: auth, body: { from: "2026-10-31", to: "2026-10-01", pvs: ["medard"], lignes: [] } })).status === 400,
+    "période inversée refusée");
+
+  // Retouche d'une case, puis rétablissement pour la suite des tests.
+  const ligne = await call("/permanence/planning/ligne", {
+    method: "PUT", headers: auth,
+    body: { pv: "medard", date: "2026-10-01", creneau: "matin", debut: "09:00", fin: "12:00", cle: "u3@azur-immo.fr", nom: "Remplaçant", remplace: "u2@azur-immo.fr" }
+  });
+  ok(ligne.status === 200, "case du planning modifiée à la main");
+  const apresLigne = (await call("/permanence/planning?from=2026-10-01&to=2026-10-01", { headers: auth })).json.permanences;
+  ok(apresLigne.filter((l) => l.pv === "medard" && l.creneau === "matin").length === 1, "le remplacé cède sa place (pas d'empilement)");
+  await call("/permanence/planning", { method: "PUT", headers: auth, body: { from: "2026-10-01", to: "2026-10-31", pvs: ["medard"], lignes: lignes.slice(0, 1) } });
+
+  // Flux agenda : signature obligatoire.
+  const liens = await call("/permanence/liens-agenda", { headers: auth });
+  ok(liens.status === 200 && /sig=/.test(liens.json.moi), "lien d'agenda signé fourni");
+  const url = liens.json.agence.replace("http://api.test", "");
+  const icsRes = await app.fetch(new Request("http://api.test" + url));
+  const icsTxt = await icsRes.text();
+  ok(icsRes.status === 200 && /BEGIN:VCALENDAR/.test(icsTxt), "flux .ics servi");
+  ok(/SUMMARY:Permanence — Saint-Médard/.test(icsTxt), "l'événement porte le nom du point de vente");
+  ok((icsTxt.match(/BEGIN:VEVENT/g) || []).length === 2, "les 2 permanences publiées sont dans l'agenda de l'agence");
+  const faux = await app.fetch(new Request("http://api.test" + url.replace(/sig=\w+/, "sig=0000")));
+  ok(faux.status === 403, "signature d'agenda invalide refusée");
+
+  // Page publique du site internet.
+  const dispo = await call("/public/permanence?slug=azur-test&pv=medard");
+  ok(dispo.status === 200 && dispo.json.pvs.length === 2, "page publique : points de vente exposés");
+  ok(dispo.json.creneaux.every((c) => c.pv === "medard"), "page publique : filtre par point de vente respecté");
+  ok((await call("/public/permanence?slug=inconnu")).status === 404, "adresse publique inconnue → 404");
+
+  // Un planning à venir : les créneaux deviennent réservables.
+  const demain = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  await call("/permanence/planning", {
+    method: "PUT", headers: auth,
+    body: { from: demain, to: demain, pvs: ["medard"], lignes: [{ pv: "medard", date: demain, creneau: "matin", debut: "09:00", fin: "12:00", cle: "u2@azur-immo.fr", nom: "Claire Test", email: "u2@azur-immo.fr" }] }
+  });
+  const dispo2 = await call("/public/permanence?slug=azur-test");
+  ok(dispo2.json.creneaux.filter((c) => c.date === demain).length === 4, "3h de permanence → 4 rendez-vous proposés au public");
+  const resa = await call("/public/rdv", { body: { slug: "azur-test", pv: "medard", date: demain, debut: "09:00", cle: "u2@azur-immo.fr", objet: "estimation", client_nom: "Jean Dupont", client_tel: "0600000000" } });
+  ok(resa.status === 200 && resa.json.conseiller === "Claire Test", "rendez-vous pris auprès du conseiller de permanence");
+  const doublon = await call("/public/rdv", { body: { slug: "azur-test", pv: "medard", date: demain, debut: "09:00", cle: "u2@azur-immo.fr", client_nom: "Autre", client_tel: "0611111111" } });
+  ok(doublon.status === 409, "créneau déjà pris → refusé");
+  const horsPlanning = await call("/public/rdv", { body: { slug: "azur-test", pv: "medard", date: demain, debut: "20:00", cle: "u2@azur-immo.fr", client_nom: "Tardif", client_tel: "0611111111" } });
+  ok(horsPlanning.status === 409, "créneau hors permanence refusé (le serveur ne croit pas le navigateur)");
+  ok((await call("/public/rdv", { body: { slug: "azur-test", pv: "medard", date: demain, debut: "09:45", cle: "u2@azur-immo.fr", client_nom: "X" } })).status === 400,
+    "sans téléphone ni e-mail, la demande est refusée");
+  ok((await call("/public/permanence?slug=azur-test")).json.creneaux.filter((c) => c.date === demain).length === 3,
+    "le créneau réservé disparaît de la page publique");
+  const mesRdv = await call("/rdv?from=" + demain + "&to=" + demain, { headers: auth });
+  ok(mesRdv.json.rdv.length === 1 && mesRdv.json.rdv[0].client_nom === "Jean Dupont", "l'agence voit le rendez-vous pris en ligne");
+  ok((await call("/rdv/" + mesRdv.json.rdv[0].id + "/statut", { headers: auth, body: { statut: "confirme" } })).status === 200, "rendez-vous confirmé");
+
+  // Page publique fermée : plus rien ne sort.
+  await call("/permanence/config", { method: "PUT", headers: auth, body: { config: { ...cfg, public: { slug: "azur-test", actif: false } } } });
+  ok((await call("/public/permanence?slug=azur-test")).status === 403, "page publique fermée → 403");
+  ok((await call("/public/rdv", { body: { slug: "azur-test", pv: "medard", date: demain, debut: "10:30", cle: "u2@azur-immo.fr", client_nom: "Y", client_tel: "0612345678" } })).status === 403,
+    "plus de réservation possible quand la prise de rendez-vous est fermée");
+}
+
 fake.close();
 console.log("\n" + passed + " réussis, " + failed + " échec(s)");
 process.exit(failed ? 1 : 0);
