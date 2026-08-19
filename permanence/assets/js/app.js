@@ -929,6 +929,22 @@
       toast(vides.length + " boîte(s) déduite(s) du prénom — vérifiez les cas particuliers (homonymes, comptes en prenom.nom).");
     });
 
+    // « Reprendre l'annuaire » ne connaît que les personnes qui ont un compte
+    // dans l'app. Les assistantes n'en ont en général pas : ce bouton les
+    // ajoute à l'annuaire directement, avec leur adresse comme clé.
+    $("#btnAjoutPersonne").addEventListener("click", async () => {
+      const nom = (prompt("Nom de la personne (ex. « Léa Bernard ») :", "") || "").trim();
+      if (!nom) return;
+      const email = (prompt("Son adresse e-mail — elle sert de clé et reçoit les notifications :", "") || "").trim().toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast("Adresse e-mail invalide.", true); return; }
+      try {
+        await api("/annuaire", { method: "PUT", json: { type: "conseiller", nom, email } });
+        await chargerAnnuaire();
+        rendreConseillers();
+        toast(nom + " est dans la liste — rattachez-la à son point de vente, et cochez « Accueil » si c'est une assistante.");
+      } catch (e) { toast(e.message, true); }
+    });
+
     $("#btnSyncAnnuaire").addEventListener("click", async () => {
       try {
         const r = await api("/annuaire/seed-conseillers", { method: "POST", json: {} });
