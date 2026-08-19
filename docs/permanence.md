@@ -174,7 +174,7 @@ la prise de rendez-vous fonctionne exactement comme avant :
 
 1. les trois secrets sont posés sur le serveur
    (`GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, via `wrangler secret put`) ;
-2. l'agence a coché **« Tenir compte des agendas »** dans Réglages. Sans les secrets, la case
+2. l'agence a coché **« Tenir compte des agendas Outlook »** dans Réglages. Sans les secrets, la case
    est grisée : `GET /permanence/config` renvoie `graphPret: false` et l'app le dit en clair.
 
 **En cas de pépin, on retombe sur le comportement d'avant** (jeton refusé, Graph indisponible,

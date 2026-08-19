@@ -101,7 +101,7 @@ la validation, l'`.ics` et le découpage en rendez-vous. `server/src/graph.js` s
 la page publique les créneaux déjà pris dans Outlook (Microsoft Graph `getSchedule`, lecture
 seule) mais est **livré éteint** : il lui faut à la fois les trois secrets
 `GRAPH_TENANT_ID`/`GRAPH_CLIENT_ID`/`GRAPH_CLIENT_SECRET` et la case « tenir compte des
-agendas » cochée dans les réglages ; sans les deux, aucun appel ne part et tout fonctionne
+agendas Outlook » cochée dans les réglages ; sans les deux, aucun appel ne part et tout fonctionne
 comme avant (une erreur Graph retombe aussi sur ce comportement). Règles, mise en service et
 pièges : `docs/permanence.md`. Outil interne Century 21 (noindex, logo Kadima) ; la page `rdv/` est
 publique mais **neutre** — ni marque Century 21 ni mention ABR IMMO, l'agence vient du serveur.
