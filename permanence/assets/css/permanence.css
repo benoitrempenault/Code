@@ -90,6 +90,12 @@ h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font
 .card > details > summary .cnt { color: var(--muted); font-family: "Inter", sans-serif; font-size: 12px; }
 .card > details[open] > summary { margin-bottom: 12px; }
 .hintline { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.55; }
+/* Le total calculé sous le tableau des créneaux : c'est lui qu'on lit pour
+   savoir si le tour demandé est tenable par l'effectif du point de vente. */
+.total {
+  margin-top: 12px; padding: 10px 13px; font-size: 13px; line-height: 1.5;
+  background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 10px;
+}
 .hintline b { color: var(--text); font-weight: 600; }
 
 .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }

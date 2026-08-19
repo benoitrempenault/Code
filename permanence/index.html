@@ -84,7 +84,7 @@
             <summary><b>⚠️ Créneaux non couverts</b> <span class="cnt" id="trousCount"></span></summary>
             <div id="trousList"></div>
             <p class="hintline">Personne n'est éligible sur ces créneaux (absences, préavis de départ, plafonds).
-              Ajoutez un conseiller au point de vente, baissez le besoin du créneau, augmentez le plafond
+              Ajoutez un conseiller au point de vente, demandez moins de conseillers sur le créneau, augmentez le plafond
               hebdomadaire, ou posez quelqu'un à la main dans le tableau.</p>
           </details>
         </div>
@@ -199,9 +199,17 @@
             <select id="creneauxPv"></select>
           </div>
           <div id="creneauxList"></div>
-          <p class="hintline">« Besoin » = combien de conseillers sont de permanence sur ce créneau, pour ce point de vente.
-            Le samedi matin, comptez au moins 1 par point de vente. Décochez « RDV en ligne » pour garder
-            un créneau réservé à l'accueil physique.</p>
+          <p class="total" id="creneauxTotal"></p>
+          <p class="hintline"><b>« Combien ? »</b> = le nombre de conseillers que le tour place à l'accueil de
+            CE point de vente, sur CE créneau. 2 sur le 9h-12h = deux conseillers présents ensemble tous les
+            matins ; 1 = un seul ; 0 = pas de permanence sur ce créneau (l'agence reste ouverte, mais personne
+            n'y est de garde).<br />
+            Total par semaine et par point de vente = la somme de la colonne × 5 jours, + le samedi.
+            Divisez-le par l'effectif du point de vente : c'est le nombre de permanences que chacun fera
+            par semaine. Au-delà de 5, le plafond hebdomadaire bloque et des créneaux resteront vides.<br />
+            <b>Reprise des contacts</b> : ce que le conseiller récupère en plus de sa présence — la nuit
+            (jusqu'à la réouverture) ou le week-end (jusqu'au lundi 9h). <b>RDV en ligne</b> : décochez pour
+            qu'un créneau reste réservé à l'accueil physique et ne soit pas réservable depuis le site.</p>
         </div>
 
         <div class="card">

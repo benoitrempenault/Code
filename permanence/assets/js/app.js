@@ -527,7 +527,8 @@
         esc(p.nom) + (p.creneaux && p.creneaux.length ? " (réglage propre)" : "") + "</option>").join("");
     const crs = creneauxPvSel ? P.creneauxDe(config, creneauxPvSel) : config.creneaux;
     $("#creneauxList").innerHTML = '<table class="tbl"><thead><tr>' +
-      "<th>Créneau</th><th>Début</th><th>Fin</th><th>Jours</th><th>Besoin</th>" +
+      "<th>Créneau</th><th>Début</th><th>Fin</th><th>Jours</th>" +
+      '<th title="Nombre de conseillers placés à l\'accueil sur ce créneau">Combien ?</th>' +
       '<th title="Ce que le conseiller récupère en plus de sa présence">🌙 Reprise des contacts</th><th>RDV en ligne</th></tr></thead><tbody>' +
       crs.map((cr, i) => '<tr data-cr="' + i + '">' +
         "<td>" + esc(cr.label || cr.id) + "</td>" +
@@ -543,6 +544,7 @@
         '<td><input type="checkbox" data-crchamp="rdv"' + (cr.rdv !== false ? " checked" : "") + " /></td></tr>").join("") +
       "</tbody></table>";
 
+    rendreTotalCreneaux(crs);
     $("#rPreavis").value = config.regles.preavisJours;
     $("#rSeuil").value = config.regles.seuilAbsenceJours;
     $("#rSamedi").value = config.regles.samediSuiviJours;
@@ -560,6 +562,34 @@
       .forEach((el) => { if (!estAdmin) el.disabled = true; });
   }
   let creneauxPvSel = "";
+
+  // Le chiffre qui rend le réglage concret : ce que la colonne « Combien ? »
+  // représente en permanences par semaine, et par conseiller. C'est lui qu'on
+  // regarde pour savoir si le tour est tenable avant même de le générer.
+  function rendreTotalCreneaux(crs) {
+    const box = $("#creneauxTotal");
+    if (!box) return;
+    const parSemaine = crs.reduce((n, cr) => n + cr.besoin * cr.jours.length, 0);
+    const cible = creneauxPvSel
+      ? conseillers().filter((c) => c.pv === creneauxPvSel && c.actif && !c.horsCycle)
+      : conseillers().filter((c) => c.actif && !c.horsCycle && c.pv);
+    const quoi = creneauxPvSel ? nomPv(creneauxPvSel) : "l'ensemble des points de vente";
+    if (!parSemaine) { box.innerHTML = "Aucune permanence demandée sur ce réglage."; return; }
+    if (!cible.length) {
+      box.innerHTML = "<b>" + parSemaine + " permanences par semaine</b> à pourvoir pour " + esc(quoi) +
+        " — aucun conseiller n'y est encore rattaché.";
+      return;
+    }
+    const poids = cible.reduce((n, c) => n + c.poids, 0);
+    const chacun = parSemaine / poids;
+    const max = config.regles.maxParSemaine || 5;
+    const alerte = chacun > max
+      ? ' <span class="pill bad">au-dessus du plafond de ' + max + "/semaine : des créneaux resteront vides</span>"
+      : chacun > max * 0.8 ? ' <span class="pill warn">proche du plafond de ' + max + "/semaine</span>" : "";
+    box.innerHTML = "<b>" + parSemaine + " permanences par semaine</b> pour " + esc(quoi) + ", à répartir entre " +
+      cible.length + " conseiller" + (cible.length > 1 ? "s" : "") + " dans le cycle → <b>" +
+      chacun.toFixed(1).replace(".", ",") + " par conseiller et par semaine</b>." + alerte;
+  }
 
   function rendrePubLiens() {
     const slug = ($("#pubSlug").value || "").toLowerCase().replace(/[^a-z0-9-]/g, "");
@@ -819,6 +849,9 @@
       const champ = e.target.dataset.crchamp;
       cible[champ] = champ === "besoin" ? Math.max(0, parseInt(e.target.value, 10) || 0)
         : champ === "rdv" ? e.target.checked : e.target.value;
+      // Le total se recalcule à la frappe : on voit tout de suite ce que le
+      // chiffre saisi représente pour l'équipe, avant même d'enregistrer.
+      rendreTotalCreneaux(creneauxPvSel ? P.creneauxDe(config, creneauxPvSel) : config.creneaux.map(P.normaliseCreneau));
     }));
     $("#pubSlug").addEventListener("input", rendrePubLiens);
     $("#btnSaveConfig").addEventListener("click", enregistrerReglages);
