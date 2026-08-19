@@ -45,10 +45,15 @@
     $("#sousTitre").textContent = j.message ||
       ((j.agence ? j.agence + " — " : "") + "choisissez le moment qui vous arrange, un conseiller vous attend à l'agence.");
     const pvs = (j.pvs || []).filter((p) => !pvDemande || p.id === pvDemande);
+    if (pvDemande && !pvs.length) {
+      // Lien avec un ?pv= qui n'existe pas (faute de frappe, agence renommée) :
+      // mieux vaut le dire que d'afficher « aucun créneau » à tort.
+      return erreur("Ce point de vente n'existe pas — vérifiez le lien, ou appelez l'agence.");
+    }
     if (pvs.length > 1) {
       $("#etapePv").hidden = false;
       $("#pvChoix").innerHTML = pvs.map((p) =>
-        '<button type="button" class="carte" data-pv="' + attr(p.id) + '"><b>' + txt(p.nom) + "</b><span>" +
+        '<button type="button" class="carte' + (p.id === pv ? " on" : "") + '" data-pv="' + attr(p.id) + '"><b>' + txt(p.nom) + "</b><span>" +
         txt(p.adresse || "") + "</span></button>").join("");
       $("#numObjet").textContent = "2"; $("#numCreneau").textContent = "3"; $("#numInfos").textContent = "4";
     } else {
@@ -139,7 +144,13 @@
     if (!r.ok) {
       msg.className = "aide err";
       msg.textContent = j.error || "Ce créneau n'est plus disponible.";
-      if (r.status === 409) { await charger(); }   // le planning a bougé : on recharge les créneaux
+      if (r.status === 409) {
+        // Le planning a bougé : on recharge, et on OUBLIE le créneau choisi —
+        // sinon « Confirmer » resterait cliquable sur une heure déjà morte.
+        creneau = null;
+        await charger();
+        majSuite();
+      }
       return;
     }
     $("#form").hidden = true;

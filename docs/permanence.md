@@ -51,16 +51,18 @@ endroit qui décide qui prend quel créneau. Les valeurs entre parenthèses sont
 par défaut, modifiables dans l'onglet Réglages.
 
 1. **Absent = hors jeu.** Toute absence déclarée retire le conseiller du tour sur sa durée.
-2. **Préavis de départ (3 jours ouvrés).** Un congé — ou toute absence d'au moins 3 jours —
-   retire aussi le conseiller des permanences des 3 jours ouvrés qui la précèdent. Celui qui
-   part ne prend pas des contacts qu'il ne pourra pas suivre.
+2. **Préavis de départ (3 jours d'ouverture).** Un congé — ou toute absence d'au moins
+   3 jours — retire aussi le conseiller des permanences des 3 jours d'ouverture qui la
+   précèdent, **samedi compris** (l'agence ouvre le samedi matin, il compte comme les autres).
+   Celui qui part ne prend pas des contacts qu'il ne pourra pas suivre.
 3. **Le week-end colle.** Poser son vendredi, c'est s'absenter vendredi + samedi + dimanche :
    3 jours, donc préavis. Idem pour un lundi posé (samedi + dimanche + lundi), et le préavis
    se compte depuis le samedi — déclarer « lundi » ou « samedi au lundi » donne le même
    résultat. Deux absences que seul un week-end sépare n'en font qu'une.
-4. **Samedi matin : présent la semaine d'après (3 jours ouvrés).** Un conseiller qui part en
-   congé le lundi ne prend pas le samedi qui précède — il garde les contacts du week-end
-   jusqu'au lundi 9h et doit honorer les rendez-vous pris ce samedi-là.
+4. **Samedi matin : présent la semaine d'après (3 jours ouvrés, lundi-vendredi).** Un
+   conseiller qui part en congé le lundi ne prend pas le samedi qui précède — il garde les
+   contacts du week-end jusqu'à la réouverture et doit honorer les rendez-vous pris ce
+   samedi-là.
 5. **La reprise des contacts suit la fermeture.** Le 17h-19h prend la nuit, le samedi matin
    prend tout le week-end jusqu'au lundi 9h. Ces créneaux tournent comme les autres et se
    comptent à part (colonne « 🌙 Reprises »).

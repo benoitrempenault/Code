@@ -746,8 +746,8 @@ console.log("— Permanences : moteur du tour");
   const partAprès = [{ cle: "marine@ex.fr", type: "conge", debut: "2026-09-07", fin: "2026-09-11" }];
   const idxSam = P.indispoIndex(partAprès, config.regles);
   ok(idxSam.raisonSamedi("marine@ex.fr", "2026-09-05") !== "", "pas de samedi juste avant un congé (RDV non suivis)");
-  ok(/lundi 9h/.test(idxSam.raisonSamedi("marine@ex.fr", "2026-09-05")),
-    "le refus dit pourquoi : il doit reprendre les contacts du week-end le lundi 9h");
+  ok(/reprendre les contacts du week-end à la réouverture/.test(idxSam.raisonSamedi("marine@ex.fr", "2026-09-05")),
+    "le refus dit pourquoi : il doit reprendre les contacts du week-end à la réouverture");
   ok(idxSam.raisonSamedi("marine@ex.fr", "2026-09-19") === "", "samedi autorisé quand la semaine suivante est libre");
   const gSam = P.genere({ ...base, absences: partAprès });
   ok(!gSam.lignes.some((l) => l.creneau === "samedi" && l.date === "2026-09-05" && l.cle === "marine@ex.fr"),
@@ -903,6 +903,31 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(mesRdv.json.rdv.length === 1 && mesRdv.json.rdv[0].client_nom === "Jean Dupont", "l'agence voit le rendez-vous pris en ligne");
   ok((await call("/rdv/" + mesRdv.json.rdv[0].id + "/statut", { headers: auth, body: { statut: "confirme" } })).status === 200, "rendez-vous confirmé");
 
+  // Un rendez-vous annulé LIBÈRE son créneau : la page publique le repropose
+  // et un autre client peut le reprendre — sans erreur 500 (l'unicité ne
+  // porte que sur les rendez-vous vivants).
+  await call("/rdv/" + mesRdv.json.rdv[0].id + "/statut", { headers: auth, body: { statut: "annule" } });
+  ok((await call("/public/permanence?slug=azur-test")).json.creneaux.some((x) => x.date === demain && x.debut === "09:00"),
+    "rendez-vous annulé → le créneau réapparaît sur la page publique");
+  const reprise = await call("/public/rdv", { body: { slug: "azur-test", pv: "medard", date: demain, debut: "09:00", cle: "u2@azur-immo.fr", client_nom: "Marie Nouveau", client_tel: "0655555555" } });
+  ok(reprise.status === 200, "un autre client reprend le créneau annulé (pas de 500)");
+
+  // Garde-fous renforcés : téléphone fantaisiste refusé, et la limite
+  // quotidienne compte aussi sur le téléphone (pas seulement l'e-mail).
+  ok((await call("/public/rdv", { body: { slug: "azur-test", pv: "medard", date: demain, debut: "10:30", cle: "u2@azur-immo.fr", client_nom: "Robot", client_tel: "12" } })).status === 400,
+    "un téléphone qui n'en est pas un est refusé");
+  const parTel = [];
+  // 3 réservations passent (la limite est à 3/jour), la 4e tombe sur le
+  // garde-fou AVANT même le contrôle du créneau.
+  for (const h of ["09:45", "10:30", "11:15", "09:45"]) {
+    parTel.push((await call("/public/rdv", { body: { slug: "azur-test", pv: "medard", date: demain, debut: h, cle: "u2@azur-immo.fr", client_nom: "Série", client_tel: "0644444444" } })).status);
+  }
+  ok(parTel[0] === 200 && parTel.includes(429), "réservations en série sur un même téléphone → limitées");
+  // On libère pour la suite des tests.
+  for (const r of (await call("/rdv?from=" + demain + "&to=" + demain, { headers: auth })).json.rdv) {
+    if (r.statut !== "annule") await call("/rdv/" + r.id + "/statut", { headers: auth, body: { statut: "annule" } });
+  }
+
   // Invitation de calendrier : c'est elle qui pose le rendez-vous dans
   // Outlook tout de suite, sans attendre le flux abonné.
   {
@@ -957,8 +982,21 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const relu2 = (await call("/permanence/config", { headers: auth })).json.config;
     ok(relu2.conseillers["u2@azur-immo.fr"].boite === "pas-une-adresse",
       "une saisie libre est stockée telle quelle (le tri se fait à l'envoi)");
+    // Verrou anti-écrasement : un onglet qui écrit avec une version périmée
+    // est refusé au lieu d'effacer le travail de l'autre.
+    const v1 = (await call("/permanence/config", { headers: auth })).json.updated_at;
+    const ecrase = await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfgBoite, si_version: v1 - 1 } });
+    ok(ecrase.status === 409, "réglages modifiés ailleurs → l'écriture périmée est refusée");
+    ok((await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfgBoite, si_version: v1 } })).status === 200,
+      "avec la bonne version, l'écriture passe");
+
     // Bouton « Tester la lecture de cet agenda » : il DIT ce qui rate, au lieu
     // de retomber silencieusement comme le filtrage de la page publique.
+    // Seules les boîtes déclarées dans l'onglet Conseillers sont sondables :
+    // on déclare donc celle de Claire avant de tester.
+    await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfgBoite } });
+    ok((await call("/permanence/test-agenda", { headers: auth, body: { boite: "inconnue@kadima-test.fr" } })).status === 400,
+      "test d'agenda : une boîte non déclarée dans Conseillers est refusée");
     const sansSecrets = await call("/permanence/test-agenda", { headers: auth, body: { boite: "agenda.claire@kadima-test.fr" } });
     ok(sansSecrets.json.ok === false && /secrets/i.test(sansSecrets.json.message),
       "test d'agenda sans secrets : le message dit qu'il manque les accès");
@@ -1098,7 +1136,10 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
       "les créneaux hors de l'occupation restent proposés");
     ok(graphAppels.some((a) => a.url.includes("getSchedule")), "getSchedule a bien été interrogé");
     ok(graphAppels.some((a) => a.url.includes("oauth2/v2.0/token")), "un jeton d'application a été demandé");
-    const appelPlanning = graphAppels.find((a) => a.url.includes("getSchedule"));
+    // Plusieurs getSchedule sont partis pendant les tests (test-agenda, relevé
+    // des assistantes) : on prend celui du filtrage de la page publique.
+    const appelPlanning = graphAppels.filter((a) => a.url.includes("getSchedule"))
+      .find((a) => a.body.includes("agenda.claire"));
     ok(JSON.parse(appelPlanning.body).schedules.includes("agenda.claire@kadima-test.fr"),
       "c'est la boîte de l'agenda métier qui est interrogée, pas l'adresse de courrier");
     ok(/Europe\/Paris/.test(appelPlanning.headers.prefer || ""), "les heures sont demandées à l'heure de Paris");

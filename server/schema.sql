@@ -278,5 +278,11 @@ CREATE TABLE IF NOT EXISTS rdv (
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_rdv_slot   ON rdv(agency_id, pv, date, debut, cle);
+-- L'unicité ne porte que sur les rendez-vous VIVANTS : une ligne annulée
+-- reste en base (c'est l'historique) mais ne doit pas empêcher un autre
+-- client de reprendre le même créneau. L'ancien index absolu est retiré
+-- au passage (DROP + CREATE : rejouable sans effet la deuxième fois).
+DROP INDEX IF EXISTS idx_rdv_slot;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rdv_slot_vivant ON rdv(agency_id, pv, date, debut, cle)
+  WHERE statut <> 'annule';
 CREATE INDEX        IF NOT EXISTS idx_rdv_agency ON rdv(agency_id, date);

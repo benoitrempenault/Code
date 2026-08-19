@@ -31,7 +31,10 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.className = ""; }, isErr ? 6000 : 3000);
   }
-  const aujourdhui = () => P.toISO(new Date());
+  // La date « du jour » à l'heure de PARIS : entre minuit et 2h, l'UTC est
+  // encore sur la veille et décalait « Cette semaine » et les fenêtres.
+  const aujourdhui = () => new Intl.DateTimeFormat("fr-CA",
+    { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   // Initiales d'affichage (« Marine Zamora » → MZ) : le tableau doit rester
   // lisible sur une semaine entière sans déborder.
   function initiales(nom) {
@@ -81,6 +84,7 @@
   let portee = 4;           // semaines affichées et générées
   let liens = null;         // liens d'abonnement agenda
   let graphPret = false;    // le serveur a-t-il les secrets Microsoft ?
+  let configVersion = 0;    // version lue des réglages (verrou anti-écrasement)
   let estAdmin = false;
 
   // `normaliseConfig` ne connaît que les réglages du moteur : les champs
@@ -158,6 +162,7 @@
   async function chargerConfig() {
     const r = await api("/permanence/config");
     config = appliquerConfig(r.config);
+    configVersion = r.updated_at || 0;
     graphPret = !!r.graphPret;
     if (!pvActif || !(config.pvs || []).some((p) => p.id === pvActif)) {
       pvActif = (pvsActifs()[0] || {}).id || "";
@@ -176,7 +181,11 @@
     planning = (r.permanences || []).map((l) => Object.assign({}, l, { fige: !!l.fige }));
   }
   async function chargerRdv() {
-    const r = await api("/rdv?from=" + aujourdhui() + "&to=" + P.addDays(aujourdhui(), 120));
+    // La fenêtre suit la période affichée : sans ça, les badges « n RDV »
+    // disparaissaient sur les semaines passées et au-delà de 120 jours.
+    const de = debutPeriode < aujourdhui() ? debutPeriode : aujourdhui();
+    const a = P.addDays(finPeriode() > aujourdhui() ? finPeriode() : aujourdhui(), 120);
+    const r = await api("/rdv?from=" + de + "&to=" + a);
     rdv = r.rdv || [];
   }
   async function chargerLiens() {
@@ -197,6 +206,23 @@
         config, conseillers: conseillers(), absences, historique: planning,
         from: debutPeriode, to: finPeriode(), pvs
       });
+      // Des rendez-vous clients existent peut-être sur la période. Si le
+      // nouveau tour ne remet pas le même conseiller sur leur créneau, le
+      // rendez-vous reste au nom de l'ancien — et plus personne ne le voit
+      // dans le planning. On le dit AVANT de publier, pas après.
+      const orphelins = rdv.filter((r) => r.statut !== "annule" &&
+        r.date >= debutPeriode && r.date <= finPeriode() && pvs.indexOf(r.pv) >= 0 &&
+        !res.lignes.some((l) => l.pv === r.pv && l.date === r.date && l.cle === r.cle &&
+          l.debut <= r.debut && r.debut < l.fin));
+      if (orphelins.length) {
+        const ex = orphelins.slice(0, 3).map((r) =>
+          P.libelleJour(r.date) + " " + r.debut + " (" + (r.client_nom || "client") + " → " + (r.nom || r.cle) + ")").join("\n");
+        if (!confirm(orphelins.length + " rendez-vous client(s) ne correspondent plus au conseiller du nouveau tour :\n\n" + ex +
+          (orphelins.length > 3 ? "\n…" : "") +
+          "\n\nIls resteront au nom du conseiller qui les a reçus — à réattribuer à la main (onglet Rendez-vous).\nPublier quand même ?")) {
+          return;
+        }
+      }
       await api("/permanence/planning", {
         method: "PUT",
         json: { from: debutPeriode, to: finPeriode(), pvs, lignes: res.lignes }
@@ -267,9 +293,14 @@
           }
           lignes.forEach((l) => {
             const n = rdvSur(l);
-            html.push('<button class="pastille' + (l.fige ? " fige" : "") + (cr.reprise ? " nuit" : "") + '" data-case="' +
+            // Absence saisie APRÈS la publication : le planning n'est jamais
+            // recalculé tout seul, mais la case doit crier — sinon la règle
+            // « absent = hors jeu » ne vaut que pour l'avenir.
+            const gene = idx.raison(l.cle, date);
+            html.push('<button class="pastille' + (l.fige ? " fige" : "") + (cr.reprise ? " nuit" : "") + (gene ? " conflit" : "") + '" data-case="' +
               esc([pvActif, date, cr.id, l.cle].join("|")) + '" title="' +
-              esc(l.nom + " — " + cr.label + (cr.reprise ? " · " + titreReprise(cr) : "") + (l.fige ? " (posé à la main)" : "")) + '">' +
+              esc((gene ? "⚠ " + gene + " — remplacez-le ou regénérez. " : "") + l.nom + " — " + cr.label + (cr.reprise ? " · " + titreReprise(cr) : "") + (l.fige ? " (posé à la main)" : "")) + '">' +
+              (gene ? "⚠ " : "") +
               '<span class="ini">' + esc(initiales(l.nom)) + "</span>" + esc(nomCourt(l.nom)) +
               (cr.reprise ? '<span class="lune">🌙</span>' : "") +
               (n ? '<span class="rdvn">' + n + " RDV</span>" : "") + "</button>");
@@ -379,7 +410,7 @@
     caseCourante = { pv, date, creneauId, occupant, cr };
     $("#cellTitre").textContent = P.libelleJour(date, true) + " · " + (cr.label || cr.id) +
       (cr.reprise ? " 🌙" : "");
-    $("#cellSous").textContent = nomPv(pv) + (occupant ? " — actuellement " + (conseillerDe(occupant) || {}).nom : " — créneau à couvrir") +
+    $("#cellSous").textContent = nomPv(pv) + (occupant ? " — actuellement " + ((conseillerDe(occupant) || {}).nom || occupant) : " — créneau à couvrir") +
       (cr.reprise ? " · " + titreReprise(cr) : "");
     const idx = P.indispoIndex(absences, config.regles);
     const eq = P.equite(planning.filter((l) => l.date >= debutHistorique()), conseillers());
@@ -468,7 +499,7 @@
     $("#lotBox").hidden = !liste.length || !(config.pvs || []).length;
     // Le rattachement et le cycle engagent toute l'agence : seule la direction
     // les modifie (le serveur refuserait de toute façon).
-    if (!estAdmin) $$("#conseillersList select, #conseillersList input, #lotBox select, #lotBox button")
+    if (!estAdmin) $$("#conseillersList select, #conseillersList input, #lotBox select, #lotBox button, #btnAjoutPersonne, #btnPrefillBoite, #btnSyncAnnuaire")
       .forEach((el) => { el.disabled = true; });
     rendreEquite();
   }
@@ -476,7 +507,11 @@
   /* -------------------------------- Absences ------------------------------ */
   function rendreAbsences() {
     const liste = conseillers();
+    const choisiAvant = $("#absCons").value;
     $("#absCons").innerHTML = liste.map((c) => '<option value="' + esc(c.cle) + '">' + esc(c.nom) + "</option>").join("");
+    // Re-rendu après un ajout : on garde la personne sélectionnée (saisir
+    // trois absences de suite pour le même conseiller est le cas courant).
+    if (choisiAvant && liste.some((c) => c.cle === choisiAvant)) $("#absCons").value = choisiAvant;
     const idx = P.indispoIndex(absences, config.regles);
     const futures = absences.slice().sort((a, b) => (a.debut < b.debut ? 1 : -1));
     $("#absCount").textContent = absences.length + " enregistrée(s)";
@@ -755,8 +790,9 @@
     config.graph = { actif: graphPret && $("#graphActif").checked };
     config.accueil = lireAccueil();
     try {
-      const r = await api("/permanence/config", { method: "PUT", json: { config } });
+      const r = await api("/permanence/config", { method: "PUT", json: { config, si_version: configVersion } });
       config = appliquerConfig(r.config);
+      configVersion = r.updated_at || configVersion;
       $("#cfgMsg").textContent = "Enregistré ✓";
       setTimeout(() => { $("#cfgMsg").textContent = ""; }, 2500);
       rendreReglages(); rendrePlanning();
@@ -772,8 +808,9 @@
     clearTimeout(sauveEnCours);
     sauveEnCours = setTimeout(async () => {
       try {
-        const r = await api("/permanence/config", { method: "PUT", json: { config } });
+        const r = await api("/permanence/config", { method: "PUT", json: { config, si_version: configVersion } });
         config = appliquerConfig(r.config);
+        configVersion = r.updated_at || configVersion;
         toast("Réglages enregistrés.");
       } catch (e) { toast(e.message, true); }
     }, 700);
@@ -876,7 +913,13 @@
       // Une assistante sort d'office du tour : elle tient le comptoir, elle ne
       // peut pas être en même temps la permanence.
       if (champ === "assistante") majConseiller(cle, { assistante: e.target.checked, horsCycle: e.target.checked });
-      if (champ === "poids") majConseiller(cle, { poids: Math.max(0.1, Math.min(2, parseFloat(e.target.value) || 1)) });
+      if (champ === "poids") {
+        // Un « 0 » saisi ne doit pas devenir silencieusement 1 : on borne à
+        // [0.1, 2] et on réécrit la valeur retenue dans le champ.
+        const poids = Math.max(0.1, Math.min(2, parseFloat(e.target.value) || 1));
+        majConseiller(cle, { poids });
+        if (String(poids) !== e.target.value) e.target.value = poids;
+      }
       if (champ === "boite") majConseiller(cle, { boite: (e.target.value || "").trim().toLowerCase() });
       enregistrerConfigDifferee();
       if (champ !== "poids" && champ !== "boite") rendreConseillers();
@@ -965,6 +1008,7 @@
     $("#absList").addEventListener("click", async (e) => {
       const b = e.target.closest("[data-absdel]");
       if (!b) return;
+      if (!confirm("Supprimer cette absence ? Le conseiller redevient éligible sur la période à la prochaine génération.")) return;
       try {
         await api("/permanence/absences/" + encodeURIComponent(b.dataset.absdel), { method: "DELETE" });
         await chargerAbsences();
@@ -977,6 +1021,7 @@
     $("#rdvList").addEventListener("click", async (e) => {
       const b = e.target.closest("[data-rdv]");
       if (!b) return;
+      if (b.dataset.statut === "annule" && !confirm("Annuler ce rendez-vous ? Son créneau redevient réservable sur la page publique.")) return;
       try {
         await api("/rdv/" + encodeURIComponent(b.dataset.rdv) + "/statut", { method: "POST", json: { statut: b.dataset.statut } });
         await chargerRdv();
@@ -994,6 +1039,9 @@
       config.pvs.push({ id, nom, adresse: "", telephone: "", actif: true, creneaux: null });
       $("#pvNom").value = "";
       rendreReglages();
+      // Enregistré au fil de l'eau, comme les conseillers : un point de vente
+      // ajouté puis oublié ne doit pas disparaître à la fermeture de l'onglet.
+      enregistrerConfigDifferee();
     });
     $("#pvList").addEventListener("input", (e) => {
       const tr = e.target.closest("tr[data-pv]");
@@ -1002,12 +1050,14 @@
       if (!pv) return;
       const champ = e.target.dataset.pvchamp;
       pv[champ] = champ === "actif" ? e.target.checked : e.target.value;
+      enregistrerConfigDifferee();
     });
     $("#pvList").addEventListener("click", (e) => {
       const b = e.target.closest("[data-pvdel]");
       if (!b) return;
       if (!confirm("Retirer ce point de vente des réglages ? Le planning déjà publié n'est pas effacé.")) return;
       config.pvs = config.pvs.filter((p) => p.id !== b.dataset.pvdel);
+      enregistrerConfigDifferee();
       rendreReglages();
     });
     // Premier lancement : les trois points de vente de l'agence d'un clic.
@@ -1020,7 +1070,9 @@
       toast("Trois points de vente créés — cliquez sur « Enregistrer les réglages ».");
     });
     $("#creneauxPv").addEventListener("change", (e) => { creneauxPvSel = e.target.value; rendreReglages(); });
-    ["input", "change"].forEach((ev) => $("#creneauxList").addEventListener(ev, (e) => {
+    // Un seul écouteur : « input » part aussi sur les cases à cocher — les
+    // deux ensemble exécutaient tout en double à chaque frappe.
+    ["input"].forEach((ev) => $("#creneauxList").addEventListener(ev, (e) => {
       const tr = e.target.closest("tr[data-cr]");
       if (!tr || !e.target.dataset.crchamp) return;
       const i = parseInt(tr.dataset.cr, 10);
@@ -1069,7 +1121,7 @@
 
   async function rechargerPeriode() {
     try {
-      await Promise.all([chargerPlanning(), chargerAbsences()]);
+      await Promise.all([chargerPlanning(), chargerAbsences(), chargerRdv()]);
       rendrePlanning();
     } catch (e) { toast(e.message, true); }
   }
@@ -1102,7 +1154,9 @@
       }
     }
     btn.addEventListener("click", login);
-    [$("#gateEmail"), $("#gatePass")].forEach((el) => el.addEventListener("keydown", (e) => { if (e.key === "Enter") login(); }));
+    // Entrée passe par le même chemin que le clic : pas de double envoi
+    // pendant qu'une connexion est déjà en cours (bouton désactivé).
+    [$("#gateEmail"), $("#gatePass")].forEach((el) => el.addEventListener("keydown", (e) => { if (e.key === "Enter" && !btn.disabled) login(); }));
   }
   function afficherGate() {
     $("#app").hidden = true;

@@ -114,7 +114,10 @@
     out.accueil = normaliseAccueil(c.accueil);
     out.regles = Object.assign({}, REGLES_DEFAUT, c.regles || {});
     out.regles.feries = Array.isArray(out.regles.feries) ? out.regles.feries.filter((f) => /^\d{4}-\d{2}-\d{2}$/.test(f)) : [];
-    out.conseillers = (c.conseillers && typeof c.conseillers === "object") ? c.conseillers : {};
+    // Copie, comme le reste : une mutation de la config normalisée ne doit
+    // pas traverser vers l'objet d'origine.
+    out.conseillers = (c.conseillers && typeof c.conseillers === "object")
+      ? JSON.parse(JSON.stringify(c.conseillers)) : {};
     out.public = Object.assign({ slug: "", actif: false, message: "" }, c.public || {});
     return out;
   }
@@ -159,7 +162,9 @@
       .sort((x, y) => cmp(x.debut, y.debut)) : null;
     return {
       jours: jours && jours.length ? jours : ACCUEIL_DEFAUT.jours.slice(),
-      plages: plages ? plages : ACCUEIL_DEFAUT.plages.map((p) => Object.assign({}, p))
+      // Une liste vide (ou toute invalide) retombe sur le défaut — la MÊME
+      // règle que le serveur, sinon le tableau et l'agenda .ics divergent.
+      plages: plages && plages.length ? plages : ACCUEIL_DEFAUT.plages.map((p) => Object.assign({}, p))
     };
   }
   // Horaires d'accueil applicables à un point de vente (surcharge éventuelle).
@@ -327,7 +332,7 @@
         const m = raison(cle, j);
         if (m && m.indexOf("Absent") === 0) {
           return j === suivants[0]
-            ? "Absent le " + libelleJour(j) + " — il doit reprendre les contacts du week-end le lundi 9h"
+            ? "Absent le " + libelleJour(j) + " — il doit reprendre les contacts du week-end à la réouverture"
             : "Absent le " + libelleJour(j) + " — ne pourrait pas suivre ses rendez-vous du samedi";
         }
       }
@@ -367,7 +372,7 @@
                      — le passé sert à l'équité, les lignes figées sont gardées
        from, to    : bornes AAAA-MM-JJ de la période à (re)générer
        pvs         : ids des points de vente à générer (défaut : tous les actifs)
-     → { lignes, trous, compteurs, motifs }
+     → { lignes, trous, compteurs, conserves }
   */
   function genere(opts) {
     const config = normaliseConfig(opts.config);
@@ -420,7 +425,7 @@
     }
 
     const lignes = figes.map((l) => Object.assign({}, l, { fige: 1 }));
-    const trous = [], motifs = [];
+    const trous = [];
     // Occupation : « cle|date » -> nb de créneaux, « cle|date|creneau » -> pris.
     const occJour = new Map(), occSlot = new Set(), occSem = new Map();
     function noter(cle, date, creneau) {
@@ -429,6 +434,12 @@
       occSlot.add(cle + "|" + date + "|" + creneau);
     }
     lignes.forEach((l) => noter(String(l.cle).toLowerCase(), l.date, l.creneau));
+    // Les plafonds jour/semaine valent pour TOUT ce qui existe déjà : les
+    // lignes des semaines à cheval hors période, et celles des points de
+    // vente non régénérés. Sans ça, régénérer un demi-semaine ou un seul PV
+    // pouvait dépasser les plafonds (et poser deux permanences à la même
+    // heure sur deux adresses).
+    avant.concat(autresPv).forEach((l) => noter(String(l.cle).toLowerCase(), l.date, l.creneau));
 
     // Les créneaux à pourvoir, dans l'ordre où on les attribue. Le SAMEDI de
     // chaque semaine passe AVANT ses jours ouvrés : sinon les plafonds
@@ -456,7 +467,7 @@
     aPourvoir.forEach(({ date, pvId, cr, samedi }) => {
       const dejaLa = lignes.filter((l) => l.pv === pvId && l.date === date && l.creneau === cr.id);
       for (let k = dejaLa.length; k < cr.besoin; k++) {
-        const choisi = choisir({ pool, pvId, date, cr, cpt, occJour, occSem, occSlot, idx, regles, pris: lignes });
+        const choisi = choisir({ pool, pvId, date, cr, cpt, occJour, occSem, occSlot, idx, regles, pris: lignes, autres: autresPv });
         if (!choisi) {
           trous.push({ pv: pvId, date, creneau: cr.id, label: cr.label, debut: cr.debut, fin: cr.fin });
           break;                                 // inutile d'insister sur ce créneau
@@ -479,7 +490,7 @@
     });
 
     lignes.sort((a, b) => cmp(a.date + a.pv + a.debut, b.date + b.pv + b.debut));
-    return { lignes, trous, compteurs: cpt, motifs, conserves: autresPv };
+    return { lignes, trous, compteurs: cpt, conserves: autresPv };
   }
 
   // Le choix : parmi les conseillers éligibles, celui qui a le moins servi.
@@ -492,7 +503,7 @@
       if (occSlot.has(c.cle + "|" + date + "|" + cr.id)) return;                      // déjà sur ce créneau
       if ((occJour.get(c.cle + "|" + date) || 0) >= regles.maxParJour) return;        // plafond du jour
       if ((occSem.get(c.cle + "|" + semaineDe(date)) || 0) >= regles.maxParSemaine) return;
-      if (chevauche(ctx.pris, c.cle, date, cr)) return;                               // même heure ailleurs
+      if (chevauche(ctx.pris, c.cle, date, cr) || chevauche(ctx.autres, c.cle, date, cr)) return;   // même heure ailleurs
       if (idx.raison(c.cle, date)) return;                                            // absent ou en préavis
       if (samedi && idx.raisonSamedi(c.cle, date)) return;                            // pas dispo la semaine d'après
       candidats.push(c);

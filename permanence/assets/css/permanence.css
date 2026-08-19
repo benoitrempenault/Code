@@ -168,6 +168,10 @@ h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font
   border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; margin-bottom: 3px;
 }
 .physique.alerte { color: var(--warn); border-color: var(--warn); }
+/* ⚠ : le conseiller posé sur la case est devenu absent (absence saisie après
+   la publication) — la case crie jusqu'au remplacement ou à la regénération. */
+.pastille.conflit { border-color: var(--bad); color: var(--bad); }
+.pastille.conflit .ini { background: var(--bad); }
 .muted { color: var(--muted); }
 
 .ajout {
@@ -177,6 +181,10 @@ h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font
 .ajout:hover { border-color: var(--accent); color: var(--accent); }
 
 /* --------------------------- Listes et tableaux ------------------------- */
+/* Sur téléphone, chaque liste défile dans son propre cadre : sans ça, le
+   tableau Conseillers (9 colonnes) faisait défiler toute la page. */
+#conseillersList, #absList, #rdvList, #pvList, #creneauxList, #equiteBox, #equiteHisto { overflow-x: auto; }
+
 .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tbl th {
   text-align: left; color: var(--muted); font-size: 11.5px; font-weight: 500;

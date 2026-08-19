@@ -677,14 +677,21 @@ export function createApp(env) {
     const json = JSON.stringify(cfg);
     if (json.length > 200000) return err(c, 413, "Réglages trop volumineux.");
     const existe = await permConfigRow(ctx.agency.id);
+    // Verrou optimiste : le client envoie la version qu'il a lue. Si un autre
+    // onglet a écrit entre-temps, on refuse au lieu d'écraser en silence —
+    // les réglages partent en bloc, le dernier écrivain effacerait tout.
+    if (existe && b.si_version !== undefined && Number(b.si_version) !== Number(existe.updated_at)) {
+      return err(c, 409, "Les réglages ont été modifiés ailleurs (autre onglet ou autre poste) — rechargez la page avant de réenregistrer.");
+    }
+    const ts = now();
     if (existe) {
       await db.run("UPDATE perm_config SET slug = ?, data = ?, user_id = ?, updated_at = ? WHERE agency_id = ?",
-        [slug, json, ctx.user.id, now(), ctx.agency.id]);
+        [slug, json, ctx.user.id, ts, ctx.agency.id]);
     } else {
       await db.run("INSERT INTO perm_config (agency_id, slug, data, user_id, updated_at) VALUES (?, ?, ?, ?, ?)",
-        [ctx.agency.id, slug, json, ctx.user.id, now()]);
+        [ctx.agency.id, slug, json, ctx.user.id, ts]);
     }
-    return c.json({ ok: true, config: cfg });
+    return c.json({ ok: true, config: cfg, updated_at: ts });
   });
 
   // Test des accès Microsoft sur UNE boîte. Réservé à la direction : c'est un
@@ -697,6 +704,18 @@ export function createApp(env) {
     const b = await c.req.json().catch(() => null);
     const boite = PERM.propre(b && b.boite, 160).toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(boite)) return err(c, 400, "Adresse de boîte invalide.");
+    // On ne sonde que les boîtes déclarées dans l'onglet Conseillers : les
+    // accès Microsoft sont partagés par le serveur, pas par agence — sans ce
+    // garde-fou, un admin pourrait interroger n'importe quelle boîte du tenant.
+    const cfgTest = PERM.parseConfig(await permConfigRow(ctx.agency.id));
+    const declarees = new Set();
+    Object.entries(cfgTest.conseillers || {}).forEach(([cle, r]) => {
+      declarees.add(String(cle).toLowerCase());
+      if (r && r.boite) declarees.add(String(r.boite).toLowerCase());
+    });
+    if (!declarees.has(boite)) {
+      return err(c, 400, "Cette boîte n'est pas déclarée dans l'onglet Conseillers — renseignez-la d'abord (colonne Courrier ou Agenda métier).");
+    }
     const debut = PERM.parisIso(now());
     const fin = PERM.parisIso(now() + 7 * 86400);
     const r = await GRAPH.diagnostic(env, boite, debut, fin, now());
@@ -869,18 +888,24 @@ export function createApp(env) {
   // Un agenda ne peut pas envoyer d'en-tête d'authentification : le lien
   // porte donc une signature HMAC (illisible, révocable en changeant le
   // secret) au lieu de la session.
-  const icsSig = async (agencyId, cle) => (await hmacHex(env.SESSION_SECRET || "dev", "ics:" + agencyId + ":" + cle)).slice(0, 32);
+  // Pas de secret de repli : un lien signé avec « dev » serait forgeable par
+  // n'importe qui, et il donne le planning + les coordonnées des clients.
+  // Sans SESSION_SECRET, on refuse de signer et de servir — bruyamment.
+  const icsSig = async (agencyId, cle) => {
+    if (!env.SESSION_SECRET) throw new Error("SESSION_SECRET manquant : liens d'agenda désactivés.");
+    return (await hmacHex(env.SESSION_SECRET, "ics:" + agencyId + ":" + cle)).slice(0, 32);
+  };
 
   app.get("/permanence/liens-agenda", async (c) => {
     const ctx = await sessionFrom(c);
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
     const moi = String(ctx.user.email || "").toLowerCase();
     const base = new URL(c.req.url).origin + "/permanence/agenda.ics";
-    return c.json({
-      moi: base + "?ag=" + ctx.agency.id + "&c=" + encodeURIComponent(moi) + "&sig=" + (await icsSig(ctx.agency.id, moi)),
-      agence: base + "?ag=" + ctx.agency.id + "&c=*&sig=" + (await icsSig(ctx.agency.id, "*")),
-      cle: moi
-    });
+    // Le flux « toute l'agence » embarque les coordonnées des clients de tous
+    // les rendez-vous : il n'est remis qu'à la direction.
+    const out = { moi: base + "?ag=" + ctx.agency.id + "&c=" + encodeURIComponent(moi) + "&sig=" + (await icsSig(ctx.agency.id, moi)), cle: moi };
+    if (isAgencyAdmin(ctx)) out.agence = base + "?ag=" + ctx.agency.id + "&c=*&sig=" + (await icsSig(ctx.agency.id, "*"));
+    return c.json(out);
   });
 
   // Lien d'abonnement d'un conseiller donné (la direction distribue les
@@ -888,8 +913,11 @@ export function createApp(env) {
   app.get("/permanence/liens-agenda/:cle", async (c) => {
     const ctx = await sessionFrom(c);
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    // Le lien d'un autre conseiller (son planning, ses rendez-vous, donc des
+    // coordonnées de clients) ne se distribue pas soi-même : direction.
+    if (!isAgencyAdmin(ctx)) return err(c, 403, "Réservé à la direction de l'agence.");
     const cle = PERM.cleConseiller(decodeURIComponent(c.req.param("cle")));
-    if (!cle) return err(c, 400, "Conseiller manquant.");
+    if (!cle || cle === "*") return err(c, 400, "Conseiller manquant.");
     const base = new URL(c.req.url).origin + "/permanence/agenda.ics";
     return c.json({ lien: base + "?ag=" + ctx.agency.id + "&c=" + encodeURIComponent(cle) + "&sig=" + (await icsSig(ctx.agency.id, cle)) });
   });
@@ -899,10 +927,16 @@ export function createApp(env) {
   // d'absences pour toute la fenêtre.
   async function presencesPhysiques(agencyId, config, perms, from, to) {
     const out = new Map();
-    const assistantes = Object.entries(config.conseillers || {})
+    let assistantes = Object.entries(config.conseillers || {})
       .filter(([, r]) => r && r.assistante && r.actif !== false)
       .map(([cle, r]) => ({ cle, pv: r.pv || "" }));
     if (!assistantes.length || !(perms || []).length) return out;
+    // Même règle que l'app : une assistante retirée de l'annuaire ne compte
+    // plus, même si son réglage traîne encore dans la config.
+    const annu = await db.all("SELECT nom, email FROM annuaire WHERE agency_id = ? AND type = 'conseiller'", [agencyId]);
+    const connues = new Set(annu.map((a) => PERM.cleConseiller(a.email || a.nom)));
+    assistantes = assistantes.filter((a) => connues.has(a.cle));
+    if (!assistantes.length) return out;
     const abs = await db.all(
       "SELECT cle, debut, fin FROM perm_absences WHERE agency_id = ? AND fin >= ? AND debut <= ?",
       [agencyId, from, to]);
@@ -989,15 +1023,21 @@ export function createApp(env) {
     if (!row) return err(c, 404, "Prise de rendez-vous indisponible.");
     const config = PERM.parseConfig(row);
     if (!config.public.actif) return err(c, 403, "Prise de rendez-vous fermée.");
-    const agency = await db.get("SELECT name FROM agencies WHERE id = ?", [row.agency_id]);
+    const agency = await db.get("SELECT id, name, status, trial_ends_at FROM agencies WHERE id = ?", [row.agency_id]);
+    // Un abonnement coupé ferme aussi la vitrine : sinon la page continuerait
+    // d'encaisser des demandes que personne ne traite.
+    if (!agencyOpen(agency)) return err(c, 403, "Prise de rendez-vous fermée.");
     const maintenant = PERM.parisIso(now() + (parseInt(config.regles.delaiRdvHeures, 10) || 0) * 3600);
     const from = maintenant.slice(0, 10);
     const to = isoJour(now() + 45 * 86400);
     const pvFiltre = PERM.propre(c.req.query("pv"), 40);
-    const perms = await db.all(
+    let perms = await db.all(
       "SELECT pv, date, creneau, debut, fin, cle, nom FROM permanences WHERE agency_id = ? AND date >= ? AND date <= ?" +
       (pvFiltre ? " AND pv = ?" : "") + " ORDER BY date, debut",
       pvFiltre ? [row.agency_id, from, to, pvFiltre] : [row.agency_id, from, to]);
+    // Un point de vente désactivé disparaît de la vitrine, planning compris.
+    const pvOuverts = new Set((config.pvs || []).filter((p) => p.actif !== false).map((p) => p.id));
+    perms = perms.filter((p) => pvOuverts.has(p.pv));
     const pris = await db.all(
       "SELECT date, debut, cle, statut FROM rdv WHERE agency_id = ? AND date >= ? AND date <= ?", [row.agency_id, from, to]);
     let creneaux = PERM.creneauxRdv(config, perms, pris, maintenant);
@@ -1034,23 +1074,39 @@ export function createApp(env) {
     const config = PERM.parseConfig(row);
     if (!config.public.actif) return err(c, 403, "Prise de rendez-vous fermée.");
     const agencyId = row.agency_id;
+    const agRow = await db.get("SELECT id, status, trial_ends_at FROM agencies WHERE id = ?", [agencyId]);
+    if (!agencyOpen(agRow)) return err(c, 403, "Prise de rendez-vous fermée.");
 
     const date = String((b && b.date) || ""), debut = String((b && b.debut) || "");
     const cle = PERM.cleConseiller(b && b.cle), pv = PERM.propre(b && b.pv, 40);
     if (!PERM.estDate(date) || !PERM.estHeure(debut) || !cle || !pv) return err(c, 400, "Créneau invalide.");
+    // Point de vente désactivé = plus réservable, même si son planning existe.
+    if (![...(config.pvs || [])].some((x) => x.id === pv && x.actif !== false)) return err(c, 404, "Point de vente indisponible.");
     const nom = PERM.propre(b && b.client_nom), tel = PERM.propre(b && b.client_tel, 40);
     const mail = PERM.propre(b && b.client_email).toLowerCase();
     if (nom.length < 2) return err(c, 400, "Indiquez votre nom.");
+    // Un téléphone doit ressembler à un téléphone (au moins 8 chiffres) :
+    // sans ce contrôle, un numéro fantaisiste différent à chaque demande
+    // contournait la limite quotidienne et permettait de saturer le planning.
+    if (tel && String(tel).replace(/\D/g, "").length < 8) return err(c, 400, "Numéro de téléphone invalide.");
     if (!tel && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return err(c, 400, "Indiquez un téléphone ou un e-mail pour être rappelé.");
     if (mail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return err(c, 400, "Adresse e-mail invalide.");
 
-    // Garde-fous : rafale sur l'agence, et réservations en série d'un même visiteur.
+    // Garde-fous : rafale sur l'agence, et réservations en série d'un même
+    // visiteur — comptées sur l'e-mail ET sur le téléphone, sinon l'un des
+    // deux suffit à passer sous le radar.
     const heure = await db.get("SELECT COUNT(*) AS n FROM rdv WHERE agency_id = ? AND created_at > ?", [agencyId, now() - 3600]);
     if ((heure?.n || 0) >= RDV_MAX_PAR_HEURE) return err(c, 429, "Trop de demandes en ce moment — réessayez dans quelques minutes.");
+    const serie = "Vous avez déjà plusieurs rendez-vous en attente — l'agence vous rappelle.";
     if (mail) {
       const jour = await db.get("SELECT COUNT(*) AS n FROM rdv WHERE agency_id = ? AND client_email = ? AND created_at > ?",
         [agencyId, mail, now() - 86400]);
-      if ((jour?.n || 0) >= RDV_MAX_PAR_CLIENT_JOUR) return err(c, 429, "Vous avez déjà plusieurs rendez-vous en attente — l'agence vous rappelle.");
+      if ((jour?.n || 0) >= RDV_MAX_PAR_CLIENT_JOUR) return err(c, 429, serie);
+    }
+    if (tel) {
+      const jourTel = await db.get("SELECT COUNT(*) AS n FROM rdv WHERE agency_id = ? AND client_tel = ? AND created_at > ?",
+        [agencyId, tel, now() - 86400]);
+      if ((jourTel?.n || 0) >= RDV_MAX_PAR_CLIENT_JOUR) return err(c, 429, serie);
     }
 
     // Le créneau doit exister dans le planning ET être encore libre : on le
@@ -1066,11 +1122,18 @@ export function createApp(env) {
 
     const objets = ["estimation", "achat", "location", "gestion", "autre"];
     const id = randId("rd");
-    await db.run(
-      "INSERT INTO rdv (id, agency_id, pv, date, debut, fin, cle, nom, email, objet, client_nom, client_email, client_tel, bien, message, statut, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'demande', ?, ?)",
-      [id, agencyId, pv, date, debut, libre.fin, cle, PERM.propre(perm.nom), PERM.propre(perm.email),
-        objets.includes(String(b && b.objet)) ? b.objet : "autre",
-        nom, mail, tel, PERM.propre(b && b.bien, 200), PERM.propre(b && b.message, 1000), now(), now()]);
+    try {
+      await db.run(
+        "INSERT INTO rdv (id, agency_id, pv, date, debut, fin, cle, nom, email, objet, client_nom, client_email, client_tel, bien, message, statut, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'demande', ?, ?)",
+        [id, agencyId, pv, date, debut, libre.fin, cle, PERM.propre(perm.nom), PERM.propre(perm.email),
+          objets.includes(String(b && b.objet)) ? b.objet : "autre",
+          nom, mail, tel, PERM.propre(b && b.bien, 200), PERM.propre(b && b.message, 1000), now(), now()]);
+    } catch (e) {
+      // Deux visiteurs sur le même créneau à la même seconde : le contrôle
+      // ci-dessus les a laissés passer tous les deux, l'index unique tranche.
+      // Le perdant mérite un vrai message, pas une erreur 500.
+      return err(c, 409, "Ce créneau vient d'être pris — choisissez-en un autre.");
+    }
 
     // Le conseiller de permanence est prévenu tout de suite : le rendez-vous
     // apparaît aussi dans son agenda au prochain rafraîchissement du flux.

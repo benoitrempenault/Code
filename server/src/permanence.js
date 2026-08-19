@@ -168,7 +168,7 @@ export function parisIso(epochSec) {
 
 /* -------------------------------- iCalendar ------------------------------ */
 const echap = (s) => String(s == null ? "" : s)
-  .replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+  .replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r\n|[\r\n]/g, "\\n");
 const stamp = (epochSec) => new Date((epochSec || 0) * 1000).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 
 // Flux iCalendar abonnable : Outlook / Google Agenda / Apple Calendrier le
