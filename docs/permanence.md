@@ -162,6 +162,48 @@ prénom (`Adeline Lebon` → `adeline@…`), pour le domaine demandé et mémori
 l'équipe y met ses rendez-vous. Ce qui arrive par invitation sur la messagerie du réseau
 (réunion, formation) reste invisible pour l'outil — c'est à quoi sert l'onglet Absences.
 
+### L'accueil des assistantes et la présence physique
+
+Le tour de permanence répartit **qui prend les contacts**. L'accueil du point de vente, lui,
+est tenu par les assistantes. Là où elles ne sont pas, c'est le conseiller de permanence qui
+doit être **physiquement au comptoir** — et c'est une information qui n'a de valeur que si
+elle arrive dans son agenda.
+
+**Le réglage** (Réglages → « Accueil tenu par les assistantes ») : les jours et les tranches
+d'accueil, par défaut lundi-vendredi 9h-12h et 14h-18h. Dans l'onglet Conseillers, la colonne
+**Accueil** désigne les assistantes ; elles sortent d'office du tour (elles tiennent le
+comptoir, elles ne peuvent pas être en même temps la permanence) et ne comptent pas dans
+l'équité.
+
+**Ce que ça donne**, avec les horaires par défaut :
+
+| Créneau | Assistante présente | Assistante absente |
+|---|---|---|
+| 9h-12h | couvert | **physique 9h → 12h** |
+| 12h-14h | **physique 12h → 14h** | **physique 12h → 14h** |
+| 14h-17h | couvert | **physique 14h → 17h** |
+| 17h-19h | **physique 18h → 19h** | **physique 17h → 19h** |
+| Samedi 9h-12h | **physique** (accueil fermé) | idem |
+
+Autrement dit : la permanence du midi et la fin de journée sont physiques **tous les jours**,
+et l'absence d'une assistante rend physique **toute la journée**.
+
+**Où ça se voit** : un repère 🏠 dans la case du planning (orange quand c'est une absence
+d'assistante), une mention sur la feuille imprimée, et dans l'agenda un titre qui change —
+« Permanence **physique** — Saint-Médard (assistante absente) », les heures exactes dans la
+description.
+
+**Rien n'est stocké** : la présence physique se recalcule à partir des horaires d'accueil et
+des absences. Corriger un horaire d'accueil met à jour le tableau **et les agendas** sans
+avoir à regénérer le tour. Et **sans aucune assistante désignée sur un point de vente, la
+règle est inactive** — rien ne change pour qui ne s'en sert pas.
+
+**Relever les absences dans Outlook** (onglet Absences → « ↻ Relever dans Outlook ») : lit ce
+qui est marqué **« Absence du bureau »** dans les agendas des assistantes et le **propose**.
+Un rendez-vous ordinaire (« occupé ») n'est pas une absence : l'assistante est là. Rien n'est
+enregistré sans clic — une absence d'assistante bascule tout un point de vente en présence
+physique, ça se valide à l'œil. Demande les accès Microsoft ci-dessous.
+
 ### Lecture des agendas (Microsoft Graph) — livré éteint
 
 `server/src/graph.js` peut demander à Microsoft, avant d'afficher la page publique, si le
@@ -176,6 +218,13 @@ la prise de rendez-vous fonctionne exactement comme avant :
    (`GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, via `wrangler secret put`) ;
 2. l'agence a coché **« Tenir compte des agendas Outlook »** dans Réglages. Sans les secrets, la case
    est grisée : `GET /permanence/config` renvoie `graphPret: false` et l'app le dit en clair.
+
+**Pour valider l'habilitation sur un seul agenda — le vôtre — avant de l'ouvrir à l'équipe** :
+Réglages → « Tester la lecture de cet agenda ». Le bouton interroge Microsoft sur la boîte
+saisie et **dit ce qui rate** au lieu de retomber silencieusement : secrets manquants, jeton
+refusé (secret expiré ?), boîte inconnue du tenant, ou agenda hors de la portée accordée.
+En cas de succès il affiche le nombre de plages occupées lues. Ce test ne dépend pas de
+l'interrupteur — on teste justement avant de l'allumer.
 
 **En cas de pépin, on retombe sur le comportement d'avant** (jeton refusé, Graph indisponible,
 boîte hors périmètre) : la fonction rend une carte vide et tous les créneaux restent proposés.
@@ -193,6 +242,8 @@ permissions s'additionnent, l'application verrait alors tout le tenant.
 | Route | Qui | Rôle |
 |---|---|---|
 | `GET/PUT /permanence/config` | session (PUT : admin agence) | réglages du tour |
+| `POST /permanence/test-agenda` | admin agence | test des accès Microsoft sur une boîte |
+| `POST /permanence/absences-assistantes` | admin agence | absences « Absence du bureau » relevées dans Outlook (propositions) |
 | `GET/PUT/DELETE /permanence/absences[/:id]` | session | absences déclarées |
 | `GET/PUT /permanence/planning` | session | lire / publier une période |
 | `PUT /permanence/planning/ligne`, `DELETE /permanence/planning/:id` | session | retoucher une case |
@@ -221,9 +272,9 @@ permet de regénérer et de comparer plusieurs versions avant de publier, sans c
    créer les points de vente (Saint-Médard, Caudéran, Blanquefort…), régler le besoin par
    créneau, choisir l'adresse publique.
 3. Onglet **Conseillers** : « Reprendre l'annuaire » puis rattacher chacun à son point de
-   vente. Sortir du cycle ceux qui n'y entrent pas (direction, gestion locative). Si l'agenda
-   métier est sur un autre domaine, « ✦ Pré-remplir l'agenda métier » puis corriger les cas
-   particuliers.
+   vente. Sortir du cycle ceux qui n'y entrent pas (direction, gestion locative). Cocher
+   **Accueil** pour les assistantes. Si l'agenda métier est sur un autre domaine,
+   « ✦ Pré-remplir l'agenda métier » puis corriger les cas particuliers.
 4. Onglet **Absences** : saisir les congés connus.
 5. Onglet **Planning** : « Générer le tour » sur 4 semaines, vérifier les créneaux non
    couverts, retoucher, imprimer.
@@ -239,3 +290,6 @@ permet de regénérer et de comparer plusieurs versions avant de publier, sans c
   générés. Les rendez-vous déjà pris ne sont pas supprimés : si le conseiller change,
   le rendez-vous reste au nom de celui qui l'a reçu — à traiter à la main.
 - Les jours fériés se saisissent dans Réglages (« Jours fermés »), une date par ligne.
+- **Une assistante rattachée à un point de vente couvre CE point de vente**, pas les autres :
+  si une assistante circule entre deux adresses, déclarez-la sur celle où elle tient l'accueil
+  et saisissez ses journées ailleurs comme des absences.

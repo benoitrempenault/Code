@@ -17,6 +17,9 @@
    - la REPRISE DES CONTACTS suit le créneau de fermeture : celui du 17h-19h
      traite les demandes arrivées dans la nuit, celui du samedi matin garde
      tout le week-end jusqu'au lundi 9h ;
+   - l'ACCUEIL est tenu par les assistantes : sur les tranches où aucune
+     d'elles n'est là (pause du midi, après leur départ, jour d'absence), le
+     conseiller de permanence doit être PHYSIQUEMENT au point de vente ;
    - on peut sortir un conseiller du cycle (hors cycle) sans le supprimer ;
    - le tour est ÉQUITABLE : à chaque attribution, c'est le conseiller le
      moins servi (en volume pondéré, puis sur ce créneau, puis le plus
@@ -66,6 +69,14 @@
     { id: "samedi", label: "Samedi 9h – 12h", debut: "09:00", fin: "12:00", jours: [6], besoin: 1, samedi: true, reprise: "weekend" }
   ];
 
+  // L'accueil tenu par les assistantes : les jours et les tranches où l'une
+  // d'elles est au comptoir. Tout ce qui tombe en dehors (midi, fin de
+  // journée, samedi) exige la présence physique du conseiller de permanence.
+  const ACCUEIL_DEFAUT = {
+    jours: [1, 2, 3, 4, 5],
+    plages: [{ debut: "09:00", fin: "12:00" }, { debut: "14:00", fin: "18:00" }]
+  };
+
   const REGLES_DEFAUT = {
     preavisJours: 3,        // jours d'ouverture bloqués AVANT une absence longue
     seuilAbsenceJours: 3,   // longueur (week-end compris) à partir de laquelle le préavis s'applique
@@ -81,7 +92,8 @@
     pvs: [],                // { id, nom, adresse, telephone, actif, creneaux? }
     creneaux: CRENEAUX_DEFAUT,
     regles: REGLES_DEFAUT,
-    conseillers: {},        // cle -> { pv, actif, horsCycle, poids, telephone }
+    accueil: ACCUEIL_DEFAUT,// horaires d'accueil tenus par les assistantes
+    conseillers: {},        // cle -> { pv, actif, horsCycle, assistante, poids, telephone }
     public: { slug: "", actif: false, message: "" }
   };
 
@@ -94,9 +106,12 @@
       adresse: String(p.adresse || "").slice(0, 200),
       telephone: String(p.telephone || "").slice(0, 40),
       actif: p.actif !== false,
-      creneaux: Array.isArray(p.creneaux) ? p.creneaux.map(normaliseCreneau) : null
+      creneaux: Array.isArray(p.creneaux) ? p.creneaux.map(normaliseCreneau) : null,
+      // null = l'accueil général s'applique ; un objet = horaires propres au PV.
+      accueil: p.accueil ? normaliseAccueil(p.accueil) : null
     })).filter((p) => p.id) : [];
     out.creneaux = (Array.isArray(c.creneaux) && c.creneaux.length ? c.creneaux : CRENEAUX_DEFAUT).map(normaliseCreneau);
+    out.accueil = normaliseAccueil(c.accueil);
     out.regles = Object.assign({}, REGLES_DEFAUT, c.regles || {});
     out.regles.feries = Array.isArray(out.regles.feries) ? out.regles.feries.filter((f) => /^\d{4}-\d{2}-\d{2}$/.test(f)) : [];
     out.conseillers = (c.conseillers && typeof c.conseillers === "object") ? c.conseillers : {};
@@ -129,6 +144,69 @@
   function creneauxDe(config, pvId) {
     const pv = (config.pvs || []).find((p) => p.id === pvId);
     return (pv && pv.creneaux && pv.creneaux.length ? pv.creneaux : config.creneaux).map(normaliseCreneau);
+  }
+
+  /* ------------------------- Accueil et présence physique ------------------ */
+  function normaliseAccueil(a) {
+    a = a && typeof a === "object" ? a : {};
+    const jours = Array.isArray(a.jours) ? a.jours.map(Number).filter((j) => j >= 0 && j <= 6) : null;
+    const plages = Array.isArray(a.plages) ? a.plages
+      .map((p) => ({
+        debut: /^\d{2}:\d{2}$/.test(p && p.debut) ? p.debut : "",
+        fin: /^\d{2}:\d{2}$/.test(p && p.fin) ? p.fin : ""
+      }))
+      .filter((p) => p.debut && p.fin && p.fin > p.debut)
+      .sort((x, y) => cmp(x.debut, y.debut)) : null;
+    return {
+      jours: jours && jours.length ? jours : ACCUEIL_DEFAUT.jours.slice(),
+      plages: plages ? plages : ACCUEIL_DEFAUT.plages.map((p) => Object.assign({}, p))
+    };
+  }
+  // Horaires d'accueil applicables à un point de vente (surcharge éventuelle).
+  function accueilDe(config, pvId) {
+    const pv = (config.pvs || []).find((p) => p.id === pvId);
+    return normaliseAccueil((pv && pv.accueil) || config.accueil);
+  }
+
+  /*
+     presencePhysique(cr, accueil, jour, assistantes) → null | { plages, motif, debut, fin }
+
+     Les tranches du créneau que l'accueil NE couvre PAS : c'est là que le
+     conseiller de permanence doit être au point de vente, porte ouverte.
+     Trois cas, et le motif le dit dans l'agenda :
+       - le point de vente n'a aucune assistante déclarée → null (règle
+         inactive : rien ne change pour une agence qui ne s'en sert pas) ;
+       - une assistante est là → seules les tranches hors de ses horaires
+         comptent (le 17h-19h devient « physique de 18h à 19h ») ;
+       - aucune n'est là ce jour-là → tout le créneau est physique.
+  */
+  function presencePhysique(cr, accueil, jour, assistantes) {
+    const total = (assistantes && assistantes.total) || 0;
+    if (!total) return null;
+    const presentes = (assistantes && assistantes.presentes) || 0;
+    const jourAccueil = accueil.jours.indexOf(jour) >= 0;
+    const couvre = (!presentes || !jourAccueil) ? []
+      : accueil.plages.map((p) => [enMinutes(p.debut), enMinutes(p.fin)]);
+    const debut = enMinutes(cr.debut), fin = enMinutes(cr.fin);
+    const trous = [];
+    let t = debut;
+    couvre.forEach(([a, b]) => {
+      if (b <= t || a >= fin) return;
+      if (a > t) trous.push([t, Math.min(a, fin)]);
+      if (b > t) t = b;
+    });
+    if (t < fin) trous.push([t, fin]);
+    const plages = trous.filter(([a, b]) => b > a).map(([a, b]) => ({ debut: enHeure(a), fin: enHeure(b) }));
+    if (!plages.length) return null;
+    const motif = !jourAccueil ? "accueil fermé"
+      : (presentes ? "hors horaires d'accueil" : "assistante absente");
+    return { plages, motif, debut: plages[0].debut, fin: plages[plages.length - 1].fin };
+  }
+  // Phrase courte pour l'agenda, le tableau et l'impression.
+  function textePhysique(ph) {
+    if (!ph) return "";
+    const quand = ph.plages.map((p) => p.debut.replace(":", "h") + " → " + p.fin.replace(":", "h")).join(", ");
+    return "Présence physique " + quand + " (" + ph.motif + ")";
   }
 
   /* ------------------------------ Absences -------------------------------- */
@@ -299,7 +377,7 @@
     const pvIds = (opts.pvs && opts.pvs.length ? opts.pvs : config.pvs.filter((p) => p.actif).map((p) => p.id));
 
     // Conseillers retenus : actifs, dans le cycle, rattachés à un PV généré.
-    const pool = (opts.conseillers || [])
+    const tous = (opts.conseillers || [])
       .map((c) => ({
         cle: String(c.cle || "").toLowerCase(),
         nom: c.nom || c.cle || "",
@@ -308,9 +386,13 @@
         pv: c.pv || "",
         poids: Math.max(0.1, Number(c.poids) || 1),
         actif: c.actif !== false,
-        horsCycle: !!c.horsCycle
-      }))
-      .filter((c) => c.cle && c.actif && !c.horsCycle);
+        horsCycle: !!c.horsCycle,
+        assistante: !!c.assistante
+      }));
+    // Les assistantes tiennent l'accueil : elles ne prennent pas de
+    // permanence, mais leur présence décide de qui doit être physiquement là.
+    const assistantes = tous.filter((c) => c.cle && c.actif && c.assistante);
+    const pool = tous.filter((c) => c.cle && c.actif && !c.horsCycle && !c.assistante);
 
     // Historique : hors période = équité ; dans la période = lignes figées à garder.
     const hist = (opts.historique || []).filter((l) => l && l.date && l.cle);
@@ -322,6 +404,20 @@
 
     const cpt = compteurs(avant.concat(figes));
     pool.forEach((c) => { if (!cpt[c.cle]) cpt[c.cle] = compteursVides(); });
+
+    // Assistantes du point de vente présentes à une date : celles qui ne sont
+    // pas déclarées absentes. Le préavis ne les concerne pas — il n'a de sens
+    // que pour le tour de permanence.
+    const cacheAccueil = new Map();
+    function accueilLe(pvId, date) {
+      const k = pvId + "|" + date;
+      if (cacheAccueil.has(k)) return cacheAccueil.get(k);
+      const miennes = assistantes.filter((a) => a.pv === pvId);
+      const presentes = miennes.filter((a) => idx.raison(a.cle, date).indexOf("Absent") !== 0).length;
+      const v = { total: miennes.length, presentes };
+      cacheAccueil.set(k, v);
+      return v;
+    }
 
     const lignes = figes.map((l) => Object.assign({}, l, { fige: 1 }));
     const trous = [], motifs = [];
@@ -365,10 +461,13 @@
           trous.push({ pv: pvId, date, creneau: cr.id, label: cr.label, debut: cr.debut, fin: cr.fin });
           break;                                 // inutile d'insister sur ce créneau
         }
+        const ph = presencePhysique(cr, accueilDe(config, pvId), dow(date), accueilLe(pvId, date));
         lignes.push({
           pv: pvId, date, creneau: cr.id, debut: cr.debut, fin: cr.fin,
           cle: choisi.cle, nom: choisi.nom, email: choisi.email, telephone: choisi.telephone,
-          fige: 0, samedi, reprise: cr.reprise || ""
+          fige: 0, samedi, reprise: cr.reprise || "",
+          // Présence exigée au point de vente : « de quand à quand », et pourquoi.
+          physique: ph ? ph.plages : null, physiqueMotif: ph ? ph.motif : ""
         });
         noter(choisi.cle, date, cr.id);
         const c = cpt[choisi.cle];
@@ -475,11 +574,11 @@
       const x = cpt[k] || compteursVides();
       return {
         cle: k, nom: c.nom || k, pv: c.pv || "", poids: Math.max(0.1, Number(c.poids) || 1),
-        horsCycle: !!c.horsCycle, actif: c.actif !== false,
+        horsCycle: !!c.horsCycle, actif: c.actif !== false, assistante: !!c.assistante,
         total: x.total, samedi: x.samedi, parCreneau: x.parCreneau, dernier: x.dernier
       };
     });
-    const dansLeJeu = rows.filter((r) => r.actif && !r.horsCycle);
+    const dansLeJeu = rows.filter((r) => r.actif && !r.horsCycle && !r.assistante);
     const poids = dansLeJeu.reduce((s, r) => s + r.poids, 0) || 1;
     const moyenne = dansLeJeu.reduce((s, r) => s + r.total, 0) / poids;
     const moySam = dansLeJeu.reduce((s, r) => s + r.samedi, 0) / poids;
@@ -500,6 +599,7 @@
   G.Permanence = {
     CONFIG_DEFAUT, CRENEAUX_DEFAUT, REGLES_DEFAUT,
     normaliseConfig, normaliseCreneau, creneauxDe,
+    ACCUEIL_DEFAUT, normaliseAccueil, accueilDe, presencePhysique, textePhysique,
     addDays, toISO, dow, joursEntre, lundi, semaineDe, libelleJour, JOURS_LONGS, JOURS_COURTS,
     blocsAbsence, indispoIndex, compteurs, equite,
     genere, creneauxRdv, enMinutes, enHeure, repriseTexte, LIBELLE_REPRISE

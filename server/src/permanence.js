@@ -25,8 +25,16 @@ export const REGLES_DEFAUT = {
   maxParJour: 2, maxParSemaine: 5, dureeRdv: 45, delaiRdvHeures: 24, feries: []
 };
 
+// L'accueil tenu par les assistantes. Ce qui tombe en dehors (midi, fin de
+// journée, samedi, jour d'absence) exige la présence physique du conseiller
+// de permanence — l'agenda le dit, sinon personne ne le sait.
+export const ACCUEIL_DEFAUT = {
+  jours: [1, 2, 3, 4, 5],
+  plages: [{ debut: "09:00", fin: "12:00" }, { debut: "14:00", fin: "18:00" }]
+};
+
 export const CONFIG_DEFAUT = {
-  pvs: [], creneaux: CRENEAUX_DEFAUT, regles: REGLES_DEFAUT,
+  pvs: [], creneaux: CRENEAUX_DEFAUT, regles: REGLES_DEFAUT, accueil: ACCUEIL_DEFAUT,
   conseillers: {}, public: { slug: "", actif: false, message: "" }
 };
 
@@ -65,6 +73,53 @@ export const LIBELLE_REPRISE = {
 export function creneauxDe(config, pvId) {
   const pv = (config.pvs || []).find((p) => p.id === pvId);
   return (pv && Array.isArray(pv.creneaux) && pv.creneaux.length) ? pv.creneaux : config.creneaux;
+}
+
+/* ---------------------- Accueil et présence physique --------------------- */
+// Même règle que permanence/assets/js/planning.js — c'est là qu'elle est
+// écrite en premier ; on la redit ici parce que l'agenda part du serveur.
+export function accueilDe(config, pvId) {
+  const pv = (config.pvs || []).find((p) => p.id === pvId);
+  const a = (pv && pv.accueil) || config.accueil || ACCUEIL_DEFAUT;
+  const jours = Array.isArray(a.jours) ? a.jours.map(Number).filter((j) => j >= 0 && j <= 6) : [];
+  const plages = (Array.isArray(a.plages) ? a.plages : [])
+    .filter((x) => estHeure(x && x.debut) && estHeure(x && x.fin) && x.fin > x.debut)
+    .map((x) => ({ debut: x.debut, fin: x.fin }))
+    .sort((x, y) => (x.debut < y.debut ? -1 : 1));
+  return {
+    jours: jours.length ? jours : ACCUEIL_DEFAUT.jours.slice(),
+    plages: plages.length ? plages : ACCUEIL_DEFAUT.plages.map((x) => Object.assign({}, x))
+  };
+}
+
+// null = rien à signaler (pas d'assistante déclarée, ou créneau entièrement
+// couvert). Sinon : les tranches où le conseiller doit être au comptoir.
+export function presencePhysique(creneau, accueil, jour, assistantes) {
+  const total = (assistantes && assistantes.total) || 0;
+  if (!total) return null;
+  const presentes = (assistantes && assistantes.presentes) || 0;
+  const jourAccueil = accueil.jours.indexOf(jour) >= 0;
+  const couvre = (!presentes || !jourAccueil) ? []
+    : accueil.plages.map((x) => [enMinutes(x.debut), enMinutes(x.fin)]);
+  const debut = enMinutes(creneau.debut), fin = enMinutes(creneau.fin);
+  const trous = [];
+  let t = debut;
+  for (const [a, b] of couvre) {
+    if (b <= t || a >= fin) continue;
+    if (a > t) trous.push([t, Math.min(a, fin)]);
+    if (b > t) t = b;
+  }
+  if (t < fin) trous.push([t, fin]);
+  const plages = trous.filter(([a, b]) => b > a).map(([a, b]) => ({ debut: enHeure(a), fin: enHeure(b) }));
+  if (!plages.length) return null;
+  const motif = !jourAccueil ? "accueil fermé" : (presentes ? "hors horaires d'accueil" : "assistante absente");
+  return { plages, motif, debut: plages[0].debut, fin: plages[plages.length - 1].fin };
+}
+
+export function textePhysique(ph) {
+  if (!ph) return "";
+  return "Présence physique " + ph.plages.map((x) => x.debut.replace(":", "h") + " → " + x.fin.replace(":", "h")).join(", ")
+    + " (" + ph.motif + ")";
 }
 
 /* --------------------------- Créneaux de rendez-vous --------------------- */
@@ -119,7 +174,10 @@ const stamp = (epochSec) => new Date((epochSec || 0) * 1000).toISOString().repla
 // Flux iCalendar abonnable : Outlook / Google Agenda / Apple Calendrier le
 // rafraîchissent tout seuls. On y met les permanences ET les rendez-vous
 // pris en ligne, pour que le conseiller n'ait qu'un seul agenda à regarder.
-export function fluxIcs({ nom, permanences, rdv, pvNoms, reprises, maintenant }) {
+// `physiques` : Map("pv|date|creneau" -> presencePhysique(...)), calculee par
+// la route. Quand une permanence exige la presence au comptoir, l'agenda le
+// dit dans le titre — c'est le seul endroit que le conseiller regarde.
+export function fluxIcs({ nom, permanences, rdv, pvNoms, reprises, physiques, maintenant }) {
   const nl = "\r\n";
   const L = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Studio Permanence//FR", "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH", "X-WR-CALNAME:" + echap(nom || "Permanences"),
@@ -147,10 +205,15 @@ export function fluxIcs({ nom, permanences, rdv, pvNoms, reprises, maintenant })
     // La reprise des contacts suit le créneau : l'agenda le dit, sinon
     // personne ne se souvient que c'est à lui de les traiter.
     const rep = LIBELLE_REPRISE[(reprises && reprises.get(p.pv + "|" + p.creneau)) || ""];
-    evt(p.id, p.date, p.debut, p.fin,
-      "Permanence — " + pv + (rep ? " (+ " + rep.court + ")" : ""), pv,
-      "Conseiller de permanence : " + (p.nom || "") + (p.telephone ? " · " + p.telephone : "") +
-      (rep ? "\n" + rep.long : ""));
+    const ph = physiques && physiques.get(p.pv + "|" + p.date + "|" + p.creneau);
+    // Une seule parenthèse : ce que le conseiller doit savoir en un coup d'œil.
+    const notes = [ph && ph.motif === "assistante absente" ? "assistante absente" : "", rep ? "+ " + rep.court : ""].filter(Boolean);
+    const titre = (ph ? "Permanence physique — " : "Permanence — ") + pv +
+      (notes.length ? " (" + notes.join(" · ") + ")" : "");
+    evt(p.id, p.date, p.debut, p.fin, titre, pv,
+      [ph ? textePhysique(ph) : "",
+        "Conseiller de permanence : " + (p.nom || "") + (p.telephone ? " · " + p.telephone : ""),
+        rep ? rep.long : ""].filter(Boolean).join("\n"));
   }
   for (const r of rdv || []) {
     if (r.statut === "annule") continue;

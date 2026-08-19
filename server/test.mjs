@@ -34,6 +34,9 @@ const graphAppels = [];
 // interroge toute la fenêtre à venir : sans cette variable, l'occupation
 // tomberait sur aujourd'hui et ne croiserait aucun créneau de test.
 let jourOccupe = "";
+// Les deux jours de congé de l'assistante (le second exclusif, comme Outlook
+// écrit la fin d'un événement « journée entière »).
+let jourOof = "2030-01-01", jourOof2 = "2030-01-03";
 const faux365 = (await import("node:http")).createServer(async (req, res) => {
   const chunks = []; for await (const c of req) chunks.push(c);
   const brut = Buffer.concat(chunks).toString();
@@ -50,7 +53,12 @@ const faux365 = (await import("node:http")).createServer(async (req, res) => {
       scheduleId: s,
       scheduleItems: s.startsWith("agenda.claire")
         ? [{ status: "busy", start: { dateTime: jour + "T10:00:00.0000000" }, end: { dateTime: jour + "T11:00:00.0000000" } }]
-        : []
+        // L'assistante : deux jours de congé posés en « Absence du bureau »,
+        // plus un rendez-vous ordinaire qui ne doit PAS passer pour une absence.
+        : s.startsWith("agenda.lea")
+          ? [{ status: "oof", start: { dateTime: jourOof + "T00:00:00.0000000" }, end: { dateTime: jourOof2 + "T00:00:00.0000000" } },
+             { status: "busy", start: { dateTime: jourOof + "T14:00:00.0000000" }, end: { dateTime: jourOof + "T15:00:00.0000000" } }]
+          : []
     }))
   }));
 });
@@ -949,7 +957,101 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const relu2 = (await call("/permanence/config", { headers: auth })).json.config;
     ok(relu2.conseillers["u2@azur-immo.fr"].boite === "pas-une-adresse",
       "une saisie libre est stockée telle quelle (le tri se fait à l'envoi)");
+    // Bouton « Tester la lecture de cet agenda » : il DIT ce qui rate, au lieu
+    // de retomber silencieusement comme le filtrage de la page publique.
+    const sansSecrets = await call("/permanence/test-agenda", { headers: auth, body: { boite: "agenda.claire@kadima-test.fr" } });
+    ok(sansSecrets.json.ok === false && /secrets/i.test(sansSecrets.json.message),
+      "test d'agenda sans secrets : le message dit qu'il manque les accès");
+    ok((await call("/permanence/test-agenda", { headers: auth, body: { boite: "pas-une-adresse" } })).status === 400,
+      "test d'agenda : une adresse invalide est refusée");
+
+    const testOk = await appGraph().fetch(new Request("http://api.test/permanence/test-agenda", {
+      method: "POST", headers: { "Content-Type": "application/json", ...auth },
+      body: JSON.stringify({ boite: "agenda.claire@kadima-test.fr" })
+    }));
+    const jTest = await testOk.json();
+    ok(jTest.ok === true && /Accès confirmé/.test(jTest.message),
+      "test d'agenda branché : l'accès est confirmé sur la boîte demandée");
+
+    // ---- Relevé des absences d'assistante dans Outlook ----
+    jourOof = new Date(Date.now() + 20 * 86400000).toISOString().slice(0, 10);
+    jourOof2 = new Date(Date.now() + 22 * 86400000).toISOString().slice(0, 10);
+    const cfgAss = {
+      ...cfg,
+      conseillers: {
+        "u2@azur-immo.fr": { pv: "medard" },
+        "lea@azur-immo.fr": { pv: "medard", assistante: true, boite: "agenda.lea@kadima-test.fr" }
+      }
+    };
+    await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfgAss } });
+
+    const sansAcces = await call("/permanence/absences-assistantes", { headers: auth, body: {} });
+    ok(sansAcces.json.ok === false && sansAcces.json.propositions.length === 0,
+      "relevé Outlook sans accès Microsoft : rien de proposé, un message clair");
+
+    const relev = await appGraph().fetch(new Request("http://api.test/permanence/absences-assistantes", {
+      method: "POST", headers: { "Content-Type": "application/json", ...auth },
+      body: JSON.stringify({ du: jourOof, au: jourOof2 })
+    }));
+    const jRel = await relev.json();
+    ok(jRel.ok === true && jRel.propositions.length === 1,
+      "relevé Outlook : un bloc d'absence proposé pour l'assistante");
+    ok(jRel.propositions[0].cle === "lea@azur-immo.fr" && jRel.propositions[0].debut === jourOof,
+      "la proposition porte la clé de l'assistante et la bonne date de début");
+    ok(jRel.propositions[0].fin < jourOof2,
+      "la fin « journée entière » d'Outlook ne déborde pas d'un jour");
+
+    // Le rendez-vous « occupé » du même jour ne doit pas devenir une absence.
+    ok(jRel.propositions.length === 1, "un rendez-vous ordinaire n'est pas pris pour une absence");
+
+    // Une fois saisie, l'absence ne doit plus être reproposée.
+    await call("/permanence/absences", { method: "PUT", headers: auth, body: {
+      cle: "lea@azur-immo.fr", nom: "Lea", type: "conge", debut: jourOof, fin: jourOof2 } });
+    const relev2 = await appGraph().fetch(new Request("http://api.test/permanence/absences-assistantes", {
+      method: "POST", headers: { "Content-Type": "application/json", ...auth },
+      body: JSON.stringify({ du: jourOof, au: jourOof2 })
+    }));
+    ok((await relev2.json()).propositions.length === 0, "une absence déjà saisie n'est pas reproposée");
+
     await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfg } });
+  }
+
+  // ---- Accueil des assistantes : présence physique exigée hors horaires ----
+  {
+    const PERMOD = await import("./src/permanence.js");
+    const acc = PERMOD.accueilDe({ pvs: [] }, "medard");
+    ok(acc.plages.length === 2 && acc.plages[0].debut === "09:00", "horaires d'accueil par défaut : 9h-12h et 14h-18h");
+
+    const soir = { debut: "17:00", fin: "19:00" };
+    ok(PERMOD.presencePhysique(soir, acc, 1, { total: 0, presentes: 0 }) === null,
+      "aucune assistante déclarée : la règle reste inactive");
+    const s1 = PERMOD.presencePhysique(soir, acc, 1, { total: 1, presentes: 1 });
+    ok(s1 && s1.debut === "18:00" && s1.fin === "19:00" && s1.motif === "hors horaires d'accueil",
+      "assistante présente : le 17h-19h n'est physique qu'à partir de 18h");
+    const s2 = PERMOD.presencePhysique(soir, acc, 1, { total: 1, presentes: 0 });
+    ok(s2 && s2.debut === "17:00" && s2.motif === "assistante absente",
+      "assistante absente : tout le créneau devient physique");
+    const midi = PERMOD.presencePhysique({ debut: "12:00", fin: "14:00" }, acc, 1, { total: 1, presentes: 1 });
+    ok(midi && midi.debut === "12:00" && midi.fin === "14:00", "la pause du midi est toujours physique");
+    ok(PERMOD.presencePhysique({ debut: "09:00", fin: "12:00" }, acc, 1, { total: 1, presentes: 1 }) === null,
+      "le matin est couvert par l'accueil : rien à signaler");
+    const sam = PERMOD.presencePhysique({ debut: "09:00", fin: "12:00" }, acc, 6, { total: 1, presentes: 1 });
+    ok(sam && sam.motif === "accueil fermé", "le samedi, l'accueil est fermé : présence physique");
+
+    // Et dans l'agenda : le titre doit le dire, c'est le seul endroit lu.
+    const physiques = new Map([["medard|2026-09-09|soir", s2]]);
+    const ics = PERMOD.fluxIcs({
+      nom: "T", pvNoms: { medard: "Saint-Médard" }, maintenant: 1700000000, physiques,
+      permanences: [
+        { id: "pe1", pv: "medard", date: "2026-09-09", creneau: "soir", debut: "17:00", fin: "19:00", nom: "Claire" },
+        { id: "pe2", pv: "medard", date: "2026-09-09", creneau: "matin", debut: "09:00", fin: "12:00", nom: "Claire" }
+      ], rdv: []
+    });
+    ok(/SUMMARY:Permanence physique — Saint-Médard \(assistante absente\)/.test(ics),
+      "l'agenda annonce « Permanence physique — … (assistante absente) »");
+    ok(/SUMMARY:Permanence — Saint-Médard\r\n/.test(ics),
+      "un créneau couvert par l'accueil garde le titre habituel");
+    ok(/Présence physique 17h00 → 19h00/.test(ics), "la description donne les heures exactes");
   }
 
   // ---- Branchement Microsoft Graph : éteint par défaut, à deux verrous ----

@@ -110,6 +110,135 @@ export async function occupations(env, boites, du, au, maintenant) {
   return out;
 }
 
+/*
+   diagnostic(env, boite) → { ok, message, exemples }
+
+   Le même chemin que `occupations`, mais qui DIT ce qui a raté au lieu de
+   retomber silencieusement. C'est ce qui permet de valider l'habilitation
+   sur un seul agenda — le sien — avant de l'ouvrir à toute l'équipe.
+*/
+export async function diagnostic(env, boite, du, au, maintenant) {
+  const cible = String(boite || "").trim().toLowerCase();
+  if (!cible) return { ok: false, message: "Aucune boîte indiquée." };
+  if (!estConfigure(env)) {
+    return { ok: false, message: "Le serveur n'a pas les trois secrets Microsoft (GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET)." };
+  }
+  const t = await jeton(env, maintenant);
+  if (!t) {
+    return { ok: false, message: "Microsoft a refusé le jeton d'application : vérifiez l'identifiant du tenant, celui de l'application et le secret (a-t-il expiré ?)." };
+  }
+  const base = env.GRAPH_BASE || GRAPH;
+  const res = await fetch(base + "/users/" + encodeURIComponent(cible) + "/calendar/getSchedule", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + t, "Content-Type": "application/json", Prefer: 'outlook.timezone="Europe/Paris"' },
+    body: JSON.stringify({
+      schedules: [cible],
+      startTime: { dateTime: du + ":00", timeZone: "Europe/Paris" },
+      endTime: { dateTime: au + ":00", timeZone: "Europe/Paris" },
+      availabilityViewInterval: 30
+    })
+  }).catch(() => null);
+  if (!res) return { ok: false, message: "Microsoft est injoignable depuis le serveur." };
+  if (res.status === 403) {
+    return { ok: false, message: "Jeton accepté, mais l'application n'a pas le droit de lire cette boîte : ajoutez-la au groupe de sécurité de la portée Exchange (Calendars.Read)." };
+  }
+  if (res.status === 404) return { ok: false, message: "Boîte inconnue dans le tenant : " + cible };
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    return { ok: false, message: "Microsoft a répondu " + res.status + (txt ? " — " + txt.slice(0, 200) : "") };
+  }
+  const j = await res.json().catch(() => null);
+  const bloc = j && Array.isArray(j.value) ? j.value[0] : null;
+  if (!bloc) return { ok: false, message: "Réponse inattendue de Microsoft (aucun agenda renvoyé)." };
+  // `error` dans le bloc = la boîte existe mais reste hors de portée : c'est
+  // le cas le plus fréquent et Graph le renvoie en 200, pas en 403.
+  if (bloc.error && bloc.error.message) {
+    return { ok: false, message: "Agenda hors de portée de l'application : " + String(bloc.error.message).slice(0, 200) };
+  }
+  const pris = (bloc.scheduleItems || [])
+    .filter((it) => OCCUPE.indexOf(String(it.status || "")) >= 0)
+    .map((it) => String((it.start && it.start.dateTime) || "").slice(0, 16).replace("T", " à ") +
+      " → " + String((it.end && it.end.dateTime) || "").slice(11, 16))
+    .filter((x) => x.length > 5);
+  return {
+    ok: true,
+    message: "Accès confirmé sur " + cible + " — " + pris.length + " plage(s) occupée(s) lue(s) sur la période.",
+    exemples: pris.slice(0, 6)
+  };
+}
+
+/*
+   absencesOof(env, boites, du, au) → Map(boîte → [{ debut, fin }] en jours)
+
+   Ce que Microsoft appelle « Absence du bureau » (oof) sur l'agenda d'une
+   assistante : congés, RTT, arrêts. On ne retient QUE ce statut — un
+   rendez-vous « occupé » n'est pas une absence, l'assistante est là.
+
+   Les blocs sont ramenés au jour (AAAA-MM-JJ) et fusionnés quand ils se
+   suivent : une semaine de congés déclarée jour par jour devient un bloc.
+   Comme partout ici, un pépin rend une carte vide plutôt qu'une erreur.
+*/
+export async function absencesOof(env, boites, du, au, maintenant) {
+  const out = new Map();
+  const cibles = [...new Set((boites || []).map((b) => String(b || "").trim().toLowerCase()).filter(Boolean))];
+  if (!estConfigure(env) || !cibles.length) return out;
+  const t = await jeton(env, maintenant);
+  if (!t) return out;
+  const base = env.GRAPH_BASE || GRAPH;
+  const res = await fetch(base + "/users/" + encodeURIComponent(cibles[0]) + "/calendar/getSchedule", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + t, "Content-Type": "application/json", Prefer: 'outlook.timezone="Europe/Paris"' },
+    body: JSON.stringify({
+      schedules: cibles.slice(0, 100),
+      startTime: { dateTime: du + "T00:00:00", timeZone: "Europe/Paris" },
+      endTime: { dateTime: au + "T23:59:00", timeZone: "Europe/Paris" },
+      availabilityViewInterval: 60
+    })
+  }).catch(() => null);
+  if (!res || !res.ok) return out;
+  const j = await res.json().catch(() => null);
+  if (!j || !Array.isArray(j.value)) return out;
+
+  for (const bloc of j.value) {
+    const cle = String(bloc.scheduleId || "").toLowerCase();
+    if (!cle || bloc.error) continue;
+    const jours = new Set();
+    for (const it of bloc.scheduleItems || []) {
+      if (String(it.status || "") !== "oof") continue;
+      const d = String((it.start && it.start.dateTime) || "").slice(0, 10);
+      // La fin d'un événement « journée entière » tombe au lendemain 00h00 :
+      // on retire ce jour-là, sinon un congé d'un jour en couvrirait deux.
+      const finBrute = String((it.end && it.end.dateTime) || "");
+      const finHeure = finBrute.slice(11, 16);
+      let f = finBrute.slice(0, 10);
+      if (finHeure === "00:00" && f > d) f = veille(f);
+      if (!d || !f || f < d) continue;
+      for (let x = d; x <= f; x = lendemain(x)) jours.add(x);
+    }
+    out.set(cle, fusionner([...jours].sort()));
+  }
+  return out;
+}
+const lendemain = (iso) => {
+  const x = new Date(iso + "T12:00:00Z"); x.setUTCDate(x.getUTCDate() + 1);
+  return x.toISOString().slice(0, 10);
+};
+const veille = (iso) => {
+  const x = new Date(iso + "T12:00:00Z"); x.setUTCDate(x.getUTCDate() - 1);
+  return x.toISOString().slice(0, 10);
+};
+// Jours consécutifs → un seul bloc. Le week-end ne recolle pas ici : c'est la
+// règle du tour (planning.js) qui s'en charge, avec ses propres critères.
+function fusionner(jours) {
+  const out = [];
+  for (const j of jours) {
+    const prec = out[out.length - 1];
+    if (prec && lendemain(prec.fin) === j) { prec.fin = j; continue; }
+    out.push({ debut: j, fin: j });
+  }
+  return out;
+}
+
 // Un créneau chevauche-t-il une occupation ? Les bornes se touchent sans se
 // chevaucher : un rendez-vous qui finit à 10h00 ne bloque pas celui de 10h00.
 export function estOccupe(pris, debutIso, finIso) {

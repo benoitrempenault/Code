@@ -116,16 +116,31 @@
         // diffère de l'adresse où le conseiller lit son courrier. Vide = les
         // deux sont la même.
         boite: r.boite || "",
-        actif: r.actif !== false, horsCycle: !!r.horsCycle
+        actif: r.actif !== false, horsCycle: !!r.horsCycle,
+        // Une assistante tient l'accueil : elle ne prend pas de permanence,
+        // mais sa présence décide de qui doit être physiquement au comptoir.
+        assistante: !!r.assistante
       };
     }).filter((c) => c.cle);
   }
   const conseillerDe = (cle) => conseillers().find((c) => c.cle === cle) || null;
   function majConseiller(cle, patch) {
     if (!config.conseillers) config.conseillers = {};
-    config.conseillers[cle] = Object.assign({ pv: "", poids: 1, actif: true, horsCycle: false, boite: "" }, config.conseillers[cle], patch);
+    config.conseillers[cle] = Object.assign({ pv: "", poids: 1, actif: true, horsCycle: false, assistante: false, boite: "" }, config.conseillers[cle], patch);
   }
   const pvsActifs = () => (config.pvs || []).filter((p) => p.actif !== false);
+
+  // Présence physique exigée sur un créneau : les tranches que l'accueil ne
+  // couvre pas. Se recalcule à l'écran (rien n'est stocké) — corriger un
+  // horaire d'accueil met le tableau et les agendas à jour sans regénérer.
+  function physiqueDe(pvId, date, cr) {
+    const miennes = conseillers().filter((c) => c.assistante && c.actif && c.pv === pvId);
+    if (!miennes.length) return null;
+    const presentes = miennes.filter((c) => !absences.some((a) =>
+      String(a.cle || "").toLowerCase() === c.cle && a.debut <= date && a.fin >= date)).length;
+    return P.presencePhysique(cr, P.accueilDe(config, pvId), P.dow(date),
+      { total: miennes.length, presentes });
+  }
   // Les créneaux qui emportent une reprise de contacts (17h-19h la nuit,
   // samedi le week-end), tous points de vente confondus : décompte d'équité.
   function creneauxReprise() {
@@ -242,7 +257,14 @@
           if (!ouvert) { html.push('<td><div class="case ferme"></div></td>'); return; }
           const lignes = lignesDe(pvActif, date, cr.id);
           const manque = lignes.length < cr.besoin;
+          const ph = physiqueDe(pvActif, date, cr);
           html.push('<td><div class="case' + (lignes.length ? "" : " vide") + (manque ? " manque" : "") + '">');
+          if (ph) {
+            html.push('<span class="physique' + (ph.motif === "assistante absente" ? " alerte" : "") +
+              '" title="' + esc(P.textePhysique(ph)) + '">🏠 ' +
+              esc(ph.motif === "assistante absente" ? "assistante absente"
+                : ph.debut.replace(":", "h") + "→" + ph.fin.replace(":", "h")) + "</span>");
+          }
           lignes.forEach((l) => {
             const n = rdvSur(l);
             html.push('<button class="pastille' + (l.fige ? " fige" : "") + (cr.reprise ? " nuit" : "") + '" data-case="' +
@@ -420,7 +442,8 @@
         esc(p.nom) + "</option>")).join("");
     $("#conseillersList").innerHTML = liste.length ? '<table class="tbl"><thead><tr>' +
       '<th><input type="checkbox" id="lotTete" title="Tout cocher" /></th>' +
-      "<th>Conseiller</th><th>Point de vente</th><th>Dans le cycle</th><th>Poids</th>" +
+      "<th>Conseiller</th><th>Point de vente</th><th>Dans le cycle</th>" +
+      '<th title="Tient l\'accueil du point de vente : pas de permanence pour elle, mais son absence oblige un conseiller à être physiquement au comptoir">Accueil</th><th>Poids</th>' +
       '<th title="L\'adresse de l\'annuaire : notifications et rendez-vous par e-mail">Courrier</th>' +
       '<th title="La boîte Microsoft qui porte l\'agenda métier, si elle diffère">Agenda métier</th><th></th>' +
       "</tr></thead><tbody>" + liste.map((c) =>
@@ -428,8 +451,12 @@
         '<td><input type="checkbox" class="lot" /></td>' +
         "<td><b>" + esc(c.nom) + "</b></td>" +
         '<td><select data-champ="pv">' + opts(c.pv) + "</select></td>" +
-        '<td><label class="field--inline"><input type="checkbox" data-champ="cycle"' + (c.horsCycle ? "" : " checked") + " /> " +
-        (c.horsCycle ? '<span class="pill off">hors cycle</span>' : '<span class="pill on">dans le cycle</span>') + "</label></td>" +
+        '<td><label class="field--inline"><input type="checkbox" data-champ="cycle"' +
+        (c.horsCycle || c.assistante ? "" : " checked") + (c.assistante ? " disabled" : "") + " /> " +
+        (c.assistante ? '<span class="pill off">—</span>'
+          : c.horsCycle ? '<span class="pill off">hors cycle</span>' : '<span class="pill on">dans le cycle</span>') + "</label></td>" +
+        '<td><label class="field--inline"><input type="checkbox" data-champ="assistante"' + (c.assistante ? " checked" : "") + " /> " +
+        (c.assistante ? '<span class="pill on">assistante</span>' : '<span class="muted">conseiller</span>') + "</label></td>" +
         '<td><input type="number" data-champ="poids" min="0.1" max="2" step="0.1" value="' + c.poids + '" /></td>' +
         '<td class="nowrap">' + esc(c.email || "—") + "</td>" +
         '<td><input type="email" data-champ="boite" placeholder="' + esc(c.email || "même adresse") +
@@ -489,6 +516,52 @@
     $("#absApercu").innerHTML = pre.length
       ? "Cette absence retirera aussi le conseiller des permanences du <b>" + esc(pre.map((j) => P.libelleJour(j)).join(", ")) + "</b> (préavis de départ)."
       : "Absence courte : seuls les jours d'absence sont retirés du tour.";
+  }
+
+  /* ------------- Absences des assistantes relevées dans Outlook ----------- */
+  // Le serveur propose, l'agence dispose : on affiche ce qui a été trouvé et
+  // on n'enregistre que sur clic. Une absence d'assistante bascule tout un
+  // point de vente en présence physique — ça ne se fait pas dans le dos.
+  let propositionsAbs = [];
+  async function releverAbsencesOutlook() {
+    const msg = $("#absOutlookMsg");
+    msg.textContent = "Lecture des agendas…";
+    $("#absOutlookList").innerHTML = "";
+    propositionsAbs = [];
+    try {
+      const r = await api("/permanence/absences-assistantes", {
+        method: "POST",
+        json: { du: aujourdhui(), au: P.addDays(aujourdhui(), 90) }
+      });
+      msg.textContent = r.message || "";
+      propositionsAbs = r.propositions || [];
+      rendrePropositionsAbs();
+    } catch (e) { msg.textContent = e.message; }
+  }
+  function rendrePropositionsAbs() {
+    if (!propositionsAbs.length) { $("#absOutlookList").innerHTML = ""; return; }
+    $("#absOutlookList").innerHTML = '<table class="tbl"><tbody>' + propositionsAbs.map((p, i) => {
+      const c = conseillerDe(p.cle);
+      return "<tr><td><b>" + esc((c && c.nom) || p.cle) + "</b></td>" +
+        "<td>" + esc(P.libelleJour(p.debut, true)) + (p.fin !== p.debut ? " → " + esc(P.libelleJour(p.fin, true)) : "") + "</td>" +
+        '<td class="nowrap"><button class="btn btn--sm" data-absok="' + i + '">Enregistrer</button></td></tr>';
+    }).join("") + "</tbody></table>";
+  }
+  async function accepterProposition(i) {
+    const p = propositionsAbs[i];
+    if (!p) return;
+    const c = conseillerDe(p.cle);
+    try {
+      await api("/permanence/absences", {
+        method: "PUT",
+        json: { cle: p.cle, nom: (c && c.nom) || "", type: p.type || "conge", debut: p.debut, fin: p.fin, motif: "relevé dans Outlook" }
+      });
+      propositionsAbs.splice(i, 1);
+      await chargerAbsences();
+      rendreAbsences();
+      rendrePropositionsAbs();
+      toast("Absence enregistrée — regénérez le tour pour en tenir compte.");
+    } catch (e) { toast(e.message, true); }
   }
 
   async function ajouterAbsence() {
@@ -573,6 +646,7 @@
     $("#rDuree").value = config.regles.dureeRdv;
     $("#rDelai").value = config.regles.delaiRdvHeures;
     $("#rFeries").value = (config.regles.feries || []).join("\n");
+    rendreAccueil();
     $("#pubSlug").value = (config.public && config.public.slug) || "";
     $("#pubActif").checked = !!(config.public && config.public.actif);
     $("#pubMsg").value = (config.public && config.public.message) || "";
@@ -591,6 +665,38 @@
       .forEach((el) => { if (!estAdmin) el.disabled = true; });
     if (!graphPret) $("#graphActif").disabled = true;
   }
+  /* --------------------- Horaires d'accueil (assistantes) ----------------- */
+  const JOURS_ACC = [[1, "lun."], [2, "mar."], [3, "mer."], [4, "jeu."], [5, "ven."], [6, "sam."]];
+  function rendreAccueil() {
+    const acc = P.accueilDe(config, "");
+    $("#accJours").innerHTML = JOURS_ACC.map(([n, lib]) =>
+      '<label class="field--inline"><input type="checkbox" class="accJour" value="' + n + '"' +
+      (acc.jours.indexOf(n) >= 0 ? " checked" : "") + " /> " + lib + "</label>").join("");
+    $("#accPlages").value = acc.plages.map((p) => p.debut + "-" + p.fin).join(", ");
+    majApercuAccueil();
+  }
+  // Ce que l'agence verra concrètement : la phrase vaut mieux qu'un tableau
+  // de réglages qu'il faut interpréter.
+  function majApercuAccueil() {
+    const nb = conseillers().filter((c) => c.assistante && c.actif).length;
+    const acc = P.accueilDe(config, "");
+    const ex = P.presencePhysique({ debut: "17:00", fin: "19:00" }, acc, 1, { total: 1, presentes: 1 });
+    $("#accApercu").textContent = !nb
+      ? "Aucune assistante désignée : la règle est inactive, rien ne change dans le tour ni dans les agendas."
+      : nb + " assistante(s) désignée(s). Exemple : un lundi 17h-19h → "
+        + (ex ? P.textePhysique(ex).toLowerCase() : "entièrement couvert par l'accueil") + ".";
+  }
+  function lireAccueil() {
+    const jours = $$(".accJour").filter((el) => el.checked).map((el) => parseInt(el.value, 10));
+    const plages = String($("#accPlages").value || "").split(",").map((bout) => {
+      const m = /^\s*(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})\s*$/.exec(bout);
+      if (!m) return null;
+      const p = (h) => (h.length === 4 ? "0" + h : h);
+      return { debut: p(m[1]), fin: p(m[2]) };
+    }).filter(Boolean);
+    return P.normaliseAccueil({ jours, plages });
+  }
+
   let creneauxPvSel = "";
 
   // Le chiffre qui rend le réglage concret : ce que la colonne « Combien ? »
@@ -647,6 +753,7 @@
       message: $("#pubMsg").value || ""
     };
     config.graph = { actif: graphPret && $("#graphActif").checked };
+    config.accueil = lireAccueil();
     try {
       const r = await api("/permanence/config", { method: "PUT", json: { config } });
       config = appliquerConfig(r.config);
@@ -688,8 +795,14 @@
           (cr.reprise ? '<br /><small>+ ' + esc(P.LIBELLE_REPRISE[cr.reprise] || "") + "</small>" : "") + "</td>");
         jours.forEach((date) => {
           const ouvert = cr.jours.indexOf(P.dow(date)) >= 0 && config.regles.feries.indexOf(date) < 0;
-          const noms = lignesDe(pvActif, date, cr.id).map((l) => l.nom).join("<br />");
-          H.push(ouvert ? "<td>" + (noms || '<span class="off">—</span>') + "</td>" : '<td class="off"></td>');
+          const noms = lignesDe(pvActif, date, cr.id).map((l) => esc(l.nom)).join("<br />");
+          // La feuille affichée en agence doit dire QUI doit être au comptoir,
+          // sinon la règle ne vit que dans les agendas.
+          const ph = ouvert ? physiqueDe(pvActif, date, cr) : null;
+          const marque = ph ? '<br /><small class="phys">🏠 ' +
+            esc(ph.motif === "assistante absente" ? "sur place — assistante absente"
+              : "sur place " + ph.debut.replace(":", "h") + "→" + ph.fin.replace(":", "h")) + "</small>" : "";
+          H.push(ouvert ? "<td>" + (noms || '<span class="off">—</span>') + marque + "</td>" : '<td class="off"></td>');
         });
         H.push("</tr>");
       });
@@ -760,6 +873,9 @@
       const cle = tr.dataset.cle;
       if (champ === "pv") majConseiller(cle, { pv: e.target.value });
       if (champ === "cycle") majConseiller(cle, { horsCycle: !e.target.checked });
+      // Une assistante sort d'office du tour : elle tient le comptoir, elle ne
+      // peut pas être en même temps la permanence.
+      if (champ === "assistante") majConseiller(cle, { assistante: e.target.checked, horsCycle: e.target.checked });
       if (champ === "poids") majConseiller(cle, { poids: Math.max(0.1, Math.min(2, parseFloat(e.target.value) || 1)) });
       if (champ === "boite") majConseiller(cle, { boite: (e.target.value || "").trim().toLowerCase() });
       enregistrerConfigDifferee();
@@ -824,6 +940,11 @@
 
     // --- Absences ---
     $("#btnAbsAdd").addEventListener("click", ajouterAbsence);
+    $("#btnAbsOutlook").addEventListener("click", releverAbsencesOutlook);
+    $("#absOutlookList").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-absok]");
+      if (b) accepterProposition(parseInt(b.dataset.absok, 10));
+    });
     ["#absCons", "#absType", "#absDebut", "#absFin"].forEach((s) => $(s).addEventListener("change", apercuAbsence));
     $("#absList").addEventListener("click", async (e) => {
       const b = e.target.closest("[data-absdel]");
@@ -906,6 +1027,27 @@
       rendreTotalCreneaux(creneauxPvSel ? P.creneauxDe(config, creneauxPvSel) : config.creneaux.map(P.normaliseCreneau));
     }));
     $("#pubSlug").addEventListener("input", rendrePubLiens);
+    // Aperçu vivant des horaires d'accueil : on voit tout de suite ce que
+    // le réglage produira, sans avoir à enregistrer et regénérer.
+    $("#accJours").addEventListener("change", majApercuAccueil);
+    $("#accPlages").addEventListener("input", majApercuAccueil);
+
+    // Test des accès Microsoft sur UNE boîte : c'est ce qui permet de valider
+    // l'habilitation avec un seul agenda avant de l'ouvrir à toute l'équipe.
+    $("#btnGraphTest").addEventListener("click", async () => {
+      const boite = String($("#graphBoite").value || "").trim().toLowerCase();
+      const msg = $("#graphTestMsg");
+      if (!boite) { msg.textContent = "Indiquez la boîte à tester."; return; }
+      msg.textContent = "Interrogation de Microsoft…";
+      try {
+        const r = await api("/permanence/test-agenda", { method: "POST", json: { boite } });
+        msg.innerHTML = (r.ok ? "✓ " : "✗ ") + esc(r.message) +
+          (r.ok && r.exemples && r.exemples.length
+            ? "<br>Occupations lues : " + r.exemples.map((x) => esc(x)).join(" · ")
+            : "");
+      } catch (e) { msg.textContent = "✗ " + e.message; }
+    });
+
     $("#btnSaveConfig").addEventListener("click", enregistrerReglages);
   }
 

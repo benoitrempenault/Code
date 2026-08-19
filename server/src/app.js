@@ -687,6 +687,64 @@ export function createApp(env) {
     return c.json({ ok: true, config: cfg });
   });
 
+  // Test des accès Microsoft sur UNE boîte. Réservé à la direction : c'est un
+  // outil de mise en service, pas une fonction du quotidien. Il ne dépend pas
+  // de l'interrupteur des réglages — on teste justement avant de l'allumer.
+  app.post("/permanence/test-agenda", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!isAgencyAdmin(ctx)) return err(c, 403, "Réservé à la direction de l'agence.");
+    const b = await c.req.json().catch(() => null);
+    const boite = PERM.propre(b && b.boite, 160).toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(boite)) return err(c, 400, "Adresse de boîte invalide.");
+    const debut = PERM.parisIso(now());
+    const fin = PERM.parisIso(now() + 7 * 86400);
+    const r = await GRAPH.diagnostic(env, boite, debut, fin, now());
+    return c.json(r);
+  });
+
+  // Relève les absences déclarées « Absence du bureau » dans les agendas
+  // Outlook des assistantes. Le serveur PROPOSE : rien n'est enregistré ici.
+  // C'est voulu — une absence d'assistante déplace la présence physique de
+  // toute une équipe, ça se valide à l'œil avant d'être publié.
+  app.post("/permanence/absences-assistantes", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!isAgencyAdmin(ctx)) return err(c, 403, "Réservé à la direction de l'agence.");
+    if (!GRAPH.estConfigure(env)) {
+      return c.json({ ok: false, message: "Le serveur n'a pas encore les accès Microsoft.", propositions: [] });
+    }
+    const b = await c.req.json().catch(() => ({}));
+    const du = PERM.estDate(b && b.du) ? b.du : isoJour(now());
+    const au = PERM.estDate(b && b.au) && b.au >= du ? b.au : isoJour(now() + 60 * 86400);
+    const config = PERM.parseConfig(await permConfigRow(ctx.agency.id));
+    const assistantes = Object.entries(config.conseillers || {})
+      .filter(([, r]) => r && r.assistante && r.actif !== false)
+      .map(([cle, r]) => ({ cle, boite: String(r.boite || cle).toLowerCase(), pv: r.pv || "" }));
+    if (!assistantes.length) {
+      return c.json({ ok: false, message: "Aucune assistante désignée dans l'onglet Conseillers.", propositions: [] });
+    }
+    const trouve = await GRAPH.absencesOof(env, assistantes.map((a) => a.boite), du, au, now());
+    // Ce qui est déjà saisi ne doit pas être proposé une deuxième fois.
+    const deja = await db.all(
+      "SELECT cle, debut, fin FROM perm_absences WHERE agency_id = ? AND fin >= ? AND debut <= ?",
+      [ctx.agency.id, du, au]);
+    const propositions = [];
+    for (const a of assistantes) {
+      for (const bloc of trouve.get(a.boite) || []) {
+        const connu = deja.some((x) => PERM.cleConseiller(x.cle) === a.cle && x.debut <= bloc.debut && x.fin >= bloc.fin);
+        if (!connu) propositions.push({ cle: a.cle, pv: a.pv, debut: bloc.debut, fin: bloc.fin, type: "conge" });
+      }
+    }
+    return c.json({
+      ok: true,
+      message: propositions.length
+        ? propositions.length + " absence(s) relevée(s) dans les agendas Outlook."
+        : "Aucune nouvelle absence dans les agendas des assistantes sur la période.",
+      propositions
+    });
+  });
+
   /* ------------------------------ Absences ------------------------------- */
   app.get("/permanence/absences", async (c) => {
     const ctx = await sessionFrom(c);
@@ -836,6 +894,31 @@ export function createApp(env) {
     return c.json({ lien: base + "?ag=" + ctx.agency.id + "&c=" + encodeURIComponent(cle) + "&sig=" + (await icsSig(ctx.agency.id, cle)) });
   });
 
+  // Pour chaque permanence, les tranches où le conseiller doit être au
+  // comptoir : celles que l'accueil ne couvre pas. Une seule requête
+  // d'absences pour toute la fenêtre.
+  async function presencesPhysiques(agencyId, config, perms, from, to) {
+    const out = new Map();
+    const assistantes = Object.entries(config.conseillers || {})
+      .filter(([, r]) => r && r.assistante && r.actif !== false)
+      .map(([cle, r]) => ({ cle, pv: r.pv || "" }));
+    if (!assistantes.length || !(perms || []).length) return out;
+    const abs = await db.all(
+      "SELECT cle, debut, fin FROM perm_absences WHERE agency_id = ? AND fin >= ? AND debut <= ?",
+      [agencyId, from, to]);
+    const absente = (cle, date) => abs.some((a) => PERM.cleConseiller(a.cle) === cle && a.debut <= date && a.fin >= date);
+    for (const p of perms) {
+      const cr = PERM.creneauxDe(config, p.pv).find((x) => x.id === p.creneau) || { debut: p.debut, fin: p.fin };
+      const miennes = assistantes.filter((a) => a.pv === p.pv);
+      const presentes = miennes.filter((a) => !absente(a.cle, p.date)).length;
+      const jour = new Date(p.date + "T12:00:00Z").getUTCDay();
+      const ph = PERM.presencePhysique({ debut: p.debut || cr.debut, fin: p.fin || cr.fin },
+        PERM.accueilDe(config, p.pv), jour, { total: miennes.length, presentes });
+      if (ph) out.set(p.pv + "|" + p.date + "|" + p.creneau, ph);
+    }
+    return out;
+  }
+
   app.get("/permanence/agenda.ics", async (c) => {
     const ag = String(c.req.query("ag") || ""), cle = PERM.cleConseiller(c.req.query("c")), sig = String(c.req.query("sig") || "");
     if (!ag || !cle || !safeEqual(sig, await icsSig(ag, cle))) return err(c, 403, "Lien d'agenda invalide.");
@@ -859,8 +942,12 @@ export function createApp(env) {
         if (r) reprises.set(p.id + "|" + cr.id, r);
       });
     });
+    // Présence physique exigée : elle se DÉDUIT des horaires d'accueil et des
+    // absences des assistantes, elle n'est pas stockée. Changer un horaire
+    // d'accueil corrige donc les agendas sans regénérer le tour.
+    const physiques = await presencesPhysiques(ag, config, perms, from, to);
     const nom = (tous ? "Permanences " : "Mes permanences ") + (agency.name || "");
-    const body = PERM.fluxIcs({ nom, permanences: perms, rdv: rdvs, pvNoms, reprises, maintenant: now() });
+    const body = PERM.fluxIcs({ nom, permanences: perms, rdv: rdvs, pvNoms, reprises, physiques, maintenant: now() });
     return new Response(body, {
       headers: {
         "Content-Type": "text/calendar; charset=utf-8",

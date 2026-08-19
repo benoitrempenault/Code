@@ -165,6 +165,18 @@
           <p class="hintline" id="absApercu"></p>
         </div>
         <div class="card">
+          <h3>Absences des assistantes</h3>
+          <p class="hintline">Relève ce qui est marqué « Absence du bureau » dans les agendas Outlook de vos
+            assistantes, et vous le propose. Rien n'est enregistré sans votre accord : une absence d'assistante
+            met tout un point de vente en présence physique.</p>
+          <div class="formrow">
+            <button class="btn" id="btnAbsOutlook">↻ Relever dans Outlook</button>
+            <span class="hintline" id="absOutlookMsg"></span>
+          </div>
+          <div id="absOutlookList"></div>
+        </div>
+
+        <div class="card">
           <h3>Absences enregistrées <span class="cnt" id="absCount"></span></h3>
           <div id="absList"></div>
           <p class="hintline">Une absence sort le conseiller du jeu sur toute sa durée, <b>et pendant le préavis
@@ -234,6 +246,20 @@
         </div>
 
         <div class="card">
+          <h3>Accueil tenu par les assistantes</h3>
+          <p class="hintline">Les tranches en dehors de ces horaires — la pause du midi, la fin de journée,
+            le samedi — demandent la <b>présence physique</b> du conseiller de permanence au point de vente.
+            Quand l'assistante est absente, c'est toute la journée. Cochez « Accueil » dans l'onglet
+            Conseillers pour désigner les assistantes ; sans aucune assistante sur un point de vente,
+            la règle ne s'applique pas.</p>
+          <div class="field"><label>Jours d'accueil</label>
+            <div class="formrow" id="accJours"></div></div>
+          <div class="field"><label for="accPlages">Horaires (une plage par virgule)</label>
+            <input type="text" id="accPlages" placeholder="09:00-12:00, 14:00-18:00" /></div>
+          <p class="hintline" id="accApercu"></p>
+        </div>
+
+        <div class="card">
           <h3>Prise de rendez-vous depuis le site internet</h3>
           <div class="formrow">
             <div class="field"><label for="pubSlug">Adresse publique</label><input type="text" id="pubSlug" placeholder="kadima" /></div>
@@ -244,6 +270,13 @@
             <label for="graphActif"><input type="checkbox" id="graphActif" /> Tenir compte des agendas Outlook</label>
           </div>
           <p class="hintline" id="graphNote" style="margin-top:0"></p>
+          <div class="formrow">
+            <div class="field"><label for="graphBoite">Boîte à tester</label>
+              <input type="email" id="graphBoite" placeholder="prenom@kadimatb.onmicrosoft.com" /></div>
+            <div class="field"><label>&nbsp;</label>
+              <button class="btn" id="btnGraphTest">Tester la lecture de cet agenda</button></div>
+          </div>
+          <p class="hintline" id="graphTestMsg"></p>
           <div id="pubLiens"></div>
         </div>
 

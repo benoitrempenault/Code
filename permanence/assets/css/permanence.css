@@ -161,6 +161,15 @@ h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font
 .grille td.creneau .nuitnote {
   display: block; color: var(--info); font-size: 10.5px; margin-top: 2px; white-space: normal; line-height: 1.3;
 }
+/* 🏠 : l'accueil ne couvre pas cette tranche — le conseiller doit être au
+   comptoir. En orange quand c'est une absence d'assistante (l'exception). */
+.physique {
+  display: block; font-size: 10.5px; line-height: 1.3; color: var(--info);
+  border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; margin-bottom: 3px;
+}
+.physique.alerte { color: var(--warn); border-color: var(--warn); }
+.muted { color: var(--muted); }
+
 .ajout {
   background: transparent; border: 1px dashed var(--line); border-radius: 7px;
   color: var(--muted); font-size: 12px; padding: 3px 7px; width: 100%;
@@ -240,6 +249,7 @@ h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font
   #print th { background: #f2efe9; font-weight: 600; }
   #print td.cr { background: #faf8f4; font-weight: 600; white-space: nowrap; }
   #print .off { color: #999; }
+  #print .phys { color: #7a4b00; font-size: 8pt; }
 }
 
 @media (max-width: 900px) {
