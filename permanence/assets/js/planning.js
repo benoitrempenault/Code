@@ -358,7 +358,8 @@
 
     blocs.forEach((liste, cle) => {
       liste.forEach((b) => {
-        const quoi = b.type === "conge" ? "congé" : b.type === "formation" ? "formation" : b.type === "weekend" ? "week-end posé" : "absence";
+        const quoi = { conge: "congé", rtt: "RTT", maladie: "maladie", perso: "raison personnelle",
+          formation: "formation", weekend: "week-end posé" }[b.type] || "absence";
         joursEntre(b.debut, b.fin).forEach((j) => poser(cle, j, "Absent — " + quoi));
         // Préavis : un congé en déclenche toujours un ; les autres absences
         // seulement si elles atteignent le seuil (week-end posé = 3 jours).

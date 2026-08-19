@@ -1066,6 +1066,11 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok((await call("/permanence/absences", { method: "PUT", headers: auth, body: {
       cle: "u2@azur-immo.fr", debut: "2026-11-03", fin: "2026-11-05", h_debut: "14:00", h_fin: "18:00" } })).status === 400,
       "des heures sur plusieurs jours → refusées");
+    ok((await call("/permanence/absences", { method: "PUT", headers: auth, body: {
+      cle: "u2@azur-immo.fr", nom: "Claire", type: "perso", debut: "2026-11-10", fin: "2026-11-10" } })).status === 200,
+      "le vocabulaire élargi (perso, RTT, maladie…) est accepté");
+    ok((await call("/permanence/absences?from=2026-11-10&to=2026-11-10", { headers: auth })).json.absences
+      .some((a) => a.type === "perso"), "le type élargi revient tel quel à la lecture");
     const posee = await call("/permanence/absences", { method: "PUT", headers: auth, body: {
       cle: "u2@azur-immo.fr", nom: "Claire", debut: "2026-11-03", fin: "2026-11-03", h_debut: "14:00", h_fin: "18:00" } });
     ok(posee.status === 200, "absence de quelques heures enregistrée");

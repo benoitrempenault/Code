@@ -11,7 +11,7 @@ et directement exploitable par le site internet.
 |---|---|
 | **Planning** | Un onglet par point de vente, semaine par semaine (1 à 8 semaines à la fois). Génération d'un tour complet en un clic, retouche d'une case à la main, impression A4 paysage. |
 | **Conseillers** | Rattachement à un point de vente, entrée / sortie du cycle, poids (mi-temps), et le tableau d'équité qui prouve que le tour est juste. |
-| **Absences** | Congés, week-ends posés, formations — et les absences de **quelques heures** (champ « De (heure) / à ») : la personne reste dans le jeu, seuls les créneaux qui chevauchent sont bloqués, sans préavis. Pour une assistante, c'est le trou d'accueil que le conseiller couvre physiquement. L'app montre **à l'avance** les jours de permanence que l'absence va retirer (préavis). |
+| **Absences** | Congé, RTT, maladie, perso, formation, week-end posé, absent (autre) — le mot n'est qu'un libellé, seule la durée joue (et le congé, qui déclenche toujours le préavis) — et les absences de **quelques heures** (champ « De (heure) / à ») : la personne reste dans le jeu, seuls les créneaux qui chevauchent sont bloqués, sans préavis. Pour une assistante, c'est le trou d'accueil que le conseiller couvre physiquement. L'app montre **à l'avance** les jours de permanence que l'absence va retirer (préavis). |
 | **Rendez-vous** | Les demandes prises sur le site internet, rattachées au conseiller de permanence, avec confirmation ou annulation. |
 | **Réglages** | Points de vente, créneaux et besoin par créneau, règles du tour, adresse publique de la page de rendez-vous. |
 

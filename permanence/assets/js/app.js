@@ -565,7 +565,8 @@
           '<td class="nowrap"><button class="btn btn--sm btn--danger" data-absdel="' + esc(a.id) + '">Supprimer</button></td></tr>';
       }).join("") + "</tbody></table>" : '<p class="vide">Aucune absence déclarée.</p>';
   }
-  const libelleType = (t) => ({ conge: "Congé", weekend: "Week-end posé", formation: "Formation", absence: "Absence" }[t] || "Absence");
+  const libelleType = (t) => ({ conge: "Congé", rtt: "RTT", maladie: "Maladie", perso: "Perso",
+    formation: "Formation", weekend: "Week-end posé", absence: "Absent" }[t] || "Absent");
   // Les jours effectivement bloqués AVANT une absence (ce que la règle de
   // préavis retire au conseiller) — affichés pour qu'il n'y ait pas de surprise.
   function joursPreavis(bloc, idx, cle) {

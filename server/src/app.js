@@ -787,7 +787,9 @@ export function createApp(env) {
     const debut = String((b && b.debut) || ""), fin = String((b && b.fin) || debut);
     if (!cle) return err(c, 400, "Conseiller manquant.");
     if (!PERM.estDate(debut) || !PERM.estDate(fin) || fin < debut) return err(c, 400, "Dates invalides.");
-    const type = ["conge", "weekend", "formation", "absence"].includes(String(b && b.type)) ? b.type : "absence";
+    // Le mot choisi n'est qu'un libellé : seule la durée (et « congé ») joue
+    // sur les règles du tour. On accepte donc un vocabulaire large.
+    const type = ["conge", "rtt", "maladie", "perso", "formation", "weekend", "absence"].includes(String(b && b.type)) ? b.type : "absence";
     // Absence partielle : quelques heures sur UN jour (assistante qui décale
     // ses horaires, rendez-vous médical). Les deux heures vont ensemble.
     const hDebut = String((b && b.h_debut) || ""), hFin = String((b && b.h_fin) || "");
