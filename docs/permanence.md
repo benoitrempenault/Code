@@ -27,12 +27,19 @@ Par défaut, et modifiables point de vente par point de vente :
 | 17h – 19h | lundi → vendredi | 1 conseiller |
 | Samedi 9h – 12h | samedi | 1 conseiller **par point de vente** |
 
-**Le 17h – 19h emporte les contacts de la nuit** : celui qui ferme traite les demandes
-arrivées après la fermeture (portails, formulaires du site, messages), jusqu'à la réouverture
-le lendemain. C'est marqué 🌙 dans le tableau, rappelé dans l'agenda du conseiller
-(« Permanence — Saint-Médard (+ contacts de la nuit) ») et sur la feuille imprimée, et
-**compté à part dans le tableau d'équité** (colonne « 🌙 Nuits ») : les fermetures tournent
-comme le reste. La case se décoche dans Réglages si un point de vente ne fonctionne pas ainsi.
+**La reprise des contacts suit le créneau de fermeture.** Deux cas :
+
+- **17h – 19h → la nuit.** Celui qui ferme traite les demandes arrivées après la fermeture
+  (portails, formulaires du site, messages), jusqu'à la réouverture le lendemain.
+- **Samedi 9h – 12h → tout le week-end, jusqu'au lundi 9h.** Celui qui tient le samedi garde
+  les contacts du samedi midi au lundi matin. C'est pour ça qu'il doit être présent le lundi :
+  la règle 4 le refuse à un conseiller absent le lundi qui suit.
+
+C'est marqué 🌙 dans le tableau, rappelé dans l'agenda du conseiller (« Permanence —
+Saint-Médard (+ contacts du week-end) ») et sur la feuille imprimée, et **compté à part dans
+le tableau d'équité** (colonne « 🌙 Reprises ») : ces créneaux tournent comme le reste.
+Le menu « Reprise des contacts » des Réglages permet de choisir — aucune, nuit, ou week-end —
+créneau par créneau et point de vente par point de vente.
 
 Le « besoin » est le nombre de conseillers de permanence sur le créneau. C'est le seul
 réglage à toucher pour serrer ou desserrer le tour selon l'effectif du point de vente.
@@ -52,10 +59,11 @@ par défaut, modifiables dans l'onglet Réglages.
    se compte depuis le samedi — déclarer « lundi » ou « samedi au lundi » donne le même
    résultat. Deux absences que seul un week-end sépare n'en font qu'une.
 4. **Samedi matin : présent la semaine d'après (3 jours ouvrés).** Un conseiller qui part en
-   congé le lundi ne prend pas le samedi qui précède — il ne pourrait pas honorer les
-   rendez-vous pris ce samedi-là.
-5. **Le 17h – 19h emporte la nuit.** Celui qui ferme traite les contacts arrivés après la
-   fermeture. Ces créneaux tournent comme les autres et se comptent à part (colonne « 🌙 Nuits »).
+   congé le lundi ne prend pas le samedi qui précède — il garde les contacts du week-end
+   jusqu'au lundi 9h et doit honorer les rendez-vous pris ce samedi-là.
+5. **La reprise des contacts suit la fermeture.** Le 17h-19h prend la nuit, le samedi matin
+   prend tout le week-end jusqu'au lundi 9h. Ces créneaux tournent comme les autres et se
+   comptent à part (colonne « 🌙 Reprises »).
 6. **Hors cycle.** Un conseiller peut être sorti du tour sans être supprimé (direction,
    gestion locative, arrêt long) : il garde ses rendez-vous, il ne prend plus de permanence.
 7. **Plafonds.** 2 créneaux par jour, 5 par semaine, et jamais deux points de vente à la

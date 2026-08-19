@@ -14,9 +14,10 @@ export const CRENEAUX_DEFAUT = [
   { id: "matin", label: "9h – 12h", debut: "09:00", fin: "12:00", jours: [1, 2, 3, 4, 5], besoin: 2, rdv: true },
   { id: "midi", label: "12h – 14h", debut: "12:00", fin: "14:00", jours: [1, 2, 3, 4, 5], besoin: 1, rdv: true },
   { id: "aprem", label: "14h – 17h", debut: "14:00", fin: "17:00", jours: [1, 2, 3, 4, 5], besoin: 2, rdv: true },
-  // 17h-19h : celui qui ferme reprend les contacts arrivés dans la nuit.
-  { id: "soir", label: "17h – 19h", debut: "17:00", fin: "19:00", jours: [1, 2, 3, 4, 5], besoin: 1, nuit: true, rdv: true },
-  { id: "samedi", label: "Samedi 9h – 12h", debut: "09:00", fin: "12:00", jours: [6], besoin: 1, samedi: true, rdv: true }
+  // Reprise des contacts : le 17h-19h prend la nuit, le samedi matin garde
+  // tout le week-end jusqu'au lundi 9h.
+  { id: "soir", label: "17h – 19h", debut: "17:00", fin: "19:00", jours: [1, 2, 3, 4, 5], besoin: 1, reprise: "nuit", rdv: true },
+  { id: "samedi", label: "Samedi 9h – 12h", debut: "09:00", fin: "12:00", jours: [6], besoin: 1, samedi: true, reprise: "weekend", rdv: true }
 ];
 
 export const REGLES_DEFAUT = {
@@ -48,6 +49,17 @@ export function parseConfig(row) {
   if (row && row.slug) c.public.slug = row.slug;
   return c;
 }
+
+// Reprise des contacts attachée à un créneau (`nuit: true` = ancienne écriture).
+export function repriseDe(cr) {
+  if (!cr) return "";
+  if (cr.reprise === "nuit" || cr.reprise === "weekend") return cr.reprise;
+  return cr.nuit ? "nuit" : "";
+}
+export const LIBELLE_REPRISE = {
+  nuit: { court: "contacts de la nuit", long: "Vous reprenez les contacts reçus après la fermeture, jusqu'à la réouverture le lendemain." },
+  weekend: { court: "contacts du week-end", long: "Vous gardez les contacts de tout le week-end, jusqu'au lundi 9h." }
+};
 
 // Créneaux applicables à un point de vente (surcharge éventuelle par PV).
 export function creneauxDe(config, pvId) {
@@ -107,7 +119,7 @@ const stamp = (epochSec) => new Date((epochSec || 0) * 1000).toISOString().repla
 // Flux iCalendar abonnable : Outlook / Google Agenda / Apple Calendrier le
 // rafraîchissent tout seuls. On y met les permanences ET les rendez-vous
 // pris en ligne, pour que le conseiller n'ait qu'un seul agenda à regarder.
-export function fluxIcs({ nom, permanences, rdv, pvNoms, nuitKeys, maintenant }) {
+export function fluxIcs({ nom, permanences, rdv, pvNoms, reprises, maintenant }) {
   const nl = "\r\n";
   const L = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Studio Permanence//FR", "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH", "X-WR-CALNAME:" + echap(nom || "Permanences"),
@@ -132,13 +144,13 @@ export function fluxIcs({ nom, permanences, rdv, pvNoms, nuitKeys, maintenant })
   };
   for (const p of permanences || []) {
     const pv = (pvNoms && pvNoms[p.pv]) || p.pv;
-    // Le créneau de fermeture emporte les contacts de la nuit : l'agenda le
-    // dit, sinon personne ne se souvient que c'est à lui de les traiter.
-    const nuit = !!(nuitKeys && nuitKeys.has(p.pv + "|" + p.creneau));
+    // La reprise des contacts suit le créneau : l'agenda le dit, sinon
+    // personne ne se souvient que c'est à lui de les traiter.
+    const rep = LIBELLE_REPRISE[(reprises && reprises.get(p.pv + "|" + p.creneau)) || ""];
     evt(p.id, p.date, p.debut, p.fin,
-      "Permanence — " + pv + (nuit ? " (+ contacts de la nuit)" : ""), pv,
+      "Permanence — " + pv + (rep ? " (+ " + rep.court + ")" : ""), pv,
       "Conseiller de permanence : " + (p.nom || "") + (p.telephone ? " · " + p.telephone : "") +
-      (nuit ? "\nVous reprenez les contacts reçus après la fermeture, jusqu'à la réouverture le lendemain." : ""));
+      (rep ? "\n" + rep.long : ""));
   }
   for (const r of rdv || []) {
     if (r.statut === "annule") continue;

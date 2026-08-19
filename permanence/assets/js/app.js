@@ -111,14 +111,17 @@
     config.conseillers[cle] = Object.assign({ pv: "", poids: 1, actif: true, horsCycle: false }, config.conseillers[cle], patch);
   }
   const pvsActifs = () => (config.pvs || []).filter((p) => p.actif !== false);
-  // Les créneaux qui emportent les contacts de la nuit (le 17h-19h par
-  // défaut), tous points de vente confondus : sert au décompte d'équité.
-  function creneauxNuit() {
+  // Les créneaux qui emportent une reprise de contacts (17h-19h la nuit,
+  // samedi le week-end), tous points de vente confondus : décompte d'équité.
+  function creneauxReprise() {
     const ids = new Set();
-    (config.pvs || []).forEach((p) => P.creneauxDe(config, p.id).forEach((cr) => { if (cr.nuit) ids.add(cr.id); }));
-    (config.creneaux || []).forEach((cr) => { if (cr.nuit) ids.add(cr.id); });
+    (config.pvs || []).forEach((p) => P.creneauxDe(config, p.id).forEach((cr) => { if (cr.reprise) ids.add(cr.id); }));
+    (config.creneaux || []).forEach((cr) => { if (cr.reprise) ids.add(cr.id); });
     return ids;
   }
+  // Phrase complète de la reprise, pour les info-bulles et la modale.
+  const titreReprise = (cr) => (cr && cr.reprise)
+    ? "reprend les " + (P.LIBELLE_REPRISE[cr.reprise] || "contacts") : "";
   const nomPv = (id) => ((config.pvs || []).find((p) => p.id === id) || {}).nom || id;
 
   /* ------------------------------ Chargement ------------------------------ */
@@ -215,7 +218,8 @@
       creneaux.forEach((cr) => {
         html.push('<tr><td class="creneau"><b>' + esc(cr.label || cr.id) + "</b>" +
           (cr.besoin > 1 ? cr.besoin + " conseillers" : "1 conseiller") +
-          (cr.nuit ? '<span class="nuitnote" title="Le conseiller de ce créneau traite les contacts reçus après la fermeture">🌙 contacts de la nuit</span>' : "") +
+          (cr.reprise ? '<span class="nuitnote" title="' + esc(titreReprise(cr)) + '">🌙 ' +
+            esc(cr.reprise === "weekend" ? "week-end jusqu'au lundi 9h" : "contacts de la nuit") + "</span>" : "") +
           "</td>");
         jours.forEach((date) => {
           const ouvert = cr.jours.indexOf(P.dow(date)) >= 0 && config.regles.feries.indexOf(date) < 0;
@@ -225,11 +229,11 @@
           html.push('<td><div class="case' + (lignes.length ? "" : " vide") + (manque ? " manque" : "") + '">');
           lignes.forEach((l) => {
             const n = rdvSur(l);
-            html.push('<button class="pastille' + (l.fige ? " fige" : "") + (cr.nuit ? " nuit" : "") + '" data-case="' +
+            html.push('<button class="pastille' + (l.fige ? " fige" : "") + (cr.reprise ? " nuit" : "") + '" data-case="' +
               esc([pvActif, date, cr.id, l.cle].join("|")) + '" title="' +
-              esc(l.nom + " — " + cr.label + (cr.nuit ? " · reprend les contacts de la nuit" : "") + (l.fige ? " (posé à la main)" : "")) + '">' +
+              esc(l.nom + " — " + cr.label + (cr.reprise ? " · " + titreReprise(cr) : "") + (l.fige ? " (posé à la main)" : "")) + '">' +
               '<span class="ini">' + esc(initiales(l.nom)) + "</span>" + esc(nomCourt(l.nom)) +
-              (cr.nuit ? '<span class="lune">🌙</span>' : "") +
+              (cr.reprise ? '<span class="lune">🌙</span>' : "") +
               (n ? '<span class="rdvn">' + n + " RDV</span>" : "") + "</button>");
           });
           for (let k = lignes.length; k < cr.besoin; k++) {
@@ -295,11 +299,11 @@
   function tableauEquite(eq, quoi) {
     if (!eq.rows.length) return '<p class="vide">Rien à comparer pour l\'instant (' + esc(quoi) + ").</p>";
     const max = Math.max(1, ...eq.rows.map((r) => r.total));
-    const nuits = creneauxNuit();
-    const compteNuits = (r) => Object.keys(r.parCreneau || {})
+    const nuits = creneauxReprise();
+    const compteReprises = (r) => Object.keys(r.parCreneau || {})
       .reduce((n, k) => n + (nuits.has(k) ? r.parCreneau[k] : 0), 0);
     return '<table class="tbl"><thead><tr><th>Conseiller</th><th>Point de vente</th><th>Répartition</th>' +
-      '<th class="num">Créneaux</th><th class="num">Samedis</th><th class="num" title="Fermetures 17h-19h : le conseiller reprend les contacts de la nuit">🌙 Nuits</th>' +
+      '<th class="num">Créneaux</th><th class="num">Samedis</th><th class="num" title="Créneaux qui emportent la reprise des contacts : la nuit (17h-19h) et le week-end (samedi, jusqu&#39;au lundi 9h)">🌙 Reprises</th>' +
       '<th class="num">Écart</th></tr></thead><tbody>' +
       eq.rows.map((r) => {
         const pct = Math.round((r.total / max) * 100);
@@ -308,7 +312,7 @@
           "<td>" + esc(nomPv(r.pv) || "—") + "</td>" +
           '<td><span class="bar"><i class="' + classe.trim() + '" style="width:' + pct + '%"></i></span></td>' +
           '<td class="num">' + r.total + '</td><td class="num">' + r.samedi + "</td>" +
-          '<td class="num">' + compteNuits(r) + "</td>" +
+          '<td class="num">' + compteReprises(r) + "</td>" +
           '<td class="num">' + (r.ecart >= 0 ? "+" : "") + r.ecart.toFixed(1) + "</td></tr>";
       }).join("") + "</tbody></table>";
   }
@@ -336,9 +340,9 @@
     if (!cr) return;
     caseCourante = { pv, date, creneauId, occupant, cr };
     $("#cellTitre").textContent = P.libelleJour(date, true) + " · " + (cr.label || cr.id) +
-      (cr.nuit ? " 🌙" : "");
+      (cr.reprise ? " 🌙" : "");
     $("#cellSous").textContent = nomPv(pv) + (occupant ? " — actuellement " + (conseillerDe(occupant) || {}).nom : " — créneau à couvrir") +
-      (cr.nuit ? " · ce créneau emporte les contacts de la nuit" : "");
+      (cr.reprise ? " · " + titreReprise(cr) : "");
     const idx = P.indispoIndex(absences, config.regles);
     const eq = P.equite(planning.filter((l) => l.date >= debutHistorique()), conseillers());
     const parCle = {};
@@ -516,14 +520,19 @@
         esc(p.nom) + (p.creneaux && p.creneaux.length ? " (réglage propre)" : "") + "</option>").join("");
     const crs = creneauxPvSel ? P.creneauxDe(config, creneauxPvSel) : config.creneaux;
     $("#creneauxList").innerHTML = '<table class="tbl"><thead><tr>' +
-      "<th>Créneau</th><th>Début</th><th>Fin</th><th>Jours</th><th>Besoin</th><th>🌙 Nuit</th><th>RDV en ligne</th></tr></thead><tbody>" +
+      "<th>Créneau</th><th>Début</th><th>Fin</th><th>Jours</th><th>Besoin</th>" +
+      '<th title="Ce que le conseiller récupère en plus de sa présence">🌙 Reprise des contacts</th><th>RDV en ligne</th></tr></thead><tbody>' +
       crs.map((cr, i) => '<tr data-cr="' + i + '">' +
         "<td>" + esc(cr.label || cr.id) + "</td>" +
         '<td><input type="time" data-crchamp="debut" value="' + esc(cr.debut) + '" /></td>' +
         '<td><input type="time" data-crchamp="fin" value="' + esc(cr.fin) + '" /></td>' +
         "<td>" + esc(cr.jours.map((j) => P.JOURS_COURTS[j]).join(" ")) + "</td>" +
         '<td><input type="number" data-crchamp="besoin" min="0" max="20" value="' + cr.besoin + '" /></td>' +
-        '<td><input type="checkbox" data-crchamp="nuit"' + (cr.nuit ? " checked" : "") + " /></td>" +
+        '<td><select data-crchamp="reprise">' +
+        ['<option value=""' + (cr.reprise ? "" : " selected") + ">—</option>",
+          '<option value="nuit"' + (cr.reprise === "nuit" ? " selected" : "") + ">Nuit (jusqu'à la réouverture)</option>",
+          '<option value="weekend"' + (cr.reprise === "weekend" ? " selected" : "") + ">Week-end (jusqu'au lundi 9h)</option>"].join("") +
+        "</select></td>" +
         '<td><input type="checkbox" data-crchamp="rdv"' + (cr.rdv !== false ? " checked" : "") + " /></td></tr>").join("") +
       "</tbody></table>";
 
@@ -608,7 +617,7 @@
       H.push("<table><thead><tr><th></th>" + jours.map((j) => "<th>" + esc(P.libelleJour(j)) + "</th>").join("") + "</tr></thead><tbody>");
       creneaux.forEach((cr) => {
         H.push('<tr><td class="cr">' + esc(cr.label || cr.id) +
-          (cr.nuit ? '<br /><small>+ contacts de la nuit</small>' : "") + "</td>");
+          (cr.reprise ? '<br /><small>+ ' + esc(P.LIBELLE_REPRISE[cr.reprise] || "") + "</small>" : "") + "</td>");
         jours.forEach((date) => {
           const ouvert = cr.jours.indexOf(P.dow(date)) >= 0 && config.regles.feries.indexOf(date) < 0;
           const noms = lignesDe(pvActif, date, cr.id).map((l) => l.nom).join("<br />");
@@ -753,7 +762,7 @@
       rendreReglages();
     });
     $("#creneauxPv").addEventListener("change", (e) => { creneauxPvSel = e.target.value; rendreReglages(); });
-    $("#creneauxList").addEventListener("input", (e) => {
+    ["input", "change"].forEach((ev) => $("#creneauxList").addEventListener(ev, (e) => {
       const tr = e.target.closest("tr[data-cr]");
       if (!tr || !e.target.dataset.crchamp) return;
       const i = parseInt(tr.dataset.cr, 10);
@@ -770,8 +779,8 @@
       if (!cible) return;
       const champ = e.target.dataset.crchamp;
       cible[champ] = champ === "besoin" ? Math.max(0, parseInt(e.target.value, 10) || 0)
-        : (champ === "rdv" || champ === "nuit") ? e.target.checked : e.target.value;
-    });
+        : champ === "rdv" ? e.target.checked : e.target.value;
+    }));
     $("#pubSlug").addEventListener("input", rendrePubLiens);
     $("#btnSaveConfig").addEventListener("click", enregistrerReglages);
   }

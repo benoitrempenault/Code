@@ -14,8 +14,9 @@
      pas prendre des contacts qu'il ne pourra pas suivre ;
    - le conseiller du samedi matin doit être présent la semaine d'après pour
      honorer les rendez-vous pris le samedi ;
-   - le créneau de fermeture (17h-19h) emporte les contacts de la nuit :
-     c'est la même personne qui traite les demandes arrivées après 19h ;
+   - la REPRISE DES CONTACTS suit le créneau de fermeture : celui du 17h-19h
+     traite les demandes arrivées dans la nuit, celui du samedi matin garde
+     tout le week-end jusqu'au lundi 9h ;
    - on peut sortir un conseiller du cycle (hors cycle) sans le supprimer ;
    - le tour est ÉQUITABLE : à chaque attribution, c'est le conseiller le
      moins servi (en volume pondéré, puis sur ce créneau, puis le plus
@@ -58,10 +59,11 @@
     { id: "matin", label: "9h – 12h", debut: "09:00", fin: "12:00", jours: [1, 2, 3, 4, 5], besoin: 2 },
     { id: "midi", label: "12h – 14h", debut: "12:00", fin: "14:00", jours: [1, 2, 3, 4, 5], besoin: 1 },
     { id: "aprem", label: "14h – 17h", debut: "14:00", fin: "17:00", jours: [1, 2, 3, 4, 5], besoin: 2 },
-    // 17h-19h : celui qui ferme prend aussi les contacts arrivés dans la nuit
-    // (portails, formulaires, messages) jusqu'à la réouverture le lendemain.
-    { id: "soir", label: "17h – 19h", debut: "17:00", fin: "19:00", jours: [1, 2, 3, 4, 5], besoin: 1, nuit: true },
-    { id: "samedi", label: "Samedi 9h – 12h", debut: "09:00", fin: "12:00", jours: [6], besoin: 1, samedi: true }
+    // Reprise des contacts : celui qui ferme le soir prend les demandes de la
+    // nuit (portails, formulaires, messages) jusqu'à la réouverture ; celui du
+    // samedi matin garde TOUT le week-end, jusqu'au lundi 9h.
+    { id: "soir", label: "17h – 19h", debut: "17:00", fin: "19:00", jours: [1, 2, 3, 4, 5], besoin: 1, reprise: "nuit" },
+    { id: "samedi", label: "Samedi 9h – 12h", debut: "09:00", fin: "12:00", jours: [6], besoin: 1, samedi: true, reprise: "weekend" }
   ];
 
   const REGLES_DEFAUT = {
@@ -101,6 +103,13 @@
     out.public = Object.assign({ slug: "", actif: false, message: "" }, c.public || {});
     return out;
   }
+  const REPRISES = ["", "nuit", "weekend"];
+  // Ce que le conseiller récupère en plus de sa présence physique.
+  const LIBELLE_REPRISE = {
+    nuit: "contacts de la nuit",
+    weekend: "contacts du week-end, jusqu'au lundi 9h"
+  };
+  const repriseTexte = (cr) => (cr && LIBELLE_REPRISE[cr.reprise]) || "";
   function normaliseCreneau(cr) {
     return {
       id: String((cr && cr.id) || "").slice(0, 20) || "creneau",
@@ -110,7 +119,9 @@
       jours: Array.isArray(cr && cr.jours) ? cr.jours.map(Number).filter((j) => j >= 0 && j <= 6) : [1, 2, 3, 4, 5],
       besoin: Math.max(0, Math.min(20, parseInt((cr && cr.besoin), 10) || 0)),
       samedi: !!(cr && cr.samedi),
-      nuit: !!(cr && cr.nuit),        // le conseiller reprend les contacts de la nuit
+      // "" = rien · "nuit" = jusqu'à la réouverture · "weekend" = jusqu'au lundi 9h.
+      // `nuit: true` est l'ancienne écriture : on la relit sans rien casser.
+      reprise: REPRISES.indexOf(cr && cr.reprise) > 0 ? cr.reprise : ((cr && cr.nuit) ? "nuit" : ""),
       rdv: (cr && cr.rdv) !== false   // créneau ouvert à la prise de rendez-vous en ligne
     };
   }
@@ -228,13 +239,19 @@
       const m = bloque.get(String(cle || "").toLowerCase());
       return (m && m.get(date)) || "";
     }
-    // Un samedi de permanence n'a de sens que si le conseiller est là la
-    // semaine d'après pour honorer les rendez-vous qu'il aura pris.
+    // Le samedi engage plus que la matinée : celui qui le prend garde les
+    // contacts de tout le week-end jusqu'au lundi 9h, puis honore les
+    // rendez-vous pris. Il doit donc être là les jours ouvrés qui suivent —
+    // le lundi en premier.
     function raisonSamedi(cle, date) {
       const suivants = joursOuvresApres(date, r.samediSuiviJours, r.feries);
       for (const j of suivants) {
         const m = raison(cle, j);
-        if (m && m.indexOf("Absent") === 0) return "Absent le " + libelleJour(j) + " — ne pourrait pas suivre ses rendez-vous du samedi";
+        if (m && m.indexOf("Absent") === 0) {
+          return j === suivants[0]
+            ? "Absent le " + libelleJour(j) + " — il doit reprendre les contacts du week-end le lundi 9h"
+            : "Absent le " + libelleJour(j) + " — ne pourrait pas suivre ses rendez-vous du samedi";
+        }
       }
       return "";
     }
@@ -351,7 +368,7 @@
         lignes.push({
           pv: pvId, date, creneau: cr.id, debut: cr.debut, fin: cr.fin,
           cle: choisi.cle, nom: choisi.nom, email: choisi.email, telephone: choisi.telephone,
-          fige: 0, samedi, nuit: !!cr.nuit
+          fige: 0, samedi, reprise: cr.reprise || ""
         });
         noter(choisi.cle, date, cr.id);
         const c = cpt[choisi.cle];
@@ -485,7 +502,7 @@
     normaliseConfig, normaliseCreneau, creneauxDe,
     addDays, toISO, dow, joursEntre, lundi, semaineDe, libelleJour, JOURS_LONGS, JOURS_COURTS,
     blocsAbsence, indispoIndex, compteurs, equite,
-    genere, creneauxRdv, enMinutes, enHeure
+    genere, creneauxRdv, enMinutes, enHeure, repriseTexte, LIBELLE_REPRISE
   };
   if (typeof module !== "undefined" && module.exports) module.exports = G.Permanence;
 })();

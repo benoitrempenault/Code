@@ -702,6 +702,8 @@ console.log("— Permanences : moteur du tour");
   const partAprès = [{ cle: "marine@ex.fr", type: "conge", debut: "2026-09-07", fin: "2026-09-11" }];
   const idxSam = P.indispoIndex(partAprès, config.regles);
   ok(idxSam.raisonSamedi("marine@ex.fr", "2026-09-05") !== "", "pas de samedi juste avant un congé (RDV non suivis)");
+  ok(/lundi 9h/.test(idxSam.raisonSamedi("marine@ex.fr", "2026-09-05")),
+    "le refus dit pourquoi : il doit reprendre les contacts du week-end le lundi 9h");
   ok(idxSam.raisonSamedi("marine@ex.fr", "2026-09-19") === "", "samedi autorisé quand la semaine suivante est libre");
   const gSam = P.genere({ ...base, absences: partAprès });
   ok(!gSam.lignes.some((l) => l.creneau === "samedi" && l.date === "2026-09-05" && l.cle === "marine@ex.fr"),
@@ -740,9 +742,13 @@ console.log("— Permanences : moteur du tour");
   // Le créneau de fermeture emporte les contacts de la nuit, et il tourne
   // comme les autres : personne ne doit hériter de toutes les soirées.
   const soirs = sansAbsence.lignes.filter((l) => l.creneau === "soir");
-  ok(soirs.every((l) => l.nuit === true), "le créneau 17h-19h est marqué « contacts de la nuit »");
-  ok(sansAbsence.lignes.filter((l) => l.creneau === "matin").every((l) => !l.nuit),
-    "les autres créneaux ne le sont pas");
+  ok(soirs.every((l) => l.reprise === "nuit"), "le créneau 17h-19h emporte les contacts de la nuit");
+  ok(sansAbsence.lignes.filter((l) => l.creneau === "samedi").every((l) => l.reprise === "weekend"),
+    "le samedi matin emporte tout le week-end, jusqu'au lundi 9h");
+  ok(sansAbsence.lignes.filter((l) => l.creneau === "matin").every((l) => !l.reprise),
+    "les créneaux de journée n'emportent aucune reprise");
+  ok(P.normaliseConfig({ creneaux: [{ id: "soir", debut: "17:00", fin: "19:00", jours: [1], besoin: 1, nuit: true }] })
+    .creneaux[0].reprise === "nuit", "l'ancienne écriture « nuit: true » est relue sans casse");
   const parPersonne = {};
   soirs.forEach((l) => { parPersonne[l.cle] = (parPersonne[l.cle] || 0) + 1; });
   ok(Object.keys(parPersonne).length >= 6 &&
