@@ -215,7 +215,10 @@ rendez-vous, et **il n'écrit rien**.
 la prise de rendez-vous fonctionne exactement comme avant :
 
 1. les trois secrets sont posés sur le serveur
-   (`GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, via `wrangler secret put`) ;
+   (`GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`). Deux façons : `wrangler
+   secret put` en ligne de commande, ou — sans terminal — les poser en secrets GitHub puis
+   lancer **Actions → « Poser les accès Microsoft sur le serveur »**, qui les recopie vers
+   Cloudflare (et sait aussi les retirer, ce qui rend le serveur inerte à nouveau) ;
 2. l'agence a coché **« Tenir compte des agendas Outlook »** dans Réglages. Sans les secrets, la case
    est grisée : `GET /permanence/config` renvoie `graphPret: false` et l'app le dit en clair.
 
