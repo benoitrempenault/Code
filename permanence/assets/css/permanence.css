@@ -196,6 +196,14 @@ h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font
 .tbl input[type="number"] { max-width: 78px; padding: 4px 6px; }
 .tbl select { width: auto; padding: 4px 6px; }
 .tbl .nowrap { white-space: nowrap; }
+/* Ligne de section dans la table des conseillers : les assistantes vivent
+   à part — même table, mais on voit tout de suite qui tient l'accueil. */
+.tbl tr.section td {
+  padding-top: 16px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); border-bottom: 1px solid var(--line-strong, var(--line));
+}
+.tbl tr.ligne-assistante td { background: color-mix(in srgb, var(--panel-2) 55%, transparent); }
+
 .pill {
   display: inline-block; border: 1px solid var(--line); border-radius: 999px;
   padding: 1px 9px; font-size: 11.5px; color: var(--muted);

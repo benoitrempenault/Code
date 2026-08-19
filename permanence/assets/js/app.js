@@ -477,28 +477,37 @@
     const opts = (choisi) => ['<option value=""' + (choisi ? "" : " selected") + ">— non rattaché —</option>"].concat(
       (config.pvs || []).map((p) => '<option value="' + esc(p.id) + '"' + (p.id === choisi ? " selected" : "") + ">" +
         esc(p.nom) + "</option>")).join("");
+    // Deux mondes dans la même table : les conseillers (le tour), puis les
+    // assistantes (l'accueil), séparées par une ligne de section — chacun
+    // s'enregistre et se lit à sa place.
+    const ligne = (c) =>
+      '<tr data-cle="' + esc(c.cle) + '"' + (c.assistante ? ' class="ligne-assistante"' : "") + ">" +
+      '<td><input type="checkbox" class="lot" /></td>' +
+      "<td><b>" + esc(c.nom) + "</b>" + (c.assistante ? ' <span class="pill on">assistante</span>' : "") + "</td>" +
+      '<td><select data-champ="pv">' + opts(c.pv) + "</select></td>" +
+      (c.assistante
+        ? '<td class="muted" title="Une assistante tient l\'accueil : elle n\'entre pas dans le tour">—</td>'
+        : '<td><label class="field--inline"><input type="checkbox" data-champ="cycle"' + (c.horsCycle ? "" : " checked") + " /> " +
+          (c.horsCycle ? '<span class="pill off">hors cycle</span>' : '<span class="pill on">dans le cycle</span>') + "</label></td>") +
+      '<td><label class="field--inline"><input type="checkbox" data-champ="assistante"' + (c.assistante ? " checked" : "") +
+      ' title="Coché : tient l\'accueil, pas de permanence. Décoché : conseiller, entre dans le tour." /></label></td>' +
+      (c.assistante ? '<td class="muted">—</td>'
+        : '<td><input type="number" data-champ="poids" min="0.1" max="2" step="0.1" value="' + c.poids + '" /></td>') +
+      '<td class="nowrap">' + esc(c.email || "—") + "</td>" +
+      '<td><input type="email" data-champ="boite" placeholder="' + esc(c.email || "même adresse") +
+      '" value="' + esc(c.boite) + '" /></td>' +
+      '<td class="nowrap"><button class="btn btn--sm" data-agenda="' + esc(c.cle) + '">lien agenda</button></td></tr>';
+    const lesCons = liste.filter((c) => !c.assistante), lesAssist = liste.filter((c) => c.assistante);
     $("#conseillersList").innerHTML = liste.length ? '<table class="tbl"><thead><tr>' +
       '<th><input type="checkbox" id="lotTete" title="Tout cocher" /></th>' +
-      "<th>Conseiller</th><th>Point de vente</th><th>Dans le cycle</th>" +
-      '<th title="Tient l\'accueil du point de vente : pas de permanence pour elle, mais son absence oblige un conseiller à être physiquement au comptoir">Accueil</th><th>Poids</th>' +
+      "<th>Nom</th><th>Point de vente</th><th>Dans le cycle</th>" +
+      '<th title="Tient l\'accueil du point de vente : pas de permanence pour elle, mais son absence (même quelques heures) oblige un conseiller à être physiquement au comptoir">Accueil</th><th>Poids</th>' +
       '<th title="L\'adresse de l\'annuaire : notifications et rendez-vous par e-mail">Courrier</th>' +
       '<th title="La boîte Microsoft qui porte l\'agenda métier, si elle diffère">Agenda métier</th><th></th>' +
-      "</tr></thead><tbody>" + liste.map((c) =>
-        '<tr data-cle="' + esc(c.cle) + '">' +
-        '<td><input type="checkbox" class="lot" /></td>' +
-        "<td><b>" + esc(c.nom) + "</b></td>" +
-        '<td><select data-champ="pv">' + opts(c.pv) + "</select></td>" +
-        '<td><label class="field--inline"><input type="checkbox" data-champ="cycle"' +
-        (c.horsCycle || c.assistante ? "" : " checked") + (c.assistante ? " disabled" : "") + " /> " +
-        (c.assistante ? '<span class="pill off">—</span>'
-          : c.horsCycle ? '<span class="pill off">hors cycle</span>' : '<span class="pill on">dans le cycle</span>') + "</label></td>" +
-        '<td><label class="field--inline"><input type="checkbox" data-champ="assistante"' + (c.assistante ? " checked" : "") + " /> " +
-        (c.assistante ? '<span class="pill on">assistante</span>' : '<span class="muted">conseiller</span>') + "</label></td>" +
-        '<td><input type="number" data-champ="poids" min="0.1" max="2" step="0.1" value="' + c.poids + '" /></td>' +
-        '<td class="nowrap">' + esc(c.email || "—") + "</td>" +
-        '<td><input type="email" data-champ="boite" placeholder="' + esc(c.email || "même adresse") +
-        '" value="' + esc(c.boite) + '" /></td>' +
-        '<td class="nowrap"><button class="btn btn--sm" data-agenda="' + esc(c.cle) + '">lien agenda</button></td></tr>').join("") +
+      "</tr></thead><tbody>" +
+      lesCons.map(ligne).join("") +
+      (lesAssist.length ? '<tr class="section"><td colspan="9">Accueil — assistantes (hors du tour, leur présence décide des permanences physiques)</td></tr>' +
+        lesAssist.map(ligne).join("") : "") +
       "</tbody></table>" : '<p class="vide">Aucun conseiller dans l\'annuaire de l\'agence — cliquez sur « Reprendre l\'annuaire ».</p>';
     const lot = $("#lotPv");
     if (lot) lot.innerHTML = opts("");
@@ -514,7 +523,7 @@
   function rendreAbsences() {
     const liste = conseillers();
     const choisiAvant = $("#absCons").value;
-    $("#absCons").innerHTML = liste.map((c) => '<option value="' + esc(c.cle) + '">' + esc(c.nom) + "</option>").join("");
+    $("#absCons").innerHTML = liste.map((c) => '<option value="' + esc(c.cle) + '">' + esc(c.nom) + (c.assistante ? " — assistante" : "") + "</option>").join("");
     // Re-rendu après un ajout : on garde la personne sélectionnée (saisir
     // trois absences de suite pour le même conseiller est le cas courant).
     if (choisiAvant && liste.some((c) => c.cle === choisiAvant)) $("#absCons").value = choisiAvant;
@@ -522,17 +531,36 @@
     const futures = absences.slice().sort((a, b) => (a.debut < b.debut ? 1 : -1));
     $("#absCount").textContent = absences.length + " enregistrée(s)";
     $("#absList").innerHTML = futures.length ? '<table class="tbl"><thead><tr>' +
-      "<th>Conseiller</th><th>Type</th><th>Du</th><th>Au</th><th>Créneaux bloqués avant</th><th>Précision</th><th></th>" +
+      "<th>Qui</th><th>Type</th><th>Quand</th>" +
+      '<th title="Ce que cette absence change concrètement dans le tour ou à l\'accueil">Effet</th><th>Précision</th><th></th>' +
       "</tr></thead><tbody>" + futures.map((a) => {
         const c = conseillerDe(a.cle);
-        const bloc = (idx.blocs.get(String(a.cle).toLowerCase()) || []).find((b) => b.debut <= a.debut && b.fin >= a.debut);
-        const preavis = bloc ? joursPreavis(bloc, idx, a.cle) : [];
-        return '<tr><td>' + esc((c && c.nom) || a.nom || a.cle) + "</td>" +
+        const heures = a.h_debut ? a.h_debut.replace(":", "h") + " à " + a.h_fin.replace(":", "h") : "";
+        // Quand : une seule cellule lisible, pas un Du/Au qui se répète.
+        const quand = heures ? P.libelleJour(a.debut) + ", de " + heures
+          : a.debut === a.fin ? P.libelleJour(a.debut)
+            : "du " + P.libelleJour(a.debut) + " au " + P.libelleJour(a.fin);
+        // Effet : le langage du rôle. Une assistante ne connaît pas le
+        // préavis — son absence se lit en accueil non tenu.
+        let effet;
+        if (c && c.assistante) {
+          effet = heures
+            ? "accueil non tenu de " + heures + " → le conseiller de permanence est sur place"
+            : "accueil non tenu → permanences physiques toute la journée";
+        } else if (heures) {
+          effet = "retiré des seuls créneaux entre " + heures + " (pas de préavis)";
+        } else {
+          const bloc = (idx.blocs.get(String(a.cle).toLowerCase()) || []).find((b) => b.debut <= a.debut && b.fin >= a.debut);
+          const preavis = bloc ? joursPreavis(bloc, idx, a.cle) : [];
+          effet = preavis.length
+            ? "hors du tour, plus préavis le " + preavis.map((j) => P.libelleJour(j)).join(", ")
+            : "hors du tour sur la période (pas de préavis)";
+        }
+        return '<tr><td><b>' + esc((c && c.nom) || a.nom || a.cle) + "</b>" +
+          (c && c.assistante ? ' <span class="pill on">assistante</span>' : "") + "</td>" +
           '<td><span class="pill' + (a.type === "conge" ? " warn" : "") + '">' + esc(libelleType(a.type)) + "</span></td>" +
-          "<td>" + esc(P.libelleJour(a.debut)) +
-          (a.h_debut ? ' <span class="pill">' + esc(a.h_debut.replace(":", "h") + " → " + a.h_fin.replace(":", "h")) + "</span>" : "") +
-          "</td><td>" + esc(P.libelleJour(a.fin)) + "</td>" +
-          "<td>" + (preavis.length ? esc(preavis.map((j) => P.libelleJour(j)).join(", ")) : '<span class="pill">aucun</span>') + "</td>" +
+          "<td>" + esc(quand) + "</td>" +
+          "<td>" + esc(effet) + "</td>" +
           "<td>" + esc(a.motif || "") + "</td>" +
           '<td class="nowrap"><button class="btn btn--sm btn--danger" data-absdel="' + esc(a.id) + '">Supprimer</button></td></tr>';
       }).join("") + "</tbody></table>" : '<p class="vide">Aucune absence déclarée.</p>';
@@ -1003,11 +1031,16 @@
       if (!nom) return;
       const email = (prompt("Son adresse e-mail — elle sert de clé et reçoit les notifications :", "") || "").trim().toLowerCase();
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast("Adresse e-mail invalide.", true); return; }
+      // Le rôle se choisit à l'entrée : une assistante tient l'accueil et ne
+      // prend pas de permanence — pas besoin de cocher quoi que ce soit après.
+      const estAssistante = confirm("Est-ce une ASSISTANTE (accueil) ?\n\nOK = assistante — elle tient l'accueil, ne prend pas de permanence.\nAnnuler = conseiller — il entre dans le tour.");
       try {
         await api("/annuaire", { method: "PUT", json: { type: "conseiller", nom, email } });
+        if (estAssistante) { majConseiller(email, { assistante: true, horsCycle: true }); enregistrerConfigDifferee(); }
         await chargerAnnuaire();
         rendreConseillers();
-        toast(nom + " est dans la liste — rattachez-la à son point de vente, et cochez « Accueil » si c'est une assistante.");
+        toast(nom + (estAssistante ? " est enregistrée comme assistante — rattachez-la à son point de vente."
+          : " est dans la liste — rattachez-le à son point de vente."));
       } catch (e) { toast(e.message, true); }
     });
 
