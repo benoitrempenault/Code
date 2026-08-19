@@ -93,9 +93,17 @@ il stocke (`perm_config` / `perm_absences` / `permanences` / `rdv`, routes `/per
 (Outlook / Google / Apple s'abonnent à l'URL, permanences + rendez-vous), et **revalide tout
 créneau réservé** depuis la page publique (`/public/rdv`, garde-fous 30/h par agence,
 3/jour par e-mail). Les conseillers viennent de la table `annuaire` partagée avec Suivi ; la
-clé d'un conseiller est son e-mail en minuscules. `server/src/permanence.js` porte la
-validation, l'`.ics` et le découpage en rendez-vous. Règles, mise en service et pièges :
-`docs/permanence.md`. Outil interne Century 21 (noindex, logo Kadima) ; la page `rdv/` est
+clé d'un conseiller est son e-mail en minuscules ; un conseiller peut porter une **seconde
+adresse** (`conseillers[cle].boite`, « agenda métier ») quand le courrier reste sur la
+messagerie du réseau et l'agenda sur le tenant de l'agence — l'invitation de calendrier part
+alors sur la boîte agenda, la notification sur le courrier. `server/src/permanence.js` porte
+la validation, l'`.ics` et le découpage en rendez-vous. `server/src/graph.js` sait retirer de
+la page publique les créneaux déjà pris dans Outlook (Microsoft Graph `getSchedule`, lecture
+seule) mais est **livré éteint** : il lui faut à la fois les trois secrets
+`GRAPH_TENANT_ID`/`GRAPH_CLIENT_ID`/`GRAPH_CLIENT_SECRET` et la case « tenir compte des
+agendas » cochée dans les réglages ; sans les deux, aucun appel ne part et tout fonctionne
+comme avant (une erreur Graph retombe aussi sur ce comportement). Règles, mise en service et
+pièges : `docs/permanence.md`. Outil interne Century 21 (noindex, logo Kadima) ; la page `rdv/` est
 publique mais **neutre** — ni marque Century 21 ni mention ABR IMMO, l'agence vient du serveur.
 
 ## Architecture

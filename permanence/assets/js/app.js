@@ -80,7 +80,18 @@
   let debutPeriode = P.lundi(aujourdhui());
   let portee = 4;           // semaines affichées et générées
   let liens = null;         // liens d'abonnement agenda
+  let graphPret = false;    // le serveur a-t-il les secrets Microsoft ?
   let estAdmin = false;
+
+  // `normaliseConfig` ne connaît que les réglages du moteur : les champs
+  // propres à l'app (branchement agenda, domaine des boîtes) seraient perdus
+  // à chaque aller-retour. On les reporte ici, une fois pour toutes.
+  function appliquerConfig(recu) {
+    const c = P.normaliseConfig(recu);
+    c.graph = (recu && recu.graph) || { actif: false };
+    c.domaineAgenda = (recu && recu.domaineAgenda) || "";
+    return c;
+  }
 
   const finPeriode = () => P.addDays(debutPeriode, portee * 7 - 1);
   // Le tour est équitable dans la durée : on remonte 12 semaines pour que les
@@ -131,7 +142,8 @@
   /* ------------------------------ Chargement ------------------------------ */
   async function chargerConfig() {
     const r = await api("/permanence/config");
-    config = P.normaliseConfig(r.config);
+    config = appliquerConfig(r.config);
+    graphPret = !!r.graphPret;
     if (!pvActif || !(config.pvs || []).some((p) => p.id === pvActif)) {
       pvActif = (pvsActifs()[0] || {}).id || "";
     }
@@ -564,10 +576,20 @@
     $("#pubSlug").value = (config.public && config.public.slug) || "";
     $("#pubActif").checked = !!(config.public && config.public.actif);
     $("#pubMsg").value = (config.public && config.public.message) || "";
+    // L'interrupteur reste hors service tant que les secrets Microsoft ne
+    // sont pas posés sur le serveur : rien à cocher qui ne ferait rien.
+    const gActif = !!(config.graph && config.graph.actif);
+    $("#graphActif").checked = gActif && graphPret;
+    $("#graphNote").innerHTML = graphPret
+      ? "Coché, la page publique ne proposera que les créneaux où le conseiller est réellement libre dans son agenda métier. "
+        + "Décoché, elle propose tous les créneaux de permanence."
+      : "<b>Indisponible :</b> le serveur n'a pas encore les accès Microsoft. "
+        + "Tant qu'ils ne sont pas posés, la case reste sans effet et la prise de rendez-vous fonctionne sur le seul planning.";
     rendrePubLiens();
 
     $$("#view-reglages input, #view-reglages select, #view-reglages textarea, #view-reglages button")
       .forEach((el) => { if (!estAdmin) el.disabled = true; });
+    if (!graphPret) $("#graphActif").disabled = true;
   }
   let creneauxPvSel = "";
 
@@ -624,9 +646,10 @@
       actif: $("#pubActif").checked,
       message: $("#pubMsg").value || ""
     };
+    config.graph = { actif: graphPret && $("#graphActif").checked };
     try {
       const r = await api("/permanence/config", { method: "PUT", json: { config } });
-      config = P.normaliseConfig(r.config);
+      config = appliquerConfig(r.config);
       $("#cfgMsg").textContent = "Enregistré ✓";
       setTimeout(() => { $("#cfgMsg").textContent = ""; }, 2500);
       rendreReglages(); rendrePlanning();
@@ -643,7 +666,7 @@
     sauveEnCours = setTimeout(async () => {
       try {
         const r = await api("/permanence/config", { method: "PUT", json: { config } });
-        config = P.normaliseConfig(r.config);
+        config = appliquerConfig(r.config);
         toast("Réglages enregistrés.");
       } catch (e) { toast(e.message, true); }
     }, 700);
@@ -768,6 +791,26 @@
     $("#btnLotAucun").addEventListener("click", () => cocherTout(false));
     $("#conseillersList").addEventListener("change", (e) => {
       if (e.target.id === "lotTete") cocherTout(e.target.checked);
+    });
+
+    // Pré-remplissage des boîtes d'agenda : « Adeline Lebon » →
+    // « adeline@domaine ». La convention tient pour la plupart des comptes,
+    // mais pas pour tous (homonymes, comptes créés autrement) : on ne touche
+    // qu'aux cases vides, et on annonce qu'il reste à vérifier.
+    const prenomDe = (nom) => String(nom || "").trim().split(/\s+/)[0]
+      .toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+    $("#btnPrefillBoite").addEventListener("click", () => {
+      const defaut = config.domaineAgenda || "kadimatb.onmicrosoft.com";
+      const domaine = (prompt("Domaine des boîtes qui portent l'agenda métier :", defaut) || "")
+        .trim().toLowerCase().replace(/^@/, "");
+      if (!domaine) return;
+      config.domaineAgenda = domaine;
+      const vides = conseillers().filter((c) => !c.boite && prenomDe(c.nom));
+      if (!vides.length) { toast("Toutes les boîtes sont déjà renseignées — videz une case pour la recalculer.", true); return; }
+      vides.forEach((c) => majConseiller(c.cle, { boite: prenomDe(c.nom) + "@" + domaine }));
+      enregistrerConfigDifferee();
+      rendreConseillers();
+      toast(vides.length + " boîte(s) déduite(s) du prénom — vérifiez les cas particuliers (homonymes, comptes en prenom.nom).");
     });
 
     $("#btnSyncAnnuaire").addEventListener("click", async () => {

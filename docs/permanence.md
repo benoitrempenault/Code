@@ -96,10 +96,9 @@ l'affiche comme une vraie invitation, acceptable en un clic, tout de suite — e
 `METHOD:PUBLISH` pour le client, simple ajout sans réponse attendue. Le flux reste la source
 du planning ; l'invitation couvre l'urgence.
 
-Ce que le flux `.ics` ne fait pas, et qu'un branchement API (Microsoft Graph) apporterait :
-lire les **vraies disponibilités** du conseiller avant de proposer un créneau, écrire dans son
-calendrier à la seconde, et faire remonter un rendez-vous déplacé dans l'agenda. Cela demande
-un consentement administrateur sur le tenant de l'agence.
+Ce que le flux `.ics` ne sait pas faire : lire les **vraies disponibilités** du conseiller
+avant de proposer un créneau. C'est l'objet du branchement Microsoft Graph décrit plus bas —
+livré, éteint, et sans effet tant que l'agence n'a pas posé ses accès.
 
 ## La prise de rendez-vous sur le site internet
 
@@ -150,13 +149,44 @@ Quand `boite` est renseignée et valide, `/public/rdv` envoie **l'invitation de 
 cette boîte** (c'est là que l'événement doit se poser) et la **notification en texte à
 l'adresse de courrier**. Sinon, un seul e-mail part avec l'invitation jointe.
 
-Ce champ est aussi le point d'ancrage du futur branchement Microsoft Graph : c'est la boîte
-que l'API interrogera. Aucune colonne SQL n'a été ajoutée — tout vit dans le JSON des
-réglages, donc le schéma reste rejouable tel quel.
+Ce champ est aussi le point d'ancrage du branchement Microsoft Graph : c'est la boîte que
+l'API interroge. Aucune colonne SQL n'a été ajoutée — tout vit dans le JSON des réglages,
+donc le schéma reste rejouable tel quel.
+
+Le bouton **« ✦ Pré-remplir l'agenda métier »** (onglet Conseillers) déduit ces boîtes du
+prénom (`Adeline Lebon` → `adeline@…`), pour le domaine demandé et mémorisé dans
+`config.domaineAgenda`. Il ne remplit **que les cases vides** — un compte créé autrement
+(`emilie.besson@…`, homonymes) se corrige à la main, et la case se recalcule en la vidant.
 
 **La condition de réussite n'est pas technique** : un agenda métier ne vaut que si toute
 l'équipe y met ses rendez-vous. Ce qui arrive par invitation sur la messagerie du réseau
 (réunion, formation) reste invisible pour l'outil — c'est à quoi sert l'onglet Absences.
+
+### Lecture des agendas (Microsoft Graph) — livré éteint
+
+`server/src/graph.js` peut demander à Microsoft, avant d'afficher la page publique, si le
+conseiller de permanence est **déjà pris** sur son agenda métier, et retirer les créneaux
+occupés. Il lit `getSchedule` : occupé / libre par tranche, **jamais le contenu** des
+rendez-vous, et **il n'écrit rien**.
+
+**Deux verrous, tous les deux nécessaires** — tant que l'un manque, pas un appel ne part et
+la prise de rendez-vous fonctionne exactement comme avant :
+
+1. les trois secrets sont posés sur le serveur
+   (`GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, via `wrangler secret put`) ;
+2. l'agence a coché **« Tenir compte des agendas »** dans Réglages. Sans les secrets, la case
+   est grisée : `GET /permanence/config` renvoie `graphPret: false` et l'app le dit en clair.
+
+**En cas de pépin, on retombe sur le comportement d'avant** (jeton refusé, Graph indisponible,
+boîte hors périmètre) : la fonction rend une carte vide et tous les créneaux restent proposés.
+Mieux vaut un créneau de trop qu'une prise de rendez-vous fermée parce que Microsoft tousse.
+
+Côté tenant, l'habilitation à demander est une **application confidentielle** (client
+credentials) portant `Calendars.Read` **par RBAC Exchange**, limitée par un groupe de sécurité
+aux seules boîtes des conseillers (`New-ServicePrincipal`, `New-ManagementScope -MemberOfGroup`,
+`New-ManagementRoleAssignment`, vérifiable par `Test-ServicePrincipalAuthorization`).
+Piège : accorder **en plus** `Calendars.Read` dans Entra ID annule la limitation — les
+permissions s'additionnent, l'application verrait alors tout le tenant.
 
 ### Routes
 
@@ -191,7 +221,9 @@ permet de regénérer et de comparer plusieurs versions avant de publier, sans c
    créer les points de vente (Saint-Médard, Caudéran, Blanquefort…), régler le besoin par
    créneau, choisir l'adresse publique.
 3. Onglet **Conseillers** : « Reprendre l'annuaire » puis rattacher chacun à son point de
-   vente. Sortir du cycle ceux qui n'y entrent pas (direction, gestion locative).
+   vente. Sortir du cycle ceux qui n'y entrent pas (direction, gestion locative). Si l'agenda
+   métier est sur un autre domaine, « ✦ Pré-remplir l'agenda métier » puis corriger les cas
+   particuliers.
 4. Onglet **Absences** : saisir les congés connus.
 5. Onglet **Planning** : « Générer le tour » sur 4 semaines, vérifier les créneaux non
    couverts, retoucher, imprimer.

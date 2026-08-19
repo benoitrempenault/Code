@@ -21,6 +21,7 @@ import { promptFor } from "./prompts.js";
 import { now, monthKey, randId, randToken, sha256hex, hmacHex, safeEqual, costMicros, hashPassword, verifyPassword } from "./util.js";
 import { runRecap, buildRecap, envoyerMail } from "./recap.js";
 import * as PERM from "./permanence.js";
+import * as GRAPH from "./graph.js";
 
 const SESSION_TTL = 30 * 24 * 3600;   // 30 jours d'inactivité
 const MAX_SESSIONS = 3;               // appareils simultanés (PC + téléphone : Safari ET app écran d'accueil comptent chacun)
@@ -644,7 +645,13 @@ export function createApp(env) {
     const ctx = await sessionFrom(c);
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
     const row = await permConfigRow(ctx.agency.id);
-    return c.json({ config: PERM.parseConfig(row), updated_at: (row && row.updated_at) || 0 });
+    // `graphPret` dit à l'app si les secrets Microsoft sont posés sur le
+    // serveur : l'interrupteur des réglages reste grisé tant que non.
+    return c.json({
+      config: PERM.parseConfig(row),
+      graphPret: GRAPH.estConfigure(env),
+      updated_at: (row && row.updated_at) || 0
+    });
   });
 
   // Réglages (points de vente, créneaux, règles, rattachement des
@@ -906,7 +913,21 @@ export function createApp(env) {
       pvFiltre ? [row.agency_id, from, to, pvFiltre] : [row.agency_id, from, to]);
     const pris = await db.all(
       "SELECT date, debut, cle, statut FROM rdv WHERE agency_id = ? AND date >= ? AND date <= ?", [row.agency_id, from, to]);
-    const creneaux = PERM.creneauxRdv(config, perms, pris, maintenant);
+    let creneaux = PERM.creneauxRdv(config, perms, pris, maintenant);
+    // Deux verrous avant le moindre appel à Microsoft : l'agence a coché
+    // « tenir compte des agendas », et les secrets sont posés. Sinon on sert
+    // les créneaux du planning tels quels, exactement comme avant.
+    if (creneaux.length && config.graph && config.graph.actif && GRAPH.estConfigure(env)) {
+      const boites = {};
+      perms.forEach((p) => {
+        const r = (config.conseillers && config.conseillers[PERM.cleConseiller(p.cle)]) || {};
+        const b = PERM.propre(r.boite).toLowerCase();
+        boites[PERM.cleConseiller(p.cle)] = b || String(p.cle || "").toLowerCase();
+      });
+      const occupe = await GRAPH.occupations(
+        env, Object.values(boites), from + "T00:00", PERM.estDate(to) ? to + "T23:59" : from + "T23:59", now());
+      if (occupe.size) creneaux = GRAPH.filtrerSurAgenda(creneaux, occupe, (cle) => boites[cle]);
+    }
     return c.json({
       agence: (agency && agency.name) || "",
       message: config.public.message || "",

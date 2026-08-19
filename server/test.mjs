@@ -28,6 +28,34 @@ const fake = (await import("node:http")).createServer(async (req, res) => {
 });
 await new Promise((r) => fake.listen(18789, r));
 
+// --- Faux Microsoft (jeton + getSchedule) : Claire est prise de 10h à 11h --
+const graphAppels = [];
+// Le jour où le faux Microsoft déclare Claire occupée de 10h à 11h. La route
+// interroge toute la fenêtre à venir : sans cette variable, l'occupation
+// tomberait sur aujourd'hui et ne croiserait aucun créneau de test.
+let jourOccupe = "";
+const faux365 = (await import("node:http")).createServer(async (req, res) => {
+  const chunks = []; for await (const c of req) chunks.push(c);
+  const brut = Buffer.concat(chunks).toString();
+  graphAppels.push({ url: req.url, headers: req.headers, body: brut });
+  res.writeHead(200, { "Content-Type": "application/json" });
+  if (req.url.includes("/oauth2/v2.0/token")) {
+    res.end(JSON.stringify({ access_token: "jeton-test", expires_in: 3600 }));
+    return;
+  }
+  const demande = JSON.parse(brut || "{}");
+  const jour = jourOccupe || String(demande.startTime?.dateTime || "").slice(0, 10);
+  res.end(JSON.stringify({
+    value: (demande.schedules || []).map((s) => ({
+      scheduleId: s,
+      scheduleItems: s.startsWith("agenda.claire")
+        ? [{ status: "busy", start: { dateTime: jour + "T10:00:00.0000000" }, end: { dateTime: jour + "T11:00:00.0000000" } }]
+        : []
+    }))
+  }));
+});
+await new Promise((r) => faux365.listen(18790, r));
+
 const schema = readFileSync(new URL("./schema.sql", import.meta.url), "utf8");
 const db = await createNodeDb(":memory:", schema);
 // Faux bucket R2 (contenu des brochures) — même contrat que le binding FILES.
@@ -54,6 +82,14 @@ const app = createApp({
   APP_ORIGINS: "http://localhost:8014",
   STRIPE_WEBHOOK_SECRET: "whsec_test",
   DEV_MODE: true
+});
+// Serveur SANS accès Microsoft : c'est l'état par défaut, et il doit rester
+// parfaitement fonctionnel. Le serveur « branché » est monté plus bas.
+const appGraph = () => createApp({
+  db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin",
+  APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
+  GRAPH_TENANT_ID: "tenant-test", GRAPH_CLIENT_ID: "app-test", GRAPH_CLIENT_SECRET: "secret-test",
+  GRAPH_AUTH_BASE: "http://localhost:18790", GRAPH_BASE: "http://localhost:18790"
 });
 
 async function call(path, opts = {}) {
@@ -916,6 +952,64 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfg } });
   }
 
+  // ---- Branchement Microsoft Graph : éteint par défaut, à deux verrous ----
+  {
+    const GRAPHMOD = await import("./src/graph.js");
+    ok(GRAPHMOD.estConfigure({}) === false, "sans secrets, le module Graph est inerte");
+    ok(GRAPHMOD.estConfigure({ GRAPH_TENANT_ID: "t", GRAPH_CLIENT_ID: "c", GRAPH_CLIENT_SECRET: "s" }) === true,
+      "les trois secrets suffisent à le rendre disponible");
+    ok((await call("/permanence/config", { headers: auth })).json.graphPret === false,
+      "l'app voit que ce serveur-ci n'a pas les accès Microsoft");
+
+    // Chevauchement : les bornes qui se touchent ne bloquent pas.
+    const pris = [{ debut: "2026-10-08T10:00", fin: "2026-10-08T11:00" }];
+    ok(GRAPHMOD.estOccupe(pris, "2026-10-08T10:30", "2026-10-08T11:15"), "un créneau à cheval est occupé");
+    ok(!GRAPHMOD.estOccupe(pris, "2026-10-08T11:00", "2026-10-08T11:45"), "un créneau qui démarre à la fin reste libre");
+    ok(!GRAPHMOD.estOccupe(pris, "2026-10-08T09:00", "2026-10-08T10:00"), "un créneau qui finit au début reste libre");
+
+    // Un planning sur trois jours ouvrés à venir, avec la boîte d'agenda.
+    const jours = [10, 11, 12].map((n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10));
+    const cfgG = {
+      ...cfg,
+      conseillers: { "u2@azur-immo.fr": { pv: "medard", boite: "agenda.claire@kadima-test.fr" } },
+      public: { slug: "azur-test", actif: true },
+      graph: { actif: true }
+    };
+    await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfgG } });
+    await call("/permanence/planning", { method: "PUT", headers: auth, body: {
+      from: jours[0], to: jours[2], pvs: ["medard"],
+      lignes: jours.map((d) => ({ pv: "medard", date: d, creneau: "matin", debut: "09:00", fin: "12:00",
+        cle: "u2@azur-immo.fr", nom: "Claire Test", email: "u2@azur-immo.fr" })) } });
+
+    jourOccupe = jours[0];
+    const sansGraph = await call("/public/permanence?slug=azur-test");
+    const nSans = sansGraph.json.creneaux.filter((c) => jours.includes(c.date)).length;
+    ok(nSans === 12, "sans accès Microsoft, les 4 créneaux de chaque matinée sont proposés");
+
+    // Même requête sur le serveur branché : 10h et 10h45 doivent disparaître.
+    const reqG = new Request("http://api.test/public/permanence?slug=azur-test");
+    const resG = await appGraph().fetch(reqG);
+    const jsonG = await resG.json();
+    const duJour = jsonG.creneaux.filter((c) => c.date === jours[0]).map((c) => c.debut);
+    ok(!duJour.includes("10:30"), "le créneau de 10h30 disparaît : le conseiller est occupé");
+    ok(duJour.includes("09:00") && duJour.includes("11:15"),
+      "les créneaux hors de l'occupation restent proposés");
+    ok(graphAppels.some((a) => a.url.includes("getSchedule")), "getSchedule a bien été interrogé");
+    ok(graphAppels.some((a) => a.url.includes("oauth2/v2.0/token")), "un jeton d'application a été demandé");
+    const appelPlanning = graphAppels.find((a) => a.url.includes("getSchedule"));
+    ok(JSON.parse(appelPlanning.body).schedules.includes("agenda.claire@kadima-test.fr"),
+      "c'est la boîte de l'agenda métier qui est interrogée, pas l'adresse de courrier");
+    ok(/Europe\/Paris/.test(appelPlanning.headers.prefer || ""), "les heures sont demandées à l'heure de Paris");
+
+    // Interrupteur décoché : plus aucun appel, même avec les secrets posés.
+    const avant = graphAppels.length;
+    await call("/permanence/config", { method: "PUT", headers: auth, body: { config: { ...cfgG, graph: { actif: false } } } });
+    await appGraph().fetch(new Request("http://api.test/public/permanence?slug=azur-test"));
+    ok(graphAppels.length === avant, "interrupteur éteint : aucun appel n'est parti chez Microsoft");
+
+    await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfg } });
+  }
+
   // Page publique fermée : plus rien ne sort.
   await call("/permanence/config", { method: "PUT", headers: auth, body: { config: { ...cfg, public: { slug: "azur-test", actif: false } } } });
   ok((await call("/public/permanence?slug=azur-test")).status === 403, "page publique fermée → 403");
@@ -924,5 +1018,6 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
 }
 
 fake.close();
+faux365.close();
 console.log("\n" + passed + " réussis, " + failed + " échec(s)");
 process.exit(failed ? 1 : 0);
