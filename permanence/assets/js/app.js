@@ -403,9 +403,11 @@
       (config.pvs || []).map((p) => '<option value="' + esc(p.id) + '"' + (p.id === choisi ? " selected" : "") + ">" +
         esc(p.nom) + "</option>")).join("");
     $("#conseillersList").innerHTML = liste.length ? '<table class="tbl"><thead><tr>' +
+      '<th><input type="checkbox" id="lotTete" title="Tout cocher" /></th>' +
       "<th>Conseiller</th><th>Point de vente</th><th>Dans le cycle</th><th>Poids</th><th>Contact</th><th></th>" +
       "</tr></thead><tbody>" + liste.map((c) =>
         '<tr data-cle="' + esc(c.cle) + '">' +
+        '<td><input type="checkbox" class="lot" /></td>' +
         "<td><b>" + esc(c.nom) + "</b></td>" +
         '<td><select data-champ="pv">' + opts(c.pv) + "</select></td>" +
         '<td><label class="field--inline"><input type="checkbox" data-champ="cycle"' + (c.horsCycle ? "" : " checked") + " /> " +
@@ -414,9 +416,13 @@
         '<td class="nowrap">' + esc(c.email || "—") + "</td>" +
         '<td class="nowrap"><button class="btn btn--sm" data-agenda="' + esc(c.cle) + '">lien agenda</button></td></tr>').join("") +
       "</tbody></table>" : '<p class="vide">Aucun conseiller dans l\'annuaire de l\'agence — cliquez sur « Reprendre l\'annuaire ».</p>';
+    const lot = $("#lotPv");
+    if (lot) lot.innerHTML = opts("");
+    $("#lotBox").hidden = !liste.length || !(config.pvs || []).length;
     // Le rattachement et le cycle engagent toute l'agence : seule la direction
     // les modifie (le serveur refuserait de toute façon).
-    if (!estAdmin) $$("#conseillersList select, #conseillersList input").forEach((el) => { el.disabled = true; });
+    if (!estAdmin) $$("#conseillersList select, #conseillersList input, #lotBox select, #lotBox button")
+      .forEach((el) => { el.disabled = true; });
     rendreEquite();
   }
 
@@ -515,6 +521,7 @@
         '<td class="nowrap"><button class="btn btn--sm btn--danger" data-pvdel="' + esc(p.id) + '">Retirer</button></td></tr>').join("") +
       "</tbody></table>" : '<p class="vide">Aucun point de vente.</p>';
 
+    $("#btnPvKadima").hidden = (config.pvs || []).length > 0;
     $("#creneauxPv").innerHTML = '<option value="">Tous les points de vente (réglage commun)</option>' +
       (config.pvs || []).map((p) => '<option value="' + esc(p.id) + '"' + (p.id === creneauxPvSel ? " selected" : "") + ">" +
         esc(p.nom) + (p.creneaux && p.creneaux.length ? " (réglage propre)" : "") + "</option>").join("");
@@ -684,8 +691,12 @@
     // --- Conseillers ---
     $("#conseillersList").addEventListener("change", (e) => {
       const tr = e.target.closest("tr[data-cle]");
-      if (!tr) return;
-      const cle = tr.dataset.cle, champ = e.target.dataset.champ;
+      const champ = e.target.dataset.champ;
+      // Sans cette garde, cocher une case de sélection passerait pour une
+      // modification de fiche : la table serait re-rendue et la sélection
+      // perdue à chaque clic.
+      if (!tr || !champ) return;
+      const cle = tr.dataset.cle;
       if (champ === "pv") majConseiller(cle, { pv: e.target.value });
       if (champ === "cycle") majConseiller(cle, { horsCycle: !e.target.checked });
       if (champ === "poids") majConseiller(cle, { poids: Math.max(0.1, Math.min(2, parseFloat(e.target.value) || 1)) });
@@ -701,6 +712,25 @@
         toast("Lien d'agenda copié — à envoyer au conseiller.");
       } catch (err) { toast(err.message, true); }
     });
+    // Rattacher d'un coup tous les conseillers cochés : à 19 personnes,
+    // dérouler 19 menus l'un après l'autre est une corvée inutile.
+    const cochees = () => $$("#conseillersList tr[data-cle]").filter((tr) => tr.querySelector(".lot") && tr.querySelector(".lot").checked);
+    const cocherTout = (v) => $$("#conseillersList .lot").forEach((c) => { c.checked = v; });
+    $("#btnLot").addEventListener("click", () => {
+      const pv = $("#lotPv").value;
+      const lignes = cochees();
+      if (!lignes.length) { toast("Cochez d'abord les conseillers à rattacher.", true); return; }
+      lignes.forEach((tr) => majConseiller(tr.dataset.cle, { pv }));
+      enregistrerConfigDifferee();
+      rendreConseillers();
+      toast(lignes.length + " conseiller(s) rattaché(s) à " + (nomPv(pv) || "aucun point de vente") + ".");
+    });
+    $("#btnLotTous").addEventListener("click", () => cocherTout(true));
+    $("#btnLotAucun").addEventListener("click", () => cocherTout(false));
+    $("#conseillersList").addEventListener("change", (e) => {
+      if (e.target.id === "lotTete") cocherTout(e.target.checked);
+    });
+
     $("#btnSyncAnnuaire").addEventListener("click", async () => {
       try {
         const r = await api("/annuaire/seed-conseillers", { method: "POST", json: {} });
@@ -760,6 +790,15 @@
       if (!confirm("Retirer ce point de vente des réglages ? Le planning déjà publié n'est pas effacé.")) return;
       config.pvs = config.pvs.filter((p) => p.id !== b.dataset.pvdel);
       rendreReglages();
+    });
+    // Premier lancement : les trois points de vente de l'agence d'un clic.
+    $("#btnPvKadima").addEventListener("click", () => {
+      [["saint-medard", "Saint-Médard-en-Jalles"], ["cauderan", "Bordeaux Caudéran"], ["blanquefort", "Blanquefort"]]
+        .forEach(([id, nom]) => {
+          if (!config.pvs.some((p) => p.id === id)) config.pvs.push({ id, nom, adresse: "", telephone: "", actif: true, creneaux: null });
+        });
+      rendreReglages();
+      toast("Trois points de vente créés — cliquez sur « Enregistrer les réglages ».");
     });
     $("#creneauxPv").addEventListener("change", (e) => { creneauxPvSel = e.target.value; rendreReglages(); });
     ["input", "change"].forEach((ev) => $("#creneauxList").addEventListener(ev, (e) => {

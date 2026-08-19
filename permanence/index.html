@@ -114,6 +114,15 @@
             <span style="flex:1"></span>
             <button class="btn btn--sm" id="btnSyncAnnuaire" title="Reprend les conseillers de l'annuaire de l'agence">↻ Reprendre l'annuaire</button>
           </h3>
+          <div class="formrow" id="lotBox" style="margin-bottom:14px">
+            <div class="field field--inline">
+              <label for="lotPv">Rattacher les conseillers cochés à</label>
+              <select id="lotPv"></select>
+            </div>
+            <button class="btn" id="btnLot">Rattacher</button>
+            <button class="btn btn--sm" id="btnLotTous">Tout cocher</button>
+            <button class="btn btn--sm" id="btnLotAucun">Tout décocher</button>
+          </div>
           <div id="conseillersList"></div>
           <p class="hintline">
             <b>Dans le cycle</b> : le conseiller entre dans le tirage des permanences.
@@ -179,6 +188,7 @@
           <div class="formrow">
             <div class="field"><label for="pvNom">Nouveau point de vente</label><input type="text" id="pvNom" placeholder="Blanquefort" /></div>
             <button class="btn" id="btnPvAdd">+ Ajouter</button>
+            <button class="btn" id="btnPvKadima" hidden>Créer les 3 points de vente Kadima</button>
           </div>
         </div>
 
