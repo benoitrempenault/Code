@@ -167,3 +167,50 @@ export function fluxIcs({ nom, permanences, rdv, pvNoms, reprises, maintenant })
   L.push("END:VCALENDAR");
   return L.join(nl) + nl;
 }
+
+// Invitation de calendrier pour UN rendez-vous, jointe à l'e-mail.
+// C'est ce qui fait atterrir le rendez-vous dans Outlook tout de suite,
+// avec Accepter / Refuser, au lieu d'attendre que le flux abonné se
+// rafraîchisse (Outlook ne le relit que toutes les quelques heures).
+// `methode` : "REQUEST" pour le conseiller (invitation), "PUBLISH" pour le
+// client (simple ajout, sans réponse attendue).
+export function inviteIcs({ rdv, pvNom, organisateur, methode, maintenant }) {
+  const nl = "\r\n";
+  const dt = (d, h) => d.replace(/-/g, "") + "T" + h.replace(":", "") + "00";
+  const L = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Studio Permanence//FR",
+    "CALSCALE:GREGORIAN", "METHOD:" + (methode === "PUBLISH" ? "PUBLISH" : "REQUEST"),
+    "BEGIN:VTIMEZONE", "TZID:Europe/Paris", "X-LIC-LOCATION:Europe/Paris",
+    "BEGIN:DAYLIGHT", "TZOFFSETFROM:+0100", "TZOFFSETTO:+0200", "TZNAME:CEST",
+    "DTSTART:19700329T020000", "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU", "END:DAYLIGHT",
+    "BEGIN:STANDARD", "TZOFFSETFROM:+0200", "TZOFFSETTO:+0100", "TZNAME:CET",
+    "DTSTART:19701025T030000", "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU", "END:STANDARD",
+    "END:VTIMEZONE",
+    "BEGIN:VEVENT",
+    "UID:" + String(rdv.id).replace(/[^A-Za-z0-9_-]/g, "") + "@studio-permanence",
+    "DTSTAMP:" + stamp(maintenant),
+    "SEQUENCE:0", "STATUS:CONFIRMED",
+    "DTSTART;TZID=Europe/Paris:" + dt(rdv.date, rdv.debut),
+    "DTEND;TZID=Europe/Paris:" + dt(rdv.date, rdv.fin),
+    "SUMMARY:" + echap("RDV " + (rdv.objet || "") + " — " + (rdv.client_nom || "client")),
+    "LOCATION:" + echap(pvNom || ""),
+    "DESCRIPTION:" + echap([
+      "Rendez-vous pris sur le site internet.",
+      "Client : " + (rdv.client_nom || ""),
+      rdv.client_tel ? "Téléphone : " + rdv.client_tel : "",
+      rdv.client_email ? "E-mail : " + rdv.client_email : "",
+      rdv.bien ? "Bien : " + rdv.bien : "",
+      rdv.message ? "Message : " + rdv.message : ""
+    ].filter(Boolean).join("\n"))];
+  if (organisateur) L.push("ORGANIZER;CN=" + echap(pvNom || "Agence") + ":mailto:" + organisateur);
+  if (methode !== "PUBLISH" && rdv.email) {
+    L.push("ATTENDEE;CN=" + echap(rdv.nom || "") + ";ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:" + rdv.email);
+  }
+  L.push("END:VEVENT", "END:VCALENDAR");
+  return L.join(nl) + nl;
+}
+
+// Adresse seule extraite d'un « Nom <adresse@exemple.fr> ».
+export function adresseSeule(from) {
+  const m = /<([^>]+)>/.exec(String(from || ""));
+  return (m ? m[1] : String(from || "")).trim();
+}

@@ -859,6 +859,30 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(mesRdv.json.rdv.length === 1 && mesRdv.json.rdv[0].client_nom === "Jean Dupont", "l'agence voit le rendez-vous pris en ligne");
   ok((await call("/rdv/" + mesRdv.json.rdv[0].id + "/statut", { headers: auth, body: { statut: "confirme" } })).status === 200, "rendez-vous confirmé");
 
+  // Invitation de calendrier : c'est elle qui pose le rendez-vous dans
+  // Outlook tout de suite, sans attendre le flux abonné.
+  {
+    const PERMMOD = await import("./src/permanence.js");
+    const rdvTest = {
+      id: "rd_test", date: "2026-10-05", debut: "09:00", fin: "09:45",
+      nom: "Claire Test", email: "u2@azur-immo.fr", objet: "estimation",
+      client_nom: "Jean Dupont", client_tel: "0600000000", bien: "12 rue des Écoles"
+    };
+    const inv = PERMMOD.inviteIcs({ rdv: rdvTest, pvNom: "Saint-Médard", organisateur: "connexion@exemple.fr", methode: "REQUEST", maintenant: 1787000000 });
+    ok(/METHOD:REQUEST/.test(inv), "invitation du conseiller : une vraie demande (Accepter / Refuser)");
+    ok(/ATTENDEE[^\r\n]*mailto:u2@azur-immo\.fr/.test(inv), "le conseiller est l'invité");
+    ok(/ORGANIZER[^\r\n]*mailto:connexion@exemple\.fr/.test(inv), "l'agence est l'organisateur");
+    ok(/DTSTART;TZID=Europe\/Paris:20261005T090000/.test(inv) && /DTEND;TZID=Europe\/Paris:20261005T094500/.test(inv),
+      "horaires du rendez-vous à l'heure de Paris");
+    ok(/BEGIN:VTIMEZONE/.test(inv), "le fuseau est décrit (pas d'écart à l'heure d'été)");
+    ok(/SUMMARY:RDV estimation — Jean Dupont/.test(inv), "l'objet et le client sont dans le titre");
+    ok(/Téléphone : 0600000000/.test(inv), "le téléphone du client est dans la description");
+    const pub = PERMMOD.inviteIcs({ rdv: rdvTest, pvNom: "Saint-Médard", methode: "PUBLISH", maintenant: 1787000000 });
+    ok(/METHOD:PUBLISH/.test(pub) && !/ATTENDEE/.test(pub), "côté client : simple ajout à l'agenda, sans réponse attendue");
+    ok(PERMMOD.adresseSeule("Studio <connexion@exemple.fr>") === "connexion@exemple.fr" &&
+      PERMMOD.adresseSeule("brut@exemple.fr") === "brut@exemple.fr", "l'adresse de l'organisateur est extraite du « Nom <adresse> »");
+  }
+
   // Page publique fermée : plus rien ne sort.
   await call("/permanence/config", { method: "PUT", headers: auth, body: { config: { ...cfg, public: { slug: "azur-test", actif: false } } } });
   ok((await call("/public/permanence?slug=azur-test")).status === 403, "page publique fermée → 403");

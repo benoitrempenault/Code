@@ -967,6 +967,20 @@ export function createApp(env) {
     // Le conseiller de permanence est prévenu tout de suite : le rendez-vous
     // apparaît aussi dans son agenda au prochain rafraîchissement du flux.
     const pvNom = ((config.pvs || []).find((p) => p.id === pv) || {}).nom || pv;
+    // Invitation de calendrier jointe : sous Outlook (et Google), le rendez-vous
+    // se pose dans l'agenda tout de suite, avec Accepter / Refuser — sans
+    // attendre le rafraîchissement du flux abonné, qui peut prendre des heures.
+    const pourInvite = {
+      id, date, debut, fin: libre.fin, nom: perm.nom, email: perm.email,
+      objet: objets.includes(String(b && b.objet)) ? b.objet : "",
+      client_nom: nom, client_tel: tel, client_email: mail,
+      bien: PERM.propre(b && b.bien, 200), message: PERM.propre(b && b.message, 1000)
+    };
+    const organisateur = PERM.adresseSeule(env.MAIL_FROM);
+    const invitation = (methode) => [{
+      filename: "rendez-vous.ics",
+      content: PERM.inviteIcs({ rdv: pourInvite, pvNom, organisateur, methode, maintenant: now() })
+    }];
     if (perm.email) {
       await envoyerMail(env, [perm.email],
         "Nouveau rendez-vous — " + date + " " + debut + " (" + pvNom + ")",
@@ -977,7 +991,7 @@ export function createApp(env) {
           "Client : " + nom, tel ? "Téléphone : " + tel : "", mail ? "E-mail : " + mail : "",
           b && b.bien ? "Bien : " + PERM.propre(b.bien, 200) : "",
           b && b.message ? "Message : " + PERM.propre(b.message, 1000) : ""
-        ].filter(Boolean).join("\n")).catch(() => false);
+        ].filter(Boolean).join("\n"), invitation("REQUEST")).catch(() => false);
     }
     if (mail) {
       await envoyerMail(env, [mail], "Votre rendez-vous du " + date + " à " + debut,
@@ -986,7 +1000,7 @@ export function createApp(env) {
           "  " + date + " à " + debut + " — " + pvNom,
           "  Conseiller : " + (perm.nom || "l'agence"),
           "", "L'agence vous confirme ce rendez-vous par téléphone. À très vite."
-        ].join("\n")).catch(() => false);
+        ].join("\n"), invitation("PUBLISH")).catch(() => false);
     }
     return c.json({ ok: true, id, date, debut, fin: libre.fin, conseiller: perm.nom || "", pv: pvNom });
   });

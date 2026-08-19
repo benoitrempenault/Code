@@ -89,6 +89,18 @@ Le lien porte une signature HMAC (dérivée de `SESSION_SECRET`) parce qu'un age
 envoyer d'en-tête d'authentification. Pour révoquer tous les liens d'un coup : changer
 `SESSION_SECRET` (ce qui déconnecte aussi les sessions).
 
+**Le flux abonné n'est pas instantané** : Outlook le relit toutes les quelques heures, Google
+parfois moins souvent. C'est pourquoi un rendez-vous pris en ligne part **aussi en invitation
+de calendrier jointe à l'e-mail** (`inviteIcs`) : `METHOD:REQUEST` pour le conseiller — Outlook
+l'affiche comme une vraie invitation, acceptable en un clic, tout de suite — et
+`METHOD:PUBLISH` pour le client, simple ajout sans réponse attendue. Le flux reste la source
+du planning ; l'invitation couvre l'urgence.
+
+Ce que le flux `.ics` ne fait pas, et qu'un branchement API (Microsoft Graph) apporterait :
+lire les **vraies disponibilités** du conseiller avant de proposer un créneau, écrire dans son
+calendrier à la seconde, et faire remonter un rendez-vous déplacé dans l'agenda. Cela demande
+un consentement administrateur sur le tenant de l'agence.
+
 ## La prise de rendez-vous sur le site internet
 
 1. Réglages → **adresse publique** (ex. `kadima`) + case « Ouverte au public ».
