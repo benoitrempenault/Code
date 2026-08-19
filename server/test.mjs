@@ -883,6 +883,39 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
       PERMMOD.adresseSeule("brut@exemple.fr") === "brut@exemple.fr", "l'adresse de l'organisateur est extraite du « Nom <adresse> »");
   }
 
+  // Agenda métier sur une autre boîte que le courrier : l'invitation doit
+  // partir vers l'agenda, la notification rester sur l'adresse de contact.
+  {
+    const PERMMOD = await import("./src/permanence.js");
+    const cfgBoite = {
+      ...cfg,
+      conseillers: { "u2@azur-immo.fr": { pv: "medard", poids: 1, boite: "agenda.claire@kadima-test.fr" } },
+      public: { slug: "azur-test", actif: true }
+    };
+    await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfgBoite } });
+    const relu = (await call("/permanence/config", { headers: auth })).json.config;
+    ok(relu.conseillers["u2@azur-immo.fr"].boite === "agenda.claire@kadima-test.fr",
+      "la boîte de l'agenda métier est conservée dans les réglages");
+
+    // L'invitation vise bien la boîte de l'agenda, pas l'adresse de courrier.
+    const invAgenda = PERMMOD.inviteIcs({
+      rdv: { id: "rd_b", date: "2026-10-06", debut: "10:00", fin: "10:45",
+        nom: "Claire Test", email: "agenda.claire@kadima-test.fr", objet: "achat", client_nom: "Paul Martin" },
+      pvNom: "Saint-Médard", organisateur: "connexion@exemple.fr", methode: "REQUEST", maintenant: 1787000000
+    });
+    ok(/ATTENDEE[^\r\n]*mailto:agenda\.claire@kadima-test\.fr/.test(invAgenda),
+      "l'événement est adressé à la boîte qui porte l'agenda");
+    ok(!/u2@azur-immo\.fr/.test(invAgenda), "l'adresse de courrier n'apparaît pas comme invitée");
+
+    // Une boîte mal saisie ne doit pas détourner l'invitation.
+    await call("/permanence/config", { method: "PUT", headers: auth, body: {
+      config: { ...cfgBoite, conseillers: { "u2@azur-immo.fr": { pv: "medard", boite: "pas-une-adresse" } } } } });
+    const relu2 = (await call("/permanence/config", { headers: auth })).json.config;
+    ok(relu2.conseillers["u2@azur-immo.fr"].boite === "pas-une-adresse",
+      "une saisie libre est stockée telle quelle (le tri se fait à l'envoi)");
+    await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfg } });
+  }
+
   // Page publique fermée : plus rien ne sort.
   await call("/permanence/config", { method: "PUT", headers: auth, body: { config: { ...cfg, public: { slug: "azur-test", actif: false } } } });
   ok((await call("/public/permanence?slug=azur-test")).status === 403, "page publique fermée → 403");

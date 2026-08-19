@@ -101,6 +101,10 @@
       return {
         cle, nom: a.nom, email: a.email || "", telephone: a.telephone || "", initiales: a.initiales || initiales(a.nom),
         pv: r.pv || "", poids: Number(r.poids) || 1,
+        // `boite` = la boîte Microsoft qui porte l'agenda métier, quand elle
+        // diffère de l'adresse où le conseiller lit son courrier. Vide = les
+        // deux sont la même.
+        boite: r.boite || "",
         actif: r.actif !== false, horsCycle: !!r.horsCycle
       };
     }).filter((c) => c.cle);
@@ -108,7 +112,7 @@
   const conseillerDe = (cle) => conseillers().find((c) => c.cle === cle) || null;
   function majConseiller(cle, patch) {
     if (!config.conseillers) config.conseillers = {};
-    config.conseillers[cle] = Object.assign({ pv: "", poids: 1, actif: true, horsCycle: false }, config.conseillers[cle], patch);
+    config.conseillers[cle] = Object.assign({ pv: "", poids: 1, actif: true, horsCycle: false, boite: "" }, config.conseillers[cle], patch);
   }
   const pvsActifs = () => (config.pvs || []).filter((p) => p.actif !== false);
   // Les créneaux qui emportent une reprise de contacts (17h-19h la nuit,
@@ -404,7 +408,9 @@
         esc(p.nom) + "</option>")).join("");
     $("#conseillersList").innerHTML = liste.length ? '<table class="tbl"><thead><tr>' +
       '<th><input type="checkbox" id="lotTete" title="Tout cocher" /></th>' +
-      "<th>Conseiller</th><th>Point de vente</th><th>Dans le cycle</th><th>Poids</th><th>Contact</th><th></th>" +
+      "<th>Conseiller</th><th>Point de vente</th><th>Dans le cycle</th><th>Poids</th>" +
+      '<th title="L\'adresse de l\'annuaire : notifications et rendez-vous par e-mail">Courrier</th>' +
+      '<th title="La boîte Microsoft qui porte l\'agenda métier, si elle diffère">Agenda métier</th><th></th>' +
       "</tr></thead><tbody>" + liste.map((c) =>
         '<tr data-cle="' + esc(c.cle) + '">' +
         '<td><input type="checkbox" class="lot" /></td>' +
@@ -414,6 +420,8 @@
         (c.horsCycle ? '<span class="pill off">hors cycle</span>' : '<span class="pill on">dans le cycle</span>') + "</label></td>" +
         '<td><input type="number" data-champ="poids" min="0.1" max="2" step="0.1" value="' + c.poids + '" /></td>' +
         '<td class="nowrap">' + esc(c.email || "—") + "</td>" +
+        '<td><input type="email" data-champ="boite" placeholder="' + esc(c.email || "même adresse") +
+        '" value="' + esc(c.boite) + '" /></td>' +
         '<td class="nowrap"><button class="btn btn--sm" data-agenda="' + esc(c.cle) + '">lien agenda</button></td></tr>').join("") +
       "</tbody></table>" : '<p class="vide">Aucun conseiller dans l\'annuaire de l\'agence — cliquez sur « Reprendre l\'annuaire ».</p>';
     const lot = $("#lotPv");
@@ -730,8 +738,9 @@
       if (champ === "pv") majConseiller(cle, { pv: e.target.value });
       if (champ === "cycle") majConseiller(cle, { horsCycle: !e.target.checked });
       if (champ === "poids") majConseiller(cle, { poids: Math.max(0.1, Math.min(2, parseFloat(e.target.value) || 1)) });
+      if (champ === "boite") majConseiller(cle, { boite: (e.target.value || "").trim().toLowerCase() });
       enregistrerConfigDifferee();
-      if (champ !== "poids") rendreConseillers();
+      if (champ !== "poids" && champ !== "boite") rendreConseillers();
     });
     $("#conseillersList").addEventListener("click", async (e) => {
       const b = e.target.closest("[data-agenda]");

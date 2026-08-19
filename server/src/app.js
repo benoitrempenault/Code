@@ -977,10 +977,31 @@ export function createApp(env) {
       bien: PERM.propre(b && b.bien, 200), message: PERM.propre(b && b.message, 1000)
     };
     const organisateur = PERM.adresseSeule(env.MAIL_FROM);
+    // L'agenda métier peut vivre sur une autre boîte que celle où le conseiller
+    // lit son courrier (agence sur la messagerie du réseau, agenda sur le
+    // tenant de l'agence). L'invitation part alors vers la boîte de l'agenda —
+    // c'est là que l'événement doit se poser — et la notification reste sur
+    // l'adresse de contact.
+    const reglagesCons = (config.conseillers && config.conseillers[cle]) || {};
+    const estMail = (x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x);
+    const boite = PERM.propre(reglagesCons.boite).toLowerCase();
+    const agenda = (estMail(boite) && boite !== String(perm.email || "").toLowerCase()) ? boite : "";
+    if (agenda) pourInvite.email = agenda;
     const invitation = (methode) => [{
       filename: "rendez-vous.ics",
       content: PERM.inviteIcs({ rdv: pourInvite, pvNom, organisateur, methode, maintenant: now() })
     }];
+    // Boîte de l'agenda séparée : elle reçoit l'invitation, brève et sans
+    // fioriture — c'est un agenda qu'on nourrit, pas une boîte qu'on lit.
+    if (agenda) {
+      await envoyerMail(env, [agenda],
+        "Permanence — RDV " + date + " " + debut + " (" + pvNom + ")",
+        ["Rendez-vous pris sur le site internet pendant la permanence de " + (perm.nom || "l'agence") + ".", "",
+          "Quand : " + date + " de " + debut + " à " + libre.fin,
+          "Où : " + pvNom,
+          "Client : " + nom, tel ? "Téléphone : " + tel : "", mail ? "E-mail : " + mail : ""
+        ].filter(Boolean).join("\n"), invitation("REQUEST")).catch(() => false);
+    }
     if (perm.email) {
       await envoyerMail(env, [perm.email],
         "Nouveau rendez-vous — " + date + " " + debut + " (" + pvNom + ")",
@@ -991,7 +1012,7 @@ export function createApp(env) {
           "Client : " + nom, tel ? "Téléphone : " + tel : "", mail ? "E-mail : " + mail : "",
           b && b.bien ? "Bien : " + PERM.propre(b.bien, 200) : "",
           b && b.message ? "Message : " + PERM.propre(b.message, 1000) : ""
-        ].filter(Boolean).join("\n"), invitation("REQUEST")).catch(() => false);
+        ].filter(Boolean).join("\n"), agenda ? undefined : invitation("REQUEST")).catch(() => false);
     }
     if (mail) {
       await envoyerMail(env, [mail], "Votre rendez-vous du " + date + " à " + debut,

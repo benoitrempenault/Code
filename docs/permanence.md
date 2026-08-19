@@ -130,9 +130,33 @@ server/schema.sql            perm_config, perm_absences, permanences, rdv
 ```
 
 Les conseillers viennent de la table `annuaire` (partagée avec Studio Suivi) : l'app n'y
-ajoute que le point de vente, le poids et l'appartenance au cycle, stockés dans
-`perm_config.data`. La clé d'un conseiller est **son e-mail en minuscules** — c'est elle
-qu'on retrouve dans les absences, le planning, les rendez-vous et les liens d'agenda.
+ajoute que le point de vente, le poids, l'appartenance au cycle et la boîte de l'agenda
+métier, stockés dans `perm_config.data`. La clé d'un conseiller est **son e-mail en
+minuscules** — c'est elle qu'on retrouve dans les absences, le planning, les rendez-vous et
+les liens d'agenda.
+
+### Deux adresses par conseiller
+
+L'agence peut lire son courrier sur la messagerie du réseau (`@century21.fr`) et tenir son
+**agenda métier** sur le tenant Microsoft qu'elle administre — c'est ce qui permet
+d'automatiser sans dépendre d'un administrateur extérieur. L'app distingue donc :
+
+| Champ | Rôle |
+|---|---|
+| **Courrier** (annuaire) | La clé du conseiller, et l'adresse des notifications de rendez-vous. |
+| **Agenda métier** (`conseillers[cle].boite`) | La boîte Microsoft qui porte l'agenda de travail, quand elle diffère. Vide = les deux sont la même. |
+
+Quand `boite` est renseignée et valide, `/public/rdv` envoie **l'invitation de calendrier à
+cette boîte** (c'est là que l'événement doit se poser) et la **notification en texte à
+l'adresse de courrier**. Sinon, un seul e-mail part avec l'invitation jointe.
+
+Ce champ est aussi le point d'ancrage du futur branchement Microsoft Graph : c'est la boîte
+que l'API interrogera. Aucune colonne SQL n'a été ajoutée — tout vit dans le JSON des
+réglages, donc le schéma reste rejouable tel quel.
+
+**La condition de réussite n'est pas technique** : un agenda métier ne vaut que si toute
+l'équipe y met ses rendez-vous. Ce qui arrive par invitation sur la messagerie du réseau
+(réunion, formation) reste invisible pour l'outil — c'est à quoi sert l'onglet Absences.
 
 ### Routes
 
