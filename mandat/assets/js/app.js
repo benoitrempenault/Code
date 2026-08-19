@@ -573,7 +573,10 @@
     const stats = cells.length
       ? '<div class="stats' + (cells.length > 5 ? " stats--tight" : "") +
         '" style="grid-template-columns:repeat(' + cols + ',1fr)">' + cells.map(function (c) {
-          return '<div class="stat"><div class="stat__num">' + esc(c[1]) + '</div><div class="stat__lbl">' + esc(c[0]) + "</div></div>";
+          // Une valeur longue (« 135,01 m² ») descend d'un cran pour tenir sur
+          // une seule ligne dans sa colonne.
+          const long = String(c[1]).trim().length > 7 ? " stat__num--long" : "";
+          return '<div class="stat"><div class="stat__num' + long + '">' + esc(c[1]) + '</div><div class="stat__lbl">' + esc(c[0]) + "</div></div>";
         }).join("") + "</div>"
       : "";
     return '<section class="page"><div class="page__inner">' +

@@ -121,14 +121,22 @@
 .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); margin-bottom: 14mm; }
 .stat { padding: 14px 8px; text-align: center; border-right: 1px solid var(--hair); }
 .stat:last-child { border-right: 0; }
-.stat__num { font-family: var(--serif); font-size: 22pt; line-height: 1; }
+.stat__num { font-family: var(--serif); font-size: 22pt; line-height: 1; white-space: nowrap; }
+/* Valeurs longues (surfaces avec unité) : un cran plus petit pour ne pas
+   revenir à la ligne au milieu de « 135,01 m² ». */
+.stat__num--long { font-size: 17pt; }
 .stat__lbl { font-size: 8pt; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-soft); margin-top: 7px; }
 /* Six chiffres clés (quand le bien a un bureau) : cellules plus étroites. */
 .stats--tight .stat { padding: 13px 5px; }
-.stats--tight .stat__num { font-size: 17pt; }
+.stats--tight .stat__num { font-size: 15pt; }
+.stats--tight .stat__num--long { font-size: 13.5pt; }
 .stats--tight .stat__lbl { font-size: 7pt; letter-spacing: .1em; }
-.prose { columns: 2; column-gap: 11mm; font-size: 10.5pt; line-height: 1.72; color: var(--ink-soft); text-align: justify; hyphens: auto; }
-.prose p { margin: 0 0 10px; break-inside: avoid; }
+/* Une seule colonne (plus de « columns: 2 ») : le texte multicolonne n'était
+   pas peint par certains pilotes d'impression (Microsoft Print to PDF) et la
+   description disparaissait du PDF alors qu'elle s'affichait à l'écran.
+   Une colonne mesurée (~75 caractères par ligne) s'imprime partout pareil. */
+.prose { max-width: 152mm; font-size: 10.5pt; line-height: 1.72; color: var(--ink-soft); text-align: justify; hyphens: auto; }
+.prose p { margin: 0 0 10px; }
 .prose p:first-child::first-letter {
   font-family: var(--serif); float: left; font-size: 42pt; line-height: .82;
   padding: 4px 8px 0 0; color: var(--accent);
@@ -254,12 +262,22 @@
   .page {
     box-shadow: none;
     zoom: 1 !important;
+    transform: none !important;
     margin: 0;
     width: 210mm;
-    height: 297mm;
+    /* min-height (et non height) : une page dont le contenu dépasse un peu
+       continue sur la feuille suivante au lieu d'être coupée en silence —
+       c'est ce qui faisait « disparaître » une description longue au PDF. */
+    min-height: 297mm;
     page-break-after: always;
     break-after: page;
   }
+  /* Les pages à mise en page fixe (couvertures, galerie) gardent leur hauteur
+     exacte : leur contenu est calé sur la feuille, pas dans le flux du texte. */
+  .cover, .cover-full, .cover-banded, .cover-mosaic, .gallery-page, .page--full { height: 297mm; }
+  /* Le texte de description doit pouvoir se répartir sur deux feuilles plutôt
+     que de se perdre : on n'interdit jamais la coupure. */
+  .prose, .prose p { break-inside: auto; }
   .page:last-child { page-break-after: auto; }
   /* Forcer le rendu des fonds (couleurs DPE, scrims, etc.) */
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
