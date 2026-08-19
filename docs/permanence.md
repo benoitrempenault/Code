@@ -11,7 +11,7 @@ et directement exploitable par le site internet.
 |---|---|
 | **Planning** | Un onglet par point de vente, semaine par semaine (1 à 8 semaines à la fois). Génération d'un tour complet en un clic, retouche d'une case à la main, impression A4 paysage. |
 | **Conseillers** | Rattachement à un point de vente, entrée / sortie du cycle, poids (mi-temps), et le tableau d'équité qui prouve que le tour est juste. |
-| **Absences** | Congés, week-ends posés, formations. L'app montre **à l'avance** les jours de permanence que l'absence va retirer (préavis). |
+| **Absences** | Congés, week-ends posés, formations — et les absences de **quelques heures** (champ « De (heure) / à ») : la personne reste dans le jeu, seuls les créneaux qui chevauchent sont bloqués, sans préavis. Pour une assistante, c'est le trou d'accueil que le conseiller couvre physiquement. L'app montre **à l'avance** les jours de permanence que l'absence va retirer (préavis). |
 | **Rendez-vous** | Les demandes prises sur le site internet, rattachées au conseiller de permanence, avec confirmation ou annulation. |
 | **Réglages** | Points de vente, créneaux et besoin par créneau, règles du tour, adresse publique de la page de rendez-vous. |
 
@@ -74,7 +74,9 @@ par défaut, modifiables dans l'onglet Réglages.
    d'abord, puis répartition par type de créneau (pour que les 17h-19h ne tombent pas
    toujours sur les mêmes), puis ancienneté de la dernière permanence. Les samedis ont leur
    propre compteur. **Les compteurs repartent des 12 semaines écoulées**, pas de zéro : le
-   tour reste juste dans la durée, pas seulement à l'intérieur d'une semaine.
+   tour reste juste dans la durée, pas seulement à l'intérieur d'une semaine. **Un nouvel
+   arrivant ne rattrape pas** : sans historique, il part de la moyenne des autres et prend
+   sa juste part à partir de maintenant — pas de semaine d'enfer d'intégration.
 9. **Un créneau posé à la main est figé** : la génération suivante ne le réécrit pas.
 10. **Les trous sont affichés, jamais masqués.** Quand personne n'est éligible, le créneau
    remonte dans « Créneaux non couverts » avec la raison (absences, préavis, plafonds).
@@ -109,8 +111,8 @@ livré, éteint, et sans effet tant que l'agence n'a pas posé ses accès.
    coller dans une page du site (`century21-kadima-st-medard.com`, `…-cauderan-bordeaux.com`…).
    Ajouter `&pv=medard` pour une page dédiée à un point de vente.
 3. Le visiteur choisit l'agence, son projet (estimation, achat, location, autre), puis un
-   créneau : **ceux du conseiller réellement de permanence**, découpés en rendez-vous de 45
-   minutes (réglable), avec un délai de prévenance de 24 h (réglable).
+   créneau : **ceux du conseiller réellement de permanence**, découpés en rendez-vous d'une
+   heure (réglable), avec un délai de prévenance de 24 h (réglable).
 4. À la validation : le rendez-vous est enregistré, le conseiller reçoit un e-mail et le voit
    dans son agenda, le visiteur reçoit une confirmation, et le créneau disparaît de la page.
 

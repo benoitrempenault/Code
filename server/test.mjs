@@ -1054,6 +1054,104 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfg } });
   }
 
+  // ---- Absences de quelques heures (assistante qui décale ses horaires) ----
+  {
+    const PERMOD2 = await import("./src/permanence.js");
+    await import("../permanence/assets/js/planning.js");
+    const P = globalThis.Permanence;
+    // La route : validation des heures, stockage, relecture, suppression.
+    ok((await call("/permanence/absences", { method: "PUT", headers: auth, body: {
+      cle: "u2@azur-immo.fr", debut: "2026-11-03", fin: "2026-11-03", h_debut: "18:00", h_fin: "14:00" } })).status === 400,
+      "heures à l'envers → refusées");
+    ok((await call("/permanence/absences", { method: "PUT", headers: auth, body: {
+      cle: "u2@azur-immo.fr", debut: "2026-11-03", fin: "2026-11-05", h_debut: "14:00", h_fin: "18:00" } })).status === 400,
+      "des heures sur plusieurs jours → refusées");
+    const posee = await call("/permanence/absences", { method: "PUT", headers: auth, body: {
+      cle: "u2@azur-immo.fr", nom: "Claire", debut: "2026-11-03", fin: "2026-11-03", h_debut: "14:00", h_fin: "18:00" } });
+    ok(posee.status === 200, "absence de quelques heures enregistrée");
+    const relue = (await call("/permanence/absences?from=2026-11-01&to=2026-11-30", { headers: auth })).json.absences
+      .find((a) => a.id === posee.json.id);
+    ok(relue && relue.h_debut === "14:00" && relue.h_fin === "18:00", "les heures reviennent à la lecture");
+
+    // Le moteur : bloque le chevauchement, pas la journée, pas de préavis.
+    const abs = [{ cle: "x@x.fr", type: "absence", debut: "2026-11-03", fin: "2026-11-03", h_debut: "14:00", h_fin: "18:00" }];
+    const idx = P.indispoIndex(abs, {});
+    ok(!idx.raison("x@x.fr", "2026-11-03"), "la journée n'est pas bloquée");
+    ok(!!idx.raison("x@x.fr", "2026-11-03", "14:00", "17:00"), "le créneau qui chevauche est bloqué");
+    ok(!idx.raison("x@x.fr", "2026-11-03", "09:00", "12:00"), "le créneau du matin reste libre");
+    ok(!idx.raison("x@x.fr", "2026-11-02"), "pas de préavis pour quelques heures");
+
+    // L'accueil troué : l'assistante décale (partie 14h-18h), le conseiller
+    // couvre physiquement le trou de l'après-midi.
+    const acc2 = PERMOD2.accueilDe({ pvs: [] }, "medard");
+    const aprem = PERMOD2.presencePhysique({ debut: "14:00", fin: "17:00" }, acc2, 2,
+      { total: 1, presentes: 1, parPresente: [[["14:00", "18:00"]]] });
+    ok(aprem && aprem.debut === "14:00" && aprem.fin === "17:00" && aprem.motif === "assistante absente",
+      "assistante partie 14h-18h : le 14h-17h devient physique (motif « assistante absente »)");
+    ok(PERMOD2.presencePhysique({ debut: "09:00", fin: "12:00" }, acc2, 2,
+      { total: 1, presentes: 1, parPresente: [[["14:00", "18:00"]]] }) === null,
+      "le matin du même jour reste couvert");
+    const soir2 = PERMOD2.presencePhysique({ debut: "17:00", fin: "19:00" }, acc2, 2,
+      { total: 1, presentes: 1, parPresente: [[]] });
+    ok(soir2 && soir2.motif === "hors horaires d'accueil", "sans trou, le motif reste « hors horaires »");
+
+    // De bout en bout : l'assistante décale (14h-18h), l'agenda .ics du
+    // conseiller doit le dire sur l'après-midi et rester muet le matin.
+    const cfgAss2 = { ...cfg, conseillers: {
+      "u2@azur-immo.fr": { pv: "medard" },
+      "lea@azur-immo.fr": { pv: "medard", assistante: true }
+    } };
+    await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfgAss2 } });
+    await call("/annuaire", { method: "PUT", headers: auth, body: { type: "conseiller", nom: "Lea Assist", email: "lea@azur-immo.fr" } });
+    const mardiH = new Date(Date.now() + 30 * 86400000);
+    while (mardiH.getUTCDay() !== 2) mardiH.setUTCDate(mardiH.getUTCDate() + 1);
+    const dH = mardiH.toISOString().slice(0, 10);
+    await call("/permanence/absences", { method: "PUT", headers: auth, body: {
+      cle: "lea@azur-immo.fr", nom: "Lea", debut: dH, fin: dH, h_debut: "14:00", h_fin: "18:00" } });
+    await call("/permanence/planning", { method: "PUT", headers: auth, body: {
+      from: dH, to: dH, pvs: ["medard"], lignes: [
+        { pv: "medard", date: dH, creneau: "matin", debut: "09:00", fin: "12:00", cle: "u2@azur-immo.fr", nom: "Claire Test" },
+        { pv: "medard", date: dH, creneau: "aprem", debut: "14:00", fin: "17:00", cle: "u2@azur-immo.fr", nom: "Claire Test" }
+      ] } });
+    const lienH = (await call("/permanence/liens-agenda/" + encodeURIComponent("u2@azur-immo.fr"), { headers: auth })).json.lien;
+    const icsH = await (await app.fetch(new Request(lienH))).text();
+    const evtsH = icsH.split("BEGIN:VEVENT").filter((x) => x.includes(dH.replace(/-/g, "")));
+    ok(evtsH.some((x) => x.includes("T140000") && /Permanence physique[^\r\n]*assistante absente/.test(x)),
+      "assistante partie 14h-18h : l'agenda du 14h-17h dit « physique (assistante absente) »");
+    ok(evtsH.some((x) => x.includes("T090000") && !/Permanence physique/.test(x)),
+      "le matin du même jour reste une permanence ordinaire");
+    // Ménage : l'absence et le planning de ce jour ne gênent pas la suite.
+    await call("/permanence/planning", { method: "PUT", headers: auth, body: { from: dH, to: dH, pvs: ["medard"], lignes: [] } });
+    await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfg } });
+
+    await call("/permanence/absences/" + posee.json.id, { method: "DELETE", headers: auth });
+    ok(!(await call("/permanence/absences?from=2026-11-01&to=2026-11-30", { headers: auth })).json.absences
+      .some((a) => a.id === posee.json.id), "absence supprimée (heures comprises)");
+  }
+
+  // ---- Pas de rattrapage pour un nouvel arrivant ----
+  {
+    const P = globalThis.Permanence;
+    const cfgEq = P.normaliseConfig({ pvs: [{ id: "m", nom: "M" }] });
+    const gens = [
+      { cle: "a@x.fr", nom: "A A", pv: "m" }, { cle: "b@x.fr", nom: "B B", pv: "m" },
+      { cle: "c@x.fr", nom: "C C", pv: "m" }, { cle: "neuf@x.fr", nom: "Z Neuve", pv: "m" }
+    ];
+    const histo = [];
+    for (let i = 0; i < 60; i++) {
+      histo.push({ pv: "m", date: P.addDays("2026-06-15", i % 80), creneau: "matin", debut: "09:00", fin: "12:00",
+        cle: ["a@x.fr", "b@x.fr", "c@x.fr"][i % 3] });
+    }
+    const rEq = P.genere({ config: cfgEq, conseillers: gens, absences: [], historique: histo,
+      from: "2026-09-07", to: "2026-09-12", pvs: ["m"] });
+    const parCle = {};
+    rEq.lignes.forEach((l) => { parCle[l.cle] = (parCle[l.cle] || 0) + 1; });
+    const nNeuf = parCle["neuf@x.fr"] || 0;
+    const maxAncien = Math.max(parCle["a@x.fr"] || 0, parCle["b@x.fr"] || 0, parCle["c@x.fr"] || 0);
+    ok(nNeuf > 0, "le nouveau entre bien dans le tour");
+    ok(nNeuf <= maxAncien + 1, "pas de rattrapage : le nouveau prend sa part, pas celle de 12 semaines");
+  }
+
   // ---- Accueil des assistantes : présence physique exigée hors horaires ----
   {
     const PERMOD = await import("./src/permanence.js");

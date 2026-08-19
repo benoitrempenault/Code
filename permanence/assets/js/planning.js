@@ -83,7 +83,7 @@
     samediSuiviJours: 3,    // jours d'ouverture qui doivent être libres APRÈS un samedi de permanence
     maxParJour: 2,          // créneaux max pour un conseiller dans la journée
     maxParSemaine: 5,       // créneaux max dans la semaine
-    dureeRdv: 45,           // minutes : découpage des créneaux pour la prise de rendez-vous en ligne
+    dureeRdv: 60,           // minutes : découpage des créneaux pour la prise de rendez-vous en ligne
     delaiRdvHeures: 24,     // délai mini entre la demande et le rendez-vous
     feries: []              // dates AAAA-MM-JJ fermées (fériés, pont, inventaire…)
   };
@@ -185,26 +185,61 @@
          comptent (le 17h-19h devient « physique de 18h à 19h ») ;
        - aucune n'est là ce jour-là → tout le créneau est physique.
   */
+  // Intervalle : [debut, fin) en minutes. `base` moins `retraits`.
+  function retirerIntervalles(base, retraits) {
+    let out = base.slice();
+    (retraits || []).forEach(([a, b]) => {
+      const suite = [];
+      out.forEach(([x, y]) => {
+        if (b <= x || a >= y) { suite.push([x, y]); return; }
+        if (a > x) suite.push([x, a]);
+        if (b < y) suite.push([b, y]);
+      });
+      out = suite;
+    });
+    return out.filter(([x, y]) => y > x);
+  }
+  // Union d'intervalles (les couvertures de plusieurs assistantes s'ajoutent).
+  function unirIntervalles(listes) {
+    const tous = [].concat(...listes).sort((x, y) => x[0] - y[0]);
+    const out = [];
+    tous.forEach(([a, b]) => {
+      const prec = out[out.length - 1];
+      if (prec && a <= prec[1]) { if (b > prec[1]) prec[1] = b; return; }
+      out.push([a, b]);
+    });
+    return out;
+  }
+
+  /* `assistantes` : { total, presentes, parPresente } — `parPresente` liste,
+     pour chaque assistante présente, ses heures d'absence partielle du jour
+     ([["12:00","16:00"]], [] = journée complète). Une assistante qui décale
+     ses horaires laisse donc un trou : le conseiller de permanence le couvre
+     physiquement, et l'agenda le dit. */
   function presencePhysique(cr, accueil, jour, assistantes) {
     const total = (assistantes && assistantes.total) || 0;
     if (!total) return null;
     const presentes = (assistantes && assistantes.presentes) || 0;
     const jourAccueil = accueil.jours.indexOf(jour) >= 0;
-    const couvre = (!presentes || !jourAccueil) ? []
-      : accueil.plages.map((p) => [enMinutes(p.debut), enMinutes(p.fin)]);
-    const debut = enMinutes(cr.debut), fin = enMinutes(cr.fin);
-    const trous = [];
-    let t = debut;
-    couvre.forEach(([a, b]) => {
-      if (b <= t || a >= fin) return;
-      if (a > t) trous.push([t, Math.min(a, fin)]);
-      if (b > t) t = b;
-    });
-    if (t < fin) trous.push([t, fin]);
-    const plages = trous.filter(([a, b]) => b > a).map(([a, b]) => ({ debut: enHeure(a), fin: enHeure(b) }));
-    if (!plages.length) return null;
+    const plagesMin = accueil.plages.map((p) => [enMinutes(p.debut), enMinutes(p.fin)]);
+    let couvre = [];
+    if (presentes && jourAccueil) {
+      const par = (assistantes.parPresente && assistantes.parPresente.length)
+        ? assistantes.parPresente : Array.from({ length: presentes }, () => []);
+      couvre = unirIntervalles(par.map((trousH) =>
+        retirerIntervalles(plagesMin, (trousH || []).map(([a, b]) => [enMinutes(a), enMinutes(b)]))));
+    }
+    const creneau = [[enMinutes(cr.debut), enMinutes(cr.fin)]];
+    const decouvert = retirerIntervalles(creneau, couvre);
+    if (!decouvert.length) return null;
+    const plages = decouvert.map(([a, b]) => ({ debut: enHeure(a), fin: enHeure(b) }));
+    // Le motif distingue « c'est normal » (midi, fin de journée, samedi) de
+    // « c'est exceptionnel » (assistante absente ou partie plus tôt).
+    const pleinePresence = retirerIntervalles(creneau, plagesMin);
+    const commePlein = JSON.stringify(decouvert) === JSON.stringify(pleinePresence);
     const motif = !jourAccueil ? "accueil fermé"
-      : (presentes ? "hors horaires d'accueil" : "assistante absente");
+      : !presentes ? "assistante absente"
+        : commePlein ? "hors horaires d'accueil" : "assistante absente";
     return { plages, motif, debut: plages[0].debut, fin: plages[plages.length - 1].fin };
   }
   // Phrase courte pour l'agenda, le tableau et l'impression.
@@ -223,6 +258,7 @@
     (absences || []).forEach((a) => {
       const cle = String(a.cle || "").toLowerCase();
       if (!cle || !/^\d{4}-\d{2}-\d{2}$/.test(a.debut || "")) return;
+      if (estPartielle(a)) return;   // quelques heures : traité à part, pas un bloc-jour
       const fin = /^\d{4}-\d{2}-\d{2}$/.test(a.fin || "") && a.fin >= a.debut ? a.fin : a.debut;
       if (!parCle.has(cle)) parCle.set(cle, []);
       parCle.get(cle).push({ debut: a.debut, fin, type: a.type || "absence", motif: a.motif || "" });
@@ -289,9 +325,29 @@
   // Renvoie une fonction (cle, date) -> raison de blocage, ou "" si libre.
   // Elle porte les trois règles d'absence : le jour même, le préavis avant un
   // départ, et la disponibilité de la semaine qui suit un samedi.
+  // Une absence PARTIELLE : quelques heures sur UN jour (h_debut / h_fin).
+  // Elle ne sort pas la personne du jeu de la journée, ne déclenche pas de
+  // préavis et ne colle pas aux week-ends : elle ne bloque que les créneaux
+  // qui chevauchent ses heures.
+  function estPartielle(a) {
+    const hd = a && (a.h_debut || a.hDebut), hf = a && (a.h_fin || a.hFin);
+    return !!(hd && hf && /^\d{2}:\d{2}$/.test(hd) && /^\d{2}:\d{2}$/.test(hf) && hf > hd &&
+      (a.fin || a.debut) === a.debut);
+  }
+
   function indispoIndex(absences, regles) {
     const r = Object.assign({}, REGLES_DEFAUT, regles || {});
     const blocs = blocsAbsence(absences);
+    // Les absences à l'heure : cle -> Map(date -> [[h_debut, h_fin], ...]).
+    const heures = new Map();
+    (absences || []).forEach((a) => {
+      if (!estPartielle(a)) return;
+      const cle = String(a.cle || "").toLowerCase();
+      if (!heures.has(cle)) heures.set(cle, new Map());
+      const m = heures.get(cle);
+      if (!m.has(a.debut)) m.set(a.debut, []);
+      m.get(a.debut).push([a.h_debut || a.hDebut, a.h_fin || a.hFin]);
+    });
     const bloque = new Map();   // cle -> Map(date -> raison)
 
     function poser(cle, date, raison) {
@@ -318,9 +374,21 @@
       });
     });
 
-    function raison(cle, date) {
-      const m = bloque.get(String(cle || "").toLowerCase());
-      return (m && m.get(date)) || "";
+    // `debut`/`fin` (HH:MM, facultatifs) : quand ils sont donnés — c'est le
+    // créneau qu'on cherche à pourvoir — les absences à l'heure comptent aussi.
+    function raison(cle, date, debut, fin) {
+      const k = String(cle || "").toLowerCase();
+      const m = bloque.get(k);
+      const jour = (m && m.get(date)) || "";
+      if (jour || !debut || !fin) return jour;
+      const h = heures.get(k);
+      const chev = h && (h.get(date) || []).find(([a, b]) => a < fin && debut < b);
+      return chev ? "Absent — de " + chev[0].replace(":", "h") + " à " + chev[1].replace(":", "h") : "";
+    }
+    // Les heures d'absence d'une personne à une date (pour l'accueil).
+    function heuresAbsence(cle, date) {
+      const h = heures.get(String(cle || "").toLowerCase());
+      return (h && h.get(date)) || [];
     }
     // Le samedi engage plus que la matinée : celui qui le prend garde les
     // contacts de tout le week-end jusqu'au lundi 9h, puis honore les
@@ -338,7 +406,7 @@
       }
       return "";
     }
-    return { raison, raisonSamedi, blocs };
+    return { raison, raisonSamedi, heuresAbsence, blocs };
   }
 
   /* ------------------------------ Compteurs ------------------------------- */
@@ -409,6 +477,19 @@
 
     const cpt = compteurs(avant.concat(figes));
     pool.forEach((c) => { if (!cpt[c.cle]) cpt[c.cle] = compteursVides(); });
+    // PAS de rattrapage pour un nouvel arrivant : sans historique, il serait
+    // « le moins servi » et enchaînerait les permanences jusqu'à combler 12
+    // semaines qu'il n'a pas vécues. On le fait partir de la moyenne des
+    // autres : il prend sa juste part à partir de maintenant, ni plus ni moins.
+    const anciens = pool.filter((c) => (cpt[c.cle].total || 0) > 0);
+    if (anciens.length) {
+      const moyT = anciens.reduce((s2, c) => s2 + cpt[c.cle].total / c.poids, 0) / anciens.length;
+      const moyS = anciens.reduce((s2, c) => s2 + cpt[c.cle].samedi / c.poids, 0) / anciens.length;
+      pool.forEach((c) => {
+        const x = cpt[c.cle];
+        if (!x.total) { x.total = moyT * c.poids; x.samedi = moyS * c.poids; }
+      });
+    }
 
     // Assistantes du point de vente présentes à une date : celles qui ne sont
     // pas déclarées absentes. Le préavis ne les concerne pas — il n'a de sens
@@ -418,8 +499,14 @@
       const k = pvId + "|" + date;
       if (cacheAccueil.has(k)) return cacheAccueil.get(k);
       const miennes = assistantes.filter((a) => a.pv === pvId);
-      const presentes = miennes.filter((a) => idx.raison(a.cle, date).indexOf("Absent") !== 0).length;
-      const v = { total: miennes.length, presentes };
+      const laPresentes = miennes.filter((a) => idx.raison(a.cle, date).indexOf("Absent") !== 0);
+      // Une assistante qui décale ses horaires est présente… avec un trou :
+      // ses heures d'absence percent la couverture de l'accueil.
+      const v = {
+        total: miennes.length,
+        presentes: laPresentes.length,
+        parPresente: laPresentes.map((a) => idx.heuresAbsence(a.cle, date))
+      };
       cacheAccueil.set(k, v);
       return v;
     }
@@ -504,7 +591,7 @@
       if ((occJour.get(c.cle + "|" + date) || 0) >= regles.maxParJour) return;        // plafond du jour
       if ((occSem.get(c.cle + "|" + semaineDe(date)) || 0) >= regles.maxParSemaine) return;
       if (chevauche(ctx.pris, c.cle, date, cr) || chevauche(ctx.autres, c.cle, date, cr)) return;   // même heure ailleurs
-      if (idx.raison(c.cle, date)) return;                                            // absent ou en préavis
+      if (idx.raison(c.cle, date, cr.debut, cr.fin)) return;                          // absent (jour ou heures) ou en préavis
       if (samedi && idx.raisonSamedi(c.cle, date)) return;                            // pas dispo la semaine d'après
       candidats.push(c);
     });
@@ -612,7 +699,7 @@
     normaliseConfig, normaliseCreneau, creneauxDe,
     ACCUEIL_DEFAUT, normaliseAccueil, accueilDe, presencePhysique, textePhysique,
     addDays, toISO, dow, joursEntre, lundi, semaineDe, libelleJour, JOURS_LONGS, JOURS_COURTS,
-    blocsAbsence, indispoIndex, compteurs, equite,
+    blocsAbsence, indispoIndex, estPartielle, compteurs, equite,
     genere, creneauxRdv, enMinutes, enHeure, repriseTexte, LIBELLE_REPRISE
   };
   if (typeof module !== "undefined" && module.exports) module.exports = G.Permanence;

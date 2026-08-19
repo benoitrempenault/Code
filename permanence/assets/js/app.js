@@ -140,10 +140,16 @@
   function physiqueDe(pvId, date, cr) {
     const miennes = conseillers().filter((c) => c.assistante && c.actif && c.pv === pvId);
     if (!miennes.length) return null;
-    const presentes = miennes.filter((c) => !absences.some((a) =>
-      String(a.cle || "").toLowerCase() === c.cle && a.debut <= date && a.fin >= date)).length;
+    // Jour entier = absente ; quelques heures = présente avec un trou dans sa
+    // couverture (elle a décalé ses horaires) — le conseiller couvre le trou.
+    const jourEntier = (a, c) => !P.estPartielle(a) &&
+      String(a.cle || "").toLowerCase() === c.cle && a.debut <= date && a.fin >= date;
+    const laPresentes = miennes.filter((c) => !absences.some((a) => jourEntier(a, c)));
+    const trousDe = (c) => absences
+      .filter((a) => P.estPartielle(a) && String(a.cle || "").toLowerCase() === c.cle && a.debut === date)
+      .map((a) => [a.h_debut, a.h_fin]);
     return P.presencePhysique(cr, P.accueilDe(config, pvId), P.dow(date),
-      { total: miennes.length, presentes });
+      { total: miennes.length, presentes: laPresentes.length, parPresente: laPresentes.map(trousDe) });
   }
   // Les créneaux qui emportent une reprise de contacts (17h-19h la nuit,
   // samedi le week-end), tous points de vente confondus : décompte d'équité.
@@ -523,7 +529,9 @@
         const preavis = bloc ? joursPreavis(bloc, idx, a.cle) : [];
         return '<tr><td>' + esc((c && c.nom) || a.nom || a.cle) + "</td>" +
           '<td><span class="pill' + (a.type === "conge" ? " warn" : "") + '">' + esc(libelleType(a.type)) + "</span></td>" +
-          "<td>" + esc(P.libelleJour(a.debut)) + "</td><td>" + esc(P.libelleJour(a.fin)) + "</td>" +
+          "<td>" + esc(P.libelleJour(a.debut)) +
+          (a.h_debut ? ' <span class="pill">' + esc(a.h_debut.replace(":", "h") + " → " + a.h_fin.replace(":", "h")) + "</span>" : "") +
+          "</td><td>" + esc(P.libelleJour(a.fin)) + "</td>" +
           "<td>" + (preavis.length ? esc(preavis.map((j) => P.libelleJour(j)).join(", ")) : '<span class="pill">aucun</span>') + "</td>" +
           "<td>" + esc(a.motif || "") + "</td>" +
           '<td class="nowrap"><button class="btn btn--sm btn--danger" data-absdel="' + esc(a.id) + '">Supprimer</button></td></tr>';
@@ -545,6 +553,18 @@
     const cle = $("#absCons").value, debut = $("#absDebut").value, fin = $("#absFin").value || $("#absDebut").value;
     const type = $("#absType").value;
     if (!cle || !debut) { $("#absApercu").textContent = ""; return; }
+    const hd = $("#absHDebut").value, hf = $("#absHFin").value;
+    if (hd || hf) {
+      const c = conseillerDe(cle);
+      $("#absApercu").innerHTML = (!hd || !hf || hf <= hd) ? "Indiquez un début ET une fin d'heures (ex. 14:00 → 18:00)."
+        : debut !== fin ? "Une absence de quelques heures tient sur un seul jour — mettez la même date aux deux champs."
+          : (c && c.assistante)
+            ? "Absence de quelques heures : l'accueil n'est pas tenu de <b>" + esc(hd.replace(":", "h") + " à " + hf.replace(":", "h")) +
+              "</b> ce jour-là — le conseiller de permanence sera <b>physiquement au point de vente</b> sur ce trou (visible dans son agenda). Pas de préavis, le reste de la journée est normal."
+            : "Absence de quelques heures : le conseiller reste dans le tour ce jour-là, sauf sur les créneaux qui chevauchent <b>" +
+              esc(hd.replace(":", "h") + " – " + hf.replace(":", "h")) + "</b>. Pas de préavis.";
+      return;
+    }
     const idx = P.indispoIndex([{ cle, type, debut, fin }], config.regles);
     const bloc = (idx.blocs.get(cle) || [])[0];
     const pre = bloc ? joursPreavis(bloc, idx, cle) : [];
@@ -604,13 +624,16 @@
     const fin = $("#absFin").value || debut;
     if (!cle || !debut) { toast("Choisissez un conseiller et une date de début.", true); return; }
     if (fin < debut) { toast("La date de fin précède le début.", true); return; }
+    const hd = $("#absHDebut").value, hf = $("#absHFin").value;
+    if ((hd || hf) && (!hd || !hf || hf <= hd)) { toast("Heures invalides — un début ET une fin (ex. 14:00 → 18:00).", true); return; }
+    if (hd && debut !== fin) { toast("Une absence de quelques heures tient sur un seul jour.", true); return; }
     const c = conseillerDe(cle);
     try {
       await api("/permanence/absences", {
         method: "PUT",
-        json: { cle, nom: (c && c.nom) || "", type: $("#absType").value, debut, fin, motif: $("#absMotif").value }
+        json: { cle, nom: (c && c.nom) || "", type: $("#absType").value, debut, fin, motif: $("#absMotif").value, h_debut: hd, h_fin: hf }
       });
-      $("#absMotif").value = "";
+      $("#absMotif").value = ""; $("#absHDebut").value = ""; $("#absHFin").value = "";
       await chargerAbsences();
       rendreAbsences();
       toast("Absence enregistrée — regénérez le tour pour en tenir compte.");
@@ -1004,7 +1027,7 @@
       const b = e.target.closest("[data-absok]");
       if (b) accepterProposition(parseInt(b.dataset.absok, 10));
     });
-    ["#absCons", "#absType", "#absDebut", "#absFin"].forEach((s) => $(s).addEventListener("change", apercuAbsence));
+    ["#absCons", "#absType", "#absDebut", "#absFin", "#absHDebut", "#absHFin"].forEach((s) => $(s).addEventListener("change", apercuAbsence));
     $("#absList").addEventListener("click", async (e) => {
       const b = e.target.closest("[data-absdel]");
       if (!b) return;

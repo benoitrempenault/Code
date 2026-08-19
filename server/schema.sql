@@ -229,6 +229,16 @@ CREATE TABLE IF NOT EXISTS perm_absences (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+-- Heures d'une absence PARTIELLE (quelques heures dans la journée : une
+-- assistante qui décale ses horaires, un rendez-vous médical). Table à part
+-- pour rester déployable par simple ré-exécution du schéma (pas d'ALTER).
+-- Une ligne ici ne vaut que si l'absence tient sur UN jour (debut = fin).
+CREATE TABLE IF NOT EXISTS perm_absences_h (
+  id      TEXT PRIMARY KEY REFERENCES perm_absences(id),
+  h_debut TEXT NOT NULL,                    -- HH:MM
+  h_fin   TEXT NOT NULL                     -- HH:MM (exclu)
+);
 CREATE INDEX IF NOT EXISTS idx_perm_absences_ag ON perm_absences(agency_id, debut);
 
 -- Planning des permanences : une ligne = un conseiller, un point de vente,

@@ -22,7 +22,7 @@ export const CRENEAUX_DEFAUT = [
 
 export const REGLES_DEFAUT = {
   preavisJours: 3, seuilAbsenceJours: 3, samediSuiviJours: 3,
-  maxParJour: 2, maxParSemaine: 5, dureeRdv: 45, delaiRdvHeures: 24, feries: []
+  maxParJour: 2, maxParSemaine: 5, dureeRdv: 60, delaiRdvHeures: 24, feries: []
 };
 
 // L'accueil tenu par les assistantes. Ce qui tombe en dehors (midi, fin de
@@ -92,27 +92,56 @@ export function accueilDe(config, pvId) {
   };
 }
 
+function retirerIntervalles(base, retraits) {
+  let out = base.slice();
+  for (const [a, b] of retraits || []) {
+    const suite = [];
+    for (const [x, y] of out) {
+      if (b <= x || a >= y) { suite.push([x, y]); continue; }
+      if (a > x) suite.push([x, a]);
+      if (b < y) suite.push([b, y]);
+    }
+    out = suite;
+  }
+  return out.filter(([x, y]) => y > x);
+}
+function unirIntervalles(listes) {
+  const tous = [].concat(...listes).sort((x, y) => x[0] - y[0]);
+  const out = [];
+  for (const [a, b] of tous) {
+    const prec = out[out.length - 1];
+    if (prec && a <= prec[1]) { if (b > prec[1]) prec[1] = b; continue; }
+    out.push([a, b]);
+  }
+  return out;
+}
+
 // null = rien à signaler (pas d'assistante déclarée, ou créneau entièrement
 // couvert). Sinon : les tranches où le conseiller doit être au comptoir.
+// `assistantes.parPresente` : pour chaque assistante présente, ses heures
+// d'absence partielle ([["12:00","16:00"]]) — elle décale, la couverture se
+// troue, le conseiller couvre le trou. Même règle que planning.js.
 export function presencePhysique(creneau, accueil, jour, assistantes) {
   const total = (assistantes && assistantes.total) || 0;
   if (!total) return null;
   const presentes = (assistantes && assistantes.presentes) || 0;
   const jourAccueil = accueil.jours.indexOf(jour) >= 0;
-  const couvre = (!presentes || !jourAccueil) ? []
-    : accueil.plages.map((x) => [enMinutes(x.debut), enMinutes(x.fin)]);
-  const debut = enMinutes(creneau.debut), fin = enMinutes(creneau.fin);
-  const trous = [];
-  let t = debut;
-  for (const [a, b] of couvre) {
-    if (b <= t || a >= fin) continue;
-    if (a > t) trous.push([t, Math.min(a, fin)]);
-    if (b > t) t = b;
+  const plagesMin = accueil.plages.map((x) => [enMinutes(x.debut), enMinutes(x.fin)]);
+  let couvre = [];
+  if (presentes && jourAccueil) {
+    const par = (assistantes.parPresente && assistantes.parPresente.length)
+      ? assistantes.parPresente : Array.from({ length: presentes }, () => []);
+    couvre = unirIntervalles(par.map((trousH) =>
+      retirerIntervalles(plagesMin, (trousH || []).map(([a, b]) => [enMinutes(a), enMinutes(b)]))));
   }
-  if (t < fin) trous.push([t, fin]);
-  const plages = trous.filter(([a, b]) => b > a).map(([a, b]) => ({ debut: enHeure(a), fin: enHeure(b) }));
-  if (!plages.length) return null;
-  const motif = !jourAccueil ? "accueil fermé" : (presentes ? "hors horaires d'accueil" : "assistante absente");
+  const cadre = [[enMinutes(creneau.debut), enMinutes(creneau.fin)]];
+  const decouvert = retirerIntervalles(cadre, couvre);
+  if (!decouvert.length) return null;
+  const plages = decouvert.map(([a, b]) => ({ debut: enHeure(a), fin: enHeure(b) }));
+  const commePlein = JSON.stringify(decouvert) === JSON.stringify(retirerIntervalles(cadre, plagesMin));
+  const motif = !jourAccueil ? "accueil fermé"
+    : !presentes ? "assistante absente"
+      : commePlein ? "hors horaires d'accueil" : "assistante absente";
   return { plages, motif, debut: plages[0].debut, fin: plages[plages.length - 1].fin };
 }
 

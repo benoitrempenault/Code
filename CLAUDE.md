@@ -86,8 +86,11 @@ un lundi posé compte 3 jours), samedi réservé à qui est présent la semaine 
 réouverture ; `"weekend"` sur le samedi matin = tout le week-end jusqu'au lundi 9h — affiché
 🌙, rappelé dans l'`.ics`, compté à part dans l'équité ; l'ancien `nuit: true` reste relu),
 sortie du
-cycle (« hors cycle »), poids (mi-temps), plafonds jour/semaine, et équité au conseiller le
-moins servi avec **compteurs repris sur 12 semaines glissantes**. L'**accueil** tenu par les
+cycle (« hors cycle »), poids (mi-temps), plafonds jour/semaine, absences de **quelques
+heures** (table `perm_absences_h` : la personne reste dans le jeu hors chevauchement, sans
+préavis), et équité au conseiller le moins servi avec **compteurs repris sur 12 semaines
+glissantes** — un nouvel arrivant part de la moyenne (pas de rattrapage). Rendez-vous d'une
+heure par défaut (`dureeRdv: 60`). L'**accueil** tenu par les
 assistantes (`config.accueil` : jours + plages, par défaut 9h-12h / 14h-18h ; conseillères
 marquées `assistante`, hors du tour et hors équité) décide de la **présence physique** :
 `presencePhysique()` rend les tranches du créneau que l'accueil ne couvre pas — le midi et

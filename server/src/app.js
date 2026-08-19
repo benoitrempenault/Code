@@ -771,7 +771,9 @@ export function createApp(env) {
     const from = PERM.estDate(c.req.query("from")) ? c.req.query("from") : "0000-01-01";
     const to = PERM.estDate(c.req.query("to")) ? c.req.query("to") : "9999-12-31";
     const rows = await db.all(
-      "SELECT id, cle, nom, type, debut, fin, motif, updated_at FROM perm_absences WHERE agency_id = ? AND fin >= ? AND debut <= ? ORDER BY debut ASC",
+      "SELECT a.id, a.cle, a.nom, a.type, a.debut, a.fin, a.motif, a.updated_at, h.h_debut, h.h_fin " +
+      "FROM perm_absences a LEFT JOIN perm_absences_h h ON h.id = a.id " +
+      "WHERE a.agency_id = ? AND a.fin >= ? AND a.debut <= ? ORDER BY a.debut ASC",
       [ctx.agency.id, from, to]);
     return c.json({ absences: rows });
   });
@@ -786,12 +788,24 @@ export function createApp(env) {
     if (!cle) return err(c, 400, "Conseiller manquant.");
     if (!PERM.estDate(debut) || !PERM.estDate(fin) || fin < debut) return err(c, 400, "Dates invalides.");
     const type = ["conge", "weekend", "formation", "absence"].includes(String(b && b.type)) ? b.type : "absence";
+    // Absence partielle : quelques heures sur UN jour (assistante qui décale
+    // ses horaires, rendez-vous médical). Les deux heures vont ensemble.
+    const hDebut = String((b && b.h_debut) || ""), hFin = String((b && b.h_fin) || "");
+    if (hDebut || hFin) {
+      if (!PERM.estHeure(hDebut) || !PERM.estHeure(hFin) || hFin <= hDebut) return err(c, 400, "Heures invalides — indiquez un début ET une fin (ex. 14:00 → 18:00).");
+      if (debut !== fin) return err(c, 400, "Une absence de quelques heures tient sur un seul jour.");
+    }
+    const poserHeures = async (id) => {
+      await db.run("DELETE FROM perm_absences_h WHERE id = ?", [id]);
+      if (hDebut) await db.run("INSERT INTO perm_absences_h (id, h_debut, h_fin) VALUES (?, ?, ?)", [id, hDebut, hFin]);
+    };
     const vals = [cle, PERM.propre(b && b.nom), type, debut, fin, PERM.propre(b && b.motif, 200)];
     if (b && b.id) {
       const ex = await db.get("SELECT id FROM perm_absences WHERE id = ? AND agency_id = ?", [String(b.id), ctx.agency.id]);
       if (ex) {
         await db.run("UPDATE perm_absences SET cle = ?, nom = ?, type = ?, debut = ?, fin = ?, motif = ?, user_id = ?, updated_at = ? WHERE id = ?",
           vals.concat([ctx.user.id, now(), ex.id]));
+        await poserHeures(ex.id);
         return c.json({ ok: true, id: ex.id, updated: true });
       }
     }
@@ -800,13 +814,20 @@ export function createApp(env) {
     const id = randId("ab");
     await db.run("INSERT INTO perm_absences (id, agency_id, user_id, cle, nom, type, debut, fin, motif, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [id, ctx.agency.id, ctx.user.id].concat(vals).concat([now(), now()]));
+    await poserHeures(id);
     return c.json({ ok: true, id, updated: false });
   });
 
   app.delete("/permanence/absences/:id", async (c) => {
     const ctx = await sessionFrom(c);
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
-    await db.run("DELETE FROM perm_absences WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    // Le contrôle d'agence porte sur la table principale : on ne retire les
+    // heures qu'après avoir vérifié que la ligne appartenait bien à l'agence.
+    const ex = await db.get("SELECT id FROM perm_absences WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (ex) {
+      await db.run("DELETE FROM perm_absences_h WHERE id = ?", [ex.id]);
+      await db.run("DELETE FROM perm_absences WHERE id = ?", [ex.id]);
+    }
     return c.json({ ok: true });
   });
 
@@ -938,16 +959,24 @@ export function createApp(env) {
     assistantes = assistantes.filter((a) => connues.has(a.cle));
     if (!assistantes.length) return out;
     const abs = await db.all(
-      "SELECT cle, debut, fin FROM perm_absences WHERE agency_id = ? AND fin >= ? AND debut <= ?",
+      "SELECT a.cle, a.debut, a.fin, h.h_debut, h.h_fin FROM perm_absences a " +
+      "LEFT JOIN perm_absences_h h ON h.id = a.id WHERE a.agency_id = ? AND a.fin >= ? AND a.debut <= ?",
       [agencyId, from, to]);
-    const absente = (cle, date) => abs.some((a) => PERM.cleConseiller(a.cle) === cle && a.debut <= date && a.fin >= date);
+    // Jour entier = absente ; quelques heures = présente avec un trou dans
+    // sa couverture (elle a décalé ses horaires) — même règle que l'app.
+    const partielle = (a) => a.h_debut && a.h_fin && a.debut === a.fin;
+    const absente = (cle, date) => abs.some((a) => !partielle(a) && PERM.cleConseiller(a.cle) === cle && a.debut <= date && a.fin >= date);
+    const trousDe = (cle, date) => abs
+      .filter((a) => partielle(a) && PERM.cleConseiller(a.cle) === cle && a.debut === date)
+      .map((a) => [a.h_debut, a.h_fin]);
     for (const p of perms) {
       const cr = PERM.creneauxDe(config, p.pv).find((x) => x.id === p.creneau) || { debut: p.debut, fin: p.fin };
       const miennes = assistantes.filter((a) => a.pv === p.pv);
-      const presentes = miennes.filter((a) => !absente(a.cle, p.date)).length;
+      const laPresentes = miennes.filter((a) => !absente(a.cle, p.date));
       const jour = new Date(p.date + "T12:00:00Z").getUTCDay();
       const ph = PERM.presencePhysique({ debut: p.debut || cr.debut, fin: p.fin || cr.fin },
-        PERM.accueilDe(config, p.pv), jour, { total: miennes.length, presentes });
+        PERM.accueilDe(config, p.pv), jour,
+        { total: miennes.length, presentes: laPresentes.length, parPresente: laPresentes.map((a) => trousDe(a.cle, p.date)) });
       if (ph) out.set(p.pv + "|" + p.date + "|" + p.creneau, ph);
     }
     return out;
