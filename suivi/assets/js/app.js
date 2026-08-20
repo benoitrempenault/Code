@@ -1274,10 +1274,10 @@
       "</div>"
     ).join("");
 
-    // Les infos capitales restent en haut du journal, en rouge, jusqu'à ce
+    // Les notes marquées restent en haut du journal, en rouge, jusqu'à ce
     // qu'on les décoche — le reste suit dans l'ordre chronologique inverse.
     const journalOrdre = d.journal.map((j, i) => ({ j, i })).reverse()
-      .sort((a, b) => (b.j.capital ? 1 : 0) - (a.j.capital ? 1 : 0));
+      .sort((a, b) => (epingle(b.j) ? 1 : 0) - (epingle(a.j) ? 1 : 0));
     const ligneJournal = ({ j, i }) => {
       const dt = new Date((j.ts || 0) * 1000);
       const txt = j.text || "";
@@ -1286,13 +1286,17 @@
       const lignes = Math.max(1, txt.split("\n").length, Math.ceil(txt.length / 95));
       const longue = lignes > 4;
       const lien = lienExterne(j.lien);
-      return '<div class="journal__item' + (j.capital ? " journal__item--capital" : "") + '">' +
+      const titres = JOURNAL_MARQUES.filter((m) => m.titre && j[m.key]).map((m) => m.titre);
+      return '<div class="journal__item' + (epingle(j) ? " journal__item--capital" : "") + '">' +
         '<button class="btn btn--sm btn--danger jdel" data-jdel="' + i + '" title="Supprimer cette note">✕</button>' +
         '<div class="meta">' +
         esc(dt.toLocaleDateString("fr-FR") + " " + dt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })) +
         " — " + esc(j.user || "") + (j.edite ? " · modifiée" : "") +
-        ' · <label class="journal__cap"><input type="checkbox" data-jcap="' + i + '"' + (j.capital ? " checked" : "") +
-        ' /> info capitale</label></div>' +
+        JOURNAL_MARQUES.map((m) =>
+          ' · <label class="journal__cap"><input type="checkbox" data-jcap="' + i + ":" + m.key + '"' +
+          (j[m.key] ? " checked" : "") + " /> " + esc(m.label) + "</label>").join("") +
+        "</div>" +
+        (titres.length ? '<p class="journal__titre">' + esc(titres.join(" · ")) + "</p>" : "") +
         '<div class="journal__body' + (longue ? " long" : "") + '">' +
         '<textarea class="journal__text" data-jedit="' + i + '" rows="' + Math.min(60, lignes) +
         '" title="Cliquez dans la note pour la corriger">' + esc(txt) + "</textarea>" +
@@ -1307,7 +1311,7 @@
        sauter aux yeux, et la dernière note — l'historique complet se déplie
        à la demande. Un journal de vingt notes n'est pas une lecture, c'est
        une archive. */
-    const enVue = journalOrdre.filter((x, n) => x.j.capital || journalOrdre.findIndex((y) => !y.j.capital) === n);
+    const enVue = journalOrdre.filter((x, n) => epingle(x.j) || journalOrdre.findIndex((y) => !epingle(y.j)) === n);
     const archive = journalOrdre.filter((x) => enVue.indexOf(x) < 0);
     const journalHtml = enVue.map(ligneJournal).join("") +
       (archive.length
@@ -1339,13 +1343,16 @@
       '<div class="card"><h3>📝 Journal du dossier <span class="cnt">partagé avec toute l\'agence</span></h3>' +
       '<div class="journal__add" style="margin:0 0 4px"><input type="text" id="journalInput" placeholder="Ajouter une note (appel, réponse du notaire, avancement…)" />' +
       '<input type="url" id="journalLien" placeholder="🔗 lien d\'un message ou d\'un document (facultatif)" />' +
-      '<label class="journal__cap" style="white-space:nowrap"><input type="checkbox" id="journalCapital" /> info capitale</label>' +
+      JOURNAL_MARQUES.map((m) =>
+        '<label class="journal__cap" style="white-space:nowrap"><input type="checkbox" id="journalMarque-' +
+        m.key + '" /> ' + esc(m.label) + "</label>").join("") +
       '<button class="btn" id="journalAdd">Ajouter</button></div>' +
       '<p class="hintline" style="margin:0 0 10px">Entrée pour valider. Cliquez dans une note pour la corriger. ' +
       "Le lien s'ouvre d'ici : collez le permalien d'un message (Outlook web : « … » › Ouvrir dans une nouvelle fenêtre, puis l'adresse) " +
       "ou d'un document OneDrive. Les relances envoyées depuis l'app sont archivées ici avec leur texte. " +
-      "<b>Info capitale</b> : la note reste en haut du journal, en rouge, et s'affiche sur la vente au tableau de bord — " +
-      "décochez-la une fois le point réglé.</p>" +
+      "<b>Info capitale</b> : la note reste en haut du journal, en rouge, et s'affiche sur la vente au tableau de bord. " +
+      "<b>Financement</b> et <b>Conditions suspensives</b> l'épinglent de la même façon, sous leur titre en rouge — " +
+      "décochez une fois le point réglé.</p>" +
       '<div class="journal">' + (journalHtml || '<p class="hintline">Aucune note pour l\'instant.</p>') + "</div></div>" +
 
       '<div class="card"><h3>🗓 Échéancier du dossier</h3>' + echHtml +
@@ -1587,8 +1594,12 @@
         return;
       }
       if (t.dataset.jcap != null) {
-        const j = d.journal[Number(t.dataset.jcap)];
-        if (j) { if (t.checked) j.capital = true; else delete j.capital; markDirty(); renderDossier(); }
+        const [idx, key] = String(t.dataset.jcap).split(":");
+        const j = d.journal[Number(idx)];
+        if (j && JOURNAL_MARQUES.some((m) => m.key === key)) {
+          if (t.checked) j[key] = true; else delete j[key];
+          markDirty(); renderDossier();
+        }
         return;
       }
       if (t.dataset.pathCheck) { setByPath(d, t.dataset.pathCheck, t.checked); markDirty(); renderDossier(); return; }
@@ -1757,14 +1768,26 @@
       delete et.due;
     }
   }
+  /* Marques d'une note du journal : elles l'épinglent en haut, en rouge, tant
+     qu'on ne les décoche pas. « Info capitale » remonte en plus sur la vente au
+     tableau de bord ; les deux autres portent un titre, pour retrouver d'un
+     coup d'œil où en sont le prêt et les conditions suspensives. */
+  const JOURNAL_MARQUES = [
+    { key: "capital", label: "info capitale", titre: "" },
+    { key: "financement", label: "financement", titre: "Financement" },
+    { key: "conditions", label: "conditions suspensives", titre: "Conditions suspensives" }
+  ];
+  const epingle = (j) => JOURNAL_MARQUES.some((m) => j && j[m.key]);
   function ajouterNote(d) {
     const inp = $("#journalInput"), lienInp = $("#journalLien");
     const txt = (inp.value || "").trim(), lien = lienExterne(lienInp && lienInp.value);
     if (!txt && !lien) return;
     const note = { ts: Math.floor(Date.now() / 1000), user: userName(), text: txt || "Message lié" };
     if (lien) note.lien = lien;
-    const cap = $("#journalCapital");
-    if (cap && cap.checked) note.capital = true;
+    for (const m of JOURNAL_MARQUES) {
+      const c = $("#journalMarque-" + m.key);
+      if (c && c.checked) note[m.key] = true;
+    }
     d.journal.push(note);
     if (lienInp && lienInp.value.trim() && !lien) toast("Lien ignoré : seules les adresses http(s) sont acceptées.", true);
     markDirty(); renderDossier();
