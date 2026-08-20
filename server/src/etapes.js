@@ -110,7 +110,9 @@ const ETAPES = [
   { id: "sequestre", label: "Dépôt de garantie (séquestre) reçu",
     due: (d) => (d.sequestre && parseDate(d.sequestre.delai) != null) ? d.sequestre.delai : addDays(ssp(d), 12),
     applies: (d) => montantPositif(d.sequestre && d.sequestre.montant) },
-  { id: "envoi_dia", label: "DIA envoyée en mairie par le notaire", due: (d) => addDays(ssp(d), 7) },
+  { id: "envoi_dia", label: "DIA envoyée en mairie par le notaire",
+    // 7 jours après l'envoi du dossier aux notaires (à défaut, envoi estimé J+3).
+    due: (d) => addDays((d.dates && d.dates.envoi_notaires) || addDays(ssp(d), 3), 7) },
   { id: "purge_dia", label: "Droit de préemption purgé (2 mois)",
     due: (d) => (d.dates && d.dates.envoi_dia) ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77) },
   { id: "dp_depot", label: "Déclaration préalable (DP) déposée en mairie", due: dpDepot, applies: estTerrain },

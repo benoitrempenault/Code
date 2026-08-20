@@ -292,8 +292,10 @@
 
     { id: "envoi_dia", phase: "Préemption (DIA)", label: "DIA envoyée en mairie par le notaire",
       cible: "notaire_vendeur", modele: "Relance DIA",
-      due: (d) => addDays(ssp(d), 7),
-      hint: "LA relance qui fait gagner un mois : vérifier l'envoi dès J+7, demander une renonciation expresse si possible." },
+      // 7 jours après l'ENVOI DU DOSSIER AUX NOTAIRES (le notaire ne peut
+      // rien envoyer avant de l'avoir reçu) — à défaut, envoi estimé à J+3.
+      due: (d) => addDays(d.dates.envoi_notaires || addDays(ssp(d), 3), 7),
+      hint: "LA relance qui fait gagner un mois : vérifier l'envoi 7 jours après la transmission du dossier aux notaires, demander une renonciation expresse si possible." },
     // Purge du droit de préemption : rien à relancer, le silence de la mairie
     // suffit — on se contente de constater l'échéance.
     { id: "purge_dia", phase: "Préemption (DIA)", label: "Droit de préemption purgé (réponse de la mairie ou silence de 2 mois)",
