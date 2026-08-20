@@ -487,8 +487,10 @@
       }
       // La liste vise l'ÉTUDE, pas le notaire : « PULON Antoine » ne
       // reconnaissait pas un séquestre déposé « chez Me PULON ». On repasse
-      // aux patronymes seuls sur la fiche installée avec l'ancienne liste.
-      for (const c of annOf("comptable").filter((x) => /PULON Antoine/i.test(x.notes || ""))) {
+      // aux patronymes seuls — uniquement si la liste est encore EXACTEMENT
+      // l'ancienne liste par défaut (une liste retouchée à la main est gardée).
+      const ancienneListe = ["NAUTIACQ", "PULON Antoine", "PULON Bertrand", "AVINEN BABIN", "MELLAC DUPIN", "AMOUROUX", "SCHREIBER"].join("\n");
+      for (const c of annOf("comptable").filter((x) => (x.notes || "").trim() === ancienneListe)) {
         c.notes = COMPTA_DEFAUT[0].notes;
         try { await api("/annuaire", { method: "PUT", json: c }); await loadAnnuaire(); } catch (e) { /* sans gravité */ }
       }
@@ -506,11 +508,18 @@
       }
       // « Demande du projet d'acte » devient « Demande de date de signature » :
       // adressée aux DEUX études, l'objet dit d'abord ce qu'on attend d'elles.
+      // Un corps personnalisé par l'agence est CONSERVÉ — on ne remplace le
+      // texte que s'il est encore l'ancien défaut.
       const pacteAncien = modeles.find((m) => m.name === "Demande du projet d'acte");
       if (pacteAncien) {
         const defDS = E.DEFAULT_MODELES.find((m) => m.name === "Demande de date de signature");
         if (defDS) {
-          Object.assign(pacteAncien, { name: defDS.name, cible: defDS.cible, sujet: defDS.sujet, corps: defDS.corps });
+          pacteAncien.name = defDS.name;
+          pacteAncien.cible = defDS.cible;
+          if (/nous confirmer le rendez-vous de signature/.test(pacteAncien.corps || "")) {
+            pacteAncien.sujet = defDS.sujet;
+            pacteAncien.corps = defDS.corps;
+          }
           await api("/modeles", { method: "PUT", json: pacteAncien });
         }
       }
@@ -2056,8 +2065,23 @@
     acquereur: "Acquéreur", vendeur: "Vendeur", syndic: "Syndic",
     conseiller_vendeur: "Conseiller", conseiller_acquereur: "Conseiller", banque: "Banque", autre: "Relancer"
   };
+  /* Relie une étape à son modèle. Le modèle de l'AGENCE gagne toujours sur le
+     modèle intégré : un titre retouché à la main (« Demande date de
+     signature », accent oublié, ancien nom) ne doit jamais faire repartir le
+     texte d'origine en silence. On compare donc sans accents ni petits mots,
+     puis via les anciens noms connus, avant de se rabattre sur le défaut. */
+  const MODELE_ALIAS = { "Demande de date de signature": "Demande du projet d'acte" };
   function modeleByName(name) {
-    return modeles.find((x) => x.name === name) || E.DEFAULT_MODELES.find((x) => x.name === name) || null;
+    const exact = modeles.find((x) => x.name === name);
+    if (exact) return exact;
+    const cle = (n) => motsNom(n).join(" ");
+    const voulu = cle(name);
+    const proche = voulu && modeles.find((x) => cle(x.name) === voulu);
+    if (proche) return proche;
+    const ancien = MODELE_ALIAS[name];
+    const parAlias = ancien && modeles.find((x) => x.name === ancien || cle(x.name) === cle(ancien));
+    if (parAlias) return parAlias;
+    return E.DEFAULT_MODELES.find((x) => x.name === name) || null;
   }
   // Boutons de relance d'une étape : un par modèle. Toujours affichés — si
   // l'e-mail du destinataire est inconnu, le composeur s'ouvre avec le champ
