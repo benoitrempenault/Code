@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self' https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self' https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev https://kadima-admin.onrender.com" />
   <title>Studio Brochure — Mon compte</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <meta name="description" content="Compte Studio Brochure « Tout compris » : connexion, abonnement et usage de la rédaction IA." />
@@ -148,7 +148,22 @@
       Le nombre de conseillers est limité au nombre de sièges de votre abonnement.</p>
   </div>
 
+  <!-- Code d'accès collaborateurs du site century21-kadima.fr -->
+  <div class="card" id="cardKadimaCode">
+    <h2>Accès collaborateurs — site Kadima</h2>
+    <p class="hint">Le code demandé par le bouton « Accès collaborateurs » du site century21-kadima.fr pour entrer au Studio. Changez-le quand vous le souhaitez (départ d'un collaborateur, par exemple) : il est actif immédiatement.</p>
+    <label>Nouveau code d'accès
+      <input type="text" id="kadimaCode" placeholder="ex. kadima-2026" autocomplete="off" />
+    </label>
+    <label>Mot de passe agence (pour autoriser le changement)
+      <input type="password" id="kadimaMdp" autocomplete="off" />
+    </label>
+    <button class="btn btn--primary btn--full" id="btnKadimaCode" type="button">Enregistrer le code</button>
+    <p class="msg" id="kadimaCodeMsg" role="status" aria-live="polite"></p>
+  </div>
+
   <script src="assets/js/config.js?v=3"></script>
   <script src="assets/js/compte.js?v=6"></script>
+  <script src="assets/js/kadima-code.js?v=1"></script>
 </body>
 </html>
