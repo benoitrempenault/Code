@@ -1318,6 +1318,29 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     "plus de réservation possible quand la prise de rendez-vous est fermée");
 }
 
+/* ---- Relances : le modèle de l'agence gagne sur le modèle intégré ------- */
+{
+  // modeleByName() doit retrouver le modèle de l'agence même si son titre a
+  // été retouché (petits mots, accents, ancien nom) — jamais repartir en
+  // silence sur le texte par défaut.
+  const src = readFileSync(new URL("../suivi/assets/js/app.js", import.meta.url), "utf8");
+  const noms = src.slice(src.indexOf("  function normMot(w) {"), src.indexOf("  // Correspondance souple"));
+  const bloc = src.slice(src.indexOf("  const MODELE_ALIAS = {"), src.indexOf("  // Boutons de relance"));
+  const fab = (modeles) => new Function("modeles", "E",
+    noms + bloc + "\nreturn modeleByName;")(modeles, { DEFAULT_MODELES: [{ name: "Demande de date de signature", corps: "DEFAUT" }] });
+  const perso = { name: "Demande date de signature", corps: "PERSO" };
+  ok(fab([perso])("Demande de date de signature").corps === "PERSO",
+    "titre retouché (« de » manquant) : le modèle de l'agence est retenu");
+  const accent = { name: "Demande de date de signature ", corps: "PERSO2" };
+  ok(fab([accent])("Demande de date de signature").corps === "PERSO2",
+    "espace parasite dans le titre : le modèle de l'agence est retenu");
+  const ancien = { name: "Demande du projet d'acte", corps: "ANCIEN" };
+  ok(fab([ancien])("Demande de date de signature").corps === "ANCIEN",
+    "ancien nom connu : le modèle de l'agence est retenu (alias)");
+  ok(fab([])("Demande de date de signature").corps === "DEFAUT",
+    "aucun modèle enregistré : repli sur le modèle intégré");
+}
+
 fake.close();
 faux365.close();
 console.log("\n" + passed + " réussis, " + failed + " échec(s)");
