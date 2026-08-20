@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self' https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev https://fonts.googleapis.com https://fonts.gstatic.com" />
+  <title>Prendre rendez-vous</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <meta name="description" content="Prenez rendez-vous avec le conseiller de permanence de votre agence : estimation, achat, location." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/rdv.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header class="tete">
+      <h1>Prendre rendez-vous</h1>
+      <p id="sousTitre">Chargement des disponibilités…</p>
+    </header>
+
+    <div id="erreur" class="alerte" hidden></div>
+
+    <form id="form" hidden autocomplete="on">
+      <!-- 1. Point de vente -->
+      <section class="etape" id="etapePv" hidden>
+        <h2><span class="num">1</span> Quelle agence ?</h2>
+        <div class="choix" id="pvChoix"></div>
+      </section>
+
+      <!-- 2. Objet du rendez-vous -->
+      <section class="etape">
+        <h2><span class="num" id="numObjet">1</span> Votre projet</h2>
+        <div class="choix" id="objetChoix">
+          <button type="button" class="carte" data-objet="estimation">
+            <b>Faire estimer mon bien</b><span>Vous vendez, ou vous voulez connaître la valeur de votre logement.</span></button>
+          <button type="button" class="carte" data-objet="achat">
+            <b>Acheter</b><span>Vous cherchez un bien et souhaitez en parler à un conseiller.</span></button>
+          <button type="button" class="carte" data-objet="location">
+            <b>Louer</b><span>Location d'un logement, ou mise en location du vôtre.</span></button>
+          <button type="button" class="carte" data-objet="autre">
+            <b>Autre demande</b><span>Gestion locative, question, suivi de dossier…</span></button>
+        </div>
+      </section>
+
+      <!-- 3. Créneau -->
+      <section class="etape" id="etapeCreneau">
+        <h2><span class="num" id="numCreneau">2</span> Choisissez un créneau</h2>
+        <div id="jours" class="jours"></div>
+        <div id="heures" class="heures"></div>
+        <p class="aide" id="aideCreneau">Les créneaux proposés sont ceux du conseiller de permanence à l'agence.</p>
+      </section>
+
+      <!-- 4. Coordonnées -->
+      <section class="etape" id="etapeInfos" hidden>
+        <h2><span class="num" id="numInfos">3</span> Vos coordonnées</h2>
+        <div class="recap" id="recap"></div>
+        <div class="grid">
+          <label>Nom et prénom<input type="text" id="cNom" name="name" autocomplete="name" maxlength="80" required /></label>
+          <label>Téléphone<input type="tel" id="cTel" name="tel" autocomplete="tel" maxlength="40" /></label>
+          <label>E-mail<input type="email" id="cMail" name="email" autocomplete="email" maxlength="120" /></label>
+          <label id="labelBien">Adresse du bien<input type="text" id="cBien" maxlength="200" placeholder="Rue, ville" /></label>
+        </div>
+        <label class="plein">Un mot sur votre projet (facultatif)
+          <textarea id="cMsg" rows="3" maxlength="1000"></textarea></label>
+        <p class="aide">Indiquez au moins un téléphone ou un e-mail pour que l'agence puisse vous confirmer le rendez-vous.
+          Vos coordonnées ne servent qu'à ce rendez-vous.</p>
+        <button type="submit" class="btn" id="btnEnvoyer">Confirmer le rendez-vous</button>
+        <p class="aide" id="msgForm"></p>
+      </section>
+    </form>
+
+    <section id="merci" hidden class="merci">
+      <div class="coche">✓</div>
+      <h2>Votre rendez-vous est enregistré</h2>
+      <p id="merciDetail"></p>
+      <p class="aide">L'agence vous rappelle pour le confirmer. À très bientôt.</p>
+    </section>
+  </main>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/rdv.js"></script>
+</body>
+</html>

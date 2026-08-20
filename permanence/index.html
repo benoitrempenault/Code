@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev https://fonts.googleapis.com https://fonts.gstatic.com" />
+  <title>Studio Permanence — Tour de permanence des points de vente</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <meta name="robots" content="noindex" />
+  <meta name="description" content="Tour de permanence physique des conseillers par point de vente : créneaux 9h-12h, 12h-14h, 14h-17h, 17h-19h et samedi matin, absences et préavis, équité, agenda et prise de rendez-vous en ligne." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/permanence.css" />
+</head>
+<body>
+
+  <!-- Écran de connexion (session partagée avec les autres outils Studio) -->
+  <div class="gate" id="gate" hidden>
+    <img id="gateLogo" alt="Century 21 Kadima" />
+    <h1>Studio <em>Permanence</em></h1>
+    <p>Le tour de permanence des points de vente : créneaux du lundi au samedi, absences et
+      préavis de départ, équité entre conseillers, agenda et prise de rendez-vous en ligne.</p>
+    <div class="gate__form">
+      <div class="field"><label for="gateEmail">E-mail</label>
+        <input type="email" id="gateEmail" autocomplete="email" placeholder="prenom.nom@century21.fr" /></div>
+      <div class="field"><label for="gatePass">Mot de passe</label>
+        <input type="password" id="gatePass" autocomplete="current-password" /></div>
+      <button class="btn btn--primary" id="gateLogin">Se connecter</button>
+      <p class="hintline" id="gateMsg"></p>
+    </div>
+    <p class="hintline">Pas encore de mot de passe ?
+      <a href="../mandat-pro/compte.html?retour=../permanence/">Connectez-vous par lien e-mail</a> —
+      vous reviendrez ici automatiquement.</p>
+    <p class="hintline">Déjà connecté sur un autre onglet ? <a href="#" id="gateRetry">Réessayer</a></p>
+  </div>
+
+  <div id="app" hidden>
+    <header class="topbar">
+      <div class="topbar__brand">
+        <img id="topbarLogo" alt="" />
+        <div>
+          <strong>Studio&nbsp;Permanence</strong>
+          <small>Tour de permanence · points de vente</small>
+        </div>
+      </div>
+      <nav id="nav">
+        <a href="../mandat/" title="Retour à l'accueil des outils">⌂ Accueil</a>
+        <a href="#planning" data-v="planning">Planning</a>
+        <a href="#conseillers" data-v="conseillers">Conseillers</a>
+        <a href="#absences" data-v="absences">Absences</a>
+        <a href="#rdv" data-v="rdv">Rendez-vous</a>
+        <a href="#reglages" data-v="reglages">Réglages</a>
+      </nav>
+      <div class="spacer"></div>
+      <div class="who" id="who"></div>
+    </header>
+
+    <main class="wrap">
+
+      <!-- ============================= PLANNING ============================ -->
+      <section class="view" id="view-planning">
+        <div class="viewhead">
+          <h2 class="viewtitle">Planning <small id="periodeLabel"></small></h2>
+          <div class="viewhead__actions">
+            <button class="btn btn--sm" id="btnPrev" title="Semaine précédente">‹</button>
+            <button class="btn btn--sm" id="btnToday">Cette semaine</button>
+            <button class="btn btn--sm" id="btnNext" title="Semaine suivante">›</button>
+            <select id="portee" title="Période affichée et générée">
+              <option value="1">1 semaine</option>
+              <option value="2">2 semaines</option>
+              <option value="4" selected>4 semaines</option>
+              <option value="8">8 semaines</option>
+            </select>
+            <button class="btn" id="btnGenerer">⟳ Générer le tour</button>
+            <button class="btn" id="btnImprimer" title="Imprimer ou enregistrer en PDF">🖨 Imprimer</button>
+          </div>
+        </div>
+
+        <div class="pvtabs" id="pvTabs"></div>
+
+        <div class="card" id="alertesCard" hidden>
+          <details id="trousDetails">
+            <summary><b>⚠️ Créneaux non couverts</b> <span class="cnt" id="trousCount"></span></summary>
+            <div id="trousList"></div>
+            <p class="hintline">Personne n'est éligible sur ces créneaux (absences, préavis de départ, plafonds).
+              Ajoutez un conseiller au point de vente, demandez moins de conseillers sur le créneau, augmentez le plafond
+              hebdomadaire, ou posez quelqu'un à la main dans le tableau.</p>
+          </details>
+        </div>
+
+        <div id="planningWrap"></div>
+
+        <div class="card">
+          <h3>⚖️ Équité sur la période affichée</h3>
+          <div id="equiteBox"></div>
+          <p class="hintline">Le tour attribue chaque créneau au conseiller le moins servi (volume pondéré,
+            puis type de créneau, puis ancienneté de sa dernière permanence). Les samedis se comptent à part.</p>
+        </div>
+
+        <div class="card">
+          <h3>📅 Agenda</h3>
+          <p class="hintline" style="margin-top:0">Ces liens s'abonnent dans Outlook, Google Agenda ou Apple Calendrier
+            (« s'abonner à un calendrier par URL ») : le planning et les rendez-vous pris en ligne s'y mettent à jour tout seuls.</p>
+          <div class="liens" id="liensAgenda"></div>
+        </div>
+      </section>
+
+      <!-- ============================ CONSEILLERS ========================== -->
+      <section class="view" id="view-conseillers">
+        <h2 class="viewtitle">Conseillers <small>qui tourne, où, et à quel rythme</small></h2>
+        <div class="card">
+          <h3>Répartition par point de vente
+            <span style="flex:1"></span>
+            <button class="btn btn--sm" id="btnAjoutPersonne" title="Ajoute quelqu'un qui n'a pas de compte dans l'app — une assistante, un conseiller sans accès">+ Ajouter une personne</button>
+            <button class="btn btn--sm" id="btnPrefillBoite" title="Déduit prenom@domaine du prénom de chacun, sans écraser ce qui est déjà saisi">✦ Pré-remplir l'agenda métier</button>
+            <button class="btn btn--sm" id="btnSyncAnnuaire" title="Reprend les conseillers de l'annuaire de l'agence">↻ Reprendre l'annuaire</button>
+          </h3>
+          <div class="formrow" id="lotBox" style="margin-bottom:14px">
+            <div class="field field--inline">
+              <label for="lotPv">Rattacher les conseillers cochés à</label>
+              <select id="lotPv"></select>
+            </div>
+            <button class="btn" id="btnLot">Rattacher</button>
+            <button class="btn btn--sm" id="btnLotTous">Tout cocher</button>
+            <button class="btn btn--sm" id="btnLotAucun">Tout décocher</button>
+          </div>
+          <div id="conseillersList"></div>
+          <p class="hintline">
+            <b>Dans le cycle</b> : le conseiller entre dans le tirage des permanences.
+            <b>Hors cycle</b> : il reste dans l'agence et garde ses rendez-vous, mais ne prend plus de permanence
+            (direction, gestion locative, arrêt long, temps partiel négocié…).
+            <b>Poids</b> : 0,5 = deux fois moins de permanences que les autres (mi-temps) ; 1 = rythme normal.<br />
+            <b>Courrier</b> : l'adresse de l'annuaire, celle où le conseiller lit ses messages. C'est là que partent
+            les notifications de rendez-vous.
+            <b>Agenda métier</b> : la boîte Microsoft qui porte son agenda de travail, <em>si elle est différente</em>.
+            Les invitations de rendez-vous y sont envoyées, pour que l'événement se pose dans le bon calendrier —
+            celui que l'agence pilote. Laissez vide quand les deux adresses sont les mêmes.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Volume par conseiller <span class="cnt">12 dernières semaines</span></h3>
+          <div id="equiteHisto"></div>
+        </div>
+      </section>
+
+      <!-- ============================= ABSENCES ============================ -->
+      <section class="view" id="view-absences">
+        <h2 class="viewtitle">Absences <small>congés, week-ends posés, formations</small></h2>
+        <div class="card">
+          <h3>Déclarer une absence</h3>
+          <div class="formrow">
+            <div class="field"><label for="absCons">Conseiller</label><select id="absCons"></select></div>
+            <div class="field"><label for="absType">Type</label>
+              <select id="absType">
+                <option value="conge">Congé</option>
+                <option value="rtt">RTT</option>
+                <option value="maladie">Maladie</option>
+                <option value="perso">Perso</option>
+                <option value="formation">Formation</option>
+                <option value="weekend">Week-end posé</option>
+                <option value="absence">Absent (autre)</option>
+              </select></div>
+            <div class="field"><label for="absDebut">Du</label><input type="date" id="absDebut" /></div>
+            <div class="field"><label for="absFin">Au</label><input type="date" id="absFin" /></div>
+            <div class="field"><label for="absHDebut" title="Facultatif : pour une absence de quelques heures dans la journée (assistante qui décale ses horaires, rendez-vous médical)">De (heure)</label>
+              <input type="time" id="absHDebut" step="900" /></div>
+            <div class="field"><label for="absHFin">à</label><input type="time" id="absHFin" step="900" /></div>
+            <div class="field field--grow"><label for="absMotif">Précision (facultatif)</label><input type="text" id="absMotif" maxlength="200" /></div>
+            <button class="btn btn--primary" id="btnAbsAdd">Enregistrer</button>
+          </div>
+          <p class="hintline" id="absApercu"></p>
+        </div>
+        <div class="card">
+          <h3>Absences des assistantes</h3>
+          <p class="hintline">Relève ce qui est marqué « Absence du bureau » dans les agendas Outlook de vos
+            assistantes, et vous le propose. Rien n'est enregistré sans votre accord : une absence d'assistante
+            met tout un point de vente en présence physique.</p>
+          <div class="formrow">
+            <button class="btn" id="btnAbsOutlook">↻ Relever dans Outlook</button>
+            <span class="hintline" id="absOutlookMsg"></span>
+          </div>
+          <div id="absOutlookList"></div>
+        </div>
+
+        <div class="card">
+          <h3>Absences enregistrées <span class="cnt" id="absCount"></span></h3>
+          <div id="absList"></div>
+          <p class="hintline"><b>Pour un conseiller</b> : une absence le sort du tour sur toute sa durée, et pendant
+            le préavis qui la précède — celui qui part ne prend pas des contacts qu'il ne pourra pas suivre.
+            Un vendredi posé (ou un lundi) compte week-end compris : trois jours.
+            <b>Pour une assistante</b> : pas de tour ni de préavis — son absence (même quelques heures, champ
+            « De (heure) / à ») veut dire accueil non tenu, et le conseiller de permanence est physiquement
+            au point de vente sur ce trou. La colonne <b>Effet</b> dit, ligne par ligne, ce que chaque absence change.</p>
+        </div>
+      </section>
+
+      <!-- ============================ RENDEZ-VOUS ========================== -->
+      <section class="view" id="view-rdv">
+        <h2 class="viewtitle">Rendez-vous pris en ligne <small id="rdvSub"></small></h2>
+        <div class="card">
+          <h3>À venir <span class="cnt" id="rdvCount"></span></h3>
+          <div id="rdvList"></div>
+          <p class="hintline">Ces demandes viennent de la page de prise de rendez-vous du site internet.
+            Elles sont attribuées au conseiller de permanence sur le créneau choisi et arrivent dans son agenda.</p>
+        </div>
+      </section>
+
+      <!-- ============================= RÉGLAGES ============================ -->
+      <section class="view" id="view-reglages">
+        <h2 class="viewtitle">Réglages <small id="reglagesSub"></small></h2>
+
+        <div class="card">
+          <h3>Points de vente</h3>
+          <div id="pvList"></div>
+          <div class="formrow">
+            <div class="field"><label for="pvNom">Nouveau point de vente</label><input type="text" id="pvNom" placeholder="Blanquefort" /></div>
+            <button class="btn" id="btnPvAdd">+ Ajouter</button>
+            <button class="btn" id="btnPvKadima" hidden>Créer les 3 points de vente Kadima</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Créneaux et nombre de conseillers de permanence</h3>
+          <div class="field field--inline">
+            <label for="creneauxPv">Réglage pour</label>
+            <select id="creneauxPv"></select>
+          </div>
+          <div id="creneauxList"></div>
+          <p class="total" id="creneauxTotal"></p>
+          <p class="hintline"><b>« Combien ? »</b> = le nombre de conseillers que le tour place à l'accueil de
+            CE point de vente, sur CE créneau. 2 sur le 9h-12h = deux conseillers présents ensemble tous les
+            matins ; 1 = un seul ; 0 = pas de permanence sur ce créneau (l'agence reste ouverte, mais personne
+            n'y est de garde).<br />
+            Total par semaine et par point de vente = la somme de la colonne × 5 jours, + le samedi.
+            Divisez-le par l'effectif du point de vente : c'est le nombre de permanences que chacun fera
+            par semaine. Au-delà de 5, le plafond hebdomadaire bloque et des créneaux resteront vides.<br />
+            <b>Reprise des contacts</b> : ce que le conseiller récupère en plus de sa présence — la nuit
+            (jusqu'à la réouverture) ou le week-end (jusqu'au lundi 9h). <b>RDV en ligne</b> : décochez pour
+            qu'un créneau reste réservé à l'accueil physique et ne soit pas réservable depuis le site.</p>
+        </div>
+
+        <div class="card">
+          <h3>Règles du tour</h3>
+          <div class="formrow">
+            <div class="field"><label for="rPreavis">Préavis avant un départ (jours ouvrés)</label><input type="number" id="rPreavis" min="0" max="10" /></div>
+            <div class="field"><label for="rSeuil">Absence « longue » à partir de (jours)</label><input type="number" id="rSeuil" min="1" max="15" /></div>
+            <div class="field"><label for="rSamedi">Après un samedi : jours ouvrés à assurer</label><input type="number" id="rSamedi" min="0" max="10" /></div>
+            <div class="field"><label for="rMaxJour">Créneaux max par jour</label><input type="number" id="rMaxJour" min="1" max="5" /></div>
+            <div class="field"><label for="rMaxSem">Créneaux max par semaine</label><input type="number" id="rMaxSem" min="1" max="20" /></div>
+            <div class="field"><label for="rDuree">Durée d'un rendez-vous (min)</label><input type="number" id="rDuree" min="15" max="180" step="15" /></div>
+            <div class="field"><label for="rDelai">Délai mini de prise de RDV (h)</label><input type="number" id="rDelai" min="0" max="168" /></div>
+          </div>
+          <div class="field"><label for="rFeries">Jours fermés (fériés, ponts) — une date AAAA-MM-JJ par ligne</label>
+            <textarea id="rFeries" rows="3"></textarea></div>
+        </div>
+
+        <div class="card">
+          <h3>Accueil tenu par les assistantes</h3>
+          <p class="hintline">Les tranches en dehors de ces horaires — la pause du midi, la fin de journée,
+            le samedi — demandent la <b>présence physique</b> du conseiller de permanence au point de vente.
+            Quand l'assistante est absente, c'est toute la journée. Cochez « Accueil » dans l'onglet
+            Conseillers pour désigner les assistantes ; sans aucune assistante sur un point de vente,
+            la règle ne s'applique pas.</p>
+          <div class="field"><label>Jours d'accueil</label>
+            <div class="formrow" id="accJours"></div></div>
+          <div class="field"><label for="accPlages">Horaires (une plage par virgule)</label>
+            <input type="text" id="accPlages" placeholder="09:00-12:00, 14:00-18:00" /></div>
+          <p class="hintline" id="accApercu"></p>
+        </div>
+
+        <div class="card">
+          <h3>Prise de rendez-vous depuis le site internet</h3>
+          <div class="formrow">
+            <div class="field"><label for="pubSlug">Adresse publique</label><input type="text" id="pubSlug" placeholder="kadima" /></div>
+            <div class="field field--inline"><label for="pubActif"><input type="checkbox" id="pubActif" /> Ouverte au public</label></div>
+          </div>
+          <div class="field"><label for="pubMsg">Message affiché aux visiteurs</label><input type="text" id="pubMsg" maxlength="200" /></div>
+          <div class="field field--inline" style="margin-top:4px">
+            <label for="graphActif"><input type="checkbox" id="graphActif" /> Tenir compte des agendas Outlook</label>
+          </div>
+          <p class="hintline" id="graphNote" style="margin-top:0"></p>
+          <div class="formrow">
+            <div class="field"><label for="graphBoite">Boîte à tester</label>
+              <input type="email" id="graphBoite" placeholder="prenom@kadimatb.onmicrosoft.com" /></div>
+            <div class="field"><label>&nbsp;</label>
+              <button class="btn" id="btnGraphTest">Tester la lecture de cet agenda</button></div>
+          </div>
+          <p class="hintline" id="graphTestMsg"></p>
+          <div id="pubLiens"></div>
+        </div>
+
+        <div class="formrow">
+          <button class="btn btn--primary" id="btnSaveConfig">Enregistrer les réglages</button>
+          <span class="hintline" id="cfgMsg"></span>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Feuille imprimable du planning (masquée à l'écran) -->
+  <div id="print"></div>
+
+  <!-- Choix d'un conseiller pour une case du planning -->
+  <div class="modal" id="cellModal" hidden>
+    <div class="modal__box">
+      <h3 id="cellTitre">Créneau</h3>
+      <p class="hintline" id="cellSous"></p>
+      <div id="cellChoix"></div>
+      <div class="modal__actions">
+        <button class="btn" id="cellVider">Laisser vide</button>
+        <button class="btn" id="cellFermer">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/logo.js"></script>
+  <script src="assets/js/planning.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

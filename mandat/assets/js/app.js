@@ -177,10 +177,23 @@
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
   }
+  // La description est du texte courant. Un simple retour à la ligne au milieu
+  // d'une phrase vient presque toujours d'un copier-coller (depuis un PDF, un
+  // e-mail, un Word) : le respecter donnait une colonne étroite et déchiquetée,
+  // avec des mots coupés en deux. On recolle donc les lignes d'un même
+  // paragraphe — et les mots coupés par un tiret en fin de ligne ; seule une
+  // ligne vide crée un nouveau paragraphe.
   function nl2p(text) {
     return String(text || "")
-      .split(/\n\s*\n/).map(function (p) { return p.trim(); }).filter(Boolean)
-      .map(function (p) { return "<p>" + esc(p).replace(/\n/g, "<br>") + "</p>"; }).join("");
+      .split(/\n\s*\n/)
+      .map(function (p) {
+        return p
+          .replace(/([A-Za-zÀ-ÿ])[-\u00ad]\n[ \t]*(?=[a-zà-ÿ])/g, "$1")
+          .replace(/[ \t]*\n[ \t]*/g, " ")
+          .trim();
+      })
+      .filter(Boolean)
+      .map(function (p) { return "<p>" + esc(p) + "</p>"; }).join("");
   }
   function getPath(obj, path) {
     return path.split(".").reduce(function (a, k) { return a == null ? undefined : a[k]; }, obj);
@@ -573,7 +586,10 @@
     const stats = cells.length
       ? '<div class="stats' + (cells.length > 5 ? " stats--tight" : "") +
         '" style="grid-template-columns:repeat(' + cols + ',1fr)">' + cells.map(function (c) {
-          return '<div class="stat"><div class="stat__num">' + esc(c[1]) + '</div><div class="stat__lbl">' + esc(c[0]) + "</div></div>";
+          // Une valeur longue (« 135,01 m² ») descend d'un cran pour tenir sur
+          // une seule ligne dans sa colonne.
+          const long = String(c[1]).trim().length > 7 ? " stat__num--long" : "";
+          return '<div class="stat"><div class="stat__num' + long + '">' + esc(c[1]) + '</div><div class="stat__lbl">' + esc(c[0]) + "</div></div>";
         }).join("") + "</div>"
       : "";
     return '<section class="page"><div class="page__inner">' +
@@ -771,6 +787,32 @@
       el.style.removeProperty("--accent"); el.style.removeProperty("--paper"); el.style.removeProperty("--hair");
     }
   }
+  /* ------------------------ Tenir sur la feuille ------------------------- */
+  // Une page de texte un peu trop dense (description longue, longue liste de
+  // prestations, synthèse des diagnostics) débordait sur une deuxième feuille
+  // presque vide à l'impression. On mesure chaque page après rendu et on
+  // resserre son contenu (zoom CSS, jusqu'à 75 %) pour qu'elle tienne sur l'A4.
+  const A4_PX = 297 * (96 / 25.4);
+  function fitPages() {
+    const b = $("#brochure"); if (!b) return;
+    // Mesurer sans le zoom de l'aperçu, sinon les hauteurs ne sont pas en mm.
+    const zoom = b.style.getPropertyValue("--preview-zoom");
+    b.style.setProperty("--preview-zoom", "1");
+    $all(".page", b).forEach(function (pg) {
+      const inner = pg.querySelector(".page__inner");
+      if (!inner) return;
+      inner.style.zoom = "";
+      if (pg.offsetHeight <= A4_PX + 2) return;
+      let z = 1;
+      while (z > 0.74 && pg.offsetHeight > A4_PX + 2) {
+        z -= 0.02;
+        inner.style.zoom = String(Math.round(z * 100) / 100);
+      }
+    });
+    if (zoom) b.style.setProperty("--preview-zoom", zoom);
+    else b.style.removeProperty("--preview-zoom");
+  }
+
   function render() {
     const b = $("#brochure");
     b.setAttribute("data-palette", state.theme.palette || "bronze");
@@ -778,6 +820,9 @@
     b.setAttribute("data-font", state.theme.font || "elegant");
     applyCustomTheme(b);
     b.innerHTML = buildBrochure();
+    fitPages();
+    // Les polices Google arrivent parfois après le premier rendu : on remesure.
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitPages);
     // sous-titre de la barre
     $("#topbarSubtitle").textContent = state.property.title || "Fiche de présentation";
   }
@@ -1036,11 +1081,23 @@
         '"' + ((state.theme.palette === "custom")
           ? ' style="--accent:' + (state.theme.customAccent || "#a67c52") + ';--paper:' + (state.theme.customPaper || "#f7f3ec") + ';--hair:' + shade(state.theme.customPaper || "#f7f3ec", 0.10) + '"'
           : "") + ">" +
-        buildBrochure() + "</div></body></html>";
+        buildBrochure() + "</div><script>" + EXPORT_FIT_JS + "<\/script></body></html>";
       downloadBlob(html, fileSlug() + ".html", "text/html");
       toast("Brochure exportée (.html). Ouvrez-la ou joignez-la à un e-mail.");
     }).catch(function () { toast("Export impossible (CSS introuvable). Lancez l'outil depuis un serveur web.", true); });
   }
+
+  // Même logique de « tenir sur la feuille » dans le fichier exporté : sans
+  // elle, une page trop dense repartirait sur une deuxième feuille presque vide.
+  const EXPORT_FIT_JS =
+    "(function(){var A4=297*96/25.4;function fit(){" +
+    "var pages=document.querySelectorAll('.page');" +
+    "for(var i=0;i<pages.length;i++){var pg=pages[i];" +
+    "var inner=pg.querySelector('.page__inner');if(!inner)continue;" +
+    "inner.style.zoom='';if(pg.offsetHeight<=A4+2)continue;var z=1;" +
+    "while(z>0.74&&pg.offsetHeight>A4+2){z-=0.02;inner.style.zoom=String(Math.round(z*100)/100);}}}" +
+    "fit();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fit);" +
+    "window.addEventListener('beforeprint',fit);})();";
 
   const EXPORT_CSS =
     "body{margin:0;background:#3a3a3d;}" +
@@ -1505,7 +1562,10 @@
     $("#btnExportJson").addEventListener("click", doExportJson);
     $("#btnExportHtml").addEventListener("click", doExportHtml);
     $("#btnMail").addEventListener("click", doMail);
-    $("#btnPrint").addEventListener("click", function () { window.print(); });
+    // Dernière vérification de la mise en page juste avant l'impression
+    // (les polices peuvent avoir fini de charger entre-temps).
+    window.addEventListener("beforeprint", fitPages);
+    $("#btnPrint").addEventListener("click", function () { fitPages(); window.print(); });
 
     $("#zoomIn").addEventListener("click", function () { setZoom(0.08); });
     $("#zoomOut").addEventListener("click", function () { setZoom(-0.08); });

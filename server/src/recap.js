@@ -86,15 +86,26 @@ export function buildRecapFrom(env, dossiers) {
   return { sujet, texte, nLate, nSoon, stales: stales.length };
 }
 
-export async function envoyerMail(env, to, sujet, texte) {
+// `pieces` : [{ filename, content }] — content en texte brut, encodé ici en
+// base64. Sert aux invitations de calendrier (.ics) jointes aux rendez-vous :
+// Outlook les affiche comme une vraie invitation, acceptable en un clic,
+// sans attendre le rafraîchissement d'un flux abonné.
+export async function envoyerMail(env, to, sujet, texte, pieces) {
   if (!env.RESEND_API_KEY || !to.length) return false;
+  const corps = {
+    from: env.MAIL_FROM || "Studio Suivi <connexion@studiobrochure.fr>",
+    to, subject: sujet, text: texte
+  };
+  if (pieces && pieces.length) {
+    corps.attachments = pieces.map((p) => ({
+      filename: p.filename,
+      content: btoa(String.fromCharCode(...new TextEncoder().encode(p.content)))
+    }));
+  }
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.RESEND_API_KEY },
-    body: JSON.stringify({
-      from: env.MAIL_FROM || "Studio Suivi <connexion@studiobrochure.fr>",
-      to, subject: sujet, text: texte
-    })
+    body: JSON.stringify(corps)
   }).catch(() => null);
   return !!(res && res.ok);
 }
