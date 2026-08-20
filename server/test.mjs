@@ -643,7 +643,11 @@ ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Autho
     equipements: {}, entretiens: {}, diagnostics: {}, etapes: {}, conditions_suspensives: []
   });
   const dia = actionsFor(base(), "2026-06-02").find((a) => a.id === "envoi_dia");
-  ok(dia && dia.due === "2026-06-08", "la DIA se relance sept jours après le compromis");
+  ok(dia && dia.due === "2026-06-11", "la DIA se relance sept jours après l'envoi aux notaires estimé (J+3)");
+  const avecEnvoi = base();
+  avecEnvoi.dates.envoi_notaires = "2026-06-09";
+  const dia2 = actionsFor(avecEnvoi, "2026-06-10").find((a) => a.id === "envoi_dia");
+  ok(dia2 && dia2.due === "2026-06-16", "la DIA se relance sept jours après l'envoi aux notaires réel");
   const signe = base();
   signe.statut = "signe"; signe.dates.signature_acte = "2026-09-15";
   const apres = actionsFor(signe, "2026-09-16");

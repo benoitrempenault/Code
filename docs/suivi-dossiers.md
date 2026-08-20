@@ -159,7 +159,7 @@ annuaire, mêmes comptes) mais chaque dossier appartient à une agence :
 | Fin de rétractation | présentation + 10 jours calendaires (lendemain) | L271-1 CCH |
 | RIB du dépositaire envoyé à l'acquéreur | J+5 | sans RIB, pas de virement possible — l'e-mail joint le relevé de l'étude et met en garde contre la fraude au faux RIB |
 | Séquestre reçu | délai du compromis, sinon J+12 | versement usuel 5-10 % sous 8-10 jours ; les deux lignes disparaissent quand le compromis ne prévoit pas de dépôt |
-| DIA envoyée | J+7 | **la** relance qui fait gagner un mois : plus tôt le notaire envoie la DIA, plus tôt les deux mois de la mairie courent ; demander une renonciation expresse si possible |
+| DIA envoyée | **envoi du dossier aux notaires + 7 jours** (envoi estimé à J+3 si la date n'est pas renseignée) | **la** relance qui fait gagner un mois : plus tôt le notaire envoie la DIA, plus tôt les deux mois de la mairie courent ; demander une renonciation expresse si possible. S'applique à tous les dossiers, l'échéance étant recalculée à chaque affichage |
 | Purge du droit de préemption | envoi DIA + 2 mois (art. L213-2 C. urb., silence = renonciation) | pas de relance : le silence de la mairie suffit, on ne fait que constater |
 | Dépôt du dossier de prêt | date du compromis, sinon J+10 | clause usuelle 10-15 jours |
 | Accord de principe banque | J+30 | usage |
