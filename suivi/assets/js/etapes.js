@@ -382,8 +382,9 @@
       hint: "Chaque diagnostic doit être en cours de validité le jour de la signature (ERP et termites : 6 mois)." },
 
     { id: "projet_acte", phase: "Acte authentique", label: "Demande de date de signature",
-      cible: "notaire_vendeur", modele: "Demande du projet d'acte",
-      due: (d) => d.date_butoir ? addDays(d.date_butoir, -21) : addDays(ssp(d), 70) },
+      cible: "notaires", modele: "Demande de date de signature",
+      due: (d) => d.date_butoir ? addDays(d.date_butoir, -21) : addDays(ssp(d), 70),
+      hint: "Aux DEUX études : proposer une date de signature, obtenir le projet d'acte et les pièces manquantes." },
     { id: "avenant", phase: "Acte authentique", label: "Avenant de prorogation si la signature ne tient pas la date butoir",
       cible: "notaires", modele: "Avenant de prorogation",
       due: (d) => d.date_butoir ? addDays(d.date_butoir, -10) : "",
@@ -524,9 +525,9 @@
       corps: "{{salutation}}\n\nDans le cadre de la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}), nous suivons la condition suspensive suivante :\n\n« {{condition}} »\n{{condition_detail}}\n\nPourriez-vous nous indiquer où en est cette condition et nous adresser, dès que possible, le justificatif permettant de la lever ?\n\nLa date butoir de réitération est fixée au {{date_butoir}} : merci de nous signaler tout point susceptible de retarder ce calendrier.\n\nBien cordialement,\n{{signature}}"
     },
     {
-      name: "Demande du projet d'acte", cible: "notaire_vendeur",
-      sujet: "Vente {{reference}} — Projet d'acte et date de signature",
-      corps: "Maître,\n\nLa date butoir de réitération de la vente {{reference}} ({{adresse_bien}}) est fixée au {{date_butoir}}.\n\nJe vous prie de trouver ci-joint l'offre de prêt de {{acquereurs}}.\n\nPourriez-vous nous indiquer l'état d'avancement du dossier (pièces manquantes éventuelles), nous adresser le projet d'acte, et nous confirmer le rendez-vous de signature ({{signature_prevue}}) ainsi que le lieu de comparution de chaque partie ?\n\nBien cordialement,\n{{signature}}"
+      name: "Demande de date de signature", cible: "notaires",
+      sujet: "Vente {{reference}} — Demande de date de signature",
+      corps: "{{salutation_notaires}}\n\nLa date butoir de réitération de la vente {{reference}} ({{adresse_bien}}) est fixée au {{date_butoir}}.\n\nJe vous prie de trouver ci-joint l'offre de prêt de {{acquereurs}}.\n\nPourriez-vous nous proposer une date pour la signature de l'acte authentique, nous adresser le projet d'acte, et nous indiquer l'état d'avancement du dossier (pièces manquantes éventuelles) ainsi que le lieu de comparution de chaque partie ?\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Point d'étape vendeur", cible: "vendeur",

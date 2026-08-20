@@ -390,6 +390,10 @@
     if (!Array.isArray(data.journal)) data.journal = [];
     // Agence du dossier : "" = suivre le conseiller (voir siteDossier).
     if (!SITE_LABEL[data.site]) data.site = "";
+    // Séparation des agences au 20/08/2026 : tout le stock de dossiers
+    // existant reste à Saint-Médard, quel que soit le conseiller — seuls les
+    // compromis signés ensuite suivent l'agence de leur conseiller.
+    if (!data.site && data.date_compromis && data.date_compromis < "2026-08-21") data.site = "medard";
     // Conditions de pur droit (certificat d'urbanisme, titres de propriété,
     // état hypothécaire, mainlevée, préemption de la mairie) : présentes dans
     // tous les compromis, réglées par le notaire, sans intérêt de suivi — on
@@ -500,6 +504,16 @@
         const defAC = E.DEFAULT_MODELES.find((m) => m.name === "Appel & crémaillère");
         if (defAC) { await api("/modeles", { method: "PUT", json: defAC }); modeles = (await api("/modeles")).modeles || modeles; }
       }
+      // « Demande du projet d'acte » devient « Demande de date de signature » :
+      // adressée aux DEUX études, l'objet dit d'abord ce qu'on attend d'elles.
+      const pacteAncien = modeles.find((m) => m.name === "Demande du projet d'acte");
+      if (pacteAncien) {
+        const defDS = E.DEFAULT_MODELES.find((m) => m.name === "Demande de date de signature");
+        if (defDS) {
+          Object.assign(pacteAncien, { name: defDS.name, cible: defDS.cible, sujet: defDS.sujet, corps: defDS.corps });
+          await api("/modeles", { method: "PUT", json: pacteAncien });
+        }
+      }
       // La facture d'honoraires part désormais aux DEUX études (l'acquéreur
       // règle souvent par son notaire) : on bascule le modèle enregistré.
       const fact = modeles.find((m) => m.name === "Envoi de la facture au notaire");
@@ -517,13 +531,6 @@
       if (modeles.some((m) => m.name === "Demande d'avis client") && !modeles.some((m) => m.name === "Demande d'avis client vendeur")) {
         const defAV = E.DEFAULT_MODELES.find((m) => m.name === "Demande d'avis client vendeur");
         if (defAV) { await api("/modeles", { method: "PUT", json: defAV }); modeles = (await api("/modeles")).modeles || modeles; }
-      }
-      // Projet d'acte : nouveau gabarit (offre de prêt jointe, sans la phrase
-      // de coordination) — uniquement si le corps stocké est l'ancien défaut.
-      const pacte = modeles.find((m) => m.name === "Demande du projet d'acte");
-      if (pacte && /coordonner la disponibilité des parties/.test(pacte.corps || "")) {
-        const defP = E.DEFAULT_MODELES.find((m) => m.name === "Demande du projet d'acte");
-        if (defP) { pacte.sujet = defP.sujet; pacte.corps = defP.corps; await api("/modeles", { method: "PUT", json: pacte }); }
       }
       // La demande d'avis passe au gabarit fourni par l'agence (lien Google
       // réel, adressé aux acquéreurs) — uniquement si le modèle stocké est

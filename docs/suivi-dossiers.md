@@ -140,7 +140,10 @@ annuaire, mêmes comptes) mais chaque dossier appartient à une agence :
   mot) ; une fiche sans agence compte pour Saint-Médard.
 - **Un dossier suit son conseiller vendeur** (puis acquéreur) — `siteDossier()` — sauf
   choix explicite dans la fiche (« Agence » de la carte « Le dossier », champ `d.site`,
-  « Auto » par défaut).
+  « Auto » par défaut). **Tout le stock antérieur au 20/08/2026 est affecté à
+  Saint-Médard** (compromis daté d'avant la séparation → `site = "medard"` posé à
+  l'ouverture par `normalize()`, modifiable ensuite) ; seuls les compromis signés
+  ensuite suivent l'agence de leur conseiller.
 - **Le sélecteur de la barre du haut** (Les 2 agences / Saint-Médard / Caudéran,
   mémorisé dans `studio-suivi-site`) filtre le tableau de bord, la liste des dossiers
   et tout le portefeuille (KPIs, CA, avancement, vigies) sur l'agence choisie. Le
@@ -165,7 +168,7 @@ annuaire, mêmes comptes) mais chaque dossier appartient à une agence :
 | Conditions suspensives hors prêt | **première relance 15 jours avant** l'échéance de la condition (celle du compromis ; à défaut, pour une condition de réitération, la date de signature ; sinon le délai usuel du type, sinon la date butoir) | une étape **par condition extraite du compromis** (revente d'un bien de l'acquéreur, régularisation de travaux, assainissement, locataire, succession, bornage, copropriété, autorisation d'urbanisme ou administrative…) ; prêt et préemption sont exclus, ils ont leur propre phase, et les conditions de pur droit réglées par le notaire (certificat d'urbanisme, titres de propriété, état hypothécaire, mainlevée, préemption de la mairie) sont **retirées du dossier** à l'ouverture (`CS_INUTILE`) : elles figurent dans tous les compromis et n'apprennent rien. Cocher l'étape lève la condition dans la fiche, et inversement |
 | Entretiens (ramonage, chaudière, clim/PAC) | dernier entretien + 12 mois (24 pour la clim/PAC) | seulement pour les équipements présents au compromis ; **alerte à J-30**, orange à J-7, rouge une fois périmé — la ligne reste en revanche affichée tant que la date du dernier entretien est inconnue (attestation à récupérer). Relance interne au **conseiller vendeur** |
 | Diagnostics à renouveler | première expiration tombant avant l'acte | **alerte à J-30**, orange à J-7, rouge une fois périmé ; aucune ligne tant que tout tient jusqu'à la signature (DPE 10 ans, audit 5 ans, ERP et termites 6 mois, gaz/élec/assainissement 3 ans, amiante et plomb illimités sauf présence : 3 ans / 1 an). Relance interne au **conseiller vendeur** |
-| Projet d'acte + date de signature | butoir − 21 jours | demander pièces manquantes, caler le RDV |
+| Demande de date de signature | butoir − 21 jours | aux **deux études** (modèle « Demande de date de signature ») : proposer une date, obtenir le projet d'acte et les pièces manquantes |
 | Acte authentique | date prévue, sinon butoir (≈ J+92 en moyenne nationale) | l'échéance de l'étape **est** la date clé « signature prévue » : modifier l'une modifie l'autre. La carte « Rendez-vous de signature » porte en plus l'**heure** et le **lieu de chaque partie** (les deux ne comparaissent pas toujours à la même étude) → `{{signature_prevue}}` (« 20/11/2026 à 14 h 30 »), `{{signature_lieu}}`, `{{signature_lieu_vendeur}}`, `{{signature_lieu_acquereur}}` |
 | Facture d'honoraires agence | acte − 7 jours | suit automatiquement la date de l'acte, pour que le notaire l'ait au dossier à l'appel de fonds |
 | Après-vente | appel des clients **et crémaillère** J+7, avis clients J+10, facture payée J+15, clôture J+30 après l'acte | le moment où la satisfaction est maximale. Appel et crémaillère ne font qu'une étape, relancée par e-mail auprès des **deux conseillers** du dossier (modèle « Appel & crémaillère », cible `conseillers`) |
