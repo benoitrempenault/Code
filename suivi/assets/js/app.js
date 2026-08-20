@@ -204,6 +204,63 @@
   async function loadAnnuaire() {
     try { annuaire = (await api("/annuaire")).annuaire || []; } catch (e) { annuaire = []; }
   }
+  /* ------------------ Agences : Saint-Médard / Caudéran -------------------- */
+  /* Kadima a deux agences. Chaque conseiller est rattaché à la sienne dans
+     l'annuaire (champ « Agence », stocké dans la colonne ville) ; un dossier
+     suit l'agence de son conseiller vendeur (puis acquéreur), sauf choix
+     explicite dans la fiche (d.site). Le sélecteur de la barre du haut filtre
+     tableau de bord, dossiers et portefeuille sur une agence. */
+  const SITES = [["medard", "Saint-Médard"], ["cauderan", "Caudéran"]];
+  const SITE_LABEL = { medard: "Saint-Médard", cauderan: "Caudéran" };
+  let siteFiltre = "";
+  try { siteFiltre = localStorage.getItem("studio-suivi-site") || ""; } catch (e) { }
+  if (siteFiltre && !SITE_LABEL[siteFiltre]) siteFiltre = "";
+  function siteDeVille(v) {
+    const w = normMot(v);
+    if (w.includes("cauderan")) return "cauderan";
+    if (w.includes("medard")) return "medard";
+    return "";
+  }
+  function siteConseiller(ini) {
+    const a = annConseiller(ini);
+    return a ? siteDeVille(a.ville) : "";
+  }
+  // Agence d'un dossier chargé : choix explicite, sinon celle du conseiller,
+  // sinon l'agence historique de Saint-Médard.
+  function siteDossier(d) {
+    if (SITE_LABEL[d.site]) return d.site;
+    return siteConseiller(d.conseiller_vendeur) || siteConseiller(d.conseiller_acquereur) || "medard";
+  }
+  // Agence d'une ligne de la liste (le détail n'est pas forcément chargé :
+  // on se rabat sur les initiales de la métadonnée « conseillers »).
+  function siteMeta(m) {
+    if (details[m.id]) return siteDossier(details[m.id].data);
+    for (const i of String(m.conseillers || "").split("/")) {
+      const s = siteConseiller(i.trim());
+      if (s) return s;
+    }
+    return "medard";
+  }
+  const passeSite = (m) => !siteFiltre || siteMeta(m) === siteFiltre;
+  function renderSiteSwitch() {
+    const el = $("#siteSwitch");
+    if (!el) return;
+    el.innerHTML = [["", "Les 2 agences"]].concat(SITES).map(([v, l]) =>
+      '<button class="site' + (siteFiltre === v ? " on" : "") + '" data-site="' + v + '">' + l + "</button>").join("");
+  }
+  // L'équipe de Caudéran connue est rattachée à son agence une fois pour
+  // toutes (modifiable ensuite dans l'annuaire) ; les fiches sans agence
+  // restent à Saint-Médard.
+  async function seedSites() {
+    const CAUDERAN = ["benjamin", "natha", "florian", "maxime", "laura"];
+    for (const a of annOf("conseiller").filter((x) => !(x.ville || "").trim())) {
+      if (motsNom(a.nom).some((w) => CAUDERAN.some((p) => w.startsWith(p)))) {
+        a.ville = "Caudéran";
+        try { await api("/annuaire", { method: "PUT", json: a }); } catch (e) { /* sans gravité */ }
+      }
+    }
+  }
+
   // Importe les conseillers depuis les comptes de l'agence (n'ajoute que les
   // absents). Appelé automatiquement au premier lancement, et via le bouton.
   async function seedConseillers(silencieux) {
@@ -249,7 +306,7 @@
   function newDossier() {
     return {
       _app: "studio-suivi", version: 1,
-      reference: "", statut: "en_cours", conseillers: "",
+      reference: "", statut: "en_cours", conseillers: "", site: "",
       conseiller_vendeur: "", conseiller_acquereur: "",
       date_compromis: "", date_butoir: "", preemption: "",
       bien: { type: "", adresse: "", ville: "", description: "", copropriete: "", lots: "", cadastre: "" },
@@ -331,6 +388,8 @@
     if (!Array.isArray(data.acquereurs)) data.acquereurs = [];
     if (!Array.isArray(data.conditions_suspensives)) data.conditions_suspensives = [];
     if (!Array.isArray(data.journal)) data.journal = [];
+    // Agence du dossier : "" = suivre le conseiller (voir siteDossier).
+    if (!SITE_LABEL[data.site]) data.site = "";
     // Conditions de pur droit (certificat d'urbanisme, titres de propriété,
     // état hypothécaire, mainlevée, préemption de la mairie) : présentes dans
     // tous les compromis, réglées par le notaire, sans intérêt de suivi — on
@@ -698,6 +757,7 @@
     const dossiers = [];
     for (const m of metas) {
       if (!details[m.id]) continue;
+      if (!passeSite(m)) continue;
       const d = details[m.id].data;
       // Dédoublonné : le même conseiller des deux côtés ne compte qu'une fois.
       const cons = Array.from(new Set([(d.conseiller_vendeur || "").trim(), (d.conseiller_acquereur || "").trim()]
@@ -753,7 +813,9 @@
       .sort((a, b) => (parCons[b].encours + parCons[b].securise + parCons[b].signe) - (parCons[a].encours + parCons[a].securise + parCons[a].signe))
       .map((k) => {
         const e = annConseiller(k), v = parCons[k];
-        return "<tr><td><b>" + esc(k) + "</b>" + (e ? ' <small style="color:var(--muted)">' + esc(e.nom) + "</small>" : "") + "</td>" +
+        const sc = e ? siteDeVille(e.ville) : "";
+        return "<tr><td><b>" + esc(k) + "</b>" + (e ? ' <small style="color:var(--muted)">' + esc(e.nom) +
+          (sc ? " · " + SITE_LABEL[sc] : "") + "</small>" : "") + "</td>" +
           "<td>" + v.n + "</td><td>" + fmtEur(v.encours) + "</td><td>" + fmtEur(v.securise) + "</td>" +
           '<td style="color:var(--ok)">' + fmtEur(v.signe) + "</td>" +
           '<td style="color:' + (v.retards ? "var(--bad)" : "inherit") + '">' + v.retards + "</td></tr>";
@@ -835,6 +897,12 @@
         '<div class="annrow" data-aid="' + esc(a.id) + '">' +
         (type === "conseiller" ? annInput(a, "initiales", "Initiales", 70) : "") +
         annInput(a, "nom", "Nom", 200) +
+        (type === "conseiller"
+          ? '<div class="field" style="width:150px"><label>Agence</label><select data-afield="ville">' +
+            '<option value="">Saint-Médard (défaut)</option>' +
+            SITES.map(([v, l]) => '<option value="' + l + '"' + (siteDeVille(a.ville) === v ? " selected" : "") + ">" + l + "</option>").join("") +
+            "</select></div>"
+          : "") +
         (type === "notaire" ? annInput(a, "ville", "Ville", 120) : "") +
         annInput(a, "telephone", "Téléphone", 120) +
         annInput(a, "email", "E-mail", 200) +
@@ -859,6 +927,11 @@
   const saveAnnSoon = {};
   function wireAnnuaire() {
     const root = $("#annuaireList");
+    // Le select « Agence » d'un conseiller passe par le même chemin que les
+    // champs texte (certains navigateurs n'émettent que change sur un select).
+    root.addEventListener("change", (ev) => {
+      if (ev.target.tagName === "SELECT") ev.target.dispatchEvent(new Event("input", { bubbles: true }));
+    });
     root.addEventListener("input", (ev) => {
       const row = ev.target.closest("[data-aid]");
       const f = ev.target.dataset.afield;
@@ -939,7 +1012,7 @@
 
   async function renderBoard() {
     $("#boardDate").textContent = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-    const open = await ensureOpenDetails();
+    const open = (await ensureOpenDetails()).filter(passeSite);
 
     // Toutes les actions (étapes non faites avec échéance) des dossiers ouverts.
     const actions = [];
@@ -958,7 +1031,7 @@
     const sigs = actions.filter((a) => a.step.id === "signature" && a.step.days != null && a.step.days <= 30 && a.step.days >= 0);
 
     $("#kpis").innerHTML =
-      '<div class="kpi"><b>' + list.filter((x) => x.statut === "en_cours").length + "</b><span>dossiers en cours</span></div>" +
+      '<div class="kpi"><b>' + list.filter((x) => x.statut === "en_cours" && passeSite(x)).length + "</b><span>dossiers en cours</span></div>" +
       '<div class="kpi ' + (late.length ? "bad" : "ok") + '"><b>' + late.length + "</b><span>actions en retard</span></div>" +
       '<div class="kpi ' + (critiques.length ? "bad" : "ok") + '"><b>' + critiques.length + "</b><span>pièces à obtenir sous 7 jours</span></div>" +
       '<div class="kpi"><b>' + sigs.length + "</b><span>signatures sous 30 jours</span></div>";
@@ -1041,6 +1114,7 @@
     const fs = $("#filtreStatut").value;
     const rows = list.filter((m) => {
       if (fs && m.statut !== fs) return false;
+      if (!passeSite(m)) return false;
       if (!q) return true;
       const d = details[m.id] && details[m.id].data;
       const hay = [m.name, m.adresse, m.conseillers,
@@ -1373,6 +1447,13 @@
       input("Date du compromis", "date_compromis", d, "date") +
       input("Date butoir (réitération)", "date_butoir", d, "date") +
       input("Droit de préemption", "preemption", d, "text", 'placeholder="DPU, SAFER, locataire…"') +
+      // Agence du dossier : suit le conseiller par défaut, modifiable ici.
+      '<div class="field"><label>Agence</label><select data-path="site">' +
+      '<option value=""' + (SITE_LABEL[d.site] ? "" : " selected") + ">Auto — " +
+      SITE_LABEL[siteConseiller(d.conseiller_vendeur) || siteConseiller(d.conseiller_acquereur) || "medard"] +
+      " (selon le conseiller)</option>" +
+      SITES.map(([v, l]) => '<option value="' + v + '"' + (d.site === v ? " selected" : "") + ">" + l + "</option>").join("") +
+      "</select></div>" +
       "</div>" +
       '<div class="field"><label>Observations (extraites du compromis + notes)</label>' +
       '<textarea data-path="observations" style="min-height:110px">' + esc(d.observations) + "</textarea></div>" +
@@ -2494,6 +2575,19 @@
     window.addEventListener("hashchange", route);
     $("#search").addEventListener("input", debounce(renderList, 200));
     $("#filtreStatut").addEventListener("change", renderList);
+    // Sélecteur d'agence : filtre mémorisé, appliqué à la vue courante.
+    $("#siteSwitch").addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-site]");
+      if (!b) return;
+      siteFiltre = b.dataset.site;
+      try { localStorage.setItem("studio-suivi-site", siteFiltre); } catch (e) { }
+      renderSiteSwitch();
+      const vue = location.hash || "";
+      if (vue.startsWith("#dossiers")) renderList();
+      else if (vue.startsWith("#stats")) renderStats();
+      else if (vue.startsWith("#board") || vue === "" || vue === "#") renderBoard();
+    });
+    renderSiteSwitch();
     // En-tête cliquable : 1er clic = croissant, 2e = décroissant, 3e = retour
     // à l'ordre de travail (en cours d'abord, échéance la plus proche).
     $("#listHead").addEventListener("click", (ev) => {
@@ -2676,6 +2770,7 @@
       // Premier lancement : l'annuaire des conseillers se remplit tout seul
       // depuis les comptes de l'agence.
       if (!annOf("conseiller").length) await seedConseillers(true);
+      await seedSites();
     } catch (e) {
       if (e.status === 401) {
         $("#app").hidden = true;

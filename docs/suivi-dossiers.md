@@ -128,6 +128,24 @@ un prénom composé au hasard. Les dossiers anciens sont reformatés à l'ouvert
 (numéro, voie, code postal, ville — `adresseComplete()`), et `{{honoraires}}` ne rend
 que le montant, jamais la phrase entière du compromis.
 
+### Deux agences : Saint-Médard / Caudéran
+
+Kadima a deux agences ; les dossiers restent dans le même compte (mêmes modèles, même
+annuaire, mêmes comptes) mais chaque dossier appartient à une agence :
+
+- **Chaque conseiller est rattaché à son agence** dans l'annuaire (select « Agence »
+  de sa fiche, stocké dans la colonne `ville` — aucun changement de schéma). L'équipe
+  de Caudéran connue (Benjamin, Natha…, Florian, Maxime, Laura) est rattachée
+  automatiquement à la première ouverture (`seedSites()`, prénom reconnu en début de
+  mot) ; une fiche sans agence compte pour Saint-Médard.
+- **Un dossier suit son conseiller vendeur** (puis acquéreur) — `siteDossier()` — sauf
+  choix explicite dans la fiche (« Agence » de la carte « Le dossier », champ `d.site`,
+  « Auto » par défaut).
+- **Le sélecteur de la barre du haut** (Les 2 agences / Saint-Médard / Caudéran,
+  mémorisé dans `studio-suivi-site`) filtre le tableau de bord, la liste des dossiers
+  et tout le portefeuille (KPIs, CA, avancement, vigies) sur l'agence choisie. Le
+  tableau « par conseiller » affiche l'agence de chacun.
+
 ## Délais utilisés par l'échéancier (vérifiés 2025-2026)
 
 | Étape | Échéance par défaut | Base |
