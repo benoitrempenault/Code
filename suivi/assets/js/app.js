@@ -914,6 +914,9 @@
   // s'y prendre la veille, c'est reporter la signature.
   const CRITIQUES = ["diagnostics", "ramonage", "entretien_chaudiere", "entretien_clim", "facture_emise"];
   const REPORT_RELANCE = 7; // jours gagnés par une relance envoyée
+  // Étapes où envoyer le message EST l'action : la relance les coche d'office
+  // (l'appel & crémaillère est fait dès que les conseillers ont leur consigne).
+  const RELANCE_ACCOMPLIT = ["appel_apres_vente"];
   function frDate(iso) { return E.fmtFr(iso) || "—"; }
   function deltaLabel(days) {
     if (days == null) return "";
@@ -1770,6 +1773,8 @@
     } else {
       delete et.relance;
       delete et.due;
+      // La relance effacée avait coché l'étape d'office : on la décoche aussi.
+      if (RELANCE_ACCOMPLIT.includes(stepId) && et.done) marquerEtape(d, stepId, false);
     }
   }
   /* Marques d'une note du journal : elles l'épinglent en haut, en rouge, tant
@@ -2155,10 +2160,14 @@
     if (mailCtx.stepId) {
       const et = det.data.etapes[mailCtx.stepId] = det.data.etapes[mailCtx.stepId] || {};
       et.relance = { ts: Math.floor(Date.now() / 1000), modele: mailCtx.modeleName, user: userName() };
+      // Cas particulier : pour l'appel & crémaillère, envoyer le message aux
+      // deux conseillers EST l'action — l'étape se coche d'elle-même.
+      if (RELANCE_ACCOMPLIT.includes(mailCtx.stepId)) {
+        marquerEtape(det.data, mailCtx.stepId, true);
       // La balle est dans le camp d'en face : l'action sort du tableau de bord
       // pour une semaine. Une relance ne fait que REPOUSSER — jamais avancer —
       // et n'a pas à déplacer une date clé (la signature reste où elle est).
-      if (!STEP_DUE_DATE[mailCtx.stepId]) {
+      } else if (!STEP_DUE_DATE[mailCtx.stepId]) {
         const step = E.compute(det.data).find((x) => x.id === mailCtx.stepId);
         const report = E.addDays(E.today(), REPORT_RELANCE);
         if (step && (!step.due || step.due < report)) et.due = report;
