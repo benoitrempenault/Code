@@ -1252,10 +1252,16 @@
           '<span class="delta ' + deltaCls + '">' + esc(deltaTxt) + "</span>" + mailBtn +
           "</div>";
     };
+    // Une note du journal marquée « financement » ou « conditions suspensives »
+    // met en alerte le titre de la phase correspondante de l'échéancier.
+    const phasesAlerte = JOURNAL_MARQUES
+      .filter((m) => m.phase && (d.journal || []).some((j) => j[m.key]))
+      .map((m) => m.phase);
     const echHtml = phases.map((ph) => {
       const dansPhase = steps.filter((s) => s.phase === ph);
       const aFaire = dansPhase.filter((s) => !s.done), faites = dansPhase.filter((s) => s.done);
-      return '<div class="phase">' + esc(ph) + "</div>" +
+      return '<div class="phase' + (phasesAlerte.includes(ph) ? " phase--alerte" : "") + '">' + esc(ph) +
+        (phasesAlerte.includes(ph) ? ' <span class="phase__alerte">⚠ voir le journal</span>' : "") + "</div>" +
         aFaire.map(ligneEtape).join("") +
         (faites.length
           ? '<details class="faites"><summary>✓ ' + faites.length +
@@ -1286,7 +1292,6 @@
       const lignes = Math.max(1, txt.split("\n").length, Math.ceil(txt.length / 95));
       const longue = lignes > 4;
       const lien = lienExterne(j.lien);
-      const titres = JOURNAL_MARQUES.filter((m) => m.titre && j[m.key]).map((m) => m.titre);
       return '<div class="journal__item' + (epingle(j) ? " journal__item--capital" : "") + '">' +
         '<button class="btn btn--sm btn--danger jdel" data-jdel="' + i + '" title="Supprimer cette note">✕</button>' +
         '<div class="meta">' +
@@ -1296,7 +1301,6 @@
           ' · <label class="journal__cap"><input type="checkbox" data-jcap="' + i + ":" + m.key + '"' +
           (j[m.key] ? " checked" : "") + " /> " + esc(m.label) + "</label>").join("") +
         "</div>" +
-        (titres.length ? '<p class="journal__titre">' + esc(titres.join(" · ")) + "</p>" : "") +
         '<div class="journal__body' + (longue ? " long" : "") + '">' +
         '<textarea class="journal__text" data-jedit="' + i + '" rows="' + Math.min(60, lignes) +
         '" title="Cliquez dans la note pour la corriger">' + esc(txt) + "</textarea>" +
@@ -1351,8 +1355,8 @@
       "Le lien s'ouvre d'ici : collez le permalien d'un message (Outlook web : « … » › Ouvrir dans une nouvelle fenêtre, puis l'adresse) " +
       "ou d'un document OneDrive. Les relances envoyées depuis l'app sont archivées ici avec leur texte. " +
       "<b>Info capitale</b> : la note reste en haut du journal, en rouge, et s'affiche sur la vente au tableau de bord. " +
-      "<b>Financement</b> et <b>Conditions suspensives</b> l'épinglent de la même façon, sous leur titre en rouge — " +
-      "décochez une fois le point réglé.</p>" +
+      "<b>Financement</b> et <b>Conditions suspensives</b> l'épinglent de la même façon et passent en rouge le titre " +
+      "de leur phase dans l'échéancier — décochez une fois le point réglé.</p>" +
       '<div class="journal">' + (journalHtml || '<p class="hintline">Aucune note pour l\'instant.</p>') + "</div></div>" +
 
       '<div class="card"><h3>🗓 Échéancier du dossier</h3>' + echHtml +
@@ -1770,12 +1774,13 @@
   }
   /* Marques d'une note du journal : elles l'épinglent en haut, en rouge, tant
      qu'on ne les décoche pas. « Info capitale » remonte en plus sur la vente au
-     tableau de bord ; les deux autres portent un titre, pour retrouver d'un
-     coup d'œil où en sont le prêt et les conditions suspensives. */
+     tableau de bord ; les deux autres passent en rouge le titre de leur phase
+     dans l'échéancier, pour voir d'un coup d'œil que le prêt ou une condition
+     suspensive appelle l'attention. */
   const JOURNAL_MARQUES = [
-    { key: "capital", label: "info capitale", titre: "" },
-    { key: "financement", label: "financement", titre: "Financement" },
-    { key: "conditions", label: "conditions suspensives", titre: "Conditions suspensives" }
+    { key: "capital", label: "info capitale", phase: "" },
+    { key: "financement", label: "financement", phase: "Financement" },
+    { key: "conditions", label: "conditions suspensives", phase: "Conditions suspensives" }
   ];
   const epingle = (j) => JOURNAL_MARQUES.some((m) => j && j[m.key]);
   function ajouterNote(d) {
