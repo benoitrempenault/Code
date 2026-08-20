@@ -33,6 +33,13 @@ export default {
       AI_RATE_PER_MIN: env.AI_RATE_PER_MIN || "",
       AI_MAX_BODY_BYTES: env.AI_MAX_BODY_BYTES || "",
       GLOBAL_MONTHLY_CAP_EUR: env.GLOBAL_MONTHLY_CAP_EUR || "",
+      // Accès Microsoft Graph (lecture des agendas Outlook). Cette liste est
+      // une LISTE BLANCHE : un secret posé sur le Worker mais absent d'ici
+      // n'atteint jamais l'application — l'oubli est silencieux, tout marche
+      // « comme avant ». Toute nouvelle variable doit passer par ici.
+      GRAPH_TENANT_ID: env.GRAPH_TENANT_ID || "",
+      GRAPH_CLIENT_ID: env.GRAPH_CLIENT_ID || "",
+      GRAPH_CLIENT_SECRET: env.GRAPH_CLIENT_SECRET || "",
       DEV_MODE: false
     });
     return app.fetch(request, env, ctx);
