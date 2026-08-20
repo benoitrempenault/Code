@@ -1548,7 +1548,6 @@
       input("Dossier envoyé aux notaires", "dates.envoi_notaires", d, "date") +
       input("DIA envoyée", "dates.envoi_dia", d, "date") +
       input("AR de la DIA", "dates.ar_dia", d, "date") +
-      input("Acte signé le", "dates.signature_acte", d, "date") +
       "</div></div>" +
 
       // Le rendez-vous de signature : date, heure, et le lieu de CHAQUE partie
@@ -1556,12 +1555,14 @@
       '<div class="card"><h3>✍ Rendez-vous de signature</h3><div class="grid3">' +
       input("Date prévue", "dates.signature_prevue", d, "date") +
       input("Heure", "dates.signature_heure", d, "time") +
+      input("Acte signé le", "dates.signature_acte", d, "date") +
       "</div><div class=\"grid2\">" +
       input("Lieu — vendeurs", "dates.signature_lieu_vendeur", d, "text", 'list="dlEtudes" placeholder="Étude de Me…"') +
       input("Lieu — acquéreurs", "dates.signature_lieu_acquereur", d, "text", 'list="dlEtudes" placeholder="Étude de Me…"') +
       "</div>" +
       '<p class="hintline">Les deux parties signent parfois dans des études différentes (acte à distance, procuration). ' +
-      "Ces informations alimentent le champ {{signature_prevue}} et {{signature_lieu}} des relances.</p></div>" +
+      "Ces informations alimentent le champ {{signature_prevue}} et {{signature_lieu}} des relances. " +
+      "« Acte signé le » déclenche l'après-vente (appel &amp; crémaillère, avis, clôture) et reste lié à la case « Acte authentique signé » de l'échéancier.</p></div>" +
 
       '<div class="card"><h3>🔧 Équipements &amp; entretiens</h3>' + entretiensHtml(d) +
       '<p class="hintline">Cochez les équipements présents : l\'échéancier réclame alors le justificatif et alerte à l\'approche de la péremption ' +
