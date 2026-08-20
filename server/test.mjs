@@ -1201,6 +1201,12 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok(GRAPHMOD.estConfigure({}) === false, "sans secrets, le module Graph est inerte");
     ok(GRAPHMOD.estConfigure({ GRAPH_TENANT_ID: "t", GRAPH_CLIENT_ID: "c", GRAPH_CLIENT_SECRET: "s" }) === true,
       "les trois secrets suffisent à le rendre disponible");
+    ok(/SECRET CLIENT est faux/.test(GRAPHMOD.expliqueRefusJeton("AADSTS7000215: Invalid client secret provided")),
+      "un secret faux est nommé comme tel (pas de vérification à l'aveugle)");
+    ok(/TENANT est introuvable/.test(GRAPHMOD.expliqueRefusJeton("AADSTS90002: Tenant not found")),
+      "un tenant introuvable est nommé comme tel");
+    ok(/AADSTS999999/.test(GRAPHMOD.expliqueRefusJeton("AADSTS999999: mystère")),
+      "un code inconnu est au moins remonté tel quel");
     ok((await call("/permanence/config", { headers: auth })).json.graphPret === false,
       "l'app voit que ce serveur-ci n'a pas les accès Microsoft");
 

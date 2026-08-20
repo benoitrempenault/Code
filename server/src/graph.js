@@ -117,18 +117,43 @@ export async function occupations(env, boites, du, au, maintenant) {
    retomber silencieusement. C'est ce qui permet de valider l'habilitation
    sur un seul agenda — le sien — avant de l'ouvrir à toute l'équipe.
 */
+// Traduit le code d'erreur AADSTS de Microsoft en cause concrète : c'est ce
+// qui évite de revérifier les trois valeurs à l'aveugle.
+export function expliqueRefusJeton(texte) {
+  const t = String(texte || "");
+  if (t.includes("AADSTS7000215")) return "le SECRET CLIENT est faux — c'est presque toujours l'« ID secret » copié à la place de la colonne « Valeur » (Entra → Certificats et secrets). Recréez un secret, copiez sa Valeur, remplacez GRAPH_CLIENT_SECRET dans GitHub et relancez le workflow.";
+  if (t.includes("AADSTS7000222")) return "le SECRET CLIENT a expiré. Créez-en un nouveau (Entra → Certificats et secrets), remplacez GRAPH_CLIENT_SECRET dans GitHub et relancez le workflow.";
+  if (t.includes("AADSTS700016")) return "l'ID D'APPLICATION est inconnu de ce tenant — vérifiez GRAPH_CLIENT_ID (« ID d'application (client) », page Vue d'ensemble).";
+  if (t.includes("AADSTS90002")) return "le TENANT est introuvable — vérifiez GRAPH_TENANT_ID (« ID de l'annuaire (locataire) », page Vue d'ensemble).";
+  if (t.includes("AADSTS700211") || t.includes("AADSTS500011")) return "l'application n'appartient pas à ce tenant — GRAPH_TENANT_ID et GRAPH_CLIENT_ID ne vont pas ensemble.";
+  const m = /AADSTS\d+/.exec(t);
+  return "vérifiez l'identifiant du tenant, celui de l'application et le secret" + (m ? " (code Microsoft : " + m[0] + ")" : "") + ".";
+}
+
 export async function diagnostic(env, boite, du, au, maintenant) {
   const cible = String(boite || "").trim().toLowerCase();
   if (!cible) return { ok: false, message: "Aucune boîte indiquée." };
   if (!estConfigure(env)) {
     return { ok: false, message: "Le serveur n'a pas les trois secrets Microsoft (GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET)." };
   }
-  const t = await jeton(env, maintenant);
+  // On demande le jeton NOUS-MÊMES (sans passer par le cache silencieux)
+  // pour pouvoir lire la raison du refus dans la réponse de Microsoft.
+  const base = env.GRAPH_AUTH_BASE || AUTORITE;
+  const corps = new URLSearchParams({
+    client_id: env.GRAPH_CLIENT_ID, client_secret: env.GRAPH_CLIENT_SECRET,
+    scope: "https://graph.microsoft.com/.default", grant_type: "client_credentials"
+  });
+  const resJeton = await fetch(base + "/" + env.GRAPH_TENANT_ID + "/oauth2/v2.0/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: corps.toString()
+  }).catch(() => null);
+  if (!resJeton) return { ok: false, message: "Microsoft est injoignable depuis le serveur." };
+  const jJeton = await resJeton.json().catch(() => null);
+  const t = jJeton && jJeton.access_token;
   if (!t) {
-    return { ok: false, message: "Microsoft a refusé le jeton d'application : vérifiez l'identifiant du tenant, celui de l'application et le secret (a-t-il expiré ?)." };
+    return { ok: false, message: "Microsoft a refusé le jeton d'application : " + expliqueRefusJeton(jJeton && jJeton.error_description) };
   }
-  const base = env.GRAPH_BASE || GRAPH;
-  const res = await fetch(base + "/users/" + encodeURIComponent(cible) + "/calendar/getSchedule", {
+  const baseGraph = env.GRAPH_BASE || GRAPH;
+  const res = await fetch(baseGraph + "/users/" + encodeURIComponent(cible) + "/calendar/getSchedule", {
     method: "POST",
     headers: { Authorization: "Bearer " + t, "Content-Type": "application/json", Prefer: 'outlook.timezone="Europe/Paris"' },
     body: JSON.stringify({
