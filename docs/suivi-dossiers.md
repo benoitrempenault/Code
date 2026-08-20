@@ -105,9 +105,14 @@ ses notes, la liste des études couvertes (une par ligne). La relance « dépôt
 part alors chez le comptable plutôt que chez le notaire — modifiable sans toucher au code
 le jour où le comptable change. La règle ne regarde que l'étude **qui tient réellement
 les fonds** (le dépositaire du compromis) : qu'un autre notaire du dossier figure sur la
-liste ne déclenche rien. Les études de Kadima (NAUTIACQ, PULON Antoine, PULON
-Bertrand, AVINEN BABIN, MELLAC DUPIN, AMOUROUX, SCHREIBER) sont posées à la première
-ouverture. Les numéros de téléphone insérés dans les courriers sont espacés par paires
+liste ne déclenche rien. Les études de Kadima (NAUTIACQ, PULON, AVINEN, BABIN, MELLAC,
+DUPIN, AMOUROUX, SCHREIBER) sont posées à la première ouverture — **patronyme seul**, car
+c'est l'office qui est visé et non un notaire en particulier : « PULON » couvre Antoine
+comme Bertrand, et le compromis n'écrit presque jamais le prénom du dépositaire. Le
+rapprochement accepte aussi une phrase entière (« séquestre entre les mains de Maître
+NAUTIACQ, notaire à Saint-Médard-en-Jalles »), et la règle s'applique même si l'annuaire
+n'a pas encore sa fiche (`COMPTA_DEFAUT`, remplacé dès qu'une fiche existe).
+Les numéros de téléphone insérés dans les courriers sont espacés par paires
 (`telFr()`), et l'étape « dépôt de garantie » disparaît quand le compromis n'en prévoit
 pas (montant absent, « néant » ou zéro).
 
@@ -133,7 +138,7 @@ que le montant, jamais la phrase entière du compromis.
 | Fin de rétractation | présentation + 10 jours calendaires (lendemain) | L271-1 CCH |
 | RIB du dépositaire envoyé à l'acquéreur | J+5 | sans RIB, pas de virement possible — l'e-mail joint le relevé de l'étude et met en garde contre la fraude au faux RIB |
 | Séquestre reçu | délai du compromis, sinon J+12 | versement usuel 5-10 % sous 8-10 jours ; les deux lignes disparaissent quand le compromis ne prévoit pas de dépôt |
-| DIA envoyée | J+15 | **la** relance qui fait gagner un mois ; demander une renonciation expresse à la mairie si possible |
+| DIA envoyée | J+7 | **la** relance qui fait gagner un mois : plus tôt le notaire envoie la DIA, plus tôt les deux mois de la mairie courent ; demander une renonciation expresse si possible |
 | Purge du droit de préemption | envoi DIA + 2 mois (art. L213-2 C. urb., silence = renonciation) | pas de relance : le silence de la mairie suffit, on ne fait que constater |
 | Dépôt du dossier de prêt | date du compromis, sinon J+10 | clause usuelle 10-15 jours |
 | Accord de principe banque | J+30 | usage |
@@ -145,7 +150,7 @@ que le montant, jamais la phrase entière du compromis.
 | Projet d'acte + date de signature | butoir − 21 jours | demander pièces manquantes, caler le RDV |
 | Acte authentique | date prévue, sinon butoir (≈ J+92 en moyenne nationale) | l'échéance de l'étape **est** la date clé « signature prévue » : modifier l'une modifie l'autre. La carte « Rendez-vous de signature » porte en plus l'**heure** et le **lieu de chaque partie** (les deux ne comparaissent pas toujours à la même étude) → `{{signature_prevue}}` (« 20/11/2026 à 14 h 30 »), `{{signature_lieu}}`, `{{signature_lieu_vendeur}}`, `{{signature_lieu_acquereur}}` |
 | Facture d'honoraires agence | acte − 7 jours | suit automatiquement la date de l'acte, pour que le notaire l'ait au dossier à l'appel de fonds |
-| Après-vente | appel J+7, avis clients J+10, clôture J+30 après l'acte | le moment où la satisfaction est maximale |
+| Après-vente | appel des clients **et crémaillère** J+7, avis clients J+10, facture payée J+15, clôture J+30 après l'acte | le moment où la satisfaction est maximale. Appel et crémaillère ne font qu'une étape, relancée par e-mail auprès des **deux conseillers** du dossier (modèle « Appel & crémaillère », cible `conseillers`) |
 
 ## Côté serveur
 
