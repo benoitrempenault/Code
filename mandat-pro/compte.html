@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self' https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self' https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev https://kadima-admin.onrender.com" />
   <title>Studio Brochure — Mon compte</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <meta name="description" content="Compte Studio Brochure « Tout compris » : connexion, abonnement et usage de la rédaction IA." />
@@ -148,7 +148,39 @@
       Le nombre de conseillers est limité au nombre de sièges de votre abonnement.</p>
   </div>
 
+  <!-- Codes d'accès collaborateurs du site century21-kadima.fr -->
+  <div class="card" id="cardKadimaCode">
+    <h2>Accès collaborateurs — site Kadima</h2>
+    <p class="hint">Les codes demandés par le bouton « Accès collaborateurs » du site century21-kadima.fr pour entrer au Studio. Un code par personne : révocable individuellement, avec date d'expiration automatique, et envoyable par e-mail.</p>
+
+    <div id="kadimaVerrou">
+      <label>Mot de passe agence
+        <input type="password" id="kadimaMdp" autocomplete="off" />
+      </label>
+      <button class="btn btn--primary btn--full" id="btnKadimaDeverrouiller" type="button">Gérer les codes</button>
+    </div>
+
+    <div id="kadimaDeverrouille" hidden>
+      <div id="kadimaListe" style="margin:10px 0 4px"></div>
+      <label>Nom du collaborateur
+        <input type="text" id="kadimaLibelle" placeholder="ex. Adeline Lebon" autocomplete="off" />
+      </label>
+      <label>Son e-mail (pour lui envoyer le code)
+        <input type="email" id="kadimaEmail" placeholder="prenom.nom@century21.fr" autocomplete="off" />
+      </label>
+      <label>Code personnalisé (laisser vide pour un code généré)
+        <input type="text" id="kadimaNouveauCode" placeholder="généré automatiquement" autocomplete="off" />
+      </label>
+      <label>Validité (jours)
+        <input type="text" id="kadimaJours" value="90" inputmode="numeric" autocomplete="off" />
+      </label>
+      <button class="btn btn--primary btn--full" id="btnKadimaCreer" type="button">Créer le code</button>
+    </div>
+    <p class="msg" id="kadimaCodeMsg" role="status" aria-live="polite"></p>
+  </div>
+
   <script src="assets/js/config.js?v=3"></script>
   <script src="assets/js/compte.js?v=6"></script>
+  <script src="assets/js/kadima-code.js?v=2"></script>
 </body>
 </html>
