@@ -36,6 +36,14 @@ a { color: var(--accent); }
 .topbar__brand strong { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 17px; display: block; }
 .topbar__brand small { color: var(--muted); font-size: 11.5px; display: block; }
 .topbar nav { display: flex; gap: 4px; margin-left: 18px; flex-wrap: wrap; }
+/* Sélecteur d'agence (Saint-Médard / Caudéran) de la barre du haut. */
+.sites { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.sites .site {
+  background: transparent; border: none; color: var(--muted);
+  font: inherit; font-size: 12.5px; padding: 7px 12px; cursor: pointer; white-space: nowrap;
+}
+.sites .site + .site { border-left: 1px solid var(--line); }
+.sites .site.on { background: var(--panel-2); color: var(--text); font-weight: 600; }
 .topbar nav a {
   text-decoration: none; color: var(--muted); padding: 7px 13px; border-radius: 8px; font-weight: 500;
 }
