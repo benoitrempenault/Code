@@ -651,6 +651,55 @@ ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Autho
     "l'échéance lue dans le compromis prime, relance quinze jours avant");
 }
 
+/* ---- Échéancier : DIA rapide et après-vente fusionnée ------------------- */
+{
+  const { actionsFor } = await import("./src/etapes.js");
+  const base = () => ({
+    statut: "en_cours", date_compromis: "2026-06-01", date_butoir: "2026-09-30",
+    dates: {}, sequestre: {}, financement: {}, bien: { type: "maison" },
+    equipements: {}, entretiens: {}, diagnostics: {}, etapes: {}, conditions_suspensives: []
+  });
+  const dia = actionsFor(base(), "2026-06-02").find((a) => a.id === "envoi_dia");
+  ok(dia && dia.due === "2026-06-08", "la DIA se relance sept jours après le compromis");
+  const signe = base();
+  signe.statut = "signe"; signe.dates.signature_acte = "2026-09-15";
+  const apres = actionsFor(signe, "2026-09-16");
+  const appel = apres.find((a) => a.id === "appel_apres_vente");
+  ok(appel && appel.label === "Appel des clients et crémaillère", "appel client et crémaillère ne font qu'une étape");
+  ok(appel.due === "2026-09-22", "l'appel et la crémaillère se calent une semaine après l'acte");
+  ok(!apres.some((a) => a.id === "cremaillere"), "l'étape crémaillère séparée a disparu");
+}
+
+/* ---- Séquestre : comptabilité de l'étude dépositaire -------------------- */
+{
+  // comptableDe() vit dans l'IIFE du client : on isole le bloc de
+  // rapprochement des noms et celui de la règle pour les tester ici.
+  const src = readFileSync(new URL("../suivi/assets/js/app.js", import.meta.url), "utf8");
+  const noms = src.slice(src.indexOf("  function normMot(w) {"), src.indexOf("  // Correspondance souple"));
+  const compta = src.slice(src.indexOf("  const COMPTA_DEFAUT = [{"), src.indexOf("  function recipientFor(d, cible) {"));
+  const { comptableDe, COMPTA_DEFAUT } = new Function(
+    "const annOf = () => [];\n" + noms + compta + "\nreturn { comptableDe, COMPTA_DEFAUT };")();
+  const louveau = "cyrillouveau@notaires.fr";
+  // Le compromis nomme rarement l'étude comme l'annuaire : prénom présent ou
+  // absent, phrase entière, casse quelconque — la règle doit tenir dans tous
+  // les cas, et ne pas déborder sur une étude qui n'est pas sur la liste.
+  const attendus = [
+    ["Maître NAUTIACQ", louveau], ["Me Bertrand NAUTIACQ", louveau],
+    ["Maître NAUTIACQ, notaire à Saint-Médard-en-Jalles", louveau],
+    ["Me PULON", louveau], ["Maître Antoine PULON", louveau], ["Me Bertrand PULON", louveau],
+    ["SCP AVINEN - BABIN", louveau], ["Maître BABIN", louveau],
+    ["Étude MELLAC DUPIN", louveau], ["Me MELLAC", louveau],
+    ["Maître AMOUROUX", louveau], ["Me SCHREIBER", louveau],
+    ["Maître MARTIN", ""], ["", ""]
+  ];
+  for (const [depo, mail] of attendus) {
+    ok(comptableDe([depo]) === mail,
+      "séquestre « " + (depo || "(vide)") + " » → " + (mail || "notaire du dossier"));
+  }
+  ok(COMPTA_DEFAUT[0].notes.split("\n").every((n) => !/\s/.test(n.trim())),
+    "la liste des études ne retient que le patronyme");
+}
+
 fake.close();
 console.log("\n" + passed + " réussis, " + failed + " échec(s)");
 process.exit(failed ? 1 : 0);

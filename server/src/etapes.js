@@ -110,7 +110,7 @@ const ETAPES = [
   { id: "sequestre", label: "Dépôt de garantie (séquestre) reçu",
     due: (d) => (d.sequestre && parseDate(d.sequestre.delai) != null) ? d.sequestre.delai : addDays(ssp(d), 12),
     applies: (d) => montantPositif(d.sequestre && d.sequestre.montant) },
-  { id: "envoi_dia", label: "DIA envoyée en mairie par le notaire", due: (d) => addDays(ssp(d), 15) },
+  { id: "envoi_dia", label: "DIA envoyée en mairie par le notaire", due: (d) => addDays(ssp(d), 7) },
   { id: "purge_dia", label: "Droit de préemption purgé (2 mois)",
     due: (d) => (d.dates && d.dates.envoi_dia) ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77) },
   { id: "dp_depot", label: "Déclaration préalable (DP) déposée en mairie", due: dpDepot, applies: estTerrain },
@@ -156,7 +156,7 @@ const ETAPES = [
     due: (d) => d.date_butoir ? addDays(d.date_butoir, -10) : "",
     applies: (d) => !!d.date_butoir && !(d.dates && d.dates.signature_acte) },
   { id: "signature", label: "Acte authentique signé", due: (d) => dateSignature(d) },
-  { id: "appel_apres_vente", label: "Appel des clients après la vente",
+  { id: "appel_apres_vente", label: "Appel des clients et crémaillère",
     due: (d) => (d.dates && d.dates.signature_acte) ? addDays(d.dates.signature_acte, 7) : "",
     applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" },
   { id: "avis", label: "Demande d'avis clients envoyée",
@@ -169,9 +169,6 @@ const ETAPES = [
     applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" },
   { id: "cloture", label: "Dossier clôturé",
     due: (d) => (d.dates && d.dates.signature_acte) ? addDays(d.dates.signature_acte, 30) : "",
-    applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" },
-  { id: "cremaillere", label: "Crémaillère / cadeau de bienvenue organisé",
-    due: (d) => (d.dates && d.dates.signature_acte) ? addDays(d.dates.signature_acte, 45) : "",
     applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" }
 ];
 

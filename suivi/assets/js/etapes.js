@@ -292,8 +292,8 @@
 
     { id: "envoi_dia", phase: "Préemption (DIA)", label: "DIA envoyée en mairie par le notaire",
       cible: "notaire_vendeur", modele: "Relance DIA",
-      due: (d) => addDays(ssp(d), 15),
-      hint: "LA relance qui fait gagner un mois : vérifier l'envoi à J+15, demander une renonciation expresse si possible." },
+      due: (d) => addDays(ssp(d), 7),
+      hint: "LA relance qui fait gagner un mois : vérifier l'envoi dès J+7, demander une renonciation expresse si possible." },
     // Purge du droit de préemption : rien à relancer, le silence de la mairie
     // suffit — on se contente de constater l'échéance.
     { id: "purge_dia", phase: "Préemption (DIA)", label: "Droit de préemption purgé (réponse de la mairie ou silence de 2 mois)",
@@ -397,9 +397,13 @@
       due: (d) => addDays(dateSignature(d), -7),
       hint: "Une semaine avant l'acte, aux DEUX études, pour que la facture soit au dossier au moment de l'appel de fonds — la date suit celle de la signature. Joindre la facture électronique et le RIB (KADIMA-TB › Kadima - General › ASSISTANTE › RIB AGENCE)." },
 
-    { id: "appel_apres_vente", phase: "Après-vente", label: "Appel des clients après la vente",
-      cible: "vendeur", due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 7) : "",
-      applies: (d) => !!d.dates.signature_acte || d.statut === "signe" },
+    // Appel de courtoisie et crémaillère : un seul moment relationnel, porté
+    // par les deux conseillers du dossier (la relance leur est adressée).
+    { id: "appel_apres_vente", phase: "Après-vente", label: "Appel des clients et crémaillère",
+      cible: "conseillers", modele: "Appel & crémaillère",
+      due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 7) : "",
+      applies: (d) => !!d.dates.signature_acte || d.statut === "signe",
+      hint: "Appeler vendeurs et acquéreurs après l'acte, et caler la crémaillère chez les nouveaux propriétaires." },
     { id: "avis", phase: "Après-vente", label: "Demande d'avis clients envoyée (Google)",
       cible: "acquereur", modeles: ["Demande d'avis client", "Demande d'avis client vendeur"],
       due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 10) : "",
@@ -410,12 +414,7 @@
       hint: "Le règlement vient en général du notaire à l'acte — vérifier le virement." },
     { id: "cloture", phase: "Après-vente", label: "Dossier clôturé (archivage, Tracfin)",
       due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 30) : "",
-      applies: (d) => !!d.dates.signature_acte || d.statut === "signe" },
-    { id: "cremaillere", phase: "Après-vente", label: "Crémaillère / cadeau de bienvenue organisé",
-      cible: "acquereur", modele: "Invitation crémaillère",
-      due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 45) : "",
-      applies: (d) => !!d.dates.signature_acte || d.statut === "signe",
-      hint: "Le moment relationnel : cadeau, passage ou crémaillère chez les nouveaux propriétaires." }
+      applies: (d) => !!d.dates.signature_acte || d.statut === "signe" }
   ];
 
   // Étapes fixes + une étape par condition suspensive du compromis, insérées
@@ -540,9 +539,9 @@
       corps: "Bonjour,\n\nBonne nouvelle : le délai légal de rétractation de 10 jours de vos acquéreurs a expiré le {{fin_retractation}} sans qu'ils ne se soient rétractés. Votre vente ({{reference}}, compromis du {{date_compromis}}) franchit donc une étape importante.\n\nLa suite du calendrier :\n- purge du droit de préemption de la mairie (environ 2 mois),\n- financement des acquéreurs (condition suspensive au {{echeance_pret}}),\n- signature de l'acte authentique (butoir : {{date_butoir}}).\n\nNous suivons chaque étape auprès des notaires et des acquéreurs, et revenons vers vous à chaque avancée.\n\nBien cordialement,\n{{signature}}"
     },
     {
-      name: "Invitation crémaillère", cible: "acquereur",
-      sujet: "Bienvenue chez vous ! 🏡",
-      corps: "Bonjour,\n\nToute l'équipe espère que votre installation au {{adresse_bien}} se passe à merveille !\n\nNous serions ravis de venir trinquer à votre nouvelle vie chez vous — dites-nous quand cela vous arrange, ou passez simplement à l'agence : un petit cadeau de bienvenue vous y attend.\n\n[Personnalisez : crémaillère, cadeau, passage…]\n\nEncore toutes nos félicitations,\n{{signature}}"
+      name: "Appel & crémaillère", cible: "conseillers",
+      sujet: "{{reference}} — Appel des clients et crémaillère ({{adresse_bien}})",
+      corps: "Bonjour {{conseillers}},\n\nL'acte authentique de la vente {{reference}} ({{adresse_bien}}) a été signé le {{signature_acte}}.\n\nPouvez-vous, chacun de votre côté :\n- appeler vos clients — vendeurs : {{vendeurs}} / acquéreurs : {{acquereurs}} — pour prendre de leurs nouvelles et vous assurer que tout s'est bien passé,\n- et convenir avec les acquéreurs d'une date de crémaillère chez eux ?\n\nMerci de nous dire ce qu'il en ressort pour que nous le notions au dossier.\n\n{{signature}}"
     },
     {
       name: "Relance panneau VENDU", cible: "conseiller_vendeur",

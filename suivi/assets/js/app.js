@@ -416,11 +416,30 @@
       if (!annOf("comptable").length) {
         try {
           await api("/annuaire", { method: "PUT", json: {
-            type: "comptable", nom: "Comptabilité des études", email: "cyrillouveau@notaires.fr",
-            notes: ["NAUTIACQ", "PULON Antoine", "PULON Bertrand", "AVINEN BABIN", "MELLAC DUPIN", "AMOUROUX", "SCHREIBER"].join("\n")
+            type: "comptable", nom: "Comptabilité des études", email: COMPTA_DEFAUT[0].email,
+            notes: COMPTA_DEFAUT[0].notes
           } });
           await loadAnnuaire();
         } catch (e) { /* sans gravité */ }
+      }
+      // La liste vise l'ÉTUDE, pas le notaire : « PULON Antoine » ne
+      // reconnaissait pas un séquestre déposé « chez Me PULON ». On repasse
+      // aux patronymes seuls sur la fiche installée avec l'ancienne liste.
+      for (const c of annOf("comptable").filter((x) => /PULON Antoine/i.test(x.notes || ""))) {
+        c.notes = COMPTA_DEFAUT[0].notes;
+        try { await api("/annuaire", { method: "PUT", json: c }); await loadAnnuaire(); } catch (e) { /* sans gravité */ }
+      }
+      // Après-vente : l'appel client et la crémaillère ne font plus qu'une
+      // étape, relancée auprès des deux conseillers (l'invitation adressée
+      // aux acquéreurs, avec son cadeau de bienvenue, disparaît).
+      const crem = modeles.find((m) => m.name === "Invitation crémaillère");
+      if (crem) {
+        try { await api("/modeles/" + encodeURIComponent(crem.id), { method: "DELETE" }); } catch (e) { /* sans gravité */ }
+        modeles = modeles.filter((m) => m.id !== crem.id);
+      }
+      if (!modeles.some((m) => m.name === "Appel & crémaillère")) {
+        const defAC = E.DEFAULT_MODELES.find((m) => m.name === "Appel & crémaillère");
+        if (defAC) { await api("/modeles", { method: "PUT", json: defAC }); modeles = (await api("/modeles")).modeles || modeles; }
       }
       // La facture d'honoraires part désormais aux DEUX études (l'acquéreur
       // règle souvent par son notaire) : on bascule le modèle enregistré.
@@ -627,8 +646,8 @@
       pick: (st, d) => { const s = aFaire(st, "facture_emise"); return (s && (estSigne(d) || (s.days != null && s.days <= 30))) ? s : null; } },
     { key: "impayee", label: "Facture impayée", titre: "Honoraires non encaissés (acte signé)",
       pick: (st, d) => estSigne(d) ? aFaire(st, "facture_payee") : null },
-    { key: "cremaillere", label: "Crémaillère à faire", titre: "Crémaillère / cadeau de bienvenue",
-      pick: (st, d) => estSigne(d) ? aFaire(st, "cremaillere") : null }
+    { key: "cremaillere", label: "Appel & crémaillère", titre: "Appel des clients et crémaillère après la vente",
+      pick: (st, d) => estSigne(d) ? aFaire(st, "appel_apres_vente") : null }
   ];
   let statsVigie = "retractation"; // vigie sélectionnée (ou "" = étape libre)
 
@@ -1255,10 +1274,10 @@
       "</div>"
     ).join("");
 
-    // Les infos capitales restent en haut du journal, en rouge, jusqu'à ce
+    // Les notes marquées restent en haut du journal, en rouge, jusqu'à ce
     // qu'on les décoche — le reste suit dans l'ordre chronologique inverse.
     const journalOrdre = d.journal.map((j, i) => ({ j, i })).reverse()
-      .sort((a, b) => (b.j.capital ? 1 : 0) - (a.j.capital ? 1 : 0));
+      .sort((a, b) => (epingle(b.j) ? 1 : 0) - (epingle(a.j) ? 1 : 0));
     const ligneJournal = ({ j, i }) => {
       const dt = new Date((j.ts || 0) * 1000);
       const txt = j.text || "";
@@ -1267,13 +1286,17 @@
       const lignes = Math.max(1, txt.split("\n").length, Math.ceil(txt.length / 95));
       const longue = lignes > 4;
       const lien = lienExterne(j.lien);
-      return '<div class="journal__item' + (j.capital ? " journal__item--capital" : "") + '">' +
+      const titres = JOURNAL_MARQUES.filter((m) => m.titre && j[m.key]).map((m) => m.titre);
+      return '<div class="journal__item' + (epingle(j) ? " journal__item--capital" : "") + '">' +
         '<button class="btn btn--sm btn--danger jdel" data-jdel="' + i + '" title="Supprimer cette note">✕</button>' +
         '<div class="meta">' +
         esc(dt.toLocaleDateString("fr-FR") + " " + dt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })) +
         " — " + esc(j.user || "") + (j.edite ? " · modifiée" : "") +
-        ' · <label class="journal__cap"><input type="checkbox" data-jcap="' + i + '"' + (j.capital ? " checked" : "") +
-        ' /> info capitale</label></div>' +
+        JOURNAL_MARQUES.map((m) =>
+          ' · <label class="journal__cap"><input type="checkbox" data-jcap="' + i + ":" + m.key + '"' +
+          (j[m.key] ? " checked" : "") + " /> " + esc(m.label) + "</label>").join("") +
+        "</div>" +
+        (titres.length ? '<p class="journal__titre">' + esc(titres.join(" · ")) + "</p>" : "") +
         '<div class="journal__body' + (longue ? " long" : "") + '">' +
         '<textarea class="journal__text" data-jedit="' + i + '" rows="' + Math.min(60, lignes) +
         '" title="Cliquez dans la note pour la corriger">' + esc(txt) + "</textarea>" +
@@ -1288,7 +1311,7 @@
        sauter aux yeux, et la dernière note — l'historique complet se déplie
        à la demande. Un journal de vingt notes n'est pas une lecture, c'est
        une archive. */
-    const enVue = journalOrdre.filter((x, n) => x.j.capital || journalOrdre.findIndex((y) => !y.j.capital) === n);
+    const enVue = journalOrdre.filter((x, n) => epingle(x.j) || journalOrdre.findIndex((y) => !epingle(y.j)) === n);
     const archive = journalOrdre.filter((x) => enVue.indexOf(x) < 0);
     const journalHtml = enVue.map(ligneJournal).join("") +
       (archive.length
@@ -1320,13 +1343,16 @@
       '<div class="card"><h3>📝 Journal du dossier <span class="cnt">partagé avec toute l\'agence</span></h3>' +
       '<div class="journal__add" style="margin:0 0 4px"><input type="text" id="journalInput" placeholder="Ajouter une note (appel, réponse du notaire, avancement…)" />' +
       '<input type="url" id="journalLien" placeholder="🔗 lien d\'un message ou d\'un document (facultatif)" />' +
-      '<label class="journal__cap" style="white-space:nowrap"><input type="checkbox" id="journalCapital" /> info capitale</label>' +
+      JOURNAL_MARQUES.map((m) =>
+        '<label class="journal__cap" style="white-space:nowrap"><input type="checkbox" id="journalMarque-' +
+        m.key + '" /> ' + esc(m.label) + "</label>").join("") +
       '<button class="btn" id="journalAdd">Ajouter</button></div>' +
       '<p class="hintline" style="margin:0 0 10px">Entrée pour valider. Cliquez dans une note pour la corriger. ' +
       "Le lien s'ouvre d'ici : collez le permalien d'un message (Outlook web : « … » › Ouvrir dans une nouvelle fenêtre, puis l'adresse) " +
       "ou d'un document OneDrive. Les relances envoyées depuis l'app sont archivées ici avec leur texte. " +
-      "<b>Info capitale</b> : la note reste en haut du journal, en rouge, et s'affiche sur la vente au tableau de bord — " +
-      "décochez-la une fois le point réglé.</p>" +
+      "<b>Info capitale</b> : la note reste en haut du journal, en rouge, et s'affiche sur la vente au tableau de bord. " +
+      "<b>Financement</b> et <b>Conditions suspensives</b> l'épinglent de la même façon, sous leur titre en rouge — " +
+      "décochez une fois le point réglé.</p>" +
       '<div class="journal">' + (journalHtml || '<p class="hintline">Aucune note pour l\'instant.</p>') + "</div></div>" +
 
       '<div class="card"><h3>🗓 Échéancier du dossier</h3>' + echHtml +
@@ -1568,8 +1594,12 @@
         return;
       }
       if (t.dataset.jcap != null) {
-        const j = d.journal[Number(t.dataset.jcap)];
-        if (j) { if (t.checked) j.capital = true; else delete j.capital; markDirty(); renderDossier(); }
+        const [idx, key] = String(t.dataset.jcap).split(":");
+        const j = d.journal[Number(idx)];
+        if (j && JOURNAL_MARQUES.some((m) => m.key === key)) {
+          if (t.checked) j[key] = true; else delete j[key];
+          markDirty(); renderDossier();
+        }
         return;
       }
       if (t.dataset.pathCheck) { setByPath(d, t.dataset.pathCheck, t.checked); markDirty(); renderDossier(); return; }
@@ -1738,14 +1768,26 @@
       delete et.due;
     }
   }
+  /* Marques d'une note du journal : elles l'épinglent en haut, en rouge, tant
+     qu'on ne les décoche pas. « Info capitale » remonte en plus sur la vente au
+     tableau de bord ; les deux autres portent un titre, pour retrouver d'un
+     coup d'œil où en sont le prêt et les conditions suspensives. */
+  const JOURNAL_MARQUES = [
+    { key: "capital", label: "info capitale", titre: "" },
+    { key: "financement", label: "financement", titre: "Financement" },
+    { key: "conditions", label: "conditions suspensives", titre: "Conditions suspensives" }
+  ];
+  const epingle = (j) => JOURNAL_MARQUES.some((m) => j && j[m.key]);
   function ajouterNote(d) {
     const inp = $("#journalInput"), lienInp = $("#journalLien");
     const txt = (inp.value || "").trim(), lien = lienExterne(lienInp && lienInp.value);
     if (!txt && !lien) return;
     const note = { ts: Math.floor(Date.now() / 1000), user: userName(), text: txt || "Message lié" };
     if (lien) note.lien = lien;
-    const cap = $("#journalCapital");
-    if (cap && cap.checked) note.capital = true;
+    for (const m of JOURNAL_MARQUES) {
+      const c = $("#journalMarque-" + m.key);
+      if (c && c.checked) note[m.key] = true;
+    }
     d.journal.push(note);
     if (lienInp && lienInp.value.trim() && !lien) toast("Lien ignoré : seules les adresses http(s) sont acceptées.", true);
     markDirty(); renderDossier();
@@ -1826,17 +1868,43 @@
      séquestres (une par ligne). On rapproche ces lignes des noms de notaires
      du dossier — « PULON Antoine » et « Me Antoine PULON » désignant le même,
      la comparaison passe par nomsCompatibles(). Renvoie "" si aucune règle. */
+  // Règle connue de l'agence, appliquée d'emblée : une fiche « comptable »
+  // dans l'annuaire la remplace dès qu'il y en a une (changement d'adresse,
+  // étude qui s'ajoute ou qui sort).
+  // Une ligne par ÉTUDE, patronyme seul : la comptabilité est celle de
+  // l'office, pas d'un notaire en particulier — « PULON » couvre Antoine
+  // comme Bertrand, et « AVINEN » comme « BABIN » l'étude AVINEN-BABIN.
+  const COMPTA_DEFAUT = [{
+    email: "cyrillouveau@notaires.fr",
+    notes: ["NAUTIACQ", "PULON", "AVINEN", "BABIN", "MELLAC", "DUPIN", "AMOUROUX", "SCHREIBER"].join("\n")
+  }];
   function comptableDe(noms) {
     const cibles = (noms || []).map((x) => String(x || "").trim()).filter(Boolean);
     if (!cibles.length) return "";
-    for (const c of annOf("comptable")) {
-      if (!(c.email || "").trim()) continue;
+    const fiches = annOf("comptable").filter((c) => (c.email || "").trim());
+    for (const c of (fiches.length ? fiches : COMPTA_DEFAUT)) {
       const etudes = String(c.notes || "").split(/[\n;]+/).map((x) => x.trim()).filter(Boolean);
       for (const e of etudes) {
-        if (cibles.some((n) => nomsCompatibles(e, n))) return c.email.trim();
+        // Le nom de l'étude doit apparaître dans la cible : « NAUTIACQ »
+        // reconnaît « Me Bertrand NAUTIACQ » comme « Office notarial NAUTIACQ,
+        // 33160 Saint-Médard », sans confondre les deux PULON.
+        if (cibles.some((n) => nomsCompatibles(e, n) || etudeDansTexte(e, n))) return c.email.trim();
       }
     }
     return "";
+  }
+  // Tous les mots de l'étude figurent-ils dans le texte du dépositaire ?
+  // (Le compromis écrit rarement le nom seul : « séquestre entre les mains de
+  // Maître NAUTIACQ, notaire à Saint-Médard-en-Jalles ».)
+  function etudeDansTexte(etude, texte) {
+    const mots = motsNom(etude), dans = motsNom(texte);
+    return mots.length > 0 && mots.every((w) => dans.includes(w));
+  }
+  // Noms des deux conseillers du dossier, sans doublon ni case vide.
+  function nomsConseillers(d) {
+    const noms = [d.conseiller_vendeur, d.conseiller_acquereur]
+      .map((c) => ((annConseiller(c) || {}).nom || c || "").trim()).filter(Boolean);
+    return noms.filter((n, i) => noms.findIndex((x) => x.toLowerCase() === n.toLowerCase()) === i);
   }
   function recipientFor(d, cible) {
     if (cible === "notaires") {
@@ -1847,6 +1915,11 @@
     if (cible === "notaire_acquereur") return joinMails(mailsEtude(d, "notaire_acquereur")) || recipientFor(d, "notaire_vendeur");
     if (cible === "acquereur") return (d.acquereurs || []).map((p) => p.email).filter(Boolean).join("; ");
     if (cible === "vendeur") return (d.vendeurs || []).map((p) => p.email).filter(Boolean).join("; ");
+    // Les deux conseillers du dossier (souvent le même des deux côtés).
+    if (cible === "conseillers") {
+      return joinMails([(annConseiller(d.conseiller_vendeur) || {}).email,
+        (annConseiller(d.conseiller_acquereur) || {}).email]);
+    }
     if (cible === "conseiller_vendeur") return (annConseiller(d.conseiller_vendeur) || {}).email || "";
     if (cible === "conseiller_acquereur") return (annConseiller(d.conseiller_acquereur) || {}).email || "";
     if (cible === "syndic") return (d.syndic && d.syndic.email) || (annByNom(["syndic", "president"], d.syndic && d.syndic.nom) || {}).email || "";
@@ -1989,12 +2062,16 @@
       sequestre_montant: d.sequestre.montant, sequestre_depositaire: d.sequestre.depositaire,
       date_limite_depot: E.fmtFr(depotDefaut), echeance_pret: E.fmtFr(echPretDefaut),
       signature_prevue: dateHeure(d.dates.signature_prevue, d.dates.signature_heure),
+      signature_acte: E.fmtFr(d.dates.signature_acte),
       signature_lieu_vendeur: d.dates.signature_lieu_vendeur || "",
       signature_lieu_acquereur: d.dates.signature_lieu_acquereur || "",
       signature_lieu: lieuxSignature(d),
       syndic: (d.syndic && d.syndic.nom) || "",
       conseiller_vendeur: (annConseiller(d.conseiller_vendeur) || {}).nom || d.conseiller_vendeur || "",
       conseiller_acquereur: (annConseiller(d.conseiller_acquereur) || {}).nom || d.conseiller_acquereur || "",
+      // Les deux conseillers du dossier, dédoublonnés : souvent le même des
+      // deux côtés, auquel cas le message ne le nomme qu'une fois.
+      conseillers: nomsConseillers(d).join(" et "),
       conseiller: userName(), agence: AGENCE, date: new Date().toLocaleDateString("fr-FR")
     };
   }
