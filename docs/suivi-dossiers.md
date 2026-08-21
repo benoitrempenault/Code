@@ -101,6 +101,12 @@ complet par dossier.
 
 ### Destinataires particuliers
 
+**L'annuaire est le carnet central** : corriger l'e-mail d'une fiche notaire ou
+syndic le répercute sur **tous les dossiers** où cette personne figure
+(rapprochement par nom via `annFuzzy` — homonymes non tranchés : on ne touche à
+rien ; adresse complète seulement, pas de frappe à moitié tapée). Les conseillers
+n'ont pas besoin de répercussion, leurs e-mails étant toujours lus dans l'annuaire.
+
 Le composeur a un champ **Cc** : pour toute relance liée au **financement** ou à une
 **condition suspensive** (phases « Financement » et « Conditions suspensives » de
 l'échéancier), les **deux conseillers du dossier** y sont mis d'office — dédoublonnés,
