@@ -99,6 +99,12 @@ complet par dossier.
 
 ### Destinataires particuliers
 
+Le composeur a un champ **Cc** : pour toute relance liée au **financement** ou à une
+**condition suspensive** (phases « Financement » et « Conditions suspensives » de
+l'échéancier), les **deux conseillers du dossier** y sont mis d'office — dédoublonnés,
+et sans répéter une adresse déjà destinataire. Le Cc est repris dans le `mailto:`,
+dans le texte copié et dans l'archive du journal ; il reste modifiable avant envoi.
+
 Certaines études confient les séquestres à leur comptable. La règle vit dans l'annuaire,
 section **Comptabilité des études** (type `comptable`) : une fiche porte l'adresse et, dans
 ses notes, la liste des études couvertes (une par ligne). La relance « dépôt de garantie »

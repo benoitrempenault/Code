@@ -1400,7 +1400,9 @@
         (longue ? '<span class="journal__more">▾ message complet</span>' : "") + "</div>" +
         (lien ? '<a class="journal__lien" href="' + esc(lien) + '" target="_blank" rel="noopener noreferrer">🔗 Ouvrir le message lié</a>' : "") +
         (j.mail ? '<details class="journal__mail"><summary>✉ Relire le message envoyé</summary>' +
-          "<div><b>À :</b> " + esc(j.mail.to || "?") + "<br><b>Objet :</b> " + esc(j.mail.sujet || "") + "</div>" +
+          "<div><b>À :</b> " + esc(j.mail.to || "?") +
+          (j.mail.cc ? "<br><b>Cc :</b> " + esc(j.mail.cc) : "") +
+          "<br><b>Objet :</b> " + esc(j.mail.sujet || "") + "</div>" +
           "<pre>" + esc(j.mail.corps || "") + "</pre></details>" : "") +
         "</div>";
     };
@@ -2243,6 +2245,15 @@
     // (acquéreur pour une revente, syndic pour la copropriété…).
     const to = recipientFor(d, (step && step.csIndex != null && step.cible) || modele.cible) || "";
     $("#mailTo").value = to;
+    // Financement et conditions suspensives : les DEUX conseillers du dossier
+    // sont mis en copie (sans dupliquer une adresse déjà destinataire).
+    let cc = "";
+    if (step && (step.phase === "Financement" || step.phase === "Conditions suspensives" || step.csIndex != null)) {
+      const dansTo = to.toLowerCase();
+      cc = joinMails(recipientFor(d, "conseillers").split(";").map((x) => x.trim())
+        .filter((x) => x && !dansTo.includes(x.toLowerCase())));
+    }
+    $("#mailCc").value = cc;
     $("#mailSubject").value = objetAvecAgence(fill(modele.sujet, f));
     $("#mailBody").value = fill(modele.corps, f);
     $("#ovMail").classList.add("on");
@@ -2266,8 +2277,9 @@
     det.data.journal.push({
       ts: Math.floor(Date.now() / 1000), user: userName(),
       step: mailCtx.stepId || "", // à quelle action se rapporte ce message
-      text: "✉ Relance « " + mailCtx.modeleName + " » " + kind + " (à : " + ($("#mailTo").value || "?") + ")",
-      mail: { to: $("#mailTo").value || "", sujet: $("#mailSubject").value || "", corps: $("#mailBody").value || "" }
+      text: "✉ Relance « " + mailCtx.modeleName + " » " + kind + " (à : " + ($("#mailTo").value || "?") +
+        ($("#mailCc").value ? " ; cc : " + $("#mailCc").value : "") + ")",
+      mail: { to: $("#mailTo").value || "", cc: $("#mailCc").value || "", sujet: $("#mailSubject").value || "", corps: $("#mailBody").value || "" }
     });
     // Mémorise la relance sur son étape : la date s'affiche sur la ligne.
     if (mailCtx.stepId) {
@@ -2707,6 +2719,7 @@
           mailCtx = null;
           $("#mailTitle").textContent = r.sujet || "Récapitulatif du jour";
           $("#mailTo").value = userName();
+          $("#mailCc").value = "";
           $("#mailSubject").value = r.sujet || "";
           $("#mailBody").value = r.texte;
           $("#ovMail").classList.add("on");
@@ -2719,7 +2732,9 @@
     $("#btnMailClose").addEventListener("click", () => $("#ovMail").classList.remove("on"));
     $("#btnMailCopy").addEventListener("click", async () => {
       try {
-        await navigator.clipboard.writeText("À : " + $("#mailTo").value + "\nObjet : " + $("#mailSubject").value + "\n\n" + $("#mailBody").value);
+        await navigator.clipboard.writeText("À : " + $("#mailTo").value +
+          ($("#mailCc").value ? "\nCc : " + $("#mailCc").value : "") +
+          "\nObjet : " + $("#mailSubject").value + "\n\n" + $("#mailBody").value);
         toast("Texte copié ✓");
         logRelance("copiée");
       } catch (e) { toast("Copie impossible — sélectionnez le texte à la main.", true); }
@@ -2727,6 +2742,7 @@
     $("#btnMailOpen").addEventListener("click", () => {
       const url = "mailto:" + encodeURIComponent($("#mailTo").value) +
         "?subject=" + encodeURIComponent($("#mailSubject").value) +
+        ($("#mailCc").value ? "&cc=" + encodeURIComponent($("#mailCc").value) : "") +
         "&body=" + encodeURIComponent($("#mailBody").value);
       window.location.href = url;
       logRelance("ouverte dans la messagerie");
