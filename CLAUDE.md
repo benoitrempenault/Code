@@ -116,8 +116,11 @@ agendas Outlook » cochée dans les réglages ; sans les deux, aucun appel ne pa
 comme avant (une erreur Graph retombe aussi sur ce comportement). Deux usages branchés dessus :
 `POST /permanence/test-agenda` (valider l'habilitation sur UNE boîte, avec un message d'erreur
 explicite — c'est le seul chemin Graph qui ne se tait pas) et
-`POST /permanence/absences-assistantes` (relève les « Absence du bureau » des assistantes et
-les **propose** ; rien n'est enregistré sans clic). Règles, mise en service et
+`POST /permanence/absences-assistantes` (relève les « Absent(e) du bureau » de toute l'équipe
+et les **propose**). En plus, `server/src/releve.js` fait le même relevé **chaque nuit** (cron
+quotidien de `worker.js`) quand `config.graph.auto` est coché : il enregistre et retire tout
+seul, mais uniquement les lignes portant sa signature (motif « Relevé automatiquement dans
+Outlook ») — jamais une saisie manuelle, et rien en cas d'agendas illisibles. Règles, mise en service et
 pièges : `docs/permanence.md`. Outil interne Century 21 (noindex, logo Kadima) ; la page `rdv/` est
 publique mais **neutre** — ni marque Century 21 ni mention ABR IMMO, l'agence vient du serveur.
 

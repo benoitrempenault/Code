@@ -1210,6 +1210,66 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok(nNeuf <= maxAncien + 1, "pas de rattrapage : le nouveau prend sa part, pas celle de 12 semaines");
   }
 
+  // ---- Relevé AUTOMATIQUE des absences Outlook (cron nocturne) ----
+  {
+    const REL = await import("./src/releve.js");
+    const envG = {
+      GRAPH_TENANT_ID: "tenant-test", GRAPH_CLIENT_ID: "app-test", GRAPH_CLIENT_SECRET: "secret-test",
+      GRAPH_AUTH_BASE: "http://localhost:18790", GRAPH_BASE: "http://localhost:18790"
+    };
+    const GRAPHMOD2 = await import("./src/graph.js");
+    GRAPHMOD2.viderCache();
+
+    // Congé de l'assistante posé dans le faux Outlook (jourOof/jourOof2).
+    jourOof = new Date(Date.now() + 40 * 86400000).toISOString().slice(0, 10);
+    jourOof2 = new Date(Date.now() + 42 * 86400000).toISOString().slice(0, 10);
+    const finOof = new Date(Date.parse(jourOof2) - 86400000).toISOString().slice(0, 10);
+
+    const cfgAuto = { ...cfg, conseillers: {
+      "u2@azur-immo.fr": { pv: "medard" },
+      "lea@azur-immo.fr": { pv: "medard", assistante: true, boite: "agenda.lea@kadima-test.fr" }
+    }, graph: { actif: true, auto: true } };
+    await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfgAuto } });
+
+    // Interrupteur auto décoché : rien ne bouge.
+    await call("/permanence/config", { method: "PUT", headers: auth, body: { config: { ...cfgAuto, graph: { actif: true, auto: false } } } });
+    let bilan = await REL.releverAbsencesOutlook(envG, db);
+    ok(bilan.agences === 0 && bilan.ajoutees === 0, "sans la case « automatique », le cron ne touche à rien");
+
+    // Case cochée : l'absence d'Outlook est enregistrée toute seule.
+    await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfgAuto } });
+    bilan = await REL.releverAbsencesOutlook(envG, db);
+    ok(bilan.ajoutees === 1, "le cron enregistre l'absence trouvée dans Outlook");
+    const posees = (await call("/permanence/absences?from=" + jourOof + "&to=" + jourOof2, { headers: auth })).json.absences
+      .filter((a) => a.motif === REL.MOTIF_AUTO);
+    ok(posees.length === 1 && posees[0].cle === "lea@azur-immo.fr" && posees[0].debut === jourOof && posees[0].fin === finOof,
+      "la ligne porte la bonne personne, les bonnes dates et la signature du relevé automatique");
+    ok(posees[0].type === "absence", "le type auto est « absence » : pas de préavis pour un jour isolé");
+
+    // Deuxième passage : rien en double.
+    bilan = await REL.releverAbsencesOutlook(envG, db);
+    ok(bilan.ajoutees === 0 && bilan.retirees === 0, "deux passages de suite n'ajoutent rien en double");
+
+    // Une absence MANUELLE reste intouchable, même si Outlook ne la connaît pas.
+    const manuelle = await call("/permanence/absences", { method: "PUT", headers: auth, body: {
+      cle: "lea@azur-immo.fr", nom: "Lea", type: "conge", debut: jourOof2, fin: jourOof2 } });
+    await REL.releverAbsencesOutlook(envG, db);
+    ok((await call("/permanence/absences?from=" + jourOof2 + "&to=" + jourOof2, { headers: auth })).json.absences
+      .some((a) => a.id === manuelle.json.id), "une absence saisie à la main n'est jamais retirée par le cron");
+
+    // L'événement disparaît d'Outlook (congé annulé) : la ligne AUTO s'en va.
+    const ancienOof = jourOof;
+    jourOof = "2031-01-01"; jourOof2 = "2031-01-02";   // le faux Microsoft ne renvoie plus rien sur la fenêtre
+    bilan = await REL.releverAbsencesOutlook(envG, db);
+    ok(bilan.retirees === 1, "congé annulé dans Outlook → la ligne automatique est retirée");
+    ok(!(await call("/permanence/absences?from=" + ancienOof + "&to=" + finOof, { headers: auth })).json.absences
+      .some((a) => a.motif === REL.MOTIF_AUTO), "plus aucune ligne automatique sur la période");
+
+    // Ménage.
+    await call("/permanence/absences/" + manuelle.json.id, { method: "DELETE", headers: auth });
+    await call("/permanence/config", { method: "PUT", headers: auth, body: { config: cfg } });
+  }
+
   // ---- Accueil des assistantes : présence physique exigée hors horaires ----
   {
     const PERMOD = await import("./src/permanence.js");

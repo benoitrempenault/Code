@@ -742,19 +742,21 @@ export function createApp(env) {
     let au = PERM.estDate(b && b.au) && b.au >= du ? b.au : plafond;
     if (au > plafond) au = plafond;
     const config = PERM.parseConfig(await permConfigRow(ctx.agency.id));
-    const assistantes = Object.entries(config.conseillers || {})
-      .filter(([, r]) => r && r.assistante && r.actif !== false)
+    // Toute l'équipe : assistantes ET conseillers du tour — un congé posé
+    // dans l'agenda Kadima d'un conseiller le sort du tour, comme une saisie.
+    const equipe = Object.entries(config.conseillers || {})
+      .filter(([, r]) => r && r.actif !== false && (r.assistante || !r.horsCycle))
       .map(([cle, r]) => ({ cle, boite: String(r.boite || cle).toLowerCase(), pv: r.pv || "" }));
-    if (!assistantes.length) {
-      return c.json({ ok: false, message: "Aucune assistante désignée dans l'onglet Conseillers.", propositions: [] });
+    if (!equipe.length) {
+      return c.json({ ok: false, message: "Personne à relever : rattachez des conseillers et des assistantes dans l'onglet Conseillers.", propositions: [] });
     }
-    const trouve = await GRAPH.absencesOof(env, assistantes.map((a) => a.boite), du, au, now());
+    const trouve = await GRAPH.absencesOof(env, equipe.map((a) => a.boite), du, au, now());
     // Distinguer « lu, rien trouvé » de « pas pu lire du tout » : sinon une
     // case Agenda métier fausse se déguise en « aucune absence ».
     if (trouve.size === 0) {
       return c.json({
         ok: false,
-        message: "Les agendas des assistantes n'ont pas pu être lus. Vérifiez leurs cases « Agenda métier » (onglet Conseillers) — chacune doit passer le test de Réglages — puis réessayez.",
+        message: "Les agendas n'ont pas pu être lus. Vérifiez les cases « Agenda métier » (onglet Conseillers) — chacune doit passer le test de Réglages — puis réessayez.",
         propositions: []
       });
     }
@@ -763,17 +765,17 @@ export function createApp(env) {
       "SELECT cle, debut, fin FROM perm_absences WHERE agency_id = ? AND fin >= ? AND debut <= ?",
       [ctx.agency.id, du, au]);
     const propositions = [];
-    for (const a of assistantes) {
+    for (const a of equipe) {
       for (const bloc of trouve.get(a.boite) || []) {
         const connu = deja.some((x) => PERM.cleConseiller(x.cle) === a.cle && x.debut <= bloc.debut && x.fin >= bloc.fin);
-        if (!connu) propositions.push({ cle: a.cle, pv: a.pv, debut: bloc.debut, fin: bloc.fin, type: "conge" });
+        if (!connu) propositions.push({ cle: a.cle, pv: a.pv, debut: bloc.debut, fin: bloc.fin, type: "absence" });
       }
     }
     return c.json({
       ok: true,
       message: propositions.length
         ? propositions.length + " absence(s) relevée(s) dans les agendas Outlook."
-        : "Aucune nouvelle absence dans les agendas des assistantes sur la période.",
+        : "Aucune nouvelle absence dans les agendas Outlook sur la période (8 semaines).",
       propositions
     });
   });

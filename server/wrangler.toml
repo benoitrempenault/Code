@@ -22,7 +22,9 @@ bucket_name = "studio-brochure-files"
 # ont des dossiers en cours. DÉSACTIVÉ tant que RECAP_AUTO ≠ "1" (le bouton
 # « Recevoir le récap maintenant » de l'app reste actif). Test : POST /admin/recap.
 [triggers]
-crons = ["0 5 * * 1,5"]
+# 0 5 lun/ven : récapitulatif Suivi · 30 3 tous les jours : relevé des
+# absences Outlook (permanences) — 5h30/4h30 à Paris selon la saison.
+crons = ["0 5 * * 1,5", "30 3 * * *"]
 
 [vars]
 APP_ORIGINS = "https://benoitrempenault.github.io,https://studiobrochure.fr"

@@ -742,6 +742,7 @@
     // sont pas posés sur le serveur : rien à cocher qui ne ferait rien.
     const gActif = !!(config.graph && config.graph.actif);
     $("#graphActif").checked = gActif && graphPret;
+    $("#graphAuto").checked = gActif && graphPret && !!(config.graph && config.graph.auto);
     $("#graphNote").innerHTML = graphPret
       ? "Coché, la page publique ne proposera que les créneaux où le conseiller est réellement libre dans son agenda métier. "
         + "Décoché, elle propose tous les créneaux de permanence."
@@ -751,7 +752,7 @@
 
     $$("#view-reglages input, #view-reglages select, #view-reglages textarea, #view-reglages button")
       .forEach((el) => { if (!estAdmin) el.disabled = true; });
-    if (!graphPret) $("#graphActif").disabled = true;
+    if (!graphPret) { $("#graphActif").disabled = true; $("#graphAuto").disabled = true; }
   }
   /* --------------------- Horaires d'accueil (assistantes) ----------------- */
   const JOURS_ACC = [[1, "lun."], [2, "mar."], [3, "mer."], [4, "jeu."], [5, "ven."], [6, "sam."]];
@@ -840,7 +841,11 @@
       actif: $("#pubActif").checked,
       message: $("#pubMsg").value || ""
     };
-    config.graph = { actif: graphPret && $("#graphActif").checked };
+    config.graph = {
+      actif: graphPret && $("#graphActif").checked,
+      // Le relevé nocturne suppose la lecture des agendas active.
+      auto: graphPret && $("#graphActif").checked && $("#graphAuto").checked
+    };
     config.accueil = lireAccueil();
     try {
       const r = await api("/permanence/config", { method: "PUT", json: { config, si_version: configVersion } });

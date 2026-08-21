@@ -172,10 +172,12 @@
           <p class="hintline" id="absApercu"></p>
         </div>
         <div class="card">
-          <h3>Absences des assistantes</h3>
-          <p class="hintline">Relève ce qui est marqué « Absence du bureau » dans les agendas Outlook de vos
-            assistantes, et vous le propose. Rien n'est enregistré sans votre accord : une absence d'assistante
-            met tout un point de vente en présence physique.</p>
+          <h3>Absences relevées dans Outlook</h3>
+          <p class="hintline">Relève ce qui est marqué « Absent(e) du bureau » dans les agendas Kadima de toute
+            l'équipe — conseillers et assistantes — et vous le propose. Rien n'est enregistré sans votre accord.
+            Pour ne plus y penser : Réglages → « Relever automatiquement les absences chaque nuit » — l'outil
+            gère alors seul ce qu'il a relevé (ajout ET retrait si l'événement disparaît d'Outlook), sans jamais
+            toucher aux absences saisies à la main.</p>
           <div class="formrow">
             <button class="btn" id="btnAbsOutlook">↻ Relever dans Outlook</button>
             <span class="hintline" id="absOutlookMsg"></span>
@@ -278,6 +280,9 @@
           <div class="field"><label for="pubMsg">Message affiché aux visiteurs</label><input type="text" id="pubMsg" maxlength="200" /></div>
           <div class="field field--inline" style="margin-top:4px">
             <label for="graphActif"><input type="checkbox" id="graphActif" /> Tenir compte des agendas Outlook</label>
+          </div>
+          <div class="field field--inline" style="margin-top:2px">
+            <label for="graphAuto" title="Chaque nuit, l'outil lit les « Absent(e) du bureau » des agendas Kadima de toute l'équipe (conseillers et assistantes) et met les absences à jour tout seul. Il ne touche qu'aux absences qu'il a lui-même relevées — jamais aux saisies manuelles."><input type="checkbox" id="graphAuto" /> Relever automatiquement les absences chaque nuit</label>
           </div>
           <p class="hintline" id="graphNote" style="margin-top:0"></p>
           <div class="formrow">

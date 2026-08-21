@@ -203,10 +203,20 @@ avoir à regénérer le tour. Et **sans aucune assistante désignée sur un poin
 règle est inactive** — rien ne change pour qui ne s'en sert pas.
 
 **Relever les absences dans Outlook** (onglet Absences → « ↻ Relever dans Outlook ») : lit ce
-qui est marqué **« Absence du bureau »** dans les agendas des assistantes et le **propose**.
-Un rendez-vous ordinaire (« occupé ») n'est pas une absence : l'assistante est là. Rien n'est
-enregistré sans clic — une absence d'assistante bascule tout un point de vente en présence
-physique, ça se valide à l'œil. Demande les accès Microsoft ci-dessous.
+qui est marqué **« Absent(e) du bureau »** dans les agendas Kadima de **toute l'équipe** —
+conseillers du tour et assistantes — sur 8 semaines (Graph plafonne la lecture à 62 jours)
+et le **propose**. Un rendez-vous ordinaire (« occupé ») n'est pas une absence. Rien n'est
+enregistré sans clic. Demande les accès Microsoft ci-dessous.
+
+**Le relevé automatique** (Réglages → « Relever automatiquement les absences chaque nuit ») :
+un cron du Worker (`server/src/releve.js`, appelé par `worker.js` sur le déclencheur
+quotidien) fait le même relevé **et enregistre tout seul** — type « absence », donc préavis
+seulement à partir de 3 jours. Le garde-fou qui rend l'automatisme sûr : il ne touche
+**qu'aux lignes qu'il a lui-même créées** (motif « Relevé automatiquement dans Outlook ») —
+il les ajoute quand un congé apparaît, les retire quand l'événement disparaît d'Outlook, et
+ne modifie jamais une absence saisie à la main. En cas de doute (agendas illisibles, boîte en
+erreur), il ne touche à rien. Le planning publié n'est pas régénéré tout seul — la présence
+physique, elle, se recalcule immédiatement dans le tableau et les agendas.
 
 ### Lecture des agendas (Microsoft Graph) — livré éteint
 

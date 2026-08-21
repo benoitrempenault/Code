@@ -5,6 +5,7 @@
 import { wrapD1 } from "./src/db.js";
 import { createApp } from "./src/app.js";
 import { runRecap } from "./src/recap.js";
+import { releverAbsencesOutlook } from "./src/releve.js";
 
 export default {
   // Cron (wrangler.toml [triggers]) : récapitulatif des actions à mener
@@ -12,8 +13,13 @@ export default {
   // tant qu'il ne vaut pas "1", le cron ne fait RIEN (l'envoi à la demande
   // via le bouton de l'app reste actif, lui).
   async scheduled(event, env, ctx) {
-    if (env.RECAP_AUTO !== "1") return;
-    ctx.waitUntil(runRecap(env, wrapD1(env.DB)));
+    const db = wrapD1(env.DB);
+    // Relevé nocturne des absences Outlook (permanences). Inerte tant que
+    // l'agence n'a pas coché « relever automatiquement » dans ses réglages.
+    ctx.waitUntil(releverAbsencesOutlook(env, db));
+    // Récapitulatif Suivi : uniquement sur SON cron, et si RECAP_AUTO=1.
+    if (env.RECAP_AUTO !== "1" || event.cron !== "0 5 * * 1,5") return;
+    ctx.waitUntil(runRecap(env, db));
   },
 
   async fetch(request, env, ctx) {
