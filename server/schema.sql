@@ -296,3 +296,99 @@ DROP INDEX IF EXISTS idx_rdv_slot;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_rdv_slot_vivant ON rdv(agency_id, pv, date, debut, cle)
   WHERE statut <> 'annule';
 CREATE INDEX        IF NOT EXISTS idx_rdv_agency ON rdv(agency_id, date);
+
+-- =========================================================================
+-- Administration de l'agence (app Administration) : base contacts partagée,
+-- attentions automatiques (anniversaires de naissance et d'achat) et relevé
+-- des annonces du site de l'agence. Socle des briques prospection/acheteurs.
+-- =========================================================================
+
+CREATE TABLE IF NOT EXISTS crm_contacts (
+  id             TEXT PRIMARY KEY,            -- ct_xxxxxxxx
+  agency_id      TEXT NOT NULL REFERENCES agencies(id),
+  user_id        TEXT NOT NULL DEFAULT '',    -- dernier auteur
+  civilite       TEXT NOT NULL DEFAULT '',    -- M. | Mme | M. et Mme
+  prenom         TEXT NOT NULL DEFAULT '',
+  nom            TEXT NOT NULL DEFAULT '',
+  email          TEXT NOT NULL DEFAULT '',    -- minuscules
+  telephone      TEXT NOT NULL DEFAULT '',
+  adresse        TEXT NOT NULL DEFAULT '',
+  cp             TEXT NOT NULL DEFAULT '',
+  ville          TEXT NOT NULL DEFAULT '',
+  date_naissance TEXT NOT NULL DEFAULT '',    -- AAAA-MM-JJ, ou MM-JJ si l'année est inconnue
+  date_achat     TEXT NOT NULL DEFAULT '',    -- AAAA-MM-JJ (remise des clés)
+  types          TEXT NOT NULL DEFAULT '[]',  -- JSON : acquereur | vendeur | estime | bailleur | locataire | prospect
+  conseiller     TEXT NOT NULL DEFAULT '',    -- conseiller référent (signe les vœux)
+  notes          TEXT NOT NULL DEFAULT '',
+  source         TEXT NOT NULL DEFAULT 'manuel', -- manuel | import | studio-suivi
+  opt_out        INTEGER NOT NULL DEFAULT 0,  -- 1 = ne plus contacter
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_contacts_agency ON crm_contacts(agency_id, nom);
+CREATE INDEX IF NOT EXISTS idx_crm_contacts_email  ON crm_contacts(agency_id, email);
+
+-- Réglages Administration, une ligne par agence : identité de l'agence pour
+-- les e-mails (nom, coordonnées, logo), interrupteurs des anniversaires,
+-- adresse du site pour le relevé des annonces. Tout vit dans data (JSON).
+CREATE TABLE IF NOT EXISTS crm_reglages (
+  agency_id  TEXT PRIMARY KEY REFERENCES agencies(id),
+  data       TEXT NOT NULL,                   -- JSON { agence, anniversaires, annonces }
+  user_id    TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL
+);
+
+-- Journal des attentions envoyées : historique visible dans l'app ET
+-- anti-doublon (un contact ne reçoit pas deux fois le même vœu la même année).
+CREATE TABLE IF NOT EXISTS crm_envois (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  agency_id  TEXT NOT NULL,
+  contact_id TEXT NOT NULL DEFAULT '',
+  contact    TEXT NOT NULL DEFAULT '',        -- « Prénom Nom » (dénormalisé pour l'historique)
+  email      TEXT NOT NULL DEFAULT '',
+  type       TEXT NOT NULL,                   -- naissance | achat
+  annee      INTEGER NOT NULL,                -- clé de l'anti-doublon
+  statut     TEXT NOT NULL DEFAULT 'ok',      -- ok | erreur
+  erreur     TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_envois_ag    ON crm_envois(agency_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_crm_envois_dedup ON crm_envois(agency_id, contact_id, type, annee, statut);
+
+-- Annonces relevées sur le site de l'agence : le site est la base de données
+-- des biens. price_history garde chaque changement de prix (JSON).
+CREATE TABLE IF NOT EXISTS crm_annonces (
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  id            TEXT NOT NULL,                -- slug de l'annonce sur le site
+  url           TEXT NOT NULL DEFAULT '',
+  titre         TEXT NOT NULL DEFAULT '',
+  type          TEXT NOT NULL DEFAULT '',     -- maison | appartement | terrain | ...
+  prix          INTEGER,
+  ville         TEXT NOT NULL DEFAULT '',
+  cp            TEXT NOT NULL DEFAULT '',
+  pieces        INTEGER,
+  surface       REAL,
+  dpe           TEXT NOT NULL DEFAULT '',
+  description   TEXT NOT NULL DEFAULT '',     -- extraite de la page de détail
+  image         TEXT NOT NULL DEFAULT '',
+  statut        TEXT NOT NULL DEFAULT 'en_vente', -- en_vente | retiree
+  price_history TEXT NOT NULL DEFAULT '[]',   -- JSON [{date, prix}]
+  first_seen    INTEGER NOT NULL,
+  last_seen     INTEGER NOT NULL,
+  PRIMARY KEY (agency_id, id)
+);
+
+-- Journal des mouvements du marché de l'agence : nouvelles annonces, baisses
+-- et hausses de prix, retraits — carburant des relances acquéreurs.
+CREATE TABLE IF NOT EXISTS crm_annonces_events (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  agency_id   TEXT NOT NULL,
+  kind        TEXT NOT NULL,                  -- nouvelle | baisse | hausse | retrait
+  annonce_id  TEXT NOT NULL,
+  titre       TEXT NOT NULL DEFAULT '',
+  ville       TEXT NOT NULL DEFAULT '',
+  ancien_prix INTEGER,
+  prix        INTEGER,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_annonces_ev ON crm_annonces_events(agency_id, created_at);

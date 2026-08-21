@@ -74,6 +74,21 @@ partagés (table D1 `modeles`, routes `/modeles`, champs de fusion `{{reference}
 composition mailto + journalisation dans le dossier). Outil interne Century 21 (noindex,
 logo Kadima via `logo.js`) — mêmes règles de séparation que `/` et `/mandat/`.
 
+**`administration/` — Studio Administration**, l'app interne Kadima d'**administration de
+l'agence** : la base contacts partagée (import d'extraction Excel/CSV avec mappage de colonnes
+côté navigateur via `assets/js/vendor/xlsx.full.min.js`, fusion sans écrasement par e-mail puis
+nom + prénom), les **attentions automatiques** — e-mails d'anniversaire de naissance et d'achat
+au look de l'agence, envoyés chaque matin par le cron du Worker (`0 6 * * *` → `runCrmDaily`
+dans `server/src/crm.js`), signés du conseiller référent, anti-doublon annuel via `crm_envois`,
+partis via Resend au nom de l'agence (reply-to vers la boîte de l'agence) — et le **relevé
+quotidien des annonces du site de l'agence** (les cartes de `/annonces/` portent prix, pièces,
+ville, photo : une seule requête, puis au plus 15 pages de détail pour les descriptions des
+nouveautés ; historique des prix + journal des mouvements dans `crm_annonces`/`crm_annonces_events`,
+carburant des futures relances acquéreurs). Réservé au rôle `admin` de l'agence (routes `/crm/*`
+dans `server/src/app.js`). Session partagée `studio-mandatpro-account`, connexion via
+`mandat-pro/compte.html?retour=administration/`. Tables : `crm_contacts`, `crm_reglages`,
+`crm_envois`, `crm_annonces`, `crm_annonces_events`.
+
 **`permanence/` — Studio Permanence**, l'app interne Kadima du **tour de permanence physique
 des points de vente** (Saint-Médard, Caudéran, Blanquefort…), avec sa page publique de prise
 de rendez-vous sous **`rdv/`**. Créneaux 9h-12h / 12h-14h / 14h-17h / 17h-19h du lundi au

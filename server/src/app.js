@@ -20,6 +20,7 @@ import { changesOf } from "./db.js";
 import { promptFor } from "./prompts.js";
 import { now, monthKey, randId, randToken, sha256hex, hmacHex, safeEqual, costMicros, hashPassword, verifyPassword } from "./util.js";
 import { runRecap, buildRecap, envoyerMail } from "./recap.js";
+import * as CRM from "./crm.js";
 import * as PERM from "./permanence.js";
 import * as GRAPH from "./graph.js";
 
@@ -624,6 +625,169 @@ export function createApp(env) {
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
     await db.run("DELETE FROM annuaire WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
     return c.json({ ok: true });
+  });
+
+  /* ================== Administration (app Administration) =================
+     Base contacts de l'agence, attentions automatiques (anniversaires) et
+     annonces du site. Réservé aux administrateurs de l'agence : c'est le
+     socle qui alimentera prospection, acheteurs et événements.
+     ---------------------------------------------------------------------- */
+  const CRM_BULK_MAX = 5000;
+
+  // Session + rôle admin d'agence, en une passe. Renvoie { ctx } ou { resp }.
+  async function crmCtx(c) {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return { resp: err(c, 401, "Session invalide — reconnectez-vous.") };
+    if (!agencyOpen(ctx.agency)) return { resp: err(c, 402, "Abonnement inactif.") };
+    if (!isAgencyAdmin(ctx)) return { resp: err(c, 403, "Réservé aux administrateurs de l'agence.") };
+    return { ctx };
+  }
+  const parseTypes = (r) => ({ ...r, types: (() => { try { return JSON.parse(r.types || "[]"); } catch { return []; } })() });
+
+  app.get("/crm/contacts", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const rows = await db.all(
+      "SELECT * FROM crm_contacts WHERE agency_id = ? ORDER BY nom, prenom ASC", [ctx.agency.id]);
+    return c.json({ contacts: rows.map(parseTypes) });
+  });
+
+  app.put("/crm/contacts", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    const v = CRM.sanitizeContact(b);
+    if (!v.nom && !v.prenom && !v.email) return err(c, 400, "Un nom, un prénom ou un e-mail est requis.");
+    if (b.id) {
+      const cur = await db.get("SELECT id FROM crm_contacts WHERE id = ? AND agency_id = ?", [String(b.id), ctx.agency.id]);
+      if (!cur) return err(c, 404, "Contact introuvable.");
+      await db.run(
+        `UPDATE crm_contacts SET civilite = ?, prenom = ?, nom = ?, email = ?, telephone = ?, adresse = ?,
+         cp = ?, ville = ?, date_naissance = ?, date_achat = ?, types = ?, conseiller = ?, notes = ?,
+         opt_out = ?, user_id = ?, updated_at = ? WHERE id = ?`,
+        [v.civilite, v.prenom, v.nom, v.email, v.telephone, v.adresse, v.cp, v.ville,
+         v.date_naissance, v.date_achat, JSON.stringify(v.types), v.conseiller, v.notes,
+         v.opt_out, ctx.user.id, now(), cur.id]);
+      return c.json({ ok: true, id: cur.id, updated: true });
+    }
+    const id = randId("ct");
+    await db.run(
+      `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone,
+       adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out,
+       created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manuel', ?, ?, ?)`,
+      [id, ctx.agency.id, ctx.user.id, v.civilite, v.prenom, v.nom, v.email, v.telephone, v.adresse,
+       v.cp, v.ville, v.date_naissance, v.date_achat, JSON.stringify(v.types), v.conseiller, v.notes,
+       v.opt_out, now(), now()]);
+    return c.json({ ok: true, id, updated: false });
+  });
+
+  app.delete("/crm/contacts/:id", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    await db.run("DELETE FROM crm_contacts WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    return c.json({ ok: true });
+  });
+
+  // Import d'extraction : lignes déjà mappées côté navigateur (colonne → champ).
+  app.post("/crm/contacts/bulk", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b || !Array.isArray(b.rows) || !b.rows.length) return err(c, 400, "Aucune ligne à importer.");
+    if (b.rows.length > CRM_BULK_MAX) return err(c, 400, `Import limité à ${CRM_BULK_MAX} lignes à la fois.`);
+    const source = ["import", "studio-suivi"].includes(String(b.source)) ? String(b.source) : "import";
+    const result = await CRM.bulkUpsertContacts(db, ctx.agency.id, ctx.user.id, b.rows, source);
+    return c.json(result);
+  });
+
+  app.get("/crm/reglages", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json({ reglages: await CRM.getReglages(db, ctx.agency) });
+  });
+
+  app.put("/crm/reglages", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    return c.json({ reglages: await CRM.saveReglages(db, ctx.agency, ctx.user.id, b) });
+  });
+
+  app.get("/crm/anniversaires/upcoming", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const days = Math.min(parseInt(c.req.query("days"), 10) || 30, 366);
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    return c.json({ upcoming: await CRM.upcoming(db, ctx.agency, reglages, days) });
+  });
+
+  // Aperçu du vœu : le HTML part en JSON, le navigateur l'affiche en iframe srcdoc.
+  app.get("/crm/anniversaires/apercu", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const type = c.req.query("type") === "achat" ? "achat" : "naissance";
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    const isoDay = CRM.parisDate();
+    const annee = parseInt(isoDay.slice(0, 4), 10);
+    const exemple = {
+      civilite: "Mme", prenom: "Sophie", nom: "Martin", ville: "Saint-Médard-en-Jalles",
+      date_naissance: "1985-05-12", date_achat: `${annee - 3}${isoDay.slice(4)}`,
+      conseiller: ctx.user.name || "",
+    };
+    return c.json(CRM.buildAnniversaireEmail(exemple, type, reglages.agence, isoDay));
+  });
+
+  app.post("/crm/anniversaires/test", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    const to = String((b && b.to) || "").trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return err(c, 400, "Adresse e-mail de test invalide.");
+    const type = (b && b.type) === "achat" ? "achat" : "naissance";
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    const isoDay = CRM.parisDate();
+    const exemple = {
+      prenom: (ctx.user.name || "").split(" ")[0], nom: "", ville: "Saint-Médard-en-Jalles",
+      date_naissance: "1985-05-12", date_achat: `${parseInt(isoDay.slice(0, 4), 10) - 3}${isoDay.slice(4)}`,
+      conseiller: ctx.user.name || "",
+    };
+    const { subject, html } = CRM.buildAnniversaireEmail(exemple, type, reglages.agence, isoDay);
+    const r = await CRM.envoyerMailHtml(env, {
+      to, subject: "[TEST] " + subject, html,
+      fromName: reglages.agence.nom || ctx.agency.name, replyTo: reglages.agence.email || "",
+    });
+    if (!r.ok) return err(c, 500, r.dryRun ? "Envoi d'e-mails non configuré sur le serveur (RESEND_API_KEY)." : (r.error || "Échec de l'envoi."));
+    return c.json({ ok: true });
+  });
+
+  // Passage du jour à la demande (le cron du matin fait la même chose tout seul).
+  app.post("/crm/anniversaires/run", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    return c.json({ summary: await CRM.runAnniversaires(env, db, ctx.agency, reglages) });
+  });
+
+  app.get("/crm/envois", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const rows = await db.all(
+      "SELECT contact, email, type, annee, statut, erreur, created_at FROM crm_envois WHERE agency_id = ? ORDER BY created_at DESC LIMIT 200",
+      [ctx.agency.id]);
+    return c.json({ envois: rows });
+  });
+
+  app.get("/crm/annonces", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const annonces = await db.all(
+      "SELECT * FROM crm_annonces WHERE agency_id = ? ORDER BY CASE statut WHEN 'en_vente' THEN 0 ELSE 1 END, prix DESC",
+      [ctx.agency.id]);
+    const events = await db.all(
+      "SELECT kind, annonce_id, titre, ville, ancien_prix, prix, created_at FROM crm_annonces_events WHERE agency_id = ? ORDER BY created_at DESC LIMIT 100",
+      [ctx.agency.id]);
+    for (const a of annonces) { try { a.price_history = JSON.parse(a.price_history || "[]"); } catch { a.price_history = []; } }
+    return c.json({ annonces, events });
+  });
+
+  app.post("/crm/annonces/sync", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    try {
+      return c.json({ summary: await CRM.syncAnnonces(db, ctx.agency, reglages) });
+    } catch (e) {
+      return err(c, 500, e.message);
+    }
   });
 
   /* ===================== Permanences (app Permanence) ======================

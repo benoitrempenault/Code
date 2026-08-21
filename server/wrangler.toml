@@ -24,7 +24,9 @@ bucket_name = "studio-brochure-files"
 [triggers]
 # 0 5 lun/ven : récapitulatif Suivi · 30 3 tous les jours : relevé des
 # absences Outlook (permanences) — 5h30/4h30 à Paris selon la saison.
-crons = ["0 5 * * 1,5", "30 3 * * *"]
+# 0 6 tous les jours : Administration (annonces du site + vœux d'anniversaire),
+# 8h/7h à Paris selon la saison — inerte pour les agences qui n'ont rien activé.
+crons = ["0 5 * * 1,5", "30 3 * * *", "0 6 * * *"]
 
 [vars]
 APP_ORIGINS = "https://benoitrempenault.github.io,https://studiobrochure.fr"

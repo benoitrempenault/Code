@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; frame-src 'self' blob: data:; connect-src 'self' https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev https://fonts.googleapis.com https://fonts.gstatic.com" />
+  <title>Studio Brochure — Administration</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <meta name="robots" content="noindex" />
+  <meta name="description" content="Administration de l'agence : base contacts, attentions automatiques (anniversaires), annonces du site." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/admin.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <a class="home" href="../mandat/" title="Accueil Studio Brochure">⌂</a>
+  <h1>Studio <em>Administration</em></h1>
+  <div class="topbar-right">
+    <span id="who" class="who"></span>
+  </div>
+</header>
+
+<!-- Écran de connexion (affiché si pas de session) -->
+<div id="ecran-connexion" class="connexion" hidden>
+  <div class="connexion-carte">
+    <h2>Connexion requise</h2>
+    <p>L'Administration utilise votre compte Studio Brochure, le même que pour
+      le Suivi des ventes. Connectez-vous une fois, la session vaut pour toutes les apps.</p>
+    <a class="btn btn-or" id="lien-connexion" href="../mandat-pro/compte.html?retour=administration/">Se connecter</a>
+    <p class="petit" id="connexion-detail"></p>
+  </div>
+</div>
+
+<main id="app" hidden>
+  <nav class="onglets">
+    <button class="onglet actif" data-onglet="contacts">👥 Contacts</button>
+    <button class="onglet" data-onglet="anniversaires">🎂 Anniversaires</button>
+    <button class="onglet" data-onglet="annonces">🏠 Annonces</button>
+    <button class="onglet" data-onglet="reglages">🔧 Réglages</button>
+  </nav>
+
+  <!-- ============================ CONTACTS ============================ -->
+  <section id="panneau-contacts" class="panneau actif">
+    <div class="carte">
+      <h2>Base contacts de l'agence</h2>
+      <p class="aide">Le socle de toutes les briques (anniversaires, prospection, acheteurs,
+        événements). Importez votre extraction globale (Excel ou CSV) : les imports fusionnent
+        avec l'existant (par e-mail, sinon nom + prénom) sans écraser ce qui est déjà saisi.</p>
+      <div class="barre">
+        <input type="search" id="recherche-contacts" placeholder="Rechercher nom, e-mail, ville…" />
+        <select id="filtre-type">
+          <option value="">Tous les types</option>
+          <option value="acquereur">Acquéreurs</option>
+          <option value="vendeur">Vendeurs</option>
+          <option value="estime">Estimés</option>
+          <option value="bailleur">Bailleurs</option>
+          <option value="locataire">Locataires</option>
+          <option value="prospect">Prospects</option>
+        </select>
+        <button class="btn btn-or" id="btn-import">📥 Importer une extraction</button>
+        <button class="btn" id="btn-nouveau-contact">+ Nouveau contact</button>
+      </div>
+    </div>
+    <div id="table-contacts"></div>
+  </section>
+
+  <!-- ========================== ANNIVERSAIRES ========================== -->
+  <section id="panneau-anniversaires" class="panneau">
+    <div class="carte">
+      <h2>Attentions automatiques</h2>
+      <p class="aide">Chaque matin, un e-mail élégant aux couleurs de l'agence part tout seul
+        vers les contacts dont c'est l'anniversaire (naissance) ou l'anniversaire d'achat
+        (« il y a X ans, vous receviez vos clés »), signé du conseiller référent.
+        Un même contact ne reçoit jamais deux fois le même vœu dans l'année.</p>
+      <div class="barre">
+        <label class="case"><input type="checkbox" id="anniv-enabled" /> <strong>Activer l'envoi automatique du matin</strong></label>
+        <label class="case"><input type="checkbox" id="anniv-naissance" checked /> Naissances</label>
+        <label class="case"><input type="checkbox" id="anniv-achat" checked /> Anniversaires d'achat</label>
+      </div>
+      <div class="grille-champs">
+        <label>Copie cachée de contrôle (optionnel)
+          <input type="email" id="anniv-cci" placeholder="ex : kadima@century21.fr" /></label>
+      </div>
+      <div class="barre">
+        <button class="btn btn-or" id="btn-anniv-save">Enregistrer</button>
+        <button class="btn" id="btn-apercu-naissance">👁 Aperçu naissance</button>
+        <button class="btn" id="btn-apercu-achat">👁 Aperçu achat</button>
+      </div>
+      <div class="barre barre-haut">
+        <input type="email" id="test-email" placeholder="votre.adresse@email.fr" />
+        <button class="btn" id="btn-test-naissance">✉️ Test naissance</button>
+        <button class="btn" id="btn-test-achat">✉️ Test achat</button>
+        <button class="btn" id="btn-run-jour">▶️ Lancer le passage du jour</button>
+      </div>
+    </div>
+    <div class="carte">
+      <h2>Les 30 prochains jours</h2>
+      <div id="table-upcoming"></div>
+    </div>
+    <div class="carte">
+      <h2>Historique des envois</h2>
+      <div id="table-envois"></div>
+    </div>
+  </section>
+
+  <!-- ============================= ANNONCES ============================ -->
+  <section id="panneau-annonces" class="panneau">
+    <div class="carte">
+      <h2>Annonces du site de l'agence</h2>
+      <p class="aide">Le site internet est la base de données des biens : les annonces sont
+        relevées chaque matin (prix, pièces, surface, ville, photo), avec l'historique des prix.
+        Les baisses de prix alimenteront les relances automatiques des acquéreurs.</p>
+      <div class="barre">
+        <label class="case"><input type="checkbox" id="annonces-auto" /> <strong>Relevé quotidien automatique</strong></label>
+        <input type="url" id="annonces-site" placeholder="https://century21-kadima.fr" style="min-width:260px;" />
+        <button class="btn btn-or" id="btn-annonces-save">Enregistrer</button>
+        <button class="btn" id="btn-annonces-sync">🔄 Relever maintenant</button>
+      </div>
+      <p class="petit" id="annonces-etat"></p>
+    </div>
+    <div class="carte">
+      <h2>Mouvements récents</h2>
+      <div id="table-mouvements"></div>
+    </div>
+    <div class="carte">
+      <h2>Les biens</h2>
+      <div id="table-annonces"></div>
+    </div>
+  </section>
+
+  <!-- ============================= RÉGLAGES ============================ -->
+  <section id="panneau-reglages" class="panneau">
+    <div class="carte">
+      <h2>Identité de l'agence</h2>
+      <p class="aide">Ces informations habillent les e-mails envoyés (en-tête, signature,
+        pied de page). Les réponses des clients arrivent dans la boîte de l'agence.</p>
+      <div class="grille-champs">
+        <label>Nom de l'agence<input id="ag-nom" placeholder="CENTURY 21 Kadima" /></label>
+        <label>Adresse<input id="ag-adresse" placeholder="20-22 rue François Mitterrand, Saint-Médard-en-Jalles" /></label>
+        <label>Téléphone<input id="ag-tel" placeholder="05 56 57 77 77" /></label>
+        <label>E-mail (reçoit les réponses)<input id="ag-email" placeholder="kadima@century21.fr" /></label>
+        <label>Site web<input id="ag-site" placeholder="century21-kadima.fr" /></label>
+        <label>URL du logo (optionnel)<input id="ag-logo" placeholder="https://…/logo.png" /></label>
+      </div>
+      <div class="barre">
+        <button class="btn btn-or" id="btn-reglages-save">Enregistrer</button>
+      </div>
+      <p class="petit">Les e-mails partent via le serveur Studio Brochure au nom de l'agence —
+        rien à configurer de plus (pas de mot de passe SMTP).</p>
+    </div>
+  </section>
+</main>
+
+<div class="voile" id="voile" hidden>
+  <div class="modale" id="modale">
+    <div class="modale-tete">
+      <h2 id="modale-titre"></h2>
+      <button class="fermer" id="modale-fermer">&times;</button>
+    </div>
+    <div class="modale-corps" id="modale-corps"></div>
+    <div class="modale-pied" id="modale-pied"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/vendor/xlsx.full.min.js"></script>
+<script src="assets/js/admin.js"></script>
+</body>
+</html>
