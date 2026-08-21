@@ -940,7 +940,40 @@
         "</div>";
     }).join("");
   }
+  /* L'annuaire est le carnet central : un e-mail corrigé sur une fiche
+     notaire ou syndic se répercute sur TOUS les dossiers où cette personne
+     figure (rapprochement par nom via annFuzzy — en cas d'homonymes on ne
+     touche à rien, comme partout ailleurs). Les conseillers n'ont pas besoin
+     de répercussion : leurs e-mails sont toujours lus dans l'annuaire. */
+  async function propageEmail(a) {
+    const types = a.type === "notaire" ? ["notaire"]
+      : (a.type === "syndic" || a.type === "president") ? ["syndic", "president"] : null;
+    const mail = (a.email || "").trim();
+    // Adresse complète seulement : la frappe est enregistrée au fil de l'eau,
+    // on ne répercute pas une adresse à moitié tapée. (Chaque correction
+    // ultérieure se répercute à son tour : la dernière valeur gagne.)
+    if (!types || !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(mail)) return;
+    let touches = 0;
+    for (const m of list) {
+      try { await loadDetail(m.id); } catch (e) { continue; }
+      const d = details[m.id].data;
+      let modif = false;
+      if (a.type === "notaire") {
+        for (const key of ["notaire_vendeur", "notaire_acquereur"]) {
+          const hit = annFuzzy(["notaire"], d[key].nom);
+          if (hit && hit.id === a.id && d[key].email !== mail) { d[key].email = mail; modif = true; }
+        }
+      } else if (d.syndic && d.syndic.nom) {
+        const hit = annFuzzy(["syndic", "president"], d.syndic.nom);
+        if (hit && hit.id === a.id && d.syndic.email !== mail) { d.syndic.email = mail; modif = true; }
+      }
+      if (modif) { await saveDossier(m.id); touches++; }
+    }
+    if (touches) toast("E-mail répercuté sur " + touches + " dossier(s) ✓");
+    if (touches && (location.hash || "").startsWith("#dossier/")) renderDossier();
+  }
   const saveAnnSoon = {};
+  const emailTouche = {}; // fiche id → l'e-mail vient d'être modifié
   function wireAnnuaire() {
     const root = $("#annuaireList");
     // Le select « Agence » d'un conseiller passe par le même chemin que les
@@ -955,9 +988,13 @@
       const a = annuaire.find((x) => x.id === row.dataset.aid);
       if (!a) return;
       a[f] = ev.target.value;
+      if (f === "email") emailTouche[a.id] = true;
       saveAnnSoon[a.id] = saveAnnSoon[a.id] || debounce(async () => {
-        try { await api("/annuaire", { method: "PUT", json: a }); toast("Annuaire enregistré ✓"); }
-        catch (e) { toast(e.message, true); }
+        try {
+          await api("/annuaire", { method: "PUT", json: a });
+          toast("Annuaire enregistré ✓");
+          if (emailTouche[a.id]) { delete emailTouche[a.id]; await propageEmail(a); }
+        } catch (e) { toast(e.message, true); }
       }, 1200);
       saveAnnSoon[a.id]();
     });
