@@ -251,6 +251,11 @@ const pwOk = await call("/auth/password-login", { body: { email: "claire@azur-im
 ok(pwOk.status === 200 && pwOk.json.session && pwOk.json.user.email === "claire@azur-immo.fr", "bon mot de passe → session ouverte");
 ok((await call("/me", { headers: { Authorization: "Bearer " + pwOk.json.session } })).status === 200, "la session mot de passe fonctionne comme les autres");
 ok((await call("/auth/password-login", { body: { email: "inconnu@nulle-part.fr", password: "PeuImporte123" } })).status === 401, "e-mail inconnu → même 401 générique (pas de fuite)");
+// Le compteur anti-force-brute est remis à zéro à chaque minute pleine : si
+// les 6 essais chevauchent un changement de minute, le test échoue à tort
+// (vu en CI à 17:19:00 pile). Trop près du bord → on attend la minute suivante.
+const msDansMinute = Date.now() % 60000;
+if (msDansMinute > 56000) await new Promise((r) => setTimeout(r, 60500 - msDansMinute));
 let pwLast = null;
 for (let i = 0; i < 6; i++) pwLast = await call("/auth/password-login", { body: { email: "claire@azur-immo.fr", password: "mauvais-" + i } });
 ok(pwLast.status === 429, "force brute bloquée (5 essais / minute)");
