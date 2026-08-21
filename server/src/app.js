@@ -744,6 +744,15 @@ export function createApp(env) {
       return c.json({ ok: false, message: "Aucune assistante désignée dans l'onglet Conseillers.", propositions: [] });
     }
     const trouve = await GRAPH.absencesOof(env, assistantes.map((a) => a.boite), du, au, now());
+    // Distinguer « lu, rien trouvé » de « pas pu lire du tout » : sinon une
+    // case Agenda métier fausse se déguise en « aucune absence ».
+    if (trouve.size === 0) {
+      return c.json({
+        ok: false,
+        message: "Les agendas des assistantes n'ont pas pu être lus. Vérifiez leurs cases « Agenda métier » (onglet Conseillers) — chacune doit passer le test de Réglages — puis réessayez.",
+        propositions: []
+      });
+    }
     // Ce qui est déjà saisi ne doit pas être proposé une deuxième fois.
     const deja = await db.all(
       "SELECT cle, debut, fin FROM perm_absences WHERE agency_id = ? AND fin >= ? AND debut <= ?",

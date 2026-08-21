@@ -74,25 +74,13 @@ export async function occupations(env, boites, du, au, maintenant) {
   if (!t) return vide;
 
   const base = env.GRAPH_BASE || GRAPH;
-  // getSchedule s'exécute « depuis » une boîte : on prend la première du lot,
-  // qui est forcément dans la portée accordée puisqu'elle est dans la liste.
-  const res = await fetch(base + "/users/" + encodeURIComponent(cibles[0]) + "/calendar/getSchedule", {
-    method: "POST",
-    headers: {
-      Authorization: "Bearer " + t,
-      "Content-Type": "application/json",
-      Prefer: 'outlook.timezone="Europe/Paris"'
-    },
-    body: JSON.stringify({
-      schedules: cibles.slice(0, 100),
-      startTime: { dateTime: du + ":00", timeZone: "Europe/Paris" },
-      endTime: { dateTime: au + ":00", timeZone: "Europe/Paris" },
-      availabilityViewInterval: 30
-    })
-  }).catch(() => null);
-  if (!res || !res.ok) return vide;
-  const j = await res.json().catch(() => null);
-  if (!j || !Array.isArray(j.value)) return vide;
+  const j = await getScheduleDepuis(base, t, cibles, {
+    schedules: cibles.slice(0, 100),
+    startTime: { dateTime: du + ":00", timeZone: "Europe/Paris" },
+    endTime: { dateTime: au + ":00", timeZone: "Europe/Paris" },
+    availabilityViewInterval: 30
+  });
+  if (!j) return vide;
 
   const out = new Map();
   for (const bloc of j.value) {
@@ -210,19 +198,13 @@ export async function absencesOof(env, boites, du, au, maintenant) {
   const t = await jeton(env, maintenant);
   if (!t) return out;
   const base = env.GRAPH_BASE || GRAPH;
-  const res = await fetch(base + "/users/" + encodeURIComponent(cibles[0]) + "/calendar/getSchedule", {
-    method: "POST",
-    headers: { Authorization: "Bearer " + t, "Content-Type": "application/json", Prefer: 'outlook.timezone="Europe/Paris"' },
-    body: JSON.stringify({
-      schedules: cibles.slice(0, 100),
-      startTime: { dateTime: du + "T00:00:00", timeZone: "Europe/Paris" },
-      endTime: { dateTime: au + "T23:59:00", timeZone: "Europe/Paris" },
-      availabilityViewInterval: 60
-    })
-  }).catch(() => null);
-  if (!res || !res.ok) return out;
-  const j = await res.json().catch(() => null);
-  if (!j || !Array.isArray(j.value)) return out;
+  const j = await getScheduleDepuis(base, t, cibles, {
+    schedules: cibles.slice(0, 100),
+    startTime: { dateTime: du + "T00:00:00", timeZone: "Europe/Paris" },
+    endTime: { dateTime: au + "T23:59:00", timeZone: "Europe/Paris" },
+    availabilityViewInterval: 60
+  });
+  if (!j) return out;
 
   for (const bloc of j.value) {
     const cle = String(bloc.scheduleId || "").toLowerCase();
@@ -262,6 +244,26 @@ function fusionner(jours) {
     out.push({ debut: j, fin: j });
   }
   return out;
+}
+
+/*
+   getSchedule s'exécute « depuis » une boîte. Si cette boîte d'ancrage est
+   invalide (adresse mal saisie, boîte hors tenant), TOUT l'appel échoue —
+   et une seule case fausse rendait la lecture muette pour toute l'équipe.
+   On essaie donc jusqu'à trois boîtes du lot avant de renoncer.
+*/
+async function getScheduleDepuis(base, jetonAcces, cibles, corps) {
+  for (const ancre of cibles.slice(0, 3)) {
+    const res = await fetch(base + "/users/" + encodeURIComponent(ancre) + "/calendar/getSchedule", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + jetonAcces, "Content-Type": "application/json", Prefer: 'outlook.timezone="Europe/Paris"' },
+      body: JSON.stringify(corps)
+    }).catch(() => null);
+    if (!res || !res.ok) continue;
+    const j = await res.json().catch(() => null);
+    if (j && Array.isArray(j.value)) return j;
+  }
+  return null;
 }
 
 // Un créneau chevauche-t-il une occupation ? Les bornes se touchent sans se
