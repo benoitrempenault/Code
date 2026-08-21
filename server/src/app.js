@@ -735,7 +735,12 @@ export function createApp(env) {
     }
     const b = await c.req.json().catch(() => ({}));
     const du = PERM.estDate(b && b.du) ? b.du : isoJour(now());
-    const au = PERM.estDate(b && b.au) && b.au >= du ? b.au : isoJour(now() + 60 * 86400);
+    // Graph refuse toute fenêtre getSchedule au-delà de 62 jours : on borne
+    // à 55, quoi que demande le client — sinon l'appel entier échoue et le
+    // relevé devient muet.
+    const plafond = isoJour(Math.floor(new Date(du + "T12:00:00Z").getTime() / 1000) + 55 * 86400);
+    let au = PERM.estDate(b && b.au) && b.au >= du ? b.au : plafond;
+    if (au > plafond) au = plafond;
     const config = PERM.parseConfig(await permConfigRow(ctx.agency.id));
     const assistantes = Object.entries(config.conseillers || {})
       .filter(([, r]) => r && r.assistante && r.actif !== false)

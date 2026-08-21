@@ -615,7 +615,8 @@
     try {
       const r = await api("/permanence/absences-assistantes", {
         method: "POST",
-        json: { du: aujourdhui(), au: P.addDays(aujourdhui(), 90) }
+        // 55 jours : Microsoft plafonne la lecture à 62 jours d'un coup.
+        json: { du: aujourdhui(), au: P.addDays(aujourdhui(), 55) }
       });
       msg.textContent = r.message || "";
       propositionsAbs = r.propositions || [];
