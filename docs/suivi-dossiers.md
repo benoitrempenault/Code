@@ -78,10 +78,12 @@ appel après-vente, clôture.
 ### Liste des dossiers
 
 Par défaut l'ordre de travail : dossiers en cours d'abord, puis l'échéance la plus proche.
-Les en-têtes **Dossier**, **Compromis** et **Prochaine échéance** sont cliquables — premier
-clic croissant, deuxième décroissant, troisième retour à l'ordre de travail. Le tri par nom
-ignore casse et accents (`localeCompare` fr), et les valeurs vides finissent toujours en bas
-quel que soit le sens.
+Les en-têtes **Dossier**, **Compromis**, **Prochaine échéance** et **Signature prévue**
+sont cliquables — premier clic croissant, deuxième décroissant, troisième retour à l'ordre
+de travail. Le tri par nom ignore casse et accents (`localeCompare` fr), et les valeurs
+vides finissent toujours en bas quel que soit le sens. La colonne « Signature prévue »
+reprend la date du rendez-vous de signature de chaque dossier : elle vit dans le détail,
+chargé en tâche de fond au premier affichage de la liste (« … » le temps du chargement).
 
 ### Relire un compromis (rattrapage des anciens dossiers)
 

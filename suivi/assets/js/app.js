@@ -1125,6 +1125,19 @@
   /* ----------------------------- Liste dossiers --------------------------- */
   // Colonne de tri choisie dans l'en-tête ("" = ordre de travail par défaut).
   let triCol = "", triSens = 1;
+  // Date de signature prévue (rendez-vous de signature) d'une ligne — elle vit
+  // dans le détail du dossier, chargé en tâche de fond au premier affichage.
+  const sigOf = (m) => details[m.id] ? (details[m.id].data.dates.signature_prevue || "") : "";
+  let chargeListe = false;
+  async function chargerDetailsListe() {
+    if (chargeListe) return;
+    const manquants = list.filter((m) => !details[m.id]);
+    if (!manquants.length) return;
+    chargeListe = true;
+    for (const m of manquants) { try { await loadDetail(m.id); } catch (e) { /* dossier illisible */ } }
+    chargeListe = false;
+    if ((location.hash || "").startsWith("#dossiers")) renderList();
+  }
   function renderList() {
     const q = ($("#search").value || "").toLowerCase();
     const fs = $("#filtreStatut").value;
@@ -1143,7 +1156,7 @@
        inverse), sans distinguer les statuts. Les valeurs vides finissent
        toujours en bas, quel que soit le sens. */
     if (triCol) {
-      const cle = (m) => triCol === "nom" ? (m.name || "") : (m[triCol] || "");
+      const cle = (m) => triCol === "nom" ? (m.name || "") : triCol === "signature" ? sigOf(m) : (m[triCol] || "");
       rows.sort((a, b) => {
         const x = cle(a), y = cle(b);
         if (!x !== !y) return x ? -1 : 1;
@@ -1174,10 +1187,14 @@
         "<td>" + esc(m.adresse || "") + "</td>" +
         "<td>" + frDate(m.date_ssp) + "</td>" +
         "<td>" + (m.echeance ? frDate(m.echeance) + ' <small style="color:var(--muted)">(' + deltaLabel(days) + ")</small>" : "—") + "</td>" +
+        "<td>" + (sigOf(m) ? frDate(sigOf(m)) : (details[m.id] ? "—" : "…")) + "</td>" +
         "<td>" + esc(m.conseillers || "") + "</td>" +
         '<td><span class="badge ' + esc(m.statut) + '">' + (STATUTS[m.statut] || m.statut) + "</span></td></tr>";
     }).join("");
     $("#listEmpty").hidden = rows.length > 0;
+    // Les dates de signature manquantes se chargent en tâche de fond, puis la
+    // liste se redessine une fois (les « … » deviennent des dates).
+    chargerDetailsListe();
   }
 
   /* ---------------------------- Détail dossier ---------------------------- */
