@@ -1096,11 +1096,16 @@
     "var inner=pg.querySelector('.page__inner');if(!inner)continue;" +
     "inner.style.zoom='';if(pg.offsetHeight<=A4+2)continue;var z=1;" +
     "while(z>0.74&&pg.offsetHeight>A4+2){z-=0.02;inner.style.zoom=String(Math.round(z*100)/100);}}}" +
-    "fit();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fit);" +
-    "window.addEventListener('beforeprint',fit);})();";
+    // Largeur : la page A4 (794 px) se réduit à la largeur de l'écran (téléphone = plein écran)
+    "function fitW(){var l=Math.min(1,Math.max(0.3,(window.innerWidth-8)/794)).toFixed(3);" +
+    "var pg=document.querySelectorAll('.page');for(var i=0;i<pg.length;i++){pg[i].style.zoom=l;}}" +
+    "fitW();fit();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fit);" +
+    "window.addEventListener('resize',fitW);window.addEventListener('orientationchange',fitW);" +
+    "window.addEventListener('beforeprint',function(){var pg=document.querySelectorAll('.page');for(var i=0;i<pg.length;i++){pg[i].style.zoom='';}fit();});" +
+    "window.addEventListener('afterprint',fitW);})();";
 
   const EXPORT_CSS =
-    "body{margin:0;background:#3a3a3d;}" +
+    "html,body{overflow-x:hidden;}body{margin:0;background:#3a3a3d;}" +
     ".brochure{display:flex;flex-direction:column;align-items:center;gap:0;}" +
     ".export-toolbar{position:fixed;top:14px;right:14px;z-index:99;}" +
     ".export-toolbar button{font-family:Inter,sans-serif;background:#1c1813;color:#fff;border:0;border-radius:8px;padding:10px 16px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.3);}" +
