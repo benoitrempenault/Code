@@ -96,51 +96,106 @@ export function sanitizeContact(b) {
 
 // Import en masse : rapproche par e-mail, sinon nom + prenom. Les champs vides
 // de l'import n'ecrasent jamais une valeur deja en base ; les types s'ajoutent.
+//
+// TOUT se joue en ENSEMBLE, pas ligne a ligne : chaque requete D1 compte dans
+// le plafond de sous-requetes du Worker (un import de 1500 fiches en ligne a
+// ligne = ~3000 requetes → l'appel echouait en production). Ici : une lecture,
+// la fusion en memoire, un DELETE des lignes fusionnees, puis quelques INSERT
+// multi-lignes — une quinzaine de requetes quel que soit le volume. Les valeurs
+// sont echappees inline (sqlText) car D1 limite aussi le nombre de parametres
+// lies par requete (~100, soit 5 lignes de 20 colonnes seulement).
+const sqlText = (v) => "'" + String(v ?? "").replace(/'/g, "''") + "'";
+const INSERT_MAX_LIGNES = 150;      // et au plus ~80 Ko de SQL par requete
+const INSERT_MAX_OCTETS = 80000;
+
+const CONTACT_COLS = ["id", "agency_id", "user_id", "civilite", "prenom", "nom", "email",
+  "telephone", "adresse", "cp", "ville", "date_naissance", "date_achat", "types",
+  "conseiller", "notes", "source", "opt_out", "created_at", "updated_at"];
+const COLS_NUM = new Set(["opt_out", "created_at", "updated_at"]);
+
 export async function bulkUpsertContacts(db, agencyId, userId, rows, source = "import") {
-  const existing = await db.all(
-    "SELECT id, nom, prenom, email, types FROM crm_contacts WHERE agency_id = ?", [agencyId]);
+  const existing = await db.all("SELECT * FROM crm_contacts WHERE agency_id = ?", [agencyId]);
+  const keyName = (nom, prenom) => `${(nom || "").toLowerCase()}|${(prenom || "").toLowerCase()}`;
   const byEmail = new Map(), byName = new Map();
   for (const c of existing) {
     if (c.email) byEmail.set(c.email, c);
-    byName.set(`${(c.nom || "").toLowerCase()}|${(c.prenom || "").toLowerCase()}`, c);
+    byName.set(keyName(c.nom, c.prenom), c);
   }
-  let count = existing.length;
-  let created = 0, updated = 0, skipped = 0;
+
+  let count = existing.length, created = 0, updated = 0, skipped = 0;
+  const ts = now();
+  const keep = (nv, old) => (nv !== "" && nv !== null && nv !== undefined ? nv : old);
+  const nouvelles = new Set();      // lignes creees par CET import
+  const fusionnees = new Map();     // id -> ligne de la base fusionnee (a reecrire)
+
   for (const row of rows) {
     const v = sanitizeContact(row);
     if (!v.nom && !v.prenom && !v.email) { skipped++; continue; }
-    const match = (v.email && byEmail.get(v.email)) ||
-      byName.get(`${v.nom.toLowerCase()}|${v.prenom.toLowerCase()}`);
+    const match = (v.email && byEmail.get(v.email)) || byName.get(keyName(v.nom, v.prenom));
     if (match) {
-      const cur = await db.get("SELECT * FROM crm_contacts WHERE id = ?", [match.id]);
-      const keep = (nv, old) => (nv !== "" && nv !== null ? nv : old);
-      const types = JSON.stringify([...new Set([...(JSON.parse(cur.types || "[]")), ...v.types])]);
-      await db.run(
-        `UPDATE crm_contacts SET civilite = ?, prenom = ?, nom = ?, email = ?, telephone = ?,
-         adresse = ?, cp = ?, ville = ?, date_naissance = ?, date_achat = ?, types = ?,
-         conseiller = ?, notes = ?, user_id = ?, updated_at = ? WHERE id = ?`,
-        [keep(v.civilite, cur.civilite), keep(v.prenom, cur.prenom), keep(v.nom, cur.nom),
-         keep(v.email, cur.email), keep(v.telephone, cur.telephone), keep(v.adresse, cur.adresse),
-         keep(v.cp, cur.cp), keep(v.ville, cur.ville), keep(v.date_naissance, cur.date_naissance),
-         keep(v.date_achat, cur.date_achat), types, keep(v.conseiller, cur.conseiller),
-         keep(v.notes, cur.notes), userId, now(), match.id]);
-      updated++;
+      // Fusion EN PLACE : l'objet reste reference par les index, donc les
+      // doublons internes au fichier se fusionnent aussi entre eux.
+      let types = [];
+      try { types = JSON.parse(match.types || "[]"); } catch { }
+      Object.assign(match, {
+        civilite: keep(v.civilite, match.civilite),
+        prenom: keep(v.prenom, match.prenom),
+        nom: keep(v.nom, match.nom),
+        email: keep(v.email, match.email),
+        telephone: keep(v.telephone, match.telephone),
+        adresse: keep(v.adresse, match.adresse),
+        cp: keep(v.cp, match.cp),
+        ville: keep(v.ville, match.ville),
+        date_naissance: keep(v.date_naissance, match.date_naissance),
+        date_achat: keep(v.date_achat, match.date_achat),
+        types: JSON.stringify([...new Set([...types, ...v.types])]),
+        conseiller: keep(v.conseiller, match.conseiller),
+        notes: keep(v.notes, match.notes),
+        user_id: userId,
+        updated_at: ts,
+      });
+      if (match.email) byEmail.set(match.email, match);
+      byName.set(keyName(match.nom, match.prenom), match);
+      if (!nouvelles.has(match) && !fusionnees.has(match.id)) {
+        fusionnees.set(match.id, match);
+        updated++;
+      }
     } else {
       if (count >= CONTACTS_MAX) { skipped++; continue; }
-      const id = randId("ct");
-      await db.run(
-        `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone,
-         adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out,
-         created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, agencyId, userId, v.civilite, v.prenom, v.nom, v.email, v.telephone, v.adresse,
-         v.cp, v.ville, v.date_naissance, v.date_achat, JSON.stringify(v.types), v.conseiller,
-         v.notes, source, v.opt_out, now(), now()]);
+      const ligne = {
+        id: randId("ct"), agency_id: agencyId, user_id: userId,
+        ...v, types: JSON.stringify(v.types),
+        source, created_at: ts, updated_at: ts,
+      };
+      nouvelles.add(ligne);
       count++; created++;
-      const rec = { id, nom: v.nom, prenom: v.prenom, email: v.email };
-      if (v.email) byEmail.set(v.email, rec);
-      byName.set(`${v.nom.toLowerCase()}|${v.prenom.toLowerCase()}`, rec);
+      if (ligne.email) byEmail.set(ligne.email, ligne);
+      byName.set(keyName(ligne.nom, ligne.prenom), ligne);
     }
   }
+
+  // Les fusionnees sont reecrites entierement : DELETE puis re-INSERT avec les
+  // nouvelles (leur created_at et leur source d'origine sont conserves).
+  const ids = [...fusionnees.keys()];
+  for (let i = 0; i < ids.length; i += 400) {
+    await db.run(
+      `DELETE FROM crm_contacts WHERE agency_id = ? AND id IN (${ids.slice(i, i + 400).map(sqlText).join(",")})`,
+      [agencyId]);
+  }
+  const finales = [...fusionnees.values(), ...nouvelles];
+  let lot = [], taille = 0;
+  const ecrire = async () => {
+    if (!lot.length) return;
+    await db.run(`INSERT INTO crm_contacts (${CONTACT_COLS.join(",")}) VALUES ${lot.join(",")}`, []);
+    lot = []; taille = 0;
+  };
+  for (const l of finales) {
+    const valeurs = "(" + CONTACT_COLS.map((c) => (COLS_NUM.has(c) ? (Number(l[c]) || 0) : sqlText(l[c]))).join(",") + ")";
+    lot.push(valeurs); taille += valeurs.length;
+    if (lot.length >= INSERT_MAX_LIGNES || taille >= INSERT_MAX_OCTETS) await ecrire();
+  }
+  await ecrire();
+
   return { created, updated, skipped, total: count };
 }
 

@@ -261,15 +261,24 @@
       return o;
     });
     const btn = $("btn-go-import");
-    btn.disabled = true; btn.textContent = "Import en cours…";
+    btn.disabled = true;
+    // Envoi par lots : garde chaque appel leger pour le serveur, et permet
+    // une vraie progression sur les grosses extractions.
+    const LOT = 400;
+    const total = { created: 0, updated: 0, skipped: 0 };
     try {
-      const r = await api("/crm/contacts/bulk", { json: { rows, source: "import" } });
+      for (let i = 0; i < rows.length; i += LOT) {
+        btn.textContent = "Import… " + Math.min(i + LOT, rows.length) + " / " + rows.length;
+        const r = await api("/crm/contacts/bulk", { json: { rows: rows.slice(i, i + LOT), source: "import" } });
+        total.created += r.created; total.updated += r.updated; total.skipped += r.skipped;
+      }
       fermerModale();
-      toast("Import terminé : " + r.created + " créé(s), " + r.updated + " mis à jour, " + r.skipped + " ignoré(s)");
+      toast("Import terminé : " + total.created + " créé(s), " + total.updated + " mis à jour, " + total.skipped + " ignoré(s)");
       await chargerContacts();
       chargerUpcoming();
     } catch (e) {
-      toast(e.message, true);
+      const fait = total.created + total.updated;
+      toast(e.message + (fait ? " — " + fait + " ligne(s) déjà importée(s), relancez l'import : il reprendra sans doublon." : ""), true);
       btn.disabled = false; btn.textContent = "Importer";
     }
   }

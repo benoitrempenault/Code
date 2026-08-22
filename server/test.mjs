@@ -1410,6 +1410,70 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     "aucun modèle enregistré : repli sur le modèle intégré");
 }
 
+/* ---- Administration : import massif de contacts ------------------------- */
+{
+  console.log("— Administration : import massif de contacts");
+  const cr = await call("/admin/agencies", { headers: admin, body: { name: "Agence CRM Test", email: "crm-admin@crm-test.fr", user_name: "Admin CRM" } });
+  const jeton = cr.json.welcome_link.split("#token=")[1];
+  const sess = (await call("/auth/exchange", { body: { token: jeton } })).json.session;
+  const auth = { Authorization: "Bearer " + sess };
+
+  // 1500 fiches — le vrai cas qui explosait en production : chaque requete D1
+  // compte dans le plafond de sous-requetes du Worker, donc l'import doit
+  // tenir en une poignee de requetes SQL, pas une par ligne.
+  const lignes = Array.from({ length: 1500 }, (_, i) => ({
+    civilite: i % 2 ? "M." : "Mme", nom: "Client" + i, prenom: "Prenom" + i,
+    email: "client" + i + "@exemple.fr", telephone: "06000" + String(10000 + i).slice(1),
+    ville: "Saint-Médard-en-Jalles", dateNaissance: "12/05/1985", dateAchat: "21/08/2020",
+    types: "vendeur", conseiller: "Benoit", notes: "Note d'origine n°" + i,
+  }));
+  const runOrig = db.run.bind(db);
+  let nRun = 0;
+  db.run = (...a) => { nRun++; return runOrig(...a); };
+  const imp = await call("/crm/contacts/bulk", { headers: auth, body: { rows: lignes } });
+  db.run = runOrig;
+  ok(imp.status === 200 && imp.json.created === 1500 && imp.json.skipped === 0,
+    "1500 fiches importées d'un coup (" + JSON.stringify(imp.json) + ")");
+  ok(nRun <= 25, "import en peu de requêtes SQL (" + nRun + " ≤ 25 — plafond de sous-requêtes Workers)");
+
+  // Ré-import du même fichier : fusion, pas de doublon, notes conservées.
+  db.run = (...a) => { nRun++; return runOrig(...a); };
+  nRun = 0;
+  const re = await call("/crm/contacts/bulk", { headers: auth, body: { rows: lignes.map((l) => ({ ...l, notes: "", telephone: "" })) } });
+  db.run = runOrig;
+  ok(re.status === 200 && re.json.created === 0 && re.json.updated === 1500 && re.json.total === 1500,
+    "ré-import : 1500 fusions, aucun doublon (" + JSON.stringify(re.json) + ")");
+  ok(nRun <= 25, "ré-import aussi en peu de requêtes SQL (" + nRun + " ≤ 25)");
+  const apres = (await call("/crm/contacts", { headers: auth })).json.contacts;
+  ok(apres.length === 1500, "la base compte bien 1500 contacts");
+  const c0 = apres.find((c) => c.email === "client0@exemple.fr");
+  ok(c0 && c0.notes === "Note d'origine n°0" && c0.telephone === "060000000",
+    "les champs vides du ré-import n'écrasent pas l'existant");
+
+  // Doublons internes au fichier + apostrophe (échappement SQL inline).
+  const petit = await call("/crm/contacts/bulk", {
+    headers: auth,
+    body: {
+      rows: [
+        { nom: "O'Neill", prenom: "Sarah", email: "sarah@exemple.fr", types: "acquereur" },
+        { nom: "O'Neill", prenom: "Sarah", email: "sarah@exemple.fr", types: "estime", ville: "Mérignac" },
+      ],
+    },
+  });
+  ok(petit.status === 200 && petit.json.created === 1 && petit.json.updated === 0,
+    "deux lignes identiques dans le fichier → un seul contact");
+  const sarah = (await call("/crm/contacts", { headers: auth })).json.contacts.find((c) => c.email === "sarah@exemple.fr");
+  ok(sarah && sarah.nom === "O'Neill" && sarah.ville === "Mérignac" &&
+    sarah.types.includes("acquereur") && sarah.types.includes("estime"),
+    "l'apostrophe survit à l'échappement et les types se cumulent");
+
+  // L'import est réservé aux administrateurs de l'agence.
+  const membre = await call("/agency/users", { headers: auth, method: "POST", body: { email: "membre@crm-test.fr", name: "Membre" } });
+  const sessM = (await call("/auth/exchange", { body: { token: membre.json.invite_link.split("#token=")[1] } })).json.session;
+  ok((await call("/crm/contacts/bulk", { headers: { Authorization: "Bearer " + sessM }, body: { rows: [{ nom: "X" }] } })).status === 403,
+    "un conseiller non-admin ne peut pas importer");
+}
+
 fake.close();
 faux365.close();
 console.log("\n" + passed + " réussis, " + failed + " échec(s)");
