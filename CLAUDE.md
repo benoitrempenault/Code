@@ -126,7 +126,16 @@ du site. Le **géocodage** est fait par le NAVIGATEUR via la BAN
 (INSERT OR REPLACE inline) et stockés dans `crm_geo` (une tentative ratée est mémorisée
 lat=lng=0 pour ne pas être redemandée ; filtrée de `/crm/carte`) ; `/crm/geo/attente`
 liste les adresses jamais géocodées ou modifiées. Lecture (`/crm/carte`) ouverte à tout
-membre de l'agence ; écriture des îlots et géocodage réservés aux admins.
+membre de l'agence ; écriture des îlots et géocodage réservés aux admins. Deux couches
+« Marché » chargées PAR LE NAVIGATEUR à la demande (rien côté serveur) : les **ventes
+DVF** (fichiers géolocalisés Etalab, un CSV par commune et par an via
+files.data.gouv.fr/geo-dvf — redirige vers geo-dvf.s3.sbg.io.cloud.ovh.net, les DEUX
+domaines sont dans le connect-src — commune trouvée via geo.api.gouv.fr au centre de la
+carte, 3 derniers millésimes, lignes d'une même mutation regroupées) et les **DPE des
+12 derniers mois** (API ADEME data-fair, dataset `dpe03existant`,
+`geo_distance=lon,lat,rayon` + `qs=date_etablissement_dpe:[...]`, couleur par
+étiquette A→G). L'accès à la Prospection passe par un onglet-lien de l'app
+Administration (pas de tuile portail pour l'instant).
 
 **`permanence/` — Studio Permanence**, l'app interne Kadima du **tour de permanence physique
 des points de vente** (Saint-Médard, Caudéran, Blanquefort…), avec sa page publique de prise

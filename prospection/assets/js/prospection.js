@@ -93,6 +93,8 @@
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
     }).addTo(carte);
     coucheIlots = L.layerGroup().addTo(carte);
+    coucheDvf = L.layerGroup().addTo(carte);
+    coucheDpe = L.layerGroup().addTo(carte);
     couchePoints = L.layerGroup().addTo(carte);
     carte.on("click", (e) => {
       if (dessin) ajouterSommet(e.latlng);
@@ -277,6 +279,170 @@
     btn.textContent = "📍 Géocoder les adresses";
   }
 
+  /* ------------------------- Marché : DVF + DPE ---------------------------- */
+  // Ventes notariées : fichiers DVF géolocalisés d'Etalab, un CSV par commune
+  // et par an (files.data.gouv.fr/geo-dvf). DPE : API open data de l'ADEME
+  // (dataset dpe03existant), filtrée autour du centre de la carte. Tout se
+  // charge dans le navigateur, à la demande — rien ne transite par le serveur.
+  const DPE_COULEURS = { A: "#2E8B57", B: "#5FAE4E", C: "#B4C93B", D: "#E9C46A", E: "#E39B3B", F: "#DB6A2C", G: "#D64533" };
+  let coucheDvf = null, coucheDpe = null;
+  const dvfCache = new Map();     // code INSEE -> ventes[]
+  let chargementMarche = false;
+
+  function etatMarche(txt) { $("etat-marche").textContent = txt || ""; }
+
+  async function communeAuCentre() {
+    const c = carte.getCenter();
+    const r = await fetch("https://geo.api.gouv.fr/communes?lat=" + c.lat + "&lon=" + c.lng + "&fields=code,nom");
+    const d = await r.json();
+    return d && d[0] ? d[0] : null;
+  }
+
+  // Un CSV DVF par an ; les lignes d'une même mutation sont regroupées (une
+  // vente = plusieurs lignes cadastrales) en gardant le bâti principal.
+  function parseDvfCsv(texte) {
+    const lignes = texte.split("\n");
+    if (lignes.length < 2) return [];
+    const cols = lignes[0].split(",");
+    const idx = {};
+    cols.forEach((c, i) => { idx[c] = i; });
+    const parId = new Map();
+    for (let i = 1; i < lignes.length; i++) {
+      const p = lignes[i].split(",");
+      if (p.length < cols.length - 2) continue;
+      const lat = parseFloat(p[idx.latitude]), lng = parseFloat(p[idx.longitude]);
+      const prix = parseFloat(p[idx.valeur_fonciere]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(prix) || prix < 1000) continue;
+      if (p[idx.nature_mutation] !== "Vente" && p[idx.nature_mutation] !== "Vente en l'état futur d'achèvement") continue;
+      const id = p[idx.id_mutation];
+      const surfaceBati = parseFloat(p[idx.surface_reelle_bati]) || 0;
+      const ligne = {
+        id, date: p[idx.date_mutation], prix, lat, lng,
+        type: p[idx.type_local] || "",
+        surface: surfaceBati,
+        pieces: parseInt(p[idx.nombre_pieces_principales], 10) || 0,
+        terrain: parseFloat(p[idx.surface_terrain]) || 0,
+        adresse: [p[idx.adresse_numero], p[idx.adresse_nom_voie]].filter(Boolean).join(" "),
+      };
+      const cur = parId.get(id);
+      if (!cur || ligne.surface > cur.surface) {
+        if (cur) { ligne.terrain = Math.max(ligne.terrain, cur.terrain); }
+        parId.set(id, ligne);
+      } else {
+        cur.terrain = Math.max(cur.terrain, ligne.terrain);
+      }
+    }
+    return [...parId.values()].filter((v) =>
+      v.type === "Maison" || v.type === "Appartement" || (!v.surface && v.terrain > 0));
+  }
+
+  async function chargerDvfCommune(code, dep) {
+    if (dvfCache.has(code)) return dvfCache.get(code);
+    const annee = new Date().getFullYear();
+    const ventes = [];
+    let trouvees = 0;
+    for (let a = annee; a >= annee - 4 && trouvees < 3; a--) {
+      try {
+        const r = await fetch("https://files.data.gouv.fr/geo-dvf/latest/csv/" + a + "/communes/" + dep + "/" + code + ".csv");
+        if (!r.ok) continue;
+        ventes.push(...parseDvfCsv(await r.text()));
+        trouvees++;
+      } catch (e) { /* millésime absent : on continue */ }
+    }
+    ventes.sort((x, y) => (y.date || "").localeCompare(x.date || ""));
+    const gardees = ventes.slice(0, 2500);
+    dvfCache.set(code, gardees);
+    return gardees;
+  }
+
+  const fmtEuros = (n) => Number(n).toLocaleString("fr-FR") + " €";
+  function rendreDvf(ventes) {
+    coucheDvf.clearLayers();
+    for (const v of ventes) {
+      const m = L.circleMarker([v.lat, v.lng], {
+        radius: 5, weight: 1.5, color: "#0f0f10", fillColor: "#4ECDC4", fillOpacity: 0.85,
+      });
+      const m2 = v.surface ? Math.round(v.prix / v.surface) : 0;
+      m.bindPopup(
+        '<div class="titre">Vendu ' + fmtEuros(v.prix) + "</div>" +
+        '<div class="sous">' + escH(v.date) + " · " + escH(v.type || "Terrain") + "</div>" +
+        "<div>" + [v.surface ? v.surface + " m²" : "", v.pieces ? v.pieces + " pièces" : "",
+          v.terrain ? "terrain " + Math.round(v.terrain) + " m²" : "",
+          m2 ? fmtEuros(m2) + "/m²" : ""].filter(Boolean).map(escH).join(" · ") + "</div>" +
+        (v.adresse ? '<div class="sous">' + escH(v.adresse) + "</div>" : ""));
+      coucheDvf.addLayer(m);
+    }
+  }
+
+  async function chargerDpe() {
+    const c = carte.getCenter();
+    const coin = carte.getBounds().getNorthEast();
+    const rayon = Math.min(Math.round(carte.distance(c, coin)), 4000);
+    const depuis = new Date(Date.now() - 365 * 86400 * 1000).toISOString().slice(0, 10);
+    const url = "https://data.ademe.fr/data-fair/api/v1/datasets/dpe03existant/lines" +
+      "?size=1000&geo_distance=" + c.lng + "," + c.lat + "," + rayon +
+      "&select=etiquette_dpe,etiquette_ges,date_etablissement_dpe,adresse_ban,surface_habitable_logement,periode_construction,type_batiment,_geopoint" +
+      "&qs=" + encodeURIComponent("date_etablissement_dpe:[" + depuis + " TO *]") +
+      "&sort=-date_etablissement_dpe";
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("L'API DPE de l'ADEME ne répond pas (réessayez).");
+    const d = await r.json();
+    coucheDpe.clearLayers();
+    for (const dpe of d.results || []) {
+      const geo = String(dpe._geopoint || "").split(",");
+      const lat = parseFloat(geo[0]), lng = parseFloat(geo[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      const et = String(dpe.etiquette_dpe || "").toUpperCase();
+      const m = L.circleMarker([lat, lng], {
+        radius: 5, weight: 1.5, color: "#0f0f10",
+        fillColor: DPE_COULEURS[et] || "#8a8a86", fillOpacity: 0.9,
+      });
+      m.bindPopup(
+        '<div class="titre">DPE ' + escH(et || "?") + (dpe.etiquette_ges ? " · GES " + escH(dpe.etiquette_ges) : "") + "</div>" +
+        '<div class="sous">' + escH(dpe.date_etablissement_dpe || "") + " · " + escH(dpe.type_batiment || "") + "</div>" +
+        "<div>" + [dpe.surface_habitable_logement ? dpe.surface_habitable_logement + " m²" : "",
+          dpe.periode_construction ? "construction " + dpe.periode_construction : ""].filter(Boolean).map(escH).join(" · ") + "</div>" +
+        (dpe.adresse_ban ? '<div class="sous">' + escH(dpe.adresse_ban) + "</div>" : ""));
+      coucheDpe.addLayer(m);
+    }
+    return { total: d.total, montres: (d.results || []).length };
+  }
+
+  async function rafraichirMarche() {
+    if (chargementMarche) return;
+    const veutDvf = $("couche-dvf").checked, veutDpe = $("couche-dpe").checked;
+    $("legende-dpe").hidden = !veutDpe;
+    if (!veutDvf) coucheDvf.clearLayers();
+    if (!veutDpe) coucheDpe.clearLayers();
+    if (!veutDvf && !veutDpe) { etatMarche(""); $("btn-recharger-zone").hidden = true; return; }
+    if (carte.getZoom() < 12) { etatMarche("Zoomez sur un quartier pour charger le marché."); return; }
+    chargementMarche = true;
+    etatMarche("Chargement du marché…");
+    try {
+      const morceaux = [];
+      if (veutDvf) {
+        const commune = await communeAuCentre();
+        if (commune) {
+          const ventes = await chargerDvfCommune(commune.code, commune.code.slice(0, 2));
+          rendreDvf(ventes);
+          morceaux.push(ventes.length + " vente(s) — " + commune.nom);
+        }
+      }
+      if (veutDpe) {
+        const { total, montres } = await chargerDpe();
+        morceaux.push(montres + " DPE" + (total > montres ? " (sur " + total + ", zoomez pour tout voir)" : ""));
+      }
+      etatMarche(morceaux.join(" · "));
+      $("btn-recharger-zone").hidden = false;
+    } catch (e) {
+      etatMarche("");
+      toast("Chargement du marché impossible — " + (e.message === "Failed to fetch"
+        ? "les services data.gouv / ADEME ne répondent pas, réessayez dans un instant."
+        : e.message), true);
+    }
+    chargementMarche = false;
+  }
+
   /* ------------------------------ Ma position ------------------------------ */
   function maPosition() {
     if (!navigator.geolocation) { toast("Géolocalisation non disponible sur cet appareil.", true); return; }
@@ -319,6 +485,9 @@
   });
   $("btn-geocoder").addEventListener("click", geocoder);
   $("btn-position").addEventListener("click", maPosition);
+  $("couche-dvf").addEventListener("change", rafraichirMarche);
+  $("couche-dpe").addEventListener("change", rafraichirMarche);
+  $("btn-recharger-zone").addEventListener("click", rafraichirMarche);
   $("liste-ilots").addEventListener("click", (e) => {
     const el = e.target.closest("[data-zoom-ilot]");
     if (!el) return;

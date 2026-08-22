@@ -76,6 +76,11 @@ select:focus, input:focus { outline: none; border-color: var(--accent); }
 .ilot .pastille { flex: 0 0 auto; }
 .ilot .qui { color: var(--muted); font-size: 12px; margin-left: auto; }
 .pastille { display: inline-block; width: 12px; height: 12px; border-radius: 4px; }
+.legende-dpe { display: flex; gap: 3px; margin: 6px 0 2px; }
+.legende-dpe span {
+  flex: 1; text-align: center; font-size: 10.5px; font-weight: 600; color: #1a1714;
+  padding: 2px 0; border-radius: 4px;
+}
 
 .filtres { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 .case { display: flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--text); cursor: pointer; }
