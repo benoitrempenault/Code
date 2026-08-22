@@ -26,6 +26,8 @@ const app = createApp({
   ANTHROPIC_BASE: process.env.ANTHROPIC_BASE || "",
   APP_ORIGINS: process.env.APP_ORIGINS || "http://localhost:8014",
   RESEND_API_KEY: process.env.RESEND_API_KEY || "",
+  RESEND_BASE: process.env.RESEND_BASE || "",
+  DVF_BASE: process.env.DVF_BASE || "",
   MAIL_FROM: process.env.MAIL_FROM || "",
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || "",
   AI_MODELS: process.env.AI_MODELS || "",

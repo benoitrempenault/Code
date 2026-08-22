@@ -125,14 +125,20 @@ du site. Le **géocodage** est fait par le NAVIGATEUR via la BAN
 (api-adresse.data.gouv.fr, ~8 req/s), résultats poussés par lots à `/crm/geo/batch`
 (INSERT OR REPLACE inline) et stockés dans `crm_geo` (une tentative ratée est mémorisée
 lat=lng=0 pour ne pas être redemandée ; filtrée de `/crm/carte`) ; `/crm/geo/attente`
-liste les adresses jamais géocodées ou modifiées. Lecture (`/crm/carte`) ouverte à tout
-membre de l'agence ; écriture des îlots et géocodage réservés aux admins. Deux couches
-« Marché » chargées PAR LE NAVIGATEUR à la demande (rien côté serveur) : les **ventes
-DVF** (fichiers géolocalisés Etalab, un CSV par commune et par an via
-files.data.gouv.fr/geo-dvf — redirige vers geo-dvf.s3.sbg.io.cloud.ovh.net, les DEUX
-domaines sont dans le connect-src — commune trouvée via geo.api.gouv.fr au centre de la
-carte, 3 derniers millésimes, lignes d'une même mutation regroupées) et les **DPE des
-12 derniers mois** (API ADEME data-fair, dataset `dpe03existant`,
+liste les adresses jamais géocodées ou modifiées — contacts ET dossiers Suivi vendus
+(voir plus bas) ; `/crm/geo/batch` accepte les deux familles d'ids. Lecture
+(`/crm/carte`) ouverte à tout membre de l'agence ; écriture des îlots et géocodage
+réservés aux admins. Trois couches « Marché » : **nos ventes** (dossiers Studio Suivi
+vendus — critère `dossierVendu` : `dates.signature_acte` posée ou statut signe/clos,
+jamais annule — géocodés dans la MÊME table `crm_geo` sous l'id du dossier, pas de clé
+étrangère ; servis par `/crm/carte` dans `ventes`, marqueur 🔑 `divIcon`), les **ventes
+DVF** (fichiers géolocalisés Etalab, un CSV par commune et par an, relayés par le
+serveur via **`/crm/dvf/:annee/:dep/:commune`** — le stockage S3 derrière
+files.data.gouv.fr/geo-dvf n'envoie AUCUN en-tête CORS, en direct le navigateur bloque
+et la couche affiche 0 ; `DVF_BASE` surchargeable en test, faux dépôt local — commune
+trouvée via geo.api.gouv.fr au centre de la carte, 3 derniers millésimes, lignes d'une
+même mutation regroupées) et les **DPE des 12 derniers mois** (API ADEME data-fair,
+dataset `dpe03existant`, appelée en direct — CORS ouvert —,
 `geo_distance=lon,lat,rayon` + `qs=date_etablissement_dpe:[...]`, couleur par
 étiquette A→G). L'accès à la Prospection passe par un onglet-lien de l'app
 Administration (pas de tuile portail pour l'instant).

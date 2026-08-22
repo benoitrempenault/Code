@@ -60,9 +60,10 @@
 
   /* -------------------------------- État ---------------------------------- */
   let carte = null;
-  let donnees = { points: [], ilots: [], totalContacts: 0, estAdmin: false };
+  let donnees = { points: [], ilots: [], ventes: [], totalContacts: 0, estAdmin: false };
   let couchePoints = null;      // L.layerGroup des contacts
   let coucheIlots = null;       // L.layerGroup des polygones
+  let coucheVentes = null;      // L.layerGroup des ventes de l'agence (Suivi)
   let marqueurMoi = null;
   // Dessin en cours
   let dessin = null;            // { sommets: [[lat,lng]], marqueurs: [], ligne }
@@ -95,6 +96,7 @@
     coucheIlots = L.layerGroup().addTo(carte);
     coucheDvf = L.layerGroup().addTo(carte);
     coucheDpe = L.layerGroup().addTo(carte);
+    coucheVentes = L.layerGroup().addTo(carte);
     couchePoints = L.layerGroup().addTo(carte);
     carte.on("click", (e) => {
       if (dessin) ajouterSommet(e.latlng);
@@ -163,14 +165,40 @@
       conseillers.map((n) => '<option' + (n === courant ? " selected" : "") + ">" + escH(n) + "</option>").join("");
   }
 
+  const fmtDateFr = (iso) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+    return m ? m[3] + "/" + m[2] + "/" + m[1] : String(iso || "");
+  };
+  function rendreVentes() {
+    coucheVentes.clearLayers();
+    if (!$("couche-ventes").checked) return;
+    for (const v of donnees.ventes || []) {
+      const m = L.marker([v.lat, v.lng], {
+        icon: L.divIcon({ className: "marqueur-vente", html: "🔑", iconSize: [26, 26], iconAnchor: [13, 13] }),
+      });
+      m.bindPopup(
+        '<div class="titre">' + escH(v.nom) + "</div>" +
+        '<div class="sous">Vendu par l\'agence' + (v.date_acte ? " · acte du " + escH(fmtDateFr(v.date_acte)) : "") + "</div>" +
+        (v.prix ? "<div>" + escH(v.prix) + "</div>" : "") +
+        (v.adresse ? '<div class="sous">' + escH(v.adresse) + "</div>" : "") +
+        (v.conseillers ? '<div class="sous">Conseiller(s) : ' + escH(v.conseillers) + "</div>" : ""));
+      coucheVentes.addLayer(m);
+    }
+  }
+
   async function charger() {
     donnees = await api("/crm/carte");
+    donnees.ventes = donnees.ventes || [];
     $("etat-geo").textContent = donnees.points.length + " contact(s) sur la carte, sur " +
       donnees.totalContacts + " dans la base.";
+    $("etat-ventes").textContent = donnees.ventes.length
+      ? donnees.ventes.length + " vente(s) de l'agence sur la carte."
+      : "Aucune vente géocodée pour l'instant — les dossiers signés du Suivi apparaissent après le géocodage.";
     $("zone-dessin").hidden = !donnees.estAdmin;
     $("btn-geocoder").hidden = !donnees.estAdmin;
     rendreIlots();
     rendrePoints();
+    rendreVentes();
     if (donnees.points.length && !carte._dejaCadre) {
       carte._dejaCadre = true;
       const b = L.latLngBounds(donnees.points.map((p) => [p.lat, p.lng]));
@@ -281,9 +309,10 @@
 
   /* ------------------------- Marché : DVF + DPE ---------------------------- */
   // Ventes notariées : fichiers DVF géolocalisés d'Etalab, un CSV par commune
-  // et par an (files.data.gouv.fr/geo-dvf). DPE : API open data de l'ADEME
-  // (dataset dpe03existant), filtrée autour du centre de la carte. Tout se
-  // charge dans le navigateur, à la demande — rien ne transite par le serveur.
+  // et par an, relayés par NOTRE serveur (le stockage S3 d'Etalab n'envoie pas
+  // d'en-têtes CORS — en direct, le navigateur bloque et la couche reste à 0).
+  // DPE : API open data de l'ADEME (dataset dpe03existant), filtrée autour du
+  // centre de la carte, appelée en direct (CORS ouvert chez l'ADEME).
   const DPE_COULEURS = { A: "#2E8B57", B: "#5FAE4E", C: "#B4C93B", D: "#E9C46A", E: "#E39B3B", F: "#DB6A2C", G: "#D64533" };
   let coucheDvf = null, coucheDpe = null;
   const dvfCache = new Map();     // code INSEE -> ventes[]
@@ -341,9 +370,12 @@
     const annee = new Date().getFullYear();
     const ventes = [];
     let trouvees = 0;
+    const session = (account() || {}).session || "";
     for (let a = annee; a >= annee - 4 && trouvees < 3; a--) {
       try {
-        const r = await fetch("https://files.data.gouv.fr/geo-dvf/latest/csv/" + a + "/communes/" + dep + "/" + code + ".csv");
+        const r = await fetch(API + "/crm/dvf/" + a + "/" + dep + "/" + code, {
+          headers: { Authorization: "Bearer " + session },
+        });
         if (!r.ok) continue;
         ventes.push(...parseDvfCsv(await r.text()));
         trouvees++;
@@ -487,6 +519,7 @@
   $("btn-position").addEventListener("click", maPosition);
   $("couche-dvf").addEventListener("change", rafraichirMarche);
   $("couche-dpe").addEventListener("change", rafraichirMarche);
+  $("couche-ventes").addEventListener("change", rendreVentes);
   $("btn-recharger-zone").addEventListener("click", rafraichirMarche);
   $("liste-ilots").addEventListener("click", (e) => {
     const el = e.target.closest("[data-zoom-ilot]");

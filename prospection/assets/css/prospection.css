@@ -154,3 +154,10 @@ select:focus, input:focus { outline: none; border-color: var(--accent); }
   .lateral { width: 100%; flex: 0 0 auto; max-height: 40vh; border-right: none; border-bottom: 1px solid var(--line); }
 }
 @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+
+/* Les ventes de l'agence (dossiers Suivi signés) : une clé posée sur la carte. */
+.marqueur-vente {
+  font-size: 19px; line-height: 26px; text-align: center;
+  background: none; border: none;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .65));
+}

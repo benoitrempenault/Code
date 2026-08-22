@@ -947,8 +947,14 @@ export function createApp(env) {
     return { ctx };
   }
 
-  // Tout ce qu'il faut pour afficher la carte : les contacts géocodés et les
-  // îlots. Accessible à tout conseiller de l'agence.
+  // Un dossier Suivi compte comme une vente réalisée : acte signé (date posée)
+  // ou statut signé/clos — jamais les annulés. Même critère que l'app Suivi.
+  const dossierVendu = (statut, data) =>
+    statut === "signe" || statut === "clos" || !!(data.dates && data.dates.signature_acte);
+
+  // Tout ce qu'il faut pour afficher la carte : les contacts géocodés, les
+  // îlots et les ventes de l'agence (dossiers Suivi signés). Accessible à
+  // tout conseiller de l'agence.
   app.get("/crm/carte", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const points = await db.all(
@@ -960,9 +966,27 @@ export function createApp(env) {
       "SELECT id, nom, conseiller, couleur, polygone, updated_at FROM crm_ilots WHERE agency_id = ? ORDER BY nom ASC",
       [ctx.agency.id]);
     const total = await db.get("SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ?", [ctx.agency.id]);
+    // Les ventes de l'agence : la géocache crm_geo sert aussi aux dossiers
+    // (contact_id = id du dossier — pas de clé étrangère, table partagée).
+    const dosGeo = await db.all(
+      `SELECT d.id, d.name, d.statut, d.adresse, d.conseillers, d.data, g.lat, g.lng, g.label
+       FROM dossiers d JOIN crm_geo g ON g.contact_id = d.id
+       WHERE d.agency_id = ? AND d.statut <> 'annule' AND NOT (g.lat = 0 AND g.lng = 0)`, [ctx.agency.id]);
+    const ventes = [];
+    for (const r of dosGeo) {
+      let data; try { data = JSON.parse(r.data); } catch { data = {}; }
+      if (!dossierVendu(r.statut, data)) continue;
+      ventes.push({
+        id: r.id, nom: r.name, lat: r.lat, lng: r.lng,
+        adresse: r.adresse || r.label || "", conseillers: r.conseillers || "",
+        date_acte: String((data.dates && (data.dates.signature_acte || data.dates.signature_prevue)) || "").slice(0, 10),
+        prix: String((data.prix && data.prix.prix_vente) || "").slice(0, 40),
+      });
+    }
     return c.json({
       points: points.map((p) => ({ ...p, types: (() => { try { return JSON.parse(p.types || "[]"); } catch { return []; } })() })),
       ilots: ilots.map((i) => ({ ...i, polygone: (() => { try { return JSON.parse(i.polygone); } catch { return []; } })() })),
+      ventes,
       totalContacts: total?.n || 0,
       estAdmin: isAgencyAdmin(ctx),
     });
@@ -1014,8 +1038,18 @@ export function createApp(env) {
       `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse
        FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
        WHERE c.agency_id = ? AND c.adresse <> ''`, [ctx.agency.id]);
+    // Les dossiers de vente signés (Studio Suivi) passent au même géocodage :
+    // leur adresse rejoint la géocache crm_geo sous l'id du dossier. Le LIKE
+    // repère une date d'acte posée dans le JSON (« "signature_acte":"20… » —
+    // sérialisation JSON.stringify, sans espaces) sans rapatrier data.
+    const dossiers = await db.all(
+      `SELECT d.id, d.adresse, g.adresse AS geo_adresse
+       FROM dossiers d LEFT JOIN crm_geo g ON g.contact_id = d.id
+       WHERE d.agency_id = ? AND d.adresse <> '' AND d.statut <> 'annule'
+         AND (d.statut IN ('signe','clos') OR d.data LIKE '%"signature_acte":"2%')`, [ctx.agency.id]);
     const attente = rows
       .map((r) => ({ id: r.id, adresse: [r.adresse, r.cp, r.ville].filter(Boolean).join(" "), deja: r.geo_adresse }))
+      .concat(dossiers.map((r) => ({ id: r.id, adresse: r.adresse, deja: r.geo_adresse })))
       .filter((r) => r.adresse !== r.deja)
       .slice(0, GEO_BATCH_MAX)
       .map(({ id, adresse }) => ({ id, adresse }));
@@ -1028,9 +1062,14 @@ export function createApp(env) {
     const rows = (b && Array.isArray(b.rows) ? b.rows : []).slice(0, GEO_BATCH_MAX);
     if (!rows.length) return err(c, 400, "Aucune position à enregistrer.");
     const ids = rows.map((r) => String(r.contactId));
+    // La géocache accepte les contacts ET les dossiers de vente (Suivi) de
+    // l'agence — jamais un id qui n'appartient pas à l'agence.
     const connus = new Set((await db.all(
       `SELECT id FROM crm_contacts WHERE agency_id = ? AND id IN (${ids.map(() => "?").join(",")})`,
       [ctx.agency.id, ...ids])).map((r) => r.id));
+    for (const r of await db.all(
+      `SELECT id FROM dossiers WHERE agency_id = ? AND id IN (${ids.map(() => "?").join(",")})`,
+      [ctx.agency.id, ...ids])) connus.add(r.id);
     const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
     let ok = 0;
     const valeurs = [];
@@ -1045,6 +1084,33 @@ export function createApp(env) {
         `INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES ${valeurs.join(",")}`, []);
     }
     return c.json({ ok: true, enregistres: ok, ignores: rows.length - ok });
+  });
+
+  // Les CSV DVF d'Etalab (files.data.gouv.fr/geo-dvf) redirigent vers un
+  // stockage S3 SANS en-têtes CORS : le navigateur ne peut pas les lire en
+  // direct. Le serveur relaie donc le fichier (une commune × un millésime),
+  // que le navigateur garde un jour en cache. DVF_BASE : surchargeable en
+  // test (faux serveur local), jamais posé en production.
+  app.get("/crm/dvf/:annee/:dep/:commune", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const annee = c.req.param("annee");
+    const dep = c.req.param("dep").toUpperCase();     // 33, 2A, 971…
+    const commune = c.req.param("commune").toUpperCase();
+    if (!/^20\d{2}$/.test(annee) || !/^[0-9AB]{2,3}$/.test(dep) || !/^[0-9AB]{5}$/.test(commune)) {
+      return err(c, 400, "Millésime, département ou commune invalide.");
+    }
+    const base = env.DVF_BASE || "https://files.data.gouv.fr/geo-dvf/latest/csv";
+    let amont;
+    try {
+      amont = await fetch(`${base}/${annee}/communes/${dep}/${commune}.csv`, { redirect: "follow" });
+    } catch (e) {
+      return err(c, 502, "files.data.gouv.fr ne répond pas — réessayez dans un instant.");
+    }
+    if (amont.status === 404) return err(c, 404, "Pas de fichier DVF pour cette commune et ce millésime.");
+    if (!amont.ok) return err(c, 502, "files.data.gouv.fr répond " + amont.status + " — réessayez dans un instant.");
+    return new Response(amont.body, {
+      headers: { "Content-Type": "text/csv; charset=utf-8", "Cache-Control": "private, max-age=86400" },
+    });
   });
 
   /* ===================== Permanences (app Permanence) ======================

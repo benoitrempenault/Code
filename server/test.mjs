@@ -1513,10 +1513,22 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     res.end(JSON.stringify({ id: "email_test" }));
   });
   await new Promise((r) => fauxResend.listen(18791, r));
+  // Faux dépôt DVF : un seul fichier connu (2025 / 33 / 33449), 404 sinon —
+  // comme files.data.gouv.fr, dont le vrai stockage n'envoie pas de CORS
+  // (raison d'être du relais /crm/dvf côté serveur).
+  const CSV_DVF = "id_mutation,date_mutation,valeur_fonciere\n2025-1,2025-03-10,320000\n";
+  const fauxDvf = (await import("node:http")).createServer((req, res) => {
+    if (req.url === "/2025/communes/33/33449.csv") {
+      res.writeHead(200, { "Content-Type": "text/csv" });
+      res.end(CSV_DVF);
+    } else { res.writeHead(404); res.end("Not Found"); }
+  });
+  await new Promise((r) => fauxDvf.listen(18792, r));
   const appR = createApp({
     db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin",
     APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
     RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18791",
+    DVF_BASE: "http://localhost:18792",
     MAIL_FROM: "Studio Brochure <connexion@studiobrochure.fr>",
   });
   const callR = async (path, opts = {}) => {
@@ -1702,7 +1714,55 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const carteAutre = (await callR("/crm/carte", { headers: { Authorization: "Bearer " + sessAutre } })).json;
   ok(carteAutre.points.length === 0 && carteAutre.ilots.length === 0, "carte isolée par agence");
 
+  /* ---- Prospection : les ventes de l'agence (dossiers Suivi) ------------- */
+  console.log("— Administration : prospection (ventes Suivi + relais DVF)");
+  // Un dossier signé (date d'acte posée, statut encore en_cours) et un
+  // dossier en cours sans acte : seul le premier est une vente.
+  const dosBase = () => ({
+    _app: "studio-suivi", statut: "en_cours", date_compromis: "2025-03-01",
+    dates: {}, sequestre: {}, financement: {}, bien: { adresse: "4 rue des Lilas, 33160 Saint-Médard-en-Jalles" },
+    prix: { prix_vente: "320 000 €" }, conseillers: "Benoit",
+    equipements: {}, entretiens: {}, diagnostics: {}, etapes: {}, conditions_suspensives: [],
+  });
+  const dVendu = dosBase(); dVendu.dates.signature_acte = "2025-06-12";
+  const rVendu = await callR("/dossiers", { headers: auth, method: "PUT", body: { name: "PAGES / FAURE", data: dVendu } });
+  const rEnCours = await callR("/dossiers", { headers: auth, method: "PUT", body: { name: "LOISEAU / BRUN", data: dosBase() } });
+  ok(rVendu.status === 200 && rEnCours.status === 200, "dossiers Suivi créés (un signé, un en cours)");
+  // L'adresse du dossier signé passe au géocodage ; pas celle du dossier en cours.
+  const attD = (await callR("/crm/geo/attente", { headers: auth })).json.attente;
+  ok(attD.some((a) => a.id === rVendu.json.id && /Lilas/.test(a.adresse)), "le dossier signé attend son géocodage");
+  ok(!attD.some((a) => a.id === rEnCours.json.id), "un dossier sans acte signé ne passe pas au géocodage");
+  // La géocache accepte l'id du dossier (le navigateur renvoie la position).
+  ok((await callR("/crm/geo/batch", { headers: auth, body: { rows: [
+    { contactId: rVendu.json.id, lat: 44.8951, lng: -0.7203, label: "4 Rue des Lilas 33160 Saint-Médard-en-Jalles", score: 0.9, adresse: attD.find((a) => a.id === rVendu.json.id).adresse },
+    { contactId: rEnCours.json.id, lat: 44.8990, lng: -0.7100, label: "x", score: 0.9, adresse: "x" },
+  ] } })).json.enregistres === 2, "positions des dossiers enregistrées dans la géocache");
+  // La carte : la vente signée apparaît, le dossier en cours non.
+  const carteV = (await callR("/crm/carte", { headers: { Authorization: "Bearer " + sessP } })).json;
+  const laVente = carteV.ventes.find((v) => v.id === rVendu.json.id);
+  ok(laVente && laVente.lat === 44.8951 && laVente.date_acte === "2025-06-12" && laVente.prix === "320 000 €",
+    "la vente de l'agence apparaît sur la carte (position, date d'acte, prix)");
+  ok(!carteV.ventes.some((v) => v.id === rEnCours.json.id), "un dossier non signé n'apparaît pas dans les ventes");
+  ok((await callR("/crm/carte", { headers: { Authorization: "Bearer " + sessAutre } })).json.ventes.length === 0,
+    "les ventes sont isolées par agence");
+
+  /* ---- Relais DVF (les CSV Etalab n'ont pas de CORS) --------------------- */
+  const reqDvf = (path, sess2) => appR.fetch(new Request("http://api.test" + path,
+    { headers: sess2 ? { Authorization: "Bearer " + sess2 } : {} }));
+  ok((await reqDvf("/crm/dvf/2025/33/33449")).status === 401, "relais DVF : session requise");
+  const rCsv = await reqDvf("/crm/dvf/2025/33/33449", sessP);
+  ok(rCsv.status === 200 && (rCsv.headers.get("Content-Type") || "").includes("text/csv"),
+    "relais DVF : un conseiller récupère le CSV de sa commune");
+  ok((await rCsv.text()) === CSV_DVF, "relais DVF : le CSV est transmis tel quel");
+  ok((await reqDvf("/crm/dvf/2026/33/33449", sessP)).status === 404, "relais DVF : millésime absent → 404 propre");
+  ok((await reqDvf("/crm/dvf/1999/33/33449", sessP)).status === 400, "relais DVF : millésime fantaisiste refusé");
+  ok((await reqDvf("/crm/dvf/2025/xx/33449", sessP)).status === 400, "relais DVF : département invalide refusé");
+  ok((await reqDvf("/crm/dvf/2025/33/abcde", sessP)).status === 400, "relais DVF : code commune invalide refusé");
+  // La Corse (2A/2B) passe la validation — le faux dépôt n'a pas le fichier.
+  ok((await reqDvf("/crm/dvf/2025/2A/2A004", sessP)).status === 404, "relais DVF : les codes corses (2A…) sont acceptés");
+
   fauxResend.close();
+  fauxDvf.close();
 }
 
 fake.close();
