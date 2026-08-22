@@ -1467,6 +1467,33 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     sarah.types.includes("acquereur") && sarah.types.includes("estime"),
     "l'apostrophe survit à l'échappement et les types se cumulent");
 
+  // Les typologies des extractions sont reconnues par motif : « Acheteur »,
+  // « ACHAT », « Vente », « Acquéreur / Vendeur »... — pas seulement les
+  // valeurs canoniques. Le ré-import ajoute les types sans doublon.
+  const libelles = await call("/crm/contacts/bulk", {
+    headers: auth,
+    body: {
+      rows: [
+        { nom: "Roux", prenom: "Marc", email: "marc@exemple.fr", types: "Acheteur" },
+        { nom: "Lopez", prenom: "Ana", email: "ana@exemple.fr", types: "VENTE 2021" },
+        { nom: "Roy", prenom: "Luc", email: "luc@exemple.fr", types: "Acquéreur / Vendeur" },
+        { nom: "Gil", prenom: "Zoé", email: "zoe@exemple.fr", types: "Estimation ; Location" },
+      ],
+    },
+  });
+  ok(libelles.status === 200 && libelles.json.created === 4, "libellés d'extraction importés");
+  const tous = (await call("/crm/contacts", { headers: auth })).json.contacts;
+  const t = (mail) => tous.find((c) => c.email === mail).types.sort();
+  ok(String(t("marc@exemple.fr")) === "acquereur", "« Acheteur » → acquéreur");
+  ok(String(t("ana@exemple.fr")) === "vendeur", "« VENTE 2021 » → vendeur");
+  ok(String(t("luc@exemple.fr")) === "acquereur,vendeur", "« Acquéreur / Vendeur » → les deux");
+  ok(String(t("zoe@exemple.fr")) === "estime,locataire", "« Estimation ; Location » → estimé + locataire");
+  // Ré-import d'un fichier qui n'avait pas la colonne à l'époque : les types
+  // arrivent en complément, sans écraser ni dupliquer.
+  await call("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "Roux", prenom: "Marc", email: "marc@exemple.fr", types: "Vendeur" }] } });
+  ok(String((await call("/crm/contacts", { headers: auth })).json.contacts.find((c) => c.email === "marc@exemple.fr").types.sort()) === "acquereur,vendeur",
+    "ré-import : la typologie s'ajoute sans doublon");
+
   // L'import est réservé aux administrateurs de l'agence.
   const membre = await call("/agency/users", { headers: auth, method: "POST", body: { email: "membre@crm-test.fr", name: "Membre" } });
   const sessM = (await call("/auth/exchange", { body: { token: membre.json.invite_link.split("#token=")[1] } })).json.session;

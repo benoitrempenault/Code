@@ -195,7 +195,7 @@
     if (/ville|commune|city/.test(h)) return "ville";
     if (/adresse|address|voie|rue/.test(h)) return "adresse";
     if (/conseiller|nego|agent|commercial/.test(h)) return "conseiller";
-    if (/type|categorie|statut|segment/.test(h)) return "types";
+    if (/type|categorie|statut|segment|role|qualite|position|profil/.test(h)) return "types";
     if (/note|comment|observation/.test(h)) return "notes";
     if (/nom|name/.test(h)) return "nom";
     return "";

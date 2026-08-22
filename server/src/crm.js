@@ -67,13 +67,25 @@ function yearsSince(stored, isoDay) {
 /* ------------------------------- Contacts -------------------------------- */
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
 
+// Typologies depuis un libelle d'extraction : les logiciels ecrivent
+// « Acheteur », « ACHAT », « Vente », « Acquéreur / Vendeur », « Estimation »...
+// On reconnait par motif (minuscules, sans accents) plutot que par valeur
+// exacte — plusieurs roles dans une meme cellule donnent plusieurs typologies.
+export function typesDepuisLibelle(valeur) {
+  const v = String(valeur || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const out = new Set();
+  if (/acquereur|acheteur|achat/.test(v)) out.add("acquereur");
+  if (/vendeur|vendu|vente/.test(v)) out.add("vendeur");
+  if (/estim/.test(v)) out.add("estime");
+  if (/bailleur/.test(v)) out.add("bailleur");
+  if (/locataire|location/.test(v)) out.add("locataire");
+  if (/prospect|pige/.test(v)) out.add("prospect");
+  return [...out];
+}
+
 export function sanitizeContact(b) {
-  let types = b.types;
-  if (!Array.isArray(types)) {
-    types = String(types || "").split(/[,;]/).map((t) => t.trim().toLowerCase()).filter(Boolean);
-  }
-  types = types.map((t) => String(t).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""))
-    .filter((t) => CRM_TYPES.includes(t));
+  const brut = Array.isArray(b.types) ? b.types : [String(b.types || "")];
+  const types = [...new Set(brut.flatMap(typesDepuisLibelle))];
   let telephone = strip(b.telephone, 40);
   if (/^[1-9]\d{8}$/.test(telephone)) telephone = "0" + telephone; // Excel mange le 0 initial
   return {
