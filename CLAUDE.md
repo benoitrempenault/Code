@@ -87,7 +87,18 @@ nouveautés ; historique des prix + journal des mouvements dans `crm_annonces`/`
 carburant des futures relances acquéreurs). Réservé au rôle `admin` de l'agence (routes `/crm/*`
 dans `server/src/app.js`). Session partagée `studio-mandatpro-account`, connexion via
 `mandat-pro/compte.html?retour=administration/`. Tables : `crm_contacts`, `crm_reglages`,
-`crm_envois`, `crm_annonces`, `crm_annonces_events`.
+`crm_envois`, `crm_annonces`, `crm_annonces_events`, `crm_recherches`, `crm_relances`.
+L'anniversaire d'achat s'adapte au rôle du contact dans la vente (`profilAchat` :
+vendeur sans être acquéreur → « vous vendiez votre bien », sinon « vous receviez vos
+clés » ; aperçus et tests via `?profil=vendeur`). La **brique Acheteurs** : chaque
+acquéreur porte une recherche (`crm_recherches` — budget, types, communes, pièces,
+surface ; critère vide = pas de filtre, « autre » = ni maison/appartement/terrain),
+`rapprochements()` croise avec les annonces en vente, et `runRelances()` (cron du matin,
+après le relevé des annonces) envoie UN e-mail groupé par acquéreur — biens jamais
+proposés (`decouverte`) + baisses de prix des dernières 24 h (`baisse`, ancien prix
+barré), 8 biens max par e-mail, 30 e-mails max par passage (plafond de sous-requêtes ;
+le reste part les jours suivants), anti-doublon par (contact, bien, motif) via
+`crm_relances` (statut ok). `RESEND_BASE` est surchargeable en test (faux Resend).
 
 **`permanence/` — Studio Permanence**, l'app interne Kadima du **tour de permanence physique
 des points de vente** (Saint-Médard, Caudéran, Blanquefort…), avec sa page publique de prise

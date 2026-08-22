@@ -205,6 +205,7 @@ export function defaultReglages(agency) {
     agence: { nom: (agency && agency.name) || "", adresse: "", telephone: "", email: "", site: "", logoUrl: "" },
     anniversaires: { enabled: false, naissance: true, achat: true, cci: "" },
     annonces: { autoSync: false, siteUrl: "" },
+    acheteurs: { enabled: false, cci: "" },
   };
 }
 export async function getReglages(db, agency) {
@@ -217,6 +218,7 @@ export async function getReglages(db, agency) {
     agence: { ...def.agence, ...(data.agence || {}) },
     anniversaires: { ...def.anniversaires, ...(data.anniversaires || {}) },
     annonces: { ...def.annonces, ...(data.annonces || {}) },
+    acheteurs: { ...def.acheteurs, ...(data.acheteurs || {}) },
   };
 }
 export async function saveReglages(db, agency, userId, incoming) {
@@ -225,6 +227,7 @@ export async function saveReglages(db, agency, userId, incoming) {
     agence: { ...cur.agence, ...(incoming.agence || {}) },
     anniversaires: { ...cur.anniversaires, ...(incoming.anniversaires || {}) },
     annonces: { ...cur.annonces, ...(incoming.annonces || {}) },
+    acheteurs: { ...cur.acheteurs, ...(incoming.acheteurs || {}) },
   };
   for (const k of Object.keys(next.agence)) next.agence[k] = strip(next.agence[k], 300);
   next.anniversaires.enabled = !!next.anniversaires.enabled;
@@ -233,6 +236,8 @@ export async function saveReglages(db, agency, userId, incoming) {
   next.anniversaires.cci = strip(next.anniversaires.cci, 160);
   next.annonces.autoSync = !!next.annonces.autoSync;
   next.annonces.siteUrl = strip(next.annonces.siteUrl, 200).replace(/\/$/, "");
+  next.acheteurs.enabled = !!next.acheteurs.enabled;
+  next.acheteurs.cci = strip(next.acheteurs.cci, 160);
   const exists = await db.get("SELECT agency_id FROM crm_reglages WHERE agency_id = ?", [agency.id]);
   if (exists) {
     await db.run("UPDATE crm_reglages SET data = ?, user_id = ?, updated_at = ? WHERE agency_id = ?",
@@ -325,6 +330,32 @@ export function buildAnniversaireEmail(contact, type, ag, isoDay) {
   const years = yearsSince(contact.date_achat, isoDay);
   const ville = contact.ville ? ` à ${contact.ville}` : "";
   const yearsTxt = years && years > 0 ? `${years} an${years > 1 ? "s" : ""}` : "quelque temps";
+
+  // La date d'achat est la date de la vente : le message n'est pas le même
+  // selon que le contact ACHETAIT (il vit dans le bien) ou VENDAIT (il a
+  // tourné une page). Un contact à la fois vendeur et acquéreur (vendu puis
+  // racheté avec nous) reçoit la version acquéreur : c'est là qu'il vit.
+  if (profilAchat(contact) === "vendeur") {
+    return {
+      subject: years && years > 0 ? `Il y a ${yearsTxt}, une belle page se tournait ✨` : "Une belle page se tournait ✨",
+      html: wrapEmail(ag, {
+        eyebrow: years && years > 0 ? `Il y a ${yearsTxt} jour pour jour` : "Un bel anniversaire",
+        headline: "Une belle page<br>se tournait&nbsp;!",
+        bodyHtml: `
+          <p style="margin:0 0 16px;">${esc(salut)},</p>
+          <p style="margin:0 0 16px;">${years && years > 0
+            ? `Il y a ${yearsTxt} jour pour jour, vous vendiez votre bien${esc(ville)} avec notre agence.`
+            : `Un jour comme aujourd'hui, vous vendiez votre bien${esc(ville)} avec notre agence.`}
+            Nous gardons un très bon souvenir de ce projet mené ensemble, et nous espérons que ce
+            nouveau chapitre vous a apporté tout ce que vous en attendiez.</p>
+          <p style="margin:0;">Si un nouveau projet se dessine — une vente, un achat, un
+            investissement, ou simplement l'envie de connaître la valeur d'un bien — notre porte
+            vous est toujours grande ouverte. Au plaisir de vous revoir&nbsp;!</p>`,
+        signatureName,
+      }),
+    };
+  }
+
   return {
     subject: years && years > 0 ? `Déjà ${yearsTxt} chez vous 🏡` : "Bel anniversaire dans votre maison 🏡",
     html: wrapEmail(ag, {
@@ -345,6 +376,18 @@ export function buildAnniversaireEmail(contact, type, ag, isoDay) {
   };
 }
 
+// Types d'un contact, que la ligne vienne de la base (JSON string) ou d'un objet.
+export function typesOf(contact) {
+  if (Array.isArray(contact.types)) return contact.types;
+  try { return JSON.parse(contact.types || "[]"); } catch { return []; }
+}
+// Profil pour l'anniversaire d'achat : vendeur pur → version vendeur,
+// tout le reste (acquéreur, mixte, inconnu) → version acquéreur.
+export function profilAchat(contact) {
+  const t = typesOf(contact);
+  return t.includes("vendeur") && !t.includes("acquereur") ? "vendeur" : "acquereur";
+}
+
 // Envoi HTML via Resend, au nom de l'agence (adresse du domaine verifie,
 // reponse dirigee vers la boite de l'agence). Dry run sans RESEND_API_KEY.
 export async function envoyerMailHtml(env, { to, subject, html, fromName, replyTo, bcc }) {
@@ -357,7 +400,9 @@ export async function envoyerMailHtml(env, { to, subject, html, fromName, replyT
   };
   if (replyTo) corps.reply_to = [replyTo];
   if (bcc) corps.bcc = [bcc];
-  const res = await fetch("https://api.resend.com/emails", {
+  // RESEND_BASE : surchargeable en test (faux serveur local), comme
+  // ANTHROPIC_BASE et GRAPH_BASE ailleurs dans le code.
+  const res = await fetch((env.RESEND_BASE || "https://api.resend.com") + "/emails", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.RESEND_API_KEY },
     body: JSON.stringify(corps),
@@ -394,6 +439,7 @@ export async function upcoming(db, agency, reglages, days = 30) {
         date: iso, type: o.type, years: o.years, contactId: o.contact.id,
         nom: o.contact.nom, prenom: o.contact.prenom, email: o.contact.email,
         ville: o.contact.ville, conseiller: o.contact.conseiller, hasEmail: !!o.contact.email,
+        profil: o.type === "achat" ? profilAchat(o.contact) : "",
       });
     }
   }
@@ -574,6 +620,201 @@ export async function syncAnnonces(db, agency, reglages) {
   return summary;
 }
 
+/* --------------------------- Brique Acheteurs ----------------------------- */
+// Chaque acquereur porte une recherche (budget, types, communes, pieces,
+// surface). Le rapprochement croise ces criteres avec les annonces relevees
+// sur le site ; les relances partent au cron du matin : biens jamais proposes
+// (decouverte) et baisses de prix des dernieres 24 h — anti-doublon par
+// (contact, bien, motif) via le journal crm_relances.
+const RECHERCHE_TYPES = ["maison", "appartement", "terrain", "autre"];
+const RELANCE_MAX_BIENS = 8;    // biens max par e-mail (les baisses d'abord)
+const RELANCE_MAX_MAILS = 30;   // e-mails max par passage (plafond de sous-requetes
+                                // Workers ; le reste part les jours suivants)
+
+const sansAccents = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+const jsonArr = (v) => (Array.isArray(v) ? v : (() => { try { return JSON.parse(v || "[]"); } catch { return []; } })());
+
+export function sanitizeRecherche(b) {
+  const num = (v, max) => { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 && n <= max ? n : null; };
+  let types = jsonArr(b.types).map(sansAccents).filter((t) => RECHERCHE_TYPES.includes(t));
+  let villes = Array.isArray(b.villes) ? b.villes : String(b.villes || "").split(/[,;]/);
+  villes = villes.map((v) => strip(v, 60)).filter(Boolean).slice(0, 30);
+  return {
+    actif: b.actif === undefined ? 1 : (b.actif ? 1 : 0),
+    budget_min: num(b.budgetMin ?? b.budget_min, 100000000),
+    budget_max: num(b.budgetMax ?? b.budget_max, 100000000),
+    types, villes,
+    pieces_min: num(b.piecesMin ?? b.pieces_min, 50),
+    surface_min: num(b.surfaceMin ?? b.surface_min, 10000),
+    notes: strip(b.notes, 1000),
+  };
+}
+
+// Un critere vide = pas de filtre. « autre » couvre tout ce qui n'est ni
+// maison, ni appartement, ni terrain (local commercial, immeuble...).
+export function matchAnnonce(recherche, annonce) {
+  if (annonce.statut !== "en_vente") return false;
+  if (recherche.budget_max && annonce.prix && annonce.prix > recherche.budget_max) return false;
+  if (recherche.budget_min && annonce.prix && annonce.prix < recherche.budget_min) return false;
+  const types = jsonArr(recherche.types).map(sansAccents);
+  if (types.length) {
+    const t = sansAccents(annonce.type);
+    const connu = ["maison", "appartement", "terrain"].includes(t);
+    if (!(types.includes(t) || (types.includes("autre") && !connu))) return false;
+  }
+  const villes = jsonArr(recherche.villes).map(sansAccents);
+  if (villes.length && !villes.includes(sansAccents(annonce.ville))) return false;
+  if (recherche.pieces_min && (annonce.pieces || 0) < recherche.pieces_min) return false;
+  if (recherche.surface_min && (annonce.surface || 0) < recherche.surface_min) return false;
+  return true;
+}
+
+async function recherchesAvecContacts(db, agencyId) {
+  return db.all(
+    `SELECT r.*, c.civilite, c.nom, c.prenom, c.email, c.conseiller, c.opt_out
+     FROM crm_recherches r JOIN crm_contacts c ON c.id = r.contact_id
+     WHERE r.agency_id = ? ORDER BY c.nom, c.prenom ASC`, [agencyId]);
+}
+
+// Vue « rapprochements du moment » : pour chaque recherche active, les biens
+// en vente qui collent aux criteres.
+export async function rapprochements(db, agency) {
+  const recherches = (await recherchesAvecContacts(db, agency.id)).filter((r) => r.actif);
+  const annonces = await db.all(
+    "SELECT * FROM crm_annonces WHERE agency_id = ? AND statut = 'en_vente'", [agency.id]);
+  return recherches.map((r) => ({
+    contactId: r.contact_id,
+    nom: r.nom, prenom: r.prenom, email: r.email, conseiller: r.conseiller,
+    optOut: !!r.opt_out,
+    matches: annonces.filter((a) => matchAnnonce(r, a))
+      .sort((a, b) => (b.first_seen || 0) - (a.first_seen || 0))
+      .map((a) => ({ id: a.id, titre: a.titre, prix: a.prix, ville: a.ville, image: a.image, url: a.url })),
+  }));
+}
+
+// E-mail de relance : une carte par bien, les baisses mises en avant.
+export function buildRelanceEmail(contact, biens, ag) {
+  const gold = "#BEAF87", dark = "#1D1D1B";
+  const nBaisses = biens.filter((b) => b.kind === "baisse").length;
+  const n = biens.length;
+  const salut = salutation(contact);
+  const prix = (p) => (p ? Number(p).toLocaleString("fr-FR") + " €" : "Prix sur demande");
+  const subject =
+    nBaisses && n === 1 ? "Baisse de prix sur un bien pour vous 🏡" :
+    nBaisses ? `Du mouvement sur ${n} biens pour votre recherche` :
+    n === 1 ? "Un bien qui pourrait vous plaire 🏡" :
+    `${n} biens pour votre recherche 🏡`;
+  const cartes = biens.map(({ annonce: a, kind, ancienPrix }) => `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+      style="border:1px solid #E5E0D2; border-radius:12px; overflow:hidden; margin:0 0 18px;">
+      ${a.image ? `<tr><td><img src="${esc(a.image)}" alt="" width="100%" style="display:block; width:100%; max-height:260px; object-fit:cover;"></td></tr>` : ""}
+      <tr><td style="padding:16px 20px 18px;">
+        ${kind === "baisse" ? `<div style="font-family:Helvetica,Arial,sans-serif; font-size:11px; font-weight:bold; letter-spacing:2px; text-transform:uppercase; color:#2E7D32; margin-bottom:6px;">⬇ Prix en baisse</div>` : ""}
+        <div style="font-family:Georgia,'Times New Roman',serif; font-size:19px; color:${dark};">${esc(a.titre)}</div>
+        <div style="font-family:Helvetica,Arial,sans-serif; font-size:13px; color:#8a8a86; margin-top:4px;">
+          ${[a.ville, a.pieces ? a.pieces + " pièces" : "", a.surface ? a.surface + " m²" : "", a.dpe ? "DPE " + a.dpe : ""].filter(Boolean).map(esc).join(" · ")}
+        </div>
+        <div style="font-family:Georgia,'Times New Roman',serif; font-size:20px; color:${dark}; margin-top:10px;">
+          ${kind === "baisse" && ancienPrix ? `<span style="color:#8a8a86; font-size:15px;"><s>${prix(ancienPrix)}</s></span> &nbsp;` : ""}${prix(a.prix)}
+        </div>
+        <div style="margin-top:14px;">
+          <a href="${esc(a.url)}" style="display:inline-block; background:${dark}; color:${gold}; font-family:Helvetica,Arial,sans-serif; font-size:13px; letter-spacing:1px; text-decoration:none; padding:10px 22px; border-radius:8px;">Découvrir ce bien</a>
+        </div>
+      </td></tr>
+    </table>`).join("");
+  const html = wrapEmail(ag, {
+    eyebrow: "Sélectionné pour votre recherche",
+    headline: nBaisses ? "Du nouveau<br>pour votre projet&nbsp;!" : "Nous avons pensé<br>à vous&nbsp;!",
+    bodyHtml: `
+      <p style="margin:0 0 16px;">${esc(salut)},</p>
+      <p style="margin:0 0 22px;">${n === 1
+        ? "En parcourant nos biens, nous avons pensé à votre projet : celui-ci correspond à votre recherche."
+        : `En parcourant nos biens, nous avons pensé à votre projet : ces ${n} biens correspondent à votre recherche.`}
+        ${nBaisses ? " Et bonne nouvelle : il y a du mouvement sur les prix." : ""}</p>
+      ${cartes}
+      <p style="margin:6px 0 0;">Une visite, une question, un ajustement de vos critères&nbsp;?
+        Répondez simplement à cet e-mail ou appelez-nous — nous sommes là pour votre projet.</p>`,
+    signatureName: contact.conseiller
+      ? `${contact.conseiller}, votre conseiller`
+      : `Toute l'équipe ${ag.nom || "de l'agence"}`,
+  });
+  return { subject, html };
+}
+
+// Passage du jour : pour chaque recherche active, biens jamais proposes et
+// baisses des dernieres 24 h → un e-mail groupe par acquereur, journalise
+// bien par bien (l'anti-doublon fait avancer le stock jour apres jour).
+export async function runRelances(env, db, agency, reglages) {
+  const isoDay = parisDate();
+  const recherches = (await recherchesAvecContacts(db, agency.id))
+    .filter((r) => r.actif && r.email && !r.opt_out);
+  const annonces = await db.all(
+    "SELECT * FROM crm_annonces WHERE agency_id = ? AND statut = 'en_vente'", [agency.id]);
+  const baisses = await db.all(
+    "SELECT annonce_id, ancien_prix FROM crm_annonces_events WHERE agency_id = ? AND kind = 'baisse' AND created_at > ?",
+    [agency.id, now() - 26 * 3600]);
+  const baisseMap = new Map(baisses.map((b) => [b.annonce_id, b.ancien_prix]));
+  const deja = await db.all(
+    "SELECT contact_id, annonce_id, kind FROM crm_relances WHERE agency_id = ? AND statut = 'ok'", [agency.id]);
+  const dejaSet = new Set(deja.map((d) => d.contact_id + "|" + d.annonce_id + "|" + d.kind));
+
+  const summary = { date: isoDay, mails: 0, biens: 0, errors: 0, reportes: 0, details: [] };
+  const journal = [];
+  for (const r of recherches) {
+    const aEnvoyer = [];
+    for (const a of annonces) {
+      if (!matchAnnonce(r, a)) continue;
+      const cle = (k) => r.contact_id + "|" + a.id + "|" + k;
+      if (baisseMap.has(a.id) && !dejaSet.has(cle("baisse"))) {
+        aEnvoyer.push({ annonce: a, kind: "baisse", ancienPrix: baisseMap.get(a.id) });
+      } else if (!baisseMap.has(a.id) && !dejaSet.has(cle("decouverte")) && !dejaSet.has(cle("baisse"))) {
+        aEnvoyer.push({ annonce: a, kind: "decouverte" });
+      }
+    }
+    if (!aEnvoyer.length) continue;
+    if (summary.mails >= RELANCE_MAX_MAILS) { summary.reportes++; continue; }
+    aEnvoyer.sort((x, y) =>
+      (x.kind === "baisse" ? 0 : 1) - (y.kind === "baisse" ? 0 : 1) ||
+      (y.annonce.first_seen || 0) - (x.annonce.first_seen || 0));
+    const lot = aEnvoyer.slice(0, RELANCE_MAX_BIENS);
+    const { subject, html } = buildRelanceEmail(r, lot, reglages.agence);
+    const res = await envoyerMailHtml(env, {
+      to: r.email, subject, html,
+      fromName: reglages.agence.nom || agency.name,
+      replyTo: reglages.agence.email || "",
+      bcc: reglages.acheteurs.cci || "",
+    });
+    const statut = res.ok ? "ok" : "erreur";
+    const label = `${r.prenom || ""} ${r.nom || ""}`.trim();
+    for (const b of lot) {
+      journal.push({
+        contact_id: r.contact_id, contact: label, email: r.email,
+        annonce_id: b.annonce.id, titre: b.annonce.titre, kind: b.kind,
+        prix: b.annonce.prix, statut,
+        erreur: res.error || (res.dryRun ? "RESEND_API_KEY absent (dry run)" : ""),
+      });
+    }
+    if (res.ok) {
+      summary.mails++; summary.biens += lot.length;
+      summary.details.push({ contact: label, biens: lot.length, status: "ok" });
+    } else {
+      summary.errors++;
+      summary.details.push({ contact: label, biens: lot.length, status: "erreur", reason: res.error || "dry run" });
+    }
+  }
+
+  // Journal en quelques requetes (memes contraintes que l'import de contacts).
+  for (let i = 0; i < journal.length; i += 150) {
+    const valeurs = journal.slice(i, i + 150).map((l) =>
+      `(${sqlText(agency.id)},${sqlText(l.contact_id)},${sqlText(l.contact)},${sqlText(l.email)},` +
+      `${sqlText(l.annonce_id)},${sqlText(l.titre)},${sqlText(l.kind)},${l.prix ? Number(l.prix) : "NULL"},` +
+      `${sqlText(l.statut)},${sqlText(l.erreur)},${now()})`).join(",");
+    await db.run(
+      `INSERT INTO crm_relances (agency_id, contact_id, contact, email, annonce_id, titre, kind, prix, statut, erreur, created_at) VALUES ${valeurs}`, []);
+  }
+  return summary;
+}
+
 /* ----------------------------- Cron quotidien ----------------------------- */
 // Pour chaque agence ouverte qui a des reglages CRM : releve des annonces puis
 // vœux d'anniversaire. Chaque agence est isolee — une erreur n'arrete pas les autres.
@@ -593,6 +834,10 @@ export async function runCrmDaily(env, db) {
       }
       if (reglages.anniversaires.enabled) {
         r.anniversaires = await runAnniversaires(env, db, agency, reglages);
+      }
+      if (reglages.acheteurs.enabled) {
+        try { r.acheteurs = await runRelances(env, db, agency, reglages); }
+        catch (e) { r.acheteursError = e.message; }
       }
       results.push(r);
     } catch (e) {

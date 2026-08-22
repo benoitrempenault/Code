@@ -38,6 +38,7 @@
   <nav class="onglets">
     <button class="onglet actif" data-onglet="contacts">👥 Contacts</button>
     <button class="onglet" data-onglet="anniversaires">🎂 Anniversaires</button>
+    <button class="onglet" data-onglet="acheteurs">🤝 Acheteurs</button>
     <button class="onglet" data-onglet="annonces">🏠 Annonces</button>
     <button class="onglet" data-onglet="reglages">🔧 Réglages</button>
   </nav>
@@ -86,13 +87,18 @@
       </div>
       <div class="barre">
         <button class="btn btn-or" id="btn-anniv-save">Enregistrer</button>
-        <button class="btn" id="btn-apercu-naissance">👁 Aperçu naissance</button>
-        <button class="btn" id="btn-apercu-achat">👁 Aperçu achat</button>
+        <button class="btn" id="btn-apercu-naissance">👁 Naissance</button>
+        <button class="btn" id="btn-apercu-achat">👁 Achat (acquéreur)</button>
+        <button class="btn" id="btn-apercu-vente">👁 Achat (vendeur)</button>
       </div>
+      <p class="petit">L'anniversaire d'achat s'adapte au rôle du contact dans la vente : un
+        acquéreur reçoit « vous receviez vos clés », un vendeur (sans être acquéreur chez nous)
+        reçoit « vous vendiez votre bien ». Le rôle vient de la typologie du contact.</p>
       <div class="barre barre-haut">
         <input type="email" id="test-email" placeholder="votre.adresse@email.fr" />
         <button class="btn" id="btn-test-naissance">✉️ Test naissance</button>
         <button class="btn" id="btn-test-achat">✉️ Test achat</button>
+        <button class="btn" id="btn-test-vente">✉️ Test vente</button>
         <button class="btn" id="btn-run-jour">▶️ Lancer le passage du jour</button>
       </div>
     </div>
@@ -103,6 +109,39 @@
     <div class="carte">
       <h2>Historique des envois</h2>
       <div id="table-envois"></div>
+    </div>
+  </section>
+
+  <!-- ============================= ACHETEURS =========================== -->
+  <section id="panneau-acheteurs" class="panneau">
+    <div class="carte">
+      <h2>Relances automatiques des acquéreurs</h2>
+      <p class="aide">Chaque matin, après le relevé des annonces, chaque acquéreur en recherche
+        reçoit les biens qui collent à ses critères : les nouveautés jamais proposées et les
+        <strong>baisses de prix</strong> des dernières 24 h — un seul e-mail par acquéreur, au look
+        de l'agence, signé de son conseiller. Un même bien n'est jamais proposé deux fois.</p>
+      <div class="barre">
+        <label class="case"><input type="checkbox" id="ach-enabled" /> <strong>Activer les relances automatiques du matin</strong></label>
+        <input type="email" id="ach-cci" placeholder="copie cachée (optionnel)" style="min-width:220px;" />
+        <button class="btn btn-or" id="btn-ach-save">Enregistrer</button>
+        <button class="btn" id="btn-ach-apercu">👁 Aperçu de l'e-mail</button>
+        <button class="btn" id="btn-ach-run">▶️ Lancer les relances maintenant</button>
+      </div>
+    </div>
+    <div class="carte">
+      <h2>Acquéreurs &amp; leurs recherches</h2>
+      <p class="aide">Les contacts de typologie « Acquéreur ». Cliquez sur une ligne pour définir
+        ses critères (budget, communes, type de bien…) — c'est ce qui déclenche les rapprochements.</p>
+      <div id="table-acheteurs"></div>
+    </div>
+    <div class="carte">
+      <h2>Rapprochements du moment</h2>
+      <p class="aide">Les biens actuellement en vente qui collent aux recherches actives.</p>
+      <div id="table-rapprochements"></div>
+    </div>
+    <div class="carte">
+      <h2>Historique des relances</h2>
+      <div id="table-relances"></div>
     </div>
   </section>
 

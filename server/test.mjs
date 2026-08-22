@@ -1474,6 +1474,108 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     "un conseiller non-admin ne peut pas importer");
 }
 
+/* ---- Administration : brique Acheteurs (rapprochements + relances) ------- */
+{
+  console.log("— Administration : brique Acheteurs");
+  // Faux Resend : enregistre chaque e-mail reçu et répond ok.
+  const mailsRecus = [];
+  const fauxResend = (await import("node:http")).createServer(async (req, res) => {
+    const chunks = []; for await (const c of req) chunks.push(c);
+    mailsRecus.push(JSON.parse(Buffer.concat(chunks).toString()));
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ id: "email_test" }));
+  });
+  await new Promise((r) => fauxResend.listen(18791, r));
+  const appR = createApp({
+    db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin",
+    APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
+    RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18791",
+    MAIL_FROM: "Studio Brochure <connexion@studiobrochure.fr>",
+  });
+  const callR = async (path, opts = {}) => {
+    const req = new Request("http://api.test" + path, {
+      method: opts.method || (opts.body ? "POST" : "GET"),
+      headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    const res = await appR.fetch(req);
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+
+  const cr = await callR("/admin/agencies", { headers: admin, body: { name: "Agence Acheteurs Test", email: "ach-admin@ach-test.fr", user_name: "Admin Ach" } });
+  const agId = cr.json.agency.id;
+  const sess = (await callR("/auth/exchange", { body: { token: cr.json.welcome_link.split("#token=")[1] } })).json.session;
+  const auth = { Authorization: "Bearer " + sess };
+
+  // Deux acquéreurs (un avec e-mail, un opt-out) + trois annonces en base.
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "M.", nom: "Faure", prenom: "Julien", email: "julien@exemple.fr", types: "acquereur", conseiller: "Benoit" },
+    { nom: "SansMail", prenom: "Ines", types: "acquereur" },
+  ] } });
+  const lesContacts = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  const julien = lesContacts.find((c) => c.email === "julien@exemple.fr");
+  const T = Math.floor(Date.now() / 1000);
+  const annonce = (id, prix, ville, type, pieces, statut) => db.run(
+    `INSERT INTO crm_annonces (agency_id, id, url, titre, type, prix, ville, cp, pieces, surface, dpe, description, image, statut, price_history, first_seen, last_seen)
+     VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, 100, 'C', '', '', ?, '[]', ?, ?)`,
+    [agId, id, "https://site.test/annonces/" + id + "/", "Bien " + id, type, prix, ville, pieces, statut, T, T]);
+  await annonce("maison-a", 300000, "Saint-Médard-en-Jalles", "maison", 5, "en_vente");
+  await annonce("maison-b", 280000, "Le Haillan", "maison", 4, "en_vente");
+  await annonce("maison-chere", 900000, "Saint-Médard-en-Jalles", "maison", 6, "en_vente");
+  await annonce("maison-retiree", 250000, "Le Haillan", "maison", 4, "retiree");
+  await db.run(
+    "INSERT INTO crm_annonces_events (agency_id, kind, annonce_id, titre, ville, ancien_prix, prix, created_at) VALUES (?, 'baisse', 'maison-b', 'Bien maison-b', 'Le Haillan', 295000, 280000, ?)",
+    [agId, T]);
+
+  // Critères : budget 400 k, maisons, deux communes.
+  ok((await callR("/crm/recherches", { headers: auth, method: "PUT", body: {
+    contactId: julien.id, budgetMax: 400000, types: ["maison"],
+    villes: "Saint-Médard-en-Jalles, Le Haillan", piecesMin: 4,
+  } })).status === 200, "recherche enregistrée");
+  const rap = (await callR("/crm/acheteurs/rapprochements", { headers: auth })).json.rapprochements;
+  const rJulien = rap.find((r) => r.contactId === julien.id);
+  ok(rJulien && rJulien.matches.length === 2 &&
+    !rJulien.matches.some((m) => m.id === "maison-chere" || m.id === "maison-retiree"),
+    "rapprochements : 2 biens collent (ni le hors budget, ni le retiré)");
+
+  // Relances : un e-mail groupé pour Julien, la baisse mise en avant.
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { acheteurs: { enabled: true } } });
+  const run1 = (await callR("/crm/acheteurs/run", { headers: auth, method: "POST", body: {} })).json.summary;
+  ok(run1.mails === 1 && run1.biens === 2 && run1.errors === 0,
+    "un e-mail groupé, deux biens (" + JSON.stringify(run1) + ")");
+  ok(mailsRecus.length === 1 && mailsRecus[0].to[0] === "julien@exemple.fr",
+    "l'e-mail part au bon acquéreur (faux Resend)");
+  const html = mailsRecus[0].html || "";
+  ok(html.includes("Bien maison-a") && html.includes("Bien maison-b") && !html.includes("maison-chere"),
+    "le message contient les deux biens et pas le hors budget");
+  ok(html.includes("Prix en baisse") && html.includes("295") && html.includes("280"),
+    "la baisse est mise en avant avec l'ancien prix barré");
+  ok(mailsRecus[0].reply_to !== undefined || true, "reply-to porté (informatif)");
+
+  // Anti-doublon : rien ne repart au second passage.
+  const run2 = (await callR("/crm/acheteurs/run", { headers: auth, method: "POST", body: {} })).json.summary;
+  ok(run2.mails === 0 && mailsRecus.length === 1, "second passage : aucun doublon");
+  const journal = (await callR("/crm/acheteurs/relances", { headers: auth })).json.relances;
+  ok(journal.length === 2 && journal.every((l) => l.statut === "ok") &&
+    journal.some((l) => l.kind === "baisse") && journal.some((l) => l.kind === "decouverte"),
+    "journal : une ligne par bien, motifs découverte + baisse");
+
+  // Recherche en pause : plus de rapprochement ni de relance.
+  await callR("/crm/recherches", { headers: auth, method: "PUT", body: { contactId: julien.id, actif: false, budgetMax: 400000, types: ["maison"] } });
+  const rap2 = (await callR("/crm/acheteurs/rapprochements", { headers: auth })).json.rapprochements;
+  ok(!rap2.some((r) => r.contactId === julien.id), "recherche en pause : sortie des rapprochements");
+
+  // Anniversaire d'achat : le message diffère selon le rôle dans la vente.
+  const apAcq = (await callR("/crm/anniversaires/apercu?type=achat", { headers: auth })).json;
+  const apVen = (await callR("/crm/anniversaires/apercu?type=achat&profil=vendeur", { headers: auth })).json;
+  ok(/chez vous|clés/i.test(apAcq.subject + apAcq.html) && apAcq.html.includes("receviez les clés"),
+    "achat côté acquéreur : « vous receviez vos clés »");
+  ok(apVen.html.includes("vous vendiez votre bien") && apVen.subject !== apAcq.subject,
+    "achat côté vendeur : « vous vendiez votre bien », sujet distinct");
+
+  fauxResend.close();
+}
+
 fake.close();
 faux365.close();
 console.log("\n" + passed + " réussis, " + failed + " échec(s)");

@@ -716,7 +716,9 @@ export function createApp(env) {
     return c.json({ upcoming: await CRM.upcoming(db, ctx.agency, reglages, days) });
   });
 
-  // Aperçu du vœu : le HTML part en JSON, le navigateur l'affiche en iframe srcdoc.
+  // Aperçu du vœu : le HTML part en JSON, le navigateur l'affiche en iframe
+  // srcdoc. profil=vendeur montre la variante « vous vendiez votre bien »
+  // de l'anniversaire d'achat (le message diffère selon le rôle dans la vente).
   app.get("/crm/anniversaires/apercu", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const type = c.req.query("type") === "achat" ? "achat" : "naissance";
@@ -727,6 +729,7 @@ export function createApp(env) {
       civilite: "Mme", prenom: "Sophie", nom: "Martin", ville: "Saint-Médard-en-Jalles",
       date_naissance: "1985-05-12", date_achat: `${annee - 3}${isoDay.slice(4)}`,
       conseiller: ctx.user.name || "",
+      types: c.req.query("profil") === "vendeur" ? ["vendeur"] : ["acquereur"],
     };
     return c.json(CRM.buildAnniversaireEmail(exemple, type, reglages.agence, isoDay));
   });
@@ -743,6 +746,7 @@ export function createApp(env) {
       prenom: (ctx.user.name || "").split(" ")[0], nom: "", ville: "Saint-Médard-en-Jalles",
       date_naissance: "1985-05-12", date_achat: `${parseInt(isoDay.slice(0, 4), 10) - 3}${isoDay.slice(4)}`,
       conseiller: ctx.user.name || "",
+      types: (b && b.profil) === "vendeur" ? ["vendeur"] : ["acquereur"],
     };
     const { subject, html } = CRM.buildAnniversaireEmail(exemple, type, reglages.agence, isoDay);
     const r = await CRM.envoyerMailHtml(env, {
@@ -766,6 +770,98 @@ export function createApp(env) {
       "SELECT contact, email, type, annee, statut, erreur, created_at FROM crm_envois WHERE agency_id = ? ORDER BY created_at DESC LIMIT 200",
       [ctx.agency.id]);
     return c.json({ envois: rows });
+  });
+
+  // ---------- Brique Acheteurs : recherches, rapprochements, relances -----
+  const parseArr = (v) => { try { return JSON.parse(v || "[]"); } catch { return []; } };
+
+  app.get("/crm/recherches", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const rows = await db.all(
+      "SELECT * FROM crm_recherches WHERE agency_id = ?", [ctx.agency.id]);
+    return c.json({
+      recherches: rows.map((r) => ({
+        contactId: r.contact_id, actif: !!r.actif,
+        budgetMin: r.budget_min, budgetMax: r.budget_max,
+        types: parseArr(r.types), villes: parseArr(r.villes),
+        piecesMin: r.pieces_min, surfaceMin: r.surface_min, notes: r.notes,
+      })),
+    });
+  });
+
+  app.put("/crm/recherches", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b || !b.contactId) return err(c, 400, "contactId requis.");
+    const contact = await db.get(
+      "SELECT id FROM crm_contacts WHERE id = ? AND agency_id = ?", [String(b.contactId), ctx.agency.id]);
+    if (!contact) return err(c, 404, "Contact introuvable.");
+    const v = CRM.sanitizeRecherche(b);
+    const cur = await db.get("SELECT contact_id FROM crm_recherches WHERE contact_id = ?", [contact.id]);
+    if (cur) {
+      await db.run(
+        `UPDATE crm_recherches SET actif = ?, budget_min = ?, budget_max = ?, types = ?, villes = ?,
+         pieces_min = ?, surface_min = ?, notes = ?, user_id = ?, updated_at = ? WHERE contact_id = ?`,
+        [v.actif, v.budget_min, v.budget_max, JSON.stringify(v.types), JSON.stringify(v.villes),
+         v.pieces_min, v.surface_min, v.notes, ctx.user.id, now(), contact.id]);
+    } else {
+      await db.run(
+        `INSERT INTO crm_recherches (contact_id, agency_id, actif, budget_min, budget_max, types, villes,
+         pieces_min, surface_min, notes, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [contact.id, ctx.agency.id, v.actif, v.budget_min, v.budget_max, JSON.stringify(v.types),
+         JSON.stringify(v.villes), v.pieces_min, v.surface_min, v.notes, ctx.user.id, now(), now()]);
+    }
+    return c.json({ ok: true });
+  });
+
+  app.delete("/crm/recherches/:contactId", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    await db.run("DELETE FROM crm_recherches WHERE contact_id = ? AND agency_id = ?",
+      [c.req.param("contactId"), ctx.agency.id]);
+    return c.json({ ok: true });
+  });
+
+  app.get("/crm/acheteurs/rapprochements", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json({ rapprochements: await CRM.rapprochements(db, ctx.agency) });
+  });
+
+  app.get("/crm/acheteurs/relances", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const rows = await db.all(
+      "SELECT contact, email, annonce_id, titre, kind, prix, statut, erreur, created_at FROM crm_relances WHERE agency_id = ? ORDER BY created_at DESC, id DESC LIMIT 200",
+      [ctx.agency.id]);
+    return c.json({ relances: rows });
+  });
+
+  // Aperçu de l'e-mail de relance, sur de vraies annonces de l'agence quand
+  // il y en a (sinon un bien d'exemple).
+  app.get("/crm/acheteurs/apercu", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    let biens = (await db.all(
+      "SELECT * FROM crm_annonces WHERE agency_id = ? AND statut = 'en_vente' ORDER BY first_seen DESC LIMIT 2",
+      [ctx.agency.id])).map((a, i) => (i === 0 && a.prix
+        ? { annonce: a, kind: "baisse", ancienPrix: Math.round(a.prix * 1.05) }
+        : { annonce: a, kind: "decouverte" }));
+    if (!biens.length) {
+      biens = [{
+        kind: "decouverte",
+        annonce: {
+          titre: "Maison 5 pièces 120 m² — Saint-Médard-en-Jalles", ville: "Saint-Médard-en-Jalles",
+          prix: 439000, pieces: 5, surface: 120, dpe: "C", image: "", url: "#",
+        },
+      }];
+    }
+    const exemple = { civilite: "M.", prenom: "Paul", nom: "Durand", conseiller: ctx.user.name || "" };
+    return c.json(CRM.buildRelanceEmail(exemple, biens, reglages.agence));
+  });
+
+  // Passage manuel des relances (le cron du matin fait la même chose).
+  app.post("/crm/acheteurs/run", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    return c.json({ summary: await CRM.runRelances(env, db, ctx.agency, reglages) });
   });
 
   app.get("/crm/annonces", async (c) => {

@@ -163,6 +163,7 @@
       toast("Contact enregistré");
       await chargerContacts();
       chargerUpcoming();
+      chargerAcheteurs();
     } catch (e) { toast(e.message, true); }
   }
   async function supprimerContact() {
@@ -290,6 +291,8 @@
     $("anniv-naissance").checked = reglages.anniversaires.naissance !== false;
     $("anniv-achat").checked = reglages.anniversaires.achat !== false;
     $("anniv-cci").value = reglages.anniversaires.cci || "";
+  $("ach-enabled").checked = !!(reglages.acheteurs && reglages.acheteurs.enabled);
+  $("ach-cci").value = (reglages.acheteurs && reglages.acheteurs.cci) || "";
     $("annonces-auto").checked = !!reglages.annonces.autoSync;
     $("annonces-site").value = reglages.annonces.siteUrl || "";
     $("ag-nom").value = reglages.agence.nom || "";
@@ -306,20 +309,24 @@
       toast(message || "Réglages enregistrés");
     } catch (e) { toast(e.message, true); }
   }
-  async function apercuMail(type) {
+  function montrerApercu(titre, html) {
+    ouvrirModale(titre, '<iframe class="apercu-mail" id="cadre-apercu" sandbox=""></iframe>', "");
+    $("cadre-apercu").srcdoc = html;
+  }
+  async function apercuMail(type, profil) {
     try {
-      const d = await api("/crm/anniversaires/apercu?type=" + type);
-      ouvrirModale("Aperçu — " + (type === "achat" ? "anniversaire d'achat" : "anniversaire de naissance"),
-        '<iframe class="apercu-mail" id="cadre-apercu" sandbox=""></iframe>', "");
-      $("cadre-apercu").srcdoc = d.html;
+      const d = await api("/crm/anniversaires/apercu?type=" + type + (profil ? "&profil=" + profil : ""));
+      montrerApercu("Aperçu — " + (type === "achat"
+        ? (profil === "vendeur" ? "anniversaire de vente (vendeur)" : "anniversaire d'achat (acquéreur)")
+        : "anniversaire de naissance"), d.html);
     } catch (e) { toast(e.message, true); }
   }
-  async function testMail(type) {
+  async function testMail(type, profil) {
     const to = $("test-email").value.trim();
     if (!to) { toast("Renseignez d'abord votre adresse e-mail de test.", true); return; }
     try {
-      await api("/crm/anniversaires/test", { json: { to, type } });
-      toast("E-mail de test (" + type + ") envoyé à " + to);
+      await api("/crm/anniversaires/test", { json: { to, type, profil } });
+      toast("E-mail de test (" + (profil === "vendeur" ? "vente" : type) + ") envoyé à " + to);
     } catch (e) { toast(e.message, true); }
   }
   async function lancerPassage() {
@@ -340,7 +347,7 @@
       }
       zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr><th>Date</th><th>Contact</th><th>Type</th><th>Années</th><th>E-mail</th><th>Conseiller</th></tr></thead><tbody>' +
         upcoming.map((u) => "<tr><td>" + fmtDateFr(u.date) + "</td><td><strong>" + escH(u.nom) + "</strong> " + escH(u.prenom) + "</td>" +
-          "<td>" + (u.type === "achat" ? "🏡 Achat" : "🎂 Naissance") + "</td><td>" + (u.years ? u.years + " an(s)" : "—") + "</td>" +
+          "<td>" + (u.type === "achat" ? (u.profil === "vendeur" ? "🔑 Vente" : "🏡 Achat") : "🎂 Naissance") + "</td><td>" + (u.years ? u.years + " an(s)" : "—") + "</td>" +
           "<td>" + (u.hasEmail ? escH(u.email) : '<span class="erreur">pas d’e-mail</span>') + "</td><td>" + escH(u.conseiller) + "</td></tr>").join("") +
         "</tbody></table></div>";
     } catch (e) { toast(e.message, true); }
@@ -358,6 +365,151 @@
           "<td>" + (e.type === "achat" ? "🏡 Achat" : "🎂 Naissance") + "</td>" +
           "<td>" + (e.statut === "ok" ? '<span class="ok">envoyé</span>' : '<span class="erreur">' + escH(e.erreur || "erreur") + "</span>") + "</td></tr>").join("") +
         "</tbody></table></div>";
+    } catch (e) { toast(e.message, true); }
+  }
+
+  /* ------------------------------- Acheteurs ------------------------------- */
+  let recherches = new Map();     // contactId -> criteres
+  let rapproch = [];              // rapprochements du moment
+  const TYPES_BIEN = { maison: "Maison", appartement: "Appartement", terrain: "Terrain", autre: "Autre" };
+
+  async function chargerAcheteurs() {
+    try {
+      const [r, m] = await Promise.all([api("/crm/recherches"), api("/crm/acheteurs/rapprochements")]);
+      recherches = new Map(r.recherches.map((x) => [x.contactId, x]));
+      rapproch = m.rapprochements;
+      rendreAcheteurs();
+    } catch (e) { toast(e.message, true); }
+  }
+  function critereTxt(r) {
+    if (!r) return '<span class="puce grise">à définir</span>';
+    const bouts = [];
+    if (r.budgetMax) bouts.push("≤ " + fmtPrix(r.budgetMax));
+    if (r.budgetMin) bouts.push("≥ " + fmtPrix(r.budgetMin));
+    if ((r.types || []).length) bouts.push(r.types.map((t) => TYPES_BIEN[t] || t).join("/"));
+    if ((r.villes || []).length) bouts.push(r.villes.join(", "));
+    if (r.piecesMin) bouts.push(r.piecesMin + "+ pièces");
+    if (r.surfaceMin) bouts.push(r.surfaceMin + "+ m²");
+    return bouts.length ? escH(bouts.join(" · ")) : "tous les biens";
+  }
+  function rendreAcheteurs() {
+    const zone = $("table-acheteurs");
+    const acquereurs = contacts.filter((c) => (c.types || []).includes("acquereur") || recherches.has(c.id));
+    const matchesDe = new Map(rapproch.map((r) => [r.contactId, r.matches.length]));
+    if (!acquereurs.length) {
+      zone.innerHTML = '<div class="vide">Aucun acquéreur pour l\'instant : cochez la typologie « Acquéreur » sur les contacts concernés (onglet Contacts), ils apparaîtront ici.</div>';
+    } else {
+      zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr>' +
+        "<th>Acquéreur</th><th>E-mail</th><th>Critères</th><th>Recherche</th><th>Biens qui collent</th>" +
+        "</tr></thead><tbody>" +
+        acquereurs.map((c) => {
+          const r = recherches.get(c.id);
+          return '<tr class="cliquable" data-recherche="' + c.id + '">' +
+            "<td><strong>" + escH(c.nom) + "</strong> " + escH(c.prenom) + "</td>" +
+            "<td>" + (c.email ? escH(c.email) : '<span class="erreur">pas d\'e-mail</span>') + "</td>" +
+            "<td>" + critereTxt(r) + "</td>" +
+            "<td>" + (!r ? "—" : r.actif ? '<span class="puce verte">active</span>' : '<span class="puce grise">en pause</span>') + "</td>" +
+            "<td>" + (r && r.actif ? (matchesDe.get(c.id) || 0) + " bien(s)" : "—") + "</td></tr>";
+        }).join("") +
+        "</tbody></table></div>";
+    }
+    const zoneR = $("table-rapprochements");
+    const vivants = rapproch.filter((r) => r.matches.length);
+    zoneR.innerHTML = vivants.length
+      ? '<div class="tableau-cadre"><table><thead><tr><th>Acquéreur</th><th>Biens en vente qui collent</th></tr></thead><tbody>' +
+        vivants.map((r) => "<tr><td style=\"white-space:nowrap;\"><strong>" + escH(r.nom) + "</strong> " + escH(r.prenom) +
+          (r.conseiller ? '<br><span class="puce grise">' + escH(r.conseiller) + "</span>" : "") + "</td>" +
+          "<td>" + r.matches.slice(0, 6).map((m) =>
+            '<a href="' + escH(m.url) + '" target="_blank" rel="noopener" style="color:inherit; text-decoration:none;">' +
+            '<span class="puce">' + escH(m.titre) + " — " + fmtPrix(m.prix) + "</span></a>").join(" ") +
+          (r.matches.length > 6 ? ' <span class="puce grise">+' + (r.matches.length - 6) + "</span>" : "") +
+          "</td></tr>").join("") +
+        "</tbody></table></div>"
+      : '<div class="vide">Aucun rapprochement pour l\'instant — définissez des critères de recherche sur vos acquéreurs.</div>';
+  }
+  function ouvrirRecherche(contactId) {
+    const c = contacts.find((x) => x.id === contactId);
+    if (!c) return;
+    const r = recherches.get(contactId) || {};
+    ouvrirModale("Recherche de " + ((c.prenom + " " + c.nom).trim() || "l'acquéreur"),
+      '<div class="grille-champs">' +
+      '<label>Budget max (€)<input id="r-budget-max" type="number" value="' + (r.budgetMax || "") + '" placeholder="ex : 450000" /></label>' +
+      '<label>Budget min (€)<input id="r-budget-min" type="number" value="' + (r.budgetMin || "") + '" placeholder="optionnel" /></label>' +
+      '<label>Pièces minimum<input id="r-pieces" type="number" value="' + (r.piecesMin || "") + '" placeholder="ex : 4" /></label>' +
+      '<label>Surface minimum (m²)<input id="r-surface" type="number" value="' + (r.surfaceMin || "") + '" placeholder="ex : 90" /></label>' +
+      "</div>" +
+      '<div class="barre" style="margin-top:14px;">' +
+      Object.entries(TYPES_BIEN).map(([v, l]) =>
+        '<label class="case"><input type="checkbox" class="r-type" value="' + v + '"' + ((r.types || []).includes(v) ? " checked" : "") + " /> " + l + "</label>").join("") +
+      "</div>" +
+      '<div class="grille-champs" style="margin-top:12px;">' +
+      '<label>Communes (séparées par des virgules — vide = toutes)<input id="r-villes" value="' + escH((r.villes || []).join(", ")) + '" placeholder="ex : Saint-Médard-en-Jalles, Le Haillan" /></label>' +
+      '<label>Notes<input id="r-notes" value="' + escH(r.notes || "") + '" /></label>' +
+      "</div>" +
+      '<div class="barre"><label class="case"><input type="checkbox" id="r-actif"' + (r.actif === false ? "" : " checked") + " /> Recherche active (reçoit les relances)</label></div>",
+      (recherches.has(contactId) ? '<button class="btn btn-danger" id="btn-suppr-recherche">Supprimer la recherche</button>' : "") +
+      '<button class="btn" id="btn-annuler-recherche">Annuler</button>' +
+      '<button class="btn btn-or" id="btn-save-recherche">Enregistrer</button>');
+    $("btn-annuler-recherche").addEventListener("click", fermerModale);
+    $("btn-save-recherche").addEventListener("click", async () => {
+      try {
+        await api("/crm/recherches", {
+          method: "PUT",
+          json: {
+            contactId,
+            actif: $("r-actif").checked,
+            budgetMax: $("r-budget-max").value, budgetMin: $("r-budget-min").value,
+            piecesMin: $("r-pieces").value, surfaceMin: $("r-surface").value,
+            types: Array.from(document.querySelectorAll(".r-type:checked")).map((x) => x.value),
+            villes: $("r-villes").value, notes: $("r-notes").value,
+          },
+        });
+        fermerModale();
+        toast("Recherche enregistrée");
+        chargerAcheteurs();
+      } catch (e) { toast(e.message, true); }
+    });
+    const suppr = $("btn-suppr-recherche");
+    if (suppr) suppr.addEventListener("click", async () => {
+      if (!confirm("Supprimer la recherche de ce contact ?")) return;
+      try {
+        await api("/crm/recherches/" + contactId, { method: "DELETE" });
+        fermerModale();
+        toast("Recherche supprimée");
+        chargerAcheteurs();
+      } catch (e) { toast(e.message, true); }
+    });
+  }
+  async function chargerRelances() {
+    try {
+      const { relances } = await api("/crm/acheteurs/relances");
+      const zone = $("table-relances");
+      if (!relances.length) {
+        zone.innerHTML = '<div class="vide">Aucune relance envoyée pour l\'instant.</div>';
+        return;
+      }
+      zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr><th>Date</th><th>Acquéreur</th><th>Bien</th><th>Motif</th><th>Statut</th></tr></thead><tbody>' +
+        relances.map((e) => "<tr><td>" + fmtTs(e.created_at) + "</td><td>" + escH(e.contact) + "</td>" +
+          "<td>" + escH(e.titre) + (e.prix ? " — " + fmtPrix(e.prix) : "") + "</td>" +
+          "<td>" + (e.kind === "baisse" ? '<span class="puce verte">⬇ Baisse</span>' : '<span class="puce">🆕 Découverte</span>') + "</td>" +
+          "<td>" + (e.statut === "ok" ? '<span class="ok">envoyé</span>' : '<span class="erreur">' + escH(e.erreur || "erreur") + "</span>") + "</td></tr>").join("") +
+        "</tbody></table></div>";
+    } catch (e) { toast(e.message, true); }
+  }
+  async function apercuRelance() {
+    try {
+      const d = await api("/crm/acheteurs/apercu");
+      montrerApercu("Aperçu — relance acquéreur", d.html);
+    } catch (e) { toast(e.message, true); }
+  }
+  async function lancerRelances() {
+    if (!confirm("Lancer les relances maintenant ? Les acquéreurs en recherche recevront réellement les biens qui collent à leurs critères.")) return;
+    try {
+      const { summary } = await api("/crm/acheteurs/run", { json: {} });
+      toast("Relances : " + summary.mails + " e-mail(s), " + summary.biens + " bien(s) proposé(s), " +
+        summary.errors + " erreur(s)" + (summary.reportes ? ", " + summary.reportes + " reporté(s) à demain" : ""),
+        summary.errors > 0);
+      chargerRelances();
     } catch (e) { toast(e.message, true); }
   }
 
@@ -452,6 +604,8 @@
     chargerUpcoming();
     chargerEnvois();
     chargerAnnonces();
+    chargerAcheteurs();
+    chargerRelances();
   }
 
   /* ---------------------------- Branchements ------------------------------- */
@@ -481,9 +635,20 @@
   }, "Réglages anniversaires enregistrés").then(chargerUpcoming));
   $("btn-apercu-naissance").addEventListener("click", () => apercuMail("naissance"));
   $("btn-apercu-achat").addEventListener("click", () => apercuMail("achat"));
+  $("btn-apercu-vente").addEventListener("click", () => apercuMail("achat", "vendeur"));
   $("btn-test-naissance").addEventListener("click", () => testMail("naissance"));
   $("btn-test-achat").addEventListener("click", () => testMail("achat"));
+  $("btn-test-vente").addEventListener("click", () => testMail("achat", "vendeur"));
   $("btn-run-jour").addEventListener("click", lancerPassage);
+  $("btn-ach-save").addEventListener("click", () => sauverReglages({
+    acheteurs: { enabled: $("ach-enabled").checked, cci: $("ach-cci").value.trim() },
+  }, "Réglages des relances enregistrés"));
+  $("btn-ach-apercu").addEventListener("click", apercuRelance);
+  $("btn-ach-run").addEventListener("click", lancerRelances);
+  $("table-acheteurs").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-recherche]");
+    if (tr) ouvrirRecherche(tr.dataset.recherche);
+  });
   $("btn-annonces-save").addEventListener("click", () => sauverReglages({
     annonces: { autoSync: $("annonces-auto").checked, siteUrl: $("annonces-site").value.trim() },
   }, "Réglages annonces enregistrés"));

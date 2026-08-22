@@ -392,3 +392,43 @@ CREATE TABLE IF NOT EXISTS crm_annonces_events (
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_crm_annonces_ev ON crm_annonces_events(agency_id, created_at);
+
+-- Recherches des acquéreurs (brique Acheteurs) : une recherche par contact.
+-- Un critère vide = pas de filtre. Sert au rapprochement quotidien avec les
+-- annonces du site et aux relances automatiques.
+CREATE TABLE IF NOT EXISTS crm_recherches (
+  contact_id TEXT PRIMARY KEY,                -- référence crm_contacts(id)
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  actif      INTEGER NOT NULL DEFAULT 1,      -- 0 = recherche en pause
+  budget_min INTEGER,
+  budget_max INTEGER,
+  types      TEXT NOT NULL DEFAULT '[]',      -- JSON : maison | appartement | terrain | autre
+  villes     TEXT NOT NULL DEFAULT '[]',      -- JSON : noms de communes (comparés sans accents)
+  pieces_min INTEGER,
+  surface_min REAL,
+  notes      TEXT NOT NULL DEFAULT '',
+  user_id    TEXT NOT NULL DEFAULT '',        -- dernier auteur
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_recherches_ag ON crm_recherches(agency_id, actif);
+
+-- Journal des relances acheteurs : une ligne par bien envoyé à un contact.
+-- Sert d'historique ET d'anti-doublon : un même bien ne repart jamais au même
+-- contact pour le même motif (decouverte | baisse) une fois parti (statut ok).
+CREATE TABLE IF NOT EXISTS crm_relances (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  agency_id  TEXT NOT NULL,
+  contact_id TEXT NOT NULL,
+  contact    TEXT NOT NULL DEFAULT '',        -- « Prénom Nom » (dénormalisé)
+  email      TEXT NOT NULL DEFAULT '',
+  annonce_id TEXT NOT NULL,
+  titre      TEXT NOT NULL DEFAULT '',
+  kind       TEXT NOT NULL,                   -- decouverte | baisse
+  prix       INTEGER,
+  statut     TEXT NOT NULL DEFAULT 'ok',      -- ok | erreur
+  erreur     TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_relances_ag    ON crm_relances(agency_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_crm_relances_dedup ON crm_relances(agency_id, contact_id, annonce_id, kind, statut);
