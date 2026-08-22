@@ -134,7 +134,22 @@
         '<label class="case"><input type="checkbox" class="c-type" value="' + v + '"' + (types.includes(v) ? " checked" : "") + " /> " + l + "</label>").join("") +
       "</div>" +
       '<div class="grille-champs" style="margin-top:12px;"><label>Notes<textarea id="c-notes" rows="3">' + escH(c && c.notes) + "</textarea></label></div>" +
-      '<div class="barre"><label class="case"><input type="checkbox" id="c-optout"' + (c && c.opt_out ? " checked" : "") + " /> Ne plus contacter (opt-out)</label></div>",
+      '<div class="barre"><label class="case"><input type="checkbox" id="c-optout"' + (c && c.opt_out ? " checked" : "") + " /> Ne plus contacter (opt-out)</label></div>" +
+      (c ? '<div class="barre barre-haut" style="margin-top:14px;">' +
+        '<span style="color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.5px; font-weight:600;">Projets</span>' +
+        (projets.filter((p) => p.contacts.some((x) => x.id === c.id)).map((p) =>
+          '<button class="btn" style="padding:4px 12px; font-size:12.5px;" data-ouvre-projet="' + p.id + '">' +
+          (KINDS[p.kind] || p.kind) + (p.contacts.length > 1 ? " · " + p.contacts.length + " pers." : "") +
+          (p.statut !== "actif" ? " (" + p.statut + ")" : "") + "</button>").join("") || '<span class="puce grise">aucun</span>') +
+        '<button class="btn" style="padding:4px 12px; font-size:12.5px;" data-nouveau-projet="achat">+ Achat</button>' +
+        '<button class="btn" style="padding:4px 12px; font-size:12.5px;" data-nouveau-projet="vente">+ Vente</button>' +
+        '<button class="btn" style="padding:4px 12px; font-size:12.5px;" data-nouveau-projet="estimation">+ Estimation</button>' +
+        "</div>" +
+        (/\bet\b/i.test((c.civilite || "") + " " + (c.prenom || ""))
+          ? '<div class="barre"><button class="btn" id="btn-scinder">👥 Scinder en deux personnes (M. / Mme)</button>' +
+            '<span class="petit" style="margin:0;">crée une fiche Madame liée aux mêmes projets</span></div>'
+          : "")
+        : ""),
       (c ? '<button class="btn btn-danger" id="btn-suppr-contact">Supprimer</button>' : "") +
       '<button class="btn" id="btn-annuler-contact">Annuler</button>' +
       '<button class="btn btn-or" id="btn-save-contact">Enregistrer</button>');
@@ -142,6 +157,21 @@
     $("btn-save-contact").addEventListener("click", enregistrerContact);
     const suppr = $("btn-suppr-contact");
     if (suppr) suppr.addEventListener("click", supprimerContact);
+    document.querySelectorAll("[data-ouvre-projet]").forEach((b) =>
+      b.addEventListener("click", () => { fermerModale(); ouvrirProjet(b.dataset.ouvreProjet); }));
+    document.querySelectorAll("[data-nouveau-projet]").forEach((b) =>
+      b.addEventListener("click", () => { fermerModale(); ouvrirProjet(null, b.dataset.nouveauProjet, id); }));
+    const scinder = $("btn-scinder");
+    if (scinder) scinder.addEventListener("click", async () => {
+      if (!confirm("Scinder cette fiche en deux personnes ? La fiche devient Monsieur, une fiche Madame est créée (mêmes coordonnées et projets).")) return;
+      try {
+        await api("/crm/contacts/" + id + "/scinder", { method: "POST", json: {} });
+        fermerModale();
+        toast("Fiche scindée : Monsieur et Madame ont chacun leur fiche");
+        await chargerContacts();
+        chargerAcheteurs();
+      } catch (e) { toast(e.message, true); }
+    });
   }
   async function enregistrerContact() {
     const val = (id) => $(id).value;
@@ -369,113 +399,138 @@
   }
 
   /* ------------------------------- Acheteurs ------------------------------- */
-  let recherches = new Map();     // contactId -> criteres
-  let rapproch = [];              // rapprochements du moment
+  let projets = [];               // tous les projets (achat, vente, estimation)
+  let rapproch = [];              // rapprochements du moment (par projet)
   const TYPES_BIEN = { maison: "Maison", appartement: "Appartement", terrain: "Terrain", autre: "Autre" };
+  const KINDS = { achat: "Achat", vente: "Vente", estimation: "Estimation" };
 
   async function chargerAcheteurs() {
     try {
-      const [r, m] = await Promise.all([api("/crm/recherches"), api("/crm/acheteurs/rapprochements")]);
-      recherches = new Map(r.recherches.map((x) => [x.contactId, x]));
+      const [p, m] = await Promise.all([api("/crm/projets"), api("/crm/acheteurs/rapprochements")]);
+      projets = p.projets;
       rapproch = m.rapprochements;
       rendreAcheteurs();
     } catch (e) { toast(e.message, true); }
   }
-  function critereTxt(r) {
-    if (!r) return '<span class="puce grise">à définir</span>';
+  const nomsDe = (liste) => liste.map((c) => (c.prenom ? c.prenom + " " : "") + c.nom).join(" & ");
+  function critereTxt(p) {
     const bouts = [];
-    if (r.budgetMax) bouts.push("≤ " + fmtPrix(r.budgetMax));
-    if (r.budgetMin) bouts.push("≥ " + fmtPrix(r.budgetMin));
-    if ((r.types || []).length) bouts.push(r.types.map((t) => TYPES_BIEN[t] || t).join("/"));
-    if ((r.villes || []).length) bouts.push(r.villes.join(", "));
-    if (r.piecesMin) bouts.push(r.piecesMin + "+ pièces");
-    if (r.surfaceMin) bouts.push(r.surfaceMin + "+ m²");
+    if (p.budgetMax) bouts.push("≤ " + fmtPrix(p.budgetMax));
+    if (p.budgetMin) bouts.push("≥ " + fmtPrix(p.budgetMin));
+    if ((p.types || []).length) bouts.push(p.types.map((t) => TYPES_BIEN[t] || t).join("/"));
+    if ((p.villes || []).length) bouts.push(p.villes.join(", "));
+    if (p.piecesMin) bouts.push(p.piecesMin + "+ pièces");
+    if (p.surfaceMin) bouts.push(p.surfaceMin + "+ m²");
     return bouts.length ? escH(bouts.join(" · ")) : "tous les biens";
   }
   function rendreAcheteurs() {
     const zone = $("table-acheteurs");
-    const acquereurs = contacts.filter((c) => (c.types || []).includes("acquereur") || recherches.has(c.id));
-    const matchesDe = new Map(rapproch.map((r) => [r.contactId, r.matches.length]));
-    if (!acquereurs.length) {
-      zone.innerHTML = '<div class="vide">Aucun acquéreur pour l\'instant : cochez la typologie « Acquéreur » sur les contacts concernés (onglet Contacts), ils apparaîtront ici.</div>';
+    const achats = projets.filter((p) => p.kind === "achat");
+    const matchesDe = new Map(rapproch.map((r) => [r.projetId, r.matches.length]));
+    if (!achats.length) {
+      zone.innerHTML = '<div class="vide">Aucun projet d\'achat pour l\'instant. Créez-en un et reliez-y la ou les personnes (un couple = deux fiches contact, un seul projet).</div>';
     } else {
       zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr>' +
-        "<th>Acquéreur</th><th>E-mail</th><th>Critères</th><th>Recherche</th><th>Biens qui collent</th>" +
+        "<th>Personnes</th><th>Critères</th><th>Statut</th><th>Biens qui collent</th>" +
         "</tr></thead><tbody>" +
-        acquereurs.map((c) => {
-          const r = recherches.get(c.id);
-          return '<tr class="cliquable" data-recherche="' + c.id + '">' +
-            "<td><strong>" + escH(c.nom) + "</strong> " + escH(c.prenom) + "</td>" +
-            "<td>" + (c.email ? escH(c.email) : '<span class="erreur">pas d\'e-mail</span>') + "</td>" +
-            "<td>" + critereTxt(r) + "</td>" +
-            "<td>" + (!r ? "—" : r.actif ? '<span class="puce verte">active</span>' : '<span class="puce grise">en pause</span>') + "</td>" +
-            "<td>" + (r && r.actif ? (matchesDe.get(c.id) || 0) + " bien(s)" : "—") + "</td></tr>";
-        }).join("") +
+        achats.map((p) => '<tr class="cliquable" data-projet="' + p.id + '">' +
+          "<td><strong>" + escH(nomsDe(p.contacts)) + "</strong>" +
+          (p.contacts.some((c) => !c.email) ? ' <span class="puce grise">e-mail manquant</span>' : "") + "</td>" +
+          "<td>" + critereTxt(p) + "</td>" +
+          "<td>" + (p.statut === "actif" ? '<span class="puce verte">actif</span>'
+            : p.statut === "conclu" ? '<span class="puce">conclu</span>' : '<span class="puce grise">abandonné</span>') + "</td>" +
+          "<td>" + (p.statut === "actif" ? (matchesDe.get(p.id) || 0) + " bien(s)" : "—") + "</td></tr>").join("") +
         "</tbody></table></div>";
     }
     const zoneR = $("table-rapprochements");
     const vivants = rapproch.filter((r) => r.matches.length);
     zoneR.innerHTML = vivants.length
-      ? '<div class="tableau-cadre"><table><thead><tr><th>Acquéreur</th><th>Biens en vente qui collent</th></tr></thead><tbody>' +
-        vivants.map((r) => "<tr><td style=\"white-space:nowrap;\"><strong>" + escH(r.nom) + "</strong> " + escH(r.prenom) +
-          (r.conseiller ? '<br><span class="puce grise">' + escH(r.conseiller) + "</span>" : "") + "</td>" +
+      ? '<div class="tableau-cadre"><table><thead><tr><th>Projet</th><th>Biens en vente qui collent</th></tr></thead><tbody>' +
+        vivants.map((r) => "<tr><td style=\"white-space:nowrap;\"><strong>" + escH(nomsDe(r.contacts)) + "</strong>" +
+          (r.contacts[0] && r.contacts[0].conseiller ? '<br><span class="puce grise">' + escH(r.contacts[0].conseiller) + "</span>" : "") + "</td>" +
           "<td>" + r.matches.slice(0, 6).map((m) =>
             '<a href="' + escH(m.url) + '" target="_blank" rel="noopener" style="color:inherit; text-decoration:none;">' +
             '<span class="puce">' + escH(m.titre) + " — " + fmtPrix(m.prix) + "</span></a>").join(" ") +
           (r.matches.length > 6 ? ' <span class="puce grise">+' + (r.matches.length - 6) + "</span>" : "") +
           "</td></tr>").join("") +
         "</tbody></table></div>"
-      : '<div class="vide">Aucun rapprochement pour l\'instant — définissez des critères de recherche sur vos acquéreurs.</div>';
+      : '<div class="vide">Aucun rapprochement pour l\'instant — créez des projets d\'achat avec leurs critères.</div>';
   }
-  function ouvrirRecherche(contactId) {
-    const c = contacts.find((x) => x.id === contactId);
-    if (!c) return;
-    const r = recherches.get(contactId) || {};
-    ouvrirModale("Recherche de " + ((c.prenom + " " + c.nom).trim() || "l'acquéreur"),
-      '<div class="grille-champs">' +
-      '<label>Budget max (€)<input id="r-budget-max" type="number" value="' + (r.budgetMax || "") + '" placeholder="ex : 450000" /></label>' +
-      '<label>Budget min (€)<input id="r-budget-min" type="number" value="' + (r.budgetMin || "") + '" placeholder="optionnel" /></label>' +
-      '<label>Pièces minimum<input id="r-pieces" type="number" value="' + (r.piecesMin || "") + '" placeholder="ex : 4" /></label>' +
-      '<label>Surface minimum (m²)<input id="r-surface" type="number" value="' + (r.surfaceMin || "") + '" placeholder="ex : 90" /></label>' +
-      "</div>" +
-      '<div class="barre" style="margin-top:14px;">' +
-      Object.entries(TYPES_BIEN).map(([v, l]) =>
-        '<label class="case"><input type="checkbox" class="r-type" value="' + v + '"' + ((r.types || []).includes(v) ? " checked" : "") + " /> " + l + "</label>").join("") +
-      "</div>" +
-      '<div class="grille-champs" style="margin-top:12px;">' +
-      '<label>Communes (séparées par des virgules — vide = toutes)<input id="r-villes" value="' + escH((r.villes || []).join(", ")) + '" placeholder="ex : Saint-Médard-en-Jalles, Le Haillan" /></label>' +
-      '<label>Notes<input id="r-notes" value="' + escH(r.notes || "") + '" /></label>' +
-      "</div>" +
-      '<div class="barre"><label class="case"><input type="checkbox" id="r-actif"' + (r.actif === false ? "" : " checked") + " /> Recherche active (reçoit les relances)</label></div>",
-      (recherches.has(contactId) ? '<button class="btn btn-danger" id="btn-suppr-recherche">Supprimer la recherche</button>' : "") +
-      '<button class="btn" id="btn-annuler-recherche">Annuler</button>' +
-      '<button class="btn btn-or" id="btn-save-recherche">Enregistrer</button>');
-    $("btn-annuler-recherche").addEventListener("click", fermerModale);
-    $("btn-save-recherche").addEventListener("click", async () => {
+  // Modale projet : personnes liées + critères. kindDefaut sert aux projets
+  // vente/estimation créés depuis une fiche contact.
+  function ouvrirProjet(projetId, kindDefaut, contactPreselect) {
+    const p = projetId ? projets.find((x) => x.id === projetId) : null;
+    const kind = (p && p.kind) || kindDefaut || "achat";
+    const lies = new Set(p ? p.contacts.map((c) => c.id) : (contactPreselect ? [contactPreselect] : []));
+    const listeContacts = contacts.map((c) =>
+      '<label class="case" style="width:100%; padding:3px 0;"><input type="checkbox" class="p-contact" value="' + c.id + '"' +
+      (lies.has(c.id) ? " checked" : "") + " /> <strong>" + escH(c.nom) + "</strong> " + escH(c.prenom) +
+      (c.email ? ' <span class="puce grise">' + escH(c.email) + "</span>" : "") + "</label>").join("");
+    const estAchat = kind === "achat";
+    ouvrirModale((p ? "Projet — " : "Nouveau projet — ") + (KINDS[kind] || kind),
+      '<div class="grille-champs"><label>Personnes du projet (un couple = deux fiches)' +
+      '<input id="p-filtre" placeholder="Filtrer les contacts…" /></label></div>' +
+      '<div id="p-liste" style="max-height:180px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:8px 12px; margin-top:8px;">' + listeContacts + "</div>" +
+      (estAchat
+        ? '<div class="grille-champs" style="margin-top:14px;">' +
+          '<label>Budget max (€)<input id="p-budget-max" type="number" value="' + (p && p.budgetMax || "") + '" placeholder="ex : 450000" /></label>' +
+          '<label>Budget min (€)<input id="p-budget-min" type="number" value="' + (p && p.budgetMin || "") + '" placeholder="optionnel" /></label>' +
+          '<label>Pièces minimum<input id="p-pieces" type="number" value="' + (p && p.piecesMin || "") + '" /></label>' +
+          '<label>Surface minimum (m²)<input id="p-surface" type="number" value="' + (p && p.surfaceMin || "") + '" /></label>' +
+          "</div>" +
+          '<div class="barre" style="margin-top:12px;">' +
+          Object.entries(TYPES_BIEN).map(([v, l]) =>
+            '<label class="case"><input type="checkbox" class="p-type" value="' + v + '"' + ((p && p.types || []).includes(v) ? " checked" : "") + " /> " + l + "</label>").join("") +
+          "</div>" +
+          '<div class="grille-champs" style="margin-top:12px;">' +
+          '<label>Communes (virgules — vide = toutes)<input id="p-villes" value="' + escH((p && p.villes || []).join(", ")) + '" /></label>' +
+          '<label>Notes<input id="p-notes" value="' + escH(p && p.notes || "") + '" /></label></div>'
+        : '<div class="grille-champs" style="margin-top:14px;">' +
+          '<label>Adresse du bien<input id="p-adresse" value="' + escH(p && p.adresse || "") + '" /></label>' +
+          '<label>Commune<input id="p-ville" value="' + escH(p && p.ville || "") + '" /></label>' +
+          '<label>Notes<input id="p-notes" value="' + escH(p && p.notes || "") + '" /></label></div>') +
+      '<div class="barre"><label>Statut&nbsp;<select id="p-statut">' +
+      [["actif", "Actif"], ["conclu", "Conclu"], ["abandonne", "Abandonné"]].map(([v, l]) =>
+        '<option value="' + v + '"' + ((p && p.statut) === v ? " selected" : "") + ">" + l + "</option>").join("") +
+      "</select></label></div>",
+      (p ? '<button class="btn btn-danger" id="btn-suppr-projet">Supprimer</button>' : "") +
+      '<button class="btn" id="btn-annuler-projet">Annuler</button>' +
+      '<button class="btn btn-or" id="btn-save-projet">Enregistrer</button>');
+    $("p-filtre").addEventListener("input", () => {
+      const q = $("p-filtre").value.toLowerCase();
+      document.querySelectorAll("#p-liste label").forEach((l) => {
+        l.style.display = !q || l.textContent.toLowerCase().includes(q) ? "" : "none";
+      });
+    });
+    $("btn-annuler-projet").addEventListener("click", fermerModale);
+    $("btn-save-projet").addEventListener("click", async () => {
+      const contactIds = Array.from(document.querySelectorAll(".p-contact:checked")).map((x) => x.value);
+      if (!contactIds.length) { toast("Reliez au moins une personne au projet.", true); return; }
       try {
-        await api("/crm/recherches", {
-          method: "PUT",
-          json: {
-            contactId,
-            actif: $("r-actif").checked,
-            budgetMax: $("r-budget-max").value, budgetMin: $("r-budget-min").value,
-            piecesMin: $("r-pieces").value, surfaceMin: $("r-surface").value,
-            types: Array.from(document.querySelectorAll(".r-type:checked")).map((x) => x.value),
-            villes: $("r-villes").value, notes: $("r-notes").value,
-          },
-        });
+        const body = { id: projetId || undefined, kind, statut: $("p-statut").value, contactIds, notes: $("p-notes").value };
+        if (estAchat) {
+          Object.assign(body, {
+            budgetMax: $("p-budget-max").value, budgetMin: $("p-budget-min").value,
+            piecesMin: $("p-pieces").value, surfaceMin: $("p-surface").value,
+            types: Array.from(document.querySelectorAll(".p-type:checked")).map((x) => x.value),
+            villes: $("p-villes").value,
+          });
+        } else {
+          Object.assign(body, { adresse: $("p-adresse").value, ville: $("p-ville").value });
+        }
+        await api("/crm/projets", { method: "PUT", json: body });
         fermerModale();
-        toast("Recherche enregistrée");
+        toast("Projet enregistré");
         chargerAcheteurs();
       } catch (e) { toast(e.message, true); }
     });
-    const suppr = $("btn-suppr-recherche");
+    const suppr = $("btn-suppr-projet");
     if (suppr) suppr.addEventListener("click", async () => {
-      if (!confirm("Supprimer la recherche de ce contact ?")) return;
+      if (!confirm("Supprimer ce projet ? (les fiches contact restent)")) return;
       try {
-        await api("/crm/recherches/" + contactId, { method: "DELETE" });
+        await api("/crm/projets/" + projetId, { method: "DELETE" });
         fermerModale();
-        toast("Recherche supprimée");
+        toast("Projet supprimé");
         chargerAcheteurs();
       } catch (e) { toast(e.message, true); }
     });
@@ -646,9 +701,10 @@
   $("btn-ach-apercu").addEventListener("click", apercuRelance);
   $("btn-ach-run").addEventListener("click", lancerRelances);
   $("table-acheteurs").addEventListener("click", (e) => {
-    const tr = e.target.closest("tr[data-recherche]");
-    if (tr) ouvrirRecherche(tr.dataset.recherche);
+    const tr = e.target.closest("tr[data-projet]");
+    if (tr) ouvrirProjet(tr.dataset.projet);
   });
+  $("btn-nouveau-projet").addEventListener("click", () => ouvrirProjet(null, "achat"));
   $("btn-annonces-save").addEventListener("click", () => sauverReglages({
     annonces: { autoSync: $("annonces-auto").checked, siteUrl: $("annonces-site").value.trim() },
   }, "Réglages annonces enregistrés"));

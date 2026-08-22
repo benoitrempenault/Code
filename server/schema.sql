@@ -432,3 +432,40 @@ CREATE TABLE IF NOT EXISTS crm_relances (
 );
 CREATE INDEX IF NOT EXISTS idx_crm_relances_ag    ON crm_relances(agency_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_crm_relances_dedup ON crm_relances(agency_id, contact_id, annonce_id, kind, statut);
+
+-- =========================================================================
+-- Projets (architecture cible de l'Administration) : la PERSONNE PHYSIQUE
+-- est l'unité (une fiche contact = une personne), et le PROJET relie les
+-- personnes — un couple = 2 fiches contact dans 1 projet d'achat, une
+-- succession = 3 fiches dans 1 projet d'estimation. Le projet d'achat porte
+-- les critères de recherche (l'ancienne table crm_recherches, une recherche
+-- par contact, est migrée automatiquement en projets à un contact).
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS crm_projets (
+  id          TEXT PRIMARY KEY,              -- pj_xxxxxxxx
+  agency_id   TEXT NOT NULL REFERENCES agencies(id),
+  kind        TEXT NOT NULL,                 -- achat | vente | estimation
+  statut      TEXT NOT NULL DEFAULT 'actif', -- actif | conclu | abandonne
+  adresse     TEXT NOT NULL DEFAULT '',      -- bien concerné (vente / estimation)
+  ville       TEXT NOT NULL DEFAULT '',
+  budget_min  INTEGER,                       -- critères de recherche (achat)
+  budget_max  INTEGER,
+  types       TEXT NOT NULL DEFAULT '[]',
+  villes      TEXT NOT NULL DEFAULT '[]',
+  pieces_min  INTEGER,
+  surface_min REAL,
+  notes       TEXT NOT NULL DEFAULT '',
+  user_id     TEXT NOT NULL DEFAULT '',      -- dernier auteur
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_projets_ag ON crm_projets(agency_id, kind, statut);
+
+-- Liaison personnes ↔ projets (N-N).
+CREATE TABLE IF NOT EXISTS crm_projet_contacts (
+  projet_id  TEXT NOT NULL,
+  contact_id TEXT NOT NULL,
+  agency_id  TEXT NOT NULL,
+  PRIMARY KEY (projet_id, contact_id)
+);
+CREATE INDEX IF NOT EXISTS idx_crm_pc_contact ON crm_projet_contacts(agency_id, contact_id);

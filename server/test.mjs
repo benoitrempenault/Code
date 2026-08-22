@@ -1534,13 +1534,16 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const sess = (await callR("/auth/exchange", { body: { token: cr.json.welcome_link.split("#token=")[1] } })).json.session;
   const auth = { Authorization: "Bearer " + sess };
 
-  // Deux acquéreurs (un avec e-mail, un opt-out) + trois annonces en base.
+  // Un COUPLE (deux personnes physiques, un seul projet d'achat) + une fiche
+  // sans e-mail, et trois annonces en base.
   await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
     { civilite: "M.", nom: "Faure", prenom: "Julien", email: "julien@exemple.fr", types: "acquereur", conseiller: "Benoit" },
+    { civilite: "Mme", nom: "Faure", prenom: "Chloé", email: "chloe@exemple.fr", types: "acquereur", conseiller: "Benoit" },
     { nom: "SansMail", prenom: "Ines", types: "acquereur" },
   ] } });
   const lesContacts = (await callR("/crm/contacts", { headers: auth })).json.contacts;
   const julien = lesContacts.find((c) => c.email === "julien@exemple.fr");
+  const chloe = lesContacts.find((c) => c.email === "chloe@exemple.fr");
   const T = Math.floor(Date.now() / 1000);
   const annonce = (id, prix, ville, type, pieces, statut) => db.run(
     `INSERT INTO crm_annonces (agency_id, id, url, titre, type, prix, ville, cp, pieces, surface, dpe, description, image, statut, price_history, first_seen, last_seen)
@@ -1554,43 +1557,100 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     "INSERT INTO crm_annonces_events (agency_id, kind, annonce_id, titre, ville, ancien_prix, prix, created_at) VALUES (?, 'baisse', 'maison-b', 'Bien maison-b', 'Le Haillan', 295000, 280000, ?)",
     [agId, T]);
 
-  // Critères : budget 400 k, maisons, deux communes.
-  ok((await callR("/crm/recherches", { headers: auth, method: "PUT", body: {
-    contactId: julien.id, budgetMax: 400000, types: ["maison"],
+  // Le projet d'achat du couple : DEUX fiches contact, UN projet, des
+  // critères communs (budget 400 k, maisons, deux communes).
+  const pj = await callR("/crm/projets", { headers: auth, method: "PUT", body: {
+    kind: "achat", contactIds: [julien.id, chloe.id], budgetMax: 400000, types: ["maison"],
     villes: "Saint-Médard-en-Jalles, Le Haillan", piecesMin: 4,
-  } })).status === 200, "recherche enregistrée");
+  } });
+  ok(pj.status === 200 && pj.json.id, "projet d'achat du couple enregistré");
+  const projetId = pj.json.id;
   const rap = (await callR("/crm/acheteurs/rapprochements", { headers: auth })).json.rapprochements;
-  const rJulien = rap.find((r) => r.contactId === julien.id);
-  ok(rJulien && rJulien.matches.length === 2 &&
-    !rJulien.matches.some((m) => m.id === "maison-chere" || m.id === "maison-retiree"),
-    "rapprochements : 2 biens collent (ni le hors budget, ni le retiré)");
+  const rCouple = rap.find((r) => r.projetId === projetId);
+  ok(rCouple && rCouple.contacts.length === 2 && rCouple.matches.length === 2 &&
+    !rCouple.matches.some((m) => m.id === "maison-chere" || m.id === "maison-retiree"),
+    "rapprochements par projet : 2 personnes, 2 biens (ni hors budget, ni retiré)");
 
-  // Relances : un e-mail groupé pour Julien, la baisse mise en avant.
+  // Relances : CHAQUE membre du couple reçoit son e-mail, la baisse en avant.
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { acheteurs: { enabled: true } } });
   const run1 = (await callR("/crm/acheteurs/run", { headers: auth, method: "POST", body: {} })).json.summary;
-  ok(run1.mails === 1 && run1.biens === 2 && run1.errors === 0,
-    "un e-mail groupé, deux biens (" + JSON.stringify(run1) + ")");
-  ok(mailsRecus.length === 1 && mailsRecus[0].to[0] === "julien@exemple.fr",
-    "l'e-mail part au bon acquéreur (faux Resend)");
+  ok(run1.mails === 2 && run1.biens === 4 && run1.errors === 0,
+    "un e-mail par personne du couple, deux biens chacun (" + JSON.stringify(run1) + ")");
+  const destinataires = mailsRecus.map((m) => m.to[0]).sort();
+  ok(String(destinataires) === "chloe@exemple.fr,julien@exemple.fr",
+    "Monsieur ET Madame reçoivent chacun le leur (faux Resend)");
   const html = mailsRecus[0].html || "";
   ok(html.includes("Bien maison-a") && html.includes("Bien maison-b") && !html.includes("maison-chere"),
     "le message contient les deux biens et pas le hors budget");
   ok(html.includes("Prix en baisse") && html.includes("295") && html.includes("280"),
     "la baisse est mise en avant avec l'ancien prix barré");
-  ok(mailsRecus[0].reply_to !== undefined || true, "reply-to porté (informatif)");
 
   // Anti-doublon : rien ne repart au second passage.
   const run2 = (await callR("/crm/acheteurs/run", { headers: auth, method: "POST", body: {} })).json.summary;
-  ok(run2.mails === 0 && mailsRecus.length === 1, "second passage : aucun doublon");
+  ok(run2.mails === 0 && mailsRecus.length === 2, "second passage : aucun doublon");
   const journal = (await callR("/crm/acheteurs/relances", { headers: auth })).json.relances;
-  ok(journal.length === 2 && journal.every((l) => l.statut === "ok") &&
+  ok(journal.length === 4 && journal.every((l) => l.statut === "ok") &&
     journal.some((l) => l.kind === "baisse") && journal.some((l) => l.kind === "decouverte"),
-    "journal : une ligne par bien, motifs découverte + baisse");
+    "journal : une ligne par bien et par personne");
 
-  // Recherche en pause : plus de rapprochement ni de relance.
-  await callR("/crm/recherches", { headers: auth, method: "PUT", body: { contactId: julien.id, actif: false, budgetMax: 400000, types: ["maison"] } });
+  // Projet abandonné : plus de rapprochement ni de relance.
+  await callR("/crm/projets", { headers: auth, method: "PUT", body: { id: projetId, kind: "achat", statut: "abandonne", contactIds: [julien.id, chloe.id], budgetMax: 400000, types: ["maison"] } });
   const rap2 = (await callR("/crm/acheteurs/rapprochements", { headers: auth })).json.rapprochements;
-  ok(!rap2.some((r) => r.contactId === julien.id), "recherche en pause : sortie des rapprochements");
+  ok(!rap2.some((r) => r.projetId === projetId), "projet abandonné : sorti des rapprochements");
+
+  // Migration : une ancienne recherche par contact devient un projet d'achat.
+  await db.run(
+    "INSERT INTO crm_recherches (contact_id, agency_id, actif, budget_max, types, villes, notes, created_at, updated_at) VALUES (?, ?, 1, 200000, '[\"appartement\"]', '[]', '', 1, 1)",
+    [julien.id, agId]);
+  const apresMigration = (await callR("/crm/projets", { headers: auth })).json.projets;
+  const migre = apresMigration.find((p) => p.budgetMax === 200000);
+  ok(migre && migre.kind === "achat" && migre.contacts.length === 1 && migre.contacts[0].id === julien.id,
+    "ancienne recherche migrée en projet d'achat à une personne");
+  ok((await db.get("SELECT COUNT(*) AS n FROM crm_recherches WHERE agency_id = ?", [agId])).n === 0,
+    "la table des recherches est vidée après migration");
+
+  // Une succession : TROIS personnes dans UN projet d'estimation.
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { nom: "Hoarau", prenom: "Paul", email: "p.hoarau@exemple.fr" },
+    { nom: "Hoarau", prenom: "Luc" }, { nom: "Hoarau", prenom: "Eva" },
+  ] } });
+  const hoarau = (await callR("/crm/contacts", { headers: auth })).json.contacts.filter((c) => c.nom === "Hoarau");
+  const pjEst = await callR("/crm/projets", { headers: auth, method: "PUT", body: {
+    kind: "estimation", contactIds: hoarau.map((c) => c.id),
+    adresse: "4 chemin des Vignes", ville: "Le Haillan", notes: "Succession",
+  } });
+  ok(pjEst.status === 200, "projet d'estimation créé (succession)");
+  const estim = (await callR("/crm/projets", { headers: auth })).json.projets.find((p) => p.kind === "estimation");
+  ok(estim && estim.contacts.length === 3 && estim.adresse === "4 chemin des Vignes",
+    "trois fiches contact liées à la fiche estimation");
+
+  // Scinder une fiche couple : Monsieur garde la fiche, Madame a la sienne,
+  // liée aux mêmes projets.
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { nom: "M. et Mme Jean et Marie LEROY", email: "leroy@exemple.fr", telephone: "0611223344", ville: "Le Haillan", dateAchat: "10/06/2019", types: "acquereur" },
+  ] } });
+  const couple = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((c) => c.nom === "LEROY");
+  ok(couple && couple.civilite === "M. et Mme" && couple.prenom === "Jean et Marie",
+    "import : « M. et Mme Jean et Marie LEROY » dispatché en civilité/prénom/nom");
+  await callR("/crm/projets", { headers: auth, method: "PUT", body: { kind: "achat", contactIds: [couple.id], budgetMax: 300000 } });
+  const scinde = await callR("/crm/contacts/" + couple.id + "/scinder", { headers: auth, method: "POST", body: {} });
+  ok(scinde.status === 200, "fiche couple scindée");
+  const apres = (await callR("/crm/contacts", { headers: auth })).json.contacts.filter((c) => c.nom === "LEROY");
+  const mr = apres.find((c) => c.civilite === "M."), mme = apres.find((c) => c.civilite === "Mme");
+  ok(mr && mme && mr.prenom === "Jean" && mme.prenom === "Marie" &&
+    mme.telephone === "0611223344" && mme.date_achat === "2019-06-10" && mme.email === "",
+    "Monsieur et Madame ont chacun leur fiche (prénoms répartis, coordonnées reprises)");
+  const pjLeroy = (await callR("/crm/projets", { headers: auth })).json.projets.find((p) => p.budgetMax === 300000);
+  ok(pjLeroy && pjLeroy.contacts.length === 2, "Madame a rejoint le projet du couple");
+
+  // Dispatch d'une adresse agrégée à l'import.
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { nom: "Madame Sylvie PAGES", adresse: "12 rue des Pins, 33160 Saint-Médard-en-Jalles" },
+  ] } });
+  const pages = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((c) => c.nom === "PAGES");
+  ok(pages && pages.civilite === "Mme" && pages.prenom === "Sylvie" &&
+    pages.adresse === "12 rue des Pins" && pages.cp === "33160" && pages.ville === "Saint-Médard-en-Jalles",
+    "adresse agrégée dispatchée en adresse / CP / ville");
 
   // Anniversaire d'achat : le message diffère selon le rôle dans la vente.
   const apAcq = (await callR("/crm/anniversaires/apercu?type=achat", { headers: auth })).json;

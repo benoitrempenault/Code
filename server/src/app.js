@@ -772,53 +772,85 @@ export function createApp(env) {
     return c.json({ envois: rows });
   });
 
-  // ---------- Brique Acheteurs : recherches, rapprochements, relances -----
+  // ---------- Projets : des personnes physiques liées dans un projet ------
+  // Un couple = 2 fiches contact dans 1 projet d'achat ; une succession =
+  // 3 fiches dans 1 projet d'estimation. Le projet d'achat porte les
+  // critères de recherche (rapprochements + relances).
   const parseArr = (v) => { try { return JSON.parse(v || "[]"); } catch { return []; } };
+  const PROJET_MAX_CONTACTS = 12;
 
-  app.get("/crm/recherches", async (c) => {
+  app.get("/crm/projets", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
-    const rows = await db.all(
-      "SELECT * FROM crm_recherches WHERE agency_id = ?", [ctx.agency.id]);
+    await CRM.migrerRecherchesEnProjets(db, ctx.agency.id, ctx.user.id);
+    const projets = await CRM.listProjets(db, ctx.agency);
     return c.json({
-      recherches: rows.map((r) => ({
-        contactId: r.contact_id, actif: !!r.actif,
-        budgetMin: r.budget_min, budgetMax: r.budget_max,
-        types: parseArr(r.types), villes: parseArr(r.villes),
-        piecesMin: r.pieces_min, surfaceMin: r.surface_min, notes: r.notes,
+      projets: projets.map((p) => ({
+        id: p.id, kind: p.kind, statut: p.statut, adresse: p.adresse, ville: p.ville,
+        budgetMin: p.budget_min, budgetMax: p.budget_max,
+        types: parseArr(p.types), villes: parseArr(p.villes),
+        piecesMin: p.pieces_min, surfaceMin: p.surface_min, notes: p.notes,
+        contacts: p.contacts,
       })),
     });
   });
 
-  app.put("/crm/recherches", async (c) => {
+  app.put("/crm/projets", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const b = await c.req.json().catch(() => null);
-    if (!b || !b.contactId) return err(c, 400, "contactId requis.");
-    const contact = await db.get(
-      "SELECT id FROM crm_contacts WHERE id = ? AND agency_id = ?", [String(b.contactId), ctx.agency.id]);
-    if (!contact) return err(c, 404, "Contact introuvable.");
-    const v = CRM.sanitizeRecherche(b);
-    const cur = await db.get("SELECT contact_id FROM crm_recherches WHERE contact_id = ?", [contact.id]);
-    if (cur) {
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    const contactIds = [...new Set((Array.isArray(b.contactIds) ? b.contactIds : []).map(String))];
+    if (!contactIds.length) return err(c, 400, "Un projet relie au moins une personne (contactIds).");
+    if (contactIds.length > PROJET_MAX_CONTACTS) return err(c, 400, "Trop de personnes sur un même projet.");
+    // Toutes les personnes doivent exister dans CETTE agence.
+    const connus = await db.all(
+      `SELECT id FROM crm_contacts WHERE agency_id = ? AND id IN (${contactIds.map(() => "?").join(",")})`,
+      [ctx.agency.id, ...contactIds]);
+    if (connus.length !== contactIds.length) return err(c, 404, "Une des personnes est introuvable.");
+    const v = CRM.sanitizeProjet(b);
+    let id = String(b.id || "");
+    if (id) {
+      const cur = await db.get("SELECT id FROM crm_projets WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);
+      if (!cur) return err(c, 404, "Projet introuvable.");
       await db.run(
-        `UPDATE crm_recherches SET actif = ?, budget_min = ?, budget_max = ?, types = ?, villes = ?,
-         pieces_min = ?, surface_min = ?, notes = ?, user_id = ?, updated_at = ? WHERE contact_id = ?`,
-        [v.actif, v.budget_min, v.budget_max, JSON.stringify(v.types), JSON.stringify(v.villes),
-         v.pieces_min, v.surface_min, v.notes, ctx.user.id, now(), contact.id]);
+        `UPDATE crm_projets SET kind = ?, statut = ?, adresse = ?, ville = ?, budget_min = ?, budget_max = ?,
+         types = ?, villes = ?, pieces_min = ?, surface_min = ?, notes = ?, user_id = ?, updated_at = ? WHERE id = ?`,
+        [v.kind, v.statut, v.adresse, v.ville, v.budget_min, v.budget_max, JSON.stringify(v.types),
+         JSON.stringify(v.villes), v.pieces_min, v.surface_min, v.notes, ctx.user.id, now(), id]);
+      await db.run("DELETE FROM crm_projet_contacts WHERE projet_id = ?", [id]);
     } else {
+      id = randId("pj");
       await db.run(
-        `INSERT INTO crm_recherches (contact_id, agency_id, actif, budget_min, budget_max, types, villes,
-         pieces_min, surface_min, notes, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [contact.id, ctx.agency.id, v.actif, v.budget_min, v.budget_max, JSON.stringify(v.types),
-         JSON.stringify(v.villes), v.pieces_min, v.surface_min, v.notes, ctx.user.id, now(), now()]);
+        `INSERT INTO crm_projets (id, agency_id, kind, statut, adresse, ville, budget_min, budget_max,
+         types, villes, pieces_min, surface_min, notes, user_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, ctx.agency.id, v.kind, v.statut, v.adresse, v.ville, v.budget_min, v.budget_max,
+         JSON.stringify(v.types), JSON.stringify(v.villes), v.pieces_min, v.surface_min, v.notes,
+         ctx.user.id, now(), now()]);
     }
+    for (const cid of contactIds) {
+      await db.run("INSERT INTO crm_projet_contacts (projet_id, contact_id, agency_id) VALUES (?, ?, ?)",
+        [id, cid, ctx.agency.id]);
+    }
+    return c.json({ ok: true, id });
+  });
+
+  app.delete("/crm/projets/:id", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    await db.run("DELETE FROM crm_projet_contacts WHERE projet_id = ? AND agency_id = ?",
+      [c.req.param("id"), ctx.agency.id]);
+    await db.run("DELETE FROM crm_projets WHERE id = ? AND agency_id = ?",
+      [c.req.param("id"), ctx.agency.id]);
     return c.json({ ok: true });
   });
 
-  app.delete("/crm/recherches/:contactId", async (c) => {
+  // Scinder une fiche « M. et Mme » en deux personnes physiques.
+  app.post("/crm/contacts/:id/scinder", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
-    await db.run("DELETE FROM crm_recherches WHERE contact_id = ? AND agency_id = ?",
-      [c.req.param("contactId"), ctx.agency.id]);
-    return c.json({ ok: true });
+    try {
+      return c.json(await CRM.scinderContact(db, ctx.agency, ctx.user.id, c.req.param("id")));
+    } catch (e) {
+      return err(c, 404, e.message);
+    }
   });
 
   app.get("/crm/acheteurs/rapprochements", async (c) => {

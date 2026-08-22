@@ -83,9 +83,55 @@ export function typesDepuisLibelle(valeur) {
   return [...out];
 }
 
+// Dispatch d'un nom agrégé — les extractions écrivent souvent tout dans une
+// colonne : « M. et Mme Jean DUPONT », « Madame Florence DONDARINI »...
+// Convention : les mots EN MAJUSCULES forment le nom de famille ; sinon le
+// dernier mot est le nom (sauf particule : « Le Goff » reste entier).
+const PARTICULES = ["le", "la", "les", "de", "du", "des", "d'", "van", "von", "da", "el", "al"];
+export function dispatchNom(brut) {
+  let s = String(brut || "").replace(/\s+/g, " ").trim();
+  let civilite = "";
+  const civ = s.match(/^(m(?:onsieur)?\.?|mr\.?|mme\.?|madame|mlle\.?|mademoiselle)(?:\s*(?:et|&|\/)\s*(m(?:onsieur)?\.?|mr\.?|mme\.?|madame))?\s+/i);
+  if (civ) {
+    const map = (t) => (/^m(onsieur)?\.?$|^mr\.?$/i.test(t) ? "M." : "Mme");
+    civilite = civ[2] ? (map(civ[1]) === map(civ[2]) ? map(civ[1]) : "M. et Mme") : map(civ[1]);
+    s = s.slice(civ[0].length);
+  }
+  const tokens = s.split(" ").filter(Boolean);
+  const estMaj = (t) => t.length >= 2 && t === t.toUpperCase() && /[A-ZÀ-Ü]/.test(t);
+  let nom = tokens.filter(estMaj).join(" ");
+  let prenom = tokens.filter((t) => !estMaj(t)).join(" ");
+  if (!nom) {
+    if (tokens.length >= 2 && !PARTICULES.includes(tokens[0].toLowerCase())) {
+      nom = tokens[tokens.length - 1]; prenom = tokens.slice(0, -1).join(" ");
+    } else {
+      nom = s; prenom = "";
+    }
+  }
+  return { civilite, prenom, nom };
+}
+
+// Dispatch d'une adresse agrégée : « 12 rue des Pins, 33160 Saint-Médard... »
+export function dispatchAdresse(brut) {
+  const m = String(brut || "").match(/^(.*?)[,\s]*\b(\d{5})\s+(.+)$/);
+  if (!m) return null;
+  return { adresse: m[1].replace(/[,\s]+$/, "").trim(), cp: m[2], ville: m[3].trim() };
+}
+
 export function sanitizeContact(b) {
   const brut = Array.isArray(b.types) ? b.types : [String(b.types || "")];
   const types = [...new Set(brut.flatMap(typesDepuisLibelle))];
+  // Champs agrégés : on ne dispatche que vers les colonnes VIDES — une
+  // civilité ou un prénom fournis dans leur propre colonne restent maîtres.
+  if (b.nom && (!b.civilite || !b.prenom)) {
+    const d = dispatchNom(b.nom);
+    if (!b.civilite && d.civilite) b = { ...b, civilite: d.civilite, nom: d.nom, prenom: b.prenom || d.prenom };
+    else if (!b.prenom && d.prenom) b = { ...b, nom: d.nom, prenom: d.prenom };
+  }
+  if (b.adresse && !b.cp && !b.ville) {
+    const d = dispatchAdresse(b.adresse);
+    if (d) b = { ...b, adresse: d.adresse, cp: d.cp, ville: d.ville };
+  }
   let telephone = strip(b.telephone, 40);
   if (/^[1-9]\d{8}$/.test(telephone)) telephone = "0" + telephone; // Excel mange le 0 initial
   return {
@@ -646,13 +692,19 @@ const RELANCE_MAX_MAILS = 30;   // e-mails max par passage (plafond de sous-requ
 const sansAccents = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 const jsonArr = (v) => (Array.isArray(v) ? v : (() => { try { return JSON.parse(v || "[]"); } catch { return []; } })());
 
-export function sanitizeRecherche(b) {
+export const PROJET_KINDS = ["achat", "vente", "estimation"];
+export const PROJET_STATUTS = ["actif", "conclu", "abandonne"];
+
+export function sanitizeProjet(b) {
   const num = (v, max) => { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 && n <= max ? n : null; };
-  let types = jsonArr(b.types).map(sansAccents).filter((t) => RECHERCHE_TYPES.includes(t));
+  const types = jsonArr(b.types).map(sansAccents).filter((t) => RECHERCHE_TYPES.includes(t));
   let villes = Array.isArray(b.villes) ? b.villes : String(b.villes || "").split(/[,;]/);
   villes = villes.map((v) => strip(v, 60)).filter(Boolean).slice(0, 30);
   return {
-    actif: b.actif === undefined ? 1 : (b.actif ? 1 : 0),
+    kind: PROJET_KINDS.includes(b.kind) ? b.kind : "achat",
+    statut: PROJET_STATUTS.includes(b.statut) ? b.statut : "actif",
+    adresse: strip(b.adresse, 200),
+    ville: strip(b.ville, 80),
     budget_min: num(b.budgetMin ?? b.budget_min, 100000000),
     budget_max: num(b.budgetMax ?? b.budget_max, 100000000),
     types, villes,
@@ -660,6 +712,44 @@ export function sanitizeRecherche(b) {
     surface_min: num(b.surfaceMin ?? b.surface_min, 10000),
     notes: strip(b.notes, 1000),
   };
+}
+
+// L'ancienne table crm_recherches (une recherche PAR CONTACT) est migrée en
+// projets d'achat à un contact — idempotent : chaque ligne migrée disparaît.
+export async function migrerRecherchesEnProjets(db, agencyId, userId = "") {
+  const rows = await db.all("SELECT * FROM crm_recherches WHERE agency_id = ?", [agencyId]).catch(() => []);
+  for (const r of rows) {
+    const id = randId("pj");
+    await db.run(
+      `INSERT INTO crm_projets (id, agency_id, kind, statut, adresse, ville, budget_min, budget_max,
+       types, villes, pieces_min, surface_min, notes, user_id, created_at, updated_at)
+       VALUES (?, ?, 'achat', ?, '', '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, agencyId, r.actif ? "actif" : "abandonne", r.budget_min, r.budget_max, r.types, r.villes,
+       r.pieces_min, r.surface_min, r.notes || "", userId, r.created_at, r.updated_at]);
+    await db.run("INSERT INTO crm_projet_contacts (projet_id, contact_id, agency_id) VALUES (?, ?, ?)",
+      [id, r.contact_id, agencyId]);
+    await db.run("DELETE FROM crm_recherches WHERE contact_id = ?", [r.contact_id]);
+  }
+  return rows.length;
+}
+
+// Projets d'une agence, avec leurs personnes liées.
+export async function listProjets(db, agency) {
+  const projets = await db.all(
+    "SELECT * FROM crm_projets WHERE agency_id = ? ORDER BY updated_at DESC", [agency.id]);
+  const liens = await db.all(
+    `SELECT pc.projet_id, c.id, c.civilite, c.nom, c.prenom, c.email, c.conseiller, c.opt_out
+     FROM crm_projet_contacts pc JOIN crm_contacts c ON c.id = pc.contact_id
+     WHERE pc.agency_id = ?`, [agency.id]);
+  const parProjet = new Map();
+  for (const l of liens) {
+    if (!parProjet.has(l.projet_id)) parProjet.set(l.projet_id, []);
+    parProjet.get(l.projet_id).push({
+      id: l.id, civilite: l.civilite, nom: l.nom, prenom: l.prenom,
+      email: l.email, conseiller: l.conseiller, optOut: !!l.opt_out,
+    });
+  }
+  return projets.map((p) => ({ ...p, contacts: parProjet.get(p.id) || [] }));
 }
 
 // Un critere vide = pas de filtre. « autre » couvre tout ce qui n'est ni
@@ -681,24 +771,18 @@ export function matchAnnonce(recherche, annonce) {
   return true;
 }
 
-async function recherchesAvecContacts(db, agencyId) {
-  return db.all(
-    `SELECT r.*, c.civilite, c.nom, c.prenom, c.email, c.conseiller, c.opt_out
-     FROM crm_recherches r JOIN crm_contacts c ON c.id = r.contact_id
-     WHERE r.agency_id = ? ORDER BY c.nom, c.prenom ASC`, [agencyId]);
-}
-
-// Vue « rapprochements du moment » : pour chaque recherche active, les biens
-// en vente qui collent aux criteres.
+// Vue « rapprochements du moment » : pour chaque projet d'achat actif, les
+// biens en vente qui collent aux criteres du projet.
 export async function rapprochements(db, agency) {
-  const recherches = (await recherchesAvecContacts(db, agency.id)).filter((r) => r.actif);
+  await migrerRecherchesEnProjets(db, agency.id);
+  const projets = (await listProjets(db, agency))
+    .filter((p) => p.kind === "achat" && p.statut === "actif");
   const annonces = await db.all(
     "SELECT * FROM crm_annonces WHERE agency_id = ? AND statut = 'en_vente'", [agency.id]);
-  return recherches.map((r) => ({
-    contactId: r.contact_id,
-    nom: r.nom, prenom: r.prenom, email: r.email, conseiller: r.conseiller,
-    optOut: !!r.opt_out,
-    matches: annonces.filter((a) => matchAnnonce(r, a))
+  return projets.map((p) => ({
+    projetId: p.id,
+    contacts: p.contacts.map((c) => ({ id: c.id, nom: c.nom, prenom: c.prenom, conseiller: c.conseiller })),
+    matches: annonces.filter((a) => matchAnnonce(p, a))
       .sort((a, b) => (b.first_seen || 0) - (a.first_seen || 0))
       .map((a) => ({ id: a.id, titre: a.titre, prix: a.prix, ville: a.ville, image: a.image, url: a.url })),
   }));
@@ -753,13 +837,15 @@ export function buildRelanceEmail(contact, biens, ag) {
   return { subject, html };
 }
 
-// Passage du jour : pour chaque recherche active, biens jamais proposes et
-// baisses des dernieres 24 h → un e-mail groupe par acquereur, journalise
-// bien par bien (l'anti-doublon fait avancer le stock jour apres jour).
+// Passage du jour : pour chaque projet d'achat actif, biens jamais proposes
+// et baisses des dernieres 24 h → un e-mail par PERSONNE liee au projet
+// (chaque membre du couple recoit le sien, avec sa salutation), journalise
+// bien par bien et par personne (l'anti-doublon fait avancer le stock).
 export async function runRelances(env, db, agency, reglages) {
   const isoDay = parisDate();
-  const recherches = (await recherchesAvecContacts(db, agency.id))
-    .filter((r) => r.actif && r.email && !r.opt_out);
+  await migrerRecherchesEnProjets(db, agency.id);
+  const projets = (await listProjets(db, agency))
+    .filter((p) => p.kind === "achat" && p.statut === "actif");
   const annonces = await db.all(
     "SELECT * FROM crm_annonces WHERE agency_id = ? AND statut = 'en_vente'", [agency.id]);
   const baisses = await db.all(
@@ -772,46 +858,51 @@ export async function runRelances(env, db, agency, reglages) {
 
   const summary = { date: isoDay, mails: 0, biens: 0, errors: 0, reportes: 0, details: [] };
   const journal = [];
-  for (const r of recherches) {
-    const aEnvoyer = [];
-    for (const a of annonces) {
-      if (!matchAnnonce(r, a)) continue;
-      const cle = (k) => r.contact_id + "|" + a.id + "|" + k;
-      if (baisseMap.has(a.id) && !dejaSet.has(cle("baisse"))) {
-        aEnvoyer.push({ annonce: a, kind: "baisse", ancienPrix: baisseMap.get(a.id) });
-      } else if (!baisseMap.has(a.id) && !dejaSet.has(cle("decouverte")) && !dejaSet.has(cle("baisse"))) {
-        aEnvoyer.push({ annonce: a, kind: "decouverte" });
+  for (const p of projets) {
+    const matches = annonces.filter((a) => matchAnnonce(p, a));
+    if (!matches.length) continue;
+    for (const contact of p.contacts) {
+      if (!contact.email || contact.optOut) continue;
+      const aEnvoyer = [];
+      for (const a of matches) {
+        const cle = (k) => contact.id + "|" + a.id + "|" + k;
+        if (baisseMap.has(a.id) && !dejaSet.has(cle("baisse"))) {
+          aEnvoyer.push({ annonce: a, kind: "baisse", ancienPrix: baisseMap.get(a.id) });
+        } else if (!baisseMap.has(a.id) && !dejaSet.has(cle("decouverte")) && !dejaSet.has(cle("baisse"))) {
+          aEnvoyer.push({ annonce: a, kind: "decouverte" });
+        }
       }
-    }
-    if (!aEnvoyer.length) continue;
-    if (summary.mails >= RELANCE_MAX_MAILS) { summary.reportes++; continue; }
-    aEnvoyer.sort((x, y) =>
-      (x.kind === "baisse" ? 0 : 1) - (y.kind === "baisse" ? 0 : 1) ||
-      (y.annonce.first_seen || 0) - (x.annonce.first_seen || 0));
-    const lot = aEnvoyer.slice(0, RELANCE_MAX_BIENS);
-    const { subject, html } = buildRelanceEmail(r, lot, reglages.agence);
-    const res = await envoyerMailHtml(env, {
-      to: r.email, subject, html,
-      fromName: reglages.agence.nom || agency.name,
-      replyTo: reglages.agence.email || "",
-      bcc: reglages.acheteurs.cci || "",
-    });
-    const statut = res.ok ? "ok" : "erreur";
-    const label = `${r.prenom || ""} ${r.nom || ""}`.trim();
-    for (const b of lot) {
-      journal.push({
-        contact_id: r.contact_id, contact: label, email: r.email,
-        annonce_id: b.annonce.id, titre: b.annonce.titre, kind: b.kind,
-        prix: b.annonce.prix, statut,
-        erreur: res.error || (res.dryRun ? "RESEND_API_KEY absent (dry run)" : ""),
+      if (!aEnvoyer.length) continue;
+      if (summary.mails >= RELANCE_MAX_MAILS) { summary.reportes++; continue; }
+      aEnvoyer.sort((x, y) =>
+        (x.kind === "baisse" ? 0 : 1) - (y.kind === "baisse" ? 0 : 1) ||
+        (y.annonce.first_seen || 0) - (x.annonce.first_seen || 0));
+      const lot = aEnvoyer.slice(0, RELANCE_MAX_BIENS);
+      const { subject, html } = buildRelanceEmail(contact, lot, reglages.agence);
+      const res = await envoyerMailHtml(env, {
+        to: contact.email, subject, html,
+        fromName: reglages.agence.nom || agency.name,
+        replyTo: reglages.agence.email || "",
+        bcc: reglages.acheteurs.cci || "",
       });
-    }
-    if (res.ok) {
-      summary.mails++; summary.biens += lot.length;
-      summary.details.push({ contact: label, biens: lot.length, status: "ok" });
-    } else {
-      summary.errors++;
-      summary.details.push({ contact: label, biens: lot.length, status: "erreur", reason: res.error || "dry run" });
+      const statut = res.ok ? "ok" : "erreur";
+      const label = `${contact.prenom || ""} ${contact.nom || ""}`.trim();
+      for (const b of lot) {
+        journal.push({
+          contact_id: contact.id, contact: label, email: contact.email,
+          annonce_id: b.annonce.id, titre: b.annonce.titre, kind: b.kind,
+          prix: b.annonce.prix, statut,
+          erreur: res.error || (res.dryRun ? "RESEND_API_KEY absent (dry run)" : ""),
+        });
+        if (res.ok) dejaSet.add(contact.id + "|" + b.annonce.id + "|" + b.kind);
+      }
+      if (res.ok) {
+        summary.mails++; summary.biens += lot.length;
+        summary.details.push({ contact: label, biens: lot.length, status: "ok" });
+      } else {
+        summary.errors++;
+        summary.details.push({ contact: label, biens: lot.length, status: "erreur", reason: res.error || "dry run" });
+      }
     }
   }
 
@@ -825,6 +916,33 @@ export async function runRelances(env, db, agency, reglages) {
       `INSERT INTO crm_relances (agency_id, contact_id, contact, email, annonce_id, titre, kind, prix, statut, erreur, created_at) VALUES ${valeurs}`, []);
   }
   return summary;
+}
+
+// Scinder une fiche « M. et Mme » en deux personnes physiques : la fiche
+// d'origine devient Monsieur (elle garde e-mail et date de naissance, qu'on
+// ne peut pas attribuer a coup sur), une nouvelle fiche Madame reprend nom,
+// coordonnees postales, date d'achat, typologies et conseiller — et rejoint
+// les memes projets. « Jean et Marie » en prenom se repartit tout seul.
+export async function scinderContact(db, agency, userId, contactId) {
+  const c = await db.get("SELECT * FROM crm_contacts WHERE id = ? AND agency_id = ?", [contactId, agency.id]);
+  if (!c) throw new Error("Contact introuvable.");
+  let prenom1 = c.prenom || "", prenom2 = "";
+  const duo = (c.prenom || "").match(/^(.+?)\s+(?:et|&)\s+(.+)$/i);
+  if (duo) { prenom1 = duo[1].trim(); prenom2 = duo[2].trim(); }
+  const id2 = randId("ct");
+  await db.run("UPDATE crm_contacts SET civilite = 'M.', prenom = ?, user_id = ?, updated_at = ? WHERE id = ?",
+    [prenom1, userId, now(), c.id]);
+  await db.run(
+    `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone,
+     adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out,
+     created_at, updated_at) VALUES (?, ?, ?, 'Mme', ?, ?, '', ?, ?, ?, ?, '', ?, ?, ?, '', ?, ?, ?, ?)`,
+    [id2, agency.id, userId, prenom2, c.nom, c.telephone, c.adresse, c.cp, c.ville,
+     c.date_achat, c.types, c.conseiller, c.source, c.opt_out, now(), now()]);
+  await db.run(
+    `INSERT INTO crm_projet_contacts (projet_id, contact_id, agency_id)
+     SELECT projet_id, ?, agency_id FROM crm_projet_contacts WHERE contact_id = ? AND agency_id = ?`,
+    [id2, c.id, agency.id]);
+  return { monsieur: c.id, madame: id2 };
 }
 
 /* ----------------------------- Cron quotidien ----------------------------- */

@@ -90,11 +90,25 @@ dans `server/src/app.js`). Session partagée `studio-mandatpro-account`, connexi
 `crm_envois`, `crm_annonces`, `crm_annonces_events`, `crm_recherches`, `crm_relances`.
 L'anniversaire d'achat s'adapte au rôle du contact dans la vente (`profilAchat` :
 vendeur sans être acquéreur → « vous vendiez votre bien », sinon « vous receviez vos
-clés » ; aperçus et tests via `?profil=vendeur`). La **brique Acheteurs** : chaque
-acquéreur porte une recherche (`crm_recherches` — budget, types, communes, pièces,
-surface ; critère vide = pas de filtre, « autre » = ni maison/appartement/terrain),
-`rapprochements()` croise avec les annonces en vente, et `runRelances()` (cron du matin,
-après le relevé des annonces) envoie UN e-mail groupé par acquéreur — biens jamais
+clés » ; aperçus et tests via `?profil=vendeur`). **Architecture cible : la PERSONNE PHYSIQUE est l'unité** (une fiche
+contact = une personne) et le **PROJET relie les personnes** (`crm_projets` +
+`crm_projet_contacts` : un couple = 2 fiches dans 1 projet d'achat, une succession =
+3 fiches dans 1 projet d'estimation ; kinds achat|vente|estimation, statuts
+actif|conclu|abandonne). Le projet d'achat porte les critères de recherche (budget,
+types, communes, pièces, surface ; critère vide = pas de filtre, « autre » = ni
+maison/appartement/terrain) — l'ancienne table `crm_recherches` (une recherche par
+contact) est migrée automatiquement (`migrerRecherchesEnProjets`, idempotent). À
+l'import, les champs agrégés sont dispatchés (`dispatchNom` : « M. et Mme Jean
+DUPONT » → civilité/prénom/nom, mots EN MAJUSCULES = nom de famille ;
+`dispatchAdresse` : « ..., 33160 Ville » → adresse/CP/ville — uniquement vers les
+colonnes vides) et les typologies reconnues par motif (`typesDepuisLibelle`).
+`scinderContact` scinde une fiche « M. et Mme » : l'originale devient Monsieur
+(garde e-mail et date de naissance), Madame reprend nom/coordonnées/date
+d'achat/typologies et rejoint les mêmes projets ; « Jean et Marie » en prénom se
+répartit. La **brique Acheteurs** :
+`rapprochements()` croise chaque projet d'achat actif avec les annonces en vente, et
+`runRelances()` (cron du matin, après le relevé des annonces) envoie un e-mail par
+PERSONNE liée au projet — biens jamais
 proposés (`decouverte`) + baisses de prix des dernières 24 h (`baisse`, ancien prix
 barré), 8 biens max par e-mail, 30 e-mails max par passage (plafond de sous-requêtes ;
 le reste part les jours suivants), anti-doublon par (contact, bien, motif) via
