@@ -952,6 +952,16 @@ export function createApp(env) {
   const dossierVendu = (statut, data) =>
     statut === "signe" || statut === "clos" || !!(data.dates && data.dates.signature_acte);
 
+  // Dans le Suivi, bien.adresse ne porte que la RUE — la ville vit dans
+  // bien.ville. Sans la commune, la BAN ne retrouve pas l'adresse (score
+  // trop faible) : on recompose « rue, ville » comme l'app Suivi.
+  const adresseDossier = (rue, ville) => {
+    const a = String(rue || "").trim().replace(/[,\s]+$/, "");
+    const v = String(ville || "").trim();
+    if (!v || a.toLowerCase().includes(v.toLowerCase())) return a;
+    return a ? a + ", " + v : v;
+  };
+
   // Tout ce qu'il faut pour afficher la carte : les contacts géocodés, les
   // îlots et les ventes de l'agence (dossiers Suivi signés). Accessible à
   // tout conseiller de l'agence.
@@ -978,7 +988,8 @@ export function createApp(env) {
       if (!dossierVendu(r.statut, data)) continue;
       ventes.push({
         id: r.id, nom: r.name, lat: r.lat, lng: r.lng,
-        adresse: r.adresse || r.label || "", conseillers: r.conseillers || "",
+        adresse: adresseDossier(r.adresse, data.bien && data.bien.ville) || r.label || "",
+        conseillers: r.conseillers || "",
         date_acte: String((data.dates && (data.dates.signature_acte || data.dates.signature_prevue)) || "").slice(0, 10),
         prix: String((data.prix && data.prix.prix_vente) || "").slice(0, 40),
       });
@@ -1043,13 +1054,13 @@ export function createApp(env) {
     // repère une date d'acte posée dans le JSON (« "signature_acte":"20… » —
     // sérialisation JSON.stringify, sans espaces) sans rapatrier data.
     const dossiers = await db.all(
-      `SELECT d.id, d.adresse, g.adresse AS geo_adresse
+      `SELECT d.id, d.adresse, json_extract(d.data, '$.bien.ville') AS ville, g.adresse AS geo_adresse
        FROM dossiers d LEFT JOIN crm_geo g ON g.contact_id = d.id
        WHERE d.agency_id = ? AND d.adresse <> '' AND d.statut <> 'annule'
          AND (d.statut IN ('signe','clos') OR d.data LIKE '%"signature_acte":"2%')`, [ctx.agency.id]);
     const attente = rows
       .map((r) => ({ id: r.id, adresse: [r.adresse, r.cp, r.ville].filter(Boolean).join(" "), deja: r.geo_adresse }))
-      .concat(dossiers.map((r) => ({ id: r.id, adresse: r.adresse, deja: r.geo_adresse })))
+      .concat(dossiers.map((r) => ({ id: r.id, adresse: adresseDossier(r.adresse, r.ville), deja: r.geo_adresse })))
       .filter((r) => r.adresse !== r.deja)
       .slice(0, GEO_BATCH_MAX)
       .map(({ id, adresse }) => ({ id, adresse }));

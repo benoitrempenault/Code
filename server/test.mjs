@@ -1725,13 +1725,23 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     equipements: {}, entretiens: {}, diagnostics: {}, etapes: {}, conditions_suspensives: [],
   });
   const dVendu = dosBase(); dVendu.dates.signature_acte = "2025-06-12";
+  dVendu.bien.ville = "Saint-Médard-en-Jalles"; // déjà dans l'adresse : pas de doublon
   const rVendu = await callR("/dossiers", { headers: auth, method: "PUT", body: { name: "PAGES / FAURE", data: dVendu } });
   const rEnCours = await callR("/dossiers", { headers: auth, method: "PUT", body: { name: "LOISEAU / BRUN", data: dosBase() } });
   ok(rVendu.status === 200 && rEnCours.status === 200, "dossiers Suivi créés (un signé, un en cours)");
   // L'adresse du dossier signé passe au géocodage ; pas celle du dossier en cours.
   const attD = (await callR("/crm/geo/attente", { headers: auth })).json.attente;
-  ok(attD.some((a) => a.id === rVendu.json.id && /Lilas/.test(a.adresse)), "le dossier signé attend son géocodage");
+  ok(attD.some((a) => a.id === rVendu.json.id && a.adresse === "4 rue des Lilas, 33160 Saint-Médard-en-Jalles"),
+    "le dossier signé attend son géocodage (ville déjà dans l'adresse : pas de doublon)");
   ok(!attD.some((a) => a.id === rEnCours.json.id), "un dossier sans acte signé ne passe pas au géocodage");
+  // Dans le Suivi, bien.adresse ne porte que la rue : la ville du bien doit
+  // compléter l'adresse envoyée à la BAN, sinon le géocodage échoue.
+  const dVille = dosBase(); dVille.statut = "signe";
+  dVille.bien = { adresse: "7 impasse des Vignes", ville: "Le Haillan" };
+  const rVille = await callR("/dossiers", { headers: auth, method: "PUT", body: { name: "GARNIER / ROUX", data: dVille } });
+  ok((await callR("/crm/geo/attente", { headers: auth })).json.attente
+    .some((a) => a.id === rVille.json.id && a.adresse === "7 impasse des Vignes, Le Haillan"),
+    "la ville du bien complète la rue pour le géocodage");
   // La géocache accepte l'id du dossier (le navigateur renvoie la position).
   ok((await callR("/crm/geo/batch", { headers: auth, body: { rows: [
     { contactId: rVendu.json.id, lat: 44.8951, lng: -0.7203, label: "4 Rue des Lilas 33160 Saint-Médard-en-Jalles", score: 0.9, adresse: attD.find((a) => a.id === rVendu.json.id).adresse },
