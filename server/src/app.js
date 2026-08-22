@@ -767,9 +767,23 @@ export function createApp(env) {
   app.get("/crm/envois", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const rows = await db.all(
-      "SELECT contact, email, type, annee, statut, erreur, created_at FROM crm_envois WHERE agency_id = ? ORDER BY created_at DESC LIMIT 200",
+      "SELECT contact_id, contact, email, type, annee, statut, erreur, created_at FROM crm_envois WHERE agency_id = ? ORDER BY created_at DESC LIMIT 200",
       [ctx.agency.id]);
-    return c.json({ envois: rows });
+    // Pour un anniversaire d'achat, dire de quel côté de la vente était le
+    // contact (acquéreur ou vendeur) — recalculé depuis sa typologie.
+    const ids = [...new Set(rows.filter((r) => r.type === "achat").map((r) => r.contact_id).filter(Boolean))];
+    const profils = new Map();
+    if (ids.length) {
+      const cts = await db.all(
+        `SELECT id, types FROM crm_contacts WHERE agency_id = ? AND id IN (${ids.map(() => "?").join(",")})`,
+        [ctx.agency.id, ...ids]);
+      for (const ct of cts) profils.set(ct.id, CRM.profilAchat(ct));
+    }
+    return c.json({
+      envois: rows.map((r) => ({
+        ...r, profil: r.type === "achat" ? (profils.get(r.contact_id) || "acquereur") : "",
+      })),
+    });
   });
 
   // ---------- Projets : des personnes physiques liées dans un projet ------
@@ -916,6 +930,121 @@ export function createApp(env) {
     } catch (e) {
       return err(c, 500, e.message);
     }
+  });
+
+  /* ================== Prospection (app Prospection) ========================
+     La carte de l'agence : contacts géocodés (BAN) + îlots de prospection
+     dessinés et attribués aux conseillers. Lecture pour tous les membres de
+     l'agence ; le dessin des îlots et le géocodage sont réservés aux admins.
+     ---------------------------------------------------------------------- */
+  const GEO_BATCH_MAX = 400;
+
+  // Session simple (membre de l'agence), sans exigence du rôle admin.
+  async function membreCtx(c) {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return { resp: err(c, 401, "Session invalide — reconnectez-vous.") };
+    if (!agencyOpen(ctx.agency)) return { resp: err(c, 402, "Abonnement inactif.") };
+    return { ctx };
+  }
+
+  // Tout ce qu'il faut pour afficher la carte : les contacts géocodés et les
+  // îlots. Accessible à tout conseiller de l'agence.
+  app.get("/crm/carte", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const points = await db.all(
+      `SELECT g.contact_id, g.lat, g.lng, g.label, c.civilite, c.nom, c.prenom, c.telephone,
+              c.email, c.adresse, c.cp, c.ville, c.types, c.conseiller
+       FROM crm_geo g JOIN crm_contacts c ON c.id = g.contact_id
+       WHERE g.agency_id = ? AND NOT (g.lat = 0 AND g.lng = 0)`, [ctx.agency.id]);
+    const ilots = await db.all(
+      "SELECT id, nom, conseiller, couleur, polygone, updated_at FROM crm_ilots WHERE agency_id = ? ORDER BY nom ASC",
+      [ctx.agency.id]);
+    const total = await db.get("SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ?", [ctx.agency.id]);
+    return c.json({
+      points: points.map((p) => ({ ...p, types: (() => { try { return JSON.parse(p.types || "[]"); } catch { return []; } })() })),
+      ilots: ilots.map((i) => ({ ...i, polygone: (() => { try { return JSON.parse(i.polygone); } catch { return []; } })() })),
+      totalContacts: total?.n || 0,
+      estAdmin: isAgencyAdmin(ctx),
+    });
+  });
+
+  app.put("/crm/ilots", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    let v;
+    try { v = CRM.sanitizeIlot(b); } catch (e) { return err(c, 400, e.message); }
+    if (b.id) {
+      const cur = await db.get("SELECT id FROM crm_ilots WHERE id = ? AND agency_id = ?", [String(b.id), ctx.agency.id]);
+      if (!cur) return err(c, 404, "Îlot introuvable.");
+      await db.run(
+        "UPDATE crm_ilots SET nom = ?, conseiller = ?, couleur = ?, polygone = ?, user_id = ?, updated_at = ? WHERE id = ?",
+        [v.nom, v.conseiller, v.couleur, v.polygone, ctx.user.id, now(), cur.id]);
+      return c.json({ ok: true, id: cur.id });
+    }
+    const id = randId("il");
+    await db.run(
+      "INSERT INTO crm_ilots (id, agency_id, nom, conseiller, couleur, polygone, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [id, ctx.agency.id, v.nom, v.conseiller, v.couleur, v.polygone, ctx.user.id, now(), now()]);
+    return c.json({ ok: true, id });
+  });
+
+  app.delete("/crm/ilots/:id", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    await db.run("DELETE FROM crm_ilots WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    return c.json({ ok: true });
+  });
+
+  // L'attribution d'un point : quel îlot, donc quel conseiller. Servira aussi
+  // au routage des demandes (estimations / acquéreurs) venant du site.
+  app.get("/crm/ilots/attribution", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const lat = parseFloat(c.req.query("lat")), lng = parseFloat(c.req.query("lng"));
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return err(c, 400, "lat et lng requis.");
+    const ilot = await CRM.ilotPourPoint(db, ctx.agency.id, lat, lng);
+    return c.json({ ilot: ilot ? { id: ilot.id, nom: ilot.nom, conseiller: ilot.conseiller } : null });
+  });
+
+  // Contacts à géocoder : adresse renseignée, jamais géocodés ou adresse
+  // changée depuis. Le NAVIGATEUR interroge la BAN (api-adresse.data.gouv.fr)
+  // puis renvoie les positions par lots — le Worker n'a pas à porter ce trafic.
+  app.get("/crm/geo/attente", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const rows = await db.all(
+      `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse
+       FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
+       WHERE c.agency_id = ? AND c.adresse <> ''`, [ctx.agency.id]);
+    const attente = rows
+      .map((r) => ({ id: r.id, adresse: [r.adresse, r.cp, r.ville].filter(Boolean).join(" "), deja: r.geo_adresse }))
+      .filter((r) => r.adresse !== r.deja)
+      .slice(0, GEO_BATCH_MAX)
+      .map(({ id, adresse }) => ({ id, adresse }));
+    return c.json({ attente });
+  });
+
+  app.post("/crm/geo/batch", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    const rows = (b && Array.isArray(b.rows) ? b.rows : []).slice(0, GEO_BATCH_MAX);
+    if (!rows.length) return err(c, 400, "Aucune position à enregistrer.");
+    const ids = rows.map((r) => String(r.contactId));
+    const connus = new Set((await db.all(
+      `SELECT id FROM crm_contacts WHERE agency_id = ? AND id IN (${ids.map(() => "?").join(",")})`,
+      [ctx.agency.id, ...ids])).map((r) => r.id));
+    const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
+    let ok = 0;
+    const valeurs = [];
+    for (const r of rows) {
+      const lat = parseFloat(r.lat), lng = parseFloat(r.lng);
+      if (!connus.has(String(r.contactId)) || !Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      valeurs.push(`(${sqlT(r.contactId)},${sqlT(ctx.agency.id)},${lat},${lng},${sqlT(r.label)},${Number(r.score) || 0},${sqlT(r.adresse)},${now()})`);
+      ok++;
+    }
+    if (valeurs.length) {
+      await db.run(
+        `INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES ${valeurs.join(",")}`, []);
+    }
+    return c.json({ ok: true, enregistres: ok, ignores: rows.length - ok });
   });
 
   /* ===================== Permanences (app Permanence) ======================

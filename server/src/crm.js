@@ -945,6 +945,47 @@ export async function scinderContact(db, agency, userId, contactId) {
   return { monsieur: c.id, madame: id2 };
 }
 
+/* ------------------------------ Prospection ------------------------------- */
+// Un point est-il dans un polygone ? (lancer de rayon, suffisant a l'echelle
+// d'un ilot de prospection). polygone = [[lat, lng], ...]
+export function pointDansPolygone(lat, lng, polygone) {
+  let dedans = false;
+  for (let i = 0, j = polygone.length - 1; i < polygone.length; j = i++) {
+    const [lat1, lng1] = polygone[i], [lat2, lng2] = polygone[j];
+    if ((lng1 > lng) !== (lng2 > lng) &&
+      lat < ((lat2 - lat1) * (lng - lng1)) / (lng2 - lng1) + lat1) dedans = !dedans;
+  }
+  return dedans;
+}
+
+// L'ilot qui couvre un point → son conseiller. C'est la meme attribution qui
+// servira au routage des demandes du site internet (une seule source de verite
+// pour les secteurs). Premier ilot qui matche, par date de creation.
+export async function ilotPourPoint(db, agencyId, lat, lng) {
+  const ilots = await db.all(
+    "SELECT * FROM crm_ilots WHERE agency_id = ? ORDER BY created_at ASC", [agencyId]);
+  for (const il of ilots) {
+    let poly = [];
+    try { poly = JSON.parse(il.polygone); } catch { }
+    if (poly.length >= 3 && pointDansPolygone(lat, lng, poly)) return il;
+  }
+  return null;
+}
+
+export function sanitizeIlot(b) {
+  const nom = strip(b.nom, 80);
+  if (!nom) throw new Error("Le nom de l'îlot est requis.");
+  let poly = Array.isArray(b.polygone) ? b.polygone : [];
+  poly = poly.filter((p) => Array.isArray(p) && p.length === 2 &&
+    Number.isFinite(p[0]) && Number.isFinite(p[1]) &&
+    p[0] >= -90 && p[0] <= 90 && p[1] >= -180 && p[1] <= 180)
+    .map((p) => [Math.round(p[0] * 1e6) / 1e6, Math.round(p[1] * 1e6) / 1e6]);
+  if (poly.length < 3) throw new Error("Un îlot a au moins 3 sommets.");
+  if (poly.length > 300) throw new Error("Trop de sommets (300 max).");
+  const couleur = /^#[0-9a-fA-F]{6}$/.test(String(b.couleur || "")) ? b.couleur : "#c2a36b";
+  return { nom, conseiller: strip(b.conseiller, 80), couleur, polygone: JSON.stringify(poly) };
+}
+
 /* ----------------------------- Cron quotidien ----------------------------- */
 // Pour chaque agence ouverte qui a des reglages CRM : releve des annonces puis
 // vœux d'anniversaire. Chaque agence est isolee — une erreur n'arrete pas les autres.

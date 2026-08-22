@@ -469,3 +469,37 @@ CREATE TABLE IF NOT EXISTS crm_projet_contacts (
   PRIMARY KEY (projet_id, contact_id)
 );
 CREATE INDEX IF NOT EXISTS idx_crm_pc_contact ON crm_projet_contacts(agency_id, contact_id);
+
+-- =========================================================================
+-- Prospection (app Prospection) : la carte de l'agence. Les ILOTS sont les
+-- secteurs de prospection dessinés sur la carte et attribués aux conseillers
+-- (une seule source de vérité pour les secteurs : la même attribution servira
+-- au routage des demandes du site internet). Les positions des contacts sont
+-- géocodées via la Base Adresse Nationale et stockées à part (crm_geo).
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS crm_ilots (
+  id         TEXT PRIMARY KEY,              -- il_xxxxxxxx
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  nom        TEXT NOT NULL,
+  conseiller TEXT NOT NULL DEFAULT '',      -- nom du conseiller attributaire
+  couleur    TEXT NOT NULL DEFAULT '#c2a36b',
+  polygone   TEXT NOT NULL,                 -- JSON [[lat, lng], ...] (≥ 3 sommets)
+  user_id    TEXT NOT NULL DEFAULT '',      -- dernier auteur
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_ilots_ag ON crm_ilots(agency_id);
+
+-- Géocodage des contacts (BAN) : une position par contact, rafraîchie quand
+-- l'adresse change (le hash de l'adresse détecte les fiches à regéocoder).
+CREATE TABLE IF NOT EXISTS crm_geo (
+  contact_id TEXT PRIMARY KEY,              -- référence crm_contacts(id)
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  lat        REAL NOT NULL,
+  lng        REAL NOT NULL,
+  label      TEXT NOT NULL DEFAULT '',      -- adresse normalisée renvoyée par la BAN
+  score      REAL NOT NULL DEFAULT 0,       -- confiance BAN (0-1)
+  adresse    TEXT NOT NULL DEFAULT '',      -- adresse source au moment du géocodage
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_geo_ag ON crm_geo(agency_id);

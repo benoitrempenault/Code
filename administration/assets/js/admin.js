@@ -377,7 +377,9 @@
       }
       zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr><th>Date</th><th>Contact</th><th>Type</th><th>Années</th><th>E-mail</th><th>Conseiller</th></tr></thead><tbody>' +
         upcoming.map((u) => "<tr><td>" + fmtDateFr(u.date) + "</td><td><strong>" + escH(u.nom) + "</strong> " + escH(u.prenom) + "</td>" +
-          "<td>" + (u.type === "achat" ? (u.profil === "vendeur" ? "🔑 Vente" : "🏡 Achat") : "🎂 Naissance") + "</td><td>" + (u.years ? u.years + " an(s)" : "—") + "</td>" +
+          "<td>" + (u.type === "achat"
+            ? (u.profil === "vendeur" ? '🔑 Vente <span class="puce grise">vendeur</span>' : '🏡 Achat <span class="puce">acquéreur</span>')
+            : "🎂 Naissance") + "</td><td>" + (u.years ? u.years + " an(s)" : "—") + "</td>" +
           "<td>" + (u.hasEmail ? escH(u.email) : '<span class="erreur">pas d’e-mail</span>') + "</td><td>" + escH(u.conseiller) + "</td></tr>").join("") +
         "</tbody></table></div>";
     } catch (e) { toast(e.message, true); }
@@ -392,7 +394,9 @@
       }
       zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr><th>Date</th><th>Contact</th><th>E-mail</th><th>Type</th><th>Statut</th></tr></thead><tbody>' +
         envois.map((e) => "<tr><td>" + fmtTs(e.created_at) + "</td><td>" + escH(e.contact) + "</td><td>" + escH(e.email) + "</td>" +
-          "<td>" + (e.type === "achat" ? "🏡 Achat" : "🎂 Naissance") + "</td>" +
+          "<td>" + (e.type === "achat"
+            ? (e.profil === "vendeur" ? '🔑 Vente <span class="puce grise">vendeur</span>' : '🏡 Achat <span class="puce">acquéreur</span>')
+            : "🎂 Naissance") + "</td>" +
           "<td>" + (e.statut === "ok" ? '<span class="ok">envoyé</span>' : '<span class="erreur">' + escH(e.erreur || "erreur") + "</span>") + "</td></tr>").join("") +
         "</tbody></table></div>";
     } catch (e) { toast(e.message, true); }

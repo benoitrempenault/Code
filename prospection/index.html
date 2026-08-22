@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev https://api-adresse.data.gouv.fr https://fonts.googleapis.com https://fonts.gstatic.com" />
+  <title>Studio Brochure — Prospection</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <meta name="robots" content="noindex" />
+  <meta name="description" content="La carte de prospection de l'agence : contacts géolocalisés et îlots par conseiller." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/leaflet.css" />
+  <link rel="stylesheet" href="assets/css/prospection.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <a class="home" href="../mandat/" title="Accueil Studio Brochure">⌂</a>
+  <h1>Studio <em>Prospection</em></h1>
+  <div class="topbar-right"><span id="who" class="who"></span></div>
+</header>
+
+<div id="ecran-connexion" class="connexion" hidden>
+  <div class="connexion-carte">
+    <h2>Connexion requise</h2>
+    <p>La Prospection utilise votre compte Studio Brochure, le même que pour les autres apps.</p>
+    <a class="btn btn-or" id="lien-connexion" href="../mandat-pro/compte.html?retour=prospection/">Se connecter</a>
+    <p class="petit" id="connexion-detail"></p>
+  </div>
+</div>
+
+<main id="app" hidden>
+  <aside class="lateral">
+    <div class="bloc">
+      <h2>Îlots</h2>
+      <p class="aide">Les secteurs de prospection, dessinés sur la carte et attribués aux
+        conseillers. La même attribution servira au routage des demandes du site.</p>
+      <select id="filtre-conseiller">
+        <option value="">Tous les conseillers</option>
+      </select>
+      <div id="liste-ilots" class="liste-ilots"></div>
+      <div class="rang" id="zone-dessin" hidden>
+        <button class="btn btn-or" id="btn-dessiner">✏️ Dessiner un îlot</button>
+        <button class="btn" id="btn-terminer" hidden>✔ Terminer</button>
+        <button class="btn" id="btn-annuler-dessin" hidden>✖ Annuler</button>
+      </div>
+      <p class="petit" id="aide-dessin" hidden>Cliquez sur la carte pour poser les sommets,
+        puis « Terminer » (3 sommets minimum).</p>
+    </div>
+
+    <div class="bloc">
+      <h2>Contacts</h2>
+      <p class="petit" id="etat-geo"></p>
+      <div class="filtres" id="filtres-types">
+        <label class="case"><input type="checkbox" value="acquereur" checked /> <span class="pastille" style="background:#5B9BD5"></span> Acquéreurs</label>
+        <label class="case"><input type="checkbox" value="vendeur" checked /> <span class="pastille" style="background:#c2a36b"></span> Vendeurs</label>
+        <label class="case"><input type="checkbox" value="estime" checked /> <span class="pastille" style="background:#9B7EDE"></span> Estimés</label>
+        <label class="case"><input type="checkbox" value="autres" checked /> <span class="pastille" style="background:#8a8a86"></span> Autres</label>
+      </div>
+      <div class="rang">
+        <button class="btn" id="btn-geocoder" hidden>📍 Géocoder les adresses</button>
+        <button class="btn" id="btn-position">🧭 Ma position</button>
+      </div>
+    </div>
+  </aside>
+
+  <div id="carte"></div>
+</main>
+
+<div class="voile" id="voile" hidden>
+  <div class="modale">
+    <div class="modale-tete">
+      <h2 id="modale-titre"></h2>
+      <button class="fermer" id="modale-fermer">&times;</button>
+    </div>
+    <div class="modale-corps" id="modale-corps"></div>
+    <div class="modale-pied" id="modale-pied"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/vendor/leaflet.js"></script>
+<script src="assets/js/prospection.js"></script>
+</body>
+</html>

@@ -1660,6 +1660,48 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(apVen.html.includes("vous vendiez votre bien") && apVen.subject !== apAcq.subject,
     "achat côté vendeur : « vous vendiez votre bien », sujet distinct");
 
+  /* ---- Prospection : îlots + géocodage + attribution -------------------- */
+  console.log("— Administration : prospection (îlots + carte)");
+  // Un îlot carré autour de Saint-Médard, attribué à Benoit.
+  const carre = [[44.90, -0.73], [44.90, -0.70], [44.88, -0.70], [44.88, -0.73]];
+  const il = await callR("/crm/ilots", { headers: auth, method: "PUT", body: {
+    nom: "Cerillan Nord", conseiller: "Benoit", couleur: "#5B9BD5", polygone: carre,
+  } });
+  ok(il.status === 200 && il.json.id, "îlot dessiné et enregistré");
+  ok((await callR("/crm/ilots", { headers: auth, method: "PUT", body: { nom: "Trop petit", polygone: [[44, 0], [45, 1]] } })).status === 400,
+    "un îlot à moins de 3 sommets est refusé");
+  // Attribution : un point dedans → le conseiller de l'îlot ; dehors → aucun.
+  const dedans = (await callR("/crm/ilots/attribution?lat=44.89&lng=-0.715", { headers: auth })).json;
+  ok(dedans.ilot && dedans.ilot.conseiller === "Benoit", "point dans l'îlot → attribué à son conseiller");
+  ok((await callR("/crm/ilots/attribution?lat=44.95&lng=-0.5", { headers: auth })).json.ilot === null,
+    "point hors îlots → aucune attribution");
+
+  // Géocodage : le navigateur renvoie les positions (ici simulées) par lots.
+  const att1 = (await callR("/crm/geo/attente", { headers: auth })).json.attente;
+  ok(att1.some((a) => a.id === pages.id && /33160/.test(a.adresse)), "les adresses à géocoder sont listées");
+  ok((await callR("/crm/geo/batch", { headers: auth, body: { rows: [
+    { contactId: pages.id, lat: 44.89, lng: -0.71, label: "12 Rue des Pins 33160 Saint-Médard-en-Jalles", score: 0.95, adresse: att1.find((a) => a.id === pages.id).adresse },
+  ] } })).json.enregistres === 1, "position enregistrée");
+  ok(!(await callR("/crm/geo/attente", { headers: auth })).json.attente.some((a) => a.id === pages.id),
+    "une adresse géocodée ne repasse plus en attente");
+
+  // La carte : accessible à un simple conseiller (pas admin), points + îlots.
+  const membreP = await callR("/agency/users", { headers: auth, method: "POST", body: { email: "carto@ach-test.fr", name: "Carto" } });
+  const sessP = (await callR("/auth/exchange", { body: { token: membreP.json.invite_link.split("#token=")[1] } })).json.session;
+  const carteM = await callR("/crm/carte", { headers: { Authorization: "Bearer " + sessP } });
+  ok(carteM.status === 200 && carteM.json.estAdmin === false, "la carte est ouverte aux conseillers (sans être admin)");
+  ok(carteM.json.points.some((pt) => pt.contact_id === pages.id && pt.lat === 44.89),
+    "le contact géocodé apparaît sur la carte");
+  ok(carteM.json.ilots.some((i) => i.nom === "Cerillan Nord" && i.polygone.length === 4),
+    "l'îlot apparaît sur la carte");
+  ok((await callR("/crm/ilots", { headers: { Authorization: "Bearer " + sessP }, method: "PUT", body: { nom: "X", polygone: carre } })).status === 403,
+    "un conseiller ne peut pas dessiner d'îlot (admin seulement)");
+  // Isolation : une autre agence ne voit rien.
+  const crAutre = await callR("/admin/agencies", { headers: admin, body: { name: "Autre Agence Carte", email: "autre-carte@test.fr" } });
+  const sessAutre = (await callR("/auth/exchange", { body: { token: crAutre.json.welcome_link.split("#token=")[1] } })).json.session;
+  const carteAutre = (await callR("/crm/carte", { headers: { Authorization: "Bearer " + sessAutre } })).json;
+  ok(carteAutre.points.length === 0 && carteAutre.ilots.length === 0, "carte isolée par agence");
+
   fauxResend.close();
 }
 

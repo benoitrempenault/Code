@@ -114,6 +114,20 @@ barré), 8 biens max par e-mail, 30 e-mails max par passage (plafond de sous-req
 le reste part les jours suivants), anti-doublon par (contact, bien, motif) via
 `crm_relances` (statut ok). `RESEND_BASE` est surchargeable en test (faux Resend).
 
+**`prospection/` — Studio Prospection**, la carte de l'agence (Leaflet vendorisé dans
+`prospection/assets/js/vendor/`, tuiles OSM, fond assombri par filtre CSS). Les contacts
+géocodés s'affichent par typologie, les **îlots** de prospection se dessinent au clic
+(admin ; en mode dessin, `pointer-events: none` sur les tracés existants pour que les
+clics posent des sommets) et s'attribuent à un conseiller — `crm_ilots` (polygone JSON),
+`ilotPourPoint`/`pointDansPolygone` dans `server/src/crm.js`, route
+`/crm/ilots/attribution?lat&lng` : la même attribution servira au routage des demandes
+du site. Le **géocodage** est fait par le NAVIGATEUR via la BAN
+(api-adresse.data.gouv.fr, ~8 req/s), résultats poussés par lots à `/crm/geo/batch`
+(INSERT OR REPLACE inline) et stockés dans `crm_geo` (une tentative ratée est mémorisée
+lat=lng=0 pour ne pas être redemandée ; filtrée de `/crm/carte`) ; `/crm/geo/attente`
+liste les adresses jamais géocodées ou modifiées. Lecture (`/crm/carte`) ouverte à tout
+membre de l'agence ; écriture des îlots et géocodage réservés aux admins.
+
 **`permanence/` — Studio Permanence**, l'app interne Kadima du **tour de permanence physique
 des points de vente** (Saint-Médard, Caudéran, Blanquefort…), avec sa page publique de prise
 de rendez-vous sous **`rdv/`**. Créneaux 9h-12h / 12h-14h / 14h-17h / 17h-19h du lundi au

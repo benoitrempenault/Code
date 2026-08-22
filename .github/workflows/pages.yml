@@ -28,7 +28,7 @@ jobs:
       - name: Garde-fou — syntaxe JS (bloque le déploiement si cassé)
         run: |
           set -e
-          for f in $(find assets pro mandat mandat-pro suivi permanence rdv administration -name '*.js' -not -path '*/node_modules/*'); do
+          for f in $(find assets pro mandat mandat-pro suivi permanence rdv administration prospection -name '*.js' -not -path '*/node_modules/*'); do
             node --check "$f"
           done
           echo "Syntaxe JS OK — déploiement autorisé."
@@ -64,6 +64,10 @@ jobs:
           mkdir -p _site/administration/assets
           cp administration/index.html administration/favicon.svg _site/administration/
           cp -r administration/assets/* _site/administration/assets/
+          # Studio Prospection (carte + îlots — interne Kadima) sous /prospection/
+          mkdir -p _site/prospection/assets
+          cp prospection/index.html prospection/favicon.svg _site/prospection/
+          cp -r prospection/assets/* _site/prospection/assets/
           # Prise de rendez-vous en ligne (page publique appelée par le site de l'agence) sous /rdv/
           mkdir -p _site/rdv/assets
           cp rdv/index.html rdv/favicon.svg _site/rdv/
