@@ -1836,6 +1836,61 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   fauxBan.close();
 }
 
+// ======================================================================
+//  Accès collaborateur Kadima (SSO /auth/kadima)
+// ======================================================================
+console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadima)");
+{
+  const SSO_SECRET = "secret-sso-kadima-test";
+  const agK = await call("/admin/agencies", { headers: admin, body: { name: "CENTURY 21 Kadima", email: "sso-kadima@kadima.fr", status: "active" } });
+  const appK = createApp({
+    db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin",
+    ANTHROPIC_API_KEY: "sk-ant-fake-server-key", ANTHROPIC_BASE: "http://localhost:18789",
+    APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
+    KADIMA_SSO_SECRET: SSO_SECRET, KADIMA_AGENCY_ID: agK.json.agency.id,
+  });
+  const callK = async (p, o = {}) => {
+    const res = await appK.fetch(new Request("http://api.test" + p, {
+      method: o.method || (o.body ? "POST" : "GET"),
+      headers: { "Content-Type": "application/json", ...(o.headers || {}) },
+      body: o.body ? JSON.stringify(o.body) : undefined,
+    }));
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+  // Laissez-passer fabriqué comme le serveur Render (Node crypto → doit
+  // correspondre à hmacHex WebCrypto côté serveur IA).
+  const cryptoMod = await import("node:crypto");
+  const mkPass = (secret, agId, exp) => {
+    const payload = Buffer.from(JSON.stringify({ ag: agId, exp })).toString("base64url");
+    const sig = cryptoMod.createHmac("sha256", secret).update(payload).digest("hex");
+    return payload + "." + sig;
+  };
+  const nowS = Math.floor(Date.now() / 1000);
+  const agId = agK.json.agency.id;
+
+  const good = await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS + 120) } });
+  ok(good.status === 200 && !!good.json.session, "laissez-passer valide → session ouverte");
+  ok(good.json.agency && good.json.agency.name.includes("Kadima"), "session liée à l'agence Kadima");
+
+  const ia = await callK("/v1/messages", { headers: { Authorization: "Bearer " + good.json.session }, body: { model: "claude-sonnet-5", max_tokens: 50, messages: [{ role: "user", content: "salut" }] } });
+  ok(ia.status === 200, "la session collaborateur débloque la rédaction IA");
+
+  ok((await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS - 10) } })).status === 401, "laissez-passer expiré → 401");
+  ok((await callK("/auth/kadima", { body: { pass: mkPass("mauvais-secret", agId, nowS + 120) } })).status === 401, "mauvais secret → 401");
+  const forged = mkPass(SSO_SECRET, agId, nowS + 120).slice(0, -1) + "0";
+  ok((await callK("/auth/kadima", { body: { pass: forged } })).status === 401, "signature altérée → 401");
+
+  // Accès partagé multi-postes : pas d'éviction au 3e appareil.
+  const first = (await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS + 120) } })).json.session;
+  for (let i = 0; i < 5; i++) await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS + 120) } });
+  ok((await callK("/me", { headers: { Authorization: "Bearer " + first } })).status === 200, "1er poste encore connecté après 6 connexions (plafond relevé)");
+
+  // Repli propre quand le secret n'est pas configuré.
+  const appNo = createApp({ db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: true });
+  const noSecret = await appNo.fetch(new Request("http://api.test/auth/kadima", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pass: "x.y" }) }));
+  ok(noSecret.status === 501, "secret non configuré → 501 (le client retombe sur la connexion e-mail)");
+}
+
 fake.close();
 faux365.close();
 console.log("\n" + passed + " réussis, " + failed + " échec(s)");

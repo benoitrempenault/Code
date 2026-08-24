@@ -189,14 +189,68 @@ export function createApp(env) {
     });
   });
 
+  /* -------- Accès collaborateur (SSO depuis le site century21-kadima) -----
+     La porte « Accès collaborateurs » du site Kadima (serveur Render) valide
+     le code, puis renvoie ici un laissez-passer signé (HMAC, partagé via
+     KADIMA_SSO_SECRET). On ouvre alors une session sur le compte AGENCE
+     partagé de Kadima : le collaborateur a l'IA sans e-mail ni mot de passe.
+     Un seul secret, une seule agence, sessions à plafond d'appareils élevé.  */
+  app.post("/auth/kadima", async (c) => {
+    const secret = env.KADIMA_SSO_SECRET;
+    if (!secret) return err(c, 501, "Accès collaborateur non configuré côté serveur.");
+    const b = await c.req.json().catch(() => ({}));
+    const pass = String(b.pass || "");
+    const dot = pass.indexOf(".");
+    if (dot < 1) return err(c, 401, "Laissez-passer invalide.");
+    const payloadB64 = pass.slice(0, dot), sig = pass.slice(dot + 1);
+    // Signature d'abord (temps constant), puis expiration.
+    const expected = await hmacHex(secret, payloadB64);
+    if (!safeEqual(sig, expected)) return err(c, 401, "Laissez-passer invalide.");
+    let payload;
+    try { payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/"))); }
+    catch (e) { return err(c, 401, "Laissez-passer illisible."); }
+    if (!payload || (payload.exp || 0) < now()) return err(c, 401, "Laissez-passer expiré — repassez par l'accès collaborateur.");
+
+    // L'agence visée est fixée par la configuration du serveur (jamais par le
+    // jeton) : un laissez-passer ne peut ouvrir QUE l'agence Kadima.
+    const agencyId = env.KADIMA_AGENCY_ID || "ag_8csricwct9";
+    const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [agencyId]);
+    if (!agency) return err(c, 500, "Agence collaborateur introuvable (KADIMA_AGENCY_ID).");
+    if (agency.status === "suspended" || !agencyOpen(agency)) return err(c, 402, "Abonnement de l'agence inactif.");
+
+    // Compte « agence » partagé (créé une seule fois), rôle simple membre.
+    const email = String(env.KADIMA_COLLAB_EMAIL || "collaborateurs@kadima.interne").toLowerCase();
+    let user = await db.get("SELECT * FROM users WHERE email = ?", [email]);
+    if (!user) {
+      const uid = randId("us");
+      await db.run(
+        "INSERT INTO users (id, agency_id, email, name, role, created_at) VALUES (?, ?, ?, ?, 'member', ?)",
+        [uid, agencyId, email, "Collaborateurs Kadima", now()]
+      );
+      user = await db.get("SELECT * FROM users WHERE id = ?", [uid]);
+    }
+    // Accès partagé multi-postes : plafond d'appareils élevé (sinon les postes
+    // de l'agence se déconnecteraient mutuellement au-delà de 3).
+    const bearer = await openSession(user, 100);
+    return c.json({
+      ok: true, session: bearer,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      agency: { id: agency.id, name: agency.name, status: agency.status, plan: agency.plan }
+    });
+  });
+
   // Ouvre une session pour un utilisateur (limite d'appareils : révoque la
   // plus ancienne au-delà du plafond). Partagé lien magique / mot de passe.
-  async function openSession(user) {
+  async function openSession(user, cap) {
+    // cap : plafond d'appareils simultanés. Par défaut MAX_SESSIONS (comptes
+    // personnels) ; relevé pour l'accès collaborateur partagé, où un même
+    // utilisateur « agence » ouvre une session par poste de l'agence.
+    const maxSessions = cap || MAX_SESSIONS;
     const actives = await db.all(
       "SELECT token_hash FROM sessions WHERE user_id = ? AND revoked = 0 AND last_seen > ? ORDER BY last_seen DESC, rowid DESC",
       [user.id, now() - SESSION_TTL]
     );
-    for (const s of actives.slice(MAX_SESSIONS - 1)) {
+    for (const s of actives.slice(maxSessions - 1)) {
       await db.run("UPDATE sessions SET revoked = 1 WHERE token_hash = ?", [s.token_hash]);
     }
     const bearer = randToken(32);

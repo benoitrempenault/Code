@@ -39,6 +39,11 @@ GLOBAL_MONTHLY_CAP_EUR = "500"  # kill-switch : plafond de dépense IA mensuel T
 # AI_MODELS = "claude-opus-4-8,claude-sonnet-4-5,claude-haiku-4-5"  # liste blanche (défaut dans le code)
 # AI_RATE_PER_MIN = "60"        # appels IA max par agence et par minute
 # AI_MAX_BODY_BYTES = "4000000" # taille max d'une requête IA (vision multi-photos)
+# Accès collaborateur Kadima (SSO depuis century21-kadima.fr) : l'agence dont
+# la session est ouverte au passage de la porte. Défaut dans le code :
+# ag_8csricwct9. Décommenter pour forcer/corriger (id lisible dans « Mon compte »).
+# KADIMA_AGENCY_ID = "ag_8csricwct9"
+# KADIMA_COLLAB_EMAIL = "collaborateurs@kadima.interne"  # compte agence partagé (défaut dans le code)
 
 # Secrets (JAMAIS dans ce fichier) — à poser avec :
 #   wrangler secret put ANTHROPIC_API_KEY
@@ -46,3 +51,6 @@ GLOBAL_MONTHLY_CAP_EUR = "500"  # kill-switch : plafond de dépense IA mensuel T
 #   wrangler secret put SESSION_SECRET
 #   wrangler secret put RESEND_API_KEY        (optionnel au début)
 #   wrangler secret put STRIPE_WEBHOOK_SECRET (à l'activation de Stripe)
+#   wrangler secret put KADIMA_SSO_SECRET     (accès collaborateur Kadima → IA :
+#     EXACTEMENT la même valeur que la variable KADIMA_SSO_SECRET du service
+#     Render « kadima-admin ». C'est ce secret partagé qui lie la porte à l'IA.)
