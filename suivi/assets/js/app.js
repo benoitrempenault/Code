@@ -392,13 +392,21 @@
        ou une vieille sauvegarde au lieu de l'ISO « 2026-05-12 ») : une date
        illisible rend son échéance incalculable — l'étape restait grise et ne
        remontait jamais au tableau de bord. Tout autre texte est laissé. */
+    const MOIS_FR = { janvier: 1, fevrier: 2, mars: 3, avril: 4, mai: 5, juin: 6,
+      juillet: 7, aout: 8, septembre: 9, octobre: 10, novembre: 11, decembre: 12 };
     const repareDate = (v) => {
       const s = String(v || "").trim();
       if (!s || /^\d{4}-\d{2}-\d{2}$/.test(s)) return v;
       const m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/.exec(s);
-      if (!m) return v;
-      const an = m[3].length === 2 ? "20" + m[3] : m[3];
-      return an + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0");
+      if (m) {
+        const an = m[3].length === 2 ? "20" + m[3] : m[3];
+        return an + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0");
+      }
+      // « 15 avril 2026 », « 1er août 2026 » — l'écriture des compromis.
+      const t = /^(\d{1,2})(?:er)?\s+([a-zà-ÿ]+)\s+(\d{4})$/i.exec(s);
+      const mois = t && MOIS_FR[t[2].toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")];
+      if (mois) return t[3] + "-" + String(mois).padStart(2, "0") + "-" + t[1].padStart(2, "0");
+      return v;
     };
     data.date_compromis = repareDate(data.date_compromis);
     data.date_butoir = repareDate(data.date_butoir);
