@@ -534,6 +534,8 @@
       : "SMS indisponibles pour l'instant : la clé Brevo (BREVO_API_KEY) n'est pas posée sur le serveur.";
   $("ach-enabled").checked = !!(reglages.acheteurs && reglages.acheteurs.enabled);
   $("ach-cci").value = (reglages.acheteurs && reglages.acheteurs.cci) || "";
+  $("estim-enabled").checked = !!(reglages.estimations && reglages.estimations.enabled);
+  $("estim-cci").value = (reglages.estimations && reglages.estimations.cci) || "";
     $("annonces-auto").checked = !!reglages.annonces.autoSync;
     $("annonces-site").value = reglages.annonces.siteUrl || "";
     $("ag-nom").value = reglages.agence.nom || "";
@@ -938,6 +940,9 @@
   $("btn-ach-save").addEventListener("click", () => sauverReglages({
     acheteurs: { enabled: $("ach-enabled").checked, cci: $("ach-cci").value.trim() },
   }, "Réglages des relances enregistrés"));
+  $("btn-estim-save").addEventListener("click", () => sauverReglages({
+    estimations: { enabled: $("estim-enabled").checked, cci: $("estim-cci").value.trim() },
+  }, "Réglages du suivi estimation enregistrés"));
   $("btn-ach-apercu").addEventListener("click", apercuRelance);
   $("btn-ach-run").addEventListener("click", lancerRelances);
   $("table-acheteurs").addEventListener("click", (e) => {

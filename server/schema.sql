@@ -527,3 +527,32 @@ CREATE TABLE IF NOT EXISTS crm_ventes (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_ventes_cle    ON crm_ventes(agency_id, cle);
 CREATE INDEX        IF NOT EXISTS idx_crm_ventes_agency ON crm_ventes(agency_id, date_acte);
+
+-- Fiches estimation : le parcours d'un projet de vente, du rendez-vous
+-- d'estimation (R1) à la restitution de l'avis de valeur (R2), puis les
+-- reprises de contact tant que la fiche reste « en_cours ». Ouverte depuis
+-- Studio Estimation (clic sur un bien de la carte ou sur un estimé). Les
+-- e-mails du parcours sont journalisés dans crm_envois (contact_id = id de
+-- la fiche, un type par jalon : estimation-avant-r1, -entre-r1-r2…).
+CREATE TABLE IF NOT EXISTS crm_estimations (
+  id            TEXT PRIMARY KEY,            -- es_xxxxxxxx
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  contact_id    TEXT NOT NULL DEFAULT '',    -- fiche crm_contacts liée (si connue)
+  nom           TEXT NOT NULL DEFAULT '',    -- propriétaire (tel qu'on s'adresse à lui)
+  email         TEXT NOT NULL DEFAULT '',
+  telephone     TEXT NOT NULL DEFAULT '',
+  adresse       TEXT NOT NULL DEFAULT '',    -- adresse du bien à estimer
+  ville         TEXT NOT NULL DEFAULT '',
+  lat           REAL NOT NULL DEFAULT 0,
+  lng           REAL NOT NULL DEFAULT 0,
+  r1            TEXT NOT NULL DEFAULT '',    -- AAAA-MM-JJ : RDV d'estimation sur place
+  r2            TEXT NOT NULL DEFAULT '',    -- AAAA-MM-JJ : RDV de restitution
+  statut        TEXT NOT NULL DEFAULT 'en_cours', -- en_cours | mandat | perdu | abandonne
+  qualification TEXT NOT NULL DEFAULT '',    -- A / B / C (posée après le RDV)
+  conseiller    TEXT NOT NULL DEFAULT '',
+  notes         TEXT NOT NULL DEFAULT '',
+  user_id       TEXT NOT NULL DEFAULT '',    -- dernier auteur
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_estimations_ag ON crm_estimations(agency_id, statut);

@@ -179,6 +179,19 @@ DVF (relais `/crm/dvf`, même parseur que la prospection, médianes €/m² mais
 et les DPE 12 mois (ADEME). Qualification A/B/C posée en RDV par un CONSEILLER via
 `POST /crm/contacts/:id/qualifier` (membre — remplace la mention « Qualification X »
 des notes sans toucher au reste). Leaflet vendorisé copié dans `estimation/assets`.
+L'adresse s'autocomplète pendant la frappe (BAN `autocomplete=1`, debounce 280 ms,
+IGN en relève) ; chaque source (nos ventes, DVF, estimés, DPE) vit sur sa propre
+couche Leaflet, les tuiles du résumé l'allument/éteignent (carte + liste ensemble).
+**Fiches estimation** (`crm_estimations`, id es_) : le parcours R1 (RDV d'estimation)
+→ R2 (restitution), statut en_cours|mandat|perdu|abandonne, qualification, conseiller ;
+routes membre `GET/POST /crm/estimations`, `PUT /crm/estimations/:id`, run admin
+`POST /crm/estimations/run`. La fiche s'ouvre depuis un estimé (liste ou popup carte)
+ou depuis le bien recherché (popup 🏠). Le cron (`runEstimations`, si
+`reglages.estimations.enabled` — interrupteur dans Réglages) envoie les e-mails du
+parcours : veille du R1, lendemain du R1 (si restitution à venir), lendemain du R2,
+puis relances +30/+90/+180 j après R2 tant que la fiche est en_cours — anti-doublon
+crm_envois (contact_id = id de la fiche, types `estimation-avant-r1`,
+`-entre-r1-r2`, `-apres-r2`, `-relance-30/90/180`, un envoi par type et par fiche).
 Accès : onglet-lien de l'Administration. Autres briques Administration : **nettoyage
 de la base** (`GET/POST /crm/nettoyage`, admin : fiches vides supprimées, doublons
 fusionnés — même e-mail, ou même nom+prénom sans contradiction d'e-mail/téléphone,

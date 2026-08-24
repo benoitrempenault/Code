@@ -438,6 +438,7 @@ export function defaultReglages(agency) {
     anniversaires: { enabled: false, naissance: true, achat: true, cci: "", smsEnabled: false, smsSignature: "", canal: "les-deux" },
     annonces: { autoSync: false, siteUrl: "" },
     acheteurs: { enabled: false, cci: "" },
+    estimations: { enabled: false, cci: "" },
   };
 }
 export async function getReglages(db, agency) {
@@ -451,6 +452,7 @@ export async function getReglages(db, agency) {
     anniversaires: { ...def.anniversaires, ...(data.anniversaires || {}) },
     annonces: { ...def.annonces, ...(data.annonces || {}) },
     acheteurs: { ...def.acheteurs, ...(data.acheteurs || {}) },
+    estimations: { ...def.estimations, ...(data.estimations || {}) },
   };
 }
 export async function saveReglages(db, agency, userId, incoming) {
@@ -460,6 +462,7 @@ export async function saveReglages(db, agency, userId, incoming) {
     anniversaires: { ...cur.anniversaires, ...(incoming.anniversaires || {}) },
     annonces: { ...cur.annonces, ...(incoming.annonces || {}) },
     acheteurs: { ...cur.acheteurs, ...(incoming.acheteurs || {}) },
+    estimations: { ...cur.estimations, ...(incoming.estimations || {}) },
   };
   for (const k of Object.keys(next.agence)) next.agence[k] = strip(next.agence[k], 300);
   next.anniversaires.enabled = !!next.anniversaires.enabled;
@@ -470,6 +473,8 @@ export async function saveReglages(db, agency, userId, incoming) {
   next.annonces.siteUrl = strip(next.annonces.siteUrl, 200).replace(/\/$/, "");
   next.acheteurs.enabled = !!next.acheteurs.enabled;
   next.acheteurs.cci = strip(next.acheteurs.cci, 160);
+  next.estimations.enabled = !!next.estimations.enabled;
+  next.estimations.cci = strip(next.estimations.cci, 160);
   const exists = await db.get("SELECT agency_id FROM crm_reglages WHERE agency_id = ?", [agency.id]);
   if (exists) {
     await db.run("UPDATE crm_reglages SET data = ?, user_id = ?, updated_at = ? WHERE agency_id = ?",
@@ -1319,6 +1324,178 @@ export async function scinderContact(db, agency, userId, contactId) {
   return { monsieur: c.id, madame: id2 };
 }
 
+/* --------------------------- Suivi des estimations ------------------------ */
+// La fiche estimation suit un projet de vente : R1 (le rendez-vous
+// d'estimation sur place) puis R2 (la restitution de l'avis de valeur).
+// Le cron du matin accompagne le parcours par e-mail — veille du R1,
+// lendemain du R1, lendemain du R2 — puis reprend des nouvelles a +30, +90
+// et +180 jours apres la restitution tant que la fiche reste « en_cours ».
+// Anti-doublon via crm_envois (contact_id = id de la fiche, un type par
+// jalon) : chaque message ne part qu'une fois par fiche.
+export const ESTIMATION_STATUTS = ["en_cours", "mandat", "perdu", "abandonne"];
+
+export function decalerJour(iso, n) {
+  const [y, m, d] = String(iso).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+export function sanitizeEstimation(b) {
+  const isoOuVide = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : "");
+  const adresse = strip(b.adresse, 200);
+  if (!adresse) throw new Error("L'adresse du bien est requise.");
+  const q = String(b.qualification || "").toUpperCase();
+  const coord = (v, max) => (Number.isFinite(Number(v)) && Math.abs(Number(v)) <= max ? Math.round(Number(v) * 1e6) / 1e6 : 0);
+  return {
+    contact_id: strip(b.contact_id, 40),
+    nom: strip(b.nom, 120),
+    email: strip(b.email, 160).toLowerCase(),
+    telephone: strip(b.telephone, 40),
+    adresse, ville: strip(b.ville, 80),
+    lat: coord(b.lat, 90), lng: coord(b.lng, 180),
+    r1: isoOuVide(b.r1), r2: isoOuVide(b.r2),
+    statut: ESTIMATION_STATUTS.includes(String(b.statut || "")) ? String(b.statut) : "en_cours",
+    qualification: ["A", "B", "C"].includes(q) ? q : "",
+    conseiller: strip(b.conseiller, 80),
+    notes: strip(b.notes, 2000),
+  };
+}
+
+// Les messages du parcours, au gabarit Kadima, signes du conseiller de la
+// fiche (sinon de toute l'equipe). jalon : avant-r1 | entre-r1-r2 |
+// apres-r2 | relance-30 | relance-90 | relance-180.
+export function buildEstimationEmail(est, jalon, ag) {
+  const salut = est.nom ? `Bonjour ${est.nom}` : "Bonjour";
+  const bien = est.adresse + (est.ville && !est.adresse.toLowerCase().includes(est.ville.toLowerCase()) ? ", " + est.ville : "");
+  const signatureName = est.conseiller
+    ? `${est.conseiller}, votre conseiller`
+    : `Toute l'équipe ${ag.nom || "de l'agence"}`;
+  const gabarit = (eyebrow, headline, bodyHtml) =>
+    wrapEmail(ag, { eyebrow, headline, bodyHtml, signatureName });
+
+  if (jalon === "avant-r1") {
+    return {
+      subject: "À demain, pour l'estimation de votre bien",
+      html: gabarit("Votre rendez-vous d'estimation", "À demain&nbsp;!", `
+        <p style="margin:0 0 16px;">${esc(salut)},</p>
+        <p style="margin:0 0 16px;">Nous nous retrouvons demain au
+          <strong>${esc(bien)}</strong> pour l'estimation de votre bien. Nous prendrons le
+          temps de le visiter ensemble et d'écouter votre projet — comptez environ une heure.</p>
+        <p style="margin:0 0 16px;">Si vous les avez sous la main, quelques documents nous
+          aideront à être précis : taxe foncière, DPE, factures de travaux récents, charges de
+          copropriété le cas échéant. Rien d'obligatoire — nous ferons aussi très bien sans.</p>
+        <p style="margin:0;">À demain, et merci de votre confiance&nbsp;!</p>`),
+    };
+  }
+  if (jalon === "entre-r1-r2") {
+    return {
+      subject: "Merci pour votre accueil — votre estimation se prépare",
+      html: gabarit("Votre estimation se prépare", "Merci pour<br>votre accueil&nbsp;!", `
+        <p style="margin:0 0 16px;">${esc(salut)},</p>
+        <p style="margin:0 0 16px;">Merci pour le temps que vous nous avez consacré au
+          <strong>${esc(bien)}</strong>. Votre bien est maintenant entre nos mains&nbsp;: nous
+          croisons les ventes récentes du quartier, les données notariées et notre connaissance
+          du marché pour bâtir un avis de valeur solide et argumenté.</p>
+        <p style="margin:0;">${est.r2
+          ? `Nous vous le présenterons lors de notre rendez-vous de restitution. D'ici là, si une question vous vient, répondez simplement à cet e-mail.`
+          : `Nous revenons très vite vers vous pour vous le présenter. D'ici là, si une question vous vient, répondez simplement à cet e-mail.`}</p>`),
+    };
+  }
+  if (jalon === "apres-r2") {
+    return {
+      subject: "Votre avis de valeur — et la suite, quand vous le déciderez",
+      html: gabarit("Après la restitution", "Votre avis de valeur<br>est entre vos mains", `
+        <p style="margin:0 0 16px;">${esc(salut)},</p>
+        <p style="margin:0 0 16px;">Merci pour nos échanges autour de l'estimation du
+          <strong>${esc(bien)}</strong>. Vous disposez maintenant d'un avis de valeur construit
+          sur le marché réel de votre quartier — prenez le temps qu'il vous faut pour y réfléchir.</p>
+        <p style="margin:0;">Quand vous déciderez d'avancer — mise en vente, simple question,
+          ou envie d'en reparler — nous sommes à votre disposition. Répondez à cet e-mail ou
+          appelez-nous&nbsp;: votre projet est déjà le nôtre.</p>`),
+    };
+  }
+  // Les reprises de contact : +30, +90, +180 jours apres la restitution.
+  const mois = jalon === "relance-30" ? 1 : jalon === "relance-90" ? 3 : 6;
+  const sujets = {
+    1: "Des nouvelles de votre projet ?",
+    3: "Votre projet de vente, trois mois après",
+    6: "Votre estimation a six mois — on la réactualise ?",
+  };
+  const corps = {
+    1: `<p style="margin:0 0 16px;">Un mois déjà depuis l'estimation du <strong>${esc(bien)}</strong>.
+        Où en êtes-vous de votre réflexion&nbsp;? Si des questions sont apparues — sur le prix,
+        le calendrier, les démarches — nous y répondrons avec plaisir.</p>
+      <p style="margin:0;">Et si le moment est venu d'avancer, nous sommes prêts. Répondez
+        simplement à cet e-mail ou appelez-nous.</p>`,
+    3: `<p style="margin:0 0 16px;">Trois mois se sont écoulés depuis l'estimation du
+        <strong>${esc(bien)}</strong> — et le marché de votre quartier a continué de vivre&nbsp;:
+        des ventes se sont signées, des biens se sont affichés.</p>
+      <p style="margin:0;">Si votre projet mûrit encore, c'est parfait. S'il se précise,
+        parlons-en&nbsp;: nous réactualiserons votre avis de valeur au marché du jour,
+        sans engagement.</p>`,
+    6: `<p style="margin:0 0 16px;">Votre estimation du <strong>${esc(bien)}</strong> a six mois.
+        En immobilier, c'est l'âge où un avis de valeur mérite un regard neuf&nbsp;: le marché
+        du quartier a bougé, dans un sens ou dans l'autre.</p>
+      <p style="margin:0;">Nous vous proposons de la réactualiser gratuitement — un simple
+        échange suffit souvent. Répondez à cet e-mail ou appelez-nous quand vous voulez.</p>`,
+  };
+  return {
+    subject: sujets[mois],
+    html: gabarit("Votre projet de vente", mois === 6 ? "Un regard neuf<br>sur votre bien&nbsp;?" : "Où en est<br>votre projet&nbsp;?", `
+      <p style="margin:0 0 16px;">${esc(salut)},</p>${corps[mois]}`),
+  };
+}
+
+export async function runEstimations(env, db, agency, reglages) {
+  const isoDay = parisDate();
+  const annee = parseInt(isoDay.slice(0, 4), 10);
+  const demain = decalerJour(isoDay, 1), hier = decalerJour(isoDay, -1);
+  const relances = [["relance-30", decalerJour(isoDay, -30)],
+    ["relance-90", decalerJour(isoDay, -90)], ["relance-180", decalerJour(isoDay, -180)]];
+  // Seules les fiches dont UN jalon tombe aujourd'hui sont lues — jamais
+  // toute la table (memes precautions d'echelle que le reste de la base).
+  const rows = await db.all(
+    `SELECT * FROM crm_estimations WHERE agency_id = ? AND statut = 'en_cours'
+       AND (r1 IN (?, ?) OR r2 IN (?, ?, ?, ?))`,
+    [agency.id, demain, hier, hier, relances[0][1], relances[1][1], relances[2][1]]);
+  const summary = { date: isoDay, sent: 0, skipped: 0, errors: 0, details: [] };
+  for (const est of rows) {
+    const jalons = [];
+    if (est.r1 === demain) jalons.push("avant-r1");
+    // Le lendemain du R1, seulement si la restitution n'a pas deja eu lieu
+    // (R1 et R2 le meme jour : c'est le message d'apres-restitution qui part).
+    if (est.r1 === hier && est.r2 !== hier && (!est.r2 || est.r2 >= isoDay)) jalons.push("entre-r1-r2");
+    if (est.r2 === hier) jalons.push("apres-r2");
+    for (const [jalon, date] of relances) if (est.r2 === date) jalons.push(jalon);
+    for (const jalon of jalons) {
+      const type = "estimation-" + jalon;
+      const label = est.nom || est.adresse;
+      if (!est.email) {
+        summary.skipped++;
+        summary.details.push({ estimation: label, type, status: "skip", reason: "pas d'e-mail" });
+        continue;
+      }
+      const deja = await db.get(
+        "SELECT id FROM crm_envois WHERE agency_id = ? AND contact_id = ? AND type = ? AND statut = 'ok'",
+        [agency.id, est.id, type]);
+      if (deja) { summary.skipped++; continue; }
+      const { subject, html } = buildEstimationEmail(est, jalon, reglages.agence);
+      const r = await envoyerMailHtml(env, {
+        to: est.email, subject, html,
+        fromName: reglages.agence.nom || agency.name,
+        replyTo: reglages.agence.email || "",
+        bcc: reglages.estimations.cci || "",
+      });
+      await db.run(
+        "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [agency.id, est.id, label, est.email, type, annee, r.ok ? "ok" : "erreur",
+          r.error || (r.dryRun ? "RESEND_API_KEY absent (dry run)" : ""), now()]);
+      if (r.ok) { summary.sent++; summary.details.push({ estimation: label, type, status: "ok" }); }
+      else { summary.errors++; summary.details.push({ estimation: label, type, status: "erreur", reason: r.error || "dry run" }); }
+    }
+  }
+  return summary;
+}
+
 /* ------------------------------ Prospection ------------------------------- */
 // Un point est-il dans un polygone ? (lancer de rayon, suffisant a l'echelle
 // d'un ilot de prospection). polygone = [[lat, lng], ...]
@@ -1540,6 +1717,10 @@ export async function runCrmDaily(env, db) {
       if (reglages.acheteurs.enabled) {
         try { r.acheteurs = await runRelances(env, db, agency, reglages); }
         catch (e) { r.acheteursError = e.message; }
+      }
+      if (reglages.estimations.enabled) {
+        try { r.estimations = await runEstimations(env, db, agency, reglages); }
+        catch (e) { r.estimationsError = e.message; }
       }
       // Les ventes du Suivi rejoignent la carte toutes seules, un lot par nuit.
       // 12 max : chaque adresse peut coûter 2 appels (BAN + IGN) et le cron

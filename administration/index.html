@@ -210,6 +210,20 @@
       <p class="petit">Les e-mails partent via le serveur Studio Brochure au nom de l'agence —
         rien à configurer de plus (pas de mot de passe SMTP).</p>
     </div>
+    <div class="carte">
+      <h2>Suivi estimation (R1 / R2)</h2>
+      <p class="aide">Les fiches estimation s'ouvrent depuis <strong>Studio Estimation</strong>
+        (clic sur un bien de la carte ou sur un estimé). Quand une fiche porte ses dates de
+        rendez-vous, les e-mails du parcours partent tout seuls : la veille du
+        <strong>R1</strong> (rendez-vous d'estimation), le lendemain du R1, le lendemain du
+        <strong>R2</strong> (restitution de l'avis de valeur), puis des reprises de contact à
+        30, 90 et 180 jours tant que la fiche reste « en cours ». Signés du conseiller de la fiche.</p>
+      <div class="barre">
+        <label class="case"><input type="checkbox" id="estim-enabled" /> <strong>Activer les e-mails automatiques du parcours</strong></label>
+        <input type="email" id="estim-cci" placeholder="copie cachée (optionnel)" style="min-width:220px;" />
+        <button class="btn btn-or" id="btn-estim-save">Enregistrer</button>
+      </div>
+    </div>
   </section>
 </main>
 

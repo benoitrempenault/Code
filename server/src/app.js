@@ -1384,6 +1384,70 @@ export function createApp(env) {
     return c.json({ ok: true, qualification: q });
   });
 
+  /* ---------------------- Fiches estimation (R1 / R2) ----------------------
+     La fiche suit un projet de vente : R1 (rendez-vous d'estimation sur
+     place) puis R2 (restitution de l'avis de valeur). Ouverte et tenue par
+     le CONSEILLER depuis Studio Estimation (membre) ; les e-mails du
+     parcours partent tout seuls via le cron (runEstimations). */
+  const ESTIMATIONS_MAX = 400;
+
+  app.get("/crm/estimations", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const contactId = String(c.req.query("contact_id") || "");
+    const rows = contactId
+      ? await db.all(
+        `SELECT * FROM crm_estimations WHERE agency_id = ? AND contact_id = ? ORDER BY updated_at DESC LIMIT ${ESTIMATIONS_MAX}`,
+        [ctx.agency.id, contactId])
+      : await db.all(
+        `SELECT * FROM crm_estimations WHERE agency_id = ? ORDER BY updated_at DESC LIMIT ${ESTIMATIONS_MAX}`,
+        [ctx.agency.id]);
+    return c.json({ estimations: rows });
+  });
+
+  app.post("/crm/estimations", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    let v;
+    try { v = CRM.sanitizeEstimation(b); } catch (e) { return err(c, 400, e.message); }
+    const nb = await db.get("SELECT COUNT(*) AS n FROM crm_estimations WHERE agency_id = ?", [ctx.agency.id]);
+    if ((nb?.n || 0) >= 20000) return err(c, 400, "Trop de fiches estimation — archivez les anciennes.");
+    const id = randId("es");
+    await db.run(
+      `INSERT INTO crm_estimations (id, agency_id, contact_id, nom, email, telephone, adresse, ville,
+       lat, lng, r1, r2, statut, qualification, conseiller, notes, user_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, ctx.agency.id, v.contact_id, v.nom, v.email, v.telephone, v.adresse, v.ville,
+        v.lat, v.lng, v.r1, v.r2, v.statut, v.qualification, v.conseiller, v.notes,
+        ctx.user.id, now(), now()]);
+    return c.json({ ok: true, id });
+  });
+
+  app.put("/crm/estimations/:id", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    const cur = await db.get("SELECT id FROM crm_estimations WHERE id = ? AND agency_id = ?",
+      [c.req.param("id"), ctx.agency.id]);
+    if (!cur) return err(c, 404, "Fiche estimation introuvable.");
+    let v;
+    try { v = CRM.sanitizeEstimation(b); } catch (e) { return err(c, 400, e.message); }
+    await db.run(
+      `UPDATE crm_estimations SET contact_id = ?, nom = ?, email = ?, telephone = ?, adresse = ?,
+       ville = ?, lat = ?, lng = ?, r1 = ?, r2 = ?, statut = ?, qualification = ?, conseiller = ?,
+       notes = ?, user_id = ?, updated_at = ? WHERE id = ?`,
+      [v.contact_id, v.nom, v.email, v.telephone, v.adresse, v.ville, v.lat, v.lng,
+        v.r1, v.r2, v.statut, v.qualification, v.conseiller, v.notes, ctx.user.id, now(), cur.id]);
+    return c.json({ ok: true, id: cur.id });
+  });
+
+  // Passage du jour à la demande (le cron du matin fait la même chose tout seul).
+  app.post("/crm/estimations/run", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    return c.json({ summary: await CRM.runEstimations(env, db, ctx.agency, reglages) });
+  });
+
   // Les CSV DVF d'Etalab (files.data.gouv.fr/geo-dvf) redirigent vers un
   // stockage S3 SANS en-têtes CORS : le navigateur ne peut pas les lire en
   // direct. Le serveur relaie donc le fichier (une commune × un millésime),

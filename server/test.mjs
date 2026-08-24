@@ -2069,6 +2069,68 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   // La Corse (2A/2B) passe la validation — le faux dépôt n'a pas le fichier.
   ok((await reqDvf("/crm/dvf/2025/2A/2A004", sessP)).status === 404, "relais DVF : les codes corses (2A…) sont acceptés");
 
+  /* ---- Fiches estimation : parcours R1/R2 et relances -------------------- */
+  console.log("— Fiches estimation : parcours R1/R2, e-mails auto, relances");
+  const { parisDate: pDate, decalerJour } = await import("./src/crm.js");
+  const aujE = pDate();
+  const authP = { Authorization: "Bearer " + sessP };
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { estimations: { enabled: true } } });
+  ok((await callR("/crm/reglages", { headers: auth })).json.reglages.estimations.enabled === true,
+    "le suivi estimation s'active dans les réglages");
+  // Un CONSEILLER (pas besoin d'être admin) ouvre la fiche depuis Studio
+  // Estimation : R1 demain → le message « à demain » part la veille.
+  ok((await callR("/crm/estimations", { body: { adresse: "4 rue des Jalons" } })).status === 401,
+    "fiche estimation : session requise");
+  ok((await callR("/crm/estimations", { headers: authP, body: { nom: "M. Vendeur" } })).status === 400,
+    "fiche estimation sans adresse refusée");
+  const fiche = await callR("/crm/estimations", { headers: authP, body: {
+    nom: "M. Vendeur", email: "vendeur@exemple.fr", telephone: "06 11 22 33 44",
+    adresse: "4 rue des Jalons", ville: "Saint-Médard-en-Jalles",
+    r1: decalerJour(aujE, 1), conseiller: "Rémi", contact_id: estimQ.id,
+  } });
+  ok(fiche.status === 200 && fiche.json.id, "un conseiller ouvre une fiche estimation (R1 demain)");
+  const ficheId = fiche.json.id;
+  ok((await callR("/crm/estimations?contact_id=" + estimQ.id, { headers: authP })).json.estimations
+    .some((e2) => e2.id === ficheId), "la fiche se retrouve par son contact lié");
+
+  const mailsAvant1 = mailsRecus.length;
+  const runE1 = (await callR("/crm/estimations/run", { headers: auth, method: "POST", body: {} })).json.summary;
+  ok(runE1.sent === 1 && mailsRecus.length === mailsAvant1 + 1 &&
+    /demain/i.test(mailsRecus[mailsRecus.length - 1].subject) &&
+    mailsRecus[mailsRecus.length - 1].to[0] === "vendeur@exemple.fr",
+    "veille du R1 : le message « à demain » part au propriétaire (" + JSON.stringify(runE1) + ")");
+  ok(String(mailsRecus[mailsRecus.length - 1].html).includes("4 rue des Jalons") &&
+    String(mailsRecus[mailsRecus.length - 1].html).includes("Rémi, votre conseiller"),
+    "le message cite le bien et porte la signature du conseiller");
+  const runE2 = (await callR("/crm/estimations/run", { headers: auth, method: "POST", body: {} })).json.summary;
+  ok(runE2.sent === 0 && mailsRecus.length === mailsAvant1 + 1, "second passage : aucun doublon");
+
+  // Le R1 a eu lieu hier, la restitution est à venir → message d'attente.
+  const majFiche = (champs) => callR("/crm/estimations/" + ficheId, { headers: authP, method: "PUT", body: {
+    nom: "M. Vendeur", email: "vendeur@exemple.fr", adresse: "4 rue des Jalons",
+    ville: "Saint-Médard-en-Jalles", conseiller: "Rémi", contact_id: estimQ.id, ...champs,
+  } });
+  await majFiche({ r1: decalerJour(aujE, -1), r2: decalerJour(aujE, 6) });
+  const runE3 = (await callR("/crm/estimations/run", { headers: auth, method: "POST", body: {} })).json.summary;
+  ok(runE3.sent === 1 && /accueil/i.test(mailsRecus[mailsRecus.length - 1].subject),
+    "lendemain du R1 : le message « votre estimation se prépare » part");
+  // La restitution (R2) a eu lieu hier → remerciement + avis de valeur.
+  await majFiche({ r1: decalerJour(aujE, -8), r2: decalerJour(aujE, -1) });
+  const runE4 = (await callR("/crm/estimations/run", { headers: auth, method: "POST", body: {} })).json.summary;
+  ok(runE4.sent === 1 && /avis de valeur/i.test(mailsRecus[mailsRecus.length - 1].subject),
+    "lendemain du R2 : le message d'après-restitution part");
+  // Puis les reprises de contact : +30 jours après la restitution.
+  await majFiche({ r1: decalerJour(aujE, -37), r2: decalerJour(aujE, -30) });
+  const runE5 = (await callR("/crm/estimations/run", { headers: auth, method: "POST", body: {} })).json.summary;
+  ok(runE5.sent === 1 && /nouvelles de votre projet/i.test(mailsRecus[mailsRecus.length - 1].subject),
+    "30 jours après la restitution : la reprise de contact part");
+  // Une fiche passée « mandat » sort du parcours : plus aucune relance.
+  await majFiche({ r1: decalerJour(aujE, -97), r2: decalerJour(aujE, -90), statut: "mandat" });
+  const runE6 = (await callR("/crm/estimations/run", { headers: auth, method: "POST", body: {} })).json.summary;
+  ok(runE6.sent === 0, "fiche passée en mandat : le parcours s'arrête");
+  ok((await callR("/crm/estimations/es_inconnue", { headers: authP, method: "PUT",
+    body: { adresse: "x" } })).status === 404, "fiche inconnue : 404 propre");
+
   fauxResend.close();
   fauxDvf.close();
   fauxBan.close();

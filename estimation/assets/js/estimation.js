@@ -1,11 +1,14 @@
 /* =========================================================================
    estimation.js — la vie du quartier avant un RDV d'estimation.
-   L'adresse du bien est géocodée (BAN puis IGN), puis quatre sources se
-   croisent autour d'elle : nos ventes et nos biens estimés (serveur,
-   /crm/estimation/quartier), les ventes notariées DVF (relais /crm/dvf,
-   comme la carte de prospection) et les DPE récents (API ADEME, signaux de
-   projets). La qualification A/B/C se pose sur la fiche du contact estimé,
-   accessible au conseiller en RDV. Session partagée studio-mandatpro-account.
+   L'adresse du bien s'autocomplète (BAN puis IGN) pendant la frappe, puis
+   quatre sources se croisent autour d'elle : nos ventes et nos biens estimés
+   (serveur, /crm/estimation/quartier), les ventes notariées DVF (relais
+   /crm/dvf, comme la carte de prospection) et les DPE récents (API ADEME,
+   signaux de projets). Chaque source vit sur sa propre couche : les tuiles
+   du résumé l'allument ou l'éteignent, carte et liste ensemble. Depuis un
+   bien de la carte ou un estimé, le conseiller ouvre la FICHE ESTIMATION
+   (R1/R2, statut, qualification) — le serveur envoie alors tout seul les
+   e-mails du parcours. Session partagée studio-mandatpro-account.
    ========================================================================= */
 (function () {
   "use strict";
@@ -63,14 +66,29 @@
   function fermerModale() { $("voile").hidden = true; }
 
   /* -------------------------------- Carte --------------------------------- */
-  let carte = null, calques = null, marqueurBien = null;
+  // Une couche PAR SOURCE : les tuiles du résumé les allument / éteignent.
+  let carte = null, marqueurBien = null;
+  const couches = {};
+  const visibles = { ventes: true, dvf: true, estimes: true, dpe: true };
+  let aCherche = false;
   function initCarte() {
     carte = L.map("carte", { zoomControl: true, preferCanvas: true }).setView(CENTRE_DEFAUT, 14);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
     }).addTo(carte);
-    calques = L.layerGroup().addTo(carte);
+    for (const k of ["cercle", "ventes", "dvf", "estimes", "dpe"]) {
+      couches[k] = L.layerGroup().addTo(carte);
+    }
+  }
+  function appliquerVisibilite() {
+    for (const k of ["ventes", "dvf", "estimes", "dpe"]) {
+      if (visibles[k]) { if (!carte.hasLayer(couches[k])) carte.addLayer(couches[k]); }
+      else if (carte.hasLayer(couches[k])) carte.removeLayer(couches[k]);
+      if (aCherche) $("bloc-" + k).hidden = !visibles[k];
+      const tuile = document.querySelector('.chiffre[data-cible="' + k + '"]');
+      if (tuile) tuile.classList.toggle("eteint", !visibles[k]);
+    }
   }
 
   /* ----------------------------- Géocodage --------------------------------- */
@@ -88,6 +106,41 @@
       } catch (e) { /* géocodeur suivant */ }
     }
     return null;
+  }
+
+  // Autocomplétion pendant la frappe : la BAN propose, l'IGN prend la relève.
+  // posChoisie évite de re-géocoder une adresse déjà choisie dans la liste.
+  let posChoisie = null, sugTimer = null, sugReq = 0, propositions = [];
+  async function suggerer(q) {
+    const boite = $("suggestions");
+    if (q.length < 3) { boite.hidden = true; return; }
+    const monTour = ++sugReq;
+    for (const gc of GEOCODEURS) {
+      let d;
+      try {
+        const r = await fetch(gc + "/search/?limit=5&autocomplete=1&q=" + encodeURIComponent(q),
+          { signal: AbortSignal.timeout(4000) });
+        if (!r.ok) continue;
+        d = await r.json();
+      } catch (e) { continue; }
+      if (monTour !== sugReq) return; // une frappe plus récente a repris la main
+      propositions = (d.features || []).filter((f) => f.properties && f.geometry);
+      if (!propositions.length) { boite.hidden = true; return; }
+      boite.innerHTML = propositions.map((f, i) =>
+        '<div class="suggestion" data-i="' + i + '">' + escH(f.properties.label) +
+        '<span class="ctx">' + escH(f.properties.context || "") + "</span></div>").join("");
+      boite.hidden = false;
+      return;
+    }
+    if (monTour === sugReq) boite.hidden = true;
+  }
+  function choisirSuggestion(i) {
+    const f = propositions[i];
+    if (!f) return;
+    $("adresse").value = f.properties.label;
+    posChoisie = { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], label: f.properties.label, citycode: f.properties.citycode || "" };
+    $("suggestions").hidden = true;
+    chercherQuartier();
   }
 
   /* ------------------------------- DVF ------------------------------------- */
@@ -182,21 +235,24 @@
     return tri[Math.floor(tri.length / 2)];
   };
 
+  let posCourante = null, estimesCourants = [];
   async function chercherQuartier() {
     const adresse = $("adresse").value.trim();
     if (!adresse) { toast("Saisissez l'adresse du bien à estimer.", true); return; }
     const btn = $("btn-chercher");
     btn.disabled = true;
+    $("suggestions").hidden = true;
     $("etat").textContent = "Recherche de l'adresse…";
     try {
-      const pos = await geocoderAdresse(adresse);
+      const pos = (posChoisie && posChoisie.label === adresse) ? posChoisie : await geocoderAdresse(adresse);
       if (!pos) { $("etat").textContent = "Adresse introuvable — précisez la ville."; btn.disabled = false; return; }
+      posCourante = pos;
       const rayon = parseInt($("rayon").value, 10) || 500;
       $("etat").textContent = "Le quartier de " + pos.label + "…";
 
       // Les quatre sources en parallèle : nos données, le DVF, les DPE.
       const dep = (pos.citycode || "").slice(0, 2) || "33";
-      const [quartier, dvfCommune, dpe] = await Promise.all([
+      const [quartier, dvfCommune, dpeBruts] = await Promise.all([
         api("/crm/estimation/quartier?lat=" + pos.lat + "&lng=" + pos.lng + "&rayon=" + rayon),
         pos.citycode ? chargerDvfCommune(pos.citycode, dep) : Promise.resolve([]),
         chargerDpe(pos.lat, pos.lng, rayon),
@@ -205,16 +261,18 @@
         .map((v) => ({ ...v, distance: distanceM(pos.lat, pos.lng, v.lat, v.lng) }))
         .filter((v) => v.distance <= rayon)
         .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+      const dpe = dpeBruts.map((x) => ({ ...x, distance: distanceM(pos.lat, pos.lng, x.lat, x.lng) }));
 
       // ------------------------------ La carte ------------------------------
-      calques.clearLayers();
+      for (const k of Object.keys(couches)) couches[k].clearLayers();
       if (marqueurBien) carte.removeLayer(marqueurBien);
       marqueurBien = L.marker([pos.lat, pos.lng], {
         icon: L.divIcon({ className: "marqueur-bien", html: "🏠", iconSize: [30, 30], iconAnchor: [15, 15] }),
-      }).addTo(carte).bindPopup('<div class="titre">' + escH(pos.label) + "</div>");
-      calques.addLayer(L.circle([pos.lat, pos.lng], { radius: rayon, color: "#c2a36b", weight: 1.5, fillOpacity: 0.05 }));
+      }).addTo(carte).bindPopup('<div class="titre">' + escH(pos.label) + "</div>" +
+        '<button class="btn-popup" data-fiche-adresse="1">📋 Lancer une fiche estimation</button>');
+      couches.cercle.addLayer(L.circle([pos.lat, pos.lng], { radius: rayon, color: "#c2a36b", weight: 1.5, fillOpacity: 0.05 }));
       for (const v of quartier.ventes) {
-        calques.addLayer(L.marker([v.lat, v.lng], {
+        couches.ventes.addLayer(L.marker([v.lat, v.lng], {
           icon: L.divIcon({ className: "marqueur-vente", html: "🔑", iconSize: [26, 26], iconAnchor: [13, 13] }),
         }).bindPopup('<div class="titre">' + escH(v.nom) + "</div>" +
           '<div class="sous">' + escH(fmtDateFr(v.date_acte)) + (v.prix ? " · " + escH(v.prix) : "") + "</div>" +
@@ -222,7 +280,7 @@
       }
       for (const v of dvf.slice(0, 300)) {
         const m2 = v.surface ? Math.round(v.prix / v.surface) : 0;
-        calques.addLayer(L.circleMarker([v.lat, v.lng], {
+        couches.dvf.addLayer(L.circleMarker([v.lat, v.lng], {
           radius: 5, weight: 1.5, color: "#0f0f10", fillColor: "#4ECDC4", fillOpacity: 0.85,
         }).bindPopup('<div class="titre">Vendu ' + fmtEuros(v.prix) + "</div>" +
           '<div class="sous">' + escH(v.date) + " · " + escH(v.type || "Terrain") +
@@ -230,26 +288,40 @@
           (v.adresse ? '<div class="sous">' + escH(v.adresse) + "</div>" : "")));
       }
       for (const e of quartier.estimes) {
-        calques.addLayer(L.circleMarker([e.lat, e.lng], {
+        couches.estimes.addLayer(L.circleMarker([e.lat, e.lng], {
           radius: 7, weight: 2, color: "#0f0f10", fillColor: "#9B7EDE", fillOpacity: 0.92,
         }).bindPopup('<div class="titre">📐 ' + escH(e.nom) + "</div>" +
           '<div class="sous">' + escH(e.adresse) + "</div>" +
-          (e.notes ? '<div class="sous">' + escH(e.notes) + "</div>" : "")));
+          (e.notes ? '<div class="sous">' + escH(e.notes) + "</div>" : "") +
+          '<button class="btn-popup" data-fiche-estime="' + escH(e.id) + '">📋 Fiche estimation</button>'));
+      }
+      for (const x of dpe) {
+        couches.dpe.addLayer(L.marker([x.lat, x.lng], {
+          icon: L.divIcon({ className: "marqueur-dpe", html: '<span class="dpe-' + escH(x.et || "D") + '">' + escH(x.et || "?") + "</span>",
+            iconSize: [20, 20], iconAnchor: [10, 10] }),
+        }).bindPopup('<div class="titre">DPE ' + escH(x.et || "?") + "</div>" +
+          '<div class="sous">' + escH(fmtDateFr(x.date)) + "</div>" +
+          (x.adresse ? '<div class="sous">' + escH(x.adresse) + "</div>" : "")));
       }
       const dLat = (rayon * 1.25) / 111320;
       const dLng = (rayon * 1.25) / (111320 * Math.cos((pos.lat * Math.PI) / 180) || 1);
       carte.fitBounds([[pos.lat - dLat, pos.lng - dLng], [pos.lat + dLat, pos.lng + dLng]]);
 
       // ---------------------------- Les chiffres ----------------------------
+      // Chaque source a sa tuile CLIQUABLE : elle allume / éteint la couche
+      // sur la carte et le bloc correspondant dans la colonne.
       const m2maisons = mediane(dvf.filter((v) => v.type === "Maison" && v.surface).map((v) => Math.round(v.prix / v.surface)));
       const m2apparts = mediane(dvf.filter((v) => v.type === "Appartement" && v.surface).map((v) => Math.round(v.prix / v.surface)));
+      const tuile = (cible, val, leg) =>
+        '<div class="chiffre cliquable' + (visibles[cible] ? "" : " eteint") + '" data-cible="' + cible + '" title="Cliquer pour montrer / masquer">' +
+        '<div class="val">' + val + '</div><div class="leg">' + leg + "</div></div>";
       $("chiffres").innerHTML =
-        '<div class="chiffre"><div class="val">' + quartier.ventes.length + '</div><div class="leg">ventes de l\'agence</div></div>' +
-        '<div class="chiffre"><div class="val">' + dvf.length + '</div><div class="leg">ventes DVF (5 ans)</div></div>' +
+        tuile("ventes", quartier.ventes.length, "ventes de l'agence") +
+        tuile("dvf", dvf.length, "ventes DVF (5 ans)") +
         (m2maisons ? '<div class="chiffre"><div class="val">' + fmtEuros(m2maisons) + '</div><div class="leg">médiane €/m² maison</div></div>' : "") +
         (m2apparts ? '<div class="chiffre"><div class="val">' + fmtEuros(m2apparts) + '</div><div class="leg">médiane €/m² appart</div></div>' : "") +
-        '<div class="chiffre"><div class="val">' + quartier.estimes.length + '</div><div class="leg">déjà estimés autour</div></div>' +
-        '<div class="chiffre"><div class="val">' + dpe.length + '</div><div class="leg">DPE sur 12 mois</div></div>';
+        tuile("estimes", quartier.estimes.length, "déjà estimés autour") +
+        tuile("dpe", dpe.length, "DPE sur 12 mois");
       $("conseiller-ilot").textContent = quartier.ilot
         ? "Îlot « " + quartier.ilot.nom + " »" + (quartier.ilot.conseiller ? " — conseiller : " + quartier.ilot.conseiller : "")
         : "Hors des îlots de prospection dessinés.";
@@ -263,7 +335,6 @@
           ' <span class="d">· ' + v.distance + " m</span><br>" +
           '<span class="d">' + escH(v.adresse) + "</span></div>").join("")
         : '<p class="petit">Aucune vente de l\'agence dans ce rayon.</p>';
-      $("bloc-ventes").hidden = false;
       $("liste-dvf").innerHTML = dvf.length
         ? dvf.slice(0, 10).map((v) => {
           const m2 = v.surface ? Math.round(v.prix / v.surface) : 0;
@@ -273,7 +344,6 @@
             '<span class="d">' + escH(v.date) + (v.adresse ? " · " + escH(v.adresse) : "") + "</span></div>";
         }).join("")
         : '<p class="petit">Aucune vente notariée dans ce rayon (données publiées avec ~6 mois de décalage).</p>';
-      $("bloc-dvf").hidden = false;
       $("liste-estimes").innerHTML = quartier.estimes.length
         ? quartier.estimes.map((e) =>
           '<div class="ligne cliquable" data-estime="' + escH(e.id) + '"><span class="t">📐 ' + escH(e.nom) + "</span>" +
@@ -281,31 +351,92 @@
           '<span class="d">' + escH(e.adresse) + (e.conseiller ? " · " + escH(e.conseiller) : "") + "</span>" +
           (e.notes ? '<br><span class="d">' + escH(e.notes) + "</span>" : "") + "</div>").join("")
         : '<p class="petit">Aucun bien déjà estimé dans ce rayon.</p>';
-      $("bloc-estimes").hidden = false;
-      window.__estimes = quartier.estimes;
+      $("liste-dpe").innerHTML = dpe.length
+        ? dpe.slice(0, 12).map((x) =>
+          '<div class="ligne"><span class="marqueur-dpe"><span class="dpe-' + escH(x.et || "D") + '">' + escH(x.et || "?") + "</span></span> " +
+          '<span class="t">' + escH(fmtDateFr(x.date)) + "</span>" +
+          ' <span class="d">· ' + x.distance + " m</span>" +
+          (x.adresse ? '<br><span class="d">' + escH(x.adresse) + "</span>" : "") + "</div>").join("")
+        : '<p class="petit">Aucun DPE établi sur les 12 derniers mois dans ce rayon.</p>';
+      estimesCourants = quartier.estimes;
+      aCherche = true;
+      appliquerVisibilite();
       $("etat").textContent = pos.label;
     } catch (e) { toast(e.message, true); $("etat").textContent = ""; }
     btn.disabled = false;
   }
 
-  /* ------------------------ Qualification A/B/C ---------------------------- */
-  function ouvrirQualification(estime) {
-    ouvrirModale("Qualifier — " + (estime.nom || "fiche estimée"),
-      '<p class="aide">Après le RDV, posez la qualification du projet : <strong>A</strong> = vend à court terme, ' +
-      "<strong>B</strong> = à moyen terme, <strong>C</strong> = à suivre. Elle s'inscrit sur la fiche du contact " +
-      "et servira aux relances.</p>" +
-      '<div class="qualifs">' +
-      ["A", "B", "C"].map((q) => '<button class="btn" data-qualif="' + q + '">' + q + "</button>").join("") +
+  /* --------------------------- Fiche estimation ----------------------------
+     Le parcours d'un projet de vente : R1 (RDV d'estimation sur place) puis
+     R2 (restitution de l'avis de valeur). Le serveur envoie tout seul les
+     e-mails du parcours quand les dates sont posées — la fiche s'ouvre d'un
+     clic sur un estimé (liste ou carte) ou sur le bien recherché. */
+  const STATUTS = [["en_cours", "En cours"], ["mandat", "Mandat signé 🎉"], ["perdu", "Perdu"], ["abandonne", "Abandonné"]];
+  async function ouvrirFiche(pre) {
+    let existante = null;
+    try {
+      if (pre.contact_id) {
+        existante = ((await api("/crm/estimations?contact_id=" + encodeURIComponent(pre.contact_id))).estimations || [])[0] || null;
+      } else if (pre.adresse) {
+        const cible = pre.adresse.trim().toLowerCase();
+        existante = ((await api("/crm/estimations")).estimations || [])
+          .find((x) => (x.adresse || "").trim().toLowerCase() === cible) || null;
+      }
+    } catch (e) { /* pas bloquant : la fiche s'ouvre neuve */ }
+    const f = existante || {};
+    const v = (x, y) => escH(x || y || "");
+    const corps = [
+      '<label>Propriétaire<input id="fe-nom" value="' + v(f.nom, pre.nom) + '" placeholder="M. et Mme Dupont" /></label>',
+      '<div class="fiche-2col">',
+      '<label>E-mail<input id="fe-email" type="email" value="' + v(f.email) + '" /></label>',
+      '<label>Téléphone<input id="fe-tel" value="' + v(f.telephone) + '" /></label>',
       "</div>",
-      '<button class="btn" id="btn-fermer-qualif">Annuler</button>');
-    $("btn-fermer-qualif").addEventListener("click", fermerModale);
-    document.querySelectorAll("[data-qualif]").forEach((b) => b.addEventListener("click", async () => {
+      '<label>Adresse du bien<input id="fe-adresse" value="' + v(f.adresse, pre.adresse) + '" /></label>',
+      '<label>Ville<input id="fe-ville" value="' + v(f.ville, pre.ville) + '" /></label>',
+      '<div class="fiche-2col">',
+      "<label>R1 — RDV d'estimation<input id=\"fe-r1\" type=\"date\" value=\"" + v(f.r1) + '" /></label>',
+      '<label>R2 — restitution<input id="fe-r2" type="date" value="' + v(f.r2) + '" /></label>',
+      "</div>",
+      '<div class="fiche-2col">',
+      '<label>Statut<select id="fe-statut">' +
+        STATUTS.map(([k, l]) => '<option value="' + k + '"' + ((f.statut || "en_cours") === k ? " selected" : "") + ">" + l + "</option>").join("") +
+        "</select></label>",
+      '<label>Qualification<select id="fe-qualif"><option value="">—</option>' +
+        ["A", "B", "C"].map((q) => "<option" + (f.qualification === q ? " selected" : "") + ">" + q + "</option>").join("") +
+        "</select></label>",
+      "</div>",
+      '<label>Conseiller<input id="fe-conseiller" value="' + v(f.conseiller, pre.conseiller) + '" /></label>',
+      '<label>Notes<textarea id="fe-notes">' + v(f.notes) + "</textarea></label>",
+      '<p class="petit">Avec ses dates posées et un e-mail, la fiche écrit toute seule au propriétaire : ' +
+      "veille du R1, lendemain du R1, lendemain du R2, puis reprises de contact à 30, 90 et 180 jours " +
+      "tant qu'elle reste « en cours » (à activer dans Administration → Réglages).</p>",
+    ].join("");
+    ouvrirModale(existante ? "Fiche estimation — " + (f.nom || f.adresse) : "Nouvelle fiche estimation",
+      corps, '<button class="btn btn-or" id="fe-save">Enregistrer</button>');
+    $("fe-save").addEventListener("click", async () => {
+      const contactId = (existante && existante.contact_id) || pre.contact_id || "";
+      const donnees = {
+        contact_id: contactId,
+        nom: $("fe-nom").value.trim(), email: $("fe-email").value.trim(), telephone: $("fe-tel").value.trim(),
+        adresse: $("fe-adresse").value.trim(), ville: $("fe-ville").value.trim(),
+        lat: (existante && existante.lat) || pre.lat || 0, lng: (existante && existante.lng) || pre.lng || 0,
+        r1: $("fe-r1").value, r2: $("fe-r2").value,
+        statut: $("fe-statut").value, qualification: $("fe-qualif").value,
+        conseiller: $("fe-conseiller").value.trim(), notes: $("fe-notes").value.trim(),
+      };
       try {
-        await api("/crm/contacts/" + estime.id + "/qualifier", { json: { qualification: b.dataset.qualif } });
+        if (existante) await api("/crm/estimations/" + existante.id, { method: "PUT", json: donnees });
+        else await api("/crm/estimations", { json: donnees });
+        // La qualification se pose aussi sur la fiche CONTACT liée (comme le
+        // faisait le bouton A/B/C), pour nourrir les relances de prospection.
+        if (donnees.qualification && contactId) {
+          api("/crm/contacts/" + contactId + "/qualifier", { json: { qualification: donnees.qualification } }).catch(() => { });
+        }
         fermerModale();
-        toast("Qualification " + b.dataset.qualif + " posée sur la fiche de " + (estime.nom || "ce contact"));
+        toast("Fiche estimation enregistrée" +
+          (donnees.r1 || donnees.r2 ? " — les e-mails du parcours suivront ses dates" : ""));
       } catch (e) { toast(e.message, true); }
-    }));
+    });
   }
 
   /* ------------------------------ Démarrage -------------------------------- */
@@ -318,14 +449,48 @@
   }
 
   $("btn-chercher").addEventListener("click", chercherQuartier);
-  $("adresse").addEventListener("keydown", (e) => { if (e.key === "Enter") chercherQuartier(); });
+  $("adresse").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { $("suggestions").hidden = true; chercherQuartier(); }
+    if (e.key === "Escape") $("suggestions").hidden = true;
+  });
+  $("adresse").addEventListener("input", () => {
+    posChoisie = null;
+    clearTimeout(sugTimer);
+    sugTimer = setTimeout(() => suggerer($("adresse").value.trim()), 280);
+  });
+  // mousedown : avant le blur du champ, sinon la liste se ferme trop tôt.
+  $("suggestions").addEventListener("mousedown", (e) => {
+    const el = e.target.closest(".suggestion");
+    if (el) { e.preventDefault(); choisirSuggestion(parseInt(el.dataset.i, 10)); }
+  });
   $("modale-fermer").addEventListener("click", fermerModale);
   $("voile").addEventListener("click", (e) => { if (e.target === $("voile")) fermerModale(); });
+  $("chiffres").addEventListener("click", (e) => {
+    const t = e.target.closest("[data-cible]");
+    if (!t) return;
+    visibles[t.dataset.cible] = !visibles[t.dataset.cible];
+    appliquerVisibilite();
+  });
   $("liste-estimes").addEventListener("click", (e) => {
     const el = e.target.closest("[data-estime]");
     if (!el) return;
-    const estime = (window.__estimes || []).find((x) => x.id === el.dataset.estime);
-    if (estime) ouvrirQualification(estime);
+    const estime = estimesCourants.find((x) => x.id === el.dataset.estime);
+    if (estime) ouvrirFiche({ contact_id: estime.id, nom: estime.nom, adresse: estime.adresse,
+      conseiller: estime.conseiller, lat: estime.lat, lng: estime.lng });
+  });
+  // Les boutons DANS les popups Leaflet (fiche depuis la carte) : délégation
+  // au document, le DOM des popups vivant hors de la colonne.
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".champ-adresse")) $("suggestions").hidden = true;
+    const be = e.target.closest("[data-fiche-estime]");
+    if (be) {
+      const estime = estimesCourants.find((x) => x.id === be.dataset.ficheEstime);
+      if (estime) ouvrirFiche({ contact_id: estime.id, nom: estime.nom, adresse: estime.adresse,
+        conseiller: estime.conseiller, lat: estime.lat, lng: estime.lng });
+      return;
+    }
+    const ba = e.target.closest("[data-fiche-adresse]");
+    if (ba && posCourante) ouvrirFiche({ adresse: posCourante.label, lat: posCourante.lat, lng: posCourante.lng });
   });
 
   demarrer();
