@@ -1768,6 +1768,11 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     { contactId: rVendu.json.id, lat: 44.8951, lng: -0.7203, label: "4 Rue des Lilas 33160 Saint-Médard-en-Jalles", score: 0.9, adresse: attD.find((a) => a.id === rVendu.json.id).adresse },
     { contactId: rEnCours.json.id, lat: 44.8990, lng: -0.7100, label: "x", score: 0.9, adresse: "x" },
   ] } })).json.enregistres === 2, "positions des dossiers enregistrées dans la géocache");
+  // Le géocodage d'appoint de la carte tourne en TOILE DE FOND (l'affichage
+  // ne doit jamais attendre les géocodeurs) : en test, on le rend
+  // déterministe en appelant la pompe serveur explicitement.
+  const geocoderTout = () => callR("/crm/geo/serveur", { headers: auth, method: "POST" });
+  await geocoderTout();
   // La carte : la vente signée apparaît, le dossier en cours non.
   const carteV = (await callR("/crm/carte", { headers: { Authorization: "Bearer " + sessP } })).json;
   const laVente = carteV.ventes.find((v) => v.id === rVendu.json.id);
@@ -1775,10 +1780,9 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     "la vente de l'agence apparaît sur la carte (position, date d'acte, prix)");
   ok(!carteV.ventes.some((v) => v.id === rEnCours.json.id), "un dossier non signé n'apparaît pas dans les ventes");
   // Le géocodage des ventes est AUTOMATIQUE : jamais passée par le bouton 📍,
-  // la vente GARNIER / ROUX a été géocodée par le serveur (fausse BAN) au
-  // moment d'afficher la carte.
+  // la vente GARNIER / ROUX a été géocodée par le serveur (fausse BAN).
   ok(carteV.ventes.some((v) => v.id === rVille.json.id && v.lat === 44.9012),
-    "une vente jamais géocodée est géocodée automatiquement à l'affichage de la carte");
+    "une vente jamais géocodée est géocodée par le serveur sans intervention");
   ok(carteV.ventesStats && carteV.ventesStats.total === 2 && carteV.ventesStats.aGeocoder === 0,
     "les compteurs de ventes reflètent ce qui est placé");
   // Un dossier vendu sans adresse de bien, un autre inconnu de la BAN : la
@@ -1787,6 +1791,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await callR("/dossiers", { headers: auth, method: "PUT", body: { name: "SANS / ADRESSE", data: dSans } });
   const dPerdu = dosBase(); dPerdu.statut = "signe"; dPerdu.bien = { adresse: "99 rue Inconnue", ville: "Nulle-Part" };
   await callR("/dossiers", { headers: auth, method: "PUT", body: { name: "PERDU / NULLEPART", data: dPerdu } });
+  await geocoderTout();
   const stats2 = (await callR("/crm/carte", { headers: auth })).json.ventesStats;
   ok(stats2.total === 4 && stats2.sansAdresse === 1 && stats2.introuvables === 1,
     "ventes sans adresse et adresses introuvables comptées et expliquées");
@@ -1808,6 +1813,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ] } })).status === 403, "l'import de ventes est réservé aux administrateurs");
   // La vente importée est géocodée automatiquement (fausse BAN) et servie
   // avec les dossiers Suivi — prix mis en forme, nom « VENDEUR / ACQUÉREUR ».
+  await geocoderTout();
   const carteI = (await callR("/crm/carte", { headers: auth })).json;
   const vImp = carteI.ventes.find((v) => v.nom === "KOZA William / CHIALE Fabrice");
   ok(vImp && vImp.lat === 44.9012 && vImp.prix === "535 000 €" && vImp.date_acte === "2019-06-14" && vImp.type === "maison",
@@ -1830,6 +1836,23 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const carteG = (await callR("/crm/carte", { headers: auth })).json;
   ok(carteG.points.some((pt) => pt.contact_id === geoContact.id && pt.lat === 44.9012),
     "un CONTACT est géocodé par le serveur (secours du navigateur)");
+  // Et quand la BAN refuse aussi les serveurs (elle limite parfois le débit
+  // de Cloudflare), le géocodeur IGN — même API — prend la relève.
+  const appIGN = createApp({
+    db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin",
+    APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
+    BAN_BASE: "http://localhost:18999", // port fermé : BAN injoignable
+    GEOPF_BASE: "http://localhost:18793",
+  });
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "Mme", nom: "Relais", prenom: "Ign", adresse: "11 impasse des Vignes", cp: "33185", ville: "Le Haillan" },
+  ] } });
+  const rIGN = await (await appIGN.fetch(new Request("http://api.test/crm/geo/serveur",
+    { method: "POST", headers: { "Content-Type": "application/json", ...auth } }))).json();
+  ok(rIGN.geocodes >= 1, "BAN muette : le géocodeur IGN prend la relève côté serveur");
+  const relais = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.nom === "Relais");
+  ok((await callR("/crm/carte", { headers: auth })).json.points.some((pt) => pt.contact_id === relais.id && pt.lat === 44.9012),
+    "le contact géocodé via l'IGN apparaît sur la carte");
 
   /* ---- Relais DVF (les CSV Etalab n'ont pas de CORS) --------------------- */
   const reqDvf = (path, sess2) => appR.fetch(new Request("http://api.test" + path,

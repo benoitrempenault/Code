@@ -1014,7 +1014,10 @@ export function createApp(env) {
     // Les ventes se géocodent TOUTES SEULES : un petit lot à chaque affichage
     // de la carte (le cron du matin fait le reste). Une BAN muette n'empêche
     // pas la carte de s'afficher.
-    try { await CRM.geocoderVentes(env, db, ctx.agency.id, 12); } catch { /* BAN indisponible */ }
+    // …mais JAMAIS en bloquant l'affichage : des géocodeurs lents ou qui
+    // limitent le débit rendaient la carte interminable à ouvrir.
+    const geoFond = CRM.geocoderVentes(env, db, ctx.agency.id, 12).catch(() => { });
+    try { c.executionCtx.waitUntil(geoFond); } catch { /* Node dév : la promesse court toute seule */ }
     const points = await db.all(
       `SELECT g.contact_id, g.lat, g.lng, g.label, c.civilite, c.nom, c.prenom, c.telephone,
               c.email, c.adresse, c.cp, c.ville, c.types, c.conseiller

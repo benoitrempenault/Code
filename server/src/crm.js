@@ -1089,25 +1089,38 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
     .sort((a, b) => (a.echec ? 1 : 0) - (b.echec ? 1 : 0));
   const attente = enAttente.slice(0, Math.max(0, max));
   if (!attente.length) return { geocodes: 0, traites: 0, restants: 0 };
-  const base = env.BAN_BASE || "https://api-adresse.data.gouv.fr";
+  // Deux géocodeurs officiels, même API : la BAN puis le géocodeur IGN
+  // (data.geopf.fr) en relève — la BAN limite parfois le débit des serveurs
+  // (dont Cloudflare) et de certains réseaux. Surchargables en test.
+  const bases = [
+    env.BAN_BASE || "https://api-adresse.data.gouv.fr",
+    env.GEOPF_BASE || "https://data.geopf.fr/geocodage",
+  ];
   const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
   const valeurs = [];
   let geocodes = 0;
   for (const a of attente) {
-    let ligne = null;
-    try {
-      const r = await fetch(base + "/search/?limit=1&q=" + encodeURIComponent(a.adresse),
-        { signal: AbortSignal.timeout(4000) });
-      if (!r.ok) continue; // BAN grognon : on retentera au prochain passage
-      const d = await r.json();
+    let ligne = null, introuvable = null;
+    for (const base of bases) {
+      let d;
+      try {
+        const r = await fetch(base + "/search/?limit=1&q=" + encodeURIComponent(a.adresse),
+          { signal: AbortSignal.timeout(4000) });
+        if (!r.ok) continue; // ce géocodeur grogne : on tente le suivant
+        d = await r.json();
+      } catch { continue; } // injoignable : géocodeur suivant
       const f = d.features && d.features[0];
       if (f && f.properties && f.properties.score >= 0.4) {
         ligne = { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], label: f.properties.label, score: f.properties.score };
         geocodes++;
-      } else {
-        ligne = { lat: 0, lng: 0, label: "(adresse introuvable)", score: 0 };
+        break;
       }
-    } catch { continue; } // BAN injoignable : on retentera au prochain passage
+      // Ce géocodeur a répondu « inconnu » : on laisse sa chance au suivant
+      // avant de mémoriser l'échec.
+      introuvable = { lat: 0, lng: 0, label: "(adresse introuvable)", score: 0 };
+    }
+    ligne = ligne || introuvable;
+    if (!ligne) continue; // aucun géocodeur n'a répondu : on retentera plus tard
     valeurs.push(`(${sqlT(a.id)},${sqlT(agencyId)},${Number(ligne.lat) || 0},${Number(ligne.lng) || 0},${sqlT(ligne.label)},${Number(ligne.score) || 0},${sqlT(a.adresse)},${now()})`);
   }
   if (valeurs.length) {

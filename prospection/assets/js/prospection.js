@@ -10,6 +10,9 @@
   const $ = (id) => document.getElementById(id);
   const API = String((window.StudioConfig && window.StudioConfig.apiBase) || "").replace(/\/$/, "");
   const BAN = "https://api-adresse.data.gouv.fr";
+  // Le géocodeur IGN (même API que la BAN) prend la relève quand la BAN
+  // limite le débit ou que le réseau la filtre.
+  const GEOCODEURS = [BAN, "https://data.geopf.fr/geocodage"];
   const CENTRE_DEFAUT = [44.8963, -0.7191]; // Saint-Médard-en-Jalles
   const COULEURS_ILOTS = ["#c2a36b", "#5B9BD5", "#7fb069", "#9B7EDE", "#e07a5f", "#4ECDC4", "#E9C46A", "#F4A261"];
   const COULEUR_TYPE = { vendeur: "#c2a36b", acquereur: "#5B9BD5", estime: "#9B7EDE", autres: "#8a8a86" };
@@ -306,27 +309,33 @@
         for (let i = 0; i < attente.length; i++) {
           btn.textContent = "📍 Géocodage… " + (i + 1) + " / " + attente.length + (tour ? " (suite)" : "");
           const a = attente[i];
-          try {
-            const r = await fetch(BAN + "/search/?limit=1&q=" + encodeURIComponent(a.adresse));
-            // 429/5xx : la BAN souffle — ne SURTOUT pas classer « introuvable ».
-            if (!r.ok) throw new Error("BAN " + r.status);
-            const d = await r.json();
-            const f = d.features && d.features[0];
+          let trouve = null, inconnu = false;
+          for (const gc of GEOCODEURS) {
+            try {
+              const r = await fetch(gc + "/search/?limit=1&q=" + encodeURIComponent(a.adresse));
+              if (!r.ok) continue; // 429/5xx : géocodeur suivant
+              const d = await r.json();
+              const f = d.features && d.features[0];
+              if (f && f.properties && f.properties.score >= 0.4) { trouve = f; break; }
+              inconnu = true; // il a répondu « inconnu » : on laisse le suivant confirmer
+            } catch (e) { /* injoignable d'ici : géocodeur suivant */ }
+          }
+          if (trouve) {
             echecsSuite = 0;
-            if (f && f.properties && f.properties.score >= 0.4) {
-              lot.push({
-                contactId: a.id, lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0],
-                label: f.properties.label, score: f.properties.score, adresse: a.adresse,
-              });
-            } else {
-              // La BAN a bien répondu mais ne reconnaît pas l'adresse : mémorisé
-              // (lat/lng à 0) — repassera en fin de file aux prochains passages.
-              totalRates++;
-              lot.push({ contactId: a.id, lat: 0, lng: 0, label: "(adresse introuvable)", score: 0, adresse: a.adresse });
-            }
-          } catch (e) {
-            // Rien n'est mémorisé sur une erreur ; huit échecs d'affilée =
-            // la BAN est injoignable depuis ce navigateur, on n'insiste pas.
+            lot.push({
+              contactId: a.id, lat: trouve.geometry.coordinates[1], lng: trouve.geometry.coordinates[0],
+              label: trouve.properties.label, score: trouve.properties.score, adresse: a.adresse,
+            });
+          } else if (inconnu) {
+            // Les géocodeurs ont bien répondu : l'adresse est vraiment inconnue.
+            // Mémorisé (lat/lng à 0) — repassera en fin de file plus tard.
+            echecsSuite = 0;
+            totalRates++;
+            lot.push({ contactId: a.id, lat: 0, lng: 0, label: "(adresse introuvable)", score: 0, adresse: a.adresse });
+          } else {
+            // Aucun géocodeur joignable depuis CE navigateur : rien n'est
+            // mémorisé, et après huit échecs d'affilée on n'insiste pas —
+            // le serveur prendra le relais.
             totalRates++;
             if (++echecsSuite >= 8) { banBloquee = true; break; }
             await new Promise((r) => setTimeout(r, 1200));
@@ -343,12 +352,14 @@
       // 2) Filet de sécurité : tout ce que CE navigateur n'a pas pu géocoder
       //    est géocodé PAR LE SERVEUR (la BAN vue depuis Cloudflare), par
       //    petits paquets — tant que ça progresse.
-      for (let p = 0; p < 100; p++) {
+      let pompesVides = 0;
+      for (let p = 0; p < 100 && pompesVides < 2; p++) {
         const reste = (await api("/crm/geo/attente")).attente.length;
         if (!reste) break;
         btn.textContent = "📍 Géocodage par le serveur… reste " + reste;
         const r = await api("/crm/geo/serveur", { method: "POST" });
-        if (!r.traites) break; // le serveur non plus n'avance plus : on s'arrête
+        if (!r.traites) { pompesVides++; continue; } // passage à vide : on retente une fois
+        pompesVides = 0;
         totalOk += r.traites;
         if (p % 3 === 2) await charger();
       }
