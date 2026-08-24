@@ -4,3 +4,8 @@ tools/license-private-key.json
 
 # PDF générés depuis les HTML de docs/ (régénérables, non versionnés)
 docs/*.pdf
+
+# Base SQLite locale de développement (recréée au lancement) — jamais versionnée
+server/studio.sqlite
+studio.sqlite
+*.sqlite
