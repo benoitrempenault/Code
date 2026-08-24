@@ -449,6 +449,8 @@
       '<label>Prix envisagé (€)<input id="fb-prix" type="number" min="0" value="' + nb(bien.prixEnvisage) + '" /></label>',
       '<label>Prestations et matériaux<textarea id="fb-prestations" placeholder="menuiseries, chauffage, toiture, travaux récents…">' + v(bien.prestations) + "</textarea></label>",
       '<label>Documents Studio Brochure du bien<div class="chips" id="fe-docs"><span class="petit">Recherche…</span></div></label>',
+      '<div class="fiche-sec">Suivi &amp; relances</div>',
+      '<div id="fe-suivi"><span class="petit">…</span></div>',
       '<div class="fiche-sec">Le parcours</div>',
       '<div class="fiche-2col">',
       "<label>R1 — RDV d'estimation<input id=\"fe-r1\" type=\"date\" value=\"" + v(f.r1) + '" /></label>',
@@ -532,7 +534,8 @@
       if (fi) {
         // Lier la fiche prestations ET en récupérer la matière : type du bien,
         // vendeur si le nom est vide, prestations (caractéristiques,
-        // intérieur, extérieur, copropriété, à savoir).
+        // intérieur, extérieur, copropriété, à savoir) — et les CHIFFRES du
+        // bien lus dans le texte : surface, pièces, terrain, année, DPE.
         try {
           const d = (await api("/fiches/" + fi.dataset.docFiche)).data || {};
           bien.ficheId = fi.dataset.docFiche;
@@ -542,8 +545,25 @@
             .map((s) => String(s || "").trim()).filter(Boolean).join("\n\n").slice(0, 3800);
           if (matiere) $("fb-prestations").value = ($("fb-prestations").value.trim()
             ? $("fb-prestations").value.trim() + "\n\n" : "") + matiere;
+          const texteFi = [d.fCarac, d.fInterieur, d.fExterieur, d.fASavoir, d.fNotes, d.fConf].join("\n");
+          const nombreDe = (re) => { const m = re.exec(texteFi); return m ? parseFloat(m[1].replace(/[\s  ]/g, "").replace(",", ".")) : 0; };
+          if (!$("fb-surface").value) {
+            const s = nombreDe(/(?:surface\s*(?:habitable)?|habitable)\D{0,20}([\d\s  ]+(?:[.,]\d+)?)\s*m/i) ||
+              nombreDe(/([\d\s  ]+(?:[.,]\d+)?)\s*m²?\s*(?:habitables?|de\s+surface)/i);
+            if (s > 8 && s < 5000) $("fb-surface").value = Math.round(s);
+          }
+          if (!$("fb-pieces").value) { const m = /(\d+)\s*pi[èe]ces/i.exec(texteFi); if (m) $("fb-pieces").value = m[1]; }
+          if (!$("fb-terrain").value) {
+            const t = nombreDe(/(?:terrain|parcelle)\D{0,25}([\d\s  ]+(?:[.,]\d+)?)\s*(?:m|ha)/i);
+            if (t > 0) $("fb-terrain").value = Math.round(t);
+          }
+          if (!$("fb-annee").value) {
+            const m = /(?:constru\w+|b[âa]ti\w*|ann[ée]e)\D{0,15}((?:19|20)\d{2})/i.exec(texteFi);
+            if (m) $("fb-annee").value = m[1];
+          }
+          if (!$("fb-dpe").value) { const m = /DPE\s*:?\s*([A-G])\b/i.exec(texteFi); if (m) $("fb-dpe").value = m[1].toUpperCase(); }
           fi.classList.add("lie");
-          toast("Fiche prestations liée — prestations récupérées");
+          toast("Fiche prestations liée — prestations et chiffres du bien récupérés");
         } catch (e2) { toast(e2.message, true); }
         return;
       }
@@ -557,6 +577,53 @@
         toast("Brochure liée à la fiche estimation");
       }
     });
+
+    // ---- Suivi : messages déjà partis + prochaine action automatique ------
+    (async () => {
+      const zone = $("fe-suivi");
+      if (!existante) {
+        zone.innerHTML = '<span class="petit">La fiche n\'a encore rien envoyé — posez ses dates, ' +
+          "les messages du parcours suivront tout seuls.</span>";
+        return;
+      }
+      let envois = [];
+      try { envois = (await api("/crm/estimations/" + existante.id + "/envois")).envois || []; } catch (e2) { }
+      const libelles = { "estimation-avant-r1": "« À demain » (veille du R1)",
+        "estimation-entre-r1-r2": "Après le R1", "estimation-apres-r2": "Après la restitution",
+        "estimation-relance-30": "Relance 1 mois", "estimation-relance-90": "Relance 3 mois",
+        "estimation-relance-180": "Relance 6 mois" };
+      const dejaOk = new Set(envois.filter((l) => l.statut === "ok").map((l) => l.type));
+      // La prochaine action : le premier jalon à venir pas encore envoyé.
+      const dec = (iso, n) => { const [y, m2, d2] = iso.split("-").map(Number);
+        return new Date(Date.UTC(y, m2 - 1, d2 + n)).toISOString().slice(0, 10); };
+      const auj = new Date().toISOString().slice(0, 10);
+      const jalons = [];
+      if (existante.r1) {
+        jalons.push(["estimation-avant-r1", dec(existante.r1, -1)]);
+        jalons.push(["estimation-entre-r1-r2", dec(existante.r1, 1)]);
+      }
+      if (existante.r2) {
+        jalons.push(["estimation-apres-r2", dec(existante.r2, 1)]);
+        jalons.push(["estimation-relance-30", dec(existante.r2, 30)]);
+        jalons.push(["estimation-relance-90", dec(existante.r2, 90)]);
+        jalons.push(["estimation-relance-180", dec(existante.r2, 180)]);
+      }
+      const prochain = jalons.filter(([t, d2]) => d2 >= auj && !dejaOk.has(t))
+        .sort((a, b) => a[1].localeCompare(b[1]))[0];
+      zone.innerHTML =
+        (envois.length
+          ? envois.slice(0, 8).map((l) => '<div class="ligne"><span class="t">' +
+            (l.statut === "ok" ? "✅ " : "⚠️ ") + escH(libelles[l.type] || l.type) + "</span>" +
+            ' <span class="d">· ' + escH(fmtDateFr(new Date(l.created_at * 1000).toISOString().slice(0, 10))) +
+            " · " + escH(l.email) + "</span></div>").join("")
+          : '<span class="petit">Aucun message parti pour l\'instant.</span>') +
+        (existante.statut !== "en_cours"
+          ? '<p class="petit">⏸ Parcours arrêté (fiche « ' + escH(existante.statut) + ' »).</p>'
+          : prochain
+            ? '<p class="petit">📅 Prochaine action automatique : <strong>' + escH(libelles[prochain[0]]) +
+              "</strong> le " + escH(fmtDateFr(prochain[1])) + ".</p>"
+            : '<p class="petit">Aucune action automatique à venir — posez R1/R2 ou le parcours est allé au bout.</p>');
+    })();
 
     // ---- Enregistrement ---------------------------------------------------
     $("fe-save").addEventListener("click", async () => {
@@ -606,6 +673,29 @@
     chargerFiches();
   }
 
+  // 📍 : la pompe de géocodage SERVEUR, par petits paquets — estimés et
+  // vendeurs d'abord. Réservée aux administrateurs (403 sinon, dit gentiment).
+  async function pomperGeocodage() {
+    const btn = $("btn-geo-est");
+    btn.disabled = true;
+    let total = 0, tenta = 0;
+    try {
+      for (let t = 0; t < 150; t++) {
+        btn.textContent = "📍 " + total + "…";
+        const r = await api("/crm/geo/serveur", { method: "POST", json: {} });
+        total += r.traites || 0;
+        if (!r.traites) { tenta++; if (tenta >= 3) break; } else tenta = 0;
+        if (!r.restants) break;
+      }
+      toast(total ? total + " adresse(s) placée(s) — relancez la recherche pour les voir sur la carte"
+        : "Rien à géocoder pour l'instant (ou les géocodeurs soufflent — réessayez dans une minute).", !total);
+    } catch (e) {
+      toast(e.status === 403 ? "Le géocodage à la demande est réservé aux administrateurs." : e.message, true);
+    }
+    btn.disabled = false;
+    btn.textContent = "📍";
+  }
+  $("btn-geo-est").addEventListener("click", pomperGeocodage);
   $("btn-chercher").addEventListener("click", chercherQuartier);
   $("adresse").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { $("suggestions").hidden = true; chercherQuartier(); }

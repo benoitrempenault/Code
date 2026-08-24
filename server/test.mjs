@@ -2230,6 +2230,83 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const jEst = (await callR("/crm/estimations/envois", { headers: auth })).json.envois;
   ok(jEst.length >= 3 && jEst.every((l) => /^estimation-/.test(l.type)),
     "le journal des envois du parcours ne montre que les messages estimation");
+  const suiviFiche = (await callR("/crm/estimations/" + ficheId + "/envois", { headers: authP })).json.envois;
+  ok(suiviFiche.length >= 4 && suiviFiche.every((l) => /^estimation-/.test(l.type)),
+    "un conseiller lit le suivi d'UNE fiche (ses messages partis)");
+
+  /* ---- Bibliothèque des messages : textes de l'agence -------------------- */
+  console.log("— Bibliothèque des messages (surcharges de l'agence)");
+  const modeles0 = (await callR("/crm/modeles", { headers: auth })).json.modeles;
+  ok(modeles0.length === 12 && modeles0.every((m) => m.texte && !m.personnalise),
+    "la bibliothèque liste les 12 messages avec leur texte d'origine");
+  ok((await callR("/crm/modeles", { headers: authP })).status === 403, "la bibliothèque est réservée aux administrateurs");
+  // Surcharge du mail « veille du R1 » : le prochain envoi part avec CE texte.
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { modeles: {
+    "estimation-avant-r1": { sujet: "On se voit demain, {nom} !", texte: "Rendez-vous demain au {adresse}.\n\nPréparez vos questions — signé {agence}." },
+    "cle-inconnue": { sujet: "x", texte: "y" },
+  } } });
+  const modeles1 = (await callR("/crm/modeles", { headers: auth })).json.modeles;
+  ok(modeles1.find((m) => m.cle === "estimation-avant-r1").personnalise === true &&
+    !modeles1.some((m) => m.cle === "cle-inconnue"),
+    "la surcharge est enregistrée, les clés inconnues sont écartées");
+  const ficheB = await callR("/crm/estimations", { headers: authP, body: {
+    nom: "M. Modele", email: "modele@exemple.fr", adresse: "5 rue des Gabarits",
+    ville: "Le Haillan", r1: decalerJour(aujE, 1), conseiller: "Rémi",
+  } });
+  const mailsAvantB = mailsRecus.length;
+  await callR("/crm/estimations/run", { headers: auth, method: "POST", body: {} });
+  const mailB = mailsRecus[mailsRecus.length - 1];
+  ok(mailsRecus.length === mailsAvantB + 1 && mailB.subject === "On se voit demain, M. Modele !" &&
+    /Rendez-vous demain au 5 rue des Gabarits, Le Haillan\./.test(mailB.html) &&
+    /Préparez vos questions — signé Agence Acheteurs Test\./.test(mailB.html),
+    "le mail part avec le TEXTE DE L'AGENCE, balises remplies (" + (mailB && mailB.subject) + ")");
+  ok(/Rémi, votre conseiller/.test(mailB.html), "le gabarit Kadima et la signature du conseiller restent");
+  // Surcharge d'un SMS : balises {prenom} {signature} {agence}.
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { modeles: {
+    "sms-naissance": { texte: "Bon anniversaire {prenom} ! On pense à vous. {signature} — {agence}" },
+  } } });
+  const regB = (await callR("/crm/reglages", { headers: auth })).json.reglages;
+  {
+    const { buildAnniversaireSms } = await import("./src/crm.js");
+    const sms = buildAnniversaireSms({ prenom: "Sophie", conseiller: "Rémi BLANC" }, "naissance", regB, aujE);
+    ok(sms === "Bon anniversaire Sophie ! On pense à vous. Rémi — Agence Acheteurs Test",
+      "le SMS part avec le texte de l'agence, signé du prénom du conseiller (" + sms + ")");
+    const smsSans = buildAnniversaireSms({ conseiller: "" }, "naissance", regB, aujE);
+    ok(!/  /.test(smsSans) && !/ [,.]/.test(smsSans) && /anniversaire !/.test(smsSans),
+      "une balise vide s'efface proprement (pas de double espace, l'espace avant ! reste — typographie française)");
+  }
+  // Retour au texte d'origine : surcharge vidée = texte livré.
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { modeles: {
+    "estimation-avant-r1": { sujet: "", texte: "" }, "sms-naissance": { sujet: "", texte: "" },
+  } } });
+  ok((await callR("/crm/modeles", { headers: auth })).json.modeles.every((m) => !m.personnalise),
+    "vider une surcharge rétablit le texte d'origine");
+
+  /* ---- Visites des acquéreurs + activité du projet ----------------------- */
+  console.log("— Acquéreurs : biens proposés, visites, bon de visite");
+  const vCree = await callR("/crm/visites", { headers: authP, body: {
+    projet_id: projetId, contact_id: julien.id, contact: "Julien & Chloé Faure",
+    bien: "Bien maison-a — Saint-Médard-en-Jalles", annonce_id: "maison-a",
+    date_visite: aujE, conseiller: "Benoit",
+  } });
+  ok(vCree.status === 200 && vCree.json.id, "une visite se programme sur un projet d'achat (membre)");
+  ok((await callR("/crm/visites", { headers: authP, body: { date_visite: aujE } })).status === 400,
+    "une visite sans bien est refusée");
+  const vListe = (await callR("/crm/visites?projet_id=" + projetId, { headers: authP })).json.visites;
+  ok(vListe.length === 1 && vListe[0].statut === "prevue", "la visite du projet se liste (prévue)");
+  await callR("/crm/visites/" + vCree.json.id, { headers: authP, method: "PUT", body: {
+    projet_id: projetId, contact_id: julien.id, contact: "Julien & Chloé Faure",
+    bien: "Bien maison-a — Saint-Médard-en-Jalles", annonce_id: "maison-a",
+    date_visite: aujE, statut: "faite", compte_rendu: "Très bonne visite, offre en réflexion.",
+    conseiller: "Benoit",
+  } });
+  const act = (await callR("/crm/projets/" + projetId + "/activite", { headers: auth })).json;
+  ok(act.visites.length === 1 && act.visites[0].statut === "faite" && /offre en réflexion/.test(act.visites[0].compte_rendu),
+    "la visite passe « faite » avec son compte rendu");
+  ok(act.proposes.length >= 4 && act.proposes.every((l) => l.titre && l.contact),
+    "l'activité du projet montre les biens déjà proposés par les relances (" + act.proposes.length + ")");
+  ok((await callR("/crm/projets/" + projetId + "/activite", { headers: authP })).status === 403,
+    "l'activité du projet est réservée aux administrateurs");
 
   fauxResend.close();
   fauxDvf.close();

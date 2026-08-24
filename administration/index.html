@@ -214,6 +214,27 @@
       <p class="petit">Les e-mails partent via le serveur Studio Brochure au nom de l'agence —
         rien à configurer de plus (pas de mot de passe SMTP).</p>
     </div>
+    <div class="carte">
+      <h2>📚 Bibliothèque des messages</h2>
+      <p class="aide">Tous les messages automatiques s'éditent ici : vœux d'anniversaire
+        (e-mail et SMS) et parcours estimation. Balises remplacées à l'envoi :
+        <code>{prenom}</code> <code>{nom}</code> <code>{ville}</code> <code>{adresse}</code>
+        <code>{annees}</code> <code>{depuis}</code> <code>{conseiller}</code>
+        <code>{agence}</code> <code>{signature}</code> <code>{r1}</code> <code>{r2}</code>.
+        Une ligne vide sépare deux paragraphes. « ↩ Texte d'origine » rétablit le message livré.</p>
+      <div class="grille-champs">
+        <label>Message<select id="biblio-cle"></select></label>
+        <label id="biblio-l-sujet">Objet de l'e-mail<input id="biblio-sujet" /></label>
+      </div>
+      <label style="display:block; margin-top:10px;">Texte
+        <textarea id="biblio-texte" rows="8" style="width:100%; margin-top:4px;"></textarea></label>
+      <div class="barre">
+        <button class="btn btn-or" id="btn-biblio-save">Enregistrer ce message</button>
+        <button class="btn" id="btn-biblio-defaut">↩ Texte d'origine</button>
+        <button class="btn" id="btn-biblio-apercu">👁 Aperçu</button>
+        <span class="petit" id="biblio-etat"></span>
+      </div>
+    </div>
   </section>
 
   <!-- ============================ ESTIMATIONS ========================== -->

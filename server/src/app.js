@@ -821,7 +821,7 @@ export function createApp(env) {
       conseiller: ctx.user.name || "",
       types: c.req.query("profil") === "vendeur" ? ["vendeur"] : ["acquereur"],
     };
-    return c.json(CRM.buildAnniversaireEmail(exemple, type, reglages.agence, isoDay));
+    return c.json(CRM.buildAnniversaireEmail(exemple, type, reglages.agence, isoDay, reglages.modeles));
   });
 
   app.post("/crm/anniversaires/test", async (c) => {
@@ -838,7 +838,7 @@ export function createApp(env) {
       conseiller: ctx.user.name || "",
       types: (b && b.profil) === "vendeur" ? ["vendeur"] : ["acquereur"],
     };
-    const { subject, html } = CRM.buildAnniversaireEmail(exemple, type, reglages.agence, isoDay);
+    const { subject, html } = CRM.buildAnniversaireEmail(exemple, type, reglages.agence, isoDay, reglages.modeles);
     const r = await CRM.envoyerMailHtml(env, {
       to, subject: "[TEST] " + subject, html,
       fromName: reglages.agence.nom || ctx.agency.name, replyTo: reglages.agence.email || "",
@@ -1212,7 +1212,7 @@ export function createApp(env) {
        FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
        WHERE c.agency_id = ? AND c.adresse <> ''
          AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0) OR g.adresse NOT LIKE c.adresse || '%')
-       ORDER BY CASE WHEN c.types LIKE '%estime%' THEN 0 ELSE 1 END,
+       ORDER BY CASE WHEN c.types LIKE '%estime%' OR c.types LIKE '%vendeur%' THEN 0 ELSE 1 END,
                 CASE WHEN g.contact_id IS NULL THEN 0 WHEN g.lat = 0 AND g.lng = 0 THEN 2 ELSE 1 END
        LIMIT ${GEO_BATCH_MAX * 3}`, [ctx.agency.id]);
     // Les dossiers de vente signés (Studio Suivi) passent au même géocodage :
@@ -1575,7 +1575,24 @@ export function createApp(env) {
       nom: "M. et Mme Martin", adresse: "12 rue des Acacias",
       ville: "Saint-Médard-en-Jalles", conseiller: ctx.user.name || "", r2: CRM.parisDate(),
     };
-    return c.json(CRM.buildEstimationEmail(exemple, jalon, reglages.agence));
+    return c.json(CRM.buildEstimationEmail(exemple, jalon, reglages.agence, reglages.modeles));
+  });
+
+  // La Bibliotheque des messages : chaque message automatique avec son texte
+  // effectif (surcharge de l'agence ou texte d'origine) — pour l'édition.
+  app.get("/crm/modeles", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    const liste = Object.entries(CRM.MODELES).map(([cle, def]) => {
+      const sur = (reglages.modeles || {})[cle] || {};
+      return {
+        cle, titre: def.titre, canal: def.canal,
+        sujet: sur.sujet || def.sujet || "", texte: sur.texte || def.texte,
+        defaut: { sujet: def.sujet || "", texte: def.texte },
+        personnalise: !!(sur.sujet || sur.texte),
+      };
+    });
+    return c.json({ modeles: liste });
   });
 
   // Journal des envois du parcours estimation (admin).
@@ -1586,6 +1603,95 @@ export function createApp(env) {
        WHERE agency_id = ? AND type LIKE 'estimation-%' ORDER BY created_at DESC LIMIT 200`,
       [ctx.agency.id]);
     return c.json({ envois: rows });
+  });
+
+  // Le suivi d'UNE fiche : les messages déjà partis (membre — le conseiller
+  // voit où en est son parcours depuis Studio Estimation).
+  app.get("/crm/estimations/:id/envois", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const rows = await db.all(
+      `SELECT email, type, statut, erreur, created_at FROM crm_envois
+       WHERE agency_id = ? AND contact_id = ? AND type LIKE 'estimation-%'
+       ORDER BY created_at DESC LIMIT 60`,
+      [ctx.agency.id, c.req.param("id")]);
+    return c.json({ envois: rows });
+  });
+
+  /* ----------------------- Visites des acquéreurs --------------------------
+     Une visite = un acquéreur (projet) + un bien + une date. Prévue → faite
+     (avec compte rendu) — c'est elle qui nourrit le bon de visite, imprimé
+     par le navigateur au nom de l'agence. */
+  const VISITES_MAX = 300;
+  app.get("/crm/visites", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const projetId = String(c.req.query("projet_id") || "");
+    const rows = projetId
+      ? await db.all(
+        `SELECT * FROM crm_visites WHERE agency_id = ? AND projet_id = ? ORDER BY date_visite DESC, created_at DESC LIMIT ${VISITES_MAX}`,
+        [ctx.agency.id, projetId])
+      : await db.all(
+        `SELECT * FROM crm_visites WHERE agency_id = ? ORDER BY date_visite DESC, created_at DESC LIMIT ${VISITES_MAX}`,
+        [ctx.agency.id]);
+    return c.json({ visites: rows });
+  });
+
+  app.post("/crm/visites", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    let v;
+    try { v = CRM.sanitizeVisite(b); } catch (e) { return err(c, 400, e.message); }
+    const id = randId("vi");
+    await db.run(
+      `INSERT INTO crm_visites (id, agency_id, projet_id, contact_id, contact, bien, annonce_id,
+       date_visite, statut, compte_rendu, conseiller, user_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, ctx.agency.id, v.projet_id, v.contact_id, v.contact, v.bien, v.annonce_id,
+        v.date_visite, v.statut, v.compte_rendu, v.conseiller, ctx.user.id, now(), now()]);
+    return c.json({ ok: true, id });
+  });
+
+  app.put("/crm/visites/:id", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    const cur = await db.get("SELECT id FROM crm_visites WHERE id = ? AND agency_id = ?",
+      [c.req.param("id"), ctx.agency.id]);
+    if (!cur) return err(c, 404, "Visite introuvable.");
+    let v;
+    try { v = CRM.sanitizeVisite(b); } catch (e) { return err(c, 400, e.message); }
+    await db.run(
+      `UPDATE crm_visites SET projet_id = ?, contact_id = ?, contact = ?, bien = ?, annonce_id = ?,
+       date_visite = ?, statut = ?, compte_rendu = ?, conseiller = ?, user_id = ?, updated_at = ?
+       WHERE id = ?`,
+      [v.projet_id, v.contact_id, v.contact, v.bien, v.annonce_id, v.date_visite, v.statut,
+        v.compte_rendu, v.conseiller, ctx.user.id, now(), cur.id]);
+    return c.json({ ok: true, id: cur.id });
+  });
+
+  app.delete("/crm/visites/:id", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    await db.run("DELETE FROM crm_visites WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    return c.json({ ok: true });
+  });
+
+  // Les biens déjà PROPOSÉS aux personnes d'un projet (journal des relances
+  // automatiques) + ses visites : la vue « activité » du projet d'achat.
+  app.get("/crm/projets/:id/activite", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const projetId = c.req.param("id");
+    const contacts = await db.all(
+      "SELECT contact_id FROM crm_projet_contacts WHERE projet_id = ? AND agency_id = ?",
+      [projetId, ctx.agency.id]);
+    const ids = contacts.map((r) => r.contact_id);
+    const proposes = ids.length ? await db.all(
+      `SELECT contact_id, contact, annonce_id, titre, kind, prix, statut, created_at FROM crm_relances
+       WHERE agency_id = ? AND contact_id IN (${ids.map(sqlQ).join(",")})
+       ORDER BY created_at DESC LIMIT 100`, [ctx.agency.id]) : [];
+    const visites = await db.all(
+      `SELECT * FROM crm_visites WHERE agency_id = ? AND projet_id = ? ORDER BY date_visite DESC, created_at DESC LIMIT 60`,
+      [ctx.agency.id, projetId]);
+    return c.json({ proposes, visites });
   });
 
   // Passage du jour à la demande (le cron du matin fait la même chose tout seul).

@@ -453,6 +453,7 @@ export function defaultReglages(agency) {
     annonces: { autoSync: false, siteUrl: "" },
     acheteurs: { enabled: false, cci: "" },
     estimations: { enabled: false, cci: "" },
+    modeles: {}, // surcharges de la Bibliotheque des messages ({cle: {sujet, texte}})
   };
 }
 export async function getReglages(db, agency) {
@@ -467,6 +468,7 @@ export async function getReglages(db, agency) {
     annonces: { ...def.annonces, ...(data.annonces || {}) },
     acheteurs: { ...def.acheteurs, ...(data.acheteurs || {}) },
     estimations: { ...def.estimations, ...(data.estimations || {}) },
+    modeles: data.modeles && typeof data.modeles === "object" ? data.modeles : {},
   };
 }
 export async function saveReglages(db, agency, userId, incoming) {
@@ -477,6 +479,7 @@ export async function saveReglages(db, agency, userId, incoming) {
     annonces: { ...cur.annonces, ...(incoming.annonces || {}) },
     acheteurs: { ...cur.acheteurs, ...(incoming.acheteurs || {}) },
     estimations: { ...cur.estimations, ...(incoming.estimations || {}) },
+    modeles: { ...cur.modeles, ...(incoming.modeles || {}) },
   };
   for (const k of Object.keys(next.agence)) next.agence[k] = strip(next.agence[k], 300);
   next.anniversaires.enabled = !!next.anniversaires.enabled;
@@ -489,6 +492,18 @@ export async function saveReglages(db, agency, userId, incoming) {
   next.acheteurs.cci = strip(next.acheteurs.cci, 160);
   next.estimations.enabled = !!next.estimations.enabled;
   next.estimations.cci = strip(next.estimations.cci, 160);
+  // Bibliotheque des messages : seules les cles connues, sujet une ligne,
+  // texte multiligne (les sauts de ligne font les paragraphes). Une
+  // surcharge vidée disparait — le texte d'origine reprend la main.
+  const stripML = (v, max) => String(v ?? "").replace(/[\u0000-\u0009\u000b-\u001f<>]/g, "").trim().slice(0, max);
+  const modelesPropres = {};
+  for (const k of Object.keys(MODELES)) {
+    const m = next.modeles[k];
+    if (!m || typeof m !== "object") continue;
+    const sujet = strip(m.sujet, 160), texte = stripML(m.texte, 3000);
+    if (sujet || texte) modelesPropres[k] = { sujet, texte };
+  }
+  next.modeles = modelesPropres;
   const exists = await db.get("SELECT agency_id FROM crm_reglages WHERE agency_id = ?", [agency.id]);
   if (exists) {
     await db.run("UPDATE crm_reglages SET data = ?, user_id = ?, updated_at = ? WHERE agency_id = ?",
@@ -498,6 +513,72 @@ export async function saveReglages(db, agency, userId, incoming) {
       [agency.id, JSON.stringify(next), userId, now()]);
   }
   return next;
+}
+
+/* ---------------------- Bibliotheque des messages ------------------------- */
+// Chaque message automatique (vœux, parcours estimation, SMS) a un texte par
+// defaut ; l'agence peut poser le SIEN depuis Reglages → Bibliotheque des
+// messages (reglages.modeles). Balises remplacees a l'envoi : {prenom} {nom}
+// {civilite} {ville} {adresse} {annees} {depuis} {conseiller} {agence}
+// {signature} {r1} {r2} — une balise sans valeur s'efface proprement.
+export const MODELES = {
+  "anniv-naissance": { titre: "Anniversaire de naissance", canal: "email",
+    sujet: "Joyeux anniversaire {prenom} ! 🎂",
+    texte: "Aujourd'hui, c'est votre jour — et nous ne pouvions pas le laisser passer sans vous adresser nos vœux les plus chaleureux. Que cette nouvelle année vous apporte de belles réussites, de beaux moments partagés… et pourquoi pas de nouveaux projets !\n\nC'est un vrai plaisir de vous compter parmi les clients de notre agence. Toute l'équipe se joint à moi pour vous souhaiter une magnifique journée." },
+  "anniv-achat-acquereur": { titre: "Anniversaire d'achat (acquéreur)", canal: "email",
+    sujet: "Déjà {annees} chez vous 🏡",
+    texte: "Il y a {depuis}, vous receviez les clés de votre bien à {ville}. Nous espérons que vous vous y sentez pleinement chez vous, et que ces murs abritent de beaux souvenirs.\n\nSi un nouveau projet se dessine — agrandir, investir, ou simplement connaître la valeur de votre bien aujourd'hui — nous sommes là, avec plaisir." },
+  "anniv-achat-vendeur": { titre: "Anniversaire de vente (vendeur)", canal: "email",
+    sujet: "Il y a {annees}, une belle page se tournait ✨",
+    texte: "Il y a {depuis}, vous vendiez votre bien à {ville} avec notre agence. Nous gardons un très bon souvenir de ce projet mené ensemble, et nous espérons que ce nouveau chapitre vous a apporté tout ce que vous en attendiez.\n\nSi un nouveau projet se dessine — une vente, un achat, un investissement, ou simplement l'envie de connaître la valeur d'un bien — notre porte vous est toujours grande ouverte. Au plaisir de vous revoir !" },
+  "sms-naissance": { titre: "Anniversaire de naissance", canal: "sms",
+    texte: "Joyeux anniversaire {prenom} ! Toute l'équipe pense à vous et vous souhaite une très belle journée. {signature} — {agence}" },
+  "sms-achat-acquereur": { titre: "Anniversaire d'achat (acquéreur)", canal: "sms",
+    texte: "Bonjour {prenom}, il y a {depuis}, vous receviez les clés de votre nouveau chez-vous. Bel anniversaire ! {signature} — {agence}" },
+  "sms-achat-vendeur": { titre: "Anniversaire de vente (vendeur)", canal: "sms",
+    texte: "Bonjour {prenom}, il y a {depuis}, vous vendiez votre bien avec nous. On pense à vous — belle journée ! {signature} — {agence}" },
+  "estimation-avant-r1": { titre: "Estimation — veille du R1", canal: "email",
+    sujet: "À demain, pour l'estimation de votre bien",
+    texte: "Nous nous retrouvons demain au {adresse} pour l'estimation de votre bien. Nous prendrons le temps de le visiter ensemble et d'écouter votre projet — comptez environ une heure.\n\nSi vous les avez sous la main, quelques documents nous aideront à être précis : taxe foncière, DPE, factures de travaux récents, charges de copropriété le cas échéant. Rien d'obligatoire — nous ferons aussi très bien sans.\n\nÀ demain, et merci de votre confiance !" },
+  "estimation-entre-r1-r2": { titre: "Estimation — lendemain du R1", canal: "email",
+    sujet: "Merci pour votre accueil — votre estimation se prépare",
+    texte: "Merci pour le temps que vous nous avez consacré au {adresse}. Votre bien est maintenant entre nos mains : nous croisons les ventes récentes du quartier, les données notariées et notre connaissance du marché pour bâtir un avis de valeur solide et argumenté.\n\nNous vous le présenterons lors de notre rendez-vous de restitution. D'ici là, si une question vous vient, répondez simplement à cet e-mail." },
+  "estimation-apres-r2": { titre: "Estimation — lendemain du R2", canal: "email",
+    sujet: "Votre avis de valeur — et la suite, quand vous le déciderez",
+    texte: "Merci pour nos échanges autour de l'estimation du {adresse}. Vous disposez maintenant d'un avis de valeur construit sur le marché réel de votre quartier — prenez le temps qu'il vous faut pour y réfléchir.\n\nQuand vous déciderez d'avancer — mise en vente, simple question, ou envie d'en reparler — nous sommes à votre disposition. Répondez à cet e-mail ou appelez-nous : votre projet est déjà le nôtre." },
+  "estimation-relance-30": { titre: "Estimation — relance 1 mois", canal: "email",
+    sujet: "Des nouvelles de votre projet ?",
+    texte: "Un mois déjà depuis l'estimation du {adresse}. Où en êtes-vous de votre réflexion ? Si des questions sont apparues — sur le prix, le calendrier, les démarches — nous y répondrons avec plaisir.\n\nEt si le moment est venu d'avancer, nous sommes prêts. Répondez simplement à cet e-mail ou appelez-nous." },
+  "estimation-relance-90": { titre: "Estimation — relance 3 mois", canal: "email",
+    sujet: "Votre projet de vente, trois mois après",
+    texte: "Trois mois se sont écoulés depuis l'estimation du {adresse} — et le marché de votre quartier a continué de vivre : des ventes se sont signées, des biens se sont affichés.\n\nSi votre projet mûrit encore, c'est parfait. S'il se précise, parlons-en : nous réactualiserons votre avis de valeur au marché du jour, sans engagement." },
+  "estimation-relance-180": { titre: "Estimation — relance 6 mois", canal: "email",
+    sujet: "Votre estimation a six mois — on la réactualise ?",
+    texte: "Votre estimation du {adresse} a six mois. En immobilier, c'est l'âge où un avis de valeur mérite un regard neuf : le marché du quartier a bougé, dans un sens ou dans l'autre.\n\nNous vous proposons de la réactualiser gratuitement — un simple échange suffit souvent. Répondez à cet e-mail ou appelez-nous quand vous voulez." },
+};
+
+export function remplirModele(texte, vars) {
+  return String(texte || "")
+    .replace(/\{(\w+)\}/g, (tout, cle) => (vars[cle] != null && vars[cle] !== "" ? String(vars[cle]) : ""))
+    // Une balise effacee ne laisse ni double espace ni espace avant une
+    // virgule ou un point (« Bonjour , » → « Bonjour, ») — mais l'espace
+    // avant ! ? : ; reste : c'est la typographie francaise.
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/ ([,.])/g, "$1")
+    .replace(/^[ ,]+|[ ]+$/gm, "")
+    .trim();
+}
+
+// La surcharge de l'agence pour un message, si elle existe (sujet OU texte).
+export function surchargeModele(reglages, cle) {
+  const m = reglages && reglages.modeles && reglages.modeles[cle];
+  return m && (m.sujet || m.texte) ? m : null;
+}
+
+// Texte libre → paragraphes du gabarit (double saut = paragraphe).
+function texteEnParagraphes(texte) {
+  return String(texte || "").split(/\n{2,}/).map((p) =>
+    `<p style="margin:0 0 16px;">${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
 }
 
 /* --------------------------- E-mails d'attention -------------------------- */
@@ -555,12 +636,38 @@ function wrapEmail(ag, { eyebrow, headline, bodyHtml, signatureName }) {
 </body></html>`;
 }
 
-export function buildAnniversaireEmail(contact, type, ag, isoDay) {
+export function buildAnniversaireEmail(contact, type, ag, isoDay, modeles) {
   const signatureName = contact.conseiller
     ? `${contact.conseiller}, votre conseiller`
     : `Toute l'équipe ${ag.nom || "de l'agence"}`;
   const salut = salutation(contact);
   const prenom = contact.prenom || "";
+  // Le texte de l'AGENCE (Bibliotheque des messages) remplace le texte par
+  // defaut quand il existe — meme gabarit Kadima, memes salutations.
+  const cleM = type === "naissance" ? "anniv-naissance"
+    : profilAchat(contact) === "vendeur" ? "anniv-achat-vendeur" : "anniv-achat-acquereur";
+  const sur = surchargeModele({ modeles }, cleM);
+  if (sur) {
+    const y = type === "naissance" ? null : yearsSince(contact.date_achat, isoDay);
+    const anneesTxt = y && y > 0 ? `${y} an${y > 1 ? "s" : ""}` : "quelque temps";
+    const vars = {
+      prenom, nom: contact.nom || "", civilite: contact.civilite || "",
+      ville: contact.ville || "", adresse: contact.adresse || "",
+      annees: anneesTxt, depuis: y && y > 0 ? anneesTxt + " jour pour jour" : "quelque temps",
+      conseiller: contact.conseiller || "", agence: ag.nom || "l'agence",
+    };
+    const subject = remplirModele(sur.sujet || MODELES[cleM].sujet, vars);
+    return {
+      subject,
+      html: wrapEmail(ag, {
+        eyebrow: type === "naissance" ? "Une attention de votre agence" : "Un bel anniversaire",
+        headline: esc(subject),
+        bodyHtml: `<p style="margin:0 0 16px;">${esc(salut)},</p>` +
+          texteEnParagraphes(remplirModele(sur.texte || MODELES[cleM].texte, vars)),
+        signatureName,
+      }),
+    };
+  }
   if (type === "naissance") {
     return {
       subject: prenom ? `Joyeux anniversaire ${prenom} ! 🎂` : "Joyeux anniversaire ! 🎂",
@@ -729,13 +836,25 @@ export function buildAnniversaireSms(contact, type, reglages, isoDay) {
   const prenom = (contact.prenom || "").split(/\s+/)[0] || "";
   const signature = signatureSms(contact, reglages);
   const agence = reglages.agence.nom || "l'agence";
+  const annees = type === "naissance" ? null : yearsSince(contact.date_achat, isoDay);
+  const nDepuis = annees && annees > 1 ? annees + " ans jour pour jour"
+    : annees === 1 ? "un an jour pour jour" : "quelque temps jour pour jour";
+  const cleM = type === "naissance" ? "sms-naissance"
+    : profilAchat(contact) === "vendeur" ? "sms-achat-vendeur" : "sms-achat-acquereur";
+  // Le SMS de l'agence (Bibliotheque des messages) remplace le texte type.
+  const sur = surchargeModele(reglages, cleM);
+  if (sur && sur.texte) {
+    return remplirModele(sur.texte, {
+      prenom, nom: contact.nom || "", ville: contact.ville || "", agence, signature,
+      annees: annees && annees > 0 ? annees + " an" + (annees > 1 ? "s" : "") : "quelque temps",
+      depuis: nDepuis, conseiller: contact.conseiller || "",
+    });
+  }
   if (type === "naissance") {
     return "Joyeux anniversaire" + (prenom ? " " + prenom : "") + " ! Toute l'équipe pense à vous " +
       "et vous souhaite une très belle journée. " + signature + " — " + agence;
   }
-  const annees = yearsSince(contact.date_achat, isoDay);
-  const depuis = annees && annees > 1 ? "il y a " + annees + " ans jour pour jour"
-    : annees === 1 ? "il y a un an jour pour jour" : "il y a quelque temps jour pour jour";
+  const depuis = "il y a " + nDepuis;
   if (profilAchat(contact) === "vendeur") {
     return "Bonjour" + (prenom ? " " + prenom : "") + ", " + depuis + ", vous vendiez votre bien avec nous. " +
       "On pense à vous — belle journée ! " + signature + " — " + agence;
@@ -790,7 +909,7 @@ export async function runAnniversaires(env, db, agency, reglages) {
       if (deja) {
         summary.skipped++; summary.details.push({ contact: label, type, status: "skip", reason: "déjà envoyé cette année" });
       } else {
-        const { subject, html } = buildAnniversaireEmail(contact, type, reglages.agence, isoDay);
+        const { subject, html } = buildAnniversaireEmail(contact, type, reglages.agence, isoDay, reglages.modeles);
         const r = await envoyerMailHtml(env, {
           to: contact.email, subject, html,
           fromName: reglages.agence.nom || agency.name,
@@ -1398,7 +1517,7 @@ export function sanitizeBienEstimation(b) {
 // Les messages du parcours, au gabarit Kadima, signes du conseiller de la
 // fiche (sinon de toute l'equipe). jalon : avant-r1 | entre-r1-r2 |
 // apres-r2 | relance-30 | relance-90 | relance-180.
-export function buildEstimationEmail(est, jalon, ag) {
+export function buildEstimationEmail(est, jalon, ag, modeles) {
   const salut = est.nom ? `Bonjour ${est.nom}` : "Bonjour";
   const bien = est.adresse + (est.ville && !est.adresse.toLowerCase().includes(est.ville.toLowerCase()) ? ", " + est.ville : "");
   const signatureName = est.conseiller
@@ -1406,6 +1525,18 @@ export function buildEstimationEmail(est, jalon, ag) {
     : `Toute l'équipe ${ag.nom || "de l'agence"}`;
   const gabarit = (eyebrow, headline, bodyHtml) =>
     wrapEmail(ag, { eyebrow, headline, bodyHtml, signatureName });
+  // Le texte de l'agence (Bibliotheque des messages) remplace le texte type.
+  const cleM = "estimation-" + jalon;
+  const sur = surchargeModele({ modeles }, cleM);
+  if (sur && MODELES[cleM]) {
+    const frD = (iso) => { const m2 = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || "")); return m2 ? m2[3] + "/" + m2[2] + "/" + m2[1] : ""; };
+    const vars = { nom: est.nom || "", adresse: bien, ville: est.ville || "",
+      conseiller: est.conseiller || "", agence: ag.nom || "l'agence", r1: frD(est.r1), r2: frD(est.r2) };
+    const subject = remplirModele(sur.sujet || MODELES[cleM].sujet, vars);
+    return { subject, html: gabarit("Votre projet de vente", esc(subject),
+      `<p style="margin:0 0 16px;">${esc(salut)},</p>` +
+      texteEnParagraphes(remplirModele(sur.texte || MODELES[cleM].texte, vars))) };
+  }
 
   if (jalon === "avant-r1") {
     return {
@@ -1529,7 +1660,7 @@ export async function runEstimations(env, db, agency, reglages) {
           "SELECT id FROM crm_envois WHERE agency_id = ? AND contact_id = ? AND type = ? AND email = ? AND statut = 'ok'",
           [agency.id, est.id, type, adresse]);
         if (deja) { summary.skipped++; continue; }
-        const { subject, html } = buildEstimationEmail(est, jalon, reglages.agence);
+        const { subject, html } = buildEstimationEmail(est, jalon, reglages.agence, reglages.modeles);
         const r = await envoyerMailHtml(env, {
           to: adresse, subject, html,
           fromName: reglages.agence.nom || agency.name,
@@ -1546,6 +1677,24 @@ export async function runEstimations(env, db, agency, reglages) {
     }
   }
   return summary;
+}
+
+/* --------------------------- Visites acquéreurs --------------------------- */
+export const VISITE_STATUTS = ["prevue", "faite", "annulee"];
+export function sanitizeVisite(b) {
+  const bien = strip(b.bien, 200);
+  if (!bien) throw new Error("Le bien visité est requis (adresse ou titre).");
+  const isoOuVide = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : "");
+  return {
+    projet_id: strip(b.projet_id, 40),
+    contact_id: strip(b.contact_id, 40),
+    contact: strip(b.contact, 120),
+    bien, annonce_id: strip(b.annonce_id, 80),
+    date_visite: isoOuVide(b.date_visite),
+    statut: VISITE_STATUTS.includes(String(b.statut || "")) ? String(b.statut) : "prevue",
+    compte_rendu: strip(b.compte_rendu, 2000),
+    conseiller: strip(b.conseiller, 80),
+  };
 }
 
 /* ------------------------------ Prospection ------------------------------- */
@@ -1687,7 +1836,7 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
      FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
      WHERE c.agency_id = ? AND c.adresse <> ''
        AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0) OR g.adresse NOT LIKE c.adresse || '%')
-     ORDER BY CASE WHEN c.types LIKE '%estime%' THEN 0 ELSE 1 END,
+     ORDER BY CASE WHEN c.types LIKE '%estime%' OR c.types LIKE '%vendeur%' THEN 0 ELSE 1 END,
               CASE WHEN g.contact_id IS NULL THEN 0 WHEN g.lat = 0 AND g.lng = 0 THEN 2 ELSE 1 END
      LIMIT ${Math.max(40, Math.max(0, max) * 4)}`, [agencyId]) : [];
   // Un échec mémorisé (lat/lng à 0) reste retentable, mais en fin de file —

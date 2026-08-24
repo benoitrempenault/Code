@@ -729,11 +729,13 @@
       '<div class="barre"><label>Statut&nbsp;<select id="p-statut">' +
       [["actif", "Actif"], ["conclu", "Conclu"], ["abandonne", "Abandonné"]].map(([v, l]) =>
         '<option value="' + v + '"' + ((p && p.statut) === v ? " selected" : "") + ">" + l + "</option>").join("") +
-      "</select></label></div>",
+      "</select></label></div>" +
+      (projetId && estAchat ? '<div id="p-activite" style="border-top:1px solid var(--line); margin-top:14px; padding-top:4px;"><p class="petit">Activité du projet…</p></div>' : ""),
       (p ? '<button class="btn btn-danger" id="btn-suppr-projet">Supprimer</button>' : "") +
       '<button class="btn" id="btn-annuler-projet">Annuler</button>' +
       '<button class="btn btn-or" id="btn-save-projet">Enregistrer</button>');
     rendreListeContacts();
+    if (projetId && estAchat) chargerActiviteProjet(projetId, p);
     $("p-filtre").addEventListener("input", rendreListeContacts);
     $("p-liste").addEventListener("change", (e) => {
       const cb = e.target.closest(".p-contact");
@@ -853,6 +855,183 @@
       await chargerAnnonces();
     } catch (e) { toast(e.message, true); }
     btn.disabled = false; btn.textContent = "🔄 Relever maintenant";
+  }
+
+  /* ----------------- Activité d'un projet d'achat (visites) ---------------- */
+  // Les biens déjà proposés par les relances automatiques + les visites du
+  // projet (prévue → faite avec compte rendu), et le BON DE VISITE imprimable.
+  async function chargerActiviteProjet(projetId, p) {
+    const zone = $("p-activite");
+    if (!zone) return;
+    let act;
+    try { act = await api("/crm/projets/" + projetId + "/activite"); }
+    catch (e) { zone.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; return; }
+    const isoFr2 = (iso) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || "")); return m ? m[3] + "/" + m[2] + "/" + m[1] : "—"; };
+    const rendre = () => {
+      zone.innerHTML =
+        '<p class="petit" style="margin:10px 0 6px;"><strong>Biens proposés par les relances</strong></p>' +
+        (act.proposes.length
+          ? act.proposes.slice(0, 12).map((l) =>
+            '<span class="puce" title="' + escH(l.contact) + " · " + new Date(l.created_at * 1000).toLocaleDateString("fr-FR") + '">' +
+            escH(l.titre) + (l.prix ? " — " + fmtPrix(l.prix) : "") + "</span>").join(" ") +
+            (act.proposes.length > 12 ? ' <span class="puce grise">+' + (act.proposes.length - 12) + "</span>" : "")
+          : '<span class="petit">aucun pour l\'instant — les relances du matin les journalisent ici.</span>') +
+        '<p class="petit" style="margin:12px 0 6px;"><strong>Visites</strong></p>' +
+        (act.visites.length
+          ? '<div class="tableau-cadre"><table style="min-width:0;"><tbody>' + act.visites.map((v) =>
+            "<tr><td>" + isoFr2(v.date_visite) + "</td><td>" + escH(v.bien) +
+            (v.compte_rendu ? '<br><span class="petit">' + escH(v.compte_rendu) + "</span>" : "") + "</td>" +
+            '<td><select data-visite-statut="' + v.id + '">' +
+            [["prevue", "Prévue"], ["faite", "Faite ✅"], ["annulee", "Annulée"]].map(([k, l]) =>
+              '<option value="' + k + '"' + (v.statut === k ? " selected" : "") + ">" + l + "</option>").join("") +
+            "</select></td>" +
+            '<td><button class="btn" data-bon="' + v.id + '" style="padding:4px 10px; font-size:12px;">🖨 Bon de visite</button></td></tr>').join("") +
+            "</tbody></table></div>"
+          : '<span class="petit">aucune visite enregistrée.</span>') +
+        '<div class="barre" style="margin-top:8px;">' +
+        '<input id="v-bien" placeholder="Bien à visiter (adresse ou titre)" style="min-width:220px;" list="v-biens-connus" />' +
+        '<datalist id="v-biens-connus">' +
+        [...new Set(act.proposes.map((l) => l.titre))].slice(0, 12).map((t) => '<option value="' + escH(t) + '">').join("") +
+        "</datalist>" +
+        '<input id="v-date" type="date" />' +
+        '<button class="btn" id="btn-ajout-visite">+ Visite</button></div>';
+      zone.querySelectorAll("[data-visite-statut]").forEach((s) => s.addEventListener("change", async () => {
+        const v = act.visites.find((x) => x.id === s.dataset.visiteStatut);
+        let cr = v.compte_rendu;
+        if (s.value === "faite") {
+          const saisie = window.prompt("Compte rendu de la visite (optionnel) :", cr || "");
+          if (saisie != null) cr = saisie;
+        }
+        try {
+          await api("/crm/visites/" + v.id, { method: "PUT", json: { ...v, statut: s.value, compte_rendu: cr } });
+          v.statut = s.value; v.compte_rendu = cr;
+          toast("Visite mise à jour");
+          rendre();
+        } catch (e) { toast(e.message, true); }
+      }));
+      zone.querySelectorAll("[data-bon]").forEach((b2) => b2.addEventListener("click", () => {
+        const v = act.visites.find((x) => x.id === b2.dataset.bon);
+        if (v) imprimerBonVisite(v, p);
+      }));
+      $("btn-ajout-visite").addEventListener("click", async () => {
+        const bien = $("v-bien").value.trim();
+        if (!bien) { toast("Indiquez le bien à visiter.", true); return; }
+        const personnes = (p && p.contacts) || [];
+        try {
+          await api("/crm/visites", { json: {
+            projet_id: projetId,
+            contact_id: (personnes[0] || {}).id || "",
+            contact: personnes.map((cx) => (cx.prenom ? cx.prenom + " " : "") + cx.nom).join(" & "),
+            bien, date_visite: $("v-date").value, statut: "prevue",
+            conseiller: (personnes[0] || {}).conseiller || "",
+          } });
+          toast("Visite enregistrée");
+          act = await api("/crm/projets/" + projetId + "/activite");
+          rendre();
+        } catch (e) { toast(e.message, true); }
+      });
+    };
+    rendre();
+  }
+
+  // Le bon de visite, au nom de l'agence : une page A4 imprimée par le
+  // navigateur — identité du visiteur, bien visité, date, engagements, signatures.
+  function imprimerBonVisite(v, p) {
+    const ag = (reglages && reglages.agence) || {};
+    const nomAg = ag.nom || "Votre agence";
+    const personnes = (p && p.contacts) || [];
+    const visiteur = v.contact || personnes.map((c) => (c.prenom ? c.prenom + " " : "") + c.nom).join(" & ");
+    const isoFr2 = (iso) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || "")); return m ? m[3] + "/" + m[2] + "/" + m[1] : new Date().toLocaleDateString("fr-FR"); };
+    const w = window.open("", "_blank");
+    if (!w) { toast("Autorisez les fenêtres pop-up pour imprimer le bon de visite.", true); return; }
+    w.document.write('<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Bon de visite — ' + escH(visiteur) + "</title>" +
+      "<style>body{font:14px/1.6 Georgia,serif; color:#1D1D1B; max-width:680px; margin:40px auto; padding:0 24px;}" +
+      "h1{font-size:22px; letter-spacing:3px; text-transform:uppercase; text-align:center; margin:26px 0 4px;}" +
+      ".filet{height:3px; background:#BEAF87; width:80px; margin:0 auto 30px;}" +
+      ".tete{text-align:center; font-family:Helvetica,Arial,sans-serif; font-size:12px; color:#555;}" +
+      ".tete b{font-size:16px; color:#1D1D1B; letter-spacing:2px;}" +
+      ".cadre{border:1px solid #ccc; border-radius:8px; padding:14px 18px; margin:14px 0;}" +
+      ".lbl{font-family:Helvetica,Arial,sans-serif; font-size:10.5px; text-transform:uppercase; letter-spacing:1px; color:#8a8a86;}" +
+      ".sign{display:flex; gap:40px; margin-top:44px;} .sign div{flex:1;} .ligne-sign{border-top:1px solid #1D1D1B; margin-top:64px; padding-top:6px; font-size:12px; font-family:Helvetica,Arial,sans-serif; color:#555;}" +
+      "p.mentions{font-size:12.5px; text-align:justify;}" +
+      "@media print{body{margin:10mm auto;}}</style></head><body>" +
+      '<div class="tete"><b>' + escH(nomAg.toUpperCase()) + "</b><br>" +
+      escH([ag.adresse, ag.telephone, ag.email].filter(Boolean).join(" · ")) + "</div>" +
+      "<h1>Bon de visite</h1><div class=\"filet\"></div>" +
+      '<div class="cadre"><span class="lbl">Visiteur</span><br><strong>' + escH(visiteur) + "</strong></div>" +
+      '<div class="cadre"><span class="lbl">Bien visité</span><br><strong>' + escH(v.bien) + "</strong><br>" +
+      '<span class="lbl">Date de la visite</span> ' + escH(isoFr2(v.date_visite)) +
+      (v.conseiller ? ' &nbsp; <span class="lbl">Conseiller</span> ' + escH(v.conseiller) : "") + "</div>" +
+      '<p class="mentions">Je soussigné(e) <strong>' + escH(visiteur) + "</strong> reconnais avoir visité ce jour, par " +
+      "l'intermédiaire de l'agence <strong>" + escH(nomAg) + "</strong>, le bien désigné ci-dessus, qui m'a été " +
+      "présenté par elle. Je m'engage, en application des usages de la profession, à ne pas traiter directement ou " +
+      "indirectement avec le propriétaire du bien, ni par l'intermédiaire d'un tiers, sans le concours de l'agence, " +
+      "et à ne pas communiquer les informations recueillies à des tiers. À défaut, je pourrais être redevable envers " +
+      "l'agence d'une indemnité équivalente au montant de ses honoraires.</p>" +
+      '<div class="sign"><div><span class="lbl">Le visiteur</span><div class="ligne-sign">Signature, précédée de « lu et approuvé »</div></div>' +
+      '<div><span class="lbl">Pour l\'agence</span><div class="ligne-sign">' + escH(v.conseiller || "") + "</div></div></div>" +
+      "<script>window.addEventListener('load',function(){window.print();});<\/script></body></html>");
+    w.document.close();
+  }
+
+  /* --------------------- Bibliothèque des messages -------------------------- */
+  // Chaque message automatique (vœux, SMS, parcours estimation) s'édite ici ;
+  // vide, il repart sur le texte d'origine. La liste vient du serveur.
+  let biblio = [];
+  async function chargerBiblio() {
+    try { biblio = (await api("/crm/modeles")).modeles; } catch (e) { return; }
+    const opt = (m) => '<option value="' + m.cle + '">' + escH(m.titre) + (m.personnalise ? " ✏️" : "") + "</option>";
+    const choix = $("biblio-cle").value;
+    $("biblio-cle").innerHTML =
+      '<optgroup label="E-mails d\'anniversaire">' + biblio.filter((m) => m.canal === "email" && m.cle.startsWith("anniv")).map(opt).join("") + "</optgroup>" +
+      '<optgroup label="SMS d\'anniversaire">' + biblio.filter((m) => m.canal === "sms").map(opt).join("") + "</optgroup>" +
+      '<optgroup label="Parcours estimation">' + biblio.filter((m) => m.cle.startsWith("estimation")).map(opt).join("") + "</optgroup>";
+    if (choix && biblio.some((m) => m.cle === choix)) $("biblio-cle").value = choix;
+    remplirBiblio();
+  }
+  const biblioCourant = () => biblio.find((m) => m.cle === $("biblio-cle").value) || biblio[0];
+  function remplirBiblio() {
+    const m = biblioCourant();
+    if (!m) return;
+    $("biblio-l-sujet").hidden = m.canal === "sms";
+    $("biblio-sujet").value = m.canal === "sms" ? "" : (m.sujet || "");
+    $("biblio-texte").value = m.texte || "";
+    $("biblio-etat").textContent = m.personnalise ? "✏️ Texte personnalisé de l'agence." : "Texte d'origine.";
+  }
+  async function sauverBiblio(retablir) {
+    const m = biblioCourant();
+    if (!m) return;
+    if (retablir && !confirm("Revenir au texte d'origine pour « " + m.titre + " » ? Votre version sera effacée.")) return;
+    const corps = retablir ? { sujet: "", texte: "" }
+      : { sujet: m.canal === "sms" ? "" : $("biblio-sujet").value.trim(), texte: $("biblio-texte").value.trim() };
+    try {
+      reglages = (await api("/crm/reglages", { method: "PUT", json: { modeles: { [m.cle]: corps } } })).reglages;
+      toast(retablir ? "Texte d'origine rétabli" : "Message enregistré — il part désormais avec ce texte");
+      await chargerBiblio();
+    } catch (e) { toast(e.message, true); }
+  }
+  async function apercuBiblio() {
+    const m = biblioCourant();
+    if (!m) return;
+    try {
+      if (m.canal === "sms") {
+        const exemple = { prenom: "Sophie", nom: "Martin", ville: "Saint-Médard-en-Jalles",
+          annees: "3 ans", depuis: "3 ans jour pour jour", conseiller: "Benoît",
+          agence: (reglages.agence.nom || "l'agence"), signature: "Benoît" };
+        const txt = $("biblio-texte").value.replace(/\{(\w+)\}/g, (t, k) => exemple[k] || "");
+        ouvrirModale("Aperçu SMS — " + m.titre,
+          '<p style="white-space:pre-wrap; background:var(--panel-2); border:1px solid var(--line); border-radius:12px; padding:14px;">' +
+          escH(txt) + '</p><p class="petit">' + txt.length + " caractère(s). Le SMS envoyé est signé du prénom du conseiller de la fiche.</p>", "");
+        return;
+      }
+      // L'aperçu montre le texte ENREGISTRÉ (enregistrez avant pour voir vos changements).
+      let d;
+      if (m.cle === "anniv-naissance") d = await api("/crm/anniversaires/apercu?type=naissance");
+      else if (m.cle === "anniv-achat-acquereur") d = await api("/crm/anniversaires/apercu?type=achat");
+      else if (m.cle === "anniv-achat-vendeur") d = await api("/crm/anniversaires/apercu?type=achat&profil=vendeur");
+      else d = await api("/crm/estimations/apercu?jalon=" + m.cle.replace("estimation-", ""));
+      montrerApercu("Aperçu — " + m.titre, d.html);
+    } catch (e) { toast(e.message, true); }
   }
 
   /* ------------------------------ Estimations ------------------------------ */
@@ -1005,6 +1184,7 @@
     chargerAcheteurs();
     chargerRelances();
     chargerEstimations();
+    chargerBiblio();
   }
 
   /* ---------------------------- Branchements ------------------------------- */
@@ -1069,6 +1249,10 @@
     if (tr) ouvrirEstimation(tr.dataset.estimation);
   });
   $("ach-conseiller").addEventListener("change", rendreAcheteurs);
+  $("biblio-cle").addEventListener("change", remplirBiblio);
+  $("btn-biblio-save").addEventListener("click", () => sauverBiblio(false));
+  $("btn-biblio-defaut").addEventListener("click", () => sauverBiblio(true));
+  $("btn-biblio-apercu").addEventListener("click", apercuBiblio);
   $("btn-ach-apercu").addEventListener("click", apercuRelance);
   $("btn-ach-run").addEventListener("click", lancerRelances);
   $("table-acheteurs").addEventListener("click", (e) => {

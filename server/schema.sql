@@ -579,3 +579,25 @@ CREATE TABLE IF NOT EXISTS crm_estimation_bien (
   data          TEXT NOT NULL DEFAULT '{}',
   updated_at    INTEGER NOT NULL
 );
+
+-- Visites des acquéreurs : un projet d'achat + un bien + une date. Prévue →
+-- faite (compte rendu) ou annulée. C'est la matière du BON DE VISITE, imprimé
+-- par le navigateur au nom de l'agence, et de la vue « activité » du projet
+-- (avec les biens déjà proposés par les relances automatiques).
+CREATE TABLE IF NOT EXISTS crm_visites (
+  id           TEXT PRIMARY KEY,             -- vi_xxxxxxxx
+  agency_id    TEXT NOT NULL REFERENCES agencies(id),
+  projet_id    TEXT NOT NULL DEFAULT '',     -- crm_projets (projet d'achat)
+  contact_id   TEXT NOT NULL DEFAULT '',     -- personne qui visite (si choisie)
+  contact      TEXT NOT NULL DEFAULT '',     -- nom affiché sur le bon
+  bien         TEXT NOT NULL,                -- adresse ou titre du bien visité
+  annonce_id   TEXT NOT NULL DEFAULT '',     -- crm_annonces (si bien du site)
+  date_visite  TEXT NOT NULL DEFAULT '',     -- AAAA-MM-JJ
+  statut       TEXT NOT NULL DEFAULT 'prevue', -- prevue | faite | annulee
+  compte_rendu TEXT NOT NULL DEFAULT '',
+  conseiller   TEXT NOT NULL DEFAULT '',
+  user_id      TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_visites_projet ON crm_visites(agency_id, projet_id);

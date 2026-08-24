@@ -206,7 +206,26 @@ Le géocodage priorise les contacts `estime` (geocoderVentes + /crm/geo/attente)
 /crm/estimation/quartier géocode en fond (waitUntil) + rend `estimesEnAttente`.
 Nettoyage couples : curseur `c:<id>` + règle de progrès garanti (civilité couple ou
 prénom duo) — jamais de re-lot infini, ambigus comptés et dépassés.
-Accès : onglet-lien de l'Administration. Autres briques Administration : **nettoyage
+Accès : onglet-lien de l'Administration.
+**Bibliothèque des messages** : `MODELES` (crm.js, 12 clés — anniv-naissance/
+achat-acquereur/achat-vendeur, sms-*, estimation-*) porte les textes d'origine ;
+`reglages.modeles[{cle}] = {sujet, texte}` les surcharge (saveReglages filtre aux
+clés connues, stripML garde les \n ; vide = retour à l'origine). Balises
+{prenom} {nom} {ville} {adresse} {annees} {depuis} {conseiller} {agence}
+{signature} {r1} {r2} via `remplirModele` (espace avant !?:; conservé —
+typographie française ; " ," et " ." recollés). Les 3 builders consultent la
+surcharge (buildAnniversaireEmail/Sms, buildEstimationEmail — param modeles) ;
+`GET /crm/modeles` (admin) liste effectif + défaut ; UI dans Réglages.
+**Visites acquéreurs** (`crm_visites`, id vi_) : projet + bien + date, statuts
+prevue|faite|annulee, compte rendu ; routes membre GET/POST/PUT/DELETE
+/crm/visites, vue admin `GET /crm/projets/:id/activite` (biens proposés via
+crm_relances + visites) ; UI dans la modale projet (Acheteurs) avec « 🖨 Bon de
+visite » imprimé par le navigateur (window.open + print, en-tête agence).
+**Suivi d'une fiche estimation** : `GET /crm/estimations/:id/envois` (membre) ;
+la modale affiche l'historique + la prochaine action calculée des dates R1/R2.
+Studio Estimation a un bouton 📍 (pompe /crm/geo/serveur, admin) ; la priorité
+de géocodage couvre estimés ET vendeurs ; la récupération depuis la fiche
+prestations parse surface/pièces/terrain/année/DPE du texte. Autres briques Administration : **nettoyage
 de la base** (`GET/POST /crm/nettoyage`, admin : fiches vides supprimées, doublons
 fusionnés — même e-mail, ou même nom+prénom sans contradiction d'e-mail/téléphone,
 homonymes ambigus jamais touchés, le plus ancien survit et récupère envois/relances/
