@@ -503,3 +503,27 @@ CREATE TABLE IF NOT EXISTS crm_geo (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_crm_geo_ag ON crm_geo(agency_id);
+
+-- Ventes historiques de l'agence, importées d'une extraction du logiciel
+-- Century 21 (« ventes SMJ ») : la couche « Nos ventes » de la carte les
+-- affiche avec les dossiers Studio Suivi. Géocodées dans crm_geo sous leur
+-- id (vt_xxxxxxxx), comme les dossiers. Ré-importer le même fichier ne crée
+-- pas de doublon : la clé (adresse + date d'acte) est unique par agence.
+CREATE TABLE IF NOT EXISTS crm_ventes (
+  id          TEXT PRIMARY KEY,             -- vt_xxxxxxxx
+  agency_id   TEXT NOT NULL REFERENCES agencies(id),
+  vendeur     TEXT NOT NULL DEFAULT '',
+  acquereur   TEXT NOT NULL DEFAULT '',
+  adresse     TEXT NOT NULL DEFAULT '',     -- adresse complète du bien
+  ville       TEXT NOT NULL DEFAULT '',
+  date_acte   TEXT NOT NULL DEFAULT '',     -- AAAA-MM-JJ (signature notaire)
+  prix        INTEGER NOT NULL DEFAULT 0,
+  type        TEXT NOT NULL DEFAULT '',     -- maison, appartement, terrain…
+  surface     REAL NOT NULL DEFAULT 0,
+  conseillers TEXT NOT NULL DEFAULT '',
+  cle         TEXT NOT NULL,                -- adresse|date normalisée (dédoublonnage)
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_ventes_cle    ON crm_ventes(agency_id, cle);
+CREATE INDEX        IF NOT EXISTS idx_crm_ventes_agency ON crm_ventes(agency_id, date_acte);

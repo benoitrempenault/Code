@@ -1779,6 +1779,29 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const stats2 = (await callR("/crm/carte", { headers: auth })).json.ventesStats;
   ok(stats2.total === 4 && stats2.sansAdresse === 1 && stats2.introuvables === 1,
     "ventes sans adresse et adresses introuvables comptées et expliquées");
+
+  /* ---- Ventes historiques importées (extraction C21) --------------------- */
+  const importV = await callR("/crm/ventes/bulk", { headers: auth, body: { rows: [
+    { vendeur: "KOZA William", acquereur: "CHIALE Fabrice", adresse: "9 impasse des Vignes 33185 LE HAILLAN",
+      ville: "LE HAILLAN", date_acte: "2019-06-14", prix: 535000, type: "Maison", surface: 237.31, conseillers: "Adélaïde, Nathalie" },
+    { vendeur: "Doublon", adresse: "9 IMPASSE DES VIGNES 33185 le haillan", date_acte: "2019-06-14", prix: 1 },
+    { vendeur: "SansDate", adresse: "1 rue X", date_acte: "" },
+  ] } });
+  ok(importV.json.ajoutees === 1 && importV.json.dejaConnues === 1 && importV.json.invalides === 1,
+    "import de ventes : dédoublonnage par adresse + date d'acte, lignes sans date écartées");
+  ok((await callR("/crm/ventes/bulk", { headers: auth, body: { rows: [
+    { vendeur: "KOZA", adresse: "9 impasse des Vignes 33185 LE HAILLAN", date_acte: "2019-06-14" },
+  ] } })).json.dejaConnues === 1, "ré-importer le même fichier n'ajoute aucun doublon");
+  ok((await callR("/crm/ventes/bulk", { headers: { Authorization: "Bearer " + sessP }, body: { rows: [
+    { adresse: "2 rue Y", date_acte: "2020-01-01" },
+  ] } })).status === 403, "l'import de ventes est réservé aux administrateurs");
+  // La vente importée est géocodée automatiquement (fausse BAN) et servie
+  // avec les dossiers Suivi — prix mis en forme, nom « VENDEUR / ACQUÉREUR ».
+  const carteI = (await callR("/crm/carte", { headers: auth })).json;
+  const vImp = carteI.ventes.find((v) => v.nom === "KOZA William / CHIALE Fabrice");
+  ok(vImp && vImp.lat === 44.9012 && vImp.prix === "535 000 €" && vImp.date_acte === "2019-06-14" && vImp.type === "maison",
+    "une vente importée apparaît sur la carte, géocodée automatiquement");
+  ok(carteI.ventesStats.total === 5, "les compteurs incluent les ventes importées");
   ok((await callR("/crm/carte", { headers: { Authorization: "Bearer " + sessAutre } })).json.ventes.length === 0,
     "les ventes sont isolées par agence");
 

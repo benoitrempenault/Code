@@ -176,10 +176,12 @@
       const m = L.marker([v.lat, v.lng], {
         icon: L.divIcon({ className: "marqueur-vente", html: "🔑", iconSize: [26, 26], iconAnchor: [13, 13] }),
       });
+      const detail = [v.type || "", v.surface ? Math.round(v.surface) + " m²" : ""].filter(Boolean).join(" · ");
       m.bindPopup(
         '<div class="titre">' + escH(v.nom) + "</div>" +
         '<div class="sous">Vendu par l\'agence' + (v.date_acte ? " · acte du " + escH(fmtDateFr(v.date_acte)) : "") + "</div>" +
-        (v.prix ? "<div>" + escH(v.prix) + "</div>" : "") +
+        (v.prix ? "<div>" + escH(v.prix) + (detail ? ' <span class="sous">' + escH(detail) + "</span>" : "") + "</div>"
+          : (detail ? "<div>" + escH(detail) + "</div>" : "")) +
         (v.adresse ? '<div class="sous">' + escH(v.adresse) + "</div>" : "") +
         (v.conseillers ? '<div class="sous">Conseiller(s) : ' + escH(v.conseillers) + "</div>" : ""));
       coucheVentes.addLayer(m);
@@ -197,11 +199,12 @@
     if (vs.introuvables) bouts.push(vs.introuvables + " adresse(s) introuvable(s)");
     if (vs.sansAdresse) bouts.push(vs.sansAdresse + " sans adresse de bien dans le Suivi");
     $("etat-ventes").textContent = !vs.total
-      ? "Aucun dossier vendu dans le Suivi pour l'instant."
-      : donnees.ventes.length + " vente(s) sur la carte, sur " + vs.total + " dossier(s) vendu(s)" +
+      ? "Aucune vente pour l'instant (dossiers signés du Suivi + historique importé)."
+      : donnees.ventes.length + " vente(s) sur la carte, sur " + vs.total + " connue(s)" +
         (bouts.length ? " · " + bouts.join(" · ") : "") + ".";
     $("zone-dessin").hidden = !donnees.estAdmin;
     $("btn-geocoder").hidden = !donnees.estAdmin;
+    $("btn-import-ventes").hidden = !donnees.estAdmin;
     rendreIlots();
     rendrePoints();
     rendreVentes();
@@ -311,6 +314,86 @@
     } catch (e) { toast(e.message, true); }
     btn.disabled = false;
     btn.textContent = "📍 Géocoder les adresses";
+  }
+
+  /* ------------------ Import des ventes historiques (xlsx) ----------------- */
+  // L'extraction « ventes SMJ » du logiciel Century 21 : les colonnes sont
+  // reconnues par leurs en-têtes (pas de mappage manuel), les dates Excel
+  // (numéros de série) converties, les lignes annulées écartées. Envoi par
+  // lots, puis géocodage dans la foulée. Admin seulement (le serveur re-vérifie).
+  const COLONNES_VENTES = {
+    vendeur: /^vendeur$/i, acquereur: /^acqu[ée]reur$/i,
+    adresse: /^adresse du bien$/i, ville: /^ville du bien$/i,
+    date: /^date de signature notaire$/i, prix: /^prix transaction$/i,
+    type: /^type de bien$/i, surface: /^surface$/i,
+    consM: /^conseiller mandat$/i, consA: /^conseiller acqu[ée]reur$/i,
+    annulation: /^date annulation$/i,
+  };
+  function dateExcel(v) {
+    if (v == null || v === "") return "";
+    if (typeof v === "number" && v > 20000 && v < 80000) {
+      return new Date(Date.UTC(1899, 11, 30) + Math.round(v * 86400000)).toISOString().slice(0, 10);
+    }
+    const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(String(v));
+    if (m) return m[3] + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0");
+    const iso = /^(\d{4}-\d{2}-\d{2})/.exec(String(v));
+    return iso ? iso[1] : "";
+  }
+  async function importerVentes(fichier) {
+    const btn = $("btn-import-ventes");
+    btn.disabled = true;
+    btn.textContent = "📥 Lecture du fichier…";
+    try {
+      const classeur = XLSX.read(await fichier.arrayBuffer(), { type: "array", raw: true });
+      const feuille = classeur.Sheets[classeur.SheetNames[0]];
+      const lignes = XLSX.utils.sheet_to_json(feuille, { header: 1, raw: true, defval: "" });
+      if (lignes.length < 2) throw new Error("Le fichier semble vide.");
+      const entetes = lignes[0].map((h) => String(h || "").trim());
+      const col = {};
+      for (const [nom, motif] of Object.entries(COLONNES_VENTES)) {
+        col[nom] = entetes.findIndex((h) => motif.test(h));
+      }
+      if (col.adresse < 0 || col.date < 0) {
+        throw new Error("Colonnes « Adresse du bien » et « Date de signature notaire » introuvables — est-ce bien l'extraction des ventes ?");
+      }
+      const cellule = (l, i) => (i >= 0 && i < l.length ? l[i] : "");
+      const rows = [];
+      let ecartees = 0;
+      for (let i = 1; i < lignes.length; i++) {
+        const l = lignes[i];
+        if (!l || !l.length) continue;
+        if (String(cellule(l, col.annulation) || "").trim()) { ecartees++; continue; } // vente annulée
+        const date = dateExcel(cellule(l, col.date));
+        const adresse = String(cellule(l, col.adresse) || "").trim();
+        if (!date || !adresse) { ecartees++; continue; }
+        const conseillers = [...new Set([cellule(l, col.consM), cellule(l, col.consA)]
+          .map((v) => String(v || "").trim()).filter(Boolean))].join(", ");
+        rows.push({
+          vendeur: cellule(l, col.vendeur), acquereur: cellule(l, col.acquereur),
+          adresse, ville: cellule(l, col.ville), date_acte: date,
+          prix: parseFloat(cellule(l, col.prix)) || 0,
+          type: cellule(l, col.type), surface: parseFloat(cellule(l, col.surface)) || 0,
+          conseillers,
+        });
+      }
+      if (!rows.length) throw new Error("Aucune vente exploitable dans ce fichier.");
+      let ajoutees = 0, dejaConnues = 0;
+      for (let i = 0; i < rows.length; i += 300) {
+        btn.textContent = "📥 Import… " + Math.min(i + 300, rows.length) + " / " + rows.length;
+        const r = await api("/crm/ventes/bulk", { json: { rows: rows.slice(i, i + 300) } });
+        ajoutees += r.ajoutees; dejaConnues += r.dejaConnues;
+      }
+      toast(rows.length + " vente(s) lue(s) : " + ajoutees + " ajoutée(s)" +
+        (dejaConnues ? ", " + dejaConnues + " déjà connue(s)" : "") +
+        (ecartees ? ", " + ecartees + " écartée(s)" : "") + ". Géocodage en cours…");
+      btn.disabled = false;
+      btn.textContent = "📥 Importer des ventes (Excel)";
+      await geocoder(); // place tout de suite les nouvelles ventes sur la carte
+    } catch (e) {
+      toast(e.message, true);
+      btn.disabled = false;
+      btn.textContent = "📥 Importer des ventes (Excel)";
+    }
   }
 
   /* ------------------------- Marché : DVF + DPE ---------------------------- */
@@ -523,6 +606,12 @@
   });
   $("btn-geocoder").addEventListener("click", geocoder);
   $("btn-position").addEventListener("click", maPosition);
+  $("btn-import-ventes").addEventListener("click", () => $("fichier-ventes").click());
+  $("fichier-ventes").addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (f) importerVentes(f);
+  });
   $("couche-dvf").addEventListener("change", rafraichirMarche);
   $("couche-dpe").addEventListener("change", rafraichirMarche);
   $("couche-ventes").addEventListener("change", rendreVentes);

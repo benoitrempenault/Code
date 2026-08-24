@@ -996,6 +996,26 @@ export function createApp(env) {
         prix: String((data.prix && data.prix.prix_vente) || "").slice(0, 40),
       });
     }
+    // Les ventes historiques importées (extraction C21) rejoignent la couche.
+    const fmtPrix = (n) => (n > 0 ? String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " €" : "");
+    const importees = await db.all(
+      `SELECT v.id, v.vendeur, v.acquereur, v.adresse, v.ville, v.date_acte, v.prix, v.type, v.surface, v.conseillers,
+              g.lat, g.lng, g.adresse AS geo_adresse
+       FROM crm_ventes v LEFT JOIN crm_geo g ON g.contact_id = v.id
+       WHERE v.agency_id = ?`, [ctx.agency.id]);
+    for (const r of importees) {
+      stats.total++;
+      const adresse = adresseDossier(r.adresse, r.ville); // même composition que le géocodage
+      if (!adresse) { stats.sansAdresse++; continue; }
+      if (r.lat == null || adresse !== r.geo_adresse) { stats.aGeocoder++; continue; }
+      if (r.lat === 0 && r.lng === 0) { stats.introuvables++; continue; }
+      ventes.push({
+        id: r.id, nom: [r.vendeur, r.acquereur].filter(Boolean).join(" / "),
+        lat: r.lat, lng: r.lng, adresse, conseillers: r.conseillers || "",
+        date_acte: r.date_acte, prix: fmtPrix(r.prix),
+        type: r.type || "", surface: r.surface || 0,
+      });
+    }
     return c.json({
       points: points.map((p) => ({ ...p, types: (() => { try { return JSON.parse(p.types || "[]"); } catch { return []; } })() })),
       ilots: ilots.map((i) => ({ ...i, polygone: (() => { try { return JSON.parse(i.polygone); } catch { return []; } })() })),
@@ -1046,6 +1066,17 @@ export function createApp(env) {
   // Contacts à géocoder : adresse renseignée, jamais géocodés ou adresse
   // changée depuis. Le NAVIGATEUR interroge la BAN (api-adresse.data.gouv.fr)
   // puis renvoie les positions par lots — le Worker n'a pas à porter ce trafic.
+  // Import des ventes historiques (extraction xlsx du logiciel C21, lue par
+  // le NAVIGATEUR qui envoie des lignes déjà mappées, par lots). Admin.
+  const VENTES_BULK_MAX = 400;
+  app.post("/crm/ventes/bulk", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    const rows = (b && Array.isArray(b.rows) ? b.rows : []).slice(0, VENTES_BULK_MAX);
+    if (!rows.length) return err(c, 400, "Aucune vente à importer.");
+    return c.json(await CRM.bulkUpsertVentes(db, ctx.agency.id, rows));
+  });
+
   app.get("/crm/geo/attente", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const rows = await db.all(
@@ -1061,9 +1092,16 @@ export function createApp(env) {
        FROM dossiers d LEFT JOIN crm_geo g ON g.contact_id = d.id
        WHERE d.agency_id = ? AND d.adresse <> '' AND d.statut <> 'annule'
          AND (d.statut IN ('signe','clos') OR d.data LIKE '%"signature_acte":"2%')`, [ctx.agency.id]);
+    // Les ventes importées aussi (le bouton 📍 avale tout d'un coup après un
+    // gros import — le géocodage automatique au fil de l'eau ferait pareil,
+    // mais en plusieurs jours).
+    const ventesImp = await db.all(
+      `SELECT v.id, v.adresse, v.ville, g.adresse AS geo_adresse
+       FROM crm_ventes v LEFT JOIN crm_geo g ON g.contact_id = v.id
+       WHERE v.agency_id = ? AND v.adresse <> ''`, [ctx.agency.id]);
     const attente = rows
       .map((r) => ({ id: r.id, adresse: [r.adresse, r.cp, r.ville].filter(Boolean).join(" "), deja: r.geo_adresse }))
-      .concat(dossiers.map((r) => ({ id: r.id, adresse: adresseDossier(r.adresse, r.ville), deja: r.geo_adresse })))
+      .concat(dossiers.concat(ventesImp).map((r) => ({ id: r.id, adresse: adresseDossier(r.adresse, r.ville), deja: r.geo_adresse })))
       .filter((r) => r.adresse !== r.deja)
       .slice(0, GEO_BATCH_MAX)
       .map(({ id, adresse }) => ({ id, adresse }));
@@ -1076,14 +1114,16 @@ export function createApp(env) {
     const rows = (b && Array.isArray(b.rows) ? b.rows : []).slice(0, GEO_BATCH_MAX);
     if (!rows.length) return err(c, 400, "Aucune position à enregistrer.");
     const ids = rows.map((r) => String(r.contactId));
-    // La géocache accepte les contacts ET les dossiers de vente (Suivi) de
-    // l'agence — jamais un id qui n'appartient pas à l'agence.
+    // La géocache accepte les contacts, les dossiers de vente (Suivi) et les
+    // ventes importées de l'agence — jamais un id d'une autre agence.
     const connus = new Set((await db.all(
       `SELECT id FROM crm_contacts WHERE agency_id = ? AND id IN (${ids.map(() => "?").join(",")})`,
       [ctx.agency.id, ...ids])).map((r) => r.id));
-    for (const r of await db.all(
-      `SELECT id FROM dossiers WHERE agency_id = ? AND id IN (${ids.map(() => "?").join(",")})`,
-      [ctx.agency.id, ...ids])) connus.add(r.id);
+    for (const table of ["dossiers", "crm_ventes"]) {
+      for (const r of await db.all(
+        `SELECT id FROM ${table} WHERE agency_id = ? AND id IN (${ids.map(() => "?").join(",")})`,
+        [ctx.agency.id, ...ids])) connus.add(r.id);
+    }
     const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
     let ok = 0;
     const valeurs = [];

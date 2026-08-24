@@ -67,15 +67,19 @@
 
     <div class="bloc">
       <h2>Marché</h2>
-      <p class="aide">Nos ventes (dossiers signés du Suivi), les ventes notariées (DVF — y
-        compris celles des confrères) et les DPE récents : un DPE frais est souvent le signe
-        d'un projet de vente ou de location.</p>
+      <p class="aide">Nos ventes (dossiers signés du Suivi et historique importé), les ventes
+        notariées (DVF — y compris celles des confrères) et les DPE récents : un DPE frais est
+        souvent le signe d'un projet de vente ou de location.</p>
       <div class="filtres">
-        <label class="case"><input type="checkbox" id="couche-ventes" checked /> 🔑 Nos ventes (Studio Suivi)</label>
+        <label class="case"><input type="checkbox" id="couche-ventes" checked /> 🔑 Nos ventes</label>
         <label class="case"><input type="checkbox" id="couche-dvf" /> <span class="pastille" style="background:#4ECDC4"></span> Ventes DVF (3 dernières années)</label>
         <label class="case"><input type="checkbox" id="couche-dpe" /> <span class="pastille" style="background:linear-gradient(90deg,#2e8b57,#e9c46a,#d64533)"></span> DPE (12 derniers mois)</label>
       </div>
       <p class="petit" id="etat-ventes"></p>
+      <div class="rang">
+        <button class="btn" id="btn-import-ventes" hidden>📥 Importer des ventes (Excel)</button>
+        <input type="file" id="fichier-ventes" accept=".xlsx,.xls" hidden />
+      </div>
       <div class="legende-dpe" id="legende-dpe" hidden>
         <span style="background:#2E8B57">A</span><span style="background:#5FAE4E">B</span><span style="background:#B4C93B">C</span><span style="background:#E9C46A">D</span><span style="background:#E39B3B">E</span><span style="background:#DB6A2C">F</span><span style="background:#D64533">G</span>
       </div>
@@ -102,6 +106,7 @@
 
 <script src="assets/js/config.js"></script>
 <script src="assets/js/vendor/leaflet.js"></script>
+<script src="assets/js/vendor/xlsx.full.min.js"></script>
 <script src="assets/js/prospection.js"></script>
 </body>
 </html>

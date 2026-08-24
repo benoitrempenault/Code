@@ -986,6 +986,60 @@ export function sanitizeIlot(b) {
   return { nom, conseiller: strip(b.conseiller, 80), couleur, polygone: JSON.stringify(poly) };
 }
 
+/* ---------------- Ventes historiques (import extraction C21) -------------- */
+// L'extraction « ventes SMJ » du logiciel Century 21 : une ligne par vente
+// signée (vendeur, acquéreur, adresse complète du bien, date de signature
+// notaire, prix, type, surface, conseillers). Le navigateur lit le fichier
+// et envoie des lignes déjà mappées ; ici on nettoie, on dédoublonne (clé
+// adresse + date d'acte) et on insère en masse (multi-lignes, valeurs inline
+// — mêmes plafonds D1 que l'import de contacts).
+export function sanitizeVente(v) {
+  const adresse = strip(v.adresse, 200);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(v.date_acte || "")) ? String(v.date_acte) : "";
+  if (!adresse || !date) return null; // sans adresse ou sans acte : rien à poser sur la carte
+  const cle = (adresse + "|" + date).toLowerCase().replace(/\s+/g, " ");
+  return {
+    vendeur: strip(v.vendeur, 120), acquereur: strip(v.acquereur, 120),
+    adresse, ville: strip(v.ville, 80), date_acte: date,
+    prix: Math.max(0, Math.round(Number(v.prix) || 0)),
+    type: strip(v.type, 40).toLowerCase(),
+    surface: Math.max(0, Number(v.surface) || 0),
+    conseillers: strip(v.conseillers, 120), cle,
+  };
+}
+
+export async function bulkUpsertVentes(db, agencyId, rows) {
+  const propres = [];
+  const vues = new Set();
+  let invalides = 0, doublons = 0;
+  for (const r of Array.isArray(rows) ? rows : []) {
+    const v = sanitizeVente(r || {});
+    if (!v) { invalides++; continue; }
+    if (vues.has(v.cle)) { doublons++; continue; } // doublon à l'intérieur du fichier
+    vues.add(v.cle);
+    propres.push(v);
+  }
+  const connues = new Set((await db.all(
+    "SELECT cle FROM crm_ventes WHERE agency_id = ?", [agencyId])).map((r) => r.cle));
+  const nouvelles = propres.filter((v) => !connues.has(v.cle));
+  const t = now();
+  let sql = "", n = 0, total = 0;
+  const poser = async () => {
+    if (!n) return;
+    await db.run(
+      `INSERT INTO crm_ventes (id, agency_id, vendeur, acquereur, adresse, ville, date_acte, prix, type, surface, conseillers, cle, created_at, updated_at) VALUES ${sql}`, []);
+    sql = ""; n = 0;
+  };
+  for (const v of nouvelles) {
+    const ligne = `(${sqlText(randId("vt"))},${sqlText(agencyId)},${sqlText(v.vendeur)},${sqlText(v.acquereur)},${sqlText(v.adresse)},${sqlText(v.ville)},${sqlText(v.date_acte)},${v.prix},${sqlText(v.type)},${v.surface},${sqlText(v.conseillers)},${sqlText(v.cle)},${t},${t})`;
+    sql += (n ? "," : "") + ligne;
+    n++; total++;
+    if (n >= INSERT_MAX_LIGNES || sql.length > INSERT_MAX_OCTETS) await poser();
+  }
+  await poser();
+  return { recues: (Array.isArray(rows) ? rows : []).length, ajoutees: total, dejaConnues: doublons + propres.length - nouvelles.length, invalides };
+}
+
 /* ----------------------- Géocodage des ventes (Suivi) --------------------- */
 // Un dossier Suivi compte comme une vente réalisée : acte signé (date posée)
 // ou statut signé/clos — jamais les annulés. Même critère que l'app Suivi.
@@ -1014,10 +1068,15 @@ export async function geocoderVentes(env, db, agencyId, max = 12) {
      FROM dossiers d LEFT JOIN crm_geo g ON g.contact_id = d.id
      WHERE d.agency_id = ? AND d.adresse <> '' AND d.statut <> 'annule'
        AND (d.statut IN ('signe','clos') OR d.data LIKE '%"signature_acte":"2%')`, [agencyId]);
-  const attente = rows
+  // Les ventes importées (crm_ventes) passent au même géocodage automatique.
+  const importees = await db.all(
+    `SELECT v.id, v.adresse, v.ville, g.adresse AS geo_adresse
+     FROM crm_ventes v LEFT JOIN crm_geo g ON g.contact_id = v.id
+     WHERE v.agency_id = ? AND v.adresse <> ''`, [agencyId]);
+  const enAttente = rows.concat(importees)
     .map((r) => ({ id: r.id, adresse: adresseDossier(r.adresse, r.ville), deja: r.geo_adresse }))
-    .filter((r) => r.adresse && r.adresse !== r.deja)
-    .slice(0, Math.max(0, max));
+    .filter((r) => r.adresse && r.adresse !== r.deja);
+  const attente = enAttente.slice(0, Math.max(0, max));
   if (!attente.length) return { geocodes: 0, restants: 0 };
   const base = env.BAN_BASE || "https://api-adresse.data.gouv.fr";
   const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
@@ -1044,7 +1103,7 @@ export async function geocoderVentes(env, db, agencyId, max = 12) {
     await db.run(
       `INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES ${valeurs.join(",")}`, []);
   }
-  return { geocodes, restants: rows.length - attente.length + (attente.length - valeurs.length) };
+  return { geocodes, restants: enAttente.length - valeurs.length };
 }
 
 /* ----------------------------- Cron quotidien ----------------------------- */

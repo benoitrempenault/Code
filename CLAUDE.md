@@ -136,7 +136,15 @@ côté serveur, 12 par affichage de `/crm/carte` + 30 par nuit via le cron, `BAN
 surchargeable en test ; l'adresse est recomposée « rue, ville » via `adresseDossier`
 car `bien.adresse` du Suivi ne porte que la rue ; `/crm/carte` renvoie `ventes` et les
 compteurs `ventesStats {total, sansAdresse, introuvables, aGeocoder}` affichés sous
-l'interrupteur, marqueur 🔑 `divIcon`), les **ventes
+l'interrupteur, marqueur 🔑 `divIcon`. S'y ajoutent les **ventes historiques importées**
+d'une extraction xlsx du logiciel Century 21 : table `crm_ventes` (id vt_), clé UNIQUE
+adresse+date d'acte par agence — ré-importer le même fichier ne crée aucun doublon —,
+colonnes reconnues par leurs EN-TÊTES côté navigateur (« Adresse du bien », « Date de
+signature notaire »…, dates en numéros de série Excel converties, lignes annulées
+écartées), envoi par lots de 300 à `POST /crm/ventes/bulk` (admin, insertion
+multi-lignes inline), puis géocodage enchaîné : `/crm/geo/attente` et `geo/batch`
+couvrent les trois familles d'ids — contacts, dossiers do_, ventes vt_ — et
+`geocoderVentes` reprend le reliquat au fil de l'eau), les **ventes
 DVF** (fichiers géolocalisés Etalab, un CSV par commune et par an, relayés par le
 serveur via **`/crm/dvf/:annee/:dep/:commune`** — le stockage S3 derrière
 files.data.gouv.fr/geo-dvf n'envoie AUCUN en-tête CORS, en direct le navigateur bloque
