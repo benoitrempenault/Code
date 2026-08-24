@@ -2349,6 +2349,21 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const pompeOk = await callR("/crm/geo/serveur", { headers: auth, method: "POST" });
   ok(pompeOk.status === 200 && typeof pompeOk.json.traites === "number",
     "un dossier au JSON abîmé ne fait plus planter la pompe 📍 (json_valid)");
+  // Une adresse géocodée LONGUE (> 50 octets) : D1 refuse les motifs LIKE de
+  // cette taille — la détection « adresse changée » passe par substr, et une
+  // fiche déjà à jour ne repart pas en file.
+  const adrLongue = "20-22 avenue du Général de Gaulle prolongée 33160 Saint-Médard-en-Jalles";
+  await db.run(
+    `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone, adresse, cp, ville,
+     date_naissance, date_achat, types, conseiller, notes, source, opt_out, created_at, updated_at)
+     VALUES ('ct_adrlongue', ?, '', 'M.', 'Long', 'ADRESSE', '', '', ?, '', '', '', '', '[]', '', '', 'import', 0, 9, 9)`,
+    [agId, adrLongue]);
+  await db.run(
+    "INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES ('ct_adrlongue', ?, 44.9, -0.71, 'ok', 0.9, ?, 9)",
+    [agId, adrLongue]);
+  const attenteL = (await callR("/crm/geo/attente", { headers: auth })).json.attente;
+  ok(!attenteL.some((a2) => a2.id === "ct_adrlongue"),
+    "une adresse longue déjà géocodée ne replante pas la file et n'y repasse pas");
 
   fauxResend.close();
   fauxDvf.close();

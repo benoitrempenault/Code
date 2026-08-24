@@ -1887,11 +1887,15 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
   // plus pareil) et se borne — le tri exact reste fait en mémoire.
   // Les ESTIMES passent devant : c'est eux que Studio Estimation pose sur la
   // carte du quartier — ils doivent y apparaitre avant le reste de la base.
+  // substr(...) <> ... et non LIKE : D1 limite les motifs LIKE a 50 octets,
+  // une adresse geocodee plus longue plantait TOUTE la requete (SQLITE_ERROR
+  // « pattern too complex ») des que le OR ne court-circuitait plus.
   const contacts = avecContacts ? await db.all(
     `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
      FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
      WHERE c.agency_id = ? AND c.adresse <> ''
-       AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0) OR g.adresse NOT LIKE c.adresse || '%')
+       AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0)
+            OR substr(g.adresse, 1, length(c.adresse)) <> c.adresse)
      ORDER BY CASE WHEN c.types LIKE '%estime%' OR c.types LIKE '%vendeur%' THEN 0 ELSE 1 END,
               CASE WHEN g.contact_id IS NULL THEN 0 WHEN g.lat = 0 AND g.lng = 0 THEN 2 ELSE 1 END
      LIMIT ${Math.max(40, Math.max(0, max) * 4)}`, [agencyId]) : [];

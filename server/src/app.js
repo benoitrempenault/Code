@@ -1211,7 +1211,8 @@ export function createApp(env) {
       `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
        FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
        WHERE c.agency_id = ? AND c.adresse <> ''
-         AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0) OR g.adresse NOT LIKE c.adresse || '%')
+         AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0)
+              OR substr(g.adresse, 1, length(c.adresse)) <> c.adresse)
        ORDER BY CASE WHEN c.types LIKE '%estime%' OR c.types LIKE '%vendeur%' THEN 0 ELSE 1 END,
                 CASE WHEN g.contact_id IS NULL THEN 0 WHEN g.lat = 0 AND g.lng = 0 THEN 2 ELSE 1 END
        LIMIT ${GEO_BATCH_MAX * 3}`, [ctx.agency.id]);
