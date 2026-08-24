@@ -121,19 +121,28 @@ géocodés s'affichent par typologie, les **îlots** de prospection se dessinent
 clics posent des sommets) et s'attribuent à un conseiller — `crm_ilots` (polygone JSON),
 `ilotPourPoint`/`pointDansPolygone` dans `server/src/crm.js`, route
 `/crm/ilots/attribution?lat&lng` : la même attribution servira au routage des demandes
-du site. Le **géocodage** est fait par le NAVIGATEUR via la BAN
-(api-adresse.data.gouv.fr, ~8 req/s), résultats poussés par lots à `/crm/geo/batch`
-(INSERT OR REPLACE inline) et stockés dans `crm_geo` (une tentative ratée est mémorisée
-lat=lng=0 pour ne pas être redemandée ; filtrée de `/crm/carte`) ; `/crm/geo/attente`
-liste les adresses jamais géocodées ou modifiées — contacts ET dossiers Suivi vendus
-(voir plus bas) ; `/crm/geo/batch` accepte les deux familles d'ids. Lecture
+du site. Le **géocodage** : DEUX géocodeurs officiels à la même API — la BAN
+(api-adresse.data.gouv.fr) puis le géocodeur IGN (data.geopf.fr/geocodage) en relève,
+car la BAN limite le débit des serveurs (dont Cloudflare) et de certains réseaux
+d'agence. Le NAVIGATEUR essaie d'abord en direct (~8 req/s, bascule IGN par adresse,
+abandon après 8 échecs d'affilée) et pousse par lots à `/crm/geo/batch` (INSERT OR
+REPLACE inline) ; sinon il POMPE `POST /crm/geo/serveur` (admin) : le Worker géocode
+14 adresses EN PARALLÈLE par appel — 14 × 2 géocodeurs ≤ plafond de 50 sous-requêtes
+de l'offre Workers gratuite (35 plantait) — contacts compris, et rend `traites` comme
+signal de progrès (3 passages à vide → arrêt). Tout vit dans `crm_geo` ; un échec est
+mémorisé lat=lng=0 (filtré de `/crm/carte`) mais REPASSE en fin de file (un incident
+passager ne raye jamais une adresse) ; `/crm/geo/attente` liste contacts + dossiers
+vendus + ventes importées, avec pré-filtre SQL borné (LIMIT — jamais de lecture
+intégrale des ~60 000 fiches). Lecture
 (`/crm/carte`) ouverte à tout membre de l'agence ; écriture des îlots et géocodage
 réservés aux admins. Trois couches « Marché » : **nos ventes** (dossiers Studio Suivi
 vendus — critère `dossierVendu` : `dates.signature_acte` posée ou statut signe/clos,
 jamais annule — géocodés dans la MÊME table `crm_geo` sous l'id du dossier, pas de clé
-étrangère ; leur géocodage est AUTOMATIQUE : `geocoderVentes` (crm.js) appelle la BAN
-côté serveur, 12 par affichage de `/crm/carte` + 30 par nuit via le cron, `BAN_BASE`
-surchargeable en test ; l'adresse est recomposée « rue, ville » via `adresseDossier`
+étrangère ; leur géocodage est AUTOMATIQUE : `geocoderVentes` (crm.js) appelle BAN puis
+IGN côté serveur, 8 par affichage de `/crm/carte` EN TOILE DE FOND (executionCtx.
+waitUntil — jamais bloquant, la carte devenait interminable) + 12 par nuit via le cron,
+`BAN_BASE`/`GEOPF_BASE` surchargeables en test ; l'adresse est recomposée « rue,
+ville » via `adresseDossier`
 car `bien.adresse` du Suivi ne porte que la rue ; `/crm/carte` renvoie `ventes` et les
 compteurs `ventesStats {total, sansAdresse, introuvables, aGeocoder}` affichés sous
 l'interrupteur, marqueur 🔑 `divIcon`. S'y ajoutent les **ventes historiques importées**
@@ -144,7 +153,12 @@ signature notaire »…, dates en numéros de série Excel converties, lignes an
 écartées), envoi par lots de 300 à `POST /crm/ventes/bulk` (admin, insertion
 multi-lignes inline), puis géocodage enchaîné : `/crm/geo/attente` et `geo/batch`
 couvrent les trois familles d'ids — contacts, dossiers do_, ventes vt_ — et
-`geocoderVentes` reprend le reliquat au fil de l'eau), les **ventes
+`geocoderVentes` reprend le reliquat au fil de l'eau. À l'échelle (60 000 contacts
+visés, `CONTACTS_MAX` 80 000) : l'import ne relit que les CANDIDATS à la fusion
+(e-mails + noms du lot, variantes de casse — NOCASE ne replie pas les accents),
+la table Administration et le sélecteur des projets plafonnent l'affichage
+(400/200 lignes, recherche pour le reste, coches persistantes dans `lies`),
+et la carte est en `preferCanvas`), les **ventes
 DVF** (fichiers géolocalisés Etalab, un CSV par commune et par an, relayés par le
 serveur via **`/crm/dvf/:annee/:dep/:commune`** — le stockage S3 derrière
 files.data.gouv.fr/geo-dvf n'envoie AUCUN en-tête CORS, en direct le navigateur bloque
