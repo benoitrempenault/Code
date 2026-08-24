@@ -333,18 +333,21 @@
       }
       // 2) Reliquat depuis CE navigateur (si le serveur n'avance plus) :
       //    la BAN puis l'IGN en direct, adresse par adresse.
-      let restePrecedent = -1, stagnation = 0, banBloquee = false;
-      for (let tour = 0; tour < 30 && stagnation < 2 && !banBloquee; tour++) {
-        const { attente } = await api("/crm/geo/attente");
+      let stagnation = 0, banBloquee = false;
+      for (let tour = 0; tour < 60 && stagnation < 2 && !banBloquee; tour++) {
+        const file = await api("/crm/geo/attente");
+        const attente = file.attente;
         if (!attente.length) break;
-        // Deux tours de suite sans progrès (seuls de vrais introuvables
-        // restent) : on passe à la suite proprement.
-        stagnation = attente.length === restePrecedent ? stagnation + 1 : 0;
-        restePrecedent = attente.length;
+        // Le progrès se mesure aux positions réellement MÉMORISÉES ce tour —
+        // pas au nombre de la liste, PLAFONNÉ à 400 : à des milliers
+        // d'adresses il restait « 400 » après un tour pourtant fécond, et la
+        // boucle s'arrêtait en croyant stagner. Deux tours sans rien stocker
+        // (seuls de vrais injoignables restent) : on s'arrête proprement.
+        let stockees = 0;
         const lot = [];
         let echecsSuite = 0;
         for (let i = 0; i < attente.length; i++) {
-          btn.textContent = "📍 Géocodage… " + (i + 1) + " / " + attente.length + (tour ? " (suite)" : "");
+          btn.textContent = "📍 Géocodage… " + (i + 1) + " / " + (file.total || attente.length) + (tour ? " (suite)" : "");
           const a = attente[i];
           let trouve = null, inconnu = false;
           for (const gc of GEOCODEURS) {
@@ -362,6 +365,7 @@
           }
           if (trouve) {
             echecsSuite = 0;
+            stockees++;
             lot.push({
               contactId: a.id, lat: trouve.geometry.coordinates[1], lng: trouve.geometry.coordinates[0],
               label: trouve.properties.label, score: trouve.properties.score, adresse: a.adresse,
@@ -371,6 +375,7 @@
             // Mémorisé (lat/lng à 0) — repassera en fin de file plus tard.
             echecsSuite = 0;
             totalRates++;
+            stockees++;
             lot.push({ contactId: a.id, lat: 0, lng: 0, label: "(adresse introuvable)", score: 0, adresse: a.adresse });
           } else {
             // Aucun géocodeur joignable depuis CE navigateur : rien n'est
@@ -387,7 +392,8 @@
           }
         }
         if (lot.length) await api("/crm/geo/batch", { json: { rows: lot } });
-        totalOk += attente.length;
+        totalOk += stockees;
+        stagnation = stockees === 0 ? stagnation + 1 : 0;
       }
       toast("Géocodage terminé : " + totalOk + " adresse(s) traitée(s)" + (totalRates ? ", " + totalRates + " à retenter ou introuvable(s)" : ""));
       await charger();
@@ -395,7 +401,7 @@
       // un essai réel par géocodeur, depuis CE navigateur et depuis le
       // serveur, plus le rendement de la pompe — pour savoir QUI bloque.
       const fileFinale = await api("/crm/geo/attente");
-      const resteFinal = fileFinale.attente.length;
+      const resteFinal = fileFinale.total || fileFinale.attente.length;
       const introuvablesFinal = fileFinale.dontIntrouvables || 0;
       if (resteFinal > 0 && resteFinal <= introuvablesFinal) {
         // Il ne reste QUE des adresses que les géocodeurs connaissent… pas :

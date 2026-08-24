@@ -1246,8 +1246,10 @@ export function createApp(env) {
     const attente = enFile.slice(0, GEO_BATCH_MAX).map(({ id, adresse }) => ({ id, adresse }));
     // dontIntrouvables : déjà tentées, les géocodeurs ont répondu « inconnu »
     // — elles retenteront leur chance, mais c'est l'ADRESSE de la fiche qu'il
-    // faut corriger. Le front les distingue des vraies « à géocoder ».
-    return c.json({ attente, dontIntrouvables: enFile.filter((r) => r.echec).length });
+    // faut corriger. total : le VRAI restant (la liste est plafonnée à
+    // GEO_BATCH_MAX — sans lui, « 400 » cachait des milliers et la boucle du
+    // navigateur croyait stagner alors qu'elle avançait).
+    return c.json({ attente, total: enFile.length, dontIntrouvables: enFile.filter((r) => r.echec).length });
   });
 
   app.post("/crm/geo/batch", async (c) => {
