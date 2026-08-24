@@ -1706,6 +1706,17 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ] } })).json.enregistres === 1, "position enregistrée");
   ok(!(await callR("/crm/geo/attente", { headers: auth })).json.attente.some((a) => a.id === pages.id),
     "une adresse géocodée ne repasse plus en attente");
+  // Un incident passager (BAN limitée…) ne raye jamais une adresse : marquée
+  // introuvable (lat/lng à 0), elle REPASSE en file au passage suivant.
+  const adrPages = att1.find((a) => a.id === pages.id).adresse;
+  await callR("/crm/geo/batch", { headers: auth, body: { rows: [
+    { contactId: pages.id, lat: 0, lng: 0, label: "(adresse introuvable)", score: 0, adresse: adrPages },
+  ] } });
+  ok((await callR("/crm/geo/attente", { headers: auth })).json.attente.some((a) => a.id === pages.id),
+    "une adresse marquée introuvable repasse en file (retentée)");
+  await callR("/crm/geo/batch", { headers: auth, body: { rows: [
+    { contactId: pages.id, lat: 44.89, lng: -0.71, label: "12 Rue des Pins 33160 Saint-Médard-en-Jalles", score: 0.95, adresse: adrPages },
+  ] } });
 
   // La carte : accessible à un simple conseiller (pas admin), points + îlots.
   const membreP = await callR("/agency/users", { headers: auth, method: "POST", body: { email: "carto@ach-test.fr", name: "Carto" } });

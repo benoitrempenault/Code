@@ -1080,7 +1080,7 @@ export function createApp(env) {
   app.get("/crm/geo/attente", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const rows = await db.all(
-      `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse
+      `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
        FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
        WHERE c.agency_id = ? AND c.adresse <> ''`, [ctx.agency.id]);
     // Les dossiers de vente signés (Studio Suivi) passent au même géocodage :
@@ -1088,7 +1088,7 @@ export function createApp(env) {
     // repère une date d'acte posée dans le JSON (« "signature_acte":"20… » —
     // sérialisation JSON.stringify, sans espaces) sans rapatrier data.
     const dossiers = await db.all(
-      `SELECT d.id, d.adresse, json_extract(d.data, '$.bien.ville') AS ville, g.adresse AS geo_adresse
+      `SELECT d.id, d.adresse, json_extract(d.data, '$.bien.ville') AS ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
        FROM dossiers d LEFT JOIN crm_geo g ON g.contact_id = d.id
        WHERE d.agency_id = ? AND d.adresse <> '' AND d.statut <> 'annule'
          AND (d.statut IN ('signe','clos') OR d.data LIKE '%"signature_acte":"2%')`, [ctx.agency.id]);
@@ -1096,13 +1096,18 @@ export function createApp(env) {
     // gros import — le géocodage automatique au fil de l'eau ferait pareil,
     // mais en plusieurs jours).
     const ventesImp = await db.all(
-      `SELECT v.id, v.adresse, v.ville, g.adresse AS geo_adresse
+      `SELECT v.id, v.adresse, v.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
        FROM crm_ventes v LEFT JOIN crm_geo g ON g.contact_id = v.id
        WHERE v.agency_id = ? AND v.adresse <> ''`, [ctx.agency.id]);
+    // Un échec mémorisé (lat/lng à 0) REPASSE en file, mais en fin de liste :
+    // la BAN évolue, et surtout un incident passager (limitation de débit…)
+    // ne doit jamais rayer une adresse pour toujours.
+    const echec = (r) => r.geo_adresse != null && r.geo_lat === 0 && r.geo_lng === 0;
     const attente = rows
-      .map((r) => ({ id: r.id, adresse: [r.adresse, r.cp, r.ville].filter(Boolean).join(" "), deja: r.geo_adresse }))
-      .concat(dossiers.concat(ventesImp).map((r) => ({ id: r.id, adresse: adresseDossier(r.adresse, r.ville), deja: r.geo_adresse })))
-      .filter((r) => r.adresse !== r.deja)
+      .map((r) => ({ id: r.id, adresse: [r.adresse, r.cp, r.ville].filter(Boolean).join(" "), deja: r.geo_adresse, echec: echec(r) }))
+      .concat(dossiers.concat(ventesImp).map((r) => ({ id: r.id, adresse: adresseDossier(r.adresse, r.ville), deja: r.geo_adresse, echec: echec(r) })))
+      .filter((r) => r.adresse && (r.adresse !== r.deja || r.echec))
+      .sort((a, b) => (a.echec ? 1 : 0) - (b.echec ? 1 : 0))
       .slice(0, GEO_BATCH_MAX)
       .map(({ id, adresse }) => ({ id, adresse }));
     return c.json({ attente });

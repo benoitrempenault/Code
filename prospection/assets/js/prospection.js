@@ -216,9 +216,9 @@
       carte.fitBounds(b.pad(0.1));
     }
     // S'il reste des ventes à placer (import tout frais, page fermée en cours
-    // de géocodage…), le géocodage repart TOUT SEUL — plus aucun bouton à
-    // cliquer, une seule relance par visite.
-    if (donnees.estAdmin && vs.aGeocoder > 0 && !geoAutoLance) {
+    // de géocodage…) ou des adresses marquées introuvables à retenter, le
+    // géocodage repart TOUT SEUL — aucun bouton à cliquer, une relance par visite.
+    if (donnees.estAdmin && (vs.aGeocoder > 0 || vs.introuvables > 0) && !geoAutoLance) {
       geoAutoLance = true;
       geocoder();
     }
@@ -285,18 +285,27 @@
   // les positions au serveur par lots. Relance tant qu'il reste des adresses.
   async function geocoder() {
     const btn = $("btn-geocoder");
+    if (btn.disabled) return; // déjà en cours (bouton + relance automatique)
     btn.disabled = true;
+    geoAutoLance = true;
     let totalOk = 0, totalRates = 0;
     try {
-      for (let tour = 0; tour < 8; tour++) {
+      let restePrecedent = -1, stagnation = 0;
+      for (let tour = 0; tour < 30 && stagnation < 2; tour++) {
         const { attente } = await api("/crm/geo/attente");
         if (!attente.length) break;
+        // Deux tours de suite sans progrès (BAN injoignable, ou seuls des
+        // vrais introuvables restent) : on s'arrête proprement.
+        stagnation = attente.length === restePrecedent ? stagnation + 1 : 0;
+        restePrecedent = attente.length;
         const lot = [];
         for (let i = 0; i < attente.length; i++) {
           btn.textContent = "📍 Géocodage… " + (i + 1) + " / " + attente.length + (tour ? " (suite)" : "");
           const a = attente[i];
           try {
             const r = await fetch(BAN + "/search/?limit=1&q=" + encodeURIComponent(a.adresse));
+            // 429/5xx : la BAN souffle — ne SURTOUT pas classer « introuvable ».
+            if (!r.ok) throw new Error("BAN " + r.status);
             const d = await r.json();
             const f = d.features && d.features[0];
             if (f && f.properties && f.properties.score >= 0.4) {
@@ -305,19 +314,27 @@
                 label: f.properties.label, score: f.properties.score, adresse: a.adresse,
               });
             } else {
-              // Adresse introuvable : on memorise quand meme la tentative pour
-              // ne pas la redemander a chaque passage (lat/lng impossibles → non).
+              // La BAN a bien répondu mais ne reconnaît pas l'adresse : mémorisé
+              // (lat/lng à 0) — repassera en fin de file aux prochains passages.
               totalRates++;
               lot.push({ contactId: a.id, lat: 0, lng: 0, label: "(adresse introuvable)", score: 0, adresse: a.adresse });
             }
-          } catch (e) { totalRates++; }
+          } catch (e) {
+            // BAN essoufflée ou réseau : rien n'est mémorisé, on souffle un
+            // instant et l'adresse sera retentée au tour suivant.
+            totalRates++;
+            await new Promise((r) => setTimeout(r, 1200));
+          }
           await new Promise((r) => setTimeout(r, 130)); // politesse BAN (< 8 req/s)
-          if (lot.length >= 100) { await api("/crm/geo/batch", { json: { rows: lot.splice(0) } }); }
+          if (lot.length >= 100) {
+            await api("/crm/geo/batch", { json: { rows: lot.splice(0) } });
+            await charger(); // la carte se garnit au fil de l'eau
+          }
         }
         if (lot.length) await api("/crm/geo/batch", { json: { rows: lot } });
         totalOk += attente.length;
       }
-      toast("Géocodage terminé : " + totalOk + " adresse(s) traitée(s)" + (totalRates ? ", " + totalRates + " introuvable(s)" : ""));
+      toast("Géocodage terminé : " + totalOk + " adresse(s) traitée(s)" + (totalRates ? ", " + totalRates + " à retenter ou introuvable(s)" : ""));
       await charger();
     } catch (e) { toast(e.message, true); }
     btn.disabled = false;

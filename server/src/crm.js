@@ -1064,18 +1064,22 @@ export const adresseDossier = (rue, ville) => {
 // change pas. BAN_BASE : surchargeable en test (fausse BAN locale).
 export async function geocoderVentes(env, db, agencyId, max = 12) {
   const rows = await db.all(
-    `SELECT d.id, d.adresse, json_extract(d.data, '$.bien.ville') AS ville, g.adresse AS geo_adresse
+    `SELECT d.id, d.adresse, json_extract(d.data, '$.bien.ville') AS ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
      FROM dossiers d LEFT JOIN crm_geo g ON g.contact_id = d.id
      WHERE d.agency_id = ? AND d.adresse <> '' AND d.statut <> 'annule'
        AND (d.statut IN ('signe','clos') OR d.data LIKE '%"signature_acte":"2%')`, [agencyId]);
   // Les ventes importées (crm_ventes) passent au même géocodage automatique.
   const importees = await db.all(
-    `SELECT v.id, v.adresse, v.ville, g.adresse AS geo_adresse
+    `SELECT v.id, v.adresse, v.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
      FROM crm_ventes v LEFT JOIN crm_geo g ON g.contact_id = v.id
      WHERE v.agency_id = ? AND v.adresse <> ''`, [agencyId]);
+  // Un échec mémorisé (lat/lng à 0) reste retentable, mais en fin de file —
+  // les adresses jamais tentées passent d'abord.
   const enAttente = rows.concat(importees)
-    .map((r) => ({ id: r.id, adresse: adresseDossier(r.adresse, r.ville), deja: r.geo_adresse }))
-    .filter((r) => r.adresse && r.adresse !== r.deja);
+    .map((r) => ({ id: r.id, adresse: adresseDossier(r.adresse, r.ville), deja: r.geo_adresse,
+      echec: r.geo_adresse != null && r.geo_lat === 0 && r.geo_lng === 0 }))
+    .filter((r) => r.adresse && (r.adresse !== r.deja || r.echec))
+    .sort((a, b) => (a.echec ? 1 : 0) - (b.echec ? 1 : 0));
   const attente = enAttente.slice(0, Math.max(0, max));
   if (!attente.length) return { geocodes: 0, restants: 0 };
   const base = env.BAN_BASE || "https://api-adresse.data.gouv.fr";
