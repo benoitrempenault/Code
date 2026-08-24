@@ -1268,33 +1268,35 @@
     for (const m of open) {
       const d = details[m.id].data;
       if (!consOk(d)) continue;
-      const items = [];
+      // Les infos capitales du journal d'abord — en bandeau rouge en tête du
+      // dossier — puis les étapes, par échéance croissante.
+      const capitales = [];
       if (famOk("capital")) {
         d.journal.forEach((j, i) => {
-          if (j.capital) items.push({ capital: i, due: "", texte: j.text || "" });
+          if (j.capital) capitales.push({ note: i, texte: j.text || "" });
         });
       }
+      const items = [];
       for (const s of E.compute(d)) {
         if (s.done) continue;
         const f = familleEtape(s);
         if (!f || !famOk(f)) continue;
-        items.push({ step: s, due: s.due || "", texte: s.label });
+        items.push({ step: s, due: s.due || "" });
       }
-      if (!items.length) continue;
+      if (!items.length && !capitales.length) continue;
       items.sort((a, b) => ((a.due || "9999") < (b.due || "9999") ? -1 : 1));
-      blocs.push({ id: m.id, ref: d.reference || m.name, d, items });
+      blocs.push({ id: m.id, ref: d.reference || m.name, d, capitales, items,
+        due: (items[0] || {}).due || "" });
     }
-    blocs.sort((a, b) => ((a.items[0].due || "9999") < (b.items[0].due || "9999") ? -1 : 1));
+    blocs.sort((a, b) => ((a.due || "9999") < (b.due || "9999") ? -1 : 1));
 
     $("#reunionList").innerHTML = blocs.map((v) => {
+      const bandeaux = v.capitales.map((c) =>
+        '<p class="capital capital--board" style="display:flex;align-items:center;gap:10px">' +
+        '<span style="flex:1">⚠ ' + esc(c.texte.slice(0, 220)) + "</span>" +
+        '<button class="btn btn--sm" data-act="capfait" data-id="' + esc(v.id) + '" data-note="' + c.note + '" title="Point réglé : la note redevient normale">✓ Fait</button>' +
+        "</p>").join("");
       const lignes = v.items.map((it) => {
-        if (it.capital != null) {
-          return '<div class="todo__item late">' +
-            '<span class="when">⚠</span>' +
-            '<span class="what"><b>Info capitale</b><small>' + esc(it.texte.slice(0, 160)) + "</small></span>" +
-            '<button class="btn btn--sm" data-act="capfait" data-id="' + esc(v.id) + '" data-note="' + it.capital + '" title="Point réglé : la note redevient normale">✓ Fait</button>' +
-            "</div>";
-        }
         const s = it.step;
         const cls = s.days != null && s.days < 0 ? "late" : (s.days != null && s.days <= 7 ? "soon" : "");
         const relTxt = s.relance && s.relance.ts
@@ -1307,10 +1309,13 @@
           '<button class="btn btn--sm" data-act="done" data-id="' + esc(v.id) + '" data-step="' + esc(s.id) + '" title="Marquer fait">✓ Fait</button>' +
           "</div>";
       }).join("");
+      const nb = v.items.length + v.capitales.length;
       return '<details class="vente"' + (blocs.length === 1 ? " open" : "") + ">" +
         '<summary><span class="vente__ref">' + esc(v.ref) + "</span>" +
-        '<span class="vente__n">' + v.items.length + (v.items.length > 1 ? " points" : " point") + "</span>" +
-        '<span class="vente__due">' + (v.items[0].due ? frDate(v.items[0].due) : "") + "</span></summary>" +
+        (v.capitales.length ? '<span class="vente__n" style="color:var(--bad)">⚠ info capitale</span>' : "") +
+        '<span class="vente__n">' + nb + (nb > 1 ? " points" : " point") + "</span>" +
+        '<span class="vente__due">' + (v.due ? frDate(v.due) : "") + "</span></summary>" +
+        bandeaux +
         '<div class="vente__actions">' + lignes +
         '<div style="text-align:right"><button class="btn btn--sm" data-act="open" data-id="' + esc(v.id) + '">Ouvrir le dossier →</button></div>' +
         "</div></details>";
