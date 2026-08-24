@@ -85,22 +85,21 @@
       <!-- ============================= RÉUNION ============================ -->
       <section class="view" id="view-reunion">
         <h2 class="viewtitle">Réunion <small>revue des dossiers par conseiller et par famille d'action</small></h2>
-        <div class="toolrow">
-          <select id="reuCons"><option value="">Tous les conseillers</option></select>
-          <select id="reuFam">
-            <option value="">Toutes les familles</option>
-            <option value="capital">Infos capitales</option>
-            <option value="financement">Financement</option>
-            <option value="urbanisme">Urbanisme</option>
-            <option value="reiteration">Réitération d'acte</option>
-            <option value="cs">Autres conditions suspensives</option>
-          </select>
+        <div class="toolrow" style="align-items:baseline">
+          <span class="chips__label">Conseillers</span>
+          <div class="chips" id="reuCons"></div>
+        </div>
+        <div class="toolrow" style="align-items:baseline">
+          <span class="chips__label">Familles</span>
+          <div class="chips" id="reuFam"></div>
+          <span style="flex:1"></span>
           <a class="btn" href="#board">← Tableau de bord</a>
         </div>
         <div class="card">
           <div class="todo" id="reunionList"></div>
-          <p class="hintline">Toutes les actions en attente des familles suivies, dossier par dossier — pas seulement
-            les retards. « ✓ Fait » met le dossier à jour sans quitter la réunion ; « Ouvrir → » entre dans le dossier,
+          <p class="hintline">Cliquez sur un ou plusieurs conseillers et familles pour filtrer — aucun choix = tout.
+            Toutes les actions en attente sont listées, dossier par dossier — pas seulement les retards.
+            « ✓ Fait » met le dossier à jour sans quitter la réunion ; « Ouvrir → » entre dans le dossier,
             le bouton « ← Réunion » en haut du dossier ramène ici.</p>
         </div>
       </section>

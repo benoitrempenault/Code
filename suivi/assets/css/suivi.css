@@ -44,6 +44,14 @@ a { color: var(--accent); }
 }
 .sites .site + .site { border-left: 1px solid var(--line); }
 .sites .site.on { background: var(--panel-2); color: var(--text); font-weight: 600; }
+/* Réunion : sélection multiple des conseillers et des familles (puces). */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chips .chip {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
+  color: var(--muted); font: inherit; font-size: 12.5px; padding: 6px 12px; cursor: pointer;
+}
+.chips .chip.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.chips__label { color: var(--muted); font-size: 12.5px; min-width: 78px; }
 .topbar nav a {
   text-decoration: none; color: var(--muted); padding: 7px 13px; border-radius: 8px; font-weight: 500;
 }

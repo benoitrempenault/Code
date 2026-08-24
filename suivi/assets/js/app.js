@@ -433,6 +433,11 @@
     // DÉPOSITAIRE (celui désigné au compromis), et sa jumelle côté acquéreur
     // est ajoutée si l'agence a le jeu de modèles d'origine.
     try {
+      // Les migrations ci-dessous consultent l'annuaire : il doit être chargé
+      // AVANT (au démarrage, loadModeles passe en premier) — sans quoi les
+      // contrôles « la fiche existe-t-elle déjà ? » répondraient toujours non
+      // et réécraseraient à chaque ouverture une fiche corrigée à la main.
+      if (!annuaire.length) await loadAnnuaire();
       const seq = modeles.find((m) => m.name === "Relance séquestre");
       if (seq && seq.cible === "notaire_acquereur") {
         seq.cible = "depositaire";
@@ -505,6 +510,17 @@
       if (!modeles.some((m) => m.name === "Appel & crémaillère")) {
         const defAC = E.DEFAULT_MODELES.find((m) => m.name === "Appel & crémaillère");
         if (defAC) { await api("/modeles", { method: "PUT", json: defAC }); modeles = (await api("/modeles")).modeles || modeles; }
+      }
+      // Référente urbanisme : sa fiche est posée une fois dans l'annuaire
+      // (e-mail modifiable ensuite comme n'importe quelle fiche).
+      if (!annuaire.some((x) => nomsCompatibles(x.nom, URBA_REFERENTE))) {
+        try {
+          await api("/annuaire", { method: "PUT", json: {
+            type: "conseiller", nom: URBA_REFERENTE, email: "tiephaineduverger@century21.fr",
+            notes: "Référente urbanisme — en copie des relances liées aux conditions suspensives d'urbanisme."
+          } });
+          await loadAnnuaire();
+        } catch (e) { /* sans gravité */ }
       }
       // « Demande du projet d'acte » devient « Demande de date de signature » :
       // adressée aux DEUX études, l'objet dit d'abord ce qu'on attend d'elles.
@@ -1194,28 +1210,34 @@
     if (s.phase === "Acte authentique") return "reiteration";
     return "";
   }
+  // Sélections multiples de la réunion (vides = tout).
+  const reuConsSel = new Set(), reuFamSel = new Set();
+  const FAMILLES_REUNION = [["capital", "Infos capitales"], ["financement", "Financement"],
+    ["urbanisme", "Urbanisme"], ["reiteration", "Réitération d'acte"], ["cs", "Autres conditions suspensives"]];
   async function renderReunion() {
     const open = (await ensureOpenDetails()).filter(passeSite);
-    // Filtre conseiller : les initiales rencontrées dans les dossiers ouverts.
-    const sel = $("#reuCons"), avant = sel.value;
+    // Puces conseillers : les initiales rencontrées dans les dossiers ouverts.
     const inis = Array.from(new Set(open.flatMap((m) => {
       const d = details[m.id].data;
       return [d.conseiller_vendeur, d.conseiller_acquereur].map((c) => (c || "").trim().toUpperCase()).filter(Boolean);
     }))).sort();
-    sel.innerHTML = '<option value="">Tous les conseillers</option>' + inis.map((i) => {
+    $("#reuCons").innerHTML = inis.map((i) => {
       const e = annConseiller(i);
-      return '<option value="' + esc(i) + '">' + esc(i + (e ? " — " + e.nom : "")) + "</option>";
-    }).join("");
-    if (inis.includes(avant)) sel.value = avant;
-    const cons = sel.value, fam = $("#reuFam").value;
+      return '<button class="chip' + (reuConsSel.has(i) ? " on" : "") + '" data-chip="' + esc(i) +
+        '" title="' + esc(e ? e.nom : "") + '">' + esc(i + (e ? " · " + e.nom.split(/\s+/)[0] : "")) + "</button>";
+    }).join("") || '<span class="hintline" style="margin:0">Aucun dossier ouvert.</span>';
+    $("#reuFam").innerHTML = FAMILLES_REUNION.map(([v, l]) =>
+      '<button class="chip' + (reuFamSel.has(v) ? " on" : "") + '" data-chip="' + v + '">' + l + "</button>").join("");
+    const consOk = (d) => !reuConsSel.size || [d.conseiller_vendeur, d.conseiller_acquereur]
+      .some((c) => reuConsSel.has((c || "").trim().toUpperCase()));
+    const famOk = (f) => !reuFamSel.size || reuFamSel.has(f);
 
     const blocs = [];
     for (const m of open) {
       const d = details[m.id].data;
-      if (cons && ![d.conseiller_vendeur, d.conseiller_acquereur]
-        .some((c) => (c || "").trim().toUpperCase() === cons)) continue;
+      if (!consOk(d)) continue;
       const items = [];
-      if (!fam || fam === "capital") {
+      if (famOk("capital")) {
         d.journal.forEach((j, i) => {
           if (j.capital) items.push({ capital: i, due: "", texte: j.text || "" });
         });
@@ -1223,7 +1245,7 @@
       for (const s of E.compute(d)) {
         if (s.done) continue;
         const f = familleEtape(s);
-        if (!f || (fam && f !== fam)) continue;
+        if (!f || !famOk(f)) continue;
         items.push({ step: s, due: s.due || "", texte: s.label });
       }
       if (!items.length) continue;
@@ -2873,8 +2895,16 @@
         if (inReunion) renderReunion(); else if (inStats) renderStats(); else renderBoard();
       }
     });
-    $("#reuCons").addEventListener("change", renderReunion);
-    $("#reuFam").addEventListener("change", renderReunion);
+    // Puces de la réunion : chaque clic ajoute/retire le conseiller ou la
+    // famille de la sélection (vide = tout).
+    const basculeChip = (set) => (ev) => {
+      const b = ev.target.closest("[data-chip]");
+      if (!b) return;
+      if (set.has(b.dataset.chip)) set.delete(b.dataset.chip); else set.add(b.dataset.chip);
+      renderReunion();
+    };
+    $("#reuCons").addEventListener("click", basculeChip(reuConsSel));
+    $("#reuFam").addEventListener("click", basculeChip(reuFamSel));
     // Portefeuille : vigies cliquables, filtre conseiller, étape libre.
     $("#statsVigies").addEventListener("click", (ev) => {
       const b = ev.target.closest("[data-vigie]");

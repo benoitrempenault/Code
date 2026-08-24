@@ -79,7 +79,8 @@ appel après-vente, clôture.
 
 Le bouton **🗓 Réunion** du tableau de bord ouvre la revue d'équipe (`#reunion`) :
 toutes les actions **en attente** (pas seulement les retards), une ligne par point,
-regroupées par vente et filtrables par **conseiller** et par **grande famille** —
+regroupées par vente et filtrables par **conseillers** et par **grandes familles** (puces cliquables, sélection
+multiple, aucun choix = tout) —
 infos capitales du journal, financement, urbanisme (étapes terrain + conditions
 suspensives d'urbanisme), réitération d'acte (phase acte authentique + conditions de
 réitération), autres conditions suspensives. « ✓ Fait » coche l'étape et enregistre le
@@ -121,8 +122,9 @@ coordonnées étant toujours lues dans l'annuaire.
 
 **Urbanisme** : toute relance liée à une condition suspensive ou une étape
 d'urbanisme met en copie la référente urbanisme de l'agence (`URBA_REFERENTE`,
-Tiphaine DUVERGER) — son e-mail est lu dans l'annuaire (ajoutez sa fiche, par
-exemple dans les conseillers) ; s'il manque, un message le rappelle.
+Tiphaine DUVERGER, tiephaineduverger@century21.fr) — sa fiche est posée dans
+l'annuaire à la première ouverture (e-mail modifiable ensuite) ; si elle venait à
+manquer, un message le rappelle au moment de composer.
 
 Le composeur a un champ **Cc** : pour toute relance liée au **financement** ou à une
 **condition suspensive** (phases « Financement » et « Conditions suspensives » de
