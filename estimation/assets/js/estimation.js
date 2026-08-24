@@ -266,15 +266,26 @@
       // ------------------------------ La carte ------------------------------
       for (const k of Object.keys(couches)) couches[k].clearLayers();
       if (marqueurBien) carte.removeLayer(marqueurBien);
+      // La petite maison se DÉPLACE à la souris : le géocodeur pose souvent
+      // le point à l'entrée de la parcelle — glissez-la sur le bon toit, la
+      // fiche estimation enregistrera cette position corrigée.
       marqueurBien = L.marker([pos.lat, pos.lng], {
         icon: L.divIcon({ className: "marqueur-bien", html: "🏠", iconSize: [30, 30], iconAnchor: [15, 15] }),
-        zIndexOffset: 1000,
+        zIndexOffset: 1000, draggable: true,
       }).addTo(carte).bindPopup('<div class="titre">' + escH(pos.label) + "</div>" +
+        '<div class="sous">🖐 Glissez la maison pour la poser exactement sur le bien.</div>' +
         '<button class="btn-popup" data-fiche-adresse="1">📋 Lancer une fiche estimation</button>');
       couches.cercle.addLayer(L.circle([pos.lat, pos.lng], { radius: rayon, color: "#c2a36b", weight: 1.5, fillOpacity: 0.05 }));
       // La MAISON cherchée saute aux yeux : un halo doré posé sur le bâti.
-      couches.cercle.addLayer(L.circle([pos.lat, pos.lng], {
-        radius: 9, weight: 0, fillColor: "#c2a36b", fillOpacity: 0.55 }));
+      const haloBien = L.circle([pos.lat, pos.lng], {
+        radius: 9, weight: 0, fillColor: "#c2a36b", fillOpacity: 0.55 });
+      couches.cercle.addLayer(haloBien);
+      marqueurBien.on("dragend", () => {
+        const ll = marqueurBien.getLatLng();
+        posCourante = { ...posCourante, lat: ll.lat, lng: ll.lng };
+        haloBien.setLatLng(ll);
+        toast("Maison repositionnée — la fiche estimation retiendra cet emplacement.");
+      });
       for (const v of quartier.ventes) {
         couches.ventes.addLayer(L.marker([v.lat, v.lng], {
           icon: L.divIcon({ className: "marqueur-vente", html: "🔑", iconSize: [26, 26], iconAnchor: [13, 13] }),
@@ -662,7 +673,7 @@
         contactIds: lies.map((c) => c.id),
         nom: $("fe-nom").value.trim(), email: $("fe-email").value.trim(), telephone: $("fe-tel").value.trim(),
         adresse: $("fe-adresse").value.trim(), ville: $("fe-ville").value.trim(),
-        lat: (existante && existante.lat) || pre.lat || 0, lng: (existante && existante.lng) || pre.lng || 0,
+        lat: pre.lat || (existante && existante.lat) || 0, lng: pre.lng || (existante && existante.lng) || 0,
         r1: $("fe-r1").value, r2: $("fe-r2").value,
         statut: $("fe-statut").value, qualification: $("fe-qualif").value,
         conseiller: $("fe-conseiller").value.trim(), notes: $("fe-notes").value.trim(),

@@ -345,7 +345,7 @@
         // (seuls de vrais injoignables restent) : on s'arrête proprement.
         let stockees = 0;
         const lot = [];
-        let echecsSuite = 0;
+        let echecsSuite = 0, pausesLimite = 0;
         for (let i = 0; i < attente.length; i++) {
           btn.textContent = "📍 Géocodage… " + (i + 1) + " / " + (file.total || attente.length) + (tour ? " (suite)" : "");
           const a = attente[i];
@@ -379,11 +379,19 @@
             lot.push({ contactId: a.id, lat: 0, lng: 0, label: "(adresse introuvable)", score: 0, adresse: a.adresse });
           } else {
             // Aucun géocodeur joignable depuis CE navigateur : rien n'est
-            // mémorisé, et après huit échecs d'affilée on n'insiste pas —
-            // le serveur prendra le relais.
+            // mémorisé. Après huit échecs d'affilée, une PAUSE de 20 s —
+            // les géocodeurs limitent le débit par vagues, souffler suffit
+            // souvent. On n'abandonne qu'à la troisième vague.
             totalRates++;
-            if (++echecsSuite >= 8) { banBloquee = true; break; }
-            await new Promise((r) => setTimeout(r, 1200));
+            if (++echecsSuite >= 8) {
+              pausesLimite++;
+              if (pausesLimite >= 3) { banBloquee = true; break; }
+              echecsSuite = 0;
+              btn.textContent = "📍 Les géocodeurs soufflent… reprise dans 20 s";
+              await new Promise((r) => setTimeout(r, 20000));
+            } else {
+              await new Promise((r) => setTimeout(r, 1200));
+            }
           }
           await new Promise((r) => setTimeout(r, 130)); // politesse BAN (< 8 req/s)
           if (lot.length >= 100) {
@@ -395,7 +403,9 @@
         totalOk += stockees;
         stagnation = stockees === 0 ? stagnation + 1 : 0;
       }
-      toast("Géocodage terminé : " + totalOk + " adresse(s) traitée(s)" + (totalRates ? ", " + totalRates + " à retenter ou introuvable(s)" : ""));
+      toast(banBloquee
+        ? "Les géocodeurs limitent le débit en ce moment (" + totalOk + " traitée(s)) — réessayez dans quelques minutes, le passage de nuit continue tout seul."
+        : "Géocodage terminé : " + totalOk + " adresse(s) traitée(s)" + (totalRates ? ", " + totalRates + " à retenter ou introuvable(s)" : ""));
       await charger();
       // Encore des adresses en attente ? On affiche un DIAGNOSTIC lisible :
       // un essai réel par géocodeur, depuis CE navigateur et depuis le
