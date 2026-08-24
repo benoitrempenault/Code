@@ -123,7 +123,7 @@
         radius: 7, weight: 2, color: "#0f0f10",
         fillColor: COULEUR_TYPE[cat], fillOpacity: 0.92,
       });
-      m.bindPopup(() => {
+      const contenuDe = () => {
         const il = ilotDe(p.lat, p.lng);
         return '<div class="titre">' + escH(((p.civilite || "") + " " + (p.prenom || "") + " " + (p.nom || "")).replace(/\s+/g, " ").trim()) + "</div>" +
           '<div class="sous">' + escH(p.label || [p.adresse, p.cp, p.ville].filter(Boolean).join(" ")) + "</div>" +
@@ -134,6 +134,22 @@
           (p.conseiller ? "Conseiller : " + escH(p.conseiller) + "<br>" : "") +
           (il ? "Îlot : " + escH(il.nom) + (il.conseiller ? " (" + escH(il.conseiller) + ")" : "") : "Hors îlot") +
           "</div>";
+      };
+      m.bindPopup(contenuDe);
+      // Au clic, la fiche se complète avec ce qui vient des FICHIERS importés
+      // (budget et critères d'un acquéreur, bien estimé et prix, mandat…) —
+      // chargé à la demande, jamais dans les 38 000 points de la carte.
+      m.on("popupopen", async (ev) => {
+        if (m._fiche === undefined) {
+          m._fiche = "";
+          try { m._fiche = ((await api("/crm/contacts/" + p.contact_id + "/fiche")).fiche || {}).notes || ""; }
+          catch (e) { /* hors ligne ou fiche disparue : le popup reste tel quel */ }
+        }
+        if (m._fiche) {
+          ev.popup.setContent(contenuDe() +
+            '<div class="sous" style="margin-top:6px; max-width:260px; white-space:pre-wrap;">📄 ' +
+            escH(m._fiche.slice(0, 320)) + (m._fiche.length > 320 ? "…" : "") + "</div>");
+        }
       });
       couchePoints.addLayer(m);
     }

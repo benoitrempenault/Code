@@ -1248,6 +1248,27 @@
     const tr = e.target.closest("tr[data-estimation]");
     if (tr) ouvrirEstimation(tr.dataset.estimation);
   });
+  // Rattrapage : chaque estimé importé du fichier C21 reçoit sa fiche
+  // estimation (adresse et prix des notes) — par lots, jusqu'au bout.
+  $("btn-estim-fiches").addEventListener("click", async () => {
+    const btn = $("btn-estim-fiches");
+    btn.disabled = true;
+    let total = 0, curseur = "";
+    try {
+      for (let t = 0; t < 400; t++) {
+        btn.textContent = "⚙️ Reprise… " + total;
+        const r = await api("/crm/estimations/depuis-fiches", { json: { curseur } });
+        total += r.crees || 0;
+        if (r.fini) break;
+        if ((r.curseur || "") === curseur) break;
+        curseur = r.curseur || "";
+      }
+      toast(total + " fiche(s) estimation créée(s) depuis les estimés importés");
+      await chargerEstimations();
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = false;
+    btn.textContent = "⚙️ Reprendre les estimés importés";
+  });
   $("ach-conseiller").addEventListener("change", rendreAcheteurs);
   $("biblio-cle").addEventListener("change", remplirBiblio);
   $("btn-biblio-save").addEventListener("click", () => sauverBiblio(false));

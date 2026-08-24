@@ -1679,6 +1679,58 @@ export async function runEstimations(env, db, agency, reglages) {
   return summary;
 }
 
+/* ------------------ Reprise des estimés importés (fichier) ---------------- */
+// Le fichier « estimés » C21 a rempli des fiches CONTACT (types estime, notes
+// « Bien estimé : adresse, ville (450 000 €) · réf X »). Ce rattrapage cree
+// la FICHE ESTIMATION de chacun : adresse et prix repris des notes, personne
+// liee, qualification si posee. Jamais deux fois (une fiche deja liee est
+// passee), par lots derriere un curseur — memes plafonds D1 que l'import.
+export async function creerEstimationsDepuisFiches(db, agencyId, userId, curseur = "", max = 150) {
+  const depuis = String(curseur || "");
+  const candidats = await db.all(
+    `SELECT c.id, c.civilite, c.prenom, c.nom, c.email, c.telephone, c.adresse, c.ville, c.conseiller, c.notes
+     FROM crm_contacts c
+     WHERE c.agency_id = ? AND c.id > ? AND c.types LIKE '%estime%'
+       AND NOT EXISTS (SELECT 1 FROM crm_estimations e WHERE e.agency_id = c.agency_id AND e.contact_id = c.id)
+       AND NOT EXISTS (SELECT 1 FROM crm_estimation_contacts ec WHERE ec.agency_id = c.agency_id AND ec.contact_id = c.id)
+     ORDER BY c.id LIMIT ${Math.max(1, max)}`, [agencyId, depuis]);
+  const t = now();
+  const lignes = [], liaisons = [], biens = [];
+  let sansAdresse = 0, dernier = depuis;
+  for (const ct of candidats) {
+    dernier = ct.id;
+    const notes = String(ct.notes || "");
+    // L'adresse du BIEN estimé prime sur l'adresse postale de la fiche.
+    const mBien = /Bien estimé\s*:\s*([^(·]+?)(?:\s*\(|\s*·|$)/.exec(notes);
+    const adresseBien = strip(mBien ? mBien[1] : "", 200) ||
+      strip([ct.adresse, ct.ville].filter(Boolean).join(", "), 200);
+    if (!adresseBien) { sansAdresse++; continue; }
+    const mPrix = /\(([\d\s  ]+)\s*€\)/.exec(notes);
+    const prix = mPrix ? parseInt(mPrix[1].replace(/[\s  ]/g, ""), 10) || 0 : 0;
+    const mQ = /Qualification\s+([ABC])/.exec(notes);
+    const id = randId("es");
+    const nom = strip([ct.civilite, ct.prenom, ct.nom].filter(Boolean).join(" "), 120);
+    lignes.push(`(${sqlText(id)},${sqlText(agencyId)},${sqlText(ct.id)},${sqlText(nom)},${sqlText(ct.email)},` +
+      `${sqlText(ct.telephone)},${sqlText(adresseBien)},${sqlText(ct.ville)},0,0,'','','en_cours',` +
+      `${sqlText(mQ ? mQ[1] : "")},${sqlText(ct.conseiller)},${sqlText(strip(notes, 2000))},${sqlText(userId)},${t},${t})`);
+    liaisons.push(`(${sqlText(id)},${sqlText(ct.id)},${sqlText(agencyId)})`);
+    if (prix) biens.push(`(${sqlText(id)},${sqlText(agencyId)},${sqlText(JSON.stringify({ prixEnvisage: prix }))},${t})`);
+  }
+  for (let i = 0; i < lignes.length; i += 100) {
+    await db.run(
+      `INSERT INTO crm_estimations (id, agency_id, contact_id, nom, email, telephone, adresse, ville, lat, lng, r1, r2, statut, qualification, conseiller, notes, user_id, created_at, updated_at) VALUES ${lignes.slice(i, i + 100).join(",")}`, []);
+  }
+  for (let i = 0; i < liaisons.length; i += 150) {
+    await db.run(
+      `INSERT OR IGNORE INTO crm_estimation_contacts (estimation_id, contact_id, agency_id) VALUES ${liaisons.slice(i, i + 150).join(",")}`, []);
+  }
+  for (let i = 0; i < biens.length; i += 100) {
+    await db.run(
+      `INSERT OR REPLACE INTO crm_estimation_bien (estimation_id, agency_id, data, updated_at) VALUES ${biens.slice(i, i + 100).join(",")}`, []);
+  }
+  return { crees: lignes.length, sansAdresse, fini: candidats.length < Math.max(1, max), curseur: dernier };
+}
+
 /* --------------------------- Visites acquéreurs --------------------------- */
 export const VISITE_STATUTS = ["prevue", "faite", "annulee"];
 export function sanitizeVisite(b) {
@@ -1816,8 +1868,12 @@ export const adresseDossier = (rue, ville) => {
 // (lat=lng=0) et repasse en FIN de file aux passages suivants. BAN_BASE :
 // surchargeable en test (fausse BAN locale).
 export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts = false) {
+  // json_valid : UN dossier au JSON abime ferait planter TOUTE la requete
+  // (donc la pompe 📍 en erreur 500, et le geocodage de fond en silence).
   const rows = await db.all(
-    `SELECT d.id, d.adresse, json_extract(d.data, '$.bien.ville') AS ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
+    `SELECT d.id, d.adresse,
+            CASE WHEN json_valid(d.data) THEN json_extract(d.data, '$.bien.ville') ELSE '' END AS ville,
+            g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
      FROM dossiers d LEFT JOIN crm_geo g ON g.contact_id = d.id
      WHERE d.agency_id = ? AND d.adresse <> '' AND d.statut <> 'annule'
        AND (d.statut IN ('signe','clos') OR d.data LIKE '%"signature_acte":"2%')`, [agencyId]);

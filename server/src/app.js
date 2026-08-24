@@ -1220,7 +1220,9 @@ export function createApp(env) {
     // repère une date d'acte posée dans le JSON (« "signature_acte":"20… » —
     // sérialisation JSON.stringify, sans espaces) sans rapatrier data.
     const dossiers = await db.all(
-      `SELECT d.id, d.adresse, json_extract(d.data, '$.bien.ville') AS ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
+      `SELECT d.id, d.adresse,
+              CASE WHEN json_valid(d.data) THEN json_extract(d.data, '$.bien.ville') ELSE '' END AS ville,
+              g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
        FROM dossiers d LEFT JOIN crm_geo g ON g.contact_id = d.id
        WHERE d.agency_id = ? AND d.adresse <> '' AND d.statut <> 'annule'
          AND (d.statut IN ('signe','clos') OR d.data LIKE '%"signature_acte":"2%')`, [ctx.agency.id]);
@@ -1308,7 +1310,13 @@ export function createApp(env) {
   // plus). Les adresses d'un paquet partent en parallèle : l'appel reste vif.
   app.post("/crm/geo/serveur", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
-    return c.json(await CRM.geocoderVentes(env, db, ctx.agency.id, 14, true));
+    // 12 en parallèle (≤ 24 appels géocodeurs) : de la marge sous le plafond
+    // de sous-requêtes du Worker. Et l'erreur réelle est DITE, jamais un 500 nu.
+    try {
+      return c.json(await CRM.geocoderVentes(env, db, ctx.agency.id, 12, true));
+    } catch (e) {
+      return err(c, 500, "Géocodage serveur : " + ((e && e.message) || e));
+    }
   });
 
   /* ==================== Estimation (app Estimation) ========================
@@ -1544,6 +1552,19 @@ export function createApp(env) {
     return c.json({ contacts: rows });
   });
 
+  // La fiche d'un point de la carte, chargée AU CLIC (membre) : ses notes
+  // portent ce qui vient des fichiers importés — budget et critères d'un
+  // acquéreur, bien estimé et prix, mandat. Jamais dans le chargement global
+  // de la carte (38 000 points), toujours à la demande.
+  app.get("/crm/contacts/:id/fiche", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const row = await db.get(
+      "SELECT id, notes, date_achat, source FROM crm_contacts WHERE id = ? AND agency_id = ?",
+      [c.req.param("id"), ctx.agency.id]);
+    if (!row) return err(c, 404, "Contact introuvable.");
+    return c.json({ fiche: row });
+  });
+
   // Les documents Studio Brochure du même bien : la fiche prestations
   // (app Fiche) et la brochure — pour les LIER à la fiche estimation et en
   // récupérer les informations. Recherche par adresse ou nom, bornée.
@@ -1692,6 +1713,14 @@ export function createApp(env) {
       `SELECT * FROM crm_visites WHERE agency_id = ? AND projet_id = ? ORDER BY date_visite DESC, created_at DESC LIMIT 60`,
       [ctx.agency.id, projetId]);
     return c.json({ proposes, visites });
+  });
+
+  // Rattrapage : les contacts « estimé » importés du fichier C21 deviennent
+  // des FICHES ESTIMATION (adresse et prix repris des notes). Admin, par lots.
+  app.post("/crm/estimations/depuis-fiches", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => ({}));
+    return c.json(await CRM.creerEstimationsDepuisFiches(db, ctx.agency.id, ctx.user.id, String(b.curseur || ""), 150));
   });
 
   // Passage du jour à la demande (le cron du matin fait la même chose tout seul).

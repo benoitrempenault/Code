@@ -2308,6 +2308,48 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/projets/" + projetId + "/activite", { headers: authP })).status === 403,
     "l'activité du projet est réservée aux administrateurs");
 
+  /* ---- Reprise des estimés importés en fiches estimation ------------------ */
+  console.log("— Reprise des estimés importés (fichier C21) en fiches estimation");
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "M.", nom: "REPRIS Léo", email: "repris@exemple.fr", ville: "Saint-Médard-en-Jalles",
+      types: "estime", conseiller: "Rémi", notes: "Bien estimé : 7 rue des Reprises, Saint-Médard-en-Jalles (312 000 €) · réf E-77 · Qualification B" },
+    { civilite: "Mme", nom: "SANSBIEN Ada", types: "estime" },
+  ] } });
+  let cursE = "", totalE = 0, sansE = 0;
+  for (let t2 = 0; t2 < 30; t2++) {
+    const r = (await callR("/crm/estimations/depuis-fiches", { headers: auth, body: { curseur: cursE } })).json;
+    totalE += r.crees; sansE += r.sansAdresse;
+    if (r.fini) break;
+    cursE = r.curseur;
+  }
+  const toutesE = (await callR("/crm/estimations", { headers: auth })).json.estimations;
+  const reprise = toutesE.find((x) => /REPRIS/.test(x.nom));
+  ok(reprise && reprise.adresse === "7 rue des Reprises, Saint-Médard-en-Jalles" &&
+    reprise.qualification === "B" && reprise.conseiller === "Rémi" && reprise.statut === "en_cours",
+    "l'estimé du fichier devient une fiche estimation (adresse du bien, qualification, conseiller)");
+  ok(reprise.contacts.length === 1 && reprise.contacts[0].email === "repris@exemple.fr",
+    "la personne du fichier est LIÉE à sa fiche estimation");
+  ok(reprise.bien && reprise.bien.prixEnvisage === 312000, "le prix estimé des notes devient le prix envisagé");
+  ok(sansE >= 1, "une fiche estimé sans aucune adresse est comptée, jamais créée à vide");
+  const rebis = (await callR("/crm/estimations/depuis-fiches", { headers: auth, body: {} })).json;
+  ok(rebis.crees === 0, "relancer la reprise ne crée aucun doublon");
+  ok((await callR("/crm/estimations/depuis-fiches", { headers: authP, body: {} })).status === 403,
+    "la reprise est réservée aux administrateurs");
+
+  /* ---- La fiche d'un point de la carte, au clic --------------------------- */
+  const ficheClic = (await callR("/crm/contacts/" + estimQ.id + "/fiche", { headers: { Authorization: "Bearer " + sessP } })).json;
+  ok(ficheClic.fiche && /450 000/.test(ficheClic.fiche.notes),
+    "le popup de la carte charge les notes du contact à la demande (membre)");
+  ok((await callR("/crm/contacts/ct_inconnu/fiche", { headers: auth })).status === 404, "contact inconnu : 404 propre");
+
+  /* ---- Un dossier au JSON abîmé ne casse plus le géocodage ---------------- */
+  await db.run(
+    `INSERT INTO dossiers (id, agency_id, user_id, name, statut, adresse, conseillers, date_ssp, echeance, compromis_size, data, created_at, updated_at)
+     VALUES ('do_casse', ?, '', 'CASSE / TEST', 'signe', '1 rue du JSON casse', '', '', '', 0, '{pas du json', 1, 1)`, [agId]);
+  const pompeOk = await callR("/crm/geo/serveur", { headers: auth, method: "POST" });
+  ok(pompeOk.status === 200 && typeof pompeOk.json.traites === "number",
+    "un dossier au JSON abîmé ne fait plus planter la pompe 📍 (json_valid)");
+
   fauxResend.close();
   fauxDvf.close();
   fauxBan.close();
