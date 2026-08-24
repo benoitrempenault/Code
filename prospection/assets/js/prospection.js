@@ -65,6 +65,7 @@
   let coucheIlots = null;       // L.layerGroup des polygones
   let coucheVentes = null;      // L.layerGroup des ventes de l'agence (Suivi)
   let marqueurMoi = null;
+  let geoAutoLance = false;     // géocodage auto : une seule fois par visite
   // Dessin en cours
   let dessin = null;            // { sommets: [[lat,lng]], marqueurs: [], ligne }
 
@@ -213,6 +214,13 @@
       const b = L.latLngBounds(donnees.points.map((p) => [p.lat, p.lng]));
       donnees.ilots.forEach((i) => i.polygone.forEach((s) => b.extend(s)));
       carte.fitBounds(b.pad(0.1));
+    }
+    // S'il reste des ventes à placer (import tout frais, page fermée en cours
+    // de géocodage…), le géocodage repart TOUT SEUL — plus aucun bouton à
+    // cliquer, une seule relance par visite.
+    if (donnees.estAdmin && vs.aGeocoder > 0 && !geoAutoLance) {
+      geoAutoLance = true;
+      geocoder();
     }
   }
 
