@@ -75,6 +75,17 @@ appel après-vente, clôture.
    jusqu'à ce qu'on la décoche. Supprimer la note d'une relance efface aussi sa trace
    dans l'échéancier — date de relance et report d'échéance (`rebaseRelance()`).
 
+### Mode réunion
+
+Le bouton **🗓 Réunion** du tableau de bord ouvre la revue d'équipe (`#reunion`) :
+toutes les actions **en attente** (pas seulement les retards), une ligne par point,
+regroupées par vente et filtrables par **conseiller** et par **grande famille** —
+infos capitales du journal, financement, urbanisme (étapes terrain + conditions
+suspensives d'urbanisme), réitération d'acte (phase acte authentique + conditions de
+réitération), autres conditions suspensives. « ✓ Fait » coche l'étape et enregistre le
+dossier sans quitter la vue (sur une info capitale, il décoche la note) ; « Ouvrir → »
+entre dans le dossier, qui affiche alors un bouton « ← Réunion » pour revenir.
+
 ### Liste des dossiers
 
 Par défaut l'ordre de travail : dossiers en cours d'abord, puis l'échéance la plus proche.
@@ -101,11 +112,17 @@ complet par dossier.
 
 ### Destinataires particuliers
 
-**L'annuaire est le carnet central** : corriger l'e-mail d'une fiche notaire ou
-syndic le répercute sur **tous les dossiers** où cette personne figure
-(rapprochement par nom via `annFuzzy` — homonymes non tranchés : on ne touche à
-rien ; adresse complète seulement, pas de frappe à moitié tapée). Les conseillers
-n'ont pas besoin de répercussion, leurs e-mails étant toujours lus dans l'annuaire.
+**L'annuaire est le carnet central** : corriger l'e-mail **ou le téléphone** d'une
+fiche notaire ou syndic le répercute sur **tous les dossiers** où cette personne
+figure (rapprochement par nom via `annFuzzy` — homonymes non tranchés : on ne touche
+à rien ; valeur complète seulement — adresse formée, numéro à 10 chiffres — pas de
+frappe à moitié tapée). Les conseillers n'ont pas besoin de répercussion, leurs
+coordonnées étant toujours lues dans l'annuaire.
+
+**Urbanisme** : toute relance liée à une condition suspensive ou une étape
+d'urbanisme met en copie la référente urbanisme de l'agence (`URBA_REFERENTE`,
+Tiphaine DUVERGER) — son e-mail est lu dans l'annuaire (ajoutez sa fiche, par
+exemple dans les conseillers) ; s'il manque, un message le rappelle.
 
 Le composeur a un champ **Cc** : pour toute relance liée au **financement** ou à une
 **condition suspensive** (phases « Financement » et « Conditions suspensives » de

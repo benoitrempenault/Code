@@ -632,12 +632,14 @@
     $$("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.v === view));
     const el = $("#view-" + view) || $("#view-board");
     el.classList.add("on");
+    if (view !== "dossier" && view !== "reunion") retourReunion = false;
     if (view === "board") renderBoard();
     else if (view === "dossiers") renderList();
     else if (view === "dossier") openDossier(currentId);
     else if (view === "modeles") renderModeles();
     else if (view === "annuaire") renderAnnuaire();
     else if (view === "stats") renderStats();
+    else if (view === "reunion") renderReunion();
   }
 
   /* --------------- Portefeuille : CA, avancement, vigilance ---------------
@@ -940,40 +942,48 @@
         "</div>";
     }).join("");
   }
-  /* L'annuaire est le carnet central : un e-mail corrigé sur une fiche
-     notaire ou syndic se répercute sur TOUS les dossiers où cette personne
-     figure (rapprochement par nom via annFuzzy — en cas d'homonymes on ne
-     touche à rien, comme partout ailleurs). Les conseillers n'ont pas besoin
-     de répercussion : leurs e-mails sont toujours lus dans l'annuaire. */
-  async function propageEmail(a) {
-    const types = a.type === "notaire" ? ["notaire"]
-      : (a.type === "syndic" || a.type === "president") ? ["syndic", "president"] : null;
+  /* L'annuaire est le carnet central : un e-mail ou un téléphone corrigé sur
+     une fiche notaire ou syndic se répercute sur TOUS les dossiers où cette
+     personne figure (rapprochement par nom via annFuzzy — en cas d'homonymes
+     on ne touche à rien, comme partout ailleurs). Les conseillers n'ont pas
+     besoin de répercussion : leurs coordonnées sont lues dans l'annuaire. */
+  async function propageCoordonnees(a, champs) {
+    if (a.type !== "notaire" && a.type !== "syndic" && a.type !== "president") return;
+    // Valeurs complètes seulement : la frappe est enregistrée au fil de l'eau,
+    // on ne répercute pas une adresse ou un numéro à moitié tapé. (Chaque
+    // correction ultérieure se répercute à son tour : la dernière valeur gagne.)
     const mail = (a.email || "").trim();
-    // Adresse complète seulement : la frappe est enregistrée au fil de l'eau,
-    // on ne répercute pas une adresse à moitié tapée. (Chaque correction
-    // ultérieure se répercute à son tour : la dernière valeur gagne.)
-    if (!types || !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(mail)) return;
+    const tel = (a.telephone || "").trim();
+    const valeurs = {};
+    if (champs.email && /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(mail)) valeurs.email = mail;
+    if (champs.telephone && tel.replace(/\D/g, "").length >= 10) valeurs.telephone = tel;
+    if (!Object.keys(valeurs).length) return;
     let touches = 0;
     for (const m of list) {
       try { await loadDetail(m.id); } catch (e) { continue; }
       const d = details[m.id].data;
       let modif = false;
+      const applique = (obj) => {
+        for (const f of Object.keys(valeurs)) {
+          if (obj[f] !== valeurs[f]) { obj[f] = valeurs[f]; modif = true; }
+        }
+      };
       if (a.type === "notaire") {
         for (const key of ["notaire_vendeur", "notaire_acquereur"]) {
           const hit = annFuzzy(["notaire"], d[key].nom);
-          if (hit && hit.id === a.id && d[key].email !== mail) { d[key].email = mail; modif = true; }
+          if (hit && hit.id === a.id) applique(d[key]);
         }
       } else if (d.syndic && d.syndic.nom) {
         const hit = annFuzzy(["syndic", "president"], d.syndic.nom);
-        if (hit && hit.id === a.id && d.syndic.email !== mail) { d.syndic.email = mail; modif = true; }
+        if (hit && hit.id === a.id) applique(d.syndic);
       }
       if (modif) { await saveDossier(m.id); touches++; }
     }
-    if (touches) toast("E-mail répercuté sur " + touches + " dossier(s) ✓");
+    if (touches) toast("Coordonnées répercutées sur " + touches + " dossier(s) ✓");
     if (touches && (location.hash || "").startsWith("#dossier/")) renderDossier();
   }
   const saveAnnSoon = {};
-  const emailTouche = {}; // fiche id → l'e-mail vient d'être modifié
+  const coordTouche = {}; // fiche id → { email, telephone } modifiés depuis la dernière sauvegarde
   function wireAnnuaire() {
     const root = $("#annuaireList");
     // Le select « Agence » d'un conseiller passe par le même chemin que les
@@ -988,12 +998,13 @@
       const a = annuaire.find((x) => x.id === row.dataset.aid);
       if (!a) return;
       a[f] = ev.target.value;
-      if (f === "email") emailTouche[a.id] = true;
+      if (f === "email" || f === "telephone") (coordTouche[a.id] = coordTouche[a.id] || {})[f] = true;
       saveAnnSoon[a.id] = saveAnnSoon[a.id] || debounce(async () => {
         try {
           await api("/annuaire", { method: "PUT", json: a });
           toast("Annuaire enregistré ✓");
-          if (emailTouche[a.id]) { delete emailTouche[a.id]; await propageEmail(a); }
+          const champs = coordTouche[a.id];
+          if (champs) { delete coordTouche[a.id]; await propageCoordonnees(a, champs); }
         } catch (e) { toast(e.message, true); }
       }, 1200);
       saveAnnSoon[a.id]();
@@ -1157,6 +1168,99 @@
         "<small>Aucune note ni action depuis plus de 15 jours — appelez ou écrivez au vendeur.</small></span>" +
         mailBtn + '<button class="btn btn--sm" data-act="open" data-id="' + esc(m.id) + '">Ouvrir →</button></div>';
     }).join("") : '<div class="todo__empty">Tous les vendeurs ont eu des nouvelles récemment.</div>';
+  }
+
+  /* ------------------------------- Réunion --------------------------------
+     La revue d'équipe : toutes les actions EN ATTENTE (pas seulement les
+     retards), filtrées par conseiller et par grande famille — infos capitales
+     du journal, financement, urbanisme, réitération d'acte, autres conditions
+     suspensives. « ✓ Fait » met le dossier à jour sans quitter la vue ;
+     « Ouvrir → » entre dans le dossier et « ← Réunion » y ramène.          */
+  let retourReunion = false; // le dossier ouvert vient de la réunion
+  // Référente urbanisme de l'agence : en copie de toute relance liée à une
+  // condition suspensive ou une étape d'urbanisme (e-mail lu dans l'annuaire).
+  const URBA_REFERENTE = "Tiphaine DUVERGER";
+  const RE_URBA = /urbanis|permis|d[ée]claration pr[ée]alable|lotissement|division|bornage|détachement|detachement/i;
+  const RE_REITER = /r[ée]it[ée]ration|acte authentique|signature de l'acte/i;
+  // Famille d'une étape de l'échéancier ("" = hors réunion).
+  function familleEtape(s) {
+    if (s.phase === "Financement") return "financement";
+    if (s.phase === "Urbanisme (terrain)") return "urbanisme";
+    if (s.csIndex != null) {
+      if (RE_URBA.test(s.label || "")) return "urbanisme";
+      if (RE_REITER.test(s.label || "")) return "reiteration";
+      return "cs";
+    }
+    if (s.phase === "Acte authentique") return "reiteration";
+    return "";
+  }
+  async function renderReunion() {
+    const open = (await ensureOpenDetails()).filter(passeSite);
+    // Filtre conseiller : les initiales rencontrées dans les dossiers ouverts.
+    const sel = $("#reuCons"), avant = sel.value;
+    const inis = Array.from(new Set(open.flatMap((m) => {
+      const d = details[m.id].data;
+      return [d.conseiller_vendeur, d.conseiller_acquereur].map((c) => (c || "").trim().toUpperCase()).filter(Boolean);
+    }))).sort();
+    sel.innerHTML = '<option value="">Tous les conseillers</option>' + inis.map((i) => {
+      const e = annConseiller(i);
+      return '<option value="' + esc(i) + '">' + esc(i + (e ? " — " + e.nom : "")) + "</option>";
+    }).join("");
+    if (inis.includes(avant)) sel.value = avant;
+    const cons = sel.value, fam = $("#reuFam").value;
+
+    const blocs = [];
+    for (const m of open) {
+      const d = details[m.id].data;
+      if (cons && ![d.conseiller_vendeur, d.conseiller_acquereur]
+        .some((c) => (c || "").trim().toUpperCase() === cons)) continue;
+      const items = [];
+      if (!fam || fam === "capital") {
+        d.journal.forEach((j, i) => {
+          if (j.capital) items.push({ capital: i, due: "", texte: j.text || "" });
+        });
+      }
+      for (const s of E.compute(d)) {
+        if (s.done) continue;
+        const f = familleEtape(s);
+        if (!f || (fam && f !== fam)) continue;
+        items.push({ step: s, due: s.due || "", texte: s.label });
+      }
+      if (!items.length) continue;
+      items.sort((a, b) => ((a.due || "9999") < (b.due || "9999") ? -1 : 1));
+      blocs.push({ id: m.id, ref: d.reference || m.name, d, items });
+    }
+    blocs.sort((a, b) => ((a.items[0].due || "9999") < (b.items[0].due || "9999") ? -1 : 1));
+
+    $("#reunionList").innerHTML = blocs.map((v) => {
+      const lignes = v.items.map((it) => {
+        if (it.capital != null) {
+          return '<div class="todo__item late">' +
+            '<span class="when">⚠</span>' +
+            '<span class="what"><b>Info capitale</b><small>' + esc(it.texte.slice(0, 160)) + "</small></span>" +
+            '<button class="btn btn--sm" data-act="capfait" data-id="' + esc(v.id) + '" data-note="' + it.capital + '" title="Point réglé : la note redevient normale">✓ Fait</button>' +
+            "</div>";
+        }
+        const s = it.step;
+        const cls = s.days != null && s.days < 0 ? "late" : (s.days != null && s.days <= 7 ? "soon" : "");
+        const relTxt = s.relance && s.relance.ts
+          ? "✉ Dernière relance le " + new Date(s.relance.ts * 1000).toLocaleDateString("fr-FR") : "";
+        return '<div class="todo__item ' + cls + '">' +
+          '<span class="when">' + (s.due ? frDate(s.due) + "<br><small>" + deltaLabel(s.days) + "</small>" : "—") + "</span>" +
+          '<span class="what"><b>' + esc(s.label) + "</b>" +
+          (relTxt ? '<small style="color:var(--warn)">' + esc(relTxt) + "</small>" : "") + "</span>" +
+          mailButtons(v.id, s, v.d) +
+          '<button class="btn btn--sm" data-act="done" data-id="' + esc(v.id) + '" data-step="' + esc(s.id) + '" title="Marquer fait">✓ Fait</button>' +
+          "</div>";
+      }).join("");
+      return '<details class="vente"' + (blocs.length === 1 ? " open" : "") + ">" +
+        '<summary><span class="vente__ref">' + esc(v.ref) + "</span>" +
+        '<span class="vente__n">' + v.items.length + (v.items.length > 1 ? " points" : " point") + "</span>" +
+        '<span class="vente__due">' + (v.items[0].due ? frDate(v.items[0].due) : "") + "</span></summary>" +
+        '<div class="vente__actions">' + lignes +
+        '<div style="text-align:right"><button class="btn btn--sm" data-act="open" data-id="' + esc(v.id) + '">Ouvrir le dossier →</button></div>' +
+        "</div></details>";
+    }).join("") || '<div class="todo__empty">Rien à passer en revue avec ces filtres. 🎉</div>';
   }
 
   /* ----------------------------- Liste dossiers --------------------------- */
@@ -1474,6 +1578,7 @@
 
     view.innerHTML =
       '<div class="doshead">' +
+      (retourReunion ? '<a class="btn" href="#reunion" title="Revenir à la revue de réunion">← Réunion</a>' : "") +
       "<div><h2><span class=\"dot " + santeD + "\"></span>" + esc(d.reference || det.name) + "</h2>" +
       '<div class="sub">' + esc([d.bien.type, adresseComplete(d.bien), d.prix.prix_vente].filter(Boolean).join(" · ")) + "</div></div>" +
       '<div class="spacer"></div>' +
@@ -2301,13 +2406,20 @@
     $("#mailTo").value = to;
     // Financement et conditions suspensives : les DEUX conseillers du dossier
     // sont mis en copie (sans dupliquer une adresse déjà destinataire).
-    let cc = "";
+    const enCopie = [];
     if (step && (step.phase === "Financement" || step.phase === "Conditions suspensives" || step.csIndex != null)) {
-      const dansTo = to.toLowerCase();
-      cc = joinMails(recipientFor(d, "conseillers").split(";").map((x) => x.trim())
-        .filter((x) => x && !dansTo.includes(x.toLowerCase())));
+      enCopie.push(...recipientFor(d, "conseillers").split(";"));
     }
-    $("#mailCc").value = cc;
+    // Urbanisme (condition suspensive ou phase terrain) : la référente
+    // urbanisme de l'agence est en copie — sa fiche vit dans l'annuaire.
+    if (step && familleEtape(step) === "urbanisme") {
+      const ref = annuaire.find((x) => nomsCompatibles(x.nom, URBA_REFERENTE) && (x.email || "").trim());
+      if (ref) enCopie.push(ref.email.trim());
+      else toast("Ajoutez « " + URBA_REFERENTE + " » à l'annuaire (avec son e-mail) pour la mettre en copie des relances d'urbanisme.", true);
+    }
+    const dansTo = to.toLowerCase();
+    $("#mailCc").value = joinMails(enCopie.map((x) => x.trim())
+      .filter((x) => x && !dansTo.includes(x.toLowerCase())));
     $("#mailSubject").value = objetAvecAgence(fill(modele.sujet, f));
     $("#mailBody").value = fill(modele.corps, f);
     $("#ovMail").classList.add("on");
@@ -2735,20 +2847,34 @@
     });
     // Actions déléguées du tableau de bord et de la vue Stats.
     document.addEventListener("click", async (ev) => {
-      const t = ev.target.closest("#todoList [data-act],#staleList [data-act],#statsPending [data-act]");
+      const t = ev.target.closest("#todoList [data-act],#staleList [data-act],#statsPending [data-act],#reunionList [data-act]");
       if (!t) return;
       const id = t.dataset.id;
       const inStats = !!ev.target.closest("#statsPending");
-      if (t.dataset.act === "open") { location.hash = "#dossier/" + id; return; }
+      const inReunion = !!ev.target.closest("#reunionList");
+      if (t.dataset.act === "open") { retourReunion = inReunion; location.hash = "#dossier/" + id; return; }
       if (t.dataset.act === "mailname") { openMailByName(id, t.dataset.modele, t.dataset.step); return; }
+      // Réunion : « fait » sur une info capitale = le point est réglé, la
+      // note du journal redevient normale (comme décocher la case au dossier).
+      if (t.dataset.act === "capfait") {
+        const det = details[id];
+        const j = det && det.data.journal[Number(t.dataset.note)];
+        if (!j) return;
+        delete j.capital;
+        await saveDossier(id);
+        renderReunion();
+        return;
+      }
       if (t.dataset.act === "done") {
         const det = details[id];
         if (!det) return;
         marquerEtape(det.data, t.dataset.step, true);
         await saveDossier(id);
-        if (inStats) renderStats(); else renderBoard();
+        if (inReunion) renderReunion(); else if (inStats) renderStats(); else renderBoard();
       }
     });
+    $("#reuCons").addEventListener("change", renderReunion);
+    $("#reuFam").addEventListener("change", renderReunion);
     // Portefeuille : vigies cliquables, filtre conseiller, étape libre.
     $("#statsVigies").addEventListener("click", (ev) => {
       const b = ev.target.closest("[data-vigie]");

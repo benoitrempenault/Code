@@ -68,7 +68,7 @@ a { color: var(--accent); }
 .wrap { max-width: 1240px; margin: 0 auto; padding: 22px 18px 80px; }
 .view { display: none; }
 .view.on { display: block; }
-h2.viewtitle { font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 24px; margin-bottom: 16px; }
+h2.viewtitle { display: flex; align-items: center; font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 24px; margin-bottom: 16px; }
 h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font-size: 13px; font-weight: 400; margin-left: 10px; }
 
 .card {
