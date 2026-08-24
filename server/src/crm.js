@@ -1749,6 +1749,26 @@ export function sanitizeVisite(b) {
   };
 }
 
+/* ------------------------------ Fil de suivi ------------------------------ */
+// Une action menée auprès d'une personne OU d'une adresse : c'est la mémoire
+// de la prospection (« j'ai vu le client », « boîté la rue », « à rappeler
+// le 12 »). Au moins l'un des deux ancrages (contact_id / adresse) est requis.
+export const SUIVI_TYPES = ["note", "appel", "visite", "rdv", "mail", "sms", "courrier"];
+export function sanitizeSuivi(b) {
+  const contact_id = strip(b.contact_id, 40);
+  const adresse = strip(b.adresse, 200);
+  if (!contact_id && !adresse) throw new Error("Un suivi se rattache à une personne ou à une adresse.");
+  const isoOuVide = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : "");
+  return {
+    contact_id, adresse,
+    type: SUIVI_TYPES.includes(String(b.type || "")) ? String(b.type) : "note",
+    commentaire: strip(b.commentaire, 2000),
+    rappel_le: isoOuVide(b.rappel_le),
+    rappel_fait: b.rappel_fait ? 1 : 0,
+    conseiller: strip(b.conseiller, 80),
+  };
+}
+
 /* ------------------------------ Prospection ------------------------------- */
 // Un point est-il dans un polygone ? (lancer de rayon, suffisant a l'echelle
 // d'un ilot de prospection). polygone = [[lat, lng], ...]

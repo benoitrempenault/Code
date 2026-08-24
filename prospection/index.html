@@ -57,12 +57,16 @@
         <label class="case"><input type="checkbox" value="acquereur" checked /> <span class="pastille" style="background:#5B9BD5"></span> Acquéreurs</label>
         <label class="case"><input type="checkbox" value="vendeur" checked /> <span class="pastille" style="background:#c2a36b"></span> Vendeurs</label>
         <label class="case"><input type="checkbox" value="estime" checked /> <span class="pastille" style="background:#9B7EDE"></span> Estimés</label>
+        <label class="case"><input type="checkbox" value="prospect" checked /> <span class="pastille" style="background:#e07a5f"></span> Prospects</label>
         <label class="case"><input type="checkbox" value="autres" checked /> <span class="pastille" style="background:#8a8a86"></span> Autres</label>
       </div>
       <div class="rang">
+        <button class="btn btn-or" id="btn-prospect">➕ Ajouter un prospect</button>
         <button class="btn" id="btn-geocoder" hidden>📍 Géocoder les adresses</button>
         <button class="btn" id="btn-position">🧭 Ma position</button>
       </div>
+      <p class="petit" id="aide-prospect" hidden>Cliquez sur la maison du prospect : l'adresse
+        se remplit toute seule.</p>
     </div>
 
     <div class="bloc">
@@ -82,7 +86,7 @@
       </div>
       <!-- Numéro de version affiché : le CDN de GitHub Pages garde les fichiers
            ~10 min — ce petit repère dit quelle version tourne vraiment. -->
-      <p class="petit" id="version-carte">carte v18</p>
+      <p class="petit" id="version-carte">carte v19</p>
       <div class="legende-dpe" id="legende-dpe" hidden>
         <span style="background:#2E8B57">A</span><span style="background:#5FAE4E">B</span><span style="background:#B4C93B">C</span><span style="background:#E9C46A">D</span><span style="background:#E39B3B">E</span><span style="background:#DB6A2C">F</span><span style="background:#D64533">G</span>
       </div>

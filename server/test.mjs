@@ -2365,6 +2365,69 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(!attenteL.some((a2) => a2.id === "ct_adrlongue"),
     "une adresse longue déjà géocodée ne replante pas la file et n'y repasse pas");
 
+  /* ---- Le fil de suivi : actions par personne et par adresse, rappels ----- */
+  console.log("— Fil de suivi : historique des actions + rappels");
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "M.", prenom: "Marc", nom: "DUFIL", email: "dufil@exemple.fr",
+      adresse: "9 rue du Fil", ville: "Saint-Médard-en-Jalles" },
+  ] } });
+  const dufil = (await callR("/crm/contacts", { headers: auth })).json.contacts
+    .find((x) => x.email === "dufil@exemple.fr");
+  const svCt = await callR("/crm/suivis", { headers: authP, body: {
+    contact_id: dufil.id, type: "visite", commentaire: "Vu le client au portail, projet de vente à 12 mois.",
+  } });
+  ok(svCt.status === 200 && /^sv_/.test(svCt.json.id), "un suivi se pose sur une personne (membre)");
+  const svAdr = await callR("/crm/suivis", { headers: authP, body: {
+    adresse: "9 rue du Fil", type: "courrier", commentaire: "Boîté toute la rue (pige mars).",
+  } });
+  ok(svAdr.status === 200, "un suivi se pose sur une ADRESSE seule (prospection terrain)");
+  ok((await callR("/crm/suivis", { headers: authP, body: { commentaire: "perdu" } })).status === 400,
+    "un suivi sans personne ni adresse est refusé");
+  ok((await callR("/crm/suivis", { headers: authP, body: { contact_id: "ct_fantome", commentaire: "x" } })).status === 404,
+    "un suivi sur un contact inconnu : 404 propre");
+  const parCt = (await callR("/crm/suivis?contact_id=" + dufil.id, { headers: authP })).json.suivis;
+  ok(parCt.length === 1 && parCt[0].type === "visite" && parCt[0].contact === "Marc DUFIL",
+    "les suivis d'une personne se listent, avec son nom");
+  const parAdr = (await callR("/crm/suivis?adresse=" + encodeURIComponent("9 rue du fil"), { headers: authP })).json.suivis;
+  ok(parAdr.length === 2, "la vue PAR ADRESSE réunit les suivis de l'adresse ET des personnes qui y habitent (casse ignorée)");
+  ok((await callR("/crm/suivis", { headers: authP })).status === 400, "lister sans ancrage est refusé");
+  const ficheAvecSuivis = (await callR("/crm/contacts/" + dufil.id + "/fiche", { headers: authP })).json;
+  ok(ficheAvecSuivis.suivis.length === 1 && /portail/.test(ficheAvecSuivis.suivis[0].commentaire),
+    "la fiche du popup carte porte les derniers suivis");
+  // Les rappels : hier (en retard), dans 3 jours (à venir), dans 30 jours (hors horizon).
+  const svHier = await callR("/crm/suivis", { headers: authP, body: {
+    contact_id: dufil.id, type: "appel", commentaire: "À rappeler pour le RDV estimation.",
+    rappel_le: decalerJour(aujE, -1),
+  } });
+  await callR("/crm/suivis", { headers: authP, body: {
+    contact_id: dufil.id, type: "note", commentaire: "Relance douce.", rappel_le: decalerJour(aujE, 3) } });
+  await callR("/crm/suivis", { headers: authP, body: {
+    contact_id: dufil.id, type: "note", commentaire: "Dans un mois.", rappel_le: decalerJour(aujE, 30) } });
+  const agRappels = (await callR("/crm/rappels", { headers: authP })).json;
+  const mesRappels = agRappels.rappels.filter((r) => r.contact_id === dufil.id);
+  ok(mesRappels.length === 2 && mesRappels[0].retard === true && mesRappels[0].contact === "Marc DUFIL",
+    "l'agenda des rappels montre le retard et les 7 prochains jours, jamais le lointain");
+  await callR("/crm/suivis/" + svHier.json.id, { headers: authP, method: "PUT", body: { rappel_fait: 1 } });
+  ok(!(await callR("/crm/rappels", { headers: authP })).json.rappels.some((r) => r.id === svHier.json.id),
+    "un rappel coché « fait » sort de l'agenda");
+  // ➕ Prospect depuis la carte : position exacte du clic, pas de géocodage.
+  const prNouveau = await callR("/crm/prospects", { headers: authP, body: {
+    civilite: "Mme", nom: "PORTAIL Jeanne", adresse: "3 impasse du Portail",
+    ville: "Saint-Médard-en-Jalles", lat: 44.8971, lng: -0.7205,
+    suivi: "Vue au portail, envisage de vendre au printemps.",
+  } });
+  ok(prNouveau.status === 200 && /^ct_/.test(prNouveau.json.id),
+    "un prospect se crée depuis la carte (membre)");
+  const prospectCarte = (await callR("/crm/carte", { headers: authP })).json.points
+    .find((p2) => p2.contact_id === prNouveau.json.id);
+  ok(prospectCarte && prospectCarte.lat === 44.8971 && (prospectCarte.types || []).includes("prospect"),
+    "la maison du prospect est posée à l'endroit exact du clic, typée « prospect »");
+  const prSuivis = (await callR("/crm/suivis?contact_id=" + prNouveau.json.id, { headers: authP })).json.suivis;
+  ok(prSuivis.length === 1 && /portail/i.test(prSuivis[0].commentaire),
+    "le premier suivi du prospect part avec sa création");
+  ok((await callR("/crm/prospects", { headers: authP, body: { telephone: "0601020304" } })).status === 400,
+    "un prospect sans nom ni adresse est refusé");
+
   fauxResend.close();
   fauxDvf.close();
   fauxBan.close();

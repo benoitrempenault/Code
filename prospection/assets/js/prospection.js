@@ -15,7 +15,7 @@
   const GEOCODEURS = [BAN, "https://data.geopf.fr/geocodage"];
   const CENTRE_DEFAUT = [44.8963, -0.7191]; // Saint-Médard-en-Jalles
   const COULEURS_ILOTS = ["#c2a36b", "#5B9BD5", "#7fb069", "#9B7EDE", "#e07a5f", "#4ECDC4", "#E9C46A", "#F4A261"];
-  const COULEUR_TYPE = { vendeur: "#c2a36b", acquereur: "#5B9BD5", estime: "#9B7EDE", autres: "#8a8a86" };
+  const COULEUR_TYPE = { vendeur: "#c2a36b", acquereur: "#5B9BD5", estime: "#9B7EDE", prospect: "#e07a5f", autres: "#8a8a86" };
 
   function account() {
     try { return JSON.parse(localStorage.getItem("studio-mandatpro-account") || "null"); }
@@ -69,8 +69,15 @@
   let coucheVentes = null;      // L.layerGroup des ventes de l'agence (Suivi)
   let marqueurMoi = null;
   let geoAutoLance = false;     // géocodage auto : une seule fois par visite
+  let marqueursContacts = {};   // contact_id → marqueur (pour rafraîchir un popup)
+  let ajoutProspect = false;    // mode « ➕ Ajouter un prospect » : le prochain clic pose la maison
   // Dessin en cours
   let dessin = null;            // { sommets: [[lat,lng]], marqueurs: [], ligne }
+  const SUIVI_TYPES = {
+    note: "📝 Note", appel: "📞 Appel", visite: "🚪 Visite terrain", rdv: "🤝 RDV",
+    mail: "✉️ Mail", sms: "💬 SMS", courrier: "📮 Courrier",
+  };
+  const fmtJour = (ts) => new Date(ts * 1000).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" });
 
   function pointDansPolygone(lat, lng, poly) {
     let dedans = false;
@@ -87,6 +94,7 @@
     if ((types || []).includes("vendeur")) return "vendeur";
     if ((types || []).includes("acquereur")) return "acquereur";
     if ((types || []).includes("estime")) return "estime";
+    if ((types || []).includes("prospect")) return "prospect";
     return "autres";
   }
 
@@ -106,6 +114,7 @@
     couchePoints = L.layerGroup().addTo(carte);
     carte.on("click", (e) => {
       if (dessin) ajouterSommet(e.latlng);
+      else if (ajoutProspect) creerProspectIci(e.latlng);
     });
   }
 
@@ -115,6 +124,7 @@
 
   function rendrePoints() {
     couchePoints.clearLayers();
+    marqueursContacts = {};
     const actifs = filtresActifs();
     for (const p of donnees.points) {
       const cat = categorieDe(p.types);
@@ -138,20 +148,37 @@
           (il ? "Îlot : " + escH(il.nom) + (il.conseiller ? " (" + escH(il.conseiller) + ")" : "") : "Hors îlot") +
           "</div>";
       };
-      m.bindPopup(contenuDe);
+      const contenuComplet = () => {
+        let html = contenuDe();
+        const f = m._fiche || null;
+        if (f && f.notes) {
+          html += '<div class="sous" style="margin-top:6px; max-width:260px; white-space:pre-wrap;">📄 ' +
+            escH(f.notes.slice(0, 320)) + (f.notes.length > 320 ? "…" : "") + "</div>";
+        }
+        if (f && f.suivis.length) {
+          html += '<div class="sous" style="margin-top:6px; max-width:260px;"><strong>Fil de suivi</strong><br>' +
+            f.suivis.map((s) => escH(fmtJour(s.created_at)) + " · " + (SUIVI_TYPES[s.type] || s.type) + " — " +
+              escH(s.commentaire.slice(0, 90)) + (s.commentaire.length > 90 ? "…" : "") +
+              (s.conseiller ? " <em>(" + escH(s.conseiller) + ")</em>" : "")).join("<br>") + "</div>";
+        }
+        html += '<div style="margin-top:8px;"><button class="btn" style="padding:3px 10px; font-size:12px;" ' +
+          'data-suivi-contact="' + escH(p.contact_id) + '" data-suivi-adresse="' + escH(p.adresse || "") + '">＋ Suivi</button></div>';
+        return html;
+      };
+      m.bindPopup(contenuComplet);
+      marqueursContacts[p.contact_id] = m;
       // Au clic, la fiche se complète avec ce qui vient des FICHIERS importés
-      // (budget et critères d'un acquéreur, bien estimé et prix, mandat…) —
-      // chargé à la demande, jamais dans les 38 000 points de la carte.
+      // (budget et critères d'un acquéreur, bien estimé…) et le FIL DE SUIVI
+      // (les dernières actions menées) — chargé à la demande, jamais dans les
+      // 38 000 points de la carte.
       m.on("popupopen", async (ev) => {
         if (m._fiche === undefined) {
-          m._fiche = "";
-          try { m._fiche = ((await api("/crm/contacts/" + p.contact_id + "/fiche")).fiche || {}).notes || ""; }
-          catch (e) { /* hors ligne ou fiche disparue : le popup reste tel quel */ }
-        }
-        if (m._fiche) {
-          ev.popup.setContent(contenuDe() +
-            '<div class="sous" style="margin-top:6px; max-width:260px; white-space:pre-wrap;">📄 ' +
-            escH(m._fiche.slice(0, 320)) + (m._fiche.length > 320 ? "…" : "") + "</div>");
+          m._fiche = null;
+          try {
+            const r = await api("/crm/contacts/" + p.contact_id + "/fiche");
+            m._fiche = { notes: (r.fiche || {}).notes || "", suivis: r.suivis || [] };
+          } catch (e) { /* hors ligne ou fiche disparue : le popup reste tel quel */ }
+          if (m._fiche && (m._fiche.notes || m._fiche.suivis.length)) ev.popup.setContent(contenuComplet());
         }
       });
       couchePoints.addLayer(m);
@@ -300,6 +327,104 @@
         nettoyerDessin();
         toast("Îlot enregistré");
         await charger();
+      } catch (e) { toast(e.message, true); }
+    });
+  }
+
+  /* ------------------------------ Fil de suivi ----------------------------- */
+  // « ＋ Suivi » depuis le popup d'une maison : la mémoire de la prospection.
+  // Ce qui se note ici se retrouve dans la fiche contact de l'Administration,
+  // et le rappel éventuel dans l'agenda des rappels.
+  function ouvrirSuivi(contactId, adresse) {
+    carte.closePopup();
+    ouvrirModale("＋ Suivi" + (adresse ? " — " + adresse : ""),
+      '<label>Action<select id="sv-type">' +
+      Object.entries(SUIVI_TYPES).map(([v, l]) => '<option value="' + v + '">' + l + "</option>").join("") +
+      "</select></label>" +
+      '<label>Ce qui s\'est fait, ce qui s\'est dit<textarea id="sv-commentaire" rows="3" placeholder="ex : vu le client au portail, projet de vente à 12 mois"></textarea></label>' +
+      '<label>Me le rappeler le (optionnel)<input type="date" id="sv-rappel" /></label>',
+      '<button class="btn" id="sv-annuler">Annuler</button>' +
+      '<button class="btn btn-or" id="sv-save">Enregistrer</button>');
+    $("sv-annuler").addEventListener("click", fermerModale);
+    $("sv-save").addEventListener("click", async () => {
+      const commentaire = $("sv-commentaire").value.trim();
+      if (!commentaire) { toast("Un mot sur ce qui s'est passé ?", true); return; }
+      try {
+        await api("/crm/suivis", { json: {
+          contact_id: contactId, adresse: adresse || "",
+          type: $("sv-type").value, commentaire, rappel_le: $("sv-rappel").value,
+        } });
+        fermerModale();
+        toast("Suivi enregistré" + ($("sv-rappel") && $("sv-rappel").value ? " — rappel posé" : ""));
+        const m = marqueursContacts[contactId];
+        if (m) m._fiche = undefined; // le prochain clic recharge l'historique
+      } catch (e) { toast(e.message, true); }
+    });
+  }
+
+  /* --------------------- ➕ Un prospect depuis la carte --------------------- */
+  // Le conseiller clique sur la maison : la position est EXACTE (pas de
+  // géocodage), l'adresse remonte de la BAN (géocodage inverse), la fiche
+  // se crée avec le type « prospect » et, si un mot est laissé, son premier
+  // suivi. La maison se colore aussitôt.
+  function basculerAjoutProspect(actif) {
+    ajoutProspect = actif;
+    $("aide-prospect").hidden = !actif;
+    $("btn-prospect").textContent = actif ? "✖ Annuler l'ajout" : "➕ Ajouter un prospect";
+    $("carte").classList.toggle("carte-dessin", actif || !!dessin);
+  }
+  async function adresseInverse(latlng) {
+    for (const base of GEOCODEURS) {
+      try {
+        const r = await fetch(base + "/reverse/?lat=" + latlng.lat + "&lon=" + latlng.lng);
+        if (!r.ok) continue;
+        const f = ((await r.json()).features || [])[0];
+        if (f && f.properties) return f.properties; // {name, postcode, city, label}
+      } catch (e) { /* géocodeur suivant */ }
+    }
+    return null;
+  }
+  async function creerProspectIci(latlng) {
+    basculerAjoutProspect(false);
+    toast("Je cherche l'adresse de cette maison…");
+    const pr = await adresseInverse(latlng) || {};
+    ouvrirModale("Nouveau prospect",
+      '<label>Adresse<input id="pr-adresse" value="' + escH(pr.name || "") + '" placeholder="n° et rue" /></label>' +
+      '<div class="rang">' +
+      '<label style="flex:1;">Code postal<input id="pr-cp" value="' + escH(pr.postcode || "") + '" /></label>' +
+      '<label style="flex:2;">Ville<input id="pr-ville" value="' + escH(pr.city || "") + '" /></label>' +
+      "</div>" +
+      '<div class="rang">' +
+      '<label>Civilité<select id="pr-civilite"><option value=""></option><option>M.</option><option>Mme</option><option>M. et Mme</option></select></label>' +
+      '<label style="flex:1;">Prénom<input id="pr-prenom" /></label>' +
+      '<label style="flex:1;">Nom<input id="pr-nom" /></label>' +
+      "</div>" +
+      '<div class="rang">' +
+      '<label style="flex:1;">Téléphone<input id="pr-tel" /></label>' +
+      '<label style="flex:1;">E-mail<input id="pr-email" /></label>' +
+      "</div>" +
+      '<label>Premier suivi (optionnel)<textarea id="pr-suivi" rows="2" placeholder="ex : vu au portail, envisage de vendre au printemps"></textarea></label>',
+      '<button class="btn" id="pr-annuler">Annuler</button>' +
+      '<button class="btn btn-or" id="pr-save">Créer le prospect</button>');
+    $("pr-annuler").addEventListener("click", fermerModale);
+    $("pr-save").addEventListener("click", async () => {
+      try {
+        const adresse = $("pr-adresse").value.trim();
+        const r = await api("/crm/prospects", { json: {
+          civilite: $("pr-civilite").value, prenom: $("pr-prenom").value.trim(), nom: $("pr-nom").value.trim(),
+          telephone: $("pr-tel").value.trim(), email: $("pr-email").value.trim(),
+          adresse, cp: $("pr-cp").value.trim(), ville: $("pr-ville").value.trim(),
+          lat: latlng.lat, lng: latlng.lng, suivi: $("pr-suivi").value.trim(),
+        } });
+        fermerModale();
+        toast("Prospect créé — la maison est sur la carte");
+        donnees.points.push({
+          contact_id: r.id, civilite: $("pr-civilite").value, prenom: $("pr-prenom").value.trim(),
+          nom: $("pr-nom").value.trim(), telephone: $("pr-tel").value.trim(), email: $("pr-email").value.trim(),
+          adresse, cp: $("pr-cp").value.trim(), ville: $("pr-ville").value.trim(),
+          lat: latlng.lat, lng: latlng.lng, types: ["prospect"], conseiller: "", label: "",
+        });
+        rendrePoints();
       } catch (e) { toast(e.message, true); }
     });
   }
@@ -736,6 +861,13 @@
   });
   $("btn-geocoder").addEventListener("click", geocoder);
   $("btn-position").addEventListener("click", maPosition);
+  $("btn-prospect").addEventListener("click", () => basculerAjoutProspect(!ajoutProspect));
+  // Les boutons « ＋ Suivi » vivent DANS les popups Leaflet (du HTML injecté) :
+  // une délégation globale suffit, pas de listener par marqueur.
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-suivi-contact]");
+    if (b) ouvrirSuivi(b.dataset.suiviContact, b.dataset.suiviAdresse || "");
+  });
   $("btn-import-ventes").addEventListener("click", () => $("fichier-ventes").click());
   $("fichier-ventes").addEventListener("change", (e) => {
     const f = e.target.files && e.target.files[0];

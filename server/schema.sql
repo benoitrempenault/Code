@@ -601,3 +601,26 @@ CREATE TABLE IF NOT EXISTS crm_visites (
   updated_at   INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_crm_visites_projet ON crm_visites(agency_id, projet_id);
+
+-- Le FIL DE SUIVI : chaque action menée auprès d'une personne OU d'une
+-- adresse (note, appel, visite terrain, RDV, mail, SMS, courrier). C'est
+-- l'historique que réclame la prospection « par adresse » : en revenant sur
+-- une maison on retrouve qui a été vu, quand, et ce qui s'est dit. Un suivi
+-- peut porter un RAPPEL (« le rappeler telle date ») qui apparaît dans la
+-- liste des rappels du jour tant qu'il n'est pas fait.
+CREATE TABLE IF NOT EXISTS crm_suivis (
+  id          TEXT PRIMARY KEY,              -- sv_xxxxxxxx
+  agency_id   TEXT NOT NULL REFERENCES agencies(id),
+  contact_id  TEXT NOT NULL DEFAULT '',      -- personne concernée (si connue)
+  adresse     TEXT NOT NULL DEFAULT '',      -- adresse concernée (prospection)
+  type        TEXT NOT NULL DEFAULT 'note',  -- note|appel|visite|rdv|mail|sms|courrier
+  commentaire TEXT NOT NULL DEFAULT '',
+  rappel_le   TEXT NOT NULL DEFAULT '',      -- AAAA-MM-JJ : à rappeler ce jour-là
+  rappel_fait INTEGER NOT NULL DEFAULT 0,    -- 1 quand le rappel est traité
+  conseiller  TEXT NOT NULL DEFAULT '',
+  user_id     TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_suivis_contact ON crm_suivis(agency_id, contact_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_crm_suivis_adresse ON crm_suivis(agency_id, adresse);
+CREATE INDEX IF NOT EXISTS idx_crm_suivis_rappel  ON crm_suivis(agency_id, rappel_fait, rappel_le);

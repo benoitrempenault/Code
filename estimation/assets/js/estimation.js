@@ -473,6 +473,17 @@
       '<input id="fe-doc-cherche" placeholder="🔍 chercher une fiche prestations ou une brochure (nom, adresse)" autocomplete="off" style="margin-top:6px;" /></label>',
       '<div class="fiche-sec">Suivi &amp; relances</div>',
       '<div id="fe-suivi"><span class="petit">…</span></div>',
+      '<div id="fe-suivis-manuels"></div>',
+      '<label>＋ Suivi (appel, RDV, ce qui s\'est dit…)' +
+      '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">' +
+      '<select id="fe-sv-type">' +
+      [["note", "📝 Note"], ["appel", "📞 Appel"], ["visite", "🚪 Visite"], ["rdv", "🤝 RDV"],
+        ["mail", "✉️ Mail"], ["sms", "💬 SMS"], ["courrier", "📮 Courrier"]]
+        .map(([k2, l2]) => '<option value="' + k2 + '">' + l2 + "</option>").join("") + "</select>" +
+      '<input id="fe-sv-com" placeholder="ex : le rappeler pour la restitution" style="flex:1; min-width:160px;" />' +
+      '<input type="date" id="fe-sv-rappel" title="Me le rappeler ce jour-là" />' +
+      '<button class="btn" id="fe-sv-ajouter" type="button">＋ Suivi</button>' +
+      "</div></label>",
       '<div class="fiche-sec">Le parcours</div>',
       '<div class="fiche-2col">',
       "<label>R1 — RDV d'estimation<input id=\"fe-r1\" type=\"date\" value=\"" + v(f.r1) + '" /></label>',
@@ -664,6 +675,49 @@
               "</strong> le " + escH(fmtDateFr(prochain[1])) + ".</p>"
             : '<p class="petit">Aucune action automatique à venir — posez R1/R2 ou le parcours est allé au bout.</p>');
     })();
+
+    // ---- Le fil de suivi MANUEL : « + suivi », rappels --------------------
+    // Ancré sur la première personne liée (sinon sur l'adresse du bien) : le
+    // même fil se retrouve dans la fiche contact de l'Administration et sur
+    // la carte de prospection ; un rappel posé rejoint l'agenda des rappels.
+    const TYPES_SV = { note: "📝 Note", appel: "📞 Appel", visite: "🚪 Visite", rdv: "🤝 RDV",
+      mail: "✉️ Mail", sms: "💬 SMS", courrier: "📮 Courrier" };
+    const ancreSuivi = () => ({
+      contact_id: lies.length ? lies[0].id : ((existante && existante.contact_id) || pre.contact_id || ""),
+      adresse: $("fe-adresse").value.trim(),
+    });
+    async function chargerSuivisFiche() {
+      const zone = $("fe-suivis-manuels");
+      const a = ancreSuivi();
+      if (!a.contact_id && !a.adresse) { zone.innerHTML = ""; return; }
+      try {
+        const q = a.contact_id ? "contact_id=" + encodeURIComponent(a.contact_id)
+          : "adresse=" + encodeURIComponent(a.adresse);
+        const suivis = ((await api("/crm/suivis?" + q)).suivis || []).slice(0, 6);
+        zone.innerHTML = suivis.length
+          ? suivis.map((s) => '<div class="ligne"><span class="t">' + (TYPES_SV[s.type] || s.type) + "</span>" +
+            ' <span class="d">· ' + escH(fmtDateFr(new Date(s.created_at * 1000).toISOString().slice(0, 10))) +
+            " · " + escH(s.commentaire.slice(0, 110)) +
+            (s.rappel_le ? " · rappel " + escH(fmtDateFr(s.rappel_le)) + (s.rappel_fait ? " ✓" : "") : "") +
+            (s.conseiller ? " (" + escH(s.conseiller) + ")" : "") + "</span></div>").join("")
+          : "";
+      } catch (e2) { /* le fil reste vide, la fiche marche sans */ }
+    }
+    chargerSuivisFiche();
+    $("fe-sv-ajouter").addEventListener("click", async () => {
+      const commentaire = $("fe-sv-com").value.trim();
+      if (!commentaire) { toast("Un mot sur ce qui s'est passé ?", true); return; }
+      const a = ancreSuivi();
+      if (!a.contact_id && !a.adresse) { toast("Reliez une personne ou posez l'adresse d'abord.", true); return; }
+      try {
+        await api("/crm/suivis", { json: {
+          ...a, type: $("fe-sv-type").value, commentaire, rappel_le: $("fe-sv-rappel").value,
+        } });
+        $("fe-sv-com").value = ""; $("fe-sv-rappel").value = "";
+        toast("Suivi enregistré");
+        chargerSuivisFiche();
+      } catch (e2) { toast(e2.message, true); }
+    });
 
     // ---- Enregistrement ---------------------------------------------------
     $("fe-save").addEventListener("click", async () => {

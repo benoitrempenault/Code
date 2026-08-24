@@ -221,6 +221,22 @@ prevue|faite|annulee, compte rendu ; routes membre GET/POST/PUT/DELETE
 /crm/visites, vue admin `GET /crm/projets/:id/activite` (biens proposés via
 crm_relances + visites) ; UI dans la modale projet (Acheteurs) avec « 🖨 Bon de
 visite » imprimé par le navigateur (window.open + print, en-tête agence).
+**Fil de suivi** (`crm_suivis`, id sv_) : chaque action menée auprès d'une
+personne OU d'une adresse (note|appel|visite|rdv|mail|sms|courrier, commentaire,
+rappel_le + rappel_fait) — la mémoire de la prospection « par adresse ». Routes
+membre : GET /crm/suivis?contact_id=|adresse= (la vue par adresse réunit les
+suivis de l'adresse ET des contacts qui y habitent, COLLATE NOCASE), POST,
+PUT /:id (rappel_fait), DELETE, GET /crm/rappels (retard + 7 jours, noms/tél
+joints, `retard` bool). `GET /crm/contacts/:id/fiche` renvoie aussi les 5
+derniers suivis. `POST /crm/prospects` (membre) crée un contact typé prospect
+depuis la carte : lat/lng du clic posés DIRECTEMENT dans crm_geo (pas de
+géocodage), premier suivi optionnel dans le corps (`suivi`). UI : fiche contact
+admin (section « Fil de suivi » + ＋ Suivi + mailto/tel/sms), carte « 📅
+Rappels » dans l'onglet Contacts (✓ Fait), popup carte prospection (historique
++ bouton ＋ Suivi, délégation document sur [data-suivi-contact]), bouton
+« ➕ Ajouter un prospect » (mode clic carte → géocodage inverse BAN/IGN
+/reverse/ → modale préremplie), catégorie/filtre « prospect » (#e07a5f),
+fiche estimation (fil manuel ancré 1er contact lié sinon adresse). Carte v19.
 **Suivi d'une fiche estimation** : `GET /crm/estimations/:id/envois` (membre) ;
 la modale affiche l'historique + la prochaine action calculée des dates R1/R2.
 Studio Estimation a un bouton 📍 (pompe /crm/geo/serveur, admin) ; la priorité

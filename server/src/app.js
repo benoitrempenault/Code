@@ -759,6 +759,43 @@ export function createApp(env) {
     return c.json({ ok: true });
   });
 
+  // Un PROSPECT ajouté depuis la carte (membre : chaque conseiller prospecte).
+  // Le clic sur la carte donne la position exacte — elle est posée directement,
+  // sans repasser par le géocodage. Le premier suivi peut partir avec.
+  app.post("/crm/prospects", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    const v = CRM.sanitizeContact(b);
+    if (!v.nom && !v.prenom && !v.adresse) return err(c, 400, "Un nom ou une adresse est requis.");
+    if (!v.types.includes("prospect")) v.types.push("prospect");
+    const id = randId("ct");
+    await db.run(
+      `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone,
+       adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out,
+       created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prospection', ?, ?, ?)`,
+      [id, ctx.agency.id, ctx.user.id, v.civilite, v.prenom, v.nom, v.email, v.telephone, v.adresse,
+       v.cp, v.ville, v.date_naissance, v.date_achat, JSON.stringify(v.types),
+       v.conseiller || ctx.user.name || "", v.notes, v.opt_out, now(), now()]);
+    const lat = Number(b.lat), lng = Number(b.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat || lng)) {
+      await db.run(
+        `INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at)
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+        [id, ctx.agency.id, Math.round(lat * 1e6) / 1e6, Math.round(lng * 1e6) / 1e6,
+          [v.adresse, v.cp, v.ville].filter(Boolean).join(" "), v.adresse, now()]);
+    }
+    if (String(b.suivi || "").trim()) {
+      await db.run(
+        `INSERT INTO crm_suivis (id, agency_id, contact_id, adresse, type, commentaire,
+         rappel_le, rappel_fait, conseiller, user_id, created_at)
+         VALUES (?, ?, ?, ?, 'visite', ?, '', 0, ?, ?, ?)`,
+        [randId("sv"), ctx.agency.id, id, v.adresse, String(b.suivi).trim().slice(0, 2000),
+          v.conseiller || ctx.user.name || "", ctx.user.id, now()]);
+    }
+    return c.json({ ok: true, id });
+  });
+
   // Import d'extraction : lignes déjà mappées côté navigateur (colonne → champ).
   app.post("/crm/contacts/bulk", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
@@ -1567,7 +1604,11 @@ export function createApp(env) {
       "SELECT id, notes, date_achat, source FROM crm_contacts WHERE id = ? AND agency_id = ?",
       [c.req.param("id"), ctx.agency.id]);
     if (!row) return err(c, 404, "Contact introuvable.");
-    return c.json({ fiche: row });
+    const suivis = await db.all(
+      `SELECT id, type, commentaire, rappel_le, rappel_fait, conseiller, created_at
+       FROM crm_suivis WHERE agency_id = ? AND contact_id = ?
+       ORDER BY created_at DESC LIMIT 5`, [ctx.agency.id, row.id]);
+    return c.json({ fiche: row, suivis });
   });
 
   // Les documents Studio Brochure du même bien : la fiche prestations
@@ -1718,6 +1759,110 @@ export function createApp(env) {
       `SELECT * FROM crm_visites WHERE agency_id = ? AND projet_id = ? ORDER BY date_visite DESC, created_at DESC LIMIT 60`,
       [ctx.agency.id, projetId]);
     return c.json({ proposes, visites });
+  });
+
+  /* ---------------------------- Fil de suivi -------------------------------
+     L'historique des actions menées auprès d'une personne OU d'une adresse :
+     « j'ai vu le client », « boîté la rue », « à rappeler le 12 ». C'est la
+     mémoire de la prospection : en revenant sur une adresse on retrouve qui
+     a été vu, quand, et ce qui s'est dit. Membre : chaque conseiller note
+     et consulte depuis la carte, la fiche contact ou la fiche estimation. */
+  const SUIVIS_MAX = 100;
+  app.get("/crm/suivis", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const contactId = String(c.req.query("contact_id") || "").slice(0, 40);
+    const adresse = String(c.req.query("adresse") || "").trim().slice(0, 200);
+    if (!contactId && !adresse) return err(c, 400, "contact_id ou adresse attendu.");
+    // Par adresse : les suivis posés sur l'adresse ET ceux des personnes qui
+    // y habitent — une seule vue « que s'est-il passé ici ? ».
+    const rows = contactId
+      ? await db.all(
+        `SELECT * FROM crm_suivis WHERE agency_id = ? AND contact_id = ?
+         ORDER BY created_at DESC LIMIT ${SUIVIS_MAX}`, [ctx.agency.id, contactId])
+      : await db.all(
+        `SELECT * FROM crm_suivis WHERE agency_id = ? AND (adresse = ? COLLATE NOCASE
+           OR contact_id IN (SELECT id FROM crm_contacts WHERE agency_id = ? AND adresse = ? COLLATE NOCASE))
+         ORDER BY created_at DESC LIMIT ${SUIVIS_MAX}`,
+        [ctx.agency.id, adresse, ctx.agency.id, adresse]);
+    // Le nom des personnes concernées, pour l'affichage.
+    const ids = [...new Set(rows.map((r) => r.contact_id).filter(Boolean))];
+    const noms = ids.length ? await db.all(
+      `SELECT id, prenom, nom FROM crm_contacts WHERE agency_id = ? AND id IN (${ids.map(sqlQ).join(",")})`,
+      [ctx.agency.id]) : [];
+    const parId = Object.fromEntries(noms.map((n) => [n.id, [n.prenom, n.nom].filter(Boolean).join(" ")]));
+    return c.json({ suivis: rows.map((r) => ({ ...r, contact: parId[r.contact_id] || "" })) });
+  });
+
+  app.post("/crm/suivis", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    let s;
+    try { s = CRM.sanitizeSuivi(b); } catch (e) { return err(c, 400, e.message); }
+    if (s.contact_id) {
+      const ct = await db.get("SELECT id FROM crm_contacts WHERE id = ? AND agency_id = ?",
+        [s.contact_id, ctx.agency.id]);
+      if (!ct) return err(c, 404, "Contact introuvable.");
+    }
+    const id = randId("sv");
+    await db.run(
+      `INSERT INTO crm_suivis (id, agency_id, contact_id, adresse, type, commentaire,
+       rappel_le, rappel_fait, conseiller, user_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, ctx.agency.id, s.contact_id, s.adresse, s.type, s.commentaire,
+        s.rappel_le, s.rappel_fait, s.conseiller || ctx.user.name || "", ctx.user.id, now()]);
+    return c.json({ ok: true, id });
+  });
+
+  // Cocher un rappel (fait / à refaire) ou corriger un suivi.
+  app.put("/crm/suivis/:id", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    const cur = await db.get("SELECT * FROM crm_suivis WHERE id = ? AND agency_id = ?",
+      [c.req.param("id"), ctx.agency.id]);
+    if (!cur) return err(c, 404, "Suivi introuvable.");
+    let s;
+    try { s = CRM.sanitizeSuivi({ ...cur, ...b }); } catch (e) { return err(c, 400, e.message); }
+    await db.run(
+      `UPDATE crm_suivis SET adresse = ?, type = ?, commentaire = ?, rappel_le = ?,
+       rappel_fait = ?, conseiller = ? WHERE id = ?`,
+      [s.adresse, s.type, s.commentaire, s.rappel_le, s.rappel_fait, s.conseiller, cur.id]);
+    return c.json({ ok: true, id: cur.id });
+  });
+
+  app.delete("/crm/suivis/:id", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    await db.run("DELETE FROM crm_suivis WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    return c.json({ ok: true });
+  });
+
+  // L'agenda des RAPPELS : ce qui est à rappeler aujourd'hui (et en retard),
+  // plus les 7 prochains jours — avec le nom de la personne.
+  app.get("/crm/rappels", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const jour = CRM.parisDate();
+    const horizon = CRM.decalerJour(jour, 7);
+    const rows = await db.all(
+      `SELECT * FROM crm_suivis WHERE agency_id = ? AND rappel_fait = 0
+         AND rappel_le <> '' AND rappel_le <= ?
+       ORDER BY rappel_le ASC LIMIT 200`, [ctx.agency.id, horizon]);
+    const ids = [...new Set(rows.map((r) => r.contact_id).filter(Boolean))];
+    const noms = ids.length ? await db.all(
+      `SELECT id, prenom, nom, telephone, email FROM crm_contacts WHERE agency_id = ? AND id IN (${ids.map(sqlQ).join(",")})`,
+      [ctx.agency.id]) : [];
+    const parId = Object.fromEntries(noms.map((n) => [n.id, n]));
+    return c.json({
+      jour,
+      rappels: rows.map((r) => {
+        const n = parId[r.contact_id] || {};
+        return {
+          ...r, contact: [n.prenom, n.nom].filter(Boolean).join(" "),
+          telephone: n.telephone || "", email: n.email || "",
+          retard: r.rappel_le < jour,
+        };
+      }),
+    });
   });
 
   // Rattrapage : les contacts « estimé » importés du fichier C21 deviennent

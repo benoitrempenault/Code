@@ -154,7 +154,20 @@
         (/\bet\b/i.test((c.civilite || "") + " " + (c.prenom || ""))
           ? '<div class="barre"><button class="btn" id="btn-scinder">👥 Scinder en deux personnes (M. / Mme)</button>' +
             '<span class="petit" style="margin:0;">crée une fiche Madame liée aux mêmes projets</span></div>'
-          : "")
+          : "") +
+        '<div class="barre barre-haut" style="margin-top:14px;">' +
+        '<span style="color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.5px; font-weight:600;">Fil de suivi</span>' +
+        (c.email && !c.opt_out ? '<a class="btn" style="padding:4px 12px; font-size:12.5px;" href="mailto:' + escH(c.email) + '">✉️ Écrire</a>' : "") +
+        (c.telephone ? '<a class="btn" style="padding:4px 12px; font-size:12.5px;" href="tel:' + escH(c.telephone) + '">📞 Appeler</a>' +
+          '<a class="btn" style="padding:4px 12px; font-size:12.5px;" href="sms:' + escH(c.telephone) + '">💬 SMS</a>' : "") +
+        "</div>" +
+        '<div class="barre">' +
+        '<select id="sv-type">' + Object.entries(SUIVI_TYPES).map(([v, l]) => '<option value="' + v + '">' + l + "</option>").join("") + "</select>" +
+        '<input id="sv-commentaire" placeholder="Ce qui s\'est fait, ce qui s\'est dit…" style="flex:1; min-width:220px;" />' +
+        '<input type="date" id="sv-rappel" title="Me le rappeler ce jour-là" />' +
+        '<button class="btn btn-or" id="btn-sv-ajouter">＋ Suivi</button>' +
+        "</div>" +
+        '<div id="zone-suivis-contact"><p class="petit">Chargement de l\'historique…</p></div>'
         : ""),
       (c ? '<button class="btn btn-danger" id="btn-suppr-contact">Supprimer</button>' : "") +
       '<button class="btn" id="btn-annuler-contact">Annuler</button>' +
@@ -178,7 +191,77 @@
         chargerAcheteurs();
       } catch (e) { toast(e.message, true); }
     });
+    if (c) {
+      chargerSuivisContact(c.id);
+      $("btn-sv-ajouter").addEventListener("click", () => ajouterSuivi(c.id));
+    }
   }
+
+  /* ------------------------------ Fil de suivi ----------------------------- */
+  // L'historique des actions menées auprès d'une personne : chaque « + Suivi »
+  // se retrouve ici, dans le popup de la carte de prospection et — si un
+  // rappel est posé — dans l'agenda des rappels de l'onglet Contacts.
+  const SUIVI_TYPES = {
+    note: "📝 Note", appel: "📞 Appel", visite: "🚪 Visite terrain", rdv: "🤝 RDV",
+    mail: "✉️ Mail", sms: "💬 SMS", courrier: "📮 Courrier",
+  };
+  function ligneSuivi(s) {
+    return "<tr><td>" + fmtTs(s.created_at) + "</td>" +
+      "<td>" + (SUIVI_TYPES[s.type] || s.type) + "</td>" +
+      "<td>" + escH(s.commentaire) + (s.rappel_le
+        ? ' <span class="puce' + (s.rappel_fait ? " grise" : "") + '">rappel ' + fmtDateFr(s.rappel_le) + (s.rappel_fait ? " ✓" : "") + "</span>" : "") + "</td>" +
+      "<td>" + escH(s.conseiller) + "</td></tr>";
+  }
+  async function chargerSuivisContact(id) {
+    const zone = $("zone-suivis-contact");
+    if (!zone) return;
+    try {
+      const { suivis } = await api("/crm/suivis?contact_id=" + encodeURIComponent(id));
+      zone.innerHTML = suivis.length
+        ? '<div class="tableau-cadre"><table><thead><tr><th>Quand</th><th>Action</th><th>Commentaire</th><th>Par</th></tr></thead><tbody>' +
+          suivis.map(ligneSuivi).join("") + "</tbody></table></div>"
+        : '<p class="petit">Aucune action notée pour l\'instant — le « ＋ Suivi » ci-dessus garde la mémoire de chaque contact.</p>';
+    } catch (e) { zone.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; }
+  }
+  async function ajouterSuivi(contactId) {
+    const commentaire = $("sv-commentaire").value.trim();
+    if (!commentaire) { toast("Un mot sur ce qui s'est passé ?", true); return; }
+    try {
+      await api("/crm/suivis", { method: "POST", json: {
+        contact_id: contactId, type: $("sv-type").value,
+        commentaire, rappel_le: $("sv-rappel").value,
+      } });
+      $("sv-commentaire").value = ""; $("sv-rappel").value = "";
+      toast("Suivi enregistré");
+      chargerSuivisContact(contactId);
+      chargerRappels();
+    } catch (e) { toast(e.message, true); }
+  }
+  async function chargerRappels() {
+    const zone = $("zone-rappels");
+    if (!zone) return;
+    try {
+      const { rappels } = await api("/crm/rappels");
+      if (!rappels.length) { zone.innerHTML = '<p class="petit">Rien à rappeler dans les 7 prochains jours.</p>'; return; }
+      zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr>' +
+        "<th>À rappeler le</th><th>Qui</th><th>Téléphone</th><th>Pourquoi</th><th>Par</th><th></th></tr></thead><tbody>" +
+        rappels.map((r) => '<tr class="cliquable" data-contact="' + escH(r.contact_id) + '">' +
+          "<td>" + (r.retard ? '<span class="puce" style="background:#fbe9e7; color:#c62828;">en retard · ' + fmtDateFr(r.rappel_le) + "</span>" : fmtDateFr(r.rappel_le)) + "</td>" +
+          "<td><strong>" + (escH(r.contact) || escH(r.adresse) || "—") + "</strong></td>" +
+          "<td>" + escH(r.telephone) + "</td>" +
+          "<td>" + (SUIVI_TYPES[r.type] || r.type) + " · " + escH(r.commentaire) + "</td>" +
+          "<td>" + escH(r.conseiller) + "</td>" +
+          '<td><button class="btn" style="padding:3px 10px; font-size:12px;" data-rappel-fait="' + escH(r.id) + '">✓ Fait</button></td></tr>').join("") +
+        "</tbody></table></div>";
+      zone.querySelectorAll("[data-rappel-fait]").forEach((b) =>
+        b.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          try { await api("/crm/suivis/" + b.dataset.rappelFait, { method: "PUT", json: { rappel_fait: 1 } }); chargerRappels(); }
+          catch (e) { toast(e.message, true); }
+        }));
+    } catch (e) { zone.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; }
+  }
+
   async function enregistrerContact() {
     const val = (id) => $(id).value;
     try {
@@ -1207,6 +1290,7 @@
     chargerRelances();
     chargerEstimations();
     chargerBiblio();
+    chargerRappels();
   }
 
   /* ---------------------------- Branchements ------------------------------- */
@@ -1222,6 +1306,10 @@
   $("table-contacts").addEventListener("click", (e) => {
     const tr = e.target.closest("tr[data-contact]");
     if (tr) ouvrirContact(tr.dataset.contact);
+  });
+  $("zone-rappels").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-contact]");
+    if (tr && tr.dataset.contact && !e.target.closest("[data-rappel-fait]")) ouvrirContact(tr.dataset.contact);
   });
   $("table-annonces").addEventListener("click", (e) => {
     const tr = e.target.closest("tr[data-url]");
