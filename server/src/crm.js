@@ -1918,16 +1918,17 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
     env.GEOPF_BASE || "https://data.geopf.fr/geocodage",
   ];
   const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
-  // Les adresses du paquet sont géocodées EN PARALLÈLE (Cloudflare sérialise
-  // au-delà de 6 connexions, la politesse est naturelle) : un paquet passe en
-  // ~2 s au lieu de ~15. Attention au PLAFOND de sous-requêtes du Worker :
-  // chaque adresse peut coûter jusqu'à 2 appels (BAN puis IGN) — les paquets
-  // restent petits (voir les appelants).
+  // EN FILE INDIENNE, jamais en parallèle : la BAN et l'IGN refusent les
+  // RAFALES venant des serveurs partagés (constaté en production : 12 d'un
+  // coup = « BAN 0 ok / 12 refus · IGN 0 ok / 12 refus », alors qu'à l'unité
+  // tout passe). Une adresse à la fois, 150 ms d'écart — la politesse du
+  // navigateur, depuis le serveur. Le paquet reste petit (plafond de
+  // sous-requêtes : jusqu'à 2 appels par adresse, BAN puis IGN).
   let geocodes = 0;
   // Bilan par géocodeur : quand un passage rend 0, il DIT pourquoi (refusé
   // = 429/5xx, muet = injoignable, ok = a répondu) — fini les « 0 » muets.
   const sondes = [{ nom: "BAN", ok: 0, refus: 0, muet: 0 }, { nom: "IGN", ok: 0, refus: 0, muet: 0 }];
-  const resultats = await Promise.all(attente.map(async (a) => {
+  const geocodeUne = async (a) => {
     let ligne = null, introuvable = null;
     for (let bi = 0; bi < bases.length; bi++) {
       const base = bases[bi];
@@ -1952,7 +1953,12 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
     const l = ligne || introuvable;
     if (!l) return null; // aucun géocodeur n'a répondu : on retentera plus tard
     return `(${sqlT(a.id)},${sqlT(agencyId)},${Number(l.lat) || 0},${Number(l.lng) || 0},${sqlT(l.label)},${Number(l.score) || 0},${sqlT(a.adresse)},${now()})`;
-  }));
+  };
+  const resultats = [];
+  for (const a of attente) {
+    if (resultats.length) await new Promise((res) => setTimeout(res, 150));
+    resultats.push(await geocodeUne(a));
+  }
   const valeurs = resultats.filter(Boolean);
   if (valeurs.length) {
     await db.run(

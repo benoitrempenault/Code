@@ -650,7 +650,12 @@
     selC.innerHTML = '<option value="">Tous les conseillers</option>' +
       conseillers.map((n) => '<option value="' + escH(n) + '"' + (n === choixC ? " selected" : "") + ">" + escH(n) + "</option>").join("");
     const duConseiller = (liste) => !selC.value || liste.some((c) => c.conseiller === selC.value);
-    const achats = projets.filter((p) => p.kind === "achat" && duConseiller(p.contacts));
+    // La recherche libre : noms des personnes, critères, communes, notes.
+    const q = ($("ach-recherche").value || "").toLowerCase().trim();
+    const matchQ = (p) => !q ||
+      (nomsDe(p.contacts) + " " + (p.villes || []).join(" ") + " " + (p.types || []).join(" ") + " " +
+       (p.notes || "") + " " + p.contacts.map((c) => c.email + " " + c.conseiller).join(" ")).toLowerCase().includes(q);
+    const achats = projets.filter((p) => p.kind === "achat" && duConseiller(p.contacts) && matchQ(p));
     const matchesDe = new Map(rapproch.map((r) => [r.projetId, r.matches.length]));
     if (!achats.length) {
       zone.innerHTML = '<div class="vide">Aucun projet d\'achat pour l\'instant. Créez-en un et reliez-y la ou les personnes (un couple = deux fiches contact, un seul projet).</div>';
@@ -668,7 +673,8 @@
         "</tbody></table></div>";
     }
     const zoneR = $("table-rapprochements");
-    const vivants = rapproch.filter((r) => r.matches.length && duConseiller(r.contacts));
+    const vivants = rapproch.filter((r) => r.matches.length && duConseiller(r.contacts) &&
+      (!q || nomsDe(r.contacts).toLowerCase().includes(q)));
     zoneR.innerHTML = vivants.length
       ? '<div class="tableau-cadre"><table><thead><tr><th>Projet</th><th>Biens en vente qui collent</th></tr></thead><tbody>' +
         vivants.map((r) => "<tr><td style=\"white-space:nowrap;\"><strong>" + escH(nomsDe(r.contacts)) + "</strong>" +
@@ -1044,16 +1050,23 @@
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
     return m ? m[3] + "/" + m[2] + "/" + m[1] : "—";
   };
-  async function chargerEstimations() {
-    try {
-      const [e, j] = await Promise.all([api("/crm/estimations"), api("/crm/estimations/envois")]);
-      estimations = e.estimations;
-      const zone = $("table-estimations");
-      zone.innerHTML = estimations.length
-        ? '<div class="tableau-cadre"><table><thead><tr>' +
-          "<th>Propriétaire</th><th>Bien</th><th>R1</th><th>R2</th><th>Statut</th><th>Qualif.</th><th>Conseiller</th>" +
-          "</tr></thead><tbody>" +
-          estimations.map((x) => '<tr class="cliquable" data-estimation="' + x.id + '">' +
+  function rendreEstimations() {
+    const zone = $("table-estimations");
+    // Recherche libre + filtre statut : à 1 800 fiches reprises du fichier,
+    // c'est la seule façon d'en retrouver une.
+    const q = ($("estim-recherche").value || "").toLowerCase().trim();
+    const statutVoulu = $("estim-filtre-statut").value;
+    const visibles = estimations.filter((x) =>
+      (!statutVoulu || x.statut === statutVoulu) &&
+      (!q || (x.nom + " " + x.adresse + " " + x.ville + " " + x.conseiller + " " + x.email + " " +
+        x.contacts.map((c) => (c.prenom || "") + " " + (c.nom || "") + " " + (c.email || "")).join(" "))
+        .toLowerCase().includes(q)));
+    const tronque = visibles.slice(0, 200);
+    zone.innerHTML = tronque.length
+      ? '<div class="tableau-cadre"><table><thead><tr>' +
+        "<th>Propriétaire</th><th>Bien</th><th>R1</th><th>R2</th><th>Statut</th><th>Qualif.</th><th>Conseiller</th>" +
+        "</tr></thead><tbody>" +
+        tronque.map((x) => '<tr class="cliquable" data-estimation="' + x.id + '">' +
             "<td><strong>" + escH(x.nom || "—") + "</strong>" +
             (x.contacts.length ? '<br><span class="puce grise">' + x.contacts.length + " fiche(s) liée(s)</span>" : "") + "</td>" +
             "<td>" + escH(x.adresse) + (x.ville ? '<br><span class="puce grise">' + escH(x.ville) + "</span>" : "") + "</td>" +
@@ -1062,8 +1075,17 @@
               : '<span class="puce' + (x.statut === "mandat" ? "" : " grise") + '">' + escH(ESTIM_STATUTS[x.statut] || x.statut) + "</span>") + "</td>" +
             "<td>" + escH(x.qualification || "—") + "</td>" +
             "<td>" + escH(x.conseiller || "—") + "</td></tr>").join("") +
-          "</tbody></table></div>"
-        : '<div class="vide">Aucune fiche estimation pour l\'instant — ouvrez-en une depuis Studio Estimation (clic sur un bien de la carte ou sur un estimé).</div>';
+          "</tbody></table></div>" +
+          (visibles.length > 200 ? '<p class="petit">' + (visibles.length - 200) + " autre(s) — affinez la recherche pour les voir.</p>" : "")
+      : '<div class="vide">' + (estimations.length
+          ? "Rien ne correspond à cette recherche."
+          : "Aucune fiche estimation pour l'instant — ouvrez-en une depuis Studio Estimation, ou « ⚙️ Reprendre les estimés importés » ci-dessus.") + "</div>";
+  }
+  async function chargerEstimations() {
+    try {
+      const [e, j] = await Promise.all([api("/crm/estimations"), api("/crm/estimations/envois")]);
+      estimations = e.estimations;
+      rendreEstimations();
       $("table-estim-envois").innerHTML = j.envois.length
         ? '<div class="tableau-cadre"><table><thead><tr><th>Quand</th><th>Fiche</th><th>Message</th><th>À</th><th>Statut</th></tr></thead><tbody>' +
           j.envois.map((l) => "<tr><td>" + new Date(l.created_at * 1000).toLocaleDateString("fr-FR") + "</td>" +
@@ -1270,6 +1292,9 @@
     btn.textContent = "⚙️ Reprendre les estimés importés";
   });
   $("ach-conseiller").addEventListener("change", rendreAcheteurs);
+  $("ach-recherche").addEventListener("input", rendreAcheteurs);
+  $("estim-recherche").addEventListener("input", rendreEstimations);
+  $("estim-filtre-statut").addEventListener("change", rendreEstimations);
   $("biblio-cle").addEventListener("change", remplirBiblio);
   $("btn-biblio-save").addEventListener("click", () => sauverBiblio(false));
   $("btn-biblio-defaut").addEventListener("click", () => sauverBiblio(true));
