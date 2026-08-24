@@ -1016,7 +1016,7 @@ export function createApp(env) {
     // pas la carte de s'afficher.
     // …mais JAMAIS en bloquant l'affichage : des géocodeurs lents ou qui
     // limitent le débit rendaient la carte interminable à ouvrir.
-    const geoFond = CRM.geocoderVentes(env, db, ctx.agency.id, 12).catch(() => { });
+    const geoFond = CRM.geocoderVentes(env, db, ctx.agency.id, 8).catch(() => { });
     try { c.executionCtx.waitUntil(geoFond); } catch { /* Node dév : la promesse court toute seule */ }
     const points = await db.all(
       `SELECT g.contact_id, g.lat, g.lng, g.label, c.civilite, c.nom, c.prenom, c.telephone,
@@ -1136,10 +1136,15 @@ export function createApp(env) {
 
   app.get("/crm/geo/attente", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    // À 60 000 contacts, jamais de lecture intégrale : le SQL pré-filtre ce
+    // qui semble à géocoder et se borne (le tri exact reste fait en mémoire).
     const rows = await db.all(
       `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
        FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
-       WHERE c.agency_id = ? AND c.adresse <> ''`, [ctx.agency.id]);
+       WHERE c.agency_id = ? AND c.adresse <> ''
+         AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0) OR g.adresse NOT LIKE c.adresse || '%')
+       ORDER BY CASE WHEN g.contact_id IS NULL THEN 0 WHEN g.lat = 0 AND g.lng = 0 THEN 2 ELSE 1 END
+       LIMIT ${GEO_BATCH_MAX * 3}`, [ctx.agency.id]);
     // Les dossiers de vente signés (Studio Suivi) passent au même géocodage :
     // leur adresse rejoint la géocache crm_geo sous l'id du dossier. Le LIKE
     // repère une date d'acte posée dans le JSON (« "signature_acte":"20… » —
@@ -1206,9 +1211,13 @@ export function createApp(env) {
   // paquets (plafond de sous-requêtes du Worker). C'est le secours quand le
   // NAVIGATEUR ne peut pas joindre la BAN — réseau d'agence filtré, débit
   // limité — et il couvre tout : contacts, dossiers vendus, ventes importées.
+  // 14 par paquet, pas plus : chaque adresse peut coûter 2 appels (BAN puis
+  // IGN) et l'offre Workers gratuite plafonne à 50 sous-requêtes par
+  // invocation — 35 faisait planter la pompe (d'où une carte qui n'avançait
+  // plus). Les adresses d'un paquet partent en parallèle : l'appel reste vif.
   app.post("/crm/geo/serveur", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
-    return c.json(await CRM.geocoderVentes(env, db, ctx.agency.id, 35, true));
+    return c.json(await CRM.geocoderVentes(env, db, ctx.agency.id, 14, true));
   });
 
   // Les CSV DVF d'Etalab (files.data.gouv.fr/geo-dvf) redirigent vers un

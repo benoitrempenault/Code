@@ -16,7 +16,7 @@
 import { now, randId } from "./util.js";
 
 export const CRM_TYPES = ["acquereur", "vendeur", "estime", "bailleur", "locataire", "prospect"];
-const CONTACTS_MAX = 20000;
+const CONTACTS_MAX = 80000;   // base globale de l'agence (~60 000 fiches visées)
 const DETAIL_FETCH_MAX = 15;   // pages de detail lues par synchro (nouvelles annonces)
 
 /* ------------------------------ Dates Paris ------------------------------ */
@@ -172,22 +172,33 @@ const CONTACT_COLS = ["id", "agency_id", "user_id", "civilite", "prenom", "nom",
 const COLS_NUM = new Set(["opt_out", "created_at", "updated_at"]);
 
 export async function bulkUpsertContacts(db, agencyId, userId, rows, source = "import") {
-  const existing = await db.all("SELECT * FROM crm_contacts WHERE agency_id = ?", [agencyId]);
+  // À 60 000 fiches, relire TOUTE la base à chaque lot de 400 ferait fondre
+  // les quotas D1 : on ne lit que les CANDIDATS à la fusion du lot — mêmes
+  // e-mails, ou mêmes noms (avec variantes de casse : NOCASE ne replie que
+  // l'ASCII, pas les accents). Le rapprochement exact reste fait en mémoire.
   const keyName = (nom, prenom) => `${(nom || "").toLowerCase()}|${(prenom || "").toLowerCase()}`;
+  const propres = rows.map((r) => sanitizeContact(r));
+  const emails = [...new Set(propres.map((v) => v.email).filter(Boolean))];
+  const noms = [...new Set(propres.flatMap((v) => (v.nom ? [v.nom, v.nom.toLowerCase(), v.nom.toUpperCase()] : [])))];
+  const conditions = [];
+  if (emails.length) conditions.push(`email IN (${emails.map(sqlText).join(",")})`);
+  if (noms.length) conditions.push(`nom COLLATE NOCASE IN (${noms.map(sqlText).join(",")})`);
+  const existing = conditions.length ? await db.all(
+    `SELECT * FROM crm_contacts WHERE agency_id = ? AND (${conditions.join(" OR ")})`, [agencyId]) : [];
   const byEmail = new Map(), byName = new Map();
   for (const c of existing) {
     if (c.email) byEmail.set(c.email, c);
     byName.set(keyName(c.nom, c.prenom), c);
   }
 
-  let count = existing.length, created = 0, updated = 0, skipped = 0;
+  const total = await db.get("SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ?", [agencyId]);
+  let count = total?.n || 0, created = 0, updated = 0, skipped = 0;
   const ts = now();
   const keep = (nv, old) => (nv !== "" && nv !== null && nv !== undefined ? nv : old);
   const nouvelles = new Set();      // lignes creees par CET import
   const fusionnees = new Map();     // id -> ligne de la base fusionnee (a reecrire)
 
-  for (const row of rows) {
-    const v = sanitizeContact(row);
+  for (const v of propres) {
     if (!v.nom && !v.prenom && !v.email) { skipped++; continue; }
     const match = (v.email && byEmail.get(v.email)) || byName.get(keyName(v.nom, v.prenom));
     if (match) {
@@ -1074,10 +1085,16 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
     `SELECT v.id, v.adresse, v.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
      FROM crm_ventes v LEFT JOIN crm_geo g ON g.contact_id = v.id
      WHERE v.agency_id = ? AND v.adresse <> ''`, [agencyId]);
+  // À 60 000 contacts, on ne lit jamais toute la base : le SQL pré-filtre ce
+  // qui semble à géocoder (jamais tenté, échec, ou adresse qui ne commence
+  // plus pareil) et se borne — le tri exact reste fait en mémoire.
   const contacts = avecContacts ? await db.all(
     `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
      FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
-     WHERE c.agency_id = ? AND c.adresse <> ''`, [agencyId]) : [];
+     WHERE c.agency_id = ? AND c.adresse <> ''
+       AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0) OR g.adresse NOT LIKE c.adresse || '%')
+     ORDER BY CASE WHEN g.contact_id IS NULL THEN 0 WHEN g.lat = 0 AND g.lng = 0 THEN 2 ELSE 1 END
+     LIMIT ${Math.max(40, Math.max(0, max) * 4)}`, [agencyId]) : [];
   // Un échec mémorisé (lat/lng à 0) reste retentable, mais en fin de file —
   // les adresses jamais tentées passent d'abord.
   const enAttente = rows.concat(importees)
@@ -1097,9 +1114,13 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
     env.GEOPF_BASE || "https://data.geopf.fr/geocodage",
   ];
   const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
-  const valeurs = [];
+  // Les adresses du paquet sont géocodées EN PARALLÈLE (Cloudflare sérialise
+  // au-delà de 6 connexions, la politesse est naturelle) : un paquet passe en
+  // ~2 s au lieu de ~15. Attention au PLAFOND de sous-requêtes du Worker :
+  // chaque adresse peut coûter jusqu'à 2 appels (BAN puis IGN) — les paquets
+  // restent petits (voir les appelants).
   let geocodes = 0;
-  for (const a of attente) {
+  const resultats = await Promise.all(attente.map(async (a) => {
     let ligne = null, introuvable = null;
     for (const base of bases) {
       let d;
@@ -1119,10 +1140,11 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
       // avant de mémoriser l'échec.
       introuvable = { lat: 0, lng: 0, label: "(adresse introuvable)", score: 0 };
     }
-    ligne = ligne || introuvable;
-    if (!ligne) continue; // aucun géocodeur n'a répondu : on retentera plus tard
-    valeurs.push(`(${sqlT(a.id)},${sqlT(agencyId)},${Number(ligne.lat) || 0},${Number(ligne.lng) || 0},${sqlT(ligne.label)},${Number(ligne.score) || 0},${sqlT(a.adresse)},${now()})`);
-  }
+    const l = ligne || introuvable;
+    if (!l) return null; // aucun géocodeur n'a répondu : on retentera plus tard
+    return `(${sqlT(a.id)},${sqlT(agencyId)},${Number(l.lat) || 0},${Number(l.lng) || 0},${sqlT(l.label)},${Number(l.score) || 0},${sqlT(a.adresse)},${now()})`;
+  }));
+  const valeurs = resultats.filter(Boolean);
   if (valeurs.length) {
     await db.run(
       `INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES ${valeurs.join(",")}`, []);
@@ -1157,7 +1179,9 @@ export async function runCrmDaily(env, db) {
         catch (e) { r.acheteursError = e.message; }
       }
       // Les ventes du Suivi rejoignent la carte toutes seules, un lot par nuit.
-      try { r.geoVentes = await geocoderVentes(env, db, agency.id, 30); }
+      // 12 max : chaque adresse peut coûter 2 appels (BAN + IGN) et le cron
+      // partage son plafond de sous-requêtes avec le relevé et les e-mails.
+      try { r.geoVentes = await geocoderVentes(env, db, agency.id, 12); }
       catch (e) { r.geoVentesError = e.message; }
       results.push(r);
     } catch (e) {

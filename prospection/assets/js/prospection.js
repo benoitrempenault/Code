@@ -92,7 +92,9 @@
 
   /* -------------------------------- Carte --------------------------------- */
   function initCarte() {
-    carte = L.map("carte", { zoomControl: true }).setView(CENTRE_DEFAUT, 13);
+    // preferCanvas : à des dizaines de milliers de points (60 000 contacts
+    // visés), le rendu vectoriel SVG s'effondre — le canvas tient la charge.
+    carte = L.map("carte", { zoomControl: true, preferCanvas: true }).setView(CENTRE_DEFAUT, 13);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
@@ -353,15 +355,18 @@
       //    est géocodé PAR LE SERVEUR (la BAN vue depuis Cloudflare), par
       //    petits paquets — tant que ça progresse.
       let pompesVides = 0;
-      for (let p = 0; p < 100 && pompesVides < 2; p++) {
+      for (let p = 0; p < 200 && pompesVides < 3; p++) {
         const reste = (await api("/crm/geo/attente")).attente.length;
         if (!reste) break;
         btn.textContent = "📍 Géocodage par le serveur… reste " + reste;
-        const r = await api("/crm/geo/serveur", { method: "POST" });
-        if (!r.traites) { pompesVides++; continue; } // passage à vide : on retente une fois
+        let r = null;
+        // Une erreur ponctuelle du serveur (plafond atteint, réseau) ne doit
+        // jamais arrêter toute la chaîne : on la compte comme passage à vide.
+        try { r = await api("/crm/geo/serveur", { method: "POST" }); } catch (e) { }
+        if (!r || !r.traites) { pompesVides++; continue; }
         pompesVides = 0;
         totalOk += r.traites;
-        if (p % 3 === 2) await charger();
+        if (p % 5 === 4) await charger();
       }
       toast("Géocodage terminé : " + totalOk + " adresse(s) traitée(s)" + (totalRates ? ", " + totalRates + " à retenter ou introuvable(s)" : ""));
       await charger();

@@ -96,17 +96,22 @@
         : "Aucun contact pour l'instant. Importez votre extraction globale pour démarrer.") + "</div>";
       return;
     }
+    // À 60 000 fiches, dessiner toutes les lignes fige le navigateur : on
+    // affiche les 400 premières — la recherche sert à trouver le reste.
+    const visibles = liste.slice(0, 400);
     zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr>' +
       "<th>Nom</th><th>E-mail</th><th>Téléphone</th><th>Ville</th><th>Naissance</th><th>Achat</th><th>Types</th><th>Conseiller</th>" +
       "</tr></thead><tbody>" +
-      liste.map((c) => '<tr class="cliquable" data-contact="' + c.id + '">' +
+      visibles.map((c) => '<tr class="cliquable" data-contact="' + c.id + '">' +
         "<td><strong>" + escH(c.nom) + "</strong> " + escH(c.prenom) + (c.opt_out ? ' <span class="puce grise">opt-out</span>' : "") + "</td>" +
         "<td>" + escH(c.email) + "</td><td>" + escH(c.telephone) + "</td><td>" + escH(c.ville) + "</td>" +
         "<td>" + fmtDateFr(c.date_naissance) + "</td><td>" + fmtDateFr(c.date_achat) + "</td>" +
         "<td>" + (c.types || []).map((t) => '<span class="puce">' + escH(TYPES[t] || t) + "</span>").join("") + "</td>" +
         "<td>" + escH(c.conseiller) + "</td></tr>").join("") +
       "</tbody></table></div>" +
-      '<p class="compte-lignes">' + liste.length + " contact(s) affiché(s) sur " + contacts.length + ".</p>";
+      '<p class="compte-lignes">' + (visibles.length < liste.length
+        ? "Les " + visibles.length + " premiers contacts sur " + liste.length + " correspondant(s) — affinez la recherche pour voir les autres."
+        : liste.length + " contact(s) affiché(s) sur " + contacts.length + ".") + "</p>";
   }
 
   const CHAMP = (nom, id, valeur, placeholder) =>
@@ -466,10 +471,22 @@
     const p = projetId ? projets.find((x) => x.id === projetId) : null;
     const kind = (p && p.kind) || kindDefaut || "achat";
     const lies = new Set(p ? p.contacts.map((c) => c.id) : (contactPreselect ? [contactPreselect] : []));
-    const listeContacts = contacts.map((c) =>
+    // À 60 000 fiches on ne dessine JAMAIS toute la liste : les personnes déjà
+    // cochées d'abord, puis les 200 premières correspondances du filtre. Les
+    // coches vivent dans `lies` (elles survivent au re-filtrage).
+    const ligneContact = (c) =>
       '<label class="case" style="width:100%; padding:3px 0;"><input type="checkbox" class="p-contact" value="' + c.id + '"' +
       (lies.has(c.id) ? " checked" : "") + " /> <strong>" + escH(c.nom) + "</strong> " + escH(c.prenom) +
-      (c.email ? ' <span class="puce grise">' + escH(c.email) + "</span>" : "") + "</label>").join("");
+      (c.email ? ' <span class="puce grise">' + escH(c.email) + "</span>" : "") + "</label>";
+    const rendreListeContacts = () => {
+      const q = (($("p-filtre") && $("p-filtre").value) || "").toLowerCase();
+      const choisis = contacts.filter((c) => lies.has(c.id));
+      const corresp = contacts.filter((c) => !lies.has(c.id) &&
+        (!q || (c.nom + " " + c.prenom + " " + c.email + " " + c.ville).toLowerCase().includes(q)));
+      $("p-liste").innerHTML = choisis.concat(corresp.slice(0, 200)).map(ligneContact).join("") +
+        (corresp.length > 200 ? '<p class="petit">' + (corresp.length - 200) + " autre(s) — affinez le filtre pour les voir.</p>" : "");
+    };
+    const listeContacts = ""; // rempli par rendreListeContacts() après ouverture
     const estAchat = kind === "achat";
     ouvrirModale((p ? "Projet — " : "Nouveau projet — ") + (KINDS[kind] || kind),
       '<div class="grille-champs"><label>Personnes du projet (un couple = deux fiches)' +
@@ -500,15 +517,15 @@
       (p ? '<button class="btn btn-danger" id="btn-suppr-projet">Supprimer</button>' : "") +
       '<button class="btn" id="btn-annuler-projet">Annuler</button>' +
       '<button class="btn btn-or" id="btn-save-projet">Enregistrer</button>');
-    $("p-filtre").addEventListener("input", () => {
-      const q = $("p-filtre").value.toLowerCase();
-      document.querySelectorAll("#p-liste label").forEach((l) => {
-        l.style.display = !q || l.textContent.toLowerCase().includes(q) ? "" : "none";
-      });
+    rendreListeContacts();
+    $("p-filtre").addEventListener("input", rendreListeContacts);
+    $("p-liste").addEventListener("change", (e) => {
+      const cb = e.target.closest(".p-contact");
+      if (cb) { if (cb.checked) lies.add(cb.value); else lies.delete(cb.value); }
     });
     $("btn-annuler-projet").addEventListener("click", fermerModale);
     $("btn-save-projet").addEventListener("click", async () => {
-      const contactIds = Array.from(document.querySelectorAll(".p-contact:checked")).map((x) => x.value);
+      const contactIds = [...lies]; // les coches vivent dans `lies`, même hors filtre
       if (!contactIds.length) { toast("Reliez au moins une personne au projet.", true); return; }
       try {
         const body = { id: projetId || undefined, kind, statut: $("p-statut").value, contactIds, notes: $("p-notes").value };
