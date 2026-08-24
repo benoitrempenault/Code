@@ -387,13 +387,16 @@
       fichesEnCours = (await api("/crm/estimations")).estimations || [];
     } catch (e) { return; }
     const vivantes = fichesEnCours.filter((x) => x.statut === "en_cours").slice(0, 12);
-    $("liste-fiches").innerHTML = vivantes.length
+    $("liste-fiches").innerHTML = (fichesEnCours.length < 3
+      ? '<p class="petit">💡 Pour créer d\'un coup les fiches de tous les estimés importés du fichier C21 : ' +
+        "Administration → onglet 📐 Estimations → « ⚙️ Reprendre les estimés importés ».</p>" : "") +
+      (vivantes.length
       ? vivantes.map((x) =>
         '<div class="ligne cliquable" data-fiche="' + escH(x.id) + '"><span class="t">📋 ' + escH(x.nom || x.adresse) + "</span>" +
         (x.qualification ? ' <span class="statut-fiche">' + escH(x.qualification) + "</span>" : "") + "<br>" +
         '<span class="d">' + escH(x.adresse) +
         (x.r1 ? " · R1 " + fmtDateFr(x.r1) : "") + (x.r2 ? " · R2 " + fmtDateFr(x.r2) : "") + "</span></div>").join("")
-      : '<p class="petit">Aucune fiche en cours — ouvrez-en une depuis un bien de la carte ou un estimé.</p>';
+      : '<p class="petit">Aucune fiche en cours — ouvrez-en une depuis un bien de la carte ou un estimé.</p>');
     $("bloc-fiches").hidden = false;
   }
 
@@ -448,7 +451,8 @@
       "</div>",
       '<label>Prix envisagé (€)<input id="fb-prix" type="number" min="0" value="' + nb(bien.prixEnvisage) + '" /></label>',
       '<label>Prestations et matériaux<textarea id="fb-prestations" placeholder="menuiseries, chauffage, toiture, travaux récents…">' + v(bien.prestations) + "</textarea></label>",
-      '<label>Documents Studio Brochure du bien<div class="chips" id="fe-docs"><span class="petit">Recherche…</span></div></label>',
+      '<label>Documents Studio Brochure du bien<div class="chips" id="fe-docs"><span class="petit">Recherche…</span></div>' +
+      '<input id="fe-doc-cherche" placeholder="🔍 chercher une fiche prestations ou une brochure (nom, adresse)" autocomplete="off" style="margin-top:6px;" /></label>',
       '<div class="fiche-sec">Suivi &amp; relances</div>',
       '<div id="fe-suivi"><span class="petit">…</span></div>',
       '<div class="fiche-sec">Le parcours</div>',
@@ -521,14 +525,32 @@
           escH(d.title || d.name) + "</span>");
       }
       $("fe-docs").innerHTML = morceaux.length ? morceaux.join("")
-        : '<span class="petit">Aucune fiche prestations ni brochure trouvée pour cette adresse.</span>';
+        : '<span class="petit">Rien trouvé — cherchez ci-dessous par le nom du vendeur ou l\'adresse ' +
+          "(les fiches enregistrées dans la bibliothèque de Studio Fiche, anciennes comprises, se retrouvent ici).</span>";
+    };
+    const chercherDocs = async (q) => {
+      if (!q || q.length < 3) { rendreDocs({}); return { fiches: [], brochures: [] }; }
+      try {
+        const d = await api("/crm/estimation/documents?q=" + encodeURIComponent(q));
+        rendreDocs(d);
+        return d;
+      } catch (e2) { rendreDocs({}); return { fiches: [], brochures: [] }; }
     };
     (async () => {
-      const rue = rueDe($("fe-adresse").value);
-      if (rue.length < 3) { rendreDocs({}); return; }
-      try { rendreDocs(await api("/crm/estimation/documents?q=" + encodeURIComponent(rue))); }
-      catch (e2) { rendreDocs({}); }
+      // D'abord par la RUE du bien ; sans résultat, par le NOM du propriétaire
+      // (la fiche prestations est souvent enregistrée au nom du vendeur).
+      const d = await chercherDocs(rueDe($("fe-adresse").value));
+      if (!(d.fiches || []).length && !(d.brochures || []).length) {
+        const nom = ($("fe-nom").value || "")
+          .replace(/^(m\.|mme|mlle|monsieur|madame)\s*(et\s*(mme|madame))?\s*/i, "").trim().split(/\s+/).pop() || "";
+        if (nom.length >= 3) await chercherDocs(nom);
+      }
     })();
+    let docTimer = null;
+    $("fe-doc-cherche").addEventListener("input", () => {
+      clearTimeout(docTimer);
+      docTimer = setTimeout(() => chercherDocs($("fe-doc-cherche").value.trim()), 300);
+    });
     $("fe-docs").addEventListener("click", async (e) => {
       const fi = e.target.closest("[data-doc-fiche]");
       if (fi) {
