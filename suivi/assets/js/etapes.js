@@ -72,7 +72,7 @@
     const n = parseFloat(m[1].replace(/[\s\u00a0\u202f.]/g, "").replace(",", "."));
     return isFinite(n) && n > 0;
   }
-  const finRetract = (d) => d.dates.presentation_sru ? addDays(d.dates.presentation_sru, 11) : addDays(ssp(d), 14);
+  const finRetract = (d) => addDays(d.dates.presentation_sru, 11) || addDays(ssp(d), 14);
   const pret = (d) => (d.financement && d.financement.recours_pret === "oui");
 
   /* -------- Urbanisme : uniquement pour les terrains (DP puis PC) --------
@@ -299,7 +299,7 @@
     // Purge du droit de préemption : rien à relancer, le silence de la mairie
     // suffit — on se contente de constater l'échéance.
     { id: "purge_dia", phase: "Préemption (DIA)", label: "Droit de préemption purgé (réponse de la mairie ou silence de 2 mois)",
-      due: (d) => d.dates.envoi_dia ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77),
+      due: (d) => addDays(d.dates.envoi_dia, 62) || addDays(ssp(d), 77),
       hint: "Court à compter de l'envoi de la DIA : renseignez cette date pour un calcul juste." },
 
     { id: "dp_depot", phase: "Urbanisme (terrain)", label: "Déclaration préalable (DP) déposée en mairie",
@@ -385,11 +385,11 @@
 
     { id: "projet_acte", phase: "Acte authentique", label: "Demande de date de signature",
       cible: "notaires", modele: "Demande de date de signature",
-      due: (d) => d.date_butoir ? addDays(d.date_butoir, -21) : addDays(ssp(d), 70),
+      due: (d) => addDays(d.date_butoir, -21) || addDays(ssp(d), 70),
       hint: "Aux DEUX études : proposer une date de signature, obtenir le projet d'acte et les pièces manquantes." },
     { id: "avenant", phase: "Acte authentique", label: "Avenant de prorogation si la signature ne tient pas la date butoir",
       cible: "notaires", modele: "Avenant de prorogation",
-      due: (d) => d.date_butoir ? addDays(d.date_butoir, -10) : "",
+      due: (d) => addDays(d.date_butoir, -10),
       applies: (d) => !!d.date_butoir && !d.dates.signature_acte,
       hint: "À la date butoir − 10 jours : si la signature ne peut pas intervenir à temps, proposer l'avenant aux deux études. (Disparaît une fois l'acte signé.)" },
     { id: "signature", phase: "Acte authentique", label: "Acte authentique signé (réitération)",
@@ -404,19 +404,19 @@
     // par les deux conseillers du dossier (la relance leur est adressée).
     { id: "appel_apres_vente", phase: "Après-vente", label: "Appel des clients et crémaillère",
       cible: "conseillers", modele: "Appel & crémaillère",
-      due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 7) : "",
+      due: (d) => addDays(d.dates.signature_acte, 7),
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe",
       hint: "Appeler vendeurs et acquéreurs après l'acte, et caler la crémaillère chez les nouveaux propriétaires." },
     { id: "avis", phase: "Après-vente", label: "Demande d'avis clients envoyée (Google)",
       cible: "acquereur", modeles: ["Demande d'avis client", "Demande d'avis client vendeur"],
-      due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 10) : "",
+      due: (d) => addDays(d.dates.signature_acte, 10),
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe" },
     { id: "facture_payee", phase: "Après-vente", label: "Facture agence payée (honoraires encaissés)",
-      due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 15) : "",
+      due: (d) => addDays(d.dates.signature_acte, 15),
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe",
       hint: "Le règlement vient en général du notaire à l'acte — vérifier le virement." },
     { id: "cloture", phase: "Après-vente", label: "Dossier clôturé (archivage, Tracfin)",
-      due: (d) => d.dates.signature_acte ? addDays(d.dates.signature_acte, 30) : "",
+      due: (d) => addDays(d.dates.signature_acte, 30),
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe" }
   ];
 

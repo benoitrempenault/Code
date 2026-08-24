@@ -35,6 +35,9 @@ const app = createApp({
   AI_RATE_PER_MIN: process.env.AI_RATE_PER_MIN || "",
   AI_MAX_BODY_BYTES: process.env.AI_MAX_BODY_BYTES || "",
   GLOBAL_MONTHLY_CAP_EUR: process.env.GLOBAL_MONTHLY_CAP_EUR || "",
+  KADIMA_SSO_SECRET: process.env.KADIMA_SSO_SECRET || "",
+  KADIMA_AGENCY_ID: process.env.KADIMA_AGENCY_ID || "",
+  KADIMA_COLLAB_EMAIL: process.env.KADIMA_COLLAB_EMAIL || "",
   DEV_MODE: process.env.DEV_MODE === "1"
 });
 
