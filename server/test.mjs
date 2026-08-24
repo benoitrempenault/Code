@@ -1714,6 +1714,48 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/projets/auto", { headers: { Authorization: "Bearer " + sessM2 }, body: { rows: autoRows } })).status === 403,
     "les projets automatiques sont réservés aux administrateurs");
 
+  /* ---- Nettoyage de la base : vides, doublons, couples ------------------- */
+  // Une fiche vide (l'import la refuse : on la glisse en base directement,
+  // comme les vieux imports qui l'ont laissée passer).
+  await db.run(
+    `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone, adresse, cp, ville,
+     date_naissance, date_achat, types, conseiller, notes, source, opt_out, created_at, updated_at)
+     VALUES ('ct_videtest', ?, '', '', '', '', '', '', '3 rue sans personne', '', '', '', '', '[]', '', '', 'import', 0, 1, 1)`, [agId]);
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { nom: "DOUBLE Anne", email: "double@ach-test.fr", telephone: "0611111111" },
+    { civilite: "M. et Mme", nom: "COUPLENET", prenom: "Luc et Zoé", email: "couplenet@ach-test.fr" },
+  ] } });
+  // Un doublon résiduel (vieil import passé avant la fusion) et deux homonymes
+  // ambigus : glissés en base directement, comme dans la vraie vie.
+  await db.run(
+    `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone, adresse, cp, ville,
+     date_naissance, date_achat, types, conseiller, notes, source, opt_out, created_at, updated_at) VALUES
+     ('ct_doubletest', ?, '', '', 'Anne', 'DOUBLE', '', '', '', '', 'Saint-Médard', '', '', '["vendeur"]', '', '', 'import', 0, 2, 2),
+     ('ct_homo1', ?, '', '', 'Paul', 'HOMONYME', '', '0622222222', '', '', '', '', '', '[]', '', '', 'import', 0, 3, 3),
+     ('ct_homo2', ?, '', '', 'Paul', 'HOMONYME', '', '0633333333', '', '', '', '', '', '[]', '', '', 'import', 0, 4, 4)`,
+    [agId, agId, agId]);
+  const apercu = (await callR("/crm/nettoyage", { headers: auth })).json;
+  ok(apercu.vides >= 1 && apercu.doublons >= 1 && apercu.couples >= 1 && apercu.ambigus >= 2,
+    "aperçu du nettoyage : vides, doublons, couples et homonymes ambigus comptés");
+  for (const action of ["vides", "doublons", "couples"]) {
+    for (let t2 = 0; t2 < 50; t2++) {
+      const r = (await callR("/crm/nettoyage", { headers: auth, body: { action } })).json;
+      if (!r.traites || !r.restants) break;
+    }
+  }
+  const apresNettoyage = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  ok(!apresNettoyage.some((x) => !x.nom && !x.prenom && !x.email && !x.telephone), "les fiches vides ont disparu");
+  const anne = apresNettoyage.filter((x) => x.nom === "DOUBLE");
+  ok(anne.length === 1 && anne[0].telephone === "0611111111" && anne[0].ville === "Saint-Médard",
+    "les doublons ont fusionné : la fiche la plus ancienne absorbe les champs manquants");
+  ok(apresNettoyage.filter((x) => x.nom === "HOMONYME").length === 2,
+    "les homonymes ambigus (téléphones différents) ne sont pas touchés");
+  const scindes = apresNettoyage.filter((x) => x.nom === "COUPLENET");
+  ok(scindes.length === 2 && scindes.some((x) => x.prenom === "Luc") && scindes.some((x) => x.prenom === "Zoé"),
+    "les fiches couple sont scindées en deux personnes");
+  ok((await callR("/crm/nettoyage", { headers: { Authorization: "Bearer " + sessM2 } })).status === 403,
+    "le nettoyage est réservé aux administrateurs");
+
   /* ---- Prospection : îlots + géocodage + attribution -------------------- */
   console.log("— Administration : prospection (îlots + carte)");
   // Un îlot carré autour de Saint-Médard, attribué à Benoit.

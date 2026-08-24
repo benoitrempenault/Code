@@ -462,6 +462,54 @@
     }
   }
 
+  /* ------------------------------- Nettoyage ------------------------------ */
+  // Un coup de balai après les gros imports : fiches vides, doublons, couples
+  // à scinder. L'aperçu compte sans rien toucher ; l'exécution boucle par
+  // paquets côté serveur jusqu'à zéro.
+  async function ouvrirNettoyage() {
+    ouvrirModale("🧹 Nettoyer la base", '<p class="aide">Analyse de la base en cours…</p>', "");
+    let a;
+    try { a = await api("/crm/nettoyage"); } catch (e) { toast(e.message, true); fermerModale(); return; }
+    ouvrirModale("🧹 Nettoyer la base",
+      '<p class="aide">Trois gestes, prudents : les fusions gardent la fiche la plus ancienne et absorbent ' +
+      "les champs manquants et les typologies ; les homonymes ambigus (téléphones différents) ne sont " +
+      "jamais touchés ; les couples sont scindés en deux personnes reliées aux mêmes projets.</p>" +
+      '<div class="tableau-cadre"><table style="min-width:0;"><tbody>' +
+      "<tr><td>Fiches vides (ni nom, ni prénom, ni e-mail, ni téléphone)</td><td><strong>" + a.vides + "</strong></td></tr>" +
+      "<tr><td>Doublons à fusionner</td><td><strong>" + a.doublons + "</strong></td></tr>" +
+      (a.ambigus ? "<tr><td>Homonymes ambigus — laissés tels quels</td><td>" + a.ambigus + "</td></tr>" : "") +
+      "<tr><td>Fiches couple à scinder en deux personnes</td><td><strong>" + a.couples + "</strong></td></tr>" +
+      "</tbody></table></div>",
+      '<button class="btn" id="btn-annuler-nettoyage">Fermer</button>' +
+      ((a.vides || a.doublons || a.couples)
+        ? '<button class="btn btn-or" id="btn-go-nettoyage">Tout nettoyer</button>' : ""));
+    $("btn-annuler-nettoyage").addEventListener("click", fermerModale);
+    const go = $("btn-go-nettoyage");
+    if (go) go.addEventListener("click", async () => {
+      go.disabled = true;
+      const bilan = { vides: 0, doublons: 0, couples: 0 };
+      const libelles = { vides: "fiches vides", doublons: "doublons", couples: "couples" };
+      try {
+        for (const action of ["vides", "doublons", "couples"]) {
+          for (let tour = 0; tour < 400; tour++) {
+            go.textContent = "Nettoyage… " + libelles[action] + (bilan[action] ? " (" + bilan[action] + ")" : "");
+            const r = await api("/crm/nettoyage", { json: { action } });
+            bilan[action] += r.traites;
+            if (!r.traites || !r.restants) break;
+          }
+        }
+        fermerModale();
+        toast("Nettoyage terminé : " + bilan.vides + " fiche(s) vide(s) supprimée(s), " +
+          bilan.doublons + " doublon(s) fusionné(s), " + bilan.couples + " couple(s) scindé(s)");
+        await chargerContacts();
+      } catch (e) {
+        toast(e.message, true);
+        go.disabled = false;
+        go.textContent = "Tout nettoyer";
+      }
+    });
+  }
+
   /* ----------------------------- Anniversaires ----------------------------- */
   function remplirFormulaires() {
     if (!reglages) return;
@@ -835,6 +883,7 @@
   $("recherche-contacts").addEventListener("input", rendreContacts);
   $("filtre-type").addEventListener("change", rendreContacts);
   $("btn-nouveau-contact").addEventListener("click", () => ouvrirContact(null));
+  $("btn-nettoyage").addEventListener("click", ouvrirNettoyage);
   $("btn-import").addEventListener("click", ouvrirImport);
   $("table-contacts").addEventListener("click", (e) => {
     const tr = e.target.closest("tr[data-contact]");

@@ -847,6 +847,20 @@ export function createApp(env) {
   const parseArr = (v) => { try { return JSON.parse(v || "[]"); } catch { return []; } };
   const PROJET_MAX_CONTACTS = 12;
 
+  // Nettoyage de la base (admin) : aperçu qui compte sans rien toucher, puis
+  // exécution par paquets action par action — l'interface rappelle jusqu'à 0.
+  app.get("/crm/nettoyage", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json(await CRM.apercuNettoyage(db, ctx.agency.id));
+  });
+  app.post("/crm/nettoyage", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => ({}));
+    try {
+      return c.json(await CRM.executerNettoyage(db, ctx.agency, ctx.user.id, String(b.action || "")));
+    } catch (e) { return err(c, 400, e.message); }
+  });
+
   // Projets d'achat automatiques depuis l'extraction acquéreurs (admin) :
   // appelé par l'import après les fiches contact. Idempotent — un contact
   // déjà relié à un projet d'achat n'est jamais retouché.
