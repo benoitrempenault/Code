@@ -170,6 +170,27 @@ dataset `dpe03existant`, appelée en direct — CORS ouvert —,
 étiquette A→G). L'accès à la Prospection passe par un onglet-lien de l'app
 Administration (pas de tuile portail pour l'instant).
 
+**`estimation/` — Studio Estimation**, la « vie du quartier » avant un RDV : l'adresse
+saisie est géocodée (BAN puis IGN, navigateur), puis `GET /crm/estimation/quartier?lat&lng&rayon`
+(membre, rayon 100-2000 m, boîte englobante SQL + haversine JS) rend nos ventes
+(dossiers Suivi vendus + crm_ventes), les biens déjà estimés (contacts typés estime
+géocodés, notes comprises) et l'îlot/conseiller du secteur ; le navigateur y ajoute le
+DVF (relais `/crm/dvf`, même parseur que la prospection, médianes €/m² maison/appart)
+et les DPE 12 mois (ADEME). Qualification A/B/C posée en RDV par un CONSEILLER via
+`POST /crm/contacts/:id/qualifier` (membre — remplace la mention « Qualification X »
+des notes sans toucher au reste). Leaflet vendorisé copié dans `estimation/assets`.
+Accès : onglet-lien de l'Administration. Autres briques Administration : **nettoyage
+de la base** (`GET/POST /crm/nettoyage`, admin : fiches vides supprimées, doublons
+fusionnés — même e-mail, ou même nom+prénom sans contradiction d'e-mail/téléphone,
+homonymes ambigus jamais touchés, le plus ancien survit et récupère envois/relances/
+projets/géocache — couples scindés par paquets de 6) ; **projets d'achat automatiques**
+(`POST /crm/projets/auto`, admin, appelé par l'import acquéreurs : un projet par
+personne encore sans projet d'achat, jamais d'écrasement) ; **vœux par SMS Brevo**
+(`BREVO_API_KEY` sur le Worker, `BREVO_BASE` test ; canal indépendant de l'e-mail,
+mobiles 06/07 → +33, anti-doublon type « …-sms » dans crm_envois, signé du PRÉNOM du
+conseiller de la fiche sinon de `anniversaires.smsSignature`, expéditeur ≤11 alphanum ;
+réglages + test dans l'onglet Anniversaires, grisés tant que la clé n'est pas posée).
+
 **`permanence/` — Studio Permanence**, l'app interne Kadima du **tour de permanence physique
 des points de vente** (Saint-Médard, Caudéran, Blanquefort…), avec sa page publique de prise
 de rendez-vous sous **`rdv/`**. Créneaux 9h-12h / 12h-14h / 14h-17h / 17h-19h du lundi au

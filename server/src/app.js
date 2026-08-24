@@ -1283,6 +1283,99 @@ export function createApp(env) {
     return c.json(await CRM.geocoderVentes(env, db, ctx.agency.id, 14, true));
   });
 
+  /* ==================== Estimation (app Estimation) ========================
+     Avant un RDV d'estimation : la « vie du quartier » autour de l'adresse —
+     nos ventes (dossiers Suivi + historique importé), les biens déjà estimés
+     par l'agence, et le conseiller de l'îlot. Ouvert à tout conseiller. Les
+     ventes DVF et les DPE sont chargés par le navigateur (relais /crm/dvf et
+     API ADEME), comme sur la carte de prospection.
+     ---------------------------------------------------------------------- */
+  const rayonTerre = 6371000;
+  const distanceM = (lat1, lng1, lat2, lng2) => {
+    const r = Math.PI / 180;
+    const a = Math.sin(((lat2 - lat1) * r) / 2) ** 2 +
+      Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(((lng2 - lng1) * r) / 2) ** 2;
+    return Math.round(2 * rayonTerre * Math.asin(Math.sqrt(a)));
+  };
+
+  app.get("/crm/estimation/quartier", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const lat = parseFloat(c.req.query("lat")), lng = parseFloat(c.req.query("lng"));
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return err(c, 400, "lat et lng requis.");
+    const rayon = Math.min(Math.max(parseInt(c.req.query("rayon"), 10) || 500, 100), 2000);
+    // Boîte englobante en SQL (pas d'index géo sur D1), distance exacte en JS.
+    const dLat = rayon / 111320, dLng = rayon / (111320 * Math.cos((lat * Math.PI) / 180) || 1);
+    const boite = `g.lat BETWEEN ${lat - dLat} AND ${lat + dLat} AND g.lng BETWEEN ${lng - dLng} AND ${lng + dLng}
+      AND NOT (g.lat = 0 AND g.lng = 0)`;
+    // Nos ventes : dossiers Suivi vendus + historique importé.
+    const dosRows = await db.all(
+      `SELECT d.id, d.name AS nom, d.adresse, d.statut, d.data, g.lat, g.lng
+       FROM dossiers d JOIN crm_geo g ON g.contact_id = d.id
+       WHERE d.agency_id = ? AND d.statut <> 'annule' AND ${boite}`, [ctx.agency.id]);
+    const ventes = [];
+    for (const r of dosRows) {
+      let data; try { data = JSON.parse(r.data); } catch { data = {}; }
+      if (!dossierVendu(r.statut, data)) continue;
+      ventes.push({
+        nom: r.nom, adresse: adresseDossier(r.adresse, data.bien && data.bien.ville),
+        date_acte: String((data.dates && (data.dates.signature_acte || data.dates.signature_prevue)) || "").slice(0, 10),
+        prix: String((data.prix && data.prix.prix_vente) || "").slice(0, 40),
+        type: String((data.bien && data.bien.type) || ""),
+        lat: r.lat, lng: r.lng, distance: distanceM(lat, lng, r.lat, r.lng),
+      });
+    }
+    const fmtPrixQ = (n) => (n > 0 ? String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " €" : "");
+    for (const r of await db.all(
+      `SELECT v.vendeur, v.acquereur, v.adresse, v.ville, v.date_acte, v.prix, v.type, v.surface, g.lat, g.lng
+       FROM crm_ventes v JOIN crm_geo g ON g.contact_id = v.id
+       WHERE v.agency_id = ? AND ${boite}`, [ctx.agency.id])) {
+      ventes.push({
+        nom: [r.vendeur, r.acquereur].filter(Boolean).join(" / "),
+        adresse: adresseDossier(r.adresse, r.ville), date_acte: r.date_acte,
+        prix: fmtPrixQ(r.prix), type: r.type || "", surface: r.surface || 0,
+        lat: r.lat, lng: r.lng, distance: distanceM(lat, lng, r.lat, r.lng),
+      });
+    }
+    // Les biens déjà estimés par l'agence dans le quartier.
+    const estimes = (await db.all(
+      `SELECT c.id, c.civilite, c.prenom, c.nom, c.adresse, c.ville, c.conseiller, c.notes, g.lat, g.lng
+       FROM crm_contacts c JOIN crm_geo g ON g.contact_id = c.id
+       WHERE c.agency_id = ? AND c.types LIKE '%estime%' AND ${boite}`, [ctx.agency.id]))
+      .map((r) => ({
+        id: r.id, nom: `${r.prenom || ""} ${r.nom || ""}`.trim(),
+        adresse: [r.adresse, r.ville].filter(Boolean).join(", "),
+        conseiller: r.conseiller || "", notes: String(r.notes || "").slice(0, 200),
+        lat: r.lat, lng: r.lng, distance: distanceM(lat, lng, r.lat, r.lng),
+      }));
+    const dedans = (l) => l.filter((x) => x.distance <= rayon).sort((a, b) => a.distance - b.distance);
+    const ilot = await CRM.ilotPourPoint(db, ctx.agency.id, lat, lng);
+    return c.json({
+      rayon,
+      ventes: dedans(ventes).slice(0, 15),
+      estimes: dedans(estimes).slice(0, 10),
+      ilot: ilot ? { nom: ilot.nom, conseiller: ilot.conseiller } : null,
+    });
+  });
+
+  // Qualification A/B/C d'un contact estimé — accessible au CONSEILLER en
+  // RDV (membre) : ne touche que la mention « Qualification X » des notes.
+  app.post("/crm/contacts/:id/qualifier", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => ({}));
+    const q = String(b.qualification || "").toUpperCase();
+    if (!["A", "B", "C"].includes(q)) return err(c, 400, "Qualification A, B ou C attendue.");
+    const contact = await db.get("SELECT id, notes FROM crm_contacts WHERE id = ? AND agency_id = ?",
+      [c.req.param("id"), ctx.agency.id]);
+    if (!contact) return err(c, 404, "Contact introuvable.");
+    let notes = String(contact.notes || "");
+    notes = /Qualification [ABC]/.test(notes)
+      ? notes.replace(/Qualification [ABC]/, "Qualification " + q)
+      : ("Qualification " + q + (notes ? " · " + notes : ""));
+    await db.run("UPDATE crm_contacts SET notes = ?, user_id = ?, updated_at = ? WHERE id = ?",
+      [notes.slice(0, 2000), ctx.user.id, now(), contact.id]);
+    return c.json({ ok: true, qualification: q });
+  });
+
   // Les CSV DVF d'Etalab (files.data.gouv.fr/geo-dvf) redirigent vers un
   // stockage S3 SANS en-têtes CORS : le navigateur ne peut pas les lire en
   // direct. Le serveur relaie donc le fichier (une commune × un millésime),

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev https://api-adresse.data.gouv.fr https://data.geopf.fr https://geo.api.gouv.fr https://data.ademe.fr https://fonts.googleapis.com https://fonts.gstatic.com" />
+  <title>Studio Brochure — Estimation</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <meta name="robots" content="noindex" />
+  <meta name="description" content="Avant le RDV d'estimation : la vie du quartier — nos ventes, les ventes notariées, les biens estimés et les DPE récents autour de l'adresse." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/leaflet.css" />
+  <link rel="stylesheet" href="assets/css/estimation.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <a class="home" href="../mandat/" title="Accueil Studio Brochure">⌂</a>
+  <h1>Studio <em>Estimation</em></h1>
+  <div class="topbar-right"><span id="who" class="who"></span></div>
+</header>
+
+<div id="ecran-connexion" class="connexion" hidden>
+  <div class="connexion-carte">
+    <h2>Connexion requise</h2>
+    <p>L'Estimation utilise votre compte Studio Brochure — le même que pour le
+      Suivi et l'Administration.</p>
+    <a class="btn btn-or" id="lien-connexion" href="../mandat-pro/compte.html?retour=../estimation/">Se connecter</a>
+    <p class="petit" id="connexion-detail"></p>
+  </div>
+</div>
+
+<main id="app" hidden>
+  <aside class="lateral">
+    <div class="bloc">
+      <h2>Avant le RDV</h2>
+      <p class="aide">Saisissez l'adresse du bien à estimer : tout ce que l'agence sait du
+        quartier s'affiche — nos ventes, les ventes notariées (DVF), les biens déjà estimés
+        et les DPE récents.</p>
+      <input type="search" id="adresse" placeholder="ex : 8 rue Kléber Ferron, Saint-Médard-en-Jalles" />
+      <div class="rang">
+        <select id="rayon">
+          <option value="300">300 m autour</option>
+          <option value="500" selected>500 m autour</option>
+          <option value="1000">1 km autour</option>
+        </select>
+        <button class="btn btn-or" id="btn-chercher">🔎 Le quartier</button>
+      </div>
+      <p class="petit" id="etat"></p>
+    </div>
+
+    <div class="bloc" id="bloc-resume" hidden>
+      <h2>La vie du quartier</h2>
+      <div id="chiffres" class="chiffres"></div>
+      <p class="petit" id="conseiller-ilot"></p>
+    </div>
+
+    <div class="bloc" id="bloc-ventes" hidden>
+      <h2>🔑 Nos ventes autour</h2>
+      <div id="liste-ventes" class="liste"></div>
+    </div>
+
+    <div class="bloc" id="bloc-dvf" hidden>
+      <h2>Ventes notariées (DVF)</h2>
+      <div id="liste-dvf" class="liste"></div>
+    </div>
+
+    <div class="bloc" id="bloc-estimes" hidden>
+      <h2>📐 Déjà estimés autour</h2>
+      <p class="aide">Cliquez sur une fiche pour la qualifier après le RDV.</p>
+      <div id="liste-estimes" class="liste"></div>
+    </div>
+  </aside>
+
+  <div id="carte"></div>
+</main>
+
+<div class="voile" id="voile" hidden>
+  <div class="modale">
+    <div class="modale-tete">
+      <h2 id="modale-titre"></h2>
+      <button class="fermer" id="modale-fermer">&times;</button>
+    </div>
+    <div class="modale-corps" id="modale-corps"></div>
+    <div class="modale-pied" id="modale-pied"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/vendor/leaflet.js"></script>
+<script src="assets/js/estimation.js"></script>
+</body>
+</html>

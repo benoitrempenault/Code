@@ -1986,6 +1986,41 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/geo/diag", { headers: { Authorization: "Bearer " + sessP } })).status === 403,
     "le diagnostic est réservé aux administrateurs");
 
+  /* ---- Estimation : la vie du quartier + qualification A/B/C ------------- */
+  console.log("— Estimation : vie du quartier");
+  // Un bien estimé géocodé près du point de RDV (44.9, -0.715).
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "M.", nom: "ESTIMQ Jean", adresse: "2 rue du Quartier", ville: "Saint-Médard-en-Jalles",
+      types: "estime", conseiller: "BLANC Rémi", notes: "Bien estimé : 2 rue du Quartier (450 000 €)" },
+  ] } });
+  const estimQ = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.nom === "ESTIMQ");
+  await callR("/crm/geo/batch", { headers: auth, body: { rows: [
+    { contactId: estimQ.id, lat: 44.9005, lng: -0.7146, label: "2 Rue du Quartier", score: 0.9, adresse: "2 rue du Quartier Saint-Médard-en-Jalles" },
+  ] } });
+  const quartier = (await callR("/crm/estimation/quartier?lat=44.895&lng=-0.715&rayon=1000",
+    { headers: { Authorization: "Bearer " + sessP } })).json;
+  ok(quartier.ventes.length >= 1 && quartier.ventes.every((v) => v.distance <= 1000),
+    "le quartier liste nos ventes dans le rayon, avec la distance");
+  ok(quartier.ventes.every((v, i, l) => i === 0 || l[i - 1].distance <= v.distance),
+    "les ventes du quartier sont triées de la plus proche à la plus lointaine");
+  ok(quartier.estimes.some((e2) => e2.id === estimQ.id && /450 000/.test(e2.notes)),
+    "les biens déjà estimés autour apparaissent, notes comprises");
+  ok(quartier.ilot && quartier.ilot.conseiller === "Benoit",
+    "le conseiller de l'îlot du secteur est identifié");
+  ok((await callR("/crm/estimation/quartier?lat=x&lng=y", { headers: auth })).status === 400,
+    "coordonnées invalides refusées");
+  // Qualification A/B/C : posée par un CONSEILLER (pas besoin d'être admin),
+  // elle remplace l'ancienne mention sans toucher au reste des notes.
+  ok((await callR("/crm/contacts/" + estimQ.id + "/qualifier",
+    { headers: { Authorization: "Bearer " + sessP }, body: { qualification: "B" } })).json.ok === true,
+    "un conseiller pose la qualification en RDV");
+  await callR("/crm/contacts/" + estimQ.id + "/qualifier", { headers: { Authorization: "Bearer " + sessP }, body: { qualification: "A" } });
+  const apresQ = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.id === estimQ.id);
+  ok(/^Qualification A/.test(apresQ.notes) && !/Qualification B/.test(apresQ.notes) && /450 000/.test(apresQ.notes),
+    "la qualification se remplace sans écraser le reste des notes");
+  ok((await callR("/crm/contacts/" + estimQ.id + "/qualifier", { headers: auth, body: { qualification: "Z" } })).status === 400,
+    "seules les qualifications A, B ou C sont acceptées");
+
   /* ---- Relais DVF (les CSV Etalab n'ont pas de CORS) --------------------- */
   const reqDvf = (path, sess2) => appR.fetch(new Request("http://api.test" + path,
     { headers: sess2 ? { Authorization: "Bearer " + sess2 } : {} }));
