@@ -290,15 +290,19 @@
     geoAutoLance = true;
     let totalOk = 0, totalRates = 0;
     try {
-      let restePrecedent = -1, stagnation = 0;
-      for (let tour = 0; tour < 30 && stagnation < 2; tour++) {
+      // 1) Le navigateur interroge la BAN en direct (rapide : ~8 adresses/s).
+      //    Si la BAN est injoignable d'ICI (réseau d'agence filtré, débit
+      //    limité), on abandonne vite ce chemin : le serveur prendra le relais.
+      let restePrecedent = -1, stagnation = 0, banBloquee = false;
+      for (let tour = 0; tour < 30 && stagnation < 2 && !banBloquee; tour++) {
         const { attente } = await api("/crm/geo/attente");
         if (!attente.length) break;
-        // Deux tours de suite sans progrès (BAN injoignable, ou seuls des
-        // vrais introuvables restent) : on s'arrête proprement.
+        // Deux tours de suite sans progrès (seuls de vrais introuvables
+        // restent) : on passe à la suite proprement.
         stagnation = attente.length === restePrecedent ? stagnation + 1 : 0;
         restePrecedent = attente.length;
         const lot = [];
+        let echecsSuite = 0;
         for (let i = 0; i < attente.length; i++) {
           btn.textContent = "📍 Géocodage… " + (i + 1) + " / " + attente.length + (tour ? " (suite)" : "");
           const a = attente[i];
@@ -308,6 +312,7 @@
             if (!r.ok) throw new Error("BAN " + r.status);
             const d = await r.json();
             const f = d.features && d.features[0];
+            echecsSuite = 0;
             if (f && f.properties && f.properties.score >= 0.4) {
               lot.push({
                 contactId: a.id, lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0],
@@ -320,9 +325,10 @@
               lot.push({ contactId: a.id, lat: 0, lng: 0, label: "(adresse introuvable)", score: 0, adresse: a.adresse });
             }
           } catch (e) {
-            // BAN essoufflée ou réseau : rien n'est mémorisé, on souffle un
-            // instant et l'adresse sera retentée au tour suivant.
+            // Rien n'est mémorisé sur une erreur ; huit échecs d'affilée =
+            // la BAN est injoignable depuis ce navigateur, on n'insiste pas.
             totalRates++;
+            if (++echecsSuite >= 8) { banBloquee = true; break; }
             await new Promise((r) => setTimeout(r, 1200));
           }
           await new Promise((r) => setTimeout(r, 130)); // politesse BAN (< 8 req/s)
@@ -333,6 +339,18 @@
         }
         if (lot.length) await api("/crm/geo/batch", { json: { rows: lot } });
         totalOk += attente.length;
+      }
+      // 2) Filet de sécurité : tout ce que CE navigateur n'a pas pu géocoder
+      //    est géocodé PAR LE SERVEUR (la BAN vue depuis Cloudflare), par
+      //    petits paquets — tant que ça progresse.
+      for (let p = 0; p < 100; p++) {
+        const reste = (await api("/crm/geo/attente")).attente.length;
+        if (!reste) break;
+        btn.textContent = "📍 Géocodage par le serveur… reste " + reste;
+        const r = await api("/crm/geo/serveur", { method: "POST" });
+        if (!r.traites) break; // le serveur non plus n'avance plus : on s'arrête
+        totalOk += r.traites;
+        if (p % 3 === 2) await charger();
       }
       toast("Géocodage terminé : " + totalOk + " adresse(s) traitée(s)" + (totalRates ? ", " + totalRates + " à retenter ou introuvable(s)" : ""));
       await charger();

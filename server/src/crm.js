@@ -1056,13 +1056,14 @@ export const adresseDossier = (rue, ville) => {
   return a ? a + ", " + v : v;
 };
 
-// Le géocodage des CONTACTS passe par le navigateur (bouton 📍, des centaines
-// d'adresses) ; celui des VENTES est automatique : le SERVEUR interroge la BAN
-// pour les dossiers vendus jamais géocodés (ou dont l'adresse a changé) — à
-// l'affichage de la carte (petit lot) et chaque matin par le cron. Un échec
-// est mémorisé (lat=lng=0) pour ne pas être redemandé tant que l'adresse ne
-// change pas. BAN_BASE : surchargeable en test (fausse BAN locale).
-export async function geocoderVentes(env, db, agencyId, max = 12) {
+// Le géocodage passe d'abord par le navigateur (bouton 📍, la BAN en direct),
+// mais le SERVEUR sait géocoder lui-même par petits paquets : automatiquement
+// pour les ventes (affichage de la carte, cron du matin), et sur demande pour
+// TOUT (contacts compris, avecContacts) quand le navigateur ne peut pas
+// joindre la BAN — réseau d'agence filtré, débit limité. Un échec est mémorisé
+// (lat=lng=0) et repasse en FIN de file aux passages suivants. BAN_BASE :
+// surchargeable en test (fausse BAN locale).
+export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts = false) {
   const rows = await db.all(
     `SELECT d.id, d.adresse, json_extract(d.data, '$.bien.ville') AS ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
      FROM dossiers d LEFT JOIN crm_geo g ON g.contact_id = d.id
@@ -1073,15 +1074,21 @@ export async function geocoderVentes(env, db, agencyId, max = 12) {
     `SELECT v.id, v.adresse, v.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
      FROM crm_ventes v LEFT JOIN crm_geo g ON g.contact_id = v.id
      WHERE v.agency_id = ? AND v.adresse <> ''`, [agencyId]);
+  const contacts = avecContacts ? await db.all(
+    `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
+     FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
+     WHERE c.agency_id = ? AND c.adresse <> ''`, [agencyId]) : [];
   // Un échec mémorisé (lat/lng à 0) reste retentable, mais en fin de file —
   // les adresses jamais tentées passent d'abord.
   const enAttente = rows.concat(importees)
     .map((r) => ({ id: r.id, adresse: adresseDossier(r.adresse, r.ville), deja: r.geo_adresse,
       echec: r.geo_adresse != null && r.geo_lat === 0 && r.geo_lng === 0 }))
+    .concat(contacts.map((r) => ({ id: r.id, adresse: [r.adresse, r.cp, r.ville].filter(Boolean).join(" "), deja: r.geo_adresse,
+      echec: r.geo_adresse != null && r.geo_lat === 0 && r.geo_lng === 0 })))
     .filter((r) => r.adresse && (r.adresse !== r.deja || r.echec))
     .sort((a, b) => (a.echec ? 1 : 0) - (b.echec ? 1 : 0));
   const attente = enAttente.slice(0, Math.max(0, max));
-  if (!attente.length) return { geocodes: 0, restants: 0 };
+  if (!attente.length) return { geocodes: 0, traites: 0, restants: 0 };
   const base = env.BAN_BASE || "https://api-adresse.data.gouv.fr";
   const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
   const valeurs = [];
@@ -1107,7 +1114,9 @@ export async function geocoderVentes(env, db, agencyId, max = 12) {
     await db.run(
       `INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES ${valeurs.join(",")}`, []);
   }
-  return { geocodes, restants: enAttente.length - valeurs.length };
+  // traites = positions réellement mémorisées (réussites + introuvables) :
+  // c'est LE signal de progrès pour la boucle de secours du navigateur.
+  return { geocodes, traites: valeurs.length, restants: enAttente.length - valeurs.length };
 }
 
 /* ----------------------------- Cron quotidien ----------------------------- */

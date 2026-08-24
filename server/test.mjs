@@ -1816,6 +1816,21 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/carte", { headers: { Authorization: "Bearer " + sessAutre } })).json.ventes.length === 0,
     "les ventes sont isolées par agence");
 
+  /* ---- Géocodage par le serveur (secours quand le navigateur échoue) ----- */
+  // Le réseau d'une agence peut filtrer la BAN : le serveur sait alors
+  // géocoder lui-même par petits paquets — contacts compris.
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "M.", nom: "Serveur", prenom: "Géo", adresse: "3 impasse des Vignes", cp: "33185", ville: "Le Haillan" },
+  ] } });
+  const geoContact = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.nom === "Serveur");
+  ok((await callR("/crm/geo/serveur", { headers: { Authorization: "Bearer " + sessP }, method: "POST" })).status === 403,
+    "le géocodage serveur est réservé aux administrateurs");
+  const pompe = (await callR("/crm/geo/serveur", { headers: auth, method: "POST" })).json;
+  ok(pompe.traites >= 1, "le serveur géocode par petits paquets et rend compte du progrès");
+  const carteG = (await callR("/crm/carte", { headers: auth })).json;
+  ok(carteG.points.some((pt) => pt.contact_id === geoContact.id && pt.lat === 44.9012),
+    "un CONTACT est géocodé par le serveur (secours du navigateur)");
+
   /* ---- Relais DVF (les CSV Etalab n'ont pas de CORS) --------------------- */
   const reqDvf = (path, sess2) => appR.fetch(new Request("http://api.test" + path,
     { headers: sess2 ? { Authorization: "Bearer " + sess2 } : {} }));

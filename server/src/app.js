@@ -1145,6 +1145,15 @@ export function createApp(env) {
     return c.json({ ok: true, enregistres: ok, ignores: rows.length - ok });
   });
 
+  // Géocodage CÔTÉ SERVEUR : la BAN interrogée depuis Cloudflare, par petits
+  // paquets (plafond de sous-requêtes du Worker). C'est le secours quand le
+  // NAVIGATEUR ne peut pas joindre la BAN — réseau d'agence filtré, débit
+  // limité — et il couvre tout : contacts, dossiers vendus, ventes importées.
+  app.post("/crm/geo/serveur", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json(await CRM.geocoderVentes(env, db, ctx.agency.id, 35, true));
+  });
+
   // Les CSV DVF d'Etalab (files.data.gouv.fr/geo-dvf) redirigent vers un
   // stockage S3 SANS en-têtes CORS : le navigateur ne peut pas les lire en
   // direct. Le serveur relaie donc le fichier (une commune × un millésime),
