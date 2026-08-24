@@ -97,6 +97,13 @@
         acquéreur reçoit « vous receviez vos clés », un vendeur (sans être acquéreur chez nous)
         reçoit « vous vendiez votre bien ». Le rôle vient de la typologie du contact.</p>
       <div class="barre barre-haut">
+        <label class="case"><input type="checkbox" id="anniv-sms" /> <strong>Envoyer aussi les vœux par SMS</strong></label>
+        <input id="anniv-sms-signature" placeholder="Signature sans conseiller (ex : Benoît Rempenault)" style="min-width:250px;" />
+        <input type="tel" id="test-sms-tel" placeholder="06 12 34 56 78" style="min-width:140px;" />
+        <button class="btn" id="btn-test-sms">📱 Test SMS</button>
+      </div>
+      <p class="petit" id="sms-etat"></p>
+      <div class="barre barre-haut">
         <input type="email" id="test-email" placeholder="votre.adresse@email.fr" />
         <button class="btn" id="btn-test-naissance">✉️ Test naissance</button>
         <button class="btn" id="btn-test-achat">✉️ Test achat</button>

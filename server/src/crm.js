@@ -417,7 +417,7 @@ export async function executerNettoyage(db, agency, userId, action) {
 export function defaultReglages(agency) {
   return {
     agence: { nom: (agency && agency.name) || "", adresse: "", telephone: "", email: "", site: "", logoUrl: "" },
-    anniversaires: { enabled: false, naissance: true, achat: true, cci: "" },
+    anniversaires: { enabled: false, naissance: true, achat: true, cci: "", smsEnabled: false, smsSignature: "" },
     annonces: { autoSync: false, siteUrl: "" },
     acheteurs: { enabled: false, cci: "" },
   };
@@ -661,38 +661,125 @@ export async function upcoming(db, agency, reglages, days = 30) {
 }
 
 // Passage du jour d'UNE agence : envoie les vœux, journalise, anti-doublon annuel.
+/* ------------------------------ SMS (Brevo) ------------------------------ */
+// Les vœux partent aussi par SMS quand l'agence l'active : Brevo (SMS
+// transactionnel), clé BREVO_API_KEY posée sur le serveur, BREVO_BASE
+// surchargeable en test (faux serveur local). L'expéditeur technique est un
+// libellé court (11 caractères alphanumériques max — contrainte SMS) tiré du
+// nom de l'agence ; la SIGNATURE, elle, vit dans le texte : le prénom du
+// conseiller de la fiche quand il y en a un, sinon la signature par défaut
+// des réglages.
+export function mobileFrance(telephone) {
+  const t = String(telephone || "").replace(/[\s.\-()]/g, "");
+  if (/^0[67]\d{8}$/.test(t)) return "+33" + t.slice(1);
+  if (/^\+33[67]\d{8}$/.test(t)) return t;
+  if (/^0033[67]\d{8}$/.test(t)) return "+33" + t.slice(4);
+  return null; // fixe, étranger ou illisible : pas de SMS
+}
+export function smsExpediteur(ag, agency) {
+  const brut = (ag && ag.nom) || (agency && agency.name) || "Agence";
+  const compact = brut.replace(/century\s*21/i, "C21").replace(/[^0-9A-Za-z]/g, "");
+  return (compact || "Agence").slice(0, 11);
+}
+export function signatureSms(contact, reglages) {
+  if (contact && contact.conseiller) {
+    const d = dispatchNom(contact.conseiller);
+    return d.prenom || contact.conseiller;
+  }
+  return (reglages.anniversaires.smsSignature || "").trim() || (reglages.agence.nom || "L'agence");
+}
+export function buildAnniversaireSms(contact, type, reglages, isoDay) {
+  const prenom = (contact.prenom || "").split(/\s+/)[0] || "";
+  const signature = signatureSms(contact, reglages);
+  const agence = reglages.agence.nom || "l'agence";
+  if (type === "naissance") {
+    return "Joyeux anniversaire" + (prenom ? " " + prenom : "") + " ! Toute l'équipe pense à vous " +
+      "et vous souhaite une très belle journée. " + signature + " — " + agence;
+  }
+  const annees = yearsSince(contact.date_achat, isoDay);
+  const depuis = annees && annees > 1 ? "il y a " + annees + " ans jour pour jour"
+    : annees === 1 ? "il y a un an jour pour jour" : "il y a quelque temps jour pour jour";
+  if (profilAchat(contact) === "vendeur") {
+    return "Bonjour" + (prenom ? " " + prenom : "") + ", " + depuis + ", vous vendiez votre bien avec nous. " +
+      "On pense à vous — belle journée ! " + signature + " — " + agence;
+  }
+  return "Bonjour" + (prenom ? " " + prenom : "") + ", " + depuis + ", vous receviez les clés de votre " +
+    "nouveau chez-vous. Bel anniversaire ! " + signature + " — " + agence;
+}
+export async function envoyerSmsBrevo(env, { to, content, sender }) {
+  if (!env.BREVO_API_KEY) return { ok: false, dryRun: true, error: "" };
+  try {
+    const res = await fetch((env.BREVO_BASE || "https://api.brevo.com") + "/v3/transactionalSMS/sms", {
+      method: "POST",
+      headers: { "api-key": env.BREVO_API_KEY, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ type: "transactional", unicodeEnabled: true, sender, recipient: to, content }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      return { ok: false, error: "Brevo " + res.status + " : " + detail.slice(0, 160) };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: "Brevo injoignable : " + ((e && e.message) || e) };
+  }
+}
+
 export async function runAnniversaires(env, db, agency, reglages) {
   const isoDay = parisDate();
   const annee = parseInt(isoDay.slice(0, 4), 10);
   const contacts = await db.all("SELECT * FROM crm_contacts WHERE agency_id = ?", [agency.id]);
   const occs = occurrencesOf(contacts, reglages, isoDay);
-  const summary = { date: isoDay, sent: 0, skipped: 0, errors: 0, details: [] };
+  const summary = { date: isoDay, sent: 0, sms: 0, skipped: 0, errors: 0, details: [] };
+  const smsActifs = !!(reglages.anniversaires.smsEnabled && env.BREVO_API_KEY);
+  const expediteur = smsExpediteur(reglages.agence, agency);
   for (const { contact, type } of occs) {
     const label = `${contact.prenom || ""} ${contact.nom || ""}`.trim();
+    // ------------------------------- E-MAIL --------------------------------
     if (!contact.email) {
       summary.skipped++; summary.details.push({ contact: label, type, status: "skip", reason: "pas d'e-mail" });
-      continue;
+    } else {
+      const deja = await db.get(
+        "SELECT id FROM crm_envois WHERE agency_id = ? AND contact_id = ? AND type = ? AND annee = ? AND statut = 'ok'",
+        [agency.id, contact.id, type, annee]);
+      if (deja) {
+        summary.skipped++; summary.details.push({ contact: label, type, status: "skip", reason: "déjà envoyé cette année" });
+      } else {
+        const { subject, html } = buildAnniversaireEmail(contact, type, reglages.agence, isoDay);
+        const r = await envoyerMailHtml(env, {
+          to: contact.email, subject, html,
+          fromName: reglages.agence.nom || agency.name,
+          replyTo: reglages.agence.email || "",
+          bcc: reglages.anniversaires.cci || "",
+        });
+        const statut = r.ok ? "ok" : "erreur";
+        await db.run(
+          "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [agency.id, contact.id, label, contact.email, type, annee, statut, r.error || (r.dryRun ? "RESEND_API_KEY absent (dry run)" : ""), now()]);
+        if (r.ok) { summary.sent++; summary.details.push({ contact: label, type, status: "ok" }); }
+        else { summary.errors++; summary.details.push({ contact: label, type, status: "erreur", reason: r.error || "dry run" }); }
+      }
     }
-    const deja = await db.get(
-      "SELECT id FROM crm_envois WHERE agency_id = ? AND contact_id = ? AND type = ? AND annee = ? AND statut = 'ok'",
-      [agency.id, contact.id, type, annee]);
-    if (deja) {
-      summary.skipped++; summary.details.push({ contact: label, type, status: "skip", reason: "déjà envoyé cette année" });
-      continue;
+    // -------------------------------- SMS ----------------------------------
+    // Canal indépendant : un contact SANS e-mail mais avec un mobile reçoit
+    // quand même son vœu. Anti-doublon séparé (type « …-sms »), signé du
+    // prénom du conseiller de la fiche, sinon de la signature par défaut.
+    if (smsActifs) {
+      const mobile = mobileFrance(contact.telephone);
+      if (mobile) {
+        const dejaSms = await db.get(
+          "SELECT id FROM crm_envois WHERE agency_id = ? AND contact_id = ? AND type = ? AND annee = ? AND statut = 'ok'",
+          [agency.id, contact.id, type + "-sms", annee]);
+        if (!dejaSms) {
+          const contenu = buildAnniversaireSms(contact, type, reglages, isoDay);
+          const r = await envoyerSmsBrevo(env, { to: mobile, content: contenu, sender: expediteur });
+          await db.run(
+            "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [agency.id, contact.id, label, mobile, type + "-sms", annee, r.ok ? "ok" : "erreur", r.error || "", now()]);
+          if (r.ok) { summary.sms++; summary.details.push({ contact: label, type: type + "-sms", status: "ok" }); }
+          else { summary.errors++; summary.details.push({ contact: label, type: type + "-sms", status: "erreur", reason: r.error || "" }); }
+        }
+      }
     }
-    const { subject, html } = buildAnniversaireEmail(contact, type, reglages.agence, isoDay);
-    const r = await envoyerMailHtml(env, {
-      to: contact.email, subject, html,
-      fromName: reglages.agence.nom || agency.name,
-      replyTo: reglages.agence.email || "",
-      bcc: reglages.anniversaires.cci || "",
-    });
-    const statut = r.ok ? "ok" : "erreur";
-    await db.run(
-      "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [agency.id, contact.id, label, contact.email, type, annee, statut, r.error || (r.dryRun ? "RESEND_API_KEY absent (dry run)" : ""), now()]);
-    if (r.ok) { summary.sent++; summary.details.push({ contact: label, type, status: "ok" }); }
-    else { summary.errors++; summary.details.push({ contact: label, type, status: "erreur", reason: r.error || "dry run" }); }
   }
   return summary;
 }

@@ -753,7 +753,24 @@ export function createApp(env) {
 
   app.get("/crm/reglages", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
-    return c.json({ reglages: await CRM.getReglages(db, ctx.agency) });
+    // smsPret : la clé Brevo est posée sur le serveur — l'interface grise
+    // l'interrupteur SMS tant que non.
+    return c.json({ reglages: await CRM.getReglages(db, ctx.agency), smsPret: !!env.BREVO_API_KEY });
+  });
+
+  // SMS d'essai (admin) : le vœu type « naissance » vers un numéro donné.
+  app.post("/crm/anniversaires/test-sms", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    if (!env.BREVO_API_KEY) return err(c, 501, "Clé Brevo absente du serveur — posez BREVO_API_KEY pour activer les SMS.");
+    const b = await c.req.json().catch(() => ({}));
+    const mobile = CRM.mobileFrance(b.telephone);
+    if (!mobile) return err(c, 400, "Numéro de mobile français attendu (06 ou 07).");
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    const contenu = CRM.buildAnniversaireSms(
+      { prenom: ctx.user.name || "vous", conseiller: String(b.conseiller || "") }, "naissance", reglages, new Date().toISOString().slice(0, 10));
+    const r = await CRM.envoyerSmsBrevo(env, { to: mobile, content: contenu, sender: CRM.smsExpediteur(reglages.agence, ctx.agency) });
+    if (!r.ok) return err(c, 502, r.error || "Envoi refusé par Brevo.");
+    return c.json({ ok: true, contenu });
   });
 
   app.put("/crm/reglages", async (c) => {

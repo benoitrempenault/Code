@@ -38,6 +38,7 @@ export default {
       APP_ORIGINS: env.APP_ORIGINS || "",
       APP_BASE: env.APP_BASE || "",
       RESEND_API_KEY: env.RESEND_API_KEY || "",
+      BREVO_API_KEY: env.BREVO_API_KEY || "", // SMS transactionnels (vœux d'anniversaire)
       MAIL_FROM: env.MAIL_FROM || "",
       STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET || "",
       AI_MODELS: env.AI_MODELS || "",

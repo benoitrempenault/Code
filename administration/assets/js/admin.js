@@ -65,6 +65,7 @@
   /* -------------------------------- État --------------------------------- */
   let contacts = [];
   let reglages = null;
+  let smsPret = false;   // la clé Brevo est posée sur le serveur
   let annonces = { annonces: [], events: [] };
   let contactEnCours = null;   // id du contact ouvert dans la modale
   let importData = null;       // { entetes, lignes } en attente de mappage
@@ -517,6 +518,12 @@
     $("anniv-naissance").checked = reglages.anniversaires.naissance !== false;
     $("anniv-achat").checked = reglages.anniversaires.achat !== false;
     $("anniv-cci").value = reglages.anniversaires.cci || "";
+    $("anniv-sms").checked = !!reglages.anniversaires.smsEnabled;
+    $("anniv-sms").disabled = !smsPret;
+    $("anniv-sms-signature").value = reglages.anniversaires.smsSignature || "";
+    $("sms-etat").textContent = smsPret
+      ? "Le SMS est signé du prénom du conseiller de la fiche ; sans conseiller, de la signature ci-dessus. Un contact sans e-mail mais avec un mobile reçoit quand même son vœu."
+      : "SMS indisponibles pour l'instant : la clé Brevo (BREVO_API_KEY) n'est pas posée sur le serveur.";
   $("ach-enabled").checked = !!(reglages.acheteurs && reglages.acheteurs.enabled);
   $("ach-cci").value = (reglages.acheteurs && reglages.acheteurs.cci) || "";
     $("annonces-auto").checked = !!reglages.annonces.autoSync;
@@ -847,6 +854,7 @@
     try {
       const [r, c] = await Promise.all([api("/crm/reglages"), api("/crm/contacts")]);
       reglages = r.reglages;
+      smsPret = !!r.smsPret;
       contacts = c.contacts;
     } catch (e) {
       if (e.status === 401) {
@@ -899,8 +907,18 @@
       naissance: $("anniv-naissance").checked,
       achat: $("anniv-achat").checked,
       cci: $("anniv-cci").value.trim(),
+      smsEnabled: $("anniv-sms").checked,
+      smsSignature: $("anniv-sms-signature").value.trim(),
     },
   }, "Réglages anniversaires enregistrés").then(chargerUpcoming));
+  $("btn-test-sms").addEventListener("click", async () => {
+    const telephone = $("test-sms-tel").value.trim();
+    if (!telephone) { toast("Saisissez un numéro de mobile (06 ou 07).", true); return; }
+    try {
+      await api("/crm/anniversaires/test-sms", { json: { telephone } });
+      toast("SMS d'essai envoyé à " + telephone);
+    } catch (e) { toast(e.message, true); }
+  });
   $("btn-apercu-naissance").addEventListener("click", () => apercuMail("naissance"));
   $("btn-apercu-achat").addEventListener("click", () => apercuMail("achat"));
   $("btn-apercu-vente").addEventListener("click", () => apercuMail("achat", "vendeur"));

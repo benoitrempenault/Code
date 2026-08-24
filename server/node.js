@@ -27,6 +27,8 @@ const app = createApp({
   APP_ORIGINS: process.env.APP_ORIGINS || "http://localhost:8014",
   RESEND_API_KEY: process.env.RESEND_API_KEY || "",
   RESEND_BASE: process.env.RESEND_BASE || "",
+  BREVO_API_KEY: process.env.BREVO_API_KEY || "",
+  BREVO_BASE: process.env.BREVO_BASE || "",
   DVF_BASE: process.env.DVF_BASE || "",
   BAN_BASE: process.env.BAN_BASE || "",
   MAIL_FROM: process.env.MAIL_FROM || "",

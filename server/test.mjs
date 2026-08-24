@@ -1756,6 +1756,59 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/nettoyage", { headers: { Authorization: "Bearer " + sessM2 } })).status === 403,
     "le nettoyage est réservé aux administrateurs");
 
+  /* ---- Anniversaires par SMS (Brevo) ------------------------------------- */
+  console.log("— Administration : vœux par SMS (Brevo)");
+  const smsRecus = [];
+  const fauxBrevo = (await import("node:http")).createServer(async (req, res) => {
+    const chunks = []; for await (const ch of req) chunks.push(ch);
+    smsRecus.push(JSON.parse(Buffer.concat(chunks).toString()));
+    res.writeHead(201, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ reference: "sms_test" }));
+  });
+  await new Promise((r) => fauxBrevo.listen(18797, r));
+  const appS = createApp({
+    db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin",
+    APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
+    RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18791",
+    BREVO_API_KEY: "brevo-test", BREVO_BASE: "http://localhost:18797",
+  });
+  const callS = async (path, opts = {}) => {
+    const req = new Request("http://api.test" + path, {
+      method: opts.method || (opts.body ? "POST" : "GET"),
+      headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    const res = await appS.fetch(req);
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+  const { parisDate } = await import("./src/crm.js");
+  const aujJJMM = parisDate().slice(8, 10) + "/" + parisDate().slice(5, 7);
+  ok((await callR("/crm/anniversaires/test-sms", { headers: auth, body: { telephone: "0662125193" } })).status === 501,
+    "sans clé Brevo sur le serveur, le test SMS explique quoi poser (501)");
+  await callS("/crm/reglages", { headers: auth, method: "PUT",
+    body: { anniversaires: { enabled: true, smsEnabled: true, smsSignature: "Benoît Rempenault" } } });
+  await callS("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "M.", nom: "SMSA Tom", email: "smsa@ach-test.fr", telephone: "06 62 12 51 93", date_naissance: aujJJMM, conseiller: "BLANC Rémi" },
+    { civilite: "Mme", nom: "SMSB Léa", telephone: "0755555555", date_naissance: aujJJMM },
+    { civilite: "M.", nom: "SMSC Guy", email: "smsc@ach-test.fr", telephone: "0556001122", date_naissance: aujJJMM },
+  ] } });
+  const runSms = (await callS("/crm/anniversaires/run", { headers: auth, method: "POST" })).json.summary;
+  ok(runSms.sms === 2, "deux vœux partis par SMS (mobile requis, le fixe est écarté)");
+  const smsTom = smsRecus.find((s) => s.recipient === "+33662125193");
+  ok(smsTom && /Rémi/.test(smsTom.content) && /Joyeux anniversaire/.test(smsTom.content) && smsTom.sender.length <= 11,
+    "le SMS est signé du prénom du conseiller de la fiche (expéditeur court)");
+  const smsLea = smsRecus.find((s) => s.recipient === "+33755555555");
+  ok(smsLea && /Benoît Rempenault/.test(smsLea.content),
+    "sans conseiller : signé de la signature par défaut — et un contact sans e-mail reçoit quand même son vœu");
+  const smsAvant = smsRecus.length;
+  await callS("/crm/anniversaires/run", { headers: auth, method: "POST" });
+  ok(smsRecus.length === smsAvant, "un même vœu SMS ne part jamais deux fois dans l'année");
+  const essaiSms = await callS("/crm/anniversaires/test-sms", { headers: auth, body: { telephone: "06 62 12 51 93" } });
+  ok(essaiSms.status === 200 && smsRecus.length === smsAvant + 1, "SMS d'essai envoyé au numéro donné");
+  ok((await callS("/crm/anniversaires/test-sms", { headers: auth, body: { telephone: "05 56 00 11 22" } })).status === 400,
+    "un numéro fixe est refusé pour les SMS (mobiles 06/07 uniquement)");
+  fauxBrevo.close();
+
   /* ---- Prospection : îlots + géocodage + attribution -------------------- */
   console.log("— Administration : prospection (îlots + carte)");
   // Un îlot carré autour de Saint-Médard, attribué à Benoit.
