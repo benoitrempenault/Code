@@ -42,7 +42,7 @@ appel après-vente, clôture.
    renseigne la date clé — la table de correspondance est `STEP_DATE` dans `app.js`.
 3. **Tableau de bord** : **une ligne dépliable par vente** (on entre dans le dossier qui
    nous occupe pour voir ses actions ; sans ce regroupement un dossier en souffrance
-   occupait dix lignes et masquait les autres). Ne liste que l'urgent, en rouge — les actions **en retard**, plus
+   occupait dix lignes et masquait les autres). Ne liste que l'urgent, en rouge — les actions **en retard ou dues le jour même**, plus
    les **pièces à obtenir d'un tiers** (diagnostics, ramonage, chaudière, clim/PAC,
    facture d'honoraires — `CRITIQUES` dans `app.js`) dès 7 jours avant l'échéance, parce
    que s'y prendre la veille reporte la signature. Le reste attend l'échéancier du

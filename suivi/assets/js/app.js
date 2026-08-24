@@ -1133,16 +1133,18 @@
       }
     }
     actions.sort((a, b) => (a.step.due < b.step.due ? -1 : 1));
-    const late = actions.filter((a) => a.step.days < 0);
+    // « En retard » au sens du tableau de bord : échéance dépassée OU du jour
+    // même — une relance due aujourd'hui se fait aujourd'hui, pas demain.
+    const late = actions.filter((a) => a.step.days <= 0);
     // Les pièces qui bloquent une signature (diagnostics, entretiens, facture)
     // ne souffrent pas d'attendre le dernier jour : elles passent au rouge une
     // semaine avant l'échéance, comme un retard.
-    const critiques = actions.filter((a) => CRITIQUES.includes(a.step.id) && a.step.days >= 0 && a.step.days <= 7);
+    const critiques = actions.filter((a) => CRITIQUES.includes(a.step.id) && a.step.days > 0 && a.step.days <= 7);
     const sigs = actions.filter((a) => a.step.id === "signature" && a.step.days != null && a.step.days <= 30 && a.step.days >= 0);
 
     $("#kpis").innerHTML =
       '<div class="kpi"><b>' + list.filter((x) => x.statut === "en_cours" && passeSite(x)).length + "</b><span>dossiers en cours</span></div>" +
-      '<div class="kpi ' + (late.length ? "bad" : "ok") + '"><b>' + late.length + "</b><span>actions en retard</span></div>" +
+      '<div class="kpi ' + (late.length ? "bad" : "ok") + '"><b>' + late.length + "</b><span>actions en retard ou du jour</span></div>" +
       '<div class="kpi ' + (critiques.length ? "bad" : "ok") + '"><b>' + critiques.length + "</b><span>pièces à obtenir sous 7 jours</span></div>" +
       '<div class="kpi"><b>' + sigs.length + "</b><span>signatures sous 30 jours</span></div>";
 
