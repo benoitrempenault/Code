@@ -874,7 +874,7 @@ export function createApp(env) {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const b = await c.req.json().catch(() => ({}));
     try {
-      return c.json(await CRM.executerNettoyage(db, ctx.agency, ctx.user.id, String(b.action || "")));
+      return c.json(await CRM.executerNettoyage(db, ctx.agency, ctx.user.id, String(b.action || ""), String(b.curseur || "")));
     } catch (e) { return err(c, 400, e.message); }
   });
 
@@ -887,6 +887,14 @@ export function createApp(env) {
     const rows = (b && Array.isArray(b.rows) ? b.rows : []).slice(0, 400);
     if (!rows.length) return err(c, 400, "Aucun acquéreur à équiper.");
     return c.json(await CRM.creerProjetsAcquereurs(db, ctx.agency.id, ctx.user.id, rows));
+  });
+
+  // Filet de rattrapage : crée les projets d'achat manquants directement
+  // depuis les FICHES acquéreurs (critères lus dans les notes) — pas besoin
+  // de ré-importer le fichier. Par paquets, l'interface rappelle jusqu'à fini.
+  app.post("/crm/projets/depuis-fiches", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json(await CRM.creerProjetsDepuisFiches(db, ctx.agency.id, ctx.user.id, 200));
   });
 
   app.get("/crm/projets", async (c) => {

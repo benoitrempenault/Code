@@ -1714,6 +1714,25 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/projets/auto", { headers: { Authorization: "Bearer " + sessM2 }, body: { rows: autoRows } })).status === 403,
     "les projets automatiques sont réservés aux administrateurs");
 
+  // Filet de rattrapage : un acquéreur SANS projet mais dont la fiche porte
+  // les critères en notes (import C21) est équipé d'un clic — pas de ré-import.
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "Mme", nom: "RATTRAP Eva", email: "rattrap@ach-test.fr", types: "acquereur",
+      notes: "Projet d'achat — Qualification B · Budget 320 000 € · Maison 4 pièces 85 m²" },
+    { civilite: "M.", nom: "SANSBUDGET Leo", email: "sansbudget@ach-test.fr", types: "acquereur",
+      notes: "Projet d'achat — Budget à définir" },
+  ] } });
+  const rattrape = (await callR("/crm/projets/depuis-fiches", { headers: auth, method: "POST" })).json;
+  ok(rattrape.crees >= 1 && rattrape.sansCriteres >= 1,
+    "les projets manquants se créent depuis les notes des fiches (sans budget lisible : laissé)");
+  const pjEva = (await callR("/crm/projets", { headers: auth })).json.projets
+    .find((p) => (p.contacts || []).some((ct) => ct.email === "rattrap@ach-test.fr"));
+  ok(pjEva && pjEva.budgetMax === 320000 && pjEva.piecesMin === 4 && pjEva.surfaceMin === 85 &&
+     (pjEva.types || []).includes("maison") && /Qualification B/.test(pjEva.notes),
+    "le projet rattrapé porte budget, pièces, surface, type et qualification");
+  const rattrape2 = (await callR("/crm/projets/depuis-fiches", { headers: auth, method: "POST" })).json;
+  ok(rattrape2.crees === 0, "un second passage ne crée aucun doublon de projet");
+
   /* ---- Nettoyage de la base : vides, doublons, couples ------------------- */
   // Une fiche vide (l'import la refuse : on la glisse en base directement,
   // comme les vieux imports qui l'ont laissée passer).
@@ -1735,12 +1754,15 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      ('ct_homo2', ?, '', '', 'Paul', 'HOMONYME', '', '0633333333', '', '', '', '', '', '[]', '', '', 'import', 0, 4, 4)`,
     [agId, agId, agId]);
   const apercu = (await callR("/crm/nettoyage", { headers: auth })).json;
-  ok(apercu.vides >= 1 && apercu.doublons >= 1 && apercu.couples >= 1 && apercu.ambigus >= 2,
-    "aperçu du nettoyage : vides, doublons, couples et homonymes ambigus comptés");
+  ok(apercu.vides >= 1 && apercu.doublons >= 2 && apercu.couples >= 1,
+    "aperçu du nettoyage : vides, doublons et couples comptés en SQL agrégé");
   for (const action of ["vides", "doublons", "couples"]) {
+    let curseur = "";
     for (let t2 = 0; t2 < 50; t2++) {
-      const r = (await callR("/crm/nettoyage", { headers: auth, body: { action } })).json;
-      if (!r.traites || !r.restants) break;
+      const r = (await callR("/crm/nettoyage", { headers: auth, body: { action, curseur } })).json;
+      if (r.fini) break;
+      if (!r.traites && !r.ambigus && (r.curseur || "") === curseur) break;
+      curseur = r.curseur || "";
     }
   }
   const apresNettoyage = (await callR("/crm/contacts", { headers: auth })).json.contacts;

@@ -14,6 +14,7 @@
      carburant des futures relances acquereurs.
    ========================================================================= */
 import { now, randId } from "./util.js";
+import { changesOf } from "./db.js";
 
 export const CRM_TYPES = ["acquereur", "vendeur", "estime", "bailleur", "locataire", "prospect"];
 const CONTACTS_MAX = 80000;   // base globale de l'agence (~60 000 fiches visées)
@@ -269,146 +270,163 @@ export async function bulkUpsertContacts(db, agencyId, userId, rows, source = "i
 }
 
 /* --------------------------- Nettoyage de la base ------------------------- */
-// Après les gros imports, un coup de balai en trois gestes : les fiches VIDES
-// (ni nom, ni prénom, ni e-mail, ni téléphone — inexploitables), les DOUBLONS
-// résiduels (même e-mail ; ou même nom + prénom quand e-mails et téléphones
-// ne se contredisent pas — les homonymes ambigus ne sont JAMAIS fusionnés),
-// et les fiches COUPLE (« M. et Mme », « Jean et Marie ») scindées en deux
-// personnes. L'aperçu compte sans rien toucher ; l'exécution travaille par
-// paquets (plafonds Workers/D1) et l'interface rappelle jusqu'à zéro.
+// Apres les gros imports, un coup de balai en trois gestes : les fiches VIDES
+// (ni nom, ni prenom, ni e-mail, ni telephone — inexploitables), les DOUBLONS
+// residuels (meme e-mail ; ou meme nom + prenom quand e-mails et telephones
+// ne se contredisent pas — les homonymes ambigus ne sont JAMAIS fusionnes),
+// et les fiches COUPLE (« M. et Mme », « Jean et Marie ») scindees en deux
+// personnes. TOUT est agrege en SQL — a 60 000 fiches, relire la base pour
+// compter faisait tomber le Worker. L'execution avance par paquets avec un
+// CURSEUR opaque (les groupes ambigus sont depasses, jamais retraites en
+// boucle) ; l'interface rappelle jusqu'a fini=true.
 const NETTOYAGE_VIDES_MAX = 1600;    // suppressions par appel (4 lots de 400)
-const NETTOYAGE_FUSIONS_MAX = 120;   // fusions par appel (SQL multi-lignes)
-const NETTOYAGE_SCISSIONS_MAX = 6;   // scinderContact fait ~5 requêtes chacune
-
-async function inventaireNettoyage(db, agencyId) {
-  const rows = await db.all(
-    `SELECT id, civilite, prenom, nom, email, telephone, created_at
-     FROM crm_contacts WHERE agency_id = ? ORDER BY created_at ASC, id ASC`, [agencyId]);
-  const vides = [], couples = [];
-  const parEmail = new Map(), parNomPrenom = new Map();
-  for (const c of rows) {
-    if (!c.nom && !c.prenom && !c.email && !c.telephone) { vides.push(c.id); continue; }
-    if (/\b(?:et|&)\b/i.test((c.civilite || "") + " " + (c.prenom || ""))) couples.push(c.id);
-    if (c.email) {
-      if (!parEmail.has(c.email)) parEmail.set(c.email, []);
-      parEmail.get(c.email).push(c);
-    }
-    if (c.nom && c.prenom) {
-      const k = c.nom.toLowerCase() + "|" + c.prenom.toLowerCase();
-      if (!parNomPrenom.has(k)) parNomPrenom.set(k, []);
-      parNomPrenom.get(k).push(c);
-    }
-  }
-  // Groupes fusionnables : même e-mail (toujours sûr) ; puis même nom +
-  // prénom pour les fiches restantes, à condition que ni les e-mails ni les
-  // téléphones renseignés ne se contredisent — sinon homonymes probables,
-  // on ne touche à rien.
-  const groupes = [];
-  let ambigus = 0;
-  const dejaGroupe = new Set();
-  for (const g of parEmail.values()) {
-    if (g.length < 2) continue;
-    groupes.push(g);
-    g.forEach((c) => dejaGroupe.add(c.id));
-  }
-  for (const g0 of parNomPrenom.values()) {
-    const g = g0.filter((c) => !dejaGroupe.has(c.id));
-    if (g.length < 2) continue;
-    const tels = new Set(g.map((c) => c.telephone).filter(Boolean));
-    const emails = new Set(g.map((c) => c.email).filter(Boolean));
-    if (tels.size > 1 || emails.size > 1) { ambigus += g.length; continue; }
-    groupes.push(g);
-    g.forEach((c) => dejaGroupe.add(c.id));
-  }
-  return { vides, couples, groupes, ambigus };
-}
+const NETTOYAGE_GROUPES_MAX = 40;    // groupes de doublons examines par appel
+const NETTOYAGE_SCISSIONS_MAX = 6;   // scinderContact fait ~5 requetes chacune
+const SQL_VIDE = "nom = '' AND prenom = '' AND email = '' AND telephone = ''";
+const SQL_COUPLE = "(' ' || civilite || ' ' || prenom || ' ' LIKE '% et %' OR civilite LIKE '%&%' OR prenom LIKE '%&%')";
 
 export async function apercuNettoyage(db, agencyId) {
-  const inv = await inventaireNettoyage(db, agencyId);
+  const vides = await db.get(
+    `SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_VIDE}`, [agencyId]);
+  const parEmail = await db.get(
+    `SELECT COALESCE(SUM(n - 1), 0) AS d FROM (
+       SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND email <> '' GROUP BY email HAVING COUNT(*) > 1)`,
+    [agencyId]);
+  const parNom = await db.get(
+    `SELECT COALESCE(SUM(n - 1), 0) AS d FROM (
+       SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND nom <> '' AND prenom <> ''
+       GROUP BY lower(nom) || '|' || lower(prenom)
+       HAVING COUNT(*) > 1 AND COUNT(DISTINCT NULLIF(email, '')) <= 1)`,
+    [agencyId]);
+  const couples = await db.get(
+    `SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_COUPLE}`, [agencyId]);
   return {
-    vides: inv.vides.length,
-    doublons: inv.groupes.reduce((n, g) => n + g.length - 1, 0),
-    ambigus: inv.ambigus,
-    couples: inv.couples.length,
+    vides: vides?.n || 0,
+    doublons: (parEmail?.d || 0) + (parNom?.d || 0), // les ambigus seront laisses a l'execution
+    couples: couples?.n || 0,
   };
 }
 
-export async function executerNettoyage(db, agency, userId, action) {
-  const inv = await inventaireNettoyage(db, agency.id);
+// Fusionne des groupes deja charges (fiches completes) : le PLUS ANCIEN
+// survit, absorbe champs vides et typologies, et recupere envois, relances,
+// projets et position geocodee des fiches absorbees. Set-based.
+async function fusionnerGroupes(db, agencyId, userId, groupes) {
   const t = now();
-  if (action === "vides") {
-    const lot = inv.vides.slice(0, NETTOYAGE_VIDES_MAX);
-    for (let i = 0; i < lot.length; i += 400) {
-      const dans = lot.slice(i, i + 400).map(sqlText).join(",");
-      await db.run(`DELETE FROM crm_geo WHERE contact_id IN (${dans})`, []);
-      await db.run(`DELETE FROM crm_projet_contacts WHERE contact_id IN (${dans})`, []);
-      await db.run(`DELETE FROM crm_contacts WHERE agency_id = '${agency.id.replace(/'/g, "''")}' AND id IN (${dans})`, []);
+  const keep = (nv, old) => (nv !== "" && nv !== null && nv !== undefined ? nv : old);
+  const survivants = [], correspondance = new Map();
+  for (const g0 of groupes) {
+    const g = [...g0].sort((a, b) => (a.created_at - b.created_at) || (a.id < b.id ? -1 : 1));
+    const s = { ...g[0] };
+    let types = [];
+    try { types = JSON.parse(s.types || "[]"); } catch { }
+    for (const c of g.slice(1)) {
+      for (const ch of ["civilite", "prenom", "nom", "email", "telephone", "adresse", "cp", "ville",
+        "date_naissance", "date_achat", "conseiller", "notes"]) s[ch] = keep(s[ch], c[ch]) ?? "";
+      try { types = [...new Set([...types, ...JSON.parse(c.types || "[]")])]; } catch { }
+      correspondance.set(c.id, s.id);
     }
-    return { traites: lot.length, restants: inv.vides.length - lot.length };
+    s.types = JSON.stringify(types);
+    s.user_id = userId; s.updated_at = t;
+    survivants.push(s);
+  }
+  const doublons = [...correspondance.keys()];
+  for (let i = 0; i < survivants.length; i += 100) {
+    const tranche = survivants.slice(i, i + 100);
+    await db.run(`DELETE FROM crm_contacts WHERE id IN (${tranche.map((s2) => sqlText(s2.id)).join(",")})`, []);
+    await db.run(`INSERT INTO crm_contacts (${CONTACT_COLS.join(",")}) VALUES ` +
+      tranche.map((s2) => "(" + CONTACT_COLS.map((c) => (COLS_NUM.has(c) ? (Number(s2[c]) || 0) : sqlText(s2[c]))).join(",") + ")").join(","), []);
+  }
+  for (let i = 0; i < doublons.length; i += 150) {
+    const tranche = doublons.slice(i, i + 150);
+    const cas = "CASE contact_id " + tranche.map((d) => `WHEN ${sqlText(d)} THEN ${sqlText(correspondance.get(d))}`).join(" ") + " END";
+    const dans = tranche.map(sqlText).join(",");
+    await db.run(`UPDATE crm_envois SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
+    await db.run(`UPDATE crm_relances SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
+    await db.run(`UPDATE OR IGNORE crm_projet_contacts SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
+    await db.run(`DELETE FROM crm_projet_contacts WHERE contact_id IN (${dans})`, []);
+    await db.run(`UPDATE OR IGNORE crm_geo SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
+    await db.run(`DELETE FROM crm_geo WHERE contact_id IN (${dans})`, []);
+    await db.run(`DELETE FROM crm_contacts WHERE id IN (${dans})`, []);
+  }
+  return doublons.length;
+}
+
+export async function executerNettoyage(db, agency, userId, action, curseur = "") {
+  if (action === "vides") {
+    const cible = `SELECT id FROM crm_contacts WHERE agency_id = '${String(agency.id).replace(/'/g, "''")}'
+      AND ${SQL_VIDE} LIMIT ${NETTOYAGE_VIDES_MAX}`;
+    await db.run(`DELETE FROM crm_geo WHERE contact_id IN (${cible})`, []);
+    await db.run(`DELETE FROM crm_projet_contacts WHERE contact_id IN (${cible})`, []);
+    const r = await db.run(`DELETE FROM crm_contacts WHERE id IN (${cible})`, []);
+    const traites = changesOf(r);
+    const reste = await db.get(`SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_VIDE}`, [agency.id]);
+    return { traites, fini: (reste?.n || 0) === 0, curseur: "" };
   }
   if (action === "doublons") {
-    // On prend un paquet de groupes ; dans chaque groupe le PLUS ANCIEN
-    // survit et absorbe les champs vides + les typologies des autres.
-    let budget = NETTOYAGE_FUSIONS_MAX;
-    const groupes = [];
-    for (const g of inv.groupes) {
-      if (budget - (g.length - 1) < 0) break;
-      budget -= g.length - 1;
-      groupes.push(g);
-    }
-    if (!groupes.length) return { traites: 0, restants: inv.groupes.reduce((n, g) => n + g.length - 1, 0) };
-    const tousIds = groupes.flat().map((c) => c.id);
-    const complets = new Map();
-    for (let i = 0; i < tousIds.length; i += 400) {
-      for (const c of await db.all(
-        `SELECT * FROM crm_contacts WHERE id IN (${tousIds.slice(i, i + 400).map(sqlText).join(",")})`, []))
-        complets.set(c.id, c);
-    }
-    const keep = (nv, old) => (nv !== "" && nv !== null && nv !== undefined ? nv : old);
-    const survivants = [], correspondance = new Map(); // doublon -> survivant
-    for (const g of groupes) {
-      const s = { ...complets.get(g[0].id) };
-      let types = [];
-      try { types = JSON.parse(s.types || "[]"); } catch { }
-      for (const d of g.slice(1)) {
-        const c = complets.get(d.id);
-        if (!c) continue;
-        for (const ch of ["civilite", "prenom", "nom", "email", "telephone", "adresse", "cp", "ville",
-          "date_naissance", "date_achat", "conseiller", "notes"]) s[ch] = keep(s[ch], c[ch]) ?? "";
-        try { types = [...new Set([...types, ...JSON.parse(c.types || "[]")])]; } catch { }
-        correspondance.set(d.id, s.id);
+    // Deux phases derriere un curseur : d'abord les groupes par E-MAIL, puis
+    // les groupes par NOM + PRENOM (sans e-mail). Les groupes ambigus sont
+    // depasses par le curseur — jamais retraites, jamais fusionnes.
+    let [phase, depuis] = curseur ? [curseur.slice(0, 1), curseur.slice(2)] : ["e", ""];
+    let traites = 0, ambigus = 0;
+    if (phase === "e") {
+      const cles = await db.all(
+        `SELECT email AS k FROM crm_contacts WHERE agency_id = ? AND email <> '' AND email > ?
+         GROUP BY email HAVING COUNT(*) > 1 ORDER BY email LIMIT ${NETTOYAGE_GROUPES_MAX}`,
+        [agency.id, depuis]);
+      if (!cles.length) { phase = "n"; depuis = ""; }
+      else {
+        const fiches = await db.all(
+          `SELECT * FROM crm_contacts WHERE agency_id = ? AND email IN (${cles.map((c) => sqlText(c.k)).join(",")})`,
+          [agency.id]);
+        const parCle = new Map();
+        for (const f of fiches) {
+          if (!parCle.has(f.email)) parCle.set(f.email, []);
+          parCle.get(f.email).push(f);
+        }
+        traites = await fusionnerGroupes(db, agency.id, userId, [...parCle.values()].filter((g) => g.length > 1));
+        return { traites, ambigus: 0, fini: false, curseur: "e:" + cles[cles.length - 1].k };
       }
-      s.types = JSON.stringify(types);
-      s.user_id = userId; s.updated_at = t;
-      survivants.push(s);
     }
-    const doublons = [...correspondance.keys()];
-    // Réécriture des survivants (DELETE puis INSERT multi-lignes).
-    for (let i = 0; i < survivants.length; i += 100) {
-      const tranche = survivants.slice(i, i + 100);
-      await db.run(`DELETE FROM crm_contacts WHERE id IN (${tranche.map((s) => sqlText(s.id)).join(",")})`, []);
-      await db.run(`INSERT INTO crm_contacts (${CONTACT_COLS.join(",")}) VALUES ` +
-        tranche.map((s) => "(" + CONTACT_COLS.map((c) => (COLS_NUM.has(c) ? (Number(s[c]) || 0) : sqlText(s[c]))).join(",") + ")").join(","), []);
+    // phase noms
+    const cles = await db.all(
+      `SELECT lower(nom) || '|' || lower(prenom) AS k FROM crm_contacts
+       WHERE agency_id = ? AND nom <> '' AND prenom <> '' AND lower(nom) || '|' || lower(prenom) > ?
+       GROUP BY k HAVING COUNT(*) > 1 ORDER BY k LIMIT ${NETTOYAGE_GROUPES_MAX}`,
+      [agency.id, depuis]);
+    if (!cles.length) return { traites, ambigus, fini: true, curseur: "" };
+    const fiches = await db.all(
+      `SELECT * FROM crm_contacts WHERE agency_id = ?
+       AND lower(nom) || '|' || lower(prenom) IN (${cles.map((c) => sqlText(c.k)).join(",")})`,
+      [agency.id]);
+    const parCle = new Map();
+    for (const f of fiches) {
+      const k = (f.nom || "").toLowerCase() + "|" + (f.prenom || "").toLowerCase();
+      if (!parCle.has(k)) parCle.set(k, []);
+      parCle.get(k).push(f);
     }
-    // Tout ce qui pointait un doublon pointe désormais son survivant.
-    for (let i = 0; i < doublons.length; i += 150) {
-      const tranche = doublons.slice(i, i + 150);
-      const cas = "CASE contact_id " + tranche.map((d) => `WHEN ${sqlText(d)} THEN ${sqlText(correspondance.get(d))}`).join(" ") + " END";
-      const dans = tranche.map(sqlText).join(",");
-      await db.run(`UPDATE crm_envois SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
-      await db.run(`UPDATE crm_relances SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
-      await db.run(`UPDATE OR IGNORE crm_projet_contacts SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
-      await db.run(`DELETE FROM crm_projet_contacts WHERE contact_id IN (${dans})`, []);
-      await db.run(`UPDATE OR IGNORE crm_geo SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
-      await db.run(`DELETE FROM crm_geo WHERE contact_id IN (${dans})`, []);
-      await db.run(`DELETE FROM crm_contacts WHERE id IN (${dans})`, []);
+    const propres = [];
+    for (const g of parCle.values()) {
+      if (g.length < 2) continue;
+      const tels = new Set(g.map((c) => c.telephone).filter(Boolean));
+      const emails = new Set(g.map((c) => c.email).filter(Boolean));
+      if (tels.size > 1 || emails.size > 1) { ambigus += g.length; continue; } // homonymes probables
+      propres.push(g);
     }
-    return { traites: doublons.length, restants: inv.groupes.reduce((n, g) => n + g.length - 1, 0) - doublons.length };
+    traites += await fusionnerGroupes(db, agency.id, userId, propres);
+    return { traites, ambigus, fini: false, curseur: "n:" + cles[cles.length - 1].k };
   }
   if (action === "couples") {
-    const lot = inv.couples.slice(0, NETTOYAGE_SCISSIONS_MAX);
-    for (const id of lot) await scinderContact(db, agency, userId, id);
-    return { traites: lot.length, restants: inv.couples.length - lot.length };
+    const lot = await db.all(
+      `SELECT id, civilite, prenom FROM crm_contacts WHERE agency_id = ? AND ${SQL_COUPLE}
+       ORDER BY id LIMIT ${NETTOYAGE_SCISSIONS_MAX}`, [agency.id]);
+    let traites = 0;
+    for (const c of lot) {
+      // Le SQL approxime, la vraie regle confirme (jamais de fausse scission).
+      if (!/\b(?:et|&)\b/i.test((c.civilite || "") + " " + (c.prenom || ""))) continue;
+      await scinderContact(db, agency, userId, c.id);
+      traites++;
+    }
+    return { traites, fini: lot.length < NETTOYAGE_SCISSIONS_MAX, curseur: "" };
   }
   throw new Error("Action de nettoyage inconnue.");
 }
@@ -1009,6 +1027,57 @@ export async function creerProjetsAcquereurs(db, agencyId, userId, rows) {
       `INSERT INTO crm_projet_contacts (projet_id, contact_id, agency_id) VALUES ${liaisons.slice(i, i + 100).join(",")}`, []);
   }
   return { crees, dejaEquipes, introuvables };
+}
+
+// Filet de rattrapage : les criteres des acquereurs vivent AUSSI dans leurs
+// notes (« Projet d'achat — Qualification A · Budget 400 000 € · Maison
+// 4 pieces 80 m² ») depuis l'import C21. Cette passe cree les projets
+// manquants directement DEPUIS LES FICHES — pas besoin de re-importer le
+// fichier. Prudence : sans budget lisible, pas de projet (un projet sans
+// budget matcherait TOUTES les annonces et noierait les relances).
+export async function creerProjetsDepuisFiches(db, agencyId, userId, max = 200) {
+  const lot = await db.all(
+    `SELECT id, notes FROM crm_contacts
+     WHERE agency_id = ? AND types LIKE '%acquereur%' AND notes LIKE '%Budget%'
+       AND id NOT IN (
+         SELECT pc.contact_id FROM crm_projet_contacts pc
+         JOIN crm_projets p ON p.id = pc.projet_id
+         WHERE p.agency_id = ? AND p.kind = 'achat')
+     ORDER BY id LIMIT ${Math.max(1, max)}`, [agencyId, agencyId]);
+  const t = now();
+  let crees = 0, sansCriteres = 0;
+  const projets = [], liaisons = [];
+  for (const c of lot) {
+    const notes = String(c.notes || "");
+    const budget = /Budget\s+([\d\s\u202f\u00a0]+)\s*€/.exec(notes);
+    const budgetMax = budget ? parseInt(budget[1].replace(/[^\d]/g, ""), 10) : null;
+    if (!budgetMax) { sansCriteres++; continue; }
+    const pieces = /(\d+)\s*pi[eè]ces/.exec(notes);
+    const surface = /(\d+)\s*m²/.exec(notes);
+    const types = [];
+    if (/appartement ou maison/i.test(notes)) types.push("appartement", "maison");
+    else if (/maison/i.test(notes)) types.push("maison");
+    else if (/appartement/i.test(notes)) types.push("appartement");
+    else if (/terrain/i.test(notes)) types.push("terrain");
+    const qualif = /Qualification\s+([ABC])/.exec(notes);
+    const v = sanitizeProjet({
+      kind: "achat", statut: "actif", budgetMax,
+      piecesMin: pieces ? parseInt(pieces[1], 10) : null,
+      surfaceMin: surface ? parseInt(surface[1], 10) : null,
+      types, notes: "Depuis la fiche" + (qualif ? " · Qualification " + qualif[1] : ""),
+    });
+    const id = randId("pj");
+    projets.push(`(${sqlText(id)},${sqlText(agencyId)},'achat','actif','','',${v.budget_min ?? "NULL"},${v.budget_max ?? "NULL"},${sqlText(JSON.stringify(v.types))},${sqlText(JSON.stringify(v.villes))},${v.pieces_min ?? "NULL"},${v.surface_min ?? "NULL"},${sqlText(v.notes)},${sqlText(userId)},${t},${t})`);
+    liaisons.push(`(${sqlText(id)},${sqlText(c.id)},${sqlText(agencyId)})`);
+    crees++;
+  }
+  for (let i = 0; i < projets.length; i += 100) {
+    await db.run(
+      `INSERT INTO crm_projets (id, agency_id, kind, statut, adresse, ville, budget_min, budget_max, types, villes, pieces_min, surface_min, notes, user_id, created_at, updated_at) VALUES ${projets.slice(i, i + 100).join(",")}`, []);
+    await db.run(
+      `INSERT INTO crm_projet_contacts (projet_id, contact_id, agency_id) VALUES ${liaisons.slice(i, i + 100).join(",")}`, []);
+  }
+  return { crees, sansCriteres, fini: lot.length < max };
 }
 
 // L'ancienne table crm_recherches (une recherche PAR CONTACT) est migrée en

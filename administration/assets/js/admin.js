@@ -477,8 +477,7 @@
       "jamais touchés ; les couples sont scindés en deux personnes reliées aux mêmes projets.</p>" +
       '<div class="tableau-cadre"><table style="min-width:0;"><tbody>' +
       "<tr><td>Fiches vides (ni nom, ni prénom, ni e-mail, ni téléphone)</td><td><strong>" + a.vides + "</strong></td></tr>" +
-      "<tr><td>Doublons à fusionner</td><td><strong>" + a.doublons + "</strong></td></tr>" +
-      (a.ambigus ? "<tr><td>Homonymes ambigus — laissés tels quels</td><td>" + a.ambigus + "</td></tr>" : "") +
+      "<tr><td>Doublons à examiner (les ambigus seront laissés)</td><td><strong>" + a.doublons + "</strong></td></tr>" +
       "<tr><td>Fiches couple à scinder en deux personnes</td><td><strong>" + a.couples + "</strong></td></tr>" +
       "</tbody></table></div>",
       '<button class="btn" id="btn-annuler-nettoyage">Fermer</button>' +
@@ -489,19 +488,26 @@
     if (go) go.addEventListener("click", async () => {
       go.disabled = true;
       const bilan = { vides: 0, doublons: 0, couples: 0 };
+      let ambigusLaisses = 0;
       const libelles = { vides: "fiches vides", doublons: "doublons", couples: "couples" };
       try {
         for (const action of ["vides", "doublons", "couples"]) {
-          for (let tour = 0; tour < 400; tour++) {
+          let curseur = "";
+          for (let tour = 0; tour < 600; tour++) {
             go.textContent = "Nettoyage… " + libelles[action] + (bilan[action] ? " (" + bilan[action] + ")" : "");
-            const r = await api("/crm/nettoyage", { json: { action } });
-            bilan[action] += r.traites;
-            if (!r.traites || !r.restants) break;
+            const r = await api("/crm/nettoyage", { json: { action, curseur } });
+            bilan[action] += r.traites || 0;
+            ambigusLaisses += r.ambigus || 0;
+            if (r.fini) break;
+            // Sécurité : sans progrès ni curseur qui avance, on s'arrête.
+            if (!r.traites && !r.ambigus && r.curseur === curseur) break;
+            curseur = r.curseur || "";
           }
         }
         fermerModale();
         toast("Nettoyage terminé : " + bilan.vides + " fiche(s) vide(s) supprimée(s), " +
-          bilan.doublons + " doublon(s) fusionné(s), " + bilan.couples + " couple(s) scindé(s)");
+          bilan.doublons + " doublon(s) fusionné(s), " + bilan.couples + " couple(s) scindé(s)" +
+          (ambigusLaisses ? " · " + ambigusLaisses + " homonyme(s) ambigu(s) laissé(s)" : ""));
         await chargerContacts();
       } catch (e) {
         toast(e.message, true);
@@ -936,6 +942,26 @@
     if (tr) ouvrirProjet(tr.dataset.projet);
   });
   $("btn-nouveau-projet").addEventListener("click", () => ouvrirProjet(null, "achat"));
+  // Filet de rattrapage : crée les projets d'achat manquants depuis les
+  // critères déjà en notes des fiches acquéreurs (import C21).
+  $("btn-projets-fiches").addEventListener("click", async () => {
+    const btn = $("btn-projets-fiches");
+    btn.disabled = true;
+    let crees = 0, sans = 0;
+    try {
+      for (let tour = 0; tour < 60; tour++) {
+        btn.textContent = "Création des projets… " + crees;
+        const r = await api("/crm/projets/depuis-fiches", { method: "POST" });
+        crees += r.crees || 0; sans += r.sansCriteres || 0;
+        if (r.fini || !r.crees) break;
+      }
+      toast(crees + " projet(s) d'achat créé(s) depuis les fiches" +
+        (sans ? " · " + sans + " fiche(s) sans budget lisible laissée(s)" : ""));
+      await chargerAcheteurs();
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = false;
+    btn.textContent = "⚙️ Créer les projets manquants depuis les fiches";
+  });
   $("btn-annonces-save").addEventListener("click", () => sauverReglages({
     annonces: { autoSync: $("annonces-auto").checked, siteUrl: $("annonces-site").value.trim() },
   }, "Réglages annonces enregistrés"));
