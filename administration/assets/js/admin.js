@@ -269,8 +269,35 @@
         .filter((l) => Array.isArray(l) && l.some((v) => String(v).trim() !== ""));
       if (lignes.length < 2) { toast("Le fichier doit contenir des en-têtes et au moins une ligne.", true); return; }
       const entetes = lignes[0].map((h) => String(h).trim());
-      importData = { entetes, lignes: lignes.slice(1, 5001) };
+      importData = { entetes, lignes: lignes.slice(1, 5001), preset: detecterExtractionC21(entetes) };
       $("zone-fichier").textContent = fichier.name + " — " + importData.lignes.length + " ligne(s)";
+      if (importData.preset === "biens") {
+        // Estimés OU mandats en cours : mêmes en-têtes ; si « Date Début
+        // Mandat » est majoritairement remplie, ce sont des mandats (vendeurs).
+        const iMandat = colonneC21("date début mandat");
+        const avecMandat = importData.lignes.filter((l) => String(l[iMandat] || "").trim()).length;
+        const typologie = avecMandat * 2 >= importData.lignes.length ? "vendeur" : "estime";
+        $("etape-mappage").innerHTML =
+          '<p class="aide" style="margin-top:14px;">Extraction Century 21 reconnue : <strong>biens &amp; propriétaires</strong>. ' +
+          "Chaque ligne devient (ou complète) la fiche du propriétaire — nom, e-mail, adresse du bien, conseiller — avec le bien en note. " +
+          "Re-déposez ce fichier à chaque mise à jour : les fiches fusionnent sans doublon.</p>" +
+          '<div class="grille-champs"><label>Typologie appliquée à toutes les fiches' +
+          '<select id="preset-typologie">' +
+          '<option value="estime"' + (typologie === "estime" ? " selected" : "") + ">Estimés</option>" +
+          '<option value="vendeur"' + (typologie === "vendeur" ? " selected" : "") + ">Vendeurs (mandats)</option>" +
+          "</select></label></div>";
+        $("btn-go-import").hidden = false;
+        return;
+      }
+      if (importData.preset === "acquereurs") {
+        $("etape-mappage").innerHTML =
+          '<p class="aide" style="margin-top:14px;">Extraction Century 21 reconnue : <strong>acquéreurs</strong>. ' +
+          "Chaque ligne devient (ou complète) une fiche typée Acquéreur — coordonnées, conseiller, et en note : " +
+          "qualification A/B/C, budget, critères et secteurs. Les refus d'e-mail (opt-in décoché) sont respectés. " +
+          "Re-déposez ce fichier à chaque mise à jour : les fiches fusionnent sans doublon.</p>";
+        $("btn-go-import").hidden = false;
+        return;
+      }
       $("etape-mappage").innerHTML = '<p class="aide" style="margin-top:14px;">Associez chaque colonne :</p>' +
         entetes.map((h, i) => {
           const exemple = importData.lignes.slice(0, 3).map((l) => l[i]).filter((v) => String(v).trim()).join(" · ");
@@ -285,17 +312,94 @@
       toast("Impossible de lire ce fichier (.xlsx, .xls ou .csv attendu).", true);
     }
   }
-  async function validerImport() {
-    if (!importData) return;
-    const map = Array.from(document.querySelectorAll(".map-cible"))
-      .map((s) => ({ col: parseInt(s.dataset.col, 10), champ: s.value }))
-      .filter((m) => m.champ);
-    if (!map.length) { toast("Associez au moins une colonne.", true); return; }
-    const rows = importData.lignes.map((l) => {
-      const o = {};
-      for (const m of map) o[m.champ] = l[m.col];
+
+  /* ------------- Extractions Century 21 reconnues d'office ---------------- */
+  // Les exports du logiciel C21 ont des en-têtes stables : on les reconnaît,
+  // plus de mappage à la main — l'admin re-dépose le même fichier à chaque
+  // mise à jour et tout fusionne (par e-mail, sinon nom + prénom).
+  function detecterExtractionC21(entetes) {
+    const a = entetes.map((h) => h.toLowerCase());
+    if (a.includes("vendeur / bailleur") && a.includes("adresse du bien")) return "biens";
+    if (a.includes("budget") && a.includes("nom voie") && a.includes("projet")) return "acquereurs";
+    return null;
+  }
+  function colonneC21(nom) {
+    return importData.entetes.findIndex((h) => h.toLowerCase() === nom);
+  }
+  const eurosC21 = (v) => {
+    const n = parseFloat(v);
+    return Number.isFinite(n) && n > 0 ? String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " €" : "";
+  };
+  function lignesPresetBiens(typologie) {
+    const i = {
+      nom: colonneC21("vendeur / bailleur"), email: colonneC21("email"),
+      adresse: colonneC21("adresse du bien"), ville: colonneC21("ville"),
+      conseiller: colonneC21("conseiller"), prix: colonneC21("prix initial"), ref: colonneC21("ref"),
+    };
+    return importData.lignes.map((l) => {
+      const v = (k) => String(i[k] >= 0 ? (l[i[k]] ?? "") : "").trim();
+      const bien = [v("adresse"), v("ville")].filter(Boolean).join(", ");
+      const prix = eurosC21(v("prix"));
+      const notes = bien
+        ? (typologie === "estime" ? "Bien estimé : " : "Mandat : ") + bien +
+          (prix ? " (" + prix + ")" : "") + (v("ref") ? " · réf " + v("ref") : "")
+        : "";
+      return { nom: v("nom"), email: v("email"), adresse: v("adresse"), ville: v("ville"),
+        conseiller: v("conseiller"), types: typologie, notes };
+    });
+  }
+  function lignesPresetAcquereurs() {
+    const civilites = { "monsieur": "M.", "madame": "Mme", "mademoiselle": "Mlle", "monsieur et madame": "M. et Mme" };
+    const noms = ["civilité", "nom", "email", "tel", "n° de voie", "type de voie", "nom voie", "cp", "ville",
+      "conseiller", "qualification", "budget", "type de bien", "nb pièces", "surface", "secteurs",
+      "notes sur le projet", "opt-in"];
+    const i = {};
+    for (const n of noms) i[n] = colonneC21(n);
+    return importData.lignes.map((l) => {
+      const v = (k) => String(i[k] >= 0 ? (l[i[k]] ?? "") : "").trim();
+      const morceaux = [];
+      if (v("qualification")) morceaux.push("Qualification " + v("qualification"));
+      const budget = eurosC21(v("budget"));
+      if (budget) morceaux.push("Budget " + budget);
+      const bien = [v("type de bien"), v("nb pièces") ? v("nb pièces") + " pièces" : "",
+        v("surface") ? v("surface") + " m²" : ""].filter(Boolean).join(" ");
+      if (bien) morceaux.push(bien);
+      if (v("secteurs")) morceaux.push("Secteurs : " + v("secteurs"));
+      // Pas de saut de ligne : le nettoyage serveur retire les caractères de
+      // contrôle des notes — un séparateur visible fait le travail.
+      const notes = ["Projet d'achat" + (morceaux.length ? " — " + morceaux.join(" · ") : ""), v("notes sur le projet")]
+        .filter(Boolean).join("  //  ");
+      const o = {
+        civilite: civilites[v("civilité").toLowerCase()] || v("civilité"),
+        nom: v("nom"), email: v("email"), telephone: v("tel"),
+        adresse: [v("n° de voie"), v("type de voie"), v("nom voie")].filter(Boolean).join(" "),
+        cp: v("cp"), ville: v("ville"), conseiller: v("conseiller"),
+        types: "acquereur", notes,
+      };
+      // Seul un refus EXPLICITE pose l'opt-out (jamais l'inverse : un opt-out
+      // posé à la main en base n'est pas effacé par la fusion).
+      if (v("opt-in") === "False") o.opt_out = 1;
       return o;
     });
+  }
+  async function validerImport() {
+    if (!importData) return;
+    let rows;
+    if (importData.preset === "biens") {
+      rows = lignesPresetBiens($("preset-typologie").value);
+    } else if (importData.preset === "acquereurs") {
+      rows = lignesPresetAcquereurs();
+    } else {
+      const map = Array.from(document.querySelectorAll(".map-cible"))
+        .map((s) => ({ col: parseInt(s.dataset.col, 10), champ: s.value }))
+        .filter((m) => m.champ);
+      if (!map.length) { toast("Associez au moins une colonne.", true); return; }
+      rows = importData.lignes.map((l) => {
+        const o = {};
+        for (const m of map) o[m.champ] = l[m.col];
+        return o;
+      });
+    }
     const btn = $("btn-go-import");
     btn.disabled = true;
     // Envoi par lots : garde chaque appel leger pour le serveur, et permet
