@@ -28,6 +28,7 @@ const app = createApp({
   RESEND_API_KEY: process.env.RESEND_API_KEY || "",
   RESEND_BASE: process.env.RESEND_BASE || "",
   DVF_BASE: process.env.DVF_BASE || "",
+  BAN_BASE: process.env.BAN_BASE || "",
   MAIL_FROM: process.env.MAIL_FROM || "",
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || "",
   AI_MODELS: process.env.AI_MODELS || "",

@@ -986,6 +986,67 @@ export function sanitizeIlot(b) {
   return { nom, conseiller: strip(b.conseiller, 80), couleur, polygone: JSON.stringify(poly) };
 }
 
+/* ----------------------- Géocodage des ventes (Suivi) --------------------- */
+// Un dossier Suivi compte comme une vente réalisée : acte signé (date posée)
+// ou statut signé/clos — jamais les annulés. Même critère que l'app Suivi.
+export const dossierVendu = (statut, data) =>
+  statut === "signe" || statut === "clos" || !!(data.dates && data.dates.signature_acte);
+
+// Dans le Suivi, bien.adresse ne porte que la RUE — la ville vit dans
+// bien.ville. Sans la commune, la BAN ne retrouve pas l'adresse (score trop
+// faible) : on recompose « rue, ville » comme l'app Suivi.
+export const adresseDossier = (rue, ville) => {
+  const a = String(rue || "").trim().replace(/[,\s]+$/, "");
+  const v = String(ville || "").trim();
+  if (!v || a.toLowerCase().includes(v.toLowerCase())) return a;
+  return a ? a + ", " + v : v;
+};
+
+// Le géocodage des CONTACTS passe par le navigateur (bouton 📍, des centaines
+// d'adresses) ; celui des VENTES est automatique : le SERVEUR interroge la BAN
+// pour les dossiers vendus jamais géocodés (ou dont l'adresse a changé) — à
+// l'affichage de la carte (petit lot) et chaque matin par le cron. Un échec
+// est mémorisé (lat=lng=0) pour ne pas être redemandé tant que l'adresse ne
+// change pas. BAN_BASE : surchargeable en test (fausse BAN locale).
+export async function geocoderVentes(env, db, agencyId, max = 12) {
+  const rows = await db.all(
+    `SELECT d.id, d.adresse, json_extract(d.data, '$.bien.ville') AS ville, g.adresse AS geo_adresse
+     FROM dossiers d LEFT JOIN crm_geo g ON g.contact_id = d.id
+     WHERE d.agency_id = ? AND d.adresse <> '' AND d.statut <> 'annule'
+       AND (d.statut IN ('signe','clos') OR d.data LIKE '%"signature_acte":"2%')`, [agencyId]);
+  const attente = rows
+    .map((r) => ({ id: r.id, adresse: adresseDossier(r.adresse, r.ville), deja: r.geo_adresse }))
+    .filter((r) => r.adresse && r.adresse !== r.deja)
+    .slice(0, Math.max(0, max));
+  if (!attente.length) return { geocodes: 0, restants: 0 };
+  const base = env.BAN_BASE || "https://api-adresse.data.gouv.fr";
+  const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
+  const valeurs = [];
+  let geocodes = 0;
+  for (const a of attente) {
+    let ligne = null;
+    try {
+      const r = await fetch(base + "/search/?limit=1&q=" + encodeURIComponent(a.adresse),
+        { signal: AbortSignal.timeout(4000) });
+      if (!r.ok) continue; // BAN grognon : on retentera au prochain passage
+      const d = await r.json();
+      const f = d.features && d.features[0];
+      if (f && f.properties && f.properties.score >= 0.4) {
+        ligne = { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], label: f.properties.label, score: f.properties.score };
+        geocodes++;
+      } else {
+        ligne = { lat: 0, lng: 0, label: "(adresse introuvable)", score: 0 };
+      }
+    } catch { continue; } // BAN injoignable : on retentera au prochain passage
+    valeurs.push(`(${sqlT(a.id)},${sqlT(agencyId)},${Number(ligne.lat) || 0},${Number(ligne.lng) || 0},${sqlT(ligne.label)},${Number(ligne.score) || 0},${sqlT(a.adresse)},${now()})`);
+  }
+  if (valeurs.length) {
+    await db.run(
+      `INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES ${valeurs.join(",")}`, []);
+  }
+  return { geocodes, restants: rows.length - attente.length + (attente.length - valeurs.length) };
+}
+
 /* ----------------------------- Cron quotidien ----------------------------- */
 // Pour chaque agence ouverte qui a des reglages CRM : releve des annonces puis
 // vœux d'anniversaire. Chaque agence est isolee — une erreur n'arrete pas les autres.
@@ -1010,6 +1071,9 @@ export async function runCrmDaily(env, db) {
         try { r.acheteurs = await runRelances(env, db, agency, reglages); }
         catch (e) { r.acheteursError = e.message; }
       }
+      // Les ventes du Suivi rejoignent la carte toutes seules, un lot par nuit.
+      try { r.geoVentes = await geocoderVentes(env, db, agency.id, 30); }
+      catch (e) { r.geoVentesError = e.message; }
       results.push(r);
     } catch (e) {
       results.push({ agency: agency.id, error: e.message });

@@ -131,7 +131,12 @@ liste les adresses jamais géocodées ou modifiées — contacts ET dossiers Sui
 réservés aux admins. Trois couches « Marché » : **nos ventes** (dossiers Studio Suivi
 vendus — critère `dossierVendu` : `dates.signature_acte` posée ou statut signe/clos,
 jamais annule — géocodés dans la MÊME table `crm_geo` sous l'id du dossier, pas de clé
-étrangère ; servis par `/crm/carte` dans `ventes`, marqueur 🔑 `divIcon`), les **ventes
+étrangère ; leur géocodage est AUTOMATIQUE : `geocoderVentes` (crm.js) appelle la BAN
+côté serveur, 12 par affichage de `/crm/carte` + 30 par nuit via le cron, `BAN_BASE`
+surchargeable en test ; l'adresse est recomposée « rue, ville » via `adresseDossier`
+car `bien.adresse` du Suivi ne porte que la rue ; `/crm/carte` renvoie `ventes` et les
+compteurs `ventesStats {total, sansAdresse, introuvables, aGeocoder}` affichés sous
+l'interrupteur, marqueur 🔑 `divIcon`), les **ventes
 DVF** (fichiers géolocalisés Etalab, un CSV par commune et par an, relayés par le
 serveur via **`/crm/dvf/:annee/:dep/:commune`** — le stockage S3 derrière
 files.data.gouv.fr/geo-dvf n'envoie AUCUN en-tête CORS, en direct le navigateur bloque

@@ -191,9 +191,15 @@
     donnees.ventes = donnees.ventes || [];
     $("etat-geo").textContent = donnees.points.length + " contact(s) sur la carte, sur " +
       donnees.totalContacts + " dans la base.";
-    $("etat-ventes").textContent = donnees.ventes.length
-      ? donnees.ventes.length + " vente(s) de l'agence sur la carte."
-      : "Aucune vente géocodée pour l'instant — les dossiers signés du Suivi apparaissent après le géocodage.";
+    const vs = donnees.ventesStats || { total: donnees.ventes.length, sansAdresse: 0, introuvables: 0, aGeocoder: 0 };
+    const bouts = [];
+    if (vs.aGeocoder) bouts.push(vs.aGeocoder + " en cours de géocodage — rechargez dans un instant");
+    if (vs.introuvables) bouts.push(vs.introuvables + " adresse(s) introuvable(s)");
+    if (vs.sansAdresse) bouts.push(vs.sansAdresse + " sans adresse de bien dans le Suivi");
+    $("etat-ventes").textContent = !vs.total
+      ? "Aucun dossier vendu dans le Suivi pour l'instant."
+      : donnees.ventes.length + " vente(s) sur la carte, sur " + vs.total + " dossier(s) vendu(s)" +
+        (bouts.length ? " · " + bouts.join(" · ") : "") + ".";
     $("zone-dessin").hidden = !donnees.estAdmin;
     $("btn-geocoder").hidden = !donnees.estAdmin;
     rendreIlots();

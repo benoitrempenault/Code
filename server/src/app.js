@@ -947,26 +947,20 @@ export function createApp(env) {
     return { ctx };
   }
 
-  // Un dossier Suivi compte comme une vente réalisée : acte signé (date posée)
-  // ou statut signé/clos — jamais les annulés. Même critère que l'app Suivi.
-  const dossierVendu = (statut, data) =>
-    statut === "signe" || statut === "clos" || !!(data.dates && data.dates.signature_acte);
-
-  // Dans le Suivi, bien.adresse ne porte que la RUE — la ville vit dans
-  // bien.ville. Sans la commune, la BAN ne retrouve pas l'adresse (score
-  // trop faible) : on recompose « rue, ville » comme l'app Suivi.
-  const adresseDossier = (rue, ville) => {
-    const a = String(rue || "").trim().replace(/[,\s]+$/, "");
-    const v = String(ville || "").trim();
-    if (!v || a.toLowerCase().includes(v.toLowerCase())) return a;
-    return a ? a + ", " + v : v;
-  };
+  // Critère de vente et recomposition d'adresse : partagés avec le moteur CRM
+  // (géocodage automatique des ventes, cron du matin).
+  const dossierVendu = CRM.dossierVendu;
+  const adresseDossier = CRM.adresseDossier;
 
   // Tout ce qu'il faut pour afficher la carte : les contacts géocodés, les
   // îlots et les ventes de l'agence (dossiers Suivi signés). Accessible à
   // tout conseiller de l'agence.
   app.get("/crm/carte", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    // Les ventes se géocodent TOUTES SEULES : un petit lot à chaque affichage
+    // de la carte (le cron du matin fait le reste). Une BAN muette n'empêche
+    // pas la carte de s'afficher.
+    try { await CRM.geocoderVentes(env, db, ctx.agency.id, 12); } catch { /* BAN indisponible */ }
     const points = await db.all(
       `SELECT g.contact_id, g.lat, g.lng, g.label, c.civilite, c.nom, c.prenom, c.telephone,
               c.email, c.adresse, c.cp, c.ville, c.types, c.conseiller
@@ -978,17 +972,25 @@ export function createApp(env) {
     const total = await db.get("SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ?", [ctx.agency.id]);
     // Les ventes de l'agence : la géocache crm_geo sert aussi aux dossiers
     // (contact_id = id du dossier — pas de clé étrangère, table partagée).
+    // On lit TOUS les dossiers non annulés pour pouvoir dire pourquoi une
+    // vente n'est pas sur la carte (sans adresse, introuvable, en attente).
     const dosGeo = await db.all(
-      `SELECT d.id, d.name, d.statut, d.adresse, d.conseillers, d.data, g.lat, g.lng, g.label
-       FROM dossiers d JOIN crm_geo g ON g.contact_id = d.id
-       WHERE d.agency_id = ? AND d.statut <> 'annule' AND NOT (g.lat = 0 AND g.lng = 0)`, [ctx.agency.id]);
+      `SELECT d.id, d.name, d.statut, d.adresse, d.conseillers, d.data, g.lat, g.lng, g.label, g.adresse AS geo_adresse
+       FROM dossiers d LEFT JOIN crm_geo g ON g.contact_id = d.id
+       WHERE d.agency_id = ? AND d.statut <> 'annule'`, [ctx.agency.id]);
     const ventes = [];
+    const stats = { total: 0, sansAdresse: 0, introuvables: 0, aGeocoder: 0 };
     for (const r of dosGeo) {
       let data; try { data = JSON.parse(r.data); } catch { data = {}; }
       if (!dossierVendu(r.statut, data)) continue;
+      stats.total++;
+      const adresse = adresseDossier(r.adresse, data.bien && data.bien.ville);
+      if (!adresse) { stats.sansAdresse++; continue; }
+      if (r.lat == null || adresse !== r.geo_adresse) { stats.aGeocoder++; continue; }
+      if (r.lat === 0 && r.lng === 0) { stats.introuvables++; continue; }
       ventes.push({
         id: r.id, nom: r.name, lat: r.lat, lng: r.lng,
-        adresse: adresseDossier(r.adresse, data.bien && data.bien.ville) || r.label || "",
+        adresse: adresse || r.label || "",
         conseillers: r.conseillers || "",
         date_acte: String((data.dates && (data.dates.signature_acte || data.dates.signature_prevue)) || "").slice(0, 10),
         prix: String((data.prix && data.prix.prix_vente) || "").slice(0, 40),
@@ -998,6 +1000,7 @@ export function createApp(env) {
       points: points.map((p) => ({ ...p, types: (() => { try { return JSON.parse(p.types || "[]"); } catch { return []; } })() })),
       ilots: ilots.map((i) => ({ ...i, polygone: (() => { try { return JSON.parse(i.polygone); } catch { return []; } })() })),
       ventes,
+      ventesStats: stats,
       totalContacts: total?.n || 0,
       estAdmin: isAgencyAdmin(ctx),
     });

@@ -1524,11 +1524,21 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     } else { res.writeHead(404); res.end("Not Found"); }
   });
   await new Promise((r) => fauxDvf.listen(18792, r));
+  // Fausse BAN : géocode « Vignes », ignore le reste — pour tester le
+  // géocodage AUTOMATIQUE des ventes (le serveur appelle la BAN lui-même).
+  const fauxBan = (await import("node:http")).createServer((req, res) => {
+    const q = decodeURIComponent(new URL(req.url, "http://x").searchParams.get("q") || "");
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(/Vignes/.test(q)
+      ? { features: [{ properties: { label: "7 Impasse des Vignes 33185 Le Haillan", score: 0.93 }, geometry: { coordinates: [-0.68, 44.9012] } }] }
+      : { features: [] }));
+  });
+  await new Promise((r) => fauxBan.listen(18793, r));
   const appR = createApp({
     db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin",
     APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
     RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18791",
-    DVF_BASE: "http://localhost:18792",
+    DVF_BASE: "http://localhost:18792", BAN_BASE: "http://localhost:18793",
     MAIL_FROM: "Studio Brochure <connexion@studiobrochure.fr>",
   });
   const callR = async (path, opts = {}) => {
@@ -1753,6 +1763,22 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(laVente && laVente.lat === 44.8951 && laVente.date_acte === "2025-06-12" && laVente.prix === "320 000 €",
     "la vente de l'agence apparaît sur la carte (position, date d'acte, prix)");
   ok(!carteV.ventes.some((v) => v.id === rEnCours.json.id), "un dossier non signé n'apparaît pas dans les ventes");
+  // Le géocodage des ventes est AUTOMATIQUE : jamais passée par le bouton 📍,
+  // la vente GARNIER / ROUX a été géocodée par le serveur (fausse BAN) au
+  // moment d'afficher la carte.
+  ok(carteV.ventes.some((v) => v.id === rVille.json.id && v.lat === 44.9012),
+    "une vente jamais géocodée est géocodée automatiquement à l'affichage de la carte");
+  ok(carteV.ventesStats && carteV.ventesStats.total === 2 && carteV.ventesStats.aGeocoder === 0,
+    "les compteurs de ventes reflètent ce qui est placé");
+  // Un dossier vendu sans adresse de bien, un autre inconnu de la BAN : la
+  // carte compte et explique pourquoi ils ne sont pas placés.
+  const dSans = dosBase(); dSans.statut = "signe"; dSans.bien = { adresse: "" };
+  await callR("/dossiers", { headers: auth, method: "PUT", body: { name: "SANS / ADRESSE", data: dSans } });
+  const dPerdu = dosBase(); dPerdu.statut = "signe"; dPerdu.bien = { adresse: "99 rue Inconnue", ville: "Nulle-Part" };
+  await callR("/dossiers", { headers: auth, method: "PUT", body: { name: "PERDU / NULLEPART", data: dPerdu } });
+  const stats2 = (await callR("/crm/carte", { headers: auth })).json.ventesStats;
+  ok(stats2.total === 4 && stats2.sansAdresse === 1 && stats2.introuvables === 1,
+    "ventes sans adresse et adresses introuvables comptées et expliquées");
   ok((await callR("/crm/carte", { headers: { Authorization: "Bearer " + sessAutre } })).json.ventes.length === 0,
     "les ventes sont isolées par agence");
 
@@ -1773,6 +1799,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
 
   fauxResend.close();
   fauxDvf.close();
+  fauxBan.close();
 }
 
 fake.close();
