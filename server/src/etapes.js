@@ -48,7 +48,7 @@ function montantPositif(v) {
   const n = parseFloat(m[1].replace(/[\s\u00a0\u202f.]/g, "").replace(",", "."));
   return isFinite(n) && n > 0;
 }
-const finRetract = (d) => (d.dates && d.dates.presentation_sru) ? addDays(d.dates.presentation_sru, 11) : addDays(ssp(d), 14);
+const finRetract = (d) => addDays(d.dates && d.dates.presentation_sru, 11) || addDays(ssp(d), 14);
 const pret = (d) => (d.financement && d.financement.recours_pret === "oui");
 // Urbanisme (terrains) : mêmes règles que le client — DP puis PC, purges à
 // 3 mois de l'affichage constaté.
@@ -114,7 +114,7 @@ const ETAPES = [
     // 7 jours après l'envoi du dossier aux notaires (à défaut, envoi estimé J+3).
     due: (d) => addDays((d.dates && d.dates.envoi_notaires) || addDays(ssp(d), 3), 7) },
   { id: "purge_dia", label: "Droit de préemption purgé (2 mois)",
-    due: (d) => (d.dates && d.dates.envoi_dia) ? addDays(d.dates.envoi_dia, 62) : addDays(ssp(d), 77) },
+    due: (d) => addDays(d.dates && d.dates.envoi_dia, 62) || addDays(ssp(d), 77) },
   { id: "dp_depot", label: "Déclaration préalable (DP) déposée en mairie", due: dpDepot, applies: estTerrain },
   { id: "dp_accord", label: "Accord de la DP (non-opposition) obtenu", due: dpAccord, applies: estTerrain },
   { id: "dp_affichage", label: "Affichage de la DP + constat d'huissier", due: dpAffichage, applies: estTerrain },
@@ -153,24 +153,24 @@ const ETAPES = [
       return !!exp && !dt(d, "signature_acte") && daysUntil(exp) <= 30;
     } },
   { id: "projet_acte", label: "Demande de date de signature",
-    due: (d) => d.date_butoir ? addDays(d.date_butoir, -21) : addDays(ssp(d), 70) },
+    due: (d) => addDays(d.date_butoir, -21) || addDays(ssp(d), 70) },
   { id: "avenant", label: "Avenant de prorogation si la signature ne tient pas la date butoir",
-    due: (d) => d.date_butoir ? addDays(d.date_butoir, -10) : "",
+    due: (d) => addDays(d.date_butoir, -10),
     applies: (d) => !!d.date_butoir && !(d.dates && d.dates.signature_acte) },
   { id: "signature", label: "Acte authentique signé", due: (d) => dateSignature(d) },
   { id: "appel_apres_vente", label: "Appel des clients et crémaillère",
-    due: (d) => (d.dates && d.dates.signature_acte) ? addDays(d.dates.signature_acte, 7) : "",
+    due: (d) => addDays(d.dates && d.dates.signature_acte, 7),
     applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" },
   { id: "avis", label: "Demande d'avis clients envoyée",
-    due: (d) => (d.dates && d.dates.signature_acte) ? addDays(d.dates.signature_acte, 10) : "",
+    due: (d) => addDays(d.dates && d.dates.signature_acte, 10),
     applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" },
   { id: "facture_emise", label: "Facture d'honoraires agence éditée et envoyée au notaire",
     due: (d) => addDays(dateSignature(d), -7) },
   { id: "facture_payee", label: "Facture agence payée (honoraires encaissés)",
-    due: (d) => (d.dates && d.dates.signature_acte) ? addDays(d.dates.signature_acte, 15) : "",
+    due: (d) => addDays(d.dates && d.dates.signature_acte, 15),
     applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" },
   { id: "cloture", label: "Dossier clôturé",
-    due: (d) => (d.dates && d.dates.signature_acte) ? addDays(d.dates.signature_acte, 30) : "",
+    due: (d) => addDays(d.dates && d.dates.signature_acte, 30),
     applies: (d) => !!(d.dates && d.dates.signature_acte) || d.statut === "signe" }
 ];
 

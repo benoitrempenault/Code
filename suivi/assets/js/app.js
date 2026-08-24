@@ -388,6 +388,28 @@
     if (!Array.isArray(data.acquereurs)) data.acquereurs = [];
     if (!Array.isArray(data.conditions_suspensives)) data.conditions_suspensives = [];
     if (!Array.isArray(data.journal)) data.journal = [];
+    /* Répare les dates mal formées (« 12/05/2026 » écrit par une extraction
+       ou une vieille sauvegarde au lieu de l'ISO « 2026-05-12 ») : une date
+       illisible rend son échéance incalculable — l'étape restait grise et ne
+       remontait jamais au tableau de bord. Tout autre texte est laissé. */
+    const repareDate = (v) => {
+      const s = String(v || "").trim();
+      if (!s || /^\d{4}-\d{2}-\d{2}$/.test(s)) return v;
+      const m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/.exec(s);
+      if (!m) return v;
+      const an = m[3].length === 2 ? "20" + m[3] : m[3];
+      return an + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0");
+    };
+    data.date_compromis = repareDate(data.date_compromis);
+    data.date_butoir = repareDate(data.date_butoir);
+    for (const k of Object.keys(data.dates)) {
+      if (!/^signature_(heure|lieu_)/.test(k)) data.dates[k] = repareDate(data.dates[k]);
+    }
+    data.sequestre.delai = repareDate(data.sequestre.delai);
+    for (const o of [data.entretiens, data.diagnostics]) {
+      if (o && typeof o === "object") for (const k of Object.keys(o)) o[k] = repareDate(o[k]);
+    }
+    data.conditions_suspensives.forEach((c) => { if (c && c.echeance) c.echeance = repareDate(c.echeance); });
     // Agence du dossier : "" = suivre le conseiller (voir siteDossier).
     if (!SITE_LABEL[data.site]) data.site = "";
     // Séparation des agences au 20/08/2026 : tout le stock de dossiers

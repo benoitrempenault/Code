@@ -655,6 +655,14 @@ ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Autho
   ok(appel && appel.label === "Appel des clients et crémaillère", "appel client et crémaillère ne font qu'une étape");
   ok(appel.due === "2026-09-22", "l'appel et la crémaillère se calent une semaine après l'acte");
   ok(!apres.some((a) => a.id === "cremaillere"), "l'étape crémaillère séparée a disparu");
+  // Une date mal formée (« 15/04/2026 » au lieu de l'ISO) ne doit pas rendre
+  // l'échéance incalculable : l'étape retomberait en gris et disparaîtrait du
+  // tableau de bord au lieu de passer en retard.
+  const casse = base();
+  casse.dates.envoi_dia = "15/04/2026";
+  const purge = actionsFor(casse, "2026-09-16").find((a) => a.id === "purge_dia");
+  ok(purge && purge.due === "2026-08-17",
+    "date DIA illisible : la purge retombe sur compromis + 77 jours au lieu de disparaître");
 }
 
 /* ---- Séquestre : comptabilité de l'étude dépositaire -------------------- */
