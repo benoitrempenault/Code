@@ -70,6 +70,8 @@
       ]
     },
     coverPhoto: null,
+    // Cadrage de la photo de couverture, en % (50/50 = centrée).
+    coverFocus: { x: 50, y: 50 },
     gallery: [],
     plans: [],
     surfaces: [
@@ -104,6 +106,8 @@
     if (!s.surfaces) s.surfaces = [];
     if (!s.gallery) s.gallery = [];
     if (s.adText == null) s.adText = "";
+    if (!s.coverFocus || typeof s.coverFocus !== "object") s.coverFocus = { x: 50, y: 50 };
+    s.coverFocus = { x: clampPct(s.coverFocus.x), y: clampPct(s.coverFocus.y) };
     if (!s.theme) s.theme = clone(DEFAULT.theme);
     if (!s.theme.font) s.theme.font = "elegant";
     if (!s.theme.customAccent) s.theme.customAccent = "#a67c52";
@@ -314,7 +318,7 @@
       state.gallery.forEach(function (p) { known[p.url] = 1; });
       state.plans.forEach(function (u) { known[u] = 1; });
       let skipped = 0;
-      if (target === "cover") state.coverPhoto = urls[0];
+      if (target === "cover") { state.coverPhoto = urls[0]; state.coverFocus = { x: 50, y: 50 }; }
       else if (target === "plan") urls.forEach(function (u) { if (known[u]) { skipped++; return; } known[u] = 1; state.plans.push(u); });
       else urls.forEach(function (u) { if (known[u]) { skipped++; return; } known[u] = 1; state.gallery.push({ id: uid(), url: u, caption: "" }); });
       if (skipped) toast(skipped > 1 ? skipped + " photos déjà présentes — ignorées." : "Photo déjà présente — ignorée.");
@@ -496,6 +500,61 @@
       ? '<img class="' + cls + '" src="' + window.KADIMA.full + '" alt="' + esc(state.agency.name || "Century 21") + '">'
       : '<span class="cb-logo-text">' + esc(state.agency.name || "") + "</span>";
   }
+  /* ------------------- Recadrage de la photo de couverture --------------- */
+  // La photo de couverture remplit son cadre (« object-fit: cover ») et
+  // déborde donc d'un côté. Le conseiller la fait glisser à la souris dans
+  // l'aperçu pour choisir ce qui reste visible ; double-clic = recentrer.
+  function clampPct(v) {
+    const n = Number(v);
+    return Math.max(0, Math.min(100, isFinite(n) ? Math.round(n * 10) / 10 : 50));
+  }
+  function coverImgAttrs() {
+    const f = state.coverFocus || {};
+    return ' data-focus="cover" draggable="false"' +
+      ' title="Faites glisser la photo pour la recadrer · double-clic pour recentrer"' +
+      ' style="object-position:' + clampPct(f.x) + '% ' + clampPct(f.y) + '%"';
+  }
+  function wireCoverDrag() {
+    $all('#brochure [data-focus="cover"]').forEach(function (img) {
+      img.addEventListener("dblclick", function () {
+        state.coverFocus = { x: 50, y: 50 };
+        img.style.objectPosition = "50% 50%";
+        scheduleSave();
+      });
+      img.addEventListener("pointerdown", function (e) {
+        // Au doigt, on laisse l'aperçu défiler normalement.
+        if (e.button !== 0 || e.pointerType === "touch") return;
+        e.preventDefault();
+        const rect = img.getBoundingClientRect();
+        const nw = img.naturalWidth || rect.width, nh = img.naturalHeight || rect.height;
+        const scale = Math.max(rect.width / nw, rect.height / nh);
+        const overX = Math.max(0, nw * scale - rect.width);
+        const overY = Math.max(0, nh * scale - rect.height);
+        if (!overX && !overY) { toast("Cette photo remplit déjà le cadre pile : rien à recadrer."); return; }
+        const f = state.coverFocus || {};
+        const from = { x: e.clientX, y: e.clientY, fx: clampPct(f.x), fy: clampPct(f.y) };
+        img.classList.add("is-dragging");
+        try { img.setPointerCapture(e.pointerId); } catch (err) { /* pas grave */ }
+        function move(ev) {
+          // On tire la photo : elle suit la souris, donc le point d'ancrage recule.
+          const fx = overX ? clampPct(from.fx - (ev.clientX - from.x) / overX * 100) : 50;
+          const fy = overY ? clampPct(from.fy - (ev.clientY - from.y) / overY * 100) : 50;
+          state.coverFocus = { x: fx, y: fy };
+          img.style.objectPosition = fx + "% " + fy + "%";
+        }
+        function stop() {
+          img.classList.remove("is-dragging");
+          img.removeEventListener("pointermove", move);
+          img.removeEventListener("pointerup", stop);
+          img.removeEventListener("pointercancel", stop);
+          scheduleSave();
+        }
+        img.addEventListener("pointermove", move);
+        img.addEventListener("pointerup", stop);
+        img.addEventListener("pointercancel", stop);
+      });
+    });
+  }
   function pageCover() {
     const layout = state.theme.coverLayout || "bandeau";
     if (layout === "pleine" && state.coverPhoto) return pageCoverFull();
@@ -508,7 +567,7 @@
     const tag = coverTag();
     const contact = [a.phone, a.email].filter(Boolean).join("  ·  ");
     return '<section class="page page--full cover-full">' +
-      '<img class="cf-img" src="' + state.coverPhoto + '" alt="">' +
+      '<img class="cf-img" src="' + state.coverPhoto + '" alt=""' + coverImgAttrs() + '>' +
       '<div class="cf-scrim"></div>' +
       '<div class="cf-top">' + coverLogoHtml("cb-logo") + (tag ? '<span class="cf-tag">' + esc(tag) + "</span>" : "") + "</div>" +
       '<div class="cf-bottom">' +
@@ -524,7 +583,7 @@
     const tag = coverTag();
     const contact = [a.phone, a.email].filter(Boolean).join("  ·  ");
     const g = state.gallery || [];
-    const cells = ['<div class="cm-cell cm-a"><img src="' + state.coverPhoto + '" alt=""></div>'];
+    const cells = ['<div class="cm-cell cm-a"><img src="' + state.coverPhoto + '" alt=""' + coverImgAttrs() + '></div>'];
     if (g[0]) cells.push('<div class="cm-cell"><img src="' + g[0].url + '" alt=""></div>');
     if (g[1]) cells.push('<div class="cm-cell"><img src="' + g[1].url + '" alt=""></div>');
     return '<section class="page page--full cover-mosaic">' +
@@ -541,7 +600,7 @@
     const p = state.property, a = state.agency;
     const dark = state.theme.coverDark;
     const img = state.coverPhoto
-      ? '<img src="' + state.coverPhoto + '" alt="">'
+      ? '<img src="' + state.coverPhoto + '" alt=""' + coverImgAttrs() + '>'
       : '<div class="cb-ph"></div>';
     const tag = coverTag() ? '<span class="cb-tag">' + esc(coverTag()) + "</span>" : "";
     const contact = [a.phone, a.email].filter(Boolean).join("  ·  ");
@@ -821,6 +880,7 @@
     applyCustomTheme(b);
     b.innerHTML = buildBrochure();
     fitPages();
+    wireCoverDrag();
     // Les polices Google arrivent parfois après le premier rendu : on remesure.
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitPages);
     // sous-titre de la barre
@@ -1058,7 +1118,8 @@
     s.property.stats = { pieces: "", chambres: "", sdb: "", bureaux: "", surface: "", terrain: "" };
     s.property.price = ""; s.features = { interieur: [], exterieur: [], aSavoir: [] };
     s.quartier = []; s.diagnostics = { dpe: "", dpeValue: "", ges: "", gesValue: "", note: "Document non contractuel.", summary: [] };
-    s.coverPhoto = null; s.gallery = []; s.plans = []; s.surfaces = []; s.surfacesTotal = "";
+    s.coverPhoto = null; s.coverFocus = { x: 50, y: 50 };
+    s.gallery = []; s.plans = []; s.surfaces = []; s.surfacesTotal = "";
     s.adText = "";
     s.property.banner = ""; s.property.webUrl = ""; s.property.webQr = null;
     return s;

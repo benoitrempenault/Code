@@ -72,6 +72,10 @@
 .cb-tag { position: absolute; top: 14mm; right: 18mm; font-size: 6.5pt; letter-spacing: .2em; text-transform: uppercase; border: 1px solid currentColor; border-radius: 999px; padding: 3px 9px; opacity: .75; }
 .cb-photo { flex: 1 1 auto; margin: 0 12mm 7mm; min-height: 0; }
 .cb-photo img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
+/* Photo de couverture : dans l'aperçu, on la fait glisser pour la recadrer
+   (le cadrage choisi est enregistré et suit l'impression et l'export). */
+.preview [data-focus="cover"] { cursor: grab; }
+.preview [data-focus="cover"].is-dragging { cursor: grabbing; }
 .cb-ph { width: 100%; height: 100%; background: linear-gradient(135deg, #cfc4b2, #ab9d86); }
 .cb-bottom { flex: 0 0 auto; padding: 0 18mm 16mm; }
 .cover-banded .eyebrow { color: var(--accent); }
