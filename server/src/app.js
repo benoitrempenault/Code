@@ -1211,6 +1211,27 @@ export function createApp(env) {
   // paquets (plafond de sous-requêtes du Worker). C'est le secours quand le
   // NAVIGATEUR ne peut pas joindre la BAN — réseau d'agence filtré, débit
   // limité — et il couvre tout : contacts, dossiers vendus, ventes importées.
+  // Diagnostic du géocodage (admin) : un essai réel par géocodeur DEPUIS le
+  // serveur — pour voir en un coup d'œil qui bloque quand rien n'avance.
+  app.get("/crm/geo/diag", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const essais = {};
+    for (const [nom, base] of [
+      ["ban", env.BAN_BASE || "https://api-adresse.data.gouv.fr"],
+      ["ign", env.GEOPF_BASE || "https://data.geopf.fr/geocodage"],
+    ]) {
+      try {
+        const r = await fetch(base + "/search/?limit=1&q=" + encodeURIComponent("20 rue de bos 33185 le haillan"),
+          { signal: AbortSignal.timeout(4000) });
+        if (!r.ok) { essais[nom] = "http " + r.status; continue; }
+        const d = await r.json();
+        const f = d.features && d.features[0];
+        essais[nom] = f ? "ok" : "ok mais aucun résultat";
+      } catch (e) { essais[nom] = "erreur " + String((e && e.message) || e).slice(0, 60); }
+    }
+    return c.json({ serveur: essais });
+  });
+
   // 14 par paquet, pas plus : chaque adresse peut coûter 2 appels (BAN puis
   // IGN) et l'offre Workers gratuite plafonne à 50 sous-requêtes par
   // invocation — 35 faisait planter la pompe (d'où une carte qui n'avançait

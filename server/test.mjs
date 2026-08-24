@@ -1861,6 +1861,11 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const relais = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.nom === "Relais");
   ok((await callR("/crm/carte", { headers: auth })).json.points.some((pt) => pt.contact_id === relais.id && pt.lat === 44.9012),
     "le contact géocodé via l'IGN apparaît sur la carte");
+  // Le diagnostic sonde réellement chaque géocodeur depuis le serveur.
+  const diag = (await callR("/crm/geo/diag", { headers: auth })).json;
+  ok(diag.serveur && /ok|vide|aucun/.test(diag.serveur.ban || ""), "diagnostic : la BAN est sondée depuis le serveur");
+  ok((await callR("/crm/geo/diag", { headers: { Authorization: "Bearer " + sessP } })).status === 403,
+    "le diagnostic est réservé aux administrateurs");
 
   /* ---- Relais DVF (les CSV Etalab n'ont pas de CORS) --------------------- */
   const reqDvf = (path, sess2) => appR.fetch(new Request("http://api.test" + path,

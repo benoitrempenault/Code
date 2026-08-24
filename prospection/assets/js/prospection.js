@@ -370,6 +370,30 @@
       }
       toast("Géocodage terminé : " + totalOk + " adresse(s) traitée(s)" + (totalRates ? ", " + totalRates + " à retenter ou introuvable(s)" : ""));
       await charger();
+      // Encore des adresses en attente ? On affiche un DIAGNOSTIC lisible :
+      // un essai réel par géocodeur, depuis CE navigateur et depuis le
+      // serveur, plus le rendement de la pompe — pour savoir QUI bloque.
+      const resteFinal = (await api("/crm/geo/attente")).attente.length;
+      if (resteFinal > 0) {
+        const testNav = async (base) => {
+          try {
+            const r = await fetch(base + "/search/?limit=1&q=" + encodeURIComponent("20 rue de bos 33185 le haillan"));
+            if (!r.ok) return "http " + r.status;
+            const d = await r.json();
+            return d.features && d.features[0] ? "ok" : "vide";
+          } catch (e) { return "injoignable"; }
+        };
+        let diag = "navigateur : BAN " + (await testNav(BAN)) + " / IGN " + (await testNav(GEOCODEURS[1]));
+        try {
+          const s = await api("/crm/geo/diag");
+          diag += " · serveur : BAN " + s.serveur.ban + " / IGN " + s.serveur.ign;
+        } catch (e) { diag += " · serveur : " + e.message; }
+        try {
+          const p = await api("/crm/geo/serveur", { method: "POST" });
+          diag += " · pompe : " + (p.traites || 0) + "/passage";
+        } catch (e) { diag += " · pompe en erreur : " + e.message; }
+        $("etat-ventes").textContent = resteFinal + " adresse(s) encore en attente — " + diag;
+      }
     } catch (e) { toast(e.message, true); }
     btn.disabled = false;
     btn.textContent = "📍 Géocoder les adresses";
