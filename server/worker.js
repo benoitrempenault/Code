@@ -51,6 +51,10 @@ export default {
       GRAPH_TENANT_ID: env.GRAPH_TENANT_ID || "",
       GRAPH_CLIENT_ID: env.GRAPH_CLIENT_ID || "",
       GRAPH_CLIENT_SECRET: env.GRAPH_CLIENT_SECRET || "",
+      // Accès collaborateur Kadima (SSO depuis century21-kadima.fr)
+      KADIMA_SSO_SECRET: env.KADIMA_SSO_SECRET || "",
+      KADIMA_AGENCY_ID: env.KADIMA_AGENCY_ID || "",
+      KADIMA_COLLAB_EMAIL: env.KADIMA_COLLAB_EMAIL || "",
       DEV_MODE: false
     });
     return app.fetch(request, env, ctx);
