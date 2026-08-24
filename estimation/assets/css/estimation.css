@@ -237,3 +237,24 @@ select:focus, input:focus { outline: none; border-color: var(--accent); }
   margin-top: 7px; padding: 5px 10px; font-size: 12px; cursor: pointer;
   background: #c2a36b; color: #1a1a18; border: none; border-radius: 8px; font-weight: 600;
 }
+
+/* Personnes liées et documents de la fiche estimation. */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
+  padding: 4px 10px; font-size: 12.5px;
+}
+.chip .x { cursor: pointer; color: var(--muted); font-weight: 700; }
+.chip .x:hover { color: #e07070; }
+.chip.doc { cursor: pointer; }
+.chip.doc:hover, .chip.doc.lie { border-color: var(--accent); color: var(--accent); }
+.fiche-sec {
+  font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.2px;
+  font-weight: 700; margin: 6px 0 -4px; border-top: 1px solid var(--line); padding-top: 12px;
+}
+.resultats-ct { display: flex; flex-direction: column; gap: 2px; }
+.resultats-ct .ligne { cursor: pointer; }
+.resultats-ct .ligne:hover { border-color: var(--accent); }
+.fiche-3col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.statut-fiche { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }

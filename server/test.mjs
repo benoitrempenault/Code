@@ -1751,16 +1751,20 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      date_naissance, date_achat, types, conseiller, notes, source, opt_out, created_at, updated_at) VALUES
      ('ct_doubletest', ?, '', '', 'Anne', 'DOUBLE', '', '', '', '', 'Saint-Médard', '', '', '["vendeur"]', '', '', 'import', 0, 2, 2),
      ('ct_homo1', ?, '', '', 'Paul', 'HOMONYME', '', '0622222222', '', '', '', '', '', '[]', '', '', 'import', 0, 3, 3),
-     ('ct_homo2', ?, '', '', 'Paul', 'HOMONYME', '', '0633333333', '', '', '', '', '', '[]', '', '', 'import', 0, 4, 4)`,
-    [agId, agId, agId]);
+     ('ct_homo2', ?, '', '', 'Paul', 'HOMONYME', '', '0633333333', '', '', '', '', '', '[]', '', '', 'import', 0, 4, 4),
+     ('ct_amper', ?, '', 'M. & Mme', '', 'ESPERLUETTE', '', '', '', '', '', '', '', '[]', '', '', 'import', 0, 5, 5),
+     ('ct_etseul', ?, '', '', 'et Marie', 'AMBIGUET', '', '', '', '', '', '', '', '[]', '', '', 'import', 0, 6, 6)`,
+    [agId, agId, agId, agId, agId]);
   const apercu = (await callR("/crm/nettoyage", { headers: auth })).json;
   ok(apercu.vides >= 1 && apercu.doublons >= 2 && apercu.couples >= 1,
     "aperçu du nettoyage : vides, doublons et couples comptés en SQL agrégé");
+  let couplesFini = false, couplesAmbigus = 0;
   for (const action of ["vides", "doublons", "couples"]) {
     let curseur = "";
     for (let t2 = 0; t2 < 50; t2++) {
       const r = (await callR("/crm/nettoyage", { headers: auth, body: { action, curseur } })).json;
-      if (r.fini) break;
+      if (action === "couples") couplesAmbigus += r.ambigus || 0;
+      if (r.fini) { if (action === "couples") couplesFini = true; break; }
       if (!r.traites && !r.ambigus && (r.curseur || "") === curseur) break;
       curseur = r.curseur || "";
     }
@@ -1775,6 +1779,14 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const scindes = apresNettoyage.filter((x) => x.nom === "COUPLENET");
   ok(scindes.length === 2 && scindes.some((x) => x.prenom === "Luc") && scindes.some((x) => x.prenom === "Zoé"),
     "les fiches couple sont scindées en deux personnes");
+  // Le cas qui figeait le compteur : « M. & Mme » (esperluette entourée
+  // d'espaces) doit être scindé, et la ligne au « et » indécoupable doit être
+  // DÉPASSÉE (comptée ambiguë) — la boucle atteint la fin au lieu de bloquer.
+  ok(apresNettoyage.filter((x) => x.nom === "ESPERLUETTE").length === 2,
+    "« M. & Mme » est scindé (le cas qui figeait le nettoyage)");
+  ok(apresNettoyage.filter((x) => x.nom === "AMBIGUET").length === 1 && couplesAmbigus >= 1,
+    "un « et » indécoupable est laissé tel quel et compté ambigu");
+  ok(couplesFini, "la passe des couples va jusqu'au bout (fini) au lieu de rester bloquée");
   ok((await callR("/crm/nettoyage", { headers: { Authorization: "Bearer " + sessM2 } })).status === 403,
     "le nettoyage est réservé aux administrateurs");
 
@@ -2130,6 +2142,76 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(runE6.sent === 0, "fiche passée en mandat : le parcours s'arrête");
   ok((await callR("/crm/estimations/es_inconnue", { headers: authP, method: "PUT",
     body: { adresse: "x" } })).status === 404, "fiche inconnue : 404 propre");
+
+  /* ---- Fiche estimation enrichie : couple lié, bien, documents ----------- */
+  console.log("— Fiche estimation : personnes liées, bien, documents Studio Brochure");
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "M.", nom: "PAIRE", prenom: "Hugo", email: "paire1@exemple.fr" },
+    { civilite: "Mme", nom: "PAIRE", prenom: "Emma", email: "paire2@exemple.fr" },
+  ] } });
+  const lesPaires = (await callR("/crm/contacts", { headers: auth })).json.contacts.filter((x) => x.nom === "PAIRE");
+  ok((await callR("/crm/contacts/recherche?q=paire", { headers: authP })).json.contacts.length === 2,
+    "la recherche bornée de contacts trouve le couple (membre)");
+  ok((await callR("/crm/contacts/recherche?q=p", { headers: authP })).json.contacts.length === 0,
+    "une lettre seule ne déclenche pas de recherche");
+  // Une fiche pour le couple : PAS d'e-mail direct, deux personnes liées, un
+  // bien complété — chaque personne reçoit le message de la veille du R1.
+  const fiche2 = await callR("/crm/estimations", { headers: authP, body: {
+    nom: "M. et Mme Paire", adresse: "9 avenue des Liens", ville: "Le Haillan",
+    r1: decalerJour(aujE, 1), conseiller: "Rémi",
+    contactIds: [lesPaires[0].id, lesPaires[1].id],
+    bien: { type: "maison", surface: 120, pieces: 5, dpe: "c", prixEnvisage: 452000, prestations: "Toiture 2019, PAC" },
+  } });
+  ok(fiche2.status === 200 && fiche2.json.id, "fiche estimation du couple créée (deux personnes liées)");
+  const relue = (await callR("/crm/estimations?contact_id=" + lesPaires[1].id, { headers: authP })).json.estimations[0];
+  ok(relue && relue.id === fiche2.json.id && relue.contacts.length === 2,
+    "la fiche se retrouve par N'IMPORTE quelle personne liée, avec ses deux personnes");
+  ok(relue.bien && relue.bien.type === "maison" && relue.bien.dpe === "C" && relue.bien.prixEnvisage === 452000,
+    "le bien est porté par la fiche (type, DPE normalisé, prix envisagé)");
+  const mailsAvantC = mailsRecus.length;
+  const runC = (await callR("/crm/estimations/run", { headers: auth, method: "POST", body: {} })).json.summary;
+  const destinC = mailsRecus.slice(mailsAvantC).map((m) => m.to[0]).sort();
+  ok(runC.sent === 2 && String(destinC) === "paire1@exemple.fr,paire2@exemple.fr",
+    "veille du R1 : CHAQUE personne liée reçoit le message (" + JSON.stringify(runC) + ")");
+  const runC2 = (await callR("/crm/estimations/run", { headers: auth, method: "POST", body: {} })).json.summary;
+  ok(runC2.sent === 0, "second passage : aucun doublon, par adresse");
+  // Les documents Studio Brochure du même bien se retrouvent par la rue.
+  await db.run(
+    `INSERT INTO fiches (id, agency_id, user_id, name, vendeur, adresse, type, data, created_at, updated_at)
+     VALUES ('fi_liens', ?, '', 'PAIRE', 'M. et Mme Paire', '9 avenue des Liens, Le Haillan', 'Maison', ?, 1, 1)`,
+    [agId, JSON.stringify({ fVendeur: "M. et Mme Paire", fType: "Maison", fCarac: "Toiture tuiles 2019",
+      fInterieur: "Cuisine équipée", fExterieur: "", fCopro: "", fASavoir: "" })]);
+  await db.run(
+    `INSERT INTO brochures (id, agency_id, user_id, name, title, location, price, type, size, created_at, updated_at)
+     VALUES ('br_liens', ?, '', 'PAIRE', 'Maison familiale', '9 avenue des Liens, Le Haillan', '452 000 €', 'maison', 10, 1, 1)`,
+    [agId]);
+  const docs = (await callR("/crm/estimation/documents?q=" + encodeURIComponent("avenue des Liens"), { headers: authP })).json;
+  ok(docs.fiches.length === 1 && docs.fiches[0].id === "fi_liens" &&
+    docs.brochures.length === 1 && docs.brochures[0].id === "br_liens",
+    "la fiche prestations et la brochure du bien se retrouvent par la rue (membre)");
+  ok((await callR("/crm/estimation/documents?q=av", { headers: authP })).json.fiches.length === 0,
+    "recherche de documents : trois caractères minimum");
+  // La fiche liée garde ses documents dans le bien.
+  await callR("/crm/estimations/" + fiche2.json.id, { headers: authP, method: "PUT", body: {
+    nom: "M. et Mme Paire", adresse: "9 avenue des Liens", ville: "Le Haillan",
+    r1: decalerJour(aujE, 1), conseiller: "Rémi",
+    bien: { type: "maison", surface: 120, pieces: 5, dpe: "C", prixEnvisage: 452000,
+      prestations: "Toiture 2019, PAC", ficheId: "fi_liens", brochureId: "br_liens" },
+  } });
+  const relue2 = (await callR("/crm/estimations?contact_id=" + lesPaires[0].id, { headers: authP })).json.estimations[0];
+  ok(relue2.bien.ficheId === "fi_liens" && relue2.bien.brochureId === "br_liens" && relue2.contacts.length === 2,
+    "les documents liés sont mémorisés, les personnes liées survivent à une mise à jour sans contactIds");
+  // Aperçus des e-mails du parcours (admin) + journal des envois.
+  const apEst = (await callR("/crm/estimations/apercu?jalon=apres-r2", { headers: auth })).json;
+  ok(/avis de valeur/i.test(apEst.subject || "") && /Acacias/.test(apEst.html || ""),
+    "l'aperçu du mail d'après-R2 se génère (admin)");
+  ok((await callR("/crm/estimations/apercu?jalon=nimporte", { headers: auth })).status === 400,
+    "jalon inconnu refusé");
+  ok((await callR("/crm/estimations/apercu?jalon=avant-r1", { headers: authP })).status === 403,
+    "les aperçus sont réservés aux administrateurs");
+  const jEst = (await callR("/crm/estimations/envois", { headers: auth })).json.envois;
+  ok(jEst.length >= 3 && jEst.every((l) => /^estimation-/.test(l.type)),
+    "le journal des envois du parcours ne montre que les messages estimation");
 
   fauxResend.close();
   fauxDvf.close();

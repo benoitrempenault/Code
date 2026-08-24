@@ -1193,7 +1193,8 @@ export function createApp(env) {
        FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
        WHERE c.agency_id = ? AND c.adresse <> ''
          AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0) OR g.adresse NOT LIKE c.adresse || '%')
-       ORDER BY CASE WHEN g.contact_id IS NULL THEN 0 WHEN g.lat = 0 AND g.lng = 0 THEN 2 ELSE 1 END
+       ORDER BY CASE WHEN c.types LIKE '%estime%' THEN 0 ELSE 1 END,
+                CASE WHEN g.contact_id IS NULL THEN 0 WHEN g.lat = 0 AND g.lng = 0 THEN 2 ELSE 1 END
        LIMIT ${GEO_BATCH_MAX * 3}`, [ctx.agency.id]);
     // Les dossiers de vente signés (Studio Suivi) passent au même géocodage :
     // leur adresse rejoint la géocache crm_geo sous l'id du dossier. Le LIKE
@@ -1310,6 +1311,10 @@ export function createApp(env) {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const lat = parseFloat(c.req.query("lat")), lng = parseFloat(c.req.query("lng"));
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return err(c, 400, "lat et lng requis.");
+    // Chaque recherche de quartier fait avancer le géocodage en tâche de
+    // fond, estimés d'abord (avecContacts) — jamais en bloquant la réponse.
+    const geoFondQ = CRM.geocoderVentes(env, db, ctx.agency.id, 8, true).catch(() => { });
+    try { c.executionCtx.waitUntil(geoFondQ); } catch { /* Node dév */ }
     const rayon = Math.min(Math.max(parseInt(c.req.query("rayon"), 10) || 500, 100), 2000);
     // Boîte englobante en SQL (pas d'index géo sur D1), distance exacte en JS.
     const dLat = rayon / 111320, dLng = rayon / (111320 * Math.cos((lat * Math.PI) / 180) || 1);
@@ -1357,10 +1362,18 @@ export function createApp(env) {
       }));
     const dedans = (l) => l.filter((x) => x.distance <= rayon).sort((a, b) => a.distance - b.distance);
     const ilot = await CRM.ilotPourPoint(db, ctx.agency.id, lat, lng);
+    // Combien d'estimés de la base n'ont PAS ENCORE de position ? Tant que le
+    // géocodage n'a pas rattrapé l'import, la carte du quartier est incomplète
+    // — l'app le dit plutôt que de laisser croire qu'il n'y a rien autour.
+    const attenteEst = await db.get(
+      `SELECT COUNT(*) AS n FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
+       WHERE c.agency_id = ? AND c.types LIKE '%estime%' AND c.adresse <> ''
+         AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0))`, [ctx.agency.id]);
     return c.json({
       rayon,
       ventes: dedans(ventes).slice(0, 15),
       estimes: dedans(estimes).slice(0, 10),
+      estimesEnAttente: attenteEst?.n || 0,
       ilot: ilot ? { nom: ilot.nom, conseiller: ilot.conseiller } : null,
     });
   });
@@ -1390,18 +1403,67 @@ export function createApp(env) {
      le CONSEILLER depuis Studio Estimation (membre) ; les e-mails du
      parcours partent tout seuls via le cron (runEstimations). */
   const ESTIMATIONS_MAX = 400;
+  const sqlQ = (v) => "'" + String(v ?? "").replace(/'/g, "''").slice(0, 60) + "'";
+
+  // Personnes liées (couple = deux fiches contact) et bien : posés après la
+  // fiche, en remplaçant l'existant. Seuls les contacts de l'agence comptent.
+  async function poserLiensEstimation(agencyId, estId, b) {
+    let premier;
+    if (Array.isArray(b.contactIds)) {
+      const ids = [...new Set(b.contactIds.map((x) => String(x || "").slice(0, 40)).filter(Boolean))].slice(0, 10);
+      const valides = ids.length ? (await db.all(
+        `SELECT id FROM crm_contacts WHERE agency_id = ? AND id IN (${ids.map(sqlQ).join(",")})`,
+        [agencyId])).map((r) => r.id) : [];
+      await db.run("DELETE FROM crm_estimation_contacts WHERE estimation_id = ? AND agency_id = ?", [estId, agencyId]);
+      if (valides.length) {
+        await db.run(
+          "INSERT OR IGNORE INTO crm_estimation_contacts (estimation_id, contact_id, agency_id) VALUES " +
+          valides.map((id) => `(${sqlQ(estId)},${sqlQ(id)},${sqlQ(agencyId)})`).join(","), []);
+      }
+      premier = valides[0] || "";
+    }
+    if (b.bien !== undefined) {
+      const bien = CRM.sanitizeBienEstimation(b.bien);
+      await db.run(
+        "INSERT OR REPLACE INTO crm_estimation_bien (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?)",
+        [estId, agencyId, JSON.stringify(bien), now()]);
+    }
+    return premier; // undefined si contactIds absent (rien à synchroniser)
+  }
 
   app.get("/crm/estimations", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const contactId = String(c.req.query("contact_id") || "");
     const rows = contactId
       ? await db.all(
-        `SELECT * FROM crm_estimations WHERE agency_id = ? AND contact_id = ? ORDER BY updated_at DESC LIMIT ${ESTIMATIONS_MAX}`,
-        [ctx.agency.id, contactId])
+        `SELECT DISTINCT e.* FROM crm_estimations e
+         LEFT JOIN crm_estimation_contacts ec ON ec.estimation_id = e.id
+         WHERE e.agency_id = ? AND (e.contact_id = ? OR ec.contact_id = ?)
+         ORDER BY e.updated_at DESC LIMIT ${ESTIMATIONS_MAX}`,
+        [ctx.agency.id, contactId, contactId])
       : await db.all(
         `SELECT * FROM crm_estimations WHERE agency_id = ? ORDER BY updated_at DESC LIMIT ${ESTIMATIONS_MAX}`,
         [ctx.agency.id]);
-    return c.json({ estimations: rows });
+    // Les personnes liées et le bien de chaque fiche, en deux requêtes bornées.
+    const parEst = new Map(), biens = new Map();
+    if (rows.length) {
+      const dans = rows.map((r) => sqlQ(r.id)).join(",");
+      for (const l of await db.all(
+        `SELECT ec.estimation_id, c.id, c.civilite, c.nom, c.prenom, c.email, c.telephone, c.conseiller
+         FROM crm_estimation_contacts ec JOIN crm_contacts c ON c.id = ec.contact_id
+         WHERE ec.agency_id = ? AND ec.estimation_id IN (${dans})`, [ctx.agency.id])) {
+        if (!parEst.has(l.estimation_id)) parEst.set(l.estimation_id, []);
+        parEst.get(l.estimation_id).push({ id: l.id, civilite: l.civilite, nom: l.nom,
+          prenom: l.prenom, email: l.email, telephone: l.telephone, conseiller: l.conseiller });
+      }
+      for (const bRow of await db.all(
+        `SELECT estimation_id, data FROM crm_estimation_bien WHERE agency_id = ? AND estimation_id IN (${dans})`,
+        [ctx.agency.id])) {
+        try { biens.set(bRow.estimation_id, JSON.parse(bRow.data)); } catch { }
+      }
+    }
+    return c.json({ estimations: rows.map((r) => ({
+      ...r, contacts: parEst.get(r.id) || [], bien: biens.get(r.id) || null })) });
   });
 
   app.post("/crm/estimations", async (c) => {
@@ -1420,6 +1482,10 @@ export function createApp(env) {
       [id, ctx.agency.id, v.contact_id, v.nom, v.email, v.telephone, v.adresse, v.ville,
         v.lat, v.lng, v.r1, v.r2, v.statut, v.qualification, v.conseiller, v.notes,
         ctx.user.id, now(), now()]);
+    const premier = await poserLiensEstimation(ctx.agency.id, id, b);
+    if (premier !== undefined && premier !== v.contact_id) {
+      await db.run("UPDATE crm_estimations SET contact_id = ? WHERE id = ?", [premier || v.contact_id, id]);
+    }
     return c.json({ ok: true, id });
   });
 
@@ -1432,13 +1498,75 @@ export function createApp(env) {
     if (!cur) return err(c, 404, "Fiche estimation introuvable.");
     let v;
     try { v = CRM.sanitizeEstimation(b); } catch (e) { return err(c, 400, e.message); }
+    const premier = await poserLiensEstimation(ctx.agency.id, cur.id, b);
+    const contactPrincipal = premier !== undefined ? (premier || v.contact_id) : v.contact_id;
     await db.run(
       `UPDATE crm_estimations SET contact_id = ?, nom = ?, email = ?, telephone = ?, adresse = ?,
        ville = ?, lat = ?, lng = ?, r1 = ?, r2 = ?, statut = ?, qualification = ?, conseiller = ?,
        notes = ?, user_id = ?, updated_at = ? WHERE id = ?`,
-      [v.contact_id, v.nom, v.email, v.telephone, v.adresse, v.ville, v.lat, v.lng,
+      [contactPrincipal, v.nom, v.email, v.telephone, v.adresse, v.ville, v.lat, v.lng,
         v.r1, v.r2, v.statut, v.qualification, v.conseiller, v.notes, ctx.user.id, now(), cur.id]);
     return c.json({ ok: true, id: cur.id });
+  });
+
+  // Recherche bornée de contacts — pour lier des personnes à une fiche
+  // estimation depuis l'app (membre). Jamais la base entière.
+  app.get("/crm/contacts/recherche", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const q = String(c.req.query("q") || "").replace(/[%_]/g, "").trim().slice(0, 60);
+    if (q.length < 2) return c.json({ contacts: [] });
+    const motif = "%" + q + "%";
+    const rows = await db.all(
+      `SELECT id, civilite, nom, prenom, email, telephone, conseiller, adresse, ville
+       FROM crm_contacts WHERE agency_id = ?
+         AND (nom LIKE ? COLLATE NOCASE OR prenom LIKE ? COLLATE NOCASE OR email LIKE ? OR adresse LIKE ? COLLATE NOCASE)
+       ORDER BY nom, prenom LIMIT 20`,
+      [ctx.agency.id, motif, motif, motif, motif]);
+    return c.json({ contacts: rows });
+  });
+
+  // Les documents Studio Brochure du même bien : la fiche prestations
+  // (app Fiche) et la brochure — pour les LIER à la fiche estimation et en
+  // récupérer les informations. Recherche par adresse ou nom, bornée.
+  app.get("/crm/estimation/documents", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const q = String(c.req.query("q") || "").replace(/[%_]/g, "").trim().slice(0, 80);
+    if (q.length < 3) return c.json({ fiches: [], brochures: [] });
+    const motif = "%" + q + "%";
+    const fiches = await db.all(
+      `SELECT id, name, vendeur, adresse, type, updated_at FROM fiches WHERE agency_id = ?
+         AND (adresse LIKE ? COLLATE NOCASE OR name LIKE ? COLLATE NOCASE OR vendeur LIKE ? COLLATE NOCASE)
+       ORDER BY updated_at DESC LIMIT 8`, [ctx.agency.id, motif, motif, motif]);
+    const brochures = await db.all(
+      `SELECT id, name, title, location, price, type, updated_at FROM brochures WHERE agency_id = ?
+         AND (name LIKE ? COLLATE NOCASE OR title LIKE ? COLLATE NOCASE OR location LIKE ? COLLATE NOCASE)
+       ORDER BY updated_at DESC LIMIT 8`, [ctx.agency.id, motif, motif, motif]);
+    return c.json({ fiches, brochures });
+  });
+
+  // Aperçu des e-mails du parcours (admin, onglet Estimations) : le HTML part
+  // en JSON, le navigateur l'affiche en iframe srcdoc — comme les anniversaires.
+  const ESTIMATION_JALONS = ["avant-r1", "entre-r1-r2", "apres-r2", "relance-30", "relance-90", "relance-180"];
+  app.get("/crm/estimations/apercu", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const jalon = String(c.req.query("jalon") || "avant-r1");
+    if (!ESTIMATION_JALONS.includes(jalon)) return err(c, 400, "Jalon inconnu.");
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    const exemple = {
+      nom: "M. et Mme Martin", adresse: "12 rue des Acacias",
+      ville: "Saint-Médard-en-Jalles", conseiller: ctx.user.name || "", r2: CRM.parisDate(),
+    };
+    return c.json(CRM.buildEstimationEmail(exemple, jalon, reglages.agence));
+  });
+
+  // Journal des envois du parcours estimation (admin).
+  app.get("/crm/estimations/envois", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const rows = await db.all(
+      `SELECT contact_id, contact, email, type, annee, statut, erreur, created_at FROM crm_envois
+       WHERE agency_id = ? AND type LIKE 'estimation-%' ORDER BY created_at DESC LIMIT 200`,
+      [ctx.agency.id]);
+    return c.json({ envois: rows });
   });
 
   // Passage du jour à la demande (le cron du matin fait la même chose tout seul).

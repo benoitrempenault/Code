@@ -556,3 +556,26 @@ CREATE TABLE IF NOT EXISTS crm_estimations (
   updated_at    INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_crm_estimations_ag ON crm_estimations(agency_id, statut);
+
+-- Personnes liées à une fiche estimation : un couple = deux fiches contact
+-- sur la même estimation (la colonne contact_id de crm_estimations reste la
+-- personne « principale », pour compatibilité). Les e-mails du parcours
+-- partent à chaque personne liée qui a une adresse.
+CREATE TABLE IF NOT EXISTS crm_estimation_contacts (
+  estimation_id TEXT NOT NULL,
+  contact_id    TEXT NOT NULL,
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  PRIMARY KEY (estimation_id, contact_id)
+);
+CREATE INDEX IF NOT EXISTS idx_crm_estim_ct_contact ON crm_estimation_contacts(agency_id, contact_id);
+
+-- Le BIEN d'une fiche estimation : caractéristiques et prestations (type,
+-- surfaces, pièces, année, DPE, prix envisagé, prestations et matériaux) et
+-- liens vers les documents Studio Brochure du même bien (fiche prestations
+-- `fiches`, brochure `brochures`, dossier Suivi). JSON dans data.
+CREATE TABLE IF NOT EXISTS crm_estimation_bien (
+  estimation_id TEXT PRIMARY KEY,
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  data          TEXT NOT NULL DEFAULT '{}',
+  updated_at    INTEGER NOT NULL
+);

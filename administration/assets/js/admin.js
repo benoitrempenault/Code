@@ -507,7 +507,7 @@
         fermerModale();
         toast("Nettoyage terminé : " + bilan.vides + " fiche(s) vide(s) supprimée(s), " +
           bilan.doublons + " doublon(s) fusionné(s), " + bilan.couples + " couple(s) scindé(s)" +
-          (ambigusLaisses ? " · " + ambigusLaisses + " homonyme(s) ambigu(s) laissé(s)" : ""));
+          (ambigusLaisses ? " · " + ambigusLaisses + " cas ambigu(s) laissé(s) tel(s) quel(s)" : ""));
         await chargerContacts();
       } catch (e) {
         toast(e.message, true);
@@ -642,7 +642,15 @@
   }
   function rendreAcheteurs() {
     const zone = $("table-acheteurs");
-    const achats = projets.filter((p) => p.kind === "achat");
+    // Le filtre par conseiller : ses options viennent des fiches liées aux
+    // projets (sans doublon), la sélection survit au re-rendu.
+    const selC = $("ach-conseiller");
+    const conseillers = [...new Set(projets.flatMap((p) => p.contacts.map((c) => c.conseiller)).filter(Boolean))].sort();
+    const choixC = selC.value;
+    selC.innerHTML = '<option value="">Tous les conseillers</option>' +
+      conseillers.map((n) => '<option value="' + escH(n) + '"' + (n === choixC ? " selected" : "") + ">" + escH(n) + "</option>").join("");
+    const duConseiller = (liste) => !selC.value || liste.some((c) => c.conseiller === selC.value);
+    const achats = projets.filter((p) => p.kind === "achat" && duConseiller(p.contacts));
     const matchesDe = new Map(rapproch.map((r) => [r.projetId, r.matches.length]));
     if (!achats.length) {
       zone.innerHTML = '<div class="vide">Aucun projet d\'achat pour l\'instant. Créez-en un et reliez-y la ou les personnes (un couple = deux fiches contact, un seul projet).</div>';
@@ -660,7 +668,7 @@
         "</tbody></table></div>";
     }
     const zoneR = $("table-rapprochements");
-    const vivants = rapproch.filter((r) => r.matches.length);
+    const vivants = rapproch.filter((r) => r.matches.length && duConseiller(r.contacts));
     zoneR.innerHTML = vivants.length
       ? '<div class="tableau-cadre"><table><thead><tr><th>Projet</th><th>Biens en vente qui collent</th></tr></thead><tbody>' +
         vivants.map((r) => "<tr><td style=\"white-space:nowrap;\"><strong>" + escH(nomsDe(r.contacts)) + "</strong>" +
@@ -847,6 +855,111 @@
     btn.disabled = false; btn.textContent = "🔄 Relever maintenant";
   }
 
+  /* ------------------------------ Estimations ------------------------------ */
+  // Les fiches estimation (parcours R1/R2) : la liste, l'édition et le
+  // journal des envois. Les fiches s'ouvrent surtout depuis Studio
+  // Estimation ; ici on les retrouve toutes, comme les projets d'achat.
+  let estimations = [];
+  const ESTIM_STATUTS = { en_cours: "En cours", mandat: "Mandat 🎉", perdu: "Perdu", abandonne: "Abandonné" };
+  const isoFr = (iso) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+    return m ? m[3] + "/" + m[2] + "/" + m[1] : "—";
+  };
+  async function chargerEstimations() {
+    try {
+      const [e, j] = await Promise.all([api("/crm/estimations"), api("/crm/estimations/envois")]);
+      estimations = e.estimations;
+      const zone = $("table-estimations");
+      zone.innerHTML = estimations.length
+        ? '<div class="tableau-cadre"><table><thead><tr>' +
+          "<th>Propriétaire</th><th>Bien</th><th>R1</th><th>R2</th><th>Statut</th><th>Qualif.</th><th>Conseiller</th>" +
+          "</tr></thead><tbody>" +
+          estimations.map((x) => '<tr class="cliquable" data-estimation="' + x.id + '">' +
+            "<td><strong>" + escH(x.nom || "—") + "</strong>" +
+            (x.contacts.length ? '<br><span class="puce grise">' + x.contacts.length + " fiche(s) liée(s)</span>" : "") + "</td>" +
+            "<td>" + escH(x.adresse) + (x.ville ? '<br><span class="puce grise">' + escH(x.ville) + "</span>" : "") + "</td>" +
+            "<td>" + isoFr(x.r1) + "</td><td>" + isoFr(x.r2) + "</td>" +
+            "<td>" + (x.statut === "en_cours" ? '<span class="puce verte">en cours</span>'
+              : '<span class="puce' + (x.statut === "mandat" ? "" : " grise") + '">' + escH(ESTIM_STATUTS[x.statut] || x.statut) + "</span>") + "</td>" +
+            "<td>" + escH(x.qualification || "—") + "</td>" +
+            "<td>" + escH(x.conseiller || "—") + "</td></tr>").join("") +
+          "</tbody></table></div>"
+        : '<div class="vide">Aucune fiche estimation pour l\'instant — ouvrez-en une depuis Studio Estimation (clic sur un bien de la carte ou sur un estimé).</div>';
+      $("table-estim-envois").innerHTML = j.envois.length
+        ? '<div class="tableau-cadre"><table><thead><tr><th>Quand</th><th>Fiche</th><th>Message</th><th>À</th><th>Statut</th></tr></thead><tbody>' +
+          j.envois.map((l) => "<tr><td>" + new Date(l.created_at * 1000).toLocaleDateString("fr-FR") + "</td>" +
+            "<td>" + escH(l.contact) + "</td>" +
+            "<td>" + escH(String(l.type).replace("estimation-", "").replace("avant-r1", "avant le R1")
+              .replace("entre-r1-r2", "entre R1 et R2").replace("apres-r2", "après le R2")
+              .replace(/relance-(\d+)/, "relance +$1 j")) + "</td>" +
+            "<td>" + escH(l.email) + "</td>" +
+            "<td>" + (l.statut === "ok" ? '<span class="puce verte">envoyé</span>'
+              : '<span class="puce rouge">' + escH(l.erreur || "erreur") + "</span>") + "</td></tr>").join("") +
+          "</tbody></table></div>"
+        : '<div class="vide">Aucun envoi pour l\'instant. Les messages partent quand une fiche « en cours » atteint un jalon (veille du R1, lendemain du R1, lendemain du R2, relances).</div>';
+    } catch (e) { toast(e.message, true); }
+  }
+  function ouvrirEstimation(id) {
+    const x = estimations.find((e) => e.id === id);
+    if (!x) return;
+    const bien = x.bien || {};
+    const bienTxt = [bien.type, bien.surface ? bien.surface + " m²" : "", bien.pieces ? bien.pieces + " pièces" : "",
+      bien.dpe ? "DPE " + bien.dpe : "", bien.prixEnvisage ? fmtPrix(bien.prixEnvisage) : ""].filter(Boolean).join(" · ");
+    ouvrirModale("Fiche estimation — " + (x.nom || x.adresse),
+      '<label>Propriétaire<input id="ee-nom" value="' + escH(x.nom) + '" /></label>' +
+      '<div class="grille-champs">' +
+      '<label>E-mail<input id="ee-email" type="email" value="' + escH(x.email) + '" /></label>' +
+      '<label>Téléphone<input id="ee-tel" value="' + escH(x.telephone) + '" /></label>' +
+      "</div>" +
+      '<label>Adresse du bien<input id="ee-adresse" value="' + escH(x.adresse) + '" /></label>' +
+      '<label>Ville<input id="ee-ville" value="' + escH(x.ville) + '" /></label>' +
+      '<div class="grille-champs">' +
+      "<label>R1 — RDV d'estimation<input id=\"ee-r1\" type=\"date\" value=\"" + escH(x.r1) + '" /></label>' +
+      '<label>R2 — restitution<input id="ee-r2" type="date" value="' + escH(x.r2) + '" /></label>' +
+      '<label>Statut<select id="ee-statut">' +
+      Object.entries(ESTIM_STATUTS).map(([k, l]) => '<option value="' + k + '"' + (x.statut === k ? " selected" : "") + ">" + l + "</option>").join("") +
+      "</select></label>" +
+      '<label>Qualification<select id="ee-qualif"><option value="">—</option>' +
+      ["A", "B", "C"].map((q) => "<option" + (x.qualification === q ? " selected" : "") + ">" + q + "</option>").join("") +
+      "</select></label>" +
+      "</div>" +
+      '<label>Conseiller<input id="ee-conseiller" value="' + escH(x.conseiller) + '" /></label>' +
+      '<label>Notes<textarea id="ee-notes" rows="3">' + escH(x.notes) + "</textarea></label>" +
+      (x.contacts.length ? '<p class="petit">Personnes liées : ' +
+        x.contacts.map((c) => escH((c.prenom ? c.prenom + " " : "") + c.nom)).join(", ") +
+        " — elles reçoivent aussi les e-mails du parcours.</p>" : "") +
+      (bienTxt ? '<p class="petit">Bien : ' + escH(bienTxt) + " (complété depuis Studio Estimation)</p>" : ""),
+      '<button class="btn" id="ee-annuler">Annuler</button><button class="btn btn-or" id="ee-save">Enregistrer</button>');
+    $("ee-annuler").addEventListener("click", fermerModale);
+    $("ee-save").addEventListener("click", async () => {
+      try {
+        await api("/crm/estimations/" + x.id, { method: "PUT", json: {
+          nom: $("ee-nom").value.trim(), email: $("ee-email").value.trim(), telephone: $("ee-tel").value.trim(),
+          adresse: $("ee-adresse").value.trim(), ville: $("ee-ville").value.trim(),
+          r1: $("ee-r1").value, r2: $("ee-r2").value,
+          statut: $("ee-statut").value, qualification: $("ee-qualif").value,
+          conseiller: $("ee-conseiller").value.trim(), notes: $("ee-notes").value.trim(),
+          contact_id: x.contact_id, lat: x.lat, lng: x.lng,
+        } });
+        fermerModale();
+        toast("Fiche estimation enregistrée");
+        await chargerEstimations();
+      } catch (e) { toast(e.message, true); }
+    });
+  }
+  async function lancerEstimations() {
+    const btn = $("btn-estim-run");
+    btn.disabled = true;
+    try {
+      const s = (await api("/crm/estimations/run", { method: "POST", json: {} })).summary;
+      toast(s.sent + " message(s) du parcours envoyé(s)" +
+        (s.skipped ? ", " + s.skipped + " déjà fait/sans e-mail" : "") +
+        (s.errors ? ", " + s.errors + " erreur(s)" : ""));
+      await chargerEstimations();
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = false;
+  }
+
   /* ------------------------------ Navigation ------------------------------- */
   function activerOnglet(nom) {
     document.querySelectorAll(".onglet").forEach((b) => b.classList.toggle("actif", b.dataset.onglet === nom));
@@ -891,6 +1004,7 @@
     chargerAnnonces();
     chargerAcheteurs();
     chargerRelances();
+    chargerEstimations();
   }
 
   /* ---------------------------- Branchements ------------------------------- */
@@ -943,6 +1057,18 @@
   $("btn-estim-save").addEventListener("click", () => sauverReglages({
     estimations: { enabled: $("estim-enabled").checked, cci: $("estim-cci").value.trim() },
   }, "Réglages du suivi estimation enregistrés"));
+  $("btn-estim-run").addEventListener("click", lancerEstimations);
+  document.querySelectorAll("[data-apercu-estim]").forEach((b) => b.addEventListener("click", async () => {
+    try {
+      const d = await api("/crm/estimations/apercu?jalon=" + b.dataset.apercuEstim);
+      montrerApercu("Aperçu — " + b.textContent.replace("👁 ", "").trim(), d.html);
+    } catch (e) { toast(e.message, true); }
+  }));
+  $("table-estimations").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-estimation]");
+    if (tr) ouvrirEstimation(tr.dataset.estimation);
+  });
+  $("ach-conseiller").addEventListener("change", rendreAcheteurs);
   $("btn-ach-apercu").addEventListener("click", apercuRelance);
   $("btn-ach-run").addEventListener("click", lancerRelances);
   $("table-acheteurs").addEventListener("click", (e) => {

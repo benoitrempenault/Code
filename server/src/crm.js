@@ -282,6 +282,7 @@ export async function bulkUpsertContacts(db, agencyId, userId, rows, source = "i
 const NETTOYAGE_VIDES_MAX = 1600;    // suppressions par appel (4 lots de 400)
 const NETTOYAGE_GROUPES_MAX = 40;    // groupes de doublons examines par appel
 const NETTOYAGE_SCISSIONS_MAX = 6;   // scinderContact fait ~5 requetes chacune
+const NETTOYAGE_COUPLES_SCAN = 120;  // lignes examinees par tour (les refus ne coutent rien)
 const SQL_VIDE = "nom = '' AND prenom = '' AND email = '' AND telephone = ''";
 const SQL_COUPLE = "(' ' || civilite || ' ' || prenom || ' ' LIKE '% et %' OR civilite LIKE '%&%' OR prenom LIKE '%&%')";
 
@@ -416,17 +417,30 @@ export async function executerNettoyage(db, agency, userId, action, curseur = ""
     return { traites, ambigus, fini: false, curseur: "n:" + cles[cles.length - 1].k };
   }
   if (action === "couples") {
+    // Un curseur (dernier id examine) DEPASSE les fiches que la regle fine
+    // refuse de scinder — sans lui, les memes lignes rebouchaient le lot a
+    // chaque tour et le compteur restait fige. (Et « M. & Mme » etait refuse
+    // a tort : \b&\b ne matche jamais un & entoure d'espaces.)
+    const depuis = curseur.startsWith("c:") ? curseur.slice(2) : "";
     const lot = await db.all(
-      `SELECT id, civilite, prenom FROM crm_contacts WHERE agency_id = ? AND ${SQL_COUPLE}
-       ORDER BY id LIMIT ${NETTOYAGE_SCISSIONS_MAX}`, [agency.id]);
-    let traites = 0;
+      `SELECT id, civilite, prenom FROM crm_contacts WHERE agency_id = ? AND id > ? AND ${SQL_COUPLE}
+       ORDER BY id LIMIT ${NETTOYAGE_COUPLES_SCAN}`, [agency.id, depuis]);
+    let traites = 0, ambigus = 0, dernier = depuis, epuise = true;
     for (const c of lot) {
-      // Le SQL approxime, la vraie regle confirme (jamais de fausse scission).
-      if (!/\b(?:et|&)\b/i.test((c.civilite || "") + " " + (c.prenom || ""))) continue;
+      dernier = c.id;
+      // On ne scinde que quand ca FERA avancer : civilite de couple
+      // (« M. et Mme », « M. & Mme ») ou prenom decoupable (« Jean et
+      // Marie ») — scinderContact remet la civilite a « M. » et repartit le
+      // prenom, la fiche ne rematche plus. Le reste (un « et » ailleurs)
+      // est ambigu : compte, depasse, jamais touche.
+      const civCouple = /(?:^|\s)(?:et|&)(?:\s|$)/i.test(c.civilite || "") || /&/.test(c.civilite || "");
+      const duo = /^(.+?)\s+(?:et|&)\s+(.+)$/i.test(c.prenom || "");
+      if (!civCouple && !duo) { ambigus++; continue; }
       await scinderContact(db, agency, userId, c.id);
       traites++;
+      if (traites >= NETTOYAGE_SCISSIONS_MAX && c !== lot[lot.length - 1]) { epuise = false; break; }
     }
-    return { traites, fini: lot.length < NETTOYAGE_SCISSIONS_MAX, curseur: "" };
+    return { traites, ambigus, fini: epuise && lot.length < NETTOYAGE_COUPLES_SCAN, curseur: "c:" + dernier };
   }
   throw new Error("Action de nettoyage inconnue.");
 }
@@ -1360,6 +1374,27 @@ export function sanitizeEstimation(b) {
   };
 }
 
+// Le BIEN de la fiche estimation : caracteristiques, prestations et liens
+// vers les documents Studio Brochure du meme bien (fiche prestations,
+// brochure, dossier Suivi). Stocke en JSON dans crm_estimation_bien.
+export function sanitizeBienEstimation(b) {
+  const o = b && typeof b === "object" ? b : {};
+  const num = (v, max) => { const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= max ? Math.round(n * 100) / 100 : 0; };
+  return {
+    type: strip(o.type, 40),
+    surface: num(o.surface, 100000),
+    terrain: num(o.terrain, 10000000),
+    pieces: Math.round(num(o.pieces, 100)),
+    annee: Math.round(num(o.annee, 3000)),
+    dpe: /^[a-g]$/i.test(String(o.dpe || "")) ? String(o.dpe).toUpperCase() : "",
+    prixEnvisage: Math.round(num(o.prixEnvisage, 100000000)),
+    prestations: strip(o.prestations, 4000),
+    ficheId: strip(o.ficheId, 40),
+    brochureId: strip(o.brochureId, 40),
+    dossierId: strip(o.dossierId, 40),
+  };
+}
+
 // Les messages du parcours, au gabarit Kadima, signes du conseiller de la
 // fiche (sinon de toute l'equipe). jalon : avant-r1 | entre-r1-r2 |
 // apres-r2 | relance-30 | relance-90 | relance-180.
@@ -1457,6 +1492,19 @@ export async function runEstimations(env, db, agency, reglages) {
     `SELECT * FROM crm_estimations WHERE agency_id = ? AND statut = 'en_cours'
        AND (r1 IN (?, ?) OR r2 IN (?, ?, ?, ?))`,
     [agency.id, demain, hier, hier, relances[0][1], relances[1][1], relances[2][1]]);
+  // Les personnes liees aux fiches du jour (couple = deux destinataires) :
+  // chaque adresse recoit le message, l'anti-doublon est PAR ADRESSE.
+  const liaisons = new Map();
+  if (rows.length) {
+    for (const l of await db.all(
+      `SELECT ec.estimation_id, c.email, c.opt_out FROM crm_estimation_contacts ec
+       JOIN crm_contacts c ON c.id = ec.contact_id
+       WHERE ec.agency_id = ? AND ec.estimation_id IN (${rows.map((r) => sqlText(r.id)).join(",")})`,
+      [agency.id])) {
+      if (!liaisons.has(l.estimation_id)) liaisons.set(l.estimation_id, []);
+      if (l.email && !l.opt_out) liaisons.get(l.estimation_id).push(l.email);
+    }
+  }
   const summary = { date: isoDay, sent: 0, skipped: 0, errors: 0, details: [] };
   for (const est of rows) {
     const jalons = [];
@@ -1466,31 +1514,35 @@ export async function runEstimations(env, db, agency, reglages) {
     if (est.r1 === hier && est.r2 !== hier && (!est.r2 || est.r2 >= isoDay)) jalons.push("entre-r1-r2");
     if (est.r2 === hier) jalons.push("apres-r2");
     for (const [jalon, date] of relances) if (est.r2 === date) jalons.push(jalon);
+    const destinataires = [...new Set([est.email, ...(liaisons.get(est.id) || [])]
+      .map((e) => String(e || "").toLowerCase()).filter(Boolean))].slice(0, 4);
     for (const jalon of jalons) {
       const type = "estimation-" + jalon;
       const label = est.nom || est.adresse;
-      if (!est.email) {
+      if (!destinataires.length) {
         summary.skipped++;
         summary.details.push({ estimation: label, type, status: "skip", reason: "pas d'e-mail" });
         continue;
       }
-      const deja = await db.get(
-        "SELECT id FROM crm_envois WHERE agency_id = ? AND contact_id = ? AND type = ? AND statut = 'ok'",
-        [agency.id, est.id, type]);
-      if (deja) { summary.skipped++; continue; }
-      const { subject, html } = buildEstimationEmail(est, jalon, reglages.agence);
-      const r = await envoyerMailHtml(env, {
-        to: est.email, subject, html,
-        fromName: reglages.agence.nom || agency.name,
-        replyTo: reglages.agence.email || "",
-        bcc: reglages.estimations.cci || "",
-      });
-      await db.run(
-        "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [agency.id, est.id, label, est.email, type, annee, r.ok ? "ok" : "erreur",
-          r.error || (r.dryRun ? "RESEND_API_KEY absent (dry run)" : ""), now()]);
-      if (r.ok) { summary.sent++; summary.details.push({ estimation: label, type, status: "ok" }); }
-      else { summary.errors++; summary.details.push({ estimation: label, type, status: "erreur", reason: r.error || "dry run" }); }
+      for (const adresse of destinataires) {
+        const deja = await db.get(
+          "SELECT id FROM crm_envois WHERE agency_id = ? AND contact_id = ? AND type = ? AND email = ? AND statut = 'ok'",
+          [agency.id, est.id, type, adresse]);
+        if (deja) { summary.skipped++; continue; }
+        const { subject, html } = buildEstimationEmail(est, jalon, reglages.agence);
+        const r = await envoyerMailHtml(env, {
+          to: adresse, subject, html,
+          fromName: reglages.agence.nom || agency.name,
+          replyTo: reglages.agence.email || "",
+          bcc: reglages.estimations.cci || "",
+        });
+        await db.run(
+          "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [agency.id, est.id, label, adresse, type, annee, r.ok ? "ok" : "erreur",
+            r.error || (r.dryRun ? "RESEND_API_KEY absent (dry run)" : ""), now()]);
+        if (r.ok) { summary.sent++; summary.details.push({ estimation: label, type, email: adresse, status: "ok" }); }
+        else { summary.errors++; summary.details.push({ estimation: label, type, email: adresse, status: "erreur", reason: r.error || "dry run" }); }
+      }
     }
   }
   return summary;
@@ -1628,12 +1680,15 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
   // À 60 000 contacts, on ne lit jamais toute la base : le SQL pré-filtre ce
   // qui semble à géocoder (jamais tenté, échec, ou adresse qui ne commence
   // plus pareil) et se borne — le tri exact reste fait en mémoire.
+  // Les ESTIMES passent devant : c'est eux que Studio Estimation pose sur la
+  // carte du quartier — ils doivent y apparaitre avant le reste de la base.
   const contacts = avecContacts ? await db.all(
     `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
      FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
      WHERE c.agency_id = ? AND c.adresse <> ''
        AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0) OR g.adresse NOT LIKE c.adresse || '%')
-     ORDER BY CASE WHEN g.contact_id IS NULL THEN 0 WHEN g.lat = 0 AND g.lng = 0 THEN 2 ELSE 1 END
+     ORDER BY CASE WHEN c.types LIKE '%estime%' THEN 0 ELSE 1 END,
+              CASE WHEN g.contact_id IS NULL THEN 0 WHEN g.lat = 0 AND g.lng = 0 THEN 2 ELSE 1 END
      LIMIT ${Math.max(40, Math.max(0, max) * 4)}`, [agencyId]) : [];
   // Un échec mémorisé (lat/lng à 0) reste retentable, mais en fin de file —
   // les adresses jamais tentées passent d'abord.

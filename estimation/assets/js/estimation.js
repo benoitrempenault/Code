@@ -344,13 +344,17 @@
             '<span class="d">' + escH(v.date) + (v.adresse ? " · " + escH(v.adresse) : "") + "</span></div>";
         }).join("")
         : '<p class="petit">Aucune vente notariée dans ce rayon (données publiées avec ~6 mois de décalage).</p>';
-      $("liste-estimes").innerHTML = quartier.estimes.length
+      $("liste-estimes").innerHTML = (quartier.estimes.length
         ? quartier.estimes.map((e) =>
           '<div class="ligne cliquable" data-estime="' + escH(e.id) + '"><span class="t">📐 ' + escH(e.nom) + "</span>" +
           ' <span class="d">· ' + e.distance + " m</span><br>" +
           '<span class="d">' + escH(e.adresse) + (e.conseiller ? " · " + escH(e.conseiller) : "") + "</span>" +
           (e.notes ? '<br><span class="d">' + escH(e.notes) + "</span>" : "") + "</div>").join("")
-        : '<p class="petit">Aucun bien déjà estimé dans ce rayon.</p>';
+        : '<p class="petit">Aucun bien déjà estimé dans ce rayon.</p>') +
+        (quartier.estimesEnAttente
+          ? '<p class="petit">⏳ ' + quartier.estimesEnAttente + " estimé(s) de la base pas encore placé(s) " +
+            "sur la carte — le géocodage avance tout seul, en priorité sur les estimés (chaque recherche " +
+            "ici, chaque ouverture de la carte de prospection et chaque nuit)." + "</p>" : "");
       $("liste-dpe").innerHTML = dpe.length
         ? dpe.slice(0, 12).map((x) =>
           '<div class="ligne"><span class="marqueur-dpe"><span class="dpe-' + escH(x.et || "D") + '">' + escH(x.et || "?") + "</span></span> " +
@@ -370,29 +374,82 @@
      Le parcours d'un projet de vente : R1 (RDV d'estimation sur place) puis
      R2 (restitution de l'avis de valeur). Le serveur envoie tout seul les
      e-mails du parcours quand les dates sont posées — la fiche s'ouvre d'un
-     clic sur un estimé (liste ou carte) ou sur le bien recherché. */
+     clic sur un estimé (liste ou carte), sur le bien recherché, ou depuis
+     « Fiches estimation en cours ». Elle relie PLUSIEURS personnes (un
+     couple = deux fiches contact), porte le BIEN (surfaces, DPE, prix
+     envisagé, prestations) et se complète depuis la fiche prestations et la
+     brochure Studio Brochure du même bien. */
   const STATUTS = [["en_cours", "En cours"], ["mandat", "Mandat signé 🎉"], ["perdu", "Perdu"], ["abandonne", "Abandonné"]];
-  async function ouvrirFiche(pre) {
-    let existante = null;
+
+  let fichesEnCours = [];
+  async function chargerFiches() {
     try {
-      if (pre.contact_id) {
+      fichesEnCours = (await api("/crm/estimations")).estimations || [];
+    } catch (e) { return; }
+    const vivantes = fichesEnCours.filter((x) => x.statut === "en_cours").slice(0, 12);
+    $("liste-fiches").innerHTML = vivantes.length
+      ? vivantes.map((x) =>
+        '<div class="ligne cliquable" data-fiche="' + escH(x.id) + '"><span class="t">📋 ' + escH(x.nom || x.adresse) + "</span>" +
+        (x.qualification ? ' <span class="statut-fiche">' + escH(x.qualification) + "</span>" : "") + "<br>" +
+        '<span class="d">' + escH(x.adresse) +
+        (x.r1 ? " · R1 " + fmtDateFr(x.r1) : "") + (x.r2 ? " · R2 " + fmtDateFr(x.r2) : "") + "</span></div>").join("")
+      : '<p class="petit">Aucune fiche en cours — ouvrez-en une depuis un bien de la carte ou un estimé.</p>';
+    $("bloc-fiches").hidden = false;
+  }
+
+  // La rue seule (sans numéro ni code postal) : c'est elle qui retrouve la
+  // fiche prestations et la brochure du même bien.
+  const rueDe = (adresse) => String(adresse || "")
+    .replace(/^[0-9]+\s*(bis|ter)?\s*/i, "").split(/,|\s\d{5}\b/)[0].trim().slice(0, 60);
+
+  async function ouvrirFiche(pre) {
+    let existante = pre.estimation || null;
+    try {
+      if (!existante && pre.contact_id) {
         existante = ((await api("/crm/estimations?contact_id=" + encodeURIComponent(pre.contact_id))).estimations || [])[0] || null;
-      } else if (pre.adresse) {
+      } else if (!existante && pre.adresse) {
         const cible = pre.adresse.trim().toLowerCase();
-        existante = ((await api("/crm/estimations")).estimations || [])
+        existante = (fichesEnCours.length ? fichesEnCours : (await api("/crm/estimations")).estimations || [])
           .find((x) => (x.adresse || "").trim().toLowerCase() === cible) || null;
       }
     } catch (e) { /* pas bloquant : la fiche s'ouvre neuve */ }
     const f = existante || {};
-    const v = (x, y) => escH(x || y || "");
+    const bien = { ...(f.bien || {}) };
+    // Les personnes liées : celles de la fiche, sinon l'estimé cliqué.
+    const lies = (f.contacts || []).map((c) => ({ id: c.id, nom: ((c.prenom ? c.prenom + " " : "") + (c.nom || "")).trim() }));
+    if (!lies.length && pre.contact_id) lies.push({ id: pre.contact_id, nom: pre.nom || "fiche liée" });
+    const v = (x, y) => escH(x ?? y ?? "");
+    const nb = (x) => (x ? escH(String(x)) : "");
     const corps = [
-      '<label>Propriétaire<input id="fe-nom" value="' + v(f.nom, pre.nom) + '" placeholder="M. et Mme Dupont" /></label>',
+      '<div class="fiche-sec" style="border-top:none; padding-top:0;">Personnes</div>',
+      '<label>Propriétaire (tel qu\'on s\'adresse à lui)<input id="fe-nom" value="' + v(f.nom, pre.nom) + '" placeholder="M. et Mme Dupont" /></label>',
       '<div class="fiche-2col">',
       '<label>E-mail<input id="fe-email" type="email" value="' + v(f.email) + '" /></label>',
       '<label>Téléphone<input id="fe-tel" value="' + v(f.telephone) + '" /></label>',
       "</div>",
+      '<label>Fiches contact liées (chacune reçoit les e-mails du parcours)' +
+      '<div class="chips" id="fe-chips"></div>' +
+      '<input id="fe-ct-cherche" placeholder="🔍 relier une personne : nom, e-mail…" autocomplete="off" style="margin-top:6px;" />' +
+      '<div class="resultats-ct liste" id="fe-ct-resultats"></div></label>',
+      '<div class="fiche-sec">Le bien</div>',
       '<label>Adresse du bien<input id="fe-adresse" value="' + v(f.adresse, pre.adresse) + '" /></label>',
       '<label>Ville<input id="fe-ville" value="' + v(f.ville, pre.ville) + '" /></label>',
+      '<div class="fiche-3col">',
+      '<label>Type<input id="fb-type" value="' + v(bien.type) + '" placeholder="maison" /></label>',
+      '<label>Surface (m²)<input id="fb-surface" type="number" min="0" value="' + nb(bien.surface) + '" /></label>',
+      '<label>Pièces<input id="fb-pieces" type="number" min="0" value="' + nb(bien.pieces) + '" /></label>',
+      "</div>",
+      '<div class="fiche-3col">',
+      '<label>Terrain (m²)<input id="fb-terrain" type="number" min="0" value="' + nb(bien.terrain) + '" /></label>',
+      '<label>Année<input id="fb-annee" type="number" min="0" value="' + nb(bien.annee) + '" /></label>',
+      '<label>DPE<select id="fb-dpe"><option value="">—</option>' +
+        ["A", "B", "C", "D", "E", "F", "G"].map((d) => "<option" + (bien.dpe === d ? " selected" : "") + ">" + d + "</option>").join("") +
+        "</select></label>",
+      "</div>",
+      '<label>Prix envisagé (€)<input id="fb-prix" type="number" min="0" value="' + nb(bien.prixEnvisage) + '" /></label>',
+      '<label>Prestations et matériaux<textarea id="fb-prestations" placeholder="menuiseries, chauffage, toiture, travaux récents…">' + v(bien.prestations) + "</textarea></label>",
+      '<label>Documents Studio Brochure du bien<div class="chips" id="fe-docs"><span class="petit">Recherche…</span></div></label>',
+      '<div class="fiche-sec">Le parcours</div>',
       '<div class="fiche-2col">',
       "<label>R1 — RDV d'estimation<input id=\"fe-r1\" type=\"date\" value=\"" + v(f.r1) + '" /></label>',
       '<label>R2 — restitution<input id="fe-r2" type="date" value="' + v(f.r2) + '" /></label>',
@@ -407,34 +464,134 @@
       "</div>",
       '<label>Conseiller<input id="fe-conseiller" value="' + v(f.conseiller, pre.conseiller) + '" /></label>',
       '<label>Notes<textarea id="fe-notes">' + v(f.notes) + "</textarea></label>",
-      '<p class="petit">Avec ses dates posées et un e-mail, la fiche écrit toute seule au propriétaire : ' +
+      '<p class="petit">Avec ses dates posées et un e-mail, la fiche écrit toute seule aux personnes liées : ' +
       "veille du R1, lendemain du R1, lendemain du R2, puis reprises de contact à 30, 90 et 180 jours " +
-      "tant qu'elle reste « en cours » (à activer dans Administration → Réglages).</p>",
+      "tant qu'elle reste « en cours » (à activer dans Administration → Estimations).</p>",
     ].join("");
     ouvrirModale(existante ? "Fiche estimation — " + (f.nom || f.adresse) : "Nouvelle fiche estimation",
       corps, '<button class="btn btn-or" id="fe-save">Enregistrer</button>');
+
+    // ---- Personnes liées : chips + recherche bornée dans la base ----------
+    const rendreChips = () => {
+      $("fe-chips").innerHTML = lies.length
+        ? lies.map((c, i) => '<span class="chip">👤 ' + escH(c.nom) + ' <span class="x" data-retire="' + i + '">×</span></span>').join("")
+        : '<span class="petit">Personne liée pour l\'instant — la fiche marche aussi sans.</span>';
+    };
+    rendreChips();
+    $("fe-chips").addEventListener("click", (e) => {
+      const x = e.target.closest("[data-retire]");
+      if (x) { lies.splice(parseInt(x.dataset.retire, 10), 1); rendreChips(); }
+    });
+    let ctTimer = null;
+    $("fe-ct-cherche").addEventListener("input", () => {
+      clearTimeout(ctTimer);
+      ctTimer = setTimeout(async () => {
+        const q = $("fe-ct-cherche").value.trim();
+        if (q.length < 2) { $("fe-ct-resultats").innerHTML = ""; return; }
+        try {
+          const r = await api("/crm/contacts/recherche?q=" + encodeURIComponent(q));
+          $("fe-ct-resultats").innerHTML = (r.contacts || [])
+            .filter((c) => !lies.some((l) => l.id === c.id)).slice(0, 6)
+            .map((c) => '<div class="ligne" data-ajoute="' + escH(c.id) + '" data-nom="' +
+              escH(((c.prenom ? c.prenom + " " : "") + (c.nom || "")).trim()) + '"><span class="t">' +
+              escH((c.prenom ? c.prenom + " " : "") + c.nom) + "</span> <span class=\"d\">" +
+              escH(c.email || c.telephone || c.ville || "") + "</span></div>").join("");
+        } catch (e2) { }
+      }, 300);
+    });
+    $("fe-ct-resultats").addEventListener("click", (e) => {
+      const el = e.target.closest("[data-ajoute]");
+      if (!el) return;
+      lies.push({ id: el.dataset.ajoute, nom: el.dataset.nom });
+      $("fe-ct-cherche").value = ""; $("fe-ct-resultats").innerHTML = "";
+      rendreChips();
+    });
+
+    // ---- Documents Studio Brochure : retrouver, lier, récupérer -----------
+    const rendreDocs = (docs) => {
+      const morceaux = [];
+      for (const d of docs.fiches || []) {
+        morceaux.push('<span class="chip doc' + (bien.ficheId === d.id ? " lie" : "") + '" data-doc-fiche="' + escH(d.id) + '">📄 Fiche prestations — ' +
+          escH(d.vendeur || d.name) + "</span>");
+      }
+      for (const d of docs.brochures || []) {
+        morceaux.push('<span class="chip doc' + (bien.brochureId === d.id ? " lie" : "") + '" data-doc-brochure="' + escH(d.id) + '" data-type="' + escH(d.type) + '" data-prix="' + escH(d.price) + '">📘 Brochure — ' +
+          escH(d.title || d.name) + "</span>");
+      }
+      $("fe-docs").innerHTML = morceaux.length ? morceaux.join("")
+        : '<span class="petit">Aucune fiche prestations ni brochure trouvée pour cette adresse.</span>';
+    };
+    (async () => {
+      const rue = rueDe($("fe-adresse").value);
+      if (rue.length < 3) { rendreDocs({}); return; }
+      try { rendreDocs(await api("/crm/estimation/documents?q=" + encodeURIComponent(rue))); }
+      catch (e2) { rendreDocs({}); }
+    })();
+    $("fe-docs").addEventListener("click", async (e) => {
+      const fi = e.target.closest("[data-doc-fiche]");
+      if (fi) {
+        // Lier la fiche prestations ET en récupérer la matière : type du bien,
+        // vendeur si le nom est vide, prestations (caractéristiques,
+        // intérieur, extérieur, copropriété, à savoir).
+        try {
+          const d = (await api("/fiches/" + fi.dataset.docFiche)).data || {};
+          bien.ficheId = fi.dataset.docFiche;
+          if (!$("fe-nom").value.trim() && d.fVendeur) $("fe-nom").value = d.fVendeur;
+          if (!$("fb-type").value.trim() && d.fType) $("fb-type").value = d.fType;
+          const matiere = [d.fCarac, d.fInterieur, d.fExterieur, d.fCopro, d.fASavoir]
+            .map((s) => String(s || "").trim()).filter(Boolean).join("\n\n").slice(0, 3800);
+          if (matiere) $("fb-prestations").value = ($("fb-prestations").value.trim()
+            ? $("fb-prestations").value.trim() + "\n\n" : "") + matiere;
+          fi.classList.add("lie");
+          toast("Fiche prestations liée — prestations récupérées");
+        } catch (e2) { toast(e2.message, true); }
+        return;
+      }
+      const br = e.target.closest("[data-doc-brochure]");
+      if (br) {
+        bien.brochureId = br.dataset.docBrochure;
+        if (!$("fb-type").value.trim() && br.dataset.type) $("fb-type").value = br.dataset.type;
+        const prix = parseInt(String(br.dataset.prix || "").replace(/[^\d]/g, ""), 10);
+        if (!$("fb-prix").value && prix) $("fb-prix").value = prix;
+        br.classList.add("lie");
+        toast("Brochure liée à la fiche estimation");
+      }
+    });
+
+    // ---- Enregistrement ---------------------------------------------------
     $("fe-save").addEventListener("click", async () => {
-      const contactId = (existante && existante.contact_id) || pre.contact_id || "";
+      const contactId = lies.length ? lies[0].id : ((existante && existante.contact_id) || pre.contact_id || "");
       const donnees = {
         contact_id: contactId,
+        contactIds: lies.map((c) => c.id),
         nom: $("fe-nom").value.trim(), email: $("fe-email").value.trim(), telephone: $("fe-tel").value.trim(),
         adresse: $("fe-adresse").value.trim(), ville: $("fe-ville").value.trim(),
         lat: (existante && existante.lat) || pre.lat || 0, lng: (existante && existante.lng) || pre.lng || 0,
         r1: $("fe-r1").value, r2: $("fe-r2").value,
         statut: $("fe-statut").value, qualification: $("fe-qualif").value,
         conseiller: $("fe-conseiller").value.trim(), notes: $("fe-notes").value.trim(),
+        bien: {
+          ...bien,
+          type: $("fb-type").value.trim(), surface: $("fb-surface").value,
+          pieces: $("fb-pieces").value, terrain: $("fb-terrain").value,
+          annee: $("fb-annee").value, dpe: $("fb-dpe").value,
+          prixEnvisage: $("fb-prix").value, prestations: $("fb-prestations").value.trim(),
+        },
       };
       try {
         if (existante) await api("/crm/estimations/" + existante.id, { method: "PUT", json: donnees });
         else await api("/crm/estimations", { json: donnees });
-        // La qualification se pose aussi sur la fiche CONTACT liée (comme le
-        // faisait le bouton A/B/C), pour nourrir les relances de prospection.
-        if (donnees.qualification && contactId) {
-          api("/crm/contacts/" + contactId + "/qualifier", { json: { qualification: donnees.qualification } }).catch(() => { });
+        // La qualification se pose aussi sur les fiches CONTACT liées (comme
+        // le faisait le bouton A/B/C), pour nourrir les relances.
+        if (donnees.qualification) {
+          for (const c of lies) {
+            api("/crm/contacts/" + c.id + "/qualifier", { json: { qualification: donnees.qualification } }).catch(() => { });
+          }
         }
         fermerModale();
         toast("Fiche estimation enregistrée" +
           (donnees.r1 || donnees.r2 ? " — les e-mails du parcours suivront ses dates" : ""));
+        chargerFiches();
       } catch (e) { toast(e.message, true); }
     });
   }
@@ -446,6 +603,7 @@
     $("who").textContent = (a.user && (a.user.name || a.user.email)) || "";
     $("app").hidden = false;
     initCarte();
+    chargerFiches();
   }
 
   $("btn-chercher").addEventListener("click", chercherQuartier);
@@ -477,6 +635,12 @@
     const estime = estimesCourants.find((x) => x.id === el.dataset.estime);
     if (estime) ouvrirFiche({ contact_id: estime.id, nom: estime.nom, adresse: estime.adresse,
       conseiller: estime.conseiller, lat: estime.lat, lng: estime.lng });
+  });
+  $("liste-fiches").addEventListener("click", (e) => {
+    const el = e.target.closest("[data-fiche]");
+    if (!el) return;
+    const fiche = fichesEnCours.find((x) => x.id === el.dataset.fiche);
+    if (fiche) ouvrirFiche({ estimation: fiche });
   });
   // Les boutons DANS les popups Leaflet (fiche depuis la carte) : délégation
   // au document, le DOM des popups vivant hors de la colonne.

@@ -184,14 +184,28 @@ IGN en relève) ; chaque source (nos ventes, DVF, estimés, DPE) vit sur sa prop
 couche Leaflet, les tuiles du résumé l'allument/éteignent (carte + liste ensemble).
 **Fiches estimation** (`crm_estimations`, id es_) : le parcours R1 (RDV d'estimation)
 → R2 (restitution), statut en_cours|mandat|perdu|abandonne, qualification, conseiller ;
-routes membre `GET/POST /crm/estimations`, `PUT /crm/estimations/:id`, run admin
-`POST /crm/estimations/run`. La fiche s'ouvre depuis un estimé (liste ou popup carte)
-ou depuis le bien recherché (popup 🏠). Le cron (`runEstimations`, si
-`reglages.estimations.enabled` — interrupteur dans Réglages) envoie les e-mails du
-parcours : veille du R1, lendemain du R1 (si restitution à venir), lendemain du R2,
-puis relances +30/+90/+180 j après R2 tant que la fiche est en_cours — anti-doublon
-crm_envois (contact_id = id de la fiche, types `estimation-avant-r1`,
-`-entre-r1-r2`, `-apres-r2`, `-relance-30/90/180`, un envoi par type et par fiche).
+PLUSIEURS personnes liées par fiche (`crm_estimation_contacts` — couple = 2 fiches
+contact ; contact_id reste la personne principale) et le BIEN
+(`crm_estimation_bien`, data JSON : type/surface/pieces/terrain/annee/dpe/
+prixEnvisage/prestations + ficheId/brochureId/dossierId — liens vers la fiche
+prestations `fiches` et la brochure `brochures` du même bien, retrouvées par la rue
+via `GET /crm/estimation/documents?q=`, membre). Routes membre `GET/POST
+/crm/estimations` (GET rend contacts + bien ; POST/PUT acceptent contactIds[] et
+bien — absents = liaisons/bien non touchés), `PUT /crm/estimations/:id`,
+`GET /crm/contacts/recherche?q=` (bornée 20) ; admin `POST /crm/estimations/run`,
+`GET /crm/estimations/apercu?jalon=`, `GET /crm/estimations/envois`. La fiche
+s'ouvre depuis un estimé (liste ou popup carte), le bien recherché (popup 🏠), le
+bloc « Fiches estimation en cours », et se gère dans l'onglet 📐 Estimations de
+l'Administration (liste, édition, aperçus des 6 mails, journal). Le cron
+(`runEstimations`, si `reglages.estimations.enabled`) envoie les e-mails du
+parcours À CHAQUE personne liée (fiche.email + contacts liés non opt-out, ≤ 4) :
+veille du R1, lendemain du R1 (si restitution à venir), lendemain du R2, puis
+relances +30/+90/+180 j après R2 tant que la fiche est en_cours — anti-doublon
+crm_envois PAR ADRESSE (contact_id = id de la fiche, types `estimation-*`).
+Le géocodage priorise les contacts `estime` (geocoderVentes + /crm/geo/attente) et
+/crm/estimation/quartier géocode en fond (waitUntil) + rend `estimesEnAttente`.
+Nettoyage couples : curseur `c:<id>` + règle de progrès garanti (civilité couple ou
+prénom duo) — jamais de re-lot infini, ambigus comptés et dépassés.
 Accès : onglet-lien de l'Administration. Autres briques Administration : **nettoyage
 de la base** (`GET/POST /crm/nettoyage`, admin : fiches vides supprimées, doublons
 fusionnés — même e-mail, ou même nom+prénom sans contradiction d'e-mail/téléphone,

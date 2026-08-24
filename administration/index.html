@@ -39,6 +39,7 @@
     <button class="onglet actif" data-onglet="contacts">👥 Contacts</button>
     <button class="onglet" data-onglet="anniversaires">🎂 Anniversaires</button>
     <button class="onglet" data-onglet="acheteurs">🤝 Acheteurs</button>
+    <button class="onglet" data-onglet="estimations">📐 Estimations</button>
     <button class="onglet" data-onglet="annonces">🏠 Annonces</button>
     <a class="onglet onglet-lien" href="../prospection/">🗺️ Prospection</a>
     <a class="onglet onglet-lien" href="../estimation/">📐 Estimation</a>
@@ -151,6 +152,9 @@
       <div class="barre" style="margin-bottom:12px;">
         <button class="btn" id="btn-nouveau-projet">+ Nouveau projet d'achat</button>
         <button class="btn" id="btn-projets-fiches">⚙️ Créer les projets manquants depuis les fiches</button>
+        <select id="ach-conseiller" title="Filtrer les projets par conseiller">
+          <option value="">Tous les conseillers</option>
+        </select>
       </div>
       <div id="table-acheteurs"></div>
     </div>
@@ -210,19 +214,43 @@
       <p class="petit">Les e-mails partent via le serveur Studio Brochure au nom de l'agence —
         rien à configurer de plus (pas de mot de passe SMTP).</p>
     </div>
+  </section>
+
+  <!-- ============================ ESTIMATIONS ========================== -->
+  <section id="panneau-estimations" class="panneau">
     <div class="carte">
-      <h2>Suivi estimation (R1 / R2)</h2>
+      <h2>Le parcours estimation (R1 / R2)</h2>
       <p class="aide">Les fiches estimation s'ouvrent depuis <strong>Studio Estimation</strong>
-        (clic sur un bien de la carte ou sur un estimé). Quand une fiche porte ses dates de
-        rendez-vous, les e-mails du parcours partent tout seuls : la veille du
-        <strong>R1</strong> (rendez-vous d'estimation), le lendemain du R1, le lendemain du
-        <strong>R2</strong> (restitution de l'avis de valeur), puis des reprises de contact à
-        30, 90 et 180 jours tant que la fiche reste « en cours ». Signés du conseiller de la fiche.</p>
+        (clic sur un bien de la carte ou sur un estimé) — elles se retrouvent et se modifient
+        aussi ici. Quand une fiche porte ses dates de rendez-vous, les e-mails du parcours
+        partent tout seuls : la veille du <strong>R1</strong> (rendez-vous d'estimation), le
+        lendemain du R1, le lendemain du <strong>R2</strong> (restitution de l'avis de valeur),
+        puis des reprises de contact à 30, 90 et 180 jours tant que la fiche reste « en cours ».
+        Signés du conseiller de la fiche, envoyés à chaque personne liée qui a un e-mail.</p>
       <div class="barre">
         <label class="case"><input type="checkbox" id="estim-enabled" /> <strong>Activer les e-mails automatiques du parcours</strong></label>
         <input type="email" id="estim-cci" placeholder="copie cachée (optionnel)" style="min-width:220px;" />
         <button class="btn btn-or" id="btn-estim-save">Enregistrer</button>
       </div>
+      <div class="barre barre-haut">
+        <button class="btn" data-apercu-estim="avant-r1">👁 Avant le R1</button>
+        <button class="btn" data-apercu-estim="entre-r1-r2">👁 Entre R1 et R2</button>
+        <button class="btn" data-apercu-estim="apres-r2">👁 Après le R2</button>
+        <button class="btn" data-apercu-estim="relance-30">👁 Relance 1 mois</button>
+        <button class="btn" data-apercu-estim="relance-90">👁 3 mois</button>
+        <button class="btn" data-apercu-estim="relance-180">👁 6 mois</button>
+        <button class="btn" id="btn-estim-run">▶️ Lancer le passage du jour</button>
+      </div>
+    </div>
+    <div class="carte">
+      <h2>Les fiches estimation</h2>
+      <p class="aide">Cliquez sur une fiche pour la modifier — dates R1/R2, statut,
+        qualification, personnes liées et bien se complètent depuis Studio Estimation.</p>
+      <div id="table-estimations"></div>
+    </div>
+    <div class="carte">
+      <h2>Historique des envois du parcours</h2>
+      <div id="table-estim-envois"></div>
     </div>
   </section>
 </main>
