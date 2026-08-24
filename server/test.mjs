@@ -2177,7 +2177,10 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
 
   ok((await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS - 10) } })).status === 401, "laissez-passer expiré → 401");
   ok((await callK("/auth/kadima", { body: { pass: mkPass("mauvais-secret", agId, nowS + 120) } })).status === 401, "mauvais secret → 401");
-  const forged = mkPass(SSO_SECRET, agId, nowS + 120).slice(0, -1) + "0";
+  // Le dernier caractère hexa est REMPLACÉ par un autre (jamais le même :
+  // « + "0" » retombait sur la vraie signature une fois sur 16 — test flaky).
+  const vrai = mkPass(SSO_SECRET, agId, nowS + 120);
+  const forged = vrai.slice(0, -1) + (vrai.endsWith("0") ? "1" : "0");
   ok((await callK("/auth/kadima", { body: { pass: forged } })).status === 401, "signature altérée → 401");
 
   // Accès partagé multi-postes : pas d'éviction au 3e appareil.
