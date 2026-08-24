@@ -268,9 +268,13 @@
       if (marqueurBien) carte.removeLayer(marqueurBien);
       marqueurBien = L.marker([pos.lat, pos.lng], {
         icon: L.divIcon({ className: "marqueur-bien", html: "🏠", iconSize: [30, 30], iconAnchor: [15, 15] }),
+        zIndexOffset: 1000,
       }).addTo(carte).bindPopup('<div class="titre">' + escH(pos.label) + "</div>" +
         '<button class="btn-popup" data-fiche-adresse="1">📋 Lancer une fiche estimation</button>');
       couches.cercle.addLayer(L.circle([pos.lat, pos.lng], { radius: rayon, color: "#c2a36b", weight: 1.5, fillOpacity: 0.05 }));
+      // La MAISON cherchée saute aux yeux : un halo doré posé sur le bâti.
+      couches.cercle.addLayer(L.circle([pos.lat, pos.lng], {
+        radius: 9, weight: 0, fillColor: "#c2a36b", fillOpacity: 0.55 }));
       for (const v of quartier.ventes) {
         couches.ventes.addLayer(L.marker([v.lat, v.lng], {
           icon: L.divIcon({ className: "marqueur-vente", html: "🔑", iconSize: [26, 26], iconAnchor: [13, 13] }),
@@ -306,6 +310,9 @@
       const dLat = (rayon * 1.25) / 111320;
       const dLng = (rayon * 1.25) / (111320 * Math.cos((pos.lat * Math.PI) / 180) || 1);
       carte.fitBounds([[pos.lat - dLat, pos.lng - dLng], [pos.lat + dLat, pos.lng + dLng]]);
+      // Le popup du bien s'ouvre tout seul : la maison cherchée est montrée,
+      // et « 📋 Lancer une fiche estimation » est sous les yeux.
+      setTimeout(() => { try { marqueurBien.openPopup(); } catch (e2) { } }, 350);
 
       // ---------------------------- Les chiffres ----------------------------
       // Chaque source a sa tuile CLIQUABLE : elle allume / éteint la couche

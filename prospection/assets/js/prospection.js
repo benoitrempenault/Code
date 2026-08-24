@@ -119,12 +119,12 @@
     for (const p of donnees.points) {
       const cat = categorieDe(p.types);
       if (!actifs.has(cat)) continue;
-      // Une TACHE DE COULEUR sur la maison (rayon en MÈTRES : elle épouse le
-      // bâti quand on zoome), plutôt qu'un point posé devant. Dézoomé, elle
-      // reste cliquable grâce au liseré.
+      // JUSTE une couleur posée sur la maison : rayon en MÈTRES à l'échelle
+      // d'un toit (~15 m de large), sans bordure — la teinte épouse le bâti
+      // quand on zoome au lieu de recouvrir la parcelle.
       const m = L.circle([p.lat, p.lng], {
-        radius: 13, weight: 1.5, color: COULEUR_TYPE[cat], opacity: 0.9,
-        fillColor: COULEUR_TYPE[cat], fillOpacity: 0.45,
+        radius: 7.5, weight: 0,
+        fillColor: COULEUR_TYPE[cat], fillOpacity: 0.6,
       });
       const contenuDe = () => {
         const il = ilotDe(p.lat, p.lng);
