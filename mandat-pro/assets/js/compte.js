@@ -133,6 +133,15 @@
         pw.title = "Définir ou réinitialiser le mot de passe de ce conseiller";
         pw.addEventListener("click", function () { setConseillerPassword(u); });
         wrap.appendChild(pw);
+        const adm = document.createElement("button");
+        adm.className = "btn"; adm.type = "button";
+        adm.textContent = u.role === "admin" ? "Fermer l'Administration" : "Ouvrir l'Administration";
+        adm.style.padding = "5px 12px"; adm.style.fontSize = "12.5px";
+        adm.title = u.role === "admin"
+          ? "Repasser ce compte en accès conseiller (la page Administration lui sera fermée)"
+          : "Donner à ce compte l'accès à la page Administration (contacts, anniversaires, acheteurs, estimations, réglages)";
+        adm.addEventListener("click", function () { toggleAdministration(u); });
+        wrap.appendChild(adm);
         const b = document.createElement("button");
         b.className = "btn"; b.type = "button"; b.textContent = "Retirer";
         b.style.padding = "5px 12px"; b.style.fontSize = "12.5px";
@@ -170,6 +179,25 @@
     const r = await api("/agency/users/" + u.id + "/password", { auth: a.session, body: { password: pwd } }).catch(function () { return { status: 0 }; });
     if (r.status === 200) { msg.className = "msg is-ok"; msg.textContent = "Mot de passe défini pour " + (u.name || u.email) + " — communiquez-le-lui de vive voix."; }
     else { msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Impossible de définir ce mot de passe."; }
+  }
+
+  // Ouvrir ou fermer la page Administration : le rôle passe admin/member.
+  // Effet immédiat — le serveur relit le rôle à chaque requête.
+  async function toggleAdministration(u) {
+    const versAdmin = u.role !== "admin";
+    if (!window.confirm(versAdmin
+      ? "Ouvrir la page Administration à " + (u.name || u.email) + " ? Ce compte aura accès aux contacts, envois automatiques et réglages de l'agence."
+      : "Fermer la page Administration à " + (u.name || u.email) + " ? Ce compte gardera ses accès conseiller (Suivi, Prospection, Estimation).")) return;
+    const a = getAccount();
+    const msg = $("#teamMsg");
+    const r = await api("/agency/users/" + u.id + "/role", { method: "PUT", auth: a.session, body: { role: versAdmin ? "admin" : "member" } }).catch(function () { return { status: 0 }; });
+    if (r.status === 200) {
+      msg.className = "msg is-ok";
+      msg.textContent = versAdmin
+        ? "Administration ouverte à " + (u.name || u.email) + " — accès immédiat, sans reconnexion."
+        : "Administration fermée à " + (u.name || u.email) + ".";
+      loadTeam();
+    } else { msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Changement de rôle impossible."; }
   }
 
   async function removeConseiller(u) {

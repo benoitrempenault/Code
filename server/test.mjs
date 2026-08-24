@@ -612,6 +612,24 @@ ok((await call("/agency/users", { headers: { Authorization: "Bearer " + u2sess }
 ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 400, "l'admin ne peut pas se retirer lui-même");
 ok((await call("/agency/users/" + addC.json.user.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 200, "l'admin retire un conseiller");
 ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Authorization: "Bearer " + s2b } })).status === 404, "une autre agence ne peut pas retirer un conseiller (isolation)");
+// Ouvrir / fermer la page Administration à un conseiller : le rôle se commute.
+const u2Id = (await call("/agency/users", { headers: { Authorization: "Bearer " + s3 } })).json.users
+  .find(function (u) { return u.email === "u2@azur-immo.fr"; }).id;
+ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Authorization: "Bearer " + u2sess }, body: { role: "admin" } })).status === 403,
+  "un conseiller ne peut pas s'ouvrir l'Administration lui-même");
+ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { role: "chef" } })).status === 400,
+  "rôle inconnu refusé");
+ok((await call("/agency/users/" + claireId + "/role", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { role: "member" } })).status === 400,
+  "l'admin ne change pas son propre rôle — l'agence garde toujours un admin");
+const promo = await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { role: "admin" } });
+ok(promo.status === 200 && promo.json.user.role === "admin", "l'admin ouvre la page Administration à un conseiller");
+ok((await call("/agency/users", { headers: { Authorization: "Bearer " + u2sess } })).status === 200,
+  "effet immédiat : la session déjà ouverte du conseiller devient administratrice");
+ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Authorization: "Bearer " + s2b }, body: { role: "member" } })).status === 404,
+  "une autre agence ne peut pas toucher aux rôles (isolation)");
+ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { role: "member" } })).json.ok === true &&
+  (await call("/agency/users", { headers: { Authorization: "Bearer " + u2sess } })).status === 403,
+  "…et la referme : l'accès se retire aussitôt");
 
 /* ---- Écriture des noms de clients (app.js, testée par extraction) ------- */
 {

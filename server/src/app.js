@@ -390,6 +390,25 @@ export function createApp(env) {
     return c.json({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: "member" }, invite_link: link });
   });
 
+  // Ouvrir (ou fermer) la page Administration à un conseiller : son rôle passe
+  // à « admin » (ou revient à « member »). Le rôle est relu à chaque requête,
+  // l'accès s'ouvre donc immédiatement, sans reconnexion. On ne change jamais
+  // son PROPRE rôle : l'admin qui agit reste admin — l'agence en garde un.
+  app.put("/agency/users/:id/role", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!isAgencyAdmin(ctx)) return err(c, 403, "Réservé à l'administrateur de l'agence.");
+    const b = await c.req.json().catch(() => ({}));
+    const role = b.role === "admin" ? "admin" : b.role === "member" ? "member" : "";
+    if (!role) return err(c, 400, "Rôle attendu : admin ou member.");
+    const id = c.req.param("id");
+    if (id === ctx.user.id) return err(c, 400, "Vous ne pouvez pas changer votre propre rôle.");
+    const u = await db.get("SELECT id, email, name FROM users WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);
+    if (!u) return err(c, 404, "Conseiller introuvable dans votre agence.");
+    await db.run("UPDATE users SET role = ? WHERE id = ?", [role, u.id]);
+    return c.json({ ok: true, user: { id: u.id, email: u.email, name: u.name, role } });
+  });
+
   app.delete("/agency/users/:id", async (c) => {
     const ctx = await sessionFrom(c);
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
