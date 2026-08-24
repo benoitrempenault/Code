@@ -1690,6 +1690,30 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(apVen.html.includes("vous vendiez votre bien") && apVen.subject !== apAcq.subject,
     "achat côté vendeur : « vous vendiez votre bien », sujet distinct");
 
+  /* ---- Projets d'achat automatiques (extraction acquéreurs) -------------- */
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "M.", nom: "PROJAUTO Marc", email: "projauto@ach-test.fr", types: "acquereur" },
+  ] } });
+  const autoRows = [
+    { nom: "PROJAUTO Marc", email: "projauto@ach-test.fr",
+      criteres: { budgetMax: 300000, piecesMin: 4, types: ["maison"], notes: "Import acquéreurs · Qualification A" } },
+    { nom: "INCONNU Personne", email: "inconnu-total@nulle-part.fr", criteres: { budgetMax: 100000 } },
+  ];
+  const auto1 = (await callR("/crm/projets/auto", { headers: auth, body: { rows: autoRows } })).json;
+  ok(auto1.crees === 1 && auto1.introuvables === 1,
+    "import acquéreurs : un projet d'achat créé par personne, inconnus comptés");
+  const auto2 = (await callR("/crm/projets/auto", { headers: auth, body: { rows: autoRows } })).json;
+  ok(auto2.crees === 0 && auto2.dejaEquipes === 1,
+    "ré-import : une personne déjà équipée d'un projet d'achat n'est pas retouchée");
+  const pAuto = (await callR("/crm/projets", { headers: auth })).json.projets
+    .find((p) => (p.contacts || []).some((ct) => ct.email === "projauto@ach-test.fr"));
+  ok(pAuto && pAuto.budgetMax === 300000 && pAuto.piecesMin === 4 && (pAuto.types || []).includes("maison"),
+    "le projet automatique porte les critères du fichier (budget, pièces, type)");
+  const membreA = await callR("/agency/users", { headers: auth, method: "POST", body: { email: "m2@ach-test.fr", name: "M2" } });
+  const sessM2 = (await callR("/auth/exchange", { body: { token: membreA.json.invite_link.split("#token=")[1] } })).json.session;
+  ok((await callR("/crm/projets/auto", { headers: { Authorization: "Bearer " + sessM2 }, body: { rows: autoRows } })).status === 403,
+    "les projets automatiques sont réservés aux administrateurs");
+
   /* ---- Prospection : îlots + géocodage + attribution -------------------- */
   console.log("— Administration : prospection (îlots + carte)");
   // Un îlot carré autour de Saint-Médard, attribué à Benoit.

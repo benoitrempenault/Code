@@ -382,6 +382,33 @@
       return o;
     });
   }
+  // Les critères du fichier acquéreurs deviennent des PROJETS D'ACHAT (un par
+  // personne encore sans projet) : c'est ce qui allume les rapprochements et
+  // les relances automatiques de la brique Acheteurs.
+  const TYPES_BIEN_C21 = {
+    "maison": ["maison"], "appartement": ["appartement"],
+    "appartement ou maison": ["appartement", "maison"], "terrain": ["terrain"],
+  };
+  function projetsPresetAcquereurs() {
+    return importData.lignes.map((l) => {
+      const v = (nom) => { const i = colonneC21(nom); return String(i >= 0 ? (l[i] ?? "") : "").trim(); };
+      if (v("statut") && v("statut") !== "Actif") return null;   // projets abandonnés : pas de relances
+      if (v("archive") === "True") return null;
+      const budget = parseFloat(v("budget"));
+      const notesProjet = ["Import acquéreurs", v("qualification") ? "Qualification " + v("qualification") : "",
+        v("secteurs") ? "Secteurs : " + v("secteurs") : ""].filter(Boolean).join(" · ");
+      return {
+        nom: v("nom"), email: v("email"),
+        criteres: {
+          budgetMax: Number.isFinite(budget) && budget > 0 ? Math.round(budget) : null,
+          piecesMin: parseInt(v("nb pièces"), 10) || null,
+          surfaceMin: parseInt(v("surface"), 10) || null,
+          types: TYPES_BIEN_C21[v("type de bien").toLowerCase()] || [],
+          notes: notesProjet,
+        },
+      };
+    }).filter(Boolean);
+  }
   async function validerImport() {
     if (!importData) return;
     let rows;
@@ -412,8 +439,20 @@
         const r = await api("/crm/contacts/bulk", { json: { rows: rows.slice(i, i + LOT), source: "import" } });
         total.created += r.created; total.updated += r.updated; total.skipped += r.skipped;
       }
+      // Import acquéreurs : dans la foulée, les critères deviennent des
+      // projets d'achat (un par personne encore sans projet).
+      let projetsCrees = 0;
+      if (importData.preset === "acquereurs") {
+        const demandes = projetsPresetAcquereurs();
+        for (let i = 0; i < demandes.length; i += LOT) {
+          btn.textContent = "Projets d'achat… " + Math.min(i + LOT, demandes.length) + " / " + demandes.length;
+          const r = await api("/crm/projets/auto", { json: { rows: demandes.slice(i, i + LOT) } });
+          projetsCrees += r.crees;
+        }
+      }
       fermerModale();
-      toast("Import terminé : " + total.created + " créé(s), " + total.updated + " mis à jour, " + total.skipped + " ignoré(s)");
+      toast("Import terminé : " + total.created + " créé(s), " + total.updated + " mis à jour, " + total.skipped + " ignoré(s)" +
+        (projetsCrees ? " · " + projetsCrees + " projet(s) d'achat créé(s)" : ""));
       await chargerContacts();
       chargerUpcoming();
     } catch (e) {

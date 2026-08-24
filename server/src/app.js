@@ -847,6 +847,17 @@ export function createApp(env) {
   const parseArr = (v) => { try { return JSON.parse(v || "[]"); } catch { return []; } };
   const PROJET_MAX_CONTACTS = 12;
 
+  // Projets d'achat automatiques depuis l'extraction acquéreurs (admin) :
+  // appelé par l'import après les fiches contact. Idempotent — un contact
+  // déjà relié à un projet d'achat n'est jamais retouché.
+  app.post("/crm/projets/auto", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    const rows = (b && Array.isArray(b.rows) ? b.rows : []).slice(0, 400);
+    if (!rows.length) return err(c, 400, "Aucun acquéreur à équiper.");
+    return c.json(await CRM.creerProjetsAcquereurs(db, ctx.agency.id, ctx.user.id, rows));
+  });
+
   app.get("/crm/projets", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     await CRM.migrerRecherchesEnProjets(db, ctx.agency.id, ctx.user.id);

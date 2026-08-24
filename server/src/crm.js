@@ -725,6 +725,60 @@ export function sanitizeProjet(b) {
   };
 }
 
+// Projets d'achat AUTOMATIQUES depuis l'extraction acquéreurs du logiciel
+// C21 : pour chaque acquéreur (retrouvé par e-mail, sinon nom + prénom après
+// dispatch), un projet d'achat est créé avec ses critères (budget, pièces,
+// surface, types) — SEULEMENT s'il n'a encore aucun projet d'achat : un
+// ré-import ne crée aucun doublon et n'écrase jamais des critères affinés à
+// la main. Tout est set-based (plafonds D1).
+export async function creerProjetsAcquereurs(db, agencyId, userId, rows) {
+  const demandes = (Array.isArray(rows) ? rows : []).map((r) => ({
+    contact: sanitizeContact({ nom: r.nom, email: r.email }),
+    criteres: r.criteres || {},
+  })).filter((d) => d.contact.email || d.contact.nom);
+  if (!demandes.length) return { crees: 0, dejaEquipes: 0, introuvables: 0 };
+  const emails = [...new Set(demandes.map((d) => d.contact.email).filter(Boolean))];
+  const noms = [...new Set(demandes.flatMap((d) => (d.contact.nom ? [d.contact.nom, d.contact.nom.toLowerCase(), d.contact.nom.toUpperCase()] : [])))];
+  const conditions = [];
+  if (emails.length) conditions.push(`email IN (${emails.map(sqlText).join(",")})`);
+  if (noms.length) conditions.push(`nom COLLATE NOCASE IN (${noms.map(sqlText).join(",")})`);
+  const candidats = await db.all(
+    `SELECT id, nom, prenom, email FROM crm_contacts WHERE agency_id = ? AND (${conditions.join(" OR ")})`, [agencyId]);
+  const cle = (nom, prenom) => `${(nom || "").toLowerCase()}|${(prenom || "").toLowerCase()}`;
+  const parEmail = new Map(), parNom = new Map();
+  for (const c of candidats) {
+    if (c.email) parEmail.set(c.email, c);
+    parNom.set(cle(c.nom, c.prenom), c);
+  }
+  // Les contacts déjà reliés à UN projet d'achat (peu importe son statut).
+  const equipes = new Set((await db.all(
+    `SELECT pc.contact_id FROM crm_projet_contacts pc
+     JOIN crm_projets p ON p.id = pc.projet_id
+     WHERE p.agency_id = ? AND p.kind = 'achat'`, [agencyId])).map((r) => r.contact_id));
+  const t = now();
+  let crees = 0, dejaEquipes = 0, introuvables = 0;
+  const projets = [], liaisons = [];
+  const vus = new Set(); // deux lignes du fichier → un même contact : un seul projet
+  for (const d of demandes) {
+    const c = (d.contact.email && parEmail.get(d.contact.email)) || parNom.get(cle(d.contact.nom, d.contact.prenom));
+    if (!c) { introuvables++; continue; }
+    if (equipes.has(c.id) || vus.has(c.id)) { dejaEquipes++; continue; }
+    vus.add(c.id);
+    const v = sanitizeProjet({ kind: "achat", statut: "actif", ...d.criteres });
+    const id = randId("pj");
+    projets.push(`(${sqlText(id)},${sqlText(agencyId)},'achat','actif','','',${v.budget_min ?? "NULL"},${v.budget_max ?? "NULL"},${sqlText(JSON.stringify(v.types))},${sqlText(JSON.stringify(v.villes))},${v.pieces_min ?? "NULL"},${v.surface_min ?? "NULL"},${sqlText(v.notes)},${sqlText(userId)},${t},${t})`);
+    liaisons.push(`(${sqlText(id)},${sqlText(c.id)},${sqlText(agencyId)})`);
+    crees++;
+  }
+  for (let i = 0; i < projets.length; i += 100) {
+    await db.run(
+      `INSERT INTO crm_projets (id, agency_id, kind, statut, adresse, ville, budget_min, budget_max, types, villes, pieces_min, surface_min, notes, user_id, created_at, updated_at) VALUES ${projets.slice(i, i + 100).join(",")}`, []);
+    await db.run(
+      `INSERT INTO crm_projet_contacts (projet_id, contact_id, agency_id) VALUES ${liaisons.slice(i, i + 100).join(",")}`, []);
+  }
+  return { crees, dejaEquipes, introuvables };
+}
+
 // L'ancienne table crm_recherches (une recherche PAR CONTACT) est migrée en
 // projets d'achat à un contact — idempotent : chaque ligne migrée disparaît.
 export async function migrerRecherchesEnProjets(db, agencyId, userId = "") {
