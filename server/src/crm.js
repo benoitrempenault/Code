@@ -1924,16 +1924,21 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
   // chaque adresse peut coûter jusqu'à 2 appels (BAN puis IGN) — les paquets
   // restent petits (voir les appelants).
   let geocodes = 0;
+  // Bilan par géocodeur : quand un passage rend 0, il DIT pourquoi (refusé
+  // = 429/5xx, muet = injoignable, ok = a répondu) — fini les « 0 » muets.
+  const sondes = [{ nom: "BAN", ok: 0, refus: 0, muet: 0 }, { nom: "IGN", ok: 0, refus: 0, muet: 0 }];
   const resultats = await Promise.all(attente.map(async (a) => {
     let ligne = null, introuvable = null;
-    for (const base of bases) {
+    for (let bi = 0; bi < bases.length; bi++) {
+      const base = bases[bi];
       let d;
       try {
         const r = await fetch(base + "/search/?limit=1&q=" + encodeURIComponent(a.adresse),
           { signal: AbortSignal.timeout(4000) });
-        if (!r.ok) continue; // ce géocodeur grogne : on tente le suivant
+        if (!r.ok) { sondes[bi].refus++; continue; } // ce géocodeur grogne : on tente le suivant
         d = await r.json();
-      } catch { continue; } // injoignable : géocodeur suivant
+        sondes[bi].ok++;
+      } catch { sondes[bi].muet++; continue; } // injoignable : géocodeur suivant
       const f = d.features && d.features[0];
       if (f && f.properties && f.properties.score >= 0.4) {
         ligne = { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], label: f.properties.label, score: f.properties.score };
@@ -1955,7 +1960,14 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
   }
   // traites = positions réellement mémorisées (réussites + introuvables) :
   // c'est LE signal de progrès pour la boucle de secours du navigateur.
-  return { geocodes, traites: valeurs.length, restants: enAttente.length - valeurs.length };
+  // retentes = échecs mémorisés repassés dans ce lot (adresses sans doute à
+  // corriger sur les fiches) — pour que le compte rendu soit honnête.
+  return {
+    geocodes, traites: valeurs.length, restants: enAttente.length - valeurs.length,
+    retentes: attente.filter((a) => a.echec).length,
+    sonde: sondes.map((s) => s.nom + " " + s.ok + " ok" +
+      (s.refus ? " / " + s.refus + " refus" : "") + (s.muet ? " / " + s.muet + " muet" : "")).join(" · "),
+  };
 }
 
 /* ----------------------------- Cron quotidien ----------------------------- */

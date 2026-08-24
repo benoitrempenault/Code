@@ -119,9 +119,12 @@
     for (const p of donnees.points) {
       const cat = categorieDe(p.types);
       if (!actifs.has(cat)) continue;
-      const m = L.circleMarker([p.lat, p.lng], {
-        radius: 7, weight: 2, color: "#0f0f10",
-        fillColor: COULEUR_TYPE[cat], fillOpacity: 0.92,
+      // Une TACHE DE COULEUR sur la maison (rayon en MÈTRES : elle épouse le
+      // bâti quand on zoome), plutôt qu'un point posé devant. Dézoomé, elle
+      // reste cliquable grâce au liseré.
+      const m = L.circle([p.lat, p.lng], {
+        radius: 13, weight: 1.5, color: COULEUR_TYPE[cat], opacity: 0.9,
+        fillColor: COULEUR_TYPE[cat], fillOpacity: 0.45,
       });
       const contenuDe = () => {
         const il = ilotDe(p.lat, p.lng);
@@ -391,8 +394,15 @@
       // Encore des adresses en attente ? On affiche un DIAGNOSTIC lisible :
       // un essai réel par géocodeur, depuis CE navigateur et depuis le
       // serveur, plus le rendement de la pompe — pour savoir QUI bloque.
-      const resteFinal = (await api("/crm/geo/attente")).attente.length;
-      if (resteFinal > 0) {
+      const fileFinale = await api("/crm/geo/attente");
+      const resteFinal = fileFinale.attente.length;
+      const introuvablesFinal = fileFinale.dontIntrouvables || 0;
+      if (resteFinal > 0 && resteFinal <= introuvablesFinal) {
+        // Il ne reste QUE des adresses que les géocodeurs connaissent… pas :
+        // ce n'est plus un problème de géocodage, mais d'adresses à corriger.
+        $("etat-ventes").textContent = introuvablesFinal + " adresse(s) introuvable(s) par la BAN et l'IGN — " +
+          "l'adresse de ces fiches est incomplète ou mal écrite : corrigez-les, elles repasseront toutes seules.";
+      } else if (resteFinal > 0) {
         const testNav = async (base) => {
           try {
             const r = await fetch(base + "/search/?limit=1&q=" + encodeURIComponent("20 rue de bos 33185 le haillan"),
@@ -409,9 +419,11 @@
         } catch (e) { diag += " · serveur : " + e.message; }
         try {
           const p = await api("/crm/geo/serveur", { method: "POST" });
-          diag += " · pompe : " + (p.traites || 0) + "/passage";
+          diag += " · pompe : " + (p.traites || 0) + "/passage" + (p.sonde ? " (" + p.sonde + ")" : "");
         } catch (e) { diag += " · pompe en erreur : " + e.message; }
-        $("etat-ventes").textContent = resteFinal + " adresse(s) encore en attente — " + diag;
+        $("etat-ventes").textContent = resteFinal + " adresse(s) encore en file" +
+          (introuvablesFinal ? " (dont " + introuvablesFinal + " marquées introuvables — adresse à corriger sur la fiche)" : "") +
+          " — " + diag;
       }
     } catch (e) { toast(e.message, true); }
     btn.disabled = false;

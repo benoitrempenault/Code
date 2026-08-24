@@ -1238,14 +1238,16 @@ export function createApp(env) {
     // la BAN évolue, et surtout un incident passager (limitation de débit…)
     // ne doit jamais rayer une adresse pour toujours.
     const echec = (r) => r.geo_adresse != null && r.geo_lat === 0 && r.geo_lng === 0;
-    const attente = rows
+    const enFile = rows
       .map((r) => ({ id: r.id, adresse: [r.adresse, r.cp, r.ville].filter(Boolean).join(" "), deja: r.geo_adresse, echec: echec(r) }))
       .concat(dossiers.concat(ventesImp).map((r) => ({ id: r.id, adresse: adresseDossier(r.adresse, r.ville), deja: r.geo_adresse, echec: echec(r) })))
       .filter((r) => r.adresse && (r.adresse !== r.deja || r.echec))
-      .sort((a, b) => (a.echec ? 1 : 0) - (b.echec ? 1 : 0))
-      .slice(0, GEO_BATCH_MAX)
-      .map(({ id, adresse }) => ({ id, adresse }));
-    return c.json({ attente });
+      .sort((a, b) => (a.echec ? 1 : 0) - (b.echec ? 1 : 0));
+    const attente = enFile.slice(0, GEO_BATCH_MAX).map(({ id, adresse }) => ({ id, adresse }));
+    // dontIntrouvables : déjà tentées, les géocodeurs ont répondu « inconnu »
+    // — elles retenteront leur chance, mais c'est l'ADRESSE de la fiche qu'il
+    // faut corriger. Le front les distingue des vraies « à géocoder ».
+    return c.json({ attente, dontIntrouvables: enFile.filter((r) => r.echec).length });
   });
 
   app.post("/crm/geo/batch", async (c) => {
