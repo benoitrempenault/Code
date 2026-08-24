@@ -295,9 +295,25 @@
     geoAutoLance = true;
     let totalOk = 0, totalRates = 0;
     try {
-      // 1) Le navigateur interroge la BAN en direct (rapide : ~8 adresses/s).
-      //    Si la BAN est injoignable d'ICI (réseau d'agence filtré, débit
-      //    limité), on abandonne vite ce chemin : le serveur prendra le relais.
+      // 1) LE SERVEUR D'ABORD : la pompe géocode 14 adresses en parallèle par
+      //    appel (~7 adresses/s), BAN puis IGN — c'est le chemin fiable
+      //    partout, indépendant du réseau de l'agence.
+      let pompesVides = 0;
+      for (let p = 0; p < 200 && pompesVides < 3; p++) {
+        const reste = (await api("/crm/geo/attente")).attente.length;
+        if (!reste) break;
+        btn.textContent = "📍 Géocodage par le serveur… reste " + reste;
+        let r = null;
+        // Une erreur ponctuelle du serveur (plafond atteint, réseau) ne doit
+        // jamais arrêter toute la chaîne : on la compte comme passage à vide.
+        try { r = await api("/crm/geo/serveur", { method: "POST" }); } catch (e) { }
+        if (!r || !r.traites) { pompesVides++; continue; }
+        pompesVides = 0;
+        totalOk += r.traites;
+        if (p % 5 === 4) await charger();
+      }
+      // 2) Reliquat depuis CE navigateur (si le serveur n'avance plus) :
+      //    la BAN puis l'IGN en direct, adresse par adresse.
       let restePrecedent = -1, stagnation = 0, banBloquee = false;
       for (let tour = 0; tour < 30 && stagnation < 2 && !banBloquee; tour++) {
         const { attente } = await api("/crm/geo/attente");
@@ -353,23 +369,6 @@
         }
         if (lot.length) await api("/crm/geo/batch", { json: { rows: lot } });
         totalOk += attente.length;
-      }
-      // 2) Filet de sécurité : tout ce que CE navigateur n'a pas pu géocoder
-      //    est géocodé PAR LE SERVEUR (la BAN vue depuis Cloudflare), par
-      //    petits paquets — tant que ça progresse.
-      let pompesVides = 0;
-      for (let p = 0; p < 200 && pompesVides < 3; p++) {
-        const reste = (await api("/crm/geo/attente")).attente.length;
-        if (!reste) break;
-        btn.textContent = "📍 Géocodage par le serveur… reste " + reste;
-        let r = null;
-        // Une erreur ponctuelle du serveur (plafond atteint, réseau) ne doit
-        // jamais arrêter toute la chaîne : on la compte comme passage à vide.
-        try { r = await api("/crm/geo/serveur", { method: "POST" }); } catch (e) { }
-        if (!r || !r.traites) { pompesVides++; continue; }
-        pompesVides = 0;
-        totalOk += r.traites;
-        if (p % 5 === 4) await charger();
       }
       toast("Géocodage terminé : " + totalOk + " adresse(s) traitée(s)" + (totalRates ? ", " + totalRates + " à retenter ou introuvable(s)" : ""));
       await charger();
