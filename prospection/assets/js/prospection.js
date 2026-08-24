@@ -314,7 +314,10 @@
           let trouve = null, inconnu = false;
           for (const gc of GEOCODEURS) {
             try {
-              const r = await fetch(gc + "/search/?limit=1&q=" + encodeURIComponent(a.adresse));
+              // Délai court OBLIGATOIRE : un réseau d'agence qui « avale » les
+              // requêtes sans répondre figerait tout le passage sans erreur.
+              const r = await fetch(gc + "/search/?limit=1&q=" + encodeURIComponent(a.adresse),
+                { signal: AbortSignal.timeout(5000) });
               if (!r.ok) continue; // 429/5xx : géocodeur suivant
               const d = await r.json();
               const f = d.features && d.features[0];
@@ -377,7 +380,8 @@
       if (resteFinal > 0) {
         const testNav = async (base) => {
           try {
-            const r = await fetch(base + "/search/?limit=1&q=" + encodeURIComponent("20 rue de bos 33185 le haillan"));
+            const r = await fetch(base + "/search/?limit=1&q=" + encodeURIComponent("20 rue de bos 33185 le haillan"),
+              { signal: AbortSignal.timeout(5000) });
             if (!r.ok) return "http " + r.status;
             const d = await r.json();
             return d.features && d.features[0] ? "ok" : "vide";
