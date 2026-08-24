@@ -526,6 +526,8 @@
     $("anniv-cci").value = reglages.anniversaires.cci || "";
     $("anniv-sms").checked = !!reglages.anniversaires.smsEnabled;
     $("anniv-sms").disabled = !smsPret;
+    $("anniv-canal").value = reglages.anniversaires.canal || "les-deux";
+    $("anniv-canal").disabled = !smsPret;
     $("anniv-sms-signature").value = reglages.anniversaires.smsSignature || "";
     $("sms-etat").textContent = smsPret
       ? "Le SMS est signé du prénom du conseiller de la fiche ; sans conseiller, de la signature ci-dessus. Un contact sans e-mail mais avec un mobile reçoit quand même son vœu."
@@ -915,6 +917,7 @@
       cci: $("anniv-cci").value.trim(),
       smsEnabled: $("anniv-sms").checked,
       smsSignature: $("anniv-sms-signature").value.trim(),
+      canal: $("anniv-canal").value,
     },
   }, "Réglages anniversaires enregistrés").then(chargerUpcoming));
   $("btn-test-sms").addEventListener("click", async () => {

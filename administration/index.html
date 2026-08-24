@@ -99,6 +99,11 @@
         reçoit « vous vendiez votre bien ». Le rôle vient de la typologie du contact.</p>
       <div class="barre barre-haut">
         <label class="case"><input type="checkbox" id="anniv-sms" /> <strong>Envoyer aussi les vœux par SMS</strong></label>
+        <select id="anniv-canal">
+          <option value="les-deux">E-mail ET SMS</option>
+          <option value="mail-d-abord">E-mail d'abord (SMS seulement sans adresse)</option>
+          <option value="sms-d-abord">SMS d'abord (e-mail seulement sans mobile)</option>
+        </select>
         <input id="anniv-sms-signature" placeholder="Signature sans conseiller (ex : Benoît Rempenault)" style="min-width:250px;" />
         <input type="tel" id="test-sms-tel" placeholder="06 12 34 56 78" style="min-width:140px;" />
         <button class="btn" id="btn-test-sms">📱 Test SMS</button>

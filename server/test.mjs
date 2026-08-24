@@ -1829,6 +1829,17 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(essaiSms.status === 200 && smsRecus.length === smsAvant + 1, "SMS d'essai envoyé au numéro donné");
   ok((await callS("/crm/anniversaires/test-sms", { headers: auth, body: { telephone: "05 56 00 11 22" } })).status === 400,
     "un numéro fixe est refusé pour les SMS (mobiles 06/07 uniquement)");
+  // Priorité de canal : en « SMS d'abord », un contact avec e-mail ET mobile
+  // ne reçoit QUE le SMS ; l'e-mail ne sert qu'aux fiches sans mobile.
+  await callS("/crm/reglages", { headers: auth, method: "PUT", body: { anniversaires: { canal: "sms-d-abord" } } });
+  await callS("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "M.", nom: "SMSD Max", email: "smsd@ach-test.fr", telephone: "0788888888", date_naissance: aujJJMM },
+  ] } });
+  const mailsAvantD = mailsRecus.length;
+  await callS("/crm/anniversaires/run", { headers: auth, method: "POST" });
+  ok(smsRecus.some((x) => x.recipient === "+33788888888"), "SMS d'abord : le SMS part");
+  ok(!mailsRecus.slice(mailsAvantD).some((m) => (m.to || []).includes("smsd@ach-test.fr")),
+    "SMS d'abord : pas d'e-mail doublon pour qui a un mobile");
   fauxBrevo.close();
 
   /* ---- Prospection : îlots + géocodage + attribution -------------------- */

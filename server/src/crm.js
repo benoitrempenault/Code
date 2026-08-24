@@ -435,7 +435,7 @@ export async function executerNettoyage(db, agency, userId, action, curseur = ""
 export function defaultReglages(agency) {
   return {
     agence: { nom: (agency && agency.name) || "", adresse: "", telephone: "", email: "", site: "", logoUrl: "" },
-    anniversaires: { enabled: false, naissance: true, achat: true, cci: "", smsEnabled: false, smsSignature: "" },
+    anniversaires: { enabled: false, naissance: true, achat: true, cci: "", smsEnabled: false, smsSignature: "", canal: "les-deux" },
     annonces: { autoSync: false, siteUrl: "" },
     acheteurs: { enabled: false, cci: "" },
   };
@@ -750,11 +750,20 @@ export async function runAnniversaires(env, db, agency, reglages) {
   const summary = { date: isoDay, sent: 0, sms: 0, skipped: 0, errors: 0, details: [] };
   const smsActifs = !!(reglages.anniversaires.smsEnabled && env.BREVO_API_KEY);
   const expediteur = smsExpediteur(reglages.agence, agency);
+  // Priorite de canal : « sms-d-abord » n'envoie l'e-mail que sans mobile,
+  // « mail-d-abord » ne part en SMS que sans adresse, « les-deux » double.
+  const canal = reglages.anniversaires.canal || "les-deux";
   for (const { contact, type } of occs) {
     const label = `${contact.prenom || ""} ${contact.nom || ""}`.trim();
+    const mobile = smsActifs ? mobileFrance(contact.telephone) : null;
+    let faireEmail = !!contact.email, faireSms = !!mobile;
+    if (canal === "sms-d-abord" && faireSms) faireEmail = false;
+    if (canal === "mail-d-abord" && faireEmail) faireSms = false;
     // ------------------------------- E-MAIL --------------------------------
-    if (!contact.email) {
-      summary.skipped++; summary.details.push({ contact: label, type, status: "skip", reason: "pas d'e-mail" });
+    if (!faireEmail) {
+      summary.skipped++;
+      summary.details.push({ contact: label, type, status: "skip",
+        reason: contact.email ? "canal SMS prioritaire" : "pas d'e-mail" });
     } else {
       const deja = await db.get(
         "SELECT id FROM crm_envois WHERE agency_id = ? AND contact_id = ? AND type = ? AND annee = ? AND statut = 'ok'",
@@ -781,9 +790,8 @@ export async function runAnniversaires(env, db, agency, reglages) {
     // Canal indépendant : un contact SANS e-mail mais avec un mobile reçoit
     // quand même son vœu. Anti-doublon séparé (type « …-sms »), signé du
     // prénom du conseiller de la fiche, sinon de la signature par défaut.
-    if (smsActifs) {
-      const mobile = mobileFrance(contact.telephone);
-      if (mobile) {
+    if (faireSms) {
+      {
         const dejaSms = await db.get(
           "SELECT id FROM crm_envois WHERE agency_id = ? AND contact_id = ? AND type = ? AND annee = ? AND statut = 'ok'",
           [agency.id, contact.id, type + "-sms", annee]);
