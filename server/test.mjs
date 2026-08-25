@@ -663,6 +663,23 @@ ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Autho
   const purge = actionsFor(casse, "2026-09-16").find((a) => a.id === "purge_dia");
   ok(purge && purge.due === "2026-08-17",
     "date DIA illisible : la purge retombe sur compromis + 77 jours au lieu de disparaître");
+  // Rétractation SRU : 10 jours à compter du LENDEMAIN de la présentation,
+  // prorogés au premier jour ouvrable si le délai expire un week-end/férié.
+  const sru = (presentation) => {
+    const dd = base();
+    dd.dates.presentation_sru = presentation;
+    return actionsFor(dd, "2026-06-02").find((a) => a.id === "fin_retractation").due;
+  };
+  ok(sru("2026-09-01") === "2026-09-12",
+    "présentation mardi 01/09 : délai du 02 au 11/09 (vendredi), purgé le 12");
+  ok(sru("2026-09-02") === "2026-09-15",
+    "délai expirant samedi 12/09 : prorogé à lundi 14, purgé le 15");
+  ok(sru("2026-09-03") === "2026-09-15",
+    "délai expirant dimanche 13/09 : prorogé à lundi 14, purgé le 15");
+  ok(sru("2026-07-04") === "2026-07-16",
+    "délai expirant le 14 juillet (férié) : prorogé au 15, purgé le 16");
+  ok(sru("2027-03-19") === "2027-03-31",
+    "délai expirant lundi de Pâques 29/03/2027 : prorogé au mardi 30, purgé le 31");
 }
 
 /* ---- Séquestre : comptabilité de l'étude dépositaire -------------------- */
