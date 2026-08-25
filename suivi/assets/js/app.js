@@ -2401,7 +2401,9 @@
       notaire_vendeur: [d.notaire_vendeur.nom, d.notaire_vendeur.ville].filter(Boolean).join(", "),
       notaire_acquereur: [d.notaire_acquereur.nom, d.notaire_acquereur.ville].filter(Boolean).join(", "),
       date_compromis: E.fmtFr(d.date_compromis), date_butoir: E.fmtFr(d.date_butoir),
-      fin_retractation: E.fmtFr(d.dates.presentation_sru ? E.addDays(d.dates.presentation_sru, 11) : E.addDays(d.date_compromis, 14)),
+      // Même calcul que l'étape de l'échéancier : lendemain de la présentation
+      // + 10 jours, prorogé au jour ouvrable si le délai expire un week-end.
+      fin_retractation: E.fmtFr(E.finRetract(d)),
       sequestre_montant: d.sequestre.montant, sequestre_depositaire: d.sequestre.depositaire,
       date_limite_depot: E.fmtFr(depotDefaut), echeance_pret: E.fmtFr(echPretDefaut),
       signature_prevue: dateHeure(d.dates.signature_prevue, d.dates.signature_heure),

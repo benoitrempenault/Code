@@ -72,7 +72,45 @@
     const n = parseFloat(m[1].replace(/[\s\u00a0\u202f.]/g, "").replace(",", "."));
     return isFinite(n) && n > 0;
   }
-  const finRetract = (d) => addDays(d.dates.presentation_sru, 11) || addDays(ssp(d), 14);
+  /* Fin du délai de rétractation SRU (L271-1 CCH) : 10 jours à compter du
+     LENDEMAIN de la première présentation — le délai couvre J+1 à J+10 et
+     expire le J+10 à minuit. Un délai qui expire un samedi, un dimanche ou un
+     jour férié est prorogé au premier jour ouvrable suivant (art. 641-642
+     CPC). La date renvoyée est le premier jour PURGÉ (lendemain de
+     l'expiration) : celui où l'on peut poser le panneau. */
+  function paques(an) {
+    const a = an % 19, b = Math.floor(an / 100), c = an % 100;
+    const dd = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - dd - g + 15) % 30;
+    const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+    const m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const mois = Math.floor((h + l - 7 * m + 114) / 31), jour = ((h + l - 7 * m + 114) % 31) + 1;
+    return new Date(an, mois - 1, jour);
+  }
+  const FERIES_FIXES = ["01-01", "05-01", "05-08", "07-14", "08-15", "11-01", "11-11", "12-25"];
+  function ferie(s) {
+    const d = parseDate(s);
+    if (!d) return false;
+    const md = String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    if (FERIES_FIXES.includes(md)) return true;
+    const p = paques(d.getFullYear());
+    return [1, 39, 50].some((off) => { // lundi de Pâques, Ascension, lundi de Pentecôte
+      const f = new Date(p);
+      f.setDate(p.getDate() + off);
+      return f.getMonth() === d.getMonth() && f.getDate() === d.getDate();
+    });
+  }
+  function ouvrable(s) {
+    const d = parseDate(s);
+    return !!d && d.getDay() !== 0 && d.getDay() !== 6 && !ferie(s);
+  }
+  function finRetractDepuis(presentation) {
+    let dernier = addDays(presentation, 10);
+    if (!dernier) return "";
+    while (!ouvrable(dernier)) dernier = addDays(dernier, 1);
+    return addDays(dernier, 1);
+  }
+  const finRetract = (d) => finRetractDepuis(d.dates.presentation_sru) || addDays(ssp(d), 14);
   const pret = (d) => (d.financement && d.financement.recours_pret === "oui");
 
   /* -------- Urbanisme : uniquement pour les terrains (DP puis PC) --------
@@ -585,7 +623,7 @@
 
   window.SuiviEtapes = {
     ETAPES, compute, nextDue, sante, DEFAULT_MODELES, estTerrain,
-    DIAGS, dureeDiag, diagExpiration, dateActe, ENTRETIENS,
+    DIAGS, dureeDiag, diagExpiration, dateActe, ENTRETIENS, finRetract,
     addDays, addMonths, daysUntil, fmtFr, fmtIso, parseDate, today
   };
 })();
