@@ -189,7 +189,7 @@ annuaire, mêmes comptes) mais chaque dossier appartient à une agence :
 | Notification SRU | J+2 après compromis | Le délai de rétractation (art. L271-1 CCH, 10 jours) ne court qu'à réception de la notification **complète** (annexes incluses) |
 | Envoi du dossier aux notaires | J+3 | pratique agence |
 | Retour AR SRU | J+8 | pratique |
-| Fin de rétractation | présentation + 10 jours calendaires (lendemain) | L271-1 CCH |
+| Fin de rétractation | 10 jours à compter du **lendemain** de la présentation (le délai couvre J+1 à J+10) ; un délai expirant un samedi, un dimanche ou un jour férié est **prorogé au premier jour ouvrable** (641-642 CPC, fériés français calculés, fêtes mobiles comprises) — la date affichée est le premier jour purgé | L271-1 CCH |
 | RIB du dépositaire envoyé à l'acquéreur | J+5 | sans RIB, pas de virement possible — l'e-mail joint le relevé de l'étude et met en garde contre la fraude au faux RIB |
 | Séquestre reçu | délai du compromis, sinon J+12 | versement usuel 5-10 % sous 8-10 jours ; les deux lignes disparaissent quand le compromis ne prévoit pas de dépôt |
 | DIA envoyée | **envoi du dossier aux notaires + 7 jours** (envoi estimé à J+3 si la date n'est pas renseignée) | **la** relance qui fait gagner un mois : plus tôt le notaire envoie la DIA, plus tôt les deux mois de la mairie courent ; demander une renonciation expresse si possible. S'applique à tous les dossiers, l'échéance étant recalculée à chaque affichage |

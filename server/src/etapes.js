@@ -48,7 +48,42 @@ function montantPositif(v) {
   const n = parseFloat(m[1].replace(/[\s\u00a0\u202f.]/g, "").replace(",", "."));
   return isFinite(n) && n > 0;
 }
-const finRetract = (d) => addDays(d.dates && d.dates.presentation_sru, 11) || addDays(ssp(d), 14);
+/* Fin du délai de rétractation SRU (miroir du client) : 10 jours à compter du
+   lendemain de la première présentation, prorogés au premier jour ouvrable si
+   le délai expire un samedi, un dimanche ou un jour férié (641-642 CPC).
+   La date renvoyée est le premier jour purgé. */
+function paques(an) {
+  const a = an % 19, b = Math.floor(an / 100), c = an % 100;
+  const dd = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - dd - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mois = Math.floor((h + l - 7 * m + 114) / 31), jour = ((h + l - 7 * m + 114) % 31) + 1;
+  return Date.UTC(an, mois - 1, jour);
+}
+const FERIES_FIXES = ["01-01", "05-01", "05-08", "07-14", "08-15", "11-01", "11-11", "12-25"];
+function ferie(s) {
+  const t = parseDate(s);
+  if (t == null) return false;
+  const d = new Date(t);
+  const md = String(d.getUTCMonth() + 1).padStart(2, "0") + "-" + String(d.getUTCDate()).padStart(2, "0");
+  if (FERIES_FIXES.includes(md)) return true;
+  const p = paques(d.getUTCFullYear());
+  return [1, 39, 50].some((off) => p + off * 86400000 === t);
+}
+function ouvrable(s) {
+  const t = parseDate(s);
+  if (t == null) return false;
+  const wd = new Date(t).getUTCDay();
+  return wd !== 0 && wd !== 6 && !ferie(s);
+}
+function finRetractDepuis(presentation) {
+  let dernier = addDays(presentation, 10);
+  if (!dernier) return "";
+  while (!ouvrable(dernier)) dernier = addDays(dernier, 1);
+  return addDays(dernier, 1);
+}
+const finRetract = (d) => finRetractDepuis(d.dates && d.dates.presentation_sru) || addDays(ssp(d), 14);
 const pret = (d) => (d.financement && d.financement.recours_pret === "oui");
 // Urbanisme (terrains) : mêmes règles que le client — DP puis PC, purges à
 // 3 mois de l'affichage constaté.
