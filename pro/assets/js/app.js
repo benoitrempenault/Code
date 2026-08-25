@@ -1054,7 +1054,7 @@
       });
     } catch (e) { throw new Error("Serveur injoignable — vérifiez votre connexion."); }
     const data = await res.json().catch(function () { return null; });
-    if (res.status === 401) throw new Error("Session expirée — reconnectez-vous sur la page « Mon compte ».");
+    if (res.status === 401) throw new Error("Session expirée — reconnectez-vous pour retrouver la bibliothèque du compte.");
     if (!res.ok) throw new Error((data && data.error) || "Erreur serveur — réessayez.");
     return data;
   }
@@ -1522,6 +1522,21 @@
   function openLib() { libCloudMode = cloudOn(); $("#libOverlay").hidden = false; libRefresh(); }
   function closeLib() { $("#libOverlay").hidden = true; }
 
+  // Message d'erreur de la bibliothèque « compte ». Quand la session est tombée
+  // (connexion depuis un autre appareil, plafond d'appareils atteint, longue
+  // absence), on propose la reconnexion en un clic plutôt qu'une phrase sans
+  // issue : la session « Mon compte » est commune à toutes les apps du domaine.
+  const COMPTE_URL = "../mandat-pro/compte.html";
+  function libHintError(hint, e, retry) {
+    const msg = String((e && e.message) || "Erreur.");
+    if (!/session/i.test(msg)) { hint.textContent = msg; return; }
+    hint.innerHTML = esc(msg) +
+      ' <a class="btn btn--sm" href="' + COMPTE_URL + '" target="_blank" rel="noopener">Se reconnecter</a>' +
+      ' <button class="btn btn--ghost btn--sm" type="button" id="libRetry">C\'est fait, réessayer</button>';
+    const b = hint.querySelector("#libRetry");
+    if (b) b.addEventListener("click", retry);
+  }
+
   async function libRefresh() {
     const listEl = $("#libList"), folderEl = $("#libFolder"), hint = $("#libHint");
     const btnChoose = $("#libChoose"), btnSave = $("#libSave");
@@ -1537,8 +1552,10 @@
           return { id: x.id, name: x.name + ".json", title: x.title || "", location: x.location || "", price: x.price || "", modified: (x.updated_at || 0) * 1000, author: x.author || "" };
         });
       } catch (e) {
-        // Serveur pas encore équipé (501) ou session expirée : message clair.
-        libItems = []; listEl.innerHTML = ""; hint.textContent = e.message;
+        // Serveur pas encore équipé (501) ou session expirée : message clair,
+        // avec le bouton de reconnexion quand c'est la session qui est tombée.
+        libItems = []; listEl.innerHTML = "";
+        libHintError(hint, e, libRefresh);
         return;
       }
       renderLibList();

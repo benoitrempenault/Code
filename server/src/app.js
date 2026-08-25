@@ -25,7 +25,13 @@ import * as PERM from "./permanence.js";
 import * as GRAPH from "./graph.js";
 
 const SESSION_TTL = 30 * 24 * 3600;   // 30 jours d'inactivité
-const MAX_SESSIONS = 3;               // appareils simultanés (PC + téléphone : Safari ET app écran d'accueil comptent chacun)
+// Appareils simultanés. Un conseiller en cumule vite plus de trois : PC du
+// bureau, portable, téléphone (Safari ET l'app posée sur l'écran d'accueil
+// comptent chacun), tablette. À 3, une connexion de plus révoquait en
+// silence la session la plus ancienne : on revenait sur son ordinateur et la
+// bibliothèque affichait « Session expirée ». Le plafond reste là pour
+// empêcher qu'un mot de passe circule dans toute une agence.
+const MAX_SESSIONS = 8;
 const LINK_TTL = 15 * 60;             // lien magique : 15 minutes
 const MAX_LINKS_PER_10MIN = 4;    // stoppe les rafales (scanner, double-clics)
 const MAX_LINKS_PER_HOUR = 12;    // stoppe l'abus (bombardement d'e-mails)
