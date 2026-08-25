@@ -253,13 +253,48 @@ const CS_JOURS = [
   { re: /succession|d[ée]volution|notori[ée]t[ée]|h[ée]ritier|indivision|attestation (?:notari[ée]e )?de propri[ée]t[ée]/i, jours: 60 },
   { re: /bornage|arpentage|g[ée]om[èe]tre|division (?:parcellaire|de la parcelle|du terrain)|d[ée]tachement/i, jours: 60 },
   { re: /assembl[ée]e g[ée]n[ée]rale|copropri[ée]t[ée]|syndicat des copropri[ée]taires|pr[ée]-?[ée]tat dat[ée]|carnet d'entretien/i, jours: 60 },
-  { re: /autorisation d'urbanisme|note de renseignement|alignement|emplacement r[ée]serv[ée]|servitude/i, jours: 60 },
+  { re: /autorisation d'urbanisme|permis de construire|permis d'am[ée]nager|permis de d[ée]molir|d[ée]claration pr[ée]alable|note de renseignement|alignement|emplacement r[ée]serv[ée]|servitude/i, jours: 60 },
   { re: /changement d'usage|autorisation administrative|\berp\b|exploitation|licence|meubl[ée] de tourisme/i, jours: 60 }
 ];
 function slug(s) {
   return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
 }
+/* D\u00e9p\u00f4t d'une autorisation d'urbanisme (miroir du client) : une \u00e9tape \u00e0 part,
+   juste avant la condition, \u00e0 10 jours du compromis \u2014 sauf d\u00e9lai de d\u00e9p\u00f4t
+   stipul\u00e9 au compromis (date, jours ou mois), qui prime. */
+const CS_AUTORISATION = /autorisation d'urbanisme|permis de construire|permis d'am[\u00e9e]nager|permis de d[\u00e9e]molir|d[\u00e9e]claration pr[\u00e9e]alable/i;
+const DEPOT_DEFAUT = 10;
+const MOIS_FR = ["janvier", "f\u00e9vrier|fevrier", "mars", "avril", "mai", "juin",
+  "juillet", "ao\u00fbt|aout", "septembre", "octobre", "novembre", "d\u00e9cembre|decembre"];
+function isoDeFr(s) {
+  const t = String(s || "").trim();
+  let m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/.exec(t);
+  if (m) {
+    const an = m[3].length === 2 ? "20" + m[3] : m[3];
+    return an + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0");
+  }
+  m = /^(\d{1,2})(?:er)?\s+([^\s]+)\s+(\d{4})$/.exec(t);
+  if (!m) return "";
+  const nom = m[2].toLowerCase();
+  const i = MOIS_FR.findIndex((mois) => mois.split("|").includes(nom));
+  return i < 0 ? "" : m[3] + "-" + String(i + 1).padStart(2, "0") + "-" + m[1].padStart(2, "0");
+}
+const PRES_DEPOT = "(?:d[\u00e9e]p[\u00f4o]ts?|d[\u00e9e]poser|d[\u00e9e]pos[\u00e9e]e?s?|demande|dossier)";
+function delaiDepotStipule(d, c) {
+  const txt = ((c.titre || "") + " " + (c.detail || "")).replace(/\s+/g, " ");
+  const date = new RegExp(PRES_DEPOT + "[^.;]{0,90}?(?:avant le|au plus tard le|d'ici le|le)\\s+"
+    + "(\\d{1,2}[\\/.\\-]\\d{1,2}[\\/.\\-]\\d{2,4}|\\d{1,2}(?:er)?\\s+\\S+\\s+\\d{4})", "i").exec(txt);
+  if (date) { const iso = isoDeFr(date[1]); if (iso) return iso; }
+  const jours = new RegExp(PRES_DEPOT + "[^.;]{0,90}?(\\d{1,3})\\s*jours", "i").exec(txt)
+    || new RegExp("(\\d{1,3})\\s*jours[^.;]{0,60}?" + PRES_DEPOT, "i").exec(txt);
+  if (jours) return addDays(ssp(d), Number(jours[1]));
+  const mois = new RegExp(PRES_DEPOT + "[^.;]{0,90}?(\\d{1,2})\\s*mois", "i").exec(txt)
+    || new RegExp("(\\d{1,2})\\s*mois[^.;]{0,60}?" + PRES_DEPOT, "i").exec(txt);
+  if (mois) return addMonths(ssp(d), Number(mois[1]));
+  return "";
+}
+const echeanceDepot = (d, c) => delaiDepotStipule(d, c) || addDays(ssp(d), DEPOT_DEFAUT);
 function csEtapes(d) {
   const terrain = estTerrain(d);
   const vus = {};
@@ -275,6 +310,13 @@ function csEtapes(d) {
     let id = "cs_" + (slug(c.titre) || slug(c.detail) || i);
     if (vus[id]) id += "_" + i;
     vus[id] = true;
+    if (CS_AUTORISATION.test(txt) && !c.levee) {
+      out.push({
+        id: id + "_depot",
+        label: "Dépôt de l'autorisation d'urbanisme — " + ((c.titre || "").trim() || "condition du compromis"),
+        due: () => echeanceDepot(d, c)
+      });
+    }
     out.push({
       id, csIndex: i,
       label: "Condition suspensive : " + ((c.titre || "").trim() || "à lever"),

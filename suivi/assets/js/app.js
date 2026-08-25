@@ -1233,7 +1233,9 @@
   function familleEtape(s) {
     if (s.phase === "Financement") return "financement";
     if (s.phase === "Urbanisme (terrain)") return "urbanisme";
-    if (s.csIndex != null) {
+    // Toute la phase « Conditions suspensives », y compris les étapes qui ne
+    // sont pas la condition elle-même (dépôt d'une autorisation d'urbanisme).
+    if (s.phase === "Conditions suspensives" || s.csIndex != null) {
       if (RE_URBA.test(s.label || "")) return "urbanisme";
       if (RE_REITER.test(s.label || "")) return "reiteration";
       return "cs";
