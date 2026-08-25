@@ -1769,6 +1769,19 @@ export function sanitizeSuivi(b) {
   };
 }
 
+// La FICHE ADRESSE : une maison cliquée sur la carte. L'adresse et la position
+// du clic suffisent — le reste (notes de la maison) est optionnel.
+export function sanitizeAdresse(b) {
+  const adresse = strip(b.adresse, 200);
+  if (!adresse) throw new Error("L'adresse de la maison est requise.");
+  const coord = (v, max) => (Number.isFinite(Number(v)) && Math.abs(Number(v)) <= max ? Math.round(Number(v) * 1e6) / 1e6 : 0);
+  return {
+    adresse, cp: strip(b.cp, 12), ville: strip(b.ville, 80),
+    lat: coord(b.lat, 90), lng: coord(b.lng, 180),
+    notes: strip(b.notes, 4000),
+  };
+}
+
 /* ------------------------------ Prospection ------------------------------- */
 // Un point est-il dans un polygone ? (lancer de rayon, suffisant a l'echelle
 // d'un ilot de prospection). polygone = [[lat, lng], ...]

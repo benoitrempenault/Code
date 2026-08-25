@@ -1179,10 +1179,16 @@ export function createApp(env) {
         type: r.type || "", surface: r.surface || 0,
       });
     }
+    // Les maisons suivies (fiche adresse) : seules celles qui portent une
+    // information existent — c'est ce qui les colore sur la carte.
+    const adresses = await db.all(
+      `SELECT id, adresse, cp, ville, lat, lng, notes FROM crm_adresses
+       WHERE agency_id = ? AND NOT (lat = 0 AND lng = 0) LIMIT 5000`, [ctx.agency.id]);
     return c.json({
       points: points.map((p) => ({ ...p, types: (() => { try { return JSON.parse(p.types || "[]"); } catch { return []; } })() })),
       ilots: ilots.map((i) => ({ ...i, polygone: (() => { try { return JSON.parse(i.polygone); } catch { return []; } })() })),
       ventes,
+      adresses,
       ventesStats: stats,
       totalContacts: total?.n || 0,
       estAdmin: isAgencyAdmin(ctx),
@@ -1862,6 +1868,74 @@ export function createApp(env) {
           retard: r.rappel_le < jour,
         };
       }),
+    });
+  });
+
+  /* ---------------------------- Fiche adresse ------------------------------
+     Une MAISON cliquée sur la carte : dès qu'une information y est posée
+     (notes de la maison, suivi, habitant, estimation), l'adresse est
+     enregistrée avec la position du clic et la maison se colore. Une seule
+     fiche par adresse (casse ignorée) — y revenir rouvre la même. */
+  app.post("/crm/adresses", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    let a;
+    try { a = CRM.sanitizeAdresse(b); } catch (e) { return err(c, 400, e.message); }
+    const cur = await db.get(
+      "SELECT * FROM crm_adresses WHERE agency_id = ? AND adresse = ? COLLATE NOCASE",
+      [ctx.agency.id, a.adresse]);
+    if (cur) {
+      // Un champ absent du corps ne détruit rien : la position ne recule
+      // jamais vers 0, les notes ne s'effacent que si on les envoie vides.
+      await db.run(
+        `UPDATE crm_adresses SET cp = ?, ville = ?, lat = ?, lng = ?, notes = ?, user_id = ?, updated_at = ?
+         WHERE id = ?`,
+        [a.cp || cur.cp, a.ville || cur.ville,
+          a.lat || cur.lat, a.lng || cur.lng,
+          b.notes === undefined ? cur.notes : a.notes,
+          ctx.user.id, now(), cur.id]);
+      return c.json({ ok: true, id: cur.id, creee: false });
+    }
+    const id = randId("ad");
+    await db.run(
+      `INSERT INTO crm_adresses (id, agency_id, adresse, cp, ville, lat, lng, notes, user_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, ctx.agency.id, a.adresse, a.cp, a.ville, a.lat, a.lng, a.notes, ctx.user.id, now(), now()]);
+    return c.json({ ok: true, id, creee: true });
+  });
+
+  // TOUT ce qui s'est passé à une adresse : la fiche de la maison. Habitants
+  // (contacts qui y vivent), fil de suivi, fiches estimation du bien, notes.
+  app.get("/crm/adresses/fiche", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const adresse = String(c.req.query("adresse") || "").trim().slice(0, 200);
+    if (!adresse) return err(c, 400, "adresse attendue.");
+    const maison = await db.get(
+      "SELECT * FROM crm_adresses WHERE agency_id = ? AND adresse = ? COLLATE NOCASE",
+      [ctx.agency.id, adresse]);
+    const habitants = await db.all(
+      `SELECT id, civilite, prenom, nom, telephone, email, types, conseiller, opt_out
+       FROM crm_contacts WHERE agency_id = ? AND adresse = ? COLLATE NOCASE
+       ORDER BY nom ASC LIMIT 20`, [ctx.agency.id, adresse]);
+    const suivis = await db.all(
+      `SELECT * FROM crm_suivis WHERE agency_id = ? AND (adresse = ? COLLATE NOCASE
+         OR contact_id IN (SELECT id FROM crm_contacts WHERE agency_id = ? AND adresse = ? COLLATE NOCASE))
+       ORDER BY created_at DESC LIMIT 60`,
+      [ctx.agency.id, adresse, ctx.agency.id, adresse]);
+    // Le motif LIKE est banni (D1 le refuse au-delà de ~50 octets) : la fiche
+    // estimation dont l'adresse COMMENCE par celle de la maison passe par substr.
+    const estimations = await db.all(
+      `SELECT id, nom, r1, r2, statut, qualification, conseiller, created_at
+       FROM crm_estimations WHERE agency_id = ? AND substr(adresse, 1, ?) = ? COLLATE NOCASE
+       ORDER BY created_at DESC LIMIT 10`,
+      [ctx.agency.id, adresse.length, adresse]);
+    const parId = Object.fromEntries(habitants.map((h) => [h.id, [h.prenom, h.nom].filter(Boolean).join(" ")]));
+    return c.json({
+      maison: maison || null,
+      habitants: habitants.map((h) => ({ ...h, types: (() => { try { return JSON.parse(h.types || "[]"); } catch { return []; } })() })),
+      suivis: suivis.map((s) => ({ ...s, contact: parId[s.contact_id] || "" })),
+      estimations,
     });
   });
 

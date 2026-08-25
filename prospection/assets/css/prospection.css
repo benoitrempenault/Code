@@ -75,6 +75,11 @@ select:focus, input:focus { outline: none; border-color: var(--accent); }
 .ilot:hover { border-color: var(--accent); }
 .ilot .pastille { flex: 0 0 auto; }
 .ilot .qui { color: var(--muted); font-size: 12px; margin-left: auto; }
+.ilot .mini {
+  flex: 0 0 auto; background: none; border: 1px solid var(--line); border-radius: 7px;
+  padding: 2px 6px; cursor: pointer; font-size: 12px; line-height: 1.3;
+}
+.ilot .mini:hover { border-color: var(--accent); }
 .pastille { display: inline-block; width: 12px; height: 12px; border-radius: 4px; }
 .legende-dpe { display: flex; gap: 3px; margin: 6px 0 2px; }
 .legende-dpe span {

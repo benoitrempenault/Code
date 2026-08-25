@@ -2428,6 +2428,35 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/prospects", { headers: authP, body: { telephone: "0601020304" } })).status === 400,
     "un prospect sans nom ni adresse est refusé");
 
+  /* ---- La fiche adresse : une maison cliquée sur la carte ----------------- */
+  console.log("— Fiche adresse : la maison cliquée, colorée dès qu'elle porte une info");
+  const adCree = await callR("/crm/adresses", { headers: authP, body: {
+    adresse: "9 rue du Fil", ville: "Saint-Médard-en-Jalles", lat: 44.8977, lng: -0.7211,
+    notes: "Maison en pierre, jardin devant, volets neufs.",
+  } });
+  ok(adCree.status === 200 && /^ad_/.test(adCree.json.id) && adCree.json.creee === true,
+    "une maison cliquée s'enregistre avec la position du clic (membre)");
+  const adRebis = await callR("/crm/adresses", { headers: authP, body: {
+    adresse: "9 RUE DU FIL", lat: 0, lng: 0 } });
+  ok(adRebis.json.id === adCree.json.id && adRebis.json.creee === false,
+    "revenir sur la même adresse (casse différente) rouvre la MÊME fiche, jamais un doublon");
+  ok((await callR("/crm/adresses", { headers: authP, body: { notes: "sans adresse" } })).status === 400,
+    "une maison sans adresse est refusée");
+  await callR("/crm/estimations", { headers: authP, body: {
+    adresse: "9 rue du Fil, Saint-Médard-en-Jalles", nom: "M. DUFIL", conseiller: "Benoit" } });
+  const faDufil = (await callR("/crm/adresses/fiche?adresse=" + encodeURIComponent("9 rue du fil"), { headers: authP })).json;
+  ok(faDufil.maison && /volets neufs/.test(faDufil.maison.notes) && faDufil.maison.lat === 44.8977,
+    "la fiche adresse garde ses notes et sa position (un upsert sans position ne les recule pas)");
+  ok(faDufil.habitants.some((h) => h.nom === "DUFIL"),
+    "la fiche adresse liste les HABITANTS (contacts à cette adresse)");
+  ok(faDufil.suivis.length >= 2 && faDufil.suivis.some((s) => /portail/.test(s.commentaire)),
+    "la fiche adresse porte tout l'historique des actions menées ici");
+  ok(faDufil.estimations.length === 1 && faDufil.estimations[0].nom === "M. DUFIL",
+    "la fiche adresse retrouve la fiche estimation du bien (adresse qui commence pareil)");
+  const carteAd = (await callR("/crm/carte", { headers: authP })).json.adresses;
+  ok(carteAd.some((a2) => a2.id === adCree.json.id && a2.lat === 44.8977),
+    "la carte renvoie les maisons suivies — c'est ce qui les colore");
+
   fauxResend.close();
   fauxDvf.close();
   fauxBan.close();

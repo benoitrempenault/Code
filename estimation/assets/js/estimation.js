@@ -765,6 +765,16 @@
     $("app").hidden = false;
     initCarte();
     chargerFiches();
+    // Envoyé par la carte de prospection (fiche adresse → « 📐 Créer une
+    // fiche estimation ») : la fiche s'ouvre directement sur cette adresse —
+    // si une fiche estimation y existe déjà, c'est ELLE qui s'ouvre.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("fiche") && params.get("adresse")) {
+      const lat = parseFloat(params.get("lat")) || 0, lng = parseFloat(params.get("lng")) || 0;
+      $("adresse").value = params.get("adresse") + (params.get("ville") ? ", " + params.get("ville") : "");
+      if (lat || lng) posCourante = { lat, lng, label: params.get("adresse") };
+      ouvrirFiche({ adresse: params.get("adresse"), ville: params.get("ville") || "", lat, lng });
+    }
   }
 
   // 📍 : la pompe de géocodage SERVEUR, par petits paquets — estimés et

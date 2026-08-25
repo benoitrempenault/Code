@@ -71,6 +71,8 @@
   let geoAutoLance = false;     // géocodage auto : une seule fois par visite
   let marqueursContacts = {};   // contact_id → marqueur (pour rafraîchir un popup)
   let ajoutProspect = false;    // mode « ➕ Ajouter un prospect » : le prochain clic pose la maison
+  let coucheAdresses = null;    // les maisons suivies (fiche adresse) — colorées car renseignées
+  let clicMaisonTimer = null;   // le clic-maison attend un instant (dblclick de zoom = annulé)
   // Dessin en cours
   let dessin = null;            // { sommets: [[lat,lng]], marqueurs: [], ligne }
   const SUIVI_TYPES = {
@@ -111,11 +113,18 @@
     coucheDvf = L.layerGroup().addTo(carte);
     coucheDpe = L.layerGroup().addTo(carte);
     coucheVentes = L.layerGroup().addTo(carte);
+    coucheAdresses = L.layerGroup().addTo(carte);
     couchePoints = L.layerGroup().addTo(carte);
+    // Le clic sur N'IMPORTE QUELLE maison ouvre sa fiche adresse — mais pas
+    // pendant un dessin d'îlot ou un ajout de prospect, et pas sur un
+    // double-clic de zoom (le petit délai laisse le dblclick l'annuler).
     carte.on("click", (e) => {
-      if (dessin) ajouterSommet(e.latlng);
-      else if (ajoutProspect) creerProspectIci(e.latlng);
+      if (dessin) { ajouterSommet(e.latlng); return; }
+      if (ajoutProspect) { creerProspectIci(e.latlng); return; }
+      clearTimeout(clicMaisonTimer);
+      clicMaisonTimer = setTimeout(() => ouvrirFicheAdresseAuClic(e.latlng), 280);
     });
+    carte.on("dblclick zoomstart movestart", () => clearTimeout(clicMaisonTimer));
   }
 
   function filtresActifs() {
@@ -132,8 +141,10 @@
       // JUSTE une couleur posée sur la maison : rayon en MÈTRES à l'échelle
       // d'un toit (~15 m de large), sans bordure — la teinte épouse le bâti
       // quand on zoome au lieu de recouvrir la parcelle.
+      // bubblingMouseEvents:false — le clic sur une maison colorée ouvre SON
+      // popup, sans ouvrir aussi la fiche adresse du clic carte en dessous.
       const m = L.circle([p.lat, p.lng], {
-        radius: 7.5, weight: 0,
+        radius: 7.5, weight: 0, bubblingMouseEvents: false,
         fillColor: COULEUR_TYPE[cat], fillOpacity: 0.6,
       });
       const contenuDe = () => {
@@ -161,8 +172,11 @@
               escH(s.commentaire.slice(0, 90)) + (s.commentaire.length > 90 ? "…" : "") +
               (s.conseiller ? " <em>(" + escH(s.conseiller) + ")</em>" : "")).join("<br>") + "</div>";
         }
-        html += '<div style="margin-top:8px;"><button class="btn" style="padding:3px 10px; font-size:12px;" ' +
-          'data-suivi-contact="' + escH(p.contact_id) + '" data-suivi-adresse="' + escH(p.adresse || "") + '">＋ Suivi</button></div>';
+        html += '<div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;"><button class="btn" style="padding:3px 10px; font-size:12px;" ' +
+          'data-suivi-contact="' + escH(p.contact_id) + '" data-suivi-adresse="' + escH(p.adresse || "") + '">＋ Suivi</button>' +
+          (p.adresse ? '<button class="btn" style="padding:3px 10px; font-size:12px;" data-fiche-adresse="' + escH(p.adresse) + '" ' +
+            'data-fa-ville="' + escH(p.ville || "") + '" data-fa-cp="' + escH(p.cp || "") + '" data-fa-lat="' + p.lat + '" data-fa-lng="' + p.lng + '">🏠 Fiche adresse</button>' : "") +
+          "</div>";
         return html;
       };
       m.bindPopup(contenuComplet);
@@ -191,16 +205,12 @@
     const visibles = donnees.ilots.filter((i) => !filtre || i.conseiller === filtre);
     for (const il of visibles) {
       if (il.polygone.length < 3) continue;
+      // interactive:false — le clic TRAVERSE l'îlot : chaque maison du secteur
+      // reste cliquable (fiche adresse). L'îlot s'édite depuis la liste latérale.
       const poly = L.polygon(il.polygone, {
         color: il.couleur, weight: 2, fillColor: il.couleur, fillOpacity: 0.12,
+        interactive: false,
       });
-      poly.bindPopup(
-        '<div class="titre">' + escH(il.nom) + "</div>" +
-        '<div class="sous">' + (il.conseiller ? "Conseiller : " + escH(il.conseiller) : "Non attribué") + "</div>" +
-        (donnees.estAdmin
-          ? '<div class="actions"><button data-modif-ilot="' + il.id + '">✏️ Modifier</button>' +
-            '<button data-suppr-ilot="' + il.id + '">🗑 Supprimer</button></div>'
-          : ""));
       coucheIlots.addLayer(poly);
     }
     // Liste latérale + filtre conseiller
@@ -209,7 +219,11 @@
         '<div class="ilot" data-zoom-ilot="' + il.id + '">' +
         '<span class="pastille" style="background:' + escH(il.couleur) + '"></span>' +
         "<span>" + escH(il.nom) + "</span>" +
-        '<span class="qui">' + escH(il.conseiller || "—") + "</span></div>").join("")
+        '<span class="qui">' + escH(il.conseiller || "—") + "</span>" +
+        (donnees.estAdmin
+          ? '<button class="mini" data-modif-ilot="' + il.id + '" title="Modifier">✏️</button>' +
+            '<button class="mini" data-suppr-ilot="' + il.id + '" title="Supprimer">🗑</button>'
+          : "") + "</div>").join("")
       : '<p class="petit">' + (donnees.ilots.length ? "Aucun îlot pour ce conseiller." : "Aucun îlot pour l'instant" + (donnees.estAdmin ? " — dessinez le premier !" : ".")) + "</p>";
     const conseillers = [...new Set(donnees.ilots.map((i) => i.conseiller).filter(Boolean))].sort();
     const courant = $("filtre-conseiller").value;
@@ -260,6 +274,8 @@
     rendreIlots();
     rendrePoints();
     rendreVentes();
+    donnees.adresses = donnees.adresses || [];
+    rendreAdresses();
     if (donnees.points.length && !carte._dejaCadre) {
       carte._dejaCadre = true;
       const b = L.latLngBounds(donnees.points.map((p) => [p.lat, p.lng]));
@@ -387,9 +403,12 @@
   async function creerProspectIci(latlng) {
     basculerAjoutProspect(false);
     toast("Je cherche l'adresse de cette maison…");
-    const pr = await adresseInverse(latlng) || {};
-    ouvrirModale("Nouveau prospect",
-      '<label>Adresse<input id="pr-adresse" value="' + escH(pr.name || "") + '" placeholder="n° et rue" /></label>' +
+    const inv = await adresseInverse(latlng) || {};
+    modaleProspect({ adresse: inv.name || "", cp: inv.postcode || "", ville: inv.city || "" }, latlng);
+  }
+  function modaleProspect(pr, latlng, apres) {
+    ouvrirModale("Nouveau " + (apres ? "habitant" : "prospect"),
+      '<label>Adresse<input id="pr-adresse" value="' + escH(pr.adresse || "") + '" placeholder="n° et rue" /></label>' +
       '<div class="rang">' +
       '<label style="flex:1;">Code postal<input id="pr-cp" value="' + escH(pr.postcode || "") + '" /></label>' +
       '<label style="flex:2;">Ville<input id="pr-ville" value="' + escH(pr.city || "") + '" /></label>' +
@@ -405,7 +424,7 @@
       "</div>" +
       '<label>Premier suivi (optionnel)<textarea id="pr-suivi" rows="2" placeholder="ex : vu au portail, envisage de vendre au printemps"></textarea></label>',
       '<button class="btn" id="pr-annuler">Annuler</button>' +
-      '<button class="btn btn-or" id="pr-save">Créer le prospect</button>');
+      '<button class="btn btn-or" id="pr-save">Créer</button>');
     $("pr-annuler").addEventListener("click", fermerModale);
     $("pr-save").addEventListener("click", async () => {
       try {
@@ -417,7 +436,7 @@
           lat: latlng.lat, lng: latlng.lng, suivi: $("pr-suivi").value.trim(),
         } });
         fermerModale();
-        toast("Prospect créé — la maison est sur la carte");
+        toast((apres ? "Habitant" : "Prospect") + " créé — la maison est sur la carte");
         donnees.points.push({
           contact_id: r.id, civilite: $("pr-civilite").value, prenom: $("pr-prenom").value.trim(),
           nom: $("pr-nom").value.trim(), telephone: $("pr-tel").value.trim(), email: $("pr-email").value.trim(),
@@ -425,7 +444,125 @@
           lat: latlng.lat, lng: latlng.lng, types: ["prospect"], conseiller: "", label: "",
         });
         rendrePoints();
+        if (apres) apres();
       } catch (e) { toast(e.message, true); }
+    });
+  }
+
+  /* ------------------------------ Fiche adresse ----------------------------
+     Chaque maison de la carte est CLIQUABLE : le clic donne l'adresse
+     (géocodage inverse) et ouvre sa fiche — habitants, historique des
+     actions, notes de la maison, création d'une fiche estimation. Dès
+     qu'une information y est posée, la maison se COLORE en vert ; sans
+     information, elle ne laisse aucune trace. */
+  const COULEUR_ADRESSE = "#7fb069";
+  function rendreAdresses() {
+    coucheAdresses.clearLayers();
+    if (!$("couche-adresses").checked) return;
+    for (const a of donnees.adresses || []) {
+      const m = L.circle([a.lat, a.lng], {
+        radius: 7.5, weight: 0, bubblingMouseEvents: false,
+        fillColor: COULEUR_ADRESSE, fillOpacity: 0.65,
+      });
+      m.on("click", () => ouvrirFicheAdresse(a));
+      coucheAdresses.addLayer(m);
+    }
+  }
+  // La maison devient (ou reste) suivie : upsert + la carte se met à jour.
+  async function upsertAdresse(info, extra) {
+    const r = await api("/crm/adresses", { json: { ...info, ...(extra || {}) } });
+    donnees.adresses = donnees.adresses || [];
+    const deja = donnees.adresses.find((a) => a.adresse.toLowerCase() === info.adresse.toLowerCase());
+    if (deja) Object.assign(deja, info, extra || {});
+    else donnees.adresses.push({ id: r.id, notes: "", ...info, ...(extra || {}) });
+    rendreAdresses();
+    return r;
+  }
+  async function ouvrirFicheAdresseAuClic(latlng) {
+    toast("Je cherche l'adresse de cette maison…");
+    const inv = await adresseInverse(latlng);
+    if (!inv || !inv.name) { toast("Pas d'adresse connue à cet endroit — zoomez sur une maison.", true); return; }
+    ouvrirFicheAdresse({ adresse: inv.name, cp: inv.postcode || "", ville: inv.city || "", lat: latlng.lat, lng: latlng.lng });
+  }
+  async function ouvrirFicheAdresse(info) {
+    carte.closePopup();
+    let fiche = { maison: null, habitants: [], suivis: [], estimations: [] };
+    try { fiche = await api("/crm/adresses/fiche?adresse=" + encodeURIComponent(info.adresse)); }
+    catch (e) { /* hors ligne : la fiche s'ouvre vide, on peut quand même noter */ }
+    const maison = fiche.maison || {};
+    const pos = {
+      adresse: info.adresse, cp: info.cp || maison.cp || "", ville: info.ville || maison.ville || "",
+      lat: info.lat || maison.lat || 0, lng: info.lng || maison.lng || 0,
+    };
+    const sousTitre = (s) => '<div style="color:var(--muted); font-size:11.5px; text-transform:uppercase; letter-spacing:.6px; font-weight:600; margin-top:4px;">' + s + "</div>";
+    const habitants = fiche.habitants.length
+      ? fiche.habitants.map((h) =>
+        '<div><strong>' + escH([h.civilite, h.prenom, h.nom].filter(Boolean).join(" ")) + "</strong>" +
+        (h.telephone ? ' · <a href="tel:' + escH(h.telephone) + '">' + escH(h.telephone) + "</a>" : "") +
+        ((h.types || []).length ? ' <span style="color:var(--muted); font-size:12px;">(' + h.types.map(escH).join(", ") + ")</span>" : "") +
+        "</div>").join("")
+      : '<p class="petit" style="margin:2px 0;">Personne de connu à cette adresse pour l\'instant.</p>';
+    const estims = fiche.estimations.length
+      ? fiche.estimations.map((e2) =>
+        "<div>📐 <strong>" + escH(e2.nom || "Fiche estimation") + "</strong> · " + escH(e2.statut) +
+        (e2.qualification ? " · " + escH(e2.qualification) : "") +
+        (e2.r1 ? " · R1 " + escH(fmtDateFr(e2.r1)) : "") +
+        (e2.conseiller ? ' <span style="color:var(--muted); font-size:12px;">(' + escH(e2.conseiller) + ")</span>" : "") + "</div>").join("")
+      : "";
+    const historique = fiche.suivis.length
+      ? '<div style="max-height:170px; overflow-y:auto; display:flex; flex-direction:column; gap:5px;">' +
+        fiche.suivis.map((s) => "<div>" + escH(fmtJour(s.created_at)) + " · " + (SUIVI_TYPES[s.type] || s.type) +
+          (s.contact ? " · <strong>" + escH(s.contact) + "</strong>" : "") + " — " + escH(s.commentaire) +
+          (s.rappel_le ? ' <span style="color:var(--muted); font-size:12px;">rappel ' + escH(fmtDateFr(s.rappel_le)) + (s.rappel_fait ? " ✓" : "") + "</span>" : "") +
+          (s.conseiller ? ' <span style="color:var(--muted); font-size:12px;">(' + escH(s.conseiller) + ")</span>" : "") + "</div>").join("") + "</div>"
+      : '<p class="petit" style="margin:2px 0;">Aucune action menée ici pour l\'instant.</p>';
+    ouvrirModale("🏠 " + pos.adresse + (pos.ville ? " — " + pos.ville : ""),
+      sousTitre("Habitants") + habitants +
+      '<div class="rang" style="margin-top:2px;">' +
+      '<button class="btn" id="fa-habitant">➕ Habitant</button>' +
+      '<button class="btn" id="fa-estimation">📐 ' + (fiche.estimations.length ? "Ouvrir la fiche estimation" : "Créer une fiche estimation") + "</button>" +
+      "</div>" + estims +
+      sousTitre("Historique des actions") + historique +
+      '<div class="rang">' +
+      '<select id="fa-sv-type">' + Object.entries(SUIVI_TYPES).map(([v, l]) => '<option value="' + v + '">' + l + "</option>").join("") + "</select>" +
+      '<input id="fa-sv-com" placeholder="ex : vu le client, boîté la rue…" style="flex:1; min-width:150px;" />' +
+      '<input type="date" id="fa-sv-rappel" title="Me le rappeler ce jour-là" />' +
+      '<button class="btn" id="fa-sv-ajouter">＋ Suivi</button>' +
+      "</div>" +
+      sousTitre("La maison") +
+      '<label>Notes (état, projet, ce qu\'on sait du bien)<textarea id="fa-notes" rows="3">' + escH(maison.notes || "") + "</textarea></label>",
+      '<button class="btn" id="fa-fermer">Fermer</button>' +
+      '<button class="btn btn-or" id="fa-save">Enregistrer la maison</button>');
+    $("fa-fermer").addEventListener("click", fermerModale);
+    // Enregistrer = la maison porte une information → elle se colore.
+    $("fa-save").addEventListener("click", async () => {
+      try {
+        await upsertAdresse(pos, { notes: $("fa-notes").value.trim() });
+        fermerModale();
+        toast("Maison enregistrée — elle est en couleur sur la carte");
+      } catch (e) { toast(e.message, true); }
+    });
+    $("fa-sv-ajouter").addEventListener("click", async () => {
+      const commentaire = $("fa-sv-com").value.trim();
+      if (!commentaire) { toast("Un mot sur ce qui s'est passé ?", true); return; }
+      try {
+        await api("/crm/suivis", { json: {
+          adresse: pos.adresse, type: $("fa-sv-type").value,
+          commentaire, rappel_le: $("fa-sv-rappel").value,
+        } });
+        await upsertAdresse(pos, { notes: $("fa-notes").value.trim() });
+        toast("Suivi enregistré");
+        ouvrirFicheAdresse(pos); // la fiche se recharge avec le fil à jour
+      } catch (e) { toast(e.message, true); }
+    });
+    $("fa-habitant").addEventListener("click", async () => {
+      try { await upsertAdresse(pos, { notes: $("fa-notes").value.trim() }); } catch (e) { }
+      modaleProspect(pos, { lat: pos.lat, lng: pos.lng }, () => ouvrirFicheAdresse(pos));
+    });
+    $("fa-estimation").addEventListener("click", async () => {
+      try { await upsertAdresse(pos, { notes: $("fa-notes").value.trim() }); } catch (e) { }
+      window.location.href = "../estimation/?fiche=1&adresse=" + encodeURIComponent(pos.adresse) +
+        "&ville=" + encodeURIComponent(pos.ville) + "&lat=" + pos.lat + "&lng=" + pos.lng;
     });
   }
 
@@ -737,6 +874,7 @@
     for (const v of ventes) {
       const m = L.circleMarker([v.lat, v.lng], {
         radius: 5, weight: 1.5, color: "#0f0f10", fillColor: "#4ECDC4", fillOpacity: 0.85,
+        bubblingMouseEvents: false,
       });
       const m2 = v.surface ? Math.round(v.prix / v.surface) : 0;
       m.bindPopup(
@@ -772,6 +910,7 @@
       const m = L.circleMarker([lat, lng], {
         radius: 5, weight: 1.5, color: "#0f0f10",
         fillColor: DPE_COULEURS[et] || "#8a8a86", fillOpacity: 0.9,
+        bubblingMouseEvents: false,
       });
       m.bindPopup(
         '<div class="titre">DPE ' + escH(et || "?") + (dpe.etiquette_ges ? " · GES " + escH(dpe.etiquette_ges) : "") + "</div>" +
@@ -866,8 +1005,14 @@
   // une délégation globale suffit, pas de listener par marqueur.
   document.addEventListener("click", (e) => {
     const b = e.target.closest("[data-suivi-contact]");
-    if (b) ouvrirSuivi(b.dataset.suiviContact, b.dataset.suiviAdresse || "");
+    if (b) { ouvrirSuivi(b.dataset.suiviContact, b.dataset.suiviAdresse || ""); return; }
+    const fa = e.target.closest("[data-fiche-adresse]");
+    if (fa) ouvrirFicheAdresse({
+      adresse: fa.dataset.ficheAdresse, ville: fa.dataset.faVille || "", cp: fa.dataset.faCp || "",
+      lat: parseFloat(fa.dataset.faLat) || 0, lng: parseFloat(fa.dataset.faLng) || 0,
+    });
   });
+  $("couche-adresses").addEventListener("change", rendreAdresses);
   $("btn-import-ventes").addEventListener("click", () => $("fichier-ventes").click());
   $("fichier-ventes").addEventListener("change", (e) => {
     const f = e.target.files && e.target.files[0];
@@ -879,6 +1024,7 @@
   $("couche-ventes").addEventListener("change", rendreVentes);
   $("btn-recharger-zone").addEventListener("click", rafraichirMarche);
   $("liste-ilots").addEventListener("click", (e) => {
+    if (e.target.closest("[data-modif-ilot],[data-suppr-ilot]")) return; // les ✏️/🗑 ont leur délégation
     const el = e.target.closest("[data-zoom-ilot]");
     if (!el) return;
     const il = donnees.ilots.find((i) => i.id === el.dataset.zoomIlot);

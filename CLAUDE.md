@@ -237,6 +237,23 @@ Rappels » dans l'onglet Contacts (✓ Fait), popup carte prospection (historiqu
 « ➕ Ajouter un prospect » (mode clic carte → géocodage inverse BAN/IGN
 /reverse/ → modale préremplie), catégorie/filtre « prospect » (#e07a5f),
 fiche estimation (fil manuel ancré 1er contact lié sinon adresse). Carte v19.
+**Fiche adresse** (`crm_adresses`, id ad_, unique (agency, adresse COLLATE
+NOCASE)) : toute maison cliquée sur la carte de prospection. Routes membre :
+POST /crm/adresses (upsert — un champ absent ne détruit rien, lat/lng 0 ne
+recule pas la position), GET /crm/adresses/fiche?adresse= (maison + habitants
+= contacts à cette adresse + suivis par adresse + estimations dont l'adresse
+COMMENCE pareil, via substr — jamais LIKE). /crm/carte renvoie `adresses`
+(maisons suivies) → cercles VERTS #7fb069, couche « Maisons suivies ».
+Prospection : clic carte (hors dessin/ajout prospect, délai 280 ms annulé par
+dblclick/zoom/move) → géocodage inverse → modale fiche adresse (habitants,
+➕ Habitant via modaleProspect(pre, latlng, apres), 📐 Créer/Ouvrir la fiche
+estimation → ../estimation/?fiche=1&adresse=&ville=&lat=&lng=, historique,
+＋ Suivi, notes maison, Enregistrer = upsertAdresse → la maison se colore).
+Les couches à popup posent bubblingMouseEvents:false ; les polygones d'îlots
+sont interactive:false (le clic traverse jusqu'à la maison), l'édition d'îlot
+vit dans la liste latérale (boutons .mini ✏️/🗑, même délégation document).
+estimation.js : demarrer() lit ?fiche=1&adresse=… et ouvre ouvrirFiche()
+directement (fiche existante retrouvée par adresse). Carte v20.
 **Suivi d'une fiche estimation** : `GET /crm/estimations/:id/envois` (membre) ;
 la modale affiche l'historique + la prochaine action calculée des dates R1/R2.
 Studio Estimation a un bouton 📍 (pompe /crm/geo/serveur, admin) ; la priorité

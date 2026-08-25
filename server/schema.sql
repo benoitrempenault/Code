@@ -624,3 +624,23 @@ CREATE TABLE IF NOT EXISTS crm_suivis (
 CREATE INDEX IF NOT EXISTS idx_crm_suivis_contact ON crm_suivis(agency_id, contact_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_crm_suivis_adresse ON crm_suivis(agency_id, adresse);
 CREATE INDEX IF NOT EXISTS idx_crm_suivis_rappel  ON crm_suivis(agency_id, rappel_fait, rappel_le);
+
+-- La FICHE ADRESSE : une maison cliquée sur la carte de prospection. Dès
+-- qu'une information y est posée (note de la maison, suivi, habitant,
+-- estimation), l'adresse est enregistrée ici avec la position du clic et la
+-- maison apparaît EN COULEUR sur la carte — une maison sans information ne
+-- laisse aucune trace. Une seule fiche par adresse (casse ignorée).
+CREATE TABLE IF NOT EXISTS crm_adresses (
+  id         TEXT PRIMARY KEY,               -- ad_xxxxxxxx
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  adresse    TEXT NOT NULL,
+  cp         TEXT NOT NULL DEFAULT '',
+  ville      TEXT NOT NULL DEFAULT '',
+  lat        REAL NOT NULL DEFAULT 0,
+  lng        REAL NOT NULL DEFAULT 0,
+  notes      TEXT NOT NULL DEFAULT '',       -- la maison elle-même (état, projet…)
+  user_id    TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_adresses_unique ON crm_adresses(agency_id, adresse COLLATE NOCASE);
