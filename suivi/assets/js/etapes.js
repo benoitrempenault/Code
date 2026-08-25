@@ -113,12 +113,34 @@
   const finRetract = (d) => finRetractDepuis(d.dates.presentation_sru) || addDays(ssp(d), 14);
   const pret = (d) => (d.financement && d.financement.recours_pret === "oui");
 
-  /* -------- Urbanisme : uniquement pour les terrains (DP puis PC) --------
-     Les étapes s'enchaînent sur les dates réelles dès qu'elles sont saisies
-     (dépôt, accord, affichage) ; sinon sur des délais d'instruction usuels :
-     DP 1 mois, PC 2 mois (maison individuelle), affichage sous 8 jours.
-     Les purges courent 3 mois après l'affichage constaté par huissier.     */
-  const estTerrain = (d) => /terrain/i.test(((d.bien && d.bien.type) || "") + " " + ((d.bien && d.bien.description) || ""));
+  /* ------------------------ Nature du bien -------------------------------
+     Trois natures seulement pilotent le suivi : « terrain » (phase Urbanisme :
+     DP puis PC), « appartement » (bien en copropriété) et « maison ». Un LOCAL
+     COMMERCIAL n'a pas de suivi propre : en copropriété il se traite comme un
+     appartement (syndic, pré-état daté, charges), sinon comme une maison. Un
+     terrain à bâtir vendu avec un local reste un local : le mot « terrain »
+     n'emporte la décision que si le type du bien le nomme vraiment.        */
+  const estCopro = (d) => {
+    const b = d.bien || {};
+    if (/^\s*(oui|o|yes|1|vrai)\b/i.test(String(b.copropriete || ""))) return true;
+    if (/^\s*(non|n|no|0|faux)\b/i.test(String(b.copropriete || ""))) return false;
+    // Copropriété non renseignée : des lots ou un syndic la trahissent.
+    if (String(b.lots || "").trim()) return true;
+    return /copropri[ée]t[ée]/i.test(String(b.type || "") + " " + String(b.description || ""))
+      || (d.syndic && d.syndic.role === "syndic" && !!String(d.syndic.nom || "").trim());
+  };
+  function typeBien(d) {
+    const t = String((d.bien && d.bien.type) || "");
+    const txt = t + " " + String((d.bien && d.bien.description) || "");
+    if (/local|commerc|bureau|boutique|entrep[ôo]t|fonds de commerce/i.test(txt)) {
+      return estCopro(d) ? "appartement" : "maison";
+    }
+    if (/terrain|parcelle|lot [àa] b[âa]tir/i.test(t)) return "terrain";
+    if (/appartement|studio|\bt[1-9]\b|duplex/i.test(txt) || estCopro(d)) return "appartement";
+    if (/terrain/i.test(txt)) return "terrain";
+    return "maison";
+  }
+  const estTerrain = (d) => typeBien(d) === "terrain";
 
   /* ------------- Entretiens obligatoires & diagnostics -------------------
      Entretiens : ramonage et chaudière = tous les ans, PAC/climatisation =
@@ -202,7 +224,10 @@
      les met pas dans l'échéancier (elles restent dans la fiche du dossier).
      Testées sur le SEUL intitulé, pour ne pas écarter par erreur une vraie
      condition dont le détail les mentionnerait au passage.                  */
-  const CS_DROIT = /certificat d'urbanisme|titres? de propri[ée]t[ée]|[ée]tat hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur/i;
+  const CS_DROIT = /certificat d'urbanisme|titres? de propri[ée]t[ée]|origine de (?:la )?propri[ée]t[ée]|servitude|[ée]tat hypoth[ée]caire|situation hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur/i;
+  // La condition est-elle de pur droit ? (Testée sur le seul intitulé, comme
+  // dans csEtapes — la fiche du dossier s'en sert pour l'indiquer.)
+  const condDroit = (c) => CS_DROIT.test(String((c && c.titre) || "").trim() || String((c && c.detail) || ""));
   const CS_TYPES = [
     { key: "revente", cible: "acquereur", modele: "Relance condition suspensive", jours: 60,
       re: /revente|vente pr[ée]alable|vente de (?:son|leur|sa)|vente d'un (?:autre )?bien|vente du bien (?:de l'|des )acqu|mise en vente/i,
@@ -622,7 +647,7 @@
   ];
 
   window.SuiviEtapes = {
-    ETAPES, compute, nextDue, sante, DEFAULT_MODELES, estTerrain,
+    ETAPES, compute, nextDue, sante, DEFAULT_MODELES, estTerrain, typeBien, condDroit,
     DIAGS, dureeDiag, diagExpiration, dateActe, ENTRETIENS, finRetract,
     addDays, addMonths, daysUntil, fmtFr, fmtIso, parseDate, today
   };

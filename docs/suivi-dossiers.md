@@ -161,6 +161,17 @@ un prénom composé au hasard. Les dossiers anciens sont reformatés à l'ouvert
 (numéro, voie, code postal, ville — `adresseComplete()`), et `{{honoraires}}` ne rend
 que le montant, jamais la phrase entière du compromis.
 
+### Nature du bien
+
+Trois natures pilotent le suivi (`typeBien()`) : **terrain** (phase Urbanisme — DP, PC et
+purges), **appartement** (copropriété : syndic, pré-état daté) et **maison**. Un **local
+commercial** n'a pas de suivi propre : il se traite **comme un appartement s'il est en
+copropriété, comme une maison sinon** — la copropriété étant lue dans le champ dédié, à
+défaut déduite des lots, d'une mention « copropriété » ou d'un syndic renseigné. Un local
+« avec terrain attenant » reste un local : seul un type nommant vraiment un terrain (terrain,
+parcelle, lot à bâtir) déclenche la phase Urbanisme. La nature retenue est affichée sous le
+champ « Type » de la carte « Bien & prix ».
+
 ### Deux agences : Saint-Médard / Caudéran
 
 Kadima a deux agences ; les dossiers restent dans le même compte (mêmes modèles, même
@@ -198,7 +209,7 @@ annuaire, mêmes comptes) mais chaque dossier appartient à une agence :
 | Accord de principe banque | J+30 | usage |
 | Offre de prêt (ODP) | échéance condition − 10 j, sinon J+45 | émission usuelle 30-45 jours ; L313-41 : durée min. de la condition 30 jours |
 | Acceptation de l'offre | échéance condition | acceptation possible à partir du 11ᵉ jour après réception (L313-34) |
-| Conditions suspensives hors prêt | **première relance 15 jours avant** l'échéance de la condition (celle du compromis ; à défaut, pour une condition de réitération, la date de signature ; sinon le délai usuel du type, sinon la date butoir) | une étape **par condition extraite du compromis** (revente d'un bien de l'acquéreur, régularisation de travaux, assainissement, locataire, succession, bornage, copropriété, autorisation d'urbanisme ou administrative…) ; prêt et préemption sont exclus, ils ont leur propre phase, et les conditions de pur droit réglées par le notaire (certificat d'urbanisme, titres de propriété, état hypothécaire, mainlevée, préemption de la mairie) sont **retirées du dossier** à l'ouverture (`CS_INUTILE`) : elles figurent dans tous les compromis et n'apprennent rien. Cocher l'étape lève la condition dans la fiche, et inversement |
+| Conditions suspensives hors prêt | **première relance 15 jours avant** l'échéance de la condition (celle du compromis ; à défaut, pour une condition de réitération, la date de signature ; sinon le délai usuel du type, sinon la date butoir) | une étape **par condition extraite du compromis** (revente d'un bien de l'acquéreur, régularisation de travaux, assainissement, locataire, succession, bornage, copropriété, autorisation d'urbanisme ou administrative…) ; prêt et préemption sont exclus, ils ont leur propre phase, et les conditions de pur droit (origine de propriété, urbanisme et servitudes, situation hypothécaire, titres de propriété, mainlevée…) **restent dans la fiche du dossier** — le compromis les contient — mais **n'entrent pas dans l'échéancier** (`CS_DROIT`) : le notaire les règle sans nous, et la fiche le signale sous chacune. Le droit de préemption a sa propre phase. Cocher l'étape lève la condition dans la fiche, et inversement |
 | Entretiens (ramonage, chaudière, clim/PAC) | dernier entretien + 12 mois (24 pour la clim/PAC) | seulement pour les équipements présents au compromis ; **alerte à J-30**, orange à J-7, rouge une fois périmé — la ligne reste en revanche affichée tant que la date du dernier entretien est inconnue (attestation à récupérer). Relance interne au **conseiller vendeur** |
 | Diagnostics à renouveler | première expiration tombant avant l'acte | **alerte à J-30**, orange à J-7, rouge une fois périmé ; aucune ligne tant que tout tient jusqu'à la signature (DPE 10 ans, audit 5 ans, ERP et termites 6 mois, gaz/élec/assainissement 3 ans, amiante et plomb illimités sauf présence : 3 ans / 1 an). Relance interne au **conseiller vendeur** |
 | Demande de date de signature | butoir − 21 jours | aux **deux études** (modèle « Demande de date de signature ») : proposer une date, obtenir le projet d'acte et les pièces manquantes |
