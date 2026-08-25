@@ -719,6 +719,42 @@ ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Autho
     "délai expirant lundi de Pâques 29/03/2027 : prorogé au mardi 30, purgé le 31");
 }
 
+/* ---- Autorisation d'urbanisme : l'étape de dépôt précède la condition -- */
+{
+  const { actionsFor } = await import("./src/etapes.js");
+  const avec = (c) => ({
+    statut: "en_cours", date_compromis: "2026-06-01", date_butoir: "2026-10-30",
+    dates: {}, sequestre: {}, financement: {}, bien: { type: "Maison" }, syndic: {},
+    equipements: {}, entretiens: {}, diagnostics: {}, etapes: {}, conditions_suspensives: [c]
+  });
+  const cs = (c) => actionsFor(avec(c), "2026-06-05").filter((a) => String(a.id).startsWith("cs_"));
+  // Sans délai au compromis : dix jours après la signature, AVANT la condition.
+  const nu = cs({ titre: "Autorisation d'urbanisme piscine", detail: "Piscine enterrée, purgée de tous recours" });
+  ok(nu.length === 2 && nu[0].id.endsWith("_depot"), "le dépôt s'insère juste au-dessus de la condition");
+  ok(nu[0].due === "2026-06-11", "sans délai stipulé : dépôt à dix jours du compromis");
+  ok(/D[ée]p[ôo]t de l'autorisation d'urbanisme/.test(nu[0].label), "l'étape s'intitule « Dépôt de l'autorisation d'urbanisme »");
+  // Un délai stipulé au compromis prime, sous toutes ses écritures.
+  const stipule = [
+    ["Le vendeur déposera la demande dans les 21 jours de la signature", "2026-06-22"],
+    ["Dépôt du dossier sous 2 mois à compter des présentes", "2026-08-01"],
+    ["Dépôt au plus tard le 15/07/2026 ; obtention avant le 30/09/2026", "2026-07-15"],
+    ["La demande sera déposée avant le 20 juillet 2026, purge des recours ensuite", "2026-07-20"]
+  ];
+  for (const [detail, attendu] of stipule) {
+    ok(cs({ titre: "Autorisation d'urbanisme", detail })[0].due === attendu,
+      "délai de dépôt stipulé respecté (« " + detail.slice(0, 42) + "… » → " + attendu + ")");
+  }
+  // Une date qui ne parle pas de dépôt ne doit pas être prise pour un délai.
+  ok(cs({ titre: "Autorisation d'urbanisme", detail: "Purgée de tous recours avant le 28/08/2026" })[0].due === "2026-06-11",
+    "une date d'obtention n'est pas confondue avec un délai de dépôt");
+  // Condition levée : plus rien à déposer.
+  const levee = cs({ titre: "Autorisation d'urbanisme", detail: "x", levee: true });
+  ok(!levee.some((a) => a.id.endsWith("_depot")), "condition levée : l'étape de dépôt disparaît");
+  // Les autres conditions restent seules.
+  ok(cs({ titre: "Revente du bien de l'acquéreur", detail: "x" }).length === 1,
+    "une condition sans autorisation d'urbanisme n'a pas d'étape de dépôt");
+}
+
 /* ---- Nature du bien : le local commercial suit la copropriété ---------- */
 {
   const { typeBien, actionsFor } = await import("./src/etapes.js");

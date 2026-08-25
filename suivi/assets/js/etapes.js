@@ -251,7 +251,7 @@
       re: /assembl[ée]e g[ée]n[ée]rale|copropri[ée]t[ée]|syndicat des copropri[ée]taires|pr[ée]-?[ée]tat dat[ée]|carnet d'entretien/i,
       hint: "Copropriété : autorisation de l'AG, pré-état daté et pièces du syndic — relancer le syndic dès la rétractation purgée." },
     { key: "urbanisme", cible: "notaire_vendeur", modele: "Relance condition suspensive", jours: 60,
-      re: /autorisation d'urbanisme|note de renseignement|alignement|emplacement r[ée]serv[ée]|servitude/i,
+      re: /autorisation d'urbanisme|permis de construire|permis d'am[ée]nager|permis de d[ée]molir|d[ée]claration pr[ée]alable|note de renseignement|alignement|emplacement r[ée]serv[ée]|servitude/i,
       hint: "Autorisation d'urbanisme : instruction en mairie d'un à deux mois, puis purge des recours et du retrait administratif." },
     { key: "autorisation", cible: "vendeur", modele: "Relance condition suspensive", jours: 60,
       re: /changement d'usage|autorisation administrative|\berp\b|exploitation|licence|meubl[ée] de tourisme/i,
@@ -271,6 +271,51 @@
     if (t && t.jours) return addDays(ssp(d), t.jours);
     return d.date_butoir || addDays(ssp(d), 75);
   }
+  /* ------- Dépôt d'une autorisation d'urbanisme (avant l'obtention) -------
+     Une condition d'autorisation d'urbanisme se joue d'abord au guichet : tant
+     que la demande n'est pas déposée, l'instruction ne court pas. On ajoute
+     donc, AU-DESSUS de la condition, une étape « Dépôt de l'autorisation
+     d'urbanisme » à 10 jours du compromis — sauf si le compromis stipule son
+     propre délai de dépôt (une date, un nombre de jours ou de mois), qui prime
+     toujours.                                                                */
+  const CS_AUTORISATION = /autorisation d'urbanisme|permis de construire|permis d'am[ée]nager|permis de d[ée]molir|d[ée]claration pr[ée]alable/i;
+  const DEPOT_DEFAUT = 10;
+  // Mois écrits en toutes lettres, accentués ou non (« février », « fevrier »).
+  const MOIS_FR = ["janvier", "février|fevrier", "mars", "avril", "mai", "juin",
+    "juillet", "août|aout", "septembre", "octobre", "novembre", "décembre|decembre"];
+  // « 30/09/2026 » ou « 30 septembre 2026 » → ISO.
+  function isoDeFr(s) {
+    const t = String(s || "").trim();
+    let m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/.exec(t);
+    if (m) {
+      const an = m[3].length === 2 ? "20" + m[3] : m[3];
+      return an + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0");
+    }
+    m = /^(\d{1,2})(?:er)?\s+([^\s]+)\s+(\d{4})$/.exec(t);
+    if (!m) return "";
+    const nom = m[2].toLowerCase();
+    const i = MOIS_FR.findIndex((mois) => mois.split("|").includes(nom));
+    return i < 0 ? "" : m[3] + "-" + String(i + 1).padStart(2, "0") + "-" + m[1].padStart(2, "0");
+  }
+  /* Délai de dépôt stipulé au compromis, cherché DANS une phrase qui parle de
+     dépôt : la date d'obtention ou de purge de la condition, elle, figure
+     ailleurs dans le même détail et ne doit pas être prise pour un délai. */
+  const PRES_DEPOT = "(?:d[ée]p[ôo]ts?|d[ée]poser|d[ée]pos[ée]e?s?|demande|dossier)";
+  function delaiDepotStipule(d, c) {
+    const txt = ((c.titre || "") + " " + (c.detail || "")).replace(/\s+/g, " ");
+    const date = new RegExp(PRES_DEPOT + "[^.;]{0,90}?(?:avant le|au plus tard le|d'ici le|le)\\s+"
+      + "(\\d{1,2}[\\/.\\-]\\d{1,2}[\\/.\\-]\\d{2,4}|\\d{1,2}(?:er)?\\s+\\S+\\s+\\d{4})", "i").exec(txt);
+    if (date) { const iso = isoDeFr(date[1]); if (iso) return iso; }
+    const jours = new RegExp(PRES_DEPOT + "[^.;]{0,90}?(\\d{1,3})\\s*jours", "i").exec(txt)
+      || new RegExp("(\\d{1,3})\\s*jours[^.;]{0,60}?" + PRES_DEPOT, "i").exec(txt);
+    if (jours) return addDays(ssp(d), Number(jours[1]));
+    const mois = new RegExp(PRES_DEPOT + "[^.;]{0,90}?(\\d{1,2})\\s*mois", "i").exec(txt)
+      || new RegExp("(\\d{1,2})\\s*mois[^.;]{0,60}?" + PRES_DEPOT, "i").exec(txt);
+    if (mois) return addMonths(ssp(d), Number(mois[1]));
+    return "";
+  }
+  const echeanceDepot = (d, c) => delaiDepotStipule(d, c) || addDays(ssp(d), DEPOT_DEFAUT);
+
   // Identifiant stable dérivé de l'intitulé de la condition.
   function slug(s) {
     return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -296,7 +341,20 @@
       let id = "cs_" + (slug(c.titre) || slug(c.detail) || i);
       if (vus[id]) id += "_" + i;
       vus[id] = true;
-      return {
+      /* Autorisation d'urbanisme : le dépôt de la demande précède l'obtention
+         — une étape à part, JUSTE AU-DESSUS de la condition. Elle disparaît
+         une fois la condition levée (la demande a forcément été déposée). */
+      const depot = (CS_AUTORISATION.test(txt) && !c.levee) ? {
+        id: id + "_depot", phase: "Conditions suspensives",
+        label: "Dépôt de l'autorisation d'urbanisme — " + ((c.titre || "").trim() || "condition du compromis"),
+        cible: "vendeur", modele: "Relance condition suspensive",
+        due: () => echeanceDepot(d, c),
+        hint: (delaiDepotStipule(d, c)
+          ? "Délai de dépôt stipulé au compromis : " + fmtFr(echeanceDepot(d, c)) + "."
+          : "Aucun délai de dépôt au compromis : " + DEPOT_DEFAUT + " jours après la signature.")
+          + " Tant que la demande n'est pas déposée en mairie, l'instruction ne court pas — récupérer le récépissé de dépôt."
+      } : null;
+      const cond = {
         id, phase: "Conditions suspensives", csIndex: i,
         label: (c.titre || "").trim() || "Condition suspensive à lever",
         cible: t ? t.cible : "notaire_vendeur",
@@ -313,7 +371,8 @@
             || "Condition reprise du compromis : à lever avant la réitération.";
         })()
       };
-    }).filter(Boolean);
+      return depot ? [depot, cond] : [cond];
+    }).filter(Boolean).reduce((tout, x) => tout.concat(x), []);
   }
 
   const dpDepot = (d) => d.dates.dp_depot || addDays(ssp(d), 15);
