@@ -216,7 +216,7 @@ annuaire, mêmes comptes) mais chaque dossier appartient à une agence :
 - Écriture protégée contre l'écrasement : le client envoie `base_updated_at` ; si un
   collègue a enregistré entre-temps → 409 et l'app propose de recharger.
 - Extraction IA : tâche `extract_compromis` (prompt + schéma JSON dans
-  `server/src/prompts.js`), modèle standard (Sonnet), PDF ≤ ~3 Mo par analyse.
+  `server/src/prompts.js`), modèle standard (Sonnet), **PDF jusqu'à 12 Mo par analyse** — l'encodage base64 le porte à 16 Mo dans la requête, d'où `AI_MAX_BODY_BYTES` à 17 Mo côté proxy ; le fichier joint au dossier (R2) est plafonné à 15 Mo.
 
 ### Mise en service
 

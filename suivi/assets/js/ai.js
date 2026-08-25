@@ -61,8 +61,12 @@
     throw lastErr;
   }
 
-  // Charge cumulée (caractères base64) que le proxy accepte (~4 Mo de corps).
-  const PAYLOAD_BUDGET = 3200000;
+  /* Charge cumulée (caractères base64) que le proxy accepte. L'encodage
+     base64 gonfle un fichier d'un tiers : 12 Mo de PDF pèsent 16 Mo dans la
+     requête, que le serveur autorise (AI_MAX_BODY_BYTES = 17 Mo, marge pour
+     l'enveloppe JSON). */
+  const PAYLOAD_MO = 12;
+  const PAYLOAD_BUDGET = Math.round(PAYLOAD_MO * 1e6 * 4 / 3);
   function payloadLen(u) { const i = (u || "").indexOf(","); return i < 0 ? (u || "").length : (u.length - i - 1); }
 
   /* Extraction du compromis : files = [{dataUrl, isPdf, name}] — un PDF, ou
@@ -76,7 +80,7 @@
     files.forEach(function (f) { total += payloadLen(f.dataUrl); });
     if (total > PAYLOAD_BUDGET) {
       throw new Error("Document trop volumineux pour une analyse en une passe ("
-        + Math.round(total / 1e6 * 0.75) + " Mo). Rescannez en qualité réduite ou chargez les pages utiles (parties, bien, prix, séquestre, conditions suspensives, notaires).");
+        + Math.round(total / 1e6 * 0.75) + " Mo, maximum " + PAYLOAD_MO + " Mo). Rescannez en qualité réduite ou chargez les pages utiles (parties, bien, prix, séquestre, conditions suspensives, notaires).");
     }
     const blocks = files.slice(0, 12).map(function (f) {
       if (f.isPdf) return { type: "document", source: { type: "base64", media_type: "application/pdf", data: f.dataUrl.split(",")[1] || "" } };

@@ -34,7 +34,7 @@ MAIL_FROM = "Studio Brochure <connexion@studiobrochure.fr>"
 GLOBAL_MONTHLY_CAP_EUR = "500"  # kill-switch : plafond de dépense IA mensuel TOUS comptes confondus (filet anti-facture)
 # AI_MODELS = "claude-opus-4-8,claude-sonnet-4-5,claude-haiku-4-5"  # liste blanche (défaut dans le code)
 # AI_RATE_PER_MIN = "60"        # appels IA max par agence et par minute
-# AI_MAX_BODY_BYTES = "4000000" # taille max d'une requête IA (vision multi-photos)
+# AI_MAX_BODY_BYTES = "17000000" # taille max d'une requête IA (compromis de 12 Mo → 16 Mo en base64)
 
 # Secrets (JAMAIS dans ce fichier) — à poser avec :
 #   wrangler secret put ANTHROPIC_API_KEY
