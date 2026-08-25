@@ -148,7 +148,9 @@ export function createApp(env) {
   }
 
   /* ------------------------------- Santé -------------------------------- */
-  app.get("/health", (c) => c.json({ ok: true, ts: now() }));
+  // « devices » : plafond d'appareils par compte — publié ici pour qu'un
+  // simple curl dise quelle version du serveur est en ligne.
+  app.get("/health", (c) => c.json({ ok: true, ts: now(), devices: MAX_SESSIONS }));
 
   /* --------------------------- Authentification ------------------------- */
   app.post("/auth/request-link", async (c) => {

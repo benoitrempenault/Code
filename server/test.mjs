@@ -157,6 +157,9 @@ for (let i = 2; i <= 5; i++) {
 const seat6 = await call("/admin/users", { headers: admin, body: { agency_id: agencyId, email: "u6@azur-immo.fr" } });
 ok(seat6.status === 409, "6e utilisateur refusé (5 sièges)");
 
+const sante = await call("/health", { method: "GET" });
+ok(sante.status === 200 && sante.json.devices === 8, "/health publie le plafond d'appareils (vérifiable après déploiement)");
+
 console.log("— Limite d'appareils (8 sessions simultanées)");
 // Ouvre des sessions successives ; on vide login_tokens entre chaque pour ne
 // pas déclencher l'anti-rafale des liens de connexion.
