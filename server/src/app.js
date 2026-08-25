@@ -36,7 +36,9 @@ const MAX_TOKENS_CAP = 8192;
 // par env.AI_MODELS pour ajouter/retirer sans redéployer le code).
 const DEFAULT_AI_MODELS = "claude-opus-4-8,claude-sonnet-5,claude-haiku-4-5,claude-fable-5";
 const DEFAULT_AI_RATE_PER_MIN = 60;      // appels IA par agence et par minute
-const DEFAULT_AI_MAX_BODY = 4_000_000;   // 4 Mo : autorise la vision multi-photos, bloque un payload absurde
+// 17 Mo : un compromis scanné de 12 Mo pèse 16 Mo une fois encodé en base64,
+// plus l'enveloppe JSON. Au-delà, c'est un payload absurde — on refuse.
+const DEFAULT_AI_MAX_BODY = 17_000_000;
 const RESERVE_INPUT_CAP = 200000;        // plafond de tokens d'entrée estimés pour la réservation
 
 export function createApp(env) {
@@ -2944,9 +2946,14 @@ export function createApp(env) {
     if (ctx && !agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif — activez votre abonnement pour utiliser la rédaction IA.");
     if (!byoKey && !env.ANTHROPIC_API_KEY) return err(c, 501, "Proxy IA non configuré (ANTHROPIC_API_KEY).");
 
-    const raw = await c.req.text();
+    let raw = await c.req.text();
     if (raw.length > aiMaxBody) return err(c, 413, "Requête trop volumineuse.");
+    const rawLen = raw.length;
     let body; try { body = JSON.parse(raw); } catch (e) { body = null; }
+    // Un compromis de 12 Mo pèse 16 Mo en base64 : on relâche la copie texte
+    // dès qu'elle est analysée, la requête sortante en réallouant autant et
+    // l'isolat ne disposant que d'une mémoire limitée.
+    raw = null;
     if (!body || typeof body !== "object") return err(c, 400, "Corps de requête invalide.");
     if (!aiModels.includes(String(body.model || ""))) return err(c, 400, "Modèle non autorisé.");
     body.max_tokens = Math.min(parseInt(body.max_tokens, 10) || 1024, MAX_TOKENS_CAP);
@@ -2981,7 +2988,7 @@ export function createApp(env) {
     // (2) Réservation atomique du quota (mode session uniquement — en mode clé
     // personnelle, le coût est sur la clé du client). Estimation pessimiste :
     // entrée estimée depuis la taille du corps, plafonnée ; sortie = max_tokens.
-    const estIn = Math.min(Math.ceil(raw.length / 3.5), RESERVE_INPUT_CAP);
+    const estIn = Math.min(Math.ceil(rawLen / 3.5), RESERVE_INPUT_CAP);
     const est = ctx ? costMicros(model, estIn, body.max_tokens) : 0;
     let globalReserved = false;
     if (ctx) {

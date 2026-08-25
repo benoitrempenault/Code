@@ -493,9 +493,16 @@ ok(over.status === 429, "quota atteint → 429");
 await db.run("UPDATE agencies SET quota_eur = 20 WHERE id = ?", [agencyId]);
 
 console.log("— Garde-fous IA (taille d'entrée + concurrence)");
+// Le plafond suit la taille des compromis acceptés (12 Mo → 16 Mo en base64) :
+// un document de cette taille passe, un payload absurde est toujours refusé.
+const gros = await call("/v1/messages", {
+  headers: { Authorization: "Bearer " + s3 },
+  body: { model: "claude-opus-4-8", task: "brochure", messages: [{ role: "user", content: "x".repeat(16_000_000) }] }
+});
+ok(gros.status === 200, "compromis de 12 Mo (16 Mo en base64) accepté par le proxy");
 const huge = await call("/v1/messages", {
   headers: { Authorization: "Bearer " + s3 },
-  body: { model: "claude-opus-4-8", messages: [{ role: "user", content: "x".repeat(4_100_000) }] }
+  body: { model: "claude-opus-4-8", messages: [{ role: "user", content: "x".repeat(17_100_000) }] }
 });
 ok(huge.status === 413, "requête trop volumineuse → 413");
 const badModel2 = await call("/v1/messages", { headers: { Authorization: "Bearer " + s3 }, body: { model: "claude-opus-3-ancien", messages: [] } });
@@ -674,6 +681,28 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   ok(promptFor("tache_inconnue", "") === null, "tâche IA inconnue rejetée");
 }
 
+/* ---- Taille des compromis : la chaîne client → proxy tient 12 Mo -------- */
+{
+  // Le client refuse au-delà de PAYLOAD_BUDGET (base64), le proxy au-delà de
+  // AI_MAX_BODY_BYTES : le second doit couvrir le premier, enveloppe JSON
+  // comprise, sinon un PDF accepté par l'app repart en 413 du serveur.
+  const cli = readFileSync(new URL("../suivi/assets/js/ai.js", import.meta.url), "utf8");
+  const mo = /const PAYLOAD_MO = (\d+)/.exec(cli);
+  ok(mo && Number(mo[1]) === 12, "le client annonce 12 Mo de compromis");
+  const budget = Math.round(Number(mo[1]) * 1e6 * 4 / 3);
+  const srv = readFileSync(new URL("./src/app.js", import.meta.url), "utf8");
+  const max = /const DEFAULT_AI_MAX_BODY = ([\d_]+)/.exec(srv);
+  const maxBody = max && Number(max[1].replace(/_/g, ""));
+  ok(maxBody >= budget + 200000,
+    "le proxy accepte le base64 d'un compromis de 12 Mo (" + maxBody + " ≥ " + budget + " + enveloppe)");
+  // La pièce jointe stockée en R2 doit elle aussi tenir le fichier d'origine.
+  const r2 = /const COMPROMIS_MAX_BYTES = ([\d_]+)/.exec(srv);
+  ok(r2 && Number(r2[1].replace(/_/g, "")) >= Number(mo[1]) * 1e6,
+    "le compromis de 12 Mo peut être joint au dossier (R2)");
+  // Message d'erreur du client : il doit nommer la limite réelle.
+  ok(/maximum " \+ PAYLOAD_MO \+ " Mo/.test(cli), "le refus côté client annonce la limite en Mo");
+}
+
 /* ---- Échéancier : conditions suspensives hors prêt ---------------------- */
 {
   const { actionsFor } = await import("./src/etapes.js");
@@ -701,8 +730,16 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   ok(!ids.includes("cs_succession_a_regler"), "une condition déjà levée disparaît de l'échéancier");
   ok(!ids.some((i) => /cs_obtention_d_un_pret|cs_purge/.test(i)), "prêt et préemption ne sont pas dupliqués (phases dédiées)");
   ok(!ids.includes("cs_urbanisme") && !ids.includes("cs_hypotheque"), "les étapes génériques d'urbanisme et d'hypothèque ont disparu");
-  // Conditions de pur droit : réglées par le notaire, jamais relancées.
+  // Conditions de pur droit : réglées par le notaire, jamais relancées. Elles
+  // restent en revanche dans la FICHE du dossier (le compromis les contient).
   ok(!ids.some((i) => /certificat_d_urbanisme|etat_hypothecaire/.test(i)), "certificat d'urbanisme et état hypothécaire écartés de l'échéancier");
+  for (const titre of ["Origine de propriété", "Urbanisme et servitudes", "Situation hypothécaire",
+    "Origine de la propriété et servitudes"]) {
+    const dd = JSON.parse(JSON.stringify(d));
+    dd.conditions_suspensives = [{ titre, detail: "Sans charge ni servitude grave" }];
+    ok(actionsFor(dd, "2026-06-10").every((a) => !String(a.id).startsWith("cs_")),
+      "« " + titre + " » n'entre pas dans l'échéancier");
+  }
   ok(ids.includes("cs_autorisation_d_urbanisme_piscine"), "une vraie autorisation d'urbanisme reste suivie");
   // Une condition portant sur la réitération se cale sur la date de signature.
   const reit = actionsFor(d, "2026-06-10").find((a) => a.id === "cs_reiteration_de_l_acte_authentique");
@@ -764,6 +801,71 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
     "délai expirant le 14 juillet (férié) : prorogé au 15, purgé le 16");
   ok(sru("2027-03-19") === "2027-03-31",
     "délai expirant lundi de Pâques 29/03/2027 : prorogé au mardi 30, purgé le 31");
+}
+
+/* ---- Autorisation d'urbanisme : l'étape de dépôt précède la condition -- */
+{
+  const { actionsFor } = await import("./src/etapes.js");
+  const avec = (c) => ({
+    statut: "en_cours", date_compromis: "2026-06-01", date_butoir: "2026-10-30",
+    dates: {}, sequestre: {}, financement: {}, bien: { type: "Maison" }, syndic: {},
+    equipements: {}, entretiens: {}, diagnostics: {}, etapes: {}, conditions_suspensives: [c]
+  });
+  const cs = (c) => actionsFor(avec(c), "2026-06-05").filter((a) => String(a.id).startsWith("cs_"));
+  // Sans délai au compromis : dix jours après la signature, AVANT la condition.
+  const nu = cs({ titre: "Autorisation d'urbanisme piscine", detail: "Piscine enterrée, purgée de tous recours" });
+  ok(nu.length === 2 && nu[0].id.endsWith("_depot"), "le dépôt s'insère juste au-dessus de la condition");
+  ok(nu[0].due === "2026-06-11", "sans délai stipulé : dépôt à dix jours du compromis");
+  ok(/D[ée]p[ôo]t de l'autorisation d'urbanisme/.test(nu[0].label), "l'étape s'intitule « Dépôt de l'autorisation d'urbanisme »");
+  // Un délai stipulé au compromis prime, sous toutes ses écritures.
+  const stipule = [
+    ["Le vendeur déposera la demande dans les 21 jours de la signature", "2026-06-22"],
+    ["Dépôt du dossier sous 2 mois à compter des présentes", "2026-08-01"],
+    ["Dépôt au plus tard le 15/07/2026 ; obtention avant le 30/09/2026", "2026-07-15"],
+    ["La demande sera déposée avant le 20 juillet 2026, purge des recours ensuite", "2026-07-20"]
+  ];
+  for (const [detail, attendu] of stipule) {
+    ok(cs({ titre: "Autorisation d'urbanisme", detail })[0].due === attendu,
+      "délai de dépôt stipulé respecté (« " + detail.slice(0, 42) + "… » → " + attendu + ")");
+  }
+  // Une date qui ne parle pas de dépôt ne doit pas être prise pour un délai.
+  ok(cs({ titre: "Autorisation d'urbanisme", detail: "Purgée de tous recours avant le 28/08/2026" })[0].due === "2026-06-11",
+    "une date d'obtention n'est pas confondue avec un délai de dépôt");
+  // Condition levée : plus rien à déposer.
+  const levee = cs({ titre: "Autorisation d'urbanisme", detail: "x", levee: true });
+  ok(!levee.some((a) => a.id.endsWith("_depot")), "condition levée : l'étape de dépôt disparaît");
+  // Les autres conditions restent seules.
+  ok(cs({ titre: "Revente du bien de l'acquéreur", detail: "x" }).length === 1,
+    "une condition sans autorisation d'urbanisme n'a pas d'étape de dépôt");
+}
+
+/* ---- Nature du bien : le local commercial suit la copropriété ---------- */
+{
+  const { typeBien, actionsFor } = await import("./src/etapes.js");
+  const bien = (type, extra) => Object.assign({
+    statut: "en_cours", date_compromis: "2026-06-01", date_butoir: "2026-09-30",
+    dates: {}, sequestre: {}, financement: {}, bien: { type }, syndic: {},
+    equipements: {}, entretiens: {}, diagnostics: {}, etapes: {}, conditions_suspensives: []
+  }, extra || {});
+  ok(typeBien(bien("Local commercial")) === "maison",
+    "local commercial hors copropriété → suivi comme une maison");
+  ok(typeBien(bien("Local commercial", { bien: { type: "Local commercial", copropriete: "oui" } })) === "appartement",
+    "local commercial en copropriété → suivi comme un appartement");
+  ok(typeBien(bien("Local commercial", { bien: { type: "Local commercial", lots: "Lot 12 — 45/1000èmes" } })) === "appartement",
+    "local commercial avec des lots → copropriété déduite, suivi comme un appartement");
+  ok(typeBien(bien("Local commercial", { bien: { type: "Local commercial", copropriete: "non" }, syndic: { role: "syndic", nom: "CITYA" } })) === "maison",
+    "« copropriété : non » prime sur la présence d'un syndic");
+  // Un local vendu avec du terrain ne bascule pas dans la phase Urbanisme.
+  const localTerrain = bien("Local commercial", { bien: { type: "Local commercial", description: "avec terrain attenant de 300 m2" } });
+  ok(typeBien(localTerrain) === "maison", "local commercial avec terrain attenant : ce n'est pas un terrain à bâtir");
+  ok(!actionsFor(localTerrain, "2026-06-10").some((a) => String(a.id).startsWith("dp_") || String(a.id).startsWith("pc_")),
+    "aucune étape de DP / PC pour un local commercial");
+  // Les autres natures restent inchangées.
+  ok(typeBien(bien("Terrain à bâtir")) === "terrain", "terrain à bâtir → terrain");
+  ok(typeBien(bien("Appartement T3")) === "appartement", "appartement → appartement");
+  ok(typeBien(bien("Maison individuelle")) === "maison", "maison → maison");
+  ok(actionsFor(bien("Terrain à bâtir"), "2026-06-10").some((a) => a.id === "pc_depot"),
+    "la phase Urbanisme reste active sur un vrai terrain");
 }
 
 /* ---- Séquestre : comptabilité de l'étude dépositaire -------------------- */

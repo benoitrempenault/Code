@@ -87,7 +87,29 @@ const finRetract = (d) => finRetractDepuis(d.dates && d.dates.presentation_sru) 
 const pret = (d) => (d.financement && d.financement.recours_pret === "oui");
 // Urbanisme (terrains) : mêmes règles que le client — DP puis PC, purges à
 // 3 mois de l'affichage constaté.
-const estTerrain = (d) => /terrain/i.test(((d.bien && d.bien.type) || "") + " " + ((d.bien && d.bien.description) || ""));
+/* Nature du bien (miroir du client) : un LOCAL COMMERCIAL se traite comme un
+   appartement s'il est en copropriété, comme une maison sinon ; seul un type
+   nommant vraiment un terrain déclenche la phase Urbanisme. */
+const estCopro = (d) => {
+  const b = d.bien || {};
+  if (/^\s*(oui|o|yes|1|vrai)\b/i.test(String(b.copropriete || ""))) return true;
+  if (/^\s*(non|n|no|0|faux)\b/i.test(String(b.copropriete || ""))) return false;
+  if (String(b.lots || "").trim()) return true;
+  return /copropri[\u00e9e]t[\u00e9e]/i.test(String(b.type || "") + " " + String(b.description || ""))
+    || (d.syndic && d.syndic.role === "syndic" && !!String(d.syndic.nom || "").trim());
+};
+export function typeBien(d) {
+  const t = String((d.bien && d.bien.type) || "");
+  const txt = t + " " + String((d.bien && d.bien.description) || "");
+  if (/local|commerc|bureau|boutique|entrep[\u00f4o]t|fonds de commerce/i.test(txt)) {
+    return estCopro(d) ? "appartement" : "maison";
+  }
+  if (/terrain|parcelle|lot [\u00e0a] b[\u00e2a]tir/i.test(t)) return "terrain";
+  if (/appartement|studio|\bt[1-9]\b|duplex/i.test(txt) || estCopro(d)) return "appartement";
+  if (/terrain/i.test(txt)) return "terrain";
+  return "maison";
+}
+const estTerrain = (d) => typeBien(d) === "terrain";
 const dt = (d, k) => (d.dates && d.dates[k]) || "";
 const dpDepot = (d) => dt(d, "dp_depot") || addDays(ssp(d), 15);
 const dpAccord = (d) => dt(d, "dp_accord") || addMonths(dpDepot(d), 1);
@@ -219,7 +241,7 @@ const CS_HORS = [
 ];
 // Conditions de pur droit (travail du notaire, aucune relance) : écartées de
 // l'échéancier. Testées sur le seul intitulé. Miroir du client.
-const CS_DROIT = /certificat d'urbanisme|titres? de propri[ée]t[ée]|[ée]tat hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur/i;
+const CS_DROIT = /certificat d'urbanisme|titres? de propri[ée]t[ée]|origine de (?:la )?propri[ée]t[ée]|servitude|[ée]tat hypoth[ée]caire|situation hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur/i;
 // Conditions qu'on ne suit pas : le notaire les règle seul. Miroir du client.
 const CS_INUTILE = /certificat d'urbanisme|titres? de propri[ée]t[ée]|[ée]tat hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur|pr[ée]emption/i;
 const CS_REITERATION = /r[ée]it[ée]ration|acte authentique|signature de l'acte/i;
@@ -231,13 +253,48 @@ const CS_JOURS = [
   { re: /succession|d[ée]volution|notori[ée]t[ée]|h[ée]ritier|indivision|attestation (?:notari[ée]e )?de propri[ée]t[ée]/i, jours: 60 },
   { re: /bornage|arpentage|g[ée]om[èe]tre|division (?:parcellaire|de la parcelle|du terrain)|d[ée]tachement/i, jours: 60 },
   { re: /assembl[ée]e g[ée]n[ée]rale|copropri[ée]t[ée]|syndicat des copropri[ée]taires|pr[ée]-?[ée]tat dat[ée]|carnet d'entretien/i, jours: 60 },
-  { re: /autorisation d'urbanisme|note de renseignement|alignement|emplacement r[ée]serv[ée]|servitude/i, jours: 60 },
+  { re: /autorisation d'urbanisme|permis de construire|permis d'am[ée]nager|permis de d[ée]molir|d[ée]claration pr[ée]alable|note de renseignement|alignement|emplacement r[ée]serv[ée]|servitude/i, jours: 60 },
   { re: /changement d'usage|autorisation administrative|\berp\b|exploitation|licence|meubl[ée] de tourisme/i, jours: 60 }
 ];
 function slug(s) {
   return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
 }
+/* D\u00e9p\u00f4t d'une autorisation d'urbanisme (miroir du client) : une \u00e9tape \u00e0 part,
+   juste avant la condition, \u00e0 10 jours du compromis \u2014 sauf d\u00e9lai de d\u00e9p\u00f4t
+   stipul\u00e9 au compromis (date, jours ou mois), qui prime. */
+const CS_AUTORISATION = /autorisation d'urbanisme|permis de construire|permis d'am[\u00e9e]nager|permis de d[\u00e9e]molir|d[\u00e9e]claration pr[\u00e9e]alable/i;
+const DEPOT_DEFAUT = 10;
+const MOIS_FR = ["janvier", "f\u00e9vrier|fevrier", "mars", "avril", "mai", "juin",
+  "juillet", "ao\u00fbt|aout", "septembre", "octobre", "novembre", "d\u00e9cembre|decembre"];
+function isoDeFr(s) {
+  const t = String(s || "").trim();
+  let m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/.exec(t);
+  if (m) {
+    const an = m[3].length === 2 ? "20" + m[3] : m[3];
+    return an + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0");
+  }
+  m = /^(\d{1,2})(?:er)?\s+([^\s]+)\s+(\d{4})$/.exec(t);
+  if (!m) return "";
+  const nom = m[2].toLowerCase();
+  const i = MOIS_FR.findIndex((mois) => mois.split("|").includes(nom));
+  return i < 0 ? "" : m[3] + "-" + String(i + 1).padStart(2, "0") + "-" + m[1].padStart(2, "0");
+}
+const PRES_DEPOT = "(?:d[\u00e9e]p[\u00f4o]ts?|d[\u00e9e]poser|d[\u00e9e]pos[\u00e9e]e?s?|demande|dossier)";
+function delaiDepotStipule(d, c) {
+  const txt = ((c.titre || "") + " " + (c.detail || "")).replace(/\s+/g, " ");
+  const date = new RegExp(PRES_DEPOT + "[^.;]{0,90}?(?:avant le|au plus tard le|d'ici le|le)\\s+"
+    + "(\\d{1,2}[\\/.\\-]\\d{1,2}[\\/.\\-]\\d{2,4}|\\d{1,2}(?:er)?\\s+\\S+\\s+\\d{4})", "i").exec(txt);
+  if (date) { const iso = isoDeFr(date[1]); if (iso) return iso; }
+  const jours = new RegExp(PRES_DEPOT + "[^.;]{0,90}?(\\d{1,3})\\s*jours", "i").exec(txt)
+    || new RegExp("(\\d{1,3})\\s*jours[^.;]{0,60}?" + PRES_DEPOT, "i").exec(txt);
+  if (jours) return addDays(ssp(d), Number(jours[1]));
+  const mois = new RegExp(PRES_DEPOT + "[^.;]{0,90}?(\\d{1,2})\\s*mois", "i").exec(txt)
+    || new RegExp("(\\d{1,2})\\s*mois[^.;]{0,60}?" + PRES_DEPOT, "i").exec(txt);
+  if (mois) return addMonths(ssp(d), Number(mois[1]));
+  return "";
+}
+const echeanceDepot = (d, c) => delaiDepotStipule(d, c) || addDays(ssp(d), DEPOT_DEFAUT);
 function csEtapes(d) {
   const terrain = estTerrain(d);
   const vus = {};
@@ -253,6 +310,13 @@ function csEtapes(d) {
     let id = "cs_" + (slug(c.titre) || slug(c.detail) || i);
     if (vus[id]) id += "_" + i;
     vus[id] = true;
+    if (CS_AUTORISATION.test(txt) && !c.levee) {
+      out.push({
+        id: id + "_depot",
+        label: "Dépôt de l'autorisation d'urbanisme — " + ((c.titre || "").trim() || "condition du compromis"),
+        due: () => echeanceDepot(d, c)
+      });
+    }
     out.push({
       id, csIndex: i,
       label: "Condition suspensive : " + ((c.titre || "").trim() || "à lever"),
