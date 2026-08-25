@@ -493,9 +493,16 @@ ok(over.status === 429, "quota atteint → 429");
 await db.run("UPDATE agencies SET quota_eur = 20 WHERE id = ?", [agencyId]);
 
 console.log("— Garde-fous IA (taille d'entrée + concurrence)");
+// Le plafond suit la taille des compromis acceptés (12 Mo → 16 Mo en base64) :
+// un document de cette taille passe, un payload absurde est toujours refusé.
+const gros = await call("/v1/messages", {
+  headers: { Authorization: "Bearer " + s3 },
+  body: { model: "claude-opus-4-8", task: "brochure", messages: [{ role: "user", content: "x".repeat(16_000_000) }] }
+});
+ok(gros.status === 200, "compromis de 12 Mo (16 Mo en base64) accepté par le proxy");
 const huge = await call("/v1/messages", {
   headers: { Authorization: "Bearer " + s3 },
-  body: { model: "claude-opus-4-8", messages: [{ role: "user", content: "x".repeat(4_100_000) }] }
+  body: { model: "claude-opus-4-8", messages: [{ role: "user", content: "x".repeat(17_100_000) }] }
 });
 ok(huge.status === 413, "requête trop volumineuse → 413");
 const badModel2 = await call("/v1/messages", { headers: { Authorization: "Bearer " + s3 }, body: { model: "claude-opus-3-ancien", messages: [] } });
@@ -672,6 +679,28 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
     ok(p.output_config && compte(p.output_config.format.schema) <= 25, "schéma de sortie raisonnable pour la tâche « " + t + " »");
   }
   ok(promptFor("tache_inconnue", "") === null, "tâche IA inconnue rejetée");
+}
+
+/* ---- Taille des compromis : la chaîne client → proxy tient 12 Mo -------- */
+{
+  // Le client refuse au-delà de PAYLOAD_BUDGET (base64), le proxy au-delà de
+  // AI_MAX_BODY_BYTES : le second doit couvrir le premier, enveloppe JSON
+  // comprise, sinon un PDF accepté par l'app repart en 413 du serveur.
+  const cli = readFileSync(new URL("../suivi/assets/js/ai.js", import.meta.url), "utf8");
+  const mo = /const PAYLOAD_MO = (\d+)/.exec(cli);
+  ok(mo && Number(mo[1]) === 12, "le client annonce 12 Mo de compromis");
+  const budget = Math.round(Number(mo[1]) * 1e6 * 4 / 3);
+  const srv = readFileSync(new URL("./src/app.js", import.meta.url), "utf8");
+  const max = /const DEFAULT_AI_MAX_BODY = ([\d_]+)/.exec(srv);
+  const maxBody = max && Number(max[1].replace(/_/g, ""));
+  ok(maxBody >= budget + 200000,
+    "le proxy accepte le base64 d'un compromis de 12 Mo (" + maxBody + " ≥ " + budget + " + enveloppe)");
+  // La pièce jointe stockée en R2 doit elle aussi tenir le fichier d'origine.
+  const r2 = /const COMPROMIS_MAX_BYTES = ([\d_]+)/.exec(srv);
+  ok(r2 && Number(r2[1].replace(/_/g, "")) >= Number(mo[1]) * 1e6,
+    "le compromis de 12 Mo peut être joint au dossier (R2)");
+  // Message d'erreur du client : il doit nommer la limite réelle.
+  ok(/maximum " \+ PAYLOAD_MO \+ " Mo/.test(cli), "le refus côté client annonce la limite en Mo");
 }
 
 /* ---- Échéancier : conditions suspensives hors prêt ---------------------- */
