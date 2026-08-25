@@ -87,7 +87,29 @@ const finRetract = (d) => finRetractDepuis(d.dates && d.dates.presentation_sru) 
 const pret = (d) => (d.financement && d.financement.recours_pret === "oui");
 // Urbanisme (terrains) : mêmes règles que le client — DP puis PC, purges à
 // 3 mois de l'affichage constaté.
-const estTerrain = (d) => /terrain/i.test(((d.bien && d.bien.type) || "") + " " + ((d.bien && d.bien.description) || ""));
+/* Nature du bien (miroir du client) : un LOCAL COMMERCIAL se traite comme un
+   appartement s'il est en copropriété, comme une maison sinon ; seul un type
+   nommant vraiment un terrain déclenche la phase Urbanisme. */
+const estCopro = (d) => {
+  const b = d.bien || {};
+  if (/^\s*(oui|o|yes|1|vrai)\b/i.test(String(b.copropriete || ""))) return true;
+  if (/^\s*(non|n|no|0|faux)\b/i.test(String(b.copropriete || ""))) return false;
+  if (String(b.lots || "").trim()) return true;
+  return /copropri[\u00e9e]t[\u00e9e]/i.test(String(b.type || "") + " " + String(b.description || ""))
+    || (d.syndic && d.syndic.role === "syndic" && !!String(d.syndic.nom || "").trim());
+};
+export function typeBien(d) {
+  const t = String((d.bien && d.bien.type) || "");
+  const txt = t + " " + String((d.bien && d.bien.description) || "");
+  if (/local|commerc|bureau|boutique|entrep[\u00f4o]t|fonds de commerce/i.test(txt)) {
+    return estCopro(d) ? "appartement" : "maison";
+  }
+  if (/terrain|parcelle|lot [\u00e0a] b[\u00e2a]tir/i.test(t)) return "terrain";
+  if (/appartement|studio|\bt[1-9]\b|duplex/i.test(txt) || estCopro(d)) return "appartement";
+  if (/terrain/i.test(txt)) return "terrain";
+  return "maison";
+}
+const estTerrain = (d) => typeBien(d) === "terrain";
 const dt = (d, k) => (d.dates && d.dates[k]) || "";
 const dpDepot = (d) => dt(d, "dp_depot") || addDays(ssp(d), 15);
 const dpAccord = (d) => dt(d, "dp_accord") || addMonths(dpDepot(d), 1);
@@ -219,7 +241,7 @@ const CS_HORS = [
 ];
 // Conditions de pur droit (travail du notaire, aucune relance) : écartées de
 // l'échéancier. Testées sur le seul intitulé. Miroir du client.
-const CS_DROIT = /certificat d'urbanisme|titres? de propri[ée]t[ée]|[ée]tat hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur/i;
+const CS_DROIT = /certificat d'urbanisme|titres? de propri[ée]t[ée]|origine de (?:la )?propri[ée]t[ée]|servitude|[ée]tat hypoth[ée]caire|situation hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur/i;
 // Conditions qu'on ne suit pas : le notaire les règle seul. Miroir du client.
 const CS_INUTILE = /certificat d'urbanisme|titres? de propri[ée]t[ée]|[ée]tat hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur|pr[ée]emption/i;
 const CS_REITERATION = /r[ée]it[ée]ration|acte authentique|signature de l'acte/i;

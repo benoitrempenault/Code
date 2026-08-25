@@ -367,10 +367,6 @@
 
   // Conditions qu'on ne suit pas : le notaire s'en charge seul, et leur
   // présence dans la fiche n'apprend rien. Reconnue sur le seul intitulé.
-  const CS_INUTILE = /certificat d'urbanisme|titres? de propri[ée]t[ée]|[ée]tat hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur|pr[ée]emption/i;
-  function conditionInutile(c) {
-    return CS_INUTILE.test(String((c && c.titre) || "").trim() || String((c && c.detail) || ""));
-  }
 
   // Consolide un dossier chargé (ancien, partiel ou importé) sur le gabarit.
   function normalize(data) {
@@ -428,7 +424,10 @@
     // état hypothécaire, mainlevée, préemption de la mairie) : présentes dans
     // tous les compromis, réglées par le notaire, sans intérêt de suivi — on
     // ne les garde pas, même dans la fiche.
-    data.conditions_suspensives = data.conditions_suspensives.filter((c) => !conditionInutile(c));
+    // Les conditions de pur droit (origine de propriété, urbanisme et
+    // servitudes, situation hypothécaire…) RESTENT dans la fiche du dossier :
+    // elles font partie du compromis. C'est l'échéancier qui les ignore, le
+    // notaire les réglant sans nous (E.condDroit).
     // Anciens dossiers : les noms passent à l'écriture « Mr DUPONT Jean-Pierre ».
     ["vendeurs", "acquereurs"].forEach((k) => data[k].forEach((p) => {
       if (p && p.nom) p.nom = nomStandard(p.nom);
@@ -1580,13 +1579,20 @@
           : "");
     }).join("");
 
+    /* Les conditions de pur droit (origine de propriété, urbanisme et
+       servitudes, situation hypothécaire…) figurent dans la fiche — c'est le
+       reflet du compromis — mais pas dans l'échéancier : le notaire les règle
+       sans nous. La mention le dit, pour qu'on ne les cherche pas plus haut. */
     const condHtml = d.conditions_suspensives.map((c, i) =>
-      '<div class="cond">' +
+      '<div class="cond' + (E.condDroit(c) ? " cond--droit" : "") + '">' +
       '<input type="checkbox" data-path-check="conditions_suspensives.' + i + '.levee"' + (c.levee ? " checked" : "") + ' title="Condition levée" />' +
       '<input type="text" data-path="conditions_suspensives.' + i + '.titre" value="' + esc(c.titre || "") + '" placeholder="Intitulé" />' +
       '<textarea data-path="conditions_suspensives.' + i + '.detail" placeholder="Détail">' + esc(c.detail || "") + "</textarea>" +
       '<input type="date" data-path="conditions_suspensives.' + i + '.echeance" value="' + esc(c.echeance || "") + '" title="Échéance" />' +
       '<button class="btn btn--sm btn--danger" data-rm="conditions_suspensives.' + i + '">✕</button>' +
+      (E.condDroit(c)
+        ? '<small class="cond__droit">Réglée par le notaire — pas de relance ni d\'étape à l\'échéancier.</small>'
+        : "") +
       "</div>"
     ).join("");
 
@@ -1697,6 +1703,13 @@
 
       '<div class="card"><h3>🏠 Bien &amp; prix</h3>' +
       '<div class="grid2">' + input("Type", "bien.type", d) + input("Ville", "bien.ville", d) + "</div>" +
+      // Nature retenue par le suivi : un local commercial se traite comme un
+      // appartement en copropriété, comme une maison sinon.
+      '<p class="hintline" style="margin:-4px 0 10px">Suivi comme ' +
+      { terrain: "un <b>terrain</b> (phase Urbanisme : DP, PC et purges)",
+        appartement: "un <b>appartement</b> (copropriété : syndic, pré-état daté)",
+        maison: "une <b>maison</b>" }[E.typeBien(d)] +
+      ". Un local commercial suit la copropriété : appartement s'il y en a une, maison sinon.</p>" +
       input("Adresse du bien", "bien.adresse", d) +
       input("Désignation", "bien.description", d) +
       '<div class="grid3">' +
@@ -2776,9 +2789,10 @@
       recours_pret: S(fi.recours_pret), montant_pret: S(fi.montant_pret), duree: S(fi.duree), taux_max: S(fi.taux_max),
       banques: S(fi.banques), date_limite_depot: S(fi.date_limite_depot), date_limite_obtention: S(fi.date_limite_obtention)
     };
+    // Toutes les conditions du compromis sont reprises, y compris celles de
+    // pur droit : la fiche est le reflet de l'acte. L'échéancier fait le tri.
     d.conditions_suspensives = (x.conditions_suspensives || [])
-      .map((c) => ({ titre: S(c.titre), detail: S(c.detail), echeance: S(c.echeance), levee: false }))
-      .filter((c) => !conditionInutile(c));
+      .map((c) => ({ titre: S(c.titre), detail: S(c.detail), echeance: S(c.echeance), levee: false }));
     d.observations = S(x.observations);
     d.journal.push({ ts: Math.floor(Date.now() / 1000), user: userName(), text: "Dossier créé par analyse du compromis (IA) — relisez et corrigez si besoin." });
     return d;

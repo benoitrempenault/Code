@@ -646,8 +646,16 @@ ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Autho
   ok(!ids.includes("cs_succession_a_regler"), "une condition déjà levée disparaît de l'échéancier");
   ok(!ids.some((i) => /cs_obtention_d_un_pret|cs_purge/.test(i)), "prêt et préemption ne sont pas dupliqués (phases dédiées)");
   ok(!ids.includes("cs_urbanisme") && !ids.includes("cs_hypotheque"), "les étapes génériques d'urbanisme et d'hypothèque ont disparu");
-  // Conditions de pur droit : réglées par le notaire, jamais relancées.
+  // Conditions de pur droit : réglées par le notaire, jamais relancées. Elles
+  // restent en revanche dans la FICHE du dossier (le compromis les contient).
   ok(!ids.some((i) => /certificat_d_urbanisme|etat_hypothecaire/.test(i)), "certificat d'urbanisme et état hypothécaire écartés de l'échéancier");
+  for (const titre of ["Origine de propriété", "Urbanisme et servitudes", "Situation hypothécaire",
+    "Origine de la propriété et servitudes"]) {
+    const dd = JSON.parse(JSON.stringify(d));
+    dd.conditions_suspensives = [{ titre, detail: "Sans charge ni servitude grave" }];
+    ok(actionsFor(dd, "2026-06-10").every((a) => !String(a.id).startsWith("cs_")),
+      "« " + titre + " » n'entre pas dans l'échéancier");
+  }
   ok(ids.includes("cs_autorisation_d_urbanisme_piscine"), "une vraie autorisation d'urbanisme reste suivie");
   // Une condition portant sur la réitération se cale sur la date de signature.
   const reit = actionsFor(d, "2026-06-10").find((a) => a.id === "cs_reiteration_de_l_acte_authentique");
@@ -709,6 +717,35 @@ ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Autho
     "délai expirant le 14 juillet (férié) : prorogé au 15, purgé le 16");
   ok(sru("2027-03-19") === "2027-03-31",
     "délai expirant lundi de Pâques 29/03/2027 : prorogé au mardi 30, purgé le 31");
+}
+
+/* ---- Nature du bien : le local commercial suit la copropriété ---------- */
+{
+  const { typeBien, actionsFor } = await import("./src/etapes.js");
+  const bien = (type, extra) => Object.assign({
+    statut: "en_cours", date_compromis: "2026-06-01", date_butoir: "2026-09-30",
+    dates: {}, sequestre: {}, financement: {}, bien: { type }, syndic: {},
+    equipements: {}, entretiens: {}, diagnostics: {}, etapes: {}, conditions_suspensives: []
+  }, extra || {});
+  ok(typeBien(bien("Local commercial")) === "maison",
+    "local commercial hors copropriété → suivi comme une maison");
+  ok(typeBien(bien("Local commercial", { bien: { type: "Local commercial", copropriete: "oui" } })) === "appartement",
+    "local commercial en copropriété → suivi comme un appartement");
+  ok(typeBien(bien("Local commercial", { bien: { type: "Local commercial", lots: "Lot 12 — 45/1000èmes" } })) === "appartement",
+    "local commercial avec des lots → copropriété déduite, suivi comme un appartement");
+  ok(typeBien(bien("Local commercial", { bien: { type: "Local commercial", copropriete: "non" }, syndic: { role: "syndic", nom: "CITYA" } })) === "maison",
+    "« copropriété : non » prime sur la présence d'un syndic");
+  // Un local vendu avec du terrain ne bascule pas dans la phase Urbanisme.
+  const localTerrain = bien("Local commercial", { bien: { type: "Local commercial", description: "avec terrain attenant de 300 m2" } });
+  ok(typeBien(localTerrain) === "maison", "local commercial avec terrain attenant : ce n'est pas un terrain à bâtir");
+  ok(!actionsFor(localTerrain, "2026-06-10").some((a) => String(a.id).startsWith("dp_") || String(a.id).startsWith("pc_")),
+    "aucune étape de DP / PC pour un local commercial");
+  // Les autres natures restent inchangées.
+  ok(typeBien(bien("Terrain à bâtir")) === "terrain", "terrain à bâtir → terrain");
+  ok(typeBien(bien("Appartement T3")) === "appartement", "appartement → appartement");
+  ok(typeBien(bien("Maison individuelle")) === "maison", "maison → maison");
+  ok(actionsFor(bien("Terrain à bâtir"), "2026-06-10").some((a) => a.id === "pc_depot"),
+    "la phase Urbanisme reste active sur un vrai terrain");
 }
 
 /* ---- Séquestre : comptabilité de l'étude dépositaire -------------------- */

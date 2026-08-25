@@ -315,6 +315,9 @@ table.liste tr.row:hover td { background: var(--panel-2); }
 /* ----------------------------- Conditions ------------------------------- */
 .cond { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .cond:last-child { border-bottom: none; }
+/* Condition de pur droit : présente au dossier, absente de l'échéancier. */
+.cond--droit { opacity: .78; }
+.cond__droit { flex: 1 1 100%; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
 .cond input[type="text"] { flex: 1 1 180px; }
 .cond textarea { flex: 2 1 260px; min-height: 38px; }
 
