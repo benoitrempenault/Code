@@ -45,6 +45,8 @@
         <button class="btn btn-or" id="btn-dessiner">✏️ Dessiner un îlot</button>
         <button class="btn" id="btn-terminer" hidden>✔ Terminer</button>
         <button class="btn" id="btn-annuler-dessin" hidden>✖ Annuler</button>
+        <button class="btn" id="btn-import-ilots" title="Fichier d'îlots converti depuis CenturyNet (ilots-kadima.json)">📥 Importer des îlots</button>
+        <input type="file" id="fichier-ilots" accept=".json" hidden />
       </div>
       <p class="petit" id="aide-dessin" hidden>Cliquez sur la carte pour poser les sommets,
         puis « Terminer » (3 sommets minimum).</p>
@@ -90,7 +92,7 @@
       </div>
       <!-- Numéro de version affiché : le CDN de GitHub Pages garde les fichiers
            ~10 min — ce petit repère dit quelle version tourne vraiment. -->
-      <p class="petit" id="version-carte">carte v21</p>
+      <p class="petit" id="version-carte">carte v22</p>
       <div class="legende-dpe" id="legende-dpe" hidden>
         <span style="background:#2E8B57">A</span><span style="background:#5FAE4E">B</span><span style="background:#B4C93B">C</span><span style="background:#E9C46A">D</span><span style="background:#E39B3B">E</span><span style="background:#DB6A2C">F</span><span style="background:#D64533">G</span>
       </div>

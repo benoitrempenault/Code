@@ -1862,23 +1862,41 @@ export async function ilotPourPoint(db, agencyId, lat, lng) {
   for (const il of ilots) {
     let poly = [];
     try { poly = JSON.parse(il.polygone); } catch { }
-    if (poly.length >= 3 && pointDansPolygone(lat, lng, poly)) return il;
+    // Multi-polygone (import CenturyNet) : dedans si dans N'IMPORTE quel morceau.
+    for (const anneau of anneauxIlot(poly)) {
+      if (anneau.length >= 3 && pointDansPolygone(lat, lng, anneau)) return il;
+    }
   }
   return null;
+}
+
+// Un îlot est un anneau [[lat,lng],...] (dessiné à la main) OU un
+// MULTI-polygone [[anneau], [anneau], ...] (importé de CenturyNet : l'union
+// de parcelles cadastrales fait plusieurs morceaux). Ce helper rend toujours
+// une liste d'anneaux — partout où l'on teste ou dessine.
+export function anneauxIlot(polygone) {
+  if (!Array.isArray(polygone) || !polygone.length) return [];
+  return Array.isArray(polygone[0]) && Array.isArray(polygone[0][0]) ? polygone : [polygone];
 }
 
 export function sanitizeIlot(b) {
   const nom = strip(b.nom, 80);
   if (!nom) throw new Error("Le nom de l'îlot est requis.");
-  let poly = Array.isArray(b.polygone) ? b.polygone : [];
-  poly = poly.filter((p) => Array.isArray(p) && p.length === 2 &&
-    Number.isFinite(p[0]) && Number.isFinite(p[1]) &&
-    p[0] >= -90 && p[0] <= 90 && p[1] >= -180 && p[1] <= 180)
+  const propre = (poly) => (Array.isArray(poly) ? poly : [])
+    .filter((p) => Array.isArray(p) && p.length === 2 &&
+      Number.isFinite(p[0]) && Number.isFinite(p[1]) &&
+      p[0] >= -90 && p[0] <= 90 && p[1] >= -180 && p[1] <= 180)
     .map((p) => [Math.round(p[0] * 1e6) / 1e6, Math.round(p[1] * 1e6) / 1e6]);
-  if (poly.length < 3) throw new Error("Un îlot a au moins 3 sommets.");
-  if (poly.length > 300) throw new Error("Trop de sommets (300 max).");
+  const anneaux = anneauxIlot(b.polygone).map(propre).filter((a) => a.length >= 3);
+  if (!anneaux.length) throw new Error("Un îlot a au moins 3 sommets.");
+  const sommets = anneaux.reduce((n, a) => n + a.length, 0);
+  if (sommets > 2000) throw new Error("Trop de sommets (2000 max).");
+  if (anneaux.length > 60) throw new Error("Trop de morceaux (60 max).");
   const couleur = /^#[0-9a-fA-F]{6}$/.test(String(b.couleur || "")) ? b.couleur : "#c2a36b";
-  return { nom, conseiller: strip(b.conseiller, 80), couleur, polygone: JSON.stringify(poly) };
+  // Un seul anneau garde la forme historique [[lat,lng],...] — rien ne change
+  // pour les îlots dessinés à la main.
+  return { nom, conseiller: strip(b.conseiller, 80), couleur,
+    polygone: JSON.stringify(anneaux.length === 1 ? anneaux[0] : anneaux) };
 }
 
 /* ---------------- Ventes historiques (import extraction C21) -------------- */

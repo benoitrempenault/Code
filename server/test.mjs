@@ -2578,6 +2578,34 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/modeles", { headers: authP })).status === 200,
     "la bibliothèque se lit en MEMBRE (l'édition reste admin)");
 
+  /* ---- Îlots CenturyNet : multi-polygones + import en masse --------------- */
+  console.log("— Îlots CenturyNet : multi-polygones + import en masse");
+  const impIlots = await callR("/crm/ilots/bulk", { headers: auth, body: { ilots: [
+    { nom: "BLEU 1", conseiller: "Laurence ARIZTOY", couleur: "#5B9BD5", polygone: [
+      [[44.9000, -0.6200], [44.9010, -0.6200], [44.9010, -0.6190]],
+      [[44.9500, -0.7200], [44.9510, -0.7200], [44.9510, -0.7190]],
+    ] },
+    { nom: "Main levée", polygone: [[44.8000, -0.7000], [44.8100, -0.7000], [44.8100, -0.6900]] },
+    { nom: "Sans tracé", polygone: [] },
+  ] } });
+  ok(impIlots.status === 200 && impIlots.json.importes === 2 &&
+    impIlots.json.rejetes.length === 1 && impIlots.json.rejetes[0].nom === "Sans tracé",
+    "l'import en masse prend les îlots valides et dit lesquels sont rejetés");
+  const attrMulti = (await callR("/crm/ilots/attribution?lat=44.9505&lng=-0.7195", { headers: authP })).json;
+  ok(attrMulti.ilot && attrMulti.ilot.nom === "BLEU 1" && attrMulti.ilot.conseiller === "Laurence ARIZTOY",
+    "un point dans le DEUXIÈME morceau d'un îlot multi-polygone est bien attribué");
+  await callR("/crm/ilots/bulk", { headers: auth, body: { ilots: [
+    { nom: "bleu 1", conseiller: "Marine ZAMORA", couleur: "#5B9BD5",
+      polygone: [[[44.9000, -0.6200], [44.9010, -0.6200], [44.9010, -0.6190]]] },
+  ] } });
+  const ilotsCarte = (await callR("/crm/carte", { headers: authP })).json.ilots.filter((i) => /bleu 1/i.test(i.nom));
+  ok(ilotsCarte.length === 1 && ilotsCarte[0].conseiller === "Marine ZAMORA",
+    "ré-importer le même nom REMPLACE l'îlot (jamais de doublon, casse ignorée)");
+  ok(ilotsCarte[0].polygone.length === 3 && ilotsCarte[0].polygone[0].length === 2,
+    "un multi d'un seul morceau se range sous la forme historique (anneau simple)");
+  ok((await callR("/crm/ilots/bulk", { headers: authP, body: { ilots: [] } })).status === 403,
+    "l'import d'îlots est réservé aux administrateurs");
+
   fauxResend.close();
   fauxDvf.close();
   fauxBan.close();

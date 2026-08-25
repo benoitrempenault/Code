@@ -283,6 +283,21 @@ mail/sms se pose tout seul. GET /crm/modeles est passé MEMBRE (lecture
 seule — l'édition reste admin via reglages). UI admin : boutons « ✉️
 Envoyer un mail / 💬 Envoyer un SMS » dans la fiche contact → modale avec
 choix d'un modèle de la bibliothèque (canal "email"/"sms" dans MODELES).
+**Îlots CenturyNet** : extraction depuis https://centurynet.naxos.fr/CenturyNet/
+ilot21/ (SPA Angular ; API `api-geotool/GetIlots` + `GetIlotsConseillers/`,
+Authorization: Bearer <JWT du lien CenturyNet, ~15 h de validité>). Conversion
+(scratchpad) : GeoJSON MultiPolygon [lng,lat] → multi [lat,lng], anneau
+extérieur seul, Douglas-Peucker ~3 m, couleur par conseiller → fichier
+`ilots-kadima.json` {ilots:[{nom, conseiller, couleur, polygone}], sansGeometrie}.
+crm_ilots.polygone porte DEUX formes : anneau [[lat,lng],...] (dessin main)
+ou MULTI [[anneau],...] (import) — helper `anneauxIlot`/`anneauxDe` partout
+(sanitizeIlot ≤2000 sommets/60 morceaux, un seul anneau re-collapse en forme
+historique ; ilotPourPoint/ilotDe testent chaque morceau ; rendu Leaflet
+L.polygon(anneaux.map(a=>[a])) = MultiPolygon, jamais anneau2=trou).
+`POST /crm/ilots/bulk` (admin, ≤40/lot) : upsert par NOM COLLATE NOCASE
+(DELETE IN + INSERT multi-lignes par 10 — sous-requêtes D1) ; UI : bouton
+« 📥 Importer des îlots » (zone-dessin admin) + fichier-ilots, lots de 40.
+Carte v22.
 **Suivi d'une fiche estimation** : `GET /crm/estimations/:id/envois` (membre) ;
 la modale affiche l'historique + la prochaine action calculée des dates R1/R2.
 Studio Estimation a un bouton 📍 (pompe /crm/geo/serveur, admin) ; la priorité

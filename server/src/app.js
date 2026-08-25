@@ -1236,6 +1236,39 @@ export function createApp(env) {
     return c.json({ ok: true });
   });
 
+  // Import d'îlots en masse (fichier CenturyNet converti, admin). Upsert par
+  // NOM : ré-importer remplace le tracé, jamais de doublon. Set-based (peu de
+  // requêtes D1) : un DELETE des noms ré-importés, puis des INSERT multi-
+  // lignes par paquets — le navigateur envoie des lots de 40 max.
+  app.post("/crm/ilots/bulk", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    const bruts = b && Array.isArray(b.ilots) ? b.ilots : [];
+    if (!bruts.length) return err(c, 400, "Aucun îlot à importer.");
+    if (bruts.length > 40) return err(c, 400, "Import limité à 40 îlots par lot.");
+    const propres = [];
+    const rejetes = [];
+    for (const brut of bruts) {
+      try { propres.push(CRM.sanitizeIlot(brut)); }
+      catch (e) { rejetes.push({ nom: String(brut && brut.nom || "?").slice(0, 80), erreur: e.message }); }
+    }
+    if (propres.length) {
+      const noms = propres.map((v) => v.nom);
+      await db.run(
+        `DELETE FROM crm_ilots WHERE agency_id = ? AND nom COLLATE NOCASE IN (${noms.map(() => "?").join(",")})`,
+        [ctx.agency.id, ...noms]);
+      // 9 valeurs par ligne, lots de 10 lignes : loin des ~100 paramètres liés de D1.
+      for (let i = 0; i < propres.length; i += 10) {
+        const lot = propres.slice(i, i + 10);
+        await db.run(
+          `INSERT INTO crm_ilots (id, agency_id, nom, conseiller, couleur, polygone, user_id, created_at, updated_at)
+           VALUES ${lot.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ")}`,
+          lot.flatMap((v) => [randId("il"), ctx.agency.id, v.nom, v.conseiller, v.couleur, v.polygone, ctx.user.id, now(), now()]));
+      }
+    }
+    return c.json({ ok: true, importes: propres.length, rejetes });
+  });
+
   // L'attribution d'un point : quel îlot, donc quel conseiller. Servira aussi
   // au routage des demandes (estimations / acquéreurs) venant du site.
   app.get("/crm/ilots/attribution", async (c) => {

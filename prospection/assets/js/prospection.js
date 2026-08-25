@@ -89,8 +89,16 @@
     }
     return dedans;
   }
+  // Un îlot dessiné à la main est UN anneau [[lat,lng],...] ; un îlot importé
+  // de CenturyNet est un MULTI-polygone [[anneau], [anneau], ...] (union de
+  // parcelles cadastrales). Ce helper rend toujours une liste d'anneaux.
+  function anneauxDe(polygone) {
+    if (!Array.isArray(polygone) || !polygone.length) return [];
+    return Array.isArray(polygone[0]) && Array.isArray(polygone[0][0]) ? polygone : [polygone];
+  }
   function ilotDe(lat, lng) {
-    return donnees.ilots.find((i) => i.polygone.length >= 3 && pointDansPolygone(lat, lng, i.polygone)) || null;
+    return donnees.ilots.find((i) =>
+      anneauxDe(i.polygone).some((a) => a.length >= 3 && pointDansPolygone(lat, lng, a))) || null;
   }
   function categorieDe(types) {
     if ((types || []).includes("vendeur")) return "vendeur";
@@ -204,10 +212,13 @@
     const filtre = $("filtre-conseiller").value;
     const visibles = donnees.ilots.filter((i) => !filtre || i.conseiller === filtre);
     for (const il of visibles) {
-      if (il.polygone.length < 3) continue;
+      const anneaux = anneauxDe(il.polygone).filter((a) => a.length >= 3);
+      if (!anneaux.length) continue;
       // interactive:false — le clic TRAVERSE l'îlot : chaque maison du secteur
       // reste cliquable (fiche adresse). L'îlot s'édite depuis la liste latérale.
-      const poly = L.polygon(il.polygone, {
+      // [[anneau], [anneau]] : la forme MultiPolygon de Leaflet — chaque
+      // morceau se remplit (et non « anneau 2 = trou dans l'anneau 1 »).
+      const poly = L.polygon(anneaux.map((a) => [a]), {
         color: il.couleur, weight: 2, fillColor: il.couleur, fillOpacity: 0.12,
         interactive: false,
       });
@@ -279,7 +290,7 @@
     if (donnees.points.length && !carte._dejaCadre) {
       carte._dejaCadre = true;
       const b = L.latLngBounds(donnees.points.map((p) => [p.lat, p.lng]));
-      donnees.ilots.forEach((i) => i.polygone.forEach((s) => b.extend(s)));
+      donnees.ilots.forEach((i) => anneauxDe(i.polygone).flat().forEach((s) => b.extend(s)));
       carte.fitBounds(b.pad(0.1));
     }
     // S'il reste des ventes à placer (import tout frais, page fermée en cours
@@ -345,6 +356,38 @@
         await charger();
       } catch (e) { toast(e.message, true); }
     });
+  }
+
+  /* ------------------------ Import d'îlots (fichier) ------------------------
+     Le fichier ilots-kadima.json (îlots CenturyNet convertis : nom,
+     conseiller, couleur, multi-polygone en [lat,lng]) s'importe par lots de
+     40. Upsert par NOM côté serveur : ré-importer met à jour, jamais de
+     doublon. Les îlots dessinés à la main (autres noms) ne bougent pas. */
+  async function importerIlots(fichier) {
+    let data;
+    try { data = JSON.parse(await fichier.text()); }
+    catch (e) { toast("Ce fichier n'est pas un JSON lisible.", true); return; }
+    const liste = Array.isArray(data) ? data : (Array.isArray(data.ilots) ? data.ilots : []);
+    if (!liste.length) { toast("Aucun îlot dans ce fichier (clé « ilots » attendue).", true); return; }
+    if (!confirm("Importer " + liste.length + " îlot(s) ? Un îlot déjà importé avec le même nom sera remplacé.")) return;
+    const btn = $("btn-import-ilots");
+    btn.disabled = true;
+    let importes = 0;
+    const rejetes = [];
+    try {
+      for (let i = 0; i < liste.length; i += 40) {
+        btn.textContent = "📥 Import… " + importes + "/" + liste.length;
+        const r = await api("/crm/ilots/bulk", { json: { ilots: liste.slice(i, i + 40) } });
+        importes += r.importes;
+        rejetes.push(...(r.rejetes || []));
+      }
+      toast(importes + " îlot(s) importé(s)" +
+        (rejetes.length ? " · " + rejetes.length + " rejeté(s) (" + rejetes.slice(0, 3).map((x) => x.nom).join(", ") + "…)" : ""),
+        rejetes.length > 0);
+      await charger();
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = false;
+    btn.textContent = "📥 Importer des îlots";
   }
 
   /* ------------------------------ Fil de suivi ----------------------------- */
@@ -1043,6 +1086,12 @@
     e.target.value = "";
     if (f) importerVentes(f);
   });
+  $("btn-import-ilots").addEventListener("click", () => $("fichier-ilots").click());
+  $("fichier-ilots").addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (f) importerIlots(f);
+  });
   $("couche-dvf").addEventListener("change", rafraichirMarche);
   $("couche-dpe").addEventListener("change", rafraichirMarche);
   $("couche-ventes").addEventListener("change", rendreVentes);
@@ -1052,7 +1101,8 @@
     const el = e.target.closest("[data-zoom-ilot]");
     if (!el) return;
     const il = donnees.ilots.find((i) => i.id === el.dataset.zoomIlot);
-    if (il && il.polygone.length) carte.fitBounds(L.latLngBounds(il.polygone).pad(0.15));
+    const sommets = il ? anneauxDe(il.polygone).flat() : [];
+    if (sommets.length) carte.fitBounds(L.latLngBounds(sommets).pad(0.15));
   });
   // Boutons des popups d'îlots (delegation sur le document : les popups
   // Leaflet sont injectées dynamiquement)
