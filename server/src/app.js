@@ -768,7 +768,9 @@ export function createApp(env) {
     if (!b) return err(c, 400, "Corps JSON attendu.");
     const v = CRM.sanitizeContact(b);
     if (!v.nom && !v.prenom && !v.adresse) return err(c, 400, "Un nom ou une adresse est requis.");
-    if (!v.types.includes("prospect")) v.types.push("prospect");
+    // Sans typologie explicite → prospect ; la fiche prestations, elle,
+    // envoie types:["vendeur"] et garde ce profil.
+    if (!v.types.length) v.types.push("prospect");
     const id = randId("ct");
     await db.run(
       `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone,
@@ -957,12 +959,18 @@ export function createApp(env) {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     await CRM.migrerRecherchesEnProjets(db, ctx.agency.id, ctx.user.id);
     const projets = await CRM.listProjets(db, ctx.agency);
+    const criteresRows = await db.all(
+      "SELECT projet_id, data FROM crm_projet_criteres WHERE agency_id = ?", [ctx.agency.id]);
+    const criteresPar = Object.fromEntries(criteresRows.map((r) => {
+      try { return [r.projet_id, JSON.parse(r.data)]; } catch { return [r.projet_id, {}]; }
+    }));
     return c.json({
       projets: projets.map((p) => ({
         id: p.id, kind: p.kind, statut: p.statut, adresse: p.adresse, ville: p.ville,
         budgetMin: p.budget_min, budgetMax: p.budget_max,
         types: parseArr(p.types), villes: parseArr(p.villes),
         piecesMin: p.pieces_min, surfaceMin: p.surface_min, notes: p.notes,
+        criteres: criteresPar[p.id] || {},
         contacts: p.contacts,
       })),
     });
@@ -1004,6 +1012,12 @@ export function createApp(env) {
     for (const cid of contactIds) {
       await db.run("INSERT INTO crm_projet_contacts (projet_id, contact_id, agency_id) VALUES (?, ?, ?)",
         [id, cid, ctx.agency.id]);
+    }
+    // Critères étendus (chambres, séjour…) : posés seulement s'ils sont envoyés.
+    if (b.criteres !== undefined) {
+      await db.run(
+        "INSERT OR REPLACE INTO crm_projet_criteres (projet_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?)",
+        [id, ctx.agency.id, JSON.stringify(CRM.sanitizeCriteres(b.criteres)), now()]);
     }
     return c.json({ ok: true, id });
   });
@@ -1636,6 +1650,36 @@ export function createApp(env) {
     return c.json({ fiches, brochures });
   });
 
+  // Ce que la BROCHURE du bien sait déjà : photo de couverture, diagnostics
+  // (DPE/GES + détail), distribution des pièces avec surfaces, prix — pour
+  // remplir la fiche estimation sans rien resaisir. Lu à la demande depuis R2.
+  app.get("/crm/estimation/brochure", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    if (!env.files) return err(c, 501, "Bibliothèque du compte non configurée sur le serveur.");
+    const id = String(c.req.query("brochureId") || "").slice(0, 40);
+    const row = await db.get("SELECT id, title, location FROM brochures WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);
+    if (!row) return err(c, 404, "Brochure introuvable.");
+    const obj = await env.files.get("br/" + ctx.agency.id + "/" + row.id + ".json");
+    if (!obj) return err(c, 404, "Contenu de la brochure introuvable.");
+    let d; try { d = JSON.parse(await obj.text()); } catch (e) { return err(c, 500, "Brochure illisible."); }
+    const diag = d.diagnostics && typeof d.diagnostics === "object" ? d.diagnostics : {};
+    const lg = (v, n) => String(v || "").slice(0, n);
+    const g0 = Array.isArray(d.gallery) && d.gallery[0] ? d.gallery[0] : null;
+    const photo = lg(d.coverPhoto || (g0 && (g0.url || g0.src)) || "", 4_000_000);
+    return c.json({
+      titre: lg((d.property || {}).title || row.title, 200),
+      prix: lg((d.property || {}).price, 40),
+      photo: /^data:image\//.test(photo) ? photo : "",
+      dpe: /^[A-G]$/i.test(String(diag.dpe || "")) ? String(diag.dpe).toUpperCase() : "",
+      ges: /^[A-G]$/i.test(String(diag.ges || "")) ? String(diag.ges).toUpperCase() : "",
+      diagnostics: (Array.isArray(diag.summary) ? diag.summary : [])
+        .map((s) => lg(s.label, 80) + (s.value ? " : " + lg(s.value, 200) : "")).filter(Boolean).join("\n").slice(0, 3000),
+      pieces: (Array.isArray(d.surfaces) ? d.surfaces : [])
+        .map((s) => lg(s.label, 80) + (s.value ? " : " + lg(s.value, 40) : "")).filter(Boolean).join("\n").slice(0, 3000),
+      surfacesTotal: lg(d.surfacesTotal, 40),
+    });
+  });
+
   // Aperçu des e-mails du parcours (admin, onglet Estimations) : le HTML part
   // en JSON, le navigateur l'affiche en iframe srcdoc — comme les anniversaires.
   const ESTIMATION_JALONS = ["avant-r1", "entre-r1-r2", "apres-r2", "relance-30", "relance-90", "relance-180"];
@@ -1652,9 +1696,11 @@ export function createApp(env) {
   });
 
   // La Bibliotheque des messages : chaque message automatique avec son texte
-  // effectif (surcharge de l'agence ou texte d'origine) — pour l'édition.
+  // effectif (surcharge de l'agence ou texte d'origine). MEMBRE : l'édition
+  // reste admin (PUT /crm/reglages), mais chaque conseiller pioche dedans
+  // pour ses envois individuels.
   app.get("/crm/modeles", async (c) => {
-    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const reglages = await CRM.getReglages(db, ctx.agency);
     const liste = Object.entries(CRM.MODELES).map(([cle, def]) => {
       const sur = (reglages.modeles || {})[cle] || {};
@@ -1695,15 +1741,19 @@ export function createApp(env) {
      (avec compte rendu) — c'est elle qui nourrit le bon de visite, imprimé
      par le navigateur au nom de l'agence. */
   const VISITES_MAX = 300;
+  // L'avis (plu / pas plu) vit dans crm_visite_avis — joint partout où les
+  // visites se lisent.
+  const visitesAvecAvis = `SELECT v.*, COALESCE(a.avis, '') AS avis
+       FROM crm_visites v LEFT JOIN crm_visite_avis a ON a.visite_id = v.id`;
   app.get("/crm/visites", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const projetId = String(c.req.query("projet_id") || "");
     const rows = projetId
       ? await db.all(
-        `SELECT * FROM crm_visites WHERE agency_id = ? AND projet_id = ? ORDER BY date_visite DESC, created_at DESC LIMIT ${VISITES_MAX}`,
+        `${visitesAvecAvis} WHERE v.agency_id = ? AND v.projet_id = ? ORDER BY v.date_visite DESC, v.created_at DESC LIMIT ${VISITES_MAX}`,
         [ctx.agency.id, projetId])
       : await db.all(
-        `SELECT * FROM crm_visites WHERE agency_id = ? ORDER BY date_visite DESC, created_at DESC LIMIT ${VISITES_MAX}`,
+        `${visitesAvecAvis} WHERE v.agency_id = ? ORDER BY v.date_visite DESC, v.created_at DESC LIMIT ${VISITES_MAX}`,
         [ctx.agency.id]);
     return c.json({ visites: rows });
   });
@@ -1739,6 +1789,13 @@ export function createApp(env) {
        WHERE id = ?`,
       [v.projet_id, v.contact_id, v.contact, v.bien, v.annonce_id, v.date_visite, v.statut,
         v.compte_rendu, v.conseiller, ctx.user.id, now(), cur.id]);
+    // L'avis après visite : le bien a plu, pas plu — ou on efface.
+    if (b.avis !== undefined) {
+      const avis = ["plu", "pas_plu"].includes(String(b.avis)) ? String(b.avis) : "";
+      await db.run(
+        "INSERT OR REPLACE INTO crm_visite_avis (visite_id, agency_id, avis, updated_at) VALUES (?, ?, ?, ?)",
+        [cur.id, ctx.agency.id, avis, now()]);
+    }
     return c.json({ ok: true, id: cur.id });
   });
 
@@ -1762,9 +1819,53 @@ export function createApp(env) {
        WHERE agency_id = ? AND contact_id IN (${ids.map(sqlQ).join(",")})
        ORDER BY created_at DESC LIMIT 100`, [ctx.agency.id]) : [];
     const visites = await db.all(
-      `SELECT * FROM crm_visites WHERE agency_id = ? AND projet_id = ? ORDER BY date_visite DESC, created_at DESC LIMIT 60`,
+      `${visitesAvecAvis} WHERE v.agency_id = ? AND v.projet_id = ? ORDER BY v.date_visite DESC, v.created_at DESC LIMIT 60`,
       [ctx.agency.id, projetId]);
     return c.json({ proposes, visites });
+  });
+
+  // RELANCE DIRECTE avec le stock : le conseiller choisit des biens en vente
+  // et l'e-mail « sélectionné pour votre recherche » part tout de suite à
+  // chaque personne du projet (même gabarit que les relances automatiques,
+  // même journal — l'anti-doublon des relances auto en tient compte).
+  app.post("/crm/projets/:id/relancer", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => ({}));
+    const ids = [...new Set((Array.isArray(b.annonceIds) ? b.annonceIds : []).map(String))].slice(0, 6);
+    if (!ids.length) return err(c, 400, "Choisissez au moins un bien à proposer.");
+    const projetId = c.req.param("id");
+    const projet = (await CRM.listProjets(db, ctx.agency)).find((p) => p.id === projetId);
+    if (!projet) return err(c, 404, "Projet introuvable.");
+    const annonces = await db.all(
+      `SELECT * FROM crm_annonces WHERE agency_id = ? AND id IN (${ids.map(sqlQ).join(",")})`,
+      [ctx.agency.id]);
+    if (!annonces.length) return err(c, 404, "Aucun de ces biens n'est dans le stock.");
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    const lot = annonces.map((a) => ({ annonce: a, kind: "decouverte" }));
+    let mails = 0, erreurs = 0;
+    const journal = [];
+    for (const contact of projet.contacts) {
+      if (!contact.email || contact.optOut) continue;
+      const { subject, html } = CRM.buildRelanceEmail(contact, lot, reglages.agence);
+      const res = await CRM.envoyerMailHtml(env, {
+        to: contact.email, subject, html,
+        fromName: reglages.agence.nom || ctx.agency.name,
+        replyTo: reglages.agence.email || "",
+      });
+      if (res.ok) mails++; else erreurs++;
+      for (const a of annonces) {
+        journal.push({ contact, a, statut: res.ok ? "ok" : "erreur", erreur: res.error || (res.dryRun ? "RESEND_API_KEY absent (dry run)" : "") });
+      }
+    }
+    for (const j of journal) {
+      await db.run(
+        `INSERT INTO crm_relances (agency_id, contact_id, contact, email, annonce_id, titre, kind, prix, statut, erreur, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'selection', ?, ?, ?, ?)`,
+        [ctx.agency.id, j.contact.id, `${j.contact.prenom || ""} ${j.contact.nom || ""}`.trim(), j.contact.email,
+          j.a.id, j.a.titre, j.a.prix, j.statut, j.erreur, now()]);
+    }
+    if (!mails && !erreurs) return err(c, 400, "Personne à relancer sur ce projet (pas d'e-mail, ou opt-out).");
+    return c.json({ ok: true, mails, biens: annonces.length, erreurs });
   });
 
   /* ---------------------------- Fil de suivi -------------------------------
@@ -1871,6 +1972,39 @@ export function createApp(env) {
     });
   });
 
+  // « Depuis une fiche, envoyer un mail ou un SMS » (membre) : texte de la
+  // Bibliothèque ou écrit sur place, balises remplies avec la fiche. L'envoi
+  // rejoint le journal des envois ET le fil de suivi du contact.
+  app.post("/crm/contacts/:id/envoyer", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    const canal = b.canal === "sms" ? "sms" : "mail";
+    const contact = await db.get("SELECT * FROM crm_contacts WHERE id = ? AND agency_id = ?",
+      [c.req.param("id"), ctx.agency.id]);
+    if (!contact) return err(c, 404, "Contact introuvable.");
+    if (contact.opt_out) return err(c, 400, "Cette fiche est en opt-out — elle ne veut plus être contactée.");
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    const r = await CRM.envoyerMessageContact(env, {
+      agency: ctx.agency, reglages, contact, canal,
+      sujet: String(b.sujet || "").slice(0, 200), texte: String(b.texte || "").slice(0, 4000),
+      expediteur: ctx.user.name || "",
+    });
+    const label = `${contact.prenom || ""} ${contact.nom || ""}`.trim();
+    await db.run(
+      "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [ctx.agency.id, contact.id, label, canal === "sms" ? contact.telephone : contact.email,
+        "manuel-" + canal, 0, r.ok ? "ok" : "erreur", r.error || (r.dryRun ? "clé d'envoi absente (dry run)" : ""), now()]);
+    if (!r.ok && !r.dryRun) return err(c, 400, r.error || "Envoi impossible.");
+    await db.run(
+      `INSERT INTO crm_suivis (id, agency_id, contact_id, adresse, type, commentaire,
+       rappel_le, rappel_fait, conseiller, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, '', 0, ?, ?, ?)`,
+      [randId("sv"), ctx.agency.id, contact.id, contact.adresse || "", canal,
+        (canal === "sms" ? "SMS : " : "Mail : ") + String(b.sujet || b.texte || "").slice(0, 180),
+        ctx.user.name || "", ctx.user.id, now()]);
+    return c.json({ ok: true, dryRun: !!r.dryRun });
+  });
+
   /* ---------------------------- Fiche adresse ------------------------------
      Une MAISON cliquée sur la carte : dès qu'une information y est posée
      (notes de la maison, suivi, habitant, estimation), l'adresse est
@@ -1915,7 +2049,7 @@ export function createApp(env) {
       "SELECT * FROM crm_adresses WHERE agency_id = ? AND adresse = ? COLLATE NOCASE",
       [ctx.agency.id, adresse]);
     const habitants = await db.all(
-      `SELECT id, civilite, prenom, nom, telephone, email, types, conseiller, opt_out
+      `SELECT id, civilite, prenom, nom, telephone, email, types, conseiller, opt_out, notes
        FROM crm_contacts WHERE agency_id = ? AND adresse = ? COLLATE NOCASE
        ORDER BY nom ASC LIMIT 20`, [ctx.agency.id, adresse]);
     const suivis = await db.all(
@@ -1930,12 +2064,23 @@ export function createApp(env) {
        FROM crm_estimations WHERE agency_id = ? AND substr(adresse, 1, ?) = ? COLLATE NOCASE
        ORDER BY created_at DESC LIMIT 10`,
       [ctx.agency.id, adresse.length, adresse]);
+    // « Estimés et mandats » : les dossiers de vente (Studio Suivi) et les
+    // ventes historiques importées dont l'adresse COMMENCE par celle de la
+    // maison — l'agence sait tout de suite si elle a déjà travaillé ce bien.
+    const mandats = await db.all(
+      `SELECT id, name, statut, adresse, conseillers FROM dossiers
+       WHERE agency_id = ? AND statut <> 'annule' AND substr(adresse, 1, ?) = ? COLLATE NOCASE
+       ORDER BY updated_at DESC LIMIT 10`, [ctx.agency.id, adresse.length, adresse]);
+    const ventesIci = await db.all(
+      `SELECT id, vendeur, acquereur, date_acte, prix FROM crm_ventes
+       WHERE agency_id = ? AND substr(adresse, 1, ?) = ? COLLATE NOCASE
+       ORDER BY date_acte DESC LIMIT 10`, [ctx.agency.id, adresse.length, adresse]);
     const parId = Object.fromEntries(habitants.map((h) => [h.id, [h.prenom, h.nom].filter(Boolean).join(" ")]));
     return c.json({
       maison: maison || null,
       habitants: habitants.map((h) => ({ ...h, types: (() => { try { return JSON.parse(h.types || "[]"); } catch { return []; } })() })),
       suivis: suivis.map((s) => ({ ...s, contact: parId[s.contact_id] || "" })),
-      estimations,
+      estimations, mandats, ventes: ventesIci,
     });
   });
 

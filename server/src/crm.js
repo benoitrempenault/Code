@@ -1121,6 +1121,18 @@ export function sanitizeProjet(b) {
   };
 }
 
+// Critères étendus d'un projet d'achat : chambres, taille du séjour (m²).
+// Informatifs (les annonces du site ne portent pas ces chiffres) mais
+// affichés partout où le projet se lit.
+export function sanitizeCriteres(b) {
+  const o = b && typeof b === "object" ? b : {};
+  const num = (v, max) => { const n = Number(v); return Number.isFinite(n) && n > 0 && n <= max ? Math.round(n * 10) / 10 : 0; };
+  return {
+    chambres: Math.round(num(o.chambres, 30)),
+    sejour: num(o.sejour, 500),
+  };
+}
+
 // Projets d'achat AUTOMATIQUES depuis l'extraction acquéreurs du logiciel
 // C21 : pour chaque acquéreur (retrouvé par e-mail, sinon nom + prénom après
 // dispatch), un projet d'achat est créé avec ses critères (budget, pièces,
@@ -1506,8 +1518,18 @@ export function sanitizeBienEstimation(b) {
     pieces: Math.round(num(o.pieces, 100)),
     annee: Math.round(num(o.annee, 3000)),
     dpe: /^[a-g]$/i.test(String(o.dpe || "")) ? String(o.dpe).toUpperCase() : "",
+    ges: /^[a-g]$/i.test(String(o.ges || "")) ? String(o.ges).toUpperCase() : "",
     prixEnvisage: Math.round(num(o.prixEnvisage, 100000000)),
     prestations: strip(o.prestations, 4000),
+    // Le bien en détail (cahier des charges CRM) : distribution des pièces,
+    // étage, chauffage, double vitrage, taxes et charges, diagnostics.
+    etage: strip(o.etage, 40),
+    chauffage: strip(o.chauffage, 120),
+    dv: o.dv ? 1 : 0,
+    piecesDetail: strip(o.piecesDetail, 3000),
+    taxeFonciere: Math.round(num(o.taxeFonciere, 1000000)),
+    charges: Math.round(num(o.charges, 100000)),
+    diagnostics: strip(o.diagnostics, 3000),
     ficheId: strip(o.ficheId, 40),
     brochureId: strip(o.brochureId, 40),
     dossierId: strip(o.dossierId, 40),
@@ -1747,6 +1769,42 @@ export function sanitizeVisite(b) {
     compte_rendu: strip(b.compte_rendu, 2000),
     conseiller: strip(b.conseiller, 80),
   };
+}
+
+/* --------------------- Message individuel (mail / SMS) -------------------- */
+// « Depuis une fiche, envoyer un mail ou un SMS » : le texte vient de la
+// Bibliothèque des messages (ou est écrit sur place), les balises {prenom}
+// {nom} {ville} {adresse} {conseiller} {agence} {signature} se remplissent
+// avec la fiche. Mail au gabarit de l'agence (Resend), SMS via Brevo.
+export async function envoyerMessageContact(env, { agency, reglages, contact, canal, sujet, texte, expediteur }) {
+  const ag = reglages.agence || {};
+  const vars = {
+    prenom: contact.prenom || "", nom: contact.nom || "",
+    ville: contact.ville || ag.ville || "", adresse: contact.adresse || "",
+    conseiller: contact.conseiller || expediteur || "",
+    agence: ag.nom || agency.name || "", signature: ag.nom || agency.name || "",
+    annees: "", depuis: "", r1: "", r2: "",
+  };
+  const corps = remplirModele(texte, vars);
+  if (!corps) return { ok: false, error: "Le message est vide." };
+  if (canal === "sms") {
+    const mobile = mobileFrance(contact.telephone);
+    if (!mobile) return { ok: false, error: "Pas de numéro de mobile français (06/07) sur la fiche." };
+    if (!env.BREVO_API_KEY) return { ok: false, error: "Clé Brevo absente du serveur — posez BREVO_API_KEY pour activer les SMS." };
+    return envoyerSmsBrevo(env, { to: mobile, content: corps, sender: smsExpediteur(ag, agency) });
+  }
+  if (!contact.email) return { ok: false, error: "Pas d'adresse e-mail sur la fiche." };
+  const objet = remplirModele(sujet, vars) || "Un mot de votre agence";
+  const html = wrapEmail(ag, {
+    eyebrow: ag.nom || agency.name || "Votre agence",
+    headline: esc(objet),
+    bodyHtml: texteEnParagraphes(corps),
+    signatureName: vars.conseiller ? `${vars.conseiller}, votre conseiller` : `Toute l'équipe ${ag.nom || "de l'agence"}`,
+  });
+  return envoyerMailHtml(env, {
+    to: contact.email, subject: objet, html,
+    fromName: ag.nom || agency.name, replyTo: ag.email || "",
+  });
 }
 
 /* ------------------------------ Fil de suivi ------------------------------ */

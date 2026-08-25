@@ -644,3 +644,22 @@ CREATE TABLE IF NOT EXISTS crm_adresses (
   updated_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_adresses_unique ON crm_adresses(agency_id, adresse COLLATE NOCASE);
+
+-- Critères étendus d'un projet d'achat (cahier des charges CRM) : chambres,
+-- taille du séjour… JSON dans data — la table crm_projets ne bouge jamais
+-- (schema.sql est rejoué à chaque déploiement, uniquement des CREATE).
+CREATE TABLE IF NOT EXISTS crm_projet_criteres (
+  projet_id  TEXT PRIMARY KEY,
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  data       TEXT NOT NULL DEFAULT '{}',
+  updated_at INTEGER NOT NULL
+);
+
+-- L'avis de l'acquéreur après une visite : le bien a PLU ou PAS PLU. À part
+-- de crm_visites (même raison : pas d'ALTER), la visite reste la vérité.
+CREATE TABLE IF NOT EXISTS crm_visite_avis (
+  visite_id  TEXT PRIMARY KEY,
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  avis       TEXT NOT NULL DEFAULT '',      -- plu | pas_plu
+  updated_at INTEGER NOT NULL
+);

@@ -905,6 +905,22 @@
       try { await Lib().chooseFolder(); paintFolder(); refresh(); } catch (e) { }
     });
     $("#libSave").addEventListener("click", function () { saveCurrent(true); });
+    // Le vendeur de la fiche prestations devient une FICHE CONTACT de la base
+    // de l'agence (typée vendeur) — le point de départ de la fiche estimation.
+    const btnContact = $("#btnFicheContact");
+    if (btnContact) btnContact.addEventListener("click", async function () {
+      if (!cloudOn()) { toast("Connectez-vous à votre compte (page « Mon compte ») pour créer la fiche contact.", true); return; }
+      const vendeur = $("#fVendeur").value.trim();
+      const adresse = $("#fAdresse").value.trim();
+      if (!vendeur && !adresse) { toast("Renseignez d'abord le vendeur ou l'adresse du bien.", true); return; }
+      try {
+        await cloudApi("/crm/prospects", { method: "POST", body: {
+          nom: vendeur, adresse: adresse, types: ["vendeur"],
+          suivi: "Fiche prestations « " + (adresse || vendeur) + " » remplie."
+        } });
+        toast("Fiche contact du vendeur créée — retrouvez-la dans l'Administration et sur la carte de prospection.");
+      } catch (e) { toast(e.message, true); }
+    });
     // Barre du haut : enregistrement rapide (nom demandé au 1er enregistrement).
     const btnQuick = $("#btnFicheSave");
     if (btnQuick) btnQuick.addEventListener("click", function () {

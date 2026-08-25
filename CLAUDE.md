@@ -254,6 +254,35 @@ sont interactive:false (le clic traverse jusqu'à la maison), l'édition d'îlot
 vit dans la liste latérale (boutons .mini ✏️/🗑, même délégation document).
 estimation.js : demarrer() lit ?fiche=1&adresse=… et ouvre ouvrirFiche()
 directement (fiche existante retrouvée par adresse). Carte v20.
+**Estimation enrichie** : crm_estimation_bien.data porte aussi etage, chauffage,
+dv (0/1), piecesDetail, taxeFonciere, charges, ges, diagnostics (sanitizeBien
+Estimation). `GET /crm/estimation/brochure?brochureId=` (membre) lit le JSON
+R2 de la brochure et livre {photo (coverPhoto data-URL), dpe, ges, diagnostics
+(summary), pieces (surfaces), surfacesTotal, prix} — lier une brochure dans la
+fiche remplit tout (remplirDepuisBrochure, champs déjà remplis respectés).
+mandat/fiche.html + mandat-pro : bouton « 👤 Créer la fiche contact du
+vendeur » → POST /crm/prospects types:["vendeur"] (la route ne force
+« prospect » que si types est vide) + 1er suivi.
+**Fiche adresse complète** : GET /crm/adresses/fiche renvoie aussi mandats
+(dossiers non annulés, substr prefix) et ventes (crm_ventes) ; la modale
+carte affiche « Estimés & mandats » et des boutons Qualifier A/B/C par
+habitant (POST /crm/contacts/:id/qualifier, membre). Carte v21.
+**Acheteurs enrichis** : crm_projet_criteres (projet_id PK, data JSON
+{chambres, sejour}) — PUT /crm/projets accepte criteres, GET les renvoie ;
+crm_visite_avis (visite_id PK, avis plu|pas_plu) — PUT /crm/visites/:id
+accepte avis, jointure visitesAvecAvis partout ; POST /crm/projets/:id/
+relancer {annonceIds ≤6} (admin) = relance DIRECTE avec le stock
+(buildRelanceEmail, journal crm_relances kind 'selection' → anti-doublon
+des relances auto en tient compte) ; UI dans l'activité du projet (cases à
+cocher stock en_vente + avis select 👍/👎).
+**Envoi individuel** : `POST /crm/contacts/:id/envoyer` (membre)
+{canal mail|sms, sujet, texte} → envoyerMessageContact (crm.js : balises
+remplirModele avec la fiche, mail wrapEmail/Resend, SMS Brevo/mobileFrance) ;
+refus opt-out ; journal crm_envois type manuel-mail/-sms ; un suivi type
+mail/sms se pose tout seul. GET /crm/modeles est passé MEMBRE (lecture
+seule — l'édition reste admin via reglages). UI admin : boutons « ✉️
+Envoyer un mail / 💬 Envoyer un SMS » dans la fiche contact → modale avec
+choix d'un modèle de la bibliothèque (canal "email"/"sms" dans MODELES).
 **Suivi d'une fiche estimation** : `GET /crm/estimations/:id/envois` (membre) ;
 la modale affiche l'historique + la prochaine action calculée des dates R1/R2.
 Studio Estimation a un bouton 📍 (pompe /crm/geo/serveur, admin) ; la priorité

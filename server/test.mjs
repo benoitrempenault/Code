@@ -2239,7 +2239,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const modeles0 = (await callR("/crm/modeles", { headers: auth })).json.modeles;
   ok(modeles0.length === 12 && modeles0.every((m) => m.texte && !m.personnalise),
     "la bibliothèque liste les 12 messages avec leur texte d'origine");
-  ok((await callR("/crm/modeles", { headers: authP })).status === 403, "la bibliothèque est réservée aux administrateurs");
+  ok((await callR("/crm/modeles", { headers: authP })).status === 200,
+    "la bibliothèque se lit par tout membre (pour les envois individuels) — l'édition reste admin");
   // Surcharge du mail « veille du R1 » : le prochain envoi part avec CE texte.
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { modeles: {
     "estimation-avant-r1": { sujet: "On se voit demain, {nom} !", texte: "Rendez-vous demain au {adresse}.\n\nPréparez vos questions — signé {agence}." },
@@ -2456,6 +2457,109 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const carteAd = (await callR("/crm/carte", { headers: authP })).json.adresses;
   ok(carteAd.some((a2) => a2.id === adCree.json.id && a2.lat === 44.8977),
     "la carte renvoie les maisons suivies — c'est ce qui les colore");
+
+  /* ---- Estimation ENRICHIE : bien détaillé + brochure qui remplit -------- */
+  console.log("— Estimation enrichie : bien détaillé, taxes, diagnostics, brochure");
+  const estimFilId = faDufil.estimations[0].id;
+  await callR("/crm/estimations/" + estimFilId, { headers: authP, method: "PUT", body: {
+    adresse: "9 rue du Fil, Saint-Médard-en-Jalles", nom: "M. DUFIL", conseiller: "Benoit",
+    bien: { etage: "plain-pied", chauffage: "PAC gainable", dv: 1,
+      piecesDetail: "Séjour : 32 m²\nCuisine : 12 m²", taxeFonciere: 1450, charges: 80,
+      dpe: "c", ges: "d", diagnostics: "Amiante : absence · Électricité : conforme", surface: 120 },
+  } });
+  const estimFil = (await callR("/crm/estimations", { headers: auth })).json.estimations
+    .find((x) => x.id === estimFilId);
+  ok(estimFil.bien.etage === "plain-pied" && estimFil.bien.chauffage === "PAC gainable" &&
+    estimFil.bien.dv === 1 && /Cuisine : 12/.test(estimFil.bien.piecesDetail) &&
+    estimFil.bien.taxeFonciere === 1450 && estimFil.bien.charges === 80 &&
+    estimFil.bien.ges === "D" && /conforme/.test(estimFil.bien.diagnostics),
+    "le bien détaillé (étage, chauffage, DV, pièces, taxes, GES, diagnostics) se garde et se relit");
+  await db.run(
+    `INSERT INTO brochures (id, agency_id, user_id, name, title, location, price, type, size, created_at, updated_at)
+     VALUES ('br_pht', ?, '', 'maison-fil.json', 'Maison du Fil', 'Saint-Médard-en-Jalles', '420 000 €', 'maison', 100, 1, 1)`, [agId]);
+  await files.put("br/" + agId + "/br_pht.json", JSON.stringify({
+    _app: "studio-brochure", property: { title: "Maison du Fil", price: "420 000 €" },
+    coverPhoto: "data:image/jpeg;base64,QUJD",
+    diagnostics: { dpe: "C", ges: "D", summary: [{ label: "Amiante", value: "Absence" }, { label: "Termites", value: "Absence" }] },
+    surfaces: [{ label: "Séjour", value: "32 m²" }, { label: "Cuisine", value: "12 m²" }], surfacesTotal: "120 m²",
+  }));
+  const bro = (await callR("/crm/estimation/brochure?brochureId=br_pht", { headers: authP })).json;
+  ok(bro.photo.startsWith("data:image/") && bro.dpe === "C" && bro.ges === "D" &&
+    /Amiante : Absence/.test(bro.diagnostics) && /Séjour : 32 m²/.test(bro.pieces) && bro.surfacesTotal === "120 m²",
+    "la brochure liée livre photo, DPE/GES, diagnostics et détail des pièces à la fiche estimation");
+  ok((await callR("/crm/estimation/brochure?brochureId=br_inconnu", { headers: authP })).status === 404,
+    "brochure inconnue : 404 propre");
+  // La fiche prestations crée la fiche contact du VENDEUR (types respectés).
+  const prVend = await callR("/crm/prospects", { headers: authP, body: {
+    nom: "VENDFICHE Guy", adresse: "2 rue de la Fiche", types: ["vendeur"],
+    suivi: "Fiche prestations « 2 rue de la Fiche » remplie." } });
+  const vendFiche = (await callR("/crm/contacts", { headers: auth })).json.contacts
+    .find((x) => x.id === prVend.json.id);
+  ok(vendFiche.types.includes("vendeur") && !vendFiche.types.includes("prospect"),
+    "la fiche prestations crée un contact typé VENDEUR (pas prospect de force)");
+
+  /* ---- Fiche adresse : estimés ET mandats de la maison -------------------- */
+  await db.run(
+    `INSERT INTO dossiers (id, agency_id, user_id, name, statut, adresse, conseillers, date_ssp, echeance, compromis_size, data, created_at, updated_at)
+     VALUES ('do_fil', ?, '', 'DUFIL / MARTIN', 'signe', '9 rue du Fil, Saint-Médard-en-Jalles', 'Benoit', '', '', 0, '{}', 1, 1)`, [agId]);
+  await db.run(
+    `INSERT INTO crm_ventes (id, agency_id, vendeur, acquereur, adresse, ville, date_acte, prix, type, surface, conseillers, cle, created_at, updated_at)
+     VALUES ('vt_fil', ?, 'DUFIL', 'MARTIN', '9 rue du Fil', 'Saint-Médard-en-Jalles', '2019-06-12', 285000, 'maison', 110, 'Benoit', '9ruedufil|2019-06-12', 1, 1)`, [agId]);
+  const faMandats = (await callR("/crm/adresses/fiche?adresse=" + encodeURIComponent("9 rue du Fil"), { headers: authP })).json;
+  ok(faMandats.mandats.length === 1 && faMandats.mandats[0].name === "DUFIL / MARTIN",
+    "la fiche adresse montre les MANDATS (dossiers de vente) du bien");
+  ok(faMandats.ventes.length === 1 && faMandats.ventes[0].prix === 285000,
+    "…et les ventes déjà réalisées à cette adresse");
+
+  /* ---- Acheteurs : critères étendus, avis de visite, relance directe ------ */
+  console.log("— Acheteurs : chambres/séjour, plu/pas plu, relance directe avec le stock");
+  await callR("/crm/projets", { headers: auth, method: "PUT", body: {
+    id: projetId, kind: "achat", statut: "actif", contactIds: [julien.id],
+    budgetMax: 350000, types: ["maison"], criteres: { chambres: 3, sejour: 30 },
+  } });
+  const pjRelu = (await callR("/crm/projets", { headers: auth })).json.projets.find((x) => x.id === projetId);
+  ok(pjRelu.criteres.chambres === 3 && pjRelu.criteres.sejour === 30,
+    "les critères étendus (chambres, taille du séjour) se gardent sur le projet");
+  const vFaite = (await callR("/crm/visites?projet_id=" + projetId, { headers: authP })).json.visites[0];
+  await callR("/crm/visites/" + vFaite.id, { headers: authP, method: "PUT", body: { ...vFaite, avis: "pas_plu" } });
+  const actAvis = (await callR("/crm/projets/" + projetId + "/activite", { headers: auth })).json;
+  ok(actAvis.visites[0].avis === "pas_plu", "l'avis « pas plu » se pose sur la visite et se relit partout");
+  const mailsAvant = mailsRecus.length;
+  const rl = await callR("/crm/projets/" + projetId + "/relancer", { headers: auth, body: { annonceIds: ["maison-a"] } });
+  ok(rl.status === 200 && rl.json.mails >= 1 && mailsRecus.length > mailsAvant &&
+    /plaire|recherche/i.test(mailsRecus[mailsRecus.length - 1].subject || ""),
+    "la relance DIRECTE part avec la sélection du stock (" + rl.json.mails + " mail(s))");
+  const rlJournal = (await callR("/crm/acheteurs/relances", { headers: auth })).json.relances;
+  ok(rlJournal.some((l) => l.kind === "selection" && l.annonce_id === "maison-a"),
+    "la sélection du conseiller rejoint le journal des relances (anti-doublon des relances auto)");
+  ok((await callR("/crm/projets/" + projetId + "/relancer", { headers: auth, body: { annonceIds: [] } })).status === 400,
+    "relance sans bien choisi : refusée");
+
+  /* ---- Envoi individuel mail / SMS depuis une fiche ----------------------- */
+  console.log("— Envoi individuel depuis une fiche (bibliothèque de messages)");
+  const mailsAvant2 = mailsRecus.length;
+  const env1 = await callR("/crm/contacts/" + dufil.id + "/envoyer", { headers: authP, body: {
+    canal: "mail", sujet: "Des nouvelles de {ville}",
+    texte: "Bonjour {prenom},\n\nUn petit mot de {agence} au sujet du {adresse}.",
+  } });
+  ok(env1.status === 200 && mailsRecus.length > mailsAvant2,
+    "un mail individuel part depuis la fiche (membre)");
+  const dernierMail = mailsRecus[mailsRecus.length - 1];
+  ok(dernierMail.subject === "Des nouvelles de Saint-Médard-en-Jalles" &&
+    /Bonjour Marc/.test(dernierMail.html) && /9 rue du Fil/.test(dernierMail.html),
+    "les balises {prenom} {ville} {adresse} {agence} se remplissent avec la fiche");
+  const svMail = (await callR("/crm/suivis?contact_id=" + dufil.id, { headers: authP })).json.suivis;
+  ok(svMail[0].type === "mail" && /Des nouvelles/.test(svMail[0].commentaire),
+    "l'envoi rejoint le fil de suivi du contact, tout seul");
+  ok((await callR("/crm/contacts/" + dufil.id + "/envoyer", { headers: authP, body: { canal: "sms", texte: "coucou" } })).status === 400,
+    "SMS sans mobile sur la fiche : refus propre");
+  ok((await callR("/crm/contacts/" + dufil.id + "/envoyer", { headers: authP, body: { canal: "mail", texte: "" } })).status === 400,
+    "message vide : refusé");
+  await callR("/crm/contacts", { headers: auth, method: "PUT", body: { id: dufil.id, nom: "DUFIL", prenom: "Marc", email: "dufil@exemple.fr", optOut: true } });
+  ok((await callR("/crm/contacts/" + dufil.id + "/envoyer", { headers: authP, body: { canal: "mail", texte: "test" } })).status === 400,
+    "une fiche en opt-out ne reçoit JAMAIS d'envoi individuel");
+  ok((await callR("/crm/modeles", { headers: authP })).status === 200,
+    "la bibliothèque se lit en MEMBRE (l'édition reste admin)");
 
   fauxResend.close();
   fauxDvf.close();

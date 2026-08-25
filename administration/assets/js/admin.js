@@ -157,9 +157,9 @@
           : "") +
         '<div class="barre barre-haut" style="margin-top:14px;">' +
         '<span style="color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.5px; font-weight:600;">Fil de suivi</span>' +
-        (c.email && !c.opt_out ? '<a class="btn" style="padding:4px 12px; font-size:12.5px;" href="mailto:' + escH(c.email) + '">✉️ Écrire</a>' : "") +
-        (c.telephone ? '<a class="btn" style="padding:4px 12px; font-size:12.5px;" href="tel:' + escH(c.telephone) + '">📞 Appeler</a>' +
-          '<a class="btn" style="padding:4px 12px; font-size:12.5px;" href="sms:' + escH(c.telephone) + '">💬 SMS</a>' : "") +
+        (c.email && !c.opt_out ? '<button class="btn" style="padding:4px 12px; font-size:12.5px;" id="btn-envoi-mail">✉️ Envoyer un mail</button>' : "") +
+        (c.telephone ? '<a class="btn" style="padding:4px 12px; font-size:12.5px;" href="tel:' + escH(c.telephone) + '">📞 Appeler</a>' : "") +
+        (c.telephone && !c.opt_out ? '<button class="btn" style="padding:4px 12px; font-size:12.5px;" id="btn-envoi-sms">💬 Envoyer un SMS</button>' : "") +
         "</div>" +
         '<div class="barre">' +
         '<select id="sv-type">' + Object.entries(SUIVI_TYPES).map(([v, l]) => '<option value="' + v + '">' + l + "</option>").join("") + "</select>" +
@@ -194,7 +194,58 @@
     if (c) {
       chargerSuivisContact(c.id);
       $("btn-sv-ajouter").addEventListener("click", () => ajouterSuivi(c.id));
+      const bm = $("btn-envoi-mail"), bs = $("btn-envoi-sms");
+      if (bm) bm.addEventListener("click", () => ouvrirEnvoi(c.id, "mail"));
+      if (bs) bs.addEventListener("click", () => ouvrirEnvoi(c.id, "sms"));
     }
+  }
+
+  // « Depuis la fiche, envoyer un mail ou un SMS » : le texte part de la
+  // Bibliothèque des messages (ou s'écrit sur place), les balises {prenom}
+  // {nom} {ville} {adresse} {conseiller} {agence} se remplissent toutes
+  // seules côté serveur. L'envoi rejoint le fil de suivi du contact.
+  let modelesEnvoi = null;
+  async function ouvrirEnvoi(contactId, canal) {
+    const c = contacts.find((x) => x.id === contactId);
+    if (!c) return;
+    if (!modelesEnvoi) {
+      try { modelesEnvoi = (await api("/crm/modeles")).modeles; } catch (e) { modelesEnvoi = []; }
+    }
+    // Les modèles portent canal "email" ou "sms" (registre MODELES).
+    const duCanal = modelesEnvoi.filter((m) => (canal === "sms" ? m.canal === "sms" : m.canal !== "sms"));
+    ouvrirModale((canal === "sms" ? "💬 SMS à " : "✉️ Mail à ") + ((c.prenom + " " + c.nom).trim() || "ce contact"),
+      '<p class="petit" style="margin-top:0;">' + (canal === "sms"
+        ? "Vers " + escH(c.telephone) + " — expéditeur : l'agence (Brevo)."
+        : "Vers " + escH(c.email) + " — au gabarit de l'agence, réponse vers la boîte de l'agence.") + "</p>" +
+      '<div class="grille-champs"><label>Partir d\'un message de la bibliothèque' +
+      '<select id="env-modele"><option value="">— message libre —</option>' +
+      duCanal.map((m, i) => '<option value="' + i + '">' + escH(m.titre) + "</option>").join("") +
+      "</select></label>" +
+      (canal === "sms" ? "" : '<label>Sujet<input id="env-sujet" placeholder="Un mot de votre agence" /></label>') +
+      "</div>" +
+      '<div class="grille-champs" style="margin-top:10px;"><label>Message<textarea id="env-texte" rows="7" placeholder="Bonjour {prenom},…"></textarea></label></div>' +
+      '<p class="petit">Balises : {prenom} {nom} {ville} {adresse} {conseiller} {agence} — remplies avec la fiche au moment de l\'envoi.</p>',
+      '<button class="btn" id="env-retour">← Retour à la fiche</button>' +
+      '<button class="btn btn-or" id="env-envoyer">' + (canal === "sms" ? "Envoyer le SMS" : "Envoyer le mail") + "</button>");
+    $("env-retour").addEventListener("click", () => ouvrirContact(contactId));
+    $("env-modele").addEventListener("change", () => {
+      const m = duCanal[parseInt($("env-modele").value, 10)];
+      if (!m) return;
+      if ($("env-sujet")) $("env-sujet").value = m.sujet || "";
+      $("env-texte").value = m.texte || "";
+    });
+    $("env-envoyer").addEventListener("click", async () => {
+      const texte = $("env-texte").value.trim();
+      if (!texte) { toast("Écrivez le message (ou choisissez-en un dans la bibliothèque).", true); return; }
+      try {
+        const r = await api("/crm/contacts/" + contactId + "/envoyer", { json: {
+          canal, texte, sujet: $("env-sujet") ? $("env-sujet").value.trim() : "",
+        } });
+        toast(r.dryRun ? "Clé d'envoi absente sur le serveur — rien n'est parti (essai à blanc)."
+          : (canal === "sms" ? "SMS envoyé" : "Mail envoyé") + " — noté dans le fil de suivi", !!r.dryRun);
+        ouvrirContact(contactId);
+      } catch (e) { toast(e.message, true); }
+    });
   }
 
   /* ------------------------------ Fil de suivi ----------------------------- */
@@ -803,6 +854,8 @@
           '<label>Budget min (€)<input id="p-budget-min" type="number" value="' + (p && p.budgetMin || "") + '" placeholder="optionnel" /></label>' +
           '<label>Pièces minimum<input id="p-pieces" type="number" value="' + (p && p.piecesMin || "") + '" /></label>' +
           '<label>Surface minimum (m²)<input id="p-surface" type="number" value="' + (p && p.surfaceMin || "") + '" /></label>' +
+          '<label>Chambres minimum<input id="p-chambres" type="number" value="' + ((p && p.criteres && p.criteres.chambres) || "") + '" /></label>' +
+          '<label>Séjour minimum (m²)<input id="p-sejour" type="number" value="' + ((p && p.criteres && p.criteres.sejour) || "") + '" /></label>' +
           "</div>" +
           '<div class="barre" style="margin-top:12px;">' +
           Object.entries(TYPES_BIEN).map(([v, l]) =>
@@ -840,6 +893,7 @@
           Object.assign(body, {
             budgetMax: $("p-budget-max").value, budgetMin: $("p-budget-min").value,
             piecesMin: $("p-pieces").value, surfaceMin: $("p-surface").value,
+            criteres: { chambres: $("p-chambres").value, sejour: $("p-sejour").value },
             types: Array.from(document.querySelectorAll(".p-type:checked")).map((x) => x.value),
             villes: $("p-villes").value,
           });
@@ -874,7 +928,9 @@
       zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr><th>Date</th><th>Acquéreur</th><th>Bien</th><th>Motif</th><th>Statut</th></tr></thead><tbody>' +
         relances.map((e) => "<tr><td>" + fmtTs(e.created_at) + "</td><td>" + escH(e.contact) + "</td>" +
           "<td>" + escH(e.titre) + (e.prix ? " — " + fmtPrix(e.prix) : "") + "</td>" +
-          "<td>" + (e.kind === "baisse" ? '<span class="puce verte">⬇ Baisse</span>' : '<span class="puce">🆕 Découverte</span>') + "</td>" +
+          "<td>" + (e.kind === "baisse" ? '<span class="puce verte">⬇ Baisse</span>'
+            : e.kind === "selection" ? '<span class="puce">📌 Sélection du conseiller</span>'
+            : '<span class="puce">🆕 Découverte</span>') + "</td>" +
           "<td>" + (e.statut === "ok" ? '<span class="ok">envoyé</span>' : '<span class="erreur">' + escH(e.erreur || "erreur") + "</span>") + "</td></tr>").join("") +
         "</tbody></table></div>";
     } catch (e) { toast(e.message, true); }
@@ -956,6 +1012,7 @@
     try { act = await api("/crm/projets/" + projetId + "/activite"); }
     catch (e) { zone.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; return; }
     const isoFr2 = (iso) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || "")); return m ? m[3] + "/" + m[2] + "/" + m[1] : "—"; };
+    const stockEnVente = ((annonces && annonces.annonces) || []).filter((a) => a.statut === "en_vente").slice(0, 40);
     const rendre = () => {
       zone.innerHTML =
         '<p class="petit" style="margin:10px 0 6px;"><strong>Biens proposés par les relances</strong></p>' +
@@ -974,6 +1031,10 @@
             [["prevue", "Prévue"], ["faite", "Faite ✅"], ["annulee", "Annulée"]].map(([k, l]) =>
               '<option value="' + k + '"' + (v.statut === k ? " selected" : "") + ">" + l + "</option>").join("") +
             "</select></td>" +
+            '<td><select data-visite-avis="' + v.id + '" title="Le bien a plu ?">' +
+            [["", "avis ?"], ["plu", "👍 A plu"], ["pas_plu", "👎 Pas plu"]].map(([k, l]) =>
+              '<option value="' + k + '"' + ((v.avis || "") === k ? " selected" : "") + ">" + l + "</option>").join("") +
+            "</select></td>" +
             '<td><button class="btn" data-bon="' + v.id + '" style="padding:4px 10px; font-size:12px;">🖨 Bon de visite</button></td></tr>').join("") +
             "</tbody></table></div>"
           : '<span class="petit">aucune visite enregistrée.</span>') +
@@ -983,7 +1044,40 @@
         [...new Set(act.proposes.map((l) => l.titre))].slice(0, 12).map((t) => '<option value="' + escH(t) + '">').join("") +
         "</datalist>" +
         '<input id="v-date" type="date" />' +
-        '<button class="btn" id="btn-ajout-visite">+ Visite</button></div>';
+        '<button class="btn" id="btn-ajout-visite">+ Visite</button></div>' +
+        // Relance DIRECTE : le conseiller choisit dans le stock en vente et
+        // l'e-mail « sélectionné pour votre recherche » part tout de suite.
+        '<p class="petit" style="margin:12px 0 6px;"><strong>Relancer avec le stock</strong></p>' +
+        (stockEnVente.length
+          ? '<div style="max-height:150px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:6px 12px;">' +
+            stockEnVente.map((a) =>
+              '<label class="case" style="width:100%; padding:2px 0;"><input type="checkbox" class="rl-annonce" value="' + escH(a.id) + '" /> ' +
+              escH(a.titre) + (a.prix ? " — " + fmtPrix(a.prix) : "") +
+              (a.ville ? ' <span class="puce grise">' + escH(a.ville) + "</span>" : "") + "</label>").join("") + "</div>" +
+            '<div class="barre" style="margin-top:6px;"><button class="btn btn-or" id="btn-relance-stock">✉️ Envoyer la sélection</button>' +
+            '<span class="petit" style="margin:0;">chaque personne du projet reçoit le mail « sélectionné pour votre recherche »</span></div>'
+          : '<span class="petit">le stock du site est vide — « Relever maintenant » dans l\'onglet Annonces.</span>');
+      zone.querySelectorAll("[data-visite-avis]").forEach((s) => s.addEventListener("change", async () => {
+        const v = act.visites.find((x) => x.id === s.dataset.visiteAvis);
+        try {
+          await api("/crm/visites/" + v.id, { method: "PUT", json: { ...v, avis: s.value } });
+          v.avis = s.value;
+          toast(s.value === "plu" ? "Noté : le bien a plu 👍" : s.value === "pas_plu" ? "Noté : le bien n'a pas plu" : "Avis effacé");
+        } catch (e) { toast(e.message, true); }
+      }));
+      const btnRelance = $("btn-relance-stock");
+      if (btnRelance) btnRelance.addEventListener("click", async () => {
+        const ids = Array.from(zone.querySelectorAll(".rl-annonce:checked")).map((x) => x.value);
+        if (!ids.length) { toast("Cochez au moins un bien à proposer.", true); return; }
+        if (!confirm("Envoyer ces " + ids.length + " bien(s) aux personnes du projet, maintenant ?")) return;
+        try {
+          const r = await api("/crm/projets/" + projetId + "/relancer", { json: { annonceIds: ids } });
+          toast(r.mails + " e-mail(s) parti(s) avec " + r.biens + " bien(s)" + (r.erreurs ? " · " + r.erreurs + " erreur(s)" : ""), r.erreurs > 0);
+          act = await api("/crm/projets/" + projetId + "/activite");
+          rendre();
+          chargerRelances();
+        } catch (e) { toast(e.message, true); }
+      });
       zone.querySelectorAll("[data-visite-statut]").forEach((s) => s.addEventListener("change", async () => {
         const v = act.visites.find((x) => x.id === s.dataset.visiteStatut);
         let cr = v.compte_rendu;

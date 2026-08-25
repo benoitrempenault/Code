@@ -495,20 +495,34 @@
       lat: info.lat || maison.lat || 0, lng: info.lng || maison.lng || 0,
     };
     const sousTitre = (s) => '<div style="color:var(--muted); font-size:11.5px; text-transform:uppercase; letter-spacing:.6px; font-weight:600; margin-top:4px;">' + s + "</div>";
+    // La qualification A/B/C d'un habitant se pose ici même — comme dans le
+    // logiciel de l'agence : elle nourrit les relances des estimés.
+    const boutonsQualif = (h) => ["A", "B", "C"].map((q) =>
+      '<button class="btn" style="padding:1px 8px; font-size:11.5px;' +
+      (new RegExp("Qualification " + q).test(h.notes || "") ? " background:var(--accent); color:#1a1714;" : "") +
+      '" data-qualifier="' + escH(h.id) + '" data-q="' + q + '" title="Qualifier ' + q + '">' + q + "</button>").join("");
     const habitants = fiche.habitants.length
       ? fiche.habitants.map((h) =>
-        '<div><strong>' + escH([h.civilite, h.prenom, h.nom].filter(Boolean).join(" ")) + "</strong>" +
+        '<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;"><strong>' +
+        escH([h.civilite, h.prenom, h.nom].filter(Boolean).join(" ")) + "</strong>" +
         (h.telephone ? ' · <a href="tel:' + escH(h.telephone) + '">' + escH(h.telephone) + "</a>" : "") +
         ((h.types || []).length ? ' <span style="color:var(--muted); font-size:12px;">(' + h.types.map(escH).join(", ") + ")</span>" : "") +
-        "</div>").join("")
+        '<span style="margin-left:auto; display:flex; gap:3px;">' + boutonsQualif(h) + "</span></div>").join("")
       : '<p class="petit" style="margin:2px 0;">Personne de connu à cette adresse pour l\'instant.</p>';
-    const estims = fiche.estimations.length
-      ? fiche.estimations.map((e2) =>
+    const estims = [
+      ...fiche.estimations.map((e2) =>
         "<div>📐 <strong>" + escH(e2.nom || "Fiche estimation") + "</strong> · " + escH(e2.statut) +
         (e2.qualification ? " · " + escH(e2.qualification) : "") +
         (e2.r1 ? " · R1 " + escH(fmtDateFr(e2.r1)) : "") +
-        (e2.conseiller ? ' <span style="color:var(--muted); font-size:12px;">(' + escH(e2.conseiller) + ")</span>" : "") + "</div>").join("")
-      : "";
+        (e2.conseiller ? ' <span style="color:var(--muted); font-size:12px;">(' + escH(e2.conseiller) + ")</span>" : "") + "</div>"),
+      ...(fiche.mandats || []).map((m2) =>
+        "<div>📁 <strong>" + escH(m2.name) + "</strong> · dossier " + escH(m2.statut) +
+        (m2.conseillers ? ' <span style="color:var(--muted); font-size:12px;">(' + escH(m2.conseillers) + ")</span>" : "") + "</div>"),
+      ...(fiche.ventes || []).map((v2) =>
+        "<div>🔑 <strong>Vendu</strong>" + (v2.date_acte ? " le " + escH(fmtDateFr(v2.date_acte)) : "") +
+        (v2.prix ? " · " + escH(String(v2.prix).replace(/\B(?=(\d{3})+(?!\d))/g, " ")) + " €" : "") +
+        (v2.vendeur ? ' <span style="color:var(--muted); font-size:12px;">(' + escH(v2.vendeur) + ")</span>" : "") + "</div>"),
+    ].join("");
     const historique = fiche.suivis.length
       ? '<div style="max-height:170px; overflow-y:auto; display:flex; flex-direction:column; gap:5px;">' +
         fiche.suivis.map((s) => "<div>" + escH(fmtJour(s.created_at)) + " · " + (SUIVI_TYPES[s.type] || s.type) +
@@ -521,7 +535,8 @@
       '<div class="rang" style="margin-top:2px;">' +
       '<button class="btn" id="fa-habitant">➕ Habitant</button>' +
       '<button class="btn" id="fa-estimation">📐 ' + (fiche.estimations.length ? "Ouvrir la fiche estimation" : "Créer une fiche estimation") + "</button>" +
-      "</div>" + estims +
+      "</div>" +
+      (estims ? sousTitre("Estimés &amp; mandats") + estims : "") +
       sousTitre("Historique des actions") + historique +
       '<div class="rang">' +
       '<select id="fa-sv-type">' + Object.entries(SUIVI_TYPES).map(([v, l]) => '<option value="' + v + '">' + l + "</option>").join("") + "</select>" +
@@ -555,6 +570,15 @@
         ouvrirFicheAdresse(pos); // la fiche se recharge avec le fil à jour
       } catch (e) { toast(e.message, true); }
     });
+    // Qualifier un habitant (A/B/C) sans quitter la fiche adresse.
+    $("modale-corps").querySelectorAll("[data-qualifier]").forEach((b) =>
+      b.addEventListener("click", async () => {
+        try {
+          await api("/crm/contacts/" + b.dataset.qualifier + "/qualifier", { json: { qualification: b.dataset.q } });
+          toast("Qualification " + b.dataset.q + " posée");
+          ouvrirFicheAdresse(pos);
+        } catch (e) { toast(e.message, true); }
+      }));
     $("fa-habitant").addEventListener("click", async () => {
       try { await upsertAdresse(pos, { notes: $("fa-notes").value.trim() }); } catch (e) { }
       modaleProspect(pos, { lat: pos.lat, lng: pos.lng }, () => ouvrirFicheAdresse(pos));

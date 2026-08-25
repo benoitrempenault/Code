@@ -467,8 +467,26 @@
         ["A", "B", "C", "D", "E", "F", "G"].map((d) => "<option" + (bien.dpe === d ? " selected" : "") + ">" + d + "</option>").join("") +
         "</select></label>",
       "</div>",
+      '<div class="fiche-3col">',
+      '<label>Étage / niveau<input id="fb-etage" value="' + v(bien.etage) + '" placeholder="RDC, 1er, plain-pied…" /></label>',
+      '<label>Chauffage<input id="fb-chauffage" value="' + v(bien.chauffage) + '" placeholder="gaz, PAC, électrique…" /></label>',
+      '<label class="case" style="align-self:end; padding-bottom:10px;"><input type="checkbox" id="fb-dv"' + (bien.dv ? " checked" : "") + " /> Double vitrage</label>",
+      "</div>",
+      '<label>Détail des pièces (distribution, surfaces)<textarea id="fb-pdetail" placeholder="Séjour : 32 m²&#10;Cuisine : 12 m²&#10;Chambre 1 : 11 m²…">' + v(bien.piecesDetail) + "</textarea></label>",
       '<label>Prix envisagé (€)<input id="fb-prix" type="number" min="0" value="' + nb(bien.prixEnvisage) + '" /></label>',
       '<label>Prestations et matériaux<textarea id="fb-prestations" placeholder="menuiseries, chauffage, toiture, travaux récents…">' + v(bien.prestations) + "</textarea></label>",
+      '<div class="fiche-sec">Taxes, charges &amp; diagnostics</div>',
+      '<div class="fiche-3col">',
+      '<label>Taxe foncière (€/an)<input id="fb-taxe" type="number" min="0" value="' + nb(bien.taxeFonciere) + '" /></label>',
+      '<label>Charges (€/mois)<input id="fb-charges" type="number" min="0" value="' + nb(bien.charges) + '" /></label>',
+      '<label>GES<select id="fb-ges"><option value="">—</option>' +
+        ["A", "B", "C", "D", "E", "F", "G"].map((d) => "<option" + (bien.ges === d ? " selected" : "") + ">" + d + "</option>").join("") +
+        "</select></label>",
+      "</div>",
+      '<label>Diagnostics (amiante, électricité, ERP, assainissement…)<textarea id="fb-diags">' + v(bien.diagnostics) + "</textarea></label>",
+      '<div id="fe-photo">' + (bien.brochureId
+        ? '<button class="btn" id="fe-photo-btn" type="button">🖼 Photo &amp; infos de la brochure</button>'
+        : '<span class="petit">Liez la brochure du bien (ci-dessous) pour récupérer sa photo, ses diagnostics et le détail des pièces.</span>') + "</div>",
       '<label>Documents Studio Brochure du bien<div class="chips" id="fe-docs"><span class="petit">Recherche…</span></div>' +
       '<input id="fe-doc-cherche" placeholder="🔍 chercher une fiche prestations ou une brochure (nom, adresse)" autocomplete="off" style="margin-top:6px;" /></label>',
       '<div class="fiche-sec">Suivi &amp; relances</div>',
@@ -613,6 +631,11 @@
             if (m) $("fb-annee").value = m[1];
           }
           if (!$("fb-dpe").value) { const m = /DPE\s*:?\s*([A-G])\b/i.exec(texteFi); if (m) $("fb-dpe").value = m[1].toUpperCase(); }
+          if (!$("fb-chauffage").value) {
+            const m = /chauffage\s*:?\s*([^\n,;.]{3,60})/i.exec(texteFi);
+            if (m) $("fb-chauffage").value = m[1].trim();
+          }
+          if (/double\s+vitrage/i.test(texteFi)) $("fb-dv").checked = true;
           fi.classList.add("lie");
           toast("Fiche prestations liée — prestations et chiffres du bien récupérés");
         } catch (e2) { toast(e2.message, true); }
@@ -625,9 +648,35 @@
         const prix = parseInt(String(br.dataset.prix || "").replace(/[^\d]/g, ""), 10);
         if (!$("fb-prix").value && prix) $("fb-prix").value = prix;
         br.classList.add("lie");
-        toast("Brochure liée à la fiche estimation");
+        toast("Brochure liée — je récupère photo, diagnostics et pièces…");
+        remplirDepuisBrochure(bien.brochureId);
       }
     });
+
+    // ---- La brochure remplit la fiche : photo, DPE/GES, diagnostics,
+    // détail des pièces — sans rien resaisir. Champs déjà remplis respectés.
+    async function remplirDepuisBrochure(brochureId) {
+      try {
+        const b2 = await api("/crm/estimation/brochure?brochureId=" + encodeURIComponent(brochureId));
+        if (!$("fb-dpe").value && b2.dpe) $("fb-dpe").value = b2.dpe;
+        if (!$("fb-ges").value && b2.ges) $("fb-ges").value = b2.ges;
+        if (!$("fb-diags").value.trim() && b2.diagnostics) $("fb-diags").value = b2.diagnostics;
+        if (!$("fb-pdetail").value.trim() && b2.pieces) {
+          $("fb-pdetail").value = b2.pieces + (b2.surfacesTotal ? "\nTotal : " + b2.surfacesTotal : "");
+        }
+        if (!$("fb-prix").value && b2.prix) {
+          const p2 = parseInt(String(b2.prix).replace(/[^\d]/g, ""), 10);
+          if (p2) $("fb-prix").value = p2;
+        }
+        $("fe-photo").innerHTML = b2.photo
+          ? '<img src="' + b2.photo + '" alt="" style="max-width:100%; border-radius:12px; display:block;" />' +
+            '<span class="petit">Photo de la brochure « ' + escH(b2.titre || "") + " »</span>"
+          : '<span class="petit">La brochure liée n\'a pas encore de photo de couverture.</span>';
+        toast("Brochure lue : photo, diagnostics et pièces récupérés");
+      } catch (e2) { toast(e2.message, true); }
+    }
+    const photoBtn = $("fe-photo-btn");
+    if (photoBtn) photoBtn.addEventListener("click", () => remplirDepuisBrochure(bien.brochureId));
 
     // ---- Suivi : messages déjà partis + prochaine action automatique ------
     (async () => {
@@ -735,7 +784,11 @@
           ...bien,
           type: $("fb-type").value.trim(), surface: $("fb-surface").value,
           pieces: $("fb-pieces").value, terrain: $("fb-terrain").value,
-          annee: $("fb-annee").value, dpe: $("fb-dpe").value,
+          annee: $("fb-annee").value, dpe: $("fb-dpe").value, ges: $("fb-ges").value,
+          etage: $("fb-etage").value.trim(), chauffage: $("fb-chauffage").value.trim(),
+          dv: $("fb-dv").checked, piecesDetail: $("fb-pdetail").value.trim(),
+          taxeFonciere: $("fb-taxe").value, charges: $("fb-charges").value,
+          diagnostics: $("fb-diags").value.trim(),
           prixEnvisage: $("fb-prix").value, prestations: $("fb-prestations").value.trim(),
         },
       };
