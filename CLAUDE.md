@@ -298,6 +298,20 @@ L.polygon(anneaux.map(a=>[a])) = MultiPolygon, jamais anneau2=trou).
 (DELETE IN + INSERT multi-lignes par 10 — sous-requêtes D1) ; UI : bouton
 « 📥 Importer des îlots » (zone-dessin admin) + fichier-ilots, lots de 40.
 Carte v22.
+**Bandeau de compte** (`assets/js/compte-bandeau.js`, partagé à la RACINE —
+chargé par chaque app en `../assets/js/compte-bandeau.js`) : autonome, sans
+dépendance, styles en ligne. Ancrage `#compte-bandeau` sinon `#who` (qu'il
+MASQUE — les apps y écrivent déjà le même nom) sinon `.topbar-right`. Bouton
+« 👤 Nom ▾ » → menu (identité + agence, « Mon compte », « Se déconnecter et
+changer de compte »). `window.StudioCompte.deconnecter()` : POST /auth/logout
+(au mieux) + purge du localStorage + saut vers `../mandat-pro/compte.html
+?deconnecte=1` (compte.js traite ce paramètre AVANT le rebond `?retour=`).
+Posé sur administration, prospection, estimation, suivi, permanence et
+`mandat/index.html` (qui n'avait AUCUNE page compte : cul-de-sac sur poste
+partagé). L'écran bloquant de l'Administration (401/403) nomme désormais le
+compte ouvert (`#connexion-qui`) et offre `#btn-changer-compte` — le 403
+cachait le seul bouton de la page. compte.html : « Changer de compte » aussi
+en haut du profil (le « Se déconnecter » du pied restait introuvable).
 **Suivi d'une fiche estimation** : `GET /crm/estimations/:id/envois` (membre) ;
 la modale affiche l'historique + la prochaine action calculée des dates R1/R2.
 Studio Estimation a un bouton 📍 (pompe /crm/geo/serveur, admin) ; la priorité

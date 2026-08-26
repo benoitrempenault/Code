@@ -31,6 +31,10 @@
       le Suivi des ventes. Connectez-vous une fois, la session vaut pour toutes les apps.</p>
     <a class="btn btn-or" id="lien-connexion" href="../mandat-pro/compte.html?retour=../administration/">Se connecter</a>
     <p class="petit" id="connexion-detail"></p>
+    <!-- Poste ou tablette partagés : on dit QUI est connecté, et on offre de
+         rendre la main au collaborateur suivant sans chercher ailleurs. -->
+    <p class="petit" id="connexion-qui" hidden></p>
+    <button class="btn" id="btn-changer-compte" hidden>Se déconnecter et changer de compte</button>
   </div>
 </div>
 
@@ -314,5 +318,6 @@
 <script src="assets/js/config.js"></script>
 <script src="assets/js/vendor/xlsx.full.min.js"></script>
 <script src="assets/js/admin.js"></script>
+<script src="../assets/js/compte-bandeau.js"></script>
 </body>
 </html>

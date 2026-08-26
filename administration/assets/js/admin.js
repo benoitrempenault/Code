@@ -1345,6 +1345,23 @@
   }
 
   /* ------------------------------ Démarrage -------------------------------- */
+  // Poste ou tablette partagés : le blocage doit toujours dire QUI est
+  // connecté et laisser rendre la main au collaborateur suivant.
+  function montrerQuiEstConnecte() {
+    const a = account();
+    const qui = $("connexion-qui"), btn = $("btn-changer-compte");
+    if (!qui || !btn || !a || !a.session) return;
+    const nom = (a.user && (a.user.name || a.user.email)) || "ce compte";
+    qui.textContent = "Compte ouvert sur cet appareil : " + nom +
+      ((a.agency && (a.agency.name || a.agency.nom)) ? " — " + (a.agency.name || a.agency.nom) : "") + ".";
+    qui.hidden = false;
+    btn.hidden = false;
+    btn.onclick = () => {
+      if (window.StudioCompte) window.StudioCompte.deconnecter();
+      else { try { localStorage.removeItem("studio-mandatpro-account"); } catch (e) { } location.reload(); }
+    };
+  }
+
   async function demarrer() {
     const a = account();
     if (!a || !a.session) {
@@ -1361,13 +1378,17 @@
       if (e.status === 401) {
         $("ecran-connexion").hidden = false;
         $("connexion-detail").textContent = "Votre session a expiré — reconnectez-vous.";
+        montrerQuiEstConnecte();
         return;
       }
       if (e.status === 403) {
         $("ecran-connexion").hidden = false;
-        $("connexion-detail").textContent = "Votre compte n'est pas administrateur de l'agence — demandez l'accès à un administrateur.";
+        $("connexion-detail").textContent = "Ce compte n'est pas administrateur de l'agence. " +
+          "Si l'Administration est ouverte à un autre de vos comptes, changez de compte ci-dessous ; " +
+          "sinon un administrateur peut vous ouvrir l'accès depuis « Mon compte » → Mes conseillers.";
         $("lien-connexion").hidden = true;
         document.querySelector(".connexion-carte h2").textContent = "Accès réservé";
+        montrerQuiEstConnecte();
         return;
       }
       $("ecran-connexion").hidden = false;

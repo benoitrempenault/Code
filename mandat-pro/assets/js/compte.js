@@ -314,13 +314,16 @@
       this.hidden = true;
       if (t) await handleToken(t);
     });
-    $("#btnLogout").addEventListener("click", async function () {
+    async function deconnecter() {
       const a = getAccount();
       if (a && a.session) { await api("/auth/logout", { method: "POST", auth: a.session, body: {} }).catch(function () { }); }
       clearAccount();
       show("cardLogin");
-      $("#loginMsg").className = "msg is-ok"; $("#loginMsg").textContent = "Vous êtes déconnecté.";
-    });
+      $("#loginMsg").className = "msg is-ok";
+      $("#loginMsg").textContent = "Vous êtes déconnecté — saisissez l'e-mail du compte à ouvrir.";
+    }
+    $("#btnLogout").addEventListener("click", deconnecter);
+    if ($("#btnSwitch")) $("#btnSwitch").addEventListener("click", deconnecter);
     $("#btnAddConseiller").addEventListener("click", addConseiller);
     $("#teamName").addEventListener("keydown", function (e) { if (e.key === "Enter") addConseiller(); });
     $("#teamEmail").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); $("#teamName").focus(); } });
@@ -349,6 +352,16 @@
     // le lien peut arriver alors que la page est déjà ouverte (pas de rechargement)
     window.addEventListener("hashchange", consumeHashToken);
     if (consumeHashToken()) return;
+    // Arrivée depuis le bandeau « Se déconnecter » d'une autre app : la
+    // session est déjà effacée, on accueille le collaborateur suivant.
+    if (new URLSearchParams(location.search).get("deconnecte")) {
+      clearAccount();
+      show("cardLogin");
+      $("#loginMsg").className = "msg is-ok";
+      $("#loginMsg").textContent = "Vous êtes déconnecté — saisissez l'e-mail du compte à ouvrir.";
+      try { history.replaceState(null, "", location.pathname); } catch (e) { }
+      return;
+    }
     paintMe();
   }
   document.addEventListener("DOMContentLoaded", init);
