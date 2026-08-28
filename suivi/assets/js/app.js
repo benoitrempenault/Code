@@ -1399,9 +1399,23 @@
   }
 
   /* ---------------------------- Détail dossier ---------------------------- */
+  /* Bouton d'effacement d'un champ date ou heure. Le sélecteur natif des
+     téléphones ne propose aucun moyen de revenir à vide : sans ce bouton, une
+     date saisie par erreur ne peut plus être retirée depuis un mobile. Il
+     efface le champ frère et rejoue les événements que l'app écoute. */
+  const effaceur = (quoi) =>
+    '<button type="button" class="efface" data-efface title="Effacer ' + esc(quoi) +
+    '" aria-label="Effacer ' + esc(quoi) + '">✕</button>';
+  // Champ date/heure suivi de son bouton d'effacement.
+  function champDate(html, quoi) {
+    return '<span class="datefield">' + html + effaceur(quoi || "la date") + "</span>";
+  }
   function input(label, path, d, type, extra) {
+    const brut = '<input type="' + (type || "text") + '" data-path="' + esc(path) + '" value="' +
+      esc(getByPath(d, path) || "") + '" ' + (extra || "") + " />";
+    const t = type === "date" || type === "time";
     return '<div class="field"><label>' + esc(label) + "</label>" +
-      '<input type="' + (type || "text") + '" data-path="' + esc(path) + '" value="' + esc(getByPath(d, path) || "") + '" ' + (extra || "") + " /></div>";
+      (t ? champDate(brut, type === "time" ? "l'heure" : "la date") : brut) + "</div>";
   }
   function partieHtml(kind, i, p) {
     return '<div class="partie">' +
@@ -1474,7 +1488,7 @@
       return '<div class="annrow">' +
         '<span style="flex:1 1 200px;font-weight:500">' + esc(titre) + "</span>" +
         '<div class="field" style="flex:0 0 190px;margin-bottom:0"><label>' + esc(labelDate) + "</label>" +
-        '<input type="date" data-path="entretiens.' + ent + '" value="' + esc(dt) + '" /></div>' +
+        champDate('<input type="date" data-path="entretiens.' + ent + '" value="' + esc(dt) + '" />', "la date") + "</div>" +
         '<span style="flex:1 1 220px;font-size:12.5px">' + (statutValidite(exp, cible) || '<span style="color:var(--muted)">date à renseigner</span>') + "</span>" +
         '<button class="btn btn--sm btn--danger" data-rm-equip="' + eq + '" title="Cet équipement n\'est pas au bien">✕</button>' +
         "</div>";
@@ -1503,7 +1517,7 @@
       return '<div class="annrow">' +
         '<span style="flex:1 1 170px;font-weight:500">' + esc(x.label) + "</span>" +
         '<div class="field" style="flex:0 0 190px;margin-bottom:0"><label>Réalisé le</label>' +
-        '<input type="date" data-path="diagnostics.' + x.key + '" value="' + esc(dt) + '" /></div>' +
+        champDate('<input type="date" data-path="diagnostics.' + x.key + '" value="' + esc(dt) + '" />', "la date") + "</div>" +
         presence +
         '<span style="flex:1 1 190px;font-size:12.5px">' + etat + "</span>" +
         '<button class="btn btn--sm btn--danger" data-rm-diag="' + x.key + '" title="Ce diagnostic n\'est pas au dossier">✕</button>' +
@@ -1550,8 +1564,12 @@
         // clés correspondantes). Étape à faire : c'est l'échéance qui s'édite.
         const dateCtl = s.done
           ? '<span class="due"><small style="color:var(--muted);font-size:11px">fait le</small>' +
-            '<input type="date" data-step-date="' + esc(s.id) + '" value="' + esc(s.date || "") + '" title="Date de réalisation (modifiable)" /></span>'
-          : '<span class="due"><input type="date" data-step-due="' + esc(s.id) + '" value="' + esc(s.due || "") + '" title="Échéance (modifiable)" /></span>';
+            champDate('<input type="date" data-step-date="' + esc(s.id) + '" value="' + esc(s.date || "") + '" title="Date de réalisation (modifiable)" />', "la date de réalisation") + "</span>"
+          // Une étape a toujours une échéance : l'effacer ne la vide pas, elle
+          // rétablit la date calculée depuis le dossier (fin d'une surcharge).
+          : '<span class="due">' +
+            champDate('<input type="date" data-step-due="' + esc(s.id) + '" value="' + esc(s.due || "") + '" title="Échéance (modifiable)" />',
+              "la date saisie et revenir à l'échéance calculée") + "</span>";
         const relTxt = s.relance && s.relance.ts
           ? "✉ Dernière relance le " + new Date(s.relance.ts * 1000).toLocaleDateString("fr-FR") + (s.relance.user ? " (" + s.relance.user + ")" : "")
           : "";
@@ -1590,7 +1608,7 @@
       '<input type="checkbox" data-path-check="conditions_suspensives.' + i + '.levee"' + (c.levee ? " checked" : "") + ' title="Condition levée" />' +
       '<input type="text" data-path="conditions_suspensives.' + i + '.titre" value="' + esc(c.titre || "") + '" placeholder="Intitulé" />' +
       '<textarea data-path="conditions_suspensives.' + i + '.detail" placeholder="Détail">' + esc(c.detail || "") + "</textarea>" +
-      '<input type="date" data-path="conditions_suspensives.' + i + '.echeance" value="' + esc(c.echeance || "") + '" title="Échéance" />' +
+      champDate('<input type="date" data-path="conditions_suspensives.' + i + '.echeance" value="' + esc(c.echeance || "") + '" title="Échéance" />', "l'échéance") +
       '<button class="btn btn--sm btn--danger" data-rm="conditions_suspensives.' + i + '">✕</button>' +
       (E.condDroit(c)
         ? '<small class="cond__droit">Réglée par le notaire — pas de relance ni d\'étape à l\'échéancier.</small>'
@@ -2030,6 +2048,20 @@
       const carte = h.parentElement;
       const ouvert = carte.classList.toggle("card--ouvert");
       if (ouvert) cartesOuvertes.add(h.dataset.carte); else cartesOuvertes.delete(h.dataset.carte);
+    });
+    /* Effacer une date depuis un téléphone : le sélecteur natif ne sait pas
+       revenir à vide. Le bouton vide le champ voisin et rejoue les événements
+       que l'app écoute — la date clé, l'étape ou la condition se met à jour
+       comme si l'on avait effacé au clavier. */
+    view.addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-efface]");
+      if (!b) return;
+      ev.preventDefault();
+      const champ = b.parentElement.querySelector("input");
+      if (!champ || !champ.value) return;
+      champ.value = "";
+      champ.dispatchEvent(new Event("input", { bubbles: true }));
+      champ.dispatchEvent(new Event("change", { bubbles: true }));
     });
     view.addEventListener("click", async (ev) => {
       const d = cur();
