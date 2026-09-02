@@ -265,6 +265,8 @@ table.liste tr.row:hover td { background: var(--panel-2); }
 .etape.done .lab small { text-decoration: none; }
 .etape .due { display: flex; align-items: center; gap: 8px; }
 .etape .due input { padding: 4px 6px; font-size: 12.5px; }
+.etape .due .datefield { width: auto; }
+.etape .due .efface { width: 26px; height: 26px; font-size: 12px; }
 .etape .delta { font-size: 11.5px; font-weight: 600; min-width: 74px; text-align: right; }
 .etape .delta.late { color: var(--bad); } .etape .delta.soon { color: var(--warn); } .etape .delta.far { color: var(--muted); }
 .etape .delta.okd { color: var(--ok); }
@@ -315,6 +317,16 @@ table.liste tr.row:hover td { background: var(--panel-2); }
 /* ----------------------------- Conditions ------------------------------- */
 .cond { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .cond:last-child { border-bottom: none; }
+/* Champ date/heure + son bouton d'effacement. Indispensable sur téléphone :
+   le sélecteur natif ne propose jamais de revenir à vide. */
+.datefield { display: inline-flex; align-items: center; gap: 4px; width: 100%; }
+.datefield input { flex: 1 1 auto; min-width: 0; }
+.efface {
+  flex: 0 0 auto; width: 30px; height: 30px; padding: 0; cursor: pointer;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--muted); font: inherit; font-size: 13px; line-height: 1;
+}
+.efface:hover { color: var(--bad); border-color: var(--bad); }
 /* Condition de pur droit : présente au dossier, absente de l'échéancier. */
 .cond--droit { opacity: .78; }
 .cond__droit { flex: 1 1 100%; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
