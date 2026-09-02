@@ -186,8 +186,8 @@ const COMPROMIS_SCHEMA = {
     date_compromis: { type: "string", description: "Date de signature du compromis (AAAA-MM-JJ)." },
     vendeurs: { type: "array", items: PARTIE },
     acquereurs: { type: "array", items: PARTIE },
-    notaire_vendeur: NOTAIRE,
-    notaire_acquereur: { ...NOTAIRE, description: "Notaire de l'acquéreur. Si l'acte ne désigne QU'UN SEUL notaire (il représente alors les deux parties), recopie ici les mêmes informations que notaire_vendeur." },
+    notaire_vendeur: { ...NOTAIRE, description: "Notaire du VENDEUR. Quand l'acte nomme deux notaires dans une même clause sans dire lequel assiste qui, c'est le SECOND cité." },
+    notaire_acquereur: { ...NOTAIRE, description: "Notaire de l'ACQUÉREUR. Quand l'acte nomme deux notaires dans une même clause sans dire lequel assiste qui, c'est le PREMIER cité. Si l'acte ne désigne QU'UN SEUL notaire (il représente alors les deux parties), recopie ici les mêmes informations que notaire_vendeur." },
     bien: {
       type: "object", additionalProperties: false,
       properties: {
@@ -418,6 +418,10 @@ const COMPROMIS_SYSTEM = [
   "diagnostics qui ne figurent pas au dossier de diagnostics : ils ne doivent pas apparaître comme manquants.",
   "Règles :",
   "- N'invente RIEN : champ vide (\"\") si l'information ne figure pas dans le document. Ne déduis jamais un délai non écrit.",
+  "- NOTAIRES — à qui rattacher chacun : d'abord ce que l'acte dit explicitement (« notaire du vendeur », « le VENDEUR assisté de Me X »,",
+  "  notaire cité dans le paragraphe d'identification d'une partie). Quand l'acte nomme DEUX notaires dans une même clause SANS dire",
+  "  lequel assiste qui (« Me X et Me Y, notaires… », « rédigé par Me X avec la participation de Me Y »), applique l'ordre des compromis",
+  "  de l'agence : le PREMIER cité est le notaire de l'ACQUÉREUR, le SECOND celui du VENDEUR. N'inverse jamais cet ordre par déduction.",
   "- UN SEUL NOTAIRE désigné à l'acte = il représente le vendeur ET l'acquéreur : recopie alors les mêmes informations dans notaire_vendeur et notaire_acquereur.",
   "- Dates au format AAAA-MM-JJ. Si le document donne un délai (« dans les 60 jours »), calcule la date à partir de la date de",
   "  signature UNIQUEMENT si celle-ci est connue, sinon recopie le délai en toutes lettres dans le champ concerné.",

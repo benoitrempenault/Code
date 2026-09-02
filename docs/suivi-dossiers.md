@@ -75,6 +75,18 @@ appel après-vente, clôture.
    jusqu'à ce qu'on la décoche. Supprimer la note d'une relance efface aussi sa trace
    dans l'échéancier — date de relance et report d'échéance (`rebaseRelance()`).
 
+### Lecture des notaires
+
+Le compromis désigne un notaire par partie. L'extraction rattache chacun d'abord à ce
+que l'acte dit **explicitement** (« notaire du vendeur », « le VENDEUR assisté de Me X »,
+notaire cité dans le paragraphe d'une partie). Quand l'acte nomme **deux notaires dans
+une même clause sans dire lequel assiste qui**, l'ordre des compromis de l'agence
+s'applique : le **premier cité est le notaire de l'acquéreur, le second celui du
+vendeur** (règle posée après une inversion sur un dossier). Un seul notaire = il
+représente les deux parties. Si une lecture s'est trompée de côté, le bouton
+**« ⇄ Intervertir vendeur / acquéreur »** de la carte Notaires échange les deux études,
+coordonnées comprises, et le note au journal.
+
 ### Effacer une date (téléphone)
 
 Le sélecteur de date natif des téléphones ne propose aucun moyen de revenir à vide :

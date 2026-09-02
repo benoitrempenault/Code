@@ -590,6 +590,14 @@ ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Autho
   ok(cp.output_config == null, "extract_compromis n'utilise pas la sortie structurée");
   ok(/"conditions_suspensives"/.test(cp.system) && /"date_butoir"/.test(cp.system), "le contrat JSON du compromis est décrit dans le prompt");
   ok(/aucun commentaire dans ta réponse/.test(cp.system), "le prompt interdit de recopier les commentaires du squelette");
+  // Deux notaires cités d'un bloc sans attribution : le premier est celui de
+  // l'acquéreur, le second celui du vendeur (ordre des compromis de l'agence) ;
+  // une attribution explicite de l'acte prime toujours.
+  ok(/PREMIER cité est le notaire de l'ACQUÉREUR, le SECOND celui du VENDEUR/.test(cp.system),
+    "notaires cités d'un bloc : premier = acquéreur, second = vendeur");
+  ok(/d'abord ce que l'acte dit explicitement/.test(cp.system), "une attribution explicite de l'acte prime sur l'ordre");
+  ok(/"notaire_acquereur"[^\n]*PREMIER cité/.test(cp.system) && /"notaire_vendeur"[^\n]*SECOND cité/.test(cp.system),
+    "le squelette JSON rappelle l'ordre sur chacun des deux champs");
   for (const t of ["brochure", "caption_photos", "diagnostics", "surfaces", "ad_text", "extract_notes", "city_intro", "structure_fiche"]) {
     const p = promptFor(t, "");
     ok(p.output_config && compte(p.output_config.format.schema) <= 25, "schéma de sortie raisonnable pour la tâche « " + t + " »");

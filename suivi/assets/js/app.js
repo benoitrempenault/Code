@@ -1757,7 +1757,11 @@
       notaireHtml("Notaire vendeur", "notaire_vendeur", d) +
       notaireHtml("Notaire acquéreur", "notaire_acquereur", d) +
       "</div>" +
-      '<p class="hintline">Tapez le nom : les coordonnées connues de l\'annuaire se remplissent seules ; celles que vous saisissez ici enrichissent l\'annuaire pour les prochains dossiers.</p></div>' +
+      // Lecture inversée par l'IA (ou saisie du mauvais côté) : un clic
+      // échange les deux études, coordonnées comprises — sans rien retaper.
+      '<button class="btn btn--sm" id="btnPermuteNotaires" title="Échanger le notaire vendeur et le notaire acquéreur (coordonnées comprises)">⇄ Intervertir vendeur / acquéreur</button>' +
+      '<p class="hintline">Tapez le nom : les coordonnées connues de l\'annuaire se remplissent seules ; celles que vous saisissez ici enrichissent l\'annuaire pour les prochains dossiers. ' +
+      "Si la lecture du compromis a inversé les deux études, « ⇄ Intervertir » les remet à leur place.</p></div>" +
 
       '<div class="card"><h3>🏢 Syndic / Lotissement</h3><div class="grid3">' +
       '<div class="field"><label>Rôle</label><select data-path="syndic.role">' +
@@ -2065,8 +2069,18 @@
     });
     view.addEventListener("click", async (ev) => {
       const d = cur();
-      const t = ev.target.closest("[data-add],[data-rm],[data-jdel],[data-rm-equip],[data-rm-diag],#journalAdd,#btnDelete,#btnVoirPdf,#btnRelire,#btnJoindrePdf,[data-act='mailname']");
+      const t = ev.target.closest("[data-add],[data-rm],[data-jdel],[data-rm-equip],[data-rm-diag],#journalAdd,#btnDelete,#btnVoirPdf,#btnRelire,#btnJoindrePdf,#btnPermuteNotaires,[data-act='mailname']");
       if (!d || !t) return;
+      if (t.id === "btnPermuteNotaires") {
+        const v = d.notaire_vendeur;
+        d.notaire_vendeur = d.notaire_acquereur;
+        d.notaire_acquereur = v;
+        d.journal.push({ ts: Math.floor(Date.now() / 1000), user: userName(),
+          text: "Notaires intervertis : vendeur ⇄ acquéreur (" + (d.notaire_vendeur.nom || "?") + " / " + (d.notaire_acquereur.nom || "?") + ")." });
+        markDirty(); renderDossier();
+        toast("Notaires intervertis ✓");
+        return;
+      }
       if (t.dataset.add) {
         const k = t.dataset.add;
         if (k === "conditions_suspensives") d.conditions_suspensives.push({ titre: "", detail: "", echeance: "", levee: false });
