@@ -378,6 +378,25 @@ Outlook ») — jamais une saisie manuelle, et rien en cas d'agendas illisibles.
 pièges : `docs/permanence.md`. Outil interne Century 21 (noindex, logo Kadima) ; la page `rdv/` est
 publique mais **neutre** — ni marque Century 21 ni mention ABR IMMO, l'agence vient du serveur.
 
+**`recrutement/` — Studio Recrutement**, produit COMMERCIAL (marque blanche, tuile sur
+l'accueil `mandat-pro/`, déployé sous `/recrutement/` sur Pages ET dans le job `commercial`) :
+recruter **par les compétences, sans CV**. `index.html` (employeur, session partagée) :
+poste → compétences (tâche `rec_competences` : notes en vrac → 6-9 compétences typées,
+pondérées 1-3, indispensable, observable) → questionnaire (tâche `rec_questionnaire` :
+mises en situation, questions à choix valant 0-3, expérience vécue, **grille de correction
+jamais envoyée au candidat**) → publication (slug public + QR) → candidatures classées
+**sous pseudonyme** (code `K-XXXX`) → décision humaine + dévoilement journalisé + retour
+au candidat. `candidat.html` (public, aucune écriture navigateur) : `?offre=` = notice
+d'information (RGPD 13, L1221-8/9) + questions une à une + coordonnées minimales ;
+`?suivi=` = résultats par compétence + effacement. Serveur : `server/src/recrutement.js`
+(`monterRoutes`, routes `/recrutement/*` membre et `/public/recrutement/*`) ; l'évaluation
+(tâche `rec_evaluation`) est appelée CÔTÉ SERVEUR (`appelIA`, quota de l'agence) en toile
+de fond à la réception, et **ne reçoit jamais nom/e-mail/téléphone/ville** ; la moyenne
+pondérée est recalculée par le serveur. Tables `rec_postes`, `rec_candidats` (identité à
+part, `token_hash` de suivi), `rec_candidatures`, `rec_journal`. Conservation 2 ans
+(`purgerAnciennes`, cron 6 h). Aucune colonne âge/sexe/photo/adresse. Cadre légal et
+limites : `docs/recrutement.md`. Ne jamais y mettre de contenu Century 21.
+
 ## Architecture
 
 - `index.html` — single-page shell: left **editor** panel (form), right **preview** (live A4).
@@ -489,7 +508,7 @@ The repo hosts two worlds that must stay visually and legally separate:
 - **Century 21 Kadima internal tools** (`/`, `/mandat/`, `/suivi/`, `/permanence/`): carry the
   KADIMA/Century 21 logo,
   are `noindex`, and must **never** mention ABR IMMO nor link to `/legal/`.
-- **Commercial product** (`/pro/`, `/mandat-pro/`, `/site/`, `/site-mandat/`, `/legal/`):
+- **Commercial product** (`/pro/`, `/mandat-pro/`, `/recrutement/`, `/site/`, `/site-mandat/`, `/legal/`):
   published by ABR IMMO (legal pages), must **never** contain Century 21 marks, logos, forms
   or wording taken from agency documents (franchise confidentiality clause — see
   `docs/marque-studio-brochure.md`).

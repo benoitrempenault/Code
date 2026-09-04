@@ -7,6 +7,7 @@ import { createApp } from "./src/app.js";
 import { runRecap } from "./src/recap.js";
 import { releverAbsencesOutlook } from "./src/releve.js";
 import { runCrmDaily } from "./src/crm.js";
+import { runRecrutementDaily } from "./src/recrutement.js";
 
 export default {
   // Cron (wrangler.toml [triggers]) : récapitulatif des actions à mener
@@ -18,7 +19,12 @@ export default {
     // Administration : chaque matin, relevé des annonces du site + vœux
     // d'anniversaire, agence par agence. Inerte tant que l'agence n'a rien
     // activé dans ses réglages Administration.
-    if (event.cron === "0 6 * * *") { ctx.waitUntil(runCrmDaily(env, db)); return; }
+    if (event.cron === "0 6 * * *") {
+      ctx.waitUntil(runCrmDaily(env, db));
+      // Recrutement : effacement des candidatures au-delà de 2 ans (CNIL).
+      ctx.waitUntil(runRecrutementDaily(db));
+      return;
+    }
     // Relevé nocturne des absences Outlook (permanences). Inerte tant que
     // l'agence n'a pas coché « relever automatiquement » dans ses réglages.
     ctx.waitUntil(releverAbsencesOutlook(env, db));

@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev https://api.qrserver.com https://fonts.googleapis.com https://fonts.gstatic.com" />
+  <title>Studio Brochure — Recrutement</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <meta name="robots" content="noindex" />
+  <meta name="description" content="Recruter par les compétences, sans CV : le poste, ses compétences, un questionnaire de mises en situation, des candidatures évaluées sous pseudonyme — la décision reste la vôtre." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/recrutement.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <a class="home" href="../mandat-pro/" title="Accueil Studio Brochure">⌂</a>
+  <h1>Studio <em>Recrutement</em></h1>
+  <div class="topbar-right"><span id="who" class="who"></span></div>
+</header>
+
+<div id="ecran-connexion" class="connexion" hidden>
+  <div class="connexion-carte">
+    <h2>Connexion requise</h2>
+    <p>Le Recrutement utilise votre compte Studio Brochure. Les postes et les candidatures
+      sont partagés avec votre équipe.</p>
+    <a class="btn btn-or" id="lien-connexion" href="../mandat-pro/compte.html?retour=../recrutement/">Se connecter</a>
+  </div>
+</div>
+
+<main id="app" hidden>
+  <aside class="lateral">
+    <div class="bloc">
+      <h2>Vos postes</h2>
+      <p class="aide">Un poste = des compétences + un questionnaire de mises en situation.
+        Les candidats répondent depuis un lien ou un QR code, en 10 minutes, sans CV.</p>
+      <button class="btn btn-or" id="btn-nouveau">＋ Nouveau poste</button>
+      <div class="postes" id="postes"></div>
+      <p class="petit" id="postes-vide" hidden>Aucun poste pour l'instant.</p>
+    </div>
+    <div class="bloc">
+      <h2>Conformité</h2>
+      <p class="aide">Ce que l'outil fait pour vous, et ce qui reste à votre charge.</p>
+      <button class="btn" id="btn-conformite">📋 Voir la check-list</button>
+      <button class="btn" id="btn-purge" title="Efface les candidatures de plus de 2 ans (CNIL)">🧹 Purger &gt; 2 ans</button>
+    </div>
+  </aside>
+
+  <section class="contenu" id="contenu">
+    <div id="accueil">
+      <h2>Recruter par les compétences, pas par le CV</h2>
+      <p class="aide" style="max-width: 62ch">
+        Décrivez le poste et ce qu'il faut savoir faire. L'outil propose les compétences que vous
+        auriez oubliées, écrit un questionnaire de mises en situation propre à votre métier, puis
+        évalue chaque candidature <strong>sous pseudonyme</strong> — sans nom, ni âge, ni photo.
+        Vous lisez les avis, vous décidez, vous dévoilez l'identité de ceux que vous voulez rencontrer.
+      </p>
+      <div class="bandeau-info" style="max-width: 62ch">
+        Créez un poste dans la colonne de gauche, ou essayez un modèle prêt à l'emploi :
+        <div class="rang">
+          <button class="btn" data-modele="bagel">🥯 Équipier restauration rapide</button>
+          <button class="btn" data-modele="immo">🏠 Conseiller immobilier</button>
+          <button class="btn" data-modele="vente">🛍️ Vendeur en boutique</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="poste" hidden>
+      <div class="rang" style="margin: 0 0 10px; align-items: baseline;">
+        <h2 id="poste-titre" style="margin: 0"></h2>
+        <span class="etiquette" id="poste-etiquette"></span>
+        <span style="margin-left:auto"></span>
+        <button class="btn btn-danger mini" id="btn-supprimer-poste">Supprimer le poste</button>
+      </div>
+      <div class="onglets">
+        <button class="onglet actif" data-onglet="preparer">1 · Préparer</button>
+        <button class="onglet" data-onglet="publier">2 · Publier</button>
+        <button class="onglet" data-onglet="candidatures">3 · Candidatures <span class="n" id="n-cands"></span></button>
+        <button class="onglet" data-onglet="journal">Journal</button>
+      </div>
+
+      <!-- 1. Préparer -->
+      <div id="onglet-preparer">
+        <div class="etape" id="etape-poste">
+          <h3><span class="num">1</span> Le poste</h3>
+          <div class="grille2">
+            <div><label>Intitulé</label><input id="f-titre" maxlength="120" /></div>
+            <div><label>Secteur</label>
+              <select id="f-secteur">
+                <option value="restauration">Restauration</option><option value="commerce">Commerce / vente</option>
+                <option value="immobilier">Immobilier</option><option value="services">Services</option>
+                <option value="artisanat">Artisanat / BTP</option><option value="sante">Santé / soin</option>
+                <option value="logistique">Logistique</option><option value="bureau">Bureau / administratif</option>
+                <option value="autre">Autre</option>
+              </select></div>
+            <div><label>Lieu</label><input id="f-lieu" maxlength="120" placeholder="Ville" /></div>
+            <div><label>Contrat</label>
+              <select id="f-contrat">
+                <option value="">—</option><option>CDI</option><option>CDD</option><option>alternance</option>
+                <option>stage</option><option>interim</option><option>extra</option><option>temps partiel</option><option>saisonnier</option>
+              </select></div>
+          </div>
+          <label>Description publique (ce que le candidat lit : missions, horaires, ambiance — pas de critère personnel)</label>
+          <textarea id="f-description" maxlength="3000"></textarea>
+          <label>E-mail de contact indiqué aux candidats (responsable du traitement)</label>
+          <input id="f-contact" type="email" maxlength="120" />
+          <div class="rang droite"><button class="btn" id="btn-enregistrer-poste">Enregistrer</button></div>
+        </div>
+
+        <div class="etape" id="etape-competences">
+          <h3><span class="num">2</span> Les compétences</h3>
+          <p class="aide">Écrivez en vrac ce qu'il faut pour tenir le poste (« ponctuel, sourire, tenir la caisse,
+            gérer le rush »). L'IA structure, complète et écarte tout ce qui n'a pas de lien direct avec l'emploi
+            (Code du travail L1221-6). Vous gardez la main : modifiez, pesez, supprimez.</p>
+          <textarea id="f-notes" placeholder="Ce qu'il faut savoir faire, avec vos mots…"></textarea>
+          <div class="rang">
+            <button class="btn btn-or" id="btn-suggerer">✨ Proposer les compétences</button>
+            <button class="btn" id="btn-ajouter-comp">＋ Ajouter à la main</button>
+          </div>
+          <div class="entete-comp" style="margin-top:12px"><span>Compétence</span><span>Type</span><span>Poids</span><span>Indisp.</span><span></span></div>
+          <div class="competences" id="competences"></div>
+          <div class="rang droite"><button class="btn" id="btn-enregistrer-comp">Enregistrer les compétences</button></div>
+        </div>
+
+        <div class="etape" id="etape-questionnaire">
+          <h3><span class="num">3</span> Le questionnaire</h3>
+          <p class="aide">Des mises en situation du vrai quotidien du poste, quelques questions à choix, une ou
+            deux questions d'expérience. Chaque question vise une compétence et porte une grille de correction
+            que le candidat ne voit jamais. Relisez, ajustez, puis publiez.</p>
+          <div class="rang">
+            <button class="btn btn-or" id="btn-generer">✨ Générer le questionnaire</button>
+            <span class="petit" id="questionnaire-etat"></span>
+          </div>
+          <label>Mot d'accueil affiché au candidat</label>
+          <input id="f-consigne" maxlength="600" />
+          <div class="questions" id="questions" style="margin-top:12px"></div>
+          <div class="rang droite"><button class="btn" id="btn-enregistrer-quest">Enregistrer le questionnaire</button></div>
+        </div>
+      </div>
+
+      <!-- 2. Publier -->
+      <div id="onglet-publier" hidden>
+        <div class="etape">
+          <h3><span class="num">4</span> Ouvrir les candidatures</h3>
+          <p class="aide">Le lien ci-dessous est la page du candidat : envoyez-le par SMS, collez-le sur vos
+            annonces, imprimez le QR code pour la vitrine. Aucun compte à créer pour postuler.</p>
+          <div class="rang">
+            <button class="btn btn-or" id="btn-ouvrir">Ouvrir les candidatures</button>
+            <button class="btn" id="btn-fermer">Clore les candidatures</button>
+          </div>
+          <div class="lien-public" id="lien-public" style="margin-top:14px" hidden>
+            <img id="qr" alt="QR code du lien candidat" />
+            <div>
+              <div class="petit">Lien à partager :</div>
+              <code id="lien-url"></code>
+              <div class="rang">
+                <button class="btn mini" id="btn-copier">Copier le lien</button>
+                <a class="btn mini" id="btn-ouvrir-page" target="_blank" rel="noopener">Voir la page candidat</a>
+                <button class="btn mini" id="btn-imprimer-qr">Imprimer l'affiche</button>
+              </div>
+            </div>
+          </div>
+          <div class="bandeau-info">
+            <strong>Ce que le candidat lit avant de commencer</strong> : qui recrute (votre agence, responsable du
+            traitement), à quoi servent ses réponses, qu'un outil d'IA les analyse avec une grille identique pour
+            tous, que la décision est prise par une personne, que ses données sont conservées deux ans au plus et
+            qu'il peut consulter ses résultats et demander l'effacement (RGPD art. 13, Code du travail L1221-8 et L1221-9).
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Candidatures -->
+      <div id="onglet-candidatures" hidden>
+        <div class="resume-cands" id="resume-cands"></div>
+        <div class="bandeau-info">Classement sous pseudonyme : l'outil ne connaît ni le nom, ni l'âge, ni l'origine
+          des candidats. Un score n'est pas une décision — ouvrez la fiche, lisez les réponses, décidez.</div>
+        <div class="entete-cand"><span>Code</span><span>Score</span><span>Compétences</span><span>Décision</span><span>Reçue</span></div>
+        <div class="cands" id="cands"></div>
+        <p class="petit" id="cands-vide" hidden>Aucune candidature pour l'instant. Partagez le lien de l'onglet « Publier ».</p>
+        <div class="fiche-cand" id="fiche-cand" hidden></div>
+      </div>
+
+      <!-- Journal -->
+      <div id="onglet-journal" hidden>
+        <p class="aide">Chaque action sur les candidatures est tracée : réception, évaluation, décision, dévoilement,
+          retour, effacement. C'est la preuve que la décision est humaine et la même pour tous.</p>
+        <div class="journal" id="journal"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="voile" id="voile" hidden>
+  <div class="modale" role="dialog" aria-modal="true">
+    <div class="modale-tete"><h3 id="modale-titre"></h3><button class="fermer" id="modale-fermer" aria-label="Fermer">×</button></div>
+    <div class="modale-corps" id="modale-corps"></div>
+    <div class="modale-pied" id="modale-pied"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/recrutement.js"></script>
+<script src="../assets/js/compte-bandeau.js"></script>
+</body>
+</html>

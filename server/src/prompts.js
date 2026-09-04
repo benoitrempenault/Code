@@ -444,6 +444,176 @@ const COMPROMIS_SYSTEM = [
   skeleton(COMPROMIS_SCHEMA, 0)
 ].join("\n");
 
+
+/* ============================ Recrutement ==============================
+   Studio Recrutement : recrutement par les compétences, sans CV. Trois
+   tâches : suggérer les compétences d'un poste, générer le questionnaire de
+   mise en situation, évaluer les réponses d'UN candidat sous pseudonyme.
+   Cadre : Code du travail L1221-6 (lien direct et nécessaire avec l'emploi),
+   L1132-1 (critères de discrimination), RGPD art. 22 (la décision reste
+   humaine — l'IA rend un avis motivé, jamais une décision).
+   ---------------------------------------------------------------------- */
+const REC_INTERDITS = [
+  "Interdits absolus (Code du travail L1132-1 et L1221-6) : rien qui touche à l'âge, au sexe, au genre,",
+  "à la situation familiale ou de grossesse, aux enfants, à la santé, au handicap, à l'apparence physique,",
+  "à l'origine, à la nationalité, au nom, au lieu de résidence, à la religion, aux opinions politiques ou",
+  "syndicales, à l'orientation sexuelle, aux loisirs sans lien avec le poste, ni à la situation financière.",
+  "« Présentation » ou « prestance » se traduit en comportements professionnels observables (tenue adaptée",
+  "au poste, expression claire, attitude d'accueil), jamais en apparence physique."
+].join(" ");
+
+const REC_COMPETENCES_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    competences: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          cle: { type: "string", description: "Identifiant court en snake_case (ex. sens_du_service)." },
+          libelle: { type: "string", description: "2 à 5 mots, au nominatif (ex. « Sens du service client »)." },
+          type: { type: "string", enum: ["savoir_etre", "savoir_faire", "technique"] },
+          poids: { type: "integer", description: "1 = utile, 2 = important, 3 = déterminant." },
+          indispensable: { type: "boolean", description: "true si le poste ne peut pas s'exercer sans." },
+          observable: { type: "string", description: "Une phrase : le comportement concret qu'on VERRAIT chez quelqu'un qui a cette compétence." }
+        },
+        required: ["cle", "libelle", "type", "poids", "indispensable", "observable"]
+      }
+    }
+  },
+  required: ["competences"]
+};
+
+const REC_COMPETENCES_SYSTEM = [
+  "Tu es un expert du recrutement par les compétences (approche « habiletés » de la Méthode de recrutement",
+  "par simulation de France Travail) : on évalue ce que la personne SAIT FAIRE et COMMENT elle se comporte",
+  "en situation, jamais un diplôme, un parcours ou un CV.",
+  "À partir d'un intitulé de poste, d'un secteur et des notes de l'employeur, propose 6 à 9 compétences",
+  "RÉELLEMENT nécessaires pour tenir le poste, propres au métier, concrètes et vérifiables en situation.",
+  "Reprends d'abord celles que l'employeur cite (reformulées proprement), puis complète avec les",
+  "compétences évidentes du métier qu'il a oubliées. Mélange savoir-être, savoir-faire et technique.",
+  "Poids 3 réservé à 2 ou 3 compétences au plus ; `indispensable` uniquement pour ce qui rend le travail",
+  "impossible s'il manque. Pas de permis, véhicule, mobilité ou disponibilité horaire sauf si l'employeur",
+  "l'écrit explicitement comme une contrainte du poste.",
+  REC_INTERDITS,
+  "Réponds en français, uniquement au format JSON demandé."
+].join(" ");
+
+const REC_QUESTIONNAIRE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    consigneCandidat: { type: "string", description: "2 phrases d'accueil au vouvoiement : pas de piège, réponses sincères et concrètes attendues, l'expérience peut venir de n'importe où (travail, études, sport, bénévolat, vie quotidienne)." },
+    questions: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string", description: "q1, q2, …" },
+          competence: { type: "string", description: "La `cle` de la compétence visée." },
+          type: { type: "string", enum: ["situation", "choix", "ouverte"] },
+          question: { type: "string", description: "La question telle que le candidat la lit. Courte, concrète, vouvoiement, français simple." },
+          options: {
+            type: "array",
+            description: "Uniquement pour le type « choix » : 4 réactions plausibles. Tableau vide sinon.",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                texte: { type: "string" },
+                valeur: { type: "integer", description: "0 à 3 — 3 = la meilleure réaction (une seule à 3), 0 = la pire (mais crédible)." }
+              },
+              required: ["texte", "valeur"]
+            }
+          },
+          attendu: { type: "string", description: "Grille de correction pour l'évaluateur, jamais montrée au candidat : 3 à 5 éléments d'une bonne réponse, et ce qui rend une réponse faible." }
+        },
+        required: ["id", "competence", "type", "question", "options", "attendu"]
+      }
+    }
+  },
+  required: ["consigneCandidat", "questions"]
+};
+
+const REC_QUESTIONNAIRE_SYSTEM = [
+  "Tu conçois un questionnaire de sélection PAR LES COMPÉTENCES, à la manière des tests de jugement",
+  "situationnel et des exercices de simulation de France Travail. On te donne le poste, ses compétences",
+  "pondérées et, pour chacune, le comportement observable attendu.",
+  "Produis 8 à 12 questions, dans l'ordre de passage, courtes, en français simple (lisible par tous, niveau",
+  "collège), au vouvoiement, sans jargon RH. Trois types :",
+  "— « situation » (au moins la moitié des questions) : une mise en situation concrète et réaliste du métier",
+  "(client mécontent, collègue absent, erreur de caisse, rush, vendeur qui hésite, visite qui tourne mal…),",
+  "suivie de « Que faites-vous ? Décrivez concrètement, étape par étape. » Réponse libre.",
+  "— « choix » (2 à 4 questions) : une mise en situation + 4 réactions plausibles, chacune notée de 0 à 3",
+  "(une seule à 3 ; aucune option ridicule — les mauvaises options doivent ressembler à des erreurs",
+  "courantes de débutant).",
+  "— « ouverte » (1 à 2 questions au plus) : « Racontez une fois où… », en précisant que l'exemple peut venir",
+  "du travail, des études, du sport, d'une association ou de la vie quotidienne — un candidat sans expérience",
+  "professionnelle doit pouvoir répondre.",
+  "Chaque question vise UNE compétence (`competence` = sa clé) ; chaque compétence de poids 3 reçoit au",
+  "moins 2 questions, chaque autre compétence au moins 1. Les situations doivent parler du VRAI quotidien",
+  "de ce poste dans ce secteur (les mots du métier, les moments de tension typiques), pas de généralités.",
+  "Le champ `attendu` est la grille de correction : ce qu'une bonne réponse contient (3 à 5 éléments",
+  "observables), ce qui la rend faible ; il sert à noter équitablement tous les candidats avec la même grille.",
+  REC_INTERDITS,
+  "Aucune question sur la vie privée, aucun test de personnalité déguisé, aucune question dont la bonne",
+  "réponse dépend d'un diplôme : uniquement des situations de TRAVAIL et des comportements.",
+  "Réponds uniquement au format JSON demandé."
+].join(" ");
+
+const REC_EVALUATION_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    scores: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          competence: { type: "string", description: "La clé de la compétence." },
+          note: { type: "integer", description: "0 à 100." },
+          justification: { type: "string", description: "1 à 2 phrases factuelles qui s'appuient sur ce que le candidat a ÉCRIT." },
+          extrait: { type: "string", description: "Les mots du candidat (120 caractères max) qui fondent la note. Vide si réponse vide." }
+        },
+        required: ["competence", "note", "justification", "extrait"]
+      }
+    },
+    global: { type: "integer", description: "Moyenne des notes pondérée par le poids des compétences, 0 à 100 — calculée réellement." },
+    resume: { type: "string", description: "3 phrases factuelles sur ce que les réponses démontrent, sans adjectif sur la personne." },
+    pointsForts: { type: "array", items: { type: "string" }, description: "2 à 4 forces démontrées, chacune reliée à une réponse." },
+    vigilance: { type: "array", items: { type: "string" }, description: "1 à 3 points à VÉRIFIER (jamais un jugement sur la personne)." },
+    entretien: { type: "array", items: { type: "string" }, description: "3 questions à poser en entretien pour lever les doutes." },
+    alerte: { type: "string", description: "Vide, ou signalement factuel : réponses copiées/identiques, texte manifestement généré, données personnelles sensibles révélées, propos inacceptables." }
+  },
+  required: ["scores", "global", "resume", "pointsForts", "vigilance", "entretien", "alerte"]
+};
+
+const REC_EVALUATION_SYSTEM = [
+  "Tu es l'assistant d'évaluation d'un recruteur. Tu reçois le poste, ses compétences pondérées avec leur",
+  "comportement observable, les questions avec leur grille de correction (et la valeur de chaque option pour",
+  "les questions à choix), puis les réponses d'UN SEUL candidat désigné par un code.",
+  "Tu ne connais ni son nom, ni son âge, ni son sexe, ni son origine, ni sa situation — et tu ne dois JAMAIS",
+  "les deviner ni en tenir compte, même si une réponse les laisse transparaître (prénom cité, enfants,",
+  "santé, accent, quartier, religion…) : ces éléments n'entrent pas dans la note ; s'ils sont explicites,",
+  "signale-le dans `alerte` pour que le recruteur les écarte consciemment.",
+  "Évalue UNIQUEMENT ce qui est écrit, compétence par compétence, avec la même grille pour tous :",
+  "0-39 non démontrée · 40-64 partiellement démontrée · 65-84 démontrée · 85-100 démontrée avec finesse.",
+  "Une réponse vide, hors sujet ou de moins de 5 mots vaut 20 au plus. L'orthographe et la longueur ne",
+  "comptent pas, sauf si la compétence évaluée est la rédaction. Pour une question à choix, la note découle",
+  "de la valeur de l'option choisie : 3 → 90, 2 → 65, 1 → 35, 0 → 10. Quand plusieurs questions visent la",
+  "même compétence, fais la moyenne de leurs notes. Une compétence sans question reçoit 50 et une",
+  "justification « non évaluée par le questionnaire ».",
+  "`global` : moyenne pondérée par les poids (calcule-la réellement, ne l'estime pas). `resume`,",
+  "`pointsForts`, `vigilance`, `entretien` : factuels, reliés aux réponses, sans adjectif sur la personne",
+  "(« la réponse décrit… », jamais « le candidat est… »).",
+  "Cet avis AIDE le recruteur à préparer l'entretien ; il ne décide de rien : la décision est humaine.",
+  "Réponds uniquement au format JSON demandé."
+].join(" ");
+
 /* ------------------------------- Registre ------------------------------- */
 
 const fmt = (schema) => ({ format: { type: "json_schema", schema } });
@@ -486,6 +656,10 @@ export function promptFor(task, arg) {
     case "extract_notes": return { system: NOTES_SYSTEM, output_config: fmt(NOTES_SCHEMA) };
     case "city_intro": return { system: citySystem(arg), output_config: { effort: "low", ...fmt(CITY_SCHEMA) } };
     case "structure_fiche": return { system: FICHE_SYSTEM, output_config: fmt(FICHE_SCHEMA) };
+    // Studio Recrutement (compétences → questionnaire → évaluation sous pseudonyme).
+    case "rec_competences": return { system: REC_COMPETENCES_SYSTEM, output_config: fmt(REC_COMPETENCES_SCHEMA) };
+    case "rec_questionnaire": return { system: REC_QUESTIONNAIRE_SYSTEM, output_config: fmt(REC_QUESTIONNAIRE_SCHEMA) };
+    case "rec_evaluation": return { system: REC_EVALUATION_SYSTEM, output_config: fmt(REC_EVALUATION_SCHEMA) };
     // Pas de sortie structurée ici : le schéma du compromis est trop gros pour
     // la grammaire de décodage. Le contrat est décrit dans COMPROMIS_SYSTEM.
     case "extract_compromis": return { system: COMPROMIS_SYSTEM, output_config: null };

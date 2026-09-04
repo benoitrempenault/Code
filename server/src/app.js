@@ -23,6 +23,7 @@ import { runRecap, buildRecap, envoyerMail } from "./recap.js";
 import * as CRM from "./crm.js";
 import * as PERM from "./permanence.js";
 import * as GRAPH from "./graph.js";
+import * as RECRUT from "./recrutement.js";
 
 const SESSION_TTL = 30 * 24 * 3600;   // 30 jours d'inactivité
 // Appareils simultanés. Un conseiller en cumule vite plus de trois : PC du
@@ -3060,6 +3061,13 @@ export function createApp(env) {
     await adjust(actual - est);
     return c.json(data ?? { error: "Réponse IA illisible." }, upstream.status);
   });
+
+  /* ===================== Recrutement (app Recrutement) =====================
+     Recruter par les compétences, sans CV : postes, questionnaire généré,
+     portail candidat public, évaluation IA sous pseudonyme, décision
+     humaine journalisée. Les routes vivent dans recrutement.js.
+     ---------------------------------------------------------------------- */
+  RECRUT.monterRoutes(app, { db, env, sessionFrom, err, agencyOpen });
 
   /* ----------------- Clés d'activation : validation en ligne ------------- */
   app.post("/license/validate", async (c) => {

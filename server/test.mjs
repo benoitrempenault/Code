@@ -22,10 +22,40 @@ const fake = (await import("node:http")).createServer(async (req, res) => {
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({
     id: "msg_test", type: "message", role: "assistant",
-    content: [{ type: "text", text: "{\"ok\":true}" }],
+    content: [{ type: "text", text: reponseFakeIA(body) }],
     usage: { input_tokens: 1000, output_tokens: 500 }
   }));
 });
+// Réponses simulées par tâche (le recrutement lit la réponse côté serveur).
+function reponseFakeIA(body) {
+  const sys = String(body.system || "");
+  if (/expert du recrutement par les compétences/.test(sys)) {
+    return JSON.stringify({ competences: [
+      { cle: "ponctualite", libelle: "Ponctualité", type: "savoir_etre", poids: 3, indispensable: true, observable: "Arrive avant l'ouverture, prévient en cas de retard." },
+      { cle: "sens_du_service", libelle: "Sens du service client", type: "savoir_etre", poids: 3, indispensable: false, observable: "Accueille chaque client avec le sourire." },
+      { cle: "caisse", libelle: "Tenue de caisse", type: "technique", poids: 2, indispensable: false, observable: "Encaisse sans erreur." },
+      { cle: "age", libelle: "Moins de 30 ans", type: "savoir_etre", poids: 1, indispensable: false, observable: "" }
+    ] });
+  }
+  if (/questionnaire de sélection PAR LES COMPÉTENCES/.test(sys)) {
+    return JSON.stringify({ consigneCandidat: "Bienvenue. Pas de piège : répondez sincèrement.", questions: [
+      { id: "q1", competence: "ponctualite", type: "situation", question: "Votre bus est en retard, l'ouverture est dans 10 minutes. Que faites-vous ?", options: [], attendu: "Prévenir, proposer une solution, ne pas minimiser." },
+      { id: "q2", competence: "sens_du_service", type: "choix", question: "Un client se plaint que son bagel est froid.", options: [
+        { texte: "Je m'excuse et je le refais tout de suite", valeur: 3 }, { texte: "Je lui dis que c'est normal", valeur: 0 },
+        { texte: "J'appelle le responsable sans rien dire", valeur: 1 }, { texte: "Je propose une réduction sans le refaire", valeur: 2 } ], attendu: "Refaire, s'excuser." },
+      { id: "q3", competence: "caisse", type: "situation", question: "Vous constatez 5 € de trop dans la caisse. Que faites-vous ?", options: [], attendu: "Le signaler." },
+      { id: "q4", competence: "inconnue", type: "ouverte", question: "Racontez une fois où vous avez géré un imprévu.", options: [], attendu: "Exemple concret." }
+    ] });
+  }
+  if (/assistant d'évaluation d'un recruteur/.test(sys)) {
+    return JSON.stringify({ scores: [
+      { competence: "ponctualite", note: 80, justification: "La réponse décrit un appel au responsable.", extrait: "j'appelle mon responsable" },
+      { competence: "sens_du_service", note: 90, justification: "Meilleure option choisie.", extrait: "" },
+      { competence: "caisse", note: 30, justification: "Réponse vague.", extrait: "je vois" }
+    ], global: 1, resume: "Les réponses décrivent des réflexes d'alerte.", pointsForts: ["Prévient en cas d'imprévu"], vigilance: ["Rigueur de caisse à vérifier"], entretien: ["Racontez une erreur de caisse."], alerte: "" });
+  }
+  return "{\"ok\":true}";
+}
 await new Promise((r) => fake.listen(18789, r));
 
 // --- Faux Microsoft (jeton + getSchedule) : Claire est prise de 10h à 11h --
@@ -689,7 +719,7 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   ok(/d'abord ce que l'acte dit explicitement/.test(cp.system), "une attribution explicite de l'acte prime sur l'ordre");
   ok(/"notaire_acquereur"[^\n]*PREMIER cité/.test(cp.system) && /"notaire_vendeur"[^\n]*SECOND cité/.test(cp.system),
     "le squelette JSON rappelle l'ordre sur chacun des deux champs");
-  for (const t of ["brochure", "caption_photos", "diagnostics", "surfaces", "ad_text", "extract_notes", "city_intro", "structure_fiche"]) {
+  for (const t of ["brochure", "caption_photos", "diagnostics", "surfaces", "ad_text", "extract_notes", "city_intro", "structure_fiche", "rec_competences", "rec_questionnaire", "rec_evaluation"]) {
     const p = promptFor(t, "");
     ok(p.output_config && compte(p.output_config.format.schema) <= 25, "schéma de sortie raisonnable pour la tâche « " + t + " »");
   }
@@ -2784,6 +2814,111 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   const appNo = createApp({ db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: true });
   const noSecret = await appNo.fetch(new Request("http://api.test/auth/kadima", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pass: "x.y" }) }));
   ok(noSecret.status === 501, "secret non configuré → 501 (le client retombe sur la connexion e-mail)");
+}
+
+/* ---- Recrutement : postes, questionnaire, portail candidat, évaluation ---- */
+{
+  console.log("— Recrutement : recruter par les compétences, sans CV");
+  const auth = { Authorization: "Bearer " + s3 };
+  const authB = { Authorization: "Bearer " + s2b };
+  ok((await call("/recrutement/postes")).status === 401, "sans session : refusé");
+  const cre = await call("/recrutement/postes", { headers: auth, body: { titre: "Équipier polyvalent", secteur: "restauration", lieu: "Bordeaux", contrat: "CDI", description: "Bagels, service au comptoir." } });
+  ok(cre.status === 200 && cre.json.poste.id.startsWith("po_") && cre.json.poste.statut === "brouillon", "poste créé en brouillon");
+  const poste = cre.json.poste;
+  ok(/^[a-z0-9]{8,14}$/.test(poste.slug), "jeton public aléatoire posé");
+  ok((await call("/recrutement/postes/" + poste.id, { headers: authB })).status === 404, "une agence ne voit pas les postes d'une autre");
+
+  // Compétences suggérées par l'IA : le libellé discriminant est renvoyé tel
+  // quel par l'IA simulée — le prompt l'interdit, l'employeur le retire ; on
+  // vérifie surtout que le serveur nettoie et plafonne.
+  const comp = await call("/recrutement/postes/" + poste.id + "/competences", { headers: auth, body: { notes: "ponctuel, souriant, sait tenir une caisse" } });
+  ok(comp.status === 200 && comp.json.competences.length === 4, "compétences proposées");
+  const dernier = upstreamCalls[upstreamCalls.length - 1].body;
+  ok(/L1132-1/.test(dernier.system) && /ponctuel, souriant/.test(dernier.messages[0].content), "prompt compétences : rappel légal + notes de l'employeur");
+  ok(dernier.output_config && dernier.output_config.format.type === "json_schema", "sortie structurée injectée côté serveur");
+  // L'employeur retire la 4e (« moins de 30 ans ») et sauvegarde.
+  const garde = comp.json.competences.slice(0, 3);
+  const maj = await call("/recrutement/postes/" + poste.id, { method: "PUT", headers: auth, body: { competences: garde } });
+  ok(maj.status === 200 && maj.json.poste.competences.length === 3, "compétences retenues sauvegardées");
+  ok((await call("/recrutement/postes/" + poste.id, { method: "PUT", headers: auth, body: { statut: "ouvert" } })).status === 400, "impossible d'ouvrir sans questionnaire");
+
+  const quest = await call("/recrutement/postes/" + poste.id + "/questionnaire", { headers: auth, body: {} });
+  ok(quest.status === 200 && quest.json.questionnaire.length === 4, "questionnaire généré");
+  ok(quest.json.questionnaire[3].competence === "ponctualite", "question sur une compétence inconnue rattachée à la première");
+  ok(quest.json.questionnaire[1].type === "choix" && quest.json.questionnaire[1].options.length === 4, "question à choix avec 4 options");
+  const ouv = await call("/recrutement/postes/" + poste.id, { method: "PUT", headers: auth, body: { statut: "ouvert" } });
+  ok(ouv.status === 200 && ouv.json.poste.statut === "ouvert", "candidatures ouvertes");
+
+  // Portail public : ce que le candidat voit.
+  const pub = await call("/public/recrutement/poste?offre=" + poste.slug);
+  ok(pub.status === 200 && pub.json.poste.titre === "Équipier polyvalent", "offre publique lisible sans session");
+  ok(pub.json.poste.questions.length === 4 && pub.json.poste.questions[0].attendu === undefined, "la grille de correction n'est JAMAIS envoyée au candidat");
+  ok(pub.json.poste.questions[1].options[0].valeur === undefined, "la valeur des options n'est jamais envoyée au candidat");
+  ok(pub.json.notice && /décision est prise par une personne/.test(pub.json.notice.methode) && pub.json.notice.responsable === "Azur Immobilier", "notice d'information (RGPD 13 / L1221-8) avec l'employeur responsable");
+  ok((await call("/public/recrutement/poste?offre=inconnu")).status === 404, "offre inconnue : 404");
+
+  const reponses = [{ id: "q1", reponse: "J'appelle mon responsable pour prévenir et je pars en courant." }, { id: "q2", choix: 0 }, { id: "q3", reponse: "je vois" }, { id: "q4", reponse: "Un jour au foot le gardien n'est pas venu, j'ai pris sa place." }];
+  const sansConsent = await call("/public/recrutement/candidater", { body: { offre: poste.slug, prenom: "Lina", nom: "Martin", email: "lina@exemple.fr", reponses } });
+  ok(sansConsent.status === 400, "sans acceptation de l'information : refusé");
+  const peu = await call("/public/recrutement/candidater", { body: { offre: poste.slug, prenom: "Lina", nom: "Martin", email: "lina@exemple.fr", consentement: true, reponses: reponses.slice(0, 1) } });
+  ok(peu.status === 400, "questionnaire trop incomplet : refusé");
+  const avant = upstreamCalls.length;
+  const cand = await call("/public/recrutement/candidater", { body: { offre: poste.slug, prenom: "Lina", nom: "Martin", email: "Lina@Exemple.fr", telephone: "06 12 34 56 78", ville: "Mérignac", consentement: true, reponses, duree_s: 540 } });
+  ok(cand.status === 200 && /^K-[A-Z0-9]{4}$/.test(cand.json.code) && cand.json.suivi, "candidature reçue : pseudonyme + lien de suivi");
+  ok(upstreamCalls.length === avant + 1, "évaluation IA lancée à la réception");
+  const evalCall = upstreamCalls[upstreamCalls.length - 1].body;
+  ok(!/Lina|Martin|exemple\.fr|Mérignac|06 12/.test(JSON.stringify(evalCall)), "l'IA ne reçoit ni nom, ni e-mail, ni ville, ni téléphone");
+  ok(/Réponse du candidat K-/.test(evalCall.messages[0].content) && /valeur de cette option : 3\/3/.test(evalCall.messages[0].content), "le dossier envoyé porte le code et la valeur de l'option choisie");
+  const doublon = await call("/public/recrutement/candidater", { body: { offre: poste.slug, prenom: "Lina", nom: "Martin", email: "lina@exemple.fr", consentement: true, reponses } });
+  ok(doublon.status === 409, "une seule candidature par e-mail et par poste");
+
+  // Vue employeur : classement sous pseudonyme, identité cachée.
+  const vue = await call("/recrutement/postes/" + poste.id, { headers: auth });
+  ok(vue.status === 200 && vue.json.candidatures.length === 1, "la candidature apparaît");
+  const c1 = vue.json.candidatures[0];
+  ok(c1.statut === "evalue" && c1.evaluation && c1.evaluation.scores.length === 3, "évaluée, une note par compétence");
+  // 80×3 + 90×3 + 30×2 = 570 / 8 = 71,25 → le global se recalcule côté serveur (l'IA disait 1).
+  ok(c1.global === 71 && c1.evaluation.global === 71, "moyenne pondérée recalculée par le serveur");
+  ok(c1.identite === undefined && c1.devoile === false, "identité masquée tant qu'elle n'est pas dévoilée");
+  ok(Array.isArray(c1.evaluation.manques) && c1.evaluation.manques.length === 0, "aucune compétence indispensable manquante");
+
+  ok((await call("/recrutement/candidatures/" + c1.id + "/decision", { headers: auth, body: { decision: "n_importe" } })).status === 400, "décision inconnue refusée");
+  const dec = await call("/recrutement/candidatures/" + c1.id + "/decision", { headers: auth, body: { decision: "shortlist", motif: "Réponses concrètes" } });
+  ok(dec.status === 200, "décision humaine enregistrée");
+  const dev = await call("/recrutement/candidatures/" + c1.id + "/devoiler", { headers: auth, body: {} });
+  ok(dev.status === 200 && dev.json.identite.email === "lina@exemple.fr" && dev.json.identite.prenom === "Lina", "identité dévoilée à la demande");
+  const vue2 = await call("/recrutement/postes/" + poste.id, { headers: auth });
+  ok(vue2.json.candidatures[0].identite && vue2.json.candidatures[0].decision === "shortlist", "après dévoilement, l'identité est jointe et la décision visible");
+  ok((await call("/recrutement/candidatures/" + c1.id + "/devoiler", { headers: authB, body: {} })).status === 404, "une autre agence ne peut pas dévoiler");
+  const journal = await call("/recrutement/postes/" + poste.id + "/journal", { headers: auth });
+  const actions = journal.json.journal.map((j) => j.action);
+  ok(["candidature", "evaluation", "decision", "devoilement"].every((a) => actions.includes(a)), "journal : candidature, évaluation, décision, dévoilement tracés");
+  const retour = await call("/recrutement/candidatures/" + c1.id + "/retour", { headers: auth, body: { sujet: "Votre candidature", texte: "Merci Lina, nous vous proposons un entretien." } });
+  ok(retour.status === 200 && retour.json.envoye === false && /^mailto:lina%40exemple\.fr/.test(retour.json.mailto), "sans Resend : le retour part en mailto et se journalise");
+
+  // Le candidat : ses résultats, puis l'effacement.
+  const suivi = await call("/public/recrutement/suivi?suivi=" + encodeURIComponent(cand.json.suivi));
+  ok(suivi.status === 200 && suivi.json.prenom === "Lina" && suivi.json.resultats.length === 3 && suivi.json.resultats[0].competence === "Ponctualité", "le candidat lit ses résultats par compétence");
+  ok(suivi.json.decision === "shortlist" && suivi.json.retour_at, "le candidat voit l'avancement");
+  ok((await call("/public/recrutement/suivi?suivi=faux")).status === 404, "lien de suivi inconnu : 404");
+  // Purge : rien n'est assez vieux.
+  const purge = await call("/recrutement/purge", { headers: auth, body: {} });
+  ok(purge.status === 200 && purge.json.effacees === 0, "purge : rien au-delà de 2 ans");
+  await db.run("UPDATE rec_candidatures SET updated_at = ?, decision_at = ?, retour_at = ? WHERE id = ?", [1000, 1000, 1000, c1.id]);
+  const purge2 = await call("/recrutement/purge", { headers: auth, body: {} });
+  ok(purge2.json.effacees === 1 && !(await db.get("SELECT id FROM rec_candidats WHERE email = 'lina@exemple.fr'")), "purge : candidature ancienne et identité effacées");
+
+  // Effacement à la demande du candidat.
+  const cand2 = await call("/public/recrutement/candidater", { body: { offre: poste.slug, prenom: "Noah", nom: "Petit", email: "noah@exemple.fr", consentement: true, reponses } });
+  ok(cand2.status === 200, "seconde candidature reçue");
+  const eff = await call("/public/recrutement/suivi/effacer", { body: { suivi: cand2.json.suivi } });
+  ok(eff.status === 200 && (await call("/public/recrutement/suivi?suivi=" + encodeURIComponent(cand2.json.suivi))).status === 404, "le candidat efface lui-même sa candidature");
+  ok((await call("/recrutement/postes/" + poste.id, { headers: auth })).json.candidatures.length === 0, "plus rien côté employeur");
+
+  // Fermeture : la page publique le dit.
+  await call("/recrutement/postes/" + poste.id, { method: "PUT", headers: auth, body: { statut: "ferme" } });
+  ok((await call("/public/recrutement/poste?offre=" + poste.slug)).status === 410, "poste fermé : candidatures closes (410)");
+  ok((await call("/recrutement/postes/" + poste.id, { method: "DELETE", headers: auth })).status === 200, "poste supprimé");
 }
 
 fake.close();

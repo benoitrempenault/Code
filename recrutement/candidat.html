@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self' https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev https://fonts.googleapis.com https://fonts.gstatic.com" />
+  <title>Postuler</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <meta name="robots" content="noindex" />
+  <meta name="description" content="Postulez sans CV : quelques mises en situation, 10 minutes, sur votre téléphone." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/recrutement.css" />
+</head>
+<body class="candidat">
+  <main class="wrap">
+    <header class="tete">
+      <div class="emp" id="employeur"></div>
+      <h1 id="titre">Chargement…</h1>
+      <p id="sous-titre"></p>
+    </header>
+
+    <div id="erreur" class="alerte" hidden></div>
+
+    <!-- 1. Présentation + information préalable -->
+    <section id="accueil" hidden>
+      <div class="carte">
+        <h2>Le poste</h2>
+        <p id="description"></p>
+        <p><strong>Ce que nous cherchons :</strong></p>
+        <div class="comps" id="comps"></div>
+        <p class="notice" style="margin-top:8px">Les compétences encadrées sont indispensables au poste.</p>
+      </div>
+      <div class="carte">
+        <h2>Comment ça marche</h2>
+        <p><strong>1.</strong> Pas de CV, pas de lettre. Vous répondez à <span id="nb-questions"></span> mises en situation
+          tirées du vrai quotidien du poste. Environ 10 minutes, sur votre téléphone.</p>
+        <p><strong>2.</strong> Il n'y a pas de piège : dites ce que vous feriez vraiment, concrètement. Vos exemples peuvent
+          venir du travail, des études, du sport, d'une association ou de la vie de tous les jours.</p>
+        <p><strong>3.</strong> Vous laissez vos coordonnées à la fin, seulement pour être recontacté(e). Vous recevez un
+          lien pour suivre votre candidature et consulter vos résultats.</p>
+        <p id="consigne" style="font-style: italic;"></p>
+      </div>
+      <div class="carte">
+        <h2>Vos données, en clair</h2>
+        <dl class="notice" id="notice"></dl>
+        <label class="consent"><input type="checkbox" id="consent" />
+          <span>J'ai lu ces informations. Je comprends qu'un outil d'intelligence artificielle analyse mes réponses
+            avec la même grille pour tous les candidats, et qu'une personne prend la décision.</span></label>
+        <button class="btn btn-or" id="btn-commencer" disabled style="width:100%">Commencer</button>
+      </div>
+    </section>
+
+    <!-- 2. Les questions, une à la fois -->
+    <section id="questionnaire" hidden>
+      <div class="carte">
+        <div class="progression"><b id="barre" style="width:0%"></b></div>
+        <div class="compteur" id="compteur"></div>
+        <div class="q" id="q-texte"></div>
+        <div id="q-libre" hidden>
+          <textarea id="q-reponse" maxlength="2500" placeholder="Décrivez concrètement ce que vous feriez, étape par étape…"></textarea>
+          <div class="compte" id="q-compte"></div>
+        </div>
+        <div id="q-choix" class="choix" hidden></div>
+        <div class="nav">
+          <button class="btn" id="btn-prec">← Précédent</button>
+          <button class="btn btn-or" id="btn-suiv">Suivant →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Coordonnées -->
+    <section id="coordonnees" hidden>
+      <div class="carte">
+        <h2>Pour vous recontacter</h2>
+        <p class="notice">Uniquement ce qui sert à vous joindre. Pas d'âge, pas de photo, pas d'adresse.</p>
+        <div class="grille2">
+          <div><label for="c-prenom">Prénom</label><input id="c-prenom" autocomplete="given-name" maxlength="60" required /></div>
+          <div><label for="c-nom">Nom</label><input id="c-nom" autocomplete="family-name" maxlength="60" required /></div>
+        </div>
+        <label for="c-email">E-mail</label><input id="c-email" type="email" autocomplete="email" maxlength="120" required />
+        <div class="grille2">
+          <div><label for="c-tel">Téléphone (facultatif)</label><input id="c-tel" type="tel" autocomplete="tel" maxlength="40" /></div>
+          <div><label for="c-ville">Commune (facultatif)</label><input id="c-ville" autocomplete="address-level2" maxlength="80" /></div>
+        </div>
+        <p id="msg-form" class="notice"></p>
+        <div class="nav">
+          <button class="btn" id="btn-retour-q">← Revoir mes réponses</button>
+          <button class="btn btn-or" id="btn-envoyer">Envoyer ma candidature</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Merci -->
+    <section id="merci" hidden>
+      <div class="carte merci">
+        <div class="coche">✓</div>
+        <h2>Candidature envoyée</h2>
+        <p>Merci ! Votre candidature porte le code <strong id="m-code"></strong>. L'employeur la lit sous ce code,
+          sans votre nom, et vous recontacte s'il souhaite vous rencontrer.</p>
+        <p><strong>Gardez ce lien</strong> : il vous permet de suivre votre candidature, de consulter vos résultats
+          par compétence et de demander l'effacement de vos données.</p>
+        <div class="lien-suivi" id="m-lien"></div>
+        <button class="btn" id="btn-copier-suivi">Copier le lien</button>
+        <a class="btn btn-or" id="m-ouvrir" href="#">Voir ma candidature</a>
+      </div>
+    </section>
+
+    <!-- 5. Suivi (lien personnel) -->
+    <section id="suivi" hidden>
+      <div class="carte">
+        <h2 id="s-titre">Votre candidature</h2>
+        <p id="s-etat"></p>
+        <div id="s-resultats" class="resultats"></div>
+        <div id="s-forts"></div>
+        <p class="notice" id="s-conservation"></p>
+      </div>
+      <div class="carte">
+        <h2>Vos droits</h2>
+        <p class="notice">Vous pouvez demander la rectification de vos coordonnées ou contester une décision en écrivant
+          à l'employeur. Vous pouvez aussi effacer votre candidature et toutes vos données maintenant — c'est immédiat
+          et définitif.</p>
+        <button class="btn" id="btn-effacer" style="border-color:#c25b3f;color:#7a2e1d">Effacer ma candidature et mes données</button>
+      </div>
+    </section>
+
+    <footer class="pied">
+      Ce portail est fourni par <a href="../legal/mentions-legales.html" target="_blank" rel="noopener">Studio Brochure</a>,
+      qui héberge les données pour le compte de l'employeur (sous-traitant, RGPD art. 28) —
+      <a href="../legal/confidentialite.html" target="_blank" rel="noopener">politique de confidentialité</a>.
+    </footer>
+  </main>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/candidat.js"></script>
+</body>
+</html>

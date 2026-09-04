@@ -663,3 +663,83 @@ CREATE TABLE IF NOT EXISTS crm_visite_avis (
   avis       TEXT NOT NULL DEFAULT '',      -- plu | pas_plu
   updated_at INTEGER NOT NULL
 );
+
+-- =========================================================================
+-- Studio Recrutement — recrutement par les compétences, sans CV.
+-- Le POSTE porte les compétences attendues et le questionnaire généré ;
+-- la CANDIDATURE porte les réponses, l'évaluation IA et la décision HUMAINE.
+-- L'identité du candidat vit dans une table à part (rec_candidats) : le
+-- classement se lit sous pseudonyme (code) et le dévoilement est journalisé.
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS rec_postes (
+  id            TEXT PRIMARY KEY,               -- po_xxxxxxxx
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  user_id       TEXT NOT NULL,                  -- créateur
+  slug          TEXT NOT NULL UNIQUE,           -- jeton public du lien candidat (aléatoire)
+  titre         TEXT NOT NULL,
+  secteur       TEXT NOT NULL DEFAULT '',       -- restauration | immobilier | commerce | autre…
+  lieu          TEXT NOT NULL DEFAULT '',
+  contrat       TEXT NOT NULL DEFAULT '',       -- CDI | CDD | alternance | temps partiel…
+  description   TEXT NOT NULL DEFAULT '',       -- texte public de l'annonce
+  competences   TEXT NOT NULL DEFAULT '[]',     -- JSON [{cle, libelle, type, poids, indispensable, observable}]
+  questionnaire TEXT NOT NULL DEFAULT '[]',     -- JSON [{id, competence, type, question, options[], attendu}]
+  reglages      TEXT NOT NULL DEFAULT '{}',     -- JSON {contactEmail, dureeMax, ...}
+  statut        TEXT NOT NULL DEFAULT 'brouillon', -- brouillon | ouvert | ferme
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  ferme_at      INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_rec_postes_agency ON rec_postes(agency_id, updated_at);
+
+-- Identité et coordonnées : SEULEMENT ce qui sert à recontacter (L1221-6).
+-- Jamais de date de naissance, photo, sexe, nationalité, situation familiale.
+CREATE TABLE IF NOT EXISTS rec_candidats (
+  id             TEXT PRIMARY KEY,              -- ca_xxxxxxxx
+  agency_id      TEXT NOT NULL REFERENCES agencies(id),
+  poste_id       TEXT NOT NULL REFERENCES rec_postes(id),
+  email          TEXT NOT NULL,                 -- minuscules
+  prenom         TEXT NOT NULL DEFAULT '',
+  nom            TEXT NOT NULL DEFAULT '',
+  telephone      TEXT NOT NULL DEFAULT '',
+  ville          TEXT NOT NULL DEFAULT '',      -- commune seulement (mobilité), pas d'adresse
+  token_hash     TEXT NOT NULL UNIQUE,          -- accès du candidat à SES résultats (droit d'accès)
+  consentement_at INTEGER NOT NULL,             -- horodatage de l'information + acceptation
+  created_at     INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rec_candidats_poste_email ON rec_candidats(poste_id, email);
+
+CREATE TABLE IF NOT EXISTS rec_candidatures (
+  id            TEXT PRIMARY KEY,               -- cd_xxxxxxxx
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  poste_id      TEXT NOT NULL REFERENCES rec_postes(id),
+  candidat_id   TEXT NOT NULL REFERENCES rec_candidats(id),
+  code          TEXT NOT NULL,                  -- pseudonyme affiché à l'employeur (ex. « K-7F3A »)
+  reponses      TEXT NOT NULL DEFAULT '[]',     -- JSON [{id, reponse}]
+  duree_s       INTEGER NOT NULL DEFAULT 0,
+  statut        TEXT NOT NULL DEFAULT 'soumis', -- soumis | evalue | erreur
+  evaluation    TEXT NOT NULL DEFAULT '',       -- JSON {scores[], global, pointsForts[], vigilance[], entretien[], resume}
+  evalue_at     INTEGER,
+  decision      TEXT NOT NULL DEFAULT 'aucune', -- aucune | shortlist | entretien | retenu | refuse
+  decision_par  TEXT NOT NULL DEFAULT '',       -- user id : la décision est HUMAINE (RGPD art. 22)
+  decision_at   INTEGER,
+  devoile_at    INTEGER,                        -- identité dévoilée à l'employeur (journalisé)
+  devoile_par   TEXT NOT NULL DEFAULT '',
+  retour_at     INTEGER,                        -- retour envoyé au candidat
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rec_candidatures_poste ON rec_candidatures(poste_id, created_at);
+
+-- Journal : qui a fait quoi sur une candidature (traçabilité AI Act art. 26,
+-- CNIL). Une ligne par action humaine ou automatique.
+CREATE TABLE IF NOT EXISTS rec_journal (
+  id             TEXT PRIMARY KEY,              -- rj_xxxxxxxx
+  agency_id      TEXT NOT NULL,
+  poste_id       TEXT NOT NULL,
+  candidature_id TEXT NOT NULL DEFAULT '',
+  qui            TEXT NOT NULL DEFAULT '',      -- user id, 'candidat' ou 'ia'
+  action         TEXT NOT NULL,                 -- candidature | evaluation | decision | devoilement | effacement | retour | ...
+  detail         TEXT NOT NULL DEFAULT '',
+  created_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rec_journal_poste ON rec_journal(poste_id, created_at);
