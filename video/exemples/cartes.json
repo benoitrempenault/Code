@@ -1,0 +1,16 @@
+[
+  {
+    "a": 6.0,
+    "duree": 2.5,
+    "titre": "Cuisine 15 m²",
+    "sous": "Entièrement équipée",
+    "lignes": ["Îlot central en granit", "Ouverte sur le séjour"]
+  },
+  {
+    "a": 14.0,
+    "duree": 3.0,
+    "titre": "Jardin 800 m²",
+    "sous": "Plein sud, sans vis-à-vis",
+    "image": "photos/jardin.jpg"
+  }
+]

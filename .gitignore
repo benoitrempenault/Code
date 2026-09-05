@@ -9,3 +9,8 @@ docs/*.pdf
 server/studio.sqlite
 studio.sqlite
 *.sqlite
+
+# Studio Vidéo (video/) — caches Python et transcriptions à côté des rushs
+video/**/__pycache__/
+video/.pytest_cache/
+*.mots.json

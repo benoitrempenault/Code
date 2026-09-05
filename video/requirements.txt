@@ -1,0 +1,5 @@
+# Studio Vidéo — `pip install -r requirements.txt`
+faster-whisper>=1.1        # transcription locale mot à mot (modèle téléchargé au 1er lancement)
+pillow>=10                 # cartes d'illustration
+imageio-ffmpeg>=0.5        # binaire ffmpeg embarqué (Windows/Mac/Linux) si ffmpeg n'est pas installé
+pytest>=8                  # tests (facultatif)

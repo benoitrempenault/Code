@@ -378,6 +378,18 @@ Outlook ») — jamais une saisie manuelle, et rien en cas d'agendas illisibles.
 pièges : `docs/permanence.md`. Outil interne Century 21 (noindex, logo Kadima) ; la page `rdv/` est
 publique mais **neutre** — ni marque Century 21 ni mention ABR IMMO, l'agence vient du serveur.
 
+**`video/` — Studio Vidéo**, un outil EN LIGNE DE COMMANDE (Python, pas une page web, pas
+déployé par Pages) qui nettoie et habille un clip parlé pour Reels / TikTok : transcription mot à
+mot locale (`faster-whisper`, cache `<clip>.mots.json`), coupes des blancs / tics (« euh »…) /
+répétitions / fausses prises (`studiovideo/nettoyage.py`, fonctions pures testées avec pytest),
+rendu ffmpeg en deux passes (`rendu.py` : `select`/`aselect` + recadrage + zoom par `crop`
+évalué à chaque image → `montage.mp4` ; puis intro/cartes/B-roll en overlay, sous-titres ASS
+gravés par libass avec les polices OFL de `video/assets/fonts`, SFX synthétisés, `loudnorm` →
+`final.mp4`), plus SRT et EDL pour finir dans CapCut / Premiere. ffmpeg vient du PATH ou du
+paquet pip `imageio-ffmpeg` (qui ne livre PAS ffprobe : `outils.sonder` lit `ffmpeg -i`).
+Presets `immo` / `voyage` / `sobre`. Lancer les tests : `cd video && python3 -m pytest tests`.
+Mode d'emploi, limites et comparatif des outils du marché : `video/README.md`.
+
 ## Architecture
 
 - `index.html` — single-page shell: left **editor** panel (form), right **preview** (live A4).
