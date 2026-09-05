@@ -854,6 +854,32 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
     "une condition sans autorisation d'urbanisme n'a pas d'étape de dépôt");
 }
 
+/* ---- Courtier : les acquéreurs lui sont présentés, nouveaux dossiers ---- */
+{
+  const { actionsFor } = await import("./src/etapes.js");
+  const dos = (extra) => Object.assign({
+    statut: "en_cours", date_compromis: "2026-09-05", date_butoir: "2027-01-15",
+    dates: {}, sequestre: {}, financement: { recours_pret: "oui" }, bien: { type: "Maison" }, syndic: {},
+    equipements: {}, entretiens: {}, diagnostics: {}, etapes: {}, conditions_suspensives: []
+  }, extra || {});
+  const idsDe = (d) => actionsFor(d, "2026-09-06").map((a) => a.id);
+  ok(!idsDe(dos()).includes("envoi_courtier"), "dossier du stock (sans marqueur) : pas d'envoi au courtier");
+  ok(idsDe(dos({ suivi_courtier: true })).includes("envoi_courtier"), "dossier nouveau : les acquéreurs sont présentés au courtier");
+  ok(idsDe(dos({ suivi_courtier: "true" })).length === idsDe(dos()).length, "le marqueur doit être un vrai booléen, pas une chaîne");
+  const sansPret = dos({ suivi_courtier: true, financement: { recours_pret: "non" } });
+  ok(!idsDe(sansPret).includes("envoi_courtier"), "achat sans prêt : rien à envoyer au courtier");
+  const inconnu = dos({ suivi_courtier: true, financement: {} });
+  ok(idsDe(inconnu).includes("envoi_courtier"), "recours au prêt non renseigné : l'étape reste (on ne devine pas un comptant)");
+  const c = actionsFor(dos({ suivi_courtier: true }), "2026-09-06").find((a) => a.id === "envoi_courtier");
+  ok(c.due === "2026-09-08", "envoi au courtier : trois jours après le compromis, avec l'envoi aux notaires");
+  // L'annuaire accepte le type « courtier » (fiche de Joris posée par l'app).
+  const fiche = await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 },
+    body: { type: "courtier", nom: "Joris ABGRALL", email: "joris.abgrall@ashler-manson.com" } });
+  ok(fiche.status === 200, "l'annuaire accepte une fiche de type courtier");
+  const liste = await call("/annuaire", { headers: { Authorization: "Bearer " + s3 } });
+  ok((liste.json.annuaire || []).some((a) => a.type === "courtier" && /abgrall/i.test(a.nom)), "la fiche courtier se relit");
+}
+
 /* ---- Nature du bien : le local commercial suit la copropriété ---------- */
 {
   const { typeBien, actionsFor } = await import("./src/etapes.js");

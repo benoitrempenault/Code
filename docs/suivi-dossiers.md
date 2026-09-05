@@ -75,6 +75,19 @@ appel après-vente, clôture.
    jusqu'à ce qu'on la décoche. Supprimer la note d'une relance efface aussi sa trace
    dans l'échéancier — date de relance et report d'échéance (`rebaseRelance()`).
 
+### Envoi des acquéreurs au courtier
+
+À chaque **nouveau** compromis, le courtier de l'agence (fiche de type `courtier` dans
+l'annuaire — Joris ABGRALL, joris.abgrall@ashler-manson.com, posée à la première
+ouverture et modifiable) reçoit les coordonnées des acquéreurs : étape « Acquéreurs
+présentés au courtier » de la phase Notification & rétractation, à J+3 comme l'envoi
+aux notaires, modèle « Envoi au courtier » (tutoiement, coordonnées détaillées, dates
+limites du prêt, signature prévue). **Réservé aux dossiers ouverts depuis la mise en
+place** : `createDossier()` pose `suivi_courtier: true`, `normalize()` force `false`
+partout ailleurs — le stock existant n'en hérite jamais. Un compromis **sans recours au
+prêt** (« non » explicite) n'affiche pas l'étape ; recours non renseigné = étape visible,
+on ne devine pas un achat comptant.
+
 ### Lecture des notaires
 
 Le compromis désigne un notaire par partie. L'extraction rattache chacun d'abord à ce

@@ -389,6 +389,15 @@
     { id: "envoi_notaires", phase: "Notification & rétractation", label: "Dossier envoyé aux notaires (compromis + coordonnées clients)",
       cible: "notaires", modele: "Envoi du dossier aux notaires", due: (d) => addDays(ssp(d), 3),
       hint: "Un seul e-mail aux deux études : lien de téléchargement + coordonnées détaillées des parties." },
+    /* Le courtier de l'agence reçoit les coordonnées des acquéreurs dès le
+       compromis, pour suivre (ou prendre) leur financement. Réservé aux
+       dossiers OUVERTS depuis la mise en place (suivi_courtier posé à la
+       création) : le stock existant n'en hérite pas. Un compromis sans
+       recours au prêt n'a rien à lui envoyer. */
+    { id: "envoi_courtier", phase: "Notification & rétractation", label: "Acquéreurs présentés au courtier (coordonnées envoyées)",
+      cible: "courtier", modele: "Envoi au courtier", due: (d) => addDays(ssp(d), 3),
+      applies: (d) => d.suivi_courtier === true && !(d.financement && d.financement.recours_pret === "non"),
+      hint: "Dès la signature : le courtier voit s'ils l'ont déjà contacté, ou les appelle pour le suivi de leur prêt. Sans recours au prêt, l'étape n'apparaît pas." },
     { id: "retour_sru", phase: "Notification & rétractation", label: "AR de la notification SRU envoyé au notaire",
       due: (d) => addDays(ssp(d), 8),
       hint: "L'accusé de réception fait courir le délai : transmettez-le au notaire et renseignez la date de présentation dans « Dates clés », la fin de rétractation se calcule dessus." },
@@ -617,6 +626,11 @@
       name: "Relance séquestre", cible: "depositaire",
       sujet: "Vente {{reference}} — Confirmation de réception du dépôt de garantie",
       corps: "Maître,\n\nConcernant la vente {{reference}} ({{adresse_bien}}, compromis du {{date_compromis}}), pourriez-vous nous confirmer la bonne réception du dépôt de garantie de {{sequestre_montant}} qui devait être versé entre vos mains ({{sequestre_depositaire}}) ?\n\nÀ défaut, nous relancerons les acquéreurs sans délai.\n\nBien cordialement,\n{{signature}}"
+    },
+    {
+      name: "Envoi au courtier", cible: "courtier",
+      sujet: "Vente {{reference}} — Compromis signé, coordonnées des acquéreurs",
+      corps: "Bonjour Joris,\n\nNous t'informons avoir signé un compromis de vente le {{date_compromis}} avec {{acquereurs}}, acquéreurs du bien situé {{adresse_bien}} (prix de vente : {{prix}}).\n\nVoici leurs coordonnées :\n{{acquereurs_detail}}\n\nLe compromis prévoit une condition suspensive de prêt : dépôt du dossier au plus tard le {{date_limite_depot}}, obtention de l'offre au plus tard le {{echeance_pret}}.\n\nJe te laisse voir s'ils t'ont déjà contacté — sinon, je te laisse prendre contact avec eux pour le suivi de leur dossier de financement. Tiens-nous au courant de l'avancement, la signature est envisagée autour du {{signature_prevue}}.\n\nBien à toi,\n{{signature}}"
     },
     {
       name: "Envoi du RIB pour le séquestre", cible: "acquereur",

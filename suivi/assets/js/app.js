@@ -306,7 +306,7 @@
   function newDossier() {
     return {
       _app: "studio-suivi", version: 1,
-      reference: "", statut: "en_cours", conseillers: "", site: "",
+      reference: "", statut: "en_cours", conseillers: "", site: "", suivi_courtier: false,
       conseiller_vendeur: "", conseiller_acquereur: "",
       date_compromis: "", date_butoir: "", preemption: "",
       bien: { type: "", adresse: "", ville: "", description: "", copropriete: "", lots: "", cadastre: "" },
@@ -414,6 +414,9 @@
       if (o && typeof o === "object") for (const k of Object.keys(o)) o[k] = repareDate(o[k]);
     }
     data.conditions_suspensives.forEach((c) => { if (c && c.echeance) c.echeance = repareDate(c.echeance); });
+    // Envoi au courtier : réservé aux dossiers créés depuis la mise en place
+    // (createDossier pose true) — tout le reste vaut false, jamais déduit.
+    data.suivi_courtier = data.suivi_courtier === true;
     // Agence du dossier : "" = suivre le conseiller (voir siteDossier).
     if (!SITE_LABEL[data.site]) data.site = "";
     // Séparation des agences au 20/08/2026 : tout le stock de dossiers
@@ -539,6 +542,21 @@
       if (!modeles.some((m) => m.name === "Appel & crémaillère")) {
         const defAC = E.DEFAULT_MODELES.find((m) => m.name === "Appel & crémaillère");
         if (defAC) { await api("/modeles", { method: "PUT", json: defAC }); modeles = (await api("/modeles")).modeles || modeles; }
+      }
+      // Courtier de l'agence : fiche posée une fois (modifiable ensuite), et
+      // modèle d'envoi des acquéreurs ajouté s'il manque.
+      if (!annOf("courtier").length) {
+        try {
+          await api("/annuaire", { method: "PUT", json: {
+            type: "courtier", nom: "Joris ABGRALL", email: "joris.abgrall@ashler-manson.com",
+            notes: "Courtier de l'agence — reçoit les coordonnées des acquéreurs à chaque nouveau compromis."
+          } });
+          await loadAnnuaire();
+        } catch (e) { /* sans gravité : le serveur n'accepte peut-être pas encore le type */ }
+      }
+      if (!modeles.some((m) => m.name === "Envoi au courtier")) {
+        const defC = E.DEFAULT_MODELES.find((m) => m.name === "Envoi au courtier");
+        if (defC) { await api("/modeles", { method: "PUT", json: defC }); modeles = (await api("/modeles")).modeles || modeles; }
       }
       // Référente urbanisme : sa fiche est posée une fois dans l'annuaire
       // (e-mail modifiable ensuite comme n'importe quelle fiche).
@@ -948,7 +966,8 @@
       "Indiquez son adresse, puis la liste des notaires concernés (un par ligne, le nom suffit) : " +
       "la relance « dépôt de garantie » partira chez lui plutôt que chez le notaire."],
     ["syndic", "🏢 Syndics de copropriété", ""],
-    ["president", "🏘 Présidents de lotissement / ASL", ""]
+    ["president", "🏘 Présidents de lotissement / ASL", ""],
+    ["courtier", "🏦 Courtiers", "Le courtier reçoit, à chaque nouveau compromis, les coordonnées des acquéreurs pour le suivi de leur financement (étape « Acquéreurs présentés au courtier »)."]
   ];
   function annInput(a, field, label, width) {
     return '<div class="field" style="flex:1 1 ' + (width || 140) + 'px;margin-bottom:0"><label>' + label + "</label>" +
@@ -2312,6 +2331,8 @@
     if (cible === "conseiller_vendeur") return (annConseiller(d.conseiller_vendeur) || {}).email || "";
     if (cible === "conseiller_acquereur") return (annConseiller(d.conseiller_acquereur) || {}).email || "";
     if (cible === "syndic") return (d.syndic && d.syndic.email) || (annByNom(["syndic", "president"], d.syndic && d.syndic.nom) || {}).email || "";
+    // Le courtier de l'agence : toutes les fiches « courtier » de l'annuaire.
+    if (cible === "courtier") return joinMails(annOf("courtier").map((a) => (a.email || "").trim()));
     if (cible === "depositaire") {
       // Le notaire désigné pour recevoir le séquestre : on retrouve son e-mail
       // en comparant le nom du dépositaire aux notaires du dossier puis de l'annuaire.
@@ -2344,7 +2365,7 @@
   }
   const CIBLE_COURT = {
     notaires: "Notaires", notaire_vendeur: "Not. vendeur", notaire_acquereur: "Not. acquéreur", depositaire: "Dépositaire",
-    acquereur: "Acquéreur", vendeur: "Vendeur", syndic: "Syndic",
+    acquereur: "Acquéreur", vendeur: "Vendeur", syndic: "Syndic", courtier: "Courtier",
     conseiller_vendeur: "Conseiller", conseiller_acquereur: "Conseiller", banque: "Banque", autre: "Relancer"
   };
   /* Relie une étape à son modèle. Le modèle de l'AGENCE gagne toujours sur le
@@ -2603,7 +2624,7 @@
       ["acquereur", "Acquéreur(s)"], ["vendeur", "Vendeur(s)"],
       ["conseiller_vendeur", "Conseiller vendeur"], ["conseiller_acquereur", "Conseiller acquéreur"],
       ["depositaire", "Notaire dépositaire (séquestre)"],
-      ["syndic", "Syndic / Président"], ["banque", "Banque / courtier"], ["autre", "Autre"]];
+      ["syndic", "Syndic / Président"], ["courtier", "Courtier de l'agence"], ["banque", "Banque"], ["autre", "Autre"]];
     $("#modelesList").innerHTML = modeles.map((m) =>
       '<div class="modele" data-mid="' + esc(m.id) + '">' +
       '<div class="head">' +
@@ -2847,6 +2868,10 @@
   }
 
   async function createDossier(data, pdfFile) {
+    // Dossier NOUVEAU : les étapes réservées aux dossiers ouverts à partir
+    // d'une date (envoi des acquéreurs au courtier) s'y appliquent — jamais
+    // au stock existant, que normalize() laisse à false.
+    data.suivi_courtier = true;
     data.echeance = E.nextDue(data);
     const name = (data.reference || "Dossier du " + new Date().toLocaleDateString("fr-FR")).trim();
     const r = await api("/dossiers", { method: "PUT", json: { name, data } });

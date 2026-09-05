@@ -630,7 +630,7 @@ export function createApp(env) {
   // « comptable » : service comptabilité d'une ou plusieurs études, à qui les
   // relances de séquestre s'adressent plutôt qu'au notaire (notes = la liste
   // des études couvertes, une par ligne).
-  const ANNUAIRE_TYPES = ["conseiller", "notaire", "syndic", "president", "comptable"];
+  const ANNUAIRE_TYPES = ["conseiller", "notaire", "syndic", "president", "comptable", "courtier"];
   const ANNUAIRE_MAX = 500;
   app.get("/annuaire", async (c) => {
     const ctx = await sessionFrom(c);
