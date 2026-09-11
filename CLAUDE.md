@@ -43,7 +43,14 @@ fork). The fiche's « Injecter dans la brochure » button writes `studio-mandat-
 localStorage; the brochure wizard consumes it on load (fills type/address/notes, lands on
 step 2). Storage: `studio-mandat-v1` (brochure state) and `studio-mandat-fiche`; the API key
 (`studio-brochure-aikey`) and the OneDrive library folder are deliberately shared with the
-original app. Deployed at `/mandat/`.
+original app. Deployed at `/mandat/`. **Session « compte »** : `mandat/assets/js/acces.js` (SSO
+depuis la porte collaborateurs du site Kadima, `#acces=` → `/auth/kadima`) VALIDE un jeton déjà
+stocké par `GET /me` avant de renoncer à l'échange (un jeton mort — 30 jours sans usage,
+révocation — bloquait toute reconnexion) et pose `sso: true` dans `studio-mandatpro-account` ;
+sur un 401 en mode session, `ai.js` purge ce jeton et lève une erreur `code: "session"`, que
+`BrochureAI.showError(el, err)` affiche avec un bouton vers la porte collaborateurs (SSO) ou
+`compte.html?retour=` — tous les puits d'erreur IA (fiche, wizard, app) passent par lui. Le
+fork `mandat-pro/ai.js` a le même `showError` sans aucune référence Kadima.
 
 **`mandat-pro/`** — the white-label commercial variant of `mandat/` (UI branded « Studio
 Brochure » ; the one the

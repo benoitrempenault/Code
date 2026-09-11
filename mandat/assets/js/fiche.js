@@ -418,7 +418,7 @@
               status.className = "ai-status is-error"; status.textContent = "Rien de lisible dans ce fichier.";
             }
           }).catch(function (err) {
-            status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
+            window.BrochureAI.showError(status, err);
           });
         };
         if (isPdf) { const r = new FileReader(); r.onload = function () { put(r.result); }; r.readAsDataURL(f); }
@@ -449,7 +449,7 @@
           status.className = "ai-status is-ok"; status.textContent = "Fiche structurée ✓ — relisez et ajustez.";
         })
         .catch(function (err) {
-          status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
+          window.BrochureAI.showError(status, err);
         })
         .then(function () { btn.disabled = false; });
     });

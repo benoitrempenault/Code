@@ -31,25 +31,43 @@
     history.replaceState(null, "", location.pathname + location.search + (reste ? "#" + reste : ""));
   } catch (e) { /* sans effet si indisponible */ }
 
-  // Si une session valide existe déjà sur ce poste, inutile d'en rouvrir une.
+  // Échange du laissez-passer contre une session « compte agence ». Le
+  // marqueur sso: true permet aux apps de proposer la BONNE reconnexion
+  // (repasser par la porte du site, pas la page e-mail/mot de passe).
+  function echanger() {
+    fetch(API + "/auth/kadima", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pass: pass })
+    }).then(function (r) {
+      return r.json().catch(function () { return null; });
+    }).then(function (d) {
+      if (d && d.ok && d.session) {
+        try {
+          localStorage.setItem(LS_ACCOUNT, JSON.stringify({ session: d.session, user: d.user, agency: d.agency, sso: true }));
+        } catch (e) { /* stockage refusé : la rédaction IA redemandera l'accès */ }
+      }
+      // En cas d'échec on ne bloque rien : l'utilisateur garde la connexion
+      // e-mail/mot de passe en secours (message habituel « Mon compte »).
+    }).catch(function () { /* réseau : idem, repli silencieux */ });
+  }
+
+  // Un jeton déjà stocké sur ce poste n'est pas forcément encore ACCEPTÉ :
+  // 30 jours sans usage, révocation, table remise à zéro… On le vérifie
+  // auprès du serveur avant de renoncer à l'échange — sinon repasser par
+  // la porte collaborateurs ne réparait jamais une « Session expirée ».
+  var stocke = "";
   try {
     var a = JSON.parse(localStorage.getItem(LS_ACCOUNT) || "null");
-    if (a && a.session) return;
+    if (a && a.session) stocke = String(a.session);
   } catch (e) { /* localStorage indisponible : on tente l'échange */ }
+  if (!stocke) { echanger(); return; }
 
-  fetch(API + "/auth/kadima", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pass: pass })
-  }).then(function (r) {
-    return r.json().catch(function () { return null; });
-  }).then(function (d) {
-    if (d && d.ok && d.session) {
-      try {
-        localStorage.setItem(LS_ACCOUNT, JSON.stringify({ session: d.session, user: d.user, agency: d.agency }));
-      } catch (e) { /* stockage refusé : la rédaction IA redemandera l'accès */ }
-    }
-    // En cas d'échec on ne bloque rien : l'utilisateur garde la connexion
-    // e-mail/mot de passe en secours (message habituel « Mon compte »).
-  }).catch(function () { /* réseau : idem, repli silencieux */ });
+  fetch(API + "/me", { headers: { Authorization: "Bearer " + stocke } })
+    .then(function (r) {
+      if (r.status !== 401) return; // valide (200) ou incident passager : on garde le jeton
+      try { localStorage.removeItem(LS_ACCOUNT); } catch (e) { /* sans effet */ }
+      echanger();
+    })
+    .catch(function () { /* réseau : on garde le jeton, l'app affichera son message habituel */ });
 })();
