@@ -663,3 +663,33 @@ CREATE TABLE IF NOT EXISTS crm_visite_avis (
   avis       TEXT NOT NULL DEFAULT '',      -- plu | pas_plu
   updated_at INTEGER NOT NULL
 );
+
+-- Plafonds journaliers (envois manuels, prospects créés…) : un compteur par
+-- agence / utilisateur / jour / clé. user_id vide = compteur de l'agence.
+-- Garde-fou contre un compte compromis ou un script emballé, pas un quota
+-- commercial : les valeurs sont larges (voir QUOTAS dans crm.js).
+CREATE TABLE IF NOT EXISTS crm_quotas (
+  agency_id  TEXT NOT NULL,
+  user_id    TEXT NOT NULL DEFAULT '',
+  jour       TEXT NOT NULL,                  -- AAAA-MM-JJ (heure de Paris)
+  cle        TEXT NOT NULL,                  -- envoi-mail | envoi-sms | envois | prospects
+  n          INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (agency_id, user_id, jour, cle)
+);
+
+-- La CORBEILLE : ce qu'on supprime à la main (suivi, visite, fiche contact
+-- avec ses suivis, sa position et ses liaisons) y reste 30 jours, restaurable
+-- d'un clic par un administrateur. Le nettoyage de masse et l'effacement
+-- RGPD, eux, n'y passent pas (définitifs).
+CREATE TABLE IF NOT EXISTS crm_corbeille (
+  id          TEXT PRIMARY KEY,              -- cb_xxxxxxxx
+  agency_id   TEXT NOT NULL REFERENCES agencies(id),
+  type        TEXT NOT NULL,                 -- suivi | visite | contact
+  ref_id      TEXT NOT NULL,                 -- id de l'objet supprimé
+  libelle     TEXT NOT NULL DEFAULT '',      -- ce qu'on affiche dans la liste
+  payload     TEXT NOT NULL DEFAULT '{}',    -- JSON : lignes à réinsérer, table par table
+  user_id     TEXT NOT NULL DEFAULT '',      -- qui a supprimé
+  created_at  INTEGER NOT NULL,
+  restored_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_crm_corbeille_ag ON crm_corbeille(agency_id, restored_at, created_at);

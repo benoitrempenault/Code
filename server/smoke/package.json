@@ -1,0 +1,15 @@
+{
+  "name": "studio-smoke",
+  "private": true,
+  "type": "module",
+  "description": "Parcours navigateur (Playwright) de Studio Kadima : node run.mjs",
+  "scripts": {
+    "smoke": "node run.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  },
+  "dependencies": {
+    "playwright-core": "^1.62.1"
+  }
+}

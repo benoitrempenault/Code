@@ -142,6 +142,12 @@
           : "Donner à ce compte l'accès à la page Administration (contacts, anniversaires, acheteurs, estimations, réglages)";
         adm.addEventListener("click", function () { toggleAdministration(u); });
         wrap.appendChild(adm);
+        const dx = document.createElement("button");
+        dx.className = "btn"; dx.type = "button"; dx.textContent = "Déconnecter";
+        dx.style.padding = "5px 12px"; dx.style.fontSize = "12.5px";
+        dx.title = "Fermer toutes les sessions de ce conseiller (tablette perdue, poste partagé) — son compte reste";
+        dx.addEventListener("click", function () { deconnecterConseiller(u); });
+        wrap.appendChild(dx);
         const b = document.createElement("button");
         b.className = "btn"; b.type = "button"; b.textContent = "Retirer";
         b.style.padding = "5px 12px"; b.style.fontSize = "12.5px";
@@ -198,6 +204,17 @@
         : "Administration fermée à " + (u.name || u.email) + ".";
       loadTeam();
     } else { msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Changement de rôle impossible."; }
+  }
+
+  // Toutes les sessions du conseiller sont révoquées ; il se reconnecte par
+  // e-mail ou mot de passe. Rien d'autre ne change.
+  async function deconnecterConseiller(u) {
+    if (!window.confirm("Déconnecter " + (u.name || u.email) + " de tous ses appareils ? Il pourra se reconnecter aussitôt.")) return;
+    const a = getAccount();
+    const msg = $("#teamMsg");
+    const r = await api("/agency/users/" + u.id + "/deconnecter", { method: "POST", auth: a.session, body: {} }).catch(function () { return { status: 0 }; });
+    if (r.status === 200) { msg.className = "msg is-ok"; msg.textContent = (u.name || u.email) + " : " + (r.data.revoquees || 0) + " session(s) fermée(s)."; }
+    else { msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Déconnexion impossible."; }
   }
 
   async function removeConseiller(u) {
@@ -323,6 +340,17 @@
       $("#loginMsg").textContent = "Vous êtes déconnecté — saisissez l'e-mail du compte à ouvrir.";
     }
     $("#btnLogout").addEventListener("click", deconnecter);
+    // « Déconnecter tous mes appareils » : le serveur révoque chaque session
+    // du compte (celle-ci comprise) — utile après une tablette égarée.
+    $("#btnLogoutAll").addEventListener("click", async function () {
+      if (!window.confirm("Fermer votre session sur TOUS vos appareils (PC, téléphone, tablette) ? Vous vous reconnecterez ensuite.")) return;
+      const a = getAccount();
+      if (a && a.session) { await api("/auth/logout-all", { method: "POST", auth: a.session, body: {} }).catch(function () { }); }
+      clearAccount();
+      show("cardLogin");
+      $("#loginMsg").className = "msg is-ok";
+      $("#loginMsg").textContent = "Déconnecté sur tous vos appareils — saisissez votre e-mail pour rouvrir une session.";
+    });
     if ($("#btnSwitch")) $("#btnSwitch").addEventListener("click", deconnecter);
     $("#btnAddConseiller").addEventListener("click", addConseiller);
     $("#teamName").addEventListener("keydown", function (e) { if (e.key === "Enter") addConseiller(); });

@@ -1,4 +1,4 @@
-name: CI (syntaxe + tests serveur)
+name: CI (syntaxe + tests serveur + parcours navigateur)
 
 # Garde-fou qualité : vérifie la syntaxe de tout le JS et lance les tests
 # d'intégration du serveur à chaque push / pull request. Pour en faire un
@@ -28,7 +28,7 @@ jobs:
         run: |
           set -e
           count=0
-          for f in $(find assets pro mandat mandat-pro suivi permanence rdv server -name '*.js' -not -path '*/node_modules/*'); do
+          for f in $(find assets pro mandat mandat-pro suivi permanence rdv server administration prospection estimation -name '*.js' -not -path '*/node_modules/*' -not -path '*/vendor/*'); do
             node --check "$f"
             count=$((count+1))
           done
@@ -39,3 +39,34 @@ jobs:
         run: |
           npm install
           npm test
+
+  # Les parcours navigateur (server/smoke) : l'API locale sur une base jetable,
+  # le site servi tel quel, Chromium piloté par Playwright. Ce qu'un
+  # conseiller fait vraiment — supprimer, restaurer, scinder un couple,
+  # poser un suivi depuis la carte, changer de compte.
+  parcours:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Dépendances (serveur + Playwright/Chromium)
+        run: |
+          set -e
+          (cd server && npm install)
+          (cd server/smoke && npm install && npx playwright install --with-deps chromium)
+
+      - name: Parcours navigateur
+        working-directory: server/smoke
+        run: node run.mjs
+
+      - name: Captures des parcours en échec
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: captures-parcours
+          path: server/smoke/captures/
+          if-no-files-found: ignore

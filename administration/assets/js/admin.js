@@ -150,8 +150,9 @@
         const r = await api("/crm/contacts/supprimer", { json: { ids: ids.slice(i, i + 200) } });
         total += r.supprimes || 0;
       }
-      toast(total + " fiche(s) supprimée(s)");
+      toast(total + " fiche(s) supprimée(s) — en corbeille 30 jours");
       await chargerContacts();
+      if ($("zone-corbeille").innerHTML) chargerCorbeille();
       chargerUpcoming(); chargerAcheteurs();
     } catch (e) { toast(e.message, true); }
     btn.disabled = false;
@@ -216,13 +217,19 @@
         "</div>" +
         '<div id="zone-suivis-contact"><p class="petit">Chargement de l\'historique…</p></div>'
         : ""),
-      (c ? '<button class="btn btn-danger" id="btn-suppr-contact">Supprimer</button>' : "") +
+      (c ? '<button class="btn" id="btn-export-contact" title="Tout ce que la base sait de cette personne (droit d\'accès RGPD), en JSON">📤 Export RGPD</button>' +
+           '<button class="btn btn-danger" id="btn-effacer-contact" title="Effacement définitif (droit à l\'effacement) : sans corbeille, les journaux ne citent plus la personne">Effacement RGPD</button>' +
+           '<button class="btn btn-danger" id="btn-suppr-contact" title="Part en corbeille 30 jours (restaurable)">Supprimer</button>' : "") +
       '<button class="btn" id="btn-annuler-contact">Annuler</button>' +
       '<button class="btn btn-or" id="btn-save-contact">Enregistrer</button>');
     $("btn-annuler-contact").addEventListener("click", fermerModale);
     $("btn-save-contact").addEventListener("click", enregistrerContact);
     const suppr = $("btn-suppr-contact");
     if (suppr) suppr.addEventListener("click", supprimerContact);
+    const exportRgpd = $("btn-export-contact");
+    if (exportRgpd) exportRgpd.addEventListener("click", exporterContact);
+    const effacer = $("btn-effacer-contact");
+    if (effacer) effacer.addEventListener("click", effacerContact);
     document.querySelectorAll("[data-ouvre-projet]").forEach((b) =>
       b.addEventListener("click", () => { fermerModale(); ouvrirProjet(b.dataset.ouvreProjet); }));
     document.querySelectorAll("[data-nouveau-projet]").forEach((b) =>
@@ -535,6 +542,64 @@
       chargerAcheteurs();
     } catch (e) { toast(e.message, true); }
   }
+  // Droit d'accès : le dossier complet de la personne, téléchargé en JSON
+  // (à lui remettre tel quel ou à joindre à une réponse).
+  async function exporterContact() {
+    if (!contactEnCours) return;
+    try {
+      const d = await api("/crm/contacts/" + contactEnCours + "/export");
+      const nom = ((d.contact.nom || "") + "-" + (d.contact.prenom || "")).replace(/[^\w-]+/g, "_").replace(/^_|_$/g, "") || contactEnCours;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)], { type: "application/json" }));
+      a.download = "rgpd-" + nom + ".json";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      toast("Export RGPD téléchargé (" + d.suivis.length + " suivis, " + d.envois.length + " envois, " + d.visites.length + " visites)");
+    } catch (e) { toast(e.message, true); }
+  }
+  // Droit à l'effacement : définitif, sans corbeille — d'où les deux clics.
+  async function effacerContact() {
+    if (!contactEnCours) return;
+    const btn = $("btn-effacer-contact");
+    if (btn && btn.dataset.arme !== "1") {
+      btn.dataset.arme = "1";
+      btn.textContent = "Confirmer l'effacement DÉFINITIF ?";
+      setTimeout(() => { if (btn.dataset.arme === "1") { btn.dataset.arme = ""; btn.textContent = "Effacement RGPD"; } }, 6000);
+      return;
+    }
+    try {
+      const r = await api("/crm/contacts/" + contactEnCours + "/effacer", { json: {} });
+      fermerModale();
+      toast("Personne effacée définitivement" + (r.libelle ? " : " + r.libelle : ""));
+      await chargerContacts();
+      chargerUpcoming(); chargerAcheteurs();
+    } catch (e) { toast(e.message, true); }
+  }
+  // La corbeille : entrées des 30 derniers jours, restauration d'un clic.
+  async function chargerCorbeille() {
+    const zone = $("zone-corbeille");
+    if (!zone) return;
+    zone.innerHTML = '<p class="petit">Chargement…</p>';
+    try {
+      const { entrees } = await api("/crm/corbeille");
+      if (!entrees.length) { zone.innerHTML = '<p class="petit">La corbeille est vide.</p>'; return; }
+      const TYPES_CB = { contact: "Fiche", suivi: "Suivi", visite: "Visite" };
+      zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr><th>Type</th><th>Quoi</th><th>Supprimé le</th><th>Reste</th><th></th></tr></thead><tbody>' +
+        entrees.map((e) => "<tr><td>" + escH(TYPES_CB[e.type] || e.type) + "</td><td>" + escH(e.libelle) + "</td><td>" +
+          new Date(e.created_at * 1000).toLocaleDateString("fr-FR") + "</td><td>" + e.jours_restants + " j</td>" +
+          '<td><button class="btn" data-restaurer="' + escH(e.id) + '">↩ Restaurer</button></td></tr>').join("") +
+        "</tbody></table></div>";
+      zone.querySelectorAll("[data-restaurer]").forEach((b) => b.addEventListener("click", async () => {
+        b.disabled = true;
+        try {
+          const r = await api("/crm/corbeille/" + b.dataset.restaurer + "/restaurer", { json: {} });
+          toast("Restauré : " + (r.libelle || r.type));
+          chargerCorbeille();
+          if (r.type === "contact") { await chargerContacts(); chargerUpcoming(); chargerAcheteurs(); }
+        } catch (e) { toast(e.message, true); b.disabled = false; }
+      }));
+    } catch (e) { zone.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; }
+  }
   async function supprimerContact() {
     if (!contactEnCours) return;
     const btn = $("btn-suppr-contact");
@@ -547,8 +612,9 @@
     try {
       await api("/crm/contacts/" + contactEnCours, { method: "DELETE" });
       fermerModale();
-      toast("Contact supprimé");
+      toast("Contact supprimé — en corbeille 30 jours");
       await chargerContacts();
+      if ($("zone-corbeille").innerHTML) chargerCorbeille();
     } catch (e) { toast(e.message, true); }
   }
 
@@ -816,7 +882,9 @@
       "les champs manquants et les typologies ; les homonymes ambigus (téléphones différents) ne sont " +
       "jamais touchés ; les couples sont scindés en deux personnes reliées aux mêmes projets.</p>" +
       '<div class="tableau-cadre"><table style="min-width:0;"><tbody>' +
-      "<tr><td>Fiches inutilisables — sans nom (vides ou prénom seul : " + (a.sansNom || 0) + ") ou anonymisées (" + (a.anonymes || 0) + ")</td><td><strong>" + a.vides + "</strong></td></tr>" +
+      "<tr><td>Fiches inutilisables — sans nom (vides ou prénom seul : " + (a.sansNom || 0) + "), anonymisées (" + (a.anonymes || 0) + "), " +
+      "sans aucun moyen de contact ni adresse (" + (a.sansContact || 0) + "), prospects sans adresse (" + (a.prospectsSansAdresse || 0) + "), " +
+      "acquéreurs sans téléphone (" + (a.acquereursSansTel || 0) + "). Une fiche avec un suivi, un projet ou une estimation est toujours gardée.</td><td><strong>" + a.vides + "</strong></td></tr>" +
       "<tr><td>Doublons à examiner (les ambigus seront laissés)</td><td><strong>" + a.doublons + "</strong></td></tr>" +
       "<tr><td>Fiches couple à scinder en deux personnes</td><td><strong>" + a.couples + "</strong></td></tr>" +
       "</tbody></table></div>",
@@ -1646,6 +1714,7 @@
   });
   $("btn-suppr-selection").addEventListener("click", supprimerSelection);
   $("btn-doublons").addEventListener("click", chargerDoublons);
+  $("btn-corbeille").addEventListener("click", chargerCorbeille);
   $("doublons-q").addEventListener("keydown", (e) => { if (e.key === "Enter") chargerDoublons(); });
   $("table-upcoming").addEventListener("click", async (e) => {
     const autre = e.target.closest("[data-anniv-autre]");

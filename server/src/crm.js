@@ -287,9 +287,23 @@ const NETTOYAGE_COUPLES_SCAN = 120;  // lignes examinees par tour (les refus ne 
 // seul) ou anonymisees par l'export du logiciel (« ANONYMISE », « Anonymisé »).
 // On ne peut ni les saluer, ni les rapprocher, ni les retrouver : elles
 // partent, avec tout ce qui pointait vers elles.
-const SQL_VIDE = "(nom = '' OR lower(nom) LIKE '%anonym%' OR lower(prenom) LIKE '%anonym%')";
 const SQL_SANS_NOM = "nom = '' AND NOT (lower(prenom) LIKE '%anonym%')";
 const SQL_ANONYME = "(lower(nom) LIKE '%anonym%' OR lower(prenom) LIKE '%anonym%')";
+// Fiches SANS INTERET pour l'exploitation : rien ne permet de les joindre ni
+// de les situer, ou leur typologie n'a plus de sens sans l'information clé
+// (un prospect, c'est une maison : sans adresse il n'existe pas ; un
+// acquéreur, c'est un nom et un téléphone : sans téléphone on ne le rappelle
+// pas). Une fiche qui porte un suivi, un projet ou une estimation est
+// toujours gardée : quelqu'un a travaillé dessus.
+const SQL_SANS_ACTIVITE = "NOT EXISTS (SELECT 1 FROM crm_suivis s WHERE s.contact_id = crm_contacts.id)" +
+  " AND NOT EXISTS (SELECT 1 FROM crm_projet_contacts pc WHERE pc.contact_id = crm_contacts.id)" +
+  " AND NOT EXISTS (SELECT 1 FROM crm_estimation_contacts ec WHERE ec.contact_id = crm_contacts.id)";
+const SQL_SANS_CONTACT = "(telephone = '' AND email = '' AND adresse = '')";
+const SQL_PROSPECT_SANS_ADRESSE = "(types = '[\"prospect\"]' AND adresse = '')";
+const SQL_ACQUEREUR_SANS_TEL = "(types LIKE '%acquereur%' AND types NOT LIKE '%vendeur%' AND types NOT LIKE '%estime%'" +
+  " AND types NOT LIKE '%bailleur%' AND telephone = '')";
+const SQL_SANS_INTERET = `((${SQL_SANS_CONTACT} OR ${SQL_PROSPECT_SANS_ADRESSE} OR ${SQL_ACQUEREUR_SANS_TEL}) AND ${SQL_SANS_ACTIVITE})`;
+const SQL_VIDE = `(nom = '' OR ${SQL_ANONYME} OR ${SQL_SANS_INTERET})`;
 const SQL_COUPLE = "(' ' || civilite || ' ' || prenom || ' ' LIKE '% et %' OR civilite LIKE '%&%' OR prenom LIKE '%&%')";
 
 export async function apercuNettoyage(db, agencyId) {
@@ -299,6 +313,14 @@ export async function apercuNettoyage(db, agencyId) {
     `SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_SANS_NOM}`, [agencyId]);
   const anonymes = await db.get(
     `SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_ANONYME}`, [agencyId]);
+  // Le detail des « sans interet » (parmi les fiches qui ont un nom et ne
+  // sont pas anonymisees, pour que les colonnes s'additionnent).
+  const detailSI = async (cond) => (await db.get(
+    `SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND nom <> '' AND NOT ${SQL_ANONYME}
+       AND ${cond} AND ${SQL_SANS_ACTIVITE}`, [agencyId]))?.n || 0;
+  const sansContact = await detailSI(SQL_SANS_CONTACT);
+  const prospectsSansAdresse = await detailSI(`${SQL_PROSPECT_SANS_ADRESSE} AND NOT ${SQL_SANS_CONTACT}`);
+  const acquereursSansTel = await detailSI(`${SQL_ACQUEREUR_SANS_TEL} AND NOT ${SQL_SANS_CONTACT} AND NOT ${SQL_PROSPECT_SANS_ADRESSE}`);
   const parEmail = await db.get(
     `SELECT COALESCE(SUM(n - 1), 0) AS d FROM (
        SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND email <> '' GROUP BY email HAVING COUNT(*) > 1)`,
@@ -312,7 +334,7 @@ export async function apercuNettoyage(db, agencyId) {
   const couples = await db.get(
     `SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_COUPLE}`, [agencyId]);
   return {
-    vides: vides?.n || 0, sansNom: sansNom?.n || 0, anonymes: anonymes?.n || 0,
+    vides: vides?.n || 0, sansNom: sansNom?.n || 0, anonymes: anonymes?.n || 0, sansContact, prospectsSansAdresse, acquereursSansTel,
     doublons: (parEmail?.d || 0) + (parNom?.d || 0), // les ambigus seront laisses a l'execution
     couples: couples?.n || 0,
   };
@@ -322,16 +344,134 @@ export async function apercuNettoyage(db, agencyId) {
 // aux projets et aux estimations et le fil de suivi partent avec elles ;
 // les journaux d'envoi et de relance restent (memoire de ce qui est parti).
 // Par paquets de 100 ids inline — plafonds D1.
-export async function supprimerContacts(db, agencyId, ids) {
+// --- Plafonds journaliers -------------------------------------------------
+// Garde-fous, pas des quotas commerciaux : un conseiller n'envoie pas 100
+// mails à la main dans une journée ; s'il y arrive, c'est un script ou un
+// compte volé. Le compteur d'agence (user_id vide) plafonne la somme.
+export const QUOTAS = {
+  "envoi-mail": 100,   // mails manuels par conseiller et par jour
+  "envoi-sms": 50,     // SMS manuels par conseiller et par jour
+  "envois": 500,       // mails + SMS manuels par agence et par jour
+  "prospects": 200,    // prospects créés par conseiller et par jour
+};
+// Consomme une unité du plafond `cle` : renvoie { ok, n, max } — ok:false
+// quand le plafond du jour est atteint (rien n'est compté dans ce cas).
+export async function consommerQuota(db, agencyId, userId, cle, max = QUOTAS[cle]) {
+  const jour = parisDate();
+  const cur = await db.get(
+    "SELECT n FROM crm_quotas WHERE agency_id = ? AND user_id = ? AND jour = ? AND cle = ?",
+    [agencyId, userId || "", jour, cle]);
+  const n = cur ? Number(cur.n) : 0;
+  if (n >= max) return { ok: false, n, max };
+  await db.run(
+    `INSERT INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES (?, ?, ?, ?, 1)
+     ON CONFLICT(agency_id, user_id, jour, cle) DO UPDATE SET n = n + 1`,
+    [agencyId, userId || "", jour, cle]);
+  return { ok: true, n: n + 1, max };
+}
+
+// --- Corbeille ---------------------------------------------------------------
+export const CORBEILLE_JOURS = 30;
+// Tables qu'une entrée de corbeille peut réinsérer (liste blanche : le JSON
+// stocké ne décide jamais où l'on écrit).
+const TABLES_CORBEILLE = ["crm_contacts", "crm_suivis", "crm_visites", "crm_visite_avis",
+  "crm_geo", "crm_projet_contacts", "crm_estimation_contacts"];
+
+// Une entrée par objet supprimé : payload = { table: [lignes…] }. Insertion
+// par lots de 20 lignes (une seule requête par lot — D1 compte chaque
+// requête, et une sélection de 200 fiches ne doit pas en coûter 200).
+export async function mettreEnCorbeille(db, agencyId, userId, entrees) {
+  const t = now();
+  const liste = (Array.isArray(entrees) ? entrees : [entrees]).filter(Boolean);
+  const ids = [];
+  for (let i = 0; i < liste.length; i += 20) {
+    const lot = liste.slice(i, i + 20);
+    const valeurs = lot.map((e) => {
+      const id = randId("cb"); ids.push(id);
+      return `(${sqlText(id)}, ${sqlText(agencyId)}, ${sqlText(e.type)}, ${sqlText(e.ref)}, ${sqlText(String(e.libelle || "").slice(0, 160))}, ${sqlText(JSON.stringify(e.payload || {}))}, ${sqlText(userId || "")}, ${t}, 0)`;
+    }).join(",");
+    await db.run(
+      `INSERT INTO crm_corbeille (id, agency_id, type, ref_id, libelle, payload, user_id, created_at, restored_at) VALUES ${valeurs}`, []);
+  }
+  return ids;
+}
+
+export async function listerCorbeille(db, agencyId, limite = 200) {
+  const rows = await db.all(
+    `SELECT id, type, ref_id, libelle, user_id, created_at FROM crm_corbeille
+     WHERE agency_id = ? AND restored_at = 0 ORDER BY created_at DESC LIMIT ?`,
+    [agencyId, Math.max(1, Math.min(500, limite | 0))]);
+  const expire = now() - CORBEILLE_JOURS * 86400;
+  return rows.filter((r) => r.created_at > expire).map((r) => ({ ...r, jours_restants: Math.max(0, Math.ceil((r.created_at - expire) / 86400)) }));
+}
+
+// Réinsère les lignes de l'entrée (INSERT OR IGNORE : si la fiche a été
+// recréée entre-temps, on ne l'écrase pas). Renvoie ce qui a été remis.
+export async function restaurerCorbeille(db, agencyId, id) {
+  const e = await db.get("SELECT * FROM crm_corbeille WHERE id = ? AND agency_id = ? AND restored_at = 0", [id, agencyId]);
+  if (!e) return null;
+  let payload = {};
+  try { payload = JSON.parse(e.payload || "{}"); } catch { payload = {}; }
+  const remis = {};
+  for (const table of TABLES_CORBEILLE) {
+    const lignes = Array.isArray(payload[table]) ? payload[table] : [];
+    let n = 0;
+    for (const ligne of lignes) {
+      if (!ligne || typeof ligne !== "object") continue;
+      const cols = Object.keys(ligne).filter((k) => /^[a-z_]+$/.test(k));
+      if (!cols.length) continue;
+      // La ligne retourne dans CETTE agence, quoi que dise le JSON.
+      const vals = cols.map((k) => (k === "agency_id" ? agencyId : ligne[k]));
+      const r = await db.run(
+        `INSERT OR IGNORE INTO ${table} (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`, vals);
+      n += changesOf(r);
+    }
+    if (n) remis[table] = n;
+  }
+  await db.run("UPDATE crm_corbeille SET restored_at = ? WHERE id = ?", [now(), id]);
+  return { type: e.type, ref_id: e.ref_id, libelle: e.libelle, remis };
+}
+
+// Ménage quotidien (cron) : corbeille au-delà de 30 jours, sessions mortes,
+// liens de connexion périmés, compteurs de quotas vieux de 3 mois.
+export async function menageQuotidien(db) {
+  const t = now();
+  const r = {};
+  r.corbeille = changesOf(await db.run("DELETE FROM crm_corbeille WHERE created_at < ? OR (restored_at > 0 AND restored_at < ?)",
+    [t - CORBEILLE_JOURS * 86400, t - 7 * 86400]));
+  r.sessions = changesOf(await db.run("DELETE FROM sessions WHERE revoked = 1 OR last_seen < ?", [t - 90 * 86400]));
+  r.liens = changesOf(await db.run("DELETE FROM login_tokens WHERE expires_at < ?", [t - 86400]));
+  r.quotas = changesOf(await db.run("DELETE FROM crm_quotas WHERE jour < ?", [parisDate(new Date((t - 92 * 86400) * 1000))]));
+  return r;
+}
+
+// Suppression de fiches en cascade (géocache, liaisons projets/estimations,
+// suivis). Avec `corbeille: userId`, chaque fiche part en corbeille avec tout
+// ce qui l'accompagne (restaurable 30 jours) ; sans, c'est définitif
+// (nettoyage de masse, effacement RGPD).
+export async function supprimerContacts(db, agencyId, ids, options = {}) {
   const propres = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))];
+  const corbeille = options.corbeille || "";
   let total = 0;
   for (let i = 0; i < propres.length; i += 100) {
     const dans = propres.slice(i, i + 100).map(sqlText).join(",");
     const ag = sqlText(agencyId);
     // Seules les fiches de CETTE agence : on borne la liste avant de toucher aux dependances.
-    const connus = await db.all(`SELECT id FROM crm_contacts WHERE agency_id = ${ag} AND id IN (${dans})`, []);
+    const connus = await db.all(`SELECT ${corbeille ? "*" : "id"} FROM crm_contacts WHERE agency_id = ${ag} AND id IN (${dans})`, []);
     if (!connus.length) continue;
     const ok = connus.map((r) => sqlText(r.id)).join(",");
+    if (corbeille) {
+      const par = new Map(connus.map((c) => [c.id, { crm_contacts: [c], crm_suivis: [], crm_geo: [], crm_projet_contacts: [], crm_estimation_contacts: [] }]));
+      for (const table of ["crm_suivis", "crm_geo", "crm_projet_contacts", "crm_estimation_contacts"]) {
+        const rows = await db.all(`SELECT * FROM ${table} WHERE contact_id IN (${ok})`, []);
+        for (const r of rows) { const e = par.get(r.contact_id); if (e) e[table].push(r); }
+      }
+      await mettreEnCorbeille(db, agencyId, corbeille, connus.map((c) => ({
+        type: "contact", ref: c.id,
+        libelle: [c.nom, c.prenom].filter(Boolean).join(" ") || c.email || c.adresse || c.id,
+        payload: par.get(c.id),
+      })));
+    }
     await db.run(`DELETE FROM crm_geo WHERE contact_id IN (${ok})`, []);
     await db.run(`DELETE FROM crm_projet_contacts WHERE contact_id IN (${ok})`, []);
     await db.run(`DELETE FROM crm_estimation_contacts WHERE contact_id IN (${ok})`, []);
@@ -340,6 +480,44 @@ export async function supprimerContacts(db, agencyId, ids) {
     total += connus.length;
   }
   return total;
+}
+
+// --- RGPD ------------------------------------------------------------------
+// Tout ce que la base sait d'une personne (droit d'accès / portabilité).
+export async function exporterContact(db, agencyId, id) {
+  const contact = await db.get("SELECT * FROM crm_contacts WHERE id = ? AND agency_id = ?", [id, agencyId]);
+  if (!contact) return null;
+  try { contact.types = JSON.parse(contact.types || "[]"); } catch { contact.types = []; }
+  const q = (sql) => db.all(sql, [agencyId, id]);
+  const [suivis, envois, visites, projets, estimations, geo] = await Promise.all([
+    q("SELECT * FROM crm_suivis WHERE agency_id = ? AND contact_id = ? ORDER BY created_at"),
+    q("SELECT * FROM crm_envois WHERE agency_id = ? AND contact_id = ? ORDER BY created_at"),
+    q("SELECT * FROM crm_visites WHERE agency_id = ? AND contact_id = ? ORDER BY created_at"),
+    q(`SELECT p.* FROM crm_projets p JOIN crm_projet_contacts pc ON pc.projet_id = p.id
+       WHERE pc.agency_id = ? AND pc.contact_id = ?`),
+    db.all(`SELECT e.* FROM crm_estimations e WHERE e.agency_id = ? AND (e.contact_id = ?
+       OR e.id IN (SELECT estimation_id FROM crm_estimation_contacts WHERE agency_id = ? AND contact_id = ?))`,
+      [agencyId, id, agencyId, id]),
+    q("SELECT * FROM crm_geo WHERE agency_id = ? AND contact_id = ?"),
+  ]);
+  return { exporte_le: new Date().toISOString(), contact, suivis, envois, visites, projets, estimations, position: geo[0] || null };
+}
+
+// Effacement définitif (droit à l'effacement) : la fiche et tout ce qui la
+// porte disparaissent ; les journaux qui doivent rester (envois, visites)
+// perdent son nom et son e-mail ; la corbeille est purgée de sa trace.
+export async function effacerContact(db, agencyId, id) {
+  const contact = await db.get("SELECT id, nom, prenom, email FROM crm_contacts WHERE id = ? AND agency_id = ?", [id, agencyId]);
+  if (!contact) return null;
+  await db.run("UPDATE crm_envois SET contact = '', email = '', contact_id = '' WHERE agency_id = ? AND contact_id = ?", [agencyId, id]);
+  await db.run("UPDATE crm_visites SET contact = '', contact_id = '' WHERE agency_id = ? AND contact_id = ?", [agencyId, id]);
+  await db.run("UPDATE crm_estimations SET contact_id = '' WHERE agency_id = ? AND contact_id = ?", [agencyId, id]);
+  // Trace en corbeille : l'entrée de la fiche elle-même, et les suivis/visites
+  // supprimés à la main qui la citent (motif court : D1 borne LIKE à 50 octets).
+  await db.run("DELETE FROM crm_corbeille WHERE agency_id = ? AND (ref_id = ? OR payload LIKE ?)",
+    [agencyId, id, '%"contact_id":"' + id + '"%']);
+  await supprimerContacts(db, agencyId, [id]);
+  return { id, libelle: [contact.nom, contact.prenom].filter(Boolean).join(" ") };
 }
 
 // Fusionne des groupes deja charges (fiches completes) : le PLUS ANCIEN

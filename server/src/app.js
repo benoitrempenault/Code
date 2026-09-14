@@ -24,7 +24,12 @@ import * as CRM from "./crm.js";
 import * as PERM from "./permanence.js";
 import * as GRAPH from "./graph.js";
 
-const SESSION_TTL = 30 * 24 * 3600;   // 30 jours d'inactivité
+// 7 jours d'inactivité : sur une tablette partagée ou un poste de l'agence,
+// une session oubliée s'éteint dans la semaine (l'usage quotidien, lui, la
+// prolonge sans fin). Et 90 jours en tout : passé ce cap on se reconnecte,
+// même actif — un jeton volé ne vit pas éternellement.
+const SESSION_TTL = 7 * 24 * 3600;
+const SESSION_MAX_AGE = 90 * 24 * 3600;
 // Appareils simultanés. Un conseiller en cumule vite plus de trois : PC du
 // bureau, portable, téléphone (Safari ET l'app posée sur l'écran d'accueil
 // comptent chacun), tablette. À 3, une connexion de plus révoquait en
@@ -73,6 +78,19 @@ export function createApp(env) {
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
   }));
 
+  // En-têtes de durcissement sur TOUTES les réponses : HTTPS imposé un an,
+  // pas de devinette de type MIME, pas de référent transmis, jamais dans un
+  // cadre, et rien de mis en cache (tout ici est personnel ou éphémère) —
+  // sauf si la route a posé son propre Cache-Control.
+  app.use("*", async (c, next) => {
+    await next();
+    c.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    c.header("X-Content-Type-Options", "nosniff");
+    c.header("Referrer-Policy", "no-referrer");
+    c.header("X-Frame-Options", "DENY");
+    if (!c.res.headers.has("Cache-Control")) c.header("Cache-Control", "no-store");
+  });
+
   const err = (c, status, message) => c.json({ error: message }, status);
 
   /* Une exception non rattrapée rendait « Internal Server Error » en texte
@@ -97,6 +115,7 @@ export function createApp(env) {
     const s = await db.get("SELECT * FROM sessions WHERE token_hash = ? AND revoked = 0", [hash]);
     if (!s) return null;
     if (s.last_seen < now() - SESSION_TTL) return null;
+    if (s.created_at < now() - SESSION_MAX_AGE) return null;
     const user = await db.get("SELECT * FROM users WHERE id = ?", [s.user_id]);
     if (!user) return null;
     const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [user.agency_id]);
@@ -174,7 +193,8 @@ export function createApp(env) {
       await db.run("INSERT OR IGNORE INTO ai_rate (scope, minute, n) VALUES ('health', ?, 0)", [Math.floor(now() / 60)]);
       d1.ecriture = "ok";
     } catch (e) { d1.ecriture = String((e && e.message) || e).slice(0, 200); }
-    return c.json({ ok: d1.lecture === "ok" && d1.ecriture === "ok", ts: now(), devices: MAX_SESSIONS, d1 });
+    return c.json({ ok: d1.lecture === "ok" && d1.ecriture === "ok", ts: now(), devices: MAX_SESSIONS,
+      session_jours: SESSION_TTL / 86400, session_max_jours: SESSION_MAX_AGE / 86400, d1 });
   });
 
   /* --------------------------- Authentification ------------------------- */
@@ -366,6 +386,15 @@ export function createApp(env) {
     return c.json({ ok: true });
   });
 
+  // « Déconnecter tous mes appareils » : chaque session du compte est
+  // révoquée, y compris celle qui fait la demande (le client se reconnecte).
+  app.post("/auth/logout-all", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const r = await db.run("UPDATE sessions SET revoked = 1 WHERE user_id = ? AND revoked = 0", [ctx.user.id]);
+    return c.json({ ok: true, revoquees: changesOf(r) });
+  });
+
   app.get("/me", async (c) => {
     const ctx = await sessionFrom(c);
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
@@ -442,6 +471,19 @@ export function createApp(env) {
     if (!u) return err(c, 404, "Conseiller introuvable dans votre agence.");
     await db.run("UPDATE users SET role = ? WHERE id = ?", [role, u.id]);
     return c.json({ ok: true, user: { id: u.id, email: u.email, name: u.name, role } });
+  });
+
+  // L'administrateur déconnecte un conseiller de tous ses appareils (départ,
+  // tablette perdue) sans retirer son compte : il se reconnectera par e-mail.
+  app.post("/agency/users/:id/deconnecter", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!isAgencyAdmin(ctx)) return err(c, 403, "Réservé à l'administrateur de l'agence.");
+    const u = await db.get("SELECT id FROM users WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!u) return err(c, 404, "Conseiller introuvable dans votre agence.");
+    const r = await db.run("UPDATE sessions SET revoked = 1 WHERE user_id = ? AND revoked = 0", [u.id]);
+    await db.run("DELETE FROM login_tokens WHERE user_id = ?", [u.id]);
+    return c.json({ ok: true, revoquees: changesOf(r) });
   });
 
   app.delete("/agency/users/:id", async (c) => {
@@ -790,8 +832,39 @@ export function createApp(env) {
 
   app.delete("/crm/contacts/:id", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
-    const n = await CRM.supprimerContacts(db, ctx.agency.id, [c.req.param("id")]);
+    const n = await CRM.supprimerContacts(db, ctx.agency.id, [c.req.param("id")], { corbeille: ctx.user.id });
     return c.json({ ok: true, supprimes: n });
+  });
+
+  // Tout ce que la base sait d'une personne (droit d'accès, portabilité) :
+  // un JSON à remettre à l'intéressé.
+  app.get("/crm/contacts/:id/export", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const dossier = await CRM.exporterContact(db, ctx.agency.id, c.req.param("id"));
+    if (!dossier) return err(c, 404, "Contact introuvable.");
+    return c.json(dossier);
+  });
+
+  // Effacement RGPD : définitif, sans corbeille ; les journaux gardés
+  // (envois, visites) perdent le nom et l'e-mail.
+  app.post("/crm/contacts/:id/effacer", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const r = await CRM.effacerContact(db, ctx.agency.id, c.req.param("id"));
+    if (!r) return err(c, 404, "Contact introuvable.");
+    return c.json({ ok: true, ...r });
+  });
+
+  // La corbeille (admin) : ce qui a été supprimé à la main ces 30 derniers
+  // jours, et la restauration d'une entrée.
+  app.get("/crm/corbeille", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json({ jours: CRM.CORBEILLE_JOURS, entrees: await CRM.listerCorbeille(db, ctx.agency.id) });
+  });
+  app.post("/crm/corbeille/:id/restaurer", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const r = await CRM.restaurerCorbeille(db, ctx.agency.id, c.req.param("id"));
+    if (!r) return err(c, 404, "Entrée de corbeille introuvable (ou déjà restaurée).");
+    return c.json({ ok: true, ...r });
   });
   // Suppression en masse (sélection dans la liste) : 200 fiches par appel,
   // en cascade comme la suppression unitaire.
@@ -801,7 +874,7 @@ export function createApp(env) {
     const ids = (Array.isArray(b && b.ids) ? b.ids : []).map(String).filter(Boolean);
     if (!ids.length) return err(c, 400, "Aucune fiche à supprimer.");
     if (ids.length > 200) return err(c, 400, "200 fiches au plus par suppression.");
-    return c.json({ ok: true, supprimes: await CRM.supprimerContacts(db, ctx.agency.id, ids) });
+    return c.json({ ok: true, supprimes: await CRM.supprimerContacts(db, ctx.agency.id, ids, { corbeille: ctx.user.id }) });
   });
 
   // Un PROSPECT ajouté depuis la carte (membre : chaque conseiller prospecte).
@@ -816,6 +889,8 @@ export function createApp(env) {
     // Sans typologie explicite → prospect ; la fiche prestations, elle,
     // envoie types:["vendeur"] et garde ce profil.
     if (!v.types.length) v.types.push("prospect");
+    const q = await CRM.consommerQuota(db, ctx.agency.id, ctx.user.id, "prospects");
+    if (!q.ok) return err(c, 429, `Plafond du jour atteint : ${q.max} prospects créés par conseiller. Réessayez demain.`);
     const id = randId("ct");
     await db.run(
       `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone,
@@ -1908,9 +1983,19 @@ export function createApp(env) {
     return c.json({ ok: true, id: cur.id });
   });
 
+  // Supprimer une visite : son auteur ou un administrateur — et elle part en
+  // corbeille (30 jours) avec l'avis « plu / pas plu » qui l'accompagne.
   app.delete("/crm/visites/:id", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
-    await db.run("DELETE FROM crm_visites WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    const cur = await db.get("SELECT * FROM crm_visites WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!cur) return err(c, 404, "Visite introuvable.");
+    if (cur.user_id !== ctx.user.id && !isAgencyAdmin(ctx)) return err(c, 403, "Seul l'auteur de la visite ou un administrateur peut la supprimer.");
+    const avis = await db.all("SELECT * FROM crm_visite_avis WHERE visite_id = ?", [cur.id]);
+    await CRM.mettreEnCorbeille(db, ctx.agency.id, ctx.user.id, {
+      type: "visite", ref: cur.id, libelle: `Visite ${cur.date_visite || ""} — ${cur.bien || ""}${cur.contact ? " (" + cur.contact + ")" : ""}`.trim(),
+      payload: { crm_visites: [cur], crm_visite_avis: avis } });
+    await db.run("DELETE FROM crm_visite_avis WHERE visite_id = ?", [cur.id]);
+    await db.run("DELETE FROM crm_visites WHERE id = ?", [cur.id]);
     return c.json({ ok: true });
   });
 
@@ -2047,9 +2132,16 @@ export function createApp(env) {
     return c.json({ ok: true, id: cur.id });
   });
 
+  // Supprimer un suivi : son auteur ou un administrateur ; corbeille 30 jours.
   app.delete("/crm/suivis/:id", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
-    await db.run("DELETE FROM crm_suivis WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    const cur = await db.get("SELECT * FROM crm_suivis WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!cur) return err(c, 404, "Suivi introuvable.");
+    if (cur.user_id !== ctx.user.id && !isAgencyAdmin(ctx)) return err(c, 403, "Seul l'auteur du suivi ou un administrateur peut le supprimer.");
+    await CRM.mettreEnCorbeille(db, ctx.agency.id, ctx.user.id, {
+      type: "suivi", ref: cur.id, libelle: `Suivi ${cur.type} — ${(cur.commentaire || cur.adresse || "").slice(0, 80)}`,
+      payload: { crm_suivis: [cur] } });
+    await db.run("DELETE FROM crm_suivis WHERE id = ?", [cur.id]);
     return c.json({ ok: true });
   });
 
@@ -2093,6 +2185,11 @@ export function createApp(env) {
       [c.req.param("id"), ctx.agency.id]);
     if (!contact) return err(c, 404, "Contact introuvable.");
     if (contact.opt_out) return err(c, 400, "Cette fiche est en opt-out — elle ne veut plus être contactée.");
+    // Plafonds du jour : par conseiller (mail / SMS) puis pour toute l'agence.
+    const qm = await CRM.consommerQuota(db, ctx.agency.id, ctx.user.id, "envoi-" + canal);
+    if (!qm.ok) return err(c, 429, `Plafond du jour atteint : ${qm.max} ${canal === "sms" ? "SMS" : "mails"} manuels par conseiller. Réessayez demain.`);
+    const qa = await CRM.consommerQuota(db, ctx.agency.id, "", "envois");
+    if (!qa.ok) return err(c, 429, `Plafond du jour de l'agence atteint : ${qa.max} envois manuels. Réessayez demain.`);
     const reglages = await CRM.getReglages(db, ctx.agency);
     const r = await CRM.envoyerMessageContact(env, {
       agency: ctx.agency, reglages, contact, canal,
