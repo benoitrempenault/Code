@@ -2,8 +2,11 @@ name: Déploiement serveur (Worker + schéma D1)
 
 # Applique le schéma D1 (CREATE TABLE IF NOT EXISTS — idempotent, ne touche pas
 # aux données existantes) puis déploie le Worker studio-brochure-api.
-# Déclenchement MANUEL uniquement (onglet Actions → Run workflow), pour garder
-# la main sur les mises en production du serveur.
+# Déclenchement AUTOMATIQUE à chaque push de la branche de production qui
+# touche server/ (ou ce workflow) — un correctif poussé mais jamais déployé
+# a laissé l'agence sur un proxy IA cassé pendant des jours. Les tests du
+# serveur restent le verrou : rien ne part s'ils échouent. Le lancement
+# manuel (onglet Actions → Run workflow) reste possible pour redéployer.
 #
 # Secrets requis (Settings → Secrets and variables → Actions) :
 #   CLOUDFLARE_API_TOKEN   jeton avec édition Workers + D1 (le jeton lecture
@@ -13,6 +16,12 @@ name: Déploiement serveur (Worker + schéma D1)
 #                          plusieurs comptes
 
 on:
+  push:
+    branches:
+      - claude/property-brochure-generator-645oap
+    paths:
+      - "server/**"
+      - ".github/workflows/deploy-server.yml"
   workflow_dispatch: {}
 
 permissions:
