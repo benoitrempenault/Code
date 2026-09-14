@@ -2988,12 +2988,28 @@ export function createApp(env) {
     let raw = await c.req.text();
     if (raw.length > aiMaxBody) return err(c, 413, "Requête trop volumineuse.");
     const rawLen = raw.length;
-    let body; try { body = JSON.parse(raw); } catch (e) { body = null; }
-    // Un compromis de 12 Mo pèse 16 Mo en base64 : on relâche la copie texte
-    // dès qu'elle est analysée, la requête sortante en réallouant autant et
-    // l'isolat ne disposant que d'une mémoire limitée.
+    /* Gros corps (un compromis de 12 Mo pèse 16 Mo en base64) : on ne le
+       désérialise PAS. JSON.parse puis JSON.stringify d'un tel corps coûtent
+       près d'une demi-seconde de CPU et trois copies de 16 Mo — l'isolat
+       (10 ms de CPU, 128 Mo) est tué et le client reçoit un 500 brut. On ne
+       lit que la TÊTE (les petits champs, avant "messages") et on recolle la
+       queue telle quelle dans la requête sortante, NOS champs placés après
+       elle : en JSON la dernière clé l'emporte, un doublon glissé dans la
+       queue ne peut donc ni changer le modèle ni écraser le prompt. */
+    const GROS_CORPS = 1_000_000;
+    let body = null, queue = "";
+    if (rawLen > GROS_CORPS) {
+      const i = raw.indexOf("\"messages\"");
+      if (i > 0 && /\}\s*$/.test(raw.slice(-8))) {
+        try { body = JSON.parse(raw.slice(0, i).replace(/,\s*$/, "") + "}"); } catch (e) { body = null; }
+        queue = raw.slice(i, raw.lastIndexOf("}")); // '"messages":[…]' sans l'accolade finale
+      }
+    } else {
+      try { body = JSON.parse(raw); } catch (e) { body = null; }
+    }
     raw = null;
-    if (!body || typeof body !== "object") return err(c, 400, "Corps de requête invalide.");
+    if (!body || typeof body !== "object" || Array.isArray(body)) return err(c, 400, "Corps de requête invalide.");
+    delete body.messages; // gros corps : les messages vivent dans la queue, jamais deux fois
     if (!aiModels.includes(String(body.model || ""))) return err(c, 400, "Modèle non autorisé.");
     body.max_tokens = Math.min(parseInt(body.max_tokens, 10) || 1024, MAX_TOKENS_CAP);
     delete body.stream; // v1 : pas de flux
@@ -3071,7 +3087,8 @@ export function createApp(env) {
           "x-api-key": byoKey || env.ANTHROPIC_API_KEY,
           "anthropic-version": "2023-06-01"
         },
-        body: JSON.stringify(body)
+        // Gros corps : queue du client (messages) puis nos champs, qui priment.
+        body: queue ? "{" + queue + "," + JSON.stringify(body).slice(1) : JSON.stringify(body)
       });
     } catch (e) {
       await adjust(-est); // aucun token consommé : on rembourse la réservation
