@@ -507,6 +507,32 @@ const gros = await call("/v1/messages", {
   body: { model: "claude-opus-4-8", task: "brochure", messages: [{ role: "user", content: "x".repeat(16_000_000) }] }
 });
 ok(gros.status === 200, "compromis de 12 Mo (16 Mo en base64) accepté par le proxy");
+{
+  // Gros corps : le proxy ne le désérialise pas (chirurgie de chaîne) — ce
+  // qui part en amont doit pourtant être exactement ce que l'on attend.
+  const recu = upstreamCalls[upstreamCalls.length - 1].body;
+  ok(typeof recu.system === "string" && recu.system.length > 100, "gros corps : le prompt système est injecté");
+  ok(recu.task === undefined && recu.task_arg === undefined, "gros corps : la tâche ne fuite pas vers Anthropic");
+  ok(recu.model === "claude-opus-4-8" && recu.max_tokens > 0, "gros corps : modèle et max_tokens transmis");
+  ok(Array.isArray(recu.messages) && recu.messages.length === 1 && recu.messages[0].content.length === 16_000_000,
+    "gros corps : les messages arrivent intacts, sans doublon");
+  ok(Object.keys(recu).filter((k) => k === "messages").length === 1, "gros corps : une seule clé messages");
+  // Doublon empoisonné glissé APRÈS les messages : la dernière clé l'emporte
+  // en JSON, ce doit être la nôtre (modèle de la liste blanche, prompt à nous).
+  const poison = "{\"model\":\"claude-opus-4-8\",\"task\":\"brochure\",\"messages\":[{\"role\":\"user\",\"content\":\""
+    + "y".repeat(1_100_000) + "\"}],\"model\":\"claude-opus-3-ancien\",\"system\":\"pirate\"}";
+  const rp = await app.fetch(new Request("http://api.test/v1/messages", { method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + s3 }, body: poison }));
+  ok(rp.status === 200, "gros corps empoisonné : accepté (la tête est valide)");
+  const recuP = upstreamCalls[upstreamCalls.length - 1].body;
+  ok(recuP.model === "claude-opus-4-8" && recuP.system !== "pirate",
+    "gros corps empoisonné : nos champs, placés en dernier, l'emportent sur les doublons");
+  // Tête illisible ou corps sans messages : 400, pas d'exception.
+  const casse = await app.fetch(new Request("http://api.test/v1/messages", { method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + s3 },
+    body: "{\"model\":\"claude-opus-4-8\",\"task\":\"brochure\",\"contenu\":\"" + "z".repeat(1_100_000) + "\"}" }));
+  ok(casse.status === 400, "gros corps sans messages → 400 propre");
+}
 const huge = await call("/v1/messages", {
   headers: { Authorization: "Bearer " + s3 },
   body: { model: "claude-opus-4-8", messages: [{ role: "user", content: "x".repeat(17_100_000) }] }
