@@ -295,9 +295,12 @@ const SQL_ANONYME = "(lower(nom) LIKE '%anonym%' OR lower(prenom) LIKE '%anonym%
 // acquéreur, c'est un nom et un téléphone : sans téléphone on ne le rappelle
 // pas). Une fiche qui porte un suivi, un projet ou une estimation est
 // toujours gardée : quelqu'un a travaillé dessus.
-const SQL_SANS_ACTIVITE = "NOT EXISTS (SELECT 1 FROM crm_suivis s WHERE s.contact_id = crm_contacts.id)" +
-  " AND NOT EXISTS (SELECT 1 FROM crm_projet_contacts pc WHERE pc.contact_id = crm_contacts.id)" +
-  " AND NOT EXISTS (SELECT 1 FROM crm_estimation_contacts ec WHERE ec.contact_id = crm_contacts.id)";
+// (agency_id dans chaque sous-requête : les index commencent par l'agence —
+// sans lui, D1 balayait toute la table pour CHAQUE fiche et l'aperçu ne
+// répondait plus à 38 000 contacts.)
+const SQL_SANS_ACTIVITE = "NOT EXISTS (SELECT 1 FROM crm_suivis s WHERE s.agency_id = crm_contacts.agency_id AND s.contact_id = crm_contacts.id)" +
+  " AND NOT EXISTS (SELECT 1 FROM crm_projet_contacts pc WHERE pc.agency_id = crm_contacts.agency_id AND pc.contact_id = crm_contacts.id)" +
+  " AND NOT EXISTS (SELECT 1 FROM crm_estimation_contacts ec WHERE ec.agency_id = crm_contacts.agency_id AND ec.contact_id = crm_contacts.id)";
 const SQL_SANS_CONTACT = "(telephone = '' AND email = '' AND adresse = '')";
 const SQL_PROSPECT_SANS_ADRESSE = "(types = '[\"prospect\"]' AND adresse = '')";
 const SQL_ACQUEREUR_SANS_TEL = "(types LIKE '%acquereur%' AND types NOT LIKE '%vendeur%' AND types NOT LIKE '%estime%'" +
