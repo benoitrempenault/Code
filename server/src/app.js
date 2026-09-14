@@ -193,8 +193,11 @@ export function createApp(env) {
       await db.run("INSERT OR IGNORE INTO ai_rate (scope, minute, n) VALUES ('health', ?, 0)", [Math.floor(now() / 60)]);
       d1.ecriture = "ok";
     } catch (e) { d1.ecriture = String((e && e.message) || e).slice(0, 200); }
+    // commit : le SHA déployé (workflow) — null en local. C'est ce qui permet
+    // de diagnostiquer sur le code qui tourne vraiment, pas sur une branche.
     return c.json({ ok: d1.lecture === "ok" && d1.ecriture === "ok", ts: now(), devices: MAX_SESSIONS,
-      session_jours: SESSION_TTL / 86400, session_max_jours: SESSION_MAX_AGE / 86400, d1 });
+      session_jours: SESSION_TTL / 86400, session_max_jours: SESSION_MAX_AGE / 86400, d1,
+      commit: env.DEPLOY_COMMIT || null });
   });
 
   /* --------------------------- Authentification ------------------------- */
@@ -3141,7 +3144,11 @@ export function createApp(env) {
     }
     raw = null;
     if (!body || typeof body !== "object" || Array.isArray(body)) return err(c, 400, "Corps de requête invalide.");
-    delete body.messages; // gros corps : les messages vivent dans la queue, jamais deux fois
+    // Gros corps : les messages vivent dans la queue, jamais deux fois. Pour
+    // un corps ordinaire, ils restent dans body — les retirer ici SANS
+    // condition envoyait tous les appels courants à Anthropic sans messages
+    // (« messages: Field required » sur chaque fiche et brochure).
+    if (queue) delete body.messages;
     if (!aiModels.includes(String(body.model || ""))) return err(c, 400, "Modèle non autorisé.");
     body.max_tokens = Math.min(parseInt(body.max_tokens, 10) || 1024, MAX_TOKENS_CAP);
     delete body.stream; // v1 : pas de flux

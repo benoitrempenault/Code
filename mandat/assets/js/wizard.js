@@ -219,7 +219,7 @@
               status.className = "ai-status is-error"; status.textContent = "Rien de lisible dans cette image.";
             }
           }).catch(function (err) {
-            status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
+            window.BrochureAI.showError(status, err);
           });
         };
         if (isPdf) {
@@ -347,7 +347,7 @@
         App().hydrateForm(); App().save();
         status.className = "ai-status is-ok"; status.textContent = "Texte publicitaire prêt ✓";
       }).catch(function (err) {
-        status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
+        window.BrochureAI.showError(status, err);
       }).then(function () { btn.disabled = false; });
     });
 

@@ -24,6 +24,7 @@ const app = createApp({
   ADMIN_KEY: process.env.ADMIN_KEY || "dev-admin",
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || "",
   ANTHROPIC_BASE: process.env.ANTHROPIC_BASE || "",
+  DEPLOY_COMMIT: process.env.DEPLOY_COMMIT || "",
   APP_ORIGINS: process.env.APP_ORIGINS || "http://localhost:8014",
   RESEND_API_KEY: process.env.RESEND_API_KEY || "",
   RESEND_BASE: process.env.RESEND_BASE || "",

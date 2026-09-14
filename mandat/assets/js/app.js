@@ -1237,7 +1237,7 @@
         applyAI(out);
         status.className = "ai-status is-ok"; status.textContent = "Fiche générée ✓";
       }).catch(function (err) {
-        status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
+        window.BrochureAI.showError(status, err);
       }).then(function () { btn.disabled = false; });
     });
 
@@ -1275,7 +1275,7 @@
         status.textContent = pending.length + " photo" + (pending.length > 1 ? "s" : "") + " légendée" + (pending.length > 1 ? "s" : "") + " ✓" +
           (kept ? " — " + kept + " légende" + (kept > 1 ? "s" : "") + " existante" + (kept > 1 ? "s" : "") + " conservée" + (kept > 1 ? "s" : "") + "." : "");
       }).catch(function (err) {
-        status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
+        window.BrochureAI.showError(status, err);
       }).then(function () { btnCap.disabled = false; });
     });
 
@@ -1356,7 +1356,7 @@
         hydrateForm(); render(); save();
         status.className = "ai-status is-ok"; status.textContent = "Diagnostics mis à jour ✓";
       }).catch(function (err) {
-        status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
+        window.BrochureAI.showError(status, err);
       }).then(function () { btnDpe.disabled = false; });
     });
 
@@ -1393,7 +1393,7 @@
           if (d.total) state.surfacesTotal = d.total;
           hydrateForm(); render(); save();
           status.className = "ai-status is-ok"; status.textContent = "Tableau créé ✓";
-        }).catch(function (err) { status.className = "ai-status is-error"; status.textContent = err.message || "Erreur"; })
+        }).catch(function (err) { window.BrochureAI.showError(status, err); })
         .then(function () { btnSurf.disabled = false; });
     });
 
@@ -1415,7 +1415,7 @@
             .then(function (intro) { if (intro) { state.property.quartierIntro = intro; hydrateForm(); render(); save(); } });
         }
       }).catch(function (err) {
-        status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
+        window.BrochureAI.showError(status, err);
       }).then(function () { btn.disabled = false; });
     });
   }

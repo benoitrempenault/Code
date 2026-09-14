@@ -46,6 +46,26 @@
 
   function delay(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
+  // 401 en mode session : le serveur ne reconnaît plus le jeton (7 jours
+  // sans usage, révocation, plafond d'appareils). On le PURGE — sinon il
+  // masquait une clé personnelle saisie et bloquait le SSO collaborateur,
+  // qui ne rouvre pas de session tant qu'un jeton traîne — et on marque
+  // l'erreur (code "session", sso) pour que l'app propose la bonne
+  // reconnexion : la porte collaborateurs du site Kadima, ou « Mon compte ».
+  function sessionPerdue() {
+    let sso = false;
+    try {
+      const a = JSON.parse(localStorage.getItem("studio-mandatpro-account") || "null");
+      sso = !!(a && (a.sso || /@kadima\.interne$/i.test((a.user && a.user.email) || "")));
+      localStorage.removeItem("studio-mandatpro-account");
+    } catch (e) { /* stockage indisponible */ }
+    const e = new Error(sso
+      ? "Session expirée — repassez par l'accès collaborateurs du site Kadima."
+      : "Session expirée — reconnectez-vous sur la page « Mon compte ».");
+    e.code = "session"; e.sso = sso;
+    return e;
+  }
+
   // Appel au serveur Studio Brochure avec ré-essais sur erreurs transitoires.
   async function callAnthropic(apiKey, body, tries) {
     tries = tries || 3;
@@ -75,7 +95,7 @@
       if (res.ok) return data;
       const st = res.status;
       const serverMsg = data && ((data.error && data.error.message) || (typeof data.error === "string" ? data.error : ""));
-      if (st === 401) throw new Error(sess ? "Session expirée — reconnectez-vous sur la page « Mon compte »." : "Clé API refusée (401). Vérifiez votre clé Anthropic.");
+      if (st === 401) throw sess ? sessionPerdue() : new Error("Clé API refusée (401). Vérifiez votre clé Anthropic.");
       if (st === 402) throw new Error(serverMsg || "Compte inactif — voir la page « Mon compte ».");
       if (st === 413) throw new Error("Fichier trop volumineux. Chargez seulement la page utile du document.");
       if (st === 400) throw new Error((data.error && data.error.message) || "Requête invalide (400).");
@@ -382,5 +402,24 @@
     try { return JSON.parse(tb.text); } catch (e) { throw new Error("Réponse illisible (JSON)."); }
   }
 
-  window.BrochureAI = { generate, captionPhotos, extractDiagnostics, extractSurfaces, generateCityIntro, generateAdText, extractNotes, structureFiche };
+  /* ------------------- Affichage d'une erreur IA ------------------------ */
+  // Pose le message dans un élément .ai-status. Une session perdue n'est plus
+  // une phrase sans issue : le bouton mène à la porte collaborateurs du site
+  // Kadima (compte SSO) ou à « Mon compte » avec retour sur cette page.
+  const COMPTE_URL = "../mandat-pro/compte.html";
+  const PORTE_KADIMA = "https://century21-kadima.fr/admin/studio";
+  function escHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return "&#" + c.charCodeAt(0) + ";"; });
+  }
+  function showError(el, err) {
+    if (!el) return;
+    el.className = "ai-status is-error";
+    const msg = (err && err.message) || "Erreur";
+    if (!err || err.code !== "session") { el.textContent = msg; return; }
+    const href = err.sso ? PORTE_KADIMA : COMPTE_URL + "?retour=" + encodeURIComponent(location.href);
+    el.innerHTML = escHtml(msg) + ' <a class="btn btn--sm" href="' + escHtml(href) + '">' +
+      (err.sso ? "Accès collaborateurs" : "Se reconnecter") + "</a>";
+  }
+
+  window.BrochureAI = { generate, captionPhotos, extractDiagnostics, extractSurfaces, generateCityIntro, generateAdText, extractNotes, structureFiche, showError };
 })();
