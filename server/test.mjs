@@ -2397,8 +2397,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   /* ---- Bibliothèque des messages : textes de l'agence -------------------- */
   console.log("— Bibliothèque des messages (surcharges de l'agence)");
   const modeles0 = (await callR("/crm/modeles", { headers: auth })).json.modeles;
-  ok(modeles0.length === 12 && modeles0.every((m) => m.texte && !m.personnalise),
-    "la bibliothèque liste les 12 messages avec leur texte d'origine");
+  ok(modeles0.length === 14 && modeles0.every((m) => m.texte && !m.personnalise),
+    "la bibliothèque liste les 14 messages avec leur texte d'origine (dont les deux vœux couple)");
   ok((await callR("/crm/modeles", { headers: authP })).status === 200,
     "la bibliothèque se lit par tout membre (pour les envois individuels) — l'édition reste admin");
   // Surcharge du mail « veille du R1 » : le prochain envoi part avec CE texte.
@@ -2720,6 +2720,94 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     "une fiche en opt-out ne reçoit JAMAIS d'envoi individuel");
   ok((await callR("/crm/modeles", { headers: authP })).status === 200,
     "la bibliothèque se lit en MEMBRE (l'édition reste admin)");
+
+  /* ---- Anniversaires : couples, « c'est l'autre », confirmation ----------- */
+  console.log("— Anniversaires : fiche couple, « c'est l'autre », confirmation");
+  {
+    const { buildAnniversaireEmail, buildAnniversaireSms, estCouple, ANNIV_A_CONFIRMER } = await import("./src/crm.js");
+    const ag = { nom: "Agence Test" };
+    const couple = { civilite: "M. et Mme", nom: "Durand", prenom: "", email: "d@ex.fr", date_naissance: "1970-03-04" };
+    const seul = { civilite: "Mme", nom: "Durand", prenom: "Anne", email: "a@ex.fr", date_naissance: "1970-03-04" };
+    ok(estCouple(couple) && !estCouple(seul) && estCouple({ civilite: "M.", prenom: "Jean & Marie" }),
+      "une fiche couple se reconnaît (civilité « et/& » ou prénom duo)");
+    const mailCouple = buildAnniversaireEmail(couple, "naissance", ag, aujE, {});
+    ok(/se fête chez vous/.test(mailCouple.subject) && /lequel de vous deux/.test(mailCouple.html) &&
+      /Chers Monsieur et Madame Durand/.test(mailCouple.html),
+      "le vœu d'une fiche couple pose la question « qui souffle les bougies ? »");
+    const mailSeul = buildAnniversaireEmail(seul, "naissance", ag, aujE, {});
+    ok(/Joyeux anniversaire Anne/.test(mailSeul.subject) && !/lequel de vous deux/.test(mailSeul.html),
+      "une personne seule garde le vœu personnel");
+    const flag = { ...seul, civilite: "M.", prenom: "Paul", notes: ANNIV_A_CONFIRMER + " · vendeur 2019" };
+    ok(/lequel de vous deux/.test(buildAnniversaireEmail(flag, "naissance", ag, aujE, {}).html),
+      "une fiche scindée dont la date est « à confirmer » reçoit aussi le vœu qui interroge");
+    ok(/souffle les bougies/.test(buildAnniversaireSms(couple, "naissance", { agence: ag, anniversaires: {} }, aujE)),
+      "le SMS couple interroge lui aussi");
+  }
+  // Fiche couple avec une date → « c'est l'anniversaire de Madame »
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "M. et Mme", nom: "COUPLANNIV", email: "couplanniv@exemple.fr", telephone: "0611223344",
+      adresse: "4 rue des Bougies", ville: "Saint-Médard-en-Jalles", dateNaissance: "1968-05-20", types: "vendeur" },
+    { civilite: "M.", prenom: "Luc", nom: "SEULANNIV", email: "seulanniv@exemple.fr", dateNaissance: "1975-09-14" },
+  ] } });
+  const tousC = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  const coupl = tousC.find((x) => x.nom === "COUPLANNIV"), seulA = tousC.find((x) => x.nom === "SEULANNIV");
+  const cj = await callR("/crm/contacts/" + coupl.id + "/conjoint", { headers: auth, body: {
+    anniversaireDe: "conjoint", prenomFiche: "Marc", prenomConjoint: "Claire", civiliteConjoint: "Mme" } });
+  ok(cj.status === 200 && cj.json.fiche === coupl.id && /^ct_/.test(cj.json.conjoint), "un couple se scinde en désignant qui fête son anniversaire");
+  const apresCj = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  const marc = apresCj.find((x) => x.id === cj.json.fiche), claire = apresCj.find((x) => x.id === cj.json.conjoint);
+  ok(marc.civilite === "M." && marc.prenom === "Marc" && marc.date_naissance === "" &&
+    claire.civilite === "Mme" && claire.prenom === "Claire" && claire.date_naissance === "1968-05-20" &&
+    claire.email === "couplanniv@exemple.fr" && claire.adresse === "4 rue des Bougies",
+    "la date passe sur Madame, Monsieur n'a plus de date fausse, coordonnées partagées");
+  ok(!marc.notes.includes("à confirmer"), "plus rien « à confirmer » sur Monsieur");
+  const svCj = (await callR("/crm/suivis?contact_id=" + marc.id, { headers: authP })).json.suivis;
+  ok(svCj.some((s) => /Anniversaire du 1968-05-20/.test(s.commentaire)), "la réponse du client laisse une trace dans le fil de suivi");
+  // Fiche seule → conjoint créé à côté, la fiche garde sa date, le conjoint reçoit la sienne
+  const cj2 = await callR("/crm/contacts/" + seulA.id + "/conjoint", { headers: auth, body: {
+    anniversaireDe: "fiche", prenomConjoint: "Julie", dateConjoint: "1977-01-02", copierEmail: false } });
+  const apres2 = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  const luc = apres2.find((x) => x.id === seulA.id), julie = apres2.find((x) => x.id === cj2.json.conjoint);
+  ok(luc.date_naissance === "1975-09-14" && julie.civilite === "Mme" && julie.nom === "SEULANNIV" &&
+    julie.date_naissance === "1977-01-02" && julie.email === "",
+    "une fiche seule reçoit un conjoint à côté (civilité opposée, sa propre date, sans e-mail si demandé)");
+  // Scission automatique (nettoyage) : la date reste sur M. mais MARQUÉE, et « confirmer » l'efface
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "M. & Mme", nom: "AUTOSCIND", dateNaissance: "1960-12-25", email: "autoscind@exemple.fr" } ] } });
+  const autoId = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.nom === "AUTOSCIND").id;
+  await callR("/crm/contacts/" + autoId + "/scinder", { headers: auth, body: {} });
+  const mAuto = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.id === autoId);
+  ok(mAuto.date_naissance === "1960-12-25" && mAuto.notes.includes("à confirmer"),
+    "une scission automatique garde la date sur Monsieur en la marquant « à confirmer »");
+  const upc = (await callR("/crm/anniversaires/upcoming?days=366", { headers: auth })).json.upcoming;
+  const ligneAuto = upc.find((u) => u.contactId === autoId && u.type === "naissance");
+  ok(ligneAuto && ligneAuto.aConfirmer === true, "l'onglet Anniversaires signale la date à confirmer");
+  await callR("/crm/contacts/" + autoId + "/anniversaire-confirme", { headers: auth, body: {} });
+  ok(!(await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.id === autoId).notes.includes("à confirmer"),
+    "« c'est bien lui » efface le drapeau");
+
+  /* ---- Doublons à vérifier + fusion manuelle ------------------------------ */
+  console.log("— Doublons à vérifier + fusion manuelle");
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "M.", prenom: "Jean", nom: "ORNELIS", email: "jean.ornelis@exemple.fr", telephone: "0600000001", ville: "Le Haillan" },
+    { civilite: "M.", prenom: "J.", nom: "ORNELIS", email: "", telephone: "0600000002", adresse: "8 rue des Doublons" },
+  ] } });
+  const dbl = (await callR("/crm/contacts/doublons?q=ornelis", { headers: auth })).json.groupes;
+  ok(dbl.length === 1 && dbl[0].fiches.length === 2, "les homonymes que le nettoyage n'ose pas fusionner apparaissent à vérifier");
+  const [o1, o2] = dbl[0].fiches;
+  const garder = o1.email ? o1 : o2, absorber = o1.email ? o2 : o1;
+  await callR("/crm/suivis", { headers: authP, body: { contact_id: absorber.id, type: "appel", commentaire: "Appel avant fusion." } });
+  const fus = await callR("/crm/contacts/fusionner", { headers: auth, body: { garder: garder.id, absorber: [absorber.id] } });
+  ok(fus.status === 200 && fus.json.absorbees === 1, "la fusion manuelle garde la fiche choisie");
+  const apresF = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  const gardee = apresF.find((x) => x.id === garder.id);
+  ok(gardee && !apresF.some((x) => x.id === absorber.id) && gardee.adresse === "8 rue des Doublons" && gardee.email === "jean.ornelis@exemple.fr",
+    "la fiche gardée complète ses champs vides avec ceux de l'absorbée, qui disparaît");
+  const svF = (await callR("/crm/suivis?contact_id=" + garder.id, { headers: authP })).json.suivis;
+  ok(svF.some((s) => /avant fusion/.test(s.commentaire)), "le fil de suivi de l'absorbée suit la fiche gardée");
+  ok((await callR("/crm/contacts/fusionner", { headers: auth, body: { garder: garder.id, absorber: [] } })).status === 400,
+    "fusionner sans rien absorber est refusé");
+  ok((await callR("/crm/contacts/doublons", { headers: authP })).status === 403, "doublons et fusion sont réservés aux administrateurs");
 
   /* ---- Îlots CenturyNet : multi-polygones + import en masse --------------- */
   console.log("— Îlots CenturyNet : multi-polygones + import en masse");

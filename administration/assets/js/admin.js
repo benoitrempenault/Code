@@ -151,10 +151,14 @@
         '<button class="btn" style="padding:4px 12px; font-size:12.5px;" data-nouveau-projet="vente">+ Vente</button>' +
         '<button class="btn" style="padding:4px 12px; font-size:12.5px;" data-nouveau-projet="estimation">+ Estimation</button>' +
         "</div>" +
-        (/\bet\b/i.test((c.civilite || "") + " " + (c.prenom || ""))
-          ? '<div class="barre"><button class="btn" id="btn-scinder">👥 Scinder en deux personnes (M. / Mme)</button>' +
-            '<span class="petit" style="margin:0;">crée une fiche Madame liée aux mêmes projets</span></div>'
-          : "") +
+        '<div class="barre">' +
+        (estCoupleFiche(c)
+          ? '<button class="btn" id="btn-scinder">👥 Scinder en deux personnes (M. / Mme)</button>'
+          : '<button class="btn" id="btn-conjoint">👥 Ajouter le conjoint</button>') +
+        '<button class="btn" id="btn-fusion">🔀 Fusionner avec…</button>' +
+        '<span class="petit" style="margin:0;">' + (estCoupleFiche(c)
+          ? "la scission demande qui fête l'anniversaire, si la fiche a une date"
+          : "le conjoint reçoit sa fiche (mêmes adresse, téléphone, projets)") + "</span></div>" +
         '<div class="barre barre-haut" style="margin-top:14px;">' +
         '<span style="color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.5px; font-weight:600;">Fil de suivi</span>' +
         (c.email && !c.opt_out ? '<button class="btn" style="padding:4px 12px; font-size:12.5px;" id="btn-envoi-mail">✉️ Envoyer un mail</button>' : "") +
@@ -180,17 +184,15 @@
       b.addEventListener("click", () => { fermerModale(); ouvrirProjet(b.dataset.ouvreProjet); }));
     document.querySelectorAll("[data-nouveau-projet]").forEach((b) =>
       b.addEventListener("click", () => { fermerModale(); ouvrirProjet(null, b.dataset.nouveauProjet, id); }));
+    // Scinder un couple passe par la modale « conjoint » : elle demande QUI
+    // fête l'anniversaire quand la fiche porte une date (sinon la date
+    // resterait sur Monsieur au hasard).
     const scinder = $("btn-scinder");
-    if (scinder) scinder.addEventListener("click", async () => {
-      if (!confirm("Scinder cette fiche en deux personnes ? La fiche devient Monsieur, une fiche Madame est créée (mêmes coordonnées et projets).")) return;
-      try {
-        await api("/crm/contacts/" + id + "/scinder", { method: "POST", json: {} });
-        fermerModale();
-        toast("Fiche scindée : Monsieur et Madame ont chacun leur fiche");
-        await chargerContacts();
-        chargerAcheteurs();
-      } catch (e) { toast(e.message, true); }
-    });
+    if (scinder) scinder.addEventListener("click", () => ouvrirConjoint(id));
+    const conjoint = $("btn-conjoint");
+    if (conjoint) conjoint.addEventListener("click", () => ouvrirConjoint(id));
+    const fusion = $("btn-fusion");
+    if (fusion) fusion.addEventListener("click", () => ouvrirFusion(id));
     if (c) {
       chargerSuivisContact(c.id);
       $("btn-sv-ajouter").addEventListener("click", () => ajouterSuivi(c.id));
@@ -246,6 +248,160 @@
         ouvrirContact(contactId);
       } catch (e) { toast(e.message, true); }
     });
+  }
+
+  /* --------------------- Couples, conjoint, doublons, fusion --------------- */
+  const estCoupleFiche = (c) => /(?:^|\s)(?:et|&)(?:\s|$)/i.test(c.civilite || "") || /&/.test(c.civilite || "") ||
+    /^(.+?)\s+(?:et|&)\s+(.+)$/i.test(c.prenom || "");
+  const aConfirmerFiche = (c) => String(c.notes || "").includes("Anniversaire à confirmer");
+
+  // « C'est l'anniversaire de l'autre » / donner sa fiche au conjoint.
+  // Une fiche couple se scinde (Monsieur garde la fiche, Madame en reçoit
+  // une) ; une fiche seule reçoit un conjoint créé à côté. Dans les deux cas
+  // on dit QUI fête l'anniversaire : la date suit la bonne personne.
+  function ouvrirConjoint(contactId, depuisAnniversaire) {
+    const c = contacts.find((x) => x.id === contactId);
+    if (!c) return;
+    const couple = estCoupleFiche(c);
+    const duo = (c.prenom || "").match(/^(.+?)\s+(?:et|&)\s+(.+)$/i);
+    const nomFiche = ((c.civilite || "") + " " + (c.prenom || "") + " " + (c.nom || "")).replace(/\s+/g, " ").trim();
+    const civOpposee = /^mme/i.test(c.civilite || "") ? "M." : "Mme";
+    ouvrirModale(couple ? "👥 Scinder « " + nomFiche + " »" : "👥 Le conjoint de " + nomFiche,
+      (c.date_naissance
+        ? '<div class="barre" style="margin-bottom:6px;"><span style="font-weight:600;">Qui fête son anniversaire le ' + escH(fmtDateFr(c.date_naissance)) + " ?</span></div>" +
+          '<div class="barre">' +
+          '<label class="case"><input type="radio" name="cj-qui" value="fiche"' + (depuisAnniversaire ? "" : " checked") + " /> " +
+          (couple ? "Monsieur" : escH(nomFiche)) + "</label>" +
+          '<label class="case"><input type="radio" name="cj-qui" value="conjoint"' + (depuisAnniversaire ? " checked" : "") + " /> " +
+          (couple ? "Madame" : "Le conjoint") + "</label></div>"
+        : '<p class="petit">La fiche n\'a pas de date de naissance : vous pourrez saisir celle du conjoint ci-dessous.</p>') +
+      '<div class="grille-champs" style="margin-top:8px;">' +
+      (couple
+        ? CHAMP("Prénom de Monsieur", "cj-prenom-fiche", duo ? duo[1] : c.prenom) +
+          CHAMP("Prénom de Madame", "cj-prenom", duo ? duo[2] : "")
+        : '<label>Civilité du conjoint<select id="cj-civ">' +
+          ["M.", "Mme"].map((v) => '<option' + (v === civOpposee ? " selected" : "") + ">" + v + "</option>").join("") + "</select></label>" +
+          CHAMP("Prénom du conjoint", "cj-prenom", "") + CHAMP("Nom du conjoint", "cj-nom", c.nom)) +
+      CHAMP("Date de naissance de l'autre, si connue", "cj-date-autre", "", "JJ/MM/AAAA") +
+      "</div>" +
+      '<div class="barre" style="margin-top:10px;">' +
+      '<label class="case"><input type="checkbox" id="cj-email" checked /> Même e-mail (' + escH(c.email || "aucun") + ")</label>" +
+      (couple ? "" : '<label class="case"><input type="checkbox" id="cj-tel" checked /> Même téléphone</label>') +
+      "</div>" +
+      '<p class="petit">Les deux fiches partagent adresse et projets. La réponse est notée dans le fil de suivi.</p>',
+      '<button class="btn" id="cj-annuler">Annuler</button>' +
+      '<button class="btn btn-or" id="cj-save">' + (couple ? "Scinder" : "Créer la fiche du conjoint") + "</button>");
+    $("cj-annuler").addEventListener("click", () => ouvrirContact(contactId));
+    $("cj-save").addEventListener("click", async () => {
+      const qui = (document.querySelector('input[name="cj-qui"]:checked') || {}).value || "fiche";
+      const isoDe = (fr) => { const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(fr || "").trim()); return m ? m[3] + "-" + m[2] + "-" + m[1] : ""; };
+      const dateAutre = isoDe($("cj-date-autre").value);
+      const body = {
+        anniversaireDe: qui,
+        prenomConjoint: $("cj-prenom").value.trim(),
+        prenomFiche: couple ? $("cj-prenom-fiche").value.trim() : undefined,
+        civiliteConjoint: couple ? "Mme" : $("cj-civ").value,
+        nomConjoint: couple ? undefined : $("cj-nom").value.trim(),
+        copierEmail: $("cj-email").checked,
+        copierTelephone: couple ? true : $("cj-tel").checked,
+      };
+      // « l'autre » = celui qui ne fête pas l'anniversaire : sa date, si connue
+      if (qui === "conjoint") body.dateFiche = dateAutre; else body.dateConjoint = dateAutre;
+      try {
+        const r = await api("/crm/contacts/" + contactId + "/conjoint", { json: body });
+        toast(couple ? "Fiche scindée — chacun a la sienne" : "Fiche du conjoint créée");
+        await chargerContacts();
+        chargerUpcoming(); chargerAcheteurs();
+        ouvrirContact(qui === "conjoint" ? r.conjoint : r.fiche);
+      } catch (e) { toast(e.message, true); }
+    });
+  }
+
+  // Fusion MANUELLE : chercher la ou les fiches à absorber dans celle-ci.
+  function ouvrirFusion(contactId) {
+    const c = contacts.find((x) => x.id === contactId);
+    if (!c) return;
+    const choisis = new Set();
+    ouvrirModale("🔀 Fusionner dans « " + escH(((c.prenom || "") + " " + (c.nom || "")).trim()) + " »",
+      '<p class="petit" style="margin-top:0;">Cette fiche est GARDÉE : elle complète ses champs vides avec ceux des fiches absorbées, et récupère leurs suivis, projets, visites et estimations. Les fiches absorbées disparaissent.</p>' +
+      '<div class="grille-champs"><label>Chercher les doublons<input id="fu-q" value="' + escH(c.nom || "") + '" placeholder="nom, e-mail…" /></label></div>' +
+      '<div id="fu-liste" style="max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:8px 12px; margin-top:8px;"></div>',
+      '<button class="btn" id="fu-annuler">Annuler</button>' +
+      '<button class="btn btn-or" id="fu-save">Fusionner</button>');
+    const chercher = async () => {
+      const q = $("fu-q").value.trim();
+      if (q.length < 2) { $("fu-liste").innerHTML = '<p class="petit">Au moins 2 caractères.</p>'; return; }
+      try {
+        const r = await api("/crm/contacts/recherche?q=" + encodeURIComponent(q));
+        const autres = (r.contacts || []).filter((x) => x.id !== contactId);
+        $("fu-liste").innerHTML = autres.length ? autres.map((x) =>
+          '<label class="case" style="width:100%; padding:3px 0;"><input type="checkbox" class="fu-ct" value="' + escH(x.id) + '"' + (choisis.has(x.id) ? " checked" : "") + " /> " +
+          "<strong>" + escH(x.nom) + "</strong> " + escH(x.prenom) + (x.civilite ? " (" + escH(x.civilite) + ")" : "") +
+          ' <span class="puce grise">' + escH([x.email, x.telephone, x.ville].filter(Boolean).join(" · ") || "sans coordonnées") + "</span></label>").join("")
+          : '<p class="petit">Aucune autre fiche ne correspond.</p>';
+      } catch (e) { toast(e.message, true); }
+    };
+    let t = null;
+    $("fu-q").addEventListener("input", () => { clearTimeout(t); t = setTimeout(chercher, 300); });
+    $("fu-liste").addEventListener("change", (e) => {
+      const cb = e.target.closest(".fu-ct");
+      if (cb) { if (cb.checked) choisis.add(cb.value); else choisis.delete(cb.value); }
+    });
+    chercher();
+    $("fu-annuler").addEventListener("click", () => ouvrirContact(contactId));
+    $("fu-save").addEventListener("click", async () => {
+      if (!choisis.size) { toast("Cochez au moins une fiche à absorber.", true); return; }
+      if (!confirm("Fusionner " + choisis.size + " fiche(s) dans celle-ci ? Les fiches absorbées disparaissent.")) return;
+      try {
+        await api("/crm/contacts/fusionner", { json: { garder: contactId, absorber: [...choisis] } });
+        toast(choisis.size + " fiche(s) fusionnée(s)");
+        await chargerContacts();
+        chargerAcheteurs(); chargerDoublons();
+        ouvrirContact(contactId);
+      } catch (e) { toast(e.message, true); }
+    });
+  }
+
+  // Doublons à vérifier (onglet Contacts) : groupes de même nom laissés par
+  // le nettoyage automatique — on choisit la fiche gardée, on fusionne.
+  async function chargerDoublons() {
+    const zone = $("zone-doublons");
+    if (!zone) return;
+    const q = ($("doublons-q") && $("doublons-q").value.trim()) || "";
+    zone.innerHTML = '<p class="petit">Recherche…</p>';
+    try {
+      const { groupes } = await api("/crm/contacts/doublons" + (q ? "?q=" + encodeURIComponent(q) : ""));
+      if (!groupes.length) { zone.innerHTML = '<p class="petit">Aucun groupe à vérifier' + (q ? " pour « " + escH(q) + " »" : "") + ".</p>"; return; }
+      zone.innerHTML = groupes.map((g, gi) => {
+        // Fiche gardée par défaut : celle qui a un e-mail, sinon la plus ancienne.
+        const defaut = (g.fiches.find((f) => f.email) || g.fiches[0]).id;
+        return '<div class="tableau-cadre" style="margin-bottom:10px;" data-groupe="' + gi + '"><table><thead><tr>' +
+          "<th>Garder</th><th>Fiche</th><th>E-mail</th><th>Téléphone</th><th>Ville · adresse</th><th>Naissance</th><th>Types</th></tr></thead><tbody>" +
+          g.fiches.map((f) => "<tr>" +
+            '<td><input type="radio" name="dbl-garder-' + gi + '" value="' + escH(f.id) + '"' + (f.id === defaut ? " checked" : "") + " /></td>" +
+            '<td><strong>' + escH(f.nom) + "</strong> " + escH(f.prenom) + (f.civilite ? " (" + escH(f.civilite) + ")" : "") + "</td>" +
+            "<td>" + escH(f.email) + "</td><td>" + escH(f.telephone) + "</td>" +
+            "<td>" + escH([f.ville, f.adresse].filter(Boolean).join(" · ")) + "</td>" +
+            "<td>" + fmtDateFr(f.date_naissance) + "</td>" +
+            "<td>" + (f.types || []).map((t) => '<span class="puce">' + escH(TYPES[t] || t) + "</span>").join("") + "</td></tr>").join("") +
+          "</tbody></table></div>" +
+          '<div class="barre" style="margin:-4px 0 14px;"><button class="btn" data-fusion-groupe="' + gi + '">🔀 Fusionner ces ' + g.fiches.length + " fiches dans celle cochée</button>" +
+          '<span class="petit" style="margin:0;">ou ouvrez une fiche pour une fusion au cas par cas</span></div>';
+      }).join("");
+      zone.querySelectorAll("[data-fusion-groupe]").forEach((b) => b.addEventListener("click", async () => {
+        const gi = parseInt(b.dataset.fusionGroupe, 10);
+        const garder = (zone.querySelector('input[name="dbl-garder-' + gi + '"]:checked') || {}).value;
+        if (!garder) { toast("Cochez la fiche à garder.", true); return; }
+        const absorber = groupes[gi].fiches.map((f) => f.id).filter((id2) => id2 !== garder);
+        if (!confirm("Fusionner " + absorber.length + " fiche(s) « " + groupes[gi].fiches[0].nom + " » dans la fiche cochée ?")) return;
+        try {
+          await api("/crm/contacts/fusionner", { json: { garder, absorber } });
+          toast("Fusion faite");
+          await chargerContacts();
+          chargerDoublons();
+        } catch (e) { toast(e.message, true); }
+      }));
+    } catch (e) { zone.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; }
   }
 
   /* ------------------------------ Fil de suivi ----------------------------- */
@@ -692,10 +848,10 @@
   }
   async function apercuMail(type, profil) {
     try {
-      const d = await api("/crm/anniversaires/apercu?type=" + type + (profil ? "&profil=" + profil : ""));
+      const d = await api("/crm/anniversaires/apercu?type=" + type + (profil === "vendeur" ? "&profil=vendeur" : "") + (profil === "couple" ? "&couple=1" : ""));
       montrerApercu("Aperçu — " + (type === "achat"
         ? (profil === "vendeur" ? "anniversaire de vente (vendeur)" : "anniversaire d'achat (acquéreur)")
-        : "anniversaire de naissance"), d.html);
+        : profil === "couple" ? "anniversaire de naissance, fiche couple (qui souffle les bougies ?)" : "anniversaire de naissance"), d.html);
     } catch (e) { toast(e.message, true); }
   }
   async function testMail(type, profil) {
@@ -722,12 +878,21 @@
         zone.innerHTML = '<div class="vide">Aucun anniversaire dans les 30 prochains jours (ou pas encore de dates dans la base).</div>';
         return;
       }
-      zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr><th>Date</th><th>Contact</th><th>Type</th><th>Années</th><th>E-mail</th><th>Conseiller</th></tr></thead><tbody>' +
-        upcoming.map((u) => "<tr><td>" + fmtDateFr(u.date) + "</td><td><strong>" + escH(u.nom) + "</strong> " + escH(u.prenom) + "</td>" +
+      // Une naissance sur une fiche couple, ou une date « à confirmer » après
+      // scission : le vœu posera la question — et d'ici là, un clic suffit
+      // pour dire qui fête l'anniversaire.
+      zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr><th>Date</th><th>Contact</th><th>Type</th><th>Années</th><th>E-mail</th><th>Conseiller</th><th></th></tr></thead><tbody>' +
+        upcoming.map((u) => '<tr class="cliquable" data-contact="' + escH(u.contactId) + '"><td>' + fmtDateFr(u.date) + "</td><td><strong>" + escH(u.nom) + "</strong> " + escH(u.prenom) + "</td>" +
           "<td>" + (u.type === "achat"
             ? (u.profil === "vendeur" ? '🔑 Vente <span class="puce grise">vendeur</span>' : '🏡 Achat <span class="puce">acquéreur</span>')
-            : "🎂 Naissance") + "</td><td>" + (u.years ? u.years + " an(s)" : "—") + "</td>" +
-          "<td>" + (u.hasEmail ? escH(u.email) : '<span class="erreur">pas d’e-mail</span>') + "</td><td>" + escH(u.conseiller) + "</td></tr>").join("") +
+            : "🎂 Naissance" + (u.couple ? ' <span class="puce" title="Une seule date pour deux personnes : le vœu demandera qui souffle les bougies">👥 couple</span>'
+              : u.aConfirmer ? ' <span class="puce" style="background:#fbe9e7; color:#c62828;" title="Couple scindé : la date est restée sur Monsieur, sans certitude">à confirmer</span>' : "")) +
+          "</td><td>" + (u.years ? u.years + " an(s)" : "—") + "</td>" +
+          "<td>" + (u.hasEmail ? escH(u.email) : '<span class="erreur">pas d’e-mail</span>') + "</td><td>" + escH(u.conseiller) + "</td>" +
+          "<td>" + (u.type === "naissance"
+            ? '<button class="btn" style="padding:3px 9px; font-size:12px;" data-anniv-autre="' + escH(u.contactId) + '" title="Le client répond que c\'est l\'anniversaire de son conjoint">👥 C\'est l\'autre</button>' +
+              (u.aConfirmer ? ' <button class="btn" style="padding:3px 9px; font-size:12px;" data-anniv-ok="' + escH(u.contactId) + '">✔ C\'est bien lui/elle</button>' : "")
+            : "") + "</td></tr>").join("") +
         "</tbody></table></div>";
     } catch (e) { toast(e.message, true); }
   }
@@ -1422,6 +1587,23 @@
     const tr = e.target.closest("tr[data-contact]");
     if (tr) ouvrirContact(tr.dataset.contact);
   });
+  $("btn-doublons").addEventListener("click", chargerDoublons);
+  $("doublons-q").addEventListener("keydown", (e) => { if (e.key === "Enter") chargerDoublons(); });
+  $("table-upcoming").addEventListener("click", async (e) => {
+    const autre = e.target.closest("[data-anniv-autre]");
+    if (autre) { ouvrirConjoint(autre.dataset.annivAutre, true); return; }
+    const okb = e.target.closest("[data-anniv-ok]");
+    if (okb) {
+      try {
+        await api("/crm/contacts/" + okb.dataset.annivOk + "/anniversaire-confirme", { json: {} });
+        toast("Date confirmée");
+        await chargerContacts(); chargerUpcoming();
+      } catch (err2) { toast(err2.message, true); }
+      return;
+    }
+    const tr = e.target.closest("tr[data-contact]");
+    if (tr && tr.dataset.contact) ouvrirContact(tr.dataset.contact);
+  });
   $("zone-rappels").addEventListener("click", (e) => {
     const tr = e.target.closest("tr[data-contact]");
     if (tr && tr.dataset.contact && !e.target.closest("[data-rappel-fait]")) ouvrirContact(tr.dataset.contact);
@@ -1452,6 +1634,7 @@
   $("btn-apercu-naissance").addEventListener("click", () => apercuMail("naissance"));
   $("btn-apercu-achat").addEventListener("click", () => apercuMail("achat"));
   $("btn-apercu-vente").addEventListener("click", () => apercuMail("achat", "vendeur"));
+  $("btn-apercu-couple").addEventListener("click", () => apercuMail("naissance", "couple"));
   $("btn-test-naissance").addEventListener("click", () => testMail("naissance"));
   $("btn-test-achat").addEventListener("click", () => testMail("achat"));
   $("btn-test-vente").addEventListener("click", () => testMail("achat", "vendeur"));

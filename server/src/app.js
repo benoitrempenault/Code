@@ -864,8 +864,11 @@ export function createApp(env) {
     const reglages = await CRM.getReglages(db, ctx.agency);
     const isoDay = CRM.parisDate();
     const annee = parseInt(isoDay.slice(0, 4), 10);
+    // couple=1 : l'aperçu du vœu « fiche couple » (une date pour deux, le
+    // message demande qui souffle les bougies).
+    const couple = c.req.query("couple") === "1";
     const exemple = {
-      civilite: "Mme", prenom: "Sophie", nom: "Martin", ville: "Saint-Médard-en-Jalles",
+      civilite: couple ? "M. et Mme" : "Mme", prenom: couple ? "" : "Sophie", nom: "Martin", ville: "Saint-Médard-en-Jalles",
       date_naissance: "1985-05-12", date_achat: `${annee - 3}${isoDay.slice(4)}`,
       conseiller: ctx.user.name || "",
       types: c.req.query("profil") === "vendeur" ? ["vendeur"] : ["acquereur"],
@@ -1042,6 +1045,34 @@ export function createApp(env) {
   });
 
   // Scinder une fiche « M. et Mme » en deux personnes physiques.
+  // « C'est l'anniversaire de l'autre » / donner sa fiche au conjoint.
+  app.post("/crm/contacts/:id/conjoint", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => ({}));
+    try { return c.json(await CRM.creerConjoint(db, ctx.agency, ctx.user.id, c.req.param("id"), b || {})); }
+    catch (e) { return err(c, e.message.includes("introuvable") ? 404 : 400, e.message); }
+  });
+  // La date de naissance d'une fiche scindée est confirmée : le drapeau s'efface.
+  app.post("/crm/contacts/:id/anniversaire-confirme", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    try { return c.json(await CRM.confirmerAnniversaire(db, ctx.agency, ctx.user.id, c.req.param("id"))); }
+    catch (e) { return err(c, 404, e.message); }
+  });
+  // Doublons que le nettoyage automatique a laissés (même nom, coordonnées
+  // qui se contredisent) : pour l'œil humain, puis fusion manuelle.
+  app.get("/crm/contacts/doublons", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json({ groupes: await CRM.doublonsAVerifier(db, ctx.agency.id, c.req.query("q")) });
+  });
+  app.post("/crm/contacts/fusionner", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => ({}));
+    const garder = String((b && b.garder) || "");
+    const absorber = (Array.isArray(b && b.absorber) ? b.absorber : []).map(String);
+    try { return c.json(await CRM.fusionnerContacts(db, ctx.agency, ctx.user.id, garder, absorber)); }
+    catch (e) { return err(c, 400, e.message); }
+  });
+
   app.post("/crm/contacts/:id/scinder", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     try {

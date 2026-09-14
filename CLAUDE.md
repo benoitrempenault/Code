@@ -312,6 +312,28 @@ partagé). L'écran bloquant de l'Administration (401/403) nomme désormais le
 compte ouvert (`#connexion-qui`) et offre `#btn-changer-compte` — le 403
 cachait le seul bouton de la page. compte.html : « Changer de compte » aussi
 en haut du profil (le « Se déconnecter » du pied restait introuvable).
+**Anniversaires et fiches couple** : `estCouple(c)` (civilité « et/& » ou
+prénom « X et Y »), drapeau `ANNIV_A_CONFIRMER` dans les notes (posé par
+scinderContact quand la fiche scindée avait une date : elle reste sur M. sans
+certitude), `voeuIncertain(c)` = couple || à confirmer → buildAnniversaireEmail/
+Sms prennent les modèles `anniv-naissance-couple` / `sms-naissance-couple`
+(texte qui demande qui souffle les bougies + la date de l'autre ; 14 modèles
+au total). Routes admin : `POST /crm/contacts/:id/conjoint` (creerConjoint :
+couple → scinderContact puis prénoms/civilité/e-mail ; fiche seule → conjoint
+créé à côté, mêmes adresse/tél/projets, e-mail sur demande ; `anniversaireDe`
+fiche|conjoint déplace la date, `dateFiche`/`dateConjoint` optionnels, le
+drapeau s'efface, un suivi « note » trace la réponse), `POST /crm/contacts/
+:id/anniversaire-confirme`. upcoming() renvoie `couple` et `aConfirmer` ;
+l'onglet Anniversaires les signale et offre « 👥 C'est l'autre » / « ✔ C'est
+bien lui/elle » ; bouton « 👁 Naissance (fiche couple) » (apercu?couple=1).
+**Doublons et fusion** : `fusionnerGroupes(…, preferer)` migre désormais AUSSI
+crm_suivis, crm_visites, crm_estimations, crm_estimation_contacts (trou
+corrigé). `fusionnerContacts(garder, absorber[])` (≤10) ; `GET /crm/contacts/
+doublons?q=` (groupes de même nom 2–8 fiches, laissés par le nettoyage) ;
+`POST /crm/contacts/fusionner`. UI : carte « 🔎 Doublons à vérifier » (radio
+garder = fiche avec e-mail par défaut) et « 🔀 Fusionner avec… » dans la
+fiche ; « 👥 Ajouter le conjoint » (fiche seule) ou « Scinder » (couple) passent
+par la modale ouvrirConjoint qui demande QUI fête l'anniversaire.
 **Suivi d'une fiche estimation** : `GET /crm/estimations/:id/envois` (membre) ;
 la modale affiche l'historique + la prochaine action calculée des dates R1/R2.
 Studio Estimation a un bouton 📍 (pompe /crm/geo/serveur, admin) ; la priorité

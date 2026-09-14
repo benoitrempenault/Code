@@ -80,6 +80,18 @@
         ici jusqu'à son jour — puis reste en rouge tant qu'il n'est pas fait.</p>
       <div id="zone-rappels"><p class="petit">Chargement…</p></div>
     </div>
+    <div class="carte">
+      <h2>🔎 Doublons à vérifier</h2>
+      <p class="aide">Les fiches de même nom que le nettoyage automatique n'a pas osé fusionner
+        (prénoms différents ou absents, coordonnées qui se contredisent). Choisissez la fiche à
+        garder : elle récupère les champs vides, l'historique, les projets et les suivis des autres.</p>
+      <div class="barre">
+        <input type="search" id="doublons-q" placeholder="Un nom, ex : ORNELIS" style="min-width:220px;" />
+        <button class="btn" id="btn-doublons">Chercher</button>
+        <span class="petit" style="margin:0;">sans nom : les petits groupes d'abord</span>
+      </div>
+      <div id="zone-doublons"><p class="petit">Tapez un nom, ou cliquez « Chercher ».</p></div>
+    </div>
     <div id="table-contacts"></div>
   </section>
 
@@ -105,6 +117,7 @@
         <button class="btn" id="btn-apercu-naissance">👁 Naissance</button>
         <button class="btn" id="btn-apercu-achat">👁 Achat (acquéreur)</button>
         <button class="btn" id="btn-apercu-vente">👁 Achat (vendeur)</button>
+        <button class="btn" id="btn-apercu-couple" title="Fiche « M. et Mme » avec une seule date : le vœu demande qui souffle les bougies">👁 Naissance (fiche couple)</button>
       </div>
       <p class="petit">L'anniversaire d'achat s'adapte au rôle du contact dans la vente : un
         acquéreur reçoit « vous receviez vos clés », un vendeur (sans être acquéreur chez nous)

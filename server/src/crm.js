@@ -311,12 +311,16 @@ export async function apercuNettoyage(db, agencyId) {
 // Fusionne des groupes deja charges (fiches completes) : le PLUS ANCIEN
 // survit, absorbe champs vides et typologies, et recupere envois, relances,
 // projets et position geocodee des fiches absorbees. Set-based.
-async function fusionnerGroupes(db, agencyId, userId, groupes) {
+async function fusionnerGroupes(db, agencyId, userId, groupes, preferer = "") {
   const t = now();
   const keep = (nv, old) => (nv !== "" && nv !== null && nv !== undefined ? nv : old);
   const survivants = [], correspondance = new Map();
   for (const g0 of groupes) {
-    const g = [...g0].sort((a, b) => (a.created_at - b.created_at) || (a.id < b.id ? -1 : 1));
+    // Le plus ancien survit — sauf si l'on a designe un survivant (fusion
+    // manuelle depuis une fiche : c'est ELLE qu'on garde).
+    const g = [...g0].sort((a, b) =>
+      (a.id === preferer ? -1 : b.id === preferer ? 1 : 0) ||
+      (a.created_at - b.created_at) || (a.id < b.id ? -1 : 1));
     const s = { ...g[0] };
     let types = [];
     try { types = JSON.parse(s.types || "[]"); } catch { }
@@ -347,9 +351,119 @@ async function fusionnerGroupes(db, agencyId, userId, groupes) {
     await db.run(`DELETE FROM crm_projet_contacts WHERE contact_id IN (${dans})`, []);
     await db.run(`UPDATE OR IGNORE crm_geo SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
     await db.run(`DELETE FROM crm_geo WHERE contact_id IN (${dans})`, []);
+    // Tout ce qui pointe vers la fiche absorbee suit le survivant : le fil
+    // de suivi, les visites, les fiches estimation et leurs personnes liees.
+    await db.run(`UPDATE crm_suivis SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
+    await db.run(`UPDATE crm_visites SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
+    await db.run(`UPDATE crm_estimations SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
+    await db.run(`UPDATE OR IGNORE crm_estimation_contacts SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
+    await db.run(`DELETE FROM crm_estimation_contacts WHERE contact_id IN (${dans})`, []);
     await db.run(`DELETE FROM crm_contacts WHERE id IN (${dans})`, []);
   }
   return doublons.length;
+}
+
+// Fusion MANUELLE : la fiche « garder » absorbe les fiches « absorber »
+// (memes regles que le nettoyage : champs vides completes, typologies
+// reunies, tout l'historique rapatrie).
+export async function fusionnerContacts(db, agency, userId, garder, absorber) {
+  const ids = [...new Set([garder, ...absorber].map(String))].filter(Boolean);
+  if (ids.length < 2) throw new Error("Choisissez au moins une fiche à fusionner dans celle-ci.");
+  if (ids.length > 10) throw new Error("Dix fiches au plus par fusion.");
+  const fiches = await db.all(
+    `SELECT * FROM crm_contacts WHERE agency_id = ? AND id IN (${ids.map(sqlText).join(",")})`, [agency.id]);
+  if (fiches.length !== ids.length || !fiches.some((f) => f.id === garder)) throw new Error("Une des fiches est introuvable.");
+  const absorbees = await fusionnerGroupes(db, agency.id, userId, [fiches], garder);
+  return { garde: garder, absorbees };
+}
+
+// Doublons A VERIFIER : les groupes de meme NOM que le nettoyage automatique
+// n'a pas osé fusionner (prenoms differents ou absents, coordonnees qui se
+// contredisent). Pour l'oeil humain, avec une recherche par nom.
+export async function doublonsAVerifier(db, agencyId, q = "") {
+  const motif = String(q || "").replace(/[%_]/g, "").trim().slice(0, 40);
+  const cles = await db.all(
+    `SELECT lower(nom) AS k, COUNT(*) AS n FROM crm_contacts
+     WHERE agency_id = ? AND nom <> '' ${motif ? "AND nom LIKE ? COLLATE NOCASE" : ""}
+     GROUP BY lower(nom) HAVING COUNT(*) BETWEEN 2 AND 8
+     ORDER BY ${motif ? "n DESC, k" : "n ASC, k"} LIMIT 40`,
+    motif ? [agencyId, "%" + motif + "%"] : [agencyId]);
+  if (!cles.length) return [];
+  const fiches = await db.all(
+    `SELECT id, civilite, prenom, nom, email, telephone, adresse, ville, date_naissance, types, conseiller, created_at
+     FROM crm_contacts WHERE agency_id = ? AND lower(nom) IN (${cles.map((c) => sqlText(c.k)).join(",")})
+     ORDER BY lower(nom), created_at`, [agencyId]);
+  const parCle = new Map();
+  for (const f of fiches) {
+    const k = (f.nom || "").toLowerCase();
+    if (!parCle.has(k)) parCle.set(k, []);
+    parCle.get(k).push({ ...f, types: (() => { try { return JSON.parse(f.types || "[]"); } catch { return []; } })() });
+  }
+  return cles.map((c) => ({ nom: c.k, fiches: parCle.get(c.k) || [] })).filter((g) => g.fiches.length > 1);
+}
+
+// « C'est l'anniversaire de l'autre » — et plus largement : donner au
+// conjoint sa propre fiche. Une fiche couple est d'abord scindee (Monsieur
+// garde la fiche, Madame en recoit une nouvelle) ; une fiche seule recoit un
+// conjoint cree a cote (memes adresse, telephone, projets ; e-mail sur
+// demande). La date de naissance va a celui qui fete son anniversaire, et
+// le drapeau « a confirmer » s'efface : maintenant on sait.
+export async function creerConjoint(db, agency, userId, contactId, b) {
+  const c = await db.get("SELECT * FROM crm_contacts WHERE id = ? AND agency_id = ?", [contactId, agency.id]);
+  if (!c) throw new Error("Contact introuvable.");
+  const isoOuVide = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : "");
+  const anniversaireDe = b.anniversaireDe === "conjoint" ? "conjoint" : "fiche";
+  const dateD = c.date_naissance || "";
+  let ficheId = c.id, conjointId;
+  if (estCouple(c)) {
+    const r = await scinderContact(db, agency, userId, c.id);
+    ficheId = r.monsieur; conjointId = r.madame;
+    const prenomFiche = strip(b.prenomFiche, 80);
+    if (prenomFiche) await db.run("UPDATE crm_contacts SET prenom = ? WHERE id = ?", [prenomFiche, ficheId]);
+    await db.run("UPDATE crm_contacts SET civilite = ?, prenom = ?, email = ? WHERE id = ?",
+      [strip(b.civiliteConjoint, 20) || "Mme", strip(b.prenomConjoint, 80),
+        b.copierEmail === false ? "" : c.email, conjointId]);
+  } else {
+    conjointId = randId("ct");
+    const civ = strip(b.civiliteConjoint, 20) || (/^mme/i.test(c.civilite || "") ? "M." : "Mme");
+    await db.run(
+      `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone,
+       adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out,
+       created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, '', ?, ?, ?, ?)`,
+      [conjointId, agency.id, userId, civ, strip(b.prenomConjoint, 80), strip(b.nomConjoint, 120) || c.nom,
+        b.copierEmail === false ? "" : c.email, b.copierTelephone === false ? "" : c.telephone,
+        c.adresse, c.cp, c.ville, c.date_achat, c.types, c.conseiller, c.source, c.opt_out, now(), now()]);
+    await db.run(
+      `INSERT OR IGNORE INTO crm_projet_contacts (projet_id, contact_id, agency_id)
+       SELECT projet_id, ?, agency_id FROM crm_projet_contacts WHERE contact_id = ? AND agency_id = ?`,
+      [conjointId, c.id, agency.id]);
+  }
+  // Qui souffle les bougies ? La date suit la bonne personne, l'autre garde
+  // la sienne si on la connait — sinon rien (mieux que faux).
+  const dateFiche = anniversaireDe === "fiche" ? (isoOuVide(b.dateFiche) || dateD) : isoOuVide(b.dateFiche);
+  const dateConjoint = anniversaireDe === "conjoint" ? (isoOuVide(b.dateConjoint) || dateD) : isoOuVide(b.dateConjoint);
+  const notesFiche = String((await db.get("SELECT notes FROM crm_contacts WHERE id = ?", [ficheId]))?.notes || "")
+    .replace(ANNIV_A_CONFIRMER, "").replace(/^\s*·\s*/, "").trim();
+  await db.run("UPDATE crm_contacts SET date_naissance = ?, notes = ?, user_id = ?, updated_at = ? WHERE id = ?",
+    [dateFiche, notesFiche, userId, now(), ficheId]);
+  await db.run("UPDATE crm_contacts SET date_naissance = ?, user_id = ?, updated_at = ? WHERE id = ?",
+    [dateConjoint, userId, now(), conjointId]);
+  // La memoire : un suivi sur la fiche dit ce qui a ete appris.
+  const qui = anniversaireDe === "conjoint" ? "du conjoint (fiche créée)" : "de la fiche (conjoint créé à côté)";
+  await db.run(
+    `INSERT INTO crm_suivis (id, agency_id, contact_id, adresse, type, commentaire, rappel_le, rappel_fait, conseiller, user_id, created_at)
+     VALUES (?, ?, ?, ?, 'note', ?, '', 0, '', ?, ?)`,
+    [randId("sv"), agency.id, ficheId, c.adresse || "", "Anniversaire du " + (dateD || "?") + " : c'est celui " + qui + ".", userId, now()]);
+  return { fiche: ficheId, conjoint: conjointId };
+}
+
+// « C'est bien lui / elle » : la date est confirmee, le drapeau s'efface.
+export async function confirmerAnniversaire(db, agency, userId, contactId) {
+  const c = await db.get("SELECT id, notes FROM crm_contacts WHERE id = ? AND agency_id = ?", [contactId, agency.id]);
+  if (!c) throw new Error("Contact introuvable.");
+  const notes = String(c.notes || "").replace(ANNIV_A_CONFIRMER, "").replace(/^\s*·\s*/, "").trim();
+  await db.run("UPDATE crm_contacts SET notes = ?, user_id = ?, updated_at = ? WHERE id = ?", [notes, userId, now(), c.id]);
+  return { ok: true };
 }
 
 export async function executerNettoyage(db, agency, userId, action, curseur = "") {
@@ -525,6 +639,9 @@ export const MODELES = {
   "anniv-naissance": { titre: "Anniversaire de naissance", canal: "email",
     sujet: "Joyeux anniversaire {prenom} ! 🎂",
     texte: "Aujourd'hui, c'est votre jour — et nous ne pouvions pas le laisser passer sans vous adresser nos vœux les plus chaleureux. Que cette nouvelle année vous apporte de belles réussites, de beaux moments partagés… et pourquoi pas de nouveaux projets !\n\nC'est un vrai plaisir de vous compter parmi les clients de notre agence. Toute l'équipe se joint à moi pour vous souhaiter une magnifique journée." },
+  "anniv-naissance-couple": { titre: "Anniversaire de naissance — fiche couple (on ne sait pas qui)", canal: "email",
+    sujet: "Un anniversaire se fête chez vous ! 🎂",
+    texte: "Aujourd'hui, un anniversaire se fête chez vous — et nous ne voulions pas le laisser passer sans adresser nos vœux les plus chaleureux à celle ou celui qui souffle les bougies… et à l'autre, pour la fête !\n\nC'est un vrai plaisir de vous compter parmi les clients de notre agence. Toute l'équipe se joint à moi pour vous souhaiter une magnifique journée.\n\nUn petit mot pratique : notre fichier ne dit pas encore lequel de vous deux nous fêtons aujourd'hui, ni la date de l'autre. Un simple mot en réponse à cet e-mail, et l'an prochain chacun aura ses vœux, à la bonne date." },
   "anniv-achat-acquereur": { titre: "Anniversaire d'achat (acquéreur)", canal: "email",
     sujet: "Déjà {annees} chez vous 🏡",
     texte: "Il y a {depuis}, vous receviez les clés de votre bien à {ville}. Nous espérons que vous vous y sentez pleinement chez vous, et que ces murs abritent de beaux souvenirs.\n\nSi un nouveau projet se dessine — agrandir, investir, ou simplement connaître la valeur de votre bien aujourd'hui — nous sommes là, avec plaisir." },
@@ -533,6 +650,8 @@ export const MODELES = {
     texte: "Il y a {depuis}, vous vendiez votre bien à {ville} avec notre agence. Nous gardons un très bon souvenir de ce projet mené ensemble, et nous espérons que ce nouveau chapitre vous a apporté tout ce que vous en attendiez.\n\nSi un nouveau projet se dessine — une vente, un achat, un investissement, ou simplement l'envie de connaître la valeur d'un bien — notre porte vous est toujours grande ouverte. Au plaisir de vous revoir !" },
   "sms-naissance": { titre: "Anniversaire de naissance", canal: "sms",
     texte: "Joyeux anniversaire {prenom} ! Toute l'équipe pense à vous et vous souhaite une très belle journée. {signature} — {agence}" },
+  "sms-naissance-couple": { titre: "Anniversaire de naissance — fiche couple", canal: "sms",
+    texte: "Un anniversaire se fête chez vous aujourd'hui : toute l'équipe pense à vous ! Dites-nous en un mot qui souffle les bougies (et la date de l'autre) pour des vœux à la bonne date l'an prochain. {signature} — {agence}" },
   "sms-achat-acquereur": { titre: "Anniversaire d'achat (acquéreur)", canal: "sms",
     texte: "Bonjour {prenom}, il y a {depuis}, vous receviez les clés de votre nouveau chez-vous. Bel anniversaire ! {signature} — {agence}" },
   "sms-achat-vendeur": { titre: "Anniversaire de vente (vendeur)", canal: "sms",
@@ -583,6 +702,25 @@ function texteEnParagraphes(texte) {
 
 /* --------------------------- E-mails d'attention -------------------------- */
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// Une fiche « couple » : civilité « M. et Mme » / « M. & Mme », ou prénom
+// « Jean et Marie ». Une seule date de naissance pour deux personnes — on
+// ne sait pas qui souffle les bougies.
+export function estCouple(c) {
+  return /(?:^|\s)(?:et|&)(?:\s|$)/i.test(c.civilite || "") || /&/.test(c.civilite || "") ||
+    /^(.+?)\s+(?:et|&)\s+(.+)$/i.test(c.prenom || "");
+}
+// Posé dans les notes quand un couple est scindé avec une date de naissance :
+// la date est restée sur Monsieur par défaut, sans certitude.
+export const ANNIV_A_CONFIRMER = "🎂 Anniversaire à confirmer : M. ou Mme ?";
+export function anniversaireAConfirmer(c) {
+  return String(c.notes || "").includes(ANNIV_A_CONFIRMER);
+}
+// Le vœu de naissance « on ne sait pas qui » vaut pour une fiche couple ET
+// pour une fiche scindée dont la date n'est pas confirmée.
+export function voeuIncertain(c) {
+  return estCouple(c) || anniversaireAConfirmer(c);
+}
 
 function salutation(c) {
   const civ = (c.civilite || "").trim(), nom = (c.nom || "").trim();
@@ -644,9 +782,10 @@ export function buildAnniversaireEmail(contact, type, ag, isoDay, modeles) {
   const prenom = contact.prenom || "";
   // Le texte de l'AGENCE (Bibliotheque des messages) remplace le texte par
   // defaut quand il existe — meme gabarit Kadima, memes salutations.
-  const cleM = type === "naissance" ? "anniv-naissance"
+  const cleM = type === "naissance" ? (voeuIncertain(contact) ? "anniv-naissance-couple" : "anniv-naissance")
     : profilAchat(contact) === "vendeur" ? "anniv-achat-vendeur" : "anniv-achat-acquereur";
-  const sur = surchargeModele({ modeles }, cleM);
+  // Le voeu « couple » n'existe qu'en modele : sans surcharge, le texte livre.
+  const sur = surchargeModele({ modeles }, cleM) || (cleM === "anniv-naissance-couple" ? MODELES[cleM] : null);
   if (sur) {
     const y = type === "naissance" ? null : yearsSince(contact.date_achat, isoDay);
     const anneesTxt = y && y > 0 ? `${y} an${y > 1 ? "s" : ""}` : "quelque temps";
@@ -795,6 +934,7 @@ export async function upcoming(db, agency, reglages, days = 30) {
     for (const o of occurrencesOf(contacts, reglages, iso)) {
       results.push({
         date: iso, type: o.type, years: o.years, contactId: o.contact.id,
+        couple: estCouple(o.contact), aConfirmer: anniversaireAConfirmer(o.contact),
         nom: o.contact.nom, prenom: o.contact.prenom, email: o.contact.email,
         ville: o.contact.ville, conseiller: o.contact.conseiller, hasEmail: !!o.contact.email,
         profil: o.type === "achat" ? profilAchat(o.contact) : "",
@@ -839,10 +979,11 @@ export function buildAnniversaireSms(contact, type, reglages, isoDay) {
   const annees = type === "naissance" ? null : yearsSince(contact.date_achat, isoDay);
   const nDepuis = annees && annees > 1 ? annees + " ans jour pour jour"
     : annees === 1 ? "un an jour pour jour" : "quelque temps jour pour jour";
-  const cleM = type === "naissance" ? "sms-naissance"
+  const cleM = type === "naissance" ? (voeuIncertain(contact) ? "sms-naissance-couple" : "sms-naissance")
     : profilAchat(contact) === "vendeur" ? "sms-achat-vendeur" : "sms-achat-acquereur";
-  // Le SMS de l'agence (Bibliotheque des messages) remplace le texte type.
-  const sur = surchargeModele(reglages, cleM);
+  // Le SMS de l'agence (Bibliotheque des messages) remplace le texte type ;
+  // le SMS « couple » n'existe qu'en modele.
+  const sur = surchargeModele(reglages, cleM) || (cleM === "sms-naissance-couple" ? MODELES[cleM] : null);
   if (sur && sur.texte) {
     return remplirModele(sur.texte, {
       prenom, nom: contact.nom || "", ville: contact.ville || "", agence, signature,
@@ -1454,8 +1595,13 @@ export async function scinderContact(db, agency, userId, contactId) {
   const duo = (c.prenom || "").match(/^(.+?)\s+(?:et|&)\s+(.+)$/i);
   if (duo) { prenom1 = duo[1].trim(); prenom2 = duo[2].trim(); }
   const id2 = randId("ct");
-  await db.run("UPDATE crm_contacts SET civilite = 'M.', prenom = ?, user_id = ?, updated_at = ? WHERE id = ?",
-    [prenom1, userId, now(), c.id]);
+  // Une seule date de naissance pour deux personnes : elle reste sur
+  // Monsieur, mais MARQUEE « a confirmer » — le voeu posera la question,
+  // et l'onglet Anniversaires proposera « c'est l'autre » / « confirmer ».
+  const notes1 = c.date_naissance && !anniversaireAConfirmer(c)
+    ? (ANNIV_A_CONFIRMER + (c.notes ? " · " + c.notes : "")).slice(0, 2000) : (c.notes || "");
+  await db.run("UPDATE crm_contacts SET civilite = 'M.', prenom = ?, notes = ?, user_id = ?, updated_at = ? WHERE id = ?",
+    [prenom1, notes1, userId, now(), c.id]);
   await db.run(
     `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone,
      adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out,
