@@ -113,6 +113,9 @@
     // preferCanvas : à des dizaines de milliers de points (60 000 contacts
     // visés), le rendu vectoriel SVG s'effondre — le canvas tient la charge.
     carte = L.map("carte", { zoomControl: true, preferCanvas: true }).setView(CENTRE_DEFAUT, 13);
+    // Poignée pour les parcours navigateur (server/smoke) : les maisons sont
+    // dessinées sur un canvas, seul Leaflet sait où cliquer.
+    window.__carte = carte;
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',

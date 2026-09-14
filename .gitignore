@@ -9,3 +9,6 @@ docs/*.pdf
 server/studio.sqlite
 studio.sqlite
 *.sqlite
+
+# Dépendances installées localement (serveur, smokes)
+node_modules/

@@ -283,12 +283,44 @@ const NETTOYAGE_VIDES_MAX = 1600;    // suppressions par appel (4 lots de 400)
 const NETTOYAGE_GROUPES_MAX = 40;    // groupes de doublons examines par appel
 const NETTOYAGE_SCISSIONS_MAX = 6;   // scinderContact fait ~5 requetes chacune
 const NETTOYAGE_COUPLES_SCAN = 120;  // lignes examinees par tour (les refus ne coutent rien)
-const SQL_VIDE = "nom = '' AND prenom = '' AND email = '' AND telephone = ''";
+// Fiches INUTILISABLES : sans nom (donc aussi sans rien, ou avec un prenom
+// seul) ou anonymisees par l'export du logiciel (« ANONYMISE », « Anonymisé »).
+// On ne peut ni les saluer, ni les rapprocher, ni les retrouver : elles
+// partent, avec tout ce qui pointait vers elles.
+const SQL_SANS_NOM = "nom = '' AND NOT (lower(prenom) LIKE '%anonym%')";
+const SQL_ANONYME = "(lower(nom) LIKE '%anonym%' OR lower(prenom) LIKE '%anonym%')";
+// Fiches SANS INTERET pour l'exploitation : rien ne permet de les joindre ni
+// de les situer, ou leur typologie n'a plus de sens sans l'information clé
+// (un prospect, c'est une maison : sans adresse il n'existe pas ; un
+// acquéreur, c'est un nom et un téléphone : sans téléphone on ne le rappelle
+// pas). Une fiche qui porte un suivi, un projet ou une estimation est
+// toujours gardée : quelqu'un a travaillé dessus.
+const SQL_SANS_ACTIVITE = "NOT EXISTS (SELECT 1 FROM crm_suivis s WHERE s.contact_id = crm_contacts.id)" +
+  " AND NOT EXISTS (SELECT 1 FROM crm_projet_contacts pc WHERE pc.contact_id = crm_contacts.id)" +
+  " AND NOT EXISTS (SELECT 1 FROM crm_estimation_contacts ec WHERE ec.contact_id = crm_contacts.id)";
+const SQL_SANS_CONTACT = "(telephone = '' AND email = '' AND adresse = '')";
+const SQL_PROSPECT_SANS_ADRESSE = "(types = '[\"prospect\"]' AND adresse = '')";
+const SQL_ACQUEREUR_SANS_TEL = "(types LIKE '%acquereur%' AND types NOT LIKE '%vendeur%' AND types NOT LIKE '%estime%'" +
+  " AND types NOT LIKE '%bailleur%' AND telephone = '')";
+const SQL_SANS_INTERET = `((${SQL_SANS_CONTACT} OR ${SQL_PROSPECT_SANS_ADRESSE} OR ${SQL_ACQUEREUR_SANS_TEL}) AND ${SQL_SANS_ACTIVITE})`;
+const SQL_VIDE = `(nom = '' OR ${SQL_ANONYME} OR ${SQL_SANS_INTERET})`;
 const SQL_COUPLE = "(' ' || civilite || ' ' || prenom || ' ' LIKE '% et %' OR civilite LIKE '%&%' OR prenom LIKE '%&%')";
 
 export async function apercuNettoyage(db, agencyId) {
   const vides = await db.get(
     `SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_VIDE}`, [agencyId]);
+  const sansNom = await db.get(
+    `SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_SANS_NOM}`, [agencyId]);
+  const anonymes = await db.get(
+    `SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_ANONYME}`, [agencyId]);
+  // Le detail des « sans interet » (parmi les fiches qui ont un nom et ne
+  // sont pas anonymisees, pour que les colonnes s'additionnent).
+  const detailSI = async (cond) => (await db.get(
+    `SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND nom <> '' AND NOT ${SQL_ANONYME}
+       AND ${cond} AND ${SQL_SANS_ACTIVITE}`, [agencyId]))?.n || 0;
+  const sansContact = await detailSI(SQL_SANS_CONTACT);
+  const prospectsSansAdresse = await detailSI(`${SQL_PROSPECT_SANS_ADRESSE} AND NOT ${SQL_SANS_CONTACT}`);
+  const acquereursSansTel = await detailSI(`${SQL_ACQUEREUR_SANS_TEL} AND NOT ${SQL_SANS_CONTACT} AND NOT ${SQL_PROSPECT_SANS_ADRESSE}`);
   const parEmail = await db.get(
     `SELECT COALESCE(SUM(n - 1), 0) AS d FROM (
        SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND email <> '' GROUP BY email HAVING COUNT(*) > 1)`,
@@ -302,21 +334,205 @@ export async function apercuNettoyage(db, agencyId) {
   const couples = await db.get(
     `SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_COUPLE}`, [agencyId]);
   return {
-    vides: vides?.n || 0,
+    vides: vides?.n || 0, sansNom: sansNom?.n || 0, anonymes: anonymes?.n || 0, sansContact, prospectsSansAdresse, acquereursSansTel,
     doublons: (parEmail?.d || 0) + (parNom?.d || 0), // les ambigus seront laisses a l'execution
     couples: couples?.n || 0,
   };
 }
 
+// Supprimer des fiches PROPREMENT : la position sur la carte, les liaisons
+// aux projets et aux estimations et le fil de suivi partent avec elles ;
+// les journaux d'envoi et de relance restent (memoire de ce qui est parti).
+// Par paquets de 100 ids inline — plafonds D1.
+// --- Plafonds journaliers -------------------------------------------------
+// Garde-fous, pas des quotas commerciaux : un conseiller n'envoie pas 100
+// mails à la main dans une journée ; s'il y arrive, c'est un script ou un
+// compte volé. Le compteur d'agence (user_id vide) plafonne la somme.
+export const QUOTAS = {
+  "envoi-mail": 100,   // mails manuels par conseiller et par jour
+  "envoi-sms": 50,     // SMS manuels par conseiller et par jour
+  "envois": 500,       // mails + SMS manuels par agence et par jour
+  "prospects": 200,    // prospects créés par conseiller et par jour
+};
+// Consomme une unité du plafond `cle` : renvoie { ok, n, max } — ok:false
+// quand le plafond du jour est atteint (rien n'est compté dans ce cas).
+export async function consommerQuota(db, agencyId, userId, cle, max = QUOTAS[cle]) {
+  const jour = parisDate();
+  const cur = await db.get(
+    "SELECT n FROM crm_quotas WHERE agency_id = ? AND user_id = ? AND jour = ? AND cle = ?",
+    [agencyId, userId || "", jour, cle]);
+  const n = cur ? Number(cur.n) : 0;
+  if (n >= max) return { ok: false, n, max };
+  await db.run(
+    `INSERT INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES (?, ?, ?, ?, 1)
+     ON CONFLICT(agency_id, user_id, jour, cle) DO UPDATE SET n = n + 1`,
+    [agencyId, userId || "", jour, cle]);
+  return { ok: true, n: n + 1, max };
+}
+
+// --- Corbeille ---------------------------------------------------------------
+export const CORBEILLE_JOURS = 30;
+// Tables qu'une entrée de corbeille peut réinsérer (liste blanche : le JSON
+// stocké ne décide jamais où l'on écrit).
+const TABLES_CORBEILLE = ["crm_contacts", "crm_suivis", "crm_visites", "crm_visite_avis",
+  "crm_geo", "crm_projet_contacts", "crm_estimation_contacts"];
+
+// Une entrée par objet supprimé : payload = { table: [lignes…] }. Insertion
+// par lots de 20 lignes (une seule requête par lot — D1 compte chaque
+// requête, et une sélection de 200 fiches ne doit pas en coûter 200).
+export async function mettreEnCorbeille(db, agencyId, userId, entrees) {
+  const t = now();
+  const liste = (Array.isArray(entrees) ? entrees : [entrees]).filter(Boolean);
+  const ids = [];
+  for (let i = 0; i < liste.length; i += 20) {
+    const lot = liste.slice(i, i + 20);
+    const valeurs = lot.map((e) => {
+      const id = randId("cb"); ids.push(id);
+      return `(${sqlText(id)}, ${sqlText(agencyId)}, ${sqlText(e.type)}, ${sqlText(e.ref)}, ${sqlText(String(e.libelle || "").slice(0, 160))}, ${sqlText(JSON.stringify(e.payload || {}))}, ${sqlText(userId || "")}, ${t}, 0)`;
+    }).join(",");
+    await db.run(
+      `INSERT INTO crm_corbeille (id, agency_id, type, ref_id, libelle, payload, user_id, created_at, restored_at) VALUES ${valeurs}`, []);
+  }
+  return ids;
+}
+
+export async function listerCorbeille(db, agencyId, limite = 200) {
+  const rows = await db.all(
+    `SELECT id, type, ref_id, libelle, user_id, created_at FROM crm_corbeille
+     WHERE agency_id = ? AND restored_at = 0 ORDER BY created_at DESC LIMIT ?`,
+    [agencyId, Math.max(1, Math.min(500, limite | 0))]);
+  const expire = now() - CORBEILLE_JOURS * 86400;
+  return rows.filter((r) => r.created_at > expire).map((r) => ({ ...r, jours_restants: Math.max(0, Math.ceil((r.created_at - expire) / 86400)) }));
+}
+
+// Réinsère les lignes de l'entrée (INSERT OR IGNORE : si la fiche a été
+// recréée entre-temps, on ne l'écrase pas). Renvoie ce qui a été remis.
+export async function restaurerCorbeille(db, agencyId, id) {
+  const e = await db.get("SELECT * FROM crm_corbeille WHERE id = ? AND agency_id = ? AND restored_at = 0", [id, agencyId]);
+  if (!e) return null;
+  let payload = {};
+  try { payload = JSON.parse(e.payload || "{}"); } catch { payload = {}; }
+  const remis = {};
+  for (const table of TABLES_CORBEILLE) {
+    const lignes = Array.isArray(payload[table]) ? payload[table] : [];
+    let n = 0;
+    for (const ligne of lignes) {
+      if (!ligne || typeof ligne !== "object") continue;
+      const cols = Object.keys(ligne).filter((k) => /^[a-z_]+$/.test(k));
+      if (!cols.length) continue;
+      // La ligne retourne dans CETTE agence, quoi que dise le JSON.
+      const vals = cols.map((k) => (k === "agency_id" ? agencyId : ligne[k]));
+      const r = await db.run(
+        `INSERT OR IGNORE INTO ${table} (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`, vals);
+      n += changesOf(r);
+    }
+    if (n) remis[table] = n;
+  }
+  await db.run("UPDATE crm_corbeille SET restored_at = ? WHERE id = ?", [now(), id]);
+  return { type: e.type, ref_id: e.ref_id, libelle: e.libelle, remis };
+}
+
+// Ménage quotidien (cron) : corbeille au-delà de 30 jours, sessions mortes,
+// liens de connexion périmés, compteurs de quotas vieux de 3 mois.
+export async function menageQuotidien(db) {
+  const t = now();
+  const r = {};
+  r.corbeille = changesOf(await db.run("DELETE FROM crm_corbeille WHERE created_at < ? OR (restored_at > 0 AND restored_at < ?)",
+    [t - CORBEILLE_JOURS * 86400, t - 7 * 86400]));
+  r.sessions = changesOf(await db.run("DELETE FROM sessions WHERE revoked = 1 OR last_seen < ?", [t - 90 * 86400]));
+  r.liens = changesOf(await db.run("DELETE FROM login_tokens WHERE expires_at < ?", [t - 86400]));
+  r.quotas = changesOf(await db.run("DELETE FROM crm_quotas WHERE jour < ?", [parisDate(new Date((t - 92 * 86400) * 1000))]));
+  return r;
+}
+
+// Suppression de fiches en cascade (géocache, liaisons projets/estimations,
+// suivis). Avec `corbeille: userId`, chaque fiche part en corbeille avec tout
+// ce qui l'accompagne (restaurable 30 jours) ; sans, c'est définitif
+// (nettoyage de masse, effacement RGPD).
+export async function supprimerContacts(db, agencyId, ids, options = {}) {
+  const propres = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))];
+  const corbeille = options.corbeille || "";
+  let total = 0;
+  for (let i = 0; i < propres.length; i += 100) {
+    const dans = propres.slice(i, i + 100).map(sqlText).join(",");
+    const ag = sqlText(agencyId);
+    // Seules les fiches de CETTE agence : on borne la liste avant de toucher aux dependances.
+    const connus = await db.all(`SELECT ${corbeille ? "*" : "id"} FROM crm_contacts WHERE agency_id = ${ag} AND id IN (${dans})`, []);
+    if (!connus.length) continue;
+    const ok = connus.map((r) => sqlText(r.id)).join(",");
+    if (corbeille) {
+      const par = new Map(connus.map((c) => [c.id, { crm_contacts: [c], crm_suivis: [], crm_geo: [], crm_projet_contacts: [], crm_estimation_contacts: [] }]));
+      for (const table of ["crm_suivis", "crm_geo", "crm_projet_contacts", "crm_estimation_contacts"]) {
+        const rows = await db.all(`SELECT * FROM ${table} WHERE contact_id IN (${ok})`, []);
+        for (const r of rows) { const e = par.get(r.contact_id); if (e) e[table].push(r); }
+      }
+      await mettreEnCorbeille(db, agencyId, corbeille, connus.map((c) => ({
+        type: "contact", ref: c.id,
+        libelle: [c.nom, c.prenom].filter(Boolean).join(" ") || c.email || c.adresse || c.id,
+        payload: par.get(c.id),
+      })));
+    }
+    await db.run(`DELETE FROM crm_geo WHERE contact_id IN (${ok})`, []);
+    await db.run(`DELETE FROM crm_projet_contacts WHERE contact_id IN (${ok})`, []);
+    await db.run(`DELETE FROM crm_estimation_contacts WHERE contact_id IN (${ok})`, []);
+    await db.run(`DELETE FROM crm_suivis WHERE contact_id IN (${ok})`, []);
+    await db.run(`DELETE FROM crm_contacts WHERE id IN (${ok})`, []);
+    total += connus.length;
+  }
+  return total;
+}
+
+// --- RGPD ------------------------------------------------------------------
+// Tout ce que la base sait d'une personne (droit d'accès / portabilité).
+export async function exporterContact(db, agencyId, id) {
+  const contact = await db.get("SELECT * FROM crm_contacts WHERE id = ? AND agency_id = ?", [id, agencyId]);
+  if (!contact) return null;
+  try { contact.types = JSON.parse(contact.types || "[]"); } catch { contact.types = []; }
+  const q = (sql) => db.all(sql, [agencyId, id]);
+  const [suivis, envois, visites, projets, estimations, geo] = await Promise.all([
+    q("SELECT * FROM crm_suivis WHERE agency_id = ? AND contact_id = ? ORDER BY created_at"),
+    q("SELECT * FROM crm_envois WHERE agency_id = ? AND contact_id = ? ORDER BY created_at"),
+    q("SELECT * FROM crm_visites WHERE agency_id = ? AND contact_id = ? ORDER BY created_at"),
+    q(`SELECT p.* FROM crm_projets p JOIN crm_projet_contacts pc ON pc.projet_id = p.id
+       WHERE pc.agency_id = ? AND pc.contact_id = ?`),
+    db.all(`SELECT e.* FROM crm_estimations e WHERE e.agency_id = ? AND (e.contact_id = ?
+       OR e.id IN (SELECT estimation_id FROM crm_estimation_contacts WHERE agency_id = ? AND contact_id = ?))`,
+      [agencyId, id, agencyId, id]),
+    q("SELECT * FROM crm_geo WHERE agency_id = ? AND contact_id = ?"),
+  ]);
+  return { exporte_le: new Date().toISOString(), contact, suivis, envois, visites, projets, estimations, position: geo[0] || null };
+}
+
+// Effacement définitif (droit à l'effacement) : la fiche et tout ce qui la
+// porte disparaissent ; les journaux qui doivent rester (envois, visites)
+// perdent son nom et son e-mail ; la corbeille est purgée de sa trace.
+export async function effacerContact(db, agencyId, id) {
+  const contact = await db.get("SELECT id, nom, prenom, email FROM crm_contacts WHERE id = ? AND agency_id = ?", [id, agencyId]);
+  if (!contact) return null;
+  await db.run("UPDATE crm_envois SET contact = '', email = '', contact_id = '' WHERE agency_id = ? AND contact_id = ?", [agencyId, id]);
+  await db.run("UPDATE crm_visites SET contact = '', contact_id = '' WHERE agency_id = ? AND contact_id = ?", [agencyId, id]);
+  await db.run("UPDATE crm_estimations SET contact_id = '' WHERE agency_id = ? AND contact_id = ?", [agencyId, id]);
+  // Trace en corbeille : l'entrée de la fiche elle-même, et les suivis/visites
+  // supprimés à la main qui la citent (motif court : D1 borne LIKE à 50 octets).
+  await db.run("DELETE FROM crm_corbeille WHERE agency_id = ? AND (ref_id = ? OR payload LIKE ?)",
+    [agencyId, id, '%"contact_id":"' + id + '"%']);
+  await supprimerContacts(db, agencyId, [id]);
+  return { id, libelle: [contact.nom, contact.prenom].filter(Boolean).join(" ") };
+}
+
 // Fusionne des groupes deja charges (fiches completes) : le PLUS ANCIEN
 // survit, absorbe champs vides et typologies, et recupere envois, relances,
 // projets et position geocodee des fiches absorbees. Set-based.
-async function fusionnerGroupes(db, agencyId, userId, groupes) {
+async function fusionnerGroupes(db, agencyId, userId, groupes, preferer = "") {
   const t = now();
   const keep = (nv, old) => (nv !== "" && nv !== null && nv !== undefined ? nv : old);
   const survivants = [], correspondance = new Map();
   for (const g0 of groupes) {
-    const g = [...g0].sort((a, b) => (a.created_at - b.created_at) || (a.id < b.id ? -1 : 1));
+    // Le plus ancien survit — sauf si l'on a designe un survivant (fusion
+    // manuelle depuis une fiche : c'est ELLE qu'on garde).
+    const g = [...g0].sort((a, b) =>
+      (a.id === preferer ? -1 : b.id === preferer ? 1 : 0) ||
+      (a.created_at - b.created_at) || (a.id < b.id ? -1 : 1));
     const s = { ...g[0] };
     let types = [];
     try { types = JSON.parse(s.types || "[]"); } catch { }
@@ -347,19 +563,126 @@ async function fusionnerGroupes(db, agencyId, userId, groupes) {
     await db.run(`DELETE FROM crm_projet_contacts WHERE contact_id IN (${dans})`, []);
     await db.run(`UPDATE OR IGNORE crm_geo SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
     await db.run(`DELETE FROM crm_geo WHERE contact_id IN (${dans})`, []);
+    // Tout ce qui pointe vers la fiche absorbee suit le survivant : le fil
+    // de suivi, les visites, les fiches estimation et leurs personnes liees.
+    await db.run(`UPDATE crm_suivis SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
+    await db.run(`UPDATE crm_visites SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
+    await db.run(`UPDATE crm_estimations SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
+    await db.run(`UPDATE OR IGNORE crm_estimation_contacts SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
+    await db.run(`DELETE FROM crm_estimation_contacts WHERE contact_id IN (${dans})`, []);
     await db.run(`DELETE FROM crm_contacts WHERE id IN (${dans})`, []);
   }
   return doublons.length;
 }
 
+// Fusion MANUELLE : la fiche « garder » absorbe les fiches « absorber »
+// (memes regles que le nettoyage : champs vides completes, typologies
+// reunies, tout l'historique rapatrie).
+export async function fusionnerContacts(db, agency, userId, garder, absorber) {
+  const ids = [...new Set([garder, ...absorber].map(String))].filter(Boolean);
+  if (ids.length < 2) throw new Error("Choisissez au moins une fiche à fusionner dans celle-ci.");
+  if (ids.length > 10) throw new Error("Dix fiches au plus par fusion.");
+  const fiches = await db.all(
+    `SELECT * FROM crm_contacts WHERE agency_id = ? AND id IN (${ids.map(sqlText).join(",")})`, [agency.id]);
+  if (fiches.length !== ids.length || !fiches.some((f) => f.id === garder)) throw new Error("Une des fiches est introuvable.");
+  const absorbees = await fusionnerGroupes(db, agency.id, userId, [fiches], garder);
+  return { garde: garder, absorbees };
+}
+
+// Doublons A VERIFIER : les groupes de meme NOM que le nettoyage automatique
+// n'a pas osé fusionner (prenoms differents ou absents, coordonnees qui se
+// contredisent). Pour l'oeil humain, avec une recherche par nom.
+export async function doublonsAVerifier(db, agencyId, q = "") {
+  const motif = String(q || "").replace(/[%_]/g, "").trim().slice(0, 40);
+  const cles = await db.all(
+    `SELECT lower(nom) AS k, COUNT(*) AS n FROM crm_contacts
+     WHERE agency_id = ? AND nom <> '' ${motif ? "AND nom LIKE ? COLLATE NOCASE" : ""}
+     GROUP BY lower(nom) HAVING COUNT(*) BETWEEN 2 AND 8
+     ORDER BY ${motif ? "n DESC, k" : "n ASC, k"} LIMIT 40`,
+    motif ? [agencyId, "%" + motif + "%"] : [agencyId]);
+  if (!cles.length) return [];
+  const fiches = await db.all(
+    `SELECT id, civilite, prenom, nom, email, telephone, adresse, ville, date_naissance, types, conseiller, created_at
+     FROM crm_contacts WHERE agency_id = ? AND lower(nom) IN (${cles.map((c) => sqlText(c.k)).join(",")})
+     ORDER BY lower(nom), created_at`, [agencyId]);
+  const parCle = new Map();
+  for (const f of fiches) {
+    const k = (f.nom || "").toLowerCase();
+    if (!parCle.has(k)) parCle.set(k, []);
+    parCle.get(k).push({ ...f, types: (() => { try { return JSON.parse(f.types || "[]"); } catch { return []; } })() });
+  }
+  return cles.map((c) => ({ nom: c.k, fiches: parCle.get(c.k) || [] })).filter((g) => g.fiches.length > 1);
+}
+
+// « C'est l'anniversaire de l'autre » — et plus largement : donner au
+// conjoint sa propre fiche. Une fiche couple est d'abord scindee (Monsieur
+// garde la fiche, Madame en recoit une nouvelle) ; une fiche seule recoit un
+// conjoint cree a cote (memes adresse, telephone, projets ; e-mail sur
+// demande). La date de naissance va a celui qui fete son anniversaire, et
+// le drapeau « a confirmer » s'efface : maintenant on sait.
+export async function creerConjoint(db, agency, userId, contactId, b) {
+  const c = await db.get("SELECT * FROM crm_contacts WHERE id = ? AND agency_id = ?", [contactId, agency.id]);
+  if (!c) throw new Error("Contact introuvable.");
+  const isoOuVide = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : "");
+  const anniversaireDe = b.anniversaireDe === "conjoint" ? "conjoint" : "fiche";
+  const dateD = c.date_naissance || "";
+  let ficheId = c.id, conjointId;
+  if (estCouple(c)) {
+    const r = await scinderContact(db, agency, userId, c.id);
+    ficheId = r.monsieur; conjointId = r.madame;
+    const prenomFiche = strip(b.prenomFiche, 80);
+    if (prenomFiche) await db.run("UPDATE crm_contacts SET prenom = ? WHERE id = ?", [prenomFiche, ficheId]);
+    await db.run("UPDATE crm_contacts SET civilite = ?, prenom = ?, email = ? WHERE id = ?",
+      [strip(b.civiliteConjoint, 20) || "Mme", strip(b.prenomConjoint, 80),
+        b.copierEmail === false ? "" : c.email, conjointId]);
+  } else {
+    conjointId = randId("ct");
+    const civ = strip(b.civiliteConjoint, 20) || (/^mme/i.test(c.civilite || "") ? "M." : "Mme");
+    await db.run(
+      `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone,
+       adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out,
+       created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, '', ?, ?, ?, ?)`,
+      [conjointId, agency.id, userId, civ, strip(b.prenomConjoint, 80), strip(b.nomConjoint, 120) || c.nom,
+        b.copierEmail === false ? "" : c.email, b.copierTelephone === false ? "" : c.telephone,
+        c.adresse, c.cp, c.ville, c.date_achat, c.types, c.conseiller, c.source, c.opt_out, now(), now()]);
+    await db.run(
+      `INSERT OR IGNORE INTO crm_projet_contacts (projet_id, contact_id, agency_id)
+       SELECT projet_id, ?, agency_id FROM crm_projet_contacts WHERE contact_id = ? AND agency_id = ?`,
+      [conjointId, c.id, agency.id]);
+  }
+  // Qui souffle les bougies ? La date suit la bonne personne, l'autre garde
+  // la sienne si on la connait — sinon rien (mieux que faux).
+  const dateFiche = anniversaireDe === "fiche" ? (isoOuVide(b.dateFiche) || dateD) : isoOuVide(b.dateFiche);
+  const dateConjoint = anniversaireDe === "conjoint" ? (isoOuVide(b.dateConjoint) || dateD) : isoOuVide(b.dateConjoint);
+  const notesFiche = String((await db.get("SELECT notes FROM crm_contacts WHERE id = ?", [ficheId]))?.notes || "")
+    .replace(ANNIV_A_CONFIRMER, "").replace(/^\s*·\s*/, "").trim();
+  await db.run("UPDATE crm_contacts SET date_naissance = ?, notes = ?, user_id = ?, updated_at = ? WHERE id = ?",
+    [dateFiche, notesFiche, userId, now(), ficheId]);
+  await db.run("UPDATE crm_contacts SET date_naissance = ?, user_id = ?, updated_at = ? WHERE id = ?",
+    [dateConjoint, userId, now(), conjointId]);
+  // La memoire : un suivi sur la fiche dit ce qui a ete appris.
+  const qui = anniversaireDe === "conjoint" ? "du conjoint (fiche créée)" : "de la fiche (conjoint créé à côté)";
+  await db.run(
+    `INSERT INTO crm_suivis (id, agency_id, contact_id, adresse, type, commentaire, rappel_le, rappel_fait, conseiller, user_id, created_at)
+     VALUES (?, ?, ?, ?, 'note', ?, '', 0, '', ?, ?)`,
+    [randId("sv"), agency.id, ficheId, c.adresse || "", "Anniversaire du " + (dateD || "?") + " : c'est celui " + qui + ".", userId, now()]);
+  return { fiche: ficheId, conjoint: conjointId };
+}
+
+// « C'est bien lui / elle » : la date est confirmee, le drapeau s'efface.
+export async function confirmerAnniversaire(db, agency, userId, contactId) {
+  const c = await db.get("SELECT id, notes FROM crm_contacts WHERE id = ? AND agency_id = ?", [contactId, agency.id]);
+  if (!c) throw new Error("Contact introuvable.");
+  const notes = String(c.notes || "").replace(ANNIV_A_CONFIRMER, "").replace(/^\s*·\s*/, "").trim();
+  await db.run("UPDATE crm_contacts SET notes = ?, user_id = ?, updated_at = ? WHERE id = ?", [notes, userId, now(), c.id]);
+  return { ok: true };
+}
+
 export async function executerNettoyage(db, agency, userId, action, curseur = "") {
   if (action === "vides") {
-    const cible = `SELECT id FROM crm_contacts WHERE agency_id = '${String(agency.id).replace(/'/g, "''")}'
-      AND ${SQL_VIDE} LIMIT ${NETTOYAGE_VIDES_MAX}`;
-    await db.run(`DELETE FROM crm_geo WHERE contact_id IN (${cible})`, []);
-    await db.run(`DELETE FROM crm_projet_contacts WHERE contact_id IN (${cible})`, []);
-    const r = await db.run(`DELETE FROM crm_contacts WHERE id IN (${cible})`, []);
-    const traites = changesOf(r);
+    const lot = await db.all(
+      `SELECT id FROM crm_contacts WHERE agency_id = ? AND ${SQL_VIDE} LIMIT ${NETTOYAGE_VIDES_MAX}`, [agency.id]);
+    const traites = await supprimerContacts(db, agency.id, lot.map((r) => r.id));
     const reste = await db.get(`SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_VIDE}`, [agency.id]);
     return { traites, fini: (reste?.n || 0) === 0, curseur: "" };
   }
@@ -525,6 +848,9 @@ export const MODELES = {
   "anniv-naissance": { titre: "Anniversaire de naissance", canal: "email",
     sujet: "Joyeux anniversaire {prenom} ! 🎂",
     texte: "Aujourd'hui, c'est votre jour — et nous ne pouvions pas le laisser passer sans vous adresser nos vœux les plus chaleureux. Que cette nouvelle année vous apporte de belles réussites, de beaux moments partagés… et pourquoi pas de nouveaux projets !\n\nC'est un vrai plaisir de vous compter parmi les clients de notre agence. Toute l'équipe se joint à moi pour vous souhaiter une magnifique journée." },
+  "anniv-naissance-couple": { titre: "Anniversaire de naissance — fiche couple (on ne sait pas qui)", canal: "email",
+    sujet: "Un anniversaire se fête chez vous ! 🎂",
+    texte: "Aujourd'hui, un anniversaire se fête chez vous — et nous ne voulions pas le laisser passer sans adresser nos vœux les plus chaleureux à celle ou celui qui souffle les bougies… et à l'autre, pour la fête !\n\nC'est un vrai plaisir de vous compter parmi les clients de notre agence. Toute l'équipe se joint à moi pour vous souhaiter une magnifique journée.\n\nUn petit mot pratique : notre fichier ne dit pas encore lequel de vous deux nous fêtons aujourd'hui, ni la date de l'autre. Un simple mot en réponse à cet e-mail, et l'an prochain chacun aura ses vœux, à la bonne date." },
   "anniv-achat-acquereur": { titre: "Anniversaire d'achat (acquéreur)", canal: "email",
     sujet: "Déjà {annees} chez vous 🏡",
     texte: "Il y a {depuis}, vous receviez les clés de votre bien à {ville}. Nous espérons que vous vous y sentez pleinement chez vous, et que ces murs abritent de beaux souvenirs.\n\nSi un nouveau projet se dessine — agrandir, investir, ou simplement connaître la valeur de votre bien aujourd'hui — nous sommes là, avec plaisir." },
@@ -533,6 +859,8 @@ export const MODELES = {
     texte: "Il y a {depuis}, vous vendiez votre bien à {ville} avec notre agence. Nous gardons un très bon souvenir de ce projet mené ensemble, et nous espérons que ce nouveau chapitre vous a apporté tout ce que vous en attendiez.\n\nSi un nouveau projet se dessine — une vente, un achat, un investissement, ou simplement l'envie de connaître la valeur d'un bien — notre porte vous est toujours grande ouverte. Au plaisir de vous revoir !" },
   "sms-naissance": { titre: "Anniversaire de naissance", canal: "sms",
     texte: "Joyeux anniversaire {prenom} ! Toute l'équipe pense à vous et vous souhaite une très belle journée. {signature} — {agence}" },
+  "sms-naissance-couple": { titre: "Anniversaire de naissance — fiche couple", canal: "sms",
+    texte: "Un anniversaire se fête chez vous aujourd'hui : toute l'équipe pense à vous ! Dites-nous en un mot qui souffle les bougies (et la date de l'autre) pour des vœux à la bonne date l'an prochain. {signature} — {agence}" },
   "sms-achat-acquereur": { titre: "Anniversaire d'achat (acquéreur)", canal: "sms",
     texte: "Bonjour {prenom}, il y a {depuis}, vous receviez les clés de votre nouveau chez-vous. Bel anniversaire ! {signature} — {agence}" },
   "sms-achat-vendeur": { titre: "Anniversaire de vente (vendeur)", canal: "sms",
@@ -583,6 +911,25 @@ function texteEnParagraphes(texte) {
 
 /* --------------------------- E-mails d'attention -------------------------- */
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// Une fiche « couple » : civilité « M. et Mme » / « M. & Mme », ou prénom
+// « Jean et Marie ». Une seule date de naissance pour deux personnes — on
+// ne sait pas qui souffle les bougies.
+export function estCouple(c) {
+  return /(?:^|\s)(?:et|&)(?:\s|$)/i.test(c.civilite || "") || /&/.test(c.civilite || "") ||
+    /^(.+?)\s+(?:et|&)\s+(.+)$/i.test(c.prenom || "");
+}
+// Posé dans les notes quand un couple est scindé avec une date de naissance :
+// la date est restée sur Monsieur par défaut, sans certitude.
+export const ANNIV_A_CONFIRMER = "🎂 Anniversaire à confirmer : M. ou Mme ?";
+export function anniversaireAConfirmer(c) {
+  return String(c.notes || "").includes(ANNIV_A_CONFIRMER);
+}
+// Le vœu de naissance « on ne sait pas qui » vaut pour une fiche couple ET
+// pour une fiche scindée dont la date n'est pas confirmée.
+export function voeuIncertain(c) {
+  return estCouple(c) || anniversaireAConfirmer(c);
+}
 
 function salutation(c) {
   const civ = (c.civilite || "").trim(), nom = (c.nom || "").trim();
@@ -644,9 +991,10 @@ export function buildAnniversaireEmail(contact, type, ag, isoDay, modeles) {
   const prenom = contact.prenom || "";
   // Le texte de l'AGENCE (Bibliotheque des messages) remplace le texte par
   // defaut quand il existe — meme gabarit Kadima, memes salutations.
-  const cleM = type === "naissance" ? "anniv-naissance"
+  const cleM = type === "naissance" ? (voeuIncertain(contact) ? "anniv-naissance-couple" : "anniv-naissance")
     : profilAchat(contact) === "vendeur" ? "anniv-achat-vendeur" : "anniv-achat-acquereur";
-  const sur = surchargeModele({ modeles }, cleM);
+  // Le voeu « couple » n'existe qu'en modele : sans surcharge, le texte livre.
+  const sur = surchargeModele({ modeles }, cleM) || (cleM === "anniv-naissance-couple" ? MODELES[cleM] : null);
   if (sur) {
     const y = type === "naissance" ? null : yearsSince(contact.date_achat, isoDay);
     const anneesTxt = y && y > 0 ? `${y} an${y > 1 ? "s" : ""}` : "quelque temps";
@@ -795,6 +1143,7 @@ export async function upcoming(db, agency, reglages, days = 30) {
     for (const o of occurrencesOf(contacts, reglages, iso)) {
       results.push({
         date: iso, type: o.type, years: o.years, contactId: o.contact.id,
+        couple: estCouple(o.contact), aConfirmer: anniversaireAConfirmer(o.contact),
         nom: o.contact.nom, prenom: o.contact.prenom, email: o.contact.email,
         ville: o.contact.ville, conseiller: o.contact.conseiller, hasEmail: !!o.contact.email,
         profil: o.type === "achat" ? profilAchat(o.contact) : "",
@@ -839,10 +1188,11 @@ export function buildAnniversaireSms(contact, type, reglages, isoDay) {
   const annees = type === "naissance" ? null : yearsSince(contact.date_achat, isoDay);
   const nDepuis = annees && annees > 1 ? annees + " ans jour pour jour"
     : annees === 1 ? "un an jour pour jour" : "quelque temps jour pour jour";
-  const cleM = type === "naissance" ? "sms-naissance"
+  const cleM = type === "naissance" ? (voeuIncertain(contact) ? "sms-naissance-couple" : "sms-naissance")
     : profilAchat(contact) === "vendeur" ? "sms-achat-vendeur" : "sms-achat-acquereur";
-  // Le SMS de l'agence (Bibliotheque des messages) remplace le texte type.
-  const sur = surchargeModele(reglages, cleM);
+  // Le SMS de l'agence (Bibliotheque des messages) remplace le texte type ;
+  // le SMS « couple » n'existe qu'en modele.
+  const sur = surchargeModele(reglages, cleM) || (cleM === "sms-naissance-couple" ? MODELES[cleM] : null);
   if (sur && sur.texte) {
     return remplirModele(sur.texte, {
       prenom, nom: contact.nom || "", ville: contact.ville || "", agence, signature,
@@ -1454,8 +1804,13 @@ export async function scinderContact(db, agency, userId, contactId) {
   const duo = (c.prenom || "").match(/^(.+?)\s+(?:et|&)\s+(.+)$/i);
   if (duo) { prenom1 = duo[1].trim(); prenom2 = duo[2].trim(); }
   const id2 = randId("ct");
-  await db.run("UPDATE crm_contacts SET civilite = 'M.', prenom = ?, user_id = ?, updated_at = ? WHERE id = ?",
-    [prenom1, userId, now(), c.id]);
+  // Une seule date de naissance pour deux personnes : elle reste sur
+  // Monsieur, mais MARQUEE « a confirmer » — le voeu posera la question,
+  // et l'onglet Anniversaires proposera « c'est l'autre » / « confirmer ».
+  const notes1 = c.date_naissance && !anniversaireAConfirmer(c)
+    ? (ANNIV_A_CONFIRMER + (c.notes ? " · " + c.notes : "")).slice(0, 2000) : (c.notes || "");
+  await db.run("UPDATE crm_contacts SET civilite = 'M.', prenom = ?, notes = ?, user_id = ?, updated_at = ? WHERE id = ?",
+    [prenom1, notes1, userId, now(), c.id]);
   await db.run(
     `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone,
      adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out,

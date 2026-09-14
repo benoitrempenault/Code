@@ -319,6 +319,73 @@ partagé). L'écran bloquant de l'Administration (401/403) nomme désormais le
 compte ouvert (`#connexion-qui`) et offre `#btn-changer-compte` — le 403
 cachait le seul bouton de la page. compte.html : « Changer de compte » aussi
 en haut du profil (le « Se déconnecter » du pied restait introuvable).
+**Anniversaires et fiches couple** : `estCouple(c)` (civilité « et/& » ou
+prénom « X et Y »), drapeau `ANNIV_A_CONFIRMER` dans les notes (posé par
+scinderContact quand la fiche scindée avait une date : elle reste sur M. sans
+certitude), `voeuIncertain(c)` = couple || à confirmer → buildAnniversaireEmail/
+Sms prennent les modèles `anniv-naissance-couple` / `sms-naissance-couple`
+(texte qui demande qui souffle les bougies + la date de l'autre ; 14 modèles
+au total). Routes admin : `POST /crm/contacts/:id/conjoint` (creerConjoint :
+couple → scinderContact puis prénoms/civilité/e-mail ; fiche seule → conjoint
+créé à côté, mêmes adresse/tél/projets, e-mail sur demande ; `anniversaireDe`
+fiche|conjoint déplace la date, `dateFiche`/`dateConjoint` optionnels, le
+drapeau s'efface, un suivi « note » trace la réponse), `POST /crm/contacts/
+:id/anniversaire-confirme`. upcoming() renvoie `couple` et `aConfirmer` ;
+l'onglet Anniversaires les signale et offre « 👥 C'est l'autre » / « ✔ C'est
+bien lui/elle » ; bouton « 👁 Naissance (fiche couple) » (apercu?couple=1).
+**Doublons et fusion** : `fusionnerGroupes(…, preferer)` migre désormais AUSSI
+crm_suivis, crm_visites, crm_estimations, crm_estimation_contacts (trou
+corrigé). `fusionnerContacts(garder, absorber[])` (≤10) ; `GET /crm/contacts/
+doublons?q=` (groupes de même nom 2–8 fiches, laissés par le nettoyage) ;
+`POST /crm/contacts/fusionner`. UI : carte « 🔎 Doublons à vérifier » (radio
+garder = fiche avec e-mail par défaut) et « 🔀 Fusionner avec… » dans la
+fiche ; « 👥 Ajouter le conjoint » (fiche seule) ou « Scinder » (couple) passent
+par la modale ouvrirConjoint qui demande QUI fête l'anniversaire.
+**Fiches inutilisables + suppression en 2 clics** : le nettoyage supprime les
+fiches sans nom (nom vide, prénom seul compris — `SQL_SANS_NOM`) et les fiches
+anonymisées (nom OU prénom contenant « anonym », `SQL_ANONYME`) ; l'aperçu
+renvoie `sansNom`/`anonymes` en plus de `vides`. `supprimerContacts(db, agency,
+ids)` (cascade crm_geo, crm_projet_contacts, crm_estimation_contacts, crm_suivis,
+paquets de 100 ids inline, scope agence) sert au `DELETE /crm/contacts/:id` et au
+nouveau `POST /crm/contacts/supprimer` `{ids}` (admin, ≤200). UI : colonne de
+cases (`#coche-tout` / `.coche-contact`, le clic sur une case n'ouvre pas la
+fiche) → bouton `#btn-suppr-selection` visible dès une coche ; 1er clic = « Confirmer
+la suppression de n fiche(s) ? » (désarmé tout seul après 6 s), 2e clic = envoi par
+tranches de 200. Même mécanique à deux clics sur « Supprimer » dans la fiche (plus
+de `confirm()`).
+**Phase « Durcir » (audit, 14/09/2026)** : (1) `crm_quotas` + `consommerQuota()`
+(QUOTAS : envoi-mail 100/j/conseiller, envoi-sms 50, envois 500/j/agence,
+prospects 200/j) → 429 sur `/crm/contacts/:id/envoyer` et `/crm/prospects` ;
+en-têtes sur toutes les réponses (HSTS, nosniff, no-referrer, DENY, no-store
+sauf Cache-Control posé) ; photo brochure validée (data:image|https) + escH.
+(2) `crm_corbeille` : `mettreEnCorbeille` (INSERT multi-lignes par 20),
+`listerCorbeille`, `restaurerCorbeille` (INSERT OR IGNORE table par table,
+liste blanche TABLES_CORBEILLE, agency forcée) ; DELETE suivis/visites → 403
+si ni auteur (`user_id`) ni admin, copie en corbeille ; `supprimerContacts(…,
+{ corbeille: userId })` (unitaire + sélection) emporte suivis/geo/liaisons ;
+`GET /crm/corbeille`, `POST /crm/corbeille/:id/restaurer` (admin) ; carte
+« 🗑 Corbeille » dans Contacts ; `menageQuotidien(db)` (cron 6 h avant
+runCrmDaily) purge corbeille > 30 j, sessions mortes, liens périmés, quotas.
+(3) `SESSION_TTL` 7 j d'inactivité + `SESSION_MAX_AGE` 90 j (created_at) ;
+`POST /auth/logout-all` ; `POST /agency/users/:id/deconnecter` (admin) ;
+boutons dans compte.html (« Déconnecter tous mes appareils », « Déconnecter »
+par conseiller). (4) RGPD : `GET /crm/contacts/:id/export` (`exporterContact` :
+fiche, suivis, envois, visites, projets, estimations, position),
+`POST /crm/contacts/:id/effacer` (`effacerContact` : envois/visites/
+estimations anonymisés, corbeille purgée, cascade sans corbeille) ; boutons
+📤 Export RGPD (JSON téléchargé) / Effacement RGPD (2 clics) dans la fiche.
+(5) `server/smoke/` : `run.mjs` (fausse BAN, site statique, API sur base
+jetable, `node run.mjs [nom…]`), `lib.mjs` (`parcours()`, `creerAgence`,
+`ajouterConseiller`, `reconnecter`, relais API prod → local, géocodage inverse
+simulé, capture d'écran dans captures/ au plantage), parcours suppression,
+anniversaires, suivi, fiche-adresse, compte ; job `parcours` dans ci.yml
+(Playwright + Chromium). En local : `SMOKE_CHROMIUM=<headless_shell>` avec
+playwright-core. `window.__carte` exposé par prospection.js (clics canvas).
+**Fiches sans intérêt** (nettoyage, `SQL_SANS_INTERET`) : sans téléphone ni
+e-mail ni adresse ; prospect (seul type) sans adresse ; acquéreur (sans
+vendeur/estimé/bailleur) sans téléphone — jamais si la fiche porte un suivi,
+un projet ou une estimation (`SQL_SANS_ACTIVITE`). L'aperçu détaille
+sansContact / prospectsSansAdresse / acquereursSansTel.
 **Suivi d'une fiche estimation** : `GET /crm/estimations/:id/envois` (membre) ;
 la modale affiche l'historique + la prochaine action calculée des dates R1/R2.
 Studio Estimation a un bouton 📍 (pompe /crm/geo/serveur, admin) ; la priorité

@@ -668,8 +668,11 @@
           const p2 = parseInt(String(b2.prix).replace(/[^\d]/g, ""), 10);
           if (p2) $("fb-prix").value = p2;
         }
-        $("fe-photo").innerHTML = b2.photo
-          ? '<img src="' + b2.photo + '" alt="" style="max-width:100%; border-radius:12px; display:block;" />' +
+        // La photo vient d'un JSON de brochure : seule une image data: ou
+        // https est insérée, et toujours échappée (jamais de HTML brut).
+        const photoSure = /^(data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+|https:\/\/[^\s"'<>]+)$/.test(String(b2.photo || "")) ? b2.photo : "";
+        $("fe-photo").innerHTML = photoSure
+          ? '<img src="' + escH(photoSure) + '" alt="" style="max-width:100%; border-radius:12px; display:block;" />' +
             '<span class="petit">Photo de la brochure « ' + escH(b2.titre || "") + " »</span>"
           : '<span class="petit">La brochure liée n\'a pas encore de photo de couverture.</span>';
         toast("Brochure lue : photo, diagnostics et pièces récupérés");

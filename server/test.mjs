@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { createNodeDb } from "./src/db.js";
 import { createApp } from "./src/app.js";
 import { hmacHex } from "./src/util.js";
+import * as CRM_TEST from "./src/crm.js";
 
 let passed = 0, failed = 0;
 function ok(cond, label) {
@@ -507,6 +508,32 @@ const gros = await call("/v1/messages", {
   body: { model: "claude-opus-4-8", task: "brochure", messages: [{ role: "user", content: "x".repeat(16_000_000) }] }
 });
 ok(gros.status === 200, "compromis de 12 Mo (16 Mo en base64) accepté par le proxy");
+{
+  // Gros corps : le proxy ne le désérialise pas (chirurgie de chaîne) — ce
+  // qui part en amont doit pourtant être exactement ce que l'on attend.
+  const recu = upstreamCalls[upstreamCalls.length - 1].body;
+  ok(typeof recu.system === "string" && recu.system.length > 100, "gros corps : le prompt système est injecté");
+  ok(recu.task === undefined && recu.task_arg === undefined, "gros corps : la tâche ne fuite pas vers Anthropic");
+  ok(recu.model === "claude-opus-4-8" && recu.max_tokens > 0, "gros corps : modèle et max_tokens transmis");
+  ok(Array.isArray(recu.messages) && recu.messages.length === 1 && recu.messages[0].content.length === 16_000_000,
+    "gros corps : les messages arrivent intacts, sans doublon");
+  ok(Object.keys(recu).filter((k) => k === "messages").length === 1, "gros corps : une seule clé messages");
+  // Doublon empoisonné glissé APRÈS les messages : la dernière clé l'emporte
+  // en JSON, ce doit être la nôtre (modèle de la liste blanche, prompt à nous).
+  const poison = "{\"model\":\"claude-opus-4-8\",\"task\":\"brochure\",\"messages\":[{\"role\":\"user\",\"content\":\""
+    + "y".repeat(1_100_000) + "\"}],\"model\":\"claude-opus-3-ancien\",\"system\":\"pirate\"}";
+  const rp = await app.fetch(new Request("http://api.test/v1/messages", { method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + s3 }, body: poison }));
+  ok(rp.status === 200, "gros corps empoisonné : accepté (la tête est valide)");
+  const recuP = upstreamCalls[upstreamCalls.length - 1].body;
+  ok(recuP.model === "claude-opus-4-8" && recuP.system !== "pirate",
+    "gros corps empoisonné : nos champs, placés en dernier, l'emportent sur les doublons");
+  // Tête illisible ou corps sans messages : 400, pas d'exception.
+  const casse = await app.fetch(new Request("http://api.test/v1/messages", { method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + s3 },
+    body: "{\"model\":\"claude-opus-4-8\",\"task\":\"brochure\",\"contenu\":\"" + "z".repeat(1_100_000) + "\"}" }));
+  ok(casse.status === 400, "gros corps sans messages → 400 propre");
+}
 const huge = await call("/v1/messages", {
   headers: { Authorization: "Bearer " + s3 },
   body: { model: "claude-opus-4-8", messages: [{ role: "user", content: "x".repeat(17_100_000) }] }
@@ -1927,11 +1954,11 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await db.run(
     `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone, adresse, cp, ville,
      date_naissance, date_achat, types, conseiller, notes, source, opt_out, created_at, updated_at) VALUES
-     ('ct_doubletest', ?, '', '', 'Anne', 'DOUBLE', '', '', '', '', 'Saint-Médard', '', '', '["vendeur"]', '', '', 'import', 0, 2, 2),
+     ('ct_doubletest', ?, '', '', 'Anne', 'DOUBLE', '', '', '5 rue du Doublon', '', 'Saint-Médard', '', '', '["vendeur"]', '', '', 'import', 0, 2, 2),
      ('ct_homo1', ?, '', '', 'Paul', 'HOMONYME', '', '0622222222', '', '', '', '', '', '[]', '', '', 'import', 0, 3, 3),
      ('ct_homo2', ?, '', '', 'Paul', 'HOMONYME', '', '0633333333', '', '', '', '', '', '[]', '', '', 'import', 0, 4, 4),
-     ('ct_amper', ?, '', 'M. & Mme', '', 'ESPERLUETTE', '', '', '', '', '', '', '', '[]', '', '', 'import', 0, 5, 5),
-     ('ct_etseul', ?, '', '', 'et Marie', 'AMBIGUET', '', '', '', '', '', '', '', '[]', '', '', 'import', 0, 6, 6)`,
+     ('ct_amper', ?, '', 'M. & Mme', '', 'ESPERLUETTE', '', '0644444444', '', '', '', '', '', '[]', '', '', 'import', 0, 5, 5),
+     ('ct_etseul', ?, '', '', 'et Marie', 'AMBIGUET', '', '0655555555', '', '', '', '', '', '[]', '', '', 'import', 0, 6, 6)`,
     [agId, agId, agId, agId, agId]);
   const apercu = (await callR("/crm/nettoyage", { headers: auth })).json;
   ok(apercu.vides >= 1 && apercu.doublons >= 2 && apercu.couples >= 1,
@@ -2397,8 +2424,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   /* ---- Bibliothèque des messages : textes de l'agence -------------------- */
   console.log("— Bibliothèque des messages (surcharges de l'agence)");
   const modeles0 = (await callR("/crm/modeles", { headers: auth })).json.modeles;
-  ok(modeles0.length === 12 && modeles0.every((m) => m.texte && !m.personnalise),
-    "la bibliothèque liste les 12 messages avec leur texte d'origine");
+  ok(modeles0.length === 14 && modeles0.every((m) => m.texte && !m.personnalise),
+    "la bibliothèque liste les 14 messages avec leur texte d'origine (dont les deux vœux couple)");
   ok((await callR("/crm/modeles", { headers: authP })).status === 200,
     "la bibliothèque se lit par tout membre (pour les envois individuels) — l'édition reste admin");
   // Surcharge du mail « veille du R1 » : le prochain envoi part avec CE texte.
@@ -2720,6 +2747,270 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     "une fiche en opt-out ne reçoit JAMAIS d'envoi individuel");
   ok((await callR("/crm/modeles", { headers: authP })).status === 200,
     "la bibliothèque se lit en MEMBRE (l'édition reste admin)");
+
+  /* ---- Anniversaires : couples, « c'est l'autre », confirmation ----------- */
+  console.log("— Anniversaires : fiche couple, « c'est l'autre », confirmation");
+  {
+    const { buildAnniversaireEmail, buildAnniversaireSms, estCouple, ANNIV_A_CONFIRMER } = await import("./src/crm.js");
+    const ag = { nom: "Agence Test" };
+    const couple = { civilite: "M. et Mme", nom: "Durand", prenom: "", email: "d@ex.fr", date_naissance: "1970-03-04" };
+    const seul = { civilite: "Mme", nom: "Durand", prenom: "Anne", email: "a@ex.fr", date_naissance: "1970-03-04" };
+    ok(estCouple(couple) && !estCouple(seul) && estCouple({ civilite: "M.", prenom: "Jean & Marie" }),
+      "une fiche couple se reconnaît (civilité « et/& » ou prénom duo)");
+    const mailCouple = buildAnniversaireEmail(couple, "naissance", ag, aujE, {});
+    ok(/se fête chez vous/.test(mailCouple.subject) && /lequel de vous deux/.test(mailCouple.html) &&
+      /Chers Monsieur et Madame Durand/.test(mailCouple.html),
+      "le vœu d'une fiche couple pose la question « qui souffle les bougies ? »");
+    const mailSeul = buildAnniversaireEmail(seul, "naissance", ag, aujE, {});
+    ok(/Joyeux anniversaire Anne/.test(mailSeul.subject) && !/lequel de vous deux/.test(mailSeul.html),
+      "une personne seule garde le vœu personnel");
+    const flag = { ...seul, civilite: "M.", prenom: "Paul", notes: ANNIV_A_CONFIRMER + " · vendeur 2019" };
+    ok(/lequel de vous deux/.test(buildAnniversaireEmail(flag, "naissance", ag, aujE, {}).html),
+      "une fiche scindée dont la date est « à confirmer » reçoit aussi le vœu qui interroge");
+    ok(/souffle les bougies/.test(buildAnniversaireSms(couple, "naissance", { agence: ag, anniversaires: {} }, aujE)),
+      "le SMS couple interroge lui aussi");
+  }
+  // Fiche couple avec une date → « c'est l'anniversaire de Madame »
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "M. et Mme", nom: "COUPLANNIV", email: "couplanniv@exemple.fr", telephone: "0611223344",
+      adresse: "4 rue des Bougies", ville: "Saint-Médard-en-Jalles", dateNaissance: "1968-05-20", types: "vendeur" },
+    { civilite: "M.", prenom: "Luc", nom: "SEULANNIV", email: "seulanniv@exemple.fr", dateNaissance: "1975-09-14" },
+  ] } });
+  const tousC = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  const coupl = tousC.find((x) => x.nom === "COUPLANNIV"), seulA = tousC.find((x) => x.nom === "SEULANNIV");
+  const cj = await callR("/crm/contacts/" + coupl.id + "/conjoint", { headers: auth, body: {
+    anniversaireDe: "conjoint", prenomFiche: "Marc", prenomConjoint: "Claire", civiliteConjoint: "Mme" } });
+  ok(cj.status === 200 && cj.json.fiche === coupl.id && /^ct_/.test(cj.json.conjoint), "un couple se scinde en désignant qui fête son anniversaire");
+  const apresCj = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  const marc = apresCj.find((x) => x.id === cj.json.fiche), claire = apresCj.find((x) => x.id === cj.json.conjoint);
+  ok(marc.civilite === "M." && marc.prenom === "Marc" && marc.date_naissance === "" &&
+    claire.civilite === "Mme" && claire.prenom === "Claire" && claire.date_naissance === "1968-05-20" &&
+    claire.email === "couplanniv@exemple.fr" && claire.adresse === "4 rue des Bougies",
+    "la date passe sur Madame, Monsieur n'a plus de date fausse, coordonnées partagées");
+  ok(!marc.notes.includes("à confirmer"), "plus rien « à confirmer » sur Monsieur");
+  const svCj = (await callR("/crm/suivis?contact_id=" + marc.id, { headers: authP })).json.suivis;
+  ok(svCj.some((s) => /Anniversaire du 1968-05-20/.test(s.commentaire)), "la réponse du client laisse une trace dans le fil de suivi");
+  // Fiche seule → conjoint créé à côté, la fiche garde sa date, le conjoint reçoit la sienne
+  const cj2 = await callR("/crm/contacts/" + seulA.id + "/conjoint", { headers: auth, body: {
+    anniversaireDe: "fiche", prenomConjoint: "Julie", dateConjoint: "1977-01-02", copierEmail: false } });
+  const apres2 = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  const luc = apres2.find((x) => x.id === seulA.id), julie = apres2.find((x) => x.id === cj2.json.conjoint);
+  ok(luc.date_naissance === "1975-09-14" && julie.civilite === "Mme" && julie.nom === "SEULANNIV" &&
+    julie.date_naissance === "1977-01-02" && julie.email === "",
+    "une fiche seule reçoit un conjoint à côté (civilité opposée, sa propre date, sans e-mail si demandé)");
+  // Scission automatique (nettoyage) : la date reste sur M. mais MARQUÉE, et « confirmer » l'efface
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "M. & Mme", nom: "AUTOSCIND", dateNaissance: "1960-12-25", email: "autoscind@exemple.fr" } ] } });
+  const autoId = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.nom === "AUTOSCIND").id;
+  await callR("/crm/contacts/" + autoId + "/scinder", { headers: auth, body: {} });
+  const mAuto = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.id === autoId);
+  ok(mAuto.date_naissance === "1960-12-25" && mAuto.notes.includes("à confirmer"),
+    "une scission automatique garde la date sur Monsieur en la marquant « à confirmer »");
+  const upc = (await callR("/crm/anniversaires/upcoming?days=366", { headers: auth })).json.upcoming;
+  const ligneAuto = upc.find((u) => u.contactId === autoId && u.type === "naissance");
+  ok(ligneAuto && ligneAuto.aConfirmer === true, "l'onglet Anniversaires signale la date à confirmer");
+  await callR("/crm/contacts/" + autoId + "/anniversaire-confirme", { headers: auth, body: {} });
+  ok(!(await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.id === autoId).notes.includes("à confirmer"),
+    "« c'est bien lui » efface le drapeau");
+
+  /* ---- Doublons à vérifier + fusion manuelle ------------------------------ */
+  console.log("— Doublons à vérifier + fusion manuelle");
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { civilite: "M.", prenom: "Jean", nom: "ORNELIS", email: "jean.ornelis@exemple.fr", telephone: "0600000001", ville: "Le Haillan" },
+    { civilite: "M.", prenom: "J.", nom: "ORNELIS", email: "", telephone: "0600000002", adresse: "8 rue des Doublons" },
+  ] } });
+  const dbl = (await callR("/crm/contacts/doublons?q=ornelis", { headers: auth })).json.groupes;
+  ok(dbl.length === 1 && dbl[0].fiches.length === 2, "les homonymes que le nettoyage n'ose pas fusionner apparaissent à vérifier");
+  const [o1, o2] = dbl[0].fiches;
+  const garder = o1.email ? o1 : o2, absorber = o1.email ? o2 : o1;
+  await callR("/crm/suivis", { headers: authP, body: { contact_id: absorber.id, type: "appel", commentaire: "Appel avant fusion." } });
+  const fus = await callR("/crm/contacts/fusionner", { headers: auth, body: { garder: garder.id, absorber: [absorber.id] } });
+  ok(fus.status === 200 && fus.json.absorbees === 1, "la fusion manuelle garde la fiche choisie");
+  const apresF = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  const gardee = apresF.find((x) => x.id === garder.id);
+  ok(gardee && !apresF.some((x) => x.id === absorber.id) && gardee.adresse === "8 rue des Doublons" && gardee.email === "jean.ornelis@exemple.fr",
+    "la fiche gardée complète ses champs vides avec ceux de l'absorbée, qui disparaît");
+  const svF = (await callR("/crm/suivis?contact_id=" + garder.id, { headers: authP })).json.suivis;
+  ok(svF.some((s) => /avant fusion/.test(s.commentaire)), "le fil de suivi de l'absorbée suit la fiche gardée");
+  ok((await callR("/crm/contacts/fusionner", { headers: auth, body: { garder: garder.id, absorber: [] } })).status === 400,
+    "fusionner sans rien absorber est refusé");
+  ok((await callR("/crm/contacts/doublons", { headers: authP })).status === 403, "doublons et fusion sont réservés aux administrateurs");
+
+  /* ---- Fiches inutilisables + suppression en cascade / en masse ----------- */
+  console.log("— Fiches inutilisables (sans nom, prénom seul, anonymisées) + suppression");
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { prenom: "Léa", email: "prenomseul@exemple.fr" },
+    { nom: "ANONYMISE", prenom: "ANONYMISE", email: "anonyme1@exemple.fr" },
+    { nom: "Dupont", prenom: "Anonymisé", telephone: "0600000099" },
+    { nom: "SEULNOM", email: "seulnom@exemple.fr" },
+  ] } });
+  const ap = (await callR("/crm/nettoyage", { headers: auth })).json;
+  ok(ap.vides >= 3 && ap.sansNom >= 1 && ap.anonymes >= 2, "l'aperçu compte les fiches sans nom et les anonymisées (" + ap.vides + ")");
+  let curV = "";
+  for (let t3 = 0; t3 < 20; t3++) {
+    const r = (await callR("/crm/nettoyage", { headers: auth, body: { action: "vides", curseur: curV } })).json;
+    if (r.fini) break; curV = r.curseur || "";
+  }
+  const apresV = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  ok(!apresV.some((x) => x.email === "prenomseul@exemple.fr") && !apresV.some((x) => /anonym/i.test(x.nom + x.prenom)),
+    "prénom seul et fiches anonymisées disparaissent au nettoyage");
+  ok(apresV.some((x) => x.nom === "SEULNOM"), "une fiche avec un nom (même sans prénom) reste");
+  // Sans intérêt pour l'exploitation : prospect sans adresse, acquéreur sans
+  // téléphone, fiche sans aucun moyen de contact — sauf si quelqu'un y a travaillé.
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { nom: "PROSPECTVIDE", prenom: "Luc", types: "prospect", email: "prospectvide@exemple.fr" },
+    { nom: "PROSPECTOK", prenom: "Luc", types: "prospect", adresse: "4 rue Pleine" },
+    { nom: "ACQSANSTEL", prenom: "Eva", types: "acquereur", email: "acq@exemple.fr" },
+    { nom: "ACQTEL", prenom: "Eva", types: "acquereur", telephone: "0600000001" },
+    { nom: "ACQVENDEUR", prenom: "Eva", types: "acquereur, vendeur", email: "acqv@exemple.fr", adresse: "9 rue Double" },
+    { nom: "INJOIGNABLE", prenom: "Zoé", types: "vendeur" },
+    { nom: "SUIVIQUANDMEME", prenom: "Zoé", types: "vendeur" },
+  ] } });
+  const avantSI = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  const sqm = avantSI.find((x) => x.nom === "SUIVIQUANDMEME");
+  await callR("/crm/suivis", { headers: authP, body: { contact_id: sqm.id, type: "note", commentaire: "Rencontrée au portail." } });
+  const apSI = (await callR("/crm/nettoyage", { headers: auth })).json;
+  ok(apSI.sansContact === 1 && apSI.prospectsSansAdresse === 1 && apSI.acquereursSansTel === 1 && apSI.vides === 3,
+    "l'aperçu détaille : 1 sans contact, 1 prospect sans adresse, 1 acquéreur sans téléphone (" + JSON.stringify([apSI.sansContact, apSI.prospectsSansAdresse, apSI.acquereursSansTel, apSI.vides]) + ")");
+  for (let t3 = 0; t3 < 20; t3++) {
+    const r = (await callR("/crm/nettoyage", { headers: auth, body: { action: "vides", curseur: "" } })).json;
+    if (r.fini) break;
+  }
+  const noms = (await callR("/crm/contacts", { headers: auth })).json.contacts.map((x) => x.nom);
+  ok(!noms.includes("PROSPECTVIDE") && !noms.includes("ACQSANSTEL") && !noms.includes("INJOIGNABLE"),
+    "prospect sans adresse, acquéreur sans téléphone et fiche injoignable sont supprimés");
+  ok(noms.includes("PROSPECTOK") && noms.includes("ACQTEL") && noms.includes("ACQVENDEUR") && noms.includes("SUIVIQUANDMEME"),
+    "restent : le prospect avec adresse, l'acquéreur avec téléphone, l'acquéreur-vendeur et la fiche qui porte un suivi");
+  // Suppression en masse, en cascade : suivi + position partent avec la fiche
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { nom: "ASUPPRIMER", prenom: "Un", email: "sup1@exemple.fr" }, { nom: "ASUPPRIMER", prenom: "Deux", email: "sup2@exemple.fr" } ] } });
+  const aSup = (await callR("/crm/contacts", { headers: auth })).json.contacts.filter((x) => x.nom === "ASUPPRIMER");
+  await callR("/crm/suivis", { headers: authP, body: { contact_id: aSup[0].id, type: "note", commentaire: "Bientôt supprimé." } });
+  await callR("/crm/geo/batch", { headers: auth, body: { rows: [{ contactId: aSup[0].id, lat: 44.9, lng: -0.7, label: "x", score: 0.9, adresse: "x" }] } });
+  const sup = await callR("/crm/contacts/supprimer", { headers: auth, body: { ids: aSup.map((x) => x.id) } });
+  ok(sup.status === 200 && sup.json.supprimes === 2, "la suppression en masse supprime les fiches choisies");
+  const apresS = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  ok(!apresS.some((x) => x.nom === "ASUPPRIMER"), "…elles ne sont plus dans la base");
+  ok((await callR("/crm/suivis?contact_id=" + aSup[0].id, { headers: authP })).json.suivis.length === 0, "…et leur fil de suivi part avec elles");
+  ok(!(await callR("/crm/carte", { headers: authP })).json.points.some((p2) => p2.contact_id === aSup[0].id), "…et leur position sur la carte aussi");
+  ok((await callR("/crm/contacts/supprimer", { headers: auth, body: { ids: [] } })).status === 400, "supprimer sans sélection est refusé");
+  ok((await callR("/crm/contacts/supprimer", { headers: authP, body: { ids: ["x"] } })).status === 403, "la suppression est réservée aux administrateurs");
+  ok((await callR("/crm/contacts/supprimer", { headers: auth, body: { ids: ["ct_autre_agence"] } })).json.supprimes === 0,
+    "un id étranger à l'agence n'est jamais supprimé");
+
+  /* ---- Durcissement : en-têtes, sessions, corbeille, quotas, RGPD --------- */
+  console.log("— Durcissement : en-têtes HTTP, sessions courtes, déconnexion partout");
+  const resH = await appR.fetch(new Request("http://api.test/health"));
+  ok(resH.headers.get("strict-transport-security") === "max-age=31536000; includeSubDomains" &&
+     resH.headers.get("x-content-type-options") === "nosniff" && resH.headers.get("x-frame-options") === "DENY" &&
+     resH.headers.get("referrer-policy") === "no-referrer" && resH.headers.get("cache-control") === "no-store",
+     "chaque réponse porte HSTS, nosniff, no-referrer, DENY et no-store");
+  const santeD = await resH.json();
+  ok(santeD.session_jours === 7 && santeD.session_max_jours === 90, "/health publie la durée des sessions (7 j d'inactivité, 90 j au plus)");
+  // Un conseiller à part, avec deux appareils, pour ne pas toucher aux sessions du décor.
+  const membreD = await callR("/agency/users", { headers: auth, method: "POST", body: { email: "durci@ach-test.fr", name: "Durci" } });
+  const sessD1 = (await callR("/auth/exchange", { body: { token: membreD.json.invite_link.split("#token=")[1] } })).json.session;
+  await db.run("DELETE FROM login_tokens WHERE user_id = ?", [membreD.json.user.id]);
+  const lienD2 = (await callR("/auth/request-link", { body: { email: "durci@ach-test.fr" } })).json.dev_token;
+  const sessD2 = (await callR("/auth/exchange", { body: { token: lienD2 } })).json.session;
+  const authD1 = { Authorization: "Bearer " + sessD1 }, authD2 = { Authorization: "Bearer " + sessD2 };
+  ok((await callR("/me", { headers: authD1 })).status === 200 && (await callR("/me", { headers: authD2 })).status === 200, "le conseiller est connecté sur deux appareils");
+  await db.run("UPDATE sessions SET last_seen = ? WHERE user_id = ?", [Math.floor(Date.now() / 1000) - 8 * 86400, membreD.json.user.id]);
+  ok((await callR("/me", { headers: authD1 })).status === 401, "8 jours sans activité → la session est éteinte");
+  await db.run("UPDATE sessions SET last_seen = ? WHERE user_id = ?", [Math.floor(Date.now() / 1000), membreD.json.user.id]);
+  await db.run("UPDATE sessions SET created_at = ? WHERE user_id = ?", [Math.floor(Date.now() / 1000) - 91 * 86400, membreD.json.user.id]);
+  ok((await callR("/me", { headers: authD1 })).status === 401, "91 jours après l'ouverture → la session est éteinte même active");
+  await db.run("UPDATE sessions SET created_at = ? WHERE user_id = ?", [Math.floor(Date.now() / 1000), membreD.json.user.id]);
+  ok((await callR("/me", { headers: authD1 })).status === 200, "(remise à neuf du décor)");
+  const la = await callR("/auth/logout-all", { headers: authD1, body: {} });
+  ok(la.status === 200 && la.json.revoquees === 2 && (await callR("/me", { headers: authD2 })).status === 401,
+     "« déconnecter tous mes appareils » éteint les deux sessions");
+  const lienD3 = (await callR("/auth/request-link", { body: { email: "durci@ach-test.fr" } })).json.dev_token;
+  const sessD3 = (await callR("/auth/exchange", { body: { token: lienD3 } })).json.session;
+  const authD3 = { Authorization: "Bearer " + sessD3 };
+  ok((await callR("/agency/users/" + membreD.json.user.id + "/deconnecter", { headers: authP, body: {} })).status === 403, "déconnecter un collègue est réservé à l'administrateur");
+  const dc = await callR("/agency/users/" + membreD.json.user.id + "/deconnecter", { headers: auth, body: {} });
+  ok(dc.status === 200 && dc.json.revoquees === 1 && (await callR("/me", { headers: authD3 })).status === 401,
+     "l'administrateur déconnecte un conseiller de tous ses appareils");
+  ok((await callR("/agency/users/us_inconnu/deconnecter", { headers: auth, body: {} })).status === 404, "…mais pas un inconnu d'une autre agence");
+
+  console.log("— Durcissement : suppression réservée à l'auteur, corbeille et restauration");
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "CORBEILLE", prenom: "Anne", email: "corbeille@exemple.fr", telephone: "0611223344" }] } });
+  const cbCt = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.nom === "CORBEILLE");
+  const svA = (await callR("/crm/suivis", { headers: authP, body: { contact_id: cbCt.id, type: "appel", commentaire: "Appel du conseiller." } })).json.id;
+  const lienD4 = (await callR("/auth/request-link", { body: { email: "durci@ach-test.fr" } })).json.dev_token;
+  const authD4 = { Authorization: "Bearer " + (await callR("/auth/exchange", { body: { token: lienD4 } })).json.session };
+  ok((await callR("/crm/suivis/" + svA, { headers: authD4, method: "DELETE" })).status === 403, "un autre conseiller ne peut pas supprimer le suivi d'un collègue");
+  ok((await callR("/crm/suivis/" + svA, { headers: authP, method: "DELETE" })).status === 200, "l'auteur, lui, le supprime");
+  ok((await callR("/crm/suivis?contact_id=" + cbCt.id, { headers: authP })).json.suivis.length === 0, "…le suivi a disparu du fil");
+  const viA = (await callR("/crm/visites", { headers: authP, body: { contact_id: cbCt.id, contact: "Anne CORBEILLE", bien: "3 rue du Test", date_visite: "2026-09-20" } })).json.id;
+  const putAvis = await callR("/crm/visites/" + viA, { headers: authP, method: "PUT", body: { contact_id: cbCt.id, contact: "Anne CORBEILLE", bien: "3 rue du Test", date_visite: "2026-09-20", avis: "plu" } });
+  ok(putAvis.status === 200, "(décor) l'avis « plu » est posé sur la visite");
+  ok((await callR("/crm/visites/" + viA, { headers: authD4, method: "DELETE" })).status === 403, "idem pour une visite : ni auteur ni admin → refus");
+  ok((await callR("/crm/visites/" + viA, { headers: auth, method: "DELETE" })).status === 200, "l'administrateur peut supprimer la visite d'un conseiller");
+  const cb1 = (await callR("/crm/corbeille", { headers: auth })).json;
+  ok(cb1.jours === 30 && cb1.entrees.length >= 2 && cb1.entrees.some((e) => e.type === "suivi" && e.ref_id === svA) &&
+     cb1.entrees.some((e) => e.type === "visite" && e.ref_id === viA && /3 rue du Test/.test(e.libelle)),
+     "la corbeille liste le suivi et la visite supprimés, avec leur libellé");
+  ok((await callR("/crm/corbeille", { headers: authP })).status === 403, "la corbeille est réservée aux administrateurs");
+  const entVi = cb1.entrees.find((e) => e.ref_id === viA);
+  const restVi = await callR("/crm/corbeille/" + entVi.id + "/restaurer", { headers: auth, body: {} });
+  ok(restVi.status === 200 && restVi.json.remis.crm_visites === 1 && restVi.json.remis.crm_visite_avis === 1, "restaurer la visite la remet avec son avis « plu »");
+  const viRe = (await callR("/crm/visites", { headers: authP })).json.visites || [];
+  ok(viRe.some((v) => v.id === viA && v.avis === "plu"), "…et elle réapparaît dans la liste des visites, avis compris");
+  ok((await callR("/crm/corbeille/" + entVi.id + "/restaurer", { headers: auth, body: {} })).status === 404, "une entrée déjà restaurée ne se restaure pas deux fois");
+  // Une fiche supprimée à la main part en corbeille avec son fil et sa position.
+  await callR("/crm/suivis", { headers: authP, body: { contact_id: cbCt.id, type: "note", commentaire: "Note à retrouver." } });
+  await callR("/crm/geo/batch", { headers: auth, body: { rows: [{ contactId: cbCt.id, lat: 44.9, lng: -0.7, label: "y", score: 0.9, adresse: "y" }] } });
+  await callR("/crm/contacts/" + cbCt.id, { headers: auth, method: "DELETE" });
+  ok(!(await callR("/crm/contacts", { headers: auth })).json.contacts.some((x) => x.id === cbCt.id), "la fiche supprimée n'est plus dans la base");
+  const entCt = (await callR("/crm/corbeille", { headers: auth })).json.entrees.find((e) => e.type === "contact" && e.ref_id === cbCt.id);
+  ok(entCt && entCt.libelle === "CORBEILLE Anne", "…mais elle est en corbeille, sous son nom");
+  const restCt = await callR("/crm/corbeille/" + entCt.id + "/restaurer", { headers: auth, body: {} });
+  ok(restCt.status === 200 && restCt.json.remis.crm_contacts === 1 && restCt.json.remis.crm_suivis === 1 && restCt.json.remis.crm_geo === 1,
+     "restaurer la fiche remet la fiche, son fil de suivi et sa position");
+  ok((await callR("/crm/contacts", { headers: auth })).json.contacts.some((x) => x.id === cbCt.id && x.email === "corbeille@exemple.fr"), "…la fiche est de retour, intacte");
+  ok((await callR("/crm/suivis?contact_id=" + cbCt.id, { headers: authP })).json.suivis.some((x) => /retrouver/.test(x.commentaire)), "…avec sa note");
+  // Le ménage du cron vide la corbeille au-delà de 30 jours, pas avant.
+  await db.run("UPDATE crm_corbeille SET created_at = ? WHERE ref_id = ?", [Math.floor(Date.now() / 1000) - 31 * 86400, svA]);
+  const menage = await CRM_TEST.menageQuotidien(db);
+  ok(menage.corbeille >= 1 && !(await callR("/crm/corbeille", { headers: auth })).json.entrees.some((e) => e.ref_id === svA),
+     "le ménage quotidien purge la corbeille au-delà de 30 jours");
+
+  console.log("— Durcissement : plafonds du jour (envois manuels, prospects)");
+  const meP = (await callR("/me", { headers: authP })).json.user;
+  const jourQ = CRM_TEST.parisDate();
+  await db.run("INSERT OR REPLACE INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES (?, ?, ?, 'envoi-mail', 99)", [agId, meP.id, jourQ]);
+  const q1 = await callR("/crm/contacts/" + cbCt.id + "/envoyer", { headers: authP, body: { canal: "mail", sujet: "Test", texte: "Bonjour {{prenom}}" } });
+  ok(q1.status === 200, "le 100e mail manuel de la journée passe encore");
+  const q2 = await callR("/crm/contacts/" + cbCt.id + "/envoyer", { headers: authP, body: { canal: "mail", sujet: "Test", texte: "Bonjour" } });
+  ok(q2.status === 429 && /100 mails/.test(q2.json.error), "le 101e est refusé (plafond par conseiller)");
+  await db.run("INSERT OR REPLACE INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES (?, '', ?, 'envois', 500)", [agId, jourQ]);
+  const q3 = await callR("/crm/contacts/" + cbCt.id + "/envoyer", { headers: auth, body: { canal: "mail", sujet: "Test", texte: "Bonjour" } });
+  ok(q3.status === 429 && /agence/.test(q3.json.error), "le plafond de l'agence bloque même un autre compte");
+  await db.run("DELETE FROM crm_quotas WHERE agency_id = ?", [agId]);
+  await db.run("INSERT OR REPLACE INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES (?, ?, ?, 'prospects', 200)", [agId, meP.id, jourQ]);
+  const q4 = await callR("/crm/prospects", { headers: authP, body: { nom: "TROP", adresse: "1 rue du Trop", lat: 44.9, lng: -0.7 } });
+  ok(q4.status === 429 && /200 prospects/.test(q4.json.error), "200 prospects dans la journée : le 201e est refusé");
+  await db.run("DELETE FROM crm_quotas WHERE agency_id = ?", [agId]);
+  ok((await callR("/crm/prospects", { headers: authP, body: { nom: "PASTROP", adresse: "2 rue du Trop", lat: 44.9, lng: -0.7 } })).status === 200, "…et repasse une fois le compteur remis (lendemain)");
+
+  console.log("— Durcissement : RGPD, export d'une personne et effacement définitif");
+  const exp = await callR("/crm/contacts/" + cbCt.id + "/export", { headers: auth });
+  ok(exp.status === 200 && exp.json.contact.email === "corbeille@exemple.fr" && exp.json.suivis.length >= 1 &&
+     exp.json.envois.length >= 1 && exp.json.visites.length >= 1 && exp.json.position && exp.json.exporte_le,
+     "l'export rassemble fiche, suivis, envois, visites et position");
+  ok((await callR("/crm/contacts/" + cbCt.id + "/export", { headers: authP })).status === 403, "l'export est réservé aux administrateurs");
+  const eff = await callR("/crm/contacts/" + cbCt.id + "/effacer", { headers: auth, body: {} });
+  ok(eff.status === 200 && eff.json.libelle === "CORBEILLE Anne", "l'effacement définitif répond");
+  ok(!(await callR("/crm/contacts", { headers: auth })).json.contacts.some((x) => x.id === cbCt.id), "…la fiche a disparu");
+  ok(!(await callR("/crm/corbeille", { headers: auth })).json.entrees.some((e) => e.ref_id === cbCt.id || e.ref_id === viA),
+     "…sans passer par la corbeille, et ses traces en corbeille sont purgées");
+  const envAnon = await db.all("SELECT contact, email, contact_id FROM crm_envois WHERE agency_id = ? AND (contact_id = ? OR email = 'corbeille@exemple.fr')", [agId, cbCt.id]);
+  ok(envAnon.length === 0, "…les envois passés ne portent plus son nom ni son e-mail");
+  const viAnon = await db.get("SELECT contact, contact_id FROM crm_visites WHERE id = ?", [viA]);
+  ok(viAnon && viAnon.contact === "" && viAnon.contact_id === "", "…la visite gardée pour l'agence ne cite plus la personne");
+  ok((await callR("/crm/contacts/" + cbCt.id + "/effacer", { headers: auth, body: {} })).status === 404, "effacer deux fois → introuvable");
 
   /* ---- Îlots CenturyNet : multi-polygones + import en masse --------------- */
   console.log("— Îlots CenturyNet : multi-polygones + import en masse");
