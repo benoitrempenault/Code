@@ -74,6 +74,17 @@ export function createApp(env) {
   }));
 
   const err = (c, status, message) => c.json({ error: message }, status);
+
+  /* Une exception non rattrapée rendait « Internal Server Error » en texte
+     brut : l'app affichait « Erreur 500 » et personne — ni l'utilisateur, ni
+     nous depuis l'extérieur — ne savait POURQUOI (une base D1 saturée, une
+     requête refusée…). On rend la cause en JSON, sans pile d'appel ni
+     secret : le message d'erreur du moteur suffit à diagnostiquer. */
+  app.onError((e, c) => {
+    const msg = String((e && e.message) || e || "erreur inconnue").slice(0, 300);
+    console.error("[500]", c.req.method, c.req.path, msg);
+    return c.json({ error: "Erreur serveur : " + msg }, 500);
+  });
   // Date « AAAA-MM-JJ » d'un epoch en secondes (bornes des fenêtres glissantes).
   const isoJour = (ts) => new Date(ts * 1000).toISOString().slice(0, 10);
 
@@ -150,7 +161,21 @@ export function createApp(env) {
   /* ------------------------------- Santé -------------------------------- */
   // « devices » : plafond d'appareils par compte — publié ici pour qu'un
   // simple curl dise quelle version du serveur est en ligne.
-  app.get("/health", (c) => c.json({ ok: true, ts: now(), devices: MAX_SESSIONS }));
+  /* /health sonde aussi la base : une lecture réelle (une ligne d'agence)
+     et une écriture anodine (compteur ai_rate, ignorée si déjà là). Quand
+     D1 refuse — quota journalier de lectures ou d'écritures dépassé, base
+     saturée — la cause est lisible ici sans session, ce qui a manqué le jour
+     où toute l'agence a vu « Erreur 500 » sans explication. */
+  app.get("/health", async (c) => {
+    const d1 = {};
+    try { await db.get("SELECT id FROM agencies LIMIT 1"); d1.lecture = "ok"; }
+    catch (e) { d1.lecture = String((e && e.message) || e).slice(0, 200); }
+    try {
+      await db.run("INSERT OR IGNORE INTO ai_rate (scope, minute, n) VALUES ('health', ?, 0)", [Math.floor(now() / 60)]);
+      d1.ecriture = "ok";
+    } catch (e) { d1.ecriture = String((e && e.message) || e).slice(0, 200); }
+    return c.json({ ok: d1.lecture === "ok" && d1.ecriture === "ok", ts: now(), devices: MAX_SESSIONS, d1 });
+  });
 
   /* --------------------------- Authentification ------------------------- */
   app.post("/auth/request-link", async (c) => {
