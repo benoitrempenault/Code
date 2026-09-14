@@ -20,6 +20,9 @@ export default async function () {
     ok((await page.textContent("#loginMsg")).includes("déconnecté"), "la page compte accueille le collaborateur suivant");
     ok(await page.locator("#btnLogoutAll").count() === 1, "la page compte porte « Déconnecter tous mes appareils »");
 
+    await ouvrir(page, "/prospection/", membre);
+    await page.waitForFunction(() => Array.from(document.querySelectorAll("button")).some((b) => b.textContent.includes("👤")), null, { timeout: 8000 });
+    ok(await page.locator('a[href="../administration/"]').count() === 0, "un simple conseiller ne voit pas le bouton Administration");
     await ouvrir(page, "/administration/", membre);
     await page.waitForSelector("#ecran-connexion:not([hidden])", { timeout: 8000 });
     ok((await page.textContent(".connexion-carte h2")) === "Accès réservé", "compte non-admin : écran « Accès réservé »");
@@ -36,6 +39,8 @@ export default async function () {
       await ouvrir(page, "/" + app + "/", admin2);
       await page.waitForFunction(() => Array.from(document.querySelectorAll("button")).some((b) => b.textContent.includes("👤")), null, { timeout: 8000 });
       ok(true, "le bandeau de compte est présent dans Studio " + app);
+      ok(await page.locator('a[href="../administration/"]', { hasText: "Administration" }).count() >= 1,
+        "…avec, pour l'administrateur, le retour direct « 🛠 Administration »");
     }
     ok(await page.evaluate(() => { const w = document.getElementById("who"); return !w || w.style.display === "none"; }),
       "le nom n'apparaît plus en double dans la barre (le bandeau remplace #who)");

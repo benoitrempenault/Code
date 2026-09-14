@@ -57,7 +57,21 @@
     var agence = (a && a.agency && (a.agency.name || a.agency.nom)) || "";
 
     var bloc = document.createElement("span");
-    bloc.style.cssText = "position:relative; display:inline-flex; align-items:center; margin-left:10px;";
+    bloc.style.cssText = "position:relative; display:inline-flex; align-items:center; gap:6px; margin-left:10px;";
+
+    // L'administrateur revient à l'Administration d'un clic depuis n'importe
+    // quelle app (carte, estimation, suivi…) sans repasser par l'accueil.
+    var estAdmin = !!(a && a.session && a.user && a.user.role === "admin");
+    var dejaAdmin = /\/administration\//.test(location.pathname);
+    if (estAdmin && !dejaAdmin) {
+      var retour = document.createElement("a");
+      retour.href = "../administration/";
+      retour.title = "Revenir à l'Administration";
+      styleBouton(retour);
+      retour.style.textDecoration = "none";
+      retour.textContent = "🛠 Administration";
+      bloc.appendChild(retour);
+    }
 
     var bouton = document.createElement("button");
     bouton.type = "button";
@@ -88,6 +102,9 @@
           ? '<p style="margin:0; color:#6b6b66; font-size:12px; word-break:break-all;">' + esc(a.user.email) + "</p>" : "") +
         (agence ? '<p style="margin:2px 0 0; color:#6b6b66; font-size:12px;">' + esc(agence) + "</p>" : "") +
         '<div style="height:1px; background:rgba(0,0,0,.1); margin:10px 0;"></div>' +
+        (estAdmin && !dejaAdmin
+          ? '<a href="../administration/" style="display:block; padding:7px 0; color:#1D1D1B; text-decoration:none;">🛠 Administration</a>' : "") +
+        '<a href="../mandat/" style="display:block; padding:7px 0; color:#1D1D1B; text-decoration:none;">⌂ Accueil du Studio</a>' +
         '<a href="' + esc(lienCompte()) + '" style="display:block; padding:7px 0; color:#1D1D1B; text-decoration:none;">Mon compte et mot de passe</a>' +
         '<button type="button" data-deconnexion style="display:block; width:100%; margin-top:6px; padding:8px 12px;' +
         'border-radius:9px; border:1px solid rgba(0,0,0,.16); background:#f6f4ef; color:#1D1D1B;' +
