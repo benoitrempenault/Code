@@ -765,8 +765,18 @@ export function createApp(env) {
 
   app.delete("/crm/contacts/:id", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
-    await db.run("DELETE FROM crm_contacts WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
-    return c.json({ ok: true });
+    const n = await CRM.supprimerContacts(db, ctx.agency.id, [c.req.param("id")]);
+    return c.json({ ok: true, supprimes: n });
+  });
+  // Suppression en masse (sélection dans la liste) : 200 fiches par appel,
+  // en cascade comme la suppression unitaire.
+  app.post("/crm/contacts/supprimer", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => ({}));
+    const ids = (Array.isArray(b && b.ids) ? b.ids : []).map(String).filter(Boolean);
+    if (!ids.length) return err(c, 400, "Aucune fiche à supprimer.");
+    if (ids.length > 200) return err(c, 400, "200 fiches au plus par suppression.");
+    return c.json({ ok: true, supprimes: await CRM.supprimerContacts(db, ctx.agency.id, ids) });
   });
 
   // Un PROSPECT ajouté depuis la carte (membre : chaque conseiller prospecte).

@@ -100,10 +100,15 @@
     // À 60 000 fiches, dessiner toutes les lignes fige le navigateur : on
     // affiche les 400 premières — la recherche sert à trouver le reste.
     const visibles = liste.slice(0, 400);
+    // Une case par ligne : cocher (1) puis « Supprimer la sélection » (2).
+    // La case ne vit que dans la liste — les coches se perdent au re-filtrage,
+    // c'est voulu (on supprime ce qu'on a sous les yeux).
     zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr>' +
+      '<th><input type="checkbox" id="coche-tout" title="Tout cocher / décocher (lignes affichées)" /></th>' +
       "<th>Nom</th><th>E-mail</th><th>Téléphone</th><th>Ville</th><th>Naissance</th><th>Achat</th><th>Types</th><th>Conseiller</th>" +
       "</tr></thead><tbody>" +
       visibles.map((c) => '<tr class="cliquable" data-contact="' + c.id + '">' +
+        '<td><input type="checkbox" class="coche-contact" value="' + c.id + '" /></td>' +
         "<td><strong>" + escH(c.nom) + "</strong> " + escH(c.prenom) + (c.opt_out ? ' <span class="puce grise">opt-out</span>' : "") + "</td>" +
         "<td>" + escH(c.email) + "</td><td>" + escH(c.telephone) + "</td><td>" + escH(c.ville) + "</td>" +
         "<td>" + fmtDateFr(c.date_naissance) + "</td><td>" + fmtDateFr(c.date_achat) + "</td>" +
@@ -113,6 +118,44 @@
       '<p class="compte-lignes">' + (visibles.length < liste.length
         ? "Les " + visibles.length + " premiers contacts sur " + liste.length + " correspondant(s) — affinez la recherche pour voir les autres."
         : liste.length + " contact(s) affiché(s) sur " + contacts.length + ".") + "</p>";
+    majSelection();
+  }
+  // Le bouton « Supprimer la sélection » n'apparaît qu'avec des coches, et
+  // se confirme d'un second clic (pas de boîte de dialogue) : deux clics.
+  function cochesContacts() {
+    return Array.from(document.querySelectorAll(".coche-contact:checked")).map((x) => x.value);
+  }
+  function majSelection() {
+    const btn = $("btn-suppr-selection");
+    if (!btn) return;
+    const n = cochesContacts().length;
+    btn.hidden = n === 0;
+    btn.dataset.arme = "";
+    btn.textContent = "🗑 Supprimer la sélection (" + n + ")";
+  }
+  async function supprimerSelection() {
+    const btn = $("btn-suppr-selection");
+    const ids = cochesContacts();
+    if (!ids.length) return;
+    if (btn.dataset.arme !== "1") {
+      btn.dataset.arme = "1";
+      btn.textContent = "Confirmer la suppression de " + ids.length + " fiche(s) ?";
+      setTimeout(() => { if (btn.dataset.arme === "1") majSelection(); }, 6000); // désarme tout seul
+      return;
+    }
+    btn.disabled = true;
+    try {
+      let total = 0;
+      for (let i = 0; i < ids.length; i += 200) {
+        const r = await api("/crm/contacts/supprimer", { json: { ids: ids.slice(i, i + 200) } });
+        total += r.supprimes || 0;
+      }
+      toast(total + " fiche(s) supprimée(s)");
+      await chargerContacts();
+      chargerUpcoming(); chargerAcheteurs();
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = false;
+    majSelection();
   }
 
   const CHAMP = (nom, id, valeur, placeholder) =>
@@ -493,7 +536,14 @@
     } catch (e) { toast(e.message, true); }
   }
   async function supprimerContact() {
-    if (!contactEnCours || !confirm("Supprimer définitivement ce contact ?")) return;
+    if (!contactEnCours) return;
+    const btn = $("btn-suppr-contact");
+    if (btn && btn.dataset.arme !== "1") {
+      btn.dataset.arme = "1";
+      btn.textContent = "Confirmer la suppression ?";
+      setTimeout(() => { if (btn.dataset.arme === "1") { btn.dataset.arme = ""; btn.textContent = "Supprimer"; } }, 6000);
+      return;
+    }
     try {
       await api("/crm/contacts/" + contactEnCours, { method: "DELETE" });
       fermerModale();
@@ -766,7 +816,7 @@
       "les champs manquants et les typologies ; les homonymes ambigus (téléphones différents) ne sont " +
       "jamais touchés ; les couples sont scindés en deux personnes reliées aux mêmes projets.</p>" +
       '<div class="tableau-cadre"><table style="min-width:0;"><tbody>' +
-      "<tr><td>Fiches vides (ni nom, ni prénom, ni e-mail, ni téléphone)</td><td><strong>" + a.vides + "</strong></td></tr>" +
+      "<tr><td>Fiches inutilisables — sans nom (vides ou prénom seul : " + (a.sansNom || 0) + ") ou anonymisées (" + (a.anonymes || 0) + ")</td><td><strong>" + a.vides + "</strong></td></tr>" +
       "<tr><td>Doublons à examiner (les ambigus seront laissés)</td><td><strong>" + a.doublons + "</strong></td></tr>" +
       "<tr><td>Fiches couple à scinder en deux personnes</td><td><strong>" + a.couples + "</strong></td></tr>" +
       "</tbody></table></div>",
@@ -795,7 +845,7 @@
           }
         }
         fermerModale();
-        toast("Nettoyage terminé : " + bilan.vides + " fiche(s) vide(s) supprimée(s), " +
+        toast("Nettoyage terminé : " + bilan.vides + " fiche(s) inutilisable(s) supprimée(s), " +
           bilan.doublons + " doublon(s) fusionné(s), " + bilan.couples + " couple(s) scindé(s)" +
           (ambigusLaisses ? " · " + ambigusLaisses + " cas ambigu(s) laissé(s) tel(s) quel(s)" : ""));
         await chargerContacts();
@@ -1584,9 +1634,17 @@
   $("btn-nettoyage").addEventListener("click", ouvrirNettoyage);
   $("btn-import").addEventListener("click", ouvrirImport);
   $("table-contacts").addEventListener("click", (e) => {
+    if (e.target.closest("input[type=checkbox]")) return; // cocher n'ouvre pas la fiche
     const tr = e.target.closest("tr[data-contact]");
     if (tr) ouvrirContact(tr.dataset.contact);
   });
+  $("table-contacts").addEventListener("change", (e) => {
+    if (e.target.id === "coche-tout") {
+      document.querySelectorAll(".coche-contact").forEach((cb) => { cb.checked = e.target.checked; });
+    }
+    if (e.target.id === "coche-tout" || e.target.classList.contains("coche-contact")) majSelection();
+  });
+  $("btn-suppr-selection").addEventListener("click", supprimerSelection);
   $("btn-doublons").addEventListener("click", chargerDoublons);
   $("doublons-q").addEventListener("keydown", (e) => { if (e.key === "Enter") chargerDoublons(); });
   $("table-upcoming").addEventListener("click", async (e) => {

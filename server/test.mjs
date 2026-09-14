@@ -2809,6 +2809,42 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     "fusionner sans rien absorber est refusé");
   ok((await callR("/crm/contacts/doublons", { headers: authP })).status === 403, "doublons et fusion sont réservés aux administrateurs");
 
+  /* ---- Fiches inutilisables + suppression en cascade / en masse ----------- */
+  console.log("— Fiches inutilisables (sans nom, prénom seul, anonymisées) + suppression");
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { prenom: "Léa", email: "prenomseul@exemple.fr" },
+    { nom: "ANONYMISE", prenom: "ANONYMISE", email: "anonyme1@exemple.fr" },
+    { nom: "Dupont", prenom: "Anonymisé", telephone: "0600000099" },
+    { nom: "SEULNOM", email: "seulnom@exemple.fr" },
+  ] } });
+  const ap = (await callR("/crm/nettoyage", { headers: auth })).json;
+  ok(ap.vides >= 3 && ap.sansNom >= 1 && ap.anonymes >= 2, "l'aperçu compte les fiches sans nom et les anonymisées (" + ap.vides + ")");
+  let curV = "";
+  for (let t3 = 0; t3 < 20; t3++) {
+    const r = (await callR("/crm/nettoyage", { headers: auth, body: { action: "vides", curseur: curV } })).json;
+    if (r.fini) break; curV = r.curseur || "";
+  }
+  const apresV = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  ok(!apresV.some((x) => x.email === "prenomseul@exemple.fr") && !apresV.some((x) => /anonym/i.test(x.nom + x.prenom)),
+    "prénom seul et fiches anonymisées disparaissent au nettoyage");
+  ok(apresV.some((x) => x.nom === "SEULNOM"), "une fiche avec un nom (même sans prénom) reste");
+  // Suppression en masse, en cascade : suivi + position partent avec la fiche
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { nom: "ASUPPRIMER", prenom: "Un", email: "sup1@exemple.fr" }, { nom: "ASUPPRIMER", prenom: "Deux", email: "sup2@exemple.fr" } ] } });
+  const aSup = (await callR("/crm/contacts", { headers: auth })).json.contacts.filter((x) => x.nom === "ASUPPRIMER");
+  await callR("/crm/suivis", { headers: authP, body: { contact_id: aSup[0].id, type: "note", commentaire: "Bientôt supprimé." } });
+  await callR("/crm/geo/batch", { headers: auth, body: { rows: [{ contactId: aSup[0].id, lat: 44.9, lng: -0.7, label: "x", score: 0.9, adresse: "x" }] } });
+  const sup = await callR("/crm/contacts/supprimer", { headers: auth, body: { ids: aSup.map((x) => x.id) } });
+  ok(sup.status === 200 && sup.json.supprimes === 2, "la suppression en masse supprime les fiches choisies");
+  const apresS = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  ok(!apresS.some((x) => x.nom === "ASUPPRIMER"), "…elles ne sont plus dans la base");
+  ok((await callR("/crm/suivis?contact_id=" + aSup[0].id, { headers: authP })).json.suivis.length === 0, "…et leur fil de suivi part avec elles");
+  ok(!(await callR("/crm/carte", { headers: authP })).json.points.some((p2) => p2.contact_id === aSup[0].id), "…et leur position sur la carte aussi");
+  ok((await callR("/crm/contacts/supprimer", { headers: auth, body: { ids: [] } })).status === 400, "supprimer sans sélection est refusé");
+  ok((await callR("/crm/contacts/supprimer", { headers: authP, body: { ids: ["x"] } })).status === 403, "la suppression est réservée aux administrateurs");
+  ok((await callR("/crm/contacts/supprimer", { headers: auth, body: { ids: ["ct_autre_agence"] } })).json.supprimes === 0,
+    "un id étranger à l'agence n'est jamais supprimé");
+
   /* ---- Îlots CenturyNet : multi-polygones + import en masse --------------- */
   console.log("— Îlots CenturyNet : multi-polygones + import en masse");
   const impIlots = await callR("/crm/ilots/bulk", { headers: auth, body: { ilots: [

@@ -334,6 +334,18 @@ doublons?q=` (groupes de même nom 2–8 fiches, laissés par le nettoyage) ;
 garder = fiche avec e-mail par défaut) et « 🔀 Fusionner avec… » dans la
 fiche ; « 👥 Ajouter le conjoint » (fiche seule) ou « Scinder » (couple) passent
 par la modale ouvrirConjoint qui demande QUI fête l'anniversaire.
+**Fiches inutilisables + suppression en 2 clics** : le nettoyage supprime les
+fiches sans nom (nom vide, prénom seul compris — `SQL_SANS_NOM`) et les fiches
+anonymisées (nom OU prénom contenant « anonym », `SQL_ANONYME`) ; l'aperçu
+renvoie `sansNom`/`anonymes` en plus de `vides`. `supprimerContacts(db, agency,
+ids)` (cascade crm_geo, crm_projet_contacts, crm_estimation_contacts, crm_suivis,
+paquets de 100 ids inline, scope agence) sert au `DELETE /crm/contacts/:id` et au
+nouveau `POST /crm/contacts/supprimer` `{ids}` (admin, ≤200). UI : colonne de
+cases (`#coche-tout` / `.coche-contact`, le clic sur une case n'ouvre pas la
+fiche) → bouton `#btn-suppr-selection` visible dès une coche ; 1er clic = « Confirmer
+la suppression de n fiche(s) ? » (désarmé tout seul après 6 s), 2e clic = envoi par
+tranches de 200. Même mécanique à deux clics sur « Supprimer » dans la fiche (plus
+de `confirm()`).
 **Suivi d'une fiche estimation** : `GET /crm/estimations/:id/envois` (membre) ;
 la modale affiche l'historique + la prochaine action calculée des dates R1/R2.
 Studio Estimation a un bouton 📍 (pompe /crm/geo/serveur, admin) ; la priorité

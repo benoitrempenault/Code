@@ -283,12 +283,22 @@ const NETTOYAGE_VIDES_MAX = 1600;    // suppressions par appel (4 lots de 400)
 const NETTOYAGE_GROUPES_MAX = 40;    // groupes de doublons examines par appel
 const NETTOYAGE_SCISSIONS_MAX = 6;   // scinderContact fait ~5 requetes chacune
 const NETTOYAGE_COUPLES_SCAN = 120;  // lignes examinees par tour (les refus ne coutent rien)
-const SQL_VIDE = "nom = '' AND prenom = '' AND email = '' AND telephone = ''";
+// Fiches INUTILISABLES : sans nom (donc aussi sans rien, ou avec un prenom
+// seul) ou anonymisees par l'export du logiciel (« ANONYMISE », « Anonymisé »).
+// On ne peut ni les saluer, ni les rapprocher, ni les retrouver : elles
+// partent, avec tout ce qui pointait vers elles.
+const SQL_VIDE = "(nom = '' OR lower(nom) LIKE '%anonym%' OR lower(prenom) LIKE '%anonym%')";
+const SQL_SANS_NOM = "nom = '' AND NOT (lower(prenom) LIKE '%anonym%')";
+const SQL_ANONYME = "(lower(nom) LIKE '%anonym%' OR lower(prenom) LIKE '%anonym%')";
 const SQL_COUPLE = "(' ' || civilite || ' ' || prenom || ' ' LIKE '% et %' OR civilite LIKE '%&%' OR prenom LIKE '%&%')";
 
 export async function apercuNettoyage(db, agencyId) {
   const vides = await db.get(
     `SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_VIDE}`, [agencyId]);
+  const sansNom = await db.get(
+    `SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_SANS_NOM}`, [agencyId]);
+  const anonymes = await db.get(
+    `SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_ANONYME}`, [agencyId]);
   const parEmail = await db.get(
     `SELECT COALESCE(SUM(n - 1), 0) AS d FROM (
        SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND email <> '' GROUP BY email HAVING COUNT(*) > 1)`,
@@ -302,10 +312,34 @@ export async function apercuNettoyage(db, agencyId) {
   const couples = await db.get(
     `SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_COUPLE}`, [agencyId]);
   return {
-    vides: vides?.n || 0,
+    vides: vides?.n || 0, sansNom: sansNom?.n || 0, anonymes: anonymes?.n || 0,
     doublons: (parEmail?.d || 0) + (parNom?.d || 0), // les ambigus seront laisses a l'execution
     couples: couples?.n || 0,
   };
+}
+
+// Supprimer des fiches PROPREMENT : la position sur la carte, les liaisons
+// aux projets et aux estimations et le fil de suivi partent avec elles ;
+// les journaux d'envoi et de relance restent (memoire de ce qui est parti).
+// Par paquets de 100 ids inline — plafonds D1.
+export async function supprimerContacts(db, agencyId, ids) {
+  const propres = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))];
+  let total = 0;
+  for (let i = 0; i < propres.length; i += 100) {
+    const dans = propres.slice(i, i + 100).map(sqlText).join(",");
+    const ag = sqlText(agencyId);
+    // Seules les fiches de CETTE agence : on borne la liste avant de toucher aux dependances.
+    const connus = await db.all(`SELECT id FROM crm_contacts WHERE agency_id = ${ag} AND id IN (${dans})`, []);
+    if (!connus.length) continue;
+    const ok = connus.map((r) => sqlText(r.id)).join(",");
+    await db.run(`DELETE FROM crm_geo WHERE contact_id IN (${ok})`, []);
+    await db.run(`DELETE FROM crm_projet_contacts WHERE contact_id IN (${ok})`, []);
+    await db.run(`DELETE FROM crm_estimation_contacts WHERE contact_id IN (${ok})`, []);
+    await db.run(`DELETE FROM crm_suivis WHERE contact_id IN (${ok})`, []);
+    await db.run(`DELETE FROM crm_contacts WHERE id IN (${ok})`, []);
+    total += connus.length;
+  }
+  return total;
 }
 
 // Fusionne des groupes deja charges (fiches completes) : le PLUS ANCIEN
@@ -468,12 +502,9 @@ export async function confirmerAnniversaire(db, agency, userId, contactId) {
 
 export async function executerNettoyage(db, agency, userId, action, curseur = "") {
   if (action === "vides") {
-    const cible = `SELECT id FROM crm_contacts WHERE agency_id = '${String(agency.id).replace(/'/g, "''")}'
-      AND ${SQL_VIDE} LIMIT ${NETTOYAGE_VIDES_MAX}`;
-    await db.run(`DELETE FROM crm_geo WHERE contact_id IN (${cible})`, []);
-    await db.run(`DELETE FROM crm_projet_contacts WHERE contact_id IN (${cible})`, []);
-    const r = await db.run(`DELETE FROM crm_contacts WHERE id IN (${cible})`, []);
-    const traites = changesOf(r);
+    const lot = await db.all(
+      `SELECT id FROM crm_contacts WHERE agency_id = ? AND ${SQL_VIDE} LIMIT ${NETTOYAGE_VIDES_MAX}`, [agency.id]);
+    const traites = await supprimerContacts(db, agency.id, lot.map((r) => r.id));
     const reste = await db.get(`SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND ${SQL_VIDE}`, [agency.id]);
     return { traites, fini: (reste?.n || 0) === 0, curseur: "" };
   }
