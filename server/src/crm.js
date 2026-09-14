@@ -774,7 +774,8 @@ export async function executerNettoyage(db, agency, userId, action, curseur = ""
 /* ------------------------------- Reglages -------------------------------- */
 export function defaultReglages(agency) {
   return {
-    agence: { nom: (agency && agency.name) || "", adresse: "", telephone: "", email: "", site: "", logoUrl: "" },
+    agence: { nom: (agency && agency.name) || "", adresse: "", telephone: "", email: "", site: "", logoUrl: "",
+      signataire: "", fonction: "" }, // qui signe les vœux et messages (ex. Benoît REMPENAULT, Directeur)
     anniversaires: { enabled: false, naissance: true, achat: true, cci: "", smsEnabled: false, smsSignature: "", canal: "les-deux" },
     annonces: { autoSync: false, siteUrl: "" },
     acheteurs: { enabled: false, cci: "" },
@@ -934,19 +935,73 @@ export function voeuIncertain(c) {
   return estCouple(c) || anniversaireAConfirmer(c);
 }
 
-function salutation(c) {
-  const civ = (c.civilite || "").trim(), nom = (c.nom || "").trim();
+// --- Le genre d'après le prénom -------------------------------------------
+// Beaucoup de fiches importées n'ont pas de civilité : on la devine d'après
+// le prénom (dictionnaire des prénoms courants, puis terminaisons), et dans
+// le doute (Dominique, Claude, Camille…) on ne tranche pas.
+const PRENOMS_F = new Set(`adele adeline agathe agnes aicha alexandra alexia alice aline alison amandine ambre amelie anais andree
+angele angelique anne annick annie anouk apolline ariane arlette armelle audrey aurelie aurore axelle barbara beatrice benedicte
+berenice bernadette berthe blandine brigitte camelia capucine carine carla carole caroline cassandra catherine cecile celia celine
+chantal charlene charlotte chloe christelle christiane christine clara claire clarisse claudette claudia claudine clemence
+clementine cleo colette constance coralie corinne cyrielle danielle delphine denise diane dominique-marie dorothee edith eleonore
+eliane elisa elisabeth elise ella elodie eloise elsa emeline emilie emma emmanuelle enora estelle eugenie eva eve evelyne fabienne
+fanny fatima faustine flavie fleur flora florence florine france francine francoise frederique gabrielle gaelle garance genevieve
+georgette geraldine germaine ghislaine gilberte ginette gisele gwenaelle helene henriette hermine hortense huguette ines ingrid
+irene iris isabelle jacqueline jade janine jeanne jeannine jennifer jessica joelle josette josiane josephine judith julia julie
+juliette justine karine laetitia lana laura laure laurence lea leila lena leonie lila liliane lily line lise lisa louise lucie lucienne
+ludivine lydia lydie maelle maeva magali maite manon marceline margaux margot marguerite maria marianne marie marielle marine
+marion marjorie marlene marthe martine maryse mathilde maud maureen maxence-f melanie melissa michele micheline mireille monique
+morgane muriel murielle myriam nadege nadia nadine nathalie nelly nicole nina ninon noelle noemie odette odile olivia ophelie
+oriane paola pascale patricia paulette pauline perrine philippine pierrette prisca rachel raymonde rebecca regine reine renee
+rolande romane rosalie rose roseline roxane sabine sabrina salome sandra sandrine sarah segolene severine simone solange solene
+sonia sophie stephanie suzanne sylviane sylvie tatiana thea therese tiphaine valentine valerie vanessa veronique victoire
+victoria violette virginie viviane yasmine yolande yvette yvonne zoe`.split(/\s+/));
+const PRENOMS_M = new Set(`adam adrien alain albert alexandre alexis alfred alphonse amaury anatole andre antoine antonin
+armand arnaud arsene arthur auguste augustin aurelien axel baptiste barnabe bastien benjamin benoit bernard bertrand
+boris brice bruno cedric celestin cesar charles christian christophe clement corentin cyril cyrille damien daniel david denis
+didier dimitri dorian edgar edmond edouard eliott elie emile emmanuel enzo eric erwan ethan etienne eugene evan fabien fabrice
+felix fernand florent florian francis franck francois frederic gabin gabriel gael gaetan gaspard gaston gauthier geoffrey georges
+gerald gerard germain gilbert gilles gregoire gregory guillaume gustave guy hector henri herve hippolyte hugo hugues ivan jacques
+jean jeremie jeremy jerome joachim joel jonathan jordan joseph jules julien justin karim kevin killian laurent leandre leo leon
+leonard lilian loic lorenzo louis luc luca lucas lucien ludovic marc marcel marceau marius martin mathias matheo mathieu
+mathis matthieu maurice max maxime maximilien michel mickael mohamed morgan nathan nicolas noah noe noel norbert octave olivier
+oscar pascal patrice patrick paul philippe pierre quentin raphael raymond regis remi remy rene richard robert robin rodolphe
+roger roland romain romuald ronan samuel sebastien serge simon stanislas stephane sylvain theo theodore thibault thibaut thierry
+thomas timothee titouan tom tristan ulysse valentin victor vincent william xavier yann yannick yoann yves yvon zacharie`.split(/\s+/));
+const PRENOMS_AMBIGUS = new Set("dominique claude camille sacha noa andrea alix maxence charlie lou eden louison ange".split(" "));
+const sansAccentsMin = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+// « f », « m » ou « » (inconnu). Un prénom composé se juge sur sa première
+// partie (Jean-Marie → m, Marie-Pierre → f).
+export function genrePrenom(prenom) {
+  const premier = sansAccentsMin(prenom).trim().split(/[\s-]+/)[0] || "";
+  if (!premier) return "";
+  if (PRENOMS_AMBIGUS.has(premier)) return "";
+  if (PRENOMS_F.has(premier)) return "f";
+  if (PRENOMS_M.has(premier)) return "m";
+  if (/(ette|ine|elle|enne|anne|onne|ise|ence|ance|ie|ee|a)$/.test(premier)) return "f";
+  if (/(ien|ier|and|ard|ert|aud|ent|ick|ck|in|is|el|al|ol|o|ou|us)$/.test(premier)) return "m";
+  return "";
+}
+
+// La formule d'appel : civilité de la fiche (M., Mme, Monsieur, Madame, M. et
+// Mme…), sinon genre deviné d'après le prénom, sinon un « Bonjour » neutre.
+export function salutation(c) {
+  const civ = sansAccentsMin(c.civilite).trim(), nom = (c.nom || "").trim(), prenom = (c.prenom || "").trim();
   if (civ && nom) {
-    if (/^mme/i.test(civ)) return `Chère Madame ${nom}`;
-    if (/^m\.?$|^mr/i.test(civ)) return `Cher Monsieur ${nom}`;
-    if (/et/i.test(civ)) return `Chers Monsieur et Madame ${nom}`;
+    if (/(^|\s)(et|&)(\s|$)/.test(civ) || /(m\.?|mr|monsieur)\s*(et|&)/.test(civ)) return `Chers Monsieur et Madame ${nom}`;
+    if (/^(mme|madame|mlle|mademoiselle|melle)\b/.test(civ)) return `Chère Madame ${nom}`;
+    if (/^(m\.?|mr|monsieur)$/.test(civ)) return `Cher Monsieur ${nom}`;
   }
-  return c.prenom ? `Cher(e) ${c.prenom}` : "Bonjour";
+  if (estCouple(c) && nom) return `Chers Monsieur et Madame ${nom}`;
+  const g = genrePrenom(prenom);
+  if (g === "f" && nom) return `Chère Madame ${nom}`;
+  if (g === "m" && nom) return `Cher Monsieur ${nom}`;
+  return prenom ? `Bonjour ${prenom}` : "Bonjour";
 }
 
 // Gabarit commun : carte blanche sur fond creme, bandeau sombre, filet dore —
 // CSS inline uniquement (compatibilite clients mail).
-function wrapEmail(ag, { eyebrow, headline, bodyHtml, signatureName }) {
+function wrapEmail(ag, { eyebrow, headline, bodyHtml, signatureName, signatureTitre }) {
   const gold = "#BEAF87", dark = "#1D1D1B";
   const nom = ag.nom || "Votre agence";
   const logo = ag.logoUrl
@@ -969,6 +1024,7 @@ function wrapEmail(ag, { eyebrow, headline, bodyHtml, signatureName }) {
         <tr><td style="padding:24px 48px 8px; font-family:Georgia,'Times New Roman',serif; color:#3d3d3b; font-size:16px; line-height:1.7;">${bodyHtml}</td></tr>
         <tr><td style="padding:26px 48px 40px;" align="center">
           <div style="font-family:Georgia,'Times New Roman',serif; font-style:italic; color:${dark}; font-size:19px;">${esc(signatureName)}</div>
+          ${signatureTitre ? `<div style="font-family:Helvetica,Arial,sans-serif; color:#3d3d3b; font-size:13px; margin-top:4px;">${esc(signatureTitre)}</div>` : ""}
           <div style="font-family:Helvetica,Arial,sans-serif; color:#8a8a86; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; margin-top:6px;">${esc(nom)}</div>
         </td></tr>
         <tr><td align="center" style="background:${dark}; padding:20px 24px;">
@@ -987,9 +1043,11 @@ function wrapEmail(ag, { eyebrow, headline, bodyHtml, signatureName }) {
 }
 
 export function buildAnniversaireEmail(contact, type, ag, isoDay, modeles) {
-  const signatureName = contact.conseiller
-    ? `${contact.conseiller}, votre conseiller`
-    : `Toute l'équipe ${ag.nom || "de l'agence"}`;
+  // Le signataire des réglages (ex. le directeur) signe TOUS les vœux ; à
+  // défaut, le conseiller de la fiche, sinon l'équipe.
+  const signatureName = (ag.signataire || "").trim()
+    || (contact.conseiller ? `${contact.conseiller}, votre conseiller` : `Toute l'équipe ${ag.nom || "de l'agence"}`);
+  const signatureTitre = (ag.signataire || "").trim() ? (ag.fonction || "").trim() : "";
   const salut = salutation(contact);
   const prenom = contact.prenom || "";
   // Le texte de l'AGENCE (Bibliotheque des messages) remplace le texte par
@@ -1015,7 +1073,7 @@ export function buildAnniversaireEmail(contact, type, ag, isoDay, modeles) {
         headline: esc(subject),
         bodyHtml: `<p style="margin:0 0 16px;">${esc(salut)},</p>` +
           texteEnParagraphes(remplirModele(sur.texte || MODELES[cleM].texte, vars)),
-        signatureName,
+        signatureName, signatureTitre,
       }),
     };
   }
@@ -1032,7 +1090,7 @@ export function buildAnniversaireEmail(contact, type, ag, isoDay, modeles) {
             de belles réussites, de beaux moments partagés&hellip; et pourquoi pas de nouveaux projets&nbsp;!</p>
           <p style="margin:0;">C'est un vrai plaisir de vous compter parmi les clients de notre agence.
             Toute l'équipe se joint à moi pour vous souhaiter une magnifique journée.</p>`,
-        signatureName,
+        signatureName, signatureTitre,
       }),
     };
   }
@@ -1060,7 +1118,7 @@ export function buildAnniversaireEmail(contact, type, ag, isoDay, modeles) {
           <p style="margin:0;">Si un nouveau projet se dessine — une vente, un achat, un
             investissement, ou simplement l'envie de connaître la valeur d'un bien — notre porte
             vous est toujours grande ouverte. Au plaisir de vous revoir&nbsp;!</p>`,
-        signatureName,
+        signatureName, signatureTitre,
       }),
     };
   }
@@ -1080,7 +1138,7 @@ export function buildAnniversaireEmail(contact, type, ag, isoDay, modeles) {
         <p style="margin:0;">Si vous souhaitez faire le point sur la valeur de votre bien, sur votre
           quartier, ou simplement échanger autour d'un café, notre porte vous est toujours ouverte.
           Très bel anniversaire d'achat&nbsp;!</p>`,
-      signatureName,
+      signatureName, signatureTitre,
     }),
   };
 }
@@ -1178,6 +1236,7 @@ export function smsExpediteur(ag, agency) {
   return (compact || "Agence").slice(0, 11);
 }
 export function signatureSms(contact, reglages) {
+  if ((reglages.agence.signataire || "").trim()) return reglages.agence.signataire.trim();
   if (contact && contact.conseiller) {
     const d = dispatchNom(contact.conseiller);
     return d.prenom || contact.conseiller;

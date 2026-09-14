@@ -952,6 +952,8 @@
     $("ag-email").value = reglages.agence.email || "";
     $("ag-site").value = reglages.agence.site || "";
     $("ag-logo").value = reglages.agence.logoUrl || "";
+    $("ag-signataire").value = reglages.agence.signataire || "";
+    $("ag-fonction").value = reglages.agence.fonction || "";
   }
   async function sauverReglages(partiel, message) {
     try {
@@ -1848,6 +1850,7 @@
       nom: $("ag-nom").value.trim(), adresse: $("ag-adresse").value.trim(),
       telephone: $("ag-tel").value.trim(), email: $("ag-email").value.trim(),
       site: $("ag-site").value.trim(), logoUrl: $("ag-logo").value.trim(),
+      signataire: $("ag-signataire").value.trim(), fonction: $("ag-fonction").value.trim(),
     },
   }));
 

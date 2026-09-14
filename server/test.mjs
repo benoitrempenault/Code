@@ -1904,6 +1904,28 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     "adresse agrégée dispatchée en adresse / CP / ville");
 
   // Anniversaire d'achat : le message diffère selon le rôle dans la vente.
+  // Formule d'appel : civilités en toutes lettres, genre deviné d'après le prénom.
+  ok(CRM_TEST.salutation({ civilite: "Monsieur", nom: "DUPONT", prenom: "Jean" }) === "Cher Monsieur DUPONT" &&
+     CRM_TEST.salutation({ civilite: "Madame", nom: "DUPONT", prenom: "Anne" }) === "Chère Madame DUPONT",
+     "« Monsieur » et « Madame » en toutes lettres sont reconnus");
+  ok(CRM_TEST.salutation({ civilite: "", nom: "DONDARINI", prenom: "Florence" }) === "Chère Madame DONDARINI" &&
+     CRM_TEST.salutation({ civilite: "", nom: "REMPENAULT", prenom: "Benoît" }) === "Cher Monsieur REMPENAULT" &&
+     CRM_TEST.salutation({ civilite: "", nom: "X", prenom: "Marie-Pierre" }) === "Chère Madame X",
+     "sans civilité, le genre est deviné d'après le prénom (composés compris)");
+  ok(CRM_TEST.salutation({ civilite: "", nom: "X", prenom: "Camille" }) === "Bonjour Camille" &&
+     CRM_TEST.salutation({ civilite: "M. et Mme", nom: "MARTIN", prenom: "" }) === "Chers Monsieur et Madame MARTIN",
+     "prénom ambigu → « Bonjour Prénom » ; couple → « Chers Monsieur et Madame »");
+  // Le signataire des réglages signe tout : e-mails (avec sa fonction) et SMS.
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agence: { nom: "CENTURY 21 Kadima", signataire: "Benoît REMPENAULT", fonction: "Directeur" } } });
+  const apSig = (await callR("/crm/anniversaires/apercu?type=naissance", { headers: auth })).json;
+  ok(/Benoît REMPENAULT/.test(apSig.html) && /Directeur/.test(apSig.html) && !/votre conseiller/.test(apSig.html) && /CENTURY 21 KADIMA/.test(apSig.html),
+     "le vœu est signé du signataire des réglages, avec sa fonction, sous le nom de l'agence");
+  const regSigBrut = (await callR("/crm/reglages", { headers: auth })).json;
+  const regSig = regSigBrut.reglages || regSigBrut;
+  ok(CRM_TEST.signatureSms({ conseiller: "Marc DUPONT" }, regSig) === "Benoît REMPENAULT", "le SMS aussi est signé du signataire, même si la fiche a un conseiller");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agence: { nom: "Agence Acheteurs Test", signataire: "", fonction: "" } } });
+  const apSans = (await callR("/crm/anniversaires/apercu?type=naissance", { headers: auth })).json;
+  ok(/votre conseiller/.test(apSans.html), "sans signataire, on retombe sur le conseiller de la fiche");
   const apAcq = (await callR("/crm/anniversaires/apercu?type=achat", { headers: auth })).json;
   const apVen = (await callR("/crm/anniversaires/apercu?type=achat&profil=vendeur", { headers: auth })).json;
   ok(/chez vous|clés/i.test(apAcq.subject + apAcq.html) && apAcq.html.includes("receviez les clés"),
