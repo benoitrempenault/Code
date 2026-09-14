@@ -40,6 +40,11 @@ export default {
       APP_BASE: env.APP_BASE || "",
       RESEND_API_KEY: env.RESEND_API_KEY || "",
       BREVO_API_KEY: env.BREVO_API_KEY || "", // SMS transactionnels (vœux d'anniversaire)
+      // Fichier des mandats AMEPI (Amanda) : identifiants du compte de l'agence
+      AMEPI_BASE: env.AMEPI_BASE || "",
+      AMEPI_EMAIL: env.AMEPI_EMAIL || "",
+      AMEPI_PASSWORD: env.AMEPI_PASSWORD || "",
+      AMEPI_AGENCY: env.AMEPI_AGENCY || "",
       MAIL_FROM: env.MAIL_FROM || "",
       STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET || "",
       AI_MODELS: env.AI_MODELS || "",

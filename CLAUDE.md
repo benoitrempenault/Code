@@ -386,6 +386,28 @@ e-mail ni adresse ; prospect (seul type) sans adresse ; acquéreur (sans
 vendeur/estimé/bailleur) sans téléphone — jamais si la fiche porte un suivi,
 un projet ou une estimation (`SQL_SANS_ACTIVITE`). L'aperçu détaille
 sansContact / prospectsSansAdresse / acquereursSansTel.
+**AMEPI (fichier des mandats Amanda)** : `server/src/amepi.js`. Protocole lu dans le
+JS du site (mandate.dist.js) : GET /Account/Login (jeton `__RequestVerificationToken`,
+`SelectedAgency`, cookies) → POST /Account/Login (302 attendu) → POST /search JSON
+(`formulaireAmepi()` = initMandateForm du site : searchTypeId 1 vente, sourceTypes
+["1","2","3"] = mon agence / mon ALFA / ALFA voisines, `location` = codes postaux,
+`mandateResultFilter.page/itemsPerPage`) → `{value, total, searchId}`.
+`mapperMandat()` lit les champs avec variantes (price/oldPrice, publicTown,
+numberOfRooms, livingArea, latitude…, transactionStateId 1 en vente / 2 compromis /
+3 vendu). Secrets Worker : AMEPI_EMAIL, AMEPI_PASSWORD (+ AMEPI_BASE, AMEPI_AGENCY
+optionnels) — jamais en base. Tables `crm_amepi` (PK agency+id, statut
+en_vente|compromis|vendu|retiree|autre, ancien_prix) et `crm_amepi_etat` (curseur
+de pages). `syncAmepi()` : 8 pages de 100 par appel, upsert multi-lignes (une requête
+par page — limite de sous-requêtes), retirées = non revues depuis `debut` quand la
+dernière page est lue, événements nouvelle/baisse/retrait dans crm_annonces_events
+(ids « amepi:<id> »). Réglages `amepi` : enabled, sources, relance, communes.
+`rapprochements()` ajoute les biens AMEPI (`commeAnnonce()`, source "amepi",
+agence) quand enabled ; `runRelances()` ne les propose aux clients que si
+`relance` (mention « en partenariat avec … » dans le mail). Routes admin :
+GET /crm/amepi, POST /crm/amepi/sync {recommencer}, POST /crm/amepi/diagnostic
+(bruts + lus des 3 premiers biens). Cron : après estimations. UI : carte AMEPI
+dans l'onglet Annonces (réglages, 🔌 Tester, 🔄 Relever, liste), puce 🤝 violette
+dans les rapprochements. Tests : faux AMEPI sur 18798 (jeton, cookie, pagination).
 **Suivi d'une fiche estimation** : `GET /crm/estimations/:id/envois` (membre) ;
 la modale affiche l'historique + la prochaine action calculée des dates R1/R2.
 Studio Estimation a un bouton 📍 (pompe /crm/geo/serveur, admin) ; la priorité

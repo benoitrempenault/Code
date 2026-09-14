@@ -125,6 +125,7 @@ td img.mini { width: 62px; height: 42px; object-fit: cover; border-radius: 8px; 
   background: rgba(194, 163, 107, .16); color: var(--accent); white-space: nowrap; margin: 1px 2px 1px 0;
 }
 .puce.grise { background: var(--panel-2); color: var(--muted); }
+.puce.amepi { background: rgba(155, 126, 222, .16); color: #9B7EDE; }
 .puce.verte { background: rgba(127, 176, 105, .16); color: var(--ok); }
 .puce.rouge { background: rgba(224, 122, 95, .16); color: var(--err); }
 .ok { color: var(--ok); font-weight: 600; }

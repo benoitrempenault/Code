@@ -15,6 +15,7 @@
    ========================================================================= */
 import { now, randId } from "./util.js";
 import { changesOf } from "./db.js";
+import { syncAmepi, listerAmepi, commeAnnonce, amepiConfigure } from "./amepi.js";
 
 export const CRM_TYPES = ["acquereur", "vendeur", "estime", "bailleur", "locataire", "prospect"];
 const CONTACTS_MAX = 80000;   // base globale de l'agence (~60 000 fiches visées)
@@ -780,6 +781,9 @@ export function defaultReglages(agency) {
     annonces: { autoSync: false, siteUrl: "" },
     acheteurs: { enabled: false, cci: "" },
     estimations: { enabled: false, cci: "" },
+    // Fichier des mandats AMEPI : relevé nocturne des biens des confrères ;
+    // « relance » = les proposer aussi aux acquéreurs (délégation de mandat).
+    amepi: { enabled: false, sources: ["1", "2", "3"], relance: false, communes: "" },
     modeles: {}, // surcharges de la Bibliotheque des messages ({cle: {sujet, texte}})
   };
 }
@@ -795,6 +799,7 @@ export async function getReglages(db, agency) {
     annonces: { ...def.annonces, ...(data.annonces || {}) },
     acheteurs: { ...def.acheteurs, ...(data.acheteurs || {}) },
     estimations: { ...def.estimations, ...(data.estimations || {}) },
+    amepi: { ...def.amepi, ...(data.amepi || {}) },
     modeles: data.modeles && typeof data.modeles === "object" ? data.modeles : {},
   };
 }
@@ -806,6 +811,7 @@ export async function saveReglages(db, agency, userId, incoming) {
     annonces: { ...cur.annonces, ...(incoming.annonces || {}) },
     acheteurs: { ...cur.acheteurs, ...(incoming.acheteurs || {}) },
     estimations: { ...cur.estimations, ...(incoming.estimations || {}) },
+    amepi: { ...cur.amepi, ...(incoming.amepi || {}) },
     modeles: { ...cur.modeles, ...(incoming.modeles || {}) },
   };
   for (const k of Object.keys(next.agence)) next.agence[k] = strip(next.agence[k], 300);
@@ -819,6 +825,11 @@ export async function saveReglages(db, agency, userId, incoming) {
   next.acheteurs.cci = strip(next.acheteurs.cci, 160);
   next.estimations.enabled = !!next.estimations.enabled;
   next.estimations.cci = strip(next.estimations.cci, 160);
+  next.amepi.enabled = !!next.amepi.enabled;
+  next.amepi.relance = !!next.amepi.relance;
+  next.amepi.sources = [...new Set((Array.isArray(next.amepi.sources) ? next.amepi.sources : []).map(String).filter((x) => ["1", "2", "3"].includes(x)))];
+  if (!next.amepi.sources.length) next.amepi.sources = ["1", "2", "3"];
+  next.amepi.communes = strip(next.amepi.communes, 400);
   // Bibliotheque des messages : seules les cles connues, sujet une ligne,
   // texte multiligne (les sauts de ligne font les paragraphes). Une
   // surcharge vidée disparait — le texte d'origine reprend la main.
@@ -1715,12 +1726,16 @@ export async function rapprochements(db, agency) {
     .filter((p) => p.kind === "achat" && p.statut === "actif");
   const annonces = await db.all(
     "SELECT * FROM crm_annonces WHERE agency_id = ? AND statut = 'en_vente'", [agency.id]);
+  // Les biens des confrères (AMEPI) rejoignent la vue, signalés comme tels.
+  const reglages = await getReglages(db, agency);
+  if (reglages.amepi.enabled) annonces.push(...(await listerAmepi(db, agency.id)).map(commeAnnonce));
   return projets.map((p) => ({
     projetId: p.id,
     contacts: p.contacts.map((c) => ({ id: c.id, nom: c.nom, prenom: c.prenom, conseiller: c.conseiller })),
     matches: annonces.filter((a) => matchAnnonce(p, a))
-      .sort((a, b) => (b.first_seen || 0) - (a.first_seen || 0))
-      .map((a) => ({ id: a.id, titre: a.titre, prix: a.prix, ville: a.ville, image: a.image, url: a.url })),
+      .sort((a, b) => (a.source === "amepi") - (b.source === "amepi") || (b.first_seen || 0) - (a.first_seen || 0))
+      .map((a) => ({ id: a.id, titre: a.titre, prix: a.prix, ville: a.ville, image: a.image, url: a.url,
+        source: a.source || "site", agence: a.agence || "" })),
   }));
 }
 
@@ -1746,6 +1761,7 @@ export function buildRelanceEmail(contact, biens, ag) {
         <div style="font-family:Helvetica,Arial,sans-serif; font-size:13px; color:#8a8a86; margin-top:4px;">
           ${[a.ville, a.pieces ? a.pieces + " pièces" : "", a.surface ? a.surface + " m²" : "", a.dpe ? "DPE " + a.dpe : ""].filter(Boolean).map(esc).join(" · ")}
         </div>
+        ${a.source === "amepi" ? `<div style="font-family:Helvetica,Arial,sans-serif; font-size:12px; color:#8a8a86; margin-top:4px;">Proposé en partenariat${a.agence ? " avec " + esc(a.agence) : ""} (fichier partagé AMEPI)</div>` : ""}
         <div style="font-family:Georgia,'Times New Roman',serif; font-size:20px; color:${dark}; margin-top:10px;">
           ${kind === "baisse" && ancienPrix ? `<span style="color:#8a8a86; font-size:15px;"><s>${prix(ancienPrix)}</s></span> &nbsp;` : ""}${prix(a.prix)}
         </div>
@@ -1784,6 +1800,11 @@ export async function runRelances(env, db, agency, reglages) {
     .filter((p) => p.kind === "achat" && p.statut === "actif");
   const annonces = await db.all(
     "SELECT * FROM crm_annonces WHERE agency_id = ? AND statut = 'en_vente'", [agency.id]);
+  // Les biens AMEPI ne partent aux clients que si l'agence l'a choisi
+  // (délégation de mandat) — sinon ils restent un signalement interne.
+  if (reglages.amepi && reglages.amepi.enabled && reglages.amepi.relance) {
+    annonces.push(...(await listerAmepi(db, agency.id)).map(commeAnnonce));
+  }
   const baisses = await db.all(
     "SELECT annonce_id, ancien_prix FROM crm_annonces_events WHERE agency_id = ? AND kind = 'baisse' AND created_at > ?",
     [agency.id, now() - 26 * 3600]);
@@ -2529,6 +2550,11 @@ export async function runCrmDaily(env, db) {
       if (reglages.estimations.enabled) {
         try { r.estimations = await runEstimations(env, db, agency, reglages); }
         catch (e) { r.estimationsError = e.message; }
+      }
+      // Le fichier des mandats AMEPI, par pages (le curseur reprend la nuit suivante).
+      if (reglages.amepi.enabled && amepiConfigure(env)) {
+        try { r.amepi = await syncAmepi(env, db, agency, reglages); }
+        catch (e) { r.amepiError = e.message; }
       }
       // Les ventes du Suivi rejoignent la carte toutes seules, un lot par nuit.
       // 12 max : chaque adresse peut coûter 2 appels (BAN + IGN) et le cron

@@ -1742,6 +1742,49 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     res.end(JSON.stringify({ id: "email_test" }));
   });
   await new Promise((r) => fauxResend.listen(18791, r));
+  // Faux AMEPI : formulaire de connexion (jeton + agence), cookie de session,
+  // recherche JSON paginée. Le stock est modifiable par les tests (baisse,
+  // retrait) — les noms de champs sont ceux lus dans le code du site.
+  const amepiStock = [
+    { id: 501, mandateRef: "K-501", agencyName: "Agence Confrère A", sourceTypeId: 2, assetTypeId: 2, price: 350000, oldPrice: null,
+      publicTown: "Le Haillan", publicPostalCode: "33185", numberOfRooms: 5, numberOfBedrooms: 3, livingArea: 110, landArea: 500,
+      latitude: 44.87, longitude: -0.68, transactionStateId: 1, thumbnailUrl: "/img/501.jpg", updateDate: "2026-09-10T08:00:00", creationDate: "2026-09-01T08:00:00" },
+    { id: 502, mandateRef: "K-502", agencyName: "Agence Confrère B", sourceTypeId: 3, assetTypeId: 1, price: 180000,
+      publicTown: "Mérignac", publicPostalCode: "33700", numberOfRooms: 2, livingArea: 45, latitude: 44.84, longitude: -0.65, transactionStateId: 1, thumbnailUrl: "https://cdn.amepi.test/502.jpg", updateDate: "2026-09-11T08:00:00" },
+    { id: 503, mandateRef: "K-503", agencyName: "Agence Confrère A", sourceTypeId: 2, assetTypeId: 2, price: 410000,
+      publicTown: "Saint-Médard-en-Jalles", publicPostalCode: "33160", numberOfRooms: 4, livingArea: 95, latitude: 44.89, longitude: -0.72, transactionStateId: 2, updateDate: "2026-09-12T08:00:00" },
+  ];
+  const amepiAppels = [];
+  const fauxAmepi = (await import("node:http")).createServer(async (req, res) => {
+    const chunks = []; for await (const c of req) chunks.push(c);
+    const corps = Buffer.concat(chunks).toString();
+    amepiAppels.push({ m: req.method, u: req.url, cookie: req.headers.cookie || "", corps });
+    if (req.method === "GET" && req.url.startsWith("/Account/Login")) {
+      res.writeHead(200, { "Content-Type": "text/html", "Set-Cookie": "ARRAffinity=aff1; Path=/" });
+      res.end('<form id="frmLogin" method="post"><input name="Email"><input name="Password"><select name="SelectedAgency"><option value="AG-KADIMA">Kadima</option></select><input name="__RequestVerificationToken" type="hidden" value="JETON-XYZ"></form>');
+      return;
+    }
+    if (req.method === "POST" && req.url.startsWith("/Account/Login")) {
+      const f = new URLSearchParams(corps);
+      if (f.get("__RequestVerificationToken") !== "JETON-XYZ" || f.get("Email") !== "benoit@kadima.test" || f.get("Password") !== "secret-amepi" || !/ARRAffinity=aff1/.test(req.headers.cookie || "")) {
+        res.writeHead(200, { "Content-Type": "text/html" }); res.end("<form>Identifiants incorrects</form>"); return;
+      }
+      res.writeHead(302, { Location: "/", "Set-Cookie": ".AspNetCore.Identity.Application=SESSION-OK; Path=/; HttpOnly" });
+      res.end(); return;
+    }
+    if (req.method === "POST" && req.url === "/search") {
+      if (!/SESSION-OK/.test(req.headers.cookie || "")) { res.writeHead(302, { Location: "/Account/Login" }); res.end(); return; }
+      const f = JSON.parse(corps);
+      const sources = new Set((f.sourceTypes || []).map(String));
+      const lot = amepiStock.filter((m) => sources.has(String(m.sourceTypeId)) && (!f.location || f.location.includes(m.publicPostalCode)));
+      const page = f.mandateResultFilter.page, n = f.mandateResultFilter.itemsPerPage;
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ value: lot.slice((page - 1) * n, page * n), total: lot.length, searchId: "S1" }));
+      return;
+    }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((r) => fauxAmepi.listen(18798, r));
   // Faux dépôt DVF : un seul fichier connu (2025 / 33 / 33449), 404 sinon —
   // comme files.data.gouv.fr, dont le vrai stockage n'envoie pas de CORS
   // (raison d'être du relais /crm/dvf côté serveur).
@@ -1769,6 +1812,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18791",
     DVF_BASE: "http://localhost:18792", BAN_BASE: "http://localhost:18793",
     MAIL_FROM: "Studio Brochure <connexion@studiobrochure.fr>",
+    AMEPI_BASE: "http://localhost:18798", AMEPI_EMAIL: "benoit@kadima.test", AMEPI_PASSWORD: "secret-amepi",
   });
   const callR = async (path, opts = {}) => {
     const req = new Request("http://api.test" + path, {
@@ -3049,6 +3093,64 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const viAnon = await db.get("SELECT contact, contact_id FROM crm_visites WHERE id = ?", [viA]);
   ok(viAnon && viAnon.contact === "" && viAnon.contact_id === "", "…la visite gardée pour l'agence ne cite plus la personne");
   ok((await callR("/crm/contacts/" + cbCt.id + "/effacer", { headers: auth, body: {} })).status === 404, "effacer deux fois → introuvable");
+
+  /* ---- AMEPI : fichier des mandats des confrères ------------------------- */
+  console.log("— AMEPI : connexion, relevé du fichier des mandats, rapprochement");
+  ok((await callR("/crm/amepi/diagnostic", { headers: authP, body: {} })).status === 403, "le connecteur AMEPI est réservé aux administrateurs");
+  const diagAm = await callR("/crm/amepi/diagnostic", { headers: auth, body: {} });
+  ok(diagAm.status === 200 && diagAm.json.connexion === "ok" && diagAm.json.total === 3 && diagAm.json.bruts.length === 3 &&
+     diagAm.json.lus[0].type === "maison" && diagAm.json.lus[0].agence === "Agence Confrère A" && diagAm.json.lus[0].image === "http://localhost:18798/img/501.jpg",
+     "le diagnostic se connecte (jeton + cookie), lit une page et montre les champs bruts et lus");
+  const login = amepiAppels.find((a) => a.m === "POST" && a.u.startsWith("/Account/Login"));
+  ok(login && /SelectedAgency=AG-KADIMA/.test(login.corps) && /RememberMe=false/.test(login.corps), "la connexion envoie l'agence du formulaire et le jeton anti-falsification");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { enabled: true, sources: ["1", "2", "3"], relance: false } } });
+  const sync1 = await callR("/crm/amepi/sync", { headers: auth, body: {} });
+  ok(sync1.status === 200 && sync1.json.stats.fini && sync1.json.stats.biens === 3 && sync1.json.stats.nouveaux === 3,
+     "le relevé lit tout le fichier (" + JSON.stringify(sync1.json.stats) + ")");
+  const liste1 = (await callR("/crm/amepi", { headers: auth })).json;
+  ok(liste1.configure === true && liste1.biens.length === 3 && liste1.enVente === 2 && liste1.etat.page === 0 && liste1.etat.fini_le > 0,
+     "la liste montre 3 biens dont 2 en vente (le compromis est classé à part), relevé terminé");
+  const b501 = liste1.biens.find((b) => b.id === "501");
+  ok(b501.prix === 350000 && b501.ville === "Le Haillan" && b501.pieces === 5 && b501.chambres === 3 && b501.surface === 110 && b501.lat === 44.87 &&
+     b501.url === "http://localhost:18798/mandate/details/501" && b501.ref === "K-501", "les champs d'un mandat sont bien lus (prix, ville, pièces, chambres, surface, position, lien)");
+  // Un projet d'achat maison au Haillan : le bien AMEPI est signalé, avec son agence.
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "AMEPITEST", prenom: "Nora", email: "nora.amepi@exemple.fr", types: "acquereur" }] } });
+  const nora = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.nom === "AMEPITEST");
+  const pjA = await callR("/crm/projets", { headers: auth, method: "PUT", body: { kind: "achat", contactIds: [nora.id], budgetMax: 400000, types: ["maison"], villes: "Le Haillan" } });
+  const rapA = (await callR("/crm/acheteurs/rapprochements", { headers: auth })).json.rapprochements.find((r) => r.projetId === pjA.json.id);
+  ok(rapA && rapA.matches.some((m) => m.id === "amepi:501" && m.source === "amepi" && m.agence === "Agence Confrère A"),
+     "le rapprochement propose le bien du confrère, signalé AMEPI avec le nom de l'agence");
+  ok(!rapA.matches.some((m) => m.id === "amepi:503"), "un bien sous compromis n'est pas proposé");
+  // Sans le réglage « relance », la relance automatique ignore les biens AMEPI.
+  const mailsAvantA = mailsRecus.length;
+  await callR("/crm/acheteurs/run", { headers: auth, method: "POST", body: {} });
+  ok(!mailsRecus.slice(mailsAvantA).some((m) => m.to.includes("nora.amepi@exemple.fr") && /partenariat/.test(m.html)),
+     "sans « relance » cochée, aucun mail ne propose un bien de confrère (les biens du site, eux, partent)");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { relance: true } } });
+  await callR("/crm/acheteurs/run", { headers: auth, method: "POST", body: {} });
+  const mailNora = mailsRecus.slice(mailsAvantA).reverse().find((m) => m.to.includes("nora.amepi@exemple.fr") && /partenariat/.test(m.html));
+  ok(mailNora && /Maison 5 pièces 110 m² — Le Haillan/.test(mailNora.html) && /partenariat avec Agence Confrère A/.test(mailNora.html),
+     "« relance » cochée : le bien part au client, présenté en partenariat avec l'agence confrère");
+  // Baisse de prix et retrait au relevé suivant → journal du marché.
+  amepiStock[0].price = 330000;
+  amepiStock.splice(1, 1); // le 502 quitte le fichier
+  // (le relevé précédent date « d'hier » : dans les tests tout tient dans la même seconde)
+  await db.run("UPDATE crm_amepi SET last_seen = last_seen - 100 WHERE agency_id = ?", [agId]);
+  await db.run("UPDATE crm_amepi_etat SET fini_le = fini_le - 100 WHERE agency_id = ?", [agId]);
+  const sync2 = await callR("/crm/amepi/sync", { headers: auth, body: {} });
+  ok(sync2.json.stats.baisses === 1 && sync2.json.stats.retirees === 1, "le relevé suivant voit la baisse et le retrait (" + JSON.stringify(sync2.json.stats) + ")");
+  const liste2 = (await callR("/crm/amepi", { headers: auth })).json;
+  ok(liste2.biens.find((b) => b.id === "501").prix === 330000 && liste2.biens.find((b) => b.id === "501").ancien_prix === 350000 &&
+     liste2.biens.find((b) => b.id === "502").statut === "retiree", "prix et ancien prix mis à jour, le bien parti est « retirée »");
+  const evAm = (await callR("/crm/annonces", { headers: auth })).json.events;
+  ok(evAm.some((e) => e.kind === "baisse" && e.annonce_id === "amepi:501" && e.ancien_prix === 350000 && e.prix === 330000) &&
+     evAm.some((e) => e.kind === "retrait" && e.annonce_id === "amepi:502") && evAm.some((e) => e.kind === "nouvelle" && e.annonce_id === "amepi:503"),
+     "le journal du marché porte nouveautés, baisse et retrait AMEPI");
+  // Filtre par communes : seuls les codes postaux demandés sont relevés.
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { communes: "33185, 33160" } } });
+  const diagC = (await callR("/crm/amepi/diagnostic", { headers: auth, body: {} })).json;
+  ok(diagC.total === 2 && amepiAppels[amepiAppels.length - 1].corps.includes('"location":["33185","33160"]'), "le filtre par communes est transmis à AMEPI");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { enabled: false, relance: false, communes: "" } } });
 
   /* ---- Îlots CenturyNet : multi-polygones + import en masse --------------- */
   console.log("— Îlots CenturyNet : multi-polygones + import en masse");

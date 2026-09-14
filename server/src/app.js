@@ -21,6 +21,7 @@ import { promptFor } from "./prompts.js";
 import { now, monthKey, randId, randToken, sha256hex, hmacHex, safeEqual, costMicros, hashPassword, verifyPassword } from "./util.js";
 import { runRecap, buildRecap, envoyerMail } from "./recap.js";
 import * as CRM from "./crm.js";
+import * as AMEPI from "./amepi.js";
 import * as PERM from "./permanence.js";
 import * as GRAPH from "./graph.js";
 
@@ -1236,6 +1237,32 @@ export function createApp(env) {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const reglages = await CRM.getReglages(db, ctx.agency);
     return c.json({ summary: await CRM.runRelances(env, db, ctx.agency, reglages) });
+  });
+
+  /* ---------------------- Fichier des mandats AMEPI ---------------------- */
+  // Les biens des confrères (Amanda), relevés par le serveur avec les
+  // identifiants posés en secrets. Liste, relevé à la demande (par pages,
+  // comme le cron), diagnostic de connexion avec les données brutes.
+  app.get("/crm/amepi", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    const biens = await AMEPI.listerAmepi(db, ctx.agency.id, "");
+    return c.json({ configure: AMEPI.amepiConfigure(env), reglages: reglages.amepi, etat: await AMEPI.etatAmepi(db, ctx.agency.id),
+      biens, enVente: biens.filter((b) => b.statut === "en_vente").length });
+  });
+  app.post("/crm/amepi/sync", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => ({}));
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    try {
+      return c.json({ ok: true, stats: await AMEPI.syncAmepi(env, db, ctx.agency, reglages, { recommencer: !!(b && b.recommencer) }) });
+    } catch (e) { return err(c, 502, e.message); }
+  });
+  app.post("/crm/amepi/diagnostic", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const reglages = await CRM.getReglages(db, ctx.agency);
+    try { return c.json(await AMEPI.diagnosticAmepi(env, reglages)); }
+    catch (e) { return err(c, 502, e.message); }
   });
 
   app.get("/crm/annonces", async (c) => {

@@ -693,3 +693,46 @@ CREATE TABLE IF NOT EXISTS crm_corbeille (
   restored_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_crm_corbeille_ag ON crm_corbeille(agency_id, restored_at, created_at);
+
+-- Le FICHIER DES MANDATS AMEPI (Amanda) : les biens à la vente des confrères
+-- de l'AMEPI (et les nôtres), relevés chaque nuit par le connecteur. Ils
+-- nourrissent le rapprochement acquéreurs — signalés « confrère », et
+-- proposés aux clients seulement si l'agence l'a choisi (délégation).
+CREATE TABLE IF NOT EXISTS crm_amepi (
+  agency_id   TEXT NOT NULL REFERENCES agencies(id),
+  id          TEXT NOT NULL,                 -- identifiant du mandat chez AMEPI
+  ref         TEXT NOT NULL DEFAULT '',      -- référence du mandat (confrère)
+  agence      TEXT NOT NULL DEFAULT '',      -- agence détentrice du mandat
+  source      TEXT NOT NULL DEFAULT '',      -- 1 mon agence | 2 mon ALFA | 3 ALFA voisines
+  type        TEXT NOT NULL DEFAULT '',      -- maison | appartement | terrain | …
+  prix        INTEGER,
+  ancien_prix INTEGER,
+  ville       TEXT NOT NULL DEFAULT '',
+  cp          TEXT NOT NULL DEFAULT '',
+  pieces      INTEGER,
+  chambres    INTEGER,
+  surface     REAL,
+  terrain     REAL,
+  lat         REAL,
+  lng         REAL,
+  etat_id     INTEGER NOT NULL DEFAULT 1,   -- transactionStateId AMEPI (1 = en vente)
+  statut      TEXT NOT NULL DEFAULT 'en_vente', -- en_vente | compromis | vendu | retiree | autre
+  image       TEXT NOT NULL DEFAULT '',
+  url         TEXT NOT NULL DEFAULT '',
+  maj         TEXT NOT NULL DEFAULT '',      -- date de mise à jour côté AMEPI
+  first_seen  INTEGER NOT NULL,
+  last_seen   INTEGER NOT NULL,
+  PRIMARY KEY (agency_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_crm_amepi_statut ON crm_amepi(agency_id, statut);
+
+-- Où en est le relevé AMEPI (il avance par pages, d'un appel à l'autre).
+CREATE TABLE IF NOT EXISTS crm_amepi_etat (
+  agency_id  TEXT PRIMARY KEY,
+  debut      INTEGER NOT NULL DEFAULT 0,     -- début du relevé en cours (epoch s)
+  page       INTEGER NOT NULL DEFAULT 0,     -- prochaine page à lire (0 = pas de relevé en cours)
+  total      INTEGER NOT NULL DEFAULT 0,     -- total annoncé par AMEPI
+  fini_le    INTEGER NOT NULL DEFAULT 0,     -- dernier relevé complet
+  erreur     TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL DEFAULT 0
+);

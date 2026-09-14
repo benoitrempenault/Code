@@ -218,6 +218,28 @@
       <p class="petit" id="annonces-etat"></p>
     </div>
     <div class="carte">
+      <h2>Fichier des mandats AMEPI (confrères)</h2>
+      <p class="aide">Le serveur se connecte à Amanda chaque nuit avec le compte de l'agence (identifiants posés en
+        secrets sur le serveur, jamais ici) et relève les biens à la vente du fichier partagé. Ils sont
+        <strong>signalés</strong> dans le rapprochement acquéreurs avec le nom de l'agence détentrice ; ils ne sont
+        <strong>proposés aux clients</strong> par les relances que si vous cochez « proposer » (délégation de mandat).</p>
+      <div class="barre">
+        <label class="case"><input type="checkbox" id="amepi-enabled" /> <strong>Relever le fichier AMEPI chaque nuit</strong></label>
+        <label class="case"><input type="checkbox" id="amepi-src-1" checked /> Mon agence</label>
+        <label class="case"><input type="checkbox" id="amepi-src-2" checked /> Mon ALFA</label>
+        <label class="case"><input type="checkbox" id="amepi-src-3" checked /> ALFA voisines</label>
+      </div>
+      <div class="barre">
+        <label class="case"><input type="checkbox" id="amepi-relance" /> Proposer aussi ces biens aux acquéreurs (relances)</label>
+        <input id="amepi-communes" placeholder="Codes postaux (optionnel) : 33160, 33185…" style="min-width:260px;" />
+        <button class="btn btn-or" id="btn-amepi-save">Enregistrer</button>
+        <button class="btn" id="btn-amepi-test">🔌 Tester la connexion</button>
+        <button class="btn" id="btn-amepi-sync">🔄 Relever maintenant</button>
+      </div>
+      <p class="petit" id="amepi-etat">Chargement…</p>
+      <div id="table-amepi"></div>
+    </div>
+    <div class="carte">
       <h2>Mouvements récents</h2>
       <div id="table-mouvements"></div>
     </div>

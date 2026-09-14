@@ -954,6 +954,84 @@
     $("ag-logo").value = reglages.agence.logoUrl || "";
     $("ag-signataire").value = reglages.agence.signataire || "";
     $("ag-fonction").value = reglages.agence.fonction || "";
+    const am = reglages.amepi || {};
+    $("amepi-enabled").checked = !!am.enabled;
+    $("amepi-relance").checked = !!am.relance;
+    ["1", "2", "3"].forEach((k) => { $("amepi-src-" + k).checked = !am.sources || am.sources.includes(k); });
+    $("amepi-communes").value = am.communes || "";
+  }
+  /* ------------------------------- AMEPI --------------------------------- */
+  // Le fichier des mandats des confrères : liste, relevé (par pages, jusqu'au
+  // bout), diagnostic de connexion avec les données brutes (à me montrer si
+  // un champ ne colle pas).
+  function reglagesAmepiSaisis() {
+    return {
+      enabled: $("amepi-enabled").checked, relance: $("amepi-relance").checked,
+      sources: ["1", "2", "3"].filter((k) => $("amepi-src-" + k).checked), communes: $("amepi-communes").value.trim(),
+    };
+  }
+  async function chargerAmepi() {
+    const etat = $("amepi-etat"), zone = $("table-amepi");
+    if (!etat) return;
+    let d;
+    try { d = await api("/crm/amepi"); } catch (e) { etat.textContent = e.message; return; }
+    const e = d.etat || {};
+    etat.textContent = (!d.configure ? "⚠️ Identifiants AMEPI absents du serveur (AMEPI_EMAIL / AMEPI_PASSWORD à poser sur le Worker). " : "") +
+      (d.biens.length
+        ? d.enVente + " bien(s) en vente sur " + d.biens.length + " connus" +
+          (e.fini_le ? " — dernier relevé complet le " + new Date(e.fini_le * 1000).toLocaleString("fr-FR") : "") +
+          (e.page ? " — relevé en cours (page " + e.page + ")" : "") + (e.erreur ? " — dernière erreur : " + e.erreur : "")
+        : "Aucun bien relevé pour l'instant." + (e.erreur ? " Dernière erreur : " + e.erreur : ""));
+    const enVente = d.biens.filter((b) => b.statut === "en_vente").slice(0, 150);
+    zone.innerHTML = enVente.length
+      ? '<div class="tableau-cadre"><table><thead><tr><th>Bien</th><th>Ville</th><th>Prix</th><th>Agence</th><th>Réf.</th><th>MAJ</th></tr></thead><tbody>' +
+        enVente.map((b) => '<tr class="cliquable" data-url="' + escH(b.url) + '"><td>' +
+          escH([TYPES_AMEPI[b.type] || b.type || "Bien", b.pieces ? b.pieces + " p." : "", b.surface ? Math.round(b.surface) + " m²" : ""].filter(Boolean).join(" · ")) +
+          (b.ancien_prix ? ' <span class="puce">⬇ était ' + fmtPrix(b.ancien_prix) + "</span>" : "") + "</td><td>" + escH(b.ville) + "</td><td>" + fmtPrix(b.prix) +
+          "</td><td>" + escH(b.agence) + "</td><td>" + escH(b.ref) + "</td><td>" + escH((b.maj || "").slice(0, 10)) + "</td></tr>").join("") +
+        "</tbody></table></div>" + (d.enVente > 150 ? '<p class="petit">Les 150 premiers biens sur ' + d.enVente + ".</p>" : "")
+      : "";
+    zone.querySelectorAll("tr[data-url]").forEach((tr) => tr.addEventListener("click", () => window.open(tr.dataset.url, "_blank", "noopener")));
+  }
+  const TYPES_AMEPI = { maison: "Maison", appartement: "Appartement", terrain: "Terrain", parking: "Parking", immeuble: "Immeuble", local: "Local", bureau: "Bureau", autre: "Divers" };
+  async function releverAmepi() {
+    const btn = $("btn-amepi-sync");
+    btn.disabled = true;
+    try {
+      let total = { pages: 0, biens: 0, nouveaux: 0, baisses: 0, retirees: 0 }, tours = 0;
+      while (tours++ < 30) {
+        const { stats } = await api("/crm/amepi/sync", { json: {} });
+        for (const k of Object.keys(total)) total[k] += stats[k] || 0;
+        $("amepi-etat").textContent = "Relevé en cours… " + total.biens + " bien(s) lus";
+        if (stats.fini) break;
+      }
+      toast("Fichier AMEPI relevé : " + total.biens + " biens, " + total.nouveaux + " nouveaux, " + total.baisses + " baisse(s), " + total.retirees + " retiré(s)");
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = false;
+    chargerAmepi(); chargerAcheteurs();
+  }
+  async function testerAmepi() {
+    const btn = $("btn-amepi-test");
+    btn.disabled = true;
+    try {
+      const d = await api("/crm/amepi/diagnostic", { json: {} });
+      const texte = JSON.stringify(d, null, 2);
+      ouvrirModale("🔌 Connexion AMEPI : OK",
+        '<p class="aide">Connexion réussie — ' + d.total + " bien(s) dans le fichier avec les réglages actuels. Ci-dessous, les 3 premiers biens " +
+        'tels qu\'AMEPI les envoie (« bruts ») et tels que Studio les lit (« lus »). Si une valeur lue est vide ou fausse, copiez ce bloc et envoyez-le moi.</p>' +
+        '<textarea id="amepi-diag" readonly style="width:100%; min-height:320px; font:12px/1.4 ui-monospace, monospace;">' + escH(texte) + "</textarea>",
+        '<button class="btn" id="amepi-copier">📋 Copier</button><button class="btn btn-or" id="modale-ok">Fermer</button>');
+      $("modale-ok").addEventListener("click", fermerModale);
+      $("amepi-copier").addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(texte); toast("Copié"); } catch { $("amepi-diag").select(); }
+      });
+    } catch (e) {
+      ouvrirModale("🔌 Connexion AMEPI : échec", '<p class="aide">' + escH(e.message) + "</p>" +
+        '<p class="petit">Les identifiants se posent sur le Worker Cloudflare (Variables et secrets) : AMEPI_EMAIL et AMEPI_PASSWORD. Après un changement de mot de passe sur Amanda, mettez le secret à jour.</p>',
+        '<button class="btn btn-or" id="modale-ok">Fermer</button>');
+      $("modale-ok").addEventListener("click", fermerModale);
+    }
+    btn.disabled = false;
   }
   async function sauverReglages(partiel, message) {
     try {
@@ -1100,7 +1178,8 @@
           (r.contacts[0] && r.contacts[0].conseiller ? '<br><span class="puce grise">' + escH(r.contacts[0].conseiller) + "</span>" : "") + "</td>" +
           "<td>" + r.matches.slice(0, 6).map((m) =>
             '<a href="' + escH(m.url) + '" target="_blank" rel="noopener" style="color:inherit; text-decoration:none;">' +
-            '<span class="puce">' + escH(m.titre) + " — " + fmtPrix(m.prix) + "</span></a>").join(" ") +
+            '<span class="puce' + (m.source === "amepi" ? " amepi" : "") + '"' + (m.source === "amepi" ? ' title="Bien du fichier AMEPI — mandat détenu par ' + escH(m.agence || "un confrère") + '"' : "") + ">" +
+            (m.source === "amepi" ? "🤝 " : "") + escH(m.titre) + " — " + fmtPrix(m.prix) + (m.source === "amepi" && m.agence ? " · " + escH(m.agence) : "") + "</span></a>").join(" ") +
           (r.matches.length > 6 ? ' <span class="puce grise">+' + (r.matches.length - 6) + "</span>" : "") +
           "</td></tr>").join("") +
         "</tbody></table></div>"
@@ -1685,7 +1764,7 @@
     rendreContacts();
     chargerUpcoming();
     chargerEnvois();
-    chargerAnnonces();
+    chargerAnnonces(); chargerAmepi();
     chargerAcheteurs();
     chargerRelances();
     chargerEstimations();
@@ -1845,6 +1924,9 @@
     annonces: { autoSync: $("annonces-auto").checked, siteUrl: $("annonces-site").value.trim() },
   }, "Réglages annonces enregistrés"));
   $("btn-annonces-sync").addEventListener("click", releverAnnonces);
+  $("btn-amepi-save").addEventListener("click", () => sauverReglages({ amepi: reglagesAmepiSaisis() }, "Réglages AMEPI enregistrés").then(chargerAmepi));
+  $("btn-amepi-test").addEventListener("click", testerAmepi);
+  $("btn-amepi-sync").addEventListener("click", releverAmepi);
   $("btn-reglages-save").addEventListener("click", () => sauverReglages({
     agence: {
       nom: $("ag-nom").value.trim(), adresse: $("ag-adresse").value.trim(),
