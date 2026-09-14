@@ -54,4 +54,18 @@ jobs:
 
       - name: Déployer le Worker
         working-directory: server
-        run: npx --yes wrangler@4 deploy
+        # Le SHA déployé est injecté dans le Worker et publié par /health.
+        run: npx --yes wrangler@4 deploy --var DEPLOY_COMMIT:${GITHUB_SHA}
+
+      - name: Vérifier en production (/health répond ok et porte ce commit)
+        run: |
+          set -e
+          for i in 1 2 3 4 5 6; do
+            sleep 10
+            body=$(curl -sS --max-time 20 https://studio-brochure-api.studiobrochure.workers.dev/health || true)
+            echo "$body"
+            if echo "$body" | grep -q "\"ok\":true" && echo "$body" | grep -q "$GITHUB_SHA"; then
+              echo "Production à jour sur $GITHUB_SHA."; exit 0
+            fi
+          done
+          echo "::error::/health ne porte pas le commit déployé (ou ok:false) après 60 s."; exit 1

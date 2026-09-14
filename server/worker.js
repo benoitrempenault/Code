@@ -57,6 +57,9 @@ export default {
       KADIMA_SSO_SECRET: env.KADIMA_SSO_SECRET || "",
       KADIMA_AGENCY_ID: env.KADIMA_AGENCY_ID || "",
       KADIMA_COLLAB_EMAIL: env.KADIMA_COLLAB_EMAIL || "",
+      // Commit déployé (posé par le workflow : wrangler deploy --var) — publié
+      // par /health pour savoir QUEL code tourne, sans deviner.
+      DEPLOY_COMMIT: env.DEPLOY_COMMIT || "",
       DEV_MODE: false
     });
     return app.fetch(request, env, ctx);

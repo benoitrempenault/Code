@@ -193,8 +193,11 @@ export function createApp(env) {
       await db.run("INSERT OR IGNORE INTO ai_rate (scope, minute, n) VALUES ('health', ?, 0)", [Math.floor(now() / 60)]);
       d1.ecriture = "ok";
     } catch (e) { d1.ecriture = String((e && e.message) || e).slice(0, 200); }
+    // commit : le SHA déployé (workflow) — null en local. C'est ce qui permet
+    // de diagnostiquer sur le code qui tourne vraiment, pas sur une branche.
     return c.json({ ok: d1.lecture === "ok" && d1.ecriture === "ok", ts: now(), devices: MAX_SESSIONS,
-      session_jours: SESSION_TTL / 86400, session_max_jours: SESSION_MAX_AGE / 86400, d1 });
+      session_jours: SESSION_TTL / 86400, session_max_jours: SESSION_MAX_AGE / 86400, d1,
+      commit: env.DEPLOY_COMMIT || null });
   });
 
   /* --------------------------- Authentification ------------------------- */
