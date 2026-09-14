@@ -53,7 +53,7 @@
   }
 
   // Un jeton déjà stocké sur ce poste n'est pas forcément encore ACCEPTÉ :
-  // 30 jours sans usage, révocation, table remise à zéro… On le vérifie
+  // 7 jours sans usage, 90 jours en tout, révocation, table remise à zéro… On le vérifie
   // auprès du serveur avant de renoncer à l'échange — sinon repasser par
   // la porte collaborateurs ne réparait jamais une « Session expirée ».
   var stocke = "";

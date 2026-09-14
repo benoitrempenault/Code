@@ -46,7 +46,7 @@
 
   function delay(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
-  // 401 en mode session : le serveur ne reconnaît plus le jeton (30 jours
+  // 401 en mode session : le serveur ne reconnaît plus le jeton (7 jours
   // sans usage, révocation, plafond d'appareils). On le PURGE — sinon il
   // masquait une clé personnelle saisie — et on marque l'erreur (code
   // "session") pour que l'app propose la reconnexion en un clic.

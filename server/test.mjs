@@ -438,12 +438,28 @@ const gen = await call("/v1/messages", {
 ok(gen.status === 200 && gen.json.usage, "appel IA relayé et réponse transmise");
 ok(upstreamCalls[0].headers["x-api-key"] === "sk-ant-fake-server-key", "clé serveur utilisée (jamais celle du client)");
 ok(upstreamCalls[0].body.max_tokens <= 8192, "max_tokens plafonné");
+// Régression : le chemin « gros corps » retirait messages de TOUS les corps —
+// Anthropic répondait « messages: Field required » sur chaque appel courant.
+ok(Array.isArray(upstreamCalls[0].body.messages) && upstreamCalls[0].body.messages[0].content === "test",
+  "messages du client relayés à Anthropic (corps ordinaire)");
 const anon = await call("/v1/messages", { body: { model: "claude-opus-4-8", messages: [] } });
 ok(anon.status === 401, "sans session : refusé");
 const badModel = await call("/v1/messages", { headers: { Authorization: "Bearer " + s3 }, body: { model: "gpt-9", messages: [] } });
 ok(badModel.status === 400, "modèle hors liste refusé");
 const meAfter = await call("/me", { headers: { Authorization: "Bearer " + s3 } });
 ok(meAfter.json.usage.requests === 1 && meAfter.json.usage.cost_eur > 0, "usage journalisé (" + meAfter.json.usage.cost_eur + " €)");
+{
+const grosTexteProxy = "x".repeat(1_200_000);
+const grosProxy = await call("/v1/messages", {
+  headers: { Authorization: "Bearer " + s3 },
+  body: { model: "claude-sonnet-5", max_tokens: 1200, task: "ad_text", messages: [{ role: "user", content: grosTexteProxy }] }
+});
+const grosUpProxy = upstreamCalls[upstreamCalls.length - 1];
+ok(grosProxy.status === 200 && grosUpProxy.body.messages && grosUpProxy.body.messages[0].content === grosTexteProxy,
+  "gros corps (> 1 Mo) : messages recollés intacts sans désérialisation");
+ok(grosUpProxy.body.task === undefined && /ANNONCE IMMOBILIÈRE/.test(grosUpProxy.body.system || "") && grosUpProxy.body.model === "claude-sonnet-5",
+  "gros corps : prompt serveur injecté, task retiré, modèle conservé");
+}
 
 console.log("— Prompts côté serveur (body.task)");
 const taskCall = await call("/v1/messages", {
