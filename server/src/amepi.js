@@ -17,6 +17,12 @@ export const AMEPI_ETATS = { 1: "en_vente", 2: "compromis", 3: "vendu", 6: "autr
 const PAR_PAGE = 100;      // biens par page demandés à AMEPI
 const PAGES_PAR_APPEL = 8; // pages lues par appel (cron ou bouton) : 8 fetch + 8 requêtes D1
 
+// Amanda répond à un navigateur : on s'annonce comme tel (certains pare-feux
+// renvoient une page vide ou une redirection aux clients anonymes).
+const ENTETES_NAVIGATEUR = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36 StudioKadima/1.0",
+  Accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8", "Accept-Language": "fr-FR,fr;q=0.9",
+};
 const sqlText = (v) => "'" + String(v ?? "").replace(/'/g, "''") + "'";
 const sqlNum = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? "NULL" : String(Number(v)));
 
@@ -42,7 +48,7 @@ function jetonDe(html) {
 // (204 = aucune → 0, comme le fait le script du site).
 async function agencePrincipale(base, email, cookie) {
   try {
-    const r = await fetch(base + "/api/getMainAgency?login=" + encodeURIComponent(email), { headers: { Accept: "application/json", Cookie: cookie } });
+    const r = await fetch(base + "/api/getMainAgency?login=" + encodeURIComponent(email), { headers: { ...ENTETES_NAVIGATEUR, Accept: "application/json", Cookie: cookie } });
     if (r.status !== 200) return "0";
     const j = await r.json().catch(() => null);
     return j && j.id !== undefined && j.id !== null ? String(j.id) : "0";
@@ -58,13 +64,21 @@ export function amepiConfigure(env) { return !!(env.AMEPI_EMAIL && env.AMEPI_PAS
 
 // Ouvre une session AMEPI : { base, cookie }. Lève une erreur lisible sinon.
 export async function connexionAmepi(env) {
-  const base = String(env.AMEPI_BASE || BASE_DEFAUT).replace(/\/$/, "");
+  let base = String(env.AMEPI_BASE || BASE_DEFAUT).trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(base)) base = "https://" + base;
   if (!amepiConfigure(env)) throw new Error("Identifiants AMEPI absents du serveur — posez AMEPI_EMAIL et AMEPI_PASSWORD (secrets du Worker).");
-  const r1 = await fetch(base + "/Account/Login", { redirect: "manual", headers: { Accept: "text/html" } });
+  // La page de connexion : on suit les redirections (http → https, nom
+  // canonique du site…) et on garde l'origine finale pour la suite.
+  const r1 = await fetch(base + "/Account/Login", { redirect: "follow", headers: ENTETES_NAVIGATEUR });
   const html = await r1.text();
+  try { base = new URL(r1.url || base).origin; } catch { }
   let jar = cookiesDe(r1);
   const jeton = jetonDe(html);
-  if (!jeton) throw new Error("Page de connexion AMEPI inattendue (pas de jeton anti-falsification).");
+  if (!r1.ok || !jeton) {
+    const titre = (/<title>([^<]*)<\/title>/i.exec(html) || [])[1] || "";
+    const extrait = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 140);
+    throw new Error(`Page de connexion AMEPI inattendue (statut ${r1.status}, ${r1.url || base}${titre ? ", titre « " + titre.trim() + " »" : ""}${extrait ? ", début : « " + extrait + " »" : ""}) — pas de jeton anti-falsification.`);
+  }
   const agence = env.AMEPI_AGENCY || await agencePrincipale(base, env.AMEPI_EMAIL, jar.join("; "));
   const corps = new URLSearchParams({
     Email: env.AMEPI_EMAIL, Password: env.AMEPI_PASSWORD, RememberMe: "false",
@@ -72,7 +86,7 @@ export async function connexionAmepi(env) {
   });
   const r2 = await fetch(base + "/Account/Login", {
     method: "POST", redirect: "manual",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", Cookie: jar.join("; "), Accept: "text/html" },
+    headers: { ...ENTETES_NAVIGATEUR, "Content-Type": "application/x-www-form-urlencoded", Cookie: jar.join("; "), Referer: base + "/Account/Login", Origin: base },
     body: corps.toString(),
   });
   jar = fusionnerCookies(jar, cookiesDe(r2));
@@ -99,7 +113,7 @@ export function formulaireAmepi({ login = "", sources = ["1", "2", "3"], page = 
 export async function rechercherAmepi(session, formulaire) {
   const r = await fetch(session.base + "/search", {
     method: "POST", redirect: "manual",
-    headers: { "Content-Type": "application/json;charset=utf-8", Accept: "application/json", Cookie: session.cookie },
+    headers: { ...ENTETES_NAVIGATEUR, "Content-Type": "application/json;charset=utf-8", Accept: "application/json", Cookie: session.cookie, Referer: session.base + "/mandate/search", "X-Requested-With": "XMLHttpRequest" },
     body: JSON.stringify(formulaire),
   });
   if (r.status === 302 || r.status === 401 || r.status === 403) throw new Error("Session AMEPI refusée sur /search (statut " + r.status + ").");
