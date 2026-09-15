@@ -75,7 +75,7 @@ export function createApp(env) {
     // X-Admin-Key : console d'administration · X-User-Key : clé Anthropic
     // personnelle relayée. Sans ces deux en-têtes ici, le navigateur bloque
     // l'appel au vol plané (préflight) avant même de l'envoyer.
-    allowHeaders: ["Authorization", "Content-Type", "X-Admin-Key", "X-User-Key"],
+    allowHeaders: ["Authorization", "Content-Type", "X-Admin-Key", "X-User-Key", "X-Agent-Key"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
   }));
 
@@ -1247,8 +1247,9 @@ export function createApp(env) {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const reglages = await CRM.getReglages(db, ctx.agency);
     const biens = await AMEPI.listerAmepi(db, ctx.agency.id, "");
+    const cle = await db.get("SELECT label, created_at, last_used FROM crm_agent_keys WHERE agency_id = ? AND usage = 'amepi' AND revoked = 0", [ctx.agency.id]);
     return c.json({ configure: AMEPI.amepiConfigure(env), reglages: reglages.amepi, etat: await AMEPI.etatAmepi(db, ctx.agency.id),
-      biens, enVente: biens.filter((b) => b.statut === "en_vente").length });
+      agent: cle || null, biens, enVente: biens.filter((b) => b.statut === "en_vente").length });
   });
   app.post("/crm/amepi/sync", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
@@ -1258,6 +1259,37 @@ export function createApp(env) {
       return c.json({ ok: true, stats: await AMEPI.syncAmepi(env, db, ctx.agency, reglages, { recommencer: !!(b && b.recommencer) }) });
     } catch (e) { return err(c, 502, e.message); }
   });
+  // La clé de l'AGENT (programme qui tourne à l'agence et dépose le fichier
+  // AMEPI) : générée une fois, montrée une fois, révocable. Une seule clé
+  // active par agence et par usage.
+  app.post("/crm/amepi/cle", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    await db.run("UPDATE crm_agent_keys SET revoked = 1 WHERE agency_id = ? AND usage = 'amepi'", [ctx.agency.id]);
+    const cle = "ak_" + randToken(24);
+    await db.run("INSERT INTO crm_agent_keys (key_hash, agency_id, usage, label, created_at) VALUES (?, ?, 'amepi', ?, ?)",
+      [await sha256hex(cle), ctx.agency.id, "Agent AMEPI (" + (ctx.user.name || ctx.user.email) + ")", now()]);
+    return c.json({ ok: true, cle, api: (env.APP_API_BASE || "") });
+  });
+  app.delete("/crm/amepi/cle", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const r = await db.run("UPDATE crm_agent_keys SET revoked = 1 WHERE agency_id = ? AND usage = 'amepi' AND revoked = 0", [ctx.agency.id]);
+    return c.json({ ok: true, revoquees: changesOf(r) });
+  });
+  // Dépôt d'une page brute du fichier AMEPI par l'agent (clé dédiée).
+  app.post("/crm/amepi/import", async (c) => {
+    const cle = String(c.req.header("X-Agent-Key") || "").trim();
+    if (!cle) return err(c, 401, "Clé d'agent absente (en-tête X-Agent-Key).");
+    const k = await db.get("SELECT * FROM crm_agent_keys WHERE key_hash = ? AND usage = 'amepi' AND revoked = 0", [await sha256hex(cle)]);
+    if (!k) return err(c, 401, "Clé d'agent inconnue ou révoquée — générez-en une nouvelle dans l'Administration.");
+    const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [k.agency_id]);
+    if (!agency || !agencyOpen(agency)) return err(c, 402, "Abonnement inactif.");
+    const b = await c.req.json().catch(() => null);
+    if (!b || !Array.isArray(b.mandats)) return err(c, 400, "Corps JSON attendu : { mandats: [...], debut?, fini?, total? }.");
+    if (b.mandats.length > 500) return err(c, 400, "500 mandats au plus par dépôt.");
+    await db.run("UPDATE crm_agent_keys SET last_used = ? WHERE key_hash = ?", [now(), k.key_hash]);
+    return c.json({ ok: true, stats: await AMEPI.importerAmepi(db, agency, b) });
+  });
+
   app.post("/crm/amepi/diagnostic", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const reglages = await CRM.getReglages(db, ctx.agency);

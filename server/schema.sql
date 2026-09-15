@@ -736,3 +736,17 @@ CREATE TABLE IF NOT EXISTS crm_amepi_etat (
   erreur     TEXT NOT NULL DEFAULT '',
   updated_at INTEGER NOT NULL DEFAULT 0
 );
+
+-- Clés des AGENTS : un programme qui tourne à l'agence (relevé AMEPI depuis
+-- le réseau de l'agence) dépose ses données avec une clé dédiée, distincte
+-- des sessions (qui expirent en 7 jours). Une clé par usage, révocable.
+CREATE TABLE IF NOT EXISTS crm_agent_keys (
+  key_hash   TEXT PRIMARY KEY,               -- sha256(clé)
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  usage      TEXT NOT NULL DEFAULT 'amepi',  -- amepi | …
+  label      TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  last_used  INTEGER NOT NULL DEFAULT 0,
+  revoked    INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_crm_agent_keys_ag ON crm_agent_keys(agency_id, usage, revoked);

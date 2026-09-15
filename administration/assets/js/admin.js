@@ -976,7 +976,10 @@
     let d;
     try { d = await api("/crm/amepi"); } catch (e) { etat.textContent = e.message; return; }
     const e = d.etat || {};
-    etat.textContent = (!d.configure ? "⚠️ Identifiants AMEPI absents du serveur (AMEPI_EMAIL / AMEPI_PASSWORD à poser sur le Worker). " : "") +
+    const agent = d.agent
+      ? "Agent : clé active" + (d.agent.last_used ? ", dernier dépôt le " + new Date(d.agent.last_used * 1000).toLocaleString("fr-FR") : ", jamais utilisée") + ". "
+      : "Agent : aucune clé — cliquez « 🔑 Clé de l'agent ». ";
+    etat.textContent = agent +
       (d.biens.length
         ? d.enVente + " bien(s) en vente sur " + d.biens.length + " connus" +
           (e.fini_le ? " — dernier relevé complet le " + new Date(e.fini_le * 1000).toLocaleString("fr-FR") : "") +
@@ -1009,6 +1012,25 @@
     } catch (e) { toast(e.message, true); }
     btn.disabled = false;
     chargerAmepi(); chargerAcheteurs();
+  }
+  async function cleAgentAmepi() {
+    const d = await api("/crm/amepi").catch(() => null);
+    if (d && d.agent && !window.confirm("Une clé d'agent est déjà active. En générer une nouvelle la remplace : l'agent installé devra être mis à jour. Continuer ?")) return;
+    try {
+      const r = await api("/crm/amepi/cle", { json: {} });
+      ouvrirModale("🔑 Clé de l'agent AMEPI",
+        '<p class="aide">Copiez cette clé dans le fichier <code>config.json</code> de l\'agent (champ <code>studio_cle</code>). ' +
+        "Elle n'est affichée qu'une fois ; en générer une autre remplace celle-ci.</p>" +
+        '<textarea id="amepi-cle" readonly style="width:100%; min-height:60px; font:14px ui-monospace, monospace;">' + escH(r.cle) + "</textarea>" +
+        '<p class="petit">Adresse de l\'API à mettre dans <code>studio_api</code> : ' + escH(API) + "</p>",
+        '<button class="btn btn-danger" id="amepi-cle-revoquer">Révoquer la clé</button><button class="btn" id="amepi-cle-copier">📋 Copier</button><button class="btn btn-or" id="modale-ok">Fermer</button>');
+      $("modale-ok").addEventListener("click", () => { fermerModale(); chargerAmepi(); });
+      $("amepi-cle-copier").addEventListener("click", async () => { try { await navigator.clipboard.writeText(r.cle); toast("Clé copiée"); } catch { $("amepi-cle").select(); } });
+      $("amepi-cle-revoquer").addEventListener("click", async () => {
+        try { await api("/crm/amepi/cle", { method: "DELETE" }); toast("Clé révoquée : l'agent ne peut plus déposer"); fermerModale(); chargerAmepi(); }
+        catch (e) { toast(e.message, true); }
+      });
+    } catch (e) { toast(e.message, true); }
   }
   async function testerAmepi() {
     const btn = $("btn-amepi-test");
@@ -1927,6 +1949,7 @@
   $("btn-amepi-save").addEventListener("click", () => sauverReglages({ amepi: reglagesAmepiSaisis() }, "Réglages AMEPI enregistrés").then(chargerAmepi));
   $("btn-amepi-test").addEventListener("click", testerAmepi);
   $("btn-amepi-sync").addEventListener("click", releverAmepi);
+  $("btn-amepi-cle").addEventListener("click", cleAgentAmepi);
   $("btn-reglages-save").addEventListener("click", () => sauverReglages({
     agence: {
       nom: $("ag-nom").value.trim(), adresse: $("ag-adresse").value.trim(),

@@ -381,6 +381,21 @@ simulé, capture d'écran dans captures/ au plantage), parcours suppression,
 anniversaires, suivi, fiche-adresse, compte ; job `parcours` dans ci.yml
 (Playwright + Chromium). En local : `SMOKE_CHROMIUM=<headless_shell>` avec
 playwright-core. `window.__carte` exposé par prospection.js (clics canvas).
+**AMEPI par l'agent de l'agence** (15/09) : Amanda refuse la connexion par mot
+de passe hors du réseau de l'agence (message passe-partout « Email ou mot de
+passe invalide », reproduit avec un vrai Chrome depuis le bac à sable ; la page
+envoie `SelectedAgency=0` et n'appelle jamais getMainAgency ; le lien magique
+n'arrive pas). D'où `tools/agent-amepi/` : `agent-amepi.ps1` (PowerShell 5.1,
+tâche planifiée à l'ouverture de session via `installer.ps1`, `config.json`
+avec identifiants Amanda + clé d'agent) qui lit le fichier page par page et le
+dépose sur `POST /crm/amepi/import` (en-tête `X-Agent-Key`, ≤500 mandats,
+`{mandats, debut, fini, total, base, erreur}`) → `importerAmepi()` (mêmes
+helpers que le sync : `enregistrerLot`, `cloreReleve`, `journaliser`). Clés :
+table `crm_agent_keys` (hash, usage amepi, une active par agence),
+`POST/DELETE /crm/amepi/cle` (admin), bouton « 🔑 Clé de l'agent » (montrée une
+fois, révocable) ; GET /crm/amepi renvoie `agent` (label, last_used). La lecture
+des champs reste serveur (mapperMandat) : l'agent n'a jamais besoin d'être mis à
+jour pour un champ.
 **Fiches sans intérêt** (nettoyage, `SQL_SANS_INTERET`) : sans téléphone ni
 e-mail ni adresse ; prospect (seul type) sans adresse ; acquéreur (sans
 vendeur/estimé/bailleur) sans téléphone — jamais si la fiche porte un suivi,

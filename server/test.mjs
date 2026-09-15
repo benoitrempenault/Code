@@ -3158,6 +3158,31 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const diagC = (await callR("/crm/amepi/diagnostic", { headers: auth, body: {} })).json;
   ok(diagC.total === 2 && amepiAppels[amepiAppels.length - 1].corps.includes('"location":["33185","33160"]'), "le filtre par communes est transmis à AMEPI");
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { enabled: false, relance: false, communes: "" } } });
+  // L'agent de l'agence dépose le fichier page par page, avec sa clé.
+  console.log("— AMEPI : dépôt par l'agent de l'agence (clé dédiée)");
+  ok((await callR("/crm/amepi/import", { body: { mandats: [] } })).status === 401, "sans clé d'agent, le dépôt est refusé");
+  const cleA = (await callR("/crm/amepi/cle", { headers: auth, body: {} })).json;
+  ok(cleA.ok && /^ak_/.test(cleA.cle), "l'administrateur génère une clé d'agent");
+  ok((await callR("/crm/amepi", { headers: auth })).json.agent.label.startsWith("Agent AMEPI"), "la liste dit qu'une clé d'agent est active");
+  const enteteAgent = { "X-Agent-Key": cleA.cle };
+  await db.run("UPDATE crm_amepi SET last_seen = last_seen - 100 WHERE agency_id = ?", [agId]);
+  await db.run("UPDATE crm_amepi_etat SET fini_le = fini_le - 100 WHERE agency_id = ?", [agId]);
+  const dep1 = await callR("/crm/amepi/import", { headers: enteteAgent, body: { debut: true, total: 2, mandats: [
+    { id: 501, mandateRef: "K-501", agencyName: "Agence Confrère A", sourceTypeId: 2, assetTypeId: 2, price: 320000, publicTown: "Le Haillan", publicPostalCode: "33185", numberOfRooms: 5, livingArea: 110, latitude: 44.87, longitude: -0.68, transactionStateId: 1 },
+  ] } });
+  ok(dep1.status === 200 && dep1.json.stats.biens === 1 && dep1.json.stats.baisses === 1 && !dep1.json.stats.fini, "première page déposée : la baisse est vue, le relevé reste ouvert");
+  const dep2 = await callR("/crm/amepi/import", { headers: enteteAgent, body: { fini: true, total: 2, mandats: [
+    { id: 504, mandateRef: "K-504", agencyName: "Agence Confrère C", sourceTypeId: 3, assetTypeId: 1, price: 150000, publicTown: "Pessac", publicPostalCode: "33600", numberOfRooms: 3, livingArea: 60, transactionStateId: 1 },
+  ] } });
+  ok(dep2.status === 200 && dep2.json.stats.nouveaux === 1 && dep2.json.stats.fini && dep2.json.stats.retirees === 0,
+     "dernière page : nouveau bien, relevé clos ; le bien sous compromis non revu n'est pas compté « retiré » (" + JSON.stringify(dep2.json.stats) + ")");
+  const listeA = (await callR("/crm/amepi", { headers: auth })).json;
+  ok(listeA.biens.find((b) => b.id === "501").prix === 320000 && listeA.biens.find((b) => b.id === "503").statut === "compromis" &&
+     listeA.biens.find((b) => b.id === "504").url === "https://agglomeration-bordelaise.amepi.info/mandate/details/504" && listeA.etat.page === 0 && listeA.agent.last_used > 0,
+     "prix à jour, retrait posé, lien vers Amanda, relevé terminé, clé marquée utilisée");
+  ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: new Array(501).fill({ id: 1 }) } })).status === 400, "plus de 500 mandats par dépôt : refusé");
+  await callR("/crm/amepi/cle", { headers: auth, method: "DELETE" });
+  ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: [] } })).status === 401, "une clé révoquée ne dépose plus rien");
 
   /* ---- Îlots CenturyNet : multi-polygones + import en masse --------------- */
   console.log("— Îlots CenturyNet : multi-polygones + import en masse");

@@ -1,0 +1,37 @@
+# Agent AMEPI — relevé du fichier des mandats depuis l'agence
+
+Amanda (agglomeration-bordelaise.amepi.info) refuse les connexions par mot de passe
+qui ne viennent pas du réseau de l'agence. Ce petit programme tourne donc sur un
+poste de l'agence : il se connecte à Amanda comme votre navigateur, lit le fichier
+des mandats et le dépose sur Studio Kadima. Rien à installer : PowerShell est déjà
+dans Windows.
+
+## Installation (5 minutes, une seule fois)
+
+1. Copiez le dossier `agent-amepi` sur le PC (par exemple dans `Documents`).
+2. Dans l'Administration de Studio → onglet Annonces → carte « Fichier des mandats
+   AMEPI » → **« 🔑 Clé de l'agent »** : copiez la clé affichée (elle n'est montrée
+   qu'une fois).
+3. Copiez `config.exemple.json` en `config.json` et remplissez-le : votre e-mail et
+   votre mot de passe Amanda, la clé de l'agent. Laissez le reste tel quel.
+4. Clic droit sur `installer.ps1` → « Exécuter avec PowerShell ». Cela installe la
+   tâche planifiée « Studio Kadima - Agent AMEPI » (lancée à chaque ouverture de
+   session, deux minutes après) et fait un premier relevé tout de suite.
+5. Dans l'Administration, la carte AMEPI affiche le nombre de biens relevés.
+
+## Au quotidien
+
+Rien à faire : à chaque ouverture de session Windows, le relevé se fait tout seul.
+Le journal est dans `agent-amepi.log` à côté du script. Si Amanda refuse la
+connexion (mot de passe changé), l'erreur remonte aussi dans l'Administration.
+
+## Si vous changez de mot de passe Amanda
+
+Modifiez `amepi_password` dans `config.json`. C'est tout.
+
+## Sécurité
+
+- Le mot de passe Amanda reste dans `config.json`, sur ce PC : ne partagez pas le
+  dossier.
+- La clé de l'agent ne permet que de déposer le fichier AMEPI (rien d'autre). Elle se
+  révoque d'un clic dans l'Administration (« Révoquer »), ce qui bloque l'agent.

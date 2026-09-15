@@ -232,6 +232,62 @@ export function communesDe(reglages) {
 // rejoignent le journal du marché (crm_annonces_events, ids « amepi:… »).
 // Tout est set-based : une requête par page, pas une par bien (limite de
 // sous-requêtes du Worker).
+// Enregistre un lot de mandats (bruts AMEPI) : upsert multi-lignes en UNE
+// requête, et note les nouveautés/baisses dans `evenements`.
+async function enregistrerLot(db, agencyId, base, bruts, t, existants, evenements) {
+  const lignes = bruts.map((m) => mapperMandat(m, base)).filter((x) => x.id);
+  if (!lignes.length) return { biens: 0, nouveaux: 0, baisses: 0 };
+  let nouveaux = 0, baisses = 0;
+  const valeurs = lignes.map((x) => {
+    const cur = existants.get(x.id);
+    if (!cur) { nouveaux++; evenements.push({ kind: "nouvelle", x }); }
+    else if (cur.prix && x.prix && x.prix < cur.prix) { baisses++; evenements.push({ kind: "baisse", x, ancien: cur.prix }); }
+    existants.set(x.id, { id: x.id, prix: x.prix, statut: x.statut });
+    return `(${sqlText(agencyId)}, ${sqlText(x.id)}, ${sqlText(x.ref)}, ${sqlText(x.agence)}, ${sqlText(x.source)}, ${sqlText(x.type)},
+      ${sqlNum(x.prix)}, ${sqlNum(x.ancien_prix)}, ${sqlText(x.ville)}, ${sqlText(x.cp)}, ${sqlNum(x.pieces)}, ${sqlNum(x.chambres)},
+      ${sqlNum(x.surface)}, ${sqlNum(x.terrain)}, ${sqlNum(x.lat)}, ${sqlNum(x.lng)}, ${x.etat_id | 0}, ${sqlText(x.statut)},
+      ${sqlText(x.image)}, ${sqlText(x.url)}, ${sqlText(x.maj)}, ${t}, ${t})`;
+  }).join(",");
+  await db.run(
+    `INSERT INTO crm_amepi (agency_id, id, ref, agence, source, type, prix, ancien_prix, ville, cp, pieces, chambres,
+       surface, terrain, lat, lng, etat_id, statut, image, url, maj, first_seen, last_seen) VALUES ${valeurs}
+     ON CONFLICT(agency_id, id) DO UPDATE SET ref = excluded.ref, agence = excluded.agence, source = excluded.source,
+       type = excluded.type, ancien_prix = CASE WHEN excluded.prix < crm_amepi.prix THEN crm_amepi.prix ELSE excluded.ancien_prix END,
+       prix = excluded.prix, ville = excluded.ville, cp = excluded.cp, pieces = excluded.pieces, chambres = excluded.chambres,
+       surface = excluded.surface, terrain = excluded.terrain, lat = excluded.lat, lng = excluded.lng, etat_id = excluded.etat_id,
+       statut = excluded.statut, image = excluded.image, url = excluded.url, maj = excluded.maj, last_seen = excluded.last_seen`, []);
+  return { biens: lignes.length, nouveaux, baisses };
+}
+// Fin d'un relevé complet : les biens en vente non revus depuis `debut` sont
+// « retirés » (et journalisés).
+async function cloreReleve(db, agencyId, debut, finiPrecedent, evenements) {
+  const r = await db.run(
+    "UPDATE crm_amepi SET statut = 'retiree' WHERE agency_id = ? AND statut = 'en_vente' AND last_seen < ?", [agencyId, debut]);
+  const retirees = changesOf(r);
+  if (retirees) {
+    const partis = await db.all("SELECT id, type, ville, prix FROM crm_amepi WHERE agency_id = ? AND statut = 'retiree' AND last_seen < ? AND last_seen >= ?",
+      [agencyId, debut, finiPrecedent || 0]);
+    for (const p of partis.slice(0, 200)) evenements.push({ kind: "retrait", x: { id: p.id, type: p.type, ville: p.ville, prix: p.prix } });
+  }
+  return retirees;
+}
+async function journaliser(db, agencyId, evenements, t) {
+  for (let i = 0; i < evenements.length; i += 50) {
+    const lot = evenements.slice(i, i + 50).map((e) => {
+      const titre = commeAnnonce({ ...e.x, first_seen: t, last_seen: t }).titre + (e.x.agence ? " · " + e.x.agence : "");
+      return `(${sqlText(agencyId)}, ${sqlText(e.kind)}, ${sqlText("amepi:" + e.x.id)}, ${sqlText(titre.slice(0, 160))}, ${sqlText(e.x.ville || "")}, ${sqlNum(e.ancien)}, ${sqlNum(e.x.prix)}, ${t})`;
+    }).join(",");
+    await db.run(`INSERT INTO crm_annonces_events (agency_id, kind, annonce_id, titre, ville, ancien_prix, prix, created_at) VALUES ${lot}`, []);
+  }
+}
+
+// Le relevé DEPUIS LE SERVEUR, par pages : chaque appel lit PAGES_PAR_APPEL
+// pages et avance le curseur ; à la dernière page, clôture du relevé.
+// Tout est set-based : une requête par page, pas une par bien (limite de
+// sous-requêtes du Worker). NB : Amanda refuse les connexions par mot de
+// passe venant d'ailleurs que du réseau de l'agence — en pratique c'est
+// l'AGENT (importerAmepi) qui alimente le fichier ; ce chemin reste pour
+// une agence dont Amanda accepterait le serveur.
 export async function syncAmepi(env, db, agency, reglages, options = {}) {
   const t = now();
   const etat = await etatAmepi(db, agency.id);
@@ -241,35 +297,14 @@ export async function syncAmepi(env, db, agency, reglages, options = {}) {
   const stats = { pages: 0, biens: 0, nouveaux: 0, baisses: 0, retirees: 0, total: etat.total || 0, fini: false };
   const existants = new Map((await db.all("SELECT id, prix, statut FROM crm_amepi WHERE agency_id = ?", [agency.id])).map((r) => [r.id, r]));
   const evenements = [];
-  let session;
   try {
-    session = await connexionAmepi(env);
+    const session = await connexionAmepi(env);
     const maxPages = options.maxPages || PAGES_PAR_APPEL;
     for (let i = 0; i < maxPages; i++) {
       const r = await rechercherAmepi(session, formulaireAmepi({ login: env.AMEPI_EMAIL, sources: reglages.amepi.sources, page, parPage: PAR_PAGE, cps: communesDe(reglages) }));
       stats.pages++; stats.total = r.total;
-      const lignes = r.value.map((m) => mapperMandat(m, session.base)).filter((x) => x.id);
-      if (lignes.length) {
-        const valeurs = lignes.map((x) => {
-          const cur = existants.get(x.id);
-          if (!cur) { stats.nouveaux++; evenements.push({ kind: "nouvelle", x }); }
-          else if (cur.prix && x.prix && x.prix < cur.prix) { stats.baisses++; evenements.push({ kind: "baisse", x, ancien: cur.prix }); }
-          existants.set(x.id, { id: x.id, prix: x.prix, statut: x.statut, vu: true });
-          return `(${sqlText(agency.id)}, ${sqlText(x.id)}, ${sqlText(x.ref)}, ${sqlText(x.agence)}, ${sqlText(x.source)}, ${sqlText(x.type)},
-            ${sqlNum(x.prix)}, ${sqlNum(x.ancien_prix)}, ${sqlText(x.ville)}, ${sqlText(x.cp)}, ${sqlNum(x.pieces)}, ${sqlNum(x.chambres)},
-            ${sqlNum(x.surface)}, ${sqlNum(x.terrain)}, ${sqlNum(x.lat)}, ${sqlNum(x.lng)}, ${x.etat_id | 0}, ${sqlText(x.statut)},
-            ${sqlText(x.image)}, ${sqlText(x.url)}, ${sqlText(x.maj)}, ${t}, ${t})`;
-        }).join(",");
-        await db.run(
-          `INSERT INTO crm_amepi (agency_id, id, ref, agence, source, type, prix, ancien_prix, ville, cp, pieces, chambres,
-             surface, terrain, lat, lng, etat_id, statut, image, url, maj, first_seen, last_seen) VALUES ${valeurs}
-           ON CONFLICT(agency_id, id) DO UPDATE SET ref = excluded.ref, agence = excluded.agence, source = excluded.source,
-             type = excluded.type, ancien_prix = CASE WHEN excluded.prix < crm_amepi.prix THEN crm_amepi.prix ELSE excluded.ancien_prix END,
-             prix = excluded.prix, ville = excluded.ville, cp = excluded.cp, pieces = excluded.pieces, chambres = excluded.chambres,
-             surface = excluded.surface, terrain = excluded.terrain, lat = excluded.lat, lng = excluded.lng, etat_id = excluded.etat_id,
-             statut = excluded.statut, image = excluded.image, url = excluded.url, maj = excluded.maj, last_seen = excluded.last_seen`, []);
-        stats.biens += lignes.length;
-      }
+      const lot = await enregistrerLot(db, agency.id, session.base, r.value, t, existants, evenements);
+      stats.biens += lot.biens; stats.nouveaux += lot.nouveaux; stats.baisses += lot.baisses;
       page++;
       if (r.value.length < PAR_PAGE || (page - 1) * PAR_PAGE >= r.total) { stats.fini = true; break; }
     }
@@ -277,25 +312,34 @@ export async function syncAmepi(env, db, agency, reglages, options = {}) {
     await poserEtat(db, agency.id, { ...etat, debut, page: stats.fini ? 0 : page, total: stats.total, erreur: e.message });
     throw e;
   }
-  if (stats.fini) {
-    // Les biens en vente non revus pendant ce relevé ont quitté le fichier.
-    const r = await db.run(
-      "UPDATE crm_amepi SET statut = 'retiree' WHERE agency_id = ? AND statut = 'en_vente' AND last_seen < ?", [agency.id, debut]);
-    stats.retirees = changesOf(r);
-    if (stats.retirees) {
-      const partis = await db.all("SELECT id, type, ville, prix FROM crm_amepi WHERE agency_id = ? AND statut = 'retiree' AND last_seen < ? AND last_seen >= ?",
-        [agency.id, debut, etat.fini_le || 0]);
-      for (const p of partis.slice(0, 200)) evenements.push({ kind: "retrait", x: { id: p.id, type: p.type, ville: p.ville, prix: p.prix } });
-    }
-  }
-  // Journal du marché, par paquets de 50.
-  for (let i = 0; i < evenements.length; i += 50) {
-    const lot = evenements.slice(i, i + 50).map((e) => {
-      const titre = commeAnnonce({ ...e.x, first_seen: t, last_seen: t }).titre + (e.x.agence ? " · " + e.x.agence : "");
-      return `(${sqlText(agency.id)}, ${sqlText(e.kind)}, ${sqlText("amepi:" + e.x.id)}, ${sqlText(titre.slice(0, 160))}, ${sqlText(e.x.ville || "")}, ${sqlNum(e.ancien)}, ${sqlNum(e.x.prix)}, ${t})`;
-    }).join(",");
-    await db.run(`INSERT INTO crm_annonces_events (agency_id, kind, annonce_id, titre, ville, ancien_prix, prix, created_at) VALUES ${lot}`, []);
-  }
+  if (stats.fini) stats.retirees = await cloreReleve(db, agency.id, debut, etat.fini_le, evenements);
+  await journaliser(db, agency.id, evenements, t);
   await poserEtat(db, agency.id, { debut, page: stats.fini ? 0 : page, total: stats.total, fini_le: stats.fini ? t : (etat.fini_le || 0), erreur: "" });
+  return stats;
+}
+
+// Le relevé DEPUIS L'AGENCE : l'agent (tools/agent-amepi) se connecte à Amanda
+// sur le réseau de l'agence et dépose les pages brutes ici, l'une après
+// l'autre — `debut: true` ouvre un relevé, `fini: true` le clôt. La lecture
+// des champs reste côté serveur (mapperMandat) : corriger un champ ne demande
+// jamais de mettre à jour l'agent.
+export async function importerAmepi(db, agency, corps) {
+  const t = now();
+  const etat = await etatAmepi(db, agency.id);
+  const bruts = Array.isArray(corps.mandats) ? corps.mandats.slice(0, 500) : [];
+  const ouvre = !!corps.debut || !etat.page;
+  const debut = ouvre ? t : etat.debut;
+  const base = String(corps.base || BASE_DEFAUT).replace(/\/+$/, "");
+  const existants = new Map((await db.all("SELECT id, prix, statut FROM crm_amepi WHERE agency_id = ?", [agency.id])).map((r) => [r.id, r]));
+  const evenements = [];
+  const stats = { biens: 0, nouveaux: 0, baisses: 0, retirees: 0, total: Number(corps.total) || etat.total || 0, fini: !!corps.fini };
+  const lot = await enregistrerLot(db, agency.id, base, bruts, t, existants, evenements);
+  stats.biens = lot.biens; stats.nouveaux = lot.nouveaux; stats.baisses = lot.baisses;
+  if (stats.fini) stats.retirees = await cloreReleve(db, agency.id, debut, etat.fini_le, evenements);
+  await journaliser(db, agency.id, evenements, t);
+  await poserEtat(db, agency.id, {
+    debut, page: stats.fini ? 0 : (ouvre ? 1 : (etat.page || 1)) + (stats.fini ? 0 : 1), total: stats.total,
+    fini_le: stats.fini ? t : (etat.fini_le || 0), erreur: String(corps.erreur || "").slice(0, 300),
+  });
   return stats;
 }
