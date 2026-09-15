@@ -569,6 +569,37 @@
     for (const a of anneaux) for (const [lat, lng] of a) { if (lat < s) s = lat; if (lat > n) n = lat; if (lng < w) w = lng; if (lng > e) e = lng; }
     return { s, n, w, e };
   }
+  // Distance (m) d'un point au contour d'une maison — 0 s'il est dedans. Le
+  // géocodage pose souvent le point sur la rue, devant le portail : la maison
+  // la plus proche à moins de RAYON_MAISON mètres est la sienne.
+  const RAYON_MAISON = 25;
+  function distanceMaison(lat, lng, b) {
+    if (b.anneaux.some((a) => dansAnneau(lat, lng, a))) return 0;
+    const kx = 111320 * Math.cos(lat * Math.PI / 180), ky = 110540; // m par degré
+    let min = Infinity;
+    for (const a of b.anneaux) for (let i = 0, j = a.length - 1; i < a.length; j = i++) {
+      const ax = (a[j][1] - lng) * kx, ay = (a[j][0] - lat) * ky, bx = (a[i][1] - lng) * kx, by = (a[i][0] - lat) * ky;
+      const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+      const t = l2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
+      const px = ax + t * dx, py = ay + t * dy;
+      const d = Math.sqrt(px * px + py * py);
+      if (d < min) min = d;
+    }
+    return min;
+  }
+  // La maison d'un point : celle qui le contient, sinon la plus proche à
+  // moins de RAYON_MAISON — sinon aucune (le rond reste visible).
+  function maisonDe(lat, lng, bats) {
+    const marge = RAYON_MAISON / 100000; // ~25 m en degrés, pour trier vite par boîte
+    let meilleure = null, dMin = RAYON_MAISON;
+    for (const b of bats) {
+      if (lat < b.boite.s - marge || lat > b.boite.n + marge || lng < b.boite.w - marge * 1.5 || lng > b.boite.e + marge * 1.5) continue;
+      const d = distanceMaison(lat, lng, b);
+      if (d === 0) return b;
+      if (d < dMin) { dMin = d; meilleure = b; }
+    }
+    return meilleure;
+  }
   let signetsAffiches = false;
   async function rendreBatiments() {
     if (!coucheBatiments) return;
@@ -588,16 +619,22 @@
     // Les contacts et les maisons suivies de la vue, à ranger dans les maisons.
     const contacts = donnees.points.filter((p) => vue.contains([p.lat, p.lng]) && actifs.has(categorieDe(p.types)));
     const suivies = (donnees.adresses || []).filter((a) => vue.contains([a.lat, a.lng]));
-    const vus = new Set();
-    const masques = new Set();
-    let colores = 0, signets = 0, total = 0;
+    // Les maisons de la vue, puis chaque contact et chaque maison suivie
+    // rattachés à LEUR maison (contenant, sinon la plus proche à 25 m).
+    const vus = new Set(), bats = [];
     for (const lot of lots) for (const b of lot) {
       if (!b.id || vus.has(b.id)) continue; vus.add(b.id);
       const boite = boiteDe(b.anneaux);
       if (boite.n < vue.getSouth() || boite.s > vue.getNorth() || boite.e < vue.getWest() || boite.w > vue.getEast()) continue;
+      bats.push({ ...b, boite, habitants: [], suivie: null });
+    }
+    for (const p of contacts) { const b = maisonDe(p.lat, p.lng, bats); if (b) b.habitants.push(p); }
+    for (const a of suivies) { const b = maisonDe(a.lat, a.lng, bats); if (b && !b.suivie) b.suivie = a; }
+    const masques = new Set();
+    let colores = 0, signets = 0, total = 0;
+    for (const b of bats) {
       total++;
-      const habitants = contacts.filter((p) => p.lat >= boite.s && p.lat <= boite.n && p.lng >= boite.w && p.lng <= boite.e && b.anneaux.some((a) => dansAnneau(p.lat, p.lng, a)));
-      const suivie = suivies.find((a) => a.lat >= boite.s && a.lat <= boite.n && a.lng >= boite.w && a.lng <= boite.e && b.anneaux.some((an) => dansAnneau(a.lat, a.lng, an)));
+      const habitants = b.habitants, suivie = b.suivie;
       let meilleur = null, meilleurRang = 99;
       for (const p of habitants) { const r = rangQualif(qualificationDe(p)); if (r < meilleurRang) { meilleurRang = r; meilleur = p; } }
       const q = meilleur ? QUALIFS[meilleurRang] : null;

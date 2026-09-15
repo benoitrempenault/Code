@@ -7,7 +7,8 @@ import { decorCarte } from "./suivi.mjs";
 export default async function () {
   const { admin } = await decorCarte("Smoke Maisons", "smoke-maisons@test.fr");
   // Un prospect dans la maison voisine : colorée, mais sans signet.
-  await api("/crm/prospects", { headers: admin.auth, body: { nom: "VOISIN Paul", adresse: "14 rue des Acacias", lat: 44.8963, lng: -0.7184 } });
+  // Le prospect est géocodé SUR LA RUE, 12 m devant la maison voisine (hors contour).
+  await api("/crm/prospects", { headers: admin.auth, body: { nom: "VOISIN Paul", adresse: "14 rue des Acacias", lat: 44.8960, lng: -0.7184 } });
   return parcours("maisons", {}, async ({ page, ok }) => {
     await ouvrir(page, "/prospection/", admin);
     await page.waitForSelector("#app:not([hidden])", { timeout: 8000 });
@@ -16,7 +17,7 @@ export default async function () {
     await page.evaluate(() => window.__carte.setView([44.8963, -0.7188], 18));
     await page.waitForFunction(() => window.__batiments && window.__batiments.total === 2, null, { timeout: 10000 });
     const b = await page.evaluate(() => window.__batiments);
-    ok(b.colores === 2 && b.signets === 1, "deux maisons colorées (un mandat, un prospect), un seul signet (" + JSON.stringify(b) + ")");
+    ok(b.colores === 2 && b.signets === 1, "deux maisons colorées (un mandat, un prospect posé sur la rue devant chez lui), un seul signet (" + JSON.stringify(b) + ")");
     ok((await page.textContent(".signet-qualif span")).trim() === "M", "le signet de Marc SURCARTE (vendeur sans vente passée) est « M » mandat");
     await page.click(".signet-qualif span");
     await page.waitForSelector(".leaflet-popup-content", { timeout: 6000 });
