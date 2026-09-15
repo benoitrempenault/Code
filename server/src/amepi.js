@@ -60,7 +60,10 @@ function erreurFormulaire(html) {
   return m ? m[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160) : "";
 }
 
-export function amepiConfigure(env) { return !!(env.AMEPI_EMAIL && env.AMEPI_PASSWORD); }
+// Les secrets collés dans le tableau de bord traînent parfois un espace ou
+// un retour à la ligne : on les nettoie avant de les présenter à Amanda.
+const secret = (v) => String(v || "").replace(/[\r\n\t]/g, "").trim();
+export function amepiConfigure(env) { return !!(secret(env.AMEPI_EMAIL) && secret(env.AMEPI_PASSWORD)); }
 
 // Ouvre une session AMEPI : { base, cookie }. Lève une erreur lisible sinon.
 export async function connexionAmepi(env) {
@@ -79,9 +82,10 @@ export async function connexionAmepi(env) {
     const extrait = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 140);
     throw new Error(`Page de connexion AMEPI inattendue (statut ${r1.status}, ${r1.url || base}${titre ? ", titre « " + titre.trim() + " »" : ""}${extrait ? ", début : « " + extrait + " »" : ""}) — pas de jeton anti-falsification.`);
   }
-  const agence = env.AMEPI_AGENCY || await agencePrincipale(base, env.AMEPI_EMAIL, jar.join("; "));
+  const email = secret(env.AMEPI_EMAIL), motDePasse = secret(env.AMEPI_PASSWORD);
+  const agence = secret(env.AMEPI_AGENCY) || await agencePrincipale(base, email, jar.join("; "));
   const corps = new URLSearchParams({
-    Email: env.AMEPI_EMAIL, Password: env.AMEPI_PASSWORD, RememberMe: "false",
+    Email: email, Password: motDePasse, RememberMe: "false",
     SelectedAgency: agence, __RequestVerificationToken: jeton,
   });
   const r2 = await fetch(base + "/Account/Login", {
