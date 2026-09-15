@@ -676,7 +676,7 @@
         .filter((l) => Array.isArray(l) && l.some((v) => String(v).trim() !== ""));
       if (lignes.length < 2) { toast("Le fichier doit contenir des en-têtes et au moins une ligne.", true); return; }
       const entetes = lignes[0].map((h) => String(h).trim());
-      importData = { entetes, lignes: lignes.slice(1, 5001), preset: detecterExtractionC21(entetes) };
+      importData = { entetes, lignes: lignes.slice(1, 60001), preset: detecterExtractionC21(entetes) };
       $("zone-fichier").textContent = fichier.name + " — " + importData.lignes.length + " ligne(s)";
       if (importData.preset === "biens") {
         // Estimés OU mandats en cours : mêmes en-têtes ; si « Date Début
