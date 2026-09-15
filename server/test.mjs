@@ -3199,6 +3199,13 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await callR("/crm/amepi/cle", { headers: auth, method: "DELETE" });
   ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: [] } })).status === 401, "une clé révoquée ne dépose plus rien");
 
+  /* ---- Géocache : un lot de 100 positions (limite des paramètres D1) ------ */
+  console.log("— Géocache : un lot de 100 positions passe (limite de 100 paramètres liés)");
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: Array.from({ length: 100 }, (_, i) => ({ nom: "GEOLOT", prenom: "N" + i, email: "geolot" + i + "@exemple.fr" })) } });
+  const geolot = (await callR("/crm/contacts", { headers: auth })).json.contacts.filter((x) => x.nom === "GEOLOT");
+  const lot100 = await callR("/crm/geo/batch", { headers: auth, body: { rows: geolot.map((x, i) => ({ contactId: x.id, lat: 44.9 + i / 10000, lng: -0.7, label: "l", score: 0.9, adresse: "a" })) } });
+  ok(lot100.status === 200 && lot100.json.enregistres === 100, "100 positions enregistrées d'un coup (" + (lot100.json.error || lot100.json.enregistres) + ")");
+
   /* ---- Bâtiments IGN : les maisons de la carte --------------------------- */
   console.log("— Bâtiments IGN relayés pour la carte (emprises des maisons)");
   const bat = await callR("/crm/batiments?bbox=-0.722,44.894,-0.716,44.899", { headers: authP });

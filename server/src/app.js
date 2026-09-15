@@ -1560,18 +1560,16 @@ export function createApp(env) {
     const b = await c.req.json().catch(() => null);
     const rows = (b && Array.isArray(b.rows) ? b.rows : []).slice(0, GEO_BATCH_MAX);
     if (!rows.length) return err(c, 400, "Aucune position à enregistrer.");
-    const ids = rows.map((r) => String(r.contactId));
-    // La géocache accepte les contacts, les dossiers de vente (Suivi) et les
-    // ventes importées de l'agence — jamais un id d'une autre agence.
-    const connus = new Set((await db.all(
-      `SELECT id FROM crm_contacts WHERE agency_id = ? AND id IN (${ids.map(() => "?").join(",")})`,
-      [ctx.agency.id, ...ids])).map((r) => r.id));
-    for (const table of ["dossiers", "crm_ventes"]) {
-      for (const r of await db.all(
-        `SELECT id FROM ${table} WHERE agency_id = ? AND id IN (${ids.map(() => "?").join(",")})`,
-        [ctx.agency.id, ...ids])) connus.add(r.id);
-    }
     const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
+    // La géocache accepte les contacts, les dossiers de vente (Suivi) et les
+    // ventes importées de l'agence — jamais un id d'une autre agence. Les ids
+    // sont écrits dans le SQL (échappés) : un lot de 100 contacts dépassait
+    // la limite de 100 paramètres liés de D1 (« too many SQL variables »).
+    const dans = [...new Set(rows.map((r) => String(r.contactId)))].map(sqlT).join(",");
+    const connus = new Set();
+    for (const table of ["crm_contacts", "dossiers", "crm_ventes"]) {
+      for (const r of await db.all(`SELECT id FROM ${table} WHERE agency_id = ? AND id IN (${dans})`, [ctx.agency.id])) connus.add(r.id);
+    }
     let ok = 0;
     const valeurs = [];
     for (const r of rows) {
