@@ -805,6 +805,50 @@ export function createApp(env) {
     return c.json({ contacts: rows.map(parseTypes) });
   });
 
+  // Diagnostic « où sont mes fiches ? » : répartition des contacts (typologie,
+  // adresse, géocodage, source) + quelques exemples de fiches sans adresse —
+  // pour comprendre pourquoi une base de 30 000 fiches n'en montre que 4 000
+  // sur la carte, sans lire la base entière dans le navigateur.
+  app.get("/crm/contacts/diagnostic", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const ag = ctx.agency.id;
+    const n = async (sql, params = []) => (await db.get(`SELECT COUNT(*) AS n FROM crm_contacts c WHERE c.agency_id = ? AND (${sql})`, [ag, ...params]))?.n || 0;
+    const total = await n("1");
+    const parType = await db.all(
+      "SELECT types, COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? GROUP BY types ORDER BY n DESC LIMIT 12", [ag]);
+    const parSource = await db.all(
+      "SELECT source, COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? GROUP BY source ORDER BY n DESC LIMIT 8", [ag]);
+    const geo = await db.get(
+      `SELECT SUM(CASE WHEN NOT (g.lat = 0 AND g.lng = 0) THEN 1 ELSE 0 END) AS places,
+              SUM(CASE WHEN g.lat = 0 AND g.lng = 0 THEN 1 ELSE 0 END) AS introuvables
+       FROM crm_geo g JOIN crm_contacts c ON c.id = g.contact_id WHERE g.agency_id = ?`, [ag]);
+    const echantillon = (rows) => rows.map((r) => ({
+      nom: [r.civilite, r.prenom, r.nom].filter(Boolean).join(" "), adresse: r.adresse, cp: r.cp, ville: r.ville,
+      types: r.types, source: r.source, notes: String(r.notes || "").slice(0, 160),
+      cree: new Date((r.created_at || 0) * 1000).toISOString().slice(0, 10),
+    }));
+    const sansAdresse = echantillon(await db.all(
+      `SELECT civilite, prenom, nom, adresse, cp, ville, types, source, notes, created_at FROM crm_contacts
+       WHERE agency_id = ? AND adresse = '' ORDER BY created_at DESC LIMIT 8`, [ag]));
+    const introuvables = echantillon(await db.all(
+      `SELECT c.civilite, c.prenom, c.nom, c.adresse, c.cp, c.ville, c.types, c.source, c.notes, c.created_at
+       FROM crm_geo g JOIN crm_contacts c ON c.id = g.contact_id
+       WHERE g.agency_id = ? AND g.lat = 0 AND g.lng = 0 LIMIT 6`, [ag]));
+    return c.json({
+      total,
+      avecAdresse: await n("c.adresse <> ''"),
+      sansAdresse: await n("c.adresse = ''"),
+      sansAdresseAvecVille: await n("c.adresse = '' AND (c.ville <> '' OR c.cp <> '')"),
+      sansAdresseAvecNotes: await n("c.adresse = '' AND c.notes <> ''"),
+      adresseSansCpNiVille: await n("c.adresse <> '' AND c.cp = '' AND c.ville = ''"),
+      places: geo?.places || 0, introuvables: geo?.introuvables || 0,
+      nonTentes: (await db.get(
+        `SELECT COUNT(*) AS n FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
+         WHERE c.agency_id = ? AND c.adresse <> '' AND g.contact_id IS NULL`, [ag]))?.n || 0,
+      parType, parSource, exemplesSansAdresse: sansAdresse, exemplesIntrouvables: introuvables,
+    });
+  });
+
   app.put("/crm/contacts", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const b = await c.req.json().catch(() => null);

@@ -828,9 +828,17 @@
         .map((s) => ({ col: parseInt(s.dataset.col, 10), champ: s.value }))
         .filter((m) => m.champ);
       if (!map.length) { toast("Associez au moins une colonne.", true); return; }
+      // Plusieurs colonnes vers le même champ (« N° de voie », « Type de
+      // voie », « Nom voie » → adresse) : on les recolle dans l'ordre du
+      // fichier au lieu de ne garder que la dernière.
+      const CUMULS = { adresse: " ", notes: " · " };
       rows = importData.lignes.map((l) => {
         const o = {};
-        for (const m of map) o[m.champ] = l[m.col];
+        for (const m of map) {
+          const val = String(l[m.col] ?? "").trim();
+          if (CUMULS[m.champ] && o[m.champ]) { if (val) o[m.champ] += CUMULS[m.champ] + val; }
+          else o[m.champ] = l[m.col];
+        }
         return o;
       });
     }
@@ -873,6 +881,32 @@
   // Un coup de balai après les gros imports : fiches vides, doublons, couples
   // à scinder. L'aperçu compte sans rien toucher ; l'exécution boucle par
   // paquets côté serveur jusqu'à zéro.
+  // Diagnostic « où sont mes fiches ? » — un bloc texte à copier-coller.
+  async function ouvrirDiagnostic() {
+    ouvrirModale("🔎 Diagnostic adresses", '<p class="aide">Analyse de la base en cours…</p>', "");
+    let d;
+    try { d = await api("/crm/contacts/diagnostic"); } catch (e) { toast(e.message, true); fermerModale(); return; }
+    const ex = (l) => l.map((r) => "  - " + [r.nom, r.adresse, r.cp, r.ville].filter(Boolean).join(", ") +
+      " · types " + r.types + " · source " + r.source + " · créée " + r.cree + (r.notes ? " · notes : " + r.notes : "")).join("\n");
+    const texte =
+      "Fiches : " + d.total + "\n" +
+      "Avec adresse : " + d.avecAdresse + " — placées " + d.places + ", introuvables " + d.introuvables + ", pas encore tentées " + d.nonTentes + "\n" +
+      "Sans adresse : " + d.sansAdresse + " (dont avec ville ou CP : " + d.sansAdresseAvecVille + ", avec notes : " + d.sansAdresseAvecNotes + ")\n" +
+      "Adresse sans CP ni ville : " + d.adresseSansCpNiVille + "\n" +
+      "Par typologie : " + d.parType.map((t) => t.n + " × " + t.types).join(" ; ") + "\n" +
+      "Par source : " + d.parSource.map((t) => t.n + " × " + t.source).join(" ; ") + "\n" +
+      "Exemples sans adresse :\n" + ex(d.exemplesSansAdresse || []) + "\n" +
+      "Exemples introuvables :\n" + ex(d.exemplesIntrouvables || []);
+    ouvrirModale("🔎 Diagnostic adresses",
+      '<p class="aide">Copiez ce bloc tel quel pour l\'analyse.</p>' +
+      '<textarea id="diag-texte" readonly style="width:100%;height:320px;font:12px/1.4 ui-monospace,monospace;">' + escH(texte) + "</textarea>",
+      '<button class="btn" id="btn-copier-diag">📋 Copier</button><button class="btn" id="btn-fermer-diag">Fermer</button>');
+    $("btn-fermer-diag").addEventListener("click", fermerModale);
+    $("btn-copier-diag").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(texte); toast("Diagnostic copié"); }
+      catch { $("diag-texte").select(); toast("Sélectionnez le texte et copiez-le (Ctrl+C)", true); }
+    });
+  }
   async function ouvrirNettoyage() {
     ouvrirModale("🧹 Nettoyer la base", '<p class="aide">Analyse de la base en cours…</p>', "");
     let a;
@@ -1803,6 +1837,7 @@
   $("filtre-type").addEventListener("change", rendreContacts);
   $("btn-nouveau-contact").addEventListener("click", () => ouvrirContact(null));
   $("btn-nettoyage").addEventListener("click", ouvrirNettoyage);
+  $("btn-diagnostic").addEventListener("click", ouvrirDiagnostic);
   $("btn-import").addEventListener("click", ouvrirImport);
   $("table-contacts").addEventListener("click", (e) => {
     if (e.target.closest("input[type=checkbox]")) return; // cocher n'ouvre pas la fiche

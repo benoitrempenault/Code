@@ -3004,6 +3004,16 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     "prospect sans adresse, acquéreur sans téléphone et fiche injoignable sont supprimés");
   ok(noms.includes("PROSPECTOK") && noms.includes("ACQTEL") && noms.includes("ACQVENDEUR") && noms.includes("SUIVIQUANDMEME"),
     "restent : le prospect avec adresse, l'acquéreur avec téléphone, l'acquéreur-vendeur et la fiche qui porte un suivi");
+  // Diagnostic adresses : la répartition des fiches (adresse, géocodage,
+  // typologie, source) + des exemples — réservé aux administrateurs.
+  const diagAd = await callR("/crm/contacts/diagnostic", { headers: auth });
+  ok(diagAd.status === 200 && diagAd.json.total === noms.length && diagAd.json.avecAdresse + diagAd.json.sansAdresse === diagAd.json.total,
+    "le diagnostic compte toutes les fiches, avec ou sans adresse (" + JSON.stringify([diagAd.json.total, diagAd.json.avecAdresse, diagAd.json.sansAdresse]) + ")");
+  ok(diagAd.json.parType.some((t) => t.types.includes("prospect")) && diagAd.json.parSource.some((t) => t.source === "import")
+    && diagAd.json.exemplesSansAdresse.some((e) => e.nom.includes("ACQTEL")),
+    "il détaille par typologie et par source, avec des exemples de fiches sans adresse");
+  ok((await callR("/crm/contacts/diagnostic", { headers: { Authorization: "Bearer " + sessP } })).status === 403,
+    "un conseiller n'y a pas accès");
   // Suppression en masse, en cascade : suivi + position partent avec la fiche
   await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
     { nom: "ASUPPRIMER", prenom: "Un", email: "sup1@exemple.fr" }, { nom: "ASUPPRIMER", prenom: "Deux", email: "sup2@exemple.fr" } ] } });
