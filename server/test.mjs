@@ -2208,8 +2208,12 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await callR("/crm/geo/batch", { headers: auth, body: { rows: [
     { contactId: pages.id, lat: 0, lng: 0, label: "(adresse introuvable)", score: 0, adresse: adrPages },
   ] } });
+  const fileFraiche = (await callR("/crm/geo/attente", { headers: auth })).json;
+  ok(!fileFraiche.attente.some((a) => a.id === pages.id) && fileFraiche.dontIntrouvables >= 1,
+    "un échec tout frais est compté « introuvable » mais pas redonné tout de suite (plus de boucle sans fin)");
+  await db.run("UPDATE crm_geo SET updated_at = updated_at - 86400 WHERE contact_id = ?", [pages.id]);
   ok((await callR("/crm/geo/attente", { headers: auth })).json.attente.some((a) => a.id === pages.id),
-    "une adresse marquée introuvable repasse en file (retentée)");
+    "une adresse marquée introuvable repasse en file le lendemain (retentée)");
   await callR("/crm/geo/batch", { headers: auth, body: { rows: [
     { contactId: pages.id, lat: 44.89, lng: -0.71, label: "12 Rue des Pins 33160 Saint-Médard-en-Jalles", score: 0.95, adresse: adrPages },
   ] } });
