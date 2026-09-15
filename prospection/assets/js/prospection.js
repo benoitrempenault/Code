@@ -72,6 +72,10 @@
   let marqueursContacts = {};   // contact_id → marqueur (pour rafraîchir un popup)
   let ajoutProspect = false;    // mode « ➕ Ajouter un prospect » : le prochain clic pose la maison
   let coucheAdresses = null;    // les maisons suivies (fiche adresse) — colorées car renseignées
+  let coucheBatiments = null;   // les EMPRISES des maisons (IGN) : blanches, colorées quand un contact y habite
+  let coucheSignets = null;     // les signets lettrés (qualification du meilleur contact de la maison)
+  const cacheBatiments = new Map(); // cellule → [bâtiments] (une requête par cellule, une seule fois)
+  const ZOOM_BATIMENTS = 16;
   let clicMaisonTimer = null;   // le clic-maison attend un instant (dblclick de zoom = annulé)
   // Dessin en cours
   let dessin = null;            // { sommets: [[lat,lng]], marqueurs: [], ligne }
@@ -100,6 +104,31 @@
     return donnees.ilots.find((i) =>
       anneauxDe(i.polygone).some((a) => a.length >= 3 && pointDansPolygone(lat, lng, a))) || null;
   }
+  // La QUALIFICATION d'un contact pour la maison : hiérarchie voulue par
+  // l'agence — mandat > ancien client > estimé > bailleur > acheteur >
+  // locataire ; un prospect colore la maison mais n'a pas de signet.
+  const QUALIFS = [
+    { cle: "mandat",    lettre: "M", libelle: "Mandat",        couleur: "#c2a36b" },
+    { cle: "ancien",    lettre: "C", libelle: "Ancien client", couleur: "#2D7DD2" },
+    { cle: "estime",    lettre: "E", libelle: "Estimé",        couleur: "#9B7EDE" },
+    { cle: "bailleur",  lettre: "B", libelle: "Bailleur",      couleur: "#4ECDC4" },
+    { cle: "acquereur", lettre: "A", libelle: "Acheteur",      couleur: "#5B9BD5" },
+    { cle: "locataire", lettre: "L", libelle: "Locataire",     couleur: "#E9C46A" },
+    { cle: "prospect",  lettre: "",  libelle: "Prospect",      couleur: "#e07a5f" },
+  ];
+  function qualificationDe(p) {
+    const t = p.types || [];
+    if (t.includes("vendeur") && !p.date_achat) return "mandat";
+    if (p.date_achat) return "ancien";
+    if (t.includes("vendeur")) return "mandat";
+    if (t.includes("estime")) return "estime";
+    if (t.includes("bailleur")) return "bailleur";
+    if (t.includes("acquereur")) return "acquereur";
+    if (t.includes("locataire")) return "locataire";
+    return "prospect";
+  }
+  const rangQualif = (cle) => { const i = QUALIFS.findIndex((q) => q.cle === cle); return i < 0 ? 99 : i; };
+
   function categorieDe(types) {
     if ((types || []).includes("vendeur")) return "vendeur";
     if ((types || []).includes("acquereur")) return "acquereur";
@@ -124,8 +153,14 @@
     coucheDvf = L.layerGroup().addTo(carte);
     coucheDpe = L.layerGroup().addTo(carte);
     coucheVentes = L.layerGroup().addTo(carte);
+    coucheBatiments = L.layerGroup().addTo(carte);
     coucheAdresses = L.layerGroup().addTo(carte);
     couchePoints = L.layerGroup().addTo(carte);
+    coucheSignets = L.layerGroup().addTo(carte);
+    // Les maisons (emprises IGN) n'existent qu'en zoom rapproché : on les
+    // charge par cellules à chaque déplacement, sans jamais redemander une
+    // cellule déjà connue.
+    carte.on("moveend zoomend", () => { clearTimeout(carte._batTimer); carte._batTimer = setTimeout(rendreBatiments, 150); });
     // Le clic sur N'IMPORTE QUELLE maison ouvre sa fiche adresse — mais pas
     // pendant un dessin d'îlot ou un ajout de prospect, et pas sur un
     // double-clic de zoom (le petit délai laisse le dblclick l'annuler).
@@ -290,6 +325,7 @@
     rendreVentes();
     donnees.adresses = donnees.adresses || [];
     rendreAdresses();
+    rendreBatiments();
     if (donnees.points.length && !carte._dejaCadre) {
       carte._dejaCadre = true;
       const b = L.latLngBounds(donnees.points.map((p) => [p.lat, p.lng]));
@@ -502,6 +538,101 @@
      qu'une information y est posée, la maison se COLORE en vert ; sans
      information, elle ne laisse aucune trace. */
   const COULEUR_ADRESSE = "#7fb069";
+  /* ------------------------ Les maisons (IGN) ------------------------- */
+  // Une cellule = 0,005° de longitude × 0,004° de latitude (≈ 400 m × 450 m).
+  const CELL_LNG = 0.005, CELL_LAT = 0.004;
+  function cellulesVisibles() {
+    const b = carte.getBounds();
+    const cells = [];
+    for (let x = Math.floor(b.getWest() / CELL_LNG); x <= Math.floor(b.getEast() / CELL_LNG); x++)
+      for (let y = Math.floor(b.getSouth() / CELL_LAT); y <= Math.floor(b.getNorth() / CELL_LAT); y++) cells.push({ x, y, cle: x + ":" + y });
+    return cells.slice(0, 12); // au-delà, on est trop dézoomé pour que ça ait un sens
+  }
+  async function chargerCellule(c) {
+    if (cacheBatiments.has(c.cle)) return cacheBatiments.get(c.cle);
+    const bbox = [c.x * CELL_LNG, c.y * CELL_LAT, (c.x + 1) * CELL_LNG, (c.y + 1) * CELL_LAT].map((v) => v.toFixed(6)).join(",");
+    const promesse = api("/crm/batiments?bbox=" + bbox).then((r) => r.batiments || []).catch(() => { cacheBatiments.delete(c.cle); return []; });
+    cacheBatiments.set(c.cle, promesse);
+    return promesse;
+  }
+  // Point dans un anneau (ray casting) — les maisons sont petites, c'est rapide.
+  function dansAnneau(lat, lng, anneau) {
+    let dedans = false;
+    for (let i = 0, j = anneau.length - 1; i < anneau.length; j = i++) {
+      const [yi, xi] = anneau[i], [yj, xj] = anneau[j];
+      if (((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) dedans = !dedans;
+    }
+    return dedans;
+  }
+  function boiteDe(anneaux) {
+    let s = 90, n = -90, w = 180, e = -180;
+    for (const a of anneaux) for (const [lat, lng] of a) { if (lat < s) s = lat; if (lat > n) n = lat; if (lng < w) w = lng; if (lng > e) e = lng; }
+    return { s, n, w, e };
+  }
+  let signetsAffiches = false;
+  async function rendreBatiments() {
+    if (!coucheBatiments) return;
+    const actif = $("couche-batiments") ? $("couche-batiments").checked : true;
+    if (!actif || carte.getZoom() < ZOOM_BATIMENTS) {
+      coucheBatiments.clearLayers(); coucheSignets.clearLayers();
+      if (signetsAffiches) { signetsAffiches = false; rendrePoints(); }
+      window.__batiments = { total: 0, colores: 0, signets: 0 };
+      return;
+    }
+    const cellules = cellulesVisibles();
+    const lots = await Promise.all(cellules.map(chargerCellule));
+    if (carte.getZoom() < ZOOM_BATIMENTS) return; // dézoomé pendant le chargement
+    coucheBatiments.clearLayers(); coucheSignets.clearLayers();
+    const vue = carte.getBounds().pad(0.2);
+    const actifs = filtresActifs();
+    // Les contacts et les maisons suivies de la vue, à ranger dans les maisons.
+    const contacts = donnees.points.filter((p) => vue.contains([p.lat, p.lng]) && actifs.has(categorieDe(p.types)));
+    const suivies = (donnees.adresses || []).filter((a) => vue.contains([a.lat, a.lng]));
+    const vus = new Set();
+    const masques = new Set();
+    let colores = 0, signets = 0, total = 0;
+    for (const lot of lots) for (const b of lot) {
+      if (!b.id || vus.has(b.id)) continue; vus.add(b.id);
+      const boite = boiteDe(b.anneaux);
+      if (boite.n < vue.getSouth() || boite.s > vue.getNorth() || boite.e < vue.getWest() || boite.w > vue.getEast()) continue;
+      total++;
+      const habitants = contacts.filter((p) => p.lat >= boite.s && p.lat <= boite.n && p.lng >= boite.w && p.lng <= boite.e && b.anneaux.some((a) => dansAnneau(p.lat, p.lng, a)));
+      const suivie = suivies.find((a) => a.lat >= boite.s && a.lat <= boite.n && a.lng >= boite.w && a.lng <= boite.e && b.anneaux.some((an) => dansAnneau(a.lat, a.lng, an)));
+      let meilleur = null, meilleurRang = 99;
+      for (const p of habitants) { const r = rangQualif(qualificationDe(p)); if (r < meilleurRang) { meilleurRang = r; meilleur = p; } }
+      const q = meilleur ? QUALIFS[meilleurRang] : null;
+      const poly = L.polygon(b.anneaux, {
+        weight: 1.2, color: "#b39b63", fillColor: q ? q.couleur : (suivie ? COULEUR_ADRESSE : "#ffffff"),
+        fillOpacity: q ? 0.75 : (suivie ? 0.55 : 0.9), bubblingMouseEvents: !meilleur && !suivie,
+      });
+      if (meilleur) {
+        habitants.forEach((p) => masques.add(p.contact_id));
+        poly.on("click", () => { const m = marqueursContacts[meilleur.contact_id]; if (m) m.openPopup(); });
+        colores++;
+      } else if (suivie) {
+        poly.on("click", () => ouvrirFicheAdresse(suivie));
+      }
+      coucheBatiments.addLayer(poly);
+      if (q && q.lettre) {
+        const c = L.latLngBounds(b.anneaux[0]).getCenter();
+        const signet = L.marker(c, {
+          icon: L.divIcon({ className: "signet-qualif", html: '<span style="background:' + q.couleur + '">' + q.lettre + "</span>", iconSize: [26, 34], iconAnchor: [13, 34] }),
+          title: q.libelle + " — " + [meilleur.prenom, meilleur.nom].filter(Boolean).join(" "), interactive: true,
+        });
+        signet.on("click", () => { const m = marqueursContacts[meilleur.contact_id]; if (m) m.openPopup(); });
+        coucheSignets.addLayer(signet);
+        signets++;
+      }
+    }
+    // Les pastilles des contacts logés dans une maison colorée s'effacent :
+    // la maison ET son signet les remplacent.
+    for (const [id, m] of Object.entries(marqueursContacts)) {
+      if (masques.has(id)) m.setStyle({ fillOpacity: 0 });
+    }
+    signetsAffiches = true;
+    window.__batiments = { total, colores, signets };
+  }
+
   function rendreAdresses() {
     coucheAdresses.clearLayers();
     if (!$("couche-adresses").checked) return;
@@ -1082,7 +1213,8 @@
       lat: parseFloat(fa.dataset.faLat) || 0, lng: parseFloat(fa.dataset.faLng) || 0,
     });
   });
-  $("couche-adresses").addEventListener("change", rendreAdresses);
+  $("couche-adresses").addEventListener("change", () => { rendreAdresses(); rendreBatiments(); });
+  $("couche-batiments").addEventListener("change", rendreBatiments);
   $("btn-import-ventes").addEventListener("click", () => $("fichier-ventes").click());
   $("fichier-ventes").addEventListener("change", (e) => {
     const f = e.target.files && e.target.files[0];

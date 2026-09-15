@@ -166,3 +166,20 @@ select:focus, input:focus { outline: none; border-color: var(--accent); }
   background: none; border: none;
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .65));
 }
+
+/* Signets de qualification sur les maisons (zoom rapproché) : une pastille
+   ronde avec la lettre et une petite pointe, comme sur une carte de terrain. */
+.signet-qualif { background: none; border: none; }
+.signet-qualif span {
+  position: relative; display: block; width: 26px; height: 26px; line-height: 24px; border-radius: 50%;
+  color: #fff; font-weight: 700; font-size: 13px; text-align: center;
+  border: 2px solid #fff; box-sizing: border-box; box-shadow: 0 2px 5px rgba(0, 0, 0, .45);
+}
+.signet-qualif span::after {
+  content: ""; position: absolute; left: 50%; bottom: -8px; margin-left: -5px;
+  border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 8px solid #fff;
+}
+.signet-legende {
+  display: inline-block; min-width: 16px; padding: 0 4px; border-radius: 4px; color: #fff;
+  font-weight: 700; font-size: 11px; text-align: center; line-height: 16px;
+}

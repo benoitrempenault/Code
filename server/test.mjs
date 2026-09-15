@@ -1790,6 +1790,21 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     res.writeHead(404); res.end();
   });
   await new Promise((r) => fauxAmepi.listen(18798, r));
+  // Faux IGN (WFS bâtiments) : un multipolygone 3D autour du 12 rue des Acacias,
+  // un polygone simple à côté, et un point sans géométrie.
+  const fauxIgn = (await import("node:http")).createServer((req, res) => {
+    const u = new URL(req.url, "http://x");
+    if (!/BDTOPO_V3:batiment/.test(u.searchParams.get("TYPENAME") || "")) { res.writeHead(400); res.end(); return; }
+    res.writeHead(200, { "Content-Type": "application/json;charset=UTF-8" });
+    res.end(JSON.stringify({ type: "FeatureCollection", numberMatched: 2, features: [
+      { type: "Feature", id: "batiment.1", properties: { cleabs: "BATIMENT0001", nature: "Indifférenciée", usage_1: "Résidentiel" },
+        geometry: { type: "MultiPolygon", coordinates: [[[[-0.7192, 44.8962, 35.5], [-0.7190, 44.8962, 35.5], [-0.7190, 44.8964, 35.5], [-0.7192, 44.8964, 35.5], [-0.7192, 44.8962, 35.5]]]] } },
+      { type: "Feature", id: "batiment.2", properties: { cleabs: "BATIMENT0002", nature: "Indifférenciée", usage_1: "Résidentiel" },
+        geometry: { type: "Polygon", coordinates: [[[-0.7180, 44.8970, 30], [-0.7178, 44.8970, 30], [-0.7178, 44.8972, 30], [-0.7180, 44.8972, 30], [-0.7180, 44.8970, 30]]] } },
+      { type: "Feature", id: "batiment.3", properties: { cleabs: "BATIMENT0003" }, geometry: null },
+    ] }));
+  });
+  await new Promise((r) => fauxIgn.listen(18799, r));
   // Faux dépôt DVF : un seul fichier connu (2025 / 33 / 33449), 404 sinon —
   // comme files.data.gouv.fr, dont le vrai stockage n'envoie pas de CORS
   // (raison d'être du relais /crm/dvf côté serveur).
@@ -1815,7 +1830,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin",
     APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
     RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18791",
-    DVF_BASE: "http://localhost:18792", BAN_BASE: "http://localhost:18793",
+    DVF_BASE: "http://localhost:18792", BAN_BASE: "http://localhost:18793", BATIMENTS_BASE: "http://localhost:18799",
     MAIL_FROM: "Studio Brochure <connexion@studiobrochure.fr>",
     AMEPI_BASE: "http://localhost:18798", AMEPI_EMAIL: "benoit@kadima.test", AMEPI_PASSWORD: "secret-amepi",
   });
@@ -3183,6 +3198,17 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: new Array(501).fill({ id: 1 }) } })).status === 400, "plus de 500 mandats par dépôt : refusé");
   await callR("/crm/amepi/cle", { headers: auth, method: "DELETE" });
   ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: [] } })).status === 401, "une clé révoquée ne dépose plus rien");
+
+  /* ---- Bâtiments IGN : les maisons de la carte --------------------------- */
+  console.log("— Bâtiments IGN relayés pour la carte (emprises des maisons)");
+  const bat = await callR("/crm/batiments?bbox=-0.722,44.894,-0.716,44.899", { headers: authP });
+  ok(bat.status === 200 && bat.json.batiments.length === 2 && bat.json.total === 2, "le relais renvoie les bâtiments avec contour (le sans-géométrie est écarté)");
+  const b1 = bat.json.batiments.find((x) => x.id === "BATIMENT0001");
+  ok(b1 && b1.anneaux.length === 1 && b1.anneaux[0].length === 5 && b1.anneaux[0][0].length === 2 && b1.anneaux[0][0][0] === 44.8962 && b1.anneaux[0][0][1] === -0.7192,
+     "les contours sont en [lat, lng] 2D (altitude retirée), multipolygone aplati");
+  ok((await callR("/crm/batiments?bbox=-0.9,44.8,-0.6,44.99", { headers: authP })).status === 400, "une zone trop large est refusée (zoomez)");
+  ok((await callR("/crm/batiments?bbox=abc", { headers: authP })).status === 400, "une bbox illisible est refusée");
+  ok((await callR("/crm/batiments?bbox=-0.722,44.894,-0.716,44.899")).status === 401, "les bâtiments demandent une session");
 
   /* ---- Îlots CenturyNet : multi-polygones + import en masse --------------- */
   console.log("— Îlots CenturyNet : multi-polygones + import en masse");

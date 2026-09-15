@@ -396,6 +396,20 @@ table `crm_agent_keys` (hash, usage amepi, une active par agence),
 fois, révocable) ; GET /crm/amepi renvoie `agent` (label, last_used). La lecture
 des champs reste serveur (mapperMandat) : l'agent n'a jamais besoin d'être mis à
 jour pour un champ.
+**Maisons dessinées + signets (carte, 15/09)** : `GET /crm/batiments?bbox=minLng,
+minLat,maxLng,maxLat` (membre) relaie le WFS IGN BD TOPO (`BATIMENTS_BASE`,
+CRS:84, COUNT 3000, bbox ≤ 0,02°×0,012°) et renvoie `{batiments:[{id, nature,
+usage, anneaux:[[[lat,lng]…]]}]}` 2D compact, Cache-Control 7 j. prospection.js :
+`coucheBatiments` + `coucheSignets` au zoom ≥ 16 (`ZOOM_BATIMENTS`), cellules
+0,005°×0,004° mises en cache (`cacheBatiments`), point-dans-anneau, la maison
+prend la couleur de la MEILLEURE qualification de ses habitants (`QUALIFS` :
+mandat M > ancien client C (date_achat) > estimé E > bailleur B > acheteur A >
+locataire L > prospect sans signet), maison suivie sans contact = vert, sinon
+blanc ; les pastilles des contacts logés s'effacent (fillOpacity 0) ; clic
+maison/signet → popup du meilleur contact ; `window.__batiments`
+{total, colores, signets} pour les smokes ; case `#couche-batiments`. /crm/carte
+renvoie `date_achat`. Faux IGN dans test.mjs (18799) et run.mjs ; parcours
+`maisons`.
 **Fiches sans intérêt** (nettoyage, `SQL_SANS_INTERET`) : sans téléphone ni
 e-mail ni adresse ; prospect (seul type) sans adresse ; acquéreur (sans
 vendeur/estimé/bailleur) sans téléphone — jamais si la fiche porte un suivi,

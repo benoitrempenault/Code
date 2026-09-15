@@ -1353,7 +1353,7 @@ export function createApp(env) {
     try { c.executionCtx.waitUntil(geoFond); } catch { /* Node dév : la promesse court toute seule */ }
     const points = await db.all(
       `SELECT g.contact_id, g.lat, g.lng, g.label, c.civilite, c.nom, c.prenom, c.telephone,
-              c.email, c.adresse, c.cp, c.ville, c.types, c.conseiller
+              c.email, c.adresse, c.cp, c.ville, c.types, c.conseiller, c.date_achat
        FROM crm_geo g JOIN crm_contacts c ON c.id = g.contact_id
        WHERE g.agency_id = ? AND NOT (g.lat = 0 AND g.lng = 0)`, [ctx.agency.id]);
     const ilots = await db.all(
@@ -2372,6 +2372,38 @@ export function createApp(env) {
   // direct. Le serveur relaie donc le fichier (une commune × un millésime),
   // que le navigateur garde un jour en cache. DVF_BASE : surchargeable en
   // test (faux serveur local), jamais posé en production.
+  // Les EMPRISES DES BÂTIMENTS (IGN BD TOPO, WFS libre) pour dessiner les
+  // maisons de la carte : relayées par le serveur (le réseau de l'agence
+  // filtre, et on compacte la réponse : identifiant + contour 2D seulement).
+  // bbox = minLng,minLat,maxLng,maxLat, bornée à ~1 km de côté.
+  app.get("/crm/batiments", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const b = String(c.req.query("bbox") || "").split(",").map(Number);
+    if (b.length !== 4 || b.some((v) => !Number.isFinite(v)) || b[2] <= b[0] || b[3] <= b[1]) return err(c, 400, "bbox attendue : minLng,minLat,maxLng,maxLat.");
+    if (b[2] - b[0] > 0.02 || b[3] - b[1] > 0.012) return err(c, 400, "Zone trop large — zoomez sur un quartier.");
+    const base = env.BATIMENTS_BASE || "https://data.geopf.fr/wfs/ows";
+    const url = base + "?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAME=BDTOPO_V3:batiment&OUTPUTFORMAT=application/json" +
+      "&SRSNAME=CRS:84&COUNT=3000&BBOX=" + b.map((v) => v.toFixed(6)).join(",") + ",CRS:84";
+    let amont;
+    try { amont = await fetch(url, { headers: { Accept: "application/json" } }); }
+    catch (e) { return err(c, 502, "Le service des bâtiments (IGN) ne répond pas — réessayez dans un instant."); }
+    if (!amont.ok) return err(c, 502, "Le service des bâtiments (IGN) répond " + amont.status + ".");
+    const j = await amont.json().catch(() => null);
+    if (!j || !Array.isArray(j.features)) return err(c, 502, "Réponse inattendue du service des bâtiments.");
+    // Contours 2D (on retire l'altitude), polygones et multipolygones aplatis
+    // en une liste d'anneaux extérieurs [[lat, lng]…] par bâtiment.
+    const batiments = [];
+    for (const f of j.features) {
+      const g = f.geometry; if (!g) continue;
+      const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+      const anneaux = polys.map((poly) => (poly[0] || []).map((pt) => [Math.round(pt[1] * 1e6) / 1e6, Math.round(pt[0] * 1e6) / 1e6])).filter((r) => r.length >= 4);
+      if (!anneaux.length) continue;
+      const pr = f.properties || {};
+      batiments.push({ id: String(pr.cleabs || f.id || ""), nature: pr.nature || "", usage: pr.usage_1 || "", anneaux });
+    }
+    return c.json({ batiments, total: j.numberMatched ?? batiments.length }, 200, { "Cache-Control": "private, max-age=604800" });
+  });
+
   app.get("/crm/dvf/:annee/:dep/:commune", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const annee = c.req.param("annee");
