@@ -1761,8 +1761,13 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     amepiAppels.push({ m: req.method, u: req.url, cookie: req.headers.cookie || "", corps });
     if (req.method === "GET" && req.url.startsWith("/Account/Login")) {
       res.writeHead(200, { "Content-Type": "text/html", "Set-Cookie": "ARRAffinity=aff1; Path=/" });
-      res.end('<form id="frmLogin" method="post"><input name="Email"><input name="Password"><select name="SelectedAgency"><option value="AG-KADIMA">Kadima</option></select><input name="__RequestVerificationToken" type="hidden" value="JETON-XYZ"></form>');
+      res.end('<form id="frmLogin" method="post"><input name="Email"><input name="Password"><input type="hidden" :value="agency ? agency.id : 0" id="SelectedAgency" name="SelectedAgency" /><input name="__RequestVerificationToken" type="hidden" value="JETON-XYZ"></form>');
       return;
+    }
+    if (req.method === "GET" && req.url.startsWith("/api/getMainAgency")) {
+      // L'agence principale du compte, comme le script de la page la demande.
+      if (!/login=benoit%40kadima\.test/.test(req.url)) { res.writeHead(204); res.end(); return; }
+      res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ id: "AG-KADIMA", name: "Kadima" })); return;
     }
     if (req.method === "POST" && req.url.startsWith("/Account/Login")) {
       const f = new URLSearchParams(corps);
@@ -3102,7 +3107,9 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      diagAm.json.lus[0].type === "maison" && diagAm.json.lus[0].agence === "Agence Confrère A" && diagAm.json.lus[0].image === "http://localhost:18798/img/501.jpg",
      "le diagnostic se connecte (jeton + cookie), lit une page et montre les champs bruts et lus");
   const login = amepiAppels.find((a) => a.m === "POST" && a.u.startsWith("/Account/Login"));
-  ok(login && /SelectedAgency=AG-KADIMA/.test(login.corps) && /RememberMe=false/.test(login.corps), "la connexion envoie l'agence du formulaire et le jeton anti-falsification");
+  ok(login && /SelectedAgency=AG-KADIMA/.test(login.corps) && /RememberMe=false/.test(login.corps) && /__RequestVerificationToken=JETON-XYZ/.test(login.corps),
+     "la connexion demande l'agence principale du compte (api/getMainAgency) et l'envoie avec le jeton anti-falsification");
+  ok(amepiAppels.some((a) => a.u.startsWith("/api/getMainAgency?login=benoit%40kadima.test") && /ARRAffinity=aff1/.test(a.cookie)), "…avec le cookie de la page de connexion");
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { enabled: true, sources: ["1", "2", "3"], relance: false } } });
   const sync1 = await callR("/crm/amepi/sync", { headers: auth, body: {} });
   ok(sync1.status === 200 && sync1.json.stats.fini && sync1.json.stats.biens === 3 && sync1.json.stats.nouveaux === 3,

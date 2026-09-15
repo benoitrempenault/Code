@@ -37,12 +37,21 @@ function jetonDe(html) {
     /value="([^"]+)"[^>]*name="__RequestVerificationToken"/.exec(html);
   return m ? m[1] : "";
 }
-function agenceDe(html) {
-  // <select name="SelectedAgency"> : la première option non vide (mono-agence).
-  const bloc = /<select[^>]*name="SelectedAgency"[^>]*>([\s\S]*?)<\/select>/i.exec(html);
-  if (!bloc) return "";
-  const opt = /<option[^>]*value="([^"]+)"/i.exec(bloc[1]);
-  return opt ? opt[1] : "";
+// L'agence du compte : le formulaire la demande (champ caché SelectedAgency)
+// et la page la trouve elle-même par GET /api/getMainAgency?login=<e-mail>
+// (204 = aucune → 0, comme le fait le script du site).
+async function agencePrincipale(base, email, cookie) {
+  try {
+    const r = await fetch(base + "/api/getMainAgency?login=" + encodeURIComponent(email), { headers: { Accept: "application/json", Cookie: cookie } });
+    if (r.status !== 200) return "0";
+    const j = await r.json().catch(() => null);
+    return j && j.id !== undefined && j.id !== null ? String(j.id) : "0";
+  } catch { return "0"; }
+}
+// Le message d'erreur que le formulaire réaffiche (mot de passe refusé…).
+function erreurFormulaire(html) {
+  const m = /class="[^"]*(validation-summary-errors|field-validation-error|text-danger)[^"]*"[^>]*>([\s\S]*?)<\/(div|span|ul)>/i.exec(html || "");
+  return m ? m[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160) : "";
 }
 
 export function amepiConfigure(env) { return !!(env.AMEPI_EMAIL && env.AMEPI_PASSWORD); }
@@ -56,9 +65,10 @@ export async function connexionAmepi(env) {
   let jar = cookiesDe(r1);
   const jeton = jetonDe(html);
   if (!jeton) throw new Error("Page de connexion AMEPI inattendue (pas de jeton anti-falsification).");
+  const agence = env.AMEPI_AGENCY || await agencePrincipale(base, env.AMEPI_EMAIL, jar.join("; "));
   const corps = new URLSearchParams({
     Email: env.AMEPI_EMAIL, Password: env.AMEPI_PASSWORD, RememberMe: "false",
-    SelectedAgency: env.AMEPI_AGENCY || agenceDe(html) || "", __RequestVerificationToken: jeton,
+    SelectedAgency: agence, __RequestVerificationToken: jeton,
   });
   const r2 = await fetch(base + "/Account/Login", {
     method: "POST", redirect: "manual",
@@ -67,7 +77,8 @@ export async function connexionAmepi(env) {
   });
   jar = fusionnerCookies(jar, cookiesDe(r2));
   if (r2.status !== 302 && r2.status !== 301) {
-    throw new Error("Connexion AMEPI refusée (statut " + r2.status + ") — identifiants ou agence à vérifier.");
+    const detail = erreurFormulaire(await r2.text().catch(() => ""));
+    throw new Error("Connexion AMEPI refusée (statut " + r2.status + (detail ? " : « " + detail + " »" : "") + ") — identifiants à vérifier (agence " + agence + ").");
   }
   return { base, cookie: jar.join("; ") };
 }
