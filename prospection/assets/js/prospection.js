@@ -404,6 +404,18 @@
      conseiller, couleur, multi-polygone en [lat,lng]) s'importe par lots de
      40. Upsert par NOM côté serveur : ré-importer met à jour, jamais de
      doublon. Les îlots dessinés à la main (autres noms) ne bougent pas. */
+  // Les îlots de l'agence, extraits de CenturyNet, livrés avec Studio : un
+  // clic les charge (ou les remet à jour) — plus de fichier à retrouver.
+  async function chargerIlotsKadima() {
+    const btn = $("btn-ilots-kadima");
+    btn.disabled = true;
+    try {
+      const r = await fetch("assets/data/ilots-kadima.json", { cache: "no-cache" });
+      if (!r.ok) throw new Error("Fichier des îlots introuvable (" + r.status + ").");
+      await importerIlots(new Blob([await r.text()], { type: "application/json" }));
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = false;
+  }
   async function importerIlots(fichier) {
     let data;
     try { data = JSON.parse(await fichier.text()); }
@@ -428,7 +440,8 @@
       await charger();
     } catch (e) { toast(e.message, true); }
     btn.disabled = false;
-    btn.textContent = "📥 Importer des îlots";
+    btn.textContent = "📂 Importer un fichier";
+    if ($("details-ilots")) $("details-ilots").open = true;
   }
 
   /* ------------------------------ Fil de suivi ----------------------------- */
@@ -1266,6 +1279,7 @@
     if (f) importerVentes(f);
   });
   $("btn-import-ilots").addEventListener("click", () => $("fichier-ilots").click());
+  $("btn-ilots-kadima").addEventListener("click", chargerIlotsKadima);
   $("fichier-ilots").addEventListener("change", (e) => {
     const f = e.target.files && e.target.files[0];
     e.target.value = "";

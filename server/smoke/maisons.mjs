@@ -22,6 +22,11 @@ export default async function () {
     await page.click(".signet-qualif span");
     await page.waitForSelector(".leaflet-popup-content", { timeout: 6000 });
     ok((await page.textContent(".leaflet-popup-content")).includes("SURCARTE"), "cliquer le signet ouvre la fiche du contact");
+    // Les îlots CenturyNet livrés avec Studio se chargent d'un clic (admin).
+    await page.click("#btn-ilots-kadima");
+    await page.waitForFunction(() => /141 îlot\(s\) importé\(s\)/.test(document.getElementById("toast")?.textContent || ""), null, { timeout: 120000 });
+    await page.waitForFunction(() => document.getElementById("nb-ilots")?.textContent === "141", null, { timeout: 20000 });
+    ok(await page.evaluate(() => document.getElementById("details-ilots").open), "« Charger les îlots CenturyNet » importe les 141 îlots et déroule la liste");
     await page.uncheck("#couche-batiments");
     await page.waitForFunction(() => window.__batiments && window.__batiments.total === 0, null, { timeout: 6000 });
     ok(true, "décocher « Maisons dessinées » retire la couche");
