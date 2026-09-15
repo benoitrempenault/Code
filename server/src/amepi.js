@@ -83,7 +83,12 @@ export async function connexionAmepi(env) {
     throw new Error(`Page de connexion AMEPI inattendue (statut ${r1.status}, ${r1.url || base}${titre ? ", titre « " + titre.trim() + " »" : ""}${extrait ? ", début : « " + extrait + " »" : ""}) — pas de jeton anti-falsification.`);
   }
   const email = secret(env.AMEPI_EMAIL), motDePasse = secret(env.AMEPI_PASSWORD);
-  const agence = secret(env.AMEPI_AGENCY) || await agencePrincipale(base, email, jar.join("; "));
+  // Le formulaire du site envoie SelectedAgency = 0 : son script sait chercher
+  // l'agence du compte mais n'est jamais appelé. Envoyer la vraie agence
+  // (12253…) fait échouer la connexion. On fait comme le navigateur — sauf
+  // si AMEPI_AGENCY force une agence, ou AMEPI_AGENCY=auto pour la chercher.
+  const forcee = secret(env.AMEPI_AGENCY);
+  const agence = forcee === "auto" ? await agencePrincipale(base, email, jar.join("; ")) : (forcee || "0");
   const corps = new URLSearchParams({
     Email: email, Password: motDePasse, RememberMe: "false",
     SelectedAgency: agence, __RequestVerificationToken: jeton,

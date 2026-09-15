@@ -1771,7 +1771,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     }
     if (req.method === "POST" && req.url.startsWith("/Account/Login")) {
       const f = new URLSearchParams(corps);
-      if (f.get("__RequestVerificationToken") !== "JETON-XYZ" || f.get("Email") !== "benoit@kadima.test" || f.get("Password") !== "secret-amepi" || !/ARRAffinity=aff1/.test(req.headers.cookie || "")) {
+      if (f.get("__RequestVerificationToken") !== "JETON-XYZ" || f.get("Email") !== "benoit@kadima.test" || f.get("Password") !== "secret-amepi" || f.get("SelectedAgency") !== "0" || !/ARRAffinity=aff1/.test(req.headers.cookie || "")) {
         res.writeHead(200, { "Content-Type": "text/html" }); res.end("<form>Identifiants incorrects</form>"); return;
       }
       res.writeHead(302, { Location: "/", "Set-Cookie": ".AspNetCore.Identity.Application=SESSION-OK; Path=/; HttpOnly" });
@@ -3107,9 +3107,9 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      diagAm.json.lus[0].type === "maison" && diagAm.json.lus[0].agence === "Agence Confrère A" && diagAm.json.lus[0].image === "http://localhost:18798/img/501.jpg",
      "le diagnostic se connecte (jeton + cookie), lit une page et montre les champs bruts et lus");
   const login = amepiAppels.find((a) => a.m === "POST" && a.u.startsWith("/Account/Login"));
-  ok(login && /SelectedAgency=AG-KADIMA/.test(login.corps) && /RememberMe=false/.test(login.corps) && /__RequestVerificationToken=JETON-XYZ/.test(login.corps),
-     "la connexion demande l'agence principale du compte (api/getMainAgency) et l'envoie avec le jeton anti-falsification");
-  ok(amepiAppels.some((a) => a.u.startsWith("/api/getMainAgency?login=benoit%40kadima.test") && /ARRAffinity=aff1/.test(a.cookie)), "…avec le cookie de la page de connexion");
+  ok(login && /SelectedAgency=0(&|$)/.test(login.corps) && /RememberMe=false/.test(login.corps) && /__RequestVerificationToken=JETON-XYZ/.test(login.corps),
+     "la connexion envoie SelectedAgency=0 comme le navigateur, avec le jeton anti-falsification");
+  ok(!amepiAppels.some((a) => a.u.startsWith("/api/getMainAgency")), "…sans chercher l'agence (le site ne le fait pas non plus)");
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { enabled: true, sources: ["1", "2", "3"], relance: false } } });
   const sync1 = await callR("/crm/amepi/sync", { headers: auth, body: {} });
   ok(sync1.status === 200 && sync1.json.stats.fini && sync1.json.stats.biens === 3 && sync1.json.stats.nouveaux === 3,
