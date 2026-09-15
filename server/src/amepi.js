@@ -96,7 +96,12 @@ export async function connexionAmepi(env) {
   jar = fusionnerCookies(jar, cookiesDe(r2));
   if (r2.status !== 302 && r2.status !== 301) {
     const detail = erreurFormulaire(await r2.text().catch(() => ""));
-    throw new Error("Connexion AMEPI refusée (statut " + r2.status + (detail ? " : « " + detail + " »" : "") + ") — identifiants à vérifier (agence " + agence + ").");
+    // Trace neutre de ce que le serveur a en main : l'e-mail, et du mot de
+    // passe seulement la longueur et ses extrémités (jamais le mot de passe).
+    const mp = [...motDePasse];
+    const trace = `e-mail « ${email} », mot de passe de ${mp.length} caractères` +
+      (mp.length ? ` (commence par « ${mp[0]} », finit par « ${mp[mp.length - 1]} »` + (/[^\x20-\x7e]/.test(motDePasse) ? ", contient des caractères accentués ou spéciaux" : "") + ")" : "");
+    throw new Error("Connexion AMEPI refusée (statut " + r2.status + (detail ? " : « " + detail + " »" : "") + ") — agence " + agence + ", " + trace + ".");
   }
   return { base, cookie: jar.join("; ") };
 }
