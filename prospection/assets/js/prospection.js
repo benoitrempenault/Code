@@ -817,19 +817,24 @@
       // 1) LE SERVEUR D'ABORD : la pompe géocode 14 adresses en parallèle par
       //    appel (~7 adresses/s), BAN puis IGN — c'est le chemin fiable
       //    partout, indépendant du réseau de l'agence.
-      let pompesVides = 0;
-      for (let p = 0; p < 200 && pompesVides < 3; p++) {
-        const reste = (await api("/crm/geo/attente")).attente.length;
-        if (!reste) break;
-        btn.textContent = "📍 Géocodage par le serveur… reste " + reste;
+      let pompesVides = 0, sansTrouvaille = 0;
+      for (let p = 0; p < 200 && pompesVides < 3 && sansTrouvaille < 2; p++) {
+        const file = (await api("/crm/geo/attente"));
+        const reste = file.total || file.attente.length, introuvables = file.dontIntrouvables || 0;
+        if (!reste || reste <= introuvables) break; // il ne reste que des adresses que personne ne trouve
+        btn.textContent = "📍 Géocodage par le serveur… reste " + reste + (introuvables ? " (dont " + introuvables + " introuvables)" : "");
         let r = null;
         // Une erreur ponctuelle du serveur (plafond atteint, réseau) ne doit
         // jamais arrêter toute la chaîne : on la compte comme passage à vide.
         try { r = await api("/crm/geo/serveur", { method: "POST" }); } catch (e) { }
         if (!r || !r.traites) { pompesVides++; continue; }
         pompesVides = 0;
-        totalOk += r.traites;
-        if (p % 5 === 4) await charger();
+        // Un passage qui ne PLACE rien (que des introuvables retentés) compte
+        // pour rien : deux de suite et on arrête de tourner.
+        sansTrouvaille = (r.geocodes || 0) === 0 ? sansTrouvaille + 1 : 0;
+        totalOk += r.geocodes !== undefined ? r.geocodes : r.traites;
+        totalRates += r.echecs || 0;
+        if (p % 5 === 4 || r.masse) await charger();
       }
       // 2) Reliquat depuis CE navigateur (si le serveur n'avance plus) :
       //    la BAN puis l'IGN en direct, adresse par adresse.

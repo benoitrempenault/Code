@@ -2414,6 +2414,9 @@ export const adresseDossier = (rue, ville) => {
 // Une adresse sans résultat (ou score < 0,4) est mémorisée en échec
 // (lat = lng = 0) et repasse en fin de file. Lève une erreur si la BAN refuse
 // (l'appelant retombe alors sur le géocodage adresse par adresse).
+// Un échec (adresse introuvable) n'est retenté qu'après ce délai : sinon
+// la pompe rebouclait sans fin sur les mêmes 300 adresses (« reste 329 »).
+export const ECHEC_RETENTE_APRES = 20 * 3600;
 function csvLigne(vals) {
   return vals.map((v) => { const t = String(v ?? "").replace(/[\r\n]+/g, " "); return /[",;]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; }).join(",");
 }
@@ -2436,14 +2439,14 @@ function parseCsv(texte) {
 export async function geocoderEnMasse(env, db, agencyId, max = 1000) {
   const plafond = Math.max(1, Math.min(2000, max | 0));
   const contacts = await db.all(
-    `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
+    `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng, g.updated_at AS geo_maj
      FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
      WHERE c.agency_id = ? AND c.adresse <> ''
-       AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0)
+       AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0 AND g.updated_at < ?)
             OR substr(g.adresse, 1, length(c.adresse)) <> c.adresse)
      ORDER BY CASE WHEN g.contact_id IS NULL THEN 0 WHEN g.lat = 0 AND g.lng = 0 THEN 2 ELSE 1 END,
               CASE WHEN c.types LIKE '%estime%' OR c.types LIKE '%vendeur%' THEN 0 ELSE 1 END
-     LIMIT ${plafond}`, [agencyId]);
+     LIMIT ${plafond}`, [agencyId, now() - ECHEC_RETENTE_APRES]);
   const attente = contacts
     .map((r) => ({ id: r.id, adresse: String(r.adresse || "").trim(), cp: /^\d{5}$/.test(String(r.cp || "").trim()) ? String(r.cp).trim() : "", ville: String(r.ville || "").trim(),
       cle: [r.adresse, r.cp, r.ville].filter(Boolean).join(" "), deja: r.geo_adresse, echec: r.geo_adresse != null && r.geo_lat === 0 && r.geo_lng === 0 }))
@@ -2508,13 +2511,13 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
   const rows = await db.all(
     `SELECT d.id, d.adresse,
             CASE WHEN json_valid(d.data) THEN json_extract(d.data, '$.bien.ville') ELSE '' END AS ville,
-            g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
+            g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng, g.updated_at AS geo_maj
      FROM dossiers d LEFT JOIN crm_geo g ON g.contact_id = d.id
      WHERE d.agency_id = ? AND d.adresse <> '' AND d.statut <> 'annule'
        AND (d.statut IN ('signe','clos') OR d.data LIKE '%"signature_acte":"2%')`, [agencyId]);
   // Les ventes importées (crm_ventes) passent au même géocodage automatique.
   const importees = await db.all(
-    `SELECT v.id, v.adresse, v.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
+    `SELECT v.id, v.adresse, v.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng, g.updated_at AS geo_maj
      FROM crm_ventes v LEFT JOIN crm_geo g ON g.contact_id = v.id
      WHERE v.agency_id = ? AND v.adresse <> ''`, [agencyId]);
   // À 60 000 contacts, on ne lit jamais toute la base : le SQL pré-filtre ce
@@ -2526,7 +2529,7 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
   // une adresse geocodee plus longue plantait TOUTE la requete (SQLITE_ERROR
   // « pattern too complex ») des que le OR ne court-circuitait plus.
   const contacts = avecContacts ? await db.all(
-    `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
+    `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng, g.updated_at AS geo_maj
      FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
      WHERE c.agency_id = ? AND c.adresse <> ''
        AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0)
@@ -2538,10 +2541,12 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
   // les adresses jamais tentées passent d'abord.
   const enAttente = rows.concat(importees)
     .map((r) => ({ id: r.id, adresse: adresseDossier(r.adresse, r.ville), deja: r.geo_adresse,
-      echec: r.geo_adresse != null && r.geo_lat === 0 && r.geo_lng === 0 }))
+      echec: r.geo_adresse != null && r.geo_lat === 0 && r.geo_lng === 0, maj: r.geo_maj || 0 }))
     .concat(contacts.map((r) => ({ id: r.id, adresse: [r.adresse, r.cp, r.ville].filter(Boolean).join(" "), deja: r.geo_adresse,
-      echec: r.geo_adresse != null && r.geo_lat === 0 && r.geo_lng === 0 })))
+      echec: r.geo_adresse != null && r.geo_lat === 0 && r.geo_lng === 0, maj: r.geo_maj || 0 })))
     .filter((r) => r.adresse && (r.adresse !== r.deja || r.echec))
+    // Un échec tout frais (retenté il y a moins d'une journée) attend son tour.
+    .filter((r) => !(r.echec && r.adresse === r.deja && (r.maj || 0) > now() - ECHEC_RETENTE_APRES))
     .sort((a, b) => (a.echec ? 1 : 0) - (b.echec ? 1 : 0));
   const attente = enAttente.slice(0, Math.max(0, max));
   if (!attente.length) return { geocodes: 0, traites: 0, restants: 0 };

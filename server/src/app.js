@@ -1511,7 +1511,7 @@ export function createApp(env) {
     // À 60 000 contacts, jamais de lecture intégrale : le SQL pré-filtre ce
     // qui semble à géocoder et se borne (le tri exact reste fait en mémoire).
     const rows = await db.all(
-      `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
+      `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng, g.updated_at AS geo_maj
        FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
        WHERE c.agency_id = ? AND c.adresse <> ''
          AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0)
@@ -1526,7 +1526,7 @@ export function createApp(env) {
     const dossiers = await db.all(
       `SELECT d.id, d.adresse,
               CASE WHEN json_valid(d.data) THEN json_extract(d.data, '$.bien.ville') ELSE '' END AS ville,
-              g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
+              g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng, g.updated_at AS geo_maj
        FROM dossiers d LEFT JOIN crm_geo g ON g.contact_id = d.id
        WHERE d.agency_id = ? AND d.adresse <> '' AND d.statut <> 'annule'
          AND (d.statut IN ('signe','clos') OR d.data LIKE '%"signature_acte":"2%')`, [ctx.agency.id]);
@@ -1534,7 +1534,7 @@ export function createApp(env) {
     // gros import — le géocodage automatique au fil de l'eau ferait pareil,
     // mais en plusieurs jours).
     const ventesImp = await db.all(
-      `SELECT v.id, v.adresse, v.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
+      `SELECT v.id, v.adresse, v.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng, g.updated_at AS geo_maj
        FROM crm_ventes v LEFT JOIN crm_geo g ON g.contact_id = v.id
        WHERE v.agency_id = ? AND v.adresse <> ''`, [ctx.agency.id]);
     // Un échec mémorisé (lat/lng à 0) REPASSE en file, mais en fin de liste :
@@ -1542,11 +1542,14 @@ export function createApp(env) {
     // ne doit jamais rayer une adresse pour toujours.
     const echec = (r) => r.geo_adresse != null && r.geo_lat === 0 && r.geo_lng === 0;
     const enFile = rows
-      .map((r) => ({ id: r.id, adresse: [r.adresse, r.cp, r.ville].filter(Boolean).join(" "), deja: r.geo_adresse, echec: echec(r) }))
-      .concat(dossiers.concat(ventesImp).map((r) => ({ id: r.id, adresse: adresseDossier(r.adresse, r.ville), deja: r.geo_adresse, echec: echec(r) })))
+      .map((r) => ({ id: r.id, adresse: [r.adresse, r.cp, r.ville].filter(Boolean).join(" "), deja: r.geo_adresse, echec: echec(r), maj: r.geo_maj || 0 }))
+      .concat(dossiers.concat(ventesImp).map((r) => ({ id: r.id, adresse: adresseDossier(r.adresse, r.ville), deja: r.geo_adresse, echec: echec(r), maj: r.geo_maj || 0 })))
       .filter((r) => r.adresse && (r.adresse !== r.deja || r.echec))
       .sort((a, b) => (a.echec ? 1 : 0) - (b.echec ? 1 : 0));
-    const attente = enFile.slice(0, GEO_BATCH_MAX).map(({ id, adresse }) => ({ id, adresse }));
+    // Les échecs tout frais (retentés il y a moins d'une journée) sont comptés
+    // mais ne sont PAS redonnés au navigateur : il rebouclait dessus sans fin.
+    const frais = now() - CRM.ECHEC_RETENTE_APRES;
+    const attente = enFile.filter((r) => !(r.echec && r.maj > frais)).slice(0, GEO_BATCH_MAX).map(({ id, adresse }) => ({ id, adresse }));
     // dontIntrouvables : déjà tentées, les géocodeurs ont répondu « inconnu »
     // — elles retenteront leur chance, mais c'est l'ADRESSE de la fiche qu'il
     // faut corriger. total : le VRAI restant (la liste est plafonnée à
