@@ -40,7 +40,10 @@
       <select id="filtre-conseiller">
         <option value="">Tous les conseillers</option>
       </select>
-      <div id="liste-ilots" class="liste-ilots"></div>
+      <details id="details-ilots">
+        <summary>Liste des îlots (<span id="nb-ilots">0</span>)</summary>
+        <div id="liste-ilots" class="liste-ilots"></div>
+      </details>
       <div class="rang" id="zone-dessin" hidden>
         <button class="btn btn-or" id="btn-dessiner">✏️ Dessiner un îlot</button>
         <button class="btn" id="btn-terminer" hidden>✔ Terminer</button>
@@ -91,7 +94,7 @@
         notariées (DVF — y compris celles des confrères) et les DPE récents : un DPE frais est
         souvent le signe d'un projet de vente ou de location.</p>
       <div class="filtres">
-        <label class="case"><input type="checkbox" id="couche-ventes" checked /> 🔑 Nos ventes</label>
+        <label class="case"><input type="checkbox" id="couche-ventes" /> 🔑 Nos ventes</label>
         <label class="case"><input type="checkbox" id="couche-dvf" /> <span class="pastille" style="background:#4ECDC4"></span> Ventes DVF (3 dernières années)</label>
         <label class="case"><input type="checkbox" id="couche-dpe" /> <span class="pastille" style="background:linear-gradient(90deg,#2e8b57,#e9c46a,#d64533)"></span> DPE (12 derniers mois)</label>
       </div>

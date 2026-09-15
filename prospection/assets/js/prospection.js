@@ -141,7 +141,9 @@
   function initCarte() {
     // preferCanvas : à des dizaines de milliers de points (60 000 contacts
     // visés), le rendu vectoriel SVG s'effondre — le canvas tient la charge.
-    carte = L.map("carte", { zoomControl: true, preferCanvas: true }).setView(CENTRE_DEFAUT, 13);
+    // La carte s'ouvre TOUJOURS sur Saint-Médard-en-Jalles (le cœur du
+    // secteur), au zoom de la commune — jamais cadrée sur toute la base.
+    carte = L.map("carte", { zoomControl: true, preferCanvas: true }).setView(CENTRE_DEFAUT, 14);
     // Poignée pour les parcours navigateur (server/smoke) : les maisons sont
     // dessinées sur un canvas, seul Leaflet sait où cliquer.
     window.__carte = carte;
@@ -263,6 +265,7 @@
       coucheIlots.addLayer(poly);
     }
     // Liste latérale + filtre conseiller
+    if ($("nb-ilots")) $("nb-ilots").textContent = visibles.length;
     $("liste-ilots").innerHTML = visibles.length
       ? visibles.map((il) =>
         '<div class="ilot" data-zoom-ilot="' + il.id + '">' +
@@ -306,8 +309,12 @@
   async function charger() {
     donnees = await api("/crm/carte");
     donnees.ventes = donnees.ventes || [];
+    const parCat = {};
+    for (const p of donnees.points) { const c = categorieDe(p.types); parCat[c] = (parCat[c] || 0) + 1; }
+    const LIB_CAT = { vendeur: "vendeurs", acquereur: "acquéreurs", estime: "estimés", prospect: "prospects", autres: "autres" };
     $("etat-geo").textContent = donnees.points.length + " contact(s) sur la carte, sur " +
-      donnees.totalContacts + " dans la base.";
+      donnees.totalContacts + " dans la base" +
+      (donnees.points.length ? " (" + Object.entries(parCat).map(([c, n]) => n + " " + (LIB_CAT[c] || c)).join(", ") + ")" : "") + ".";
     const vs = donnees.ventesStats || { total: donnees.ventes.length, sansAdresse: 0, introuvables: 0, aGeocoder: 0 };
     const bouts = [];
     if (vs.aGeocoder) bouts.push(vs.aGeocoder + " en cours de géocodage — rechargez dans un instant");
@@ -326,12 +333,7 @@
     donnees.adresses = donnees.adresses || [];
     rendreAdresses();
     rendreBatiments();
-    if (donnees.points.length && !carte._dejaCadre) {
-      carte._dejaCadre = true;
-      const b = L.latLngBounds(donnees.points.map((p) => [p.lat, p.lng]));
-      donnees.ilots.forEach((i) => anneauxDe(i.polygone).flat().forEach((s) => b.extend(s)));
-      carte.fitBounds(b.pad(0.1));
-    }
+    // (pas de recadrage automatique sur toute la base : on reste sur Saint-Médard)
     // S'il reste des ventes à placer (import tout frais, page fermée en cours
     // de géocodage…) ou des adresses marquées introuvables à retenter, le
     // géocodage repart TOUT SEUL — aucun bouton à cliquer, une relance par visite.

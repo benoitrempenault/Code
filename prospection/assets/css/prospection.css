@@ -183,3 +183,8 @@ select:focus, input:focus { outline: none; border-color: var(--accent); }
   display: inline-block; min-width: 16px; padding: 0 4px; border-radius: 4px; color: #fff;
   font-weight: 700; font-size: 11px; text-align: center; line-height: 16px;
 }
+
+/* La liste des îlots se déroule à la demande (141 îlots : trop long ouvert). */
+#details-ilots { margin-top: 8px; }
+#details-ilots > summary { cursor: pointer; font-size: 13px; color: var(--muted); padding: 6px 0; user-select: none; }
+#details-ilots > summary:hover { color: inherit; }
