@@ -1818,7 +1818,24 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await new Promise((r) => fauxDvf.listen(18792, r));
   // Fausse BAN : géocode « Vignes », ignore le reste — pour tester le
   // géocodage AUTOMATIQUE des ventes (le serveur appelle la BAN lui-même).
-  const fauxBan = (await import("node:http")).createServer((req, res) => {
+  let fauxBanCsv = false; // le géocodage EN MASSE (CSV) n'est servi que quand un test l'allume
+  const fauxBan = (await import("node:http")).createServer(async (req, res) => {
+    if (req.method === "POST" && req.url.startsWith("/search/csv")) {
+      if (!fauxBanCsv) { res.writeHead(404); res.end(); return; }
+      const chunks = []; for await (const ch of req) chunks.push(ch);
+      const brut = Buffer.concat(chunks).toString();
+      const partie = brut.split(/name="data"[^\n]*\n(?:[^\n]*\n)*?\r?\n/)[1] || "";
+      const csv = partie.split(/\r?\n--/)[0];
+      const lignes = csv.trim().split(/\r?\n/).slice(1);
+      const sortie = ["id,adresse,cp,ville,latitude,longitude,result_score,result_label,result_postcode,result_type"];
+      for (const l of lignes) {
+        const [id, adresse, cp, ville] = l.split(",");
+        if (/Vignes|Acacias/.test(adresse)) sortie.push([id, adresse, cp, ville, "44.9012", "-0.68", "0.93", adresse + " " + cp + " " + ville, cp || "33185", "housenumber"].join(","));
+        else if (/Toulon/.test(adresse)) sortie.push([id, adresse, cp, ville, "43.12", "5.94", "0.42", "Impasse Bidon 83000 Toulon", "83000", "street"].join(","));
+        else sortie.push([id, adresse, cp, ville, "", "", "", "", "", ""].join(","));
+      }
+      res.writeHead(200, { "Content-Type": "text/csv; charset=utf-8" }); res.end(sortie.join("\n") + "\n"); return;
+    }
     const q = decodeURIComponent(new URL(req.url, "http://x").searchParams.get("q") || "");
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(/Vignes/.test(q)
@@ -3205,6 +3222,26 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const geolot = (await callR("/crm/contacts", { headers: auth })).json.contacts.filter((x) => x.nom === "GEOLOT");
   const lot100 = await callR("/crm/geo/batch", { headers: auth, body: { rows: geolot.map((x, i) => ({ contactId: x.id, lat: 44.9 + i / 10000, lng: -0.7, label: "l", score: 0.9, adresse: "a" })) } });
   ok(lot100.status === 200 && lot100.json.enregistres === 100, "100 positions enregistrées d'un coup (" + (lot100.json.error || lot100.json.enregistres) + ")");
+
+  /* ---- Géocodage EN MASSE (CSV BAN) ---------------------------------------- */
+  console.log("— Géocodage en masse : mille adresses en une requête BAN, code postal en garde-fou");
+  fauxBanCsv = true;
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+    { nom: "MASSE", prenom: "Un", email: "masse1@exemple.fr", adresse: "3 rue des Acacias", cp: "33185", ville: "Le Haillan" },
+    { nom: "MASSE", prenom: "Deux", email: "masse2@exemple.fr", adresse: "adresse Toulon bidon", cp: "33160", ville: "Saint-Médard" },
+    { nom: "MASSE", prenom: "Trois", email: "masse3@exemple.fr", adresse: "5 rue Inconnue", cp: "33160", ville: "Saint-Médard" },
+  ] } });
+  const masse = await callR("/crm/geo/serveur", { headers: auth, method: "POST" });
+  ok(masse.status === 200 && masse.json.masse === true && masse.json.traites >= 3 && masse.json.geocodes >= 1,
+     "la pompe passe par le géocodage en masse (" + JSON.stringify({ traites: masse.json.traites, geocodes: masse.json.geocodes, echecs: masse.json.echecs }) + ")");
+  const ptsM = (await callR("/crm/carte", { headers: authP })).json.points;
+  const ctsM = (await callR("/crm/contacts", { headers: auth })).json.contacts.filter((x) => x.nom === "MASSE");
+  const idDe = (pr) => ctsM.find((x) => x.prenom === pr).id;
+  ok(ptsM.some((p) => p.contact_id === idDe("Un") && p.lat === 44.9012), "l'adresse trouvée est posée sur la carte");
+  ok(!ptsM.some((p) => p.contact_id === idDe("Deux")), "un résultat hors du code postal (Toulon pour 33160) est refusé");
+  const geoTrois = await db.get("SELECT lat, lng, label FROM crm_geo WHERE contact_id = ?", [idDe("Trois")]);
+  ok(geoTrois && geoTrois.lat === 0 && geoTrois.label === "(adresse introuvable)", "une adresse sans résultat est mémorisée en échec (repassera en fin de file)");
+  fauxBanCsv = false;
 
   /* ---- Bâtiments IGN : les maisons de la carte --------------------------- */
   console.log("— Bâtiments IGN relayés pour la carte (emprises des maisons)");

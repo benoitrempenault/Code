@@ -2407,6 +2407,94 @@ export const adresseDossier = (rue, ville) => {
   return a ? a + ", " + v : v;
 };
 
+// GÉOCODAGE EN MASSE : la BAN accepte un fichier CSV d'adresses (jusqu'à
+// plusieurs milliers) en UNE requête — sans la limite de débit qui bride
+// l'appel adresse par adresse (7/s au mieux, coupé par vagues). Le code
+// postal est passé en filtre : une adresse inconnue ne part plus « à Toulon ».
+// Une adresse sans résultat (ou score < 0,4) est mémorisée en échec
+// (lat = lng = 0) et repasse en fin de file. Lève une erreur si la BAN refuse
+// (l'appelant retombe alors sur le géocodage adresse par adresse).
+function csvLigne(vals) {
+  return vals.map((v) => { const t = String(v ?? "").replace(/[\r\n]+/g, " "); return /[",;]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; }).join(",");
+}
+function parseCsv(texte) {
+  const lignes = [];
+  let ligne = [], champ = "", entreGuillemets = false;
+  for (let i = 0; i < texte.length; i++) {
+    const ch = texte[i];
+    if (entreGuillemets) {
+      if (ch === '"') { if (texte[i + 1] === '"') { champ += '"'; i++; } else entreGuillemets = false; }
+      else champ += ch;
+    } else if (ch === '"') entreGuillemets = true;
+    else if (ch === ",") { ligne.push(champ); champ = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && texte[i + 1] === "\n") i++; ligne.push(champ); lignes.push(ligne); ligne = []; champ = ""; }
+    else champ += ch;
+  }
+  if (champ !== "" || ligne.length) { ligne.push(champ); lignes.push(ligne); }
+  return lignes.filter((l) => l.length > 1 || (l.length === 1 && l[0] !== ""));
+}
+export async function geocoderEnMasse(env, db, agencyId, max = 1000) {
+  const plafond = Math.max(1, Math.min(2000, max | 0));
+  const contacts = await db.all(
+    `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng
+     FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
+     WHERE c.agency_id = ? AND c.adresse <> ''
+       AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0)
+            OR substr(g.adresse, 1, length(c.adresse)) <> c.adresse)
+     ORDER BY CASE WHEN g.contact_id IS NULL THEN 0 WHEN g.lat = 0 AND g.lng = 0 THEN 2 ELSE 1 END,
+              CASE WHEN c.types LIKE '%estime%' OR c.types LIKE '%vendeur%' THEN 0 ELSE 1 END
+     LIMIT ${plafond}`, [agencyId]);
+  const attente = contacts
+    .map((r) => ({ id: r.id, adresse: String(r.adresse || "").trim(), cp: /^\d{5}$/.test(String(r.cp || "").trim()) ? String(r.cp).trim() : "", ville: String(r.ville || "").trim(),
+      cle: [r.adresse, r.cp, r.ville].filter(Boolean).join(" "), deja: r.geo_adresse, echec: r.geo_adresse != null && r.geo_lat === 0 && r.geo_lng === 0 }))
+    .filter((r) => r.adresse && (r.cle !== r.deja || r.echec));
+  if (!attente.length) return { traites: 0, geocodes: 0, echecs: 0, restants: 0, masse: true };
+  const csv = ["id,adresse,cp,ville", ...attente.map((a) => csvLigne([a.id, a.adresse, a.cp, a.ville]))].join("\n");
+  const form = new FormData();
+  form.append("data", new Blob([csv], { type: "text/csv" }), "adresses.csv");
+  for (const col of ["adresse", "cp", "ville"]) form.append("columns", col);
+  form.append("postcode", "cp");
+  for (const col of ["latitude", "longitude", "result_score", "result_label", "result_postcode", "result_type"]) form.append("result_columns", col);
+  const base = env.BAN_BASE || "https://api-adresse.data.gouv.fr";
+  let texte;
+  try {
+    const r = await fetch(base + "/search/csv/", { method: "POST", body: form, signal: AbortSignal.timeout(90000) });
+    if (!r.ok) throw new Error("la BAN répond " + r.status + " au géocodage en masse");
+    texte = await r.text();
+  } catch (e) { throw new Error("Géocodage en masse impossible : " + ((e && e.message) || e)); }
+  const lignes = parseCsv(texte);
+  if (!lignes.length) throw new Error("Géocodage en masse : réponse vide de la BAN.");
+  const entete = lignes[0].map((h) => h.trim());
+  const col = (nom) => entete.indexOf(nom);
+  const iId = col("id"), iLat = col("latitude"), iLng = col("longitude"), iScore = col("result_score"), iLabel = col("result_label"), iCp = col("result_postcode"), iType = col("result_type");
+  if (iId < 0 || iLat < 0 || iLng < 0) throw new Error("Géocodage en masse : colonnes inattendues (" + entete.join(",") + ").");
+  const parId = new Map(attente.map((a) => [a.id, a]));
+  const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
+  const t = now();
+  const valeurs = [];
+  let geocodes = 0, echecs = 0;
+  for (const l of lignes.slice(1)) {
+    const a = parId.get(l[iId]); if (!a) continue;
+    const lat = parseFloat(l[iLat]), lng = parseFloat(l[iLng]), score = parseFloat(l[iScore]) || 0;
+    const cpOk = !a.cp || iCp < 0 || !l[iCp] || l[iCp] === a.cp;
+    // Un numéro dans la rue qui n'aboutit qu'à la commune : trop vague, échec.
+    const precis = !(iType >= 0 && l[iType] === "municipality" && /\d/.test(a.adresse));
+    const bon = Number.isFinite(lat) && Number.isFinite(lng) && score >= 0.4 && cpOk && precis;
+    if (bon) { geocodes++; valeurs.push(`(${sqlT(a.id)},${sqlT(agencyId)},${lat},${lng},${sqlT(l[iLabel] || "")},${score},${sqlT(a.cle)},${t})`); }
+    else { echecs++; valeurs.push(`(${sqlT(a.id)},${sqlT(agencyId)},0,0,'(adresse introuvable)',0,${sqlT(a.cle)},${t})`); }
+    parId.delete(a.id);
+  }
+  // Les adresses que la BAN n'a pas renvoyées du tout : échec aussi.
+  for (const a of parId.values()) { echecs++; valeurs.push(`(${sqlT(a.id)},${sqlT(agencyId)},0,0,'(adresse introuvable)',0,${sqlT(a.cle)},${t})`); }
+  for (let i = 0; i < valeurs.length; i += 100) {
+    await db.run(`INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES ${valeurs.slice(i, i + 100).join(",")}`, []);
+  }
+  const reste = await db.get(
+    `SELECT COUNT(*) AS n FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
+     WHERE c.agency_id = ? AND c.adresse <> '' AND g.contact_id IS NULL`, [agencyId]);
+  return { traites: valeurs.length, geocodes, echecs, restants: reste?.n || 0, masse: true };
+}
+
 // Le géocodage passe d'abord par le navigateur (bouton 📍, la BAN en direct),
 // mais le SERVEUR sait géocoder lui-même par petits paquets : automatiquement
 // pour les ventes (affichage de la carte, cron du matin), et sur demande pour
@@ -2559,6 +2647,10 @@ export async function runCrmDaily(env, db) {
       // Les ventes du Suivi rejoignent la carte toutes seules, un lot par nuit.
       // 12 max : chaque adresse peut coûter 2 appels (BAN + IGN) et le cron
       // partage son plafond de sous-requêtes avec le relevé et les e-mails.
+      // Les contacts restants : mille adresses d'un coup (BAN en masse), sans
+      // bloquer le reste si la BAN refuse cette nuit-là.
+      try { r.geoContacts = await geocoderEnMasse(env, db, agency.id, 1000); }
+      catch (e) { r.geoContactsError = e.message; }
       try { r.geoVentes = await geocoderVentes(env, db, agency.id, 12); }
       catch (e) { r.geoVentesError = e.message; }
       results.push(r);

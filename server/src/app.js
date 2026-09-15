@@ -1618,6 +1618,13 @@ export function createApp(env) {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     // 12 en parallèle (≤ 24 appels géocodeurs) : de la marge sous le plafond
     // de sous-requêtes du Worker. Et l'erreur réelle est DITE, jamais un 500 nu.
+    // D'abord EN MASSE (mille contacts par appel, une requête BAN) ; si la
+    // BAN refuse ce chemin, l'ancien passage adresse par adresse prend le
+    // relais (ventes comprises).
+    try {
+      const masse = await CRM.geocoderEnMasse(env, db, ctx.agency.id, 1000);
+      if (masse.traites) return c.json(masse);
+    } catch (e) { /* on retombe sur le passage unitaire */ }
     try {
       return c.json(await CRM.geocoderVentes(env, db, ctx.agency.id, 12, true));
     } catch (e) {
