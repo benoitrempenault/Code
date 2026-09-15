@@ -129,12 +129,17 @@
   }
   const rangQualif = (cle) => { const i = QUALIFS.findIndex((q) => q.cle === cle); return i < 0 ? 99 : i; };
 
+  // Une fiche sans typologie connue (import CenturyNet sans libellé) mais
+  // qui a une adresse, c'est un prospect : quelqu'un qui habite là et avec
+  // qui l'agence n'a pas (encore) d'autre relation. « Autres » ne garde que
+  // bailleurs et locataires.
   function categorieDe(types) {
-    if ((types || []).includes("vendeur")) return "vendeur";
-    if ((types || []).includes("acquereur")) return "acquereur";
-    if ((types || []).includes("estime")) return "estime";
-    if ((types || []).includes("prospect")) return "prospect";
-    return "autres";
+    const t = types || [];
+    if (t.includes("vendeur")) return "vendeur";
+    if (t.includes("acquereur")) return "acquereur";
+    if (t.includes("estime")) return "estime";
+    if (t.includes("bailleur") || t.includes("locataire")) return "autres";
+    return "prospect";
   }
 
   /* -------------------------------- Carte --------------------------------- */
