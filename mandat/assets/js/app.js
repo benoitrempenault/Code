@@ -187,7 +187,7 @@
   // avec des mots coupés en deux. On recolle donc les lignes d'un même
   // paragraphe — et les mots coupés par un tiret en fin de ligne ; seule une
   // ligne vide crée un nouveau paragraphe.
-  function nl2p(text) {
+  function proseParagraphes(text) {
     return String(text || "")
       .split(/\n\s*\n/)
       .map(function (p) {
@@ -197,7 +197,57 @@
           .trim();
       })
       .filter(Boolean)
-      .map(function (p) { return "<p>" + esc(p) + "</p>"; }).join("");
+      .map(function (p) {
+        // Intertitre d'une annonce collée : ligne courte EN CAPITALES, ou qui
+        // finit par « : » — rendue en sous-titre, sans lettrine.
+        const court = p.length <= 90 && !/[.!?…]$/.test(p);
+        // « CAPITALES » à 85 % des lettres : un « m² » ou un « et » ne
+        // disqualifie pas un titre d'annonce écrit en majuscules.
+        const lettres = p.replace(/[^A-Za-zÀ-ÿ]/g, ""), maj = lettres.replace(/[a-zà-ÿ]/g, "");
+        const caps = lettres.length >= 6 && maj.length / lettres.length >= 0.85;
+        const titre = court && (caps || /:$/.test(p));
+        return { texte: titre ? p.replace(/\s*:$/, "") : p, titre: titre };
+      });
+  }
+  // La description en page « L'art de vivre » : pleine largeur, sur DEUX
+  // colonnes équilibrées quand le texte est assez long (répartition
+  // paragraphe par paragraphe ici même — pas de « columns » CSS, que certains
+  // pilotes d'impression ne peignent pas), une colonne centrée sinon. La
+  // lettrine va au premier vrai paragraphe ; un intertitre reste collé au
+  // paragraphe qui le suit. La taille du texte descend ensuite par crans
+  // (prose--t1…t4, posés par fitPages) jusqu'à tenir sur la feuille.
+  function proseHtml(text) {
+    const paras = proseParagraphes(text);
+    if (!paras.length) return "";
+    let lettrine = true;
+    const bloc = function (x) {
+      let cls = x.titre ? "prose__titre" : (lettrine ? "prose__lead" : "");
+      if (!x.titre) lettrine = false;
+      return "<p" + (cls ? ' class="' + cls + '"' : "") + ">" + esc(x.texte) + "</p>";
+    };
+    const total = paras.reduce(function (n, x) { return n + x.texte.length; }, 0);
+    if (total < 900) return '<div class="prose prose--une">' + paras.map(bloc).join("") + "</div>";
+    // Unités insécables : un intertitre + le paragraphe qui le suit.
+    const unites = [];
+    paras.forEach(function (x) {
+      const u = unites[unites.length - 1];
+      if (u && u.ouverte) { u.items.push(x); u.len += x.texte.length; u.ouverte = x.titre; }
+      else unites.push({ items: [x], len: x.texte.length, ouverte: x.titre });
+    });
+    let cumul = 0, coupe = unites.length;
+    for (let i = 0; i < unites.length; i++) {
+      const avant = cumul, apres = cumul + unites[i].len;
+      if (apres >= total / 2) {
+        // L'unité qui franchit la moitié va du côté qui déséquilibre le moins.
+        coupe = (total / 2 - avant) > (apres - total / 2) ? i + 1 : i;
+        break;
+      }
+      cumul = apres;
+    }
+    if (coupe <= 0) coupe = 1;
+    if (coupe >= unites.length) coupe = unites.length - 1;
+    const col = function (us) { return '<div class="prose__col">' + us.map(function (u) { return u.items.map(bloc).join(""); }).join("") + "</div>"; };
+    return '<div class="prose prose--deux">' + col(unites.slice(0, coupe)) + col(unites.slice(coupe)) + "</div>";
   }
   function getPath(obj, path) {
     return path.split(".").reduce(function (a, k) { return a == null ? undefined : a[k]; }, obj);
@@ -655,7 +705,7 @@
       '<div class="section-head"><div><div class="eyebrow">Le bien</div>' +
       '<h2 class="section-title">L\'art de vivre</h2></div><span class="idx">01</span></div>' +
       stats +
-      (p.description ? '<div class="prose">' + nl2p(p.description) + "</div>" : "") +
+      (p.description ? proseHtml(p.description) : "") +
       "</div>" + pageMark() + "</section>";
   }
 
@@ -861,6 +911,15 @@
       const inner = pg.querySelector(".page__inner");
       if (!inner) return;
       inner.style.zoom = "";
+      // La description d'abord : on descend la taille du texte par crans
+      // (prose--t1…t4) avant de resserrer toute la page.
+      const prose = pg.querySelector(".prose");
+      if (prose) {
+        prose.className = prose.className.replace(/ ?prose--t\d/g, "");
+        for (let t = 1; t <= 4 && pg.offsetHeight > A4_PX + 2; t++) {
+          prose.className = prose.className.replace(/ ?prose--t\d/g, "") + " prose--t" + t;
+        }
+      }
       if (pg.offsetHeight <= A4_PX + 2) return;
       let z = 1;
       while (z > 0.74 && pg.offsetHeight > A4_PX + 2) {
@@ -1155,7 +1214,10 @@
     "var pages=document.querySelectorAll('.page');" +
     "for(var i=0;i<pages.length;i++){var pg=pages[i];" +
     "var inner=pg.querySelector('.page__inner');if(!inner)continue;" +
-    "inner.style.zoom='';if(pg.offsetHeight<=A4+2)continue;var z=1;" +
+    "inner.style.zoom='';var pr=pg.querySelector('.prose');" +
+    "if(pr){pr.className=pr.className.replace(/ ?prose--t\\d/g,'');" +
+    "for(var t=1;t<=4&&pg.offsetHeight>A4+2;t++){pr.className=pr.className.replace(/ ?prose--t\\d/g,'')+' prose--t'+t;}}" +
+    "if(pg.offsetHeight<=A4+2)continue;var z=1;" +
     "while(z>0.74&&pg.offsetHeight>A4+2){z-=0.02;inner.style.zoom=String(Math.round(z*100)/100);}}}" +
     // Largeur : la page A4 (794 px) se réduit à la largeur de l'écran (téléphone = plein écran)
     "function fitW(){var l=Math.min(1,Math.max(0.3,(window.innerWidth-8)/794)).toFixed(3);" +

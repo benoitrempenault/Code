@@ -135,16 +135,30 @@
 .stats--tight .stat__num { font-size: 15pt; }
 .stats--tight .stat__num--long { font-size: 13.5pt; }
 .stats--tight .stat__lbl { font-size: 7pt; letter-spacing: .1em; }
-/* Une seule colonne (plus de « columns: 2 ») : le texte multicolonne n'était
-   pas peint par certains pilotes d'impression (Microsoft Print to PDF) et la
-   description disparaissait du PDF alors qu'elle s'affichait à l'écran.
-   Une colonne mesurée (~75 caractères par ligne) s'imprime partout pareil. */
-.prose { max-width: 152mm; font-size: 10.5pt; line-height: 1.72; color: var(--ink-soft); text-align: justify; hyphens: auto; }
+/* La description : pleine largeur, sur DEUX colonnes équilibrées quand le
+   texte est long (réparties paragraphe par paragraphe côté JS — pas de
+   « columns » CSS, que le pilote « Microsoft Print to PDF » ne peint pas et
+   qui faisait disparaître la description à l'impression), une colonne centrée
+   sinon. Les crans prose--t1…t4 (posés par fitPages) réduisent le texte
+   jusqu'à ce que la page tienne sur une seule feuille. */
+.prose { font-size: 10.5pt; line-height: 1.72; color: var(--ink-soft); text-align: justify; hyphens: auto; }
+.prose--une { max-width: 152mm; margin: 0 auto; }
+.prose--deux { display: grid; grid-template-columns: 1fr 1fr; column-gap: 10mm; align-items: start; }
 .prose p { margin: 0 0 10px; }
-.prose p:first-child::first-letter {
-  font-family: var(--serif); float: left; font-size: 42pt; line-height: .82;
+/* Intertitre (ligne en capitales ou finissant par « : » dans le texte collé). */
+.prose__titre {
+  font-family: var(--sans); font-weight: 600; font-size: .86em; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--ink); text-align: left; hyphens: manual; margin: 8px 0 6px;
+}
+.prose__titre:first-child { margin-top: 0; }
+.prose__lead::first-letter {
+  font-family: var(--serif); float: left; font-size: 4em; line-height: .82;
   padding: 4px 8px 0 0; color: var(--accent);
 }
+.prose--t1 { font-size: 10pt; line-height: 1.62; }   .prose--t1 p { margin-bottom: 8px; }
+.prose--t2 { font-size: 9.5pt; line-height: 1.55; }  .prose--t2 p { margin-bottom: 7px; }
+.prose--t3 { font-size: 9pt; line-height: 1.5; }     .prose--t3 p { margin-bottom: 6px; }
+.prose--t4 { font-size: 8.5pt; line-height: 1.45; }  .prose--t4 p { margin-bottom: 5px; }
 
 /* ============================ CARACTÉRISTIQUES ========================= */
 .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12mm; }
