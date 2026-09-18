@@ -2,6 +2,8 @@
 # chaque ouverture de session Windows (et tout de suite, pour vérifier).
 # Lancer :  powershell -ExecutionPolicy Bypass -File installer.ps1
 $ici = Split-Path -Parent $MyInvocation.MyCommand.Path
+# Fichiers téléchargés depuis Internet : Windows les marque « bloqués » — on lève la marque.
+Get-ChildItem -Path $ici -File | Unblock-File -ErrorAction SilentlyContinue
 if (-not (Test-Path (Join-Path $ici "config.json"))) { Write-Host "Créez d'abord config.json (copiez config.exemple.json et remplissez-le)." -ForegroundColor Red; exit 1 }
 $script = Join-Path $ici "agent-amepi.ps1"
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`""

@@ -1053,6 +1053,7 @@
     try {
       const r = await api("/crm/amepi/cle", { json: {} });
       ouvrirModale("🔑 Clé de l'agent AMEPI",
+        '<p class="aide"><a href="agent-amepi.zip" download>📦 Télécharger l\'agent (agent-amepi.zip)</a> — à décompresser sur un PC de l\'agence, puis suivre LISEZMOI.md.</p>' +
         '<p class="aide">Copiez cette clé dans le fichier <code>config.json</code> de l\'agent (champ <code>studio_cle</code>). ' +
         "Elle n'est affichée qu'une fois ; en générer une autre remplace celle-ci.</p>" +
         '<textarea id="amepi-cle" readonly style="width:100%; min-height:60px; font:14px ui-monospace, monospace;">' + escH(r.cle) + "</textarea>" +

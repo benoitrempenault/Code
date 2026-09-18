@@ -64,6 +64,8 @@ jobs:
           mkdir -p _site/administration/assets
           cp administration/index.html administration/favicon.svg _site/administration/
           cp -r administration/assets/* _site/administration/assets/
+          # L'agent AMEPI (scripts PowerShell à installer sur un PC de l'agence) en archive
+          (cd tools && zip -q -r ../_site/administration/agent-amepi.zip agent-amepi -x 'agent-amepi/config.json' 'agent-amepi/*.log')
           # Studio Prospection (carte + îlots — interne Kadima) sous /prospection/
           mkdir -p _site/prospection/assets
           cp prospection/index.html prospection/favicon.svg _site/prospection/
