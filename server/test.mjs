@@ -3276,6 +3276,14 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     { id: 603, mandateRef: "V-603", agencyName: "Agence Voisine", sourceTypeId: 3, assetTypeId: 2, price: 250000, publicTown: "Pessac", publicPostalCode: "33600", transactionStateId: 1 },
   ] } });
   ok(depS.json.stats.biens === 0 && depS.json.stats.horsSecteur === 1, "un bien d'une ALFA voisine n'entre plus au dépôt");
+  // Amanda ne renvoie pas la source : un dépôt fait avec sources ["2"] marque
+  // chaque bien, et un relevé complet évacue les biens de source inconnue non revus.
+  const depM = await callR("/crm/amepi/import", { headers: enteteAgent, body: { debut: true, fini: true, total: 1, sources: ["2"], mandats: [
+    { id: 701, mandateRef: "M-701", agencyName: "Agence ALFA", assetTypeId: 2, price: 300000, publicTown: "Le Haillan", publicPostalCode: "33185", transactionStateId: 1 },
+  ] } });
+  const listeM = (await callR("/crm/amepi", { headers: auth })).json;
+  ok(depM.json.stats.biens === 1 && listeM.biens.find((b) => b.id === "701").source === "2" && listeM.parSource.every((x) => x.source !== ""),
+     "sans source dans les résultats, la source cherchée est posée sur le bien (" + JSON.stringify(listeM.parSource) + ")");
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { sources: ["1", "2", "3"] } } });
   await callR("/crm/amepi/cle", { headers: auth, method: "DELETE" });
   ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: [] } })).status === 401, "une clé révoquée ne dépose plus rien");

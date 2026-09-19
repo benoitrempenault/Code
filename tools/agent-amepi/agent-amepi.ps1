@@ -101,7 +101,7 @@ try {
     if ($premier) { Log "Amanda annonce $total bien(s) dans le fichier (sources $($sources -join ',')$(if ($cps.Count) { ', communes ' + ($cps -join ',') } else { '' }))." }
     $lot = @($res.value); $lus += $lot.Count
     $fini = ($lot.Count -lt $parPage) -or ($numero * $parPage -ge $total)
-    $depot = @{ mandats = $lot; debut = $premier; fini = $fini; total = $total; base = $amepi } | ConvertTo-Json -Depth 12 -Compress
+    $depot = @{ mandats = $lot; debut = $premier; fini = $fini; total = $total; base = $amepi; sources = $sources } | ConvertTo-Json -Depth 12 -Compress
     try {
       $d = Invoke-WebRequest -Uri "$studio/crm/amepi/import" -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($depot)) -ContentType "application/json" `
         -Headers @{ "X-Agent-Key" = "$($cfg.studio_cle)".Trim() } -UseBasicParsing

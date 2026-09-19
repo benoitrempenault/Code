@@ -377,9 +377,20 @@ export async function importerAmepi(db, agency, corps, reglages = null) {
   const existants = new Map((await db.all("SELECT id, prix, statut FROM crm_amepi WHERE agency_id = ?", [agency.id])).map((r) => [r.id, r]));
   const evenements = [];
   const stats = { biens: 0, nouveaux: 0, baisses: 0, retirees: 0, total: Number(corps.total) || etat.total || 0, fini: !!corps.fini };
-  const lot = await enregistrerLot(db, agency.id, base, bruts, t, existants, evenements, deps);
+  // Amanda ne renvoie pas la source dans ses résultats : quand l'agent a
+  // cherché UNE seule source (« mon ALFA »), chaque bien reçu en porte la marque.
+  const sourcesCherchees = (Array.isArray(corps.sources) ? corps.sources : []).map((x) => String(x)).filter((x) => /^[123]$/.test(x));
+  const marque = sourcesCherchees.length === 1 ? sourcesCherchees[0] : "";
+  const brutsMarques = marque ? bruts.map((m) => (m && typeof m === "object" && !premier(m, ["sourceTypeId", "sourceType", "source"]) ? { ...m, sourceTypeId: marque } : m)) : bruts;
+  const lot = await enregistrerLot(db, agency.id, base, brutsMarques, t, existants, evenements, deps);
   stats.biens = lot.biens; stats.nouveaux = lot.nouveaux; stats.baisses = lot.baisses;
   stats.horsSecteur = bruts.length - lot.biens;
+  // Relevé complet d'une seule source : les biens de source inconnue non
+  // revus n'en font pas partie — ils sortent, plutôt que de rester « retirés ».
+  if (stats.fini && marque) {
+    const r = await db.run("DELETE FROM crm_amepi WHERE agency_id = ? AND source = '' AND last_seen < ?", [agency.id, debut]);
+    stats.sortis = changesOf(r);
+  }
   if (ouvre && bruts.length) await db.run(
     `INSERT INTO crm_amepi_brut (agency_id, brut, updated_at) VALUES (?, ?, ?)
      ON CONFLICT(agency_id) DO UPDATE SET brut = excluded.brut, updated_at = excluded.updated_at`,
