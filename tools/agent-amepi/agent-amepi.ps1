@@ -29,16 +29,42 @@ try {
   #    cookies), puis formulaire (agence 0, comme la page le fait).
   $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
   $ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36 AgentStudioKadima/1.0"
-  $page = Invoke-WebRequest -Uri "$amepi/Account/Login" -WebSession $session -UserAgent $ua -UseBasicParsing
-  $jeton = [regex]::Match($page.Content, 'name="__RequestVerificationToken"[^>]*value="([^"]+)"').Groups[1].Value
-  if (-not $jeton) { throw "Page de connexion Amanda inattendue (pas de jeton)." }
-  $corps = @{ Email = $cfg.amepi_email; Password = $cfg.amepi_password; RememberMe = "false"; SelectedAgency = "0"; __RequestVerificationToken = $jeton }
-  $rep = Invoke-WebRequest -Uri "$amepi/Account/Login" -Method Post -Body $corps -WebSession $session -UserAgent $ua -UseBasicParsing `
-    -Headers @{ Referer = "$amepi/Account/Login"; Origin = $amepi }
-  if ($rep.Content -match "Email ou mot de passe invalide") { throw "Amanda refuse la connexion : e-mail ou mot de passe invalide (config.json), ou connexion hors du réseau de l'agence." }
+  $email = "$($cfg.amepi_email)".Trim(); $mdp = "$($cfg.amepi_password)"
+  if (-not $email -or -not $mdp -or $mdp -like "le mot de passe*") { throw "config.json : amepi_email ou amepi_password n'est pas rempli." }
+  $enc = [System.Uri]::EscapeDataString
+  # L'agence du compte, comme le script de la page peut la demander à Amanda.
+  $agences = @("0")
+  try {
+    $ag = Invoke-WebRequest -Uri "$amepi/api/getMainAgency?login=$($enc.Invoke($email))" -WebSession $session -UserAgent $ua -UseBasicParsing
+    if ($ag.StatusCode -eq 200 -and $ag.Content) { $agId = ($ag.Content | ConvertFrom-Json).id; if ($agId) { $agences += "$agId" } }
+    elseif ($ag.StatusCode -eq 204) { Log "Attention : Amanda ne connaît aucun compte pour $email (vérifiez l'e-mail dans config.json)." }
+  } catch { }
+  $connecte = $false; $detail = ""
+  foreach ($agence in $agences) {
+    $page = Invoke-WebRequest -Uri "$amepi/Account/Login" -WebSession $session -UserAgent $ua -UseBasicParsing
+    $jeton = [regex]::Match($page.Content, 'name="__RequestVerificationToken"[^>]*value="([^"]+)"').Groups[1].Value
+    if (-not $jeton) { throw "Page de connexion Amanda inattendue (pas de jeton)." }
+    # Le corps EXACT du formulaire de la page (les champs e-mail et mot de passe
+    # y figurent deux fois), dans le même ordre que le navigateur.
+    $corps = "Email=$($enc.Invoke($email))&Password=$($enc.Invoke($mdp))&Email=$($enc.Invoke($email))&Password=$($enc.Invoke($mdp))" +
+      "&SelectedAgency=$agence&__RequestVerificationToken=$($enc.Invoke($jeton))&RememberMe=false"
+    $rep = Invoke-WebRequest -Uri "$amepi/Account/Login" -Method Post -Body $corps -ContentType "application/x-www-form-urlencoded" `
+      -WebSession $session -UserAgent $ua -UseBasicParsing -MaximumRedirection 5 `
+      -Headers @{ Referer = "$amepi/Account/Login"; Origin = $amepi; Accept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"; "Accept-Language" = "fr-FR,fr;q=0.9" }
+    $refus = [regex]::Match($rep.Content, '<(?:span|div|li)[^>]*class="[^"]*(?:error|validation)[^"]*"[^>]*>\s*([^<]{3,160}?)\s*<').Groups[1].Value
+    if ($rep.Content -match 'id="frmLogin"') {
+      $detail = "agence $agence : Amanda réaffiche le formulaire" + $(if ($refus) { " (« $refus »)" } else { "" })
+      Log "Essai $detail."
+      continue
+    }
+    $connecte = $true; break
+  }
+  if (-not $connecte) {
+    throw "Amanda refuse la connexion ($detail). Vérifiez dans config.json l'e-mail et le mot de passe, en vous connectant à la main sur $amepi avec exactement les mêmes."
+  }
   # Vérification : la page de recherche s'ouvre sans renvoyer au formulaire.
   $verif = Invoke-WebRequest -Uri "$amepi/mandate/search" -WebSession $session -UserAgent $ua -UseBasicParsing
-  if ($verif.Content -match 'id="frmLogin"') { throw "Amanda a réaffiché le formulaire de connexion : identifiants ou réseau à vérifier." }
+  if ($verif.Content -match 'id="frmLogin"') { throw "Amanda a réaffiché le formulaire de connexion après l'accueil : identifiants à vérifier." }
   Log "Connecté à Amanda ($($cfg.amepi_email))."
 
   # 2) Le fichier, page par page, déposé sur Studio au fur et à mesure.
