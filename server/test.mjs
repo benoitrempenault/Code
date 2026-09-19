@@ -3242,6 +3242,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(listeA.biens.find((b) => b.id === "501").prix === 320000 && listeA.biens.find((b) => b.id === "503").statut === "compromis" &&
      listeA.biens.find((b) => b.id === "504").url === "https://agglomeration-bordelaise.amanda.team/mandate/details/504" && listeA.etat.page === 0 && listeA.agent.last_used > 0,
      "prix à jour, retrait posé, lien vers Amanda, relevé terminé, clé marquée utilisée");
+  ok(listeA.echantillon && listeA.echantillon.brut.id === 501 && listeA.echantillon.lu.cp === "33185" && listeA.parSource.some((x) => x.source === "2") && listeA.parDep.some((x) => x.dep === "33"),
+     "la liste porte un mandat brut + lu et la répartition par source et département");
   // Consignes de l'agent : ce que l'Administration a réglé, pas config.json.
   const cons = await callR("/crm/amepi/consignes", { headers: enteteAgent });
   ok(cons.status === 200 && JSON.stringify(cons.json.sources) === '["1","2","3"]' && JSON.stringify(cons.json.departements) === '["33"]',

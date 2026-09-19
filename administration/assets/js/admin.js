@@ -1015,7 +1015,9 @@
         ? d.enVente + " bien(s) en vente sur " + d.total + " connus" +
           (e.fini_le ? " — dernier relevé complet le " + new Date(e.fini_le * 1000).toLocaleString("fr-FR") : "") +
           (e.page ? " — relevé en cours (page " + e.page + ")" : "") + (e.erreur ? " — dernière erreur : " + e.erreur : "") +
-          (e.hors_secteur ? " — " + e.hors_secteur + " bien(s) hors ALFA/Gironde ignoré(s) au dernier relevé" : "")
+          (e.hors_secteur ? " — " + e.hors_secteur + " bien(s) hors ALFA/Gironde ignoré(s) au dernier relevé" : "") +
+          ((d.parSource || []).length ? " — par source : " + d.parSource.map((x) => (x.source || "?") + " × " + x.n).join(", ") : "") +
+          ((d.parDep || []).length ? " — par département : " + d.parDep.map((x) => (x.dep || "sans CP") + " × " + x.n).join(", ") : "")
         : "Aucun bien relevé pour l'instant." + (e.erreur ? " Dernière erreur : " + e.erreur : ""));
     const enVente = d.biens.filter((b) => b.statut === "en_vente").slice(0, 150);
     zone.innerHTML = enVente.length
@@ -1027,6 +1029,18 @@
         "</tbody></table></div>" + (d.enVente > 150 ? '<p class="petit">Les 150 premiers biens sur ' + d.enVente + ".</p>" : "")
       : "";
     zone.querySelectorAll("tr[data-url]").forEach((tr) => tr.addEventListener("click", () => window.open(tr.dataset.url, "_blank", "noopener")));
+    if (d.echantillon) {
+      zone.insertAdjacentHTML("beforeend", '<p class="petit"><button class="btn" id="btn-amepi-brut" style="padding:4px 10px; font-size:12px;">🔎 Voir un bien tel qu\'Amanda l\'envoie</button></p>');
+      $("btn-amepi-brut").addEventListener("click", () => {
+        const texte = JSON.stringify(d.echantillon, null, 2);
+        ouvrirModale("🔎 Un mandat AMEPI, brut et lu",
+          '<p class="aide">« brut » : ce qu\'Amanda envoie ; « lu » : ce que Studio en retient (source, cp, ville…). Si une valeur lue est vide ou fausse, copiez ce bloc et envoyez-le moi.</p>' +
+          '<textarea id="amepi-brut" readonly style="width:100%; min-height:320px; font:12px/1.4 ui-monospace, monospace;">' + escH(texte) + "</textarea>",
+          '<button class="btn" id="amepi-brut-copier">📋 Copier</button><button class="btn btn-or" id="modale-ok">Fermer</button>');
+        $("modale-ok").addEventListener("click", fermerModale);
+        $("amepi-brut-copier").addEventListener("click", async () => { try { await navigator.clipboard.writeText(texte); toast("Copié"); } catch { $("amepi-brut").select(); } });
+      });
+    }
   }
   const TYPES_AMEPI = { maison: "Maison", appartement: "Appartement", terrain: "Terrain", parking: "Parking", immeuble: "Immeuble", local: "Local", bureau: "Bureau", autre: "Divers" };
   async function cleAgentAmepi() {

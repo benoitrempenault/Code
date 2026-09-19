@@ -757,3 +757,11 @@ CREATE TABLE IF NOT EXISTS crm_amepi_compteurs (
   hors_secteur INTEGER NOT NULL DEFAULT 0,
   updated_at   INTEGER NOT NULL
 );
+
+-- Un mandat AMEPI BRUT (tel que l'agent le dépose) par agence : pour vérifier
+-- que la lecture des champs (mapperMandat) colle à la réalité.
+CREATE TABLE IF NOT EXISTS crm_amepi_brut (
+  agency_id  TEXT PRIMARY KEY REFERENCES agencies(id),
+  brut       TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL
+);

@@ -1304,8 +1304,13 @@ export function createApp(env) {
     const autres = await db.all(
       "SELECT * FROM crm_amepi WHERE agency_id = ? AND statut <> 'en_vente' ORDER BY last_seen DESC LIMIT 50", [ctx.agency.id]);
     const cle = await db.get("SELECT label, created_at, last_used FROM crm_agent_keys WHERE agency_id = ? AND usage = 'amepi' AND revoked = 0", [ctx.agency.id]);
+    // Répartition (source, département) + un mandat brut : de quoi voir
+    // pourquoi un bien est là (ou pas) sans lire la base.
+    const parSource = await db.all("SELECT source, COUNT(*) AS n FROM crm_amepi WHERE agency_id = ? GROUP BY source ORDER BY n DESC", [ctx.agency.id]);
+    const parDep = await db.all("SELECT substr(cp, 1, 2) AS dep, COUNT(*) AS n FROM crm_amepi WHERE agency_id = ? GROUP BY dep ORDER BY n DESC LIMIT 12", [ctx.agency.id]);
     return c.json({ configure: AMEPI.amepiConfigure(env), reglages: reglages.amepi, etat: await AMEPI.etatAmepi(db, ctx.agency.id),
-      agent: cle || null, biens: biens.concat(autres), total: compte?.total || 0, enVente: compte?.en_vente || 0 });
+      agent: cle || null, biens: biens.concat(autres), total: compte?.total || 0, enVente: compte?.en_vente || 0,
+      parSource, parDep, echantillon: await AMEPI.brutAmepi(db, ctx.agency.id) });
   });
   app.post("/crm/amepi/sync", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;

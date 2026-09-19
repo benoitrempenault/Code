@@ -201,6 +201,12 @@ export async function listerAmepi(db, agencyId, statut = "en_vente") {
   return db.all(`SELECT * FROM crm_amepi WHERE agency_id = ? ${statut ? "AND statut = ?" : ""} ORDER BY last_seen DESC, prix DESC`,
     statut ? [agencyId, statut] : [agencyId]);
 }
+export async function brutAmepi(db, agencyId) {
+  const r = await db.get("SELECT brut FROM crm_amepi_brut WHERE agency_id = ?", [agencyId]);
+  if (!r || !r.brut) return null;
+  let brut; try { brut = JSON.parse(r.brut); } catch { return null; }
+  return { brut, lu: mapperMandat(brut) };
+}
 export async function etatAmepi(db, agencyId) {
   const e = (await db.get("SELECT * FROM crm_amepi_etat WHERE agency_id = ?", [agencyId])) ||
     { agency_id: agencyId, debut: 0, page: 0, total: 0, fini_le: 0, erreur: "", updated_at: 0 };
@@ -374,6 +380,10 @@ export async function importerAmepi(db, agency, corps, reglages = null) {
   const lot = await enregistrerLot(db, agency.id, base, bruts, t, existants, evenements, deps);
   stats.biens = lot.biens; stats.nouveaux = lot.nouveaux; stats.baisses = lot.baisses;
   stats.horsSecteur = bruts.length - lot.biens;
+  if (ouvre && bruts.length) await db.run(
+    `INSERT INTO crm_amepi_brut (agency_id, brut, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(agency_id) DO UPDATE SET brut = excluded.brut, updated_at = excluded.updated_at`,
+    [agency.id, JSON.stringify(bruts[0]).slice(0, 20000), t]);
   if (stats.fini) { stats.retirees = await cloreReleve(db, agency.id, debut, etat.fini_le, evenements); await purgerHorsSecteur(db, agency.id, deps); }
   await journaliser(db, agency.id, evenements, t);
   await poserEtat(db, agency.id, {
