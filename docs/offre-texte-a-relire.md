@@ -5,7 +5,7 @@ Généré depuis le modèle de l'agence, corrigé et complété (liste des chang
 ---
 
 # VARIANTE A — achat SANS prêt (comptant)
-En présence et avec le concours de l'Agence CENTURY 21 Kadima, ci-après désignée l'Agence, exploitée par la société KADIMA TB, SAS immatriculée au RCS de Bordeaux sous le n° 894 173 947 (SIRET 894 173 947 00017), dont le siège social est situé 20 rue François Mitterrand 33160 SAINT-MÉDARD-EN-JALLES, titulaire de la carte professionnelle « Transactions sur immeubles et fonds de commerce » n° CPI 3301 2021 000 000 038 délivrée par la CCI de Bordeaux-Gironde,
+En présence et avec le concours de l'Agence CENTURY 21 Kadima, ci-après désignée l'Agence, exploitée par la société KADIMA TB, SAS au capital de 10 000 €, immatriculée au RCS de Bordeaux sous le n° 894 173 947 (SIRET 894 173 947 00017, TVA intracommunautaire FR45894173947), dont le siège social est situé 20 rue François Mitterrand 33160 SAINT-MÉDARD-EN-JALLES, titulaire de la carte professionnelle « Transaction sur immeubles et fonds de commerce » n° CPI 3301 2021 000 000 038 délivrée le 03/03/2024 par la CCI de Bordeaux-Gironde,
 
 Assurée en responsabilité civile professionnelle auprès d'Allianz IARD, 1 cours Michelet, CS 30051, 92076 Paris La Défense Cedex, police n° 41319158,
 
@@ -121,7 +121,7 @@ Le Propriétaire accepte ou refuse l'offre en faisant précéder sa signature de
 ---
 
 # VARIANTE B — achat AVEC prêt
-En présence et avec le concours de l'Agence CENTURY 21 Kadima, ci-après désignée l'Agence, exploitée par la société KADIMA TB, SAS immatriculée au RCS de Bordeaux sous le n° 894 173 947 (SIRET 894 173 947 00017), dont le siège social est situé 20 rue François Mitterrand 33160 SAINT-MÉDARD-EN-JALLES, titulaire de la carte professionnelle « Transactions sur immeubles et fonds de commerce » n° CPI 3301 2021 000 000 038 délivrée par la CCI de Bordeaux-Gironde,
+En présence et avec le concours de l'Agence CENTURY 21 Kadima, ci-après désignée l'Agence, exploitée par la société KADIMA TB, SAS au capital de 10 000 €, immatriculée au RCS de Bordeaux sous le n° 894 173 947 (SIRET 894 173 947 00017, TVA intracommunautaire FR45894173947), dont le siège social est situé 20 rue François Mitterrand 33160 SAINT-MÉDARD-EN-JALLES, titulaire de la carte professionnelle « Transaction sur immeubles et fonds de commerce » n° CPI 3301 2021 000 000 038 délivrée le 03/03/2024 par la CCI de Bordeaux-Gironde,
 
 Assurée en responsabilité civile professionnelle auprès d'Allianz IARD, 1 cours Michelet, CS 30051, 92076 Paris La Défense Cedex, police n° 41319158,
 
@@ -269,13 +269,13 @@ Le Propriétaire accepte ou refuse l'offre en faisant précéder sa signature de
 # CE QUI A CHANGÉ PAR RAPPORT AU MODÈLE WORD
 
 **Identité de l'agence — corrigée d'après les attestations Allianz / Verspieren du 15/12/2025 :**
-- « 3004 SAS au capital de 10 000 € » → **KADIMA TB, SAS, RCS Bordeaux 894 173 947 (SIRET 894 173 947 00017)**. Le capital n'est pas sur les attestations : à confirmer.
+- « 3004 SAS au capital de 10 000 € » → **KADIMA TB, SAS au capital de 10 000 €, RCS Bordeaux 894 173 947 (SIRET 894 173 947 00017), TVA FR45894173947**.
 - RC professionnelle « CEGC, 16 rue Hoche, n° AL591311/25547 » → **Allianz IARD, 1 cours Michelet, CS 30051, 92076 Paris La Défense Cedex, police n° 41319158**.
 - Garantie financière « Allianz n° 41543943 » → **Allianz IARD, n° 16833320, 110 000 €** (le montant était juste, le numéro non).
 - Ajout de la mention **« non détention de fonds »** : l'attestation le dit en toutes lettres, et l'article 92 du décret du 20 juillet 1972 impose de l'écrire sur les documents.
 - « agissant en sa qualité de responsable » → **Président** (attestation).
-- N° de TVA « 3452417148000 » retiré : ce n'est pas un numéro de TVA valide (format FR + 11 chiffres). À remettre s'il existe.
-- N° de carte professionnelle : repris tel quel (CPI 3301 2021 000 000 038, CCI Bordeaux-Gironde) — **non vérifiable sur ces pièces, à contrôler sur la carte**.
+- N° de TVA « 3452417148000 » → **FR45894173947** (clé de contrôle vérifiée).
+- N° de carte professionnelle **CPI 3301 2021 000 000 038** : vérifié sur la carte (CCI Bordeaux-Gironde, délivrée le 03/03/2024, valable jusqu'au 02/03/2027).
 
 **Fond :**
 - Ajout : « Aucun versement n'est demandé ni reçu de l'OFFRANT au titre de la présente offre (article 1589-1 du Code civil) » — un versement exigé à ce stade rendrait l'offre nulle.
