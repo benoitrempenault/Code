@@ -1564,7 +1564,11 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok(!GRAPHMOD.estOccupe(pris, "2026-10-08T09:00", "2026-10-08T10:00"), "un créneau qui finit au début reste libre");
 
     // Un planning sur trois jours ouvrés à venir, avec la boîte d'agenda.
-    const jours = [10, 11, 12].map((n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10));
+    // Trois jours à J+30…32 : loin des plannings générés par les tests
+    // précédents (qui couvrent les semaines à venir), mais dans l'horizon
+    // public de 45 jours — sinon, certains jours de la semaine, un créneau
+    // d'un autre test tombe sur la même date et fausse le compte.
+    const jours = [30, 31, 32].map((n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10));
     const cfgG = {
       ...cfg,
       conseillers: { "u2@azur-immo.fr": { pv: "medard", boite: "agenda.claire@kadima-test.fr" } },
@@ -3147,6 +3151,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
 
   /* ---- AMEPI : fichier des mandats des confrères ------------------------- */
   console.log("— AMEPI : connexion, relevé du fichier des mandats, rapprochement");
+  // Le réglage par défaut ne garde que « mon ALFA » (2) ; ce bloc teste les trois sources.
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { sources: ["1", "2", "3"] } } });
   ok((await callR("/crm/amepi/diagnostic", { headers: authP, body: {} })).status === 403, "le connecteur AMEPI est réservé aux administrateurs");
   const diagAm = await callR("/crm/amepi/diagnostic", { headers: auth, body: {} });
   ok(diagAm.status === 200 && diagAm.json.connexion === "ok" && diagAm.json.total === 3 && diagAm.json.bruts.length === 3 &&
@@ -3174,6 +3180,16 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(rapA && rapA.matches.some((m) => m.id === "amepi:501" && m.source === "amepi" && m.agence === "Agence Confrère A"),
      "le rapprochement propose le bien du confrère, signalé AMEPI avec le nom de l'agence");
   ok(!rapA.matches.some((m) => m.id === "amepi:503"), "un bien sous compromis n'est pas proposé");
+  ok(rapA.total === rapA.matches.length && rapA.matches.length <= 40, "la vue porte le total des rapprochements et plafonne la liste à 40");
+  // Relance DIRECTE depuis l'acheteur : un bien de l'ALFA se choisit comme un
+  // bien du stock, le mail le signale « en partenariat ».
+  const mailsAvantAm = mailsRecus.length;
+  const rlAm = await callR("/crm/projets/" + pjA.json.id + "/relancer", { headers: auth, body: { annonceIds: ["amepi:501"] } });
+  const dernierAm = mailsRecus[mailsRecus.length - 1] || {};
+  ok(rlAm.status === 200 && rlAm.json.biens === 1 && mailsRecus.length > mailsAvantAm && /partenariat/i.test(dernierAm.html || ""),
+     "la relance directe accepte un bien AMEPI et le mail mentionne le partenariat (" + JSON.stringify(rlAm.json) + ")");
+  ok((await callR("/crm/acheteurs/relances", { headers: auth })).json.relances.some((l) => l.kind === "selection" && l.annonce_id === "amepi:501"),
+     "le bien ALFA proposé rejoint le journal des relances");
   // Sans le réglage « relance », la relance automatique ignore les biens AMEPI.
   const mailsAvantA = mailsRecus.length;
   await callR("/crm/acheteurs/run", { headers: auth, method: "POST", body: {} });
@@ -3224,9 +3240,64 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "dernière page : nouveau bien, relevé clos ; le bien sous compromis non revu n'est pas compté « retiré » (" + JSON.stringify(dep2.json.stats) + ")");
   const listeA = (await callR("/crm/amepi", { headers: auth })).json;
   ok(listeA.biens.find((b) => b.id === "501").prix === 320000 && listeA.biens.find((b) => b.id === "503").statut === "compromis" &&
-     listeA.biens.find((b) => b.id === "504").url === "https://agglomeration-bordelaise.amepi.info/mandate/details/504" && listeA.etat.page === 0 && listeA.agent.last_used > 0,
+     listeA.biens.find((b) => b.id === "504").url === "https://agglomeration-bordelaise.amanda.team/mandate/details/504" && listeA.etat.page === 0 && listeA.agent.last_used > 0,
      "prix à jour, retrait posé, lien vers Amanda, relevé terminé, clé marquée utilisée");
+  ok(listeA.echantillon && listeA.echantillon.brut.id === 501 && listeA.echantillon.lu.cp === "33185" && listeA.parSource.some((x) => x.source === "2") && listeA.parDep.some((x) => x.dep === "33"),
+     "la liste porte un mandat brut + lu et la répartition par source et département");
+  // Consignes de l'agent : ce que l'Administration a réglé, pas config.json.
+  const cons = await callR("/crm/amepi/consignes", { headers: enteteAgent });
+  ok(cons.status === 200 && JSON.stringify(cons.json.sources) === '["1","2","3"]' && JSON.stringify(cons.json.departements) === '["33"]',
+     "l'agent lit ses consignes (sources, départements) avec sa clé (" + JSON.stringify(cons.json) + ")");
+  ok((await callR("/crm/amepi/consignes", {})).status === 401, "sans clé, pas de consignes");
   ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: new Array(501).fill({ id: 1 }) } })).status === 400, "plus de 500 mandats par dépôt : refusé");
+  // Le fichier Amanda couvre toute la France : seuls les départements du
+  // réglage (33 par défaut) entrent en base ; un changement de réglage purge.
+  const depHors = await callR("/crm/amepi/import", { headers: enteteAgent, body: { debut: true, fini: true, total: 2, mandats: [
+    { id: 601, mandateRef: "P-601", agencyName: "Agence Paris", sourceTypeId: 3, assetTypeId: 1, price: 900000, publicTown: "Paris", publicPostalCode: "75011", transactionStateId: 1 },
+    { id: 602, mandateRef: "B-602", agencyName: "Agence Bassin", sourceTypeId: 3, assetTypeId: 2, price: 400000, publicTown: "Arcachon", publicPostalCode: "33120", transactionStateId: 1 },
+  ] } });
+  const listeD = (await callR("/crm/amepi", { headers: auth })).json;
+  ok(depHors.json.stats.biens === 1 && depHors.json.stats.horsSecteur === 1 && listeD.biens.some((b) => b.id === "602") && !listeD.biens.some((b) => b.id === "601"),
+     "un bien hors Gironde est ignoré au dépôt, celui d'Arcachon entre (" + JSON.stringify(depHors.json.stats) + ")");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { departements: "" } } });
+  await callR("/crm/amepi/import", { headers: enteteAgent, body: { debut: true, fini: true, total: 1, mandats: [
+    { id: 601, mandateRef: "P-601", agencyName: "Agence Paris", sourceTypeId: 3, assetTypeId: 1, price: 900000, publicTown: "Paris", publicPostalCode: "75011", transactionStateId: 1 },
+  ] } });
+  ok((await callR("/crm/amepi", { headers: auth })).json.biens.some((b) => b.id === "601"), "sans département configuré, tout entre");
+  const purge = await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { departements: "33, 40" } } });
+  ok(purge.json.purges === 1 && !(await callR("/crm/amepi", { headers: auth })).json.biens.some((b) => b.id === "601"),
+     "revenir à 33 (+40) purge le bien parisien tout de suite (" + purge.json.purges + " purgé)");
+  // Ne garder que « mon ALFA » (source 2) : les biens des ALFA voisines (3) partent, et n'entrent plus.
+  const purgeS = await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { sources: ["2"] } } });
+  const listeS = (await callR("/crm/amepi", { headers: auth })).json;
+  ok(purgeS.json.purges >= 1 && !listeS.biens.some((b) => b.id === "602" || b.id === "504") && listeS.biens.some((b) => b.id === "501"),
+     "garder « mon ALFA » seul purge les biens des ALFA voisines (" + purgeS.json.purges + " purgé(s)), le bien source 2 reste");
+  const depS = await callR("/crm/amepi/import", { headers: enteteAgent, body: { debut: true, fini: true, total: 1, mandats: [
+    { id: 603, mandateRef: "V-603", agencyName: "Agence Voisine", sourceTypeId: 3, assetTypeId: 2, price: 250000, publicTown: "Pessac", publicPostalCode: "33600", transactionStateId: 1 },
+  ] } });
+  ok(depS.json.stats.biens === 0 && depS.json.stats.horsSecteur === 1, "un bien d'une ALFA voisine n'entre plus au dépôt");
+  // Amanda ne renvoie pas la source : un dépôt fait avec sources ["2"] marque
+  // chaque bien, et un relevé complet évacue les biens de source inconnue non revus.
+  const depM = await callR("/crm/amepi/import", { headers: enteteAgent, body: { debut: true, fini: true, total: 1, sources: ["2"], mandats: [
+    { id: 701, mandateRef: "M-701", agencyName: "Agence ALFA", assetTypeId: 2, price: 300000, publicTown: "Le Haillan", publicPostalCode: "33185", transactionStateId: 1 },
+  ] } });
+  const listeM = (await callR("/crm/amepi", { headers: auth })).json;
+  ok(depM.json.stats.biens === 1 && listeM.biens.find((b) => b.id === "701").source === "2" && listeM.parSource.every((x) => x.source !== ""),
+     "sans source dans les résultats, la source cherchée est posée sur le bien (" + JSON.stringify(listeM.parSource) + ")");
+  // Doublons d'Amanda : même agence + référence + prix sous plusieurs ids → une seule ligne.
+  const depD = await callR("/crm/amepi/import", { headers: enteteAgent, body: { debut: true, fini: true, total: 3, sources: ["2"], mandats: [
+    { id: 801, mandateRef: "6625", agencyName: "Guy Hoquet Virelade", assetTypeId: 2, price: 171000, publicTown: "Sauveterre", publicPostalCode: "33540", transactionStateId: 1 },
+    { id: 802, mandateRef: "6625", agencyName: "Guy Hoquet Virelade", assetTypeId: 2, price: 171000, publicTown: "Sauveterre", publicPostalCode: "33540", transactionStateId: 1 },
+    { id: 803, mandateRef: "6625", agencyName: "Guy Hoquet Virelade", assetTypeId: 2, price: 160000, publicTown: "Sauveterre", publicPostalCode: "33540", transactionStateId: 1 },
+  ] } });
+  const listeDbl = (await callR("/crm/amepi", { headers: auth })).json;
+  ok(depD.json.stats.biens === 2 && listeDbl.biens.some((b) => b.id === "801") && !listeDbl.biens.some((b) => b.id === "802") && listeDbl.biens.some((b) => b.id === "803"),
+     "deux lignes identiques (agence, référence, prix) ne font qu'un bien ; un autre prix reste un autre bien (" + JSON.stringify(depD.json.stats) + ")");
+  await db.run("INSERT INTO crm_amepi (agency_id, id, ref, agence, source, prix, cp, ville, first_seen, last_seen) VALUES (?, '804', '6625', 'Guy Hoquet Virelade', '2', 171000, '33540', 'Sauveterre', 1, 1)", [agId]);
+  const depD2 = await callR("/crm/amepi/import", { headers: enteteAgent, body: { debut: true, fini: true, total: 0, sources: ["2"], mandats: [] } });
+  ok(depD2.json.stats.doublons === 1 && !(await callR("/crm/amepi", { headers: auth })).json.biens.some((b) => b.id === "804"),
+     "les doublons déjà en base sont purgés à la clôture d'un relevé (" + depD2.json.stats.doublons + ")");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { sources: ["1", "2", "3"] } } });
   await callR("/crm/amepi/cle", { headers: auth, method: "DELETE" });
   ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: [] } })).status === 401, "une clé révoquée ne dépose plus rien");
 

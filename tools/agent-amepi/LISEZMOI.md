@@ -1,6 +1,6 @@
 # Agent AMEPI — relevé du fichier des mandats depuis l'agence
 
-Amanda (agglomeration-bordelaise.amepi.info) refuse les connexions par mot de passe
+Amanda (agglomeration-bordelaise.amanda.team) refuse les connexions par mot de passe
 qui ne viennent pas du réseau de l'agence. Ce petit programme tourne donc sur un
 poste de l'agence : il se connecte à Amanda comme votre navigateur, lit le fichier
 des mandats et le dépose sur Studio Kadima. Rien à installer : PowerShell est déjà
@@ -10,13 +10,18 @@ dans Windows.
 
 1. Copiez le dossier `agent-amepi` sur le PC (par exemple dans `Documents`).
 2. Dans l'Administration de Studio → onglet Annonces → carte « Fichier des mandats
-   AMEPI » → **« 🔑 Clé de l'agent »** : copiez la clé affichée (elle n'est montrée
-   qu'une fois).
-3. Copiez `config.exemple.json` en `config.json` et remplissez-le : votre e-mail et
-   votre mot de passe Amanda, la clé de l'agent. Laissez le reste tel quel.
-4. Clic droit sur `installer.ps1` → « Exécuter avec PowerShell ». Cela installe la
-   tâche planifiée « Studio Kadima - Agent AMEPI » (lancée à chaque ouverture de
-   session, deux minutes après) et fait un premier relevé tout de suite.
+   AMEPI » → **« 🔑 Nouvelle clé de l'agent »** : copiez la clé affichée (elle n'est
+   montrée qu'une fois). Ne recliquez pas ce bouton ensuite : chaque clic remplace la clé.
+3. Ouvrez `config.exemple.json` avec le Bloc-notes et remplissez-le : votre e-mail et
+   votre mot de passe Amanda, la clé de l'agent. Enregistrez (l'installeur en fait
+   `config.json`). Ce que l'agent relève (votre ALFA, la Gironde) se règle dans
+   l'Administration de Studio, pas ici.
+4. Double-cliquez sur `INSTALLER.cmd` (si Windows affiche « Windows a protégé votre
+   ordinateur », cliquez « Informations complémentaires » puis « Exécuter quand même »).
+   Cela installe la tâche planifiée « Studio Kadima - Agent AMEPI » (lancée à chaque
+   ouverture de session, deux minutes après) et fait un premier relevé tout de suite.
+   La fenêtre reste ouverte pour lire le résultat. `RELEVER-MAINTENANT.cmd` refait un
+   relevé à la demande.
 5. Dans l'Administration, la carte AMEPI affiche le nombre de biens relevés.
 
 ## Au quotidien

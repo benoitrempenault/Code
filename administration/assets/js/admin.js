@@ -998,18 +998,15 @@
     const am = reglages.amepi || {};
     $("amepi-enabled").checked = !!am.enabled;
     $("amepi-relance").checked = !!am.relance;
-    ["1", "2", "3"].forEach((k) => { $("amepi-src-" + k).checked = !am.sources || am.sources.includes(k); });
-    $("amepi-communes").value = am.communes || "";
   }
   /* ------------------------------- AMEPI --------------------------------- */
   // Le fichier des mandats des confrères : liste, relevé (par pages, jusqu'au
   // bout), diagnostic de connexion avec les données brutes (à me montrer si
   // un champ ne colle pas).
+  // Volontairement simple : la source est « mon ALFA » (2) et le département
+  // la Gironde (33) ; le serveur filtre le dépôt de l'agent avec ça.
   function reglagesAmepiSaisis() {
-    return {
-      enabled: $("amepi-enabled").checked, relance: $("amepi-relance").checked,
-      sources: ["1", "2", "3"].filter((k) => $("amepi-src-" + k).checked), communes: $("amepi-communes").value.trim(),
-    };
+    return { enabled: $("amepi-enabled").checked, relance: $("amepi-relance").checked, sources: ["2"], departements: "33", communes: "" };
   }
   async function chargerAmepi() {
     const etat = $("amepi-etat"), zone = $("table-amepi");
@@ -1019,12 +1016,15 @@
     const e = d.etat || {};
     const agent = d.agent
       ? "Agent : clé active" + (d.agent.last_used ? ", dernier dépôt le " + new Date(d.agent.last_used * 1000).toLocaleString("fr-FR") : ", jamais utilisée") + ". "
-      : "Agent : aucune clé — cliquez « 🔑 Clé de l'agent ». ";
+      : "Agent : aucune clé — cliquez « 🔑 Nouvelle clé de l'agent ». ";
     etat.textContent = agent +
-      (d.biens.length
-        ? d.enVente + " bien(s) en vente sur " + d.biens.length + " connus" +
+      (d.total
+        ? d.enVente + " bien(s) en vente sur " + d.total + " connus" +
           (e.fini_le ? " — dernier relevé complet le " + new Date(e.fini_le * 1000).toLocaleString("fr-FR") : "") +
-          (e.page ? " — relevé en cours (page " + e.page + ")" : "") + (e.erreur ? " — dernière erreur : " + e.erreur : "")
+          (e.page ? " — relevé en cours (page " + e.page + ")" : "") + (e.erreur ? " — dernière erreur : " + e.erreur : "") +
+          (e.hors_secteur ? " — " + e.hors_secteur + " bien(s) ignoré(s) au dernier relevé (hors Gironde ou doublons)" : "") +
+          ((d.parSource || []).length ? " — par source : " + d.parSource.map((x) => (x.source || "?") + " × " + x.n).join(", ") : "") +
+          ((d.parDep || []).length ? " — par département : " + d.parDep.map((x) => (x.dep || "sans CP") + " × " + x.n).join(", ") : "")
         : "Aucun bien relevé pour l'instant." + (e.erreur ? " Dernière erreur : " + e.erreur : ""));
     const enVente = d.biens.filter((b) => b.statut === "en_vente").slice(0, 150);
     zone.innerHTML = enVente.length
@@ -1036,31 +1036,26 @@
         "</tbody></table></div>" + (d.enVente > 150 ? '<p class="petit">Les 150 premiers biens sur ' + d.enVente + ".</p>" : "")
       : "";
     zone.querySelectorAll("tr[data-url]").forEach((tr) => tr.addEventListener("click", () => window.open(tr.dataset.url, "_blank", "noopener")));
+    if (d.echantillon) {
+      zone.insertAdjacentHTML("beforeend", '<p class="petit"><button class="btn" id="btn-amepi-brut" style="padding:4px 10px; font-size:12px;">🔎 Voir un bien tel qu\'Amanda l\'envoie</button></p>');
+      $("btn-amepi-brut").addEventListener("click", () => {
+        const texte = JSON.stringify(d.echantillon, null, 2);
+        ouvrirModale("🔎 Un mandat AMEPI, brut et lu",
+          '<p class="aide">« brut » : ce qu\'Amanda envoie ; « lu » : ce que Studio en retient (source, cp, ville…). Si une valeur lue est vide ou fausse, copiez ce bloc et envoyez-le moi.</p>' +
+          '<textarea id="amepi-brut" readonly style="width:100%; min-height:320px; font:12px/1.4 ui-monospace, monospace;">' + escH(texte) + "</textarea>",
+          '<button class="btn" id="amepi-brut-copier">📋 Copier</button><button class="btn btn-or" id="modale-ok">Fermer</button>');
+        $("modale-ok").addEventListener("click", fermerModale);
+        $("amepi-brut-copier").addEventListener("click", async () => { try { await navigator.clipboard.writeText(texte); toast("Copié"); } catch { $("amepi-brut").select(); } });
+      });
+    }
   }
   const TYPES_AMEPI = { maison: "Maison", appartement: "Appartement", terrain: "Terrain", parking: "Parking", immeuble: "Immeuble", local: "Local", bureau: "Bureau", autre: "Divers" };
-  async function releverAmepi() {
-    const btn = $("btn-amepi-sync");
-    btn.disabled = true;
-    try {
-      let total = { pages: 0, biens: 0, nouveaux: 0, baisses: 0, retirees: 0 }, tours = 0;
-      while (tours++ < 30) {
-        const { stats } = await api("/crm/amepi/sync", { json: {} });
-        for (const k of Object.keys(total)) total[k] += stats[k] || 0;
-        $("amepi-etat").textContent = "Relevé en cours… " + total.biens + " bien(s) lus";
-        if (stats.fini) break;
-      }
-      toast("Fichier AMEPI relevé : " + total.biens + " biens, " + total.nouveaux + " nouveaux, " + total.baisses + " baisse(s), " + total.retirees + " retiré(s)");
-    } catch (e) { toast(e.message, true); }
-    btn.disabled = false;
-    chargerAmepi(); chargerAcheteurs();
-  }
   async function cleAgentAmepi() {
     const d = await api("/crm/amepi").catch(() => null);
-    if (d && d.agent && !window.confirm("Une clé d'agent est déjà active. En générer une nouvelle la remplace : l'agent installé devra être mis à jour. Continuer ?")) return;
+    if (d && d.agent && !window.confirm("Une clé d'agent est déjà active. En générer une nouvelle la REMPLACE : l'agent installé cessera de fonctionner tant que config.json n'a pas la nouvelle clé. (Pour seulement télécharger l'agent, utilisez le bouton 📦.) Continuer ?")) return;
     try {
       const r = await api("/crm/amepi/cle", { json: {} });
       ouvrirModale("🔑 Clé de l'agent AMEPI",
-        '<p class="aide"><a href="agent-amepi.zip" download>📦 Télécharger l\'agent (agent-amepi.zip)</a> — à décompresser sur un PC de l\'agence, puis suivre LISEZMOI.md.</p>' +
         '<p class="aide">Copiez cette clé dans le fichier <code>config.json</code> de l\'agent (champ <code>studio_cle</code>). ' +
         "Elle n'est affichée qu'une fois ; en générer une autre remplace celle-ci.</p>" +
         '<textarea id="amepi-cle" readonly style="width:100%; min-height:60px; font:14px ui-monospace, monospace;">' + escH(r.cle) + "</textarea>" +
@@ -1074,34 +1069,13 @@
       });
     } catch (e) { toast(e.message, true); }
   }
-  async function testerAmepi() {
-    const btn = $("btn-amepi-test");
-    btn.disabled = true;
-    try {
-      const d = await api("/crm/amepi/diagnostic", { json: {} });
-      const texte = JSON.stringify(d, null, 2);
-      ouvrirModale("🔌 Connexion AMEPI : OK",
-        '<p class="aide">Connexion réussie — ' + d.total + " bien(s) dans le fichier avec les réglages actuels. Ci-dessous, les 3 premiers biens " +
-        'tels qu\'AMEPI les envoie (« bruts ») et tels que Studio les lit (« lus »). Si une valeur lue est vide ou fausse, copiez ce bloc et envoyez-le moi.</p>' +
-        '<textarea id="amepi-diag" readonly style="width:100%; min-height:320px; font:12px/1.4 ui-monospace, monospace;">' + escH(texte) + "</textarea>",
-        '<button class="btn" id="amepi-copier">📋 Copier</button><button class="btn btn-or" id="modale-ok">Fermer</button>');
-      $("modale-ok").addEventListener("click", fermerModale);
-      $("amepi-copier").addEventListener("click", async () => {
-        try { await navigator.clipboard.writeText(texte); toast("Copié"); } catch { $("amepi-diag").select(); }
-      });
-    } catch (e) {
-      ouvrirModale("🔌 Connexion AMEPI : échec", '<p class="aide">' + escH(e.message) + "</p>" +
-        '<p class="petit">Les identifiants se posent sur le Worker Cloudflare (Variables et secrets) : AMEPI_EMAIL et AMEPI_PASSWORD. Après un changement de mot de passe sur Amanda, mettez le secret à jour.</p>',
-        '<button class="btn btn-or" id="modale-ok">Fermer</button>');
-      $("modale-ok").addEventListener("click", fermerModale);
-    }
-    btn.disabled = false;
-  }
   async function sauverReglages(partiel, message) {
     try {
-      reglages = (await api("/crm/reglages", { method: "PUT", json: partiel })).reglages;
+      const r = await api("/crm/reglages", { method: "PUT", json: partiel });
+      reglages = r.reglages;
       remplirFormulaires();
       toast(message || "Réglages enregistrés");
+      return r;
     } catch (e) { toast(e.message, true); }
   }
   function montrerApercu(titre, html) {
@@ -1217,7 +1191,7 @@
       (nomsDe(p.contacts) + " " + (p.villes || []).join(" ") + " " + (p.types || []).join(" ") + " " +
        (p.notes || "") + " " + p.contacts.map((c) => c.email + " " + c.conseiller).join(" ")).toLowerCase().includes(q);
     const achats = projets.filter((p) => p.kind === "achat" && duConseiller(p.contacts) && matchQ(p));
-    const matchesDe = new Map(rapproch.map((r) => [r.projetId, r.matches.length]));
+    const matchesDe = new Map(rapproch.map((r) => [r.projetId, (r.total ?? r.matches.length)]));
     if (!achats.length) {
       zone.innerHTML = '<div class="vide">Aucun projet d\'achat pour l\'instant. Créez-en un et reliez-y la ou les personnes (un couple = deux fiches contact, un seul projet).</div>';
     } else {
@@ -1244,7 +1218,7 @@
             '<a href="' + escH(m.url) + '" target="_blank" rel="noopener" style="color:inherit; text-decoration:none;">' +
             '<span class="puce' + (m.source === "amepi" ? " amepi" : "") + '"' + (m.source === "amepi" ? ' title="Bien du fichier AMEPI — mandat détenu par ' + escH(m.agence || "un confrère") + '"' : "") + ">" +
             (m.source === "amepi" ? "🤝 " : "") + escH(m.titre) + " — " + fmtPrix(m.prix) + (m.source === "amepi" && m.agence ? " · " + escH(m.agence) : "") + "</span></a>").join(" ") +
-          (r.matches.length > 6 ? ' <span class="puce grise">+' + (r.matches.length - 6) + "</span>" : "") +
+          ((r.total ?? r.matches.length) > 6 ? ' <span class="puce grise">+' + ((r.total ?? r.matches.length) - 6) + "</span>" : "") +
           "</td></tr>").join("") +
         "</tbody></table></div>"
       : '<div class="vide">Aucun rapprochement pour l\'instant — créez des projets d\'achat avec leurs critères.</div>';
@@ -1443,6 +1417,17 @@
     catch (e) { zone.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; return; }
     const isoFr2 = (iso) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || "")); return m ? m[3] + "/" + m[2] + "/" + m[1] : "—"; };
     const stockEnVente = ((annonces && annonces.annonces) || []).filter((a) => a.statut === "en_vente").slice(0, 40);
+    const rapProjet = (rapproch || []).find((r) => r.projetId === projetId);
+    const matches = rapProjet ? rapProjet.matches : [];
+    const totalMatches = rapProjet ? rapProjet.total : 0;
+    const dejaLa = new Set(matches.map((m) => m.id));
+    const autresStock = stockEnVente.filter((a) => !dejaLa.has(a.id));
+    const ligneBien = (a) =>
+      '<label class="case" style="width:100%; padding:2px 0;"><input type="checkbox" class="rl-annonce" value="' + escH(a.id) + '" /> ' +
+      (a.url ? '<a href="' + escH(a.url) + '" target="_blank" rel="noopener" title="Voir l\'annonce">🔗</a> ' : "") +
+      (a.source === "amepi" ? '<span class="puce amepi" title="Bien du fichier AMEPI — mandat détenu par ' + escH(a.agence || "un confrère") + '">🤝 ' + escH(a.agence || "ALFA") + "</span> " : "") +
+      escH(a.titre) + (a.prix ? " — " + fmtPrix(a.prix) : "") +
+      (a.ville ? ' <span class="puce grise">' + escH(a.ville) + "</span>" : "") + "</label>";
     const rendre = () => {
       zone.innerHTML =
         '<p class="petit" style="margin:10px 0 6px;"><strong>Biens proposés par les relances</strong></p>' +
@@ -1475,17 +1460,24 @@
         "</datalist>" +
         '<input id="v-date" type="date" />' +
         '<button class="btn" id="btn-ajout-visite">+ Visite</button></div>' +
-        // Relance DIRECTE : le conseiller choisit dans le stock en vente et
-        // l'e-mail « sélectionné pour votre recherche » part tout de suite.
-        '<p class="petit" style="margin:12px 0 6px;"><strong>Relancer avec le stock</strong></p>' +
-        (stockEnVente.length
-          ? '<div style="max-height:150px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:6px 12px;">' +
-            stockEnVente.map((a) =>
-              '<label class="case" style="width:100%; padding:2px 0;"><input type="checkbox" class="rl-annonce" value="' + escH(a.id) + '" /> ' +
-              escH(a.titre) + (a.prix ? " — " + fmtPrix(a.prix) : "") +
-              (a.ville ? ' <span class="puce grise">' + escH(a.ville) + "</span>" : "") + "</label>").join("") + "</div>" +
-            '<div class="barre" style="margin-top:6px;"><button class="btn btn-or" id="btn-relance-stock">✉️ Envoyer la sélection</button>' +
-            '<span class="petit" style="margin:0;">chaque personne du projet reçoit le mail « sélectionné pour votre recherche »</span></div>'
+        // Rapprochement du projet : nos biens ET ceux de l'ALFA qui collent
+        // aux critères, chacun avec son lien (site ou Amanda). Le conseiller
+        // coche et l'e-mail « sélectionné pour votre recherche » part tout de
+        // suite ; le reste du stock du site reste à portée, replié.
+        '<p class="petit" style="margin:12px 0 6px;"><strong>Rapprochement : nos biens et ceux de l\'ALFA</strong>' +
+        (matches.length ? ' <span class="puce grise">' + (totalMatches || matches.length) + "</span>" : "") + "</p>" +
+        (matches.length
+          ? '<div style="max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:6px 12px;">' +
+            matches.map(ligneBien).join("") + "</div>"
+          : '<span class="petit">aucun bien en vente ne colle aux critères pour l\'instant.</span>') +
+        (autresStock.length
+          ? '<details style="margin-top:8px;"><summary class="petit" style="cursor:pointer;">Autres biens de notre stock (' + autresStock.length + ")</summary>" +
+            '<div style="max-height:150px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:6px 12px; margin-top:6px;">' +
+            autresStock.map(ligneBien).join("") + "</div></details>"
+          : "") +
+        ((matches.length || autresStock.length)
+          ? '<div class="barre" style="margin-top:6px;"><button class="btn btn-or" id="btn-relance-stock">✉️ Envoyer la sélection</button>' +
+            '<span class="petit" style="margin:0;">chaque personne du projet reçoit le mail « sélectionné pour votre recherche » (les biens ALFA y sont signalés « en partenariat »)</span></div>'
           : '<span class="petit">le stock du site est vide — « Relever maintenant » dans l\'onglet Annonces.</span>');
       zone.querySelectorAll("[data-visite-avis]").forEach((s) => s.addEventListener("change", async () => {
         const v = act.visites.find((x) => x.id === s.dataset.visiteAvis);
@@ -2359,9 +2351,10 @@
     annonces: { autoSync: $("annonces-auto").checked, siteUrl: $("annonces-site").value.trim() },
   }, "Réglages annonces enregistrés"));
   $("btn-annonces-sync").addEventListener("click", releverAnnonces);
-  $("btn-amepi-save").addEventListener("click", () => sauverReglages({ amepi: reglagesAmepiSaisis() }, "Réglages AMEPI enregistrés").then(chargerAmepi));
-  $("btn-amepi-test").addEventListener("click", testerAmepi);
-  $("btn-amepi-sync").addEventListener("click", releverAmepi);
+  $("btn-amepi-save").addEventListener("click", () => sauverReglages({ amepi: reglagesAmepiSaisis() }, "Réglages AMEPI enregistrés").then((r) => {
+    if (r && r.purges) toast(r.purges + " bien(s) hors des départements gardés retiré(s)");
+    chargerAmepi();
+  }));
   $("btn-amepi-cle").addEventListener("click", cleAgentAmepi);
   $("btn-nouvelle-offre").addEventListener("click", () => ouvrirOffreForm(null, null));
   $("offres-filtre").addEventListener("change", rendreOffres);
