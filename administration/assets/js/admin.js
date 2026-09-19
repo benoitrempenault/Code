@@ -71,7 +71,11 @@
   let importData = null;       // { entetes, lignes } en attente de mappage
 
   /* ------------------------------- Modale -------------------------------- */
+  // Les écrans de l'offre (formulaire long, fiche) ne se ferment qu'avec le
+  // ✕ ou Annuler : un clic à côté ne fait plus perdre la saisie.
+  let modaleVerrouillee = false;
   function ouvrirModale(titre, corpsHtml, piedHtml) {
+    modaleVerrouillee = false;
     $("modale-titre").textContent = titre;
     $("modale-corps").innerHTML = corpsHtml;
     $("modale-pied").innerHTML = piedHtml || "";
@@ -1855,7 +1859,15 @@
       '<label>Ville<input id="of-ville" value="' + escH(b.ville || "") + '" /></label>' +
       '<label>N° de mandat<input id="of-mandat" value="' + escH(b.mandat || "") + '" /></label>' +
       '<label>Prix affiché (€, information)<input id="of-prix-affiche" type="number" value="' + escH(b.prixAffiche || "") + '" /></label></div>' +
-      '<label style="display:block; margin-top:8px;">Description du bien (telle qu\'elle figurera dans l\'offre)<textarea id="of-description" rows="3" style="width:100%; margin-top:4px;">' + escH(b.description || "") + "</textarea></label>" +
+      '<div class="grille-champs" style="margin-top:8px;">' +
+      '<label>Nature<select id="of-nature">' + [["", "— choisir —"], ["maison", "Maison"], ["appartement", "Appartement"], ["terrain", "Terrain à bâtir"], ["immeuble", "Immeuble"], ["local", "Local professionnel / commercial"], ["autre", "Autre"]].map(([v, l]) => '<option value="' + v + '"' + ((b.nature || "") === v ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" +
+      '<label>Surface habitable (m²)<input id="of-surface" type="number" step="any" value="' + escH(b.surface || "") + '" /></label>' +
+      '<label>Pièces principales<input id="of-pieces" type="number" value="' + escH(b.pieces || "") + '" /></label>' +
+      '<label>Terrain (m²)<input id="of-terrain" type="number" step="any" value="' + escH(b.terrain || "") + '" /></label>' +
+      '<label>Cadastre<input id="of-cadastre" value="' + escH(b.cadastre || "") + '" placeholder="section AB n° 123" /></label>' +
+      '<label>Lots de copropriété<input id="of-lots" value="' + escH(b.lots || "") + '" placeholder="12 et 45" /></label></div>' +
+      '<label style="display:block; margin-top:8px;">Complément (dépendances, garage, état, précisions…)<textarea id="of-complement" rows="2" style="width:100%; margin-top:4px;">' + escH(b.nature ? (b.complement || "") : (b.complement || b.description || "")) + "</textarea></label>" +
+      '<p class="petit" id="of-apercu-designation">' + escH(b.nature ? "Désignation : " + (b.description || "") : "La désignation se compose de la nature, des surfaces, du cadastre et du complément.") + "</p>" +
       '<h3 style="margin:14px 0 6px; font-size:15px;">Les conditions</h3>' +
       '<div class="grille-champs">' +
       '<label>Prix offert (€, honoraires inclus, charge vendeur)<input id="of-prix" type="number" value="' + escH(o ? o.prix : "") + '" /></label>' +
@@ -1870,6 +1882,7 @@
         '<label>Nom<input class="of-v-nom" value="' + escH(v.nom || "") + '" /></label><label>Prénom<input class="of-v-prenom" value="' + escH(v.prenom || "") + '" /></label>' +
         '<label>E-mail<input class="of-v-email" type="email" value="' + escH(v.email || "") + '" /></label><label>Mobile<input class="of-v-tel" type="tel" value="' + escH(v.telephone || "") + '" /></label></div>').join(""),
       '<button class="btn" id="btn-annuler-offre">Annuler</button><button class="btn btn-or" id="btn-save-offre">' + (o ? "Enregistrer" : "Créer l'offre") + "</button>");
+    modaleVerrouillee = true;
     if (!o) {
       rendreListeContacts();
       $("of-filtre").addEventListener("input", rendreListeContacts);
@@ -1891,8 +1904,11 @@
             $("of-ville").value = x.ville || ""; $("of-cp").value = x.cp || "";
             if (x.prix) $("of-prix-affiche").value = x.prix;
             if (x.mandat) $("of-mandat").value = x.mandat;
-            const desc = [x.titre, x.surface ? x.surface + " m²" : "", x.pieces ? x.pieces + " pièces" : "", x.description].filter(Boolean).join(" — ");
-            if (!$("of-description").value) $("of-description").value = desc.slice(0, 1400);
+            const nat = /appart/i.test(x.type) ? "appartement" : /maison|villa/i.test(x.type) ? "maison" : /terrain/i.test(x.type) ? "terrain" : /immeuble/i.test(x.type) ? "immeuble" : /local|commerce|bureau/i.test(x.type) ? "local" : "";
+            if (nat && !$("of-nature").value) $("of-nature").value = nat;
+            if (x.surface && !$("of-surface").value) $("of-surface").value = x.surface;
+            if (x.pieces && !$("of-pieces").value) $("of-pieces").value = x.pieces;
+            if (!$("of-complement").value && x.description) $("of-complement").value = String(x.description).slice(0, 900);
             if (!$("of-adresse").value && x.source === "site") $("of-adresse").value = x.titre || "";
             $("of-adresse").focus();
           };
@@ -1906,7 +1922,9 @@
         email: document.querySelectorAll(".of-v-email")[i].value.trim(), telephone: document.querySelectorAll(".of-v-tel")[i].value.trim(),
       })).filter((v) => v.nom);
       const body = {
-        bien: { adresse: $("of-adresse").value, cp: $("of-cp").value, ville: $("of-ville").value, description: $("of-description").value, mandat: $("of-mandat").value, prixAffiche: $("of-prix-affiche").value },
+        bien: { adresse: $("of-adresse").value, cp: $("of-cp").value, ville: $("of-ville").value, mandat: $("of-mandat").value, prixAffiche: $("of-prix-affiche").value,
+          nature: $("of-nature").value, surface: $("of-surface").value, pieces: $("of-pieces").value, terrain: $("of-terrain").value, cadastre: $("of-cadastre").value, lots: $("of-lots").value,
+          complement: $("of-complement").value, description: $("of-nature").value ? "" : $("of-complement").value },
         prix: $("of-prix").value,
         conditions: { validite: $("of-validite").value, avantContrat: $("of-avant-contrat").value, acompte: $("of-acompte").value, substitution: $("of-substitution").checked, autres: $("of-autres").value },
         conseiller: $("of-conseiller").value, vendeurs: lireVendeurs(),
@@ -1936,6 +1954,8 @@
     const fin = o.financement || {};
     const ligneSig = (s) => '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:6px 0; border-bottom:1px solid var(--line);">' +
       "<strong>" + escH(s.libelle) + "</strong>" +
+      (s.signature && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(s.signature) ? '<img src="' + s.signature + '" alt="signature" style="height:30px; background:#fff; border-radius:6px; padding:2px 6px;" />' : "") +
+      (s.role === "offrant" && !o.figee && !o.terminee && !s.signeAt && offrants.length > 1 ? '<button class="btn btn-danger" style="padding:2px 8px; font-size:12px;" data-retirer="' + s.id + '" title="Retirer de l\'offre">✕</button>' : "") +
       (s.email ? '<span class="puce grise">' + escH(s.email) + "</span>" : '<span class="puce rouge">sans e-mail</span>') +
       (s.telephone ? '<span class="puce grise">' + escH(s.telephone) + "</span>" : "") +
       (s.role === "offrant" ? (s.identiteComplete ? '<span class="puce verte">état civil ✓</span>' : '<span class="puce grise">état civil incomplet</span>') : "") +
@@ -1958,7 +1978,8 @@
       '<span class="puce grise">' + escH(o.conseiller) + "</span>" +
       (o.dossierId ? '<a class="puce verte" href="../suivi/" target="_blank" rel="noopener" style="text-decoration:none;">dossier Suivi créé</a>' : "") + "</div>" +
       '<div class="grille-champs" style="margin-top:12px;">' +
-      "<div><strong>" + escH(o.bien.adresse) + "</strong><br>" + escH([o.bien.cp, o.bien.ville].filter(Boolean).join(" ")) + (o.bien.mandat ? '<br><span class="puce grise">mandat ' + escH(o.bien.mandat) + "</span>" : "") + "</div>" +
+      "<div><strong>" + escH(o.bien.adresse) + "</strong><br>" + escH([o.bien.cp, o.bien.ville].filter(Boolean).join(" ")) + (o.bien.mandat ? '<br><span class="puce grise">mandat ' + escH(o.bien.mandat) + "</span>" : "") +
+      (o.bien.description ? '<br><span class="petit">' + escH(o.bien.description) + "</span>" : "") + "</div>" +
       '<div><span style="font-size:22px; font-weight:600;">' + fmtPrix(o.prix) + "</span>" + (o.bien.prixAffiche ? '<br><span class="petit">affiché ' + fmtPrix(o.bien.prixAffiche) + (o.prix && o.bien.prixAffiche ? " (" + Math.round((o.prix / o.bien.prixAffiche - 1) * 100) + " %)" : "") + "</span>" : "") + "</div>" +
       "<div>Valable jusqu'au <strong>" + fmtDateFr(o.conditions.validite) + "</strong><br>Avant-contrat : " + fmtDateFr(o.conditions.avantContrat) + (o.conditions.acompte ? "<br>Acompte : " + fmtPrix(o.conditions.acompte) : "") + "</div>" +
       "<div>" + (fin.rempli ? (fin.sansPret ? "<strong>Sans prêt</strong>" + (fin.apport ? " — fonds " + fmtPrix(fin.apport) : "") : "Prêt <strong>" + fmtPrix(fin.pret) + "</strong> sur " + fin.duree + " ans" + (fin.taux ? " à " + fin.taux + " %" : "") + (fin.apport ? "<br>apport " + fmtPrix(fin.apport) : "") + (fin.organisme ? "<br>" + escH(fin.organisme) : "")) : '<span class="petit">financement non renseigné par l\'acquéreur</span>') + "</div></div>" +
@@ -1968,6 +1989,7 @@
         autresOffresSurLeBien(o).sort((x, y) => x.createdAt - y.createdAt).map((x) => '<span class="puce" data-autre-offre="' + x.id + '" style="cursor:pointer;" title="Ouvrir">' + escH(x.numero) + " · " + escH(nomsOffrants(x)) + " · " + fmtPrix(x.prix) + " · " + escH((OFFRE_STATUTS[x.statut] || [x.statut])[0]) + "</span>").join(" ") +
         " — toutes les offres reçues doivent être transmises au vendeur.</p>" : "") +
       '<h3 style="margin:14px 0 4px; font-size:15px;">Offrant' + (offrants.length > 1 ? "s" : "") + "</h3>" + offrants.map(ligneSig).join("") +
+      (!o.figee && !o.terminee ? '<div class="barre" style="margin-top:6px;"><input id="of-ajout-filtre" placeholder="+ Ajouter un offrant : tapez un nom…" style="min-width:260px;" /><span id="of-ajout-resultats"></span></div>' : "") +
       '<h3 style="margin:14px 0 4px; font-size:15px;">Vendeur' + (vendeurs.length > 1 ? "s" : "") + "</h3>" + (vendeurs.length ? vendeurs.map(ligneSig).join("") : '<p class="petit">Aucun vendeur désigné — « Modifier » pour les ajouter (nom + e-mail).</p>') +
       '<h3 style="margin:14px 0 4px; font-size:15px;">Pièces ' + (requises.length ? fournies.length + "/" + requises.length : "") + (o.purgee ? ' <span class="puce grise">purgées</span>' : "") + "</h3>" +
       (d.accesPieces ? "" : '<p class="petit">Le contenu des pièces est réservé au conseiller du dossier et aux administrateurs.</p>') +
@@ -1984,7 +2006,17 @@
       (d.accesPieces && d.documents.length ? '<button class="btn" id="btn-of-zip" title="Toutes les pièces + le PDF de l\'offre, en une archive à ranger dans OneDrive">⬇ Toutes les pièces (zip)</button>' +
         (window.showDirectoryPicker ? '<button class="btn" id="btn-of-dossier-local" title="Écrit les fichiers directement dans le dossier choisi (ex. OneDrive)">📂 Enregistrer dans un dossier</button>' : "") : "") +
       (!o.terminee ? '<button class="btn btn-danger" id="btn-of-retirer">Retirer</button>' : ""));
+    modaleVerrouillee = true;
     const corps = $("modale-corps");
+    // Ajout d'un offrant : filtre sur la base, clic sur un nom → POST.
+    if ($("of-ajout-filtre")) {
+      $("of-ajout-filtre").addEventListener("input", () => {
+        const q = $("of-ajout-filtre").value.toLowerCase().trim();
+        const deja = new Set(offrants.map((x) => x.contactId));
+        const c = q.length < 2 ? [] : contacts.filter((x) => !deja.has(x.id) && (x.nom + " " + x.prenom + " " + x.email).toLowerCase().includes(q)).slice(0, 6);
+        $("of-ajout-resultats").innerHTML = c.map((x) => '<button class="btn" style="padding:4px 10px; font-size:12px;" data-ajout-offrant="' + x.id + '">' + escH(x.nom) + " " + escH(x.prenom) + "</button>").join(" ");
+      });
+    }
     const telecharger = async (path, nom) => {
       const a = account();
       const res = await fetch(API + path, { headers: { Authorization: "Bearer " + a.session } });
@@ -2048,10 +2080,17 @@
     corps.addEventListener("click", async (e) => {
       const autre = e.target.closest("[data-autre-offre]");
       if (autre) { ouvrirOffre(autre.dataset.autreOffre); return; }
-      const t = e.target.closest("[data-lien],[data-doc-dl],[data-doc-sup],[data-doc-ajout]");
+      const t = e.target.closest("[data-lien],[data-doc-dl],[data-doc-sup],[data-doc-ajout],[data-ajout-offrant],[data-retirer]");
       if (!t) return;
       try {
-        if (t.dataset.lien) {
+        if (t.dataset.ajoutOffrant) {
+          const r = await api("/crm/offres/" + o.id + "/offrants", { json: { contactId: t.dataset.ajoutOffrant } });
+          toast(r.envoye ? "Offrant ajouté, lien envoyé" : "Offrant ajouté"); await chargerOffres(); ouvrirOffre(o.id);
+        } else if (t.dataset.retirer) {
+          if (t.dataset.arme !== "1") { t.dataset.arme = "1"; t.textContent = "Retirer ?"; setTimeout(() => { t.dataset.arme = ""; t.textContent = "✕"; }, 5000); return; }
+          await api("/crm/offres/" + o.id + "/signataires/" + t.dataset.retirer, { method: "DELETE" });
+          toast("Offrant retiré"); await chargerOffres(); ouvrirOffre(o.id);
+        } else if (t.dataset.lien) {
           const r = await api("/crm/offres/" + o.id + "/signataires/" + t.dataset.lien + "/lien", { json: {} });
           try { await navigator.clipboard.writeText(r.lien); } catch (err) { }
           toast(r.envoye ? "Lien envoyé par e-mail (et copié dans le presse-papiers)" : "E-mail non envoyé — lien copié dans le presse-papiers, transmettez-le vous-même", !r.envoye);
@@ -2202,7 +2241,7 @@
   document.querySelectorAll(".onglet").forEach((b) =>
     b.addEventListener("click", () => activerOnglet(b.dataset.onglet)));
   $("modale-fermer").addEventListener("click", fermerModale);
-  $("voile").addEventListener("click", (e) => { if (e.target === $("voile")) fermerModale(); });
+  $("voile").addEventListener("click", (e) => { if (e.target === $("voile") && !modaleVerrouillee) fermerModale(); });
   $("recherche-contacts").addEventListener("input", rendreContacts);
   $("filtre-type").addEventListener("change", rendreContacts);
   $("btn-nouveau-contact").addEventListener("click", () => ouvrirContact(null));

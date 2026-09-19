@@ -105,6 +105,20 @@ input:disabled, textarea:disabled, select:disabled { background: var(--panel); c
 .piece .ajout:disabled { opacity: .5; }
 .piece.facultative .etat { border-style: dashed; }
 
+/* Acquéreurs */
+.acquereurs .acq { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.acquereurs .acq:last-child { border-bottom: none; }
+.acquereurs .acq b { font-weight: 600; }
+.acquereurs .acq .etat { font-size: 12px; color: var(--muted); }
+.acquereurs .acq .etat.ok { color: var(--ok); }
+
+/* Signature dessinée */
+.pad { margin: 10px 0 4px; }
+.pad canvas { display: block; width: 100%; height: 180px; background: #fff; border: 1.5px dashed var(--line-fort); border-radius: 12px; touch-action: none; cursor: crosshair; }
+.pad .sous { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+.pad .sous span { color: var(--muted); font-size: 12.5px; }
+.fait img.paraphe { display: block; max-width: 260px; max-height: 110px; margin-top: 10px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+
 /* Signature */
 .mention { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-family: "Fraunces", Georgia, serif; font-style: italic; margin: 8px 0; }
 textarea.saisie { min-height: 90px; }
@@ -132,6 +146,7 @@ textarea.saisie { min-height: 90px; }
     --ok-clair: #1c2a20; --bad-clair: #2a1b17;
   }
   input, textarea, select, .piece .ajout, .btn.second, .recap .statut { background: #1d1c17; }
+  .pad canvas, .fait img.paraphe { background: #fff; }
   .alerte { border-color: #5a3229; color: #e5917c; }
   .btn { color: #1a1714; }
   .btn.danger { color: #fff; }

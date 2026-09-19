@@ -62,6 +62,11 @@ export function sanitizeOffre(b, cur = {}) {
   return {
     bien: {
       adresse: strip(bienIn.adresse, 200), cp: strip(bienIn.cp, 10), ville: strip(bienIn.ville, 80),
+      // Désignation structurée (art. 1114 C. civ. : le bien doit être désigné
+      // précisément) ; `description` reste acceptée pour une saisie libre.
+      nature: NATURES.includes(bienIn.nature) ? bienIn.nature : "",
+      surface: decimal(bienIn.surface, 100000), pieces: entier(bienIn.pieces, 200), terrain: decimal(bienIn.terrain, 10_000_000),
+      cadastre: strip(bienIn.cadastre, 200), lots: strip(bienIn.lots, 200), complement: stripML(bienIn.complement, 1000),
       description: stripML(bienIn.description, 1500), mandat: strip(bienIn.mandat, 40),
       annonceId: strip(bienIn.annonceId, 80), prixAffiche: entier(bienIn.prixAffiche, 100_000_000),
     },
@@ -76,11 +81,32 @@ export function sanitizeOffre(b, cur = {}) {
     conseiller: strip(b.conseiller, 80),
   };
 }
+export const NATURES = ["maison", "appartement", "terrain", "immeuble", "local", "autre"];
+const NATURE_LIBELLE = { maison: "une maison à usage d'habitation", appartement: "un appartement", terrain: "un terrain à bâtir", immeuble: "un immeuble", local: "un local à usage professionnel ou commercial", autre: "un bien immobilier" };
+const nombre = (n) => String(n).replace(".", ",");
+// La désignation du bien telle qu'elle figure dans l'offre, composée des
+// champs structurés ; la saisie libre (`description`) sert de secours ou de
+// complément.
+export function descriptionBien(b) {
+  if (!b) return "";
+  if (!b.nature) return [b.description, b.complement].filter(Boolean).join(" ");
+  let t = NATURE_LIBELLE[b.nature] || NATURE_LIBELLE.autre;
+  const det = [];
+  if (b.surface && b.nature !== "terrain") det.push(`d'une surface habitable d'environ ${nombre(b.surface)} m²`);
+  if (b.pieces && b.nature !== "terrain") det.push(`comprenant ${b.pieces} pièce${b.pieces > 1 ? "s" : ""} principale${b.pieces > 1 ? "s" : ""}`);
+  if (b.terrain) det.push(b.nature === "terrain" ? `d'une contenance d'environ ${nombre(b.terrain)} m²` : `sur un terrain d'environ ${nombre(b.terrain)} m²`);
+  if (det.length) t += " " + det.join(", ");
+  if (b.cadastre) t += `, cadastré${b.nature === "maison" ? "e" : ""} ${b.cadastre}`;
+  if (b.lots) t += ` — lot${/[,;]| et /.test(b.lots) ? "s" : ""} de copropriété n° ${b.lots}`;
+  t = t.charAt(0).toUpperCase() + t.slice(1) + ".";
+  const suite = [b.complement, b.nature && b.description && b.description !== b.complement ? b.description : ""].filter(Boolean).join(" ");
+  return suite ? t + " " + suite.replace(/\s+/g, " ").trim().replace(/([^.!?])$/, "$1.") : t;
+}
 // Ce qui manque pour que l'offre soit envoyable (le conseiller doit tout poser).
 export function manquesOffre(o) {
   const m = [];
   if (!o.bien.adresse) m.push("l'adresse du bien");
-  if (!o.bien.description) m.push("la description du bien");
+  if (!o.bien.nature && !o.bien.description) m.push("la désignation du bien (nature, surface…)");
   if (!o.prix) m.push("le prix");
   if (!o.conditions.validite) m.push("la date de validité de l'offre");
   if (!o.conditions.avantContrat) m.push("la date limite de l'avant-contrat");
@@ -248,6 +274,19 @@ export function genererOtp() {
 export const masquerTel = (t) => { const s = String(t || "").replace(/\s/g, ""); return s.length > 4 ? s.slice(0, 2) + "•• •• •• " + s.slice(-2) : s; };
 export const masquerEmail = (e) => { const [u, d] = String(e || "").split("@"); return u && d ? u.slice(0, 2) + "•••@" + d : e; };
 
+/* --------------------------- Signature dessinée --------------------------- */
+// Un PNG en data URL, borné (un tracé au doigt pèse 5 à 20 Ko) et vérifié
+// sur ses octets : rien d'autre qu'une image n'entre ici.
+export const SIGNATURE_MAX = 80_000;
+export function signaturePng(dataUrl) {
+  const s = String(dataUrl || "");
+  if (!s.startsWith("data:image/png;base64,") || s.length > SIGNATURE_MAX) return null;
+  let bytes;
+  try { bytes = Uint8Array.from(atob(s.slice(22)), (c) => c.charCodeAt(0)); } catch { return null; }
+  if (bytes.length < 60 || bytes[0] !== 0x89 || bytes[1] !== 0x50 || bytes[2] !== 0x4e || bytes[3] !== 0x47) return null;
+  return { dataUrl: s, bytes };
+}
+
 /* ------------------------------ Numérotation ------------------------------ */
 export async function numeroOffre(db, agencyId) {
   const annee = new Date().getFullYear();
@@ -372,7 +411,7 @@ export function paragraphesOffre(offre, offrants, vendeurs, agence, reg) {
 
   titre("Nature et description des biens");
   p(`Adresse des biens : ${[offre.bien.adresse, [offre.bien.cp, offre.bien.ville].filter(Boolean).join(" ")].filter(Boolean).join(", ")}`);
-  p(`Description : ${offre.bien.description}`);
+  p(`Désignation : ${descriptionBien(offre.bien)}`);
 
   titre("Conditions d'acquisition");
   sous("Prix d'acquisition");
@@ -512,10 +551,44 @@ export async function construirePdfOffre({ offre, offrants, vendeurs, agence, re
 // Le certificat : le document figé + une page qui consigne les signatures
 // (offrants, puis vendeurs) et le journal. Regénérable à tout moment depuis
 // la base — le document, lui, ne bouge pas.
-export async function construirePdfCertificat({ pdfOffre, offre, offrants, vendeurs, events, agence }) {
+export async function construirePdfCertificat({ pdfOffre, offre, offrants, vendeurs, events, agence, signatures = {} }) {
   const pdf = await PDFDocument.load(pdfOffre);
   const fonts = await polices(pdf);
-  const F = new Feuille(pdf, fonts, `Certificat de signature — offre ${offre.numero}`);
+  // Page « Signatures des parties » : les paraphes dessinés, avec nom, date
+  // et décision — ce que les parties attendent de voir sur une offre signée.
+  const F = new Feuille(pdf, fonts, `Signatures — offre ${offre.numero}`);
+  F.texte("SIGNATURES DES PARTIES", { size: 14, gras: true, centre: true, apres: 4 });
+  F.texte(`Offre d'achat n° ${offre.numero} — ${(agence && agence.nom) || ""}`, { size: 9, centre: true, apres: 12, couleur: rgb(0.4, 0.4, 0.4) });
+  const cadre = async (s, libelleRole, decision) => {
+    const h = 96;
+    F.besoin(h + 24);
+    const y0 = F.y;
+    F.page.drawRectangle({ x: F.marge, y: y0 - h, width: F.largeur - 2 * F.marge, height: h, borderColor: rgb(0.75, 0.7, 0.55), borderWidth: 0.8 });
+    F.page.drawText(propre(libelleRole), { x: F.marge + 10, y: y0 - 16, size: 8, font: fonts.gras, color: rgb(0.45, 0.4, 0.3) });
+    F.page.drawText(propre(nomSignataire(s)), { x: F.marge + 10, y: y0 - 30, size: 10.5, font: fonts.gras });
+    if (s.signe_at) {
+      F.page.drawText(propre(`${decision || "Signé électroniquement"} le ${dateHeureParis(s.signe_at)}`), { x: F.marge + 10, y: y0 - 44, size: 8.5, font: fonts.normal });
+      F.page.drawText(propre(`Code à usage unique validé (${s.otp_canal || "e-mail"}) — IP ${s.signe_ip || "?"}`), { x: F.marge + 10, y: y0 - 56, size: 7.5, font: fonts.normal, color: rgb(0.4, 0.4, 0.4) });
+      const png = signatures[s.id] && signaturePng(signatures[s.id]);
+      if (png) {
+        try {
+          const img = await pdf.embedPng(png.bytes);
+          const boxW = 200, boxH = h - 16;
+          const k = Math.min(boxW / img.width, boxH / img.height);
+          const w = img.width * k, hh = img.height * k;
+          const x = F.largeur - F.marge - 10 - boxW + (boxW - w) / 2, y = y0 - h + 8 + (boxH - hh) / 2;
+          F.page.drawImage(img, { x, y, width: w, height: hh });
+        } catch { }
+      }
+    } else {
+      F.page.drawText(propre("En attente de signature"), { x: F.marge + 10, y: y0 - 44, size: 8.5, font: fonts.normal, color: rgb(0.5, 0.5, 0.5) });
+    }
+    F.y = y0 - h - 12;
+  };
+  for (const s of offrants) await cadre(s, "L'OFFRANT", "");
+  for (const v of vendeurs) await cadre(v, "LE PROPRIÉTAIRE", v.decision === "accepte" ? "Accepte l'offre" : v.decision === "refuse" ? "Refuse l'offre" : v.decision === "contre" ? "Contre-proposition" : "");
+  F.nouvellePage();
+  F.entete = `Certificat de signature — offre ${offre.numero}`;
   F.texte("CERTIFICAT DE SIGNATURE ÉLECTRONIQUE", { size: 14, gras: true, centre: true, apres: 4 });
   F.texte(`Offre d'achat n° ${offre.numero} — ${(agence && agence.nom) || ""}`, { size: 9, centre: true, apres: 10, couleur: rgb(0.4, 0.4, 0.4) });
   F.texte(`Empreinte SHA-256 du document signé : ${offre.pdf_hash || "(document non encore figé)"}`, { size: 8.5, apres: 8 });

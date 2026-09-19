@@ -563,7 +563,31 @@ les pièces (zip) » — archive fabriquée dans le navigateur par `assets/js/zi
 « type - personne - fichier » + le PDF de l'offre ; « 📂 Enregistrer dans un dossier »
 (Chrome/Edge, `showDirectoryPicker`) écrit les mêmes fichiers dans un sous-dossier
 « Offre OA-… - NOMS » du dossier choisi (OneDrive synchronisé).
-Tests : bloc « Offres d'achat » de test.mjs (61 cas) + parcours navigateur
+**Retours du premier test (19/09)** : (1) **signature dessinée** — chaque signataire
+(offrant ET vendeur) trace sa signature dans un cadre `<canvas>` (`initPad`/
+`signatureDataUrl`, PNG ≤ 600 px) envoyé dans `signature` à `POST signer`/`repondre` ;
+le serveur la valide (`signaturePng` : octets PNG, ≤ 80 Ko) et la range dans
+`crm_offre_signatures` (table à part, PK signataire) ; le PDF complet
+(`construirePdfCertificat`) insère AVANT le certificat une page « SIGNATURES DES
+PARTIES » (un cadre par signataire : nom, date, canal OTP/IP, tracé `embedPng`) ; la
+page publique et la fiche admin montrent les tracés. Juridiquement c'est toujours le
+code qui signe, le tracé est ce que les parties attendent de voir. (2) **Co-acquéreur** :
+`POST /public/offre/offrants` (nom + prénom + e-mail ou tél, tant que l'offre n'est pas
+figée, `peutAjouterOffrant` dans `GET /public/offre`) crée le signataire, l'ajoute au
+projet d'achat et lui envoie son lien ; côté admin `POST /crm/offres/:id/offrants
+{contactId}` et `DELETE /crm/offres/:id/signataires/:sid` (jamais après figeage, ≥ 1
+offrant). L'état civil commence par « J'achète en mon nom / au nom d'une société » :
+`identite.societe` + `personneMorale {nom, forme, rcs, siege}` — la société est le
+signataire, la personne son représentant. (3) **Désignation structurée** : `bien` porte
+`nature` (maison|appartement|terrain|immeuble|local|autre), `surface`, `pieces`,
+`terrain`, `cadastre`, `lots`, `complement` ; `descriptionBien(b)` compose la phrase
+de l'offre (« Une maison à usage d'habitation d'une surface habitable d'environ 95 m²,
+comprenant 4 pièces principales, sur un terrain d'environ 400 m², cadastrée section AB
+n° 123. Garage attenant. ») — `description` libre reste accepté sans nature (anciennes
+offres). (4) La modale de l'offre (fiche et formulaire) est verrouillée : un clic sur
+le voile ne la ferme plus (`modaleVerrouillee`). Différé, brique à venir : le numéro de
+mandat et les coordonnées du vendeur se rempliront depuis un registre des mandats.
+Tests : bloc « Offres d'achat » de test.mjs (70 cas) + parcours navigateur
 `server/smoke/offre.mjs` (le relais de lib.mjs transmet désormais `X-Offre-Jeton` et les
 corps binaires). Limite connue : avec le compte SSO partagé Kadima, tous les
 collaborateurs sont le même `user_id` — l'accès aux pièces « conseiller du dossier » ne

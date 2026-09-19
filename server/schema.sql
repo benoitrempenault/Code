@@ -867,3 +867,17 @@ CREATE TABLE IF NOT EXISTS crm_amepi_brut (
   brut       TEXT NOT NULL DEFAULT '',
   updated_at INTEGER NOT NULL
 );
+
+-- La signature DESSINÉE de chaque signataire (image PNG en data URL, ≤ 60 Ko) :
+-- juridiquement c'est le code à usage unique qui signe, mais l'acquéreur
+-- veut « signer quelque chose » et le vendeur veut voir un paraphe. Reproduite
+-- sur la page « Signatures des parties » annexée au PDF (le document figé,
+-- lui, ne bouge pas). Table séparée : pas d'ALTER TABLE sur une base déployée.
+CREATE TABLE IF NOT EXISTS crm_offre_signatures (
+  signataire_id TEXT PRIMARY KEY,
+  offre_id      TEXT NOT NULL,
+  agency_id     TEXT NOT NULL,
+  png           TEXT NOT NULL,               -- data:image/png;base64,…
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_osig_offre ON crm_offre_signatures(offre_id);

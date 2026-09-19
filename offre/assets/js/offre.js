@@ -69,6 +69,7 @@
       "<br>Ce lien vous est personnel. Vos pièces sont chiffrées en transit, réservées à votre conseiller et effacées 90 jours après la fin de l'offre.";
     if (data.role === "vendeur") { $("#parcoursVendeur").hidden = false; rendreVendeur(); return; }
     $("#parcoursOffrant").hidden = false;
+    rendreAcquereurs();
     remplirIdentite(moi.identite);
     remplirFinancement(o.financement, o.questionnaire);
     rendrePieces();
@@ -148,10 +149,37 @@
     if (i.civilite) { const r = f.querySelector('input[name=civilite][value="' + i.civilite + '"]'); if (r) r.checked = true; }
     ["nom", "nomNaissance", "prenoms", "naissance", "lieuNaissance", "nationalite", "adresse", "telephone", "email", "profession", "contratTravail", "employeur"].forEach((k) => set(k, i[k] || ""));
     f.elements.residenceFiscale.checked = i.residenceFiscale !== false;
-    f.elements.societe.checked = !!i.societe;
+    f.elements.societe.value = i.societe ? "1" : "0";
     const pm = i.personneMorale || {};
     set("pmNom", pm.nom || ""); set("pmForme", pm.forme || ""); set("pmRcs", pm.rcs || ""); set("pmSiege", pm.siege || "");
-    $("#blocSociete").hidden = !i.societe;
+    $("#blocSociete").hidden = !i.societe; $("#aideSociete").hidden = !i.societe;
+  }
+  /* ----------------------------- Les acquéreurs ---------------------------- */
+  function rendreAcquereurs() {
+    const moi = data.moi;
+    const offrants = data.signataires.filter((s) => s.role === "offrant");
+    $("#listeAcquereurs").innerHTML = offrants.map((s) =>
+      '<div class="acq"><b>' + txt(s.libelle) + (s.id === moi.id ? " (vous)" : "") + "</b>" +
+      '<span class="etat' + (s.signeAt ? " ok" : "") + '">' + (s.signeAt ? "a signé" : s.identiteComplete ? "état civil complet" : "état civil à compléter") + "</span></div>").join("");
+    const z = $("#zoneCoAcquereur");
+    if (!data.peutAjouterOffrant) { z.innerHTML = ""; return; }
+    z.innerHTML = '<button type="button" class="btn second" id="btnCoAcq">+ Ajouter un co-acquéreur</button>' +
+      '<form id="formCoAcq" hidden><div class="radios"><label><input type="radio" name="coCiv" value="Madame" /> Madame</label><label><input type="radio" name="coCiv" value="Monsieur" /> Monsieur</label></div>' +
+      '<div class="grid"><label>Nom<input name="coNom" maxlength="80" required /></label><label>Prénom<input name="coPrenom" maxlength="80" required /></label>' +
+      '<label>E-mail<input name="coEmail" type="email" maxlength="120" /></label><label>Mobile<input name="coTel" type="tel" maxlength="40" /></label></div>' +
+      '<p class="aide">Il ou elle recevra son propre lien par e-mail pour compléter son état civil, déposer sa pièce d\'identité et signer.</p>' +
+      '<div class="barre"><button type="submit" class="btn">Ajouter</button><button type="button" class="lien" id="btnCoAnnuler">Annuler</button><span class="aide" id="msgCoAcq"></span></div></form>';
+  }
+  async function ajouterCoAcquereur(e) {
+    e.preventDefault();
+    const f = $("#formCoAcq");
+    const v = (n) => (f.elements[n] ? f.elements[n].value.trim() : "");
+    message("#msgCoAcq", "Ajout…");
+    try {
+      const r = await api("/public/offre/offrants", { json: { civilite: (f.querySelector("input[name=coCiv]:checked") || {}).value || "", nom: v("coNom"), prenom: v("coPrenom"), email: v("coEmail"), telephone: v("coTel") } });
+      await recharger();
+      message("#msgIdentite", r.envoye ? r.libelle + " a reçu son lien par e-mail." : r.libelle + " est ajouté(e) — votre conseiller lui transmettra son lien.", "ok");
+    } catch (err) { message("#msgCoAcq", err.message, "err"); }
   }
   async function enregistrerIdentite(e) {
     e.preventDefault();
@@ -162,7 +190,7 @@
       nom: v("nom"), nomNaissance: v("nomNaissance"), prenoms: v("prenoms"), naissance: v("naissance"), lieuNaissance: v("lieuNaissance"),
       nationalite: v("nationalite"), adresse: v("adresse"), telephone: v("telephone"), email: v("email"), profession: v("profession"),
       contratTravail: v("contratTravail"), employeur: v("employeur"), residenceFiscale: f.elements.residenceFiscale.checked,
-      societe: f.elements.societe.checked, personneMorale: { nom: v("pmNom"), forme: v("pmForme"), rcs: v("pmRcs"), siege: v("pmSiege") },
+      societe: f.elements.societe.value === "1", personneMorale: { nom: v("pmNom"), forme: v("pmForme"), rcs: v("pmRcs"), siege: v("pmSiege") },
     };
     message("#msgIdentite", "Enregistrement…");
     try {
@@ -283,7 +311,8 @@
       z.innerHTML = '<div class="fait"><h3>✓ Vous avez signé</h3><p>Le ' + txt(dateHeure(moi.signeAt)) + ". " +
         (o.signeeAt ? "L'offre est signée par " + (autres.length ? "tous les acquéreurs" : "vous") + " : votre conseiller la présente au vendeur."
           : "En attente de la signature de " + txt(autres.filter((s) => !s.signeAt).map((s) => s.libelle).join(" et ")) + ".") + "</p>" +
-        '<p class="aide">Téléchargez votre exemplaire (document + certificat de signature) avec le bouton « Télécharger le PDF » ci-dessus.</p></div>';
+        imgParaphe(moi.signature) +
+        '<p class="aide">Téléchargez votre exemplaire (document, page des signatures et certificat) avec le bouton « Télécharger le PDF » ci-dessus.</p></div>';
       return;
     }
     if (o.terminee) { z.innerHTML = '<p class="aide">Cette offre est ' + txt(o.statutLibelle.toLowerCase()) + " : elle ne peut plus être signée.</p>"; return; }
@@ -299,6 +328,7 @@
         '<div class="mention">' + txt(data.mention) + "</div>" +
         '<label>Recopiez la mention<textarea id="mentionSaisie" class="saisie" autocomplete="off" spellcheck="false"></textarea></label>' : "") +
       '<label class="case important"><input type="checkbox" id="engagement" /> <span>J\'ai lu l\'offre d\'achat n° ' + txt(o.numero) + " dans son intégralité et je m'engage à acquérir le bien aux prix et conditions qu'elle contient. Je comprends que l'acceptation du propriétaire formera la vente.</span></label>" +
+      padHtml() +
       '<div id="zoneCode">' +
       '<div class="barre"><button type="button" class="btn" id="btnCode">Recevoir mon code de signature</button><span class="aide">' +
       "Le code part " + txt((data.otp.canaux || []).map((c) => c === "sms" ? "par SMS au " + data.otp.telephone : "par e-mail à " + data.otp.email).join(" et ") || "par e-mail") + ".</span></div>" +
@@ -307,6 +337,37 @@
       "</div>" +
       '<p class="aide" id="msgSignature"></p>';
     if (otpDemande) $("#saisieCode").hidden = false;
+    initPad();
+  }
+  /* --------------------------- Le cadre de signature ----------------------- */
+  // Un tracé au doigt ou à la souris, exporté en PNG (réduit à 600 px de
+  // large : quelques Ko). Juridiquement c'est le code qui signe ; le tracé
+  // est ce que les parties attendent de voir sur l'offre.
+  const padHtml = () => '<h3>Votre signature</h3><div class="pad"><canvas id="padSignature"></canvas><div class="sous"><span>Signez dans le cadre, au doigt ou à la souris.</span><button type="button" class="lien" id="padEffacer">Effacer</button></div></div>';
+  const imgParaphe = (src) => (src && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(src) ? '<img class="paraphe" alt="Votre signature" src="' + src + '" />' : "");
+  let pad = null;
+  function initPad() {
+    const c = $("#padSignature");
+    if (!c) { pad = null; return; }
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = c.clientWidth || 600, h = 180;
+    c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+    const ctx = c.getContext("2d");
+    ctx.scale(dpr, dpr); ctx.lineWidth = 2.2; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#1b2a6b";
+    pad = { c, ctx, vide: true, trace: false, dernier: null };
+    const pos = (e) => { const r = c.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    c.onpointerdown = (e) => { e.preventDefault(); c.setPointerCapture(e.pointerId); pad.trace = true; pad.dernier = pos(e); ctx.beginPath(); ctx.moveTo(pad.dernier.x, pad.dernier.y); ctx.lineTo(pad.dernier.x + 0.1, pad.dernier.y); ctx.stroke(); pad.vide = false; };
+    c.onpointermove = (e) => { if (!pad.trace) return; e.preventDefault(); const q = pos(e); ctx.beginPath(); ctx.moveTo(pad.dernier.x, pad.dernier.y); ctx.lineTo(q.x, q.y); ctx.stroke(); pad.dernier = q; };
+    c.onpointerup = c.onpointercancel = c.onpointerleave = () => { pad.trace = false; };
+    $("#padEffacer").onclick = () => { ctx.clearRect(0, 0, w, h); pad.vide = true; };
+  }
+  function signatureDataUrl() {
+    if (!pad || pad.vide) return "";
+    const src = pad.c, k = Math.min(1, 600 / src.width);
+    const out = document.createElement("canvas");
+    out.width = Math.round(src.width * k); out.height = Math.round(src.height * k);
+    out.getContext("2d").drawImage(src, 0, 0, out.width, out.height);
+    return out.toDataURL("image/png");
   }
   async function demanderCode() {
     const btn = $("#btnCode"); btn.disabled = true;
@@ -326,11 +387,13 @@
     const engagement = $("#engagement").checked;
     const mention = $("#mentionSaisie") ? $("#mentionSaisie").value : "";
     const code = ($("#code").value || "").replace(/\D/g, "");
+    const signature = signatureDataUrl();
     if (!engagement) { message("#msgSignature", "Cochez la case d'engagement.", "err"); return; }
+    if (!signature) { message("#msgSignature", "Signez dans le cadre avant de valider.", "err"); return; }
     if (code.length !== 6) { message("#msgSignature", "Saisissez le code à 6 chiffres reçu.", "err"); return; }
     btn.disabled = true; message("#msgSignature", "Signature en cours…");
     try {
-      const r = await api("/public/offre/signer", { json: { code, mention, engagement } });
+      const r = await api("/public/offre/signer", { json: { code, mention, engagement, signature } });
       otpDemande = false;
       await recharger();
       $("#etapeSignature").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -346,7 +409,7 @@
       const d = moi.decision === "accepte" ? "Vous avez accepté l'offre" : moi.decision === "refuse" ? "Vous avez refusé l'offre" : "Vous avez fait une contre-proposition";
       z.innerHTML = '<div class="fait"><h3>✓ ' + txt(d) + "</h3><p>Le " + txt(dateHeure(moi.signeAt)) + ". " +
         (o.statut === "acceptee" ? "La vente est formée sur la chose et sur le prix : votre conseiller organise l'avant-contrat avec les notaires." : o.statut === "presentee" ? "En attente de la réponse des autres propriétaires." : "Votre conseiller reprend contact avec l'acquéreur.") +
-        '</p><p class="aide">Téléchargez l\'offre et son certificat avec « Télécharger le PDF » ci-dessus.</p></div>';
+        "</p>" + imgParaphe(moi.signature) + '<p class="aide">Téléchargez l\'offre, la page des signatures et le certificat avec « Télécharger le PDF » ci-dessus.</p></div>';
       return;
     }
     if (o.statut !== "presentee") { z.innerHTML = '<p class="aide">Cette offre est ' + txt(o.statutLibelle.toLowerCase()) + ".</p>"; return; }
@@ -359,12 +422,14 @@
       '<label class="plein">Message pour l\'acquéreur (facultatif)<input id="commentaireContre" maxlength="500" /></label></div>' +
       '<div class="mention" id="mentionVendeur" hidden></div>' +
       '<label class="case important"><input type="checkbox" id="engagement" /> <span id="texteEngagement">Je confirme ma réponse.</span></label>' +
+      padHtml() +
       '<div class="barre"><button type="button" class="btn" id="btnCode">Recevoir mon code</button><span class="aide">Le code part ' +
       txt((data.otp.canaux || []).map((c) => c === "sms" ? "par SMS au " + data.otp.telephone : "par e-mail à " + data.otp.email).join(" et ") || "par e-mail") + ".</span></div>" +
       '<div id="saisieCode" hidden><label class="code">Code reçu (6 chiffres)<input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" /></label>' +
       '<button type="button" class="btn grand" id="btnRepondre">Confirmer ma réponse</button></div>' +
       '<p class="aide" id="msgSignature"></p>';
     if (otpDemande) $("#saisieCode").hidden = false;
+    initPad();
   }
   function majDecision() {
     const d = (document.querySelector("input[name=decision]:checked") || {}).value || "";
@@ -380,10 +445,12 @@
     const code = ($("#code").value || "").replace(/\D/g, "");
     if (!d) { message("#msgSignature", "Choisissez votre réponse.", "err"); return; }
     if (!$("#engagement").checked) { message("#msgSignature", "Cochez la case de confirmation.", "err"); return; }
+    const signature = signatureDataUrl();
+    if (!signature) { message("#msgSignature", "Signez dans le cadre avant de valider.", "err"); return; }
     if (code.length !== 6) { message("#msgSignature", "Saisissez le code à 6 chiffres reçu.", "err"); return; }
     const btn = $("#btnRepondre"); btn.disabled = true; message("#msgSignature", "Enregistrement…");
     try {
-      await api("/public/offre/repondre", { json: { code, decision: d, prix: $("#prixContre").value, commentaire: $("#commentaireContre").value, engagement: true } });
+      await api("/public/offre/repondre", { json: { code, decision: d, prix: $("#prixContre").value, commentaire: $("#commentaireContre").value, engagement: true, signature } });
       otpDemande = false;
       await recharger();
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -413,6 +480,8 @@
     if (t.id === "btnCode") { demanderCode(); return; }
     if (t.id === "btnSigner") { signer(); return; }
     if (t.id === "btnRepondre") { repondre(); return; }
+    if (t.id === "btnCoAcq") { $("#formCoAcq").hidden = false; t.hidden = true; $("#formCoAcq").elements.coNom.focus(); return; }
+    if (t.id === "btnCoAnnuler") { $("#formCoAcq").hidden = true; $("#btnCoAcq").hidden = false; return; }
     const ajout = t.closest("[data-type]");
     if (ajout) { pieceEnCours = { type: ajout.dataset.type, pour: ajout.dataset.pour }; $("#fichier").value = ""; $("#fichier").click(); return; }
     const sup = t.closest("[data-sup]");
@@ -422,12 +491,13 @@
   });
   document.addEventListener("change", (e) => {
     if (e.target.id === "fichier" && e.target.files && e.target.files[0]) { deposer(e.target.files[0]); return; }
-    if (e.target.id === "chkSociete") { $("#blocSociete").hidden = !e.target.checked; return; }
+    if (e.target.name === "societe") { const oui = e.target.value === "1"; $("#blocSociete").hidden = !oui; $("#aideSociete").hidden = !oui; return; }
     if (e.target.name === "sansPret" || e.target.name === "situation") { majBlocsFinancement(); return; }
     if (e.target.name === "decision") majDecision();
   });
   document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.id === "code") { e.preventDefault(); if ($("#btnSigner")) signer(); else if ($("#btnRepondre")) repondre(); } });
   $("#formIdentite").addEventListener("submit", enregistrerIdentite);
+  document.addEventListener("submit", (e) => { if (e.target.id === "formCoAcq") ajouterCoAcquereur(e); });
   $("#formFinancement").addEventListener("submit", enregistrerFinancement);
 
   // Un autre lien ouvert dans le même onglet (le conjoint) ne change que le
