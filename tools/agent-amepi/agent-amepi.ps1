@@ -86,6 +86,7 @@ try {
     $res = [Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray()) | ConvertFrom-Json
     if ($null -eq $res.value) { throw "Réponse inattendue d'Amanda sur /search (page $numero)." }
     $total = [int]$res.total
+    if ($premier) { Log "Amanda annonce $total bien(s) dans le fichier (sources $($sources -join ',')$(if ($cps.Count) { ', communes ' + ($cps -join ',') } else { '' }))." }
     $lot = @($res.value); $lus += $lot.Count
     $fini = ($lot.Count -lt $parPage) -or ($numero * $parPage -ge $total)
     $depot = @{ mandats = $lot; debut = $premier; fini = $fini; total = $total; base = $amepi } | ConvertTo-Json -Depth 12 -Compress
@@ -99,7 +100,7 @@ try {
     $stats = ([Text.Encoding]::UTF8.GetString($d.RawContentStream.ToArray()) | ConvertFrom-Json).stats
     Log ("Page {0} : {1} bien(s) déposé(s) - nouveaux {2}, baisses {3}{4}" -f $numero, $lot.Count, $stats.nouveaux, $stats.baisses, $(if ($fini) { ", retirés " + $stats.retirees + " - relevé terminé" } else { "" }))
     $premier = $false; $numero++
-    if ($numero -gt 60) { throw "Plus de 60 pages : arrêt de sécurité." }
+    if ($numero -gt 400) { throw "Plus de 400 pages (40 000 biens) : arrêt de sécurité." }
   } until ($fini)
   Log "Terminé : $lus bien(s) lus sur $total annoncés."
   exit 0
