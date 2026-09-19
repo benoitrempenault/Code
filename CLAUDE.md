@@ -419,7 +419,10 @@ saute `syncAmepi` quand une clé d'agent a servi depuis 3 jours. Réglage
 `amepi.departements` (« 33 » par défaut) : `departementsDe()`/`dansDepartements()`
 filtrent au dépôt (stats.horsSecteur), `purgerHorsDepartements()` à la clôture
 d'un relevé et à l'enregistrement des réglages (`PUT /crm/reglages` renvoie
-`purges`) — le fichier Amanda couvre toute la France.
+`purges`) — le fichier Amanda couvre toute la France. Même mécanique pour les
+sources cochées (`sourcesDe()`, `filtreDe()`, `purgerHorsSecteur()`) : Benoît ne
+garde que « mon ALFA » (source 2) ; l'agent relève ce que dit son config.json,
+le serveur ne garde que ce qui est coché.
 **Maisons dessinées + signets (carte, 15/09)** : `GET /crm/batiments?bbox=minLng,
 minLat,maxLng,maxLat` (membre) relaie le WFS IGN BD TOPO (`BATIMENTS_BASE`,
 CRS:84, COUNT 3000, bbox ≤ 0,02°×0,012°) et renvoie `{batiments:[{id, nature,

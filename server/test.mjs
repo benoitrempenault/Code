@@ -3249,6 +3249,16 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const purge = await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { departements: "33, 40" } } });
   ok(purge.json.purges === 1 && !(await callR("/crm/amepi", { headers: auth })).json.biens.some((b) => b.id === "601"),
      "revenir à 33 (+40) purge le bien parisien tout de suite (" + purge.json.purges + " purgé)");
+  // Ne garder que « mon ALFA » (source 2) : les biens des ALFA voisines (3) partent, et n'entrent plus.
+  const purgeS = await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { sources: ["2"] } } });
+  const listeS = (await callR("/crm/amepi", { headers: auth })).json;
+  ok(purgeS.json.purges >= 1 && !listeS.biens.some((b) => b.id === "602" || b.id === "504") && listeS.biens.some((b) => b.id === "501"),
+     "garder « mon ALFA » seul purge les biens des ALFA voisines (" + purgeS.json.purges + " purgé(s)), le bien source 2 reste");
+  const depS = await callR("/crm/amepi/import", { headers: enteteAgent, body: { debut: true, fini: true, total: 1, mandats: [
+    { id: 603, mandateRef: "V-603", agencyName: "Agence Voisine", sourceTypeId: 3, assetTypeId: 2, price: 250000, publicTown: "Pessac", publicPostalCode: "33600", transactionStateId: 1 },
+  ] } });
+  ok(depS.json.stats.biens === 0 && depS.json.stats.horsSecteur === 1, "un bien d'une ALFA voisine n'entre plus au dépôt");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { sources: ["1", "2", "3"] } } });
   await callR("/crm/amepi/cle", { headers: auth, method: "DELETE" });
   ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: [] } })).status === 401, "une clé révoquée ne dépose plus rien");
 

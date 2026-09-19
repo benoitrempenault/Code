@@ -1006,7 +1006,7 @@ export function createApp(env) {
     const reglages = await CRM.saveReglages(db, ctx.agency, ctx.user.id, b);
     // Les départements AMEPI changent : les biens hors secteur sortent tout de suite.
     let purges = 0;
-    if (b.amepi && typeof b.amepi.departements === "string") purges = await AMEPI.purgerHorsDepartements(db, ctx.agency.id, AMEPI.departementsDe(reglages));
+    if (b.amepi && (typeof b.amepi.departements === "string" || Array.isArray(b.amepi.sources))) purges = await AMEPI.purgerHorsSecteur(db, ctx.agency.id, AMEPI.filtreDe(reglages));
     return c.json({ reglages, purges });
   });
 

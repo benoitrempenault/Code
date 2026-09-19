@@ -242,14 +242,28 @@ export function departementsDe(reglages) {
   return String(brut ?? "33").split(/[\s,;]+/).map((d) => d.trim()).filter((d) => /^\d{2,3}$/.test(d));
 }
 export const dansDepartements = (cp, deps) => !deps.length || !cp || deps.some((d) => String(cp).startsWith(d));
-export async function purgerHorsDepartements(db, agencyId, deps) {
-  if (!deps.length) return 0;
-  const garde = deps.map((d) => `cp LIKE '${d.replace(/[^0-9]/g, "")}%'`).join(" OR ");
-  const r = await db.run(`DELETE FROM crm_amepi WHERE agency_id = ? AND cp <> '' AND NOT (${garde})`, [agencyId]);
+// Sources gardées (réglage `amepi.sources` : 1 mon agence, 2 mon ALFA, 3 ALFA
+// voisines) : l'agent relève ce que dit SON config.json, le serveur ne garde
+// que ce que l'agence a coché. Un bien sans source connue est gardé.
+export function sourcesDe(reglages) {
+  const l = reglages && reglages.amepi && Array.isArray(reglages.amepi.sources) ? reglages.amepi.sources : [];
+  return l.map((x) => String(x).trim()).filter((x) => /^[123]$/.test(x));
+}
+export const dansSources = (source, sources) => !sources.length || !source || sources.includes(String(source));
+// Filtre du dépôt / relevé, et purge de ce qui est déjà en base.
+export function filtreDe(reglages) { return { deps: departementsDe(reglages), sources: sourcesDe(reglages) }; }
+const garde = (x, f) => dansDepartements(x.cp, f.deps) && dansSources(x.source, f.sources);
+export async function purgerHorsSecteur(db, agencyId, f) {
+  const conditions = [];
+  if (f.deps.length) conditions.push(`(cp <> '' AND NOT (${f.deps.map((d) => `cp LIKE '${d.replace(/[^0-9]/g, "")}%'`).join(" OR ")}))`);
+  if (f.sources.length) conditions.push(`(source <> '' AND source NOT IN (${f.sources.map((x) => `'${x}'`).join(",")}))`);
+  if (!conditions.length) return 0;
+  const r = await db.run(`DELETE FROM crm_amepi WHERE agency_id = ? AND (${conditions.join(" OR ")})`, [agencyId]);
   return changesOf(r);
 }
-async function enregistrerLot(db, agencyId, base, bruts, t, existants, evenements, deps = []) {
-  const lignes = bruts.map((m) => mapperMandat(m, base)).filter((x) => x.id && dansDepartements(x.cp, deps));
+export const purgerHorsDepartements = (db, agencyId, deps) => purgerHorsSecteur(db, agencyId, { deps, sources: [] });
+async function enregistrerLot(db, agencyId, base, bruts, t, existants, evenements, f = { deps: [], sources: [] }) {
+  const lignes = bruts.map((m) => mapperMandat(m, base)).filter((x) => x.id && garde(x, f));
   if (!lignes.length) return { biens: 0, nouveaux: 0, baisses: 0 };
   let nouveaux = 0, baisses = 0;
   const valeurs = lignes.map((x) => {
@@ -311,7 +325,7 @@ export async function syncAmepi(env, db, agency, reglages, options = {}) {
   const stats = { pages: 0, biens: 0, nouveaux: 0, baisses: 0, retirees: 0, total: etat.total || 0, fini: false };
   const existants = new Map((await db.all("SELECT id, prix, statut FROM crm_amepi WHERE agency_id = ?", [agency.id])).map((r) => [r.id, r]));
   const evenements = [];
-  const deps = departementsDe(reglages);
+  const deps = filtreDe(reglages);
   try {
     const session = await connexionAmepi(env);
     const maxPages = options.maxPages || PAGES_PAR_APPEL;
@@ -327,7 +341,7 @@ export async function syncAmepi(env, db, agency, reglages, options = {}) {
     await poserEtat(db, agency.id, { ...etat, debut, page: stats.fini ? 0 : page, total: stats.total, erreur: e.message });
     throw e;
   }
-  if (stats.fini) { stats.retirees = await cloreReleve(db, agency.id, debut, etat.fini_le, evenements); await purgerHorsDepartements(db, agency.id, deps); }
+  if (stats.fini) { stats.retirees = await cloreReleve(db, agency.id, debut, etat.fini_le, evenements); await purgerHorsSecteur(db, agency.id, deps); }
   await journaliser(db, agency.id, evenements, t);
   await poserEtat(db, agency.id, { debut, page: stats.fini ? 0 : page, total: stats.total, fini_le: stats.fini ? t : (etat.fini_le || 0), erreur: "" });
   return stats;
@@ -340,7 +354,7 @@ export async function syncAmepi(env, db, agency, reglages, options = {}) {
 // jamais de mettre à jour l'agent.
 export async function importerAmepi(db, agency, corps, reglages = null) {
   const t = now();
-  const deps = departementsDe(reglages);
+  const deps = filtreDe(reglages);
   const etat = await etatAmepi(db, agency.id);
   const bruts = Array.isArray(corps.mandats) ? corps.mandats.slice(0, 500) : [];
   const ouvre = !!corps.debut || !etat.page;
@@ -352,7 +366,7 @@ export async function importerAmepi(db, agency, corps, reglages = null) {
   const lot = await enregistrerLot(db, agency.id, base, bruts, t, existants, evenements, deps);
   stats.biens = lot.biens; stats.nouveaux = lot.nouveaux; stats.baisses = lot.baisses;
   stats.horsSecteur = bruts.length - lot.biens;
-  if (stats.fini) { stats.retirees = await cloreReleve(db, agency.id, debut, etat.fini_le, evenements); await purgerHorsDepartements(db, agency.id, deps); }
+  if (stats.fini) { stats.retirees = await cloreReleve(db, agency.id, debut, etat.fini_le, evenements); await purgerHorsSecteur(db, agency.id, deps); }
   await journaliser(db, agency.id, evenements, t);
   await poserEtat(db, agency.id, {
     debut, page: stats.fini ? 0 : (ouvre ? 1 : (etat.page || 1)) + (stats.fini ? 0 : 1), total: stats.total,
