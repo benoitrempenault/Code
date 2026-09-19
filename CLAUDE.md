@@ -514,7 +514,9 @@ offres dans l'ordre de création (créée / signée / présentée / réponse, é
 affiché) ; la fiche rappelle « Autres offres sur ce bien » (cliquables).
 **Domaine** : `offre/` est prévu pour être posé sur century21-kadima.fr (site statique
 Render, dépôt `kadima-site`) — `APP_ORIGINS` du Worker inclut déjà ce domaine ;
-`OFFRE_BASE` à basculer alors. Un domaine personnalisé GitHub Pages est EXCLU (il
+`OFFRE_BASE` à basculer alors ; la copie vit dans `kadima-site/src/offre/` (branche
+`offre-achat`, polices du site, sans le wasm HEIC) et se reporte À LA MAIN à chaque
+évolution de `offre/`. Un domaine personnalisé GitHub Pages est EXCLU (il
 exposerait `/pro/`, `/site/`, `/legal/` ABR IMMO sous un domaine Century 21).
 **Récupération des pièces** (fiche de l'offre, conseiller du dossier / admin) : « ⬇ Toutes
 les pièces (zip) » — archive fabriquée dans le navigateur par `assets/js/zip.js`
