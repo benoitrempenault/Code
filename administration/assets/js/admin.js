@@ -993,6 +993,7 @@
     $("amepi-relance").checked = !!am.relance;
     ["1", "2", "3"].forEach((k) => { $("amepi-src-" + k).checked = !am.sources || am.sources.includes(k); });
     $("amepi-communes").value = am.communes || "";
+    $("amepi-departements").value = am.departements ?? "33";
   }
   /* ------------------------------- AMEPI --------------------------------- */
   // Le fichier des mandats des confrères : liste, relevé (par pages, jusqu'au
@@ -1002,6 +1003,7 @@
     return {
       enabled: $("amepi-enabled").checked, relance: $("amepi-relance").checked,
       sources: ["1", "2", "3"].filter((k) => $("amepi-src-" + k).checked), communes: $("amepi-communes").value.trim(),
+      departements: $("amepi-departements").value.trim(),
     };
   }
   async function chargerAmepi() {
@@ -1091,9 +1093,11 @@
   }
   async function sauverReglages(partiel, message) {
     try {
-      reglages = (await api("/crm/reglages", { method: "PUT", json: partiel })).reglages;
+      const r = await api("/crm/reglages", { method: "PUT", json: partiel });
+      reglages = r.reglages;
       remplirFormulaires();
       toast(message || "Réglages enregistrés");
+      return r;
     } catch (e) { toast(e.message, true); }
   }
   function montrerApercu(titre, html) {
@@ -1981,7 +1985,10 @@
     annonces: { autoSync: $("annonces-auto").checked, siteUrl: $("annonces-site").value.trim() },
   }, "Réglages annonces enregistrés"));
   $("btn-annonces-sync").addEventListener("click", releverAnnonces);
-  $("btn-amepi-save").addEventListener("click", () => sauverReglages({ amepi: reglagesAmepiSaisis() }, "Réglages AMEPI enregistrés").then(chargerAmepi));
+  $("btn-amepi-save").addEventListener("click", () => sauverReglages({ amepi: reglagesAmepiSaisis() }, "Réglages AMEPI enregistrés").then((r) => {
+    if (r && r.purges) toast(r.purges + " bien(s) hors des départements gardés retiré(s)");
+    chargerAmepi();
+  }));
   $("btn-amepi-test").addEventListener("click", testerAmepi);
   $("btn-amepi-sync").addEventListener("click", releverAmepi);
   $("btn-amepi-cle").addEventListener("click", cleAgentAmepi);

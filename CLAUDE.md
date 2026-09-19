@@ -415,7 +415,11 @@ fenêtre de clé régénérait la clé et invalidait config.json). À 13 000 bie
 `preparerStock()` (formes normalisées + index par ville) et `candidatsPour()`
 dans rapprochements/runRelances, `MATCHES_MAX` 40 par projet (+ `total`),
 GET /crm/amepi renvoie compteurs + 150 en vente + 50 autres statuts, et le cron
-saute `syncAmepi` quand une clé d'agent a servi depuis 3 jours.
+saute `syncAmepi` quand une clé d'agent a servi depuis 3 jours. Réglage
+`amepi.departements` (« 33 » par défaut) : `departementsDe()`/`dansDepartements()`
+filtrent au dépôt (stats.horsSecteur), `purgerHorsDepartements()` à la clôture
+d'un relevé et à l'enregistrement des réglages (`PUT /crm/reglages` renvoie
+`purges`) — le fichier Amanda couvre toute la France.
 **Maisons dessinées + signets (carte, 15/09)** : `GET /crm/batiments?bbox=minLng,
 minLat,maxLng,maxLat` (membre) relaie le WFS IGN BD TOPO (`BATIMENTS_BASE`,
 CRS:84, COUNT 3000, bbox ≤ 0,02°×0,012°) et renvoie `{batiments:[{id, nature,

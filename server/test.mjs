@@ -3232,6 +3232,23 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      listeA.biens.find((b) => b.id === "504").url === "https://agglomeration-bordelaise.amanda.team/mandate/details/504" && listeA.etat.page === 0 && listeA.agent.last_used > 0,
      "prix à jour, retrait posé, lien vers Amanda, relevé terminé, clé marquée utilisée");
   ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: new Array(501).fill({ id: 1 }) } })).status === 400, "plus de 500 mandats par dépôt : refusé");
+  // Le fichier Amanda couvre toute la France : seuls les départements du
+  // réglage (33 par défaut) entrent en base ; un changement de réglage purge.
+  const depHors = await callR("/crm/amepi/import", { headers: enteteAgent, body: { debut: true, fini: true, total: 2, mandats: [
+    { id: 601, mandateRef: "P-601", agencyName: "Agence Paris", sourceTypeId: 3, assetTypeId: 1, price: 900000, publicTown: "Paris", publicPostalCode: "75011", transactionStateId: 1 },
+    { id: 602, mandateRef: "B-602", agencyName: "Agence Bassin", sourceTypeId: 3, assetTypeId: 2, price: 400000, publicTown: "Arcachon", publicPostalCode: "33120", transactionStateId: 1 },
+  ] } });
+  const listeD = (await callR("/crm/amepi", { headers: auth })).json;
+  ok(depHors.json.stats.biens === 1 && depHors.json.stats.horsSecteur === 1 && listeD.biens.some((b) => b.id === "602") && !listeD.biens.some((b) => b.id === "601"),
+     "un bien hors Gironde est ignoré au dépôt, celui d'Arcachon entre (" + JSON.stringify(depHors.json.stats) + ")");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { departements: "" } } });
+  await callR("/crm/amepi/import", { headers: enteteAgent, body: { debut: true, fini: true, total: 1, mandats: [
+    { id: 601, mandateRef: "P-601", agencyName: "Agence Paris", sourceTypeId: 3, assetTypeId: 1, price: 900000, publicTown: "Paris", publicPostalCode: "75011", transactionStateId: 1 },
+  ] } });
+  ok((await callR("/crm/amepi", { headers: auth })).json.biens.some((b) => b.id === "601"), "sans département configuré, tout entre");
+  const purge = await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { departements: "33, 40" } } });
+  ok(purge.json.purges === 1 && !(await callR("/crm/amepi", { headers: auth })).json.biens.some((b) => b.id === "601"),
+     "revenir à 33 (+40) purge le bien parisien tout de suite (" + purge.json.purges + " purgé)");
   await callR("/crm/amepi/cle", { headers: auth, method: "DELETE" });
   ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: [] } })).status === 401, "une clé révoquée ne dépose plus rien");
 

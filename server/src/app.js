@@ -1003,7 +1003,11 @@ export function createApp(env) {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const b = await c.req.json().catch(() => null);
     if (!b) return err(c, 400, "Corps JSON attendu.");
-    return c.json({ reglages: await CRM.saveReglages(db, ctx.agency, ctx.user.id, b) });
+    const reglages = await CRM.saveReglages(db, ctx.agency, ctx.user.id, b);
+    // Les départements AMEPI changent : les biens hors secteur sortent tout de suite.
+    let purges = 0;
+    if (b.amepi && typeof b.amepi.departements === "string") purges = await AMEPI.purgerHorsDepartements(db, ctx.agency.id, AMEPI.departementsDe(reglages));
+    return c.json({ reglages, purges });
   });
 
   app.get("/crm/anniversaires/upcoming", async (c) => {
@@ -1339,7 +1343,7 @@ export function createApp(env) {
     if (!b || !Array.isArray(b.mandats)) return err(c, 400, "Corps JSON attendu : { mandats: [...], debut?, fini?, total? }.");
     if (b.mandats.length > 500) return err(c, 400, "500 mandats au plus par dépôt.");
     await db.run("UPDATE crm_agent_keys SET last_used = ? WHERE key_hash = ?", [now(), k.key_hash]);
-    return c.json({ ok: true, stats: await AMEPI.importerAmepi(db, agency, b) });
+    return c.json({ ok: true, stats: await AMEPI.importerAmepi(db, agency, b, await CRM.getReglages(db, agency)) });
   });
 
   app.post("/crm/amepi/diagnostic", async (c) => {

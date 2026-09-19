@@ -783,7 +783,7 @@ export function defaultReglages(agency) {
     estimations: { enabled: false, cci: "" },
     // Fichier des mandats AMEPI : relevé nocturne des biens des confrères ;
     // « relance » = les proposer aussi aux acquéreurs (délégation de mandat).
-    amepi: { enabled: false, sources: ["1", "2", "3"], relance: false, communes: "" },
+    amepi: { enabled: false, sources: ["1", "2", "3"], relance: false, communes: "", departements: "33" },
     modeles: {}, // surcharges de la Bibliotheque des messages ({cle: {sujet, texte}})
   };
 }
