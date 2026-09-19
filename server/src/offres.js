@@ -284,7 +284,10 @@ export function nombreEnLettres(n) {
   if (reste) parts.push(moinsDeMille(reste, false));
   return parts.join(" ");
 }
-export const euros = (n) => Number(n || 0).toLocaleString("fr-FR") + " €";
+// toLocaleString("fr-FR") sépare les milliers par une espace fine insécable
+// (U+202F), absente des polices standard du PDF (« 224?917 € ») : on la
+// remplace par l'espace insécable classique (U+00A0), qui y est.
+export const euros = (n) => Number(n || 0).toLocaleString("fr-FR").replace(/[\u202f\u00a0]/g, "\u00a0") + "\u00a0€";
 export const eurosLettres = (n) => `${nombreEnLettres(n)} euros (${euros(n)})`;
 
 /* ------------------------------- Dates ------------------------------------ */
@@ -304,10 +307,14 @@ export const jourParis = (ts = now()) => new Intl.DateTimeFormat("fr-CA", { time
 // L'en-tête légal de l'agence (modèle de l'agence), éditable dans Réglages.
 export function defaultReglagesOffres() {
   return {
-    entete: "En présence et avec le concours de l'Agence CENTURY 21 Kadima, ci-après désignée l'Agence, exploitée par la société 3004 SAS au capital de 10 000 €, dont le siège social est situé 20-22 rue François Mitterrand 33160 SAINT MEDARD EN JALLES, RCS Bordeaux, titulaire de la carte professionnelle Transaction n° CPI 3301 2021 000 000 038 délivrée par la CCI Bordeaux-Gironde, assurée en responsabilité civile professionnelle par CEGC dont le siège est sis 16 rue Hoche 92919 La Défense sur le territoire national sous le n° AL591311/25547, numéro de TVA 3452417148000,\nAdhérente de la caisse de Garantie ALLIANZ IARD dont le siège est sis 1, Cours Michelet 92076 PARIS LA DEFENSE CEDEX sous le n° 41543943 pour un montant de 110 000 €,\nN'ayant aucun lien capitalistique ou juridique avec une banque ou une société financière,",
-    representant: "Benoit REMPENAULT, agissant en sa qualité de responsable, ayant tous pouvoirs à l'effet des présentes",
+    // Vérifié sur les attestations Allianz IARD / Verspieren du 15/12/2025
+    // (garantie financière n° 16833320 et RC pro, police 41319158, effet
+    // 01/01/2026 → 31/12/2026, « NON DÉTENTION DE FONDS »). Capital, n° de
+    // TVA et n° de carte : à confirmer par l'agence (absents des attestations).
+    entete: "En présence et avec le concours de l'Agence CENTURY 21 Kadima, ci-après désignée l'Agence, exploitée par la société KADIMA TB, SAS immatriculée au RCS de Bordeaux sous le n° 894 173 947 (SIRET 894 173 947 00017), dont le siège social est situé 20 rue François Mitterrand 33160 SAINT-MÉDARD-EN-JALLES, titulaire de la carte professionnelle « Transactions sur immeubles et fonds de commerce » n° CPI 3301 2021 000 000 038 délivrée par la CCI de Bordeaux-Gironde,\nAssurée en responsabilité civile professionnelle auprès d'Allianz IARD, 1 cours Michelet, CS 30051, 92076 Paris La Défense Cedex, police n° 41319158,\nTitulaire d'une garantie financière de 110 000 € (cent dix mille euros) délivrée par Allianz IARD, 1 cours Michelet, CS 30051, 92076 Paris La Défense Cedex, sous le n° 16833320,\nL'Agence ne doit recevoir ni détenir d'autres fonds, effets ou valeurs que ceux représentant sa rémunération ou sa commission (garantie « non détention de fonds »),\nN'ayant aucun lien capitalistique ou juridique avec une banque ou une société financière,",
+    representant: "Benoit REMPENAULT, agissant en sa qualité de Président, ayant tous pouvoirs à l'effet des présentes",
     lieu: "Saint-Médard-en-Jalles",
-    rgpdAdresse: "20 rue François Mitterrand 33160 Saint Médard en Jalles",
+    rgpdAdresse: "20 rue François Mitterrand 33160 Saint-Médard-en-Jalles",
     validiteJours: 7,      // proposé par défaut au conseiller
     avantContratJours: 30,
   };
@@ -394,7 +401,8 @@ export function paragraphesOffre(offre, offrants, vendeurs, agence, reg) {
   p("Passé cette date, et à défaut d'acceptation par le PROPRIÉTAIRE, elle deviendra caduque, sans autre formalité, sauf accord contraire de l'OFFRANT.");
   p("L'acceptation de vendre aux conditions de la présente offre devra être actée par la signature de celle-ci par le PROPRIÉTAIRE. Elle sera notifiée à l'OFFRANT au plus tard le dernier jour de validité de l'offre.");
   p(`Un avant-contrat de vente devra ensuite être signé par le PROPRIÉTAIRE et l'OFFRANT au plus tard le ${dateLongue(offre.conditions.avantContrat)}.`);
-  if (offre.conditions.acompte) p(`L'OFFRANT devenu ACQUÉREUR versera la somme de ${eurosLettres(offre.conditions.acompte)} à titre d'acompte dans les conditions définies par cet avant-contrat.`);
+  p("Aucun versement n'est demandé ni reçu de l'OFFRANT au titre de la présente offre (article 1589-1 du Code civil).");
+  if (offre.conditions.acompte) p(`Lors de la signature de l'avant-contrat, l'OFFRANT devenu ACQUÉREUR versera entre les mains du notaire la somme de ${eurosLettres(offre.conditions.acompte)} à titre de dépôt de garantie, dans les conditions définies par cet avant-contrat. L'Agence ne reçoit aucun fonds.`);
   p("L'offre acceptée constitue un accord sur la chose et sur le prix au sens des articles 1583 et 1589 du Code civil. En cas de refus de réitérer la présente :");
   puce("le Propriétaire pourra être contraint de vendre les biens susvisés par tous les moyens et voies de droit, en supportant les frais de poursuites. S'il venait à décéder, ses héritiers et ayants droit seront tenus d'exécuter la présente ;");
   puce("l'Offrant, sous réserve de la levée des éventuelles conditions suspensives applicables ou de l'exercice d'un éventuel droit de rétractation, sera tenu d'acheter. Toutefois, s'il venait à décéder, ses héritiers et ayants droit auront la faculté de se désister sans indemnité.");
