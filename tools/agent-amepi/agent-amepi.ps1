@@ -19,7 +19,9 @@ function Log($m) { $ligne = "{0} {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
 try {
   $cfg = Get-Content (Join-Path $ici "config.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-  $amepi = ($cfg.amepi_base, "https://agglomeration-bordelaise.amepi.info")[[string]::IsNullOrWhiteSpace($cfg.amepi_base)].TrimEnd("/")
+  $amepi = ($cfg.amepi_base, "https://agglomeration-bordelaise.amanda.team")[[string]::IsNullOrWhiteSpace($cfg.amepi_base)].TrimEnd("/")
+  # Ancienne adresse (amepi.info / amepi.fr) dans un config.json d'avant : c'est amanda.team.
+  if ($amepi -match "amepi\.(info|fr)") { $amepi = "https://agglomeration-bordelaise.amanda.team"; Log "Adresse Amanda corrigée : $amepi (mettez amepi_base à jour dans config.json)." }
   $studio = $cfg.studio_api.TrimEnd("/")
   $sources = @("1", "2", "3"); if ($cfg.sources) { $sources = @($cfg.sources | ForEach-Object { "$_" }) }
   $cps = @(); if ($cfg.communes) { $cps = @(($cfg.communes -split "[\s,;]+") | Where-Object { $_ -match "^\d{5}$" }) }

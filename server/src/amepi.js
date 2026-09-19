@@ -9,7 +9,7 @@
 import { now } from "./util.js";
 import { changesOf } from "./db.js";
 
-const BASE_DEFAUT = "https://agglomeration-bordelaise.amepi.info";
+const BASE_DEFAUT = "https://agglomeration-bordelaise.amanda.team";
 // Nomenclatures lues dans le code du site (mandate.dist.js).
 export const AMEPI_TYPES = { 1: "appartement", 2: "maison", 3: "parking", 4: "terrain", 5: "autre", 6: "immeuble", 7: "local", 8: "local", 9: "bureau" };
 export const AMEPI_SOURCES = { 1: "Mon agence", 2: "Mon ALFA", 3: "Mes ALFA voisines" };

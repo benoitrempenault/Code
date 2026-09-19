@@ -1,7 +1,7 @@
 {
   "amepi_email": "prenom.nom@century21.fr",
   "amepi_password": "le mot de passe Amanda",
-  "amepi_base": "https://agglomeration-bordelaise.amepi.info",
+  "amepi_base": "https://agglomeration-bordelaise.amanda.team",
   "studio_api": "https://studio-brochure-api.studiobrochure.workers.dev",
   "studio_cle": "ak_… (Administration → Annonces → AMEPI → Clé de l'agent)",
   "sources": ["1", "2", "3"],

@@ -1,6 +1,6 @@
 # Agent AMEPI — relevé du fichier des mandats depuis l'agence
 
-Amanda (agglomeration-bordelaise.amepi.info) refuse les connexions par mot de passe
+Amanda (agglomeration-bordelaise.amanda.team) refuse les connexions par mot de passe
 qui ne viennent pas du réseau de l'agence. Ce petit programme tourne donc sur un
 poste de l'agence : il se connecte à Amanda comme votre navigateur, lit le fichier
 des mandats et le dépose sur Studio Kadima. Rien à installer : PowerShell est déjà

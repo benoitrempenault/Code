@@ -1564,7 +1564,11 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok(!GRAPHMOD.estOccupe(pris, "2026-10-08T09:00", "2026-10-08T10:00"), "un créneau qui finit au début reste libre");
 
     // Un planning sur trois jours ouvrés à venir, avec la boîte d'agenda.
-    const jours = [10, 11, 12].map((n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10));
+    // Trois jours à J+30…32 : loin des plannings générés par les tests
+    // précédents (qui couvrent les semaines à venir), mais dans l'horizon
+    // public de 45 jours — sinon, certains jours de la semaine, un créneau
+    // d'un autre test tombe sur la même date et fausse le compte.
+    const jours = [30, 31, 32].map((n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10));
     const cfgG = {
       ...cfg,
       conseillers: { "u2@azur-immo.fr": { pv: "medard", boite: "agenda.claire@kadima-test.fr" } },
@@ -3224,7 +3228,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "dernière page : nouveau bien, relevé clos ; le bien sous compromis non revu n'est pas compté « retiré » (" + JSON.stringify(dep2.json.stats) + ")");
   const listeA = (await callR("/crm/amepi", { headers: auth })).json;
   ok(listeA.biens.find((b) => b.id === "501").prix === 320000 && listeA.biens.find((b) => b.id === "503").statut === "compromis" &&
-     listeA.biens.find((b) => b.id === "504").url === "https://agglomeration-bordelaise.amepi.info/mandate/details/504" && listeA.etat.page === 0 && listeA.agent.last_used > 0,
+     listeA.biens.find((b) => b.id === "504").url === "https://agglomeration-bordelaise.amanda.team/mandate/details/504" && listeA.etat.page === 0 && listeA.agent.last_used > 0,
      "prix à jour, retrait posé, lien vers Amanda, relevé terminé, clé marquée utilisée");
   ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: new Array(501).fill({ id: 1 }) } })).status === 400, "plus de 500 mandats par dépôt : refusé");
   await callR("/crm/amepi/cle", { headers: auth, method: "DELETE" });
