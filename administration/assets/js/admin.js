@@ -1788,12 +1788,40 @@
       rendreOffres();
     } catch (e) { $("table-offres").innerHTML = '<div class="vide">' + escH(e.message) + "</div>"; }
   }
+  // Clé d'un bien : adresse + ville, sans casse ni accents ni ponctuation —
+  // deux offres saisies « 12 rue des Lilas » et « 12, Rue des lilas » se
+  // retrouvent ensemble.
+  const cleBien = (b) => ((b.adresse || "") + " " + (b.ville || "")).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const autresOffresSurLeBien = (o) => offres.filter((x) => x.id !== o.id && cleBien(x.bien) === cleBien(o.bien));
+  let offresParBien = false;
   function rendreOffres() {
     const zone = $("table-offres");
     const st = $("offres-filtre").value, q = ($("offres-recherche").value || "").toLowerCase().trim();
     const liste = offres.filter((o) => (!st || o.statut === st) &&
       (!q || (o.numero + " " + nomsOffrants(o) + " " + o.bien.adresse + " " + o.bien.ville + " " + o.conseiller + " " + (o.vendeurs || []).map((v) => v.libelle).join(" ")).toLowerCase().includes(q)));
+    $("btn-offres-par-bien").classList.toggle("btn-or", offresParBien);
     if (!liste.length) { zone.innerHTML = '<div class="vide">' + (offres.length ? "Aucune offre ne correspond." : "Aucune offre pour l'instant. « + Nouvelle offre » part d'un projet d'achat ou d'une personne.") + "</div>"; return; }
+    if (offresParBien) {
+      // Une carte par bien, ses offres dans l'ordre de création : n°, qui,
+      // combien, quand elle a été signée, présentée, répondue.
+      const groupes = new Map();
+      for (const o of liste) { const k = cleBien(o.bien); if (!groupes.has(k)) groupes.set(k, []); groupes.get(k).push(o); }
+      const jalon = (ts) => (ts ? fmtTs(ts) : "—");
+      zone.innerHTML = [...groupes.values()].sort((a, b) => b.length - a.length || b[0].updatedAt - a[0].updatedAt).map((g) => {
+        const b = g[0].bien;
+        const parDate = g.slice().sort((x, y) => x.createdAt - y.createdAt);
+        return '<div class="carte" style="margin-bottom:12px;"><h2 style="font-size:16px;">' + escH(b.adresse) + (b.ville ? " — " + escH(b.ville) : "") +
+          ' <span class="puce' + (g.length > 1 ? " amepi" : " grise") + '">' + g.length + " offre" + (g.length > 1 ? "s" : "") + "</span>" +
+          (b.prixAffiche ? ' <span class="puce grise">affiché ' + fmtPrix(b.prixAffiche) + "</span>" : "") + "</h2>" +
+          '<div class="tableau-cadre"><table><thead><tr><th>Ordre</th><th>N°</th><th>Acquéreur(s)</th><th>Prix</th><th>Créée</th><th>Signée</th><th>Présentée au vendeur</th><th>Réponse</th><th>Statut</th></tr></thead><tbody>' +
+          parDate.map((o, i) => '<tr class="cliquable" data-offre="' + o.id + '"><td>' + (i + 1) + "</td><td>" + escH(o.numero) + "</td><td><strong>" + escH(nomsOffrants(o)) + "</strong></td>" +
+            "<td>" + fmtPrix(o.prix) + (b.prixAffiche && o.prix ? ' <span class="petit">(' + Math.round((o.prix / b.prixAffiche - 1) * 100) + " %)</span>" : "") + "</td>" +
+            "<td>" + jalon(o.createdAt) + "</td><td>" + jalon(o.signeeAt) + "</td><td>" + jalon(o.presenteeAt) + "</td>" +
+            "<td>" + (o.reponseAt ? jalon(o.reponseAt) + (o.reponse && o.reponse.prix ? "<br>contre " + fmtPrix(o.reponse.prix) : "") : "—") + "</td>" +
+            "<td>" + puceStatut(o.statut) + "</td></tr>").join("") + "</tbody></table></div></div>";
+      }).join("");
+      return;
+    }
     zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr><th>N°</th><th>Acquéreur(s)</th><th>Bien</th><th>Prix</th><th>Validité</th><th>Pièces</th><th>Statut</th><th>Conseiller</th></tr></thead><tbody>' +
       liste.map((o) => '<tr class="cliquable" data-offre="' + o.id + '">' +
         "<td>" + escH(o.numero) + "</td><td><strong>" + escH(nomsOffrants(o)) + "</strong></td>" +
@@ -1944,6 +1972,9 @@
       "<div>" + (fin.rempli ? (fin.sansPret ? "<strong>Sans prêt</strong>" + (fin.apport ? " — fonds " + fmtPrix(fin.apport) : "") : "Prêt <strong>" + fmtPrix(fin.pret) + "</strong> sur " + fin.duree + " ans" + (fin.taux ? " à " + fin.taux + " %" : "") + (fin.apport ? "<br>apport " + fmtPrix(fin.apport) : "") + (fin.organisme ? "<br>" + escH(fin.organisme) : "")) : '<span class="petit">financement non renseigné par l\'acquéreur</span>') + "</div></div>" +
       (rep.decision ? '<p style="margin-top:10px;"><strong>Réponse du vendeur :</strong> ' + escH({ accepte: "acceptée", refuse: "refusée", contre: "contre-proposition" }[rep.decision] || rep.decision) + (rep.prix ? " à " + fmtPrix(rep.prix) : "") + (rep.commentaire ? " — « " + escH(rep.commentaire) + " »" : "") + (rep.mode === "manuel" ? ' <span class="puce grise">saisie par ' + escH(rep.par) + "</span>" : "") + "</p>" : "") +
       (d.manques.length && !o.terminee ? '<p class="petit" style="color:var(--err);">À compléter avant l\'envoi : ' + escH(d.manques.join(", ")) + ".</p>" : "") +
+      (autresOffresSurLeBien(o).length ? '<p class="petit" style="margin-top:8px;"><strong>Autres offres sur ce bien :</strong> ' +
+        autresOffresSurLeBien(o).sort((x, y) => x.createdAt - y.createdAt).map((x) => '<span class="puce" data-autre-offre="' + x.id + '" style="cursor:pointer;" title="Ouvrir">' + escH(x.numero) + " · " + escH(nomsOffrants(x)) + " · " + fmtPrix(x.prix) + " · " + escH((OFFRE_STATUTS[x.statut] || [x.statut])[0]) + "</span>").join(" ") +
+        " — toutes les offres reçues doivent être transmises au vendeur.</p>" : "") +
       '<h3 style="margin:14px 0 4px; font-size:15px;">Offrant' + (offrants.length > 1 ? "s" : "") + "</h3>" + offrants.map(ligneSig).join("") +
       '<h3 style="margin:14px 0 4px; font-size:15px;">Vendeur' + (vendeurs.length > 1 ? "s" : "") + "</h3>" + (vendeurs.length ? vendeurs.map(ligneSig).join("") : '<p class="petit">Aucun vendeur désigné — « Modifier » pour les ajouter (nom + e-mail).</p>') +
       '<h3 style="margin:14px 0 4px; font-size:15px;">Pièces ' + (requises.length ? fournies.length + "/" + requises.length : "") + (o.purgee ? ' <span class="puce grise">purgées</span>' : "") + "</h3>" +
@@ -2023,6 +2054,8 @@
     }
     let pieceAjout = null;
     corps.addEventListener("click", async (e) => {
+      const autre = e.target.closest("[data-autre-offre]");
+      if (autre) { ouvrirOffre(autre.dataset.autreOffre); return; }
       const t = e.target.closest("[data-lien],[data-doc-dl],[data-doc-sup],[data-doc-ajout]");
       if (!t) return;
       try {
@@ -2332,6 +2365,7 @@
   $("btn-amepi-cle").addEventListener("click", cleAgentAmepi);
   $("btn-nouvelle-offre").addEventListener("click", () => ouvrirOffreForm(null, null));
   $("offres-filtre").addEventListener("change", rendreOffres);
+  $("btn-offres-par-bien").addEventListener("click", () => { offresParBien = !offresParBien; rendreOffres(); });
   $("offres-recherche").addEventListener("input", rendreOffres);
   $("table-offres").addEventListener("click", (e) => {
     const tr = e.target.closest("tr[data-offre]");

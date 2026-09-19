@@ -13,9 +13,11 @@
 import * as O from "./offres.js";
 import { envoyerMailHtml, envoyerSmsBrevo, wrapEmail, texteEnParagraphes, mobileFrance, smsExpediteur, getReglages } from "./crm.js";
 import { now, randId, randToken, sha256hex, safeEqual } from "./util.js";
+import { rappelsOffres } from "./offres-cron.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
+const texteHtml = texteEnParagraphes;
 
 export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAgencyAdmin, filesReady, DOSSIERS_MAX }) {
   const ipDe = (c) => c.req.header("CF-Connecting-IP") || String(c.req.header("x-forwarded-for") || "").split(",")[0].trim() || "";
@@ -384,6 +386,23 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
     await majOffre(o.id, { statut, reponse: JSON.stringify({ decision, ...rep }), reponse_at: now(), purge_at: now() + O.PURGE_JOURS * 86400 });
     await O.journal(db, agency.id, o.id, statut, (rep.mode === "manuel" ? "Réponse enregistrée par l'agence" : "Réponse du vendeur") + (rep.prix ? " — contre-proposition " + O.euros(rep.prix) : "") + (rep.commentaire ? " — " + rep.commentaire : ""), rep.par || "vendeur", ip);
     const { ag } = await reglagesDe(agency);
+    // L'acquéreur l'apprend par e-mail (nouveau lien : l'ancien est haché,
+    // on ne sait pas le réécrire), pas seulement en rouvrant sa page.
+    const offrants = (await signatairesDe(o.id)).filter((s) => s.role === "offrant" && s.email);
+    const bien = [o.bien.adresse, o.bien.ville].filter(Boolean).join(", ");
+    const texteA = statut === "acceptee"
+      ? `Bonne nouvelle : le propriétaire a accepté votre offre d'achat pour le bien situé ${bien}, au prix de ${O.euros(o.prix)}. La vente est formée sur la chose et sur le prix ; votre conseiller ${o.conseiller || ""} organise maintenant l'avant-contrat avec les notaires et vous rappelle très vite.`
+      : statut === "refusee"
+        ? `Le propriétaire n'a pas accepté votre offre d'achat pour le bien situé ${bien} (${O.euros(o.prix)}). Votre conseiller ${o.conseiller || ""} vous rappelle pour en parler et envisager la suite.`
+        : `Le propriétaire a répondu à votre offre d'achat pour le bien situé ${bien} par une contre-proposition${rep.prix ? " à " + O.euros(rep.prix) : ""}${rep.commentaire ? " : « " + rep.commentaire + " »" : ""}. Votre offre à ${O.euros(o.prix)} est donc close ; votre conseiller ${o.conseiller || ""} vous rappelle pour en discuter.`;
+    for (const s of offrants) {
+      const lien = await nouveauLien(s);
+      await mail(agency, ag, s.email, `Réponse du propriétaire — ${bien}`, statut === "acceptee" ? "Votre offre est acceptée" : statut === "refusee" ? "Votre offre n'a pas été retenue" : "Le propriétaire fait une contre-proposition",
+        texteHtml(`Bonjour ${s.prenom || ""},
+
+${texteA}`) + bouton(lien, "Voir l'offre et son certificat"),
+        o.conseiller ? `${o.conseiller}, votre conseiller` : "").catch(() => { });
+    }
     await prevenirConseiller(agency, ag, o, `Offre ${o.numero} : ${O.STATUTS_LIBELLES[statut]}`,
       `L'offre ${o.numero} (${[o.bien.adresse, o.bien.ville].filter(Boolean).join(", ")}, ${O.euros(o.prix)}) est ${O.STATUTS_LIBELLES[statut].toLowerCase()}.${rep.prix ? " Contre-proposition : " + O.euros(rep.prix) + "." : ""}${rep.commentaire ? "\n\n« " + rep.commentaire + " »" : ""}\n\nRetrouvez-la dans Studio Administration, onglet Offres.`);
   }
@@ -511,6 +530,12 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
       await O.journal(db, ctx.agency.id, o.id, "piece-supprimee", d.nom, ctx.user.name || ctx.user.email, ipDe(c));
     }
     return c.json({ ok: true });
+  });
+
+  // Rappels du matin lancés à la main (admin) : relances J+2, alertes d'expiration.
+  app.post("/crm/offres/rappels", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json(await rappelsOffres(env, db));
   });
 
   /* ============================== PUBLIC ================================ */

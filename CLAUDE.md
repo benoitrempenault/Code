@@ -501,6 +501,21 @@ fiche = offrants/vendeurs/pièces/journal + boutons selon statut, « 📝 Faire 
 dans la modale projet), réglages `reglages.offres` (en-tête légal, représentant, lieu,
 adresse RGPD, délais par défaut — ids `ofr-*`, distincts du formulaire `of-*`).
 `OFFRE_BASE` (wrangler.toml, liste blanche worker.js) = base des liens magiques.
+**Notifications** (`server/src/offres-cron.js`, module à part pour éviter le cycle crm.js ↔
+offres.js ; `rappelsOffres(env, db)` enchaîné dans worker.js après runCrmDaily, lançable
+par `POST /crm/offres/rappels` admin) : relance de l'acquéreur non signé 2 j après le
+dernier `lien-envoye` (nouveau lien, ≤ 2 relances espacées de 3 j, événement `relance`),
+alerte au conseiller du dossier (sinon boîte de l'agence) la veille de l'expiration
+(événement `alerte-expiration`, une fois). À la réponse du vendeur (`conclure`, routes),
+chaque offrant reçoit un e-mail avec un NOUVEAU lien — l'ancien jeton meurt (haché).
+**Vue par bien** (onglet Offres, bouton « 🏠 Par bien ») : regroupement client par
+`cleBien` (adresse + ville sans casse/accents/ponctuation), une carte par bien avec les
+offres dans l'ordre de création (créée / signée / présentée / réponse, écart au prix
+affiché) ; la fiche rappelle « Autres offres sur ce bien » (cliquables).
+**Domaine** : `offre/` est prévu pour être posé sur century21-kadima.fr (site statique
+Render, dépôt `kadima-site`) — `APP_ORIGINS` du Worker inclut déjà ce domaine ;
+`OFFRE_BASE` à basculer alors. Un domaine personnalisé GitHub Pages est EXCLU (il
+exposerait `/pro/`, `/site/`, `/legal/` ABR IMMO sous un domaine Century 21).
 **Récupération des pièces** (fiche de l'offre, conseiller du dossier / admin) : « ⬇ Toutes
 les pièces (zip) » — archive fabriquée dans le navigateur par `assets/js/zip.js`
 (`window.StudioZip.creer`, méthode store, noms UTF-8, sans dépendance) = pièces nommées

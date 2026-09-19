@@ -3522,9 +3522,57 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(avantPurge === 3 && menage3.offresPurgees.documents === 3 && apresPurge.documents.length === 0 && apresPurge.offre.purgee && !filesMem.has(O_TEST.cleDocument(agOf, ofId, docId)),
     "purge : 3 pièces effacées du stockage et de la base, offre marquée purgée");
   ok(filesMem.has(O_TEST.clePdf(agOf, ofId)) && (await callRaw("/crm/offres/" + ofId + "/pdf", { method: "GET", headers: authPaul })).status === 200, "le PDF signé survit à la purge");
-  ok((await callRaw("/public/offre/documents?type=identite&nom=x.png", { headers: hE, body: PNG })).status === 409, "plus de dépôt sur une offre terminée");
+  // À la réponse du vendeur, l'acquéreur a reçu un NOUVEAU lien (l'ancien est
+  // remplacé) : l'ancien jeton ne passe plus (401), et de toute façon une
+  // offre terminée refuse tout dépôt (409).
+  const depFin = (await callRaw("/public/offre/documents?type=identite&nom=x.png", { headers: hE, body: PNG })).status;
+  ok(depFin === 401 || depFin === 409, "plus de dépôt sur une offre terminée (" + depFin + ")");
   ok(O_TEST.nombreEnLettres(224917) === "deux cent vingt-quatre mille neuf cent dix-sept" && O_TEST.nombreEnLettres(80000) === "quatre-vingt mille" && O_TEST.nombreEnLettres(1000000) === "un million",
     "les prix s'écrivent en lettres correctement");
+
+  console.log("— Offres d'achat : notifications (réponse à l'acquéreur, relance J+2, alerte d'expiration)");
+  const mailsOffre = [];
+  const fauxResendO = (await import("node:http")).createServer(async (req, res) => {
+    const chunks = []; for await (const c of req) chunks.push(c);
+    mailsOffre.push(JSON.parse(Buffer.concat(chunks).toString()));
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ id: "email_test" }));
+  });
+  await new Promise((r) => fauxResendO.listen(18800, r));
+  const envO = { db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
+    RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18800", MAIL_FROM: "Studio Brochure <connexion@studiobrochure.fr>", OFFRE_BASE: "https://exemple.test/offre" };
+  const appO = createApp(envO);
+  const callO = async (path, opts = {}) => {
+    const res = await appO.fetch(new Request("http://api.test" + path, { method: opts.method || (opts.body ? "POST" : "GET"), headers: { "Content-Type": "application/json", ...(opts.headers || {}) }, body: opts.body ? JSON.stringify(opts.body) : undefined }));
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+  const { rappelsOffres } = await import("./src/offres-cron.js");
+  // (a) Réponse du vendeur saisie par l'agence → l'acquéreur est prévenu, avec un nouveau lien.
+  const nb4 = (await callO("/crm/offres", { headers: authPaul, body: { projetId: acc.offre.projetId, bien: { adresse: "1 rue du Test", ville: "Mérignac", description: "T3" }, prix: 180000, conditions: { validite: dans(6), avantContrat: dans(40) } } })).json;
+  await db.run("UPDATE crm_offres SET statut = 'signee' WHERE id = ?", [nb4.id]);
+  mailsOffre.length = 0;
+  ok((await callO("/crm/offres/" + nb4.id + "/reponse", { headers: authPaul, body: { decision: "contre", prix: 190000, commentaire: "Pas en dessous" } })).status === 200, "contre-proposition enregistrée");
+  const auxAcquereurs = mailsOffre.filter((m) => ["eleonore@exemple.fr", "jean@exemple.fr"].includes(m.to[0]));
+  ok(auxAcquereurs.length === 2 && auxAcquereurs.every((m) => /contre-proposition/i.test(m.html) && /190[\s\u202f]?000/.test(m.html) && m.html.includes("https://exemple.test/offre/#t=")),
+    "les deux acquéreurs reçoivent la réponse du vendeur (contre-proposition à 190 000 €, nouveau lien)");
+  ok(mailsOffre.some((m) => m.to[0] === "paul@offre-test.fr" && /Contre-proposition/.test(m.subject)), "…et le conseiller aussi");
+  // (b) Relance J+2 : offre envoyée, lien parti il y a 3 jours, personne n'a signé.
+  const nb5 = (await callO("/crm/offres", { headers: authPaul, body: { contactIds: [ctE.id, ctJ.id], bien: { adresse: "2 rue du Test", ville: "Mérignac", description: "T4" }, prix: 210000, conditions: { validite: dans(1), avantContrat: dans(40) } } })).json;
+  await callO("/crm/offres/" + nb5.id + "/envoyer", { headers: authPaul, body: {} });
+  mailsOffre.length = 0;
+  const rap0 = await rappelsOffres(envO, db);
+  ok(rap0.relances === 0, "à J+0 : pas de relance");
+  await db.run("UPDATE crm_offre_events SET created_at = created_at - 3 * 86400 WHERE offre_id = ? AND type = 'lien-envoye'", [nb5.id]);
+  let rap = await rappelsOffres(envO, db);
+  const relances = mailsOffre.filter((m) => /vous attend/.test(m.subject));
+  ok(rap.relances === 2 && relances.length === 2 && relances.every((m) => m.html.includes("https://exemple.test/offre/#t=")), "à J+3 : les deux acquéreurs non signés sont relancés, avec un nouveau lien");
+  // (c) Alerte d'expiration : validité = demain → le conseiller est prévenu, une seule fois.
+  const alertes = mailsOffre.filter((m) => /expire demain/.test(m.subject));
+  ok(rap0.alertes === 1 && rap.alertes === 0 && alertes.length === 1 && alertes[0].to[0] === "paul@offre-test.fr" && /OA-\d{4}-0005/.test(alertes[0].subject), "la veille de l'expiration, le conseiller du dossier est alerté");
+  mailsOffre.length = 0;
+  rap = await rappelsOffres(envO, db);
+  ok(rap.relances === 0 && rap.alertes === 0 && mailsOffre.length === 0, "second passage le même jour : ni relance ni alerte en double");
+  ok((await callO("/crm/offres/rappels", { headers: authLea, body: {} })).status === 403 && (await callO("/crm/offres/rappels", { headers: authA, body: {} })).status === 200, "les rappels se lancent à la main (admin seulement)");
+  fauxResendO.close();
 }
 
 fake.close();

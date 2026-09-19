@@ -159,6 +159,24 @@ export default async function () {
       "toutes les pièces partent en une archive ZIP valide (2 CNI + PDF signé, " + archive.length + " octets)");
     await page.click("#btn-of-dossier");
     await attendreToast(page, "Dossier Suivi créé");
+    // Une seconde offre sur le même bien (autre acquéreur) : la vue par bien les aligne.
+    await api("/crm/contacts/bulk", { headers: admin.auth, body: { rows: [{ civilite: "M.", prenom: "Luc", nom: "BERNARD", email: "luc@smoke.fr", types: "acquereur" }] } });
+    const luc = (await api("/crm/contacts", { headers: admin.auth })).json.contacts.find((c) => c.nom === "BERNARD");
+    await api("/crm/offres", { headers: admin.auth, body: { contactIds: [luc.id], bien: { adresse: "12, Rue des Lilas", cp: "33160", ville: "Saint-Médard-en-Jalles", description: "Maison T4" }, prix: 215000, conditions: { validite: "2030-01-01", avantContrat: "2030-02-01" } } });
+    await ouvrir(page, "/administration/", admin);
+    await page.waitForSelector("#app:not([hidden])", { timeout: 8000 });
+    await page.click('[data-onglet="offres"]');
+    await page.waitForFunction(() => document.querySelectorAll("tr[data-offre]").length === 2, null, { timeout: 6000 });
+    await page.click("#btn-offres-par-bien");
+    await page.waitForFunction(() => document.querySelectorAll("#table-offres .carte").length === 1, null, { timeout: 6000 });
+    const carte = await page.textContent("#table-offres .carte");
+    ok(/2 offres/.test(carte) && /BERNARD/.test(carte) && /MÜLLER/.test(carte) && carte.indexOf("MÜLLER") < carte.indexOf("BERNARD"), "vue par bien : les deux offres du 12 rue des Lilas, dans l'ordre de réception");
+    await page.screenshot({ path: captures + "offre-par-bien.png", fullPage: true });
+    await page.click("#btn-offres-par-bien");
+    await page.click("tr[data-offre] >> nth=0");
+    await page.waitForSelector("[data-autre-offre]", { timeout: 6000 });
+    ok((await page.textContent("#modale-corps")).includes("Autres offres sur ce bien"), "la fiche d'une offre rappelle les autres offres sur le même bien");
+    await page.click("#modale-fermer");
     const dossiers = (await api("/dossiers", { headers: admin.auth })).json.dossiers || [];
     ok(dossiers.length === 1 && /MARTIN/.test(dossiers[0].name), "le dossier Suivi existe : " + (dossiers[0] || {}).name);
   });

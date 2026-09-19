@@ -7,6 +7,7 @@ import { createApp } from "./src/app.js";
 import { runRecap } from "./src/recap.js";
 import { releverAbsencesOutlook } from "./src/releve.js";
 import { runCrmDaily, menageQuotidien } from "./src/crm.js";
+import { rappelsOffres } from "./src/offres-cron.js";
 
 export default {
   // Cron (wrangler.toml [triggers]) : récapitulatif des actions à mener
@@ -19,7 +20,7 @@ export default {
     // d'anniversaire, agence par agence. Inerte tant que l'agence n'a rien
     // activé dans ses réglages Administration.
     // Le ménage (corbeille > 30 j, sessions mortes, liens périmés) passe avant.
-    if (event.cron === "0 6 * * *") { ctx.waitUntil(menageQuotidien(db, env.FILES || null).then(() => runCrmDaily(env, db))); return; }
+    if (event.cron === "0 6 * * *") { ctx.waitUntil(menageQuotidien(db, env.FILES || null).then(() => runCrmDaily(env, db)).then(() => rappelsOffres(env, db))); return; }
     // Relevé nocturne des absences Outlook (permanences). Inerte tant que
     // l'agence n'a pas coché « relever automatiquement » dans ses réglages.
     ctx.waitUntil(releverAbsencesOutlook(env, db));
