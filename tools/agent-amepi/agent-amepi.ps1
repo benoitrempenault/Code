@@ -26,6 +26,18 @@ try {
   $sources = @("1", "2", "3"); if ($cfg.sources) { $sources = @($cfg.sources | ForEach-Object { "$_" }) }
   $cps = @(); if ($cfg.communes) { $cps = @(($cfg.communes -split "[\s,;]+") | Where-Object { $_ -match "^\d{5}$" }) }
   $parPage = 100
+  # Les consignes viennent de l'Administration de Studio (sources, communes) :
+  # config.json ne sert qu'aux identifiants et à la clé.
+  try {
+    $cons = Invoke-WebRequest -Uri "$studio/crm/amepi/consignes" -Headers @{ "X-Agent-Key" = "$($cfg.studio_cle)".Trim() } -UseBasicParsing
+    $cj = [Text.Encoding]::UTF8.GetString($cons.RawContentStream.ToArray()) | ConvertFrom-Json
+    if ($cj.sources) { $sources = @($cj.sources | ForEach-Object { "$_" }) }
+    if ($cj.communes) { $cps = @($cj.communes | ForEach-Object { "$_" }) }
+    Log "Consignes Studio : sources $($sources -join ',')$(if ($cps.Count) { ', communes ' + ($cps -join ',') } else { '' })."
+  } catch {
+    if ($_.Exception.Message -match "401") { throw "Studio refuse la clé de l'agent (401) : elle a été remplacée ou révoquée. Dans l'Administration, « Nouvelle clé de l'agent », puis collez-la dans config.json (studio_cle)." }
+    Log "Consignes Studio indisponibles ($($_.Exception.Message)) : sources de config.json."
+  }
 
   # 1) Connexion à Amanda, comme le navigateur : page de connexion (jeton +
   #    cookies), puis formulaire (agence 0, comme la page le fait).

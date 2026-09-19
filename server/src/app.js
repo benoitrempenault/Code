@@ -1331,14 +1331,26 @@ export function createApp(env) {
     const r = await db.run("UPDATE crm_agent_keys SET revoked = 1 WHERE agency_id = ? AND usage = 'amepi' AND revoked = 0", [ctx.agency.id]);
     return c.json({ ok: true, revoquees: changesOf(r) });
   });
+  // L'agent lit ses consignes ici (sources, départements, communes) : les
+  // réglages de l'Administration pilotent le relevé, pas config.json.
+  const agentAmepi = async (c) => {
+    const cle = String(c.req.header("X-Agent-Key") || "").trim();
+    if (!cle) return { resp: err(c, 401, "Clé d'agent absente (en-tête X-Agent-Key).") };
+    const k = await db.get("SELECT * FROM crm_agent_keys WHERE key_hash = ? AND usage = 'amepi' AND revoked = 0", [await sha256hex(cle)]);
+    if (!k) return { resp: err(c, 401, "Clé d'agent inconnue ou révoquée — générez-en une nouvelle dans l'Administration.") };
+    const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [k.agency_id]);
+    if (!agency || !agencyOpen(agency)) return { resp: err(c, 402, "Abonnement inactif.") };
+    return { k, agency };
+  };
+  app.get("/crm/amepi/consignes", async (c) => {
+    const { k, agency, resp } = await agentAmepi(c); if (!k) return resp;
+    const reglages = await CRM.getReglages(db, agency);
+    const f = AMEPI.filtreDe(reglages);
+    return c.json({ sources: f.sources.length ? f.sources : ["1", "2", "3"], departements: f.deps, communes: AMEPI.communesDe(reglages) });
+  });
   // Dépôt d'une page brute du fichier AMEPI par l'agent (clé dédiée).
   app.post("/crm/amepi/import", async (c) => {
-    const cle = String(c.req.header("X-Agent-Key") || "").trim();
-    if (!cle) return err(c, 401, "Clé d'agent absente (en-tête X-Agent-Key).");
-    const k = await db.get("SELECT * FROM crm_agent_keys WHERE key_hash = ? AND usage = 'amepi' AND revoked = 0", [await sha256hex(cle)]);
-    if (!k) return err(c, 401, "Clé d'agent inconnue ou révoquée — générez-en une nouvelle dans l'Administration.");
-    const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [k.agency_id]);
-    if (!agency || !agencyOpen(agency)) return err(c, 402, "Abonnement inactif.");
+    const { k, agency, resp } = await agentAmepi(c); if (!k) return resp;
     const b = await c.req.json().catch(() => null);
     if (!b || !Array.isArray(b.mandats)) return err(c, 400, "Corps JSON attendu : { mandats: [...], debut?, fini?, total? }.");
     if (b.mandats.length > 500) return err(c, 400, "500 mandats au plus par dépôt.");
@@ -2156,9 +2168,19 @@ export function createApp(env) {
     const projetId = c.req.param("id");
     const projet = (await CRM.listProjets(db, ctx.agency)).find((p) => p.id === projetId);
     if (!projet) return err(c, 404, "Projet introuvable.");
-    const annonces = await db.all(
-      `SELECT * FROM crm_annonces WHERE agency_id = ? AND id IN (${ids.map(sqlQ).join(",")})`,
-      [ctx.agency.id]);
+    // Nos biens (stock du site) et ceux de l'ALFA (« amepi:<id> ») : le
+    // conseiller choisit explicitement, le mail signale le partenariat.
+    const idsSite = ids.filter((x) => !x.startsWith("amepi:"));
+    const idsAmepi = ids.filter((x) => x.startsWith("amepi:")).map((x) => x.slice(6));
+    const annonces = idsSite.length ? await db.all(
+      `SELECT * FROM crm_annonces WHERE agency_id = ? AND id IN (${idsSite.map(sqlQ).join(",")})`,
+      [ctx.agency.id]) : [];
+    if (idsAmepi.length) {
+      const confreres = await db.all(
+        `SELECT * FROM crm_amepi WHERE agency_id = ? AND statut = 'en_vente' AND id IN (${idsAmepi.map(sqlQ).join(",")})`,
+        [ctx.agency.id]);
+      annonces.push(...confreres.map(AMEPI.commeAnnonce));
+    }
     if (!annonces.length) return err(c, 404, "Aucun de ces biens n'est dans le stock.");
     const reglages = await CRM.getReglages(db, ctx.agency);
     const lot = annonces.map((a) => ({ annonce: a, kind: "decouverte" }));

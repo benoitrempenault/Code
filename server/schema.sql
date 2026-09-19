@@ -750,3 +750,10 @@ CREATE TABLE IF NOT EXISTS crm_agent_keys (
   revoked    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_crm_agent_keys_ag ON crm_agent_keys(agency_id, usage, revoked);
+
+-- Compteurs AMEPI hors curseur (biens ignorés au dépôt car hors ALFA/département).
+CREATE TABLE IF NOT EXISTS crm_amepi_compteurs (
+  agency_id    TEXT PRIMARY KEY REFERENCES agencies(id),
+  hors_secteur INTEGER NOT NULL DEFAULT 0,
+  updated_at   INTEGER NOT NULL
+);

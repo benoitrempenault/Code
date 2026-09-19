@@ -202,8 +202,11 @@ export async function listerAmepi(db, agencyId, statut = "en_vente") {
     statut ? [agencyId, statut] : [agencyId]);
 }
 export async function etatAmepi(db, agencyId) {
-  return (await db.get("SELECT * FROM crm_amepi_etat WHERE agency_id = ?", [agencyId])) ||
+  const e = (await db.get("SELECT * FROM crm_amepi_etat WHERE agency_id = ?", [agencyId])) ||
     { agency_id: agencyId, debut: 0, page: 0, total: 0, fini_le: 0, erreur: "", updated_at: 0 };
+  const c = await db.get("SELECT hors_secteur FROM crm_amepi_compteurs WHERE agency_id = ?", [agencyId]);
+  e.hors_secteur = c ? c.hors_secteur : 0;
+  return e;
 }
 async function poserEtat(db, agencyId, e) {
   await db.run(
@@ -211,6 +214,11 @@ async function poserEtat(db, agencyId, e) {
      ON CONFLICT(agency_id) DO UPDATE SET debut = excluded.debut, page = excluded.page, total = excluded.total,
        fini_le = excluded.fini_le, erreur = excluded.erreur, updated_at = excluded.updated_at`,
     [agencyId, e.debut | 0, e.page | 0, e.total | 0, e.fini_le | 0, String(e.erreur || "").slice(0, 300), now()]);
+  // Compteur « hors secteur » dans sa propre table (schema.sql : jamais d'ALTER).
+  if (e.hors_secteur != null) await db.run(
+    `INSERT INTO crm_amepi_compteurs (agency_id, hors_secteur, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(agency_id) DO UPDATE SET hors_secteur = excluded.hors_secteur, updated_at = excluded.updated_at`,
+    [agencyId, e.hors_secteur | 0, now()]);
 }
 
 // Diagnostic (bouton « Tester la connexion ») : connexion + première page,
@@ -371,6 +379,7 @@ export async function importerAmepi(db, agency, corps, reglages = null) {
   await poserEtat(db, agency.id, {
     debut, page: stats.fini ? 0 : (ouvre ? 1 : (etat.page || 1)) + (stats.fini ? 0 : 1), total: stats.total,
     fini_le: stats.fini ? t : (etat.fini_le || 0), erreur: String(corps.erreur || "").slice(0, 300),
+    hors_secteur: (ouvre ? 0 : (etat.hors_secteur || 0)) + stats.horsSecteur,
   });
   return stats;
 }

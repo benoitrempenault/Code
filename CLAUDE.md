@@ -421,8 +421,15 @@ filtrent au dépôt (stats.horsSecteur), `purgerHorsDepartements()` à la clôtu
 d'un relevé et à l'enregistrement des réglages (`PUT /crm/reglages` renvoie
 `purges`) — le fichier Amanda couvre toute la France. Même mécanique pour les
 sources cochées (`sourcesDe()`, `filtreDe()`, `purgerHorsSecteur()`) : Benoît ne
-garde que « mon ALFA » (source 2) ; l'agent relève ce que dit son config.json,
-le serveur ne garde que ce qui est coché.
+garde que « mon ALFA » (source 2). Carte AMEPI SIMPLIFIÉE (19/09) : deux cases
+(utiliser dans les rapprochements, proposer aux acquéreurs), Enregistrer, 📦 agent,
+🔑 nouvelle clé — sources ["2"] et département 33 fixés par l'UI, plus de Tester /
+Relever serveur. L'agent lit ses consignes sur `GET /crm/amepi/consignes` (clé)
+au lieu de config.json (`agentAmepi(c)` factorise le contrôle de clé). Compteur
+`crm_amepi_compteurs.hors_secteur` (biens ignorés au dépôt). Relance directe
+`POST /crm/projets/:id/relancer` accepte les ids « amepi:<id> » (commeAnnonce) ;
+la fiche d'un projet d'achat liste le rapprochement (nos biens + ALFA, lien 🔗,
+puce 🤝) à cocher, et le reste du stock replié.
 **Maisons dessinées + signets (carte, 15/09)** : `GET /crm/batiments?bbox=minLng,
 minLat,maxLng,maxLat` (membre) relaie le WFS IGN BD TOPO (`BATIMENTS_BASE`,
 CRS:84, COUNT 3000, bbox ≤ 0,02°×0,012°) et renvoie `{batiments:[{id, nature,

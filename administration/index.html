@@ -220,30 +220,17 @@
     </div>
     <div class="carte">
       <h2>Fichier des mandats AMEPI (confrères)</h2>
-      <p class="aide">Le serveur se connecte à Amanda chaque nuit avec le compte de l'agence (identifiants posés en
-        secrets sur le serveur, jamais ici) et relève les biens à la vente du fichier partagé. Ils sont
-        <strong>signalés</strong> dans le rapprochement acquéreurs avec le nom de l'agence détentrice ; ils ne sont
-        <strong>proposés aux clients</strong> par les relances que si vous cochez « proposer » (délégation de mandat).</p>
+      <p class="aide">Les mandats de <strong>votre ALFA</strong> en Gironde, relevés par l'agent installé sur un poste
+        de l'agence à chaque ouverture de session Windows. Ils sont <strong>signalés</strong> dans le rapprochement
+        acquéreurs avec le nom de l'agence détentrice (puce 🤝) ; ils ne sont <strong>proposés aux clients</strong>
+        par les relances que si vous cochez « proposer » (délégation de mandat).</p>
       <div class="barre">
-        <label class="case"><input type="checkbox" id="amepi-enabled" /> <strong>Relever le fichier AMEPI chaque nuit</strong></label>
-        <label class="case"><input type="checkbox" id="amepi-src-1" checked /> Mon agence</label>
-        <label class="case"><input type="checkbox" id="amepi-src-2" checked /> Mon ALFA</label>
-        <label class="case"><input type="checkbox" id="amepi-src-3" checked /> ALFA voisines</label>
-      </div>
-      <div class="barre">
+        <label class="case"><input type="checkbox" id="amepi-enabled" /> <strong>Utiliser les biens AMEPI dans les rapprochements</strong></label>
         <label class="case"><input type="checkbox" id="amepi-relance" /> Proposer aussi ces biens aux acquéreurs (relances)</label>
-        <input id="amepi-departements" placeholder="Départements gardés : 33" title="Seuls les biens de ces départements entrent en base (le fichier Amanda couvre toute la France)" style="width:170px;" />
-        <input id="amepi-communes" placeholder="Codes postaux (optionnel) : 33160, 33185…" style="min-width:260px;" />
         <button class="btn btn-or" id="btn-amepi-save">Enregistrer</button>
-        <button class="btn" id="btn-amepi-test">🔌 Tester la connexion</button>
-        <button class="btn" id="btn-amepi-sync">🔄 Relever maintenant</button>
         <a class="btn" href="agent-amepi.zip" download title="Les scripts à installer sur un PC de l'agence (LISEZMOI.md inclus)">📦 Télécharger l'agent</a>
-        <button class="btn" id="btn-amepi-cle" title="L'agent qui tourne sur un poste de l'agence dépose le fichier avec cette clé — en générer une nouvelle invalide la précédente">🔑 Nouvelle clé de l'agent</button>
+        <button class="btn" id="btn-amepi-cle" title="L'agent dépose le fichier avec cette clé — en générer une nouvelle invalide la précédente">🔑 Nouvelle clé de l'agent</button>
       </div>
-      <p class="petit">Amanda n'accepte les connexions que depuis le réseau de l'agence : le relevé est fait par
-        l'<strong>agent</strong> installé sur un poste de l'agence (dossier tools/agent-amepi du dépôt, mode d'emploi
-        LISEZMOI.md), qui dépose le fichier ici avec sa clé. « Tester la connexion » et « Relever maintenant »
-        ne servent que si Amanda accepte un jour le serveur.</p>
       <p class="petit" id="amepi-etat">Chargement…</p>
       <div id="table-amepi"></div>
     </div>

@@ -3,7 +3,5 @@
   "amepi_password": "le mot de passe Amanda",
   "amepi_base": "https://agglomeration-bordelaise.amanda.team",
   "studio_api": "https://studio-brochure-api.studiobrochure.workers.dev",
-  "studio_cle": "ak_… (Administration → Annonces → AMEPI → Clé de l'agent)",
-  "sources": ["1", "2", "3"],
-  "communes": ""
+  "studio_cle": "ak_… (Administration → Annonces → AMEPI → Nouvelle clé de l'agent)"
 }

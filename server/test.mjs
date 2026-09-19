@@ -3151,6 +3151,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
 
   /* ---- AMEPI : fichier des mandats des confrères ------------------------- */
   console.log("— AMEPI : connexion, relevé du fichier des mandats, rapprochement");
+  // Le réglage par défaut ne garde que « mon ALFA » (2) ; ce bloc teste les trois sources.
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { sources: ["1", "2", "3"] } } });
   ok((await callR("/crm/amepi/diagnostic", { headers: authP, body: {} })).status === 403, "le connecteur AMEPI est réservé aux administrateurs");
   const diagAm = await callR("/crm/amepi/diagnostic", { headers: auth, body: {} });
   ok(diagAm.status === 200 && diagAm.json.connexion === "ok" && diagAm.json.total === 3 && diagAm.json.bruts.length === 3 &&
@@ -3179,6 +3181,15 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "le rapprochement propose le bien du confrère, signalé AMEPI avec le nom de l'agence");
   ok(!rapA.matches.some((m) => m.id === "amepi:503"), "un bien sous compromis n'est pas proposé");
   ok(rapA.total === rapA.matches.length && rapA.matches.length <= 40, "la vue porte le total des rapprochements et plafonne la liste à 40");
+  // Relance DIRECTE depuis l'acheteur : un bien de l'ALFA se choisit comme un
+  // bien du stock, le mail le signale « en partenariat ».
+  const mailsAvantAm = mailsRecus.length;
+  const rlAm = await callR("/crm/projets/" + pjA.json.id + "/relancer", { headers: auth, body: { annonceIds: ["amepi:501"] } });
+  const dernierAm = mailsRecus[mailsRecus.length - 1] || {};
+  ok(rlAm.status === 200 && rlAm.json.biens === 1 && mailsRecus.length > mailsAvantAm && /partenariat/i.test(dernierAm.html || ""),
+     "la relance directe accepte un bien AMEPI et le mail mentionne le partenariat (" + JSON.stringify(rlAm.json) + ")");
+  ok((await callR("/crm/acheteurs/relances", { headers: auth })).json.relances.some((l) => l.kind === "selection" && l.annonce_id === "amepi:501"),
+     "le bien ALFA proposé rejoint le journal des relances");
   // Sans le réglage « relance », la relance automatique ignore les biens AMEPI.
   const mailsAvantA = mailsRecus.length;
   await callR("/crm/acheteurs/run", { headers: auth, method: "POST", body: {} });
@@ -3231,6 +3242,11 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(listeA.biens.find((b) => b.id === "501").prix === 320000 && listeA.biens.find((b) => b.id === "503").statut === "compromis" &&
      listeA.biens.find((b) => b.id === "504").url === "https://agglomeration-bordelaise.amanda.team/mandate/details/504" && listeA.etat.page === 0 && listeA.agent.last_used > 0,
      "prix à jour, retrait posé, lien vers Amanda, relevé terminé, clé marquée utilisée");
+  // Consignes de l'agent : ce que l'Administration a réglé, pas config.json.
+  const cons = await callR("/crm/amepi/consignes", { headers: enteteAgent });
+  ok(cons.status === 200 && JSON.stringify(cons.json.sources) === '["1","2","3"]' && JSON.stringify(cons.json.departements) === '["33"]',
+     "l'agent lit ses consignes (sources, départements) avec sa clé (" + JSON.stringify(cons.json) + ")");
+  ok((await callR("/crm/amepi/consignes", {})).status === 401, "sans clé, pas de consignes");
   ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: new Array(501).fill({ id: 1 }) } })).status === 400, "plus de 500 mandats par dépôt : refusé");
   // Le fichier Amanda couvre toute la France : seuls les départements du
   // réglage (33 par défaut) entrent en base ; un changement de réglage purge.

@@ -10,10 +10,12 @@ dans Windows.
 
 1. Copiez le dossier `agent-amepi` sur le PC (par exemple dans `Documents`).
 2. Dans l'Administration de Studio → onglet Annonces → carte « Fichier des mandats
-   AMEPI » → **« 🔑 Clé de l'agent »** : copiez la clé affichée (elle n'est montrée
-   qu'une fois).
-3. Copiez `config.exemple.json` en `config.json` et remplissez-le : votre e-mail et
-   votre mot de passe Amanda, la clé de l'agent. Laissez le reste tel quel.
+   AMEPI » → **« 🔑 Nouvelle clé de l'agent »** : copiez la clé affichée (elle n'est
+   montrée qu'une fois). Ne recliquez pas ce bouton ensuite : chaque clic remplace la clé.
+3. Ouvrez `config.exemple.json` avec le Bloc-notes et remplissez-le : votre e-mail et
+   votre mot de passe Amanda, la clé de l'agent. Enregistrez (l'installeur en fait
+   `config.json`). Ce que l'agent relève (votre ALFA, la Gironde) se règle dans
+   l'Administration de Studio, pas ici.
 4. Double-cliquez sur `INSTALLER.cmd` (si Windows affiche « Windows a protégé votre
    ordinateur », cliquez « Informations complémentaires » puis « Exécuter quand même »).
    Cela installe la tâche planifiée « Studio Kadima - Agent AMEPI » (lancée à chaque
