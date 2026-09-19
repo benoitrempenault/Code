@@ -1,0 +1,156 @@
+/* Parcours « offre » : le conseiller crée une offre depuis l'Administration
+   (couple), l'envoie ; l'acquéreur ouvre son lien, complète état civil et
+   financement (sans prêt), dépose sa pièce d'identité, tape la mention et
+   signe par code ; le conseiller retrouve l'offre signée. */
+import { api, attendreToast, creerAgence, ouvrir, parcours, SITE } from "./lib.mjs";
+import { mkdir } from "node:fs/promises";
+
+// Un PNG minuscule mais valide (en-tête reconnu par le serveur).
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+
+export default async function () {
+  const admin = await creerAgence("Smoke Offre", "smoke-offre@test.fr");
+  await api("/crm/contacts/bulk", { headers: admin.auth, body: { rows: [
+    { civilite: "Mme", prenom: "Éléonore", nom: "MÜLLER", email: "eleonore@smoke.fr", telephone: "0612345678", adresse: "3 allée du Parc", cp: "33700", ville: "Mérignac", types: "acquereur" },
+    { civilite: "M.", prenom: "Jean", nom: "DUPONT", email: "jean@smoke.fr", telephone: "0698765432", types: "acquereur" },
+  ] } });
+  return parcours("offre", {}, async ({ page, ok }) => {
+    const captures = new URL("./captures/", import.meta.url).pathname;
+    await mkdir(captures, { recursive: true });
+    await ouvrir(page, "/administration/", admin);
+    await page.waitForSelector("#app:not([hidden])", { timeout: 8000 });
+    await page.click('[data-onglet="offres"]');
+    await page.click("#btn-nouvelle-offre");
+    await page.waitForSelector("#of-filtre", { timeout: 5000 });
+    await page.fill("#of-filtre", "ü");
+    await page.waitForSelector(".of-contact", { timeout: 4000 });
+    await page.check(".of-contact >> nth=0");
+    await page.fill("#of-filtre", "dup");
+    await page.waitForFunction(() => document.querySelectorAll(".of-contact").length >= 2, null, { timeout: 4000 });
+    await page.check(".of-contact:not(:checked)");
+    await page.fill("#of-adresse", "12 rue des Lilas"); await page.fill("#of-cp", "33160"); await page.fill("#of-ville", "Saint-Médard-en-Jalles");
+    await page.fill("#of-mandat", "2026-118");
+    await page.fill("#of-description", "Maison T4 de 95 m² sur 400 m² de terrain, garage");
+    await page.fill("#of-prix", "224917"); await page.fill("#of-acompte", "5000");
+    await page.fill(".of-v-nom >> nth=0", "MARTIN"); await page.fill(".of-v-prenom >> nth=0", "Paul"); await page.fill(".of-v-email >> nth=0", "vendeur@smoke.fr");
+    await page.click("#btn-save-offre");
+    await attendreToast(page, "Offre OA-.* créée");
+    await page.waitForSelector("#btn-of-envoyer", { timeout: 6000 });
+    ok((await page.textContent("#modale-titre")).includes("MÜLLER"), "l'offre créée s'ouvre : " + await page.textContent("#modale-titre"));
+    await page.screenshot({ path: captures + "offre-admin.png", fullPage: true });
+    await page.click("#btn-of-envoyer");
+    await attendreToast(page, "Lien|envoyée");
+    const offres = (await api("/crm/offres", { headers: admin.auth })).json.offres;
+    ok(offres.length === 1 && offres[0].statut === "envoyee", "l'offre est « envoyée » (liens émis)");
+    const det = (await api("/crm/offres/" + offres[0].id, { headers: admin.auth })).json;
+    const elle = det.signataires.find((s) => s.role === "offrant" && /MÜLLER/.test(s.libelle));
+    const lien = (await api("/crm/offres/" + offres[0].id + "/signataires/" + elle.id + "/lien", { headers: admin.auth, body: {} })).json.lien;
+    ok(lien.startsWith(SITE + "/offre/#t="), "le lien magique pointe sur la page publique du site");
+
+    // L'acquéreuse, sans session : on vide le compte de l'appareil.
+    await page.evaluate(() => localStorage.clear());
+    await page.goto(lien);
+    await page.waitForSelector("#parcoursOffrant:not([hidden])", { timeout: 8000 });
+    ok((await page.textContent("#recap")).replace(/\s/g, "").includes("224917€"), "la page publique affiche le prix et le bien");
+    const f = page.locator("#formIdentite");
+    await f.locator("input[name=naissance]").fill("1988-04-12");
+    await f.locator("input[name=lieuNaissance]").fill("Bordeaux");
+    await f.locator("input[name=profession]").fill("Ingénieure");
+    await page.click("#formIdentite button[type=submit]");
+    await page.waitForFunction(() => /enregistré/i.test(document.getElementById("msgIdentite").textContent), null, { timeout: 6000 });
+    ok(true, "état civil enregistré depuis la page publique");
+    await page.check('#formFinancement input[name=sansPret][value="1"]');
+    await page.fill("#formFinancement input[name=apport]", "224917");
+    await page.fill("#formFinancement input[name=apportOrigine]", "vente d'un appartement");
+    await page.selectOption("#formFinancement select[name=situation]", "marie");
+    await page.click("#formFinancement button[type=submit]");
+    await page.waitForFunction(() => /Enregistré/.test(document.getElementById("msgFinancement").textContent), null, { timeout: 6000 });
+    await page.waitForFunction(() => document.querySelectorAll(".piece").length >= 4, null, { timeout: 6000 });
+    ok((await page.textContent("#pieces")).includes("fonds"), "la liste des pièces s'adapte (achat sans prêt → justificatif des fonds)");
+    // Sa pièce d'identité : la première pièce « identité » est la sienne.
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.click('.piece [data-type="identite"] >> nth=0')]);
+    await chooser.setFiles({ name: "cni.png", mimeType: "image/png", buffer: PNG });
+    await page.waitForFunction(() => /déposée/.test(document.getElementById("msgPieces").textContent), null, { timeout: 10000 });
+    ok(true, "la pièce d'identité se dépose (photo passée par le canvas puis envoyée)");
+    await page.waitForSelector("#btnCode", { timeout: 6000 });
+    const mention = await page.textContent(".mention");
+    await page.fill("#mentionSaisie", mention);
+    await page.check("#engagement");
+    await page.click("#btnCode");
+    await page.waitForFunction(() => /mode test : \d{6}/.test(document.getElementById("msgSignature").textContent), null, { timeout: 8000 });
+    const code = /mode test : (\d{6})/.exec(await page.textContent("#msgSignature"))[1];
+    await page.fill("#code", code);
+    await page.screenshot({ path: captures + "offre-signature.png", fullPage: true });
+    await page.click("#btnSigner");
+    await page.waitForFunction(() => /Vous avez signé/.test(document.getElementById("signatureContenu").textContent), null, { timeout: 10000 });
+    ok(true, "Éléonore a signé par code — mention L313-42 tapée, engagement coché");
+    await page.screenshot({ path: captures + "offre-signee.png", fullPage: true });
+    const apres = (await api("/crm/offres/" + offres[0].id, { headers: admin.auth })).json;
+    ok(apres.offre.figee && apres.signataires.find((s) => s.id === elle.id).signeAt > 0, "côté agence : document figé, signature d'Éléonore consignée");
+
+    // Jean : son lien, son état civil (l'adresse manquait), sa CNI, sa signature.
+    const lui = det.signataires.find((s) => s.role === "offrant" && /DUPONT/.test(s.libelle));
+    const lienJ = (await api("/crm/offres/" + offres[0].id + "/signataires/" + lui.id + "/lien", { headers: admin.auth, body: {} })).json.lien;
+    await page.goto(lienJ);
+    await page.waitForSelector("#parcoursOffrant:not([hidden])", { timeout: 8000 });
+    ok(await page.locator("#formFinancement input[name=apport]").isDisabled(), "chez Jean, le financement est verrouillé (document figé)");
+    const fj = page.locator("#formIdentite");
+    await fj.locator("input[name=naissance]").fill("1985-01-02");
+    await fj.locator("input[name=lieuNaissance]").fill("Paris");
+    await fj.locator("input[name=adresse]").fill("3 allée du Parc, 33700 Mérignac");
+    await page.click("#formIdentite button[type=submit]");
+    await page.waitForFunction(() => /enregistré/i.test(document.getElementById("msgIdentite").textContent), null, { timeout: 6000 });
+    const [chooserJ] = await Promise.all([page.waitForEvent("filechooser"), page.click('.piece:not(.ok) [data-type="identite"] >> nth=0')]);
+    await chooserJ.setFiles({ name: "cni-jean.png", mimeType: "image/png", buffer: PNG });
+    await page.waitForFunction(() => /déposée/.test(document.getElementById("msgPieces").textContent), null, { timeout: 10000 });
+    await page.waitForSelector("#btnCode", { timeout: 6000 });
+    await page.fill("#mentionSaisie", await page.textContent(".mention"));
+    await page.check("#engagement");
+    await page.click("#btnCode");
+    await page.waitForFunction(() => /mode test : \d{6}/.test(document.getElementById("msgSignature").textContent), null, { timeout: 8000 });
+    await page.fill("#code", /mode test : (\d{6})/.exec(await page.textContent("#msgSignature"))[1]);
+    await page.click("#btnSigner");
+    await page.waitForFunction(() => /L'offre est signée par tous/.test(document.getElementById("signatureContenu").textContent), null, { timeout: 10000 });
+    ok(true, "Jean a signé : l'offre est signée par les deux acquéreurs");
+
+    // Le conseiller la présente au vendeur, qui accepte depuis son lien.
+    await ouvrir(page, "/administration/", admin);
+    await page.waitForSelector("#app:not([hidden])", { timeout: 8000 });
+    await page.click('[data-onglet="offres"]');
+    await page.waitForSelector("tr[data-offre]", { timeout: 6000 });
+    ok((await page.textContent("#table-offres")).includes("Signée"), "la liste affiche l'offre « Signée — à présenter »");
+    await page.click("tr[data-offre]");
+    await page.waitForSelector("#btn-of-presenter", { timeout: 6000 });
+    await page.click("#btn-of-presenter");
+    await attendreToast(page, "présentée");
+    const vend = (await api("/crm/offres/" + offres[0].id, { headers: admin.auth })).json.signataires.find((s) => s.role === "vendeur");
+    const lienV = (await api("/crm/offres/" + offres[0].id + "/signataires/" + vend.id + "/lien", { headers: admin.auth, body: {} })).json.lien;
+    await page.evaluate(() => localStorage.clear());
+    await page.goto(lienV);
+    await page.waitForSelector("#parcoursVendeur:not([hidden])", { timeout: 8000 });
+    ok((await page.textContent("#titre")).includes("pour votre bien"), "le vendeur voit « Une offre d'achat pour votre bien »");
+    await page.check('input[name=decision][value="accepte"]');
+    ok((await page.textContent("#mentionVendeur")).includes("accepter"), "la mention d'acceptation s'affiche");
+    await page.check("#engagement");
+    await page.click("#btnCode");
+    await page.waitForFunction(() => /mode test : \d{6}/.test(document.getElementById("msgSignature").textContent), null, { timeout: 8000 });
+    await page.fill("#code", /mode test : (\d{6})/.exec(await page.textContent("#msgSignature"))[1]);
+    await page.screenshot({ path: captures + "offre-vendeur.png", fullPage: true });
+    await page.click("#btnRepondre");
+    await page.waitForFunction(() => /Vous avez accepté/.test(document.getElementById("reponseContenu").textContent), null, { timeout: 10000 });
+    ok(true, "le vendeur a accepté par code");
+    await page.screenshot({ path: captures + "offre-acceptee.png", fullPage: true });
+
+    // Le conseiller bascule l'offre acceptée en dossier Suivi.
+    await ouvrir(page, "/administration/", admin);
+    await page.waitForSelector("#app:not([hidden])", { timeout: 8000 });
+    await page.click('[data-onglet="offres"]');
+    await page.waitForSelector("tr[data-offre]", { timeout: 6000 });
+    await page.click("tr[data-offre]");
+    await page.waitForSelector("#btn-of-dossier", { timeout: 6000 });
+    await page.click("#btn-of-dossier");
+    await attendreToast(page, "Dossier Suivi créé");
+    const dossiers = (await api("/dossiers", { headers: admin.auth })).json.dossiers || [];
+    ok(dossiers.length === 1 && /MARTIN/.test(dossiers[0].name), "le dossier Suivi existe : " + (dossiers[0] || {}).name);
+  });
+}

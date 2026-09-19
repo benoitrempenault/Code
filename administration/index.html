@@ -44,6 +44,7 @@
     <button class="onglet" data-onglet="anniversaires">🎂 Anniversaires</button>
     <button class="onglet" data-onglet="acheteurs">🤝 Acheteurs</button>
     <button class="onglet" data-onglet="estimations">📐 Estimations</button>
+    <button class="onglet" data-onglet="offres">📝 Offres</button>
     <button class="onglet" data-onglet="annonces">🏠 Annonces</button>
     <a class="onglet onglet-lien" href="../prospection/">🗺️ Prospection</a>
     <a class="onglet onglet-lien" href="../estimation/">📐 Estimation</a>
@@ -255,6 +256,36 @@
     </div>
   </section>
 
+
+  <!-- ============================== OFFRES ============================= -->
+  <section id="panneau-offres" class="panneau">
+    <div class="carte">
+      <h2>Offres d'achat</h2>
+      <p class="aide">Une offre part d'un <strong>projet d'achat</strong> (un couple = deux offrants, deux
+        signatures). Le conseiller pose le bien, le prix et les dates ; l'acquéreur reçoit un lien personnel
+        pour compléter son état civil et son financement, déposer ses pièces et <strong>signer par code SMS /
+        e-mail</strong> (pièce d'identité exigée avant). L'offre signée est présentée au vendeur par le même
+        mécanisme ; acceptée, elle devient un dossier Studio Suivi. Le document est figé à la première signature.</p>
+      <div class="barre" style="margin-bottom:12px;">
+        <button class="btn btn-or" id="btn-nouvelle-offre">+ Nouvelle offre</button>
+        <select id="offres-filtre">
+          <option value="">Toutes les offres</option>
+          <option value="brouillon">Brouillons</option>
+          <option value="envoyee">Envoyées à l'acquéreur</option>
+          <option value="signee">Signées — à présenter</option>
+          <option value="presentee">Présentées au vendeur</option>
+          <option value="acceptee">Acceptées</option>
+          <option value="contre_offre">Contre-propositions</option>
+          <option value="refusee">Refusées</option>
+          <option value="expiree">Expirées</option>
+          <option value="retiree">Retirées</option>
+        </select>
+        <input type="search" id="offres-recherche" placeholder="🔍 Rechercher (nom, adresse, n°…)" style="min-width:240px;" />
+      </div>
+      <div id="table-offres"></div>
+    </div>
+  </section>
+
   <!-- ============================= RÉGLAGES ============================ -->
   <section id="panneau-reglages" class="panneau">
     <div class="carte">
@@ -279,6 +310,22 @@
       </div>
       <p class="petit">Les e-mails partent via le serveur Studio Brochure au nom de l'agence —
         rien à configurer de plus (pas de mot de passe SMTP).</p>
+    </div>
+    <div class="carte">
+      <h2>📝 Offres d'achat — en-tête légal et délais</h2>
+      <p class="aide">Le paragraphe d'identification de l'agence tel qu'il ouvre chaque offre (raison sociale,
+        carte professionnelle, assurance, garantie financière), la personne qui la représente, et les délais
+        proposés par défaut au conseiller. Vérifiez ces mentions à chaque renouvellement de carte ou d'assurance.</p>
+      <label style="display:block;">En-tête (une ligne par alinéa)
+        <textarea id="ofr-entete" rows="6" style="width:100%; margin-top:4px;"></textarea></label>
+      <div class="grille-champs" style="margin-top:10px;">
+        <label>Représentée par<input id="ofr-representant" placeholder="Prénom NOM, agissant en sa qualité de…" /></label>
+        <label>Lieu de signature<input id="ofr-lieu" placeholder="Saint-Médard-en-Jalles" /></label>
+        <label>Adresse pour l'exercice des droits RGPD<input id="ofr-rgpd" /></label>
+        <label>Validité proposée (jours)<input id="ofr-validite" type="number" min="1" max="60" /></label>
+        <label>Avant-contrat proposé (jours)<input id="ofr-avant-contrat" type="number" min="7" max="120" /></label>
+      </div>
+      <div class="barre"><button class="btn btn-or" id="btn-of-reglages-save">Enregistrer</button></div>
     </div>
     <div class="carte">
       <h2>📚 Bibliothèque des messages</h2>

@@ -11,7 +11,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "hono": "^4.12.30"
+    "hono": "^4.12.30",
+    "pdf-lib": "^1.17.1"
   },
   "type": "module"
 }

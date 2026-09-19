@@ -24,6 +24,7 @@ import * as CRM from "./crm.js";
 import * as AMEPI from "./amepi.js";
 import * as PERM from "./permanence.js";
 import * as GRAPH from "./graph.js";
+import { monterRoutesOffres } from "./offres-routes.js";
 
 // 7 jours d'inactivité : sur une tablette partagée ou un poste de l'agence,
 // une session oubliée s'éteint dans la semaine (l'usage quotidien, lui, la
@@ -75,7 +76,7 @@ export function createApp(env) {
     // X-Admin-Key : console d'administration · X-User-Key : clé Anthropic
     // personnelle relayée. Sans ces deux en-têtes ici, le navigateur bloque
     // l'appel au vol plané (préflight) avant même de l'envoyer.
-    allowHeaders: ["Authorization", "Content-Type", "X-Admin-Key", "X-User-Key", "X-Agent-Key"],
+    allowHeaders: ["Authorization", "Content-Type", "X-Admin-Key", "X-User-Key", "X-Agent-Key", "X-Offre-Jeton"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
   }));
 
@@ -3616,6 +3617,11 @@ export function createApp(env) {
     }
     return c.json({ received: true });
   });
+
+  /* ------------------ Studio Offre (prise d'offre d'achat) --------------- */
+  // Routes agence (/crm/offres/*) et publiques (/public/offre/*) : voir
+  // offres-routes.js — elles partagent les gardes de session de ce fichier.
+  monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAgencyAdmin, filesReady, DOSSIERS_MAX });
 
   return app;
 }

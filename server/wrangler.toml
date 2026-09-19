@@ -31,6 +31,7 @@ crons = ["0 5 * * 1,5", "30 3 * * *", "0 6 * * *"]
 [vars]
 APP_ORIGINS = "https://benoitrempenault.github.io,https://studiobrochure.fr"
 SUIVI_BASE = "https://benoitrempenault.github.io/Code/suivi"  # liens des récaps
+OFFRE_BASE = "https://benoitrempenault.github.io/Code/offre"  # espace public de l'offre d'achat (liens magiques)
 RECAP_AUTO = ""  # passer à "1" (puis redéployer) pour activer l'envoi lundi/vendredi
 APP_BASE = "https://studiobrochure.fr/app"  # dossier de l'app compte par défaut (clients) ; Kadima a son app_base en base
 MAIL_FROM = "Studio Brochure <connexion@studiobrochure.fr>"

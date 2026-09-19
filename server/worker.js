@@ -19,7 +19,7 @@ export default {
     // d'anniversaire, agence par agence. Inerte tant que l'agence n'a rien
     // activé dans ses réglages Administration.
     // Le ménage (corbeille > 30 j, sessions mortes, liens périmés) passe avant.
-    if (event.cron === "0 6 * * *") { ctx.waitUntil(menageQuotidien(db).then(() => runCrmDaily(env, db))); return; }
+    if (event.cron === "0 6 * * *") { ctx.waitUntil(menageQuotidien(db, env.FILES || null).then(() => runCrmDaily(env, db))); return; }
     // Relevé nocturne des absences Outlook (permanences). Inerte tant que
     // l'agence n'a pas coché « relever automatiquement » dans ses réglages.
     ctx.waitUntil(releverAbsencesOutlook(env, db));
@@ -46,6 +46,7 @@ export default {
       AMEPI_PASSWORD: env.AMEPI_PASSWORD || "",
       AMEPI_AGENCY: env.AMEPI_AGENCY || "",
       MAIL_FROM: env.MAIL_FROM || "",
+      OFFRE_BASE: env.OFFRE_BASE || "", // page publique de l'offre d'achat (dossier offre/)
       STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET || "",
       AI_MODELS: env.AI_MODELS || "",
       AI_RATE_PER_MIN: env.AI_RATE_PER_MIN || "",
