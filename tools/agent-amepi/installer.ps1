@@ -1,13 +1,13 @@
-# Installe l'agent AMEPI : une tâche planifiée qui lance agent-amepi.ps1 à
+﻿# Installe l'agent AMEPI : une tâche planifiée qui lance agent-amepi.ps1 à
 # chaque ouverture de session Windows (et tout de suite, pour vérifier).
 # Lancer :  powershell -ExecutionPolicy Bypass -File installer.ps1
 $ici = Split-Path -Parent $MyInvocation.MyCommand.Path
-# Fichiers téléchargés depuis Internet : Windows les marque « bloqués » — on lève la marque.
+# Fichiers téléchargés depuis Internet : Windows les marque « bloqués » - on lève la marque.
 Get-ChildItem -Path $ici -File | Unblock-File -ErrorAction SilentlyContinue
 $config = Join-Path $ici "config.json"
 $exemple = Join-Path $ici "config.exemple.json"
 # Pas de config.json mais un config.exemple.json rempli (clé « ak_… » posée) :
-# on l'adopte tel quel — c'est souvent là que l'on a tapé ses identifiants.
+# on l'adopte tel quel - c'est souvent là que l'on a tapé ses identifiants.
 if (-not (Test-Path $config) -and (Test-Path $exemple) -and ((Get-Content $exemple -Raw) -match '"studio_cle"\s*:\s*"ak_')) {
   Copy-Item $exemple $config
   Write-Host "config.json créé à partir de config.exemple.json (rempli)." -ForegroundColor Cyan
@@ -27,4 +27,4 @@ Write-Host "Tâche planifiée installée : « Studio Kadima - Agent AMEPI » (à
 Write-Host "Premier relevé maintenant..." -ForegroundColor Cyan
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script
 Write-Host "Journal : $(Join-Path $ici 'agent-amepi.log')"
-Read-Host "Terminé — appuyez sur Entrée pour fermer"
+Read-Host "Terminé - appuyez sur Entrée pour fermer"

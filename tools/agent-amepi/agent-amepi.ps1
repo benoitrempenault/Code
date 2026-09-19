@@ -1,5 +1,5 @@
-# =============================================================================
-# agent-amepi.ps1 — relevé du fichier des mandats AMEPI (Amanda) DEPUIS L'AGENCE
+﻿# =============================================================================
+# agent-amepi.ps1 - relevé du fichier des mandats AMEPI (Amanda) DEPUIS L'AGENCE
 # et dépôt sur Studio Kadima.
 #
 # Pourquoi ici et pas sur le serveur : Amanda refuse les connexions par mot de
@@ -62,7 +62,7 @@ try {
     $d = Invoke-WebRequest -Uri "$studio/crm/amepi/import" -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($depot)) -ContentType "application/json" `
       -Headers @{ "X-Agent-Key" = $cfg.studio_cle } -UseBasicParsing
     $stats = ([Text.Encoding]::UTF8.GetString($d.RawContentStream.ToArray()) | ConvertFrom-Json).stats
-    Log ("Page {0} : {1} bien(s) déposé(s) — nouveaux {2}, baisses {3}{4}" -f $numero, $lot.Count, $stats.nouveaux, $stats.baisses, $(if ($fini) { ", retirés " + $stats.retirees + " — relevé terminé" } else { "" }))
+    Log ("Page {0} : {1} bien(s) déposé(s) - nouveaux {2}, baisses {3}{4}" -f $numero, $lot.Count, $stats.nouveaux, $stats.baisses, $(if ($fini) { ", retirés " + $stats.retirees + " - relevé terminé" } else { "" }))
     $premier = $false; $numero++
     if ($numero -gt 60) { throw "Plus de 60 pages : arrêt de sécurité." }
   } until ($fini)
