@@ -79,16 +79,23 @@ try {
     }
     if ($cps.Count -gt 0) { $form.location = $cps }
     $json = $form | ConvertTo-Json -Depth 6 -Compress
-    $r = Invoke-WebRequest -Uri "$amepi/search" -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($json)) -ContentType "application/json;charset=utf-8" `
-      -WebSession $session -UserAgent $ua -UseBasicParsing -Headers @{ Accept = "application/json"; Referer = "$amepi/mandate/search"; "X-Requested-With" = "XMLHttpRequest" }
+    try {
+      $r = Invoke-WebRequest -Uri "$amepi/search" -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($json)) -ContentType "application/json;charset=utf-8" `
+        -WebSession $session -UserAgent $ua -UseBasicParsing -Headers @{ Accept = "application/json"; Referer = "$amepi/mandate/search"; "X-Requested-With" = "XMLHttpRequest" }
+    } catch { throw "Amanda refuse la recherche (page $numero) : $($_.Exception.Message)" }
     $res = [Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray()) | ConvertFrom-Json
     if ($null -eq $res.value) { throw "Réponse inattendue d'Amanda sur /search (page $numero)." }
     $total = [int]$res.total
     $lot = @($res.value); $lus += $lot.Count
     $fini = ($lot.Count -lt $parPage) -or ($numero * $parPage -ge $total)
     $depot = @{ mandats = $lot; debut = $premier; fini = $fini; total = $total; base = $amepi } | ConvertTo-Json -Depth 12 -Compress
-    $d = Invoke-WebRequest -Uri "$studio/crm/amepi/import" -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($depot)) -ContentType "application/json" `
-      -Headers @{ "X-Agent-Key" = $cfg.studio_cle } -UseBasicParsing
+    try {
+      $d = Invoke-WebRequest -Uri "$studio/crm/amepi/import" -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($depot)) -ContentType "application/json" `
+        -Headers @{ "X-Agent-Key" = "$($cfg.studio_cle)".Trim() } -UseBasicParsing
+    } catch {
+      if ($_.Exception.Message -match "401") { throw "Studio refuse la clé de l'agent (401) : elle a été remplacée ou révoquée. Dans l'Administration, « Nouvelle clé de l'agent », puis collez-la dans config.json (studio_cle)." }
+      throw "Studio n'a pas accepté le dépôt (page $numero) : $($_.Exception.Message)"
+    }
     $stats = ([Text.Encoding]::UTF8.GetString($d.RawContentStream.ToArray()) | ConvertFrom-Json).stats
     Log ("Page {0} : {1} bien(s) déposé(s) - nouveaux {2}, baisses {3}{4}" -f $numero, $lot.Count, $stats.nouveaux, $stats.baisses, $(if ($fini) { ", retirés " + $stats.retirees + " - relevé terminé" } else { "" }))
     $premier = $false; $numero++
