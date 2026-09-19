@@ -3284,6 +3284,19 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const listeM = (await callR("/crm/amepi", { headers: auth })).json;
   ok(depM.json.stats.biens === 1 && listeM.biens.find((b) => b.id === "701").source === "2" && listeM.parSource.every((x) => x.source !== ""),
      "sans source dans les résultats, la source cherchée est posée sur le bien (" + JSON.stringify(listeM.parSource) + ")");
+  // Doublons d'Amanda : même agence + référence + prix sous plusieurs ids → une seule ligne.
+  const depD = await callR("/crm/amepi/import", { headers: enteteAgent, body: { debut: true, fini: true, total: 3, sources: ["2"], mandats: [
+    { id: 801, mandateRef: "6625", agencyName: "Guy Hoquet Virelade", assetTypeId: 2, price: 171000, publicTown: "Sauveterre", publicPostalCode: "33540", transactionStateId: 1 },
+    { id: 802, mandateRef: "6625", agencyName: "Guy Hoquet Virelade", assetTypeId: 2, price: 171000, publicTown: "Sauveterre", publicPostalCode: "33540", transactionStateId: 1 },
+    { id: 803, mandateRef: "6625", agencyName: "Guy Hoquet Virelade", assetTypeId: 2, price: 160000, publicTown: "Sauveterre", publicPostalCode: "33540", transactionStateId: 1 },
+  ] } });
+  const listeDbl = (await callR("/crm/amepi", { headers: auth })).json;
+  ok(depD.json.stats.biens === 2 && listeDbl.biens.some((b) => b.id === "801") && !listeDbl.biens.some((b) => b.id === "802") && listeDbl.biens.some((b) => b.id === "803"),
+     "deux lignes identiques (agence, référence, prix) ne font qu'un bien ; un autre prix reste un autre bien (" + JSON.stringify(depD.json.stats) + ")");
+  await db.run("INSERT INTO crm_amepi (agency_id, id, ref, agence, source, prix, cp, ville, first_seen, last_seen) VALUES (?, '804', '6625', 'Guy Hoquet Virelade', '2', 171000, '33540', 'Sauveterre', 1, 1)", [agId]);
+  const depD2 = await callR("/crm/amepi/import", { headers: enteteAgent, body: { debut: true, fini: true, total: 0, sources: ["2"], mandats: [] } });
+  ok(depD2.json.stats.doublons === 1 && !(await callR("/crm/amepi", { headers: auth })).json.biens.some((b) => b.id === "804"),
+     "les doublons déjà en base sont purgés à la clôture d'un relevé (" + depD2.json.stats.doublons + ")");
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { sources: ["1", "2", "3"] } } });
   await callR("/crm/amepi/cle", { headers: auth, method: "DELETE" });
   ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: [] } })).status === 401, "une clé révoquée ne dépose plus rien");

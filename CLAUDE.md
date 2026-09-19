@@ -429,7 +429,12 @@ au lieu de config.json (`agentAmepi(c)` factorise le contrôle de clé). Compteu
 `crm_amepi_compteurs.hors_secteur` (biens ignorés au dépôt). Relance directe
 `POST /crm/projets/:id/relancer` accepte les ids « amepi:<id> » (commeAnnonce) ;
 la fiche d'un projet d'achat liste le rapprochement (nos biens + ALFA, lien 🔗,
-puce 🤝) à cocher, et le reste du stock replié.
+puce 🤝) à cocher, et le reste du stock replié. Amanda ne renvoie PAS la source
+dans /search : l'agent envoie `sources` avec chaque dépôt et le serveur marque
+les biens (une seule source cherchée) ; à la clôture, les biens de source
+inconnue non revus sont supprimés. Doublons Amanda (même agence + référence +
+prix sous plusieurs ids) : `existantsDe()`/`cleDoublon()` au dépôt, `purgerDoublons()`
+à la clôture. Résultat 19/09 : « mon ALFA » = 1 866 biens annoncés, 1 794 en Gironde.
 **Maisons dessinées + signets (carte, 15/09)** : `GET /crm/batiments?bbox=minLng,
 minLat,maxLng,maxLat` (membre) relaie le WFS IGN BD TOPO (`BATIMENTS_BASE`,
 CRS:84, COUNT 3000, bbox ≤ 0,02°×0,012°) et renvoie `{batiments:[{id, nature,

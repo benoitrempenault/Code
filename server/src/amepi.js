@@ -275,16 +275,40 @@ export async function purgerHorsSecteur(db, agencyId, f) {
   const r = await db.run(`DELETE FROM crm_amepi WHERE agency_id = ? AND (${conditions.join(" OR ")})`, [agencyId]);
   return changesOf(r);
 }
+// Les doublons déjà en base (même agence + référence + prix) : on garde la
+// ligne la plus ancienne.
+export async function purgerDoublons(db, agencyId) {
+  const r = await db.run(
+    `DELETE FROM crm_amepi WHERE agency_id = ? AND ref <> '' AND rowid NOT IN (
+       SELECT MIN(rowid) FROM crm_amepi WHERE agency_id = ? GROUP BY agence, ref, COALESCE(prix, 0))`, [agencyId, agencyId]);
+  return changesOf(r);
+}
 export const purgerHorsDepartements = (db, agencyId, deps) => purgerHorsSecteur(db, agencyId, { deps, sources: [] });
+// Amanda renvoie parfois PLUSIEURS lignes pour un même mandat (ids différents,
+// même agence + référence + prix) : une seule entre en base, la première vue.
+const cleDoublon = (x) => (x.ref ? `${x.agence}|${x.ref}|${x.prix || 0}` : "");
+export function existantsDe(rows) {
+  const m = new Map(rows.map((r) => [r.id, r]));
+  m.cles = new Map();
+  for (const r of rows) { const k = cleDoublon(r); if (k && !m.cles.has(k)) m.cles.set(k, r.id); }
+  return m;
+}
 async function enregistrerLot(db, agencyId, base, bruts, t, existants, evenements, f = { deps: [], sources: [] }) {
-  const lignes = bruts.map((m) => mapperMandat(m, base)).filter((x) => x.id && garde(x, f));
+  const cles = existants.cles || (existants.cles = new Map());
+  const lignes = bruts.map((m) => mapperMandat(m, base)).filter((x) => {
+    if (!x.id || !garde(x, f)) return false;
+    const k = cleDoublon(x);
+    if (k && cles.has(k) && cles.get(k) !== x.id) return false;   // doublon d'un mandat déjà connu
+    if (k) cles.set(k, x.id);
+    return true;
+  });
   if (!lignes.length) return { biens: 0, nouveaux: 0, baisses: 0 };
   let nouveaux = 0, baisses = 0;
   const valeurs = lignes.map((x) => {
     const cur = existants.get(x.id);
     if (!cur) { nouveaux++; evenements.push({ kind: "nouvelle", x }); }
     else if (cur.prix && x.prix && x.prix < cur.prix) { baisses++; evenements.push({ kind: "baisse", x, ancien: cur.prix }); }
-    existants.set(x.id, { id: x.id, prix: x.prix, statut: x.statut });
+    existants.set(x.id, { id: x.id, prix: x.prix, statut: x.statut, ref: x.ref, agence: x.agence });
     return `(${sqlText(agencyId)}, ${sqlText(x.id)}, ${sqlText(x.ref)}, ${sqlText(x.agence)}, ${sqlText(x.source)}, ${sqlText(x.type)},
       ${sqlNum(x.prix)}, ${sqlNum(x.ancien_prix)}, ${sqlText(x.ville)}, ${sqlText(x.cp)}, ${sqlNum(x.pieces)}, ${sqlNum(x.chambres)},
       ${sqlNum(x.surface)}, ${sqlNum(x.terrain)}, ${sqlNum(x.lat)}, ${sqlNum(x.lng)}, ${x.etat_id | 0}, ${sqlText(x.statut)},
@@ -337,7 +361,7 @@ export async function syncAmepi(env, db, agency, reglages, options = {}) {
   const debut = reprise ? etat.debut : t;
   let page = reprise ? etat.page : 1;
   const stats = { pages: 0, biens: 0, nouveaux: 0, baisses: 0, retirees: 0, total: etat.total || 0, fini: false };
-  const existants = new Map((await db.all("SELECT id, prix, statut FROM crm_amepi WHERE agency_id = ?", [agency.id])).map((r) => [r.id, r]));
+  const existants = existantsDe(await db.all("SELECT id, prix, statut, ref, agence FROM crm_amepi WHERE agency_id = ?", [agency.id]));
   const evenements = [];
   const deps = filtreDe(reglages);
   try {
@@ -374,7 +398,7 @@ export async function importerAmepi(db, agency, corps, reglages = null) {
   const ouvre = !!corps.debut || !etat.page;
   const debut = ouvre ? t : etat.debut;
   const base = String(corps.base || BASE_DEFAUT).replace(/\/+$/, "");
-  const existants = new Map((await db.all("SELECT id, prix, statut FROM crm_amepi WHERE agency_id = ?", [agency.id])).map((r) => [r.id, r]));
+  const existants = existantsDe(await db.all("SELECT id, prix, statut, ref, agence FROM crm_amepi WHERE agency_id = ?", [agency.id]));
   const evenements = [];
   const stats = { biens: 0, nouveaux: 0, baisses: 0, retirees: 0, total: Number(corps.total) || etat.total || 0, fini: !!corps.fini };
   // Amanda ne renvoie pas la source dans ses résultats : quand l'agent a
@@ -391,6 +415,7 @@ export async function importerAmepi(db, agency, corps, reglages = null) {
     const r = await db.run("DELETE FROM crm_amepi WHERE agency_id = ? AND source = '' AND last_seen < ?", [agency.id, debut]);
     stats.sortis = changesOf(r);
   }
+  if (stats.fini) stats.doublons = await purgerDoublons(db, agency.id);
   if (ouvre && bruts.length) await db.run(
     `INSERT INTO crm_amepi_brut (agency_id, brut, updated_at) VALUES (?, ?, ?)
      ON CONFLICT(agency_id) DO UPDATE SET brut = excluded.brut, updated_at = excluded.updated_at`,
