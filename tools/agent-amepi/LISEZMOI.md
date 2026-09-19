@@ -14,9 +14,12 @@ dans Windows.
    qu'une fois).
 3. Copiez `config.exemple.json` en `config.json` et remplissez-le : votre e-mail et
    votre mot de passe Amanda, la clé de l'agent. Laissez le reste tel quel.
-4. Clic droit sur `installer.ps1` → « Exécuter avec PowerShell ». Cela installe la
-   tâche planifiée « Studio Kadima - Agent AMEPI » (lancée à chaque ouverture de
-   session, deux minutes après) et fait un premier relevé tout de suite.
+4. Double-cliquez sur `INSTALLER.cmd` (si Windows affiche « Windows a protégé votre
+   ordinateur », cliquez « Informations complémentaires » puis « Exécuter quand même »).
+   Cela installe la tâche planifiée « Studio Kadima - Agent AMEPI » (lancée à chaque
+   ouverture de session, deux minutes après) et fait un premier relevé tout de suite.
+   La fenêtre reste ouverte pour lire le résultat. `RELEVER-MAINTENANT.cmd` refait un
+   relevé à la demande.
 5. Dans l'Administration, la carte AMEPI affiche le nombre de biens relevés.
 
 ## Au quotidien
