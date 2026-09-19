@@ -4,7 +4,19 @@
 $ici = Split-Path -Parent $MyInvocation.MyCommand.Path
 # Fichiers téléchargés depuis Internet : Windows les marque « bloqués » — on lève la marque.
 Get-ChildItem -Path $ici -File | Unblock-File -ErrorAction SilentlyContinue
-if (-not (Test-Path (Join-Path $ici "config.json"))) { Write-Host "Créez d'abord config.json (copiez config.exemple.json et remplissez-le)." -ForegroundColor Red; exit 1 }
+$config = Join-Path $ici "config.json"
+$exemple = Join-Path $ici "config.exemple.json"
+# Pas de config.json mais un config.exemple.json rempli (clé « ak_… » posée) :
+# on l'adopte tel quel — c'est souvent là que l'on a tapé ses identifiants.
+if (-not (Test-Path $config) -and (Test-Path $exemple) -and ((Get-Content $exemple -Raw) -match '"studio_cle"\s*:\s*"ak_')) {
+  Copy-Item $exemple $config
+  Write-Host "config.json créé à partir de config.exemple.json (rempli)." -ForegroundColor Cyan
+}
+if (-not (Test-Path $config)) {
+  Write-Host "Créez d'abord config.json : ouvrez config.exemple.json, remplissez e-mail, mot de passe Amanda et clé de l'agent, puis enregistrez-le sous le nom config.json (ou renommez-le)." -ForegroundColor Red
+  Read-Host "Appuyez sur Entrée pour fermer"
+  exit 1
+}
 $script = Join-Path $ici "agent-amepi.ps1"
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`""
 $declencheur = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
@@ -15,3 +27,4 @@ Write-Host "Tâche planifiée installée : « Studio Kadima - Agent AMEPI » (à
 Write-Host "Premier relevé maintenant..." -ForegroundColor Cyan
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script
 Write-Host "Journal : $(Join-Path $ici 'agent-amepi.log')"
+Read-Host "Terminé — appuyez sur Entrée pour fermer"
