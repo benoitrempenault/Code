@@ -35,14 +35,17 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
     return rows.map(O.parseSignataire);
   }
   const documentsDe = (offreId) => db.all("SELECT * FROM crm_offre_documents WHERE offre_id = ? ORDER BY created_at", [offreId]);
+  // Les paraphes dessinés, par signataire (data URL PNG).
+  const signaturesDe = async (offreId) => Object.fromEntries((await db.all("SELECT signataire_id, png FROM crm_offre_signatures WHERE offre_id = ?", [offreId])).map((r) => [r.signataire_id, r.png]));
   const eventsDe = (offreId, limite = 80) => db.all("SELECT type, detail, acteur, ip, created_at FROM crm_offre_events WHERE offre_id = ? ORDER BY created_at DESC LIMIT ?", [offreId, limite]);
   async function reglagesDe(agency) {
     const r = await getReglages(db, agency);
     return { reglages: r, ag: r.agence || {}, reg: r.offres };
   }
   // Ce qu'on montre d'un signataire (jamais les hachages ni les codes).
-  const vueSignataire = (s, complet) => ({
+  const vueSignataire = (s, complet, signatures = {}) => ({
     id: s.id, role: s.role, ordre: s.ordre, contactId: s.contact_id, nom: s.nom, prenom: s.prenom,
+    signature: complet ? (signatures[s.id] || "") : "",
     email: s.email, telephone: s.telephone, identite: complet ? s.identite : { civilite: s.identite.civilite, nom: s.identite.nom, prenoms: s.identite.prenoms, societe: !!s.identite.societe, personneMorale: s.identite.personneMorale },
     libelle: O.nomSignataire(s), signeAt: s.signe_at, decision: s.decision, mention: complet ? s.mention : "",
     lienActif: !!s.jeton_hash && s.jeton_expire > now(), lienExpire: s.jeton_expire,
@@ -51,7 +54,7 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
   const vueDocument = (d) => ({ id: d.id, signataireId: d.signataire_id, type: d.type, nom: d.nom, mime: d.mime, taille: d.taille, verifie: !!d.verifie, createdAt: d.created_at });
   const vueOffre = (o) => ({
     id: o.id, numero: o.numero, projetId: o.projet_id, statut: o.statut, statutLibelle: O.STATUTS_LIBELLES[o.statut] || o.statut,
-    conseiller: o.conseiller, conseillerId: o.conseiller_id, bien: o.bien, prix: o.prix, conditions: o.conditions,
+    conseiller: o.conseiller, conseillerId: o.conseiller_id, bien: { ...o.bien, description: O.descriptionBien(o.bien) }, prix: o.prix, conditions: o.conditions,
     financement: o.financement, questionnaire: o.questionnaire, reponse: o.reponse, pdfHash: o.pdf_hash, dossierId: o.dossier_id,
     signeeAt: o.signee_at, presenteeAt: o.presentee_at, reponseAt: o.reponse_at, purgeAt: o.purge_at, purgee: !!o.purgee,
     figee: !!o.pdf_hash, terminee: O.STATUTS_TERMINES.includes(o.statut), createdAt: o.created_at, updatedAt: o.updated_at,
@@ -87,7 +90,7 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
     }
     if (!base) base = await O.construirePdfOffre({ offre: o, offrants, vendeurs, agence: ag, reg });
     const events = await eventsDe(o.id, 60);
-    return O.construirePdfCertificat({ pdfOffre: base, offre: o, offrants, vendeurs, events, agence: ag });
+    return O.construirePdfCertificat({ pdfOffre: base, offre: o, offrants, vendeurs, events, agence: ag, signatures: await signaturesDe(o.id) });
   }
 
   /* ------------------------------- E-mails -------------------------------- */
@@ -202,9 +205,10 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
     const offrants = sigs.filter((s) => s.role === "offrant");
     const acces = accesPieces(ctx, o);
     const { ag, reg } = await reglagesDe(ctx.agency);
+    const signatures = await signaturesDe(o.id);
     return c.json({
       offre: vueOffre(o),
-      signataires: sigs.map((s) => vueSignataire(s, true)),
+      signataires: sigs.map((s) => vueSignataire(s, true, signatures)),
       // Les métadonnées des pièces (nom, type, taille) se voient de tous : le
       // conseiller sait où en est le dossier ; seul le CONTENU est réservé.
       documents: docs.map(vueDocument),
@@ -275,6 +279,60 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
     }
     await O.journal(db, ctx.agency.id, id, "creee", "Offre créée (" + numero + ")", ctx.user.name || ctx.user.email, ipDe(c));
     return c.json({ ok: true, id, numero });
+  });
+
+  // Un offrant de plus (co-acquéreur) : une personne de la base, ajoutée au
+  // projet d'achat et à l'offre — tant que le document n'est pas figé.
+  async function ajouterOffrant(agencyId, o, { contactId, civilite, nom, prenom, email, telephone, identiteBase }) {
+    const sigs = await signatairesDe(o.id);
+    const offrants = sigs.filter((x) => x.role === "offrant");
+    if (offrants.length >= O.OFFRANTS_MAX) return { erreur: `Au plus ${O.OFFRANTS_MAX} offrants.` };
+    if (contactId && offrants.some((x) => x.contact_id === contactId)) return { erreur: "Cette personne est déjà sur l'offre." };
+    const identite = O.sanitizeIdentite({ civilite, nom, prenoms: prenom, email, telephone, ...(identiteBase || {}) });
+    const id = randId("os");
+    await db.run(
+      `INSERT INTO crm_offre_signataires (id, offre_id, agency_id, role, ordre, contact_id, nom, prenom, email, telephone, identite, created_at, updated_at)
+       VALUES (?, ?, ?, 'offrant', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, o.id, agencyId, offrants.length, contactId || "", identite.nom, identite.prenoms, identite.email, identite.telephone, JSON.stringify(identite), now(), now()]);
+    if (contactId && o.projet_id) await db.run("INSERT OR IGNORE INTO crm_projet_contacts (projet_id, contact_id, agency_id) VALUES (?, ?, ?)", [o.projet_id, contactId, agencyId]);
+    return { id, signataire: O.parseSignataire(await db.get("SELECT * FROM crm_offre_signataires WHERE id = ?", [id])) };
+  }
+  app.post("/crm/offres/:id/offrants", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const o = await chargerOffre(ctx.agency.id, c.req.param("id"));
+    if (!o) return err(c, 404, "Offre introuvable.");
+    if (o.pdf_hash || O.STATUTS_TERMINES.includes(o.statut)) return err(c, 409, "L'offre est signée ou terminée : plus d'ajout possible.");
+    const b = await c.req.json().catch(() => ({}));
+    const ct = await db.get("SELECT * FROM crm_contacts WHERE id = ? AND agency_id = ?", [strip(b.contactId, 40), ctx.agency.id]);
+    if (!ct) return err(c, 404, "Contact introuvable.");
+    const r = await ajouterOffrant(ctx.agency.id, o, {
+      contactId: ct.id, civilite: /^mme/i.test(ct.civilite) ? "Madame" : /^m\.?$|^mr/i.test(ct.civilite) ? "Monsieur" : "", nom: ct.nom, prenom: ct.prenom, email: ct.email, telephone: ct.telephone,
+      identiteBase: { adresse: [ct.adresse, [ct.cp, ct.ville].filter(Boolean).join(" ")].filter(Boolean).join(", "), naissance: /^\d{4}-\d{2}-\d{2}$/.test(ct.date_naissance) ? ct.date_naissance : "" },
+    });
+    if (r.erreur) return err(c, 400, r.erreur);
+    await O.journal(db, ctx.agency.id, o.id, "offrant-ajoute", O.nomSignataire(r.signataire) + " ajouté à l'offre", ctx.user.name || ctx.user.email, ipDe(c));
+    // Si l'offre est déjà partie, le nouveau reçoit son lien tout de suite.
+    let envoye = false;
+    if (o.statut === "envoyee" && r.signataire.email) {
+      const { ag } = await reglagesDe(ctx.agency);
+      const lien = await nouveauLien(r.signataire);
+      envoye = !!(await envoyerLienOffrant(ctx.agency, ag, o, r.signataire, lien)).ok;
+      await O.journal(db, ctx.agency.id, o.id, "lien-envoye", `Lien envoyé à ${O.nomSignataire(r.signataire)}${envoye ? "" : " (e-mail non parti)"}`, ctx.user.name || ctx.user.email, ipDe(c));
+    }
+    return c.json({ ok: true, id: r.id, envoye });
+  });
+  app.delete("/crm/offres/:id/signataires/:sid", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const o = await chargerOffre(ctx.agency.id, c.req.param("id"));
+    if (!o) return err(c, 404, "Offre introuvable.");
+    if (o.pdf_hash) return err(c, 409, "L'offre est signée : ses signataires ne changent plus.");
+    const s = (await signatairesDe(o.id)).find((x) => x.id === c.req.param("sid"));
+    if (!s) return err(c, 404, "Signataire introuvable.");
+    if (s.role === "offrant" && (await signatairesDe(o.id)).filter((x) => x.role === "offrant").length <= 1) return err(c, 400, "Une offre garde au moins un offrant.");
+    await db.run("DELETE FROM crm_offre_signataires WHERE id = ?", [s.id]);
+    await db.run("DELETE FROM crm_offre_documents WHERE offre_id = ? AND signataire_id = ?", [o.id, s.id]);
+    await O.journal(db, ctx.agency.id, o.id, "signataire-retire", O.nomSignataire(s), ctx.user.name || ctx.user.email, ipDe(c));
+    return c.json({ ok: true });
   });
 
   // Modification du cadre : possible tant que rien n'est signé (le document
@@ -564,9 +622,11 @@ ${texteA}`) + bouton(lien, "Voir l'offre et son certificat"),
     const derniere = await db.get("SELECT created_at FROM crm_offre_events WHERE offre_id = ? AND type = 'ouverture' AND acteur = ? ORDER BY created_at DESC LIMIT 1", [o.id, O.nomSignataire(s)]);
     if (!derniere || derniere.created_at < now() - 3600) await O.journal(db, agency.id, o.id, "ouverture", s.role === "vendeur" ? "Le vendeur a ouvert l'offre" : "L'acquéreur a ouvert son espace", O.nomSignataire(s), ipDe(c));
     const estOffrant = s.role === "offrant";
+    const signatures = await signaturesDe(o.id);
     return c.json({
       role: s.role,
-      moi: vueSignataire(s, true),
+      moi: vueSignataire(s, true, signatures),
+      peutAjouterOffrant: estOffrant && !o.pdf_hash && !terminee(o) && offrants.length < O.OFFRANTS_MAX,
       offre: {
         numero: o.numero, statut: o.statut, statutLibelle: O.STATUTS_LIBELLES[o.statut] || o.statut, terminee: terminee(o), figee: !!o.pdf_hash,
         bien: o.bien, prix: o.prix, conditions: o.conditions, financement: o.financement, questionnaire: o.questionnaire,
@@ -611,6 +671,28 @@ ${texteA}`) + bouton(lien, "Voir l'offre et son certificat"),
     await majOffre(o.id, champs);
     await O.journal(db, agency.id, o.id, "financement", champs.financement ? "Financement renseigné" : "Questionnaire complété", O.nomSignataire(s), ipDe(c));
     return c.json({ ok: true });
+  });
+
+  // Un co-acquéreur ajouté par l'acquéreur lui-même (conjoint, associé) :
+  // il devient signataire et reçoit son propre lien. Jamais après figeage.
+  app.post("/public/offre/offrants", async (c) => {
+    const { s, o, agency, resp } = await contextePublic(c); if (!s) return resp;
+    if (s.role !== "offrant") return err(c, 403, "Réservé à l'acquéreur.");
+    if (o.pdf_hash || terminee(o)) return err(c, 409, "L'offre est signée : plus d'ajout possible — contactez votre conseiller.");
+    const b = await c.req.json().catch(() => ({}));
+    const nom = strip(b.nom, 80), prenom = strip(b.prenom, 80), email = strip(b.email, 120).toLowerCase(), telephone = strip(b.telephone, 40);
+    if (!nom || !prenom) return err(c, 400, "Nom et prénom du co-acquéreur.");
+    if (!email && !telephone) return err(c, 400, "Un e-mail ou un mobile pour lui envoyer son lien.");
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(c, 400, "Adresse e-mail invalide.");
+    const r = await ajouterOffrant(agency.id, o, { civilite: ["Madame", "Monsieur"].includes(b.civilite) ? b.civilite : "", nom, prenom, email, telephone, identiteBase: { adresse: s.identite.adresse || "" } });
+    if (r.erreur) return err(c, 400, r.erreur);
+    await O.journal(db, agency.id, o.id, "offrant-ajoute", `${O.nomSignataire(r.signataire)} ajouté par ${O.nomSignataire(s)}`, O.nomSignataire(s), ipDe(c));
+    const { ag } = await reglagesDe(agency);
+    const lien = await nouveauLien(r.signataire);
+    const envoi = email ? await envoyerLienOffrant(agency, ag, o, r.signataire, lien) : { ok: false };
+    await O.journal(db, agency.id, o.id, "lien-envoye", `Lien envoyé à ${O.nomSignataire(r.signataire)}${envoi.ok ? "" : " (e-mail non parti : le conseiller le transmettra)"}`, "système");
+    if (!envoi.ok) await prevenirConseiller(agency, ag, o, `Offre ${o.numero} : co-acquéreur à joindre`, `${O.nomSignataire(s)} a ajouté ${O.nomSignataire(r.signataire)} (${telephone || "sans mobile"}) à l'offre ${o.numero}, sans e-mail : transmettez-lui son lien depuis la fiche de l'offre (bouton « Envoyer le lien »).`);
+    return c.json({ ok: true, libelle: O.nomSignataire(r.signataire), envoye: !!envoi.ok });
   });
 
   app.post("/public/offre/documents", async (c) => {
@@ -694,10 +776,13 @@ ${texteA}`) + bouton(lien, "Voir l'offre et son certificat"),
       if (!O.mentionsEquivalentes(O.mentionSansPret(s), mention)) return err(c, 400, "La mention manuscrite ne correspond pas : recopiez-la exactement (c'est elle qui vaut renonciation à la condition de prêt).");
     }
     if (!b.engagement) return err(c, 400, "Cochez la case d'engagement pour signer.");
+    const png = O.signaturePng(b.signature);
+    if (!png) return err(c, 400, "Signez dans le cadre prévu (au doigt ou à la souris) avant de valider.");
     const ko = await verifierOtp(s, b.code);
     if (ko) return err(c, 400, ko);
     const offrants = sigs.filter((x) => x.role === "offrant"), vendeurs = sigs.filter((x) => x.role === "vendeur");
     const hash = await figerSiBesoin(o, offrants, vendeurs, agency);
+    await db.run("INSERT OR REPLACE INTO crm_offre_signatures (signataire_id, offre_id, agency_id, png, created_at) VALUES (?, ?, ?, ?, ?)", [s.id, o.id, agency.id, png.dataUrl, now()]);
     await db.run(
       "UPDATE crm_offre_signataires SET signe_at = ?, signe_ip = ?, signe_ua = ?, signe_hash = ?, mention = ?, otp_hash = '', otp_expire = 0, updated_at = ? WHERE id = ?",
       [now(), ipDe(c), uaDe(c), hash, mention, now(), s.id]);
@@ -724,8 +809,11 @@ ${texteA}`) + bouton(lien, "Voir l'offre et son certificat"),
     const prixContre = decision === "contre" ? O.sanitizeOffre({ prix: b.prix }).prix : 0;
     if (decision === "contre" && !prixContre) return err(c, 400, "Indiquez le prix de votre contre-proposition.");
     if (!b.engagement) return err(c, 400, "Cochez la case de confirmation.");
+    const png = O.signaturePng(b.signature);
+    if (!png) return err(c, 400, "Signez dans le cadre prévu (au doigt ou à la souris) avant de valider.");
     const ko = await verifierOtp(s, b.code);
     if (ko) return err(c, 400, ko);
+    await db.run("INSERT OR REPLACE INTO crm_offre_signatures (signataire_id, offre_id, agency_id, png, created_at) VALUES (?, ?, ?, ?, ?)", [s.id, o.id, agency.id, png.dataUrl, now()]);
     const mention = decision === "contre" ? `Contre-proposition à ${O.euros(prixContre)}` : O.mentionVendeur(s, decision);
     await db.run(
       "UPDATE crm_offre_signataires SET signe_at = ?, signe_ip = ?, signe_ua = ?, signe_hash = ?, mention = ?, decision = ?, otp_hash = '', otp_expire = 0, updated_at = ? WHERE id = ?",

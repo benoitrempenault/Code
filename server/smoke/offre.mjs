@@ -1,12 +1,24 @@
 /* Parcours « offre » : le conseiller crée une offre depuis l'Administration
    (couple), l'envoie ; l'acquéreur ouvre son lien, complète état civil et
-   financement (sans prêt), dépose sa pièce d'identité, tape la mention et
-   signe par code ; le conseiller retrouve l'offre signée. */
+   financement (sans prêt), dépose sa pièce d'identité, tape la mention,
+   dessine sa signature et signe par code ; le conseiller retrouve l'offre
+   signée. Le vendeur accepte de la même façon (tracé + code). */
 import { api, attendreToast, creerAgence, ouvrir, parcours, SITE } from "./lib.mjs";
 import { mkdir } from "node:fs/promises";
 
 // Un PNG minuscule mais valide (en-tête reconnu par le serveur).
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+
+// Un tracé dans le cadre de signature (pointer events sur le canvas).
+async function signerAuPad(page) {
+  const c = page.locator("#padSignature");
+  await c.waitFor({ timeout: 6000 });
+  const b = await c.boundingBox();
+  await page.mouse.move(b.x + 30, b.y + 90);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i++) await page.mouse.move(b.x + 30 + i * 30, b.y + 90 + (i % 2 ? -35 : 35));
+  await page.mouse.up();
+}
 
 export default async function () {
   const admin = await creerAgence("Smoke Offre", "smoke-offre@test.fr");
@@ -30,13 +42,20 @@ export default async function () {
     await page.check(".of-contact:not(:checked)");
     await page.fill("#of-adresse", "12 rue des Lilas"); await page.fill("#of-cp", "33160"); await page.fill("#of-ville", "Saint-Médard-en-Jalles");
     await page.fill("#of-mandat", "2026-118");
-    await page.fill("#of-description", "Maison T4 de 95 m² sur 400 m² de terrain, garage");
+    await page.selectOption("#of-nature", "maison");
+    await page.fill("#of-surface", "95"); await page.fill("#of-pieces", "4"); await page.fill("#of-terrain", "400");
+    await page.fill("#of-cadastre", "section AB n° 123"); await page.fill("#of-complement", "Garage attenant.");
     await page.fill("#of-prix", "224917"); await page.fill("#of-acompte", "5000");
     await page.fill(".of-v-nom >> nth=0", "MARTIN"); await page.fill(".of-v-prenom >> nth=0", "Paul"); await page.fill(".of-v-email >> nth=0", "vendeur@smoke.fr");
     await page.click("#btn-save-offre");
     await attendreToast(page, "Offre OA-.* créée");
     await page.waitForSelector("#btn-of-envoyer", { timeout: 6000 });
     ok((await page.textContent("#modale-titre")).includes("MÜLLER"), "l'offre créée s'ouvre : " + await page.textContent("#modale-titre"));
+    ok(/Une maison à usage d'habitation d'une surface habitable d'environ 95 m², comprenant 4 pièces principales, sur un terrain d'environ 400 m², cadastrée section AB n° 123\. Garage attenant\./.test(await page.textContent("#modale-corps")),
+      "la désignation du bien est composée depuis les champs structurés");
+    // Un clic à côté de la fiche ne la ferme plus (le formulaire de l'offre non plus).
+    await page.mouse.click(4, 4);
+    ok(await page.isVisible("#btn-of-envoyer"), "un clic à côté de la fiche d'offre ne la ferme pas");
     await page.screenshot({ path: captures + "offre-admin.png", fullPage: true });
     await page.click("#btn-of-envoyer");
     await attendreToast(page, "Lien|envoyée");
@@ -52,7 +71,13 @@ export default async function () {
     await page.goto(lien);
     await page.waitForSelector("#parcoursOffrant:not([hidden])", { timeout: 8000 });
     ok((await page.textContent("#recap")).replace(/\s/g, "").includes("224917€"), "la page publique affiche le prix et le bien");
+    ok(await page.isVisible("#btnCoAcq"), "l'acquéreuse peut ajouter un co-acquéreur tant que l'offre n'est pas figée");
     const f = page.locator("#formIdentite");
+    // Le mode « société » (SCI) déplie le bloc personne morale, puis retour en nom propre.
+    await page.check('#formIdentite input[name=societe][value="1"]');
+    ok(await page.isVisible("#blocSociete"), "le choix « au nom d'une société » déplie les champs de la SCI");
+    await page.check('#formIdentite input[name=societe][value="0"]');
+    ok(!(await page.isVisible("#blocSociete")), "retour en nom propre : le bloc société se replie");
     await f.locator("input[name=naissance]").fill("1988-04-12");
     await f.locator("input[name=lieuNaissance]").fill("Bordeaux");
     await f.locator("input[name=profession]").fill("Ingénieure");
@@ -80,13 +105,19 @@ export default async function () {
     await page.waitForFunction(() => /mode test : \d{6}/.test(document.getElementById("msgSignature").textContent), null, { timeout: 8000 });
     const code = /mode test : (\d{6})/.exec(await page.textContent("#msgSignature"))[1];
     await page.fill("#code", code);
+    await page.click("#btnSigner");
+    await page.waitForFunction(() => /Signez dans le cadre/.test(document.getElementById("msgSignature").textContent), null, { timeout: 6000 });
+    ok(true, "sans tracé dans le cadre, la signature est refusée côté page");
+    await signerAuPad(page);
     await page.screenshot({ path: captures + "offre-signature.png", fullPage: true });
     await page.click("#btnSigner");
     await page.waitForFunction(() => /Vous avez signé/.test(document.getElementById("signatureContenu").textContent), null, { timeout: 10000 });
-    ok(true, "Éléonore a signé par code — mention L313-42 tapée, engagement coché");
+    ok(true, "Éléonore a signé par code — mention L313-42 tapée, engagement coché, tracé dessiné");
+    ok(await page.locator("#signatureContenu img.paraphe").count() === 1, "son tracé de signature s'affiche sous la confirmation");
     await page.screenshot({ path: captures + "offre-signee.png", fullPage: true });
     const apres = (await api("/crm/offres/" + offres[0].id, { headers: admin.auth })).json;
     ok(apres.offre.figee && apres.signataires.find((s) => s.id === elle.id).signeAt > 0, "côté agence : document figé, signature d'Éléonore consignée");
+    ok(/^data:image\/png;base64,/.test(apres.signataires.find((s) => s.id === elle.id).signature || ""), "côté agence : le tracé PNG de sa signature est conservé");
 
     // Jean : son lien, son état civil (l'adresse manquait), sa CNI, sa signature.
     const lui = det.signataires.find((s) => s.role === "offrant" && /DUPONT/.test(s.libelle));
@@ -109,6 +140,7 @@ export default async function () {
     await page.click("#btnCode");
     await page.waitForFunction(() => /mode test : \d{6}/.test(document.getElementById("msgSignature").textContent), null, { timeout: 8000 });
     await page.fill("#code", /mode test : (\d{6})/.exec(await page.textContent("#msgSignature"))[1]);
+    await signerAuPad(page);
     await page.click("#btnSigner");
     await page.waitForFunction(() => /L'offre est signée par tous/.test(document.getElementById("signatureContenu").textContent), null, { timeout: 10000 });
     ok(true, "Jean a signé : l'offre est signée par les deux acquéreurs");
@@ -135,10 +167,12 @@ export default async function () {
     await page.click("#btnCode");
     await page.waitForFunction(() => /mode test : \d{6}/.test(document.getElementById("msgSignature").textContent), null, { timeout: 8000 });
     await page.fill("#code", /mode test : (\d{6})/.exec(await page.textContent("#msgSignature"))[1]);
+    await signerAuPad(page);
     await page.screenshot({ path: captures + "offre-vendeur.png", fullPage: true });
     await page.click("#btnRepondre");
     await page.waitForFunction(() => /Vous avez accepté/.test(document.getElementById("reponseContenu").textContent), null, { timeout: 10000 });
     ok(true, "le vendeur a accepté par code");
+    ok(await page.locator("#reponseContenu img.paraphe").count() === 1, "le tracé du vendeur s'affiche sous sa réponse");
     await page.screenshot({ path: captures + "offre-acceptee.png", fullPage: true });
 
     // Le conseiller bascule l'offre acceptée en dossier Suivi.

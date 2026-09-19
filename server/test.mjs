@@ -3468,6 +3468,19 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(nb.status === 200 && /^OA-\d{4}-0001$/.test(nb.json.numero), "offre créée et numérotée (" + (nb.json.numero || nb.json.error) + ")");
   const ofId = nb.json.id;
   const det0 = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
+  ok(det0.offre.bien.description === "Maison T4 de 95 m² sur 400 m² de terrain, garage", "une description libre est reprise telle quelle");
+  const struct = await call("/crm/offres/" + ofId, { method: "PUT", headers: authPaul, body: { bien: { adresse: "12 rue des Lilas", cp: "33160", ville: "Saint-Médard-en-Jalles", mandat: "2026-118", nature: "maison", surface: 95, pieces: 4, terrain: 400, cadastre: "section AB n° 123", complement: "Garage attenant" } } });
+  const detS = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
+  ok(struct.status === 200 && /^Une maison à usage d'habitation d'une surface habitable d'environ 95 m², comprenant 4 pièces principales, sur un terrain d'environ 400 m², cadastrée section AB n° 123\. Garage attenant\.$/.test(detS.offre.bien.description),
+    "la désignation du bien se compose des champs structurés : " + detS.offre.bien.description);
+  ok(detS.paragraphes.some((l) => /^Désignation : Une maison/.test(l.texte)), "…et entre telle quelle dans le texte de l'offre");
+  // Co-acquéreur ajouté par l'agence (personne de la base), puis retiré.
+  const ctL = (await call("/crm/contacts", { method: "PUT", headers: authA, body: { civilite: "M.", nom: "Bernard", prenom: "Luc", email: "luc@exemple.fr", types: ["acquereur"] } })).json;
+  const ajout = await call("/crm/offres/" + ofId + "/offrants", { headers: authPaul, body: { contactId: ctL.id } });
+  ok(ajout.status === 200 && (await call("/crm/offres/" + ofId, { headers: authPaul })).json.signataires.filter((x) => x.role === "offrant").length === 3, "un offrant s'ajoute depuis la base (3 offrants)");
+  ok((await call("/crm/offres/" + ofId + "/offrants", { headers: authPaul, body: { contactId: ctL.id } })).status === 400, "…pas deux fois la même personne");
+  ok((await call("/crm/offres/" + ofId + "/signataires/" + ajout.json.id, { method: "DELETE", headers: authPaul })).status === 200 &&
+     (await call("/crm/offres/" + ofId, { headers: authPaul })).json.signataires.filter((x) => x.role === "offrant").length === 2, "…et se retire tant que rien n'est signé");
   ok(det0.offre.projetId && det0.signataires.filter((s) => s.role === "offrant").length === 2 && det0.signataires.some((s) => s.role === "vendeur"),
     "un projet d'achat a été créé, 2 offrants + 1 vendeur");
   ok(det0.signataires[0].identite.civilite === "Madame" && det0.signataires[0].identite.adresse.includes("Mérignac"), "l'état civil est pré-rempli depuis la fiche contact");
@@ -3493,6 +3506,13 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   const idE = await call("/public/offre/identite", { method: "PUT", headers: hE, body: { civilite: "Madame", nom: "Müller", nomNaissance: "Schmidt", prenoms: "Éléonore", naissance: "1988-04-12", lieuNaissance: "Bordeaux", nationalite: "Française", adresse: "3 allée du Parc, 33700 Mérignac", profession: "Ingénieure", contratTravail: "CDI", employeur: "Thales, Mérignac" } });
   ok(idE.status === 200 && idE.json.manques.length === 0, "état civil d'Éléonore complet");
   ok((await call("/public/offre/identite", { method: "PUT", headers: hJ, body: { civilite: "Monsieur", nom: "Dupont", prenoms: "Jean", naissance: "1985-01-02", lieuNaissance: "Paris", adresse: "3 allée du Parc, 33700 Mérignac" } })).status === 200, "état civil de Jean complet");
+  // Co-acquéreur ajouté par l'acquéreur lui-même, puis retiré par l'agence (le test continue à deux).
+  const coA = await call("/public/offre/offrants", { headers: hE, body: { civilite: "Madame", nom: "Schmidt", prenom: "Anna", email: "anna@exemple.fr" } });
+  ok(coA.status === 200 && /Anna SCHMIDT/.test(coA.json.libelle), "l'acquéreur ajoute un co-acquéreur depuis sa page (lien émis)");
+  ok((await call("/public/offre/offrants", { headers: hE, body: { nom: "X", prenom: "Y" } })).status === 400, "…sans e-mail ni mobile : refus");
+  ok((await call("/public/offre", { headers: hE })).json.pieces.filter((p) => p.type === "identite").length === 3, "…une pièce d'identité de plus est attendue");
+  const annaId = (await call("/crm/offres/" + ofId, { headers: authPaul })).json.signataires.find((x) => /SCHMIDT/.test(x.libelle)).id;
+  await call("/crm/offres/" + ofId + "/signataires/" + annaId, { method: "DELETE", headers: authPaul });
   // Financement SANS prêt (la mention L313-42 devient obligatoire) + notaire.
   const fin = await call("/public/offre/financement", { method: "PUT", headers: hE, body: { financement: { sansPret: true, apport: 224917, apportOrigine: "vente d'un appartement" }, questionnaire: { situation: "marie", mariage: { date: "2015-06-20", lieu: "Bordeaux", regime: "communauté réduite aux acquêts", contrat: false }, notaire: { etude: "Me Durand", adresse: "Bordeaux", email: "durand@notaires.fr" } } } });
   ok(fin.status === 200, "financement comptant + questionnaire enregistrés");
@@ -3503,6 +3523,7 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   // Dépôt de pièces : formats vérifiés sur les octets, pas sur l'extension.
   const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(80).fill(0)]);
   const HTML = new TextEncoder().encode("<html><script>alert(1)</script></html>" + " ".repeat(80));
+  const PARAPHE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
   const refus = await callRaw("/public/offre/documents?type=identite&nom=cni.png", { headers: hE, body: HTML });
   ok(refus.status === 400 && /Format refusé/.test(refus.json.error), "un fichier HTML déguisé en .png est refusé");
   ok((await callRaw("/public/offre/documents?type=inconnu&nom=x.png", { headers: hE, body: PNG })).status === 400, "type de pièce inconnu refusé");
@@ -3512,20 +3533,23 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(depDom.status === 200 && depDom.json.document.signataireId === "", "justificatif de domicile déposé par Jean (pièce du ménage)");
 
   // Signature d'Éléonore : OTP, mention, engagement.
-  ok((await call("/public/offre/signer", { headers: hE, body: { code: "000000", mention: pubE2.mention, engagement: true } })).status === 400, "signer sans code demandé → refus");
+  ok((await call("/public/offre/signer", { headers: hE, body: { code: "000000", mention: pubE2.mention, engagement: true, signature: PARAPHE } })).status === 400, "signer sans code demandé → refus");
   const otpE = await call("/public/offre/otp", { headers: hE, body: {} });
   ok(otpE.status === 200 && /^\d{6}$/.test(otpE.json.dev_code || ""), "code OTP émis (6 chiffres, révélé en mode dev)");
-  const sigKo = await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: "je renonce", engagement: true } });
+  const sigKo = await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: "je renonce", engagement: true, signature: PARAPHE } });
   ok(sigKo.status === 400 && /mention/i.test(sigKo.json.error), "mention manuscrite tronquée → refus");
-  const sigKo2 = await call("/public/offre/signer", { headers: hE, body: { code: "123456", mention: pubE2.mention, engagement: true } });
+  const sigKo2 = await call("/public/offre/signer", { headers: hE, body: { code: "123456", mention: pubE2.mention, engagement: true, signature: PARAPHE } });
   ok(sigKo2.status === 400 && /incorrect/.test(sigKo2.json.error), "mauvais code → refus");
-  const sigE = await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""), engagement: true } });
-  ok(sigE.status === 200 && sigE.json.tousSignes === false && sigE.json.restent.length === 1, "Éléonore a signé (mention tapée sans accents acceptée) — reste Jean");
+  const sansParaphe = await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention, engagement: true } });
+  ok(sansParaphe.status === 400 && /Signez dans le cadre/.test(sansParaphe.json.error), "pas de signature dessinée → refus (le code n'est pas consommé)");
+  ok((await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention, engagement: true, signature: "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=" } })).status === 400, "un SVG à la place du PNG → refus");
+  const sigE = await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""), engagement: true, signature: PARAPHE } });
+  ok(sigE.status === 200 && sigE.json.tousSignes === false && sigE.json.restent.length === 1, "Éléonore a signé (mention tapée sans accents acceptée) — reste Jean" + (sigE.status !== 200 ? " [" + JSON.stringify(sigE.json) + "]" : " restent=" + JSON.stringify(sigE.json.restent)));
   const apresE = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
   ok(apresE.offre.figee && apresE.offre.pdfHash.length === 64 && apresE.events.some((e) => e.type === "figee"), "le document est figé à la première signature (empreinte SHA-256)");
   ok((await call("/crm/offres/" + ofId, { method: "PUT", headers: authPaul, body: { prix: 200000 } })).status === 409, "le conseiller ne peut plus modifier l'offre après signature");
   ok((await call("/public/offre/financement", { method: "PUT", headers: hJ, body: { financement: { sansPret: false, pret: 100000, duree: 20 } } })).status === 409, "le financement ne bouge plus non plus");
-  ok((await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention, engagement: true } })).status === 409, "signer deux fois : refus");
+  ok((await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention, engagement: true, signature: PARAPHE } })).status === 409, "signer deux fois : refus");
 
   // Jean : bloqué tant que SA pièce d'identité n'est pas déposée.
   const otpJko = await call("/public/offre/otp", { headers: hJ, body: {} });
@@ -3533,11 +3557,13 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok((await callRaw("/public/offre/documents?type=identite&nom=cni-jean.png", { headers: hJ, body: PNG })).status === 200, "CNI de Jean déposée");
   const otpJ = await call("/public/offre/otp", { headers: hJ, body: {} });
   const mentionJ = (await call("/public/offre", { headers: hJ })).json.mention;
-  const sigJ = await call("/public/offre/signer", { headers: hJ, body: { code: otpJ.json.dev_code, mention: mentionJ, engagement: true } });
+  const sigJ = await call("/public/offre/signer", { headers: hJ, body: { code: otpJ.json.dev_code, mention: mentionJ, engagement: true, signature: PARAPHE } });
   ok(sigJ.status === 200 && sigJ.json.tousSignes === true, "Jean a signé : l'offre est signée par les deux");
   const signee = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
   ok(signee.offre.statut === "signee" && signee.signataires.filter((s) => s.role === "offrant").every((s) => s.signeAt > 0 && s.mention), "statut : signée, les deux mentions L313-42 consignées");
   ok(signee.signataires.every((s) => s.identite.signeHash === undefined && !("otp_hash" in s)), "aucun hachage ni code n'est exposé à l'agence");
+  ok(signee.signataires.filter((s) => s.role === "offrant").every((s) => s.signature === PARAPHE), "les paraphes dessinés sont rendus à l'agence (fiche de l'offre)");
+  ok((await call("/public/offre", { headers: hJ })).json.moi.signature === PARAPHE, "…et à leur auteur sur la page publique");
 
   console.log("— Offres d'achat : accès aux pièces, PDF, présentation au vendeur, réponse, dossier Suivi");
   const docId = depE.json.document.id;
@@ -3559,11 +3585,11 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok((await callRaw("/public/offre/documents?type=identite&nom=x.png", { headers: hV, body: PNG })).status === 403, "ni au dépôt de pièces");
   const otpV = await call("/public/offre/otp", { headers: hV, body: {} });
   ok(otpV.status === 200 && otpV.json.dev_code, "code OTP du vendeur émis");
-  const rep = await call("/public/offre/repondre", { headers: hV, body: { code: otpV.json.dev_code, decision: "accepte", engagement: true } });
+  const rep = await call("/public/offre/repondre", { headers: hV, body: { code: otpV.json.dev_code, decision: "accepte", engagement: true, signature: PARAPHE } });
   ok(rep.status === 200 && rep.json.conclue && rep.json.statut === "acceptee", "le vendeur accepte : offre acceptée");
   const acc = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
   ok(acc.offre.statut === "acceptee" && acc.offre.purgeAt > 0 && acc.offre.reponse.mode === "electronique", "réponse électronique consignée, purge des pièces programmée");
-  ok((await call("/public/offre/repondre", { headers: hV, body: { code: otpV.json.dev_code, decision: "refuse", engagement: true } })).status === 409, "le vendeur ne répond qu'une fois");
+  ok((await call("/public/offre/repondre", { headers: hV, body: { code: otpV.json.dev_code, decision: "refuse", engagement: true, signature: PARAPHE } })).status === 409, "le vendeur ne répond qu'une fois");
 
   const dos = await call("/crm/offres/" + ofId + "/dossier", { headers: authPaul, body: {} });
   ok(dos.status === 200 && dos.json.id.startsWith("do_") && /MARTIN \/ M.LLER & DUPONT/.test(dos.json.name), "dossier Studio Suivi créé : " + dos.json.name);

@@ -38,10 +38,28 @@
     <div id="parcoursOffrant" hidden>
       <nav class="jalons" id="jalons"></nav>
 
+      <section class="etape" id="etapeAcquereurs">
+        <h2><span class="num">1</span> Qui achète ?</h2>
+        <p class="aide">Toute personne qui achète avec vous doit signer l'offre : ajoutez-la ici, elle recevra son propre lien.</p>
+        <div id="listeAcquereurs" class="acquereurs"></div>
+        <div id="zoneCoAcquereur"></div>
+      </section>
+
       <section class="etape" id="etapeIdentite">
-        <h2><span class="num">1</span> Votre état civil</h2>
+        <h2><span class="num">2</span> Votre état civil</h2>
         <p class="aide">Tel qu'il figurera sur l'offre puis sur le compromis. Vérifiez l'orthographe : ces informations sont reprises par le notaire.</p>
         <form id="formIdentite" autocomplete="on">
+          <div class="radios grand" id="modeAchat">
+            <label><input type="radio" name="societe" value="0" checked /> J'achète en mon nom</label>
+            <label><input type="radio" name="societe" value="1" /> J'achète au nom d'une société (SCI, SAS…)</label>
+          </div>
+          <div class="grid" id="blocSociete" hidden>
+            <label>Nom de la société<input name="pmNom" maxlength="120" /></label>
+            <label>Forme (SCI, SAS…)<input name="pmForme" maxlength="40" /></label>
+            <label>N° RCS<input name="pmRcs" maxlength="80" /></label>
+            <label class="plein">Siège social<input name="pmSiege" maxlength="200" /></label>
+          </div>
+          <p class="aide" id="aideSociete" hidden>Vous signez en tant que représentant de la société : votre état civil ci-dessous reste nécessaire. Joignez le K-bis, les statuts et la délibération autorisant l'achat dans les pièces.</p>
           <div class="grid">
             <div class="radios"><label><input type="radio" name="civilite" value="Madame" /> Madame</label><label><input type="radio" name="civilite" value="Monsieur" /> Monsieur</label></div>
             <label>Nom d'usage<input name="nom" maxlength="80" required autocomplete="family-name" /></label>
@@ -58,19 +76,12 @@
             <label class="plein">Nom et adresse de l'employeur<input name="employeur" maxlength="200" /></label>
           </div>
           <label class="case"><input type="checkbox" name="residenceFiscale" checked /> Ma résidence fiscale est en France</label>
-          <label class="case"><input type="checkbox" name="societe" id="chkSociete" /> J'achète au nom d'une société (SCI…)</label>
-          <div class="grid" id="blocSociete" hidden>
-            <label>Nom de la société<input name="pmNom" maxlength="120" /></label>
-            <label>Forme (SCI, SAS…)<input name="pmForme" maxlength="40" /></label>
-            <label>N° RCS<input name="pmRcs" maxlength="80" /></label>
-            <label class="plein">Siège social<input name="pmSiege" maxlength="200" /></label>
-          </div>
           <div class="barre"><button type="submit" class="btn">Enregistrer mon état civil</button><span class="aide" id="msgIdentite"></span></div>
         </form>
       </section>
 
       <section class="etape" id="etapeFinancement">
-        <h2><span class="num">2</span> Votre financement et votre situation</h2>
+        <h2><span class="num">3</span> Votre financement et votre situation</h2>
         <p class="aide">Ces éléments entrent dans l'offre (condition suspensive de prêt) et préparent le compromis. Ils sont communs aux personnes qui achètent ensemble.</p>
         <form id="formFinancement">
           <div class="radios grand">
@@ -123,7 +134,7 @@
       </section>
 
       <section class="etape" id="etapePieces">
-        <h2><span class="num">3</span> Vos pièces justificatives</h2>
+        <h2><span class="num">4</span> Vos pièces justificatives</h2>
         <p class="aide">Photographiez ou téléchargez chaque document (PDF, JPEG, PNG — 10 Mo max par fichier, les photos sont réduites automatiquement). Elles sont transmises de façon sécurisée à votre conseiller et effacées 90 jours après la fin de l'offre.</p>
         <div id="pieces"></div>
         <input type="file" id="fichier" accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,application/pdf,image/*" hidden />
@@ -131,7 +142,7 @@
       </section>
 
       <section class="etape" id="etapeSignature">
-        <h2><span class="num">4</span> Signature</h2>
+        <h2><span class="num">5</span> Signature</h2>
         <div id="signatureContenu"></div>
       </section>
     </div>
