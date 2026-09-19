@@ -396,6 +396,26 @@ table `crm_agent_keys` (hash, usage amepi, une active par agence),
 fois, révocable) ; GET /crm/amepi renvoie `agent` (label, last_used). La lecture
 des champs reste serveur (mapperMandat) : l'agent n'a jamais besoin d'être mis à
 jour pour un champ.
+**AMEPI en production (19/09)** : la VRAIE adresse d'Amanda est
+`https://agglomeration-bordelaise.amanda.team` (amepi.info affiche la même page
+mais refuse tout mot de passe — c'était la cause des refus, pas le réseau). Agent
+installé sur le PC de Benoît : premier relevé complet = 13 548 biens (sources 1,2,3,
+toute l'agglomération, 136 pages de 100 en ~3 min). Leçons Windows : scripts .ps1
+en UTF-8 **avec BOM** + CRLF (sinon PowerShell 5.1 lit en ANSI et un tiret long
+devient un guillemet : « terminateur manquant »), pas de « — » dans les chaînes ;
+lanceurs `INSTALLER.cmd` / `RELEVER-MAINTENANT.cmd` (`-ExecutionPolicy Bypass -NoExit`) ;
+`installer.ps1` adopte un `config.exemple.json` rempli (clé `ak_`) si config.json
+manque et `Unblock-File` le dossier ; l'agent corrige de lui-même un `amepi_base`
+en amepi.info ; corps de connexion = formulaire exact (Email/Password en double,
+SelectedAgency 0 puis l'agence de `/api/getMainAgency?login=` en secours) ; un 401
+nomme le serveur (Studio = clé remplacée, Amanda). Plafond 400 pages. L'archive
+`administration/agent-amepi.zip` est construite par pages.yml depuis tools/
+(sans config.json) : bouton 📦 séparé du bouton « 🔑 Nouvelle clé » (ouvrir la
+fenêtre de clé régénérait la clé et invalidait config.json). À 13 000 biens :
+`preparerStock()` (formes normalisées + index par ville) et `candidatsPour()`
+dans rapprochements/runRelances, `MATCHES_MAX` 40 par projet (+ `total`),
+GET /crm/amepi renvoie compteurs + 150 en vente + 50 autres statuts, et le cron
+saute `syncAmepi` quand une clé d'agent a servi depuis 3 jours.
 **Maisons dessinées + signets (carte, 15/09)** : `GET /crm/batiments?bbox=minLng,
 minLat,maxLng,maxLat` (membre) relaie le WFS IGN BD TOPO (`BATIMENTS_BASE`,
 CRS:84, COUNT 3000, bbox ≤ 0,02°×0,012°) et renvoie `{batiments:[{id, nature,

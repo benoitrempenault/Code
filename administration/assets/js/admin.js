@@ -1014,8 +1014,8 @@
       ? "Agent : clé active" + (d.agent.last_used ? ", dernier dépôt le " + new Date(d.agent.last_used * 1000).toLocaleString("fr-FR") : ", jamais utilisée") + ". "
       : "Agent : aucune clé — cliquez « 🔑 Clé de l'agent ». ";
     etat.textContent = agent +
-      (d.biens.length
-        ? d.enVente + " bien(s) en vente sur " + d.biens.length + " connus" +
+      (d.total
+        ? d.enVente + " bien(s) en vente sur " + d.total + " connus" +
           (e.fini_le ? " — dernier relevé complet le " + new Date(e.fini_le * 1000).toLocaleString("fr-FR") : "") +
           (e.page ? " — relevé en cours (page " + e.page + ")" : "") + (e.erreur ? " — dernière erreur : " + e.erreur : "")
         : "Aucun bien relevé pour l'instant." + (e.erreur ? " Dernière erreur : " + e.erreur : ""));
@@ -1209,7 +1209,7 @@
       (nomsDe(p.contacts) + " " + (p.villes || []).join(" ") + " " + (p.types || []).join(" ") + " " +
        (p.notes || "") + " " + p.contacts.map((c) => c.email + " " + c.conseiller).join(" ")).toLowerCase().includes(q);
     const achats = projets.filter((p) => p.kind === "achat" && duConseiller(p.contacts) && matchQ(p));
-    const matchesDe = new Map(rapproch.map((r) => [r.projetId, r.matches.length]));
+    const matchesDe = new Map(rapproch.map((r) => [r.projetId, (r.total ?? r.matches.length)]));
     if (!achats.length) {
       zone.innerHTML = '<div class="vide">Aucun projet d\'achat pour l\'instant. Créez-en un et reliez-y la ou les personnes (un couple = deux fiches contact, un seul projet).</div>';
     } else {
@@ -1236,7 +1236,7 @@
             '<a href="' + escH(m.url) + '" target="_blank" rel="noopener" style="color:inherit; text-decoration:none;">' +
             '<span class="puce' + (m.source === "amepi" ? " amepi" : "") + '"' + (m.source === "amepi" ? ' title="Bien du fichier AMEPI — mandat détenu par ' + escH(m.agence || "un confrère") + '"' : "") + ">" +
             (m.source === "amepi" ? "🤝 " : "") + escH(m.titre) + " — " + fmtPrix(m.prix) + (m.source === "amepi" && m.agence ? " · " + escH(m.agence) : "") + "</span></a>").join(" ") +
-          (r.matches.length > 6 ? ' <span class="puce grise">+' + (r.matches.length - 6) + "</span>" : "") +
+          ((r.total ?? r.matches.length) > 6 ? ' <span class="puce grise">+' + ((r.total ?? r.matches.length) - 6) + "</span>" : "") +
           "</td></tr>").join("") +
         "</tbody></table></div>"
       : '<div class="vide">Aucun rapprochement pour l\'instant — créez des projets d\'achat avec leurs critères.</div>';

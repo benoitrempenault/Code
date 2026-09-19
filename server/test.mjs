@@ -3178,6 +3178,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(rapA && rapA.matches.some((m) => m.id === "amepi:501" && m.source === "amepi" && m.agence === "Agence Confrère A"),
      "le rapprochement propose le bien du confrère, signalé AMEPI avec le nom de l'agence");
   ok(!rapA.matches.some((m) => m.id === "amepi:503"), "un bien sous compromis n'est pas proposé");
+  ok(rapA.total === rapA.matches.length && rapA.matches.length <= 40, "la vue porte le total des rapprochements et plafonne la liste à 40");
   // Sans le réglage « relance », la relance automatique ignore les biens AMEPI.
   const mailsAvantA = mailsRecus.length;
   await callR("/crm/acheteurs/run", { headers: auth, method: "POST", body: {} });

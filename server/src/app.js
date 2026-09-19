@@ -1290,10 +1290,18 @@ export function createApp(env) {
   app.get("/crm/amepi", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const reglages = await CRM.getReglages(db, ctx.agency);
-    const biens = await AMEPI.listerAmepi(db, ctx.agency.id, "");
+    // 13 000 biens : on ne renvoie que les compteurs et les 150 premiers en vente.
+    const compte = await db.get(
+      "SELECT COUNT(*) AS total, SUM(CASE WHEN statut = 'en_vente' THEN 1 ELSE 0 END) AS en_vente FROM crm_amepi WHERE agency_id = ?", [ctx.agency.id]);
+    // en vente d'abord (150), puis les autres statuts récents (compromis,
+    // retirés — 50) : de quoi voir le mouvement sans tout rapatrier.
+    const biens = await db.all(
+      "SELECT * FROM crm_amepi WHERE agency_id = ? AND statut = 'en_vente' ORDER BY last_seen DESC, prix DESC LIMIT 150", [ctx.agency.id]);
+    const autres = await db.all(
+      "SELECT * FROM crm_amepi WHERE agency_id = ? AND statut <> 'en_vente' ORDER BY last_seen DESC LIMIT 50", [ctx.agency.id]);
     const cle = await db.get("SELECT label, created_at, last_used FROM crm_agent_keys WHERE agency_id = ? AND usage = 'amepi' AND revoked = 0", [ctx.agency.id]);
     return c.json({ configure: AMEPI.amepiConfigure(env), reglages: reglages.amepi, etat: await AMEPI.etatAmepi(db, ctx.agency.id),
-      agent: cle || null, biens, enVente: biens.filter((b) => b.statut === "en_vente").length });
+      agent: cle || null, biens: biens.concat(autres), total: compte?.total || 0, enVente: compte?.en_vente || 0 });
   });
   app.post("/crm/amepi/sync", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;

@@ -1705,18 +1705,38 @@ export function matchAnnonce(recherche, annonce) {
   if (annonce.statut !== "en_vente") return false;
   if (recherche.budget_max && annonce.prix && annonce.prix > recherche.budget_max) return false;
   if (recherche.budget_min && annonce.prix && annonce.prix < recherche.budget_min) return false;
-  const types = jsonArr(recherche.types).map(sansAccents);
+  const types = recherche._types || jsonArr(recherche.types).map(sansAccents);
   if (types.length) {
-    const t = sansAccents(annonce.type);
+    const t = annonce._type ?? sansAccents(annonce.type);
     const connu = ["maison", "appartement", "terrain"].includes(t);
     if (!(types.includes(t) || (types.includes("autre") && !connu))) return false;
   }
-  const villes = jsonArr(recherche.villes).map(sansAccents);
-  if (villes.length && !villes.includes(sansAccents(annonce.ville))) return false;
+  const villes = recherche._villes || jsonArr(recherche.villes).map(sansAccents);
+  if (villes.length && !villes.includes(annonce._ville ?? sansAccents(annonce.ville))) return false;
   if (recherche.pieces_min && (annonce.pieces || 0) < recherche.pieces_min) return false;
   if (recherche.surface_min && (annonce.surface || 0) < recherche.surface_min) return false;
   return true;
 }
+
+// À 13 000 biens AMEPI, comparer chaque projet à tout le stock coûte trop
+// cher au Worker : les formes normalisées sont calculées UNE fois, et un
+// index par ville ne présente à chaque projet que les biens de ses secteurs.
+function preparerStock(annonces) {
+  const parVille = new Map();
+  for (const a of annonces) {
+    a._type = sansAccents(a.type); a._ville = sansAccents(a.ville);
+    if (!parVille.has(a._ville)) parVille.set(a._ville, []);
+    parVille.get(a._ville).push(a);
+  }
+  return { annonces, parVille };
+}
+function candidatsPour(projet, stock) {
+  projet._types = jsonArr(projet.types).map(sansAccents);
+  projet._villes = jsonArr(projet.villes).map(sansAccents);
+  if (!projet._villes.length) return stock.annonces;
+  return projet._villes.flatMap((v) => stock.parVille.get(v) || []);
+}
+const MATCHES_MAX = 40; // par projet dans la vue « rapprochements »
 
 // Vue « rapprochements du moment » : pour chaque projet d'achat actif, les
 // biens en vente qui collent aux criteres du projet.
@@ -1729,14 +1749,18 @@ export async function rapprochements(db, agency) {
   // Les biens des confrères (AMEPI) rejoignent la vue, signalés comme tels.
   const reglages = await getReglages(db, agency);
   if (reglages.amepi.enabled) annonces.push(...(await listerAmepi(db, agency.id)).map(commeAnnonce));
-  return projets.map((p) => ({
-    projetId: p.id,
-    contacts: p.contacts.map((c) => ({ id: c.id, nom: c.nom, prenom: c.prenom, conseiller: c.conseiller })),
-    matches: annonces.filter((a) => matchAnnonce(p, a))
-      .sort((a, b) => (a.source === "amepi") - (b.source === "amepi") || (b.first_seen || 0) - (a.first_seen || 0))
-      .map((a) => ({ id: a.id, titre: a.titre, prix: a.prix, ville: a.ville, image: a.image, url: a.url,
+  const stock = preparerStock(annonces);
+  return projets.map((p) => {
+    const matches = candidatsPour(p, stock).filter((a) => matchAnnonce(p, a))
+      .sort((a, b) => (a.source === "amepi") - (b.source === "amepi") || (b.first_seen || 0) - (a.first_seen || 0));
+    return {
+      projetId: p.id,
+      contacts: p.contacts.map((c) => ({ id: c.id, nom: c.nom, prenom: c.prenom, conseiller: c.conseiller })),
+      total: matches.length,
+      matches: matches.slice(0, MATCHES_MAX).map((a) => ({ id: a.id, titre: a.titre, prix: a.prix, ville: a.ville, image: a.image, url: a.url,
         source: a.source || "site", agence: a.agence || "" })),
-  }));
+    };
+  });
 }
 
 // E-mail de relance : une carte par bien, les baisses mises en avant.
@@ -1815,8 +1839,9 @@ export async function runRelances(env, db, agency, reglages) {
 
   const summary = { date: isoDay, mails: 0, biens: 0, errors: 0, reportes: 0, details: [] };
   const journal = [];
+  const stock = preparerStock(annonces);
   for (const p of projets) {
-    const matches = annonces.filter((a) => matchAnnonce(p, a));
+    const matches = candidatsPour(p, stock).filter((a) => matchAnnonce(p, a));
     if (!matches.length) continue;
     for (const contact of p.contacts) {
       if (!contact.email || contact.optOut) continue;
@@ -2645,9 +2670,17 @@ export async function runCrmDaily(env, db) {
         catch (e) { r.estimationsError = e.message; }
       }
       // Le fichier des mandats AMEPI, par pages (le curseur reprend la nuit suivante).
+      // Quand un agent installé à l'agence dépose le fichier (clé utilisée
+      // ces 3 derniers jours), le serveur ne tente pas sa propre connexion.
       if (reglages.amepi.enabled && amepiConfigure(env)) {
-        try { r.amepi = await syncAmepi(env, db, agency, reglages); }
-        catch (e) { r.amepiError = e.message; }
+        const agent = await db.get(
+          "SELECT last_used FROM crm_agent_keys WHERE agency_id = ? AND usage = 'amepi' AND revoked = 0 AND last_used > ?",
+          [agency.id, now() - 3 * 86400]);
+        if (agent) r.amepi = { agent: true };
+        else {
+          try { r.amepi = await syncAmepi(env, db, agency, reglages); }
+          catch (e) { r.amepiError = e.message; }
+        }
       }
       // Les ventes du Suivi rejoignent la carte toutes seules, un lot par nuit.
       // 12 max : chaque adresse peut coûter 2 appels (BAN + IGN) et le cron
