@@ -13,8 +13,15 @@ const db = await createNodeDb(process.env.DB_PATH || "studio.sqlite", schema);
 // Équivalent local du bucket R2 (contenu des brochures) : simple Map en mémoire.
 const filesMem = new Map();
 const files = {
-  async put(k, v) { filesMem.set(k, String(v)); },
-  async get(k) { return filesMem.has(k) ? { text: async () => filesMem.get(k) } : null; },
+  async put(k, v) { filesMem.set(k, v); },
+  async get(k) {
+    if (!filesMem.has(k)) return null;
+    const v = filesMem.get(k);
+    return {
+      text: async () => (typeof v === "string" ? v : new TextDecoder().decode(v)),
+      arrayBuffer: async () => (typeof v === "string" ? new TextEncoder().encode(v).buffer : v)
+    };
+  },
   async delete(k) { filesMem.delete(k); }
 };
 const app = createApp({
@@ -38,6 +45,7 @@ const app = createApp({
   BAN_BASE: process.env.BAN_BASE || "",
   BATIMENTS_BASE: process.env.BATIMENTS_BASE || "",
   MAIL_FROM: process.env.MAIL_FROM || "",
+  OFFRE_BASE: process.env.OFFRE_BASE || "",
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || "",
   AI_MODELS: process.env.AI_MODELS || "",
   AI_RATE_PER_MIN: process.env.AI_RATE_PER_MIN || "",

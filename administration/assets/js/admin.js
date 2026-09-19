@@ -988,6 +988,13 @@
     $("ag-logo").value = reglages.agence.logoUrl || "";
     $("ag-signataire").value = reglages.agence.signataire || "";
     $("ag-fonction").value = reglages.agence.fonction || "";
+    const of = reglages.offres || {};
+    $("ofr-entete").value = of.entete || "";
+    $("ofr-representant").value = of.representant || "";
+    $("ofr-lieu").value = of.lieu || "";
+    $("ofr-rgpd").value = of.rgpdAdresse || "";
+    $("ofr-validite").value = of.validiteJours || 7;
+    $("ofr-avant-contrat").value = of.avantContratJours || 30;
     const am = reglages.amepi || {};
     $("amepi-enabled").checked = !!am.enabled;
     $("amepi-relance").checked = !!am.relance;
@@ -1269,6 +1276,7 @@
       "</select></label></div>" +
       (projetId && estAchat ? '<div id="p-activite" style="border-top:1px solid var(--line); margin-top:14px; padding-top:4px;"><p class="petit">Activité du projet…</p></div>' : ""),
       (p ? '<button class="btn btn-danger" id="btn-suppr-projet">Supprimer</button>' : "") +
+      (projetId && estAchat ? '<button class="btn" id="btn-offre-projet" title="Préparer une offre d\'achat pour ce projet">📝 Faire une offre</button>' : "") +
       '<button class="btn" id="btn-annuler-projet">Annuler</button>' +
       '<button class="btn btn-or" id="btn-save-projet">Enregistrer</button>');
     rendreListeContacts();
@@ -1279,6 +1287,7 @@
       if (cb) { if (cb.checked) lies.add(cb.value); else lies.delete(cb.value); }
     });
     $("btn-annuler-projet").addEventListener("click", fermerModale);
+    if ($("btn-offre-projet")) $("btn-offre-projet").addEventListener("click", () => ouvrirOffreForm(null, projetId));
     $("btn-save-projet").addEventListener("click", async () => {
       const contactIds = [...lies]; // les coches vivent dans `lies`, même hors filtre
       if (!contactIds.length) { toast("Reliez au moins une personne au projet.", true); return; }
@@ -1751,6 +1760,373 @@
     btn.disabled = false;
   }
 
+
+  /* -------------------------------- Offres --------------------------------- */
+  // La prise d'offre d'achat : liste, création depuis un projet d'achat (ou
+  // des personnes), fiche détaillée (offrants, vendeurs, pièces, journal),
+  // envoi du lien, présentation au vendeur, réponse, bascule vers Suivi.
+  let offres = [];
+  const OFFRE_STATUTS = {
+    brouillon: ["Brouillon", "grise"], envoyee: ["Envoyée", ""], signee: ["Signée — à présenter", "verte"],
+    presentee: ["Présentée au vendeur", ""], acceptee: ["Acceptée 🎉", "verte"], refusee: ["Refusée", "rouge"],
+    contre_offre: ["Contre-proposition", "amepi"], expiree: ["Expirée", "grise"], retiree: ["Retirée", "grise"],
+  };
+  const puceStatut = (st) => { const [l, c] = OFFRE_STATUTS[st] || [st, "grise"]; return '<span class="puce ' + c + '">' + escH(l) + "</span>"; };
+  const isoPlus = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  const nomsOffrants = (o) => (o.offrants || []).map((s) => s.libelle).join(" et ");
+  async function chargerOffres() {
+    try {
+      offres = (await api("/crm/offres")).offres;
+      rendreOffres();
+    } catch (e) { $("table-offres").innerHTML = '<div class="vide">' + escH(e.message) + "</div>"; }
+  }
+  // Clé d'un bien : adresse + ville, sans casse ni accents ni ponctuation —
+  // deux offres saisies « 12 rue des Lilas » et « 12, Rue des lilas » se
+  // retrouvent ensemble.
+  const cleBien = (b) => ((b.adresse || "") + " " + (b.ville || "")).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const autresOffresSurLeBien = (o) => offres.filter((x) => x.id !== o.id && cleBien(x.bien) === cleBien(o.bien));
+  let offresParBien = false;
+  function rendreOffres() {
+    const zone = $("table-offres");
+    const st = $("offres-filtre").value, q = ($("offres-recherche").value || "").toLowerCase().trim();
+    const liste = offres.filter((o) => (!st || o.statut === st) &&
+      (!q || (o.numero + " " + nomsOffrants(o) + " " + o.bien.adresse + " " + o.bien.ville + " " + o.conseiller + " " + (o.vendeurs || []).map((v) => v.libelle).join(" ")).toLowerCase().includes(q)));
+    $("btn-offres-par-bien").classList.toggle("btn-or", offresParBien);
+    if (!liste.length) { zone.innerHTML = '<div class="vide">' + (offres.length ? "Aucune offre ne correspond." : "Aucune offre pour l'instant. « + Nouvelle offre » part d'un projet d'achat ou d'une personne.") + "</div>"; return; }
+    if (offresParBien) {
+      // Une carte par bien, ses offres dans l'ordre de création : n°, qui,
+      // combien, quand elle a été signée, présentée, répondue.
+      const groupes = new Map();
+      for (const o of liste) { const k = cleBien(o.bien); if (!groupes.has(k)) groupes.set(k, []); groupes.get(k).push(o); }
+      const jalon = (ts) => (ts ? fmtTs(ts) : "—");
+      zone.innerHTML = [...groupes.values()].sort((a, b) => b.length - a.length || b[0].updatedAt - a[0].updatedAt).map((g) => {
+        const b = g[0].bien;
+        const parDate = g.slice().sort((x, y) => x.createdAt - y.createdAt);
+        return '<div class="carte" style="margin-bottom:12px;"><h2 style="font-size:16px;">' + escH(b.adresse) + (b.ville ? " — " + escH(b.ville) : "") +
+          ' <span class="puce' + (g.length > 1 ? " amepi" : " grise") + '">' + g.length + " offre" + (g.length > 1 ? "s" : "") + "</span>" +
+          (b.prixAffiche ? ' <span class="puce grise">affiché ' + fmtPrix(b.prixAffiche) + "</span>" : "") + "</h2>" +
+          '<div class="tableau-cadre"><table><thead><tr><th>Ordre</th><th>N°</th><th>Acquéreur(s)</th><th>Prix</th><th>Créée</th><th>Signée</th><th>Présentée au vendeur</th><th>Réponse</th><th>Statut</th></tr></thead><tbody>' +
+          parDate.map((o, i) => '<tr class="cliquable" data-offre="' + o.id + '"><td>' + (i + 1) + "</td><td>" + escH(o.numero) + "</td><td><strong>" + escH(nomsOffrants(o)) + "</strong></td>" +
+            "<td>" + fmtPrix(o.prix) + (b.prixAffiche && o.prix ? ' <span class="petit">(' + Math.round((o.prix / b.prixAffiche - 1) * 100) + " %)</span>" : "") + "</td>" +
+            "<td>" + jalon(o.createdAt) + "</td><td>" + jalon(o.signeeAt) + "</td><td>" + jalon(o.presenteeAt) + "</td>" +
+            "<td>" + (o.reponseAt ? jalon(o.reponseAt) + (o.reponse && o.reponse.prix ? "<br>contre " + fmtPrix(o.reponse.prix) : "") : "—") + "</td>" +
+            "<td>" + puceStatut(o.statut) + "</td></tr>").join("") + "</tbody></table></div></div>";
+      }).join("");
+      return;
+    }
+    zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr><th>N°</th><th>Acquéreur(s)</th><th>Bien</th><th>Prix</th><th>Validité</th><th>Pièces</th><th>Statut</th><th>Conseiller</th></tr></thead><tbody>' +
+      liste.map((o) => '<tr class="cliquable" data-offre="' + o.id + '">' +
+        "<td>" + escH(o.numero) + "</td><td><strong>" + escH(nomsOffrants(o)) + "</strong></td>" +
+        "<td>" + escH(o.bien.adresse) + (o.bien.ville ? "<br><span class=\"puce grise\">" + escH(o.bien.ville) + "</span>" : "") + "</td>" +
+        "<td>" + fmtPrix(o.prix) + "</td><td>" + fmtDateFr(o.conditions.validite) + "</td>" +
+        "<td>" + (o.pieces.total ? o.pieces.fournies + "/" + o.pieces.total : "—") + "</td>" +
+        "<td>" + puceStatut(o.statut) + "</td><td>" + escH(o.conseiller) + "</td></tr>").join("") +
+      "</tbody></table></div>";
+  }
+  // Formulaire de création / modification du cadre (bien, prix, dates, vendeurs).
+  function ouvrirOffreForm(offre, projetIdDefaut) {
+    const o = offre || null;
+    const reg = (reglages && reglages.offres) || {};
+    const projetsAchat = projets.filter((p) => p.kind === "achat" && p.statut === "actif");
+    const lies = new Set();
+    const ligneContact = (c) =>
+      '<label class="case" style="width:100%; padding:3px 0;"><input type="checkbox" class="of-contact" value="' + c.id + '"' + (lies.has(c.id) ? " checked" : "") + " /> <strong>" + escH(c.nom) + "</strong> " + escH(c.prenom) +
+      (c.email ? ' <span class="puce grise">' + escH(c.email) + "</span>" : "") + "</label>";
+    const rendreListeContacts = () => {
+      const q = (($("of-filtre") && $("of-filtre").value) || "").toLowerCase();
+      const choisis = contacts.filter((c) => lies.has(c.id));
+      const corresp = contacts.filter((c) => !lies.has(c.id) && q && (c.nom + " " + c.prenom + " " + c.email).toLowerCase().includes(q));
+      $("of-liste").innerHTML = choisis.concat(corresp.slice(0, 60)).map(ligneContact).join("") || '<p class="petit">Tapez un nom pour trouver la personne, ou choisissez un projet d\'achat ci-dessus.</p>';
+    };
+    const vendeurs = (o ? (o.vendeursDetail || []) : []).concat([{}, {}]).slice(0, 2);
+    const b = (o && o.bien) || {}, c = (o && o.conditions) || {};
+    ouvrirModale(o ? "Offre " + o.numero + " — modifier le cadre" : "Nouvelle offre d'achat",
+      (o ? "" :
+        '<div class="grille-champs"><label>Projet d\'achat (les personnes du projet deviennent les offrants)<select id="of-projet"><option value="">— ou choisir des personnes ci-dessous —</option>' +
+        projetsAchat.map((p) => '<option value="' + p.id + '"' + (p.id === projetIdDefaut ? " selected" : "") + ">" + escH(nomsDe(p.contacts)) + (p.budgetMax ? " — " + fmtPrix(p.budgetMax) : "") + "</option>").join("") +
+        '</select></label><label>Personne(s) sans projet<input id="of-filtre" placeholder="Rechercher un contact…" /></label></div>' +
+        '<div id="of-liste" style="max-height:140px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:8px 12px; margin-top:8px;"></div>') +
+      '<h3 style="margin:14px 0 6px; font-size:15px;">Le bien</h3>' +
+      '<div class="grille-champs"><label>Rechercher dans les annonces / AMEPI<input id="of-bien-q" placeholder="rue, ville, référence…" /></label></div>' +
+      '<div id="of-bien-resultats" class="barre"></div>' +
+      '<div class="grille-champs" style="margin-top:8px;">' +
+      '<label>Adresse<input id="of-adresse" value="' + escH(b.adresse || "") + '" placeholder="12 rue des Lilas" /></label>' +
+      '<label>Code postal<input id="of-cp" value="' + escH(b.cp || "") + '" /></label>' +
+      '<label>Ville<input id="of-ville" value="' + escH(b.ville || "") + '" /></label>' +
+      '<label>N° de mandat<input id="of-mandat" value="' + escH(b.mandat || "") + '" /></label>' +
+      '<label>Prix affiché (€, information)<input id="of-prix-affiche" type="number" value="' + escH(b.prixAffiche || "") + '" /></label></div>' +
+      '<label style="display:block; margin-top:8px;">Description du bien (telle qu\'elle figurera dans l\'offre)<textarea id="of-description" rows="3" style="width:100%; margin-top:4px;">' + escH(b.description || "") + "</textarea></label>" +
+      '<h3 style="margin:14px 0 6px; font-size:15px;">Les conditions</h3>' +
+      '<div class="grille-champs">' +
+      '<label>Prix offert (€, honoraires inclus, charge vendeur)<input id="of-prix" type="number" value="' + escH(o ? o.prix : "") + '" /></label>' +
+      '<label>Offre valable jusqu\'au<input id="of-validite" type="date" value="' + escH(c.validite || isoPlus(reg.validiteJours || 7)) + '" /></label>' +
+      '<label>Avant-contrat au plus tard le<input id="of-avant-contrat" type="date" value="' + escH(c.avantContrat || isoPlus(reg.avantContratJours || 30)) + '" /></label>' +
+      '<label>Acompte à l\'avant-contrat (€)<input id="of-acompte" type="number" value="' + escH(c.acompte || "") + '" /></label>' +
+      '<label>Conseiller<input id="of-conseiller" value="' + escH(o ? o.conseiller : ((account().user || {}).name || "")) + '" /></label></div>' +
+      '<label class="case" style="margin-top:8px;"><input type="checkbox" id="of-substitution"' + (c.substitution ? " checked" : "") + " /> Faculté de substitution (l'acquéreur pourra se substituer une SCI ou un tiers)</label>" +
+      '<label style="display:block; margin-top:6px;">Conditions suspensives supplémentaires (une par ligne — vide = aucune)<textarea id="of-autres" rows="2" style="width:100%; margin-top:4px;" placeholder="ex : vente préalable de la résidence actuelle des offrants">' + escH(c.autres || "") + "</textarea></label>" +
+      '<h3 style="margin:14px 0 6px; font-size:15px;">Le(s) vendeur(s)</h3><p class="petit">Ils recevront l\'offre signée par e-mail pour l\'accepter ou la refuser (code SMS / e-mail).</p>' +
+      vendeurs.map((v, i) => '<div class="grille-champs" style="margin-top:6px;">' +
+        '<label>Nom<input class="of-v-nom" value="' + escH(v.nom || "") + '" /></label><label>Prénom<input class="of-v-prenom" value="' + escH(v.prenom || "") + '" /></label>' +
+        '<label>E-mail<input class="of-v-email" type="email" value="' + escH(v.email || "") + '" /></label><label>Mobile<input class="of-v-tel" type="tel" value="' + escH(v.telephone || "") + '" /></label></div>').join(""),
+      '<button class="btn" id="btn-annuler-offre">Annuler</button><button class="btn btn-or" id="btn-save-offre">' + (o ? "Enregistrer" : "Créer l'offre") + "</button>");
+    if (!o) {
+      rendreListeContacts();
+      $("of-filtre").addEventListener("input", rendreListeContacts);
+      $("of-liste").addEventListener("change", (e) => { const cb = e.target.closest(".of-contact"); if (cb) { if (cb.checked) lies.add(cb.value); else lies.delete(cb.value); } });
+    }
+    let tBien = null;
+    $("of-bien-q").addEventListener("input", () => {
+      clearTimeout(tBien);
+      const q = $("of-bien-q").value.trim();
+      if (q.length < 2) { $("of-bien-resultats").innerHTML = ""; return; }
+      tBien = setTimeout(async () => {
+        try {
+          const { biens } = await api("/crm/offres/biens?q=" + encodeURIComponent(q));
+          $("of-bien-resultats").innerHTML = biens.slice(0, 8).map((x, i) =>
+            '<button type="button" class="btn" data-bien="' + i + '" style="font-size:12.5px;">' + (x.source === "amepi" ? "🤝 " : "🏠 ") + escH(x.titre || x.type) + " — " + escH(x.ville) + (x.prix ? " · " + fmtPrix(x.prix) : "") + "</button>").join("") || '<span class="petit">Aucun bien trouvé — saisissez l\'adresse à la main.</span>';
+          $("of-bien-resultats").onclick = (e) => {
+            const btn = e.target.closest("[data-bien]"); if (!btn) return;
+            const x = biens[Number(btn.dataset.bien)];
+            $("of-ville").value = x.ville || ""; $("of-cp").value = x.cp || "";
+            if (x.prix) $("of-prix-affiche").value = x.prix;
+            if (x.mandat) $("of-mandat").value = x.mandat;
+            const desc = [x.titre, x.surface ? x.surface + " m²" : "", x.pieces ? x.pieces + " pièces" : "", x.description].filter(Boolean).join(" — ");
+            if (!$("of-description").value) $("of-description").value = desc.slice(0, 1400);
+            if (!$("of-adresse").value && x.source === "site") $("of-adresse").value = x.titre || "";
+            $("of-adresse").focus();
+          };
+        } catch (e) { toast(e.message, true); }
+      }, 250);
+    });
+    $("btn-annuler-offre").addEventListener("click", fermerModale);
+    $("btn-save-offre").addEventListener("click", async () => {
+      const lireVendeurs = () => Array.from(document.querySelectorAll(".of-v-nom")).map((el, i) => ({
+        nom: el.value.trim(), prenom: document.querySelectorAll(".of-v-prenom")[i].value.trim(),
+        email: document.querySelectorAll(".of-v-email")[i].value.trim(), telephone: document.querySelectorAll(".of-v-tel")[i].value.trim(),
+      })).filter((v) => v.nom);
+      const body = {
+        bien: { adresse: $("of-adresse").value, cp: $("of-cp").value, ville: $("of-ville").value, description: $("of-description").value, mandat: $("of-mandat").value, prixAffiche: $("of-prix-affiche").value },
+        prix: $("of-prix").value,
+        conditions: { validite: $("of-validite").value, avantContrat: $("of-avant-contrat").value, acompte: $("of-acompte").value, substitution: $("of-substitution").checked, autres: $("of-autres").value },
+        conseiller: $("of-conseiller").value, vendeurs: lireVendeurs(),
+      };
+      try {
+        if (o) {
+          await api("/crm/offres/" + o.id, { method: "PUT", json: body });
+          toast("Offre modifiée");
+          await chargerOffres(); ouvrirOffre(o.id);
+        } else {
+          const projetId = $("of-projet").value;
+          if (!projetId && !lies.size) { toast("Choisissez un projet d'achat ou au moins une personne.", true); return; }
+          if (projetId) body.projetId = projetId; else body.contactIds = [...lies];
+          const r = await api("/crm/offres", { json: body });
+          toast("Offre " + r.numero + " créée");
+          activerOnglet("offres");
+          await chargerOffres(); ouvrirOffre(r.id);
+        }
+      } catch (e) { toast(e.message, true); }
+    });
+  }
+  // La fiche d'une offre : tout ce qu'il faut pour la faire avancer.
+  async function ouvrirOffre(id) {
+    let d;
+    try { d = await api("/crm/offres/" + id); } catch (e) { toast(e.message, true); return; }
+    const o = d.offre, sigs = d.signataires, offrants = sigs.filter((s) => s.role === "offrant"), vendeurs = sigs.filter((s) => s.role === "vendeur");
+    const fin = o.financement || {};
+    const ligneSig = (s) => '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:6px 0; border-bottom:1px solid var(--line);">' +
+      "<strong>" + escH(s.libelle) + "</strong>" +
+      (s.email ? '<span class="puce grise">' + escH(s.email) + "</span>" : '<span class="puce rouge">sans e-mail</span>') +
+      (s.telephone ? '<span class="puce grise">' + escH(s.telephone) + "</span>" : "") +
+      (s.role === "offrant" ? (s.identiteComplete ? '<span class="puce verte">état civil ✓</span>' : '<span class="puce grise">état civil incomplet</span>') : "") +
+      (s.signeAt ? '<span class="puce verte">' + (s.role === "vendeur" ? ({ accepte: "a accepté", refuse: "a refusé", contre: "contre-proposition" }[s.decision] || "a répondu") : "signé") + " le " + fmtTs(s.signeAt) + "</span>"
+        : (s.lienActif ? '<span class="puce">lien actif</span>' : "")) +
+      (!o.terminee && !s.signeAt && (s.role === "offrant" || ["signee", "presentee"].includes(o.statut)) ? '<button class="btn" style="padding:4px 10px; font-size:12px;" data-lien="' + s.id + '">🔗 ' + (s.lienActif ? "Renvoyer le lien" : "Envoyer le lien") + "</button>" : "") +
+      "</div>";
+    const lignePiece = (p) => '<div style="display:flex; gap:10px; align-items:flex-start; padding:6px 0; border-bottom:1px solid var(--line);">' +
+      '<span style="width:22px;">' + (p.documents.length ? "✅" : p.requise ? "⬜" : "▫️") + "</span><div style=\"flex:1;\"><strong>" + escH(p.libelle) + "</strong>" + (p.personne ? ' <span class="puce grise">' + escH(p.personne) + "</span>" : "") +
+      (p.documents.length ? "<div>" + p.documents.map((doc) => '<div style="display:flex; gap:8px; align-items:center; font-size:13px; margin-top:3px;"><span>📎 ' + escH(doc.nom) + " (" + Math.round(doc.taille / 1024) + " Ko)</span>" +
+        (d.accesPieces ? '<button class="btn" style="padding:2px 8px; font-size:12px;" data-doc-dl="' + doc.id + '" data-doc-nom="' + escH(doc.nom) + '">⬇</button>' +
+          '<label class="case" style="font-size:12px;"><input type="checkbox" data-doc-ok="' + doc.id + '"' + (doc.verifie ? " checked" : "") + " /> vérifiée</label>" +
+          '<button class="btn btn-danger" style="padding:2px 8px; font-size:12px;" data-doc-sup="' + doc.id + '">✕</button>' : (doc.verifie ? '<span class="puce verte">vérifiée</span>' : "")) + "</div>").join("") + "</div>" : "") +
+      "</div>" + (d.accesPieces && !o.terminee ? '<button class="btn" style="padding:4px 10px; font-size:12px;" data-doc-ajout="' + escH(p.type) + '" data-doc-pour="' + escH(p.signataireId || "") + '">+ Ajouter</button>' : "") + "</div>";
+    const requises = d.pieces.filter((p) => p.requise), fournies = requises.filter((p) => p.documents.length);
+    const rep = o.reponse || {};
+    ouvrirModale("Offre " + o.numero + " — " + escH(nomsOffrants({ offrants })),
+      '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">' + puceStatut(o.statut) +
+      (o.figee ? '<span class="puce grise" title="Empreinte SHA-256 ' + escH(o.pdfHash) + '">document figé</span>' : "") +
+      '<span class="puce grise">' + escH(o.conseiller) + "</span>" +
+      (o.dossierId ? '<a class="puce verte" href="../suivi/" target="_blank" rel="noopener" style="text-decoration:none;">dossier Suivi créé</a>' : "") + "</div>" +
+      '<div class="grille-champs" style="margin-top:12px;">' +
+      "<div><strong>" + escH(o.bien.adresse) + "</strong><br>" + escH([o.bien.cp, o.bien.ville].filter(Boolean).join(" ")) + (o.bien.mandat ? '<br><span class="puce grise">mandat ' + escH(o.bien.mandat) + "</span>" : "") + "</div>" +
+      '<div><span style="font-size:22px; font-weight:600;">' + fmtPrix(o.prix) + "</span>" + (o.bien.prixAffiche ? '<br><span class="petit">affiché ' + fmtPrix(o.bien.prixAffiche) + (o.prix && o.bien.prixAffiche ? " (" + Math.round((o.prix / o.bien.prixAffiche - 1) * 100) + " %)" : "") + "</span>" : "") + "</div>" +
+      "<div>Valable jusqu'au <strong>" + fmtDateFr(o.conditions.validite) + "</strong><br>Avant-contrat : " + fmtDateFr(o.conditions.avantContrat) + (o.conditions.acompte ? "<br>Acompte : " + fmtPrix(o.conditions.acompte) : "") + "</div>" +
+      "<div>" + (fin.rempli ? (fin.sansPret ? "<strong>Sans prêt</strong>" + (fin.apport ? " — fonds " + fmtPrix(fin.apport) : "") : "Prêt <strong>" + fmtPrix(fin.pret) + "</strong> sur " + fin.duree + " ans" + (fin.taux ? " à " + fin.taux + " %" : "") + (fin.apport ? "<br>apport " + fmtPrix(fin.apport) : "") + (fin.organisme ? "<br>" + escH(fin.organisme) : "")) : '<span class="petit">financement non renseigné par l\'acquéreur</span>') + "</div></div>" +
+      (rep.decision ? '<p style="margin-top:10px;"><strong>Réponse du vendeur :</strong> ' + escH({ accepte: "acceptée", refuse: "refusée", contre: "contre-proposition" }[rep.decision] || rep.decision) + (rep.prix ? " à " + fmtPrix(rep.prix) : "") + (rep.commentaire ? " — « " + escH(rep.commentaire) + " »" : "") + (rep.mode === "manuel" ? ' <span class="puce grise">saisie par ' + escH(rep.par) + "</span>" : "") + "</p>" : "") +
+      (d.manques.length && !o.terminee ? '<p class="petit" style="color:var(--err);">À compléter avant l\'envoi : ' + escH(d.manques.join(", ")) + ".</p>" : "") +
+      (autresOffresSurLeBien(o).length ? '<p class="petit" style="margin-top:8px;"><strong>Autres offres sur ce bien :</strong> ' +
+        autresOffresSurLeBien(o).sort((x, y) => x.createdAt - y.createdAt).map((x) => '<span class="puce" data-autre-offre="' + x.id + '" style="cursor:pointer;" title="Ouvrir">' + escH(x.numero) + " · " + escH(nomsOffrants(x)) + " · " + fmtPrix(x.prix) + " · " + escH((OFFRE_STATUTS[x.statut] || [x.statut])[0]) + "</span>").join(" ") +
+        " — toutes les offres reçues doivent être transmises au vendeur.</p>" : "") +
+      '<h3 style="margin:14px 0 4px; font-size:15px;">Offrant' + (offrants.length > 1 ? "s" : "") + "</h3>" + offrants.map(ligneSig).join("") +
+      '<h3 style="margin:14px 0 4px; font-size:15px;">Vendeur' + (vendeurs.length > 1 ? "s" : "") + "</h3>" + (vendeurs.length ? vendeurs.map(ligneSig).join("") : '<p class="petit">Aucun vendeur désigné — « Modifier » pour les ajouter (nom + e-mail).</p>') +
+      '<h3 style="margin:14px 0 4px; font-size:15px;">Pièces ' + (requises.length ? fournies.length + "/" + requises.length : "") + (o.purgee ? ' <span class="puce grise">purgées</span>' : "") + "</h3>" +
+      (d.accesPieces ? "" : '<p class="petit">Le contenu des pièces est réservé au conseiller du dossier et aux administrateurs.</p>') +
+      (d.pieces.length ? d.pieces.map(lignePiece).join("") : '<p class="petit">La liste se précise quand l\'acquéreur renseigne son financement.</p>') +
+      '<input type="file" id="of-fichier" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/*" hidden />' +
+      '<h3 style="margin:14px 0 4px; font-size:15px;">Journal</h3><div style="max-height:180px; overflow-y:auto; font-size:12.5px;">' +
+      d.events.map((e) => "<div>" + fmtTs(e.created_at) + " — <strong>" + escH(e.type) + "</strong> " + escH(e.detail) + (e.acteur ? ' <span class="puce grise">' + escH(e.acteur) + "</span>" : "") + "</div>").join("") + "</div>",
+      (!o.terminee && !o.figee ? '<button class="btn" id="btn-of-modifier">✏️ Modifier</button>' : "") +
+      (!o.terminee && ["brouillon", "envoyee"].includes(o.statut) ? '<button class="btn btn-or" id="btn-of-envoyer">✉️ ' + (o.statut === "brouillon" ? "Envoyer à l'acquéreur" : "Renvoyer les liens") + "</button>" : "") +
+      (o.statut === "signee" ? '<button class="btn btn-or" id="btn-of-presenter">📨 Présenter au vendeur</button>' : "") +
+      (["signee", "presentee"].includes(o.statut) ? '<button class="btn" id="btn-of-reponse">📝 Saisir la réponse du vendeur</button>' : "") +
+      (o.statut === "acceptee" && !o.dossierId ? '<button class="btn btn-or" id="btn-of-dossier">📁 Créer le dossier Suivi</button>' : "") +
+      '<button class="btn" id="btn-of-pdf">⬇ PDF</button>' +
+      (d.accesPieces && d.documents.length ? '<button class="btn" id="btn-of-zip" title="Toutes les pièces + le PDF de l\'offre, en une archive à ranger dans OneDrive">⬇ Toutes les pièces (zip)</button>' +
+        (window.showDirectoryPicker ? '<button class="btn" id="btn-of-dossier-local" title="Écrit les fichiers directement dans le dossier choisi (ex. OneDrive)">📂 Enregistrer dans un dossier</button>' : "") : "") +
+      (!o.terminee ? '<button class="btn btn-danger" id="btn-of-retirer">Retirer</button>' : ""));
+    const corps = $("modale-corps");
+    const telecharger = async (path, nom) => {
+      const a = account();
+      const res = await fetch(API + path, { headers: { Authorization: "Bearer " + a.session } });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Erreur " + res.status); }
+      const url = URL.createObjectURL(await res.blob());
+      const el = document.createElement("a"); el.href = url; el.download = nom; document.body.appendChild(el); el.click(); el.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    };
+    // Toutes les pièces d'un coup (+ le PDF de l'offre) : pour le dossier
+    // TRACFIN dans OneDrive. Les fichiers sont nommés « type - personne -
+    // nom d'origine » ; le dossier/archive porte le n° et les noms.
+    const propreNom = (x) => String(x || "").replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim();
+    const nomLot = propreNom("Offre " + o.numero + " - " + offrants.map((s) => ((s.identite && s.identite.nom) || s.nom || "").toUpperCase()).filter(Boolean).join(" & "));
+    async function lireOctets(path) {
+      const a = account();
+      const res = await fetch(API + path, { headers: { Authorization: "Bearer " + a.session } });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Erreur " + res.status); }
+      return new Uint8Array(await res.arrayBuffer());
+    }
+    async function rassemblerPieces(progression) {
+      const fichiers = [];
+      const libelleType = (t) => (d.pieces.find((p) => p.type === t) || {}).libelle || t;
+      let n = 0;
+      for (const doc of d.documents) {
+        progression(++n, d.documents.length + 1);
+        const qui = doc.signataireId ? (sigs.find((s) => s.id === doc.signataireId) || {}).libelle || "" : "";
+        fichiers.push({ nom: propreNom([libelleType(doc.type).split(" (")[0], qui, doc.nom].filter(Boolean).join(" - ")), octets: await lireOctets("/crm/offres/" + o.id + "/documents/" + doc.id), date: new Date(doc.createdAt * 1000) });
+      }
+      progression(n + 1, d.documents.length + 1);
+      fichiers.push({ nom: "Offre " + o.numero + (o.figee ? " signée" : "") + ".pdf", octets: await lireOctets("/crm/offres/" + o.id + "/pdf"), date: new Date() });
+      return fichiers;
+    }
+    async function telechargerZip() {
+      const btn = $("btn-of-zip"); btn.disabled = true;
+      try {
+        const fichiers = await rassemblerPieces((i, t) => { btn.textContent = "⬇ Pièces… " + i + "/" + t; });
+        const url = URL.createObjectURL(window.StudioZip.creer(fichiers));
+        const el = document.createElement("a"); el.href = url; el.download = nomLot + ".zip"; document.body.appendChild(el); el.click(); el.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        toast(fichiers.length + " fichier(s) dans " + nomLot + ".zip");
+      } catch (err) { toast(err.message, true); }
+      btn.disabled = false; btn.textContent = "⬇ Toutes les pièces (zip)";
+    }
+    // Chrome/Edge : écriture directe dans un dossier (OneDrive synchronisé),
+    // dans un sous-dossier au nom de l'offre — même API que la bibliothèque.
+    async function enregistrerDansDossier() {
+      const btn = $("btn-of-dossier-local"); btn.disabled = true;
+      try {
+        const racine = await window.showDirectoryPicker({ id: "studio-offres", mode: "readwrite", startIn: "documents" });
+        const dossier = await racine.getDirectoryHandle(nomLot, { create: true });
+        const fichiers = await rassemblerPieces((i, t) => { btn.textContent = "📂 Copie… " + i + "/" + t; });
+        for (const f of fichiers) {
+          const h = await dossier.getFileHandle(f.nom, { create: true });
+          const w = await h.createWritable(); await w.write(f.octets); await w.close();
+        }
+        toast(fichiers.length + " fichier(s) enregistré(s) dans « " + nomLot + " »");
+      } catch (err) { if (err && err.name !== "AbortError") toast(err.message, true); }
+      btn.disabled = false; btn.textContent = "📂 Enregistrer dans un dossier";
+    }
+    let pieceAjout = null;
+    corps.addEventListener("click", async (e) => {
+      const autre = e.target.closest("[data-autre-offre]");
+      if (autre) { ouvrirOffre(autre.dataset.autreOffre); return; }
+      const t = e.target.closest("[data-lien],[data-doc-dl],[data-doc-sup],[data-doc-ajout]");
+      if (!t) return;
+      try {
+        if (t.dataset.lien) {
+          const r = await api("/crm/offres/" + o.id + "/signataires/" + t.dataset.lien + "/lien", { json: {} });
+          try { await navigator.clipboard.writeText(r.lien); } catch (err) { }
+          toast(r.envoye ? "Lien envoyé par e-mail (et copié dans le presse-papiers)" : "E-mail non envoyé — lien copié dans le presse-papiers, transmettez-le vous-même", !r.envoye);
+          ouvrirOffre(o.id);
+        } else if (t.dataset.docDl) {
+          await telecharger("/crm/offres/" + o.id + "/documents/" + t.dataset.docDl, t.dataset.docNom || "piece");
+        } else if (t.dataset.docSup) {
+          if (t.dataset.arme !== "1") { t.dataset.arme = "1"; t.textContent = "Confirmer ?"; setTimeout(() => { t.dataset.arme = ""; t.textContent = "✕"; }, 5000); return; }
+          await api("/crm/offres/" + o.id + "/documents/" + t.dataset.docSup, { method: "DELETE" });
+          ouvrirOffre(o.id);
+        } else if (t.dataset.docAjout !== undefined) {
+          pieceAjout = { type: t.dataset.docAjout, pour: t.dataset.docPour };
+          $("of-fichier").value = ""; $("of-fichier").click();
+        }
+      } catch (err) { toast(err.message, true); }
+    });
+    corps.addEventListener("change", async (e) => {
+      if (e.target.id === "of-fichier" && e.target.files[0] && pieceAjout) {
+        const f = e.target.files[0];
+        try {
+          const a = account();
+          const res = await fetch(API + "/crm/offres/" + o.id + "/documents?type=" + encodeURIComponent(pieceAjout.type) + "&nom=" + encodeURIComponent(f.name) + (pieceAjout.pour ? "&pour=" + encodeURIComponent(pieceAjout.pour) : ""),
+            { method: "POST", headers: { Authorization: "Bearer " + a.session, "Content-Type": f.type || "application/octet-stream" }, body: f });
+          const j = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(j.error || "Erreur " + res.status);
+          toast("Pièce ajoutée"); ouvrirOffre(o.id);
+        } catch (err) { toast(err.message, true); }
+        return;
+      }
+      const ok = e.target.closest("[data-doc-ok]");
+      if (ok) { try { await api("/crm/offres/" + o.id + "/documents/" + ok.dataset.docOk, { method: "PUT", json: { verifie: ok.checked } }); } catch (err) { toast(err.message, true); } }
+    });
+    const on = (idBtn, fn) => { const b = $(idBtn); if (b) b.addEventListener("click", fn); };
+    on("btn-of-modifier", () => ouvrirOffreForm({ ...o, vendeursDetail: vendeurs }, null));
+    on("btn-of-envoyer", async () => {
+      try {
+        const r = await api("/crm/offres/" + o.id + "/envoyer", { json: {} });
+        const nonEnvoyes = r.liens.filter((l) => !l.envoye);
+        toast(nonEnvoyes.length ? "Lien(s) créé(s) — e-mail non envoyé pour " + nonEnvoyes.map((l) => l.libelle).join(", ") + " : utilisez « Renvoyer le lien » pour le copier" : "Offre envoyée à " + r.liens.map((l) => l.libelle).join(" et "), !!nonEnvoyes.length);
+        await chargerOffres(); ouvrirOffre(o.id);
+      } catch (err) { toast(err.message, true); }
+    });
+    on("btn-of-presenter", async () => {
+      try { const r = await api("/crm/offres/" + o.id + "/presenter", { json: {} }); toast("Offre présentée à " + r.liens.map((l) => l.libelle).join(" et ")); await chargerOffres(); ouvrirOffre(o.id); }
+      catch (err) { toast(err.message, true); }
+    });
+    on("btn-of-reponse", () => {
+      ouvrirModale("Réponse du vendeur — offre " + o.numero,
+        '<p class="aide">À n\'utiliser que si le vendeur a répondu autrement que par son lien (en agence, par courrier). La réponse électronique reste la règle : elle porte la preuve.</p>' +
+        '<div class="barre"><label class="case"><input type="radio" name="of-dec" value="accepte" /> Acceptée</label><label class="case"><input type="radio" name="of-dec" value="refuse" /> Refusée</label><label class="case"><input type="radio" name="of-dec" value="contre" /> Contre-proposition</label></div>' +
+        '<div class="grille-champs" style="margin-top:10px;"><label>Prix de la contre-proposition (€)<input id="of-rep-prix" type="number" /></label><label>Commentaire<input id="of-rep-commentaire" /></label></div>',
+        '<button class="btn" id="btn-of-rep-annuler">Annuler</button><button class="btn btn-or" id="btn-of-rep-ok">Enregistrer</button>');
+      $("btn-of-rep-annuler").addEventListener("click", () => ouvrirOffre(o.id));
+      $("btn-of-rep-ok").addEventListener("click", async () => {
+        const dec = (document.querySelector("input[name=of-dec]:checked") || {}).value;
+        if (!dec) { toast("Choisissez la réponse.", true); return; }
+        try { await api("/crm/offres/" + o.id + "/reponse", { json: { decision: dec, prix: $("of-rep-prix").value, commentaire: $("of-rep-commentaire").value } }); toast("Réponse enregistrée"); await chargerOffres(); ouvrirOffre(o.id); }
+        catch (err) { toast(err.message, true); }
+      });
+    });
+    on("btn-of-dossier", async () => {
+      try { const r = await api("/crm/offres/" + o.id + "/dossier", { json: {} }); toast("Dossier Suivi créé : " + r.name); await chargerOffres(); ouvrirOffre(o.id); }
+      catch (err) { toast(err.message, true); }
+    });
+    on("btn-of-pdf", () => telecharger("/crm/offres/" + o.id + "/pdf", "offre-" + o.numero + ".pdf").catch((err) => toast(err.message, true)));
+    on("btn-of-zip", telechargerZip);
+    on("btn-of-dossier-local", enregistrerDansDossier);
+    on("btn-of-retirer", async () => {
+      const b = $("btn-of-retirer");
+      if (b.dataset.arme !== "1") { b.dataset.arme = "1"; b.textContent = "Confirmer le retrait ?"; setTimeout(() => { b.dataset.arme = ""; b.textContent = "Retirer"; }, 6000); return; }
+      try { await api("/crm/offres/" + o.id + "/retirer", { json: {} }); toast("Offre retirée"); await chargerOffres(); ouvrirOffre(o.id); }
+      catch (err) { toast(err.message, true); }
+    });
+  }
+
   /* ------------------------------ Navigation ------------------------------- */
   function activerOnglet(nom) {
     document.querySelectorAll(".onglet").forEach((b) => b.classList.toggle("actif", b.dataset.onglet === nom));
@@ -1819,6 +2195,7 @@
     chargerEstimations();
     chargerBiblio();
     chargerRappels();
+    chargerOffres();
   }
 
   /* ---------------------------- Branchements ------------------------------- */
@@ -1979,6 +2356,20 @@
     chargerAmepi();
   }));
   $("btn-amepi-cle").addEventListener("click", cleAgentAmepi);
+  $("btn-nouvelle-offre").addEventListener("click", () => ouvrirOffreForm(null, null));
+  $("offres-filtre").addEventListener("change", rendreOffres);
+  $("btn-offres-par-bien").addEventListener("click", () => { offresParBien = !offresParBien; rendreOffres(); });
+  $("offres-recherche").addEventListener("input", rendreOffres);
+  $("table-offres").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-offre]");
+    if (tr) ouvrirOffre(tr.dataset.offre);
+  });
+  $("btn-of-reglages-save").addEventListener("click", () => sauverReglages({
+    offres: {
+      entete: $("ofr-entete").value, representant: $("ofr-representant").value.trim(), lieu: $("ofr-lieu").value.trim(),
+      rgpdAdresse: $("ofr-rgpd").value.trim(), validiteJours: $("ofr-validite").value, avantContratJours: $("ofr-avant-contrat").value,
+    },
+  }, "Réglages des offres enregistrés"));
   $("btn-reglages-save").addEventListener("click", () => sauverReglages({
     agence: {
       nom: $("ag-nom").value.trim(), adresse: $("ag-adresse").value.trim(),

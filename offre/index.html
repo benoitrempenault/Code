@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev https://fonts.googleapis.com https://fonts.gstatic.com" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Votre offre d'achat</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <meta name="description" content="Espace sécurisé de l'acquéreur : vérifier son offre d'achat, déposer ses pièces, signer." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/offre.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header class="tete">
+      <p class="agence" id="agence"></p>
+      <h1 id="titre">Votre offre d'achat</h1>
+      <p id="sousTitre">Chargement…</p>
+    </header>
+
+    <div id="erreur" class="alerte" hidden></div>
+
+    <!-- Récapitulatif : le bien, le prix, les dates — pour tout le monde -->
+    <section class="etape" id="etapeRecap" hidden>
+      <div class="recap" id="recap"></div>
+      <div class="barre">
+        <button type="button" class="lien" id="btnTexte">Lire l'offre complète</button>
+        <button type="button" class="lien" id="btnPdf">Télécharger le PDF</button>
+      </div>
+      <div id="texteOffre" class="texte" hidden></div>
+    </section>
+
+    <!-- ====== PARCOURS DE L'ACQUÉREUR ====== -->
+    <div id="parcoursOffrant" hidden>
+      <nav class="jalons" id="jalons"></nav>
+
+      <section class="etape" id="etapeIdentite">
+        <h2><span class="num">1</span> Votre état civil</h2>
+        <p class="aide">Tel qu'il figurera sur l'offre puis sur le compromis. Vérifiez l'orthographe : ces informations sont reprises par le notaire.</p>
+        <form id="formIdentite" autocomplete="on">
+          <div class="grid">
+            <div class="radios"><label><input type="radio" name="civilite" value="Madame" /> Madame</label><label><input type="radio" name="civilite" value="Monsieur" /> Monsieur</label></div>
+            <label>Nom d'usage<input name="nom" maxlength="80" required autocomplete="family-name" /></label>
+            <label>Nom de naissance (si différent)<input name="nomNaissance" maxlength="80" /></label>
+            <label>Prénom(s)<input name="prenoms" maxlength="120" required autocomplete="given-name" /></label>
+            <label>Date de naissance<input name="naissance" type="date" required autocomplete="bday" /></label>
+            <label>Lieu de naissance<input name="lieuNaissance" maxlength="120" required placeholder="Ville (pays si hors de France)" /></label>
+            <label>Nationalité<input name="nationalite" maxlength="60" value="Française" /></label>
+            <label class="plein">Adresse actuelle<input name="adresse" maxlength="200" required autocomplete="street-address" placeholder="N°, rue, code postal, ville" /></label>
+            <label>Téléphone mobile<input name="telephone" type="tel" maxlength="40" autocomplete="tel" /></label>
+            <label>E-mail<input name="email" type="email" maxlength="120" autocomplete="email" /></label>
+            <label>Profession<input name="profession" maxlength="80" /></label>
+            <label>Type de contrat de travail<input name="contratTravail" maxlength="40" placeholder="CDI, CDD, indépendant, retraité…" /></label>
+            <label class="plein">Nom et adresse de l'employeur<input name="employeur" maxlength="200" /></label>
+          </div>
+          <label class="case"><input type="checkbox" name="residenceFiscale" checked /> Ma résidence fiscale est en France</label>
+          <label class="case"><input type="checkbox" name="societe" id="chkSociete" /> J'achète au nom d'une société (SCI…)</label>
+          <div class="grid" id="blocSociete" hidden>
+            <label>Nom de la société<input name="pmNom" maxlength="120" /></label>
+            <label>Forme (SCI, SAS…)<input name="pmForme" maxlength="40" /></label>
+            <label>N° RCS<input name="pmRcs" maxlength="80" /></label>
+            <label class="plein">Siège social<input name="pmSiege" maxlength="200" /></label>
+          </div>
+          <div class="barre"><button type="submit" class="btn">Enregistrer mon état civil</button><span class="aide" id="msgIdentite"></span></div>
+        </form>
+      </section>
+
+      <section class="etape" id="etapeFinancement">
+        <h2><span class="num">2</span> Votre financement et votre situation</h2>
+        <p class="aide">Ces éléments entrent dans l'offre (condition suspensive de prêt) et préparent le compromis. Ils sont communs aux personnes qui achètent ensemble.</p>
+        <form id="formFinancement">
+          <div class="radios grand">
+            <label><input type="radio" name="sansPret" value="0" checked /> J'ai recours à un prêt</label>
+            <label><input type="radio" name="sansPret" value="1" /> J'achète sans prêt (comptant)</label>
+          </div>
+          <div class="grid" id="blocPret">
+            <label>Montant du prêt (€)<input name="pret" type="number" min="0" inputmode="numeric" /></label>
+            <label>Durée (années)<input name="duree" type="number" min="1" max="40" inputmode="numeric" /></label>
+            <label>Taux proposé hors assurances (%)<input name="taux" type="number" min="0" max="30" step="any" inputmode="decimal" /></label>
+            <label>Organisme ou courtier sollicité<input name="organisme" maxlength="160" /></label>
+          </div>
+          <div class="grid">
+            <label>Apport personnel (€)<input name="apport" type="number" min="0" inputmode="numeric" /></label>
+            <label>Origine de l'apport<input name="apportOrigine" maxlength="200" placeholder="épargne, vente d'un bien, donation…" /></label>
+          </div>
+          <p class="aide alerteDouce" id="avisSansPret" hidden>Sans prêt, vous renoncez à la condition suspensive d'obtention de prêt : si vous deviez finalement emprunter et que le prêt était refusé, vous resteriez engagé. Au moment de signer, la loi vous demandera d'écrire vous-même une mention le reconnaissant.</p>
+          <h3>Situation familiale</h3>
+          <div class="grid">
+            <label>Situation<select name="situation">
+              <option value="">— choisir —</option>
+              <option value="celibataire">Célibataire</option>
+              <option value="marie">Marié(e)</option>
+              <option value="pacse">Pacsé(e)</option>
+              <option value="concubinage">En concubinage</option>
+              <option value="divorce">Divorcé(e)</option>
+              <option value="veuf">Veuf / veuve</option>
+            </select></label>
+          </div>
+          <div class="grid" id="blocMariage" hidden>
+            <label>Date du mariage<input name="mariageDate" type="date" /></label>
+            <label>Lieu du mariage<input name="mariageLieu" maxlength="120" /></label>
+            <label>Régime matrimonial<input name="mariageRegime" maxlength="80" placeholder="communauté réduite aux acquêts, séparation de biens…" /></label>
+            <label class="case"><input type="checkbox" name="mariageContrat" /> Nous avons un contrat de mariage</label>
+          </div>
+          <div class="grid" id="blocPacs" hidden>
+            <label>Date du PACS<input name="pacsDate" type="date" /></label>
+            <label>Lieu du PACS<input name="pacsLieu" maxlength="120" /></label>
+          </div>
+          <label class="case"><input type="checkbox" name="sciPrevue" /> Nous envisageons de créer une SCI pour cette acquisition</label>
+          <h3>Votre notaire (si vous en avez un)</h3>
+          <div class="grid">
+            <label>Étude<input name="notaireEtude" maxlength="120" placeholder="Me Dupont, Bordeaux" /></label>
+            <label>Adresse<input name="notaireAdresse" maxlength="200" /></label>
+            <label>Téléphone<input name="notaireTel" type="tel" maxlength="40" /></label>
+            <label>E-mail<input name="notaireEmail" type="email" maxlength="120" /></label>
+          </div>
+          <div class="barre"><button type="submit" class="btn">Enregistrer</button><span class="aide" id="msgFinancement"></span></div>
+        </form>
+      </section>
+
+      <section class="etape" id="etapePieces">
+        <h2><span class="num">3</span> Vos pièces justificatives</h2>
+        <p class="aide">Photographiez ou téléchargez chaque document (PDF, JPEG, PNG — 10 Mo max par fichier, les photos sont réduites automatiquement). Elles sont transmises de façon sécurisée à votre conseiller et effacées 90 jours après la fin de l'offre.</p>
+        <div id="pieces"></div>
+        <input type="file" id="fichier" accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,application/pdf,image/*" hidden />
+        <p class="aide" id="msgPieces"></p>
+      </section>
+
+      <section class="etape" id="etapeSignature">
+        <h2><span class="num">4</span> Signature</h2>
+        <div id="signatureContenu"></div>
+      </section>
+    </div>
+
+    <!-- ====== PARCOURS DU VENDEUR ====== -->
+    <div id="parcoursVendeur" hidden>
+      <section class="etape">
+        <h2>Votre réponse</h2>
+        <p class="aide">Prenez le temps de lire l'offre complète ci-dessus. Accepter l'offre vaut accord sur la chose et sur le prix : vous serez engagé à vendre aux conditions de l'offre. Pour toute question, appelez votre conseiller.</p>
+        <div id="reponseContenu"></div>
+      </section>
+    </div>
+
+    <section class="etape" id="etapeJournal" hidden>
+      <h2>Où en est l'offre</h2>
+      <ol class="frise" id="frise"></ol>
+    </section>
+
+    <footer class="pied" id="pied"></footer>
+  </main>
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/heic.js"></script>
+  <script src="assets/js/offre.js"></script>
+</body>
+</html>

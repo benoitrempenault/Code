@@ -77,10 +77,14 @@ export async function nouvellePage(browser, options = {}) {
   await page.route(API_PROD, async (r) => {
     const u = new URL(r.request().url());
     try {
+      // Les en-têtes qui portent une identité (session, jeton d'offre) et le
+      // corps tel quel — en octets, pour les dépôts de fichiers (pièces).
+      const h = r.request().headers();
       const resp = await fetch(API + u.pathname + u.search, {
         method: r.request().method(),
-        headers: { "Content-Type": "application/json", Authorization: r.request().headers()["authorization"] || "" },
-        body: ["GET", "HEAD"].includes(r.request().method()) ? undefined : r.request().postData() });
+        headers: { "Content-Type": h["content-type"] || "application/json", Authorization: h["authorization"] || "",
+          ...(h["x-offre-jeton"] ? { "X-Offre-Jeton": h["x-offre-jeton"] } : {}) },
+        body: ["GET", "HEAD"].includes(r.request().method()) ? undefined : r.request().postDataBuffer() });
       r.fulfill({ status: resp.status, contentType: resp.headers.get("content-type") || "application/json",
         headers: { "Access-Control-Allow-Origin": "*" }, body: Buffer.from(await resp.arrayBuffer()) });
     } catch (e) { r.abort(); }

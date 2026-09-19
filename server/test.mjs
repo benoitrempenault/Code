@@ -3430,6 +3430,222 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(noSecret.status === 501, "secret non configuré → 501 (le client retombe sur la connexion e-mail)");
 }
 
+
+/* ====================== Studio Offre (prise d'offre d'achat) ===================== */
+{
+  console.log("— Offres d'achat : création depuis un couple, lien magique, questionnaire, pièces, signature OTP");
+  const O_TEST = await import("./src/offres.js");
+  const cr = await call("/admin/agencies", { headers: admin, body: { name: "Agence Offre Test", email: "offre-admin@offre-test.fr", user_name: "Admin Offre" } });
+  const agOf = cr.json.agency.id;
+  const sessA = (await call("/auth/exchange", { body: { token: cr.json.welcome_link.split("#token=")[1] } })).json.session;
+  const authA = { Authorization: "Bearer " + sessA };            // admin (voit les pièces)
+  // Deux conseillers simples : Paul crée l'offre (conseiller du dossier), Léa n'a rien à voir.
+  const sessionDe = async (email, name) => {
+    await call("/admin/users", { headers: admin, body: { agency_id: agOf, email, name } });
+    await db.run("DELETE FROM login_tokens", []);
+    const t = (await call("/auth/request-link", { body: { email } })).json.dev_token;
+    return (await call("/auth/exchange", { body: { token: t } })).json.session;
+  };
+  const authPaul = { Authorization: "Bearer " + await sessionDe("paul@offre-test.fr", "Paul Conseiller") };
+  const authLea = { Authorization: "Bearer " + await sessionDe("lea@offre-test.fr", "Léa Conseillère") };
+  const callRaw = async (path, { headers = {}, body, method = "POST" } = {}) => {
+    const res = await app.fetch(new Request("http://api.test" + path, { method, headers, body }));
+    const ct = res.headers.get("content-type") || "";
+    return { status: res.status, headers: res.headers, json: ct.includes("json") ? await res.json() : null, bytes: ct.includes("json") ? null : new Uint8Array(await res.arrayBuffer()) };
+  };
+
+  // Le couple : deux fiches contact.
+  const ctE = (await call("/crm/contacts", { method: "PUT", headers: authA, body: { civilite: "Mme", nom: "Müller", prenom: "Éléonore", email: "eleonore@exemple.fr", telephone: "06 12 34 56 78", adresse: "3 allée du Parc", cp: "33700", ville: "Mérignac", types: ["acquereur"] } })).json;
+  const ctJ = (await call("/crm/contacts", { method: "PUT", headers: authA, body: { civilite: "M.", nom: "Dupont", prenom: "Jean", email: "jean@exemple.fr", telephone: "06 98 76 54 32", types: ["acquereur"] } })).json;
+  ok(ctE.id && ctJ.id, "deux fiches contact créées");
+
+  const nb = await call("/crm/offres", { headers: authPaul, body: {
+    contactIds: [ctE.id, ctJ.id],
+    bien: { adresse: "12 rue des Lilas", cp: "33160", ville: "Saint-Médard-en-Jalles", description: "Maison T4 de 95 m² sur 400 m² de terrain, garage", mandat: "2026-118" },
+    prix: 224917, conditions: { acompte: 5000, substitution: false },
+    vendeurs: [{ nom: "Martin", prenom: "Paul", email: "vendeur@exemple.fr", telephone: "06 11 22 33 44" }],
+  } });
+  ok(nb.status === 200 && /^OA-\d{4}-0001$/.test(nb.json.numero), "offre créée et numérotée (" + (nb.json.numero || nb.json.error) + ")");
+  const ofId = nb.json.id;
+  const det0 = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
+  ok(det0.offre.projetId && det0.signataires.filter((s) => s.role === "offrant").length === 2 && det0.signataires.some((s) => s.role === "vendeur"),
+    "un projet d'achat a été créé, 2 offrants + 1 vendeur");
+  ok(det0.signataires[0].identite.civilite === "Madame" && det0.signataires[0].identite.adresse.includes("Mérignac"), "l'état civil est pré-rempli depuis la fiche contact");
+  ok((await call("/crm/offres/" + ofId, { headers: authLea })).json.accesPieces === false && det0.accesPieces === true, "les pièces : le conseiller du dossier oui, un autre conseiller non");
+
+  const envKo = await call("/crm/offres/" + ofId + "/envoyer", { headers: authPaul, body: {} });
+  ok(envKo.status === 400 && /validité/.test(envKo.json.error), "pas d'envoi sans date de validité : " + envKo.json.error);
+  const dans = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  ok((await call("/crm/offres/" + ofId, { method: "PUT", headers: authPaul, body: { conditions: { validite: dans(7), avantContrat: dans(30), acompte: 5000 } } })).status === 200, "dates de validité posées");
+  const env1 = await call("/crm/offres/" + ofId + "/envoyer", { headers: authPaul, body: {} });
+  ok(env1.status === 200 && env1.json.liens.length === 2 && env1.json.liens.every((l) => l.lien.includes("/offre/#t=")), "un lien magique par offrant");
+  const jetonE = env1.json.liens[0].lien.split("#t=")[1], jetonJ = env1.json.liens[1].lien.split("#t=")[1];
+  const hE = { "X-Offre-Jeton": jetonE }, hJ = { "X-Offre-Jeton": jetonJ };
+  ok((await call("/crm/offres/" + ofId, { headers: authPaul })).json.offre.statut === "envoyee", "statut : envoyée");
+
+  console.log("— Offres d'achat : parcours de l'acquéreur (sans session)");
+  ok((await call("/public/offre", { headers: { "X-Offre-Jeton": "n-importe-quoi-de-long-et-faux" } })).status === 401, "jeton inconnu → 401");
+  const pubE = await call("/public/offre", { headers: hE });
+  ok(pubE.status === 200 && pubE.json.role === "offrant" && pubE.json.offre.prix === 224917 && pubE.json.paragraphes.length > 20, "l'acquéreur voit son offre (rôle offrant, texte complet)");
+  ok(pubE.json.bloqueurs.some((b) => /identité/.test(b)) && pubE.json.bloqueurs.some((b) => /financement/.test(b)), "signature bloquée : pièce d'identité et financement manquants");
+  ok(pubE.json.pieces.filter((p) => p.type === "identite").length === 2 && pubE.json.pieces.some((p) => p.type === "domicile"), "pièces : une identité par personne + justificatif de domicile");
+
+  const idE = await call("/public/offre/identite", { method: "PUT", headers: hE, body: { civilite: "Madame", nom: "Müller", nomNaissance: "Schmidt", prenoms: "Éléonore", naissance: "1988-04-12", lieuNaissance: "Bordeaux", nationalite: "Française", adresse: "3 allée du Parc, 33700 Mérignac", profession: "Ingénieure", contratTravail: "CDI", employeur: "Thales, Mérignac" } });
+  ok(idE.status === 200 && idE.json.manques.length === 0, "état civil d'Éléonore complet");
+  ok((await call("/public/offre/identite", { method: "PUT", headers: hJ, body: { civilite: "Monsieur", nom: "Dupont", prenoms: "Jean", naissance: "1985-01-02", lieuNaissance: "Paris", adresse: "3 allée du Parc, 33700 Mérignac" } })).status === 200, "état civil de Jean complet");
+  // Financement SANS prêt (la mention L313-42 devient obligatoire) + notaire.
+  const fin = await call("/public/offre/financement", { method: "PUT", headers: hE, body: { financement: { sansPret: true, apport: 224917, apportOrigine: "vente d'un appartement" }, questionnaire: { situation: "marie", mariage: { date: "2015-06-20", lieu: "Bordeaux", regime: "communauté réduite aux acquêts", contrat: false }, notaire: { etude: "Me Durand", adresse: "Bordeaux", email: "durand@notaires.fr" } } } });
+  ok(fin.status === 200, "financement comptant + questionnaire enregistrés");
+  const pubE2 = (await call("/public/offre", { headers: hE })).json;
+  ok(pubE2.pieces.some((p) => p.type === "fonds") && pubE2.pieces.some((p) => p.type === "livret") && !pubE2.pieces.some((p) => p.type === "financement"), "pièces conditionnelles : justificatif de fonds + livret de famille, pas de simulation de prêt");
+  ok(/soussignée Éléonore MÜLLER/.test(pubE2.mention), "la mention L313-42 est proposée, accordée au féminin");
+
+  // Dépôt de pièces : formats vérifiés sur les octets, pas sur l'extension.
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(80).fill(0)]);
+  const HTML = new TextEncoder().encode("<html><script>alert(1)</script></html>" + " ".repeat(80));
+  const refus = await callRaw("/public/offre/documents?type=identite&nom=cni.png", { headers: hE, body: HTML });
+  ok(refus.status === 400 && /Format refusé/.test(refus.json.error), "un fichier HTML déguisé en .png est refusé");
+  ok((await callRaw("/public/offre/documents?type=inconnu&nom=x.png", { headers: hE, body: PNG })).status === 400, "type de pièce inconnu refusé");
+  const depE = await callRaw("/public/offre/documents?type=identite&nom=cni%20eleonore.png", { headers: hE, body: PNG });
+  ok(depE.status === 200 && depE.json.document.mime === "image/png" && depE.json.document.signataireId === pubE.json.moi.id, "CNI d'Éléonore déposée (PNG reconnu, rattachée à elle)");
+  const depDom = await callRaw("/public/offre/documents?type=domicile&nom=edf.png", { headers: hJ, body: PNG });
+  ok(depDom.status === 200 && depDom.json.document.signataireId === "", "justificatif de domicile déposé par Jean (pièce du ménage)");
+
+  // Signature d'Éléonore : OTP, mention, engagement.
+  ok((await call("/public/offre/signer", { headers: hE, body: { code: "000000", mention: pubE2.mention, engagement: true } })).status === 400, "signer sans code demandé → refus");
+  const otpE = await call("/public/offre/otp", { headers: hE, body: {} });
+  ok(otpE.status === 200 && /^\d{6}$/.test(otpE.json.dev_code || ""), "code OTP émis (6 chiffres, révélé en mode dev)");
+  const sigKo = await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: "je renonce", engagement: true } });
+  ok(sigKo.status === 400 && /mention/i.test(sigKo.json.error), "mention manuscrite tronquée → refus");
+  const sigKo2 = await call("/public/offre/signer", { headers: hE, body: { code: "123456", mention: pubE2.mention, engagement: true } });
+  ok(sigKo2.status === 400 && /incorrect/.test(sigKo2.json.error), "mauvais code → refus");
+  const sigE = await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""), engagement: true } });
+  ok(sigE.status === 200 && sigE.json.tousSignes === false && sigE.json.restent.length === 1, "Éléonore a signé (mention tapée sans accents acceptée) — reste Jean");
+  const apresE = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
+  ok(apresE.offre.figee && apresE.offre.pdfHash.length === 64 && apresE.events.some((e) => e.type === "figee"), "le document est figé à la première signature (empreinte SHA-256)");
+  ok((await call("/crm/offres/" + ofId, { method: "PUT", headers: authPaul, body: { prix: 200000 } })).status === 409, "le conseiller ne peut plus modifier l'offre après signature");
+  ok((await call("/public/offre/financement", { method: "PUT", headers: hJ, body: { financement: { sansPret: false, pret: 100000, duree: 20 } } })).status === 409, "le financement ne bouge plus non plus");
+  ok((await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention, engagement: true } })).status === 409, "signer deux fois : refus");
+
+  // Jean : bloqué tant que SA pièce d'identité n'est pas déposée.
+  const otpJko = await call("/public/offre/otp", { headers: hJ, body: {} });
+  ok(otpJko.status === 400 && /identité/.test(otpJko.json.error), "Jean ne reçoit pas de code sans sa pièce d'identité");
+  ok((await callRaw("/public/offre/documents?type=identite&nom=cni-jean.png", { headers: hJ, body: PNG })).status === 200, "CNI de Jean déposée");
+  const otpJ = await call("/public/offre/otp", { headers: hJ, body: {} });
+  const mentionJ = (await call("/public/offre", { headers: hJ })).json.mention;
+  const sigJ = await call("/public/offre/signer", { headers: hJ, body: { code: otpJ.json.dev_code, mention: mentionJ, engagement: true } });
+  ok(sigJ.status === 200 && sigJ.json.tousSignes === true, "Jean a signé : l'offre est signée par les deux");
+  const signee = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
+  ok(signee.offre.statut === "signee" && signee.signataires.filter((s) => s.role === "offrant").every((s) => s.signeAt > 0 && s.mention), "statut : signée, les deux mentions L313-42 consignées");
+  ok(signee.signataires.every((s) => s.identite.signeHash === undefined && !("otp_hash" in s)), "aucun hachage ni code n'est exposé à l'agence");
+
+  console.log("— Offres d'achat : accès aux pièces, PDF, présentation au vendeur, réponse, dossier Suivi");
+  const docId = depE.json.document.id;
+  ok((await callRaw("/crm/offres/" + ofId + "/documents/" + docId, { method: "GET", headers: authLea })).status === 403, "un autre conseiller ne télécharge pas la CNI (403)");
+  const dl = await callRaw("/crm/offres/" + ofId + "/documents/" + docId, { method: "GET", headers: authPaul });
+  ok(dl.status === 200 && /^attachment/.test(dl.headers.get("content-disposition")) && dl.bytes[0] === 0x89, "le conseiller du dossier la télécharge, en pièce jointe forcée");
+  ok((await callRaw("/crm/offres/" + ofId + "/documents/" + docId, { method: "GET", headers: authA })).status === 200, "l'admin aussi");
+  const pdf = await callRaw("/crm/offres/" + ofId + "/pdf", { method: "GET", headers: authLea });
+  ok(pdf.status === 200 && String.fromCharCode(...pdf.bytes.slice(0, 5)) === "%PDF-" && pdf.bytes.length > 8000, "le PDF (document + certificat) se télécharge (" + pdf.bytes.length + " octets)");
+  const pdfPub = await callRaw("/public/offre/pdf", { method: "GET", headers: hE });
+  ok(pdfPub.status === 200 && String.fromCharCode(...pdfPub.bytes.slice(0, 5)) === "%PDF-", "l'acquéreur récupère aussi son PDF");
+
+  const pres = await call("/crm/offres/" + ofId + "/presenter", { headers: authPaul, body: {} });
+  ok(pres.status === 200 && pres.json.liens.length === 1, "offre présentée au vendeur (lien émis)");
+  const hV = { "X-Offre-Jeton": pres.json.liens[0].lien.split("#t=")[1] };
+  const pubV = await call("/public/offre", { headers: hV });
+  ok(pubV.status === 200 && pubV.json.role === "vendeur" && pubV.json.pieces.length === 0 && pubV.json.mention.accepte, "le vendeur voit l'offre, pas les pièces de l'acquéreur");
+  ok((await call("/public/offre/identite", { method: "PUT", headers: hV, body: { nom: "X" } })).status === 403, "le vendeur ne touche pas à l'état civil de l'acquéreur");
+  ok((await callRaw("/public/offre/documents?type=identite&nom=x.png", { headers: hV, body: PNG })).status === 403, "ni au dépôt de pièces");
+  const otpV = await call("/public/offre/otp", { headers: hV, body: {} });
+  ok(otpV.status === 200 && otpV.json.dev_code, "code OTP du vendeur émis");
+  const rep = await call("/public/offre/repondre", { headers: hV, body: { code: otpV.json.dev_code, decision: "accepte", engagement: true } });
+  ok(rep.status === 200 && rep.json.conclue && rep.json.statut === "acceptee", "le vendeur accepte : offre acceptée");
+  const acc = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
+  ok(acc.offre.statut === "acceptee" && acc.offre.purgeAt > 0 && acc.offre.reponse.mode === "electronique", "réponse électronique consignée, purge des pièces programmée");
+  ok((await call("/public/offre/repondre", { headers: hV, body: { code: otpV.json.dev_code, decision: "refuse", engagement: true } })).status === 409, "le vendeur ne répond qu'une fois");
+
+  const dos = await call("/crm/offres/" + ofId + "/dossier", { headers: authPaul, body: {} });
+  ok(dos.status === 200 && dos.json.id.startsWith("do_") && /MARTIN \/ M.LLER & DUPONT/.test(dos.json.name), "dossier Studio Suivi créé : " + dos.json.name);
+  const dosData = (await call("/dossiers/" + dos.json.id, { headers: authPaul })).json;
+  const dd = typeof dosData.data === "string" ? JSON.parse(dosData.data) : dosData.data;
+  ok(dd.acquereurs && dd.acquereurs.length === 2 && dd.prix.prix_vente === "224917" && dd.financement.recours_pret === "non" && dd.notaire_acquereur.nom === "Me Durand",
+    "le dossier porte les deux acquéreurs, le prix, le financement comptant et le notaire");
+  ok((await call("/crm/offres/" + ofId + "/dossier", { headers: authPaul, body: {} })).json.existant === true, "créer le dossier deux fois n'en fait qu'un");
+  ok((await call("/crm/projets", { headers: authA })).json.projets.find((p) => p.id === acc.offre.projetId).statut === "conclu", "le projet d'achat passe « conclu »");
+
+  console.log("— Offres d'achat : expiration, retrait, purge des pièces, réponse manuelle");
+  const nb2 = await call("/crm/offres", { headers: authPaul, body: { projetId: acc.offre.projetId, bien: { adresse: "5 rue Basse", ville: "Le Taillan", description: "Appartement T2" }, prix: 150000, conditions: { validite: "2020-01-01", avantContrat: "2020-02-01" } } });
+  ok(nb2.status === 200 && /-0002$/.test(nb2.json.numero), "deuxième offre depuis le projet : n° 0002");
+  // Une offre envoyée dont la validité est passée expire au ménage du matin.
+  await db.run("UPDATE crm_offres SET statut = 'envoyee' WHERE id = ?", [nb2.json.id]);
+  const menage2 = await CRM_TEST.menageQuotidien(db, files);
+  ok(menage2.offresExpirees === 1 && (await call("/crm/offres/" + nb2.json.id, { headers: authPaul })).json.offre.statut === "expiree", "offre expirée par le ménage quotidien");
+  const nb3 = (await call("/crm/offres", { headers: authPaul, body: { contactIds: [ctJ.id], bien: { adresse: "9 rue Haute", ville: "Blanquefort", description: "Terrain" }, prix: 90000, conditions: { validite: dans(5), avantContrat: dans(40) } } })).json;
+  ok((await call("/crm/offres/" + nb3.id + "/reponse", { headers: authPaul, body: { decision: "accepte" } })).status === 409, "pas de réponse vendeur sur une offre non signée");
+  ok((await call("/crm/offres/" + nb3.id + "/retirer", { headers: authPaul, body: { motif: "L'acquéreur renonce" } })).status === 200 &&
+     (await call("/crm/offres/" + nb3.id, { headers: authPaul })).json.offre.statut === "retiree", "offre retirée");
+  // Purge : 90 jours après la fin, les pièces disparaissent (R2 + base), pas le PDF.
+  const avantPurge = (await call("/crm/offres/" + ofId, { headers: authPaul })).json.documents.length;
+  await db.run("UPDATE crm_offres SET purge_at = ? WHERE id = ?", [Math.floor(Date.now() / 1000) - 10, ofId]);
+  const menage3 = await CRM_TEST.menageQuotidien(db, files);
+  const apresPurge = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
+  ok(avantPurge === 3 && menage3.offresPurgees.documents === 3 && apresPurge.documents.length === 0 && apresPurge.offre.purgee && !filesMem.has(O_TEST.cleDocument(agOf, ofId, docId)),
+    "purge : 3 pièces effacées du stockage et de la base, offre marquée purgée");
+  ok(filesMem.has(O_TEST.clePdf(agOf, ofId)) && (await callRaw("/crm/offres/" + ofId + "/pdf", { method: "GET", headers: authPaul })).status === 200, "le PDF signé survit à la purge");
+  // À la réponse du vendeur, l'acquéreur a reçu un NOUVEAU lien (l'ancien est
+  // remplacé) : l'ancien jeton ne passe plus (401), et de toute façon une
+  // offre terminée refuse tout dépôt (409).
+  const depFin = (await callRaw("/public/offre/documents?type=identite&nom=x.png", { headers: hE, body: PNG })).status;
+  ok(depFin === 401 || depFin === 409, "plus de dépôt sur une offre terminée (" + depFin + ")");
+  ok(O_TEST.nombreEnLettres(224917) === "deux cent vingt-quatre mille neuf cent dix-sept" && O_TEST.nombreEnLettres(80000) === "quatre-vingt mille" && O_TEST.nombreEnLettres(1000000) === "un million",
+    "les prix s'écrivent en lettres correctement");
+
+  console.log("— Offres d'achat : notifications (réponse à l'acquéreur, relance J+2, alerte d'expiration)");
+  const mailsOffre = [];
+  const fauxResendO = (await import("node:http")).createServer(async (req, res) => {
+    const chunks = []; for await (const c of req) chunks.push(c);
+    mailsOffre.push(JSON.parse(Buffer.concat(chunks).toString()));
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ id: "email_test" }));
+  });
+  await new Promise((r) => fauxResendO.listen(18800, r));
+  const envO = { db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
+    RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18800", MAIL_FROM: "Studio Brochure <connexion@studiobrochure.fr>", OFFRE_BASE: "https://exemple.test/offre" };
+  const appO = createApp(envO);
+  const callO = async (path, opts = {}) => {
+    const res = await appO.fetch(new Request("http://api.test" + path, { method: opts.method || (opts.body ? "POST" : "GET"), headers: { "Content-Type": "application/json", ...(opts.headers || {}) }, body: opts.body ? JSON.stringify(opts.body) : undefined }));
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+  const { rappelsOffres } = await import("./src/offres-cron.js");
+  // (a) Réponse du vendeur saisie par l'agence → l'acquéreur est prévenu, avec un nouveau lien.
+  const nb4 = (await callO("/crm/offres", { headers: authPaul, body: { projetId: acc.offre.projetId, bien: { adresse: "1 rue du Test", ville: "Mérignac", description: "T3" }, prix: 180000, conditions: { validite: dans(6), avantContrat: dans(40) } } })).json;
+  await db.run("UPDATE crm_offres SET statut = 'signee' WHERE id = ?", [nb4.id]);
+  mailsOffre.length = 0;
+  ok((await callO("/crm/offres/" + nb4.id + "/reponse", { headers: authPaul, body: { decision: "contre", prix: 190000, commentaire: "Pas en dessous" } })).status === 200, "contre-proposition enregistrée");
+  const auxAcquereurs = mailsOffre.filter((m) => ["eleonore@exemple.fr", "jean@exemple.fr"].includes(m.to[0]));
+  ok(auxAcquereurs.length === 2 && auxAcquereurs.every((m) => /contre-proposition/i.test(m.html) && /190[\s\u202f]?000/.test(m.html) && m.html.includes("https://exemple.test/offre/#t=")),
+    "les deux acquéreurs reçoivent la réponse du vendeur (contre-proposition à 190 000 €, nouveau lien)");
+  ok(mailsOffre.some((m) => m.to[0] === "paul@offre-test.fr" && /Contre-proposition/.test(m.subject)), "…et le conseiller aussi");
+  // (b) Relance J+2 : offre envoyée, lien parti il y a 3 jours, personne n'a signé.
+  const nb5 = (await callO("/crm/offres", { headers: authPaul, body: { contactIds: [ctE.id, ctJ.id], bien: { adresse: "2 rue du Test", ville: "Mérignac", description: "T4" }, prix: 210000, conditions: { validite: dans(1), avantContrat: dans(40) } } })).json;
+  await callO("/crm/offres/" + nb5.id + "/envoyer", { headers: authPaul, body: {} });
+  mailsOffre.length = 0;
+  const rap0 = await rappelsOffres(envO, db);
+  ok(rap0.relances === 0, "à J+0 : pas de relance");
+  await db.run("UPDATE crm_offre_events SET created_at = created_at - 3 * 86400 WHERE offre_id = ? AND type = 'lien-envoye'", [nb5.id]);
+  let rap = await rappelsOffres(envO, db);
+  const relances = mailsOffre.filter((m) => /vous attend/.test(m.subject));
+  ok(rap.relances === 2 && relances.length === 2 && relances.every((m) => m.html.includes("https://exemple.test/offre/#t=")), "à J+3 : les deux acquéreurs non signés sont relancés, avec un nouveau lien");
+  // (c) Alerte d'expiration : validité = demain → le conseiller est prévenu, une seule fois.
+  const alertes = mailsOffre.filter((m) => /expire demain/.test(m.subject));
+  ok(rap0.alertes === 1 && rap.alertes === 0 && alertes.length === 1 && alertes[0].to[0] === "paul@offre-test.fr" && /OA-\d{4}-0005/.test(alertes[0].subject), "la veille de l'expiration, le conseiller du dossier est alerté");
+  mailsOffre.length = 0;
+  rap = await rappelsOffres(envO, db);
+  ok(rap.relances === 0 && rap.alertes === 0 && mailsOffre.length === 0, "second passage le même jour : ni relance ni alerte en double");
+  ok((await callO("/crm/offres/rappels", { headers: authLea, body: {} })).status === 403 && (await callO("/crm/offres/rappels", { headers: authA, body: {} })).status === 200, "les rappels se lancent à la main (admin seulement)");
+  fauxResendO.close();
+}
+
 fake.close();
 faux365.close();
 console.log("\n" + passed + " réussis, " + failed + " échec(s)");

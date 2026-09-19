@@ -751,6 +751,108 @@ CREATE TABLE IF NOT EXISTS crm_agent_keys (
 );
 CREATE INDEX IF NOT EXISTS idx_crm_agent_keys_ag ON crm_agent_keys(agency_id, usage, revoked);
 
+-- =========================================================================
+-- Studio Offre (onglet « Offres » de l'Administration + page publique offre/)
+-- La prise d'offre d'achat : l'offre s'accroche au PROJET d'achat (un couple
+-- = deux signataires), l'acquéreur complète son questionnaire, dépose ses
+-- pièces et signe par OTP depuis un lien magique ; le vendeur accepte ou
+-- refuse par le même mécanisme ; l'offre acceptée devient un dossier Suivi.
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS crm_offres (
+  id             TEXT PRIMARY KEY,            -- of_xxxxxxxx
+  agency_id      TEXT NOT NULL REFERENCES agencies(id),
+  numero         TEXT NOT NULL DEFAULT '',    -- OA-2026-0007 (par agence et par an)
+  projet_id      TEXT NOT NULL DEFAULT '',    -- projet d'achat (crm_projets)
+  statut         TEXT NOT NULL DEFAULT 'brouillon',
+    -- brouillon | envoyee | signee | presentee | acceptee | refusee | contre_offre | expiree | retiree
+  conseiller     TEXT NOT NULL DEFAULT '',    -- nom du conseiller du dossier
+  conseiller_id  TEXT NOT NULL DEFAULT '',    -- user_id : seul à voir les pièces (avec les admins)
+  bien           TEXT NOT NULL DEFAULT '{}',  -- JSON {adresse, cp, ville, description, mandat, annonceId, prixAffiche}
+  prix           INTEGER NOT NULL DEFAULT 0,  -- prix offert, honoraires inclus (charge vendeur)
+  conditions     TEXT NOT NULL DEFAULT '{}',  -- JSON {validite, avantContrat, acompte, substitution, autres}
+  financement    TEXT NOT NULL DEFAULT '{}',  -- JSON rempli par l'acquéreur {sansPret, apport, apportOrigine, pret, duree, taux, organisme}
+  questionnaire  TEXT NOT NULL DEFAULT '{}',  -- JSON ménage {domicile, mariage, pacs, sci, notaire, contratMariage}
+  reponse        TEXT NOT NULL DEFAULT '{}',  -- JSON {decision, prix, commentaire, par, mode}
+  pdf_hash       TEXT NOT NULL DEFAULT '',    -- SHA-256 du document figé à la 1re signature
+  pdf_size       INTEGER NOT NULL DEFAULT 0,
+  dossier_id     TEXT NOT NULL DEFAULT '',    -- dossier Studio Suivi créé à l'acceptation
+  signee_at      INTEGER NOT NULL DEFAULT 0,  -- tous les offrants ont signé
+  presentee_at   INTEGER NOT NULL DEFAULT 0,  -- lien envoyé au(x) vendeur(s)
+  reponse_at     INTEGER NOT NULL DEFAULT 0,
+  purge_at       INTEGER NOT NULL DEFAULT 0,  -- date de purge des pièces déposées (0 = jamais)
+  purgee         INTEGER NOT NULL DEFAULT 0,
+  user_id        TEXT NOT NULL DEFAULT '',    -- dernier auteur
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_offres_ag ON crm_offres(agency_id, statut, updated_at);
+CREATE INDEX IF NOT EXISTS idx_crm_offres_purge ON crm_offres(purgee, purge_at);
+
+-- Les signataires d'une offre : les OFFRANTS (personnes du projet d'achat)
+-- et les VENDEURS (saisis par le conseiller). Chacun a son lien magique et
+-- signe par OTP ; l'identité de l'offrant (état civil du questionnaire) vit
+-- ici, elle n'est jamais recopiée dans la fiche contact sans validation.
+CREATE TABLE IF NOT EXISTS crm_offre_signataires (
+  id            TEXT PRIMARY KEY,             -- os_xxxxxxxx
+  offre_id      TEXT NOT NULL,
+  agency_id     TEXT NOT NULL,
+  role          TEXT NOT NULL DEFAULT 'offrant', -- offrant | vendeur
+  ordre         INTEGER NOT NULL DEFAULT 0,
+  contact_id    TEXT NOT NULL DEFAULT '',     -- fiche crm_contacts (offrants)
+  nom           TEXT NOT NULL DEFAULT '',
+  prenom        TEXT NOT NULL DEFAULT '',
+  email         TEXT NOT NULL DEFAULT '',
+  telephone     TEXT NOT NULL DEFAULT '',
+  identite      TEXT NOT NULL DEFAULT '{}',   -- JSON état civil complet (questionnaire)
+  jeton_hash    TEXT NOT NULL DEFAULT '',     -- sha256 du lien magique
+  jeton_expire  INTEGER NOT NULL DEFAULT 0,
+  otp_hash      TEXT NOT NULL DEFAULT '',     -- code en cours (sha256)
+  otp_expire    INTEGER NOT NULL DEFAULT 0,
+  otp_essais    INTEGER NOT NULL DEFAULT 0,
+  otp_envois    INTEGER NOT NULL DEFAULT 0,   -- codes envoyés (anti-rafale)
+  otp_canal     TEXT NOT NULL DEFAULT '',     -- sms | email | sms+email
+  signe_at      INTEGER NOT NULL DEFAULT 0,
+  signe_ip      TEXT NOT NULL DEFAULT '',
+  signe_ua      TEXT NOT NULL DEFAULT '',
+  signe_hash    TEXT NOT NULL DEFAULT '',     -- empreinte du document signé
+  mention       TEXT NOT NULL DEFAULT '',     -- mention tapée par le signataire (L313-42, acceptation…)
+  decision      TEXT NOT NULL DEFAULT '',     -- vendeur : accepte | refuse | contre
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_os_offre ON crm_offre_signataires(offre_id, role, ordre);
+CREATE INDEX IF NOT EXISTS idx_crm_os_jeton ON crm_offre_signataires(jeton_hash);
+
+-- Les pièces déposées (contenu dans R2 : of/<agence>/<offre>/<id>).
+CREATE TABLE IF NOT EXISTS crm_offre_documents (
+  id             TEXT PRIMARY KEY,            -- od_xxxxxxxx
+  offre_id       TEXT NOT NULL,
+  agency_id      TEXT NOT NULL,
+  signataire_id  TEXT NOT NULL DEFAULT '',    -- pièce d'une personne, vide = pièce du ménage
+  type           TEXT NOT NULL DEFAULT '',    -- identite | domicile | financement | apport | …
+  nom            TEXT NOT NULL DEFAULT '',    -- nom de fichier d'origine (nettoyé)
+  mime           TEXT NOT NULL DEFAULT '',
+  taille         INTEGER NOT NULL DEFAULT 0,
+  sha256         TEXT NOT NULL DEFAULT '',
+  verifie        INTEGER NOT NULL DEFAULT 0,  -- pointée par le conseiller
+  created_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_od_offre ON crm_offre_documents(offre_id, type);
+
+-- Journal de l'offre : envoi du lien, ouverture, dépôt, signature, présentation
+-- au vendeur, réponse… La preuve de ce qui s'est passé, et quand.
+CREATE TABLE IF NOT EXISTS crm_offre_events (
+  id         TEXT PRIMARY KEY,                -- oe_xxxxxxxx
+  offre_id   TEXT NOT NULL,
+  agency_id  TEXT NOT NULL,
+  type       TEXT NOT NULL,
+  detail     TEXT NOT NULL DEFAULT '',
+  acteur     TEXT NOT NULL DEFAULT '',        -- nom du conseiller, du signataire, ou « système »
+  ip         TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_oe_offre ON crm_offre_events(offre_id, created_at);
+
 -- Compteurs AMEPI hors curseur (biens ignorés au dépôt car hors ALFA/département).
 CREATE TABLE IF NOT EXISTS crm_amepi_compteurs (
   agency_id    TEXT PRIMARY KEY REFERENCES agencies(id),

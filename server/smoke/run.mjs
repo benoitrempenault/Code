@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 const ICI = new URL(".", import.meta.url).pathname;
 const RACINE = resolve(ICI, "../..");
 const PORT_API = 8788, PORT_SITE = 8014, PORT_BAN = 18796;
-const PARCOURS = ["suppression", "anniversaires", "suivi", "fiche-adresse", "compte", "maisons"];
+const PARCOURS = ["suppression", "anniversaires", "suivi", "fiche-adresse", "compte", "maisons", "offre"];
 const choisis = process.argv.slice(2).length ? process.argv.slice(2) : PARCOURS;
 
 // 1) Fausse BAN pour le serveur (géocodage direct) : toute adresse trouve une
@@ -61,7 +61,7 @@ const dbPath = join(tmpdir(), "studio-smoke-" + process.pid + ".sqlite");
 const apiProc = spawn(process.execPath, ["node.js"], {
   cwd: resolve(ICI, ".."), stdio: ["ignore", "pipe", "pipe"],
   env: { ...process.env, PORT: String(PORT_API), DB_PATH: dbPath, DEV_MODE: "1", ADMIN_KEY: "dev-admin",
-    APP_ORIGINS: "http://localhost:" + PORT_SITE, BAN_BASE: "http://localhost:" + PORT_BAN, DVF_BASE: "http://localhost:1", BATIMENTS_BASE: "http://localhost:" + PORT_IGN },
+    APP_ORIGINS: "http://localhost:" + PORT_SITE, OFFRE_BASE: "http://localhost:" + PORT_SITE + "/offre", BAN_BASE: "http://localhost:" + PORT_BAN, DVF_BASE: "http://localhost:1", BATIMENTS_BASE: "http://localhost:" + PORT_IGN },
 });
 let journalApi = "";
 apiProc.stdout.on("data", (d) => { journalApi += d; });

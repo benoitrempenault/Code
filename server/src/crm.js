@@ -13,6 +13,7 @@
      avec historique des prix et journal des mouvements (crm_annonces_events),
      carburant des futures relances acquereurs.
    ========================================================================= */
+import * as OFFRES from "./offres.js";
 import { now, randId } from "./util.js";
 import { changesOf } from "./db.js";
 import { syncAmepi, listerAmepi, commeAnnonce, amepiConfigure } from "./amepi.js";
@@ -438,9 +439,13 @@ export async function restaurerCorbeille(db, agencyId, id) {
 
 // Ménage quotidien (cron) : corbeille au-delà de 30 jours, sessions mortes,
 // liens de connexion périmés, compteurs de quotas vieux de 3 mois.
-export async function menageQuotidien(db) {
+export async function menageQuotidien(db, files = null) {
   const t = now();
   const r = {};
+  // Offres d'achat : expiration des offres sans réponse, purge des pièces
+  // déposées 90 jours après la fin d'une offre (l'offre et son PDF restent).
+  try { r.offresExpirees = await OFFRES.expirerOffres(db); } catch (e) { r.offresErreur = e.message; }
+  try { r.offresPurgees = await OFFRES.purgerOffres(db, files); } catch (e) { r.purgeErreur = e.message; }
   r.corbeille = changesOf(await db.run("DELETE FROM crm_corbeille WHERE created_at < ? OR (restored_at > 0 AND restored_at < ?)",
     [t - CORBEILLE_JOURS * 86400, t - 7 * 86400]));
   r.sessions = changesOf(await db.run("DELETE FROM sessions WHERE revoked = 1 OR last_seen < ?", [t - 90 * 86400]));
@@ -785,6 +790,7 @@ export function defaultReglages(agency) {
     // « relance » = les proposer aussi aux acquéreurs (délégation de mandat).
     amepi: { enabled: false, sources: ["2"], relance: false, communes: "", departements: "33" },
     modeles: {}, // surcharges de la Bibliotheque des messages ({cle: {sujet, texte}})
+    offres: OFFRES.defaultReglagesOffres(), // en-tête légal de l'offre d'achat, délais proposés
   };
 }
 export async function getReglages(db, agency) {
@@ -801,6 +807,7 @@ export async function getReglages(db, agency) {
     estimations: { ...def.estimations, ...(data.estimations || {}) },
     amepi: { ...def.amepi, ...(data.amepi || {}) },
     modeles: data.modeles && typeof data.modeles === "object" ? data.modeles : {},
+    offres: { ...def.offres, ...(data.offres || {}) },
   };
 }
 export async function saveReglages(db, agency, userId, incoming) {
@@ -813,6 +820,7 @@ export async function saveReglages(db, agency, userId, incoming) {
     estimations: { ...cur.estimations, ...(incoming.estimations || {}) },
     amepi: { ...cur.amepi, ...(incoming.amepi || {}) },
     modeles: { ...cur.modeles, ...(incoming.modeles || {}) },
+    offres: OFFRES.sanitizeReglagesOffres(incoming.offres && typeof incoming.offres === "object" ? incoming.offres : {}, cur.offres),
   };
   for (const k of Object.keys(next.agence)) next.agence[k] = strip(next.agence[k], 300);
   next.anniversaires.enabled = !!next.anniversaires.enabled;
@@ -919,7 +927,7 @@ export function surchargeModele(reglages, cle) {
 }
 
 // Texte libre → paragraphes du gabarit (double saut = paragraphe).
-function texteEnParagraphes(texte) {
+export function texteEnParagraphes(texte) {
   return String(texte || "").split(/\n{2,}/).map((p) =>
     `<p style="margin:0 0 16px;">${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
 }
@@ -1012,7 +1020,7 @@ export function salutation(c) {
 
 // Gabarit commun : carte blanche sur fond creme, bandeau sombre, filet dore —
 // CSS inline uniquement (compatibilite clients mail).
-function wrapEmail(ag, { eyebrow, headline, bodyHtml, signatureName, signatureTitre }) {
+export function wrapEmail(ag, { eyebrow, headline, bodyHtml, signatureName, signatureTitre }) {
   const gold = "#BEAF87", dark = "#1D1D1B";
   const nom = ag.nom || "Votre agence";
   const logo = ag.logoUrl
