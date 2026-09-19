@@ -1015,7 +1015,7 @@
         ? d.enVente + " bien(s) en vente sur " + d.total + " connus" +
           (e.fini_le ? " — dernier relevé complet le " + new Date(e.fini_le * 1000).toLocaleString("fr-FR") : "") +
           (e.page ? " — relevé en cours (page " + e.page + ")" : "") + (e.erreur ? " — dernière erreur : " + e.erreur : "") +
-          (e.hors_secteur ? " — " + e.hors_secteur + " bien(s) hors ALFA/Gironde ignoré(s) au dernier relevé" : "") +
+          (e.hors_secteur ? " — " + e.hors_secteur + " bien(s) ignoré(s) au dernier relevé (hors Gironde ou doublons)" : "") +
           ((d.parSource || []).length ? " — par source : " + d.parSource.map((x) => (x.source || "?") + " × " + x.n).join(", ") : "") +
           ((d.parDep || []).length ? " — par département : " + d.parDep.map((x) => (x.dep || "sans CP") + " × " + x.n).join(", ") : "")
         : "Aucun bien relevé pour l'instant." + (e.erreur ? " Dernière erreur : " + e.erreur : ""));
