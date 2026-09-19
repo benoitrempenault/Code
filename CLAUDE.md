@@ -501,6 +501,12 @@ fiche = offrants/vendeurs/pièces/journal + boutons selon statut, « 📝 Faire 
 dans la modale projet), réglages `reglages.offres` (en-tête légal, représentant, lieu,
 adresse RGPD, délais par défaut — ids `ofr-*`, distincts du formulaire `of-*`).
 `OFFRE_BASE` (wrangler.toml, liste blanche worker.js) = base des liens magiques.
+**Récupération des pièces** (fiche de l'offre, conseiller du dossier / admin) : « ⬇ Toutes
+les pièces (zip) » — archive fabriquée dans le navigateur par `assets/js/zip.js`
+(`window.StudioZip.creer`, méthode store, noms UTF-8, sans dépendance) = pièces nommées
+« type - personne - fichier » + le PDF de l'offre ; « 📂 Enregistrer dans un dossier »
+(Chrome/Edge, `showDirectoryPicker`) écrit les mêmes fichiers dans un sous-dossier
+« Offre OA-… - NOMS » du dossier choisi (OneDrive synchronisé).
 Tests : bloc « Offres d'achat » de test.mjs (61 cas) + parcours navigateur
 `server/smoke/offre.mjs` (le relais de lib.mjs transmet désormais `X-Offre-Jeton` et les
 corps binaires). Limite connue : avec le compte SSO partagé Kadima, tous les

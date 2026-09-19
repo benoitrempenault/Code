@@ -148,6 +148,15 @@ export default async function () {
     await page.waitForSelector("tr[data-offre]", { timeout: 6000 });
     await page.click("tr[data-offre]");
     await page.waitForSelector("#btn-of-dossier", { timeout: 6000 });
+    const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), page.click("#btn-of-zip")]);
+    await attendreToast(page, "3 fichier\\(s\\) dans Offre OA-2026-0001 - MÜLLER & DUPONT\\.zip");
+    // Le nom suggéré n'est pas fiable sous headless_shell (blob:) : on lit
+    // l'archive elle-même — signature ZIP, une entrée par pièce + le PDF.
+    const archive = await (await import("node:fs/promises")).readFile(await dl.path());
+    const texte = archive.toString("latin1");
+    ok(archive[0] === 0x50 && archive[1] === 0x4b && /cni\.jpg/.test(archive.toString("utf8")) && /cni-jean\.jpg/.test(archive.toString("utf8")) &&
+       /Offre OA-2026-0001 sign/.test(archive.toString("utf8")) && texte.includes("%PDF-"),
+      "toutes les pièces partent en une archive ZIP valide (2 CNI + PDF signé, " + archive.length + " octets)");
     await page.click("#btn-of-dossier");
     await attendreToast(page, "Dossier Suivi créé");
     const dossiers = (await api("/dossiers", { headers: admin.auth })).json.dossiers || [];

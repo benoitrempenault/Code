@@ -1958,6 +1958,8 @@
       (["signee", "presentee"].includes(o.statut) ? '<button class="btn" id="btn-of-reponse">📝 Saisir la réponse du vendeur</button>' : "") +
       (o.statut === "acceptee" && !o.dossierId ? '<button class="btn btn-or" id="btn-of-dossier">📁 Créer le dossier Suivi</button>' : "") +
       '<button class="btn" id="btn-of-pdf">⬇ PDF</button>' +
+      (d.accesPieces && d.documents.length ? '<button class="btn" id="btn-of-zip" title="Toutes les pièces + le PDF de l\'offre, en une archive à ranger dans OneDrive">⬇ Toutes les pièces (zip)</button>' +
+        (window.showDirectoryPicker ? '<button class="btn" id="btn-of-dossier-local" title="Écrit les fichiers directement dans le dossier choisi (ex. OneDrive)">📂 Enregistrer dans un dossier</button>' : "") : "") +
       (!o.terminee ? '<button class="btn btn-danger" id="btn-of-retirer">Retirer</button>' : ""));
     const corps = $("modale-corps");
     const telecharger = async (path, nom) => {
@@ -1968,6 +1970,57 @@
       const el = document.createElement("a"); el.href = url; el.download = nom; document.body.appendChild(el); el.click(); el.remove();
       setTimeout(() => URL.revokeObjectURL(url), 30000);
     };
+    // Toutes les pièces d'un coup (+ le PDF de l'offre) : pour le dossier
+    // TRACFIN dans OneDrive. Les fichiers sont nommés « type - personne -
+    // nom d'origine » ; le dossier/archive porte le n° et les noms.
+    const propreNom = (x) => String(x || "").replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim();
+    const nomLot = propreNom("Offre " + o.numero + " - " + offrants.map((s) => ((s.identite && s.identite.nom) || s.nom || "").toUpperCase()).filter(Boolean).join(" & "));
+    async function lireOctets(path) {
+      const a = account();
+      const res = await fetch(API + path, { headers: { Authorization: "Bearer " + a.session } });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Erreur " + res.status); }
+      return new Uint8Array(await res.arrayBuffer());
+    }
+    async function rassemblerPieces(progression) {
+      const fichiers = [];
+      const libelleType = (t) => (d.pieces.find((p) => p.type === t) || {}).libelle || t;
+      let n = 0;
+      for (const doc of d.documents) {
+        progression(++n, d.documents.length + 1);
+        const qui = doc.signataireId ? (sigs.find((s) => s.id === doc.signataireId) || {}).libelle || "" : "";
+        fichiers.push({ nom: propreNom([libelleType(doc.type).split(" (")[0], qui, doc.nom].filter(Boolean).join(" - ")), octets: await lireOctets("/crm/offres/" + o.id + "/documents/" + doc.id), date: new Date(doc.createdAt * 1000) });
+      }
+      progression(n + 1, d.documents.length + 1);
+      fichiers.push({ nom: "Offre " + o.numero + (o.figee ? " signée" : "") + ".pdf", octets: await lireOctets("/crm/offres/" + o.id + "/pdf"), date: new Date() });
+      return fichiers;
+    }
+    async function telechargerZip() {
+      const btn = $("btn-of-zip"); btn.disabled = true;
+      try {
+        const fichiers = await rassemblerPieces((i, t) => { btn.textContent = "⬇ Pièces… " + i + "/" + t; });
+        const url = URL.createObjectURL(window.StudioZip.creer(fichiers));
+        const el = document.createElement("a"); el.href = url; el.download = nomLot + ".zip"; document.body.appendChild(el); el.click(); el.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        toast(fichiers.length + " fichier(s) dans " + nomLot + ".zip");
+      } catch (err) { toast(err.message, true); }
+      btn.disabled = false; btn.textContent = "⬇ Toutes les pièces (zip)";
+    }
+    // Chrome/Edge : écriture directe dans un dossier (OneDrive synchronisé),
+    // dans un sous-dossier au nom de l'offre — même API que la bibliothèque.
+    async function enregistrerDansDossier() {
+      const btn = $("btn-of-dossier-local"); btn.disabled = true;
+      try {
+        const racine = await window.showDirectoryPicker({ id: "studio-offres", mode: "readwrite", startIn: "documents" });
+        const dossier = await racine.getDirectoryHandle(nomLot, { create: true });
+        const fichiers = await rassemblerPieces((i, t) => { btn.textContent = "📂 Copie… " + i + "/" + t; });
+        for (const f of fichiers) {
+          const h = await dossier.getFileHandle(f.nom, { create: true });
+          const w = await h.createWritable(); await w.write(f.octets); await w.close();
+        }
+        toast(fichiers.length + " fichier(s) enregistré(s) dans « " + nomLot + " »");
+      } catch (err) { if (err && err.name !== "AbortError") toast(err.message, true); }
+      btn.disabled = false; btn.textContent = "📂 Enregistrer dans un dossier";
+    }
     let pieceAjout = null;
     corps.addEventListener("click", async (e) => {
       const t = e.target.closest("[data-lien],[data-doc-dl],[data-doc-sup],[data-doc-ajout]");
@@ -2039,6 +2092,8 @@
       catch (err) { toast(err.message, true); }
     });
     on("btn-of-pdf", () => telecharger("/crm/offres/" + o.id + "/pdf", "offre-" + o.numero + ".pdf").catch((err) => toast(err.message, true)));
+    on("btn-of-zip", telechargerZip);
+    on("btn-of-dossier-local", enregistrerDansDossier);
     on("btn-of-retirer", async () => {
       const b = $("btn-of-retirer");
       if (b.dataset.arme !== "1") { b.dataset.arme = "1"; b.textContent = "Confirmer le retrait ?"; setTimeout(() => { b.dataset.arme = ""; b.textContent = "Retirer"; }, 6000); return; }
