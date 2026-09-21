@@ -326,9 +326,40 @@ ok(notPdf.status === 400, "fichier sans signature %PDF refusé");
 ok((await app.fetch(new Request("http://api.test/dossiers/" + dosId + "/compromis", {
   method: "PUT", headers: { Authorization: "Bearer " + s2b }, body: pdfBytes
 }))).status === 404, "l'autre agence ne peut pas y attacher de PDF");
+
+console.log("— Avenants au compromis (R2, numérotés à côté du compromis)");
+{
+  const avBytes = new TextEncoder().encode("%PDF-1.4 faux avenant de prorogation " + "y".repeat(200));
+  const put = (n, body, sess) => app.fetch(new Request("http://api.test/dossiers/" + dosId + "/avenants/" + n, {
+    method: "PUT", headers: { Authorization: "Bearer " + (sess || s3), "Content-Type": "application/pdf" }, body
+  }));
+  const a1 = await put(1, avBytes);
+  const j1 = await a1.json();
+  ok(a1.status === 200 && j1.n === 1 && j1.size === avBytes.length, "avenant n°1 stocké");
+  ok(filesMem.has("do/" + agencyId + "/" + dosId + "-av1.pdf") && filesMem.has("do/" + agencyId + "/" + dosId + ".pdf"),
+    "l'avenant vit à côté du compromis, jamais à sa place");
+  const g1 = await app.fetch(new Request("http://api.test/dossiers/" + dosId + "/avenants/1", { headers: { Authorization: "Bearer " + s3 } }));
+  ok(g1.status === 200 && g1.headers.get("Content-Type") === "application/pdf"
+    && /avenant-1\.pdf/.test(g1.headers.get("Content-Disposition") || "")
+    && (await g1.arrayBuffer()).byteLength === avBytes.length, "avenant n°1 restitué");
+  ok((await app.fetch(new Request("http://api.test/dossiers/" + dosId + "/avenants/2", { headers: { Authorization: "Bearer " + s3 } }))).status === 404, "avenant absent → 404");
+  ok((await put(0, avBytes)).status === 400 && (await put(10, avBytes)).status === 400 && (await put("abc", avBytes)).status === 400,
+    "numéro d'avenant hors 1-9 refusé");
+  ok((await put(1, new TextEncoder().encode("<html>pas un pdf</html>" + "x".repeat(200)))).status === 400, "avenant sans signature %PDF refusé");
+  ok((await put(1, avBytes, s2b)).status === 404, "l'autre agence ne peut pas joindre d'avenant");
+  // Le dossier déclare ses avenants (data.avenants) : la suppression du
+  // dossier efface le compromis ET chaque avenant.
+  const dcur = await call("/dossiers/" + dosId, { headers: { Authorization: "Bearer " + s3 } });
+  const avec = await call("/dossiers", {
+    method: "PUT", headers: { Authorization: "Bearer " + s3 },
+    body: { id: dosId, name: dcur.json.name, data: { ...dcur.json.data, avenants: [{ n: 1, size: avBytes.length }] }, base_updated_at: dcur.json.updated_at }
+  });
+  ok(avec.status === 200, "dossier enregistré avec sa liste d'avenants");
+}
 const ddel = await call("/dossiers/" + dosId, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
 ok(ddel.status === 200 && !filesMem.has("do/" + agencyId + "/" + dosId + ".pdf")
-  && (await call("/dossiers", { headers: { Authorization: "Bearer " + s3 } })).json.dossiers.length === 0, "suppression : base + PDF R2 nettoyés");
+  && !filesMem.has("do/" + agencyId + "/" + dosId + "-av1.pdf")
+  && (await call("/dossiers", { headers: { Authorization: "Bearer " + s3 } })).json.dossiers.length === 0, "suppression : base + PDF R2 (compromis et avenants) nettoyés");
 
 console.log("— Annuaire partagé (conseillers, notaires, syndics)");
 const an1 = await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { type: "conseiller", nom: "Sophie Martin", initiales: "SM", email: "sm@azur-immo.fr" } });
@@ -715,10 +746,23 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   ok(/d'abord ce que l'acte dit explicitement/.test(cp.system), "une attribution explicite de l'acte prime sur l'ordre");
   ok(/"notaire_acquereur"[^\n]*PREMIER cité/.test(cp.system) && /"notaire_vendeur"[^\n]*SECOND cité/.test(cp.system),
     "le squelette JSON rappelle l'ordre sur chacun des deux champs");
-  for (const t of ["brochure", "caption_photos", "diagnostics", "surfaces", "ad_text", "extract_notes", "city_intro", "structure_fiche"]) {
+  for (const t of ["brochure", "caption_photos", "diagnostics", "surfaces", "ad_text", "extract_notes", "city_intro", "structure_fiche", "extract_avenant"]) {
     const p = promptFor(t, "");
     ok(p.output_config && compte(p.output_config.format.schema) <= 25, "schéma de sortie raisonnable pour la tâche « " + t + " »");
   }
+  // Parties : nom d'usage ET nom de naissance ; la référence cite chaque nom
+  // de famille (deux acquéreurs célibataires = deux noms), une entrée par
+  // personne même en couple.
+  ok(/"nom_naissance"/.test(cp.system) && /jeune fille/.test(cp.system), "le compromis extrait le nom de naissance à part du nom d'usage");
+  ok(/MARTIN et DURAND/.test(cp.system) && /Ne laisse JAMAIS une personne de côté/.test(cp.system),
+    "la référence cite tous les noms de famille (célibataires, concubins, pacsés)");
+  ok(/deux acquéreurs = deux entrées complètes/.test(cp.system), "une entrée par personne, même en couple");
+  // Avenant : on n'extrait que ce qui change, sans recopier le compromis.
+  const av = promptFor("extract_avenant", "");
+  ok(/ne recopie PAS le compromis/.test(av.system) && /reste vide/.test(av.system), "l'avenant n'extrait que les changements");
+  const avProps = av.output_config.format.schema.properties;
+  ok(!!avProps.date_butoir && !!avProps.financement && !!avProps.conditions && !!avProps.parties && !!avProps.objet,
+    "le schéma d'avenant couvre butoir, prêt, conditions, parties et objet");
   ok(promptFor("tache_inconnue", "") === null, "tâche IA inconnue rejetée");
 }
 
@@ -933,6 +977,18 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   ok(typeBien(bien("Maison individuelle")) === "maison", "maison → maison");
   ok(actionsFor(bien("Terrain à bâtir"), "2026-06-10").some((a) => a.id === "pc_depot"),
     "la phase Urbanisme reste active sur un vrai terrain");
+  // Terrain : pas de rétractation SRU (L271-1 CCH réservé à l'habitation) —
+  // ni notification, ni AR, ni fin de délai ; le panneau se pose dès le
+  // compromis. Une maison garde tout.
+  const idsTerrain = actionsFor(bien("Terrain à bâtir"), "2026-06-02").map((a) => a.id);
+  ok(!idsTerrain.includes("envoi_sru") && !idsTerrain.includes("retour_sru") && !idsTerrain.includes("fin_retractation"),
+    "terrain : aucune étape SRU ni fin de rétractation");
+  const panneauTerrain = actionsFor(bien("Terrain à bâtir"), "2026-06-02").find((a) => a.id === "panneau_vendu");
+  ok(panneauTerrain && panneauTerrain.due === "2026-06-04", "terrain : panneau VENDU à J+3 du compromis (pas d'attente de rétractation)");
+  const idsMaison = actionsFor(bien("Maison individuelle"), "2026-06-02").map((a) => a.id);
+  ok(idsMaison.includes("envoi_sru") && idsMaison.includes("fin_retractation"), "maison : la rétractation SRU reste suivie");
+  const panneauMaison = actionsFor(bien("Maison individuelle"), "2026-06-02").find((a) => a.id === "panneau_vendu");
+  ok(panneauMaison && panneauMaison.due === "2026-06-15", "maison : panneau VENDU à la purge de la rétractation (J+14 sans AR)");
 }
 
 /* ---- Séquestre : comptabilité de l'étude dépositaire -------------------- */

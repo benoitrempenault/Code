@@ -382,9 +382,14 @@
   const pcAccord = (d) => d.dates.pc_accord || addMonths(pcDepot(d), 2);
   const pcAffichage = (d) => d.dates.pc_affichage || addDays(pcAccord(d), 8);
 
+  /* Un TERRAIN n'a pas de délai de rétractation : l'article L271-1 du CCH ne
+     protège que l'acquéreur d'un immeuble à usage d'habitation. Ni
+     notification SRU, ni accusé de réception, ni fin de rétractation — le
+     panneau « VENDU » se pose dès le compromis. */
+  const pasTerrain = (d) => !estTerrain(d);
   const ETAPES = [
     { id: "envoi_sru", phase: "Notification & rétractation", label: "Notification SRU envoyée (LRAR / AR24, annexes complètes)",
-      cible: "notaire_vendeur", due: (d) => addDays(ssp(d), 2),
+      cible: "notaire_vendeur", due: (d) => addDays(ssp(d), 2), applies: pasTerrain,
       hint: "Le délai de rétractation ne court qu'à partir d'une notification complète (compromis + annexes)." },
     { id: "envoi_notaires", phase: "Notification & rétractation", label: "Dossier envoyé aux notaires (compromis + coordonnées clients)",
       cible: "notaires", modele: "Envoi du dossier aux notaires", due: (d) => addDays(ssp(d), 3),
@@ -399,16 +404,18 @@
       applies: (d) => d.suivi_courtier === true && !(d.financement && d.financement.recours_pret === "non"),
       hint: "Dès la signature : le courtier voit s'ils l'ont déjà contacté, ou les appelle pour le suivi de leur prêt. Sans recours au prêt, l'étape n'apparaît pas." },
     { id: "retour_sru", phase: "Notification & rétractation", label: "AR de la notification SRU envoyé au notaire",
-      due: (d) => addDays(ssp(d), 8),
+      due: (d) => addDays(ssp(d), 8), applies: pasTerrain,
       hint: "L'accusé de réception fait courir le délai : transmettez-le au notaire et renseignez la date de présentation dans « Dates clés », la fin de rétractation se calcule dessus." },
     { id: "fin_retractation", phase: "Notification & rétractation", label: "Fin du délai de rétractation (10 jours) — informer le vendeur",
       cible: "vendeur", modele: "Information vendeur — rétractation purgée",
-      due: (d) => finRetract(d),
+      due: (d) => finRetract(d), applies: pasTerrain,
       hint: "10 jours calendaires à compter du lendemain de la première présentation. Bonne nouvelle à annoncer au vendeur." },
     { id: "panneau_vendu", phase: "Notification & rétractation", label: "Panneau / bandeau « VENDU » posé",
       cible: "conseiller_vendeur", modele: "Relance panneau VENDU",
-      due: (d) => finRetract(d),
-      hint: "Dès la rétractation purgée — relance interne au conseiller vendeur." },
+      due: (d) => (estTerrain(d) ? addDays(ssp(d), 3) : finRetract(d)),
+      hint: (d) => (estTerrain(d)
+        ? "Terrain : pas de délai de rétractation (L271-1 CCH réservé à l'habitation) — le panneau se pose dès le compromis."
+        : "Dès la rétractation purgée — relance interne au conseiller vendeur.") },
 
     { id: "rib_sequestre", phase: "Séquestre", label: "RIB du notaire dépositaire envoyé à l'acquéreur",
       cible: "acquereur", modele: "Envoi du RIB pour le séquestre",
@@ -573,7 +580,7 @@
         const cond = e.csIndex == null ? null : (d.conditions_suspensives || [])[e.csIndex];
         return {
           def: e, id: e.id, label: (typeof e.label === "function" ? e.label(d) : e.label),
-          phase: e.phase, cible: e.cible, hint: e.hint, csIndex: e.csIndex,
+          phase: e.phase, cible: e.cible, hint: (typeof e.hint === "function" ? e.hint(d) : e.hint), csIndex: e.csIndex,
           modele: e.modele, modeles: e.modeles || (e.modele ? [e.modele] : []),
           done: cond ? !!cond.levee : !!s.done, date: s.date || "", note: s.note || "", due,
           relance: s.relance || null, // dernière relance envoyée depuis cette étape

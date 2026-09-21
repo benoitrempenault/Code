@@ -159,14 +159,15 @@ const FICHE_SCHEMA = {
 const PARTIE = {
   type: "object", additionalProperties: false,
   properties: {
-    nom: { type: "string", description: "Civilité + NOM DE FAMILLE EN CAPITALES + prénoms, dans cet ordre : « Mr DUPONT Jean-Pierre », « Mme MARTIN Sophie Claire ». Pour une société, sa dénomination seule." },
+    nom: { type: "string", description: "Civilité + NOM D'USAGE (marital) EN CAPITALES + prénoms, dans cet ordre : « Mr DUPONT Jean-Pierre », « Mme MARTIN Sophie Claire ». Pour une société, sa dénomination seule." },
+    nom_naissance: { type: "string", description: "NOM DE NAISSANCE (nom de jeune fille) EN CAPITALES quand il diffère du nom d'usage (« Mme DUPONT née MARTIN » → « MARTIN »), sinon vide." },
     adresse: { type: "string", description: "Adresse postale complète du domicile/siège." },
     telephone: { type: "string" },
     email: { type: "string" },
     naissance: { type: "string", description: "Date et lieu de naissance si indiqués, sinon vide." },
     situation: { type: "string", description: "Situation matrimoniale / régime, ou forme de la société, si indiquée." }
   },
-  required: ["nom", "adresse", "telephone", "email", "naissance", "situation"]
+  required: ["nom", "nom_naissance", "adresse", "telephone", "email", "naissance", "situation"]
 };
 const NOTAIRE = {
   type: "object", additionalProperties: false,
@@ -182,7 +183,7 @@ const NOTAIRE = {
 const COMPROMIS_SCHEMA = {
   type: "object", additionalProperties: false,
   properties: {
-    reference: { type: "string", description: "Référence du dossier au format « NOM VENDEUR / NOM ACQUÉREUR » (noms de famille en capitales)." },
+    reference: { type: "string", description: "Référence « NOMS VENDEURS / NOMS ACQUÉREURS » : TOUS les noms de famille distincts de chaque côté, en capitales, séparés par « et » (« DUPONT / MARTIN et DURAND ») — un couple portant le même nom ne le cite qu'une fois." },
     date_compromis: { type: "string", description: "Date de signature du compromis (AAAA-MM-JJ)." },
     vendeurs: { type: "array", items: PARTIE },
     acquereurs: { type: "array", items: PARTIE },
@@ -296,6 +297,65 @@ const COMPROMIS_SCHEMA = {
   required: ["reference", "date_compromis", "vendeurs", "acquereurs", "notaire_vendeur", "notaire_acquereur",
     "bien", "prix", "sequestre", "financement", "conditions_suspensives", "syndic", "equipements", "entretiens",
     "diagnostics", "preemption", "date_butoir", "observations"]
+};
+
+/* Lecture d'un AVENANT au compromis (app Suivi) : il ne remplace pas le
+   compromis, il en modifie quelques points — dates, prix, conditions,
+   parties. On n'extrait donc QUE ce que l'avenant change ; le client
+   applique ces changements au dossier en gardant la trace des valeurs
+   d'origine. Schéma court : la sortie structurée reste possible. */
+const AVENANT_SCHEMA = {
+  type: "object", additionalProperties: false,
+  properties: {
+    date_avenant: { type: "string", description: "Date de signature de l'avenant (AAAA-MM-JJ)." },
+    objet: { type: "string", description: "Ce que l'avenant change, en une phrase (« Prorogation de la date de réitération au 30/11/2026 et de la condition de prêt »)." },
+    date_butoir: { type: "string", description: "NOUVELLE date limite de réitération / signature de l'acte (AAAA-MM-JJ) si l'avenant la modifie, sinon vide." },
+    signature_prevue: { type: "string", description: "Date de signature de l'acte fixée par l'avenant (AAAA-MM-JJ), sinon vide." },
+    prix_vente: { type: "string", description: "Nouveau prix de vente si modifié (« 285 000 € »), sinon vide." },
+    sequestre_montant: { type: "string", description: "Nouveau montant du dépôt de garantie si modifié, sinon vide." },
+    financement: {
+      type: "object", additionalProperties: false,
+      description: "Condition suspensive de prêt : uniquement les éléments modifiés, vides sinon.",
+      properties: {
+        date_limite_depot: { type: "string", description: "Nouvelle date limite de dépôt de la demande de prêt (AAAA-MM-JJ)." },
+        date_limite_obtention: { type: "string", description: "Nouvelle date limite d'obtention de l'offre (AAAA-MM-JJ)." },
+        montant_pret: { type: "string", description: "Nouveau montant du prêt." }
+      },
+      required: ["date_limite_depot", "date_limite_obtention", "montant_pret"]
+    },
+    conditions: {
+      type: "array",
+      description: "Conditions suspensives que l'avenant modifie, ajoute ou supprime (hors condition de prêt, traitée dans financement).",
+      items: {
+        type: "object", additionalProperties: false,
+        properties: {
+          titre: { type: "string", description: "Intitulé de la condition, repris tel quel du compromis quand il s'agit d'une condition existante." },
+          echeance: { type: "string", description: "Nouvelle date d'échéance (AAAA-MM-JJ), sinon vide." },
+          detail: { type: "string", description: "Ce qui change, en une phrase." },
+          action: { type: "string", description: "« modifiee », « ajoutee » ou « supprimee »." }
+        },
+        required: ["titre", "echeance", "detail", "action"]
+      }
+    },
+    parties: {
+      type: "array",
+      description: "Personnes que l'avenant ajoute ou retire (substitution d'acquéreur, entrée d'un conjoint, SCI se substituant…). Vide si les parties ne changent pas.",
+      items: {
+        type: "object", additionalProperties: false,
+        properties: {
+          role: { type: "string", description: "« vendeur » ou « acquereur »." },
+          nom: { type: "string", description: "Civilité + NOM en capitales + prénoms (« Mme MARTIN Sophie »), ou dénomination de la société." },
+          telephone: { type: "string" },
+          email: { type: "string" },
+          action: { type: "string", description: "« ajoutee » ou « retiree »." }
+        },
+        required: ["role", "nom", "telephone", "email", "action"]
+      }
+    },
+    observations: { type: "string", description: "Autres clauses de l'avenant (travaux, occupation, mobilier, indemnité…), une par ligne." }
+  },
+  required: ["date_avenant", "objet", "date_butoir", "signature_prevue", "prix_vente", "sequestre_montant",
+    "financement", "conditions", "parties", "observations"]
 };
 
 /* ---------------------------- Prompts système --------------------------- */
@@ -429,11 +489,16 @@ const COMPROMIS_SYSTEM = [
   "- Dates au format AAAA-MM-JJ. Si le document donne un délai (« dans les 60 jours »), calcule la date à partir de la date de",
   "  signature UNIQUEMENT si celle-ci est connue, sinon recopie le délai en toutes lettres dans le champ concerné.",
   "- Montants recopiés en chiffres avec le symbole € (ex. « 285 000 € »).",
-  "- reference : « NOM(S) VENDEUR / NOM(S) ACQUÉREUR » — noms de famille seuls, en capitales.",
+  "- reference : « NOMS VENDEURS / NOMS ACQUÉREURS » — noms de famille seuls, en capitales. Cite TOUS les noms distincts",
+  "  de chaque côté, séparés par « et » : deux acquéreurs célibataires, concubins ou pacsés donnent « DUPONT / MARTIN et DURAND » ;",
+  "  un couple marié portant le même nom ne le cite qu'une fois (« DUPONT / MARTIN »). Ne laisse JAMAIS une personne de côté.",
   "- nom des vendeurs et des acquéreurs : TOUJOURS « civilité + NOM en capitales + prénoms », dans cet ordre",
   "  (« Mr DUPONT Jean-Pierre », « Mme MARTIN Sophie Claire ») — jamais « Mr Jean-Pierre Dupont ».",
   "  Civilités : Mr, Mme, Mlle. Le nom de famille reste EN CAPITALES, les prénoms en minuscules accentuées.",
-  "  Une personne par entrée, même pour un couple. Pour une société, sa seule dénomination (« SCI LES TILLEULS »).",
+  "  nom = le NOM D'USAGE (marital) ; nom_naissance = le nom de naissance (jeune fille) quand l'acte écrit « née X »",
+  "  et qu'il diffère du nom d'usage, sinon vide. Une femme mariée non renommée : nom = son nom, nom_naissance vide.",
+  "  Une personne par entrée, TOUJOURS, même pour un couple (marié, pacsé ou non) — deux acquéreurs = deux entrées complètes,",
+  "  chacune avec ses propres coordonnées. Pour une société, sa seule dénomination (« SCI LES TILLEULS »).",
   "- conditions_suspensives : liste TOUTES les conditions, une entrée par condition, détail court mais complet (chiffres et délais conservés).",
   "- observations : servitudes, clauses particulières (travaux, diagnostics à refaire, occupation, mobilier…), une par ligne.",
   "FORMAT DE RÉPONSE — réponds par un objet JSON valide et RIEN d'autre :",
@@ -442,6 +507,24 @@ const COMPROMIS_SYSTEM = [
   "Le squelette ci-dessous donne les clés attendues ; le texte après // est une consigne, à ne pas recopier.",
   "",
   skeleton(COMPROMIS_SCHEMA, 0)
+].join("\n");
+
+const AVENANT_SYSTEM = [
+  "Tu lis un AVENANT à un compromis (ou une promesse) de vente immobilier français — PDF ou photos formant UN MÊME acte.",
+  "L'avenant ne remplace pas le compromis : il en modifie quelques points. Extrais UNIQUEMENT ce que l'avenant change :",
+  "date de réitération / signature, date de signature fixée, prix, dépôt de garantie, condition suspensive de prêt (dates de dépôt",
+  "et d'obtention, montant), autres conditions suspensives modifiées, ajoutées ou supprimées, parties ajoutées ou retirées",
+  "(substitution d'acquéreur, entrée d'un conjoint, société se substituant), autres clauses.",
+  "Règles :",
+  "- N'invente RIEN et ne recopie PAS le compromis : un champ que l'avenant ne modifie pas reste vide (\"\").",
+  "- Dates au format AAAA-MM-JJ. Un délai (« prorogé de 30 jours ») se convertit en date UNIQUEMENT si la date de départ",
+  "  figure dans l'avenant ou dans le rappel du dossier fourni ; sinon recopie le délai en toutes lettres dans « detail ».",
+  "- Montants en chiffres avec le symbole € (« 285 000 € »).",
+  "- Pour une condition suspensive existante, reprends l'intitulé EXACT du compromis tel que rappelé dans le dossier fourni,",
+  "  afin qu'on retrouve la bonne ligne. Une condition de prêt va dans financement, jamais dans conditions.",
+  "- nom des personnes : « civilité + NOM en capitales + prénoms » (« Mme MARTIN Sophie »), une personne par entrée.",
+  "- objet : une phrase, factuelle, qui résume l'avenant (elle sera consignée au journal du dossier).",
+  "Réponds uniquement via le format JSON demandé."
 ].join("\n");
 
 /* ------------------------------- Registre ------------------------------- */
@@ -489,6 +572,8 @@ export function promptFor(task, arg) {
     // Pas de sortie structurée ici : le schéma du compromis est trop gros pour
     // la grammaire de décodage. Le contrat est décrit dans COMPROMIS_SYSTEM.
     case "extract_compromis": return { system: COMPROMIS_SYSTEM, output_config: null };
+    // L'avenant est court : sortie structurée (une vingtaine de champs).
+    case "extract_avenant": return { system: AVENANT_SYSTEM, output_config: fmt(AVENANT_SCHEMA) };
     default: return null;
   }
 }

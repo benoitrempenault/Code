@@ -529,6 +529,11 @@ export function createApp(env) {
   const DOSSIER_MAX_BYTES = 400000, DOSSIERS_MAX = 2000;
   const COMPROMIS_MAX_BYTES = 15_000_000; // PDF scanné confortable
   const doKey = (agencyId, id) => "do/" + agencyId + "/" + id + ".pdf";
+  // Avenants au compromis : un PDF par avenant, numéroté (1, 2, 3…) —
+  // à côté du compromis dans R2, jamais à sa place.
+  const AVENANTS_MAX = 9;
+  const avKey = (agencyId, id, n) => "do/" + agencyId + "/" + id + "-av" + n + ".pdf";
+  const numAvenant = (s) => { const n = parseInt(s, 10); return (n >= 1 && n <= AVENANTS_MAX) ? n : 0; };
   const cleanName = (s) => String(s || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 160);
 
   app.get("/dossiers", async (c) => {
@@ -606,10 +611,18 @@ export function createApp(env) {
   app.delete("/dossiers/:id", async (c) => {
     const ctx = await sessionFrom(c);
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
-    const row = await db.get("SELECT id, compromis_size FROM dossiers WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    const row = await db.get("SELECT id, compromis_size, data FROM dossiers WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
     if (row) {
       await db.run("DELETE FROM dossiers WHERE id = ?", [row.id]);
-      if (row.compromis_size && env.files) await env.files.delete(doKey(ctx.agency.id, row.id)).catch?.(() => { });
+      if (env.files) {
+        // Le compromis et ses avenants (le dossier sait combien il en a).
+        let nAv = 0;
+        try { nAv = (JSON.parse(row.data).avenants || []).length; } catch (e) { nAv = 0; }
+        const cles = [];
+        if (row.compromis_size) cles.push(doKey(ctx.agency.id, row.id));
+        for (let n = 1; n <= Math.min(nAv, AVENANTS_MAX); n++) cles.push(avKey(ctx.agency.id, row.id, n));
+        for (const k of cles) await env.files.delete(k).catch?.(() => { });
+      }
     }
     return c.json({ ok: true });
   });
@@ -646,6 +659,45 @@ export function createApp(env) {
     return c.body(buf, 200, {
       "Content-Type": "application/pdf",
       "Content-Disposition": "inline; filename=\"compromis.pdf\""
+    });
+  });
+
+  // Avenant n° n au compromis (R2). Mêmes garde-fous que le compromis ; la
+  // liste des avenants (date, objet, modifications) vit dans le JSON du
+  // dossier (data.avenants), tenue par le client.
+  app.put("/dossiers/:id/avenants/:n", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif.");
+    if (!filesReady()) return err(c, 501, "Stockage des fichiers non configuré sur le serveur.");
+    const n = numAvenant(c.req.param("n"));
+    if (!n) return err(c, 400, "Numéro d'avenant invalide (1 à " + AVENANTS_MAX + ").");
+    const row = await db.get("SELECT id FROM dossiers WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!row) return err(c, 404, "Dossier introuvable.");
+    const buf = await c.req.arrayBuffer();
+    if (!buf || buf.byteLength < 100) return err(c, 400, "PDF vide ou illisible.");
+    if (buf.byteLength > COMPROMIS_MAX_BYTES) return err(c, 413, "PDF trop volumineux (15 Mo max).");
+    const head = new Uint8Array(buf.slice(0, 5));
+    if (String.fromCharCode(...head) !== "%PDF-") return err(c, 400, "Le fichier n'est pas un PDF.");
+    await env.files.put(avKey(ctx.agency.id, row.id, n), buf);
+    await db.run("UPDATE dossiers SET user_id = ?, updated_at = ? WHERE id = ?", [ctx.user.id, now(), row.id]);
+    return c.json({ ok: true, n, size: buf.byteLength });
+  });
+
+  app.get("/dossiers/:id/avenants/:n", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!filesReady()) return err(c, 501, "Stockage des fichiers non configuré sur le serveur.");
+    const n = numAvenant(c.req.param("n"));
+    if (!n) return err(c, 400, "Numéro d'avenant invalide.");
+    const row = await db.get("SELECT id FROM dossiers WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!row) return err(c, 404, "Dossier introuvable.");
+    const obj = await env.files.get(avKey(ctx.agency.id, row.id, n));
+    if (!obj) return err(c, 404, "Aucun avenant n° " + n + " attaché à ce dossier.");
+    const buf = await obj.arrayBuffer();
+    return c.body(buf, 200, {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": "inline; filename=\"avenant-" + n + ".pdf\""
     });
   });
 

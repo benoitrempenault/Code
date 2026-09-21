@@ -1,14 +1,15 @@
 /* =========================================================================
-   suivi.css — habillage de l'app Suivi des dossiers (thème sombre commun
-   aux outils Studio : Inter + Fraunces, accent doré).
+   suivi.css — habillage de l'app Suivi des dossiers : fond BLANC (l'app se
+   lit toute la journée, souvent imprimée ou projetée en réunion), Inter +
+   Fraunces, accent doré assombri pour rester lisible sur le clair.
    ========================================================================= */
 :root {
-  --bg: #0f0f10; --panel: #17171a; --panel-2: #1e1e22; --line: #2a2a30;
-  --text: #ece9e2; --muted: #9a968c; --accent: #c2a36b; --accent-ink: #1a1714;
-  --ok: #6fbf8b; --warn: #e0b154; --bad: #e07a6a; --info: #7aa7d8;
+  --bg: #ffffff; --panel: #ffffff; --panel-2: #f5f3ee; --line: #e2dfd6;
+  --text: #1c1b18; --muted: #6b675e; --accent: #9a7b3c; --accent-ink: #ffffff;
+  --ok: #2f8f5b; --warn: #b5820a; --bad: #c9463a; --info: #3b6fb6;
 }
 * { box-sizing: border-box; margin: 0; }
-html { color-scheme: dark; }
+html { color-scheme: light; }
 body {
   background: var(--bg); color: var(--text);
   font-family: "Inter", system-ui, sans-serif; font-size: 14px;
@@ -28,7 +29,7 @@ a { color: var(--accent); }
 .topbar {
   position: sticky; top: 0; z-index: 40;
   display: flex; align-items: center; gap: 14px;
-  padding: 10px 18px; background: rgba(15,15,16,.92); backdrop-filter: blur(8px);
+  padding: 10px 18px; background: rgba(255,255,255,.94); backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
 }
 .topbar__brand { display: flex; align-items: center; gap: 12px; }
@@ -81,7 +82,7 @@ h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font
 
 .card {
   background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-  padding: 18px; margin-bottom: 16px;
+  padding: 18px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(28,27,24,.04);
 }
 .card h3 {
   font-family: "Fraunces", Georgia, serif; font-weight: 550; font-size: 16.5px;
@@ -161,11 +162,21 @@ h2.viewtitle small { color: var(--muted); font-family: "Inter", sans-serif; font
 /* Info capitale : une note épinglée en haut du journal, et rappelée sur la
    vente au tableau de bord. */
 .capital {
-  background: rgba(224,122,106,.12); border: 1px solid var(--bad); border-radius: 10px;
+  background: rgba(201,70,58,.08); border: 1px solid var(--bad); border-radius: 10px;
   color: var(--bad); font-weight: 600; font-size: 15.5px; line-height: 1.45; padding: 11px 14px;
 }
 .capital--board { margin: 0 12px 10px; font-size: 14px; }
-.journal__item--capital { border-color: var(--bad); background: rgba(224,122,106,.10); }
+/* Date de l'info capitale (réunion) : petite, mais lue avant le texte. */
+.capital__date { font-size: 12px; font-weight: 600; white-space: nowrap; opacity: .85; }
+
+/* Avenants au compromis : un bloc par avenant, les valeurs d'origine barrées. */
+.avenant { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; background: var(--panel-2); }
+.avenant__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.avenant__head .spacer { flex: 1; }
+.avenant__objet { color: var(--muted); }
+.avenant__mods { margin: 6px 0 0 18px; line-height: 1.6; }
+.avenant__avant { color: var(--muted); }
+.journal__item--capital { border-color: var(--bad); background: rgba(201,70,58,.07); }
 .journal__item--capital .journal__text { color: var(--bad); font-weight: 600; font-size: 15.5px; }
 .journal__cap { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
 .journal__cap input { width: 14px; height: 14px; }
@@ -261,7 +272,7 @@ table.liste tr.row:hover td { background: var(--panel-2); }
 .etape:last-child { border-bottom: none; }
 .etape .lab { flex: 1 1 300px; }
 .etape .lab small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
-.etape.done .lab { color: var(--muted); text-decoration: line-through; text-decoration-color: rgba(154,150,140,.6); }
+.etape.done .lab { color: var(--muted); text-decoration: line-through; text-decoration-color: rgba(107,103,94,.6); }
 .etape.done .lab small { text-decoration: none; }
 .etape .due { display: flex; align-items: center; gap: 8px; }
 .etape .due input { padding: 4px 6px; font-size: 12.5px; }
@@ -286,7 +297,7 @@ table.liste tr.row:hover td { background: var(--panel-2); }
   background: transparent; border: none; border-radius: 6px; line-height: 1.5;
   overflow: hidden;
 }
-.journal__text:hover { background: rgba(255,255,255,.03); }
+.journal__text:hover { background: rgba(28,27,24,.04); }
 .journal__text:focus { outline: none; background: var(--panel); box-shadow: 0 0 0 1px var(--accent); padding-left: 6px; }
 .journal__body.long .journal__text { max-height: 6em; transition: max-height .18s ease; }
 .journal__body.long:hover .journal__text,
@@ -309,7 +320,7 @@ table.liste tr.row:hover td { background: var(--panel-2); }
 .journal__mail > div { color: var(--muted); margin: 6px 0; }
 .journal__mail pre {
   white-space: pre-wrap; font: inherit; color: var(--text);
-  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; max-height: 260px; overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; max-height: 260px; overflow: auto;
 }
 .journal__add { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .journal__add input { flex: 1 1 240px; }
@@ -341,7 +352,7 @@ table.liste tr.row:hover td { background: var(--panel-2); }
 
 /* ------------------------------- Modales -------------------------------- */
 .overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.66); z-index: 90;
+  position: fixed; inset: 0; background: rgba(28,27,24,.45); z-index: 90;
   display: none; align-items: flex-start; justify-content: center; padding: 5vh 16px; overflow: auto;
 }
 .overlay.on { display: flex; }
@@ -370,7 +381,7 @@ table.liste tr.row:hover td { background: var(--panel-2); }
 /* -------------------------------- Toast --------------------------------- */
 #toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  background: var(--text); border: 1px solid var(--text); color: #fff;
   padding: 11px 18px; border-radius: 10px; opacity: 0; pointer-events: none;
   transition: opacity .2s, transform .2s; z-index: 120; max-width: 90vw;
 }

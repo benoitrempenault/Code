@@ -122,6 +122,10 @@ suspensives d'urbanisme), réitération d'acte (phase acte authentique + conditi
 réitération), autres conditions suspensives. « ✓ Fait » coche l'étape et enregistre le
 dossier sans quitter la vue (sur une info capitale, il décoche la note) ; « Ouvrir → »
 entre dans le dossier, qui affiche alors un bouton « ← Réunion » pour revenir.
+**Seuls les dossiers en cours** y passent (statut « en cours » et acte non signé) : un
+dossier signé n'a plus rien à décider en réunion, son après-vente vit au tableau de bord.
+Chaque **info capitale porte sa date** (et l'auteur au survol) en tête du bandeau rouge :
+on voit d'un coup d'œil si le point est d'hier ou traîne depuis un mois.
 
 ### Liste des dossiers
 
@@ -146,6 +150,30 @@ adresse de bien sans code postal, et les conditions suspensives absentes de la l
 sont ajoutées). Chaque relecture consigne au journal le détail de ce qu'elle a complété.
 Le traitement en série est séquentiel, annonce sa durée et consomme le quota IA — un PDF
 complet par dossier.
+
+### Avenants au compromis
+
+Un avenant (prorogation de la date de réitération, nouvelle échéance de prêt, prix
+renégocié, condition ajoutée, acquéreur substitué…) **ne remplace pas le compromis** :
+le bouton **« 📎 Joindre un avenant »** de l'en-tête du dossier envoie le PDF dans R2
+**à côté** du compromis (`do/<agence>/<id>-av<n>.pdf`, routes
+`PUT/GET /dossiers/:id/avenants/:n`, n de 1 à 9), puis le fait lire par l'IA (tâche
+serveur `extract_avenant`, sortie structurée courte, accompagnée d'un **rappel du
+dossier** — dates et intitulés exacts des conditions — pour rattacher chaque changement
+à la bonne ligne). `appliquerAvenant()` ne touche **que les champs que l'avenant
+modifie** : date butoir, date de signature fixée, prix, dépôt de garantie, dates et
+montant du prêt, échéance ou détail d'une condition (retrouvée par son intitulé, ou
+ajoutée ; une condition supprimée est cochée levée avec la mention), parties ajoutées ou
+retirées, observations. Chaque changement est consigné **avant → après** dans
+`data.avenants[n].modifications`, affiché dans la fiche **« 📎 Avenants au compromis »**
+(valeur d'origine barrée) et au journal — les informations du compromis restent donc
+lisibles, et « Relire le compromis » ne les réécrit jamais (il ne remplit que le vide).
+Les échéances de l'échéancier suivent d'elles-mêmes (elles se calculent sur ces dates) ;
+une échéance **saisie à la main** sur une étape concernée (demande de date, avenant,
+prêt, condition modifiée) est rendue au calcul, sauf si l'étape est déjà faite. Chaque
+avenant s'ouvre d'un clic depuis l'en-tête (**« 📄 Avenant n°1 »**), comme le compromis.
+Si la lecture IA échoue, le PDF reste attaché et le journal invite à reporter les
+changements à la main. Supprimer le dossier efface compromis et avenants.
 
 ### Destinataires particuliers
 
@@ -197,6 +225,18 @@ un prénom composé au hasard. Les dossiers anciens sont reformatés à l'ouvert
 (numéro, voie, code postal, ville — `adresseComplete()`), et `{{honoraires}}` ne rend
 que le montant, jamais la phrase entière du compromis.
 
+**Deux noms par personne** : le champ « Nom d'usage (marital) + prénoms » et le champ
+« Nom de naissance (jeune fille) » (`nom_naissance`, extrait du compromis quand l'acte
+écrit « née X » et que le nom diffère). Dans les courriers, `nomPersonne()` écrit
+« Mme Sophie DUPONT née MARTIN » (`{{vendeurs}}`, `{{acquereurs}}`, coordonnées
+détaillées envoyées aux notaires et au courtier). **Chaque personne a sa fiche**, même en
+couple — l'extraction l'exige, marié ou non. La **référence** doit citer **tous les noms
+de famille** de chaque côté : deux acquéreurs célibataires, concubins ou pacsés donnent
+« DUPONT / MARTIN et DURAND », un couple du même nom ne le cite qu'une fois
+(`refDepuisParties()`). À la création, si la lecture IA a laissé un nom de côté, la
+référence est recomposée ; sur un dossier existant, la fiche **propose** la référence
+recomposée sous le champ (bouton « Appliquer »), sans jamais l'imposer.
+
 ### Nature du bien
 
 Trois natures pilotent le suivi (`typeBien()`) : **terrain** (phase Urbanisme — DP, PC et
@@ -207,6 +247,20 @@ défaut déduite des lots, d'une mention « copropriété » ou d'un syndic rens
 « avec terrain attenant » reste un local : seul un type nommant vraiment un terrain (terrain,
 parcelle, lot à bâtir) déclenche la phase Urbanisme. La nature retenue est affichée sous le
 champ « Type » de la carte « Bien & prix ».
+
+**Un terrain n'a pas de délai de rétractation** : l'article L271-1 du CCH ne protège que
+l'acquéreur d'un immeuble à usage d'habitation. Sur un terrain, les étapes « Notification
+SRU envoyée », « AR de la notification SRU » et « Fin du délai de rétractation »
+n'apparaissent pas (`applies: pasTerrain`, client et serveur), les deux dates SRU
+disparaissent des « Dates clés » (une mention l'explique), `{{fin_retractation}}` est vide
+et le panneau « VENDU » se pose dès le compromis (J+3).
+
+### Habillage
+
+L'app est sur **fond blanc** (`suivi.css`, `color-scheme: light`) : elle se lit toute la
+journée, s'imprime et se projette en réunion. Les couleurs d'état (retard, orange, ok,
+info) et l'accent doré ont été assombris pour rester lisibles sur le clair ; tout passe par
+les variables de `:root`, aucune couleur n'est codée en dur dans le JS.
 
 ### Deux agences : Saint-Médard / Caudéran
 
@@ -233,7 +287,7 @@ annuaire, mêmes comptes) mais chaque dossier appartient à une agence :
 
 | Étape | Échéance par défaut | Base |
 |---|---|---|
-| Notification SRU | J+2 après compromis | Le délai de rétractation (art. L271-1 CCH, 10 jours) ne court qu'à réception de la notification **complète** (annexes incluses) |
+| Notification SRU | J+2 après compromis | Le délai de rétractation (art. L271-1 CCH, 10 jours) ne court qu'à réception de la notification **complète** (annexes incluses). **Terrain : aucune** (pas de rétractation hors habitation) — les trois lignes SRU disparaissent, le panneau se pose à J+3 |
 | Envoi du dossier aux notaires | J+3 | pratique agence |
 | Retour AR SRU | J+8 | pratique |
 | Fin de rétractation | 10 jours à compter du **lendemain** de la présentation (le délai couvre J+1 à J+10) ; un délai expirant un samedi, un dimanche ou un jour férié est **prorogé au premier jour ouvrable** (641-642 CPC, fériés français calculés, fêtes mobiles comprises) — la date affichée est le premier jour purgé | L271-1 CCH |
@@ -265,6 +319,12 @@ annuaire, mêmes comptes) mais chaque dossier appartient à une agence :
   collègue a enregistré entre-temps → 409 et l'app propose de recharger.
 - Extraction IA : tâche `extract_compromis` (prompt + schéma JSON dans
   `server/src/prompts.js`), modèle standard (Sonnet), **PDF jusqu'à 12 Mo par analyse** — l'encodage base64 le porte à 16 Mo dans la requête, d'où `AI_MAX_BODY_BYTES` à 17 Mo côté proxy ; le fichier joint au dossier (R2) est plafonné à 15 Mo.
+
+- Avenants : `PUT /dossiers/:id/avenants/:n` (octets PDF, signature `%PDF-` vérifiée,
+  15 Mo max, n de 1 à 9) et `GET /dossiers/:id/avenants/:n` (`inline`, `avenant-n.pdf`),
+  clé R2 `do/<agence>/<id>-av<n>.pdf`. La liste des avenants (date, objet, changements)
+  vit dans le JSON du dossier (`data.avenants`), tenue par le client ; la suppression du
+  dossier lit cette liste pour effacer chaque PDF avec le compromis.
 
 ### Mise en service
 

@@ -118,5 +118,31 @@
     try { return JSON.parse(nettoye); } catch (e) { throw new Error("Réponse illisible (JSON invalide)."); }
   }
 
-  window.SuiviAI = { extractCompromis, canUseAI };
+  /* Lecture d'un AVENANT : un PDF (dataUrl) et un rappel du dossier — dates
+     et intitulés des conditions du compromis — pour que le modèle rattache
+     chaque changement à la bonne ligne. Sortie structurée côté serveur
+     (tâche « extract_avenant »). */
+  async function extractAvenant(opts) {
+    const f = opts && opts.file;
+    if (!canUseAI()) throw new Error("Connectez-vous à votre compte (page « Mon compte ») pour lire un avenant.");
+    if (!f || !f.dataUrl) throw new Error("Chargez d'abord l'avenant (PDF).");
+    if (payloadLen(f.dataUrl) > PAYLOAD_BUDGET) {
+      throw new Error("Avenant trop volumineux pour l'analyse (maximum " + PAYLOAD_MO + " Mo) — rescannez en qualité réduite.");
+    }
+    const blocks = [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: f.dataUrl.split(",")[1] || "" } }];
+    blocks.push({ type: "text", text: "Voici l'avenant. Rappel du dossier tel qu'il est suivi (ne le recopie pas, sers-t'en pour rattacher les changements) :\n"
+      + String((opts && opts.rappel) || "") + "\n\nExtrais uniquement ce que l'avenant modifie." });
+    const data = await callServer({
+      model: MODEL,
+      max_tokens: 2500,
+      task: "extract_avenant",
+      messages: [{ role: "user", content: blocks }]
+    });
+    if (data.stop_reason === "refusal") throw new Error("Analyse déclinée par le modèle — réessayez.");
+    const tb = (data.content || []).find(function (b) { return b.type === "text"; });
+    if (!tb) throw new Error("Réponse vide du modèle.");
+    return parseJson(tb.text);
+  }
+
+  window.SuiviAI = { extractCompromis, extractAvenant, canUseAI };
 })();
