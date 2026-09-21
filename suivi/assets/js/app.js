@@ -299,7 +299,9 @@
     if (jobs.length) await loadAnnuaire();
   }
 
-  function defPartie() { return { nom: "", adresse: "", telephone: "", email: "", naissance: "", situation: "" }; }
+  // nom = nom d'usage (marital) ; nom_naissance = nom de jeune fille quand il
+  // diffère — les deux figurent au compromis et le notaire attend les deux.
+  function defPartie() { return { nom: "", nom_naissance: "", adresse: "", telephone: "", email: "", naissance: "", situation: "" }; }
   // Le clerc en charge du dossier est propre au dossier (il change d'une
   // vente à l'autre) : il n'est jamais enregistré dans l'annuaire.
   function defNotaire() { return { nom: "", ville: "", adresse: "", telephone: "", email: "", clerc: "", clerc_email: "" }; }
@@ -324,7 +326,10 @@
         envoi_sru: "", presentation_sru: "", envoi_notaires: "", envoi_dia: "", ar_dia: "", signature_prevue: "", signature_heure: "", signature_lieu_vendeur: "", signature_lieu_acquereur: "", signature_acte: "",
         dp_depot: "", dp_accord: "", dp_affichage: "", pc_depot: "", pc_accord: "", pc_affichage: ""
       },
-      etapes: {}, journal: [], observations: "", echeance: ""
+      etapes: {}, journal: [], observations: "", echeance: "",
+      // Avenants au compromis : un PDF chacun (R2), et ici leur date, leur
+      // objet et la liste des changements appliqués (avant → après).
+      avenants: []
     };
   }
   /* --------------------------- Noms des clients --------------------------
@@ -384,6 +389,7 @@
     if (!Array.isArray(data.acquereurs)) data.acquereurs = [];
     if (!Array.isArray(data.conditions_suspensives)) data.conditions_suspensives = [];
     if (!Array.isArray(data.journal)) data.journal = [];
+    if (!Array.isArray(data.avenants)) data.avenants = [];
     /* Répare les dates mal formées (« 12/05/2026 » écrit par une extraction
        ou une vieille sauvegarde au lieu de l'ISO « 2026-05-12 ») : une date
        illisible rend son échéance incalculable — l'étape restait grise et ne
@@ -1267,7 +1273,10 @@
   const FAMILLES_REUNION = [["capital", "Infos capitales"], ["financement", "Financement"],
     ["urbanisme", "Urbanisme"], ["reiteration", "Réitération d'acte"], ["cs", "Autres conditions suspensives"]];
   async function renderReunion() {
-    const open = (await ensureOpenDetails()).filter(passeSite);
+    // Seuls les dossiers EN COURS se passent en revue : un acte signé n'a
+    // plus rien à décider en réunion (l'après-vente vit au tableau de bord).
+    const open = (await ensureOpenDetails()).filter(passeSite)
+      .filter((m) => m.statut === "en_cours" && !details[m.id].data.dates.signature_acte);
     // Puces conseillers : les initiales rencontrées dans les dossiers ouverts.
     const inis = Array.from(new Set(open.flatMap((m) => {
       const d = details[m.id].data;
@@ -1293,7 +1302,7 @@
       const capitales = [];
       if (famOk("capital")) {
         d.journal.forEach((j, i) => {
-          if (j.capital) capitales.push({ note: i, texte: j.text || "" });
+          if (j.capital) capitales.push({ note: i, texte: j.text || "", ts: j.ts || 0, user: j.user || "" });
         });
       }
       const items = [];
@@ -1311,8 +1320,11 @@
     blocs.sort((a, b) => ((a.due || "9999") < (b.due || "9999") ? -1 : 1));
 
     $("#reunionList").innerHTML = blocs.map((v) => {
+      // Chaque info capitale porte sa date : en réunion, on sait d'un coup
+      // d'œil si le point est d'hier ou traîne depuis un mois.
       const bandeaux = v.capitales.map((c) =>
         '<p class="capital capital--board" style="display:flex;align-items:center;gap:10px">' +
+        (c.ts ? '<span class="capital__date" title="' + esc(c.user) + '">' + new Date(c.ts * 1000).toLocaleDateString("fr-FR") + "</span>" : "") +
         '<span style="flex:1">⚠ ' + esc(c.texte.slice(0, 220)) + "</span>" +
         '<button class="btn btn--sm" data-act="capfait" data-id="' + esc(v.id) + '" data-note="' + c.note + '" title="Point réglé : la note redevient normale">✓ Fait</button>' +
         "</p>").join("");
@@ -1439,12 +1451,15 @@
   function partieHtml(kind, i, p) {
     return '<div class="partie">' +
       '<button class="btn btn--sm btn--danger rm" data-rm="' + kind + "." + i + '" title="Retirer">✕</button>' +
+      '<div class="grid2">' +
+      input("Nom d'usage (marital) + prénoms", kind + "." + i + ".nom", details[currentId].data) +
+      input("Nom de naissance (jeune fille)", kind + "." + i + ".nom_naissance", details[currentId].data, "text", 'placeholder="si différent — ex. MARTIN"') +
+      "</div>" +
       '<div class="grid3">' +
-      input("Nom", kind + "." + i + ".nom", details[currentId].data) +
       input("Téléphone", kind + "." + i + ".telephone", details[currentId].data) +
       input("E-mail", kind + "." + i + ".email", details[currentId].data, "email") +
-      "</div>" +
       input("Adresse", kind + "." + i + ".adresse", details[currentId].data) +
+      "</div>" +
       '<div class="grid2">' +
       input("Naissance", kind + "." + i + ".naissance", details[currentId].data) +
       input("Situation (régime, société…)", kind + "." + i + ".situation", details[currentId].data) +
@@ -1697,10 +1712,17 @@
         '<button class="btn" id="btnRelire" title="Relit le PDF et complète les champs vides — aucune saisie existante n\'est écrasée">🔄 Relire le compromis</button>' : "") +
       '<button class="btn" id="btnJoindrePdf">' + (det.compromis_size ? "Remplacer le PDF" : "📎 Joindre le compromis PDF") + "</button>" +
       '<input type="file" id="pdfReplace" accept="application/pdf" style="display:none" />' +
+      // Les avenants s'ouvrent d'un clic, comme le compromis ; en joindre un
+      // nouveau le fait lire par l'IA et met les dates du dossier à jour.
+      (d.avenants || []).map((av) =>
+        '<button class="btn" data-voir-avenant="' + Number(av.n) + '" title="' + esc(av.objet || "Ouvrir l\'avenant") + '">📄 Avenant n°' + Number(av.n) + "</button>").join("") +
+      '<button class="btn" id="btnJoindreAvenant" title="Joindre un avenant (PDF) : il est lu par l\'IA et ses changements — dates, prix, conditions — sont appliqués au dossier sans effacer le compromis">📎 Joindre un avenant</button>' +
+      '<input type="file" id="avenantFile" accept="application/pdf" style="display:none" />' +
       '<button class="btn btn--danger" id="btnDelete">Supprimer</button>' +
       "</div></div>" +
 
       rappelSignature(d) +
+      avenantsHtml(d) +
 
       '<div class="card"><h3>📝 Journal du dossier <span class="cnt">partagé avec toute l\'agence</span></h3>' +
       '<div class="journal__add" style="margin:0 0 4px"><input type="text" id="journalInput" placeholder="Ajouter une note (appel, réponse du notaire, avancement…)" />' +
@@ -1723,7 +1745,13 @@
 
       '<div class="grid2">' +
       '<div class="card"><h3>📋 Le dossier</h3>' +
-      input("Référence (VENDEUR / ACQUÉREUR)", "reference", d) +
+      input("Référence (VENDEURS / ACQUÉREURS)", "reference", d) +
+      // Un nom de famille manque à la référence (deux acquéreurs célibataires,
+      // par exemple) : on propose la référence recomposée, sans l'imposer.
+      (refDepuisParties(d) && !refComplete(d)
+        ? '<p class="hintline" style="margin:-4px 0 10px">Les parties portent d\'autres noms : référence suggérée <b>' +
+          esc(refDepuisParties(d)) + '</b> <button class="btn btn--sm" data-act="refparties" type="button">Appliquer</button></p>'
+        : "") +
       '<div class="grid2">' +
       input("Date du compromis", "date_compromis", d, "date") +
       input("Date butoir (réitération)", "date_butoir", d, "date") +
@@ -1818,13 +1846,18 @@
       (condHtml || '<p class="hintline">Aucune condition enregistrée.</p>') +
       '<button class="btn btn--sm addrow" data-add="conditions_suspensives">+ Ajouter une condition</button></div>' +
 
+      // Terrain : pas de notification SRU ni de rétractation (L271-1 CCH
+      // réservé à l'habitation) — les deux champs n'ont rien à recevoir.
       '<div class="card"><h3>📅 Dates clés</h3><div class="grid3">' +
-      input("Notification SRU envoyée", "dates.envoi_sru", d, "date") +
-      input("Présentation AR SRU", "dates.presentation_sru", d, "date") +
+      (E.estTerrain(d) ? "" :
+        input("Notification SRU envoyée", "dates.envoi_sru", d, "date") +
+        input("Présentation AR SRU", "dates.presentation_sru", d, "date")) +
       input("Dossier envoyé aux notaires", "dates.envoi_notaires", d, "date") +
       input("DIA envoyée", "dates.envoi_dia", d, "date") +
       input("AR de la DIA", "dates.ar_dia", d, "date") +
-      "</div></div>" +
+      "</div>" +
+      (E.estTerrain(d) ? '<p class="hintline">Terrain : aucune notification SRU ni délai de rétractation (la loi SRU ne protège que l\'acquéreur d\'un logement). Le panneau « VENDU » se pose dès le compromis.</p>' : "") +
+      "</div>" +
 
       // Le rendez-vous de signature : date, heure, et le lieu de CHAQUE partie
       // — vendeur et acquéreur ne signent pas toujours à la même étude.
@@ -1974,6 +2007,12 @@
         t.value = "";
         return;
       }
+      if (t.id === "avenantFile") {
+        const f = t.files[0];
+        if (f) await joindreAvenant(currentId, f);
+        t.value = "";
+        return;
+      }
       if (t.dataset.jcap != null) {
         const [idx, key] = String(t.dataset.jcap).split(":");
         const j = d.journal[Number(idx)];
@@ -2088,7 +2127,7 @@
     });
     view.addEventListener("click", async (ev) => {
       const d = cur();
-      const t = ev.target.closest("[data-add],[data-rm],[data-jdel],[data-rm-equip],[data-rm-diag],#journalAdd,#btnDelete,#btnVoirPdf,#btnRelire,#btnJoindrePdf,#btnPermuteNotaires,[data-act='mailname']");
+      const t = ev.target.closest("[data-add],[data-rm],[data-jdel],[data-rm-equip],[data-rm-diag],#journalAdd,#btnDelete,#btnVoirPdf,#btnRelire,#btnJoindrePdf,#btnJoindreAvenant,[data-voir-avenant],#btnPermuteNotaires,[data-act='mailname'],[data-act='refparties']");
       if (!d || !t) return;
       if (t.id === "btnPermuteNotaires") {
         const v = d.notaire_vendeur;
@@ -2150,6 +2189,9 @@
         return;
       }
       if (t.id === "btnJoindrePdf") { const pi = $("#pdfReplace"); if (pi) pi.click(); return; }
+      if (t.id === "btnJoindreAvenant") { const ai = $("#avenantFile"); if (ai) ai.click(); return; }
+      if (t.dataset.voirAvenant) { viewAvenant(currentId, Number(t.dataset.voirAvenant)); return; }
+      if (t.dataset.act === "refparties") { d.reference = refDepuisParties(d); markDirty(); renderDossier(); return; }
       if (t.dataset.act === "mailname") { openMailByName(t.dataset.id, t.dataset.modele, t.dataset.step); return; }
     });
   }
@@ -2237,9 +2279,9 @@
       if (currentId === id && (location.hash || "").startsWith("#dossier/")) renderDossier();
     } catch (e) { toast(e.message, true); }
   }
-  async function viewCompromis(id) {
+  async function ouvrirPdf(chemin) {
     try {
-      const res = await api("/dossiers/" + encodeURIComponent(id) + "/compromis", { raw: true });
+      const res = await api(chemin, { raw: true });
       if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "PDF introuvable."); }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -2247,9 +2289,236 @@
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) { toast(e.message, true); }
   }
+  const viewCompromis = (id) => ouvrirPdf("/dossiers/" + encodeURIComponent(id) + "/compromis");
+  const viewAvenant = (id, n) => ouvrirPdf("/dossiers/" + encodeURIComponent(id) + "/avenants/" + Number(n));
+
+  /* ------------------------- Avenants au compromis ------------------------
+     Un avenant ne remplace pas le compromis : il en change quelques points
+     (prorogation de la date butoir, nouvelle échéance de prêt, prix, une
+     condition ajoutée, un acquéreur substitué…). Le PDF est conservé à côté
+     du compromis (ouvert d'un clic dans l'en-tête), lu par l'IA, et SEULS
+     les champs qu'il modifie sont mis à jour — chaque changement garde sa
+     valeur d'origine (avant → après) dans la fiche « Avenants » et au
+     journal. Les échéances de l'échéancier suivent d'elles-mêmes, puisqu'elles
+     se calculent sur ces dates. */
+  const AVENANTS_MAX = 9;
+  // Rappel du dossier envoyé avec l'avenant : les dates et les intitulés
+  // exacts des conditions, pour que l'IA rattache chaque changement.
+  function rappelDossier(d) {
+    const fin = d.financement || {};
+    return [
+      "Compromis du " + (E.fmtFr(d.date_compromis) || "?") + " — " + (d.reference || ""),
+      "Date butoir de réitération : " + (E.fmtFr(d.date_butoir) || "non fixée"),
+      "Prix de vente : " + (d.prix.prix_vente || "?") + " ; dépôt de garantie : " + (d.sequestre.montant || "néant"),
+      "Prêt : " + (fin.recours_pret || "?") + " — dépôt avant le " + (E.fmtFr(fin.date_limite_depot) || "?") +
+        ", obtention avant le " + (E.fmtFr(fin.date_limite_obtention) || "?") + ", montant " + (fin.montant_pret || "?"),
+      "Vendeurs : " + (joinNoms(d.vendeurs) || "?"),
+      "Acquéreurs : " + (joinNoms(d.acquereurs) || "?"),
+      "Conditions suspensives du compromis (intitulés exacts) :",
+      (d.conditions_suspensives || []).map((c) => "- " + (c.titre || "") + (c.echeance ? " (échéance " + E.fmtFr(c.echeance) + ")" : "")).join("\n") || "- aucune"
+    ].join("\n");
+  }
+  function trouveCondition(d, titre) {
+    const t = String(titre || "").trim().toLowerCase();
+    if (!t) return null;
+    return d.conditions_suspensives.find((y) => motCle(y.titre) && motCle(y.titre) === motCle(titre))
+      || d.conditions_suspensives.find((y) => {
+        const yt = String(y.titre || "").trim().toLowerCase();
+        return yt && (yt.includes(t) || t.includes(yt));
+      }) || null;
+  }
+  /* Applique au dossier ce que l'avenant change. Renvoie la liste des
+     modifications { champ, avant, apres } — vide si l'avenant ne touche à
+     rien de suivi (clause purement rédactionnelle). */
+  function appliquerAvenant(d, av, x) {
+    const S = (v) => String(v == null ? "" : v).trim();
+    const mods = [];
+    const pose = (obj, k, val, libelle) => {
+      const apres = S(val);
+      if (!apres) return false;
+      const avant = S(obj[k]);
+      if (avant === apres) return false;
+      mods.push({ champ: libelle, avant, apres });
+      obj[k] = apres;
+      return true;
+    };
+    av.date = S(x.date_avenant);
+    av.objet = S(x.objet);
+    const butoir = pose(d, "date_butoir", x.date_butoir, "Date butoir de réitération");
+    pose(d.dates, "signature_prevue", x.signature_prevue, "Date de signature prévue");
+    pose(d.prix, "prix_vente", x.prix_vente, "Prix de vente");
+    pose(d.sequestre, "montant", x.sequestre_montant, "Dépôt de garantie");
+    const fin = x.financement || {};
+    const pret = [
+      pose(d.financement, "date_limite_depot", fin.date_limite_depot, "Prêt — dépôt de la demande avant le"),
+      pose(d.financement, "date_limite_obtention", fin.date_limite_obtention, "Prêt — obtention de l'offre avant le"),
+      pose(d.financement, "montant_pret", fin.montant_pret, "Prêt — montant")
+    ].some(Boolean);
+    if (pret && !d.financement.recours_pret) d.financement.recours_pret = "oui";
+    // Les dates d'échéance saisies à la main sur ces étapes suivaient
+    // l'ancien calendrier : on les rend au calcul, qui repart des nouvelles
+    // dates. Une étape déjà faite n'est pas touchée.
+    const rendAuCalcul = (ids) => ids.forEach((id) => { const et = d.etapes[id]; if (et && !et.done) delete et.due; });
+    if (butoir) rendAuCalcul(["projet_acte", "avenant"]);
+    if (pret) rendAuCalcul(["pret_depot", "pret_accord", "pret_offre", "pret_acceptation"]);
+    let csTouchees = false;
+    (x.conditions || []).forEach((c) => {
+      const titre = S(c.titre), action = S(c.action).toLowerCase();
+      if (!titre) return;
+      const ex = trouveCondition(d, titre);
+      if (action === "supprimee") {
+        if (!ex) return;
+        mods.push({ champ: "Condition « " + ex.titre + " »", avant: "à lever", apres: "supprimée par l'avenant" });
+        ex.levee = true;
+        ex.detail = [S(ex.detail), "Supprimée par l'avenant n°" + av.n + (av.date ? " du " + E.fmtFr(av.date) : "") + "."].filter(Boolean).join("\n");
+        csTouchees = true;
+        return;
+      }
+      if (!ex || action === "ajoutee") {
+        d.conditions_suspensives.push({ titre, detail: S(c.detail), echeance: S(c.echeance), levee: false, avenant: av.n });
+        mods.push({ champ: "Condition ajoutée", avant: "", apres: titre + (S(c.echeance) ? " (échéance " + E.fmtFr(S(c.echeance)) + ")" : "") });
+        csTouchees = true;
+        return;
+      }
+      if (pose(ex, "echeance", c.echeance, "Condition « " + ex.titre + " » — échéance")) csTouchees = true;
+      if (S(c.detail)) {
+        ex.detail = [S(ex.detail), "Avenant n°" + av.n + " : " + S(c.detail)].filter(Boolean).join("\n");
+        if (!S(c.echeance)) mods.push({ champ: "Condition « " + ex.titre + " »", avant: "", apres: S(c.detail) });
+      }
+    });
+    if (csTouchees) Object.keys(d.etapes).forEach((id) => { if (/^cs_/.test(id) && d.etapes[id] && !d.etapes[id].done) delete d.etapes[id].due; });
+    (x.parties || []).forEach((p) => {
+      const nom = S(p.nom), role = /vend/i.test(S(p.role)) ? "vendeurs" : "acquereurs";
+      const action = S(p.action).toLowerCase();
+      if (!nom) return;
+      const libelle = role === "vendeurs" ? "Vendeur" : "Acquéreur";
+      if (action === "retiree") {
+        const i = d[role].findIndex((y) => nomsCompatibles(y.nom, nom));
+        if (i < 0) return;
+        mods.push({ champ: libelle + " retiré", avant: nomStandard(d[role][i].nom), apres: "" });
+        d[role].splice(i, 1);
+        return;
+      }
+      if (d[role].some((y) => nomsCompatibles(y.nom, nom))) return;
+      d[role].push(Object.assign(defPartie(), { nom: nomStandard(nom), telephone: S(p.telephone), email: S(p.email) }));
+      mods.push({ champ: libelle + " ajouté", avant: "", apres: nomStandard(nom) });
+    });
+    if (S(x.observations)) {
+      d.observations = [S(d.observations), "Avenant n°" + av.n + (av.date ? " du " + E.fmtFr(av.date) : "") + " :\n" + S(x.observations)].filter(Boolean).join("\n\n");
+      mods.push({ champ: "Observations", avant: "", apres: S(x.observations) });
+    }
+    av.modifications = mods;
+    return mods;
+  }
+  const fmtValeur = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || "") ? E.fmtFr(v) : (v || "—");
+  function avenantsHtml(d) {
+    const avs = d.avenants || [];
+    if (!avs.length) return "";
+    return '<div class="card card--avenants"><h3>📎 Avenants au compromis <span class="cnt">' + avs.length + "</span></h3>" +
+      avs.map((av) =>
+        '<div class="avenant">' +
+        '<div class="avenant__head"><b>Avenant n°' + Number(av.n) + "</b>" +
+        (av.date ? " du " + E.fmtFr(av.date) : "") +
+        (av.objet ? ' <span class="avenant__objet">— ' + esc(av.objet) + "</span>" : "") +
+        '<span class="spacer"></span>' +
+        '<button class="btn btn--sm" data-voir-avenant="' + Number(av.n) + '">📄 Ouvrir</button></div>' +
+        ((av.modifications || []).length
+          ? '<ul class="avenant__mods">' + av.modifications.map((m) =>
+            "<li><b>" + esc(m.champ) + "</b> : " +
+            (m.avant ? '<s class="avenant__avant">' + esc(fmtValeur(m.avant)) + "</s> → " : "") +
+            "<span>" + esc(fmtValeur(m.apres)) + "</span></li>").join("") + "</ul>"
+          : '<p class="hintline" style="margin:4px 0 0">' + (av.lu === false
+            ? "Lecture automatique impossible : reportez les changements à la main dans le dossier."
+            : "Aucun changement suivi (clause rédactionnelle).") + "</p>") +
+        '<p class="hintline" style="margin:4px 0 0">Joint ' + (av.ts ? "le " + new Date(av.ts * 1000).toLocaleDateString("fr-FR") : "") +
+        (av.user ? " par " + esc(av.user) : "") + ". Les valeurs d'origine du compromis restent lisibles ici (barrées).</p>" +
+        "</div>").join("") + "</div>";
+  }
+  async function joindreAvenant(id, file) {
+    const det = details[id];
+    if (!det) return;
+    const d = det.data;
+    if (file.type !== "application/pdf" && !/\.pdf$/i.test(file.name || "")) { toast("Choisissez un PDF.", true); return; }
+    if (file.size > 15_000_000) { toast("PDF trop volumineux (15 Mo max).", true); return; }
+    if ((d.avenants || []).length >= AVENANTS_MAX) { toast("Neuf avenants au plus par dossier.", true); return; }
+    const n = (d.avenants || []).length + 1;
+    const a = account();
+    let size = 0;
+    try {
+      toast("Envoi de l'avenant n°" + n + "…");
+      const res = await fetch(API + "/dossiers/" + encodeURIComponent(id) + "/avenants/" + n, {
+        method: "PUT",
+        headers: { Authorization: "Bearer " + a.session, "Content-Type": "application/pdf" },
+        body: file
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Envoi impossible (" + res.status + ").");
+      size = data.size || file.size;
+    } catch (e) { toast(e.message, true); return; }
+    const av = { n, size, ts: Math.floor(Date.now() / 1000), user: userName(), date: "", objet: "", modifications: [] };
+    d.avenants.push(av);
+    await saveDossier(id); // le PDF est attaché quoi qu'il arrive ensuite
+    let mods = [];
+    try {
+      toast("Lecture de l'avenant par l'IA (30 s à 1 min)…");
+      const dataUrl = await new Promise((ok, ko) => {
+        const r = new FileReader();
+        r.onload = () => ok(r.result); r.onerror = () => ko(new Error("PDF illisible."));
+        r.readAsDataURL(file);
+      });
+      const x = await window.SuiviAI.extractAvenant({ file: { dataUrl }, rappel: rappelDossier(d) });
+      mods = appliquerAvenant(d, av, x);
+    } catch (e) {
+      av.lu = false;
+      d.journal.push({ ts: Math.floor(Date.now() / 1000), user: userName(),
+        text: "📎 Avenant n°" + n + " joint au dossier — lecture automatique impossible (" + e.message + ") : reportez ses changements à la main." });
+      await saveDossier(id);
+      if (currentId === id) renderDossier();
+      toast("Avenant attaché, mais illisible par l'IA : " + e.message, true);
+      return;
+    }
+    d.journal.push({ ts: Math.floor(Date.now() / 1000), user: userName(),
+      text: "📎 Avenant n°" + n + (av.date ? " du " + E.fmtFr(av.date) : "") + (av.objet ? " — " + av.objet : "") +
+        (mods.length ? "\nChangements appliqués : " + mods.map((m) => m.champ + " : " + (m.avant ? fmtValeur(m.avant) + " → " : "") + fmtValeur(m.apres)).join(" ; ") + "."
+          : "\nAucun changement suivi.") });
+    await saveDossier(id);
+    if (currentId === id) renderDossier();
+    toast(mods.length ? "Avenant n°" + n + " lu : " + mods.length + " changement(s) appliqué(s) ✓" : "Avenant n°" + n + " attaché — rien à modifier au dossier.");
+  }
 
   /* --------------------------- Relances e-mail ---------------------------- */
-  function joinNoms(arr) { return (arr || []).map((p) => nomCourriel(p.nom)).filter(Boolean).join(" et "); }
+  /* Une personne dans un courrier : « Mme Sophie DUPONT née MARTIN » — le
+     nom de naissance suit le nom d'usage, comme dans l'acte. */
+  function nomPersonne(p) {
+    const n = nomCourriel(p && p.nom);
+    const nn = String((p && p.nom_naissance) || "").trim();
+    if (!n) return "";
+    return nn && !nomsCompatibles(nn, p.nom) ? n + " née " + nn : n;
+  }
+  function joinNoms(arr) { return (arr || []).map(nomPersonne).filter(Boolean).join(" et "); }
+  /* Référence « NOMS VENDEURS / NOMS ACQUÉREURS » recomposée d'après les
+     parties : TOUS les noms de famille distincts de chaque côté, séparés par
+     « et » — deux acquéreurs célibataires donnent bien « MARTIN et DURAND »,
+     un couple marié du même nom une seule fois. "" si un côté est vide. */
+  function nomsFamille(arr) {
+    const vus = [];
+    (arr || []).forEach((p) => {
+      const x = decoupeNom(p && p.nom);
+      if (!x) return;
+      const nf = x.reste != null ? x.reste.toUpperCase() : x.nomFamille.join(" ");
+      if (nf && !vus.some((v) => v.toLowerCase() === nf.toLowerCase())) vus.push(nf);
+    });
+    return vus;
+  }
+  function refDepuisParties(d) {
+    const v = nomsFamille(d.vendeurs), a = nomsFamille(d.acquereurs);
+    return (v.length && a.length) ? v.join(" et ") + " / " + a.join(" et ") : "";
+  }
+  // La référence cite-t-elle chaque nom de famille des parties ?
+  function refComplete(d) {
+    const ref = String(d.reference || "").toLowerCase();
+    return nomsFamille(d.vendeurs).concat(nomsFamille(d.acquereurs)).every((n) => ref.includes(n.toLowerCase()));
+  }
   /* Adresse formelle : « Monsieur DUPONT et Madame MARTIN » — civilité en
      toutes lettres, patronyme seul. C'est ainsi qu'on s'adresse à un client
      qu'on vouvoie, et le prénom n'apporte rien dans une formule d'appel. */
@@ -2422,7 +2691,7 @@
   // Liste détaillée « - Nom / tél / e-mail », une ligne par personne.
   function detailPersonnes(arr) {
     return (arr || []).filter((p) => (p.nom || "").trim()).map((p) =>
-      "- " + nomCourriel(p.nom) + " / " + (telFr(p.telephone) || "tél. ?") + " / " + (p.email || "e-mail ?")
+      "- " + nomPersonne(p) + " / " + (telFr(p.telephone) || "tél. ?") + " / " + (p.email || "e-mail ?")
     ).join("\n");
   }
   // Un seul notaire au dossier (même étude des deux côtés, ou une seule
@@ -2485,7 +2754,7 @@
       date_compromis: E.fmtFr(d.date_compromis), date_butoir: E.fmtFr(d.date_butoir),
       // Même calcul que l'étape de l'échéancier : lendemain de la présentation
       // + 10 jours, prorogé au jour ouvrable si le délai expire un week-end.
-      fin_retractation: E.fmtFr(E.finRetract(d)),
+      fin_retractation: E.estTerrain(d) ? "" : E.fmtFr(E.finRetract(d)),
       sequestre_montant: d.sequestre.montant, sequestre_depositaire: d.sequestre.depositaire,
       date_limite_depot: E.fmtFr(depotDefaut), echeance_pret: E.fmtFr(echPretDefaut),
       signature_prevue: dateHeure(d.dates.signature_prevue, d.dates.signature_heure),
@@ -2766,7 +3035,7 @@
       if (!d[k].length) { if (neuf[k].length) { d[k] = neuf[k]; faits.push(k + " : " + neuf[k].length + " personne(s)"); } return; }
       d[k].forEach((p) => {
         const n = neuf[k].find((y) => nomsCompatibles(y.nom, p.nom));
-        if (n) remplir(p, n, ["adresse", "telephone", "email", "naissance", "situation"], k);
+        if (n) remplir(p, n, ["nom_naissance", "adresse", "telephone", "email", "naissance", "situation"], k);
       });
     });
 
@@ -2821,9 +3090,13 @@
     d.date_compromis = S(x.date_compromis);
     d.date_butoir = S(x.date_butoir);
     d.preemption = S(x.preemption);
-    const partie = (p) => ({ nom: S(p.nom), adresse: S(p.adresse), telephone: S(p.telephone), email: S(p.email), naissance: S(p.naissance), situation: S(p.situation) });
+    const partie = (p) => ({ nom: S(p.nom), nom_naissance: S(p.nom_naissance), adresse: S(p.adresse), telephone: S(p.telephone), email: S(p.email), naissance: S(p.naissance), situation: S(p.situation) });
     d.vendeurs = (x.vendeurs || []).map(partie);
     d.acquereurs = (x.acquereurs || []).map(partie);
+    // La référence doit citer chaque nom de famille (deux acquéreurs
+    // célibataires = deux noms) : si la lecture en a laissé un de côté, on
+    // la recompose d'après les parties.
+    if (!refComplete(d) && refDepuisParties(d)) d.reference = refDepuisParties(d);
     const notaire = (n) => ({ nom: S(n && n.nom), ville: S(n && n.ville), adresse: S(n && n.adresse), telephone: S(n && n.telephone), email: S(n && n.email) });
     d.notaire_vendeur = notaire(x.notaire_vendeur);
     d.notaire_acquereur = notaire(x.notaire_acquereur);

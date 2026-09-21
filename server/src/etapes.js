@@ -155,15 +155,17 @@ function alerteEntretien(d, k) {
   return j == null || j <= 30;
 }
 
+// Terrain : aucun délai de rétractation (L271-1 CCH réservé à l'habitation).
+const pasTerrain = (d) => !estTerrain(d);
 const ETAPES = [
-  { id: "envoi_sru", label: "Notification SRU envoyée (LRAR / AR24)", due: (d) => addDays(ssp(d), 2) },
+  { id: "envoi_sru", label: "Notification SRU envoyée (LRAR / AR24)", due: (d) => addDays(ssp(d), 2), applies: pasTerrain },
   { id: "envoi_notaires", label: "Dossier envoyé aux notaires", due: (d) => addDays(ssp(d), 3) },
   // Miroir du client : dossiers ouverts depuis la mise en place seulement.
   { id: "envoi_courtier", label: "Acquéreurs présentés au courtier (coordonnées envoyées)", due: (d) => addDays(ssp(d), 3),
     applies: (d) => d.suivi_courtier === true && !(d.financement && d.financement.recours_pret === "non") },
-  { id: "retour_sru", label: "AR de la notification SRU envoyé au notaire", due: (d) => addDays(ssp(d), 8) },
-  { id: "fin_retractation", label: "Fin du délai de rétractation (10 jours)", due: (d) => finRetract(d) },
-  { id: "panneau_vendu", label: "Panneau « VENDU » posé", due: (d) => finRetract(d) },
+  { id: "retour_sru", label: "AR de la notification SRU envoyé au notaire", due: (d) => addDays(ssp(d), 8), applies: pasTerrain },
+  { id: "fin_retractation", label: "Fin du délai de rétractation (10 jours)", due: (d) => finRetract(d), applies: pasTerrain },
+  { id: "panneau_vendu", label: "Panneau « VENDU » posé", due: (d) => (estTerrain(d) ? addDays(ssp(d), 3) : finRetract(d)) },
   { id: "rib_sequestre", label: "RIB du notaire dépositaire envoyé à l'acquéreur",
     due: (d) => addDays(ssp(d), 5),
     applies: (d) => montantPositif(d.sequestre && d.sequestre.montant) },
