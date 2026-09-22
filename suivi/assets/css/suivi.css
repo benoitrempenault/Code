@@ -1,12 +1,12 @@
 /* =========================================================================
-   suivi.css — habillage de l'app Suivi des dossiers : fond BLANC (l'app se
-   lit toute la journée, souvent imprimée ou projetée en réunion), Inter +
-   Fraunces, accent doré assombri pour rester lisible sur le clair.
+   suivi.css — habillage de l'app Suivi des dossiers : thème clair « lin »
+   (fond sable, cartes lin clair — le blanc pur fatiguait les yeux sur une
+   journée), Inter + Fraunces, accent doré assombri pour rester lisible.
    ========================================================================= */
 :root {
-  --bg: #ffffff; --panel: #ffffff; --panel-2: #f5f3ee; --line: #e2dfd6;
-  --text: #1c1b18; --muted: #6b675e; --accent: #9a7b3c; --accent-ink: #ffffff;
-  --ok: #2f8f5b; --warn: #b5820a; --bad: #c9463a; --info: #3b6fb6;
+  --bg: #e9e3d6; --panel: #f6f2e9; --panel-2: #ece6d9; --line: #d6cdbb;
+  --text: #2a2620; --muted: #736c5f; --accent: #8a6b2e; --accent-ink: #ffffff;
+  --ok: #2d8656; --warn: #a8780a; --bad: #c14237; --info: #33679f;
 }
 * { box-sizing: border-box; margin: 0; }
 html { color-scheme: light; }
@@ -29,7 +29,7 @@ a { color: var(--accent); }
 .topbar {
   position: sticky; top: 0; z-index: 40;
   display: flex; align-items: center; gap: 14px;
-  padding: 10px 18px; background: rgba(255,255,255,.94); backdrop-filter: blur(8px);
+  padding: 10px 18px; background: rgba(246,242,233,.94); backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
 }
 .topbar__brand { display: flex; align-items: center; gap: 12px; }

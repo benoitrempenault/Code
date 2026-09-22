@@ -257,10 +257,11 @@ et le panneau « VENDU » se pose dès le compromis (J+3).
 
 ### Habillage
 
-L'app est sur **fond blanc** (`suivi.css`, `color-scheme: light`) : elle se lit toute la
-journée, s'imprime et se projette en réunion. Les couleurs d'état (retard, orange, ok,
-info) et l'accent doré ont été assombris pour rester lisibles sur le clair ; tout passe par
-les variables de `:root`, aucune couleur n'est codée en dur dans le JS.
+L'app est en **thème clair « lin »** (`suivi.css`, `color-scheme: light`) : fond sable
+`#e9e3d6`, cartes lin clair `#f6f2e9` — le blanc pur, essayé d'abord, fatiguait les yeux
+sur une journée. Les couleurs d'état (retard, orange, ok, info) et l'accent doré ont été
+assombris pour rester lisibles sur le clair ; tout passe par les variables de `:root`,
+aucune couleur n'est codée en dur dans le JS.
 
 ### Deux agences : Saint-Médard / Caudéran
 
