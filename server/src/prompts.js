@@ -183,7 +183,7 @@ const NOTAIRE = {
 const COMPROMIS_SCHEMA = {
   type: "object", additionalProperties: false,
   properties: {
-    reference: { type: "string", description: "Référence « NOMS VENDEURS / NOMS ACQUÉREURS » : TOUS les noms de famille distincts de chaque côté, en capitales, séparés par « et » (« DUPONT / MARTIN et DURAND ») — un couple portant le même nom ne le cite qu'une fois." },
+    reference: { type: "string", description: "Référence « NOMS VENDEURS / NOMS ACQUÉREURS » : TOUS les noms de famille distincts de chaque côté, en capitales, séparés par un tiret entouré d'espaces (« DUPONT / MARTIN - DURAND ») — un couple portant le même nom ne le cite qu'une fois." },
     date_compromis: { type: "string", description: "Date de signature du compromis (AAAA-MM-JJ)." },
     vendeurs: { type: "array", items: PARTIE },
     acquereurs: { type: "array", items: PARTIE },
@@ -491,7 +491,7 @@ const COMPROMIS_SYSTEM = [
   "  signature UNIQUEMENT si celle-ci est connue, sinon recopie le délai en toutes lettres dans le champ concerné.",
   "- Montants recopiés en chiffres avec le symbole € (ex. « 285 000 € »).",
   "- reference : « NOMS VENDEURS / NOMS ACQUÉREURS » — noms de famille seuls, en capitales. Cite TOUS les noms distincts",
-  "  de chaque côté, séparés par « et » : deux acquéreurs célibataires, concubins ou pacsés donnent « DUPONT / MARTIN et DURAND » ;",
+  "  de chaque côté, séparés par un tiret entouré d'espaces : deux acquéreurs célibataires, concubins ou pacsés donnent « DUPONT / MARTIN - DURAND » ;",
   "  un couple marié portant le même nom ne le cite qu'une fois (« DUPONT / MARTIN »). Ne laisse JAMAIS une personne de côté.",
   "- nom des vendeurs et des acquéreurs : TOUJOURS « civilité + NOM en capitales + prénoms », dans cet ordre",
   "  (« Mr DUPONT Jean-Pierre », « Mme MARTIN Sophie Claire ») — jamais « Mr Jean-Pierre Dupont ».",

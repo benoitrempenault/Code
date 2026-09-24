@@ -336,10 +336,22 @@ function csEtapes(d) {
 }
 
 // Actions non faites d'un dossier, avec échéance effective (surcharge comprise).
+// Miroir du client : actions ajoutées à la main (catalogue ou libres).
+function etapesAjoutees(d) {
+  return (d.actions_ajoutees || []).map((a) => {
+    const base = a.base ? ETAPES.find((e) => e.id === a.base) : null;
+    return {
+      id: a.id,
+      label: String(a.label || "").trim() || (base ? base.label : "Action ajoutée"),
+      due: (dd) => a.due || (base && base.due ? base.due(dd) : "")
+    };
+  });
+}
+
 export function actionsFor(data, today) {
   const st = data.etapes || {};
   const out = [];
-  for (const e of ETAPES.concat(csEtapes(data))) {
+  for (const e of ETAPES.concat(csEtapes(data), etapesAjoutees(data))) {
     if (e.applies && !e.applies(data)) continue;
     const s = st[e.id] || {};
     // Une condition suspensive est « faite » quand elle est levée.

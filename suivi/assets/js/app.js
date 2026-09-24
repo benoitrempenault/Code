@@ -329,7 +329,9 @@
       etapes: {}, journal: [], observations: "", echeance: "",
       // Avenants au compromis : un PDF chacun (R2), et ici leur date, leur
       // objet et la liste des changements appliqués (avant → après).
-      avenants: []
+      avenants: [],
+      // Actions ajoutées à la main dans l'échéancier (catalogue ou libres).
+      actions_ajoutees: []
     };
   }
   /* --------------------------- Noms des clients --------------------------
@@ -390,6 +392,7 @@
     if (!Array.isArray(data.conditions_suspensives)) data.conditions_suspensives = [];
     if (!Array.isArray(data.journal)) data.journal = [];
     if (!Array.isArray(data.avenants)) data.avenants = [];
+    if (!Array.isArray(data.actions_ajoutees)) data.actions_ajoutees = [];
     /* Répare les dates mal formées (« 12/05/2026 » écrit par une extraction
        ou une vieille sauvegarde au lieu de l'ISO « 2026-05-12 ») : une date
        illisible rend son échéance incalculable — l'étape restait grise et ne
@@ -1609,10 +1612,13 @@
           : "";
         return '<div class="etape' + (s.done ? " done" : "") + '">' +
           '<input type="checkbox" data-step-done="' + esc(s.id) + '"' + (s.done ? " checked" : "") + " />" +
-          '<span class="lab">' + esc(s.label) + (s.hint ? "<small>" + esc(s.hint) + "</small>" : "") +
+          '<span class="lab">' + esc(s.label) +
+          (s.ajoutee ? ' <small class="etape__tag">ajoutée à la main</small>' : "") +
+          (s.hint ? "<small>" + esc(s.hint) + "</small>" : "") +
           (relTxt ? '<small style="color:var(--warn)">' + esc(relTxt) + "</small>" : "") + "</span>" +
           dateCtl +
           '<span class="delta ' + deltaCls + '">' + esc(deltaTxt) + "</span>" + mailBtn +
+          (s.ajoutee ? '<button class="btn btn--sm btn--danger" data-step-rm="' + esc(s.id) + '" title="Retirer cette action ajoutée">✕</button>' : "") +
           "</div>";
     };
     // Une note du journal marquée « financement » ou « conditions suspensives »
@@ -1739,7 +1745,20 @@
       "de leur phase dans l'échéancier — décochez une fois le point réglé.</p>" +
       '<div class="journal">' + (journalHtml || '<p class="hintline">Aucune note pour l\'instant.</p>') + "</div></div>" +
 
-      '<div class="card"><h3>🗓 Échéancier du dossier</h3>' + echHtml +
+      '<div class="card"><h3>🗓 Échéancier du dossier</h3>' +
+      // « ＋ Ajouter » : une action du catalogue (toutes les étapes connues,
+      // rangées par phase) ou une action libre, posée sur ce seul dossier.
+      '<div class="ajout-action">' +
+      '<select id="ajoutBase" title="Choisir une action du catalogue, ou une action libre">' +
+      '<option value="">Action libre…</option>' +
+      catalogueActions(d).map(([ph, opts]) =>
+        '<optgroup label="' + esc(ph) + '">' + opts.map((o) =>
+          '<option value="' + esc(o.id) + '">' + esc(o.label) + "</option>").join("") + "</optgroup>").join("") +
+      "</select>" +
+      '<input type="text" id="ajoutLibelle" placeholder="Intitulé de l\'action libre" />' +
+      champDate('<input type="date" id="ajoutDate" title="Échéance (facultative pour une action du catalogue : elle se calcule)" />', "la date") +
+      '<button class="btn btn--sm" id="ajoutAction">＋ Ajouter</button>' +
+      "</div>" + echHtml +
       '<p class="hintline">Cochez une étape quand elle est faite (la date du jour est consignée — modifiable ensuite via « fait le »). Les échéances sont calculées ' +
       "depuis les dates du dossier — modifiez-les librement si le compromis prévoit d'autres délais.</p></div>" +
 
@@ -1963,6 +1982,41 @@
   const DUE_DATE_STEP = {};
   Object.keys(STEP_DUE_DATE).forEach((k) => { DUE_DATE_STEP[STEP_DUE_DATE[k]] = k; });
 
+  // Catalogue des actions proposées par « ＋ Ajouter » : toutes les étapes
+  // connues, par phase, avec l'intitulé qu'elles auraient sur ce dossier.
+  function catalogueActions(d) {
+    const parPhase = [];
+    E.ETAPES.forEach((e) => {
+      let g = parPhase.find((x) => x[0] === e.phase);
+      if (!g) { g = [e.phase, []]; parPhase.push(g); }
+      g[1].push({ id: e.id, label: typeof e.label === "function" ? e.label(d) : e.label });
+    });
+    return parPhase;
+  }
+  function ajouterAction(d) {
+    const base = ($("#ajoutBase") || {}).value || "";
+    const libelle = (($("#ajoutLibelle") || {}).value || "").trim();
+    const due = ($("#ajoutDate") || {}).value || "";
+    if (!base && !libelle) { toast("Choisissez une action du catalogue, ou saisissez l'intitulé d'une action libre.", true); return; }
+    const a = { id: "aj_" + Date.now().toString(36), base, label: base ? "" : libelle, due: due || (base ? "" : E.addDays(E.today(), 7)) };
+    d.actions_ajoutees.push(a);
+    const s = E.compute(d).find((x) => x.id === a.id);
+    d.journal.push({ ts: Math.floor(Date.now() / 1000), user: userName(),
+      text: "Action ajoutée à l'échéancier : " + (s ? s.label : libelle) + (s && s.due ? " (échéance " + E.fmtFr(s.due) + ")" : "") + "." });
+    markDirty(); renderDossier();
+    toast("Action ajoutée ✓");
+  }
+  function retirerAction(d, id) {
+    const i = d.actions_ajoutees.findIndex((a) => a.id === id);
+    if (i < 0) return;
+    const s = E.compute(d).find((x) => x.id === id);
+    d.actions_ajoutees.splice(i, 1);
+    delete d.etapes[id];
+    d.journal.push({ ts: Math.floor(Date.now() / 1000), user: userName(),
+      text: "Action retirée de l'échéancier : " + (s ? s.label : id) + "." });
+    markDirty(); renderDossier();
+  }
+
   // Marque une étape faite / à faire. Pour les conditions suspensives, l'état
   // vit dans la condition elle-même (case « levée » de la carte) : les deux
   // cases restent ainsi synchronisées.
@@ -2127,8 +2181,10 @@
     });
     view.addEventListener("click", async (ev) => {
       const d = cur();
-      const t = ev.target.closest("[data-add],[data-rm],[data-jdel],[data-rm-equip],[data-rm-diag],#journalAdd,#btnDelete,#btnVoirPdf,#btnRelire,#btnJoindrePdf,#btnJoindreAvenant,[data-voir-avenant],#btnPermuteNotaires,[data-act='mailname'],[data-act='refparties']");
+      const t = ev.target.closest("[data-add],[data-rm],[data-jdel],[data-rm-equip],[data-rm-diag],#journalAdd,#btnDelete,#btnVoirPdf,#btnRelire,#btnJoindrePdf,#btnJoindreAvenant,[data-voir-avenant],#btnPermuteNotaires,[data-act='mailname'],[data-act='refparties'],#ajoutAction,[data-step-rm]");
       if (!d || !t) return;
+      if (t.id === "ajoutAction") { ajouterAction(d); return; }
+      if (t.dataset.stepRm) { retirerAction(d, t.dataset.stepRm); return; }
       if (t.id === "btnPermuteNotaires") {
         const v = d.notaire_vendeur;
         d.notaire_vendeur = d.notaire_acquereur;
@@ -2498,7 +2554,7 @@
   function joinNoms(arr) { return (arr || []).map(nomPersonne).filter(Boolean).join(" et "); }
   /* Référence « NOMS VENDEURS / NOMS ACQUÉREURS » recomposée d'après les
      parties : TOUS les noms de famille distincts de chaque côté, séparés par
-     « et » — deux acquéreurs célibataires donnent bien « MARTIN et DURAND »,
+     un tiret — deux acquéreurs célibataires donnent bien « MARTIN - DURAND »,
      un couple marié du même nom une seule fois. "" si un côté est vide. */
   function nomsFamille(arr) {
     const vus = [];
@@ -2512,7 +2568,7 @@
   }
   function refDepuisParties(d) {
     const v = nomsFamille(d.vendeurs), a = nomsFamille(d.acquereurs);
-    return (v.length && a.length) ? v.join(" et ") + " / " + a.join(" et ") : "";
+    return (v.length && a.length) ? v.join(" - ") + " / " + a.join(" - ") : "";
   }
   // La référence cite-t-elle chaque nom de famille des parties ?
   function refComplete(d) {
