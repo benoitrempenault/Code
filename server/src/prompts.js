@@ -143,8 +143,8 @@ const FICHE_SCHEMA = {
   type: "object", additionalProperties: false,
   properties: {
     type: { type: "string", description: "Type de bien (ex. « Maison individuelle de plain-pied »), vide si inconnu." },
-    caracteristiques: { type: "array", items: { type: "string" }, description: "Construction, surfaces, parcelle, toiture, chauffage, isolation, huisseries…" },
-    interieur: { type: "array", items: { type: "string" }, description: "Pièce par pièce : dimensions, équipements, matériaux, marques." },
+    caracteristiques: { type: "array", items: { type: "string" }, description: "Construction, surfaces GLOBALES (habitable, terrain, parcelle — jamais la surface d'une pièce), toiture, chauffage, isolation, huisseries…" },
+    interieur: { type: "array", items: { type: "string" }, description: "Pièce par pièce, la surface de la pièce sur sa propre ligne juste après son nom (« Chambre n°1 : 11,69 m², une fenêtre »), puis équipements, matériaux, marques." },
     exterieur: { type: "array", items: { type: "string" }, description: "Terrain, terrasses, piscine, annexes, portail, points d'eau…" },
     copro: { type: "array", items: { type: "string" }, description: "Copropriété ou lotissement : nom, syndic/président, bâtiment, lots, tantièmes, charges, procédures, travaux votés. Tableau VIDE si le bien n'est ni en copropriété ni en lotissement." },
     aSavoir: { type: "array", items: { type: "string" }, description: "Données financières (électricité, gaz, taxe foncière, charges), servitudes, travaux réalisés, délais, conditions." }
@@ -392,7 +392,7 @@ const FICHE_SYSTEM = [
   "REGROUPEMENTS obligatoires — une seule ligne par famille, en assemblant toutes les informations dispersées.",
   "Dans caracteristiques, suis cet ordre de familles (n'écris une ligne que si au moins une information existe ; n'écris JAMAIS « non précisé ») :",
   "1. « Bien : » type précis (maison individuelle / maison mitoyenne en limite de propriété / appartement…), année de construction, constructeur (nom), type de construction (brique, bois, parpaing…).",
-  "2. « Surfaces : » superficie habitable, superficie totale, taille du terrain, numéro de parcelle cadastrale.",
+  "2. « Surfaces : » UNIQUEMENT les totaux — superficie habitable, superficie totale, taille du terrain, numéro de parcelle cadastrale. JAMAIS la surface d'une pièce : les surfaces des pièces vont dans interieur, sur la ligne de chaque pièce.",
   "3. « Charpente & toiture : » type de charpente, couverture (matériau, année).",
   "4. « Chauffage & énergie : » mode de chauffage, production d'eau chaude.",
   "5. « Fibre : » raccordement fibre optique / internet — TOUJOURS sur sa propre ligne, jamais mélangé au chauffage.",
@@ -402,6 +402,7 @@ const FICHE_SYSTEM = [
   "- Cuisine (dans interieur) : UNE ligne rassemblant tout — marque, plan de travail, électroménager, rangements — chaque appareil cité UNE seule fois.",
   "- Pièces d'eau (dans interieur) : UNE ligne par salle d'eau / salle de bains, rassemblant ses équipements.",
   "- Chambres (dans interieur) : numérote « Chambre n°1 », « Chambre n°2 »… — écris toujours « n° », jamais « numéro » en toutes lettres.",
+  "- SURFACES DES PIÈCES (dans interieur) : chaque pièce garde sa surface sur SA ligne, juste après son nom — « Chambre n°1 : 11,69 m², une fenêtre », « Pièce de vie + cuisine : 31,60 m², … », « Entrée : 2,20 m², trappe d'accès aux combles ». La hauteur sous plafond va sur la ligne de la pièce concernée. Une surface de pièce n'est JAMAIS déplacée dans caracteristiques : le dédoublonnage ne s'applique pas ici, sa place unique est la ligne de la pièce.",
   "DÉDOUBLONNAGE ABSOLU : chaque information n'apparaît qu'UNE seule fois dans toute la fiche, à l'endroit le plus pertinent. Le chauffage apparaît UNIQUEMENT dans la ligne « Chauffage & énergie » (jamais répété pièce par pièce) ; l'électroménager UNIQUEMENT dans la ligne Cuisine.",
   "Section copro — UNIQUEMENT si le bien est en copropriété ou en lotissement, sinon tableau vide : nom de la copropriété ou du lotissement, syndic (nom) pour une copropriété / président (nom) pour un lotissement, numéro de bâtiment, numéro(s) de lot, nombre de lots de la copropriété, tantièmes, montant des charges, procédures en cours, travaux votés. Ces informations ne vont NI dans caracteristiques NI dans aSavoir.",
   "Section aSavoir : commence par les données financières, une ligne par poste — « Électricité : … », « Gaz : … », « Taxe foncière : … », « Charges : … » — puis « Servitudes : … », puis le reste (travaux réalisés, délais, conditions).",

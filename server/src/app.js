@@ -23,6 +23,7 @@ import { runRecap, buildRecap, envoyerMail } from "./recap.js";
 import * as CRM from "./crm.js";
 import * as PERM from "./permanence.js";
 import * as GRAPH from "./graph.js";
+import { reparerReponseFiche } from "./fiche.js";
 
 // 7 jours d'inactivité : sur une tablette partagée ou un poste de l'agence,
 // une session oubliée s'éteint dans la semaine (l'usage quotidien, lui, la
@@ -3157,8 +3158,9 @@ export function createApp(env) {
     // (body.task) et un court contexte (body.task_arg) ; on injecte le prompt
     // système et le format de sortie. Les anciens clients (cache) qui envoient
     // encore leur propre `system` restent acceptés tels quels.
+    const tacheIA = body.task == null ? "" : String(body.task);
     if (body.task != null) {
-      const p = promptFor(String(body.task), body.task_arg == null ? "" : String(body.task_arg).slice(0, 300));
+      const p = promptFor(tacheIA, body.task_arg == null ? "" : String(body.task_arg).slice(0, 300));
       if (!p) return err(c, 400, "Tâche IA inconnue.");
       body.system = p.system;
       // output_config null : tâche sans sortie structurée (schéma trop gros
@@ -3233,7 +3235,10 @@ export function createApp(env) {
       await adjust(-est); // aucun token consommé : on rembourse la réservation
       return err(c, 502, "Service IA injoignable — réessayez.");
     }
-    const data = await upstream.json().catch(() => null);
+    let data = await upstream.json().catch(() => null);
+    // Fiche prestations : garde-fou déterministe (surfaces des pièces remises
+    // sur leur ligne d'Intérieur si le modèle les a empilées dans « Surfaces »).
+    if (upstream.ok && tacheIA === "structure_fiche") data = reparerReponseFiche(data);
     // (3) Réconciliation : coût réel si succès, sinon remboursement complet
     // (mode session uniquement).
     let actual = 0;
