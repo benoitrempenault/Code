@@ -558,13 +558,48 @@
       applies: (d) => !!d.dates.signature_acte || d.statut === "signe" }
   ];
 
+  /* ------------------- Actions ajoutées à la main -------------------------
+     Le bouton « ＋ Ajouter » de l'échéancier pose une action de plus sur CE
+     dossier (d.actions_ajoutees) : soit une action du catalogue (`base` =
+     id d'une étape connue — elle reprend son intitulé, sa phase, son
+     destinataire, son modèle d'e-mail et son échéance calculée, même si
+     elle ne s'appliquait pas au dossier), soit une action libre (intitulé
+     saisi, phase « Actions ajoutées », date choisie). */
+  function etapesAjoutees(d) {
+    return (d.actions_ajoutees || []).map((a) => {
+      const base = a.base ? ETAPES.find((e) => e.id === a.base) : null;
+      return {
+        id: a.id, ajoutee: true,
+        phase: base ? base.phase : "Actions ajoutées",
+        label: (a.label || "").trim() || (base ? base.label : "Action ajoutée"),
+        cible: base ? base.cible : (a.cible || ""),
+        modele: base ? base.modele : undefined, modeles: base ? base.modeles : undefined,
+        hint: base ? base.hint : (a.note || "Action ajoutée à la main sur ce dossier."),
+        due: (dd) => a.due || (base && base.due ? base.due(dd) : "")
+      };
+    });
+  }
+
   // Étapes fixes + une étape par condition suspensive du compromis, insérées
-  // juste avant la phase « Entretiens & diagnostics ».
+  // juste avant la phase « Entretiens & diagnostics » + les actions ajoutées
+  // à la main (rangées dans leur phase à l'affichage).
   function toutesEtapes(d) {
     const cs = csEtapes(d);
-    if (!cs.length) return ETAPES;
-    const i = ETAPES.findIndex((e) => e.phase === "Entretiens & diagnostics");
-    return i < 0 ? ETAPES.concat(cs) : ETAPES.slice(0, i).concat(cs, ETAPES.slice(i));
+    let liste = ETAPES;
+    if (cs.length) {
+      const i = ETAPES.findIndex((e) => e.phase === "Entretiens & diagnostics");
+      liste = i < 0 ? ETAPES.concat(cs) : ETAPES.slice(0, i).concat(cs, ETAPES.slice(i));
+    }
+    liste = liste.slice();
+    // Une action du catalogue se range derrière la dernière étape de sa
+    // phase (l'ordre des phases reste celui du suivi) ; une action libre
+    // ferme la liste.
+    etapesAjoutees(d).forEach((a) => {
+      let pos = -1;
+      for (let k = liste.length - 1; k >= 0; k--) { if (liste[k].phase === a.phase) { pos = k; break; } }
+      if (pos < 0) liste.push(a); else liste.splice(pos + 1, 0, a);
+    });
+    return liste;
   }
 
   // Étapes applicables à un dossier, avec leur état et leur échéance effective.
@@ -581,6 +616,7 @@
         return {
           def: e, id: e.id, label: (typeof e.label === "function" ? e.label(d) : e.label),
           phase: e.phase, cible: e.cible, hint: (typeof e.hint === "function" ? e.hint(d) : e.hint), csIndex: e.csIndex,
+          ajoutee: !!e.ajoutee,
           modele: e.modele, modeles: e.modeles || (e.modele ? [e.modele] : []),
           done: cond ? !!cond.levee : !!s.done, date: s.date || "", note: s.note || "", due,
           relance: s.relance || null, // dernière relance envoyée depuis cette étape

@@ -100,6 +100,23 @@ représente les deux parties. Si une lecture s'est trompée de côté, le bouton
 **« ⇄ Intervertir vendeur / acquéreur »** de la carte Notaires échange les deux études,
 coordonnées comprises, et le note au journal.
 
+### Ajouter une action à l'échéancier
+
+Sous le titre de l'échéancier, la barre **« ＋ Ajouter »** pose une action de plus sur
+**ce seul dossier** (`d.actions_ajoutees`, `etapesAjoutees()` client et serveur) :
+
+- **une action du catalogue** — le menu liste toutes les étapes connues, rangées par
+  phase, avec l'intitulé qu'elles auraient sur ce dossier. L'action reprend sa phase, son
+  destinataire, son modèle d'e-mail, son aide et son **échéance calculée** (une date
+  saisie prime), même si elle ne s'appliquait pas au dossier (RIB du séquestre sans
+  dépôt de garantie, seconde relance d'un notaire…) ;
+- **une action libre** — intitulé saisi, date choisie (à défaut J+7), phase « Actions
+  ajoutées » en bas de l'échéancier.
+
+Elle se coche, se relance et remonte au tableau de bord et en réunion comme les autres
+(étiquette « ajoutée à la main », bouton ✕ pour la retirer) ; ajout et retrait sont
+consignés au journal. Le récapitulatif quotidien la compte aussi.
+
 ### Effacer une date (téléphone)
 
 Le sélecteur de date natif des téléphones ne propose aucun moyen de revenir à vide :
@@ -232,7 +249,7 @@ que le montant, jamais la phrase entière du compromis.
 détaillées envoyées aux notaires et au courtier). **Chaque personne a sa fiche**, même en
 couple — l'extraction l'exige, marié ou non. La **référence** doit citer **tous les noms
 de famille** de chaque côté : deux acquéreurs célibataires, concubins ou pacsés donnent
-« DUPONT / MARTIN et DURAND », un couple du même nom ne le cite qu'une fois
+« DUPONT / MARTIN - DURAND » (tiret entouré d'espaces), un couple du même nom ne le cite qu'une fois
 (`refDepuisParties()`). À la création, si la lecture IA a laissé un nom de côté, la
 référence est recomposée ; sur un dossier existant, la fiche **propose** la référence
 recomposée sous le champ (bouton « Appliquer »), sans jamais l'imposer.

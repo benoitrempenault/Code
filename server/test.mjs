@@ -754,7 +754,7 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   // de famille (deux acquéreurs célibataires = deux noms), une entrée par
   // personne même en couple.
   ok(/"nom_naissance"/.test(cp.system) && /jeune fille/.test(cp.system), "le compromis extrait le nom de naissance à part du nom d'usage");
-  ok(/MARTIN et DURAND/.test(cp.system) && /Ne laisse JAMAIS une personne de côté/.test(cp.system),
+  ok(/MARTIN - DURAND/.test(cp.system) && /Ne laisse JAMAIS une personne de côté/.test(cp.system),
     "la référence cite tous les noms de famille (célibataires, concubins, pacsés)");
   ok(/deux acquéreurs = deux entrées complètes/.test(cp.system), "une entrée par personne, même en couple");
   // Avenant : on n'extrait que ce qui change, sans recopier le compromis.
@@ -989,6 +989,21 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   ok(idsMaison.includes("envoi_sru") && idsMaison.includes("fin_retractation"), "maison : la rétractation SRU reste suivie");
   const panneauMaison = actionsFor(bien("Maison individuelle"), "2026-06-02").find((a) => a.id === "panneau_vendu");
   ok(panneauMaison && panneauMaison.due === "2026-06-15", "maison : panneau VENDU à la purge de la rétractation (J+14 sans AR)");
+  // Actions ajoutées à la main : une action du catalogue reprend son échéance
+  // calculée même si elle ne s'appliquait pas (RIB sans séquestre) ; une
+  // action libre porte sa date ; une action faite disparaît du récap.
+  const avecAjouts = bien("Maison individuelle", { actions_ajoutees: [
+    { id: "aj_1", base: "rib_sequestre", label: "", due: "" },
+    { id: "aj_2", base: "", label: "Rappeler le géomètre", due: "2026-06-20" },
+    { id: "aj_3", base: "", label: "Déjà faite", due: "2026-06-21" }
+  ], etapes: { aj_3: { done: true } } });
+  const ajouts = actionsFor(avecAjouts, "2026-06-02");
+  ok(!actionsFor(bien("Maison individuelle"), "2026-06-02").some((a) => a.id === "rib_sequestre"), "sans séquestre, pas d'étape RIB par défaut");
+  const aj1 = ajouts.find((a) => a.id === "aj_1");
+  ok(aj1 && aj1.due === "2026-06-06" && /RIB/.test(aj1.label), "action du catalogue ajoutée : intitulé et échéance calculée (J+5)");
+  const aj2 = ajouts.find((a) => a.id === "aj_2");
+  ok(aj2 && aj2.due === "2026-06-20" && aj2.label === "Rappeler le géomètre", "action libre ajoutée : intitulé et date choisis");
+  ok(!ajouts.some((a) => a.id === "aj_3"), "action ajoutée déjà faite : hors récap");
 }
 
 /* ---- Séquestre : comptabilité de l'étude dépositaire -------------------- */
