@@ -15,15 +15,39 @@ function ok(cond, label) {
 }
 
 // --- Faux serveur Anthropic (compte les appels, renvoie un usage) --------
+const FICHE_MAL_RANGEE = {
+  type: "Maison mitoyenne ancien corps de ferme",
+  caracteristiques: [
+    "Bien : maison individuelle, ancien corps de ferme",
+    "Surfaces : pièce de vie + cuisine 31,60 m², entrée 2,20 m², chambre n°1 11,69 m², chambre n°2 11,7 m², chambre n°3 11,65 m², dégagement 1,65 m², cellier/buanderie 9,38 m², salle d'eau 5,92 m², hauteur sous plafond pièce de vie 2,58 m",
+    "Chauffage & énergie : poêle Nordica 7 KW, ballon d'eau chaude Atlantique 200L situé dans le cellier"
+  ],
+  interieur: [
+    "Salon exposé sud",
+    "Entrée avec trappe d'accès aux combles",
+    "Chambre n°1 : une fenêtre",
+    "Chambre n°2 : exposée est, 2 fenêtres",
+    "Chambre numéro 3 : vélux avec volet motorisé",
+    "Cellier/buanderie : arrivées d'eau de la maison, ballon Atlantique 200L",
+    "Salle d'eau : double vasque, WC suspendu"
+  ],
+  exterieur: ["Clôture mitoyenne des deux côtés", "Portail manuel"], copro: [], aSavoir: []
+};
 const upstreamCalls = [];
 const fake = (await import("node:http")).createServer(async (req, res) => {
   const chunks = []; for await (const c of req) chunks.push(c);
   const body = JSON.parse(Buffer.concat(chunks).toString());
   upstreamCalls.push({ headers: req.headers, body });
   res.writeHead(200, { "Content-Type": "application/json" });
+  // Fiche prestations : le faux modèle reproduit le défaut observé en
+  // production — toutes les pièces empilées dans « Surfaces », plus de m²
+  // sur les lignes d'Intérieur. Le proxy doit le corriger avant de répondre.
+  const schema = body.output_config && body.output_config.format && body.output_config.format.schema;
+  const texte = (schema && schema.properties && schema.properties.interieur)
+    ? JSON.stringify(FICHE_MAL_RANGEE) : "{\"ok\":true}";
   res.end(JSON.stringify({
     id: "msg_test", type: "message", role: "assistant",
-    content: [{ type: "text", text: "{\"ok\":true}" }],
+    content: [{ type: "text", text: texte }],
     usage: { input_tokens: 1000, output_tokens: 500 }
   }));
 });
@@ -492,6 +516,53 @@ ok(grosUpProxy.body.task === undefined && /ANNONCE IMMOBILIÈRE/.test(grosUpProx
   "gros corps : prompt serveur injecté, task retiré, modèle conservé");
 }
 
+console.log("— Fiche prestations : les surfaces des pièces restent sur leur ligne d'Intérieur");
+{
+  const { repartirSurfaces, reparerReponseFiche } = await import("./src/fiche.js");
+  const r = repartirSurfaces(FICHE_MAL_RANGEE);
+  ok(r !== FICHE_MAL_RANGEE && FICHE_MAL_RANGEE.interieur[2] === "Chambre n°1 : une fenêtre", "l'entrée n'est jamais mutée");
+  ok(!r.caracteristiques.some((l) => /^surfaces/i.test(l)), "plus de ligne « Surfaces » quand elle ne contenait que des pièces");
+  ok(r.caracteristiques.length === 2 && /^Bien :/.test(r.caracteristiques[0]) && /^Chauffage/.test(r.caracteristiques[1]), "les autres caractéristiques sont intactes et dans l'ordre");
+  ok(r.interieur.includes("Chambre n°1 : 11,69 m², une fenêtre"), "« chambre n°1 11,69 m² » rejoint la ligne « Chambre n°1 »");
+  ok(r.interieur.includes("Chambre n°2 : 11,7 m², exposée est, 2 fenêtres"), "idem chambre n°2");
+  ok(r.interieur.includes("Chambre numéro 3 : 11,65 m², vélux avec volet motorisé"), "« Chambre numéro 3 » reconnue comme « chambre n°3 »");
+  ok(r.interieur.includes("Entrée : 2,20 m², avec trappe d'accès aux combles"), "une ligne sans deux-points (« Entrée avec… ») reçoit sa surface");
+  ok(r.interieur.includes("Cellier/buanderie : 9,38 m², arrivées d'eau de la maison, ballon Atlantique 200L") && r.interieur.includes("Salle d'eau : 5,92 m², double vasque, WC suspendu"), "cellier et salle d'eau aussi");
+  ok(r.interieur[0] === "Pièce de vie + cuisine : 31,60 m²" && r.interieur[1] === "Dégagement : 1,65 m²" && r.interieur[2] === "Hauteur sous plafond pièce de vie : 2,58 m",
+    "les pièces sans ligne existante sont créées en tête, dans l'ordre de la dictée");
+  ok(r.interieur.length === FICHE_MAL_RANGEE.interieur.length + 3, "aucune ligne d'Intérieur perdue");
+  ok(r.exterieur.length === 2 && r.exterieur[0] === "Clôture mitoyenne des deux côtés", "l'extérieur n'est pas touché");
+
+  const conforme = { caracteristiques: ["Surfaces : habitable 95 m², terrain 1 223 m², parcelle AB 12"], interieur: ["Chambre n°1 : 11 m², une fenêtre"], exterieur: [] };
+  ok(repartirSurfaces(conforme) === conforme, "une fiche conforme est rendue telle quelle (même objet)");
+  const sansSurfaces = { caracteristiques: ["Bien : maison"], interieur: ["Salon"], exterieur: [] };
+  ok(repartirSurfaces(sansSurfaces) === sansSurfaces, "sans ligne « Surfaces », rien ne bouge");
+  const mixte = repartirSurfaces({ caracteristiques: ["Surfaces : surface habitable 95 m², garage 32,79 m², terrain 600 m²"], interieur: [], exterieur: ["Double garage : porte manuelle en bois"] });
+  ok(mixte.caracteristiques[0] === "Surfaces : surface habitable 95 m², terrain 600 m²", "les totaux (habitable, terrain) restent dans « Surfaces »");
+  ok(mixte.exterieur[0] === "Double garage : 32,79 m², porte manuelle en bois", "le garage rejoint sa ligne d'Extérieur (« Double garage »)");
+  const dejaLa = repartirSurfaces({ caracteristiques: ["Surfaces : chambre n°1 11 m²"], interieur: ["Chambre n°1 : 11 m², une fenêtre"], exterieur: [] });
+  ok(dejaLa.interieur[0] === "Chambre n°1 : 11 m², une fenêtre" && dejaLa.caracteristiques.length === 0, "une surface déjà sur la ligne n'est pas doublée");
+  ok(repartirSurfaces(null) === null && repartirSurfaces({ interieur: [] }).interieur.length === 0, "entrées dégénérées tolérées");
+  const brut = { content: [{ type: "text", text: "pas du json" }] };
+  ok(reparerReponseFiche(brut) === brut, "réponse illisible rendue telle quelle");
+
+  // Bout en bout : le proxy corrige la réponse du modèle pour structure_fiche…
+  const sf = await call("/v1/messages", {
+    headers: { Authorization: "Bearer " + s3 },
+    body: { model: "claude-sonnet-5", max_tokens: 3000, task: "structure_fiche", messages: [{ role: "user", content: "Notes brutes (dictée) : maison" }] }
+  });
+  const fiche = JSON.parse(sf.json.content[0].text);
+  ok(sf.status === 200 && fiche.interieur.includes("Chambre n°1 : 11,69 m², une fenêtre") && !fiche.caracteristiques.some((l) => /^surfaces/i.test(l)),
+    "structure_fiche : la réponse relayée porte les surfaces sur les lignes de pièces");
+  ok(sf.json.usage && sf.json.usage.input_tokens === 1000, "…sans toucher au reste de la réponse (usage)");
+  // …et n'y touche pas pour les autres tâches.
+  const autre = await call("/v1/messages", {
+    headers: { Authorization: "Bearer " + s3 },
+    body: { model: "claude-sonnet-5", max_tokens: 100, task: "ad_text", messages: [{ role: "user", content: "x" }] }
+  });
+  ok(autre.json.content[0].text === "{\"ok\":true}", "les autres tâches passent sans réparation");
+}
+
 console.log("— Prompts côté serveur (body.task)");
 const taskCall = await call("/v1/messages", {
   headers: { Authorization: "Bearer " + s3 },
@@ -781,6 +852,11 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   ok(!!avProps.date_butoir && !!avProps.financement && !!avProps.conditions && !!avProps.parties && !!avProps.objet,
     "le schéma d'avenant couvre butoir, prêt, conditions, parties et objet");
   ok(promptFor("tache_inconnue", "") === null, "tâche IA inconnue rejetée");
+  const sfp = promptFor("structure_fiche", "");
+  ok(/JAMAIS la surface d'une pièce/.test(sfp.system) && /SURFACES DES PIÈCES \(dans interieur\)/.test(sfp.system),
+    "structure_fiche : le prompt réserve « Surfaces » aux totaux et garde la surface de chaque pièce sur sa ligne");
+  ok(/jamais la surface d'une pièce/.test(sfp.output_config.format.schema.properties.caracteristiques.description),
+    "…et le schéma le redit sur le champ caracteristiques");
 }
 
 /* ---- Taille des compromis : la chaîne client → proxy tient 12 Mo -------- */

@@ -51,6 +51,15 @@ sur un 401 en mode session, `ai.js` purge ce jeton et lève une erreur `code: "s
 `BrochureAI.showError(el, err)` affiche avec un bouton vers la porte collaborateurs (SSO) ou
 `compte.html?retour=` — tous les puits d'erreur IA (fiche, wizard, app) passent par lui. Le
 fork `mandat-pro/ai.js` a le même `showError` sans aucune référence Kadima.
+**Surfaces de la fiche prestations** : dans « Caractéristiques », la ligne « Surfaces : » ne
+porte que les TOTAUX (habitable, totale, terrain, parcelle) ; chaque pièce garde sa surface
+sur SA ligne d'« Intérieur » (« Chambre n°1 : 11,69 m², une fenêtre »). Le prompt
+`structure_fiche` et son schéma le disent, et `server/src/fiche.js` (`repartirSurfaces`,
+`reparerReponseFiche`) le GARANTIT : le proxy `/v1/messages` répare la réponse du modèle
+pour cette tâche (pièces égarées dans « Surfaces » remises sur leur ligne, totaux
+conservés, jamais de doublon, entrée non mutée, réponse illisible rendue telle quelle).
+Tests dans test.mjs (fausse réponse `FICHE_MAL_RANGEE`) ; `server/eval-fiche.mjs` interroge le
+VRAI modèle sur des dictées de référence pour détecter une dérive du prompt ou du modèle.
 
 **`mandat-pro/`** — the white-label commercial variant of `mandat/` (UI branded « Studio
 Brochure » ; the one the
