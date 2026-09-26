@@ -184,3 +184,16 @@ s { color: var(--muted); }
   main { padding: 14px 12px 60px; }
   .carte { padding: 16px; }
 }
+
+/* Parcours R1/R2 */
+.etapes { display: grid; gap: 10px; margin-top: 14px; }
+.etape { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; }
+.etape.faite { border-color: rgba(78, 205, 196, .5); background: rgba(78, 205, 196, .08); }
+.etape .num { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; background: var(--line); flex: none; }
+.etape.faite .num { background: #4ECDC4; color: #0b2b28; }
+.etape .titre { flex: 1; }
+.etape .quand { font-size: 12px; opacity: .75; }
+.avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: var(--line); display: inline-block; vertical-align: middle; }
+.parcours-avancement { display: inline-flex; gap: 3px; }
+.parcours-avancement i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); display: inline-block; }
+.parcours-avancement i.ok { background: #4ECDC4; }

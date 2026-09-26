@@ -988,6 +988,9 @@
     $("ag-logo").value = reglages.agence.logoUrl || "";
     $("ag-signataire").value = reglages.agence.signataire || "";
     $("ag-fonction").value = reglages.agence.fonction || "";
+    $("ag-instagram").value = reglages.agence.instagram || "";
+    $("ag-facebook").value = reglages.agence.facebook || "";
+    $("ag-avis").value = reglages.agence.avis || "";
     const of = reglages.offres || {};
     $("ofr-entete").value = of.entete || "";
     $("ofr-representant").value = of.representant || "";
@@ -2127,6 +2130,236 @@
     });
   }
 
+  /* ------------------------------ Conseillers ------------------------------ */
+  // Profils qui signent documents et e-mails du parcours R1/R2 : photo
+  // réduite dans le navigateur (240 px, JPEG) avant d'être envoyée.
+  let conseillers = [];
+  async function chargerConseillers() {
+    try { conseillers = (await api("/crm/conseillers")).conseillers; } catch { conseillers = []; }
+    const zone = $("table-conseillers");
+    if (!zone) return;
+    zone.innerHTML = conseillers.length
+      ? '<div class="tableau-cadre"><table><thead><tr><th></th><th>Conseiller</th><th>Fonction</th><th>Téléphone</th><th>E-mail</th><th></th></tr></thead><tbody>' +
+        conseillers.map((c) => '<tr class="cliquable" data-conseiller="' + c.id + '"><td>' +
+          (c.photo_url ? '<img class="avatar" src="' + escH(c.photo_url) + '" alt="" />' : '<span class="avatar"></span>') + "</td><td><strong>" +
+          escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</strong>" + (c.actif ? "" : ' <span class="puce grise">inactif</span>') + "</td><td>" +
+          escH(c.fonction) + "</td><td>" + escH(c.telephone) + "</td><td>" + escH(c.email) + "</td><td>✏️</td></tr>").join("") +
+        "</tbody></table></div>"
+      : '<div class="vide">Aucun conseiller — ajoutez le premier.</div>';
+    zone.querySelectorAll("tr[data-conseiller]").forEach((tr) => tr.addEventListener("click", () => ouvrirConseiller(tr.dataset.conseiller)));
+  }
+  function reduirePhoto(fichier) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const taille = 240, cv = document.createElement("canvas");
+        cv.width = taille; cv.height = taille;
+        const cx = cv.getContext("2d");
+        const min = Math.min(img.width, img.height);
+        cx.drawImage(img, (img.width - min) / 2, (img.height - min) / 2, min, min, 0, 0, taille, taille);
+        resolve(cv.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = () => reject(new Error("Image illisible."));
+      img.src = URL.createObjectURL(fichier);
+    });
+  }
+  function ouvrirConseiller(id) {
+    const c = id ? conseillers.find((x) => x.id === id) : null;
+    let photo; // undefined = inchangée ; "" = retirée ; data URL = nouvelle
+    ouvrirModale(c ? "✏️ " + [c.prenom, c.nom].filter(Boolean).join(" ") : "+ Nouveau conseiller",
+      '<div class="barre" style="align-items:center;">' +
+      '<img class="avatar" id="cs-apercu" style="width:72px;height:72px;" src="' + escH(c && c.photo_url || "") + '" alt="" />' +
+      '<label class="btn">📷 Choisir une photo<input type="file" id="cs-photo" accept="image/*" hidden /></label>' +
+      '<button class="btn" id="cs-photo-retirer">Sans photo</button></div>' +
+      '<div class="grille-champs" style="margin-top:12px;">' +
+      '<label>Prénom<input id="cs-prenom" value="' + escH(c && c.prenom || "") + '" /></label>' +
+      '<label>Nom<input id="cs-nom" value="' + escH(c && c.nom || "") + '" /></label>' +
+      '<label>Fonction<input id="cs-fonction" value="' + escH(c && c.fonction || "") + '" placeholder="Conseiller immobilier" /></label>' +
+      '<label>Téléphone<input id="cs-tel" value="' + escH(c && c.telephone || "") + '" /></label>' +
+      '<label>E-mail<input id="cs-email" type="email" value="' + escH(c && c.email || "") + '" /></label>' +
+      '<label class="case" style="align-self:end;"><input type="checkbox" id="cs-actif"' + (!c || c.actif ? " checked" : "") + " /> Actif</label></div>",
+      (c ? '<button class="btn btn-danger" id="cs-supprimer">Supprimer</button>' : "") +
+      '<button class="btn" id="cs-annuler">Annuler</button><button class="btn btn-or" id="cs-save">Enregistrer</button>');
+    $("cs-annuler").addEventListener("click", fermerModale);
+    $("cs-photo").addEventListener("change", async () => {
+      const f = $("cs-photo").files[0]; if (!f) return;
+      try { photo = await reduirePhoto(f); $("cs-apercu").src = photo; } catch (e) { toast(e.message, true); }
+    });
+    $("cs-photo-retirer").addEventListener("click", () => { photo = ""; $("cs-apercu").src = ""; });
+    $("cs-save").addEventListener("click", async () => {
+      const corps = { id: c ? c.id : undefined, prenom: $("cs-prenom").value.trim(), nom: $("cs-nom").value.trim(), fonction: $("cs-fonction").value.trim(),
+        telephone: $("cs-tel").value.trim(), email: $("cs-email").value.trim(), actif: $("cs-actif").checked };
+      if (photo !== undefined) corps.photo = photo;
+      try { await api("/crm/conseillers", { method: "PUT", json: corps }); toast("Conseiller enregistré"); fermerModale(); chargerConseillers(); }
+      catch (e) { toast(e.message, true); }
+    });
+    const sup = $("cs-supprimer");
+    if (sup) sup.addEventListener("click", async () => {
+      if (!confirm("Supprimer ce profil conseiller ?")) return;
+      try { await api("/crm/conseillers/" + c.id, { method: "DELETE" }); toast("Profil supprimé"); fermerModale(); chargerConseillers(); }
+      catch (e) { toast(e.message, true); }
+    });
+  }
+
+  /* ---------------------------- Parcours R1/R2 ----------------------------- */
+  const ETAPES_PARCOURS = [
+    { cle: "avant-r1", titre: "E-mail avant le R1 (confirmation du rendez-vous)", mail: true },
+    { cle: "guide-r1", titre: "Guide R1 — remis au client", doc: "guide-r1" },
+    { cle: "entre-r1-r2", titre: "E-mail entre R1 et R2 (merci + confirmation de la restitution)", mail: true },
+    { cle: "guide-r2", titre: "Guide R2 — imprimé pour la restitution", doc: "guide-r2" },
+    { cle: "acm", titre: "Analyse comparative de marché — remise au R2", doc: "acm" },
+    { cle: "apres-r2", titre: "E-mail après le R2 (merci + avis Google)", mail: true },
+  ];
+  let parcours = [];
+  const dateFrCourte = (iso, heure) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+    return m ? m[3] + "/" + m[2] + "/" + m[1] + (heure ? " " + heure : "") : "—";
+  };
+  async function chargerParcours() {
+    try { parcours = (await api("/crm/parcours")).parcours; } catch (e) { const z = $("table-parcours"); if (z) z.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; return; }
+    rendreParcours();
+  }
+  function rendreParcours() {
+    const zone = $("table-parcours");
+    if (!zone) return;
+    const q = ($("parcours-recherche").value || "").toLowerCase();
+    const tous = $("parcours-tous").checked;
+    const lignes = parcours.filter((p) => (tous || p.statut === "en_cours") &&
+      (!q || [p.prenom, p.nom, p.adresse, p.ville, p.cs_prenom, p.cs_nom, p.conseiller].join(" ").toLowerCase().includes(q)));
+    zone.innerHTML = lignes.length
+      ? '<div class="tableau-cadre"><table><thead><tr><th>Client</th><th>Bien</th><th>Conseiller</th><th>R1</th><th>R2</th><th>Avancement</th></tr></thead><tbody>' +
+        lignes.map((p) => {
+          const faites = new Set(p.journal.map((j) => j.etape));
+          return '<tr class="cliquable" data-parcours="' + p.id + '"><td><strong>' + escH([p.civilite, p.prenom, p.nom].filter(Boolean).join(" ")) + "</strong>" +
+            (p.statut !== "en_cours" ? ' <span class="puce grise">' + escH(p.statut) + "</span>" : "") + "</td><td>" +
+            escH([p.adresse, p.ville].filter(Boolean).join(", ")) + ' <span class="puce grise">' + (p.type_bien === "appartement" ? "appt" : "maison") + "</span></td><td>" +
+            escH([p.cs_prenom, p.cs_nom].filter(Boolean).join(" ") || p.conseiller || "—") + "</td><td>" + dateFrCourte(p.r1, p.r1_heure) + "</td><td>" + dateFrCourte(p.r2, p.r2_heure) + "</td><td>" +
+            '<span class="parcours-avancement" title="' + ETAPES_PARCOURS.map((e) => (faites.has(e.cle) ? "✓ " : "· ") + e.titre).join("\n") + '">' +
+            ETAPES_PARCOURS.map((e) => "<i" + (faites.has(e.cle) ? ' class="ok"' : "") + "></i>").join("") + "</span> " + faites.size + "/" + ETAPES_PARCOURS.length + "</td></tr>";
+        }).join("") + "</tbody></table></div>"
+      : '<div class="vide">Aucun parcours en cours — « + Nouveau parcours » pour commencer.</div>';
+    zone.querySelectorAll("tr[data-parcours]").forEach((tr) => tr.addEventListener("click", () => ouvrirParcours(tr.dataset.parcours)));
+  }
+  function formulaireParcours(p) {
+    const v = (k) => escH(p && p[k] || "");
+    const csOptions = '<option value="">— conseiller —</option>' + conseillers.filter((c) => c.actif || (p && p.conseiller_id === c.id)).map((c) =>
+      '<option value="' + c.id + '"' + (p && p.conseiller_id === c.id ? " selected" : "") + ">" + escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</option>").join("");
+    return '<div class="grille-champs">' +
+      '<label>Civilité<select id="px-civilite">' + ["M.", "Mme", "M. et Mme"].map((c) => '<option' + (p && p.civilite === c ? " selected" : "") + ">" + c + "</option>").join("") + "</select></label>" +
+      '<label>Prénom<input id="px-prenom" value="' + v("prenom") + '" /></label>' +
+      '<label>Nom<input id="px-nom" value="' + v("nom") + '" /></label>' +
+      '<label>E-mail<input id="px-email" type="email" value="' + v("email") + '" /></label>' +
+      '<label>Téléphone<input id="px-tel" value="' + v("telephone") + '" /></label>' +
+      '<label>Conseiller<select id="px-conseiller">' + csOptions + "</select></label>" +
+      '<label style="grid-column:1/-1;">Adresse du bien<input id="px-adresse" value="' + v("adresse") + '" placeholder="12 rue du Mandat Confiance" /></label>' +
+      '<label>Code postal<input id="px-cp" value="' + v("cp") + '" /></label>' +
+      '<label>Ville<input id="px-ville" value="' + v("ville") + '" /></label>' +
+      '<label>Type de bien<select id="px-type">' + [["maison", "Maison"], ["appartement", "Appartement"]].map(([k, l]) =>
+        '<option value="' + k + '"' + (p && p.type_bien === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" +
+      '<label>R1 — date<input id="px-r1" type="date" value="' + v("r1") + '" /></label>' +
+      '<label>R1 — heure<input id="px-r1h" type="time" value="' + v("r1_heure") + '" /></label>' +
+      '<label>R2 — date<input id="px-r2" type="date" value="' + v("r2") + '" /></label>' +
+      '<label>R2 — heure<input id="px-r2h" type="time" value="' + v("r2_heure") + '" /></label>' +
+      (p ? '<label>Statut<select id="px-statut">' + [["en_cours", "En cours"], ["mandat", "Mandat signé"], ["perdu", "Perdu"], ["abandonne", "Abandonné"]].map(([k, l]) =>
+        '<option value="' + k + '"' + (p.statut === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" : "") +
+      "</div>";
+  }
+  function lireFormulaireParcours(p) {
+    const o = {
+      civilite: $("px-civilite").value, prenom: $("px-prenom").value.trim(), nom: $("px-nom").value.trim(),
+      email: $("px-email").value.trim(), telephone: $("px-tel").value.trim(), conseiller_id: $("px-conseiller").value,
+      adresse: $("px-adresse").value.trim(), cp: $("px-cp").value.trim(), ville: $("px-ville").value.trim(), type_bien: $("px-type").value,
+      r1: $("px-r1").value, r1_heure: $("px-r1h").value, r2: $("px-r2").value, r2_heure: $("px-r2h").value,
+    };
+    if (p) o.statut = $("px-statut").value;
+    return o;
+  }
+  function nouveauParcours() {
+    ouvrirModale("+ Nouveau parcours R1/R2", formulaireParcours(null),
+      '<button class="btn" id="px-annuler">Annuler</button><button class="btn btn-or" id="px-creer">Créer le parcours</button>');
+    $("px-annuler").addEventListener("click", fermerModale);
+    $("px-creer").addEventListener("click", async () => {
+      try {
+        const r = await api("/crm/parcours", { json: lireFormulaireParcours(null) });
+        toast("Parcours créé"); await chargerParcours(); ouvrirParcours(r.id);
+      } catch (e) { toast(e.message, true); }
+    });
+  }
+  async function ouvrirParcours(id) {
+    let p;
+    try { p = await api("/crm/parcours/" + id); } catch (e) { toast(e.message, true); return; }
+    const faites = new Map(p.journal.map((j) => [j.etape, j]));
+    const etapesHtml = '<div class="etapes">' + ETAPES_PARCOURS.map((e, i) => {
+      const f = faites.get(e.cle);
+      const quand = f ? "fait le " + new Date(f.le * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) + (f.par ? " par " + escH(f.par) : "") + (f.email ? " → " + escH(f.email) : "") : "";
+      const actions = e.mail
+        ? '<button class="btn btn-or" data-mail="' + e.cle + '">' + (f ? "✉️ Renvoyer" : "✉️ Préparer et envoyer") + "</button>"
+        : '<button class="btn" disabled title="Le modèle du document arrive : il sera imprimable ici">🖨 Modèle à venir</button>' +
+          '<button class="btn" data-cocher="' + e.cle + '">' + (f ? "↩ Décocher" : "✓ Fait") + "</button>";
+      return '<div class="etape' + (f ? " faite" : "") + '"><span class="num">' + (f ? "✓" : i + 1) + '</span><div class="titre"><strong>' + escH(e.titre) + "</strong>" +
+        (quand ? '<div class="quand">' + quand + "</div>" : "") + "</div>" + actions + "</div>";
+    }).join("") + "</div>";
+    const csLigne = p.conseiller
+      ? (p.conseiller.photo_url ? '<img class="avatar" src="' + escH(p.conseiller.photo_url) + '" alt="" /> ' : "") + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + (p.conseiller.fonction ? " · " + escH(p.conseiller.fonction) : "")
+      : '<span class="petit">aucun conseiller choisi — les e-mails seront signés de l\'agence</span>';
+    ouvrirModale("🧭 " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
+      '<details><summary style="cursor:pointer;">Fiche client et rendez-vous — ' + escH([p.adresse, p.ville].filter(Boolean).join(", ")) +
+      " · R1 " + dateFrCourte(p.r1, p.r1_heure) + " · R2 " + dateFrCourte(p.r2, p.r2_heure) + "</summary>" +
+      '<div style="margin-top:10px;">' + formulaireParcours(p) + '<div class="barre" style="margin-top:8px;"><button class="btn btn-or" id="px-maj">Enregistrer la fiche</button></div></div></details>' +
+      '<p class="petit" style="margin:12px 0 0;">Signé par : ' + csLigne + "</p>" +
+      (p.emails.length ? "" : '<p class="petit" style="color:#e07a5f;">Aucun e-mail sur cette fiche : les envois seront refusés tant que l\'adresse manque.</p>') +
+      etapesHtml,
+      '<button class="btn btn-or" id="modale-ok">Fermer</button>');
+    $("modale-ok").addEventListener("click", () => { fermerModale(); chargerParcours(); });
+    $("px-maj").addEventListener("click", async () => {
+      try { await api("/crm/parcours/" + id, { method: "PUT", json: lireFormulaireParcours(p) }); toast("Fiche enregistrée"); await chargerParcours(); ouvrirParcours(id); }
+      catch (e) { toast(e.message, true); }
+    });
+    document.querySelectorAll("[data-mail]").forEach((b) => b.addEventListener("click", () => preparerMailParcours(id, b.dataset.mail, p)));
+    document.querySelectorAll("[data-cocher]").forEach((b) => b.addEventListener("click", async () => {
+      const deja = faites.has(b.dataset.cocher);
+      try { await api("/crm/parcours/" + id + "/etape", { json: { etape: b.dataset.cocher, defaire: deja } }); ouvrirParcours(id); }
+      catch (e) { toast(e.message, true); }
+    }));
+  }
+  // Le mail d'un jalon : sujet et texte pré-remplis, à relire ; aperçu du
+  // rendu ; envoi à toutes les personnes de la fiche.
+  async function preparerMailParcours(id, jalon, p, relu) {
+    let a;
+    try { a = await api("/crm/parcours/" + id + "/apercu?jalon=" + jalon); } catch (e) { toast(e.message, true); return; }
+    // Retour de l'aperçu : le texte relu reste tel que le conseiller l'a laissé.
+    if (relu) { a.sujet = relu.sujet; a.texte = relu.texte; }
+    const etape = ETAPES_PARCOURS.find((e) => e.cle === jalon);
+    ouvrirModale("✉️ " + (etape ? etape.titre : jalon),
+      '<p class="aide">Relisez et ajustez : ce texte partira tel quel, au nom du conseiller, à ' +
+      (a.destinataires.length ? escH(a.destinataires.join(", ")) : "<strong>personne (pas d'e-mail sur la fiche)</strong>") + ".</p>" +
+      '<div class="grille-champs"><label style="grid-column:1/-1;">Objet<input id="pm-sujet" value="' + escH(a.sujet) + '" /></label></div>' +
+      '<textarea id="pm-texte" style="width:100%; min-height:320px; margin-top:10px; font:14px/1.5 inherit;">' + escH(a.texte) + "</textarea>" +
+      '<p class="petit">Le texte type se modifie pour toute l\'agence dans Réglages → Bibliothèque des messages (« Parcours — … »).</p>',
+      '<button class="btn" id="pm-annuler">Retour</button><button class="btn" id="pm-apercu">👁 Aperçu</button>' +
+      '<button class="btn btn-or" id="pm-envoyer"' + (a.destinataires.length ? "" : " disabled") + ">✉️ Envoyer</button>");
+    $("pm-annuler").addEventListener("click", () => ouvrirParcours(id));
+    $("pm-apercu").addEventListener("click", async () => {
+      // Le rendu avec le texte relu : on demande au serveur un aperçu à blanc.
+      const relu = { sujet: $("pm-sujet").value, texte: $("pm-texte").value };
+      try {
+        const r = await api("/crm/parcours/" + id + "/apercu?jalon=" + jalon + "&sujet=" + encodeURIComponent(relu.sujet) + "&texte=" + encodeURIComponent(relu.texte));
+        const iframe = document.createElement("iframe"); iframe.className = "apercu-mail"; iframe.setAttribute("sandbox", ""); iframe.srcdoc = r.html;
+        const corps = $("modale-corps"); corps.innerHTML = ""; corps.appendChild(iframe);
+        $("modale-pied").innerHTML = '<button class="btn" id="pm-retour">← Revenir au texte</button>';
+        $("pm-retour").addEventListener("click", () => preparerMailParcours(id, jalon, p, relu));
+      } catch (e) { toast(e.message, true); }
+    });
+    $("pm-envoyer").addEventListener("click", async () => {
+      const btn = $("pm-envoyer"); btn.disabled = true; btn.textContent = "Envoi…";
+      try {
+        const r = await api("/crm/parcours/" + id + "/envoyer", { json: { jalon, sujet: $("pm-sujet").value, texte: $("pm-texte").value } });
+        toast(r.envoyes + " e-mail(s) envoyé(s)" + (r.erreurs ? " · " + r.erreurs + " erreur(s)" : ""), r.erreurs > 0);
+        ouvrirParcours(id);
+      } catch (e) { toast(e.message, true); btn.disabled = false; btn.textContent = "✉️ Envoyer"; }
+    });
+  }
+
   /* ------------------------------ Navigation ------------------------------- */
   function activerOnglet(nom) {
     document.querySelectorAll(".onglet").forEach((b) => b.classList.toggle("actif", b.dataset.onglet === nom));
@@ -2196,6 +2429,7 @@
     chargerBiblio();
     chargerRappels();
     chargerOffres();
+    chargerConseillers().then(chargerParcours);
   }
 
   /* ---------------------------- Branchements ------------------------------- */
@@ -2209,6 +2443,10 @@
   $("btn-nettoyage").addEventListener("click", ouvrirNettoyage);
   $("btn-diagnostic").addEventListener("click", ouvrirDiagnostic);
   $("btn-import").addEventListener("click", ouvrirImport);
+  $("btn-nouveau-parcours").addEventListener("click", nouveauParcours);
+  $("parcours-recherche").addEventListener("input", rendreParcours);
+  $("parcours-tous").addEventListener("change", rendreParcours);
+  $("btn-nouveau-conseiller").addEventListener("click", () => ouvrirConseiller(null));
   $("table-contacts").addEventListener("click", (e) => {
     if (e.target.closest("input[type=checkbox]")) return; // cocher n'ouvre pas la fiche
     const tr = e.target.closest("tr[data-contact]");
@@ -2376,6 +2614,7 @@
       telephone: $("ag-tel").value.trim(), email: $("ag-email").value.trim(),
       site: $("ag-site").value.trim(), logoUrl: $("ag-logo").value.trim(),
       signataire: $("ag-signataire").value.trim(), fonction: $("ag-fonction").value.trim(),
+      instagram: $("ag-instagram").value.trim(), facebook: $("ag-facebook").value.trim(), avis: $("ag-avis").value.trim(),
     },
   }));
 

@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 const ICI = new URL(".", import.meta.url).pathname;
 const RACINE = resolve(ICI, "../..");
 const PORT_API = 8788, PORT_SITE = 8014, PORT_BAN = 18796;
-const PARCOURS = ["suppression", "anniversaires", "suivi", "fiche-adresse", "compte", "maisons", "offre"];
+const PARCOURS = ["suppression", "anniversaires", "suivi", "fiche-adresse", "compte", "maisons", "offre", "parcours-r1r2"];
 const choisis = process.argv.slice(2).length ? process.argv.slice(2) : PARCOURS;
 
 // 1) Fausse BAN pour le serveur (géocodage direct) : toute adresse trouve une
@@ -40,6 +40,21 @@ const ign = createServer((req, res) => {
   ] }));
 }).listen(PORT_IGN);
 
+// 1 ter) Faux Resend : chaque e-mail « envoyé » est gardé en mémoire et
+// consultable par les parcours sur /__mails.
+const PORT_RESEND = 18795;
+const mails = [];
+const resend = createServer(async (req, res) => {
+  if (req.method === "GET" && req.url.startsWith("/__mails")) {
+    res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+    return res.end(JSON.stringify(mails));
+  }
+  const chunks = []; for await (const c of req) chunks.push(c);
+  try { mails.push(JSON.parse(Buffer.concat(chunks).toString())); } catch { }
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ id: "email_smoke_" + mails.length }));
+}).listen(PORT_RESEND);
+
 // 2) Le site, servi tel quel depuis la racine du dépôt.
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json",
   ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".woff2": "font/woff2" };
@@ -61,7 +76,8 @@ const dbPath = join(tmpdir(), "studio-smoke-" + process.pid + ".sqlite");
 const apiProc = spawn(process.execPath, ["node.js"], {
   cwd: resolve(ICI, ".."), stdio: ["ignore", "pipe", "pipe"],
   env: { ...process.env, PORT: String(PORT_API), DB_PATH: dbPath, DEV_MODE: "1", ADMIN_KEY: "dev-admin",
-    APP_ORIGINS: "http://localhost:" + PORT_SITE, OFFRE_BASE: "http://localhost:" + PORT_SITE + "/offre", BAN_BASE: "http://localhost:" + PORT_BAN, DVF_BASE: "http://localhost:1", BATIMENTS_BASE: "http://localhost:" + PORT_IGN },
+    APP_ORIGINS: "http://localhost:" + PORT_SITE, OFFRE_BASE: "http://localhost:" + PORT_SITE + "/offre", BAN_BASE: "http://localhost:" + PORT_BAN, DVF_BASE: "http://localhost:1", BATIMENTS_BASE: "http://localhost:" + PORT_IGN,
+    RESEND_API_KEY: "re_smoke", RESEND_BASE: "http://localhost:" + PORT_RESEND, MAIL_FROM: "smoke@studio.test" },
 });
 let journalApi = "";
 apiProc.stdout.on("data", (d) => { journalApi += d; });
@@ -86,7 +102,7 @@ for (const nom of choisis) {
   }
 }
 apiProc.kill();
-ban.close(); ign.close(); site.close();
+ban.close(); ign.close(); site.close(); resend.close();
 try { await unlink(dbPath); } catch { }
 if (echecsTotal && /\[500\]/.test(journalApi)) console.log("\nJournal API :\n" + journalApi.split("\n").filter((l) => l.includes("[500]")).join("\n"));
 console.log("\n" + (echecsTotal ? "SMOKES : " + echecsTotal + " échec(s)" : "SMOKES OK (" + choisis.length + " parcours)"));

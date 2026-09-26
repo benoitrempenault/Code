@@ -444,6 +444,27 @@ les biens (une seule source cherchée) ; à la clôture, les biens de source
 inconnue non revus sont supprimés. Doublons Amanda (même agence + référence +
 prix sous plusieurs ids) : `existantsDe()`/`cleDoublon()` au dépôt, `purgerDoublons()`
 à la clôture. Résultat 19/09 : « mon ALFA » = 1 866 biens annoncés, 1 794 en Gironde.
+**Parcours R1/R2 — brique d'envoi de documents (26/09)** : `server/src/parcours.js`
+(`monterRoutesParcours`), onglet « 🧭 Parcours R1/R2 » de l'Administration. Une
+fiche = une `crm_estimations` + `crm_parcours` (civilité, prénom, CP, type_bien
+maison|appartement, r1_heure/r2_heure, conseiller_id, journal JSON des étapes).
+Six étapes : avant-r1 (mail), guide-r1 (doc), entre-r1-r2 (mail), guide-r2 (doc),
+acm (doc), apres-r2 (mail) — les docs sont « modèle à venir » (Benoît doit
+envoyer guide R1, guide R2, ACM) et se cochent à la main (`POST …/etape`).
+Mails : modèles `parcours-avant-r1|entre-r1-r2|apres-r2` (Bibliothèque, textes de
+Benoît) remplis par `preparerMail()` (variables civilite_nom, date_r1/date_r2 en
+toutes lettres via `dateFr`, adresse_bien, type_bien, documents_r1/r2 selon le
+type, agence_adresse, lien_avis) ; `GET …/apercu?jalon=` (+ `sujet`/`texte` relus)
+→ {sujet, texte, html} ; `POST …/envoyer {jalon, sujet, texte}` envoie à
+est.email + contacts liés, journalise dans crm_envois type `estimation-<jalon>`
+(la séquence auto runEstimations ne double donc pas) et coche le journal.
+Signature = `signatureHtml()` (photo publique, fonction, tel, mail + réseaux
+agence) via `wrapEmail({signatureHtml})`. Profils `crm_conseillers` (photo data
+URL ≤ 200 Ko réduite côté navigateur à 240 px, servie par
+`GET /public/conseillers/:id/photo`), routes /crm/conseillers (liste membre,
+PUT/DELETE admin), carte « Les conseillers » dans Réglages. Réglages agence :
+instagram, facebook, avis. Smoke `parcours-r1r2` (faux Resend sur 18795 dans
+run.mjs, `/__mails`). Admin : assets versionnés `?v=3`.
 **Maisons dessinées + signets (carte, 15/09)** : `GET /crm/batiments?bbox=minLng,
 minLat,maxLng,maxLat` (membre) relaie le WFS IGN BD TOPO (`BATIMENTS_BASE`,
 CRS:84, COUNT 3000, bbox ≤ 0,02°×0,012°) et renvoie `{batiments:[{id, nature,

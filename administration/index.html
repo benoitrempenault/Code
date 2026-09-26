@@ -43,6 +43,7 @@
     <button class="onglet actif" data-onglet="contacts">👥 Contacts</button>
     <button class="onglet" data-onglet="anniversaires">🎂 Anniversaires</button>
     <button class="onglet" data-onglet="acheteurs">🤝 Acheteurs</button>
+    <button class="onglet" data-onglet="parcours">🧭 Parcours R1/R2</button>
     <button class="onglet" data-onglet="estimations">📐 Estimations</button>
     <button class="onglet" data-onglet="offres">📝 Offres</button>
     <button class="onglet" data-onglet="annonces">🏠 Annonces</button>
@@ -291,6 +292,9 @@
         <label>URL du logo (optionnel)<input id="ag-logo" placeholder="https://…/logo.png" /></label>
         <label>Signataire des vœux et messages<input id="ag-signataire" placeholder="ex : Benoît REMPENAULT" /></label>
         <label>Sa fonction<input id="ag-fonction" placeholder="ex : Directeur" /></label>
+        <label>Instagram (lien)<input id="ag-instagram" placeholder="https://instagram.com/century_21_kadima" /></label>
+        <label>Facebook (lien)<input id="ag-facebook" placeholder="https://www.facebook.com/century21.kadima" /></label>
+        <label>Avis Google (lien « laissez-nous un avis »)<input id="ag-avis" placeholder="https://g.page/r/…/review" /></label>
       </div>
       <p class="aide">Le signataire signe TOUS les vœux (e-mails et SMS), quel que soit le conseiller de la fiche.
         Laissez vide pour signer du conseiller de la fiche, sinon de l'équipe. La formule d'appel
@@ -301,7 +305,14 @@
       <p class="petit">Les e-mails partent via le serveur Studio Brochure au nom de l'agence —
         rien à configurer de plus (pas de mot de passe SMTP).</p>
     </div>
-    <div class="carte">
+        <div class="carte">
+      <h2>Les conseillers</h2>
+      <p class="aide">Chaque conseiller signe ses documents et ses e-mails du parcours R1/R2 avec sa photo,
+        sa fonction, son téléphone et son e-mail. La photo est réduite ici avant l'envoi (200 Ko au plus).</p>
+      <div class="barre"><button class="btn btn-or" id="btn-nouveau-conseiller">+ Ajouter un conseiller</button></div>
+      <div id="table-conseillers"></div>
+    </div>
+<div class="carte">
       <h2>📝 Offres d'achat — en-tête légal et délais</h2>
       <p class="aide">Le paragraphe d'identification de l'agence tel qu'il ouvre chaque offre (raison sociale,
         carte professionnelle, assurance, garantie financière), la personne qui la représente, et les délais
@@ -337,6 +348,24 @@
         <button class="btn" id="btn-biblio-apercu">👁 Aperçu</button>
         <span class="petit" id="biblio-etat"></span>
       </div>
+    </div>
+  </section>
+
+  <!-- ============================ PARCOURS R1/R2 ======================= -->
+  <section id="panneau-parcours" class="panneau">
+    <div class="carte">
+      <h2>Parcours R1 / R2 — envoi des documents</h2>
+      <p class="aide">Une fiche client, puis les étapes d'un clic : l'e-mail de confirmation
+        <strong>avant le R1</strong>, le <strong>guide R1</strong>, l'e-mail <strong>entre R1 et R2</strong>,
+        le <strong>guide R2</strong> et l'analyse comparative de marché, l'e-mail <strong>après le R2</strong>.
+        Chaque e-mail est pré-rempli au nom du conseiller (photo, fonction, coordonnées) : relisez,
+        ajustez, envoyez. Les fiches sont aussi des fiches estimation (onglet Estimations, Studio Estimation).</p>
+      <div class="barre">
+        <button class="btn btn-or" id="btn-nouveau-parcours">+ Nouveau parcours</button>
+        <input type="search" id="parcours-recherche" placeholder="🔍 Nom, adresse, conseiller…" style="min-width:260px;" />
+        <label class="case"><input type="checkbox" id="parcours-tous" /> Voir aussi les parcours terminés</label>
+      </div>
+      <div id="table-parcours"></div>
     </div>
   </section>
 

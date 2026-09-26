@@ -322,7 +322,9 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!p) return err(c, 404, "Fiche introuvable.");
     const reglages = await getReglages(db, ctx.agency);
     const prep = preparerMail(p.est, p.px, jalon, reglages.agence, reglages.modeles);
-    const html = composerMail(prep, jalon, reglages.agence, p.conseiller, p.conseiller && p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "");
+    // ?sujet=&texte= : le rendu du texte relu par le conseiller, avant envoi.
+    const relu = { sujet: strip(c.req.query("sujet"), 200) || prep.sujet, texte: String(c.req.query("texte") || "").slice(0, 8000) || prep.texte };
+    const html = composerMail(relu, jalon, reglages.agence, p.conseiller, p.conseiller && p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "");
     return c.json({ jalon, sujet: prep.sujet, texte: prep.texte, html, destinataires: await emailsDe(ctx.agency.id, p.est) });
   });
 

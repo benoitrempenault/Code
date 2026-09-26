@@ -1,0 +1,67 @@
+/* Parcours « R1/R2 » : profil conseiller (photo), nouveau parcours, e-mail
+   avant R1 pré-rempli au nom du conseiller, aperçu, envoi, étape cochée. */
+import { api, attendreToast, creerAgence, ouvrir, parcours } from "./lib.mjs";
+
+const PIXEL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
+
+export default async function () {
+  const admin = await creerAgence("Smoke Parcours", "smoke-parcours@test.fr");
+  await api("/crm/reglages", { headers: admin.auth, method: "PUT", body: { agence: { adresse: "20 rue François Mitterrand, Saint-Médard-en-Jalles", avis: "https://g.page/r/smoke/review" } } });
+  const cs = await api("/crm/conseillers", { headers: admin.auth, method: "PUT", body: { prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@smoke.fr", photo: PIXEL } });
+  return parcours("parcours-r1r2", {}, async ({ page, ok }) => {
+    await ouvrir(page, "/administration/", admin);
+    await page.waitForSelector("#app:not([hidden])", { timeout: 8000 });
+    await page.click('[data-onglet="reglages"]');
+    await page.waitForFunction(() => document.querySelector("#table-conseillers tr[data-conseiller]"), null, { timeout: 8000 });
+    ok((await page.textContent("#table-conseillers")).includes("BESSON") && await page.locator("#table-conseillers img.avatar").count() === 1,
+      "Réglages : le conseiller est listé avec sa photo");
+
+    await page.click('[data-onglet="parcours"]');
+    await page.click("#btn-nouveau-parcours");
+    await page.waitForSelector("#px-creer", { timeout: 6000 });
+    await page.selectOption("#px-civilite", "M. et Mme");
+    await page.fill("#px-prenom", "Jean");
+    await page.fill("#px-nom", "MOUNEYRES");
+    await page.fill("#px-email", "mouneyres@smoke.fr");
+    await page.selectOption("#px-conseiller", cs.json.id);
+    await page.fill("#px-adresse", "12 rue du Mandat Confiance");
+    await page.fill("#px-cp", "33160");
+    await page.fill("#px-ville", "SAINT AUBIN DE MEDOC");
+    await page.fill("#px-r1", "2026-04-20");
+    await page.fill("#px-r1h", "10:00");
+    await page.fill("#px-r2", "2026-04-27");
+    await page.fill("#px-r2h", "12:30");
+    await page.click("#px-creer");
+    await attendreToast(page, "Parcours créé");
+    await page.waitForSelector(".etapes", { timeout: 8000 });
+    ok((await page.locator(".etape").count()) === 6 && (await page.textContent("#modale-corps")).includes("Teddy BESSON"),
+      "la fiche s'ouvre sur ses 6 étapes, signée par Teddy BESSON");
+
+    await page.click('[data-mail="avant-r1"]');
+    await page.waitForSelector("#pm-texte", { timeout: 8000 });
+    const texte = await page.inputValue("#pm-texte");
+    ok(/lundi 20 avril à 10h/.test(texte) && /madame, monsieur MOUNEYRES/.test(texte) && /titre de propriété/i.test(texte),
+      "l'e-mail avant R1 est pré-rempli : date en toutes lettres, civilité, pièces à préparer");
+    await page.fill("#pm-texte", texte.replace("belle journée", "excellente journée"));
+    await page.click("#pm-apercu");
+    await page.waitForSelector("iframe.apercu-mail", { timeout: 8000 });
+    const html = await page.evaluate(() => document.querySelector("iframe.apercu-mail")?.getAttribute("srcdoc") || "");
+    ok(/excellente journée/.test(html) && /Teddy BESSON/.test(html) && /Conseiller immobilier/.test(html) && /\/public\/conseillers\//.test(html),
+      "l'aperçu rend le texte relu, la signature et la photo du conseiller");
+    await page.click("#pm-retour");
+    await page.waitForSelector("#pm-envoyer", { timeout: 6000 });
+    await page.click("#pm-envoyer");
+    await attendreToast(page, "1 e-mail\\(s\\) envoyé");
+    await page.waitForFunction(() => document.querySelector(".etape.faite"), null, { timeout: 8000 });
+    ok((await page.textContent(".etape.faite")).includes("mouneyres@smoke.fr"), "l'étape « avant R1 » est cochée avec le destinataire");
+    const mails = await (await fetch("http://localhost:18795/__mails")).json();
+    ok(mails.some((m) => /MOUNEYRES/.test(m.html || "") && /excellente journée/.test(m.html || "")), "le faux Resend a bien reçu l'e-mail relu");
+
+    await page.click('[data-cocher="guide-r1"]');
+    await page.waitForFunction(() => document.querySelectorAll(".etape.faite").length === 2, null, { timeout: 8000 });
+    ok(true, "le guide R1 se coche comme fait");
+    await page.click("#modale-ok");
+    await page.waitForFunction(() => /2\/6/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
+    ok(true, "la liste montre l'avancement 2/6");
+  });
+}
