@@ -789,6 +789,12 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     }
     try { const rep = await fetch("https://file.bienici.com/photo/century-21-202_3578_7489_images.century21.fr_202_3578_c21_202_3578_7489_1_44DDD90F-FF1D-4747-A31A-3531B00031CF.jpg", { headers: { "User-Agent": "StudioKadima/1.0" }, signal: AbortSignal.timeout(15000) }); r.photo = { status: rep.status, type: rep.headers.get("content-type"), octets: rep.ok ? (await rep.arrayBuffer()).byteLength : 0 }; }
     catch (e) { r.photo = { erreur: String(e.message || e).slice(0, 120) }; }
+    // Une photo de mandat ALFA (Amanda) : se laisse-t-elle lire sans connexion ?
+    try {
+      const am = await db.get("SELECT image FROM crm_amepi WHERE image LIKE 'http%' ORDER BY last_seen DESC LIMIT 1");
+      if (am) { const rep = await fetch(am.image, { headers: { "User-Agent": "StudioKadima/1.0" }, signal: AbortSignal.timeout(15000) }); r.amepi = { hote: new URL(am.image).hostname, status: rep.status, type: rep.headers.get("content-type"), octets: rep.ok ? (await rep.arrayBuffer()).byteLength : 0 }; }
+      else r.amepi = { erreur: "aucune image de mandat en base" };
+    } catch (e) { r.amepi = { erreur: String(e.message || e).slice(0, 120) }; }
     diagLivret = { le: now(), cle, resultat: r };
     return c.json(r);
   });
