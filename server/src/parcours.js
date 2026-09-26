@@ -718,7 +718,9 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       departement: (c.departement && c.departement.nom) || DEPARTEMENTS[String(cp || "").slice(0, 2)] || "", region: (c.region && c.region.nom) || "" };
   }
   // Plusieurs relais Overpass : le premier qui répond avec des éléments gagne.
-  const RELAIS_OVERPASS = ["https://overpass.kumi.systems", "https://overpass-api.de", "https://lz4.overpass-api.de", "https://overpass.private.coffee"];
+  // Ordre d'après le diagnostic du 26/09 depuis Cloudflare : lz4 répond en
+  // ~7 s, kumi et private.coffee expirent, overpass-api.de répond 521.
+  const RELAIS_OVERPASS = ["https://lz4.overpass-api.de", "https://overpass.kumi.systems", "https://overpass.private.coffee", "https://overpass-api.de"];
   async function commodites(lat, lng) {
     const relais = [...new Set([(env.OVERPASS_BASE || RELAIS_OVERPASS[0]).replace(/\/+$/, ""), ...(env.OVERPASS_BASE ? [] : RELAIS_OVERPASS)])];
     let derniere = null;
@@ -733,7 +735,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       `nwr${autour}[shop~"^(supermarket|bakery|convenience|butcher|greengrocer|mall|department_store)$"];nwr${autour}[railway~"^(station|tram_stop)$"];` +
       `node${autour}[highway=bus_stop];nwr${autour}[leisure~"^(park|playground|sports_centre|swimming_pool|fitness_centre)$"];);out center 300;`;
     const r = await fetch(base + "/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(q),
-      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "StudioKadima/1.0" }, signal: AbortSignal.timeout(30000) });
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "StudioKadima/1.0" }, signal: AbortSignal.timeout(15000) });
     if (!r.ok) throw new Error("commodités : Overpass répond " + r.status);
     const rep = await r.json();
     const els = rep.elements || [];

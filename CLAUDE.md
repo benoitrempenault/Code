@@ -517,7 +517,7 @@ sélecteur `#cs-agence` du profil. Guide R2 : saisie (points forts, objections,
 texte) enregistrée au `change` de chaque champ (`sauver`), profil rafraîchi ; la
 fiche profil n'envoie `bio` que si modifiée (sinon un profil ouvert avant
 écrasait le texte saisi depuis le R2). Overpass : `RELAIS_OVERPASS` essayés dans
-l'ordre (kumi, overpass-api.de, lz4, private.coffee), `remark` sans élément =
+l'ordre (lz4 en premier — seul relais qui répond depuis Cloudflare le 26/09 —, kumi, private.coffee, overpass-api.de ; 15 s chacun), `remark` sans élément =
 erreur, réponse vide jamais mise en cache (crm_environnement).
 **Guide R2 — 2e passe (26/09)** : `tools/guides/retoucher-guide-r2-passe2.py`
 (le graphique p3 et les en-têtes p4 sont des images) : étiquette « 2026 » Barlow 15
