@@ -16,7 +16,7 @@
    que le conseiller a déjà envoyé à la main.
    ========================================================================= */
 import { now, randId } from "./util.js";
-import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, sanitizeEstimation, sanitizeContact, genrePrenom, dossierVendu, adresseDossier } from "./crm.js";
+import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, genrePrenom, dossierVendu, adresseDossier } from "./crm.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
@@ -109,7 +109,7 @@ export function signatureHtml(conseiller, ag, photoUrl) {
   const reseaux = [
     ag.instagram ? `<a href="${esc(ag.instagram)}" style="color:#BEAF87; text-decoration:none;">Instagram</a>` : "",
     ag.facebook ? `<a href="${esc(ag.facebook)}" style="color:#BEAF87; text-decoration:none;">Facebook</a>` : "",
-    ag.avis ? `<a href="${esc(ag.avis)}" style="color:#BEAF87; text-decoration:none;">Nos avis clients</a>` : "",
+    `<a href="${esc(ag.avis || AVIS_DEFAUT)}" style="color:#BEAF87; text-decoration:none;">Nos avis clients</a>`,
   ].filter(Boolean);
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;"><tr>
     ${photoUrl ? `<td style="padding-right:18px;"><img src="${esc(photoUrl)}" alt="" width="84" height="84" style="width:84px; height:84px; border-radius:50%; object-fit:cover; display:block;"></td>` : ""}
@@ -121,6 +121,10 @@ export function signatureHtml(conseiller, ag, photoUrl) {
     ${reseaux.length ? `<div style="font-family:Helvetica,Arial,sans-serif; font-size:12px; margin-top:18px; letter-spacing:0.5px;">Suivez-nous et découvrez le dynamisme de notre équipe : ${reseaux.join(" &nbsp;·&nbsp; ")}</div>` : ""}`;
 }
 
+// Le lien « laissez-nous un avis » : celui des réglages (identité ou
+// agence du conseiller), à défaut la page Google Kadima dictée par Benoît
+// dans le modèle — le mail après R2 ne part jamais sans lien.
+export const AVIS_DEFAUT = "https://g.page/r/CUA5uMo-Z_RcEB0/review";
 // Variables + texte type (ou surcharge de l'agence) pour un jalon.
 export function preparerMail(est, px, jalon, ag, modeles) {
   const cle = "parcours-" + jalon;
@@ -133,7 +137,7 @@ export function preparerMail(est, px, jalon, ag, modeles) {
     adresse_bien: adresseBien, adresse: adresseBien, ville: est.ville || "",
     type_bien: px.type_bien === "appartement" ? "appartement" : "maison",
     documents_r1: documentsR1(px.type_bien), documents_r2: documentsR2(px.type_bien),
-    agence: ag.nom || "notre agence", agence_adresse: ag.adresse || "", lien_avis: ag.avis || "",
+    agence: ag.nom || "notre agence", agence_adresse: ag.adresse || "", lien_avis: ag.avis || AVIS_DEFAUT,
     conseiller: [px.conseiller_prenom, px.conseiller_nom].filter(Boolean).join(" ") || est.conseiller || "",
   };
   return { sujet: remplirModele(modele.sujet, vars), texte: remplirModele(modele.texte, vars), vars };
@@ -182,14 +186,18 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       "INSERT INTO crm_conseillers_extra (id, bio, genre, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET bio = excluded.bio, genre = excluded.genre, updated_at = excluded.updated_at",
       [id, bio, genre, now()]);
   };
+  const ecrirePv = (id, pv) => db.run(
+    "INSERT INTO crm_conseillers_pv (id, pv, updated_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET pv = excluded.pv, updated_at = excluded.updated_at",
+    [id, strip(pv, 40), now()]);
   const ecrireDirection = (id, direction) => db.run(
     "INSERT INTO crm_conseillers_direction (id, direction, updated_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET direction = excluded.direction, updated_at = excluded.updated_at",
     [id, direction ? 1 : 0, now()]);
   app.get("/crm/conseillers", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const rows = await db.all(
-      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre, COALESCE(d.direction, 0) AS direction
-       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_direction d ON d.id = cs.id WHERE cs.agency_id = ? ORDER BY cs.nom, cs.prenom`,
+      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre, COALESCE(d.direction, 0) AS direction, COALESCE(pv.pv, '') AS agence
+       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_direction d ON d.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id
+       WHERE cs.agency_id = ? ORDER BY cs.nom, cs.prenom`,
       [ctx.agency.id]);
     return c.json({ conseillers: rows.map((r) => ({ ...r, direction: !!r.direction, bio: r.bio || "", genre_pose: r.genre || "", genre: r.genre || genrePrenom(r.prenom), a_photo: !!r.a_photo, photo_url: r.a_photo ? photoUrl(c, r.id) : "" })) });
   });
@@ -210,6 +218,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         [v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, photo, v.actif, now(), id]);
       if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(id, b);
       if (b.direction !== undefined) await ecrireDirection(id, b.direction === true || b.direction === 1);
+      if (b.agence !== undefined) await ecrirePv(id, b.agence);
       return c.json({ ok: true, id });
     }
     // Sans id : un profil qui existe déjà (même e-mail, ou même prénom + nom)
@@ -221,6 +230,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         [v.user_id, v.fonction, v.telephone, v.email, v.photo, v.actif, now(), deja.id]);
       if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(deja.id, b);
       if (b.direction !== undefined) await ecrireDirection(deja.id, b.direction === true || b.direction === 1);
+      if (b.agence !== undefined) await ecrirePv(deja.id, b.agence);
       return c.json({ ok: true, id: deja.id, existant: true });
     }
     const nb = await db.get("SELECT COUNT(*) AS n FROM crm_conseillers WHERE agency_id = ?", [ctx.agency.id]);
@@ -231,6 +241,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       [nid, ctx.agency.id, v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, v.photo, v.actif, now(), now()]);
     if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(nid, b);
     if (b.direction !== undefined) await ecrireDirection(nid, b.direction === true || b.direction === 1);
+    if (b.agence !== undefined) await ecrirePv(nid, b.agence);
     return c.json({ ok: true, id: nid });
   });
   async function profilExistant(agencyId, v) {
@@ -257,7 +268,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       return { prenom: parts[0] || "", nom: parts.slice(1).join(" ") };
     };
     const candidats = [
-      ...fournis.map((f) => ({ prenom: f.prenom, nom: f.nom, fonction: f.fonction, telephone: f.telephone, email: f.email })),
+      ...fournis.map((f) => ({ prenom: f.prenom, nom: f.nom, fonction: f.fonction, telephone: f.telephone, email: f.email, photo: f.photo, agence: f.agence })),
       ...users.map((u) => ({ ...couper(u.name || String(u.email || "").split("@")[0].replace(/[._-]+/g, " ")), email: u.email, user_id: u.id })),
       ...annuaire.map((a) => ({ ...couper(a.nom), telephone: a.telephone, email: a.email })),
     ];
@@ -268,19 +279,24 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       const deja = await profilExistant(ctx.agency.id, v);
       if (deja) {
         // Un profil en place ne perd rien : seuls les vides se complètent.
-        const cur = await db.get("SELECT user_id, telephone, email FROM crm_conseillers WHERE id = ?", [deja.id]);
-        const maj = { user_id: cur.user_id || v.user_id, telephone: cur.telephone || v.telephone, email: cur.email || v.email };
-        if (maj.user_id !== cur.user_id || maj.telephone !== cur.telephone || maj.email !== cur.email) {
-          await db.run("UPDATE crm_conseillers SET user_id = ?, telephone = ?, email = ?, updated_at = ? WHERE id = ?", [maj.user_id, maj.telephone, maj.email, now(), deja.id]);
-          completes++;
+        const cur = await db.get("SELECT user_id, telephone, email, fonction, photo FROM crm_conseillers WHERE id = ?", [deja.id]);
+        const maj = { user_id: cur.user_id || v.user_id, telephone: cur.telephone || v.telephone, email: cur.email || v.email, fonction: cur.fonction || v.fonction, photo: cur.photo || v.photo };
+        let touche = false;
+        if (["user_id", "telephone", "email", "fonction", "photo"].some((k) => maj[k] !== cur[k])) {
+          await db.run("UPDATE crm_conseillers SET user_id = ?, telephone = ?, email = ?, fonction = ?, photo = ?, updated_at = ? WHERE id = ?", [maj.user_id, maj.telephone, maj.email, maj.fonction, maj.photo, now(), deja.id]);
+          touche = true;
         }
+        if (cand.agence && !(await db.get("SELECT pv FROM crm_conseillers_pv WHERE id = ? AND pv <> ''", [deja.id]))) { await ecrirePv(deja.id, cand.agence); touche = true; }
+        if (touche) completes++;
         continue;
       }
       const nb = await db.get("SELECT COUNT(*) AS n FROM crm_conseillers WHERE agency_id = ?", [ctx.agency.id]);
       if ((nb?.n || 0) >= 200) break;
+      const nid = randId("cs");
       await db.run(
-        "INSERT INTO crm_conseillers (id, agency_id, user_id, prenom, nom, fonction, telephone, email, photo, actif, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', 1, ?, ?)",
-        [randId("cs"), ctx.agency.id, v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, now(), now()]);
+        "INSERT INTO crm_conseillers (id, agency_id, user_id, prenom, nom, fonction, telephone, email, photo, actif, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+        [nid, ctx.agency.id, v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, v.photo, now(), now()]);
+      if (cand.agence) await ecrirePv(nid, cand.agence);
       ajoutes++;
     }
     // La direction (prénoms fournis par l'Administration) voit tous les
@@ -337,8 +353,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       { estimation_id: id, civilite: "", prenom: "", cp: "", type_bien: "maison", r1_heure: "", r2_heure: "", conseiller_id: "", journal: "[]" };
     let journal = []; try { journal = JSON.parse(px.journal || "[]"); } catch { }
     const conseiller = px.conseiller_id ? await db.get(
-      `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, (cs.photo <> '') AS a_photo, x.bio, x.genre
-       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id WHERE cs.id = ? AND cs.agency_id = ?`, [px.conseiller_id, agencyId]) : null;
+      `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, (cs.photo <> '') AS a_photo, x.bio, x.genre, COALESCE(pv.pv, '') AS agence
+       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id WHERE cs.id = ? AND cs.agency_id = ?`, [px.conseiller_id, agencyId]) : null;
     if (conseiller) { conseiller.bio = conseiller.bio || ""; conseiller.genre = conseiller.genre || genrePrenom(conseiller.prenom); }
     return { est, px: { ...px, journal, conseiller_prenom: conseiller ? conseiller.prenom : "", conseiller_nom: conseiller ? conseiller.nom : "" }, conseiller };
   };
@@ -448,7 +464,9 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
+    const ag = agencePour(await getReglages(db, ctx.agency), p.conseiller);
     return c.json({ ...p.est, ...p.px, id: p.est.id, emails: await emailsDe(ctx.agency.id, p.est),
+      agence: { pv: ag.pv || "", nom: ag.nom || "", adresse: ag.adresse || "", telephone: ag.telephone || "", email: ag.email || "", mentions: ag.mentions || "" },
       conseiller: p.conseiller ? { ...p.conseiller, photo_url: p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "" } : null });
   });
 
@@ -460,10 +478,11 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
     const reglages = await getReglages(db, ctx.agency);
-    const prep = preparerMail(p.est, p.px, jalon, reglages.agence, reglages.modeles);
+    const ag = agencePour(reglages, p.conseiller);
+    const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles);
     // ?sujet=&texte= : le rendu du texte relu par le conseiller, avant envoi.
     const relu = { sujet: strip(c.req.query("sujet"), 200) || prep.sujet, texte: String(c.req.query("texte") || "").slice(0, 8000) || prep.texte };
-    const html = composerMail(relu, jalon, reglages.agence, p.conseiller, p.conseiller && p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "");
+    const html = composerMail(relu, jalon, ag, p.conseiller, p.conseiller && p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "");
     return c.json({ jalon, sujet: prep.sujet, texte: prep.texte, html, destinataires: await emailsDe(ctx.agency.id, p.est) });
   });
 
@@ -478,18 +497,19 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const destinataires = await emailsDe(ctx.agency.id, p.est);
     if (!destinataires.length) return err(c, 400, "Aucune adresse e-mail sur cette fiche.");
     const reglages = await getReglages(db, ctx.agency);
-    const prep = preparerMail(p.est, p.px, jalon, reglages.agence, reglages.modeles);
+    const ag = agencePour(reglages, p.conseiller);
+    const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles);
     const sujet = strip(b.sujet, 200) || prep.sujet;
     const texte = String(b.texte || "").replace(/[\u0000-\u0008\u000b-\u001f]/g, "").slice(0, 8000) || prep.texte;
-    const html = composerMail({ sujet, texte }, jalon, reglages.agence, p.conseiller, p.conseiller && p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "");
+    const html = composerMail({ sujet, texte }, jalon, ag, p.conseiller, p.conseiller && p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "");
     const type = "estimation-" + jalon;
     const label = [p.px.prenom, p.est.nom].filter(Boolean).join(" ") || p.est.adresse;
     let envoyes = 0, erreurs = 0, derniereErreur = "";
     for (const adresse of destinataires) {
       const r = await envoyerMailHtml(env, {
         to: adresse, subject: sujet, html,
-        fromName: [p.conseiller && p.conseiller.prenom, p.conseiller && p.conseiller.nom].filter(Boolean).join(" ") || reglages.agence.nom || ctx.agency.name,
-        replyTo: (p.conseiller && p.conseiller.email) || reglages.agence.email || "",
+        fromName: [p.conseiller && p.conseiller.prenom, p.conseiller && p.conseiller.nom].filter(Boolean).join(" ") || ag.nom || ctx.agency.name,
+        replyTo: (p.conseiller && p.conseiller.email) || ag.email || "",
         bcc: reglages.estimations.cci || "",
       });
       await db.run(
@@ -587,8 +607,17 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       densite: c.surface ? Math.round((c.population || 0) / (c.surface / 100)) : 0,
       departement: (c.departement && c.departement.nom) || DEPARTEMENTS[String(cp || "").slice(0, 2)] || "", region: (c.region && c.region.nom) || "" };
   }
+  // Plusieurs relais Overpass : le premier qui répond avec des éléments gagne.
+  const RELAIS_OVERPASS = ["https://overpass.kumi.systems", "https://overpass-api.de", "https://lz4.overpass-api.de", "https://overpass.private.coffee"];
   async function commodites(lat, lng) {
-    const base = (env.OVERPASS_BASE || "https://overpass.kumi.systems").replace(/\/+$/, "");
+    const relais = [...new Set([(env.OVERPASS_BASE || RELAIS_OVERPASS[0]).replace(/\/+$/, ""), ...(env.OVERPASS_BASE ? [] : RELAIS_OVERPASS)])];
+    let derniere = null;
+    for (const base of relais) {
+      try { return await commoditesVia(base, lat, lng); } catch (e) { derniere = e; }
+    }
+    throw derniere || new Error("commodités indisponibles");
+  }
+  async function commoditesVia(base, lat, lng) {
     const autour = `(around:1500,${lat},${lng})`;
     const q = `[out:json][timeout:25];(nwr${autour}[amenity~"^(school|kindergarten|college|pharmacy|doctors|hospital|clinic|dentist|bank|post_office|townhall|library|restaurant|cafe|marketplace)$"];` +
       `nwr${autour}[shop~"^(supermarket|bakery|convenience|butcher|greengrocer|mall|department_store)$"];nwr${autour}[railway~"^(station|tram_stop)$"];` +
@@ -596,7 +625,9 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const r = await fetch(base + "/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(q),
       headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "StudioKadima/1.0" }, signal: AbortSignal.timeout(30000) });
     if (!r.ok) throw new Error("commodités : Overpass répond " + r.status);
-    const els = (await r.json()).elements || [];
+    const rep = await r.json();
+    const els = rep.elements || [];
+    if (!els.length && rep.remark) throw new Error("commodités : " + String(rep.remark).slice(0, 120));
     const vus = new Set(), out = [];
     for (const e of els) {
       const t = e.tags || {}; const y = e.lat ?? (e.center && e.center.lat), x = e.lon ?? (e.center && e.center.lon);
@@ -630,7 +661,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!data) {
       const [com, liste] = await Promise.all([commune(p.px.cp, p.est.ville).catch(() => null), commodites(lat, lng).catch((e) => ({ erreur: e.message }))]);
       data = { commune: com, commodites: Array.isArray(liste) ? liste : [], erreur: liste && liste.erreur ? liste.erreur : "" };
-      if (!data.erreur) await db.run(
+      // Une réponse vide n'est pas gardée : le prochain guide retentera.
+      if (!data.erreur && data.commodites.length) await db.run(
         "INSERT INTO crm_environnement (cle, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(cle) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
         [cle, JSON.stringify(data), now()]);
     }

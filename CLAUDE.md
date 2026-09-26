@@ -497,6 +497,34 @@ par admin.js : DIRECTION = benoit, benjamin, tiephaine/tiphaine, nathan), par la
 case « Direction — voit tous les parcours » du profil (PUT `direction`), puce
 « direction » dans Réglages ; note `#parcours-perimetre` dans l'onglet quand
 `tous` est faux.
+**Agences, équipe du site, mentions légales (26/09)** : réglages `agence.mentions`
+(≤ 1000) et `agences: [{cle, nom, adresse, telephone, email, avis, mentions}]`
+(`sanitizeAgences`, clé slug, ≤ 20) ; `agencePour(reglages, conseiller)` (crm.js) =
+identité générale surchargée par le point de vente du profil (table satellite
+`crm_conseillers_pv`, champ `agence` des routes /crm/conseillers) → utilisée par
+apercu/envoyer (variables agence, agence_adresse, lien_avis, pied wrapEmail avec
+`mentions`, fromName/replyTo) et renvoyée par GET /crm/parcours/:id (`agence`) pour
+le guide R1 (adresse du RDV). `AVIS_DEFAUT` (parcours.js) = page Google Kadima si
+aucun lien d'avis n'est réglé (texte + signature). guide-r1.json porte `agences`
+(4 points de vente du site, adresses/tel/mail) et `equipe` (29 membres : prénom,
+nom, fonction du site sauf « Agent commercial EI » → vide, agence, photo
+`assets/conseillers/<slug>.jpg` 240 px tirée de century21-kadima.fr) ;
+`importerConseillers` (admin.js) crée les agences si aucune, envoie profils +
+équipe (photos en data URL) + `directeurs` ; `POST /crm/conseillers/importer`
+complète photo/fonction/agence/tel/mail/user_id vides, ne remplace rien. Réglages :
+carte « Nos agences » (`#table-agences`, `ouvrirAgence`), champ `#ag-mentions`,
+sélecteur `#cs-agence` du profil. Guide R2 : saisie (points forts, objections,
+texte) enregistrée au `change` de chaque champ (`sauver`), profil rafraîchi ; la
+fiche profil n'envoie `bio` que si modifiée (sinon un profil ouvert avant
+écrasait le texte saisi depuis le R2). Overpass : `RELAIS_OVERPASS` essayés dans
+l'ordre (kumi, overpass-api.de, lz4, private.coffee), `remark` sans élément =
+erreur, réponse vide jamais mise en cache (crm_environnement).
+**Guide R2 — 2e passe (26/09)** : `tools/guides/retoucher-guide-r2-passe2.py`
+(le graphique p3 et les en-têtes p4 sont des images) : étiquette « 2026 » Barlow 15
+gris #595959 tournée, courbe pointillée Bézier (Catmull-Rom depuis 2024-2025) ;
+p4 « Octobre 2026 » Barlow-Bold 11,3 blanc centré ; p10/p11 chiffres comme le R1
+(relief or 40 %). ACM : livret prix reçu (scratchpad acm-livret-prix.pdf), à
+travailler plus tard.
 **Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
 bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la
 police Bugaki complète, non versionnée) ; le navigateur y écrit « Famille NOM » (ou

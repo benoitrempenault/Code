@@ -152,5 +152,240 @@
    "y": 249.5,
    "taille": 9.3
   }
- }
+ },
+ "agences": [
+  {
+   "cle": "saint-medard",
+   "nom": "CENTURY 21 Kadima Saint-Médard-en-Jalles",
+   "adresse": "20-22 rue François Mitterrand, 33160 Saint-Médard-en-Jalles",
+   "telephone": "05 56 57 77 77",
+   "email": "kadima@century21.fr"
+  },
+  {
+   "cle": "cauderan",
+   "nom": "CENTURY 21 Kadima Bordeaux Caudéran",
+   "adresse": "53 avenue Louis-Barthou, 33200 Bordeaux",
+   "telephone": "05 56 02 39 55",
+   "email": "kadimacauderan@century21.fr"
+  },
+  {
+   "cle": "saint-aubin",
+   "nom": "CENTURY 21 Kadima Saint-Aubin-de-Médoc",
+   "adresse": "18 bis route de Saint-Médard, 33160 Saint-Aubin-de-Médoc",
+   "telephone": "05 47 74 79 21",
+   "email": "gestion.kadima@century21.fr"
+  },
+  {
+   "cle": "blanquefort",
+   "nom": "CENTURY 21 Kadima Blanquefort",
+   "adresse": "221 avenue du Général de Gaulle, 33290 Blanquefort",
+   "telephone": "05 56 57 77 77",
+   "email": "kadima@century21.fr"
+  }
+ ],
+ "equipe": [
+  {
+   "prenom": "Benoit",
+   "nom": "Rempenault",
+   "fonction": "Directeur",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/benoit-rempenault.jpg"
+  },
+  {
+   "prenom": "Tiéphaine",
+   "nom": "Duverger",
+   "fonction": "Directeur",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/tiephaine-duverger.jpg"
+  },
+  {
+   "prenom": "Stéphanie",
+   "nom": "Cabrera",
+   "fonction": "Assistante juridique",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/stephanie-cabrera.jpg"
+  },
+  {
+   "prenom": "Gaby",
+   "nom": "Hivert",
+   "fonction": "",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/gaby-hivert.jpg"
+  },
+  {
+   "prenom": "Nathalie",
+   "nom": "Frick",
+   "fonction": "",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/nathalie-frick.jpg"
+  },
+  {
+   "prenom": "Teddy",
+   "nom": "Besson",
+   "fonction": "",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/teddy-besson.jpg"
+  },
+  {
+   "prenom": "Laurence",
+   "nom": "Bougault",
+   "fonction": "",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/laurence-bougault.jpg"
+  },
+  {
+   "prenom": "Emma",
+   "nom": "Geoffrion",
+   "fonction": "",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/emma-geoffrion.jpg"
+  },
+  {
+   "prenom": "Rémi",
+   "nom": "Blanc",
+   "fonction": "",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/remi-blanc.jpg"
+  },
+  {
+   "prenom": "Lucie",
+   "nom": "Giusti Marcilhac",
+   "fonction": "",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/lucie-giusti-marcilhac.jpg"
+  },
+  {
+   "prenom": "Adeline",
+   "nom": "Lebon",
+   "fonction": "",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/adeline-lebon.jpg"
+  },
+  {
+   "prenom": "Vincent",
+   "nom": "Leroux",
+   "fonction": "",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/vincent-leroux.jpg"
+  },
+  {
+   "prenom": "Adélaïde",
+   "nom": "Rempenault",
+   "fonction": "",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/adelaide-rempenault.jpg"
+  },
+  {
+   "prenom": "Laurence",
+   "nom": "Ariztoy",
+   "fonction": "",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/laurence-ariztoy.jpg"
+  },
+  {
+   "prenom": "Marine",
+   "nom": "Zamora",
+   "fonction": "",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/marine-zamora.jpg"
+  },
+  {
+   "prenom": "Léa",
+   "nom": "Vasseur",
+   "fonction": "Assistante Transaction",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/lea-vasseur.jpg"
+  },
+  {
+   "prenom": "Nicolas",
+   "nom": "Fauchon",
+   "fonction": "",
+   "agence": "saint-medard",
+   "photo": "assets/conseillers/nicolas-fauchon.jpg"
+  },
+  {
+   "prenom": "Benjamin",
+   "nom": "Faure",
+   "fonction": "Directeur Century 21",
+   "agence": "cauderan",
+   "photo": "assets/conseillers/benjamin-faure.jpg"
+  },
+  {
+   "prenom": "Nathan",
+   "nom": "Delbecq",
+   "fonction": "",
+   "agence": "cauderan",
+   "photo": "assets/conseillers/nathan-delbecq.jpg"
+  },
+  {
+   "prenom": "Cyrielle",
+   "nom": "Collegno",
+   "fonction": "Assistante Transaction",
+   "agence": "cauderan",
+   "photo": "assets/conseillers/cyrielle-collegno.jpg"
+  },
+  {
+   "prenom": "Maxime",
+   "nom": "Buisson",
+   "fonction": "",
+   "agence": "cauderan",
+   "photo": "assets/conseillers/maxime-buisson.jpg"
+  },
+  {
+   "prenom": "Laurent",
+   "nom": "Denaud",
+   "fonction": "",
+   "agence": "cauderan",
+   "photo": "assets/conseillers/laurent-denaud.jpg"
+  },
+  {
+   "prenom": "Florian",
+   "nom": "Guerrero",
+   "fonction": "",
+   "agence": "cauderan",
+   "photo": "assets/conseillers/florian-guerrero.jpg"
+  },
+  {
+   "prenom": "Laura",
+   "nom": "Guiheneuf",
+   "fonction": "",
+   "agence": "cauderan",
+   "photo": "assets/conseillers/laura-guiheneuf.jpg"
+  },
+  {
+   "prenom": "Lucille",
+   "nom": "Coutard",
+   "fonction": "Directrice",
+   "agence": "saint-aubin",
+   "photo": "assets/conseillers/lucille-coutard.jpg"
+  },
+  {
+   "prenom": "Fiona",
+   "nom": "Leroux",
+   "fonction": "Conseillère",
+   "agence": "saint-aubin",
+   "photo": "assets/conseillers/fiona-leroux.jpg"
+  },
+  {
+   "prenom": "Emilie",
+   "nom": "Besson",
+   "fonction": "Conseillère",
+   "agence": "saint-aubin",
+   "photo": "assets/conseillers/emilie-besson.jpg"
+  },
+  {
+   "prenom": "Célia",
+   "nom": "Kunika",
+   "fonction": "Gestionnaire",
+   "agence": "saint-aubin",
+   "photo": "assets/conseillers/celia-kunika.jpg"
+  },
+  {
+   "prenom": "Amélie",
+   "nom": "Schiltz",
+   "fonction": "Gestionnaire",
+   "agence": "saint-aubin",
+   "photo": "assets/conseillers/amelie-schiltz.jpg"
+  }
+ ]
 }

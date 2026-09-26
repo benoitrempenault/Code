@@ -991,6 +991,8 @@
     $("ag-instagram").value = reglages.agence.instagram || "";
     $("ag-facebook").value = reglages.agence.facebook || "";
     $("ag-avis").value = reglages.agence.avis || "";
+    $("ag-mentions").value = reglages.agence.mentions || "";
+    rendreAgences();
     const of = reglages.offres || {};
     $("ofr-entete").value = of.entete || "";
     $("ofr-representant").value = of.representant || "";
@@ -1071,6 +1073,46 @@
         catch (e) { toast(e.message, true); }
       });
     } catch (e) { toast(e.message, true); }
+  }
+  /* --------------------------- Nos agences --------------------------- */
+  const agences = () => (reglages && Array.isArray(reglages.agences) ? reglages.agences : []);
+  const nomAgence = (cle) => { const a = agences().find((x) => x.cle === cle); return a ? a.nom : ""; };
+  function rendreAgences() {
+    const zone = $("table-agences");
+    if (!zone) return;
+    const liste = agences();
+    zone.innerHTML = liste.length
+      ? '<div class="tableau-cadre"><table><thead><tr><th>Agence</th><th>Adresse</th><th>Téléphone</th><th>E-mail</th><th>Mentions légales</th><th></th></tr></thead><tbody>' +
+        liste.map((a) => '<tr class="cliquable" data-agence="' + escH(a.cle) + '"><td><strong>' + escH(a.nom) + "</strong></td><td>" + escH(a.adresse || "—") + "</td><td>" +
+          escH(a.telephone || "—") + "</td><td>" + escH(a.email || "—") + "</td><td>" + (a.mentions ? "✓" : '<span class="petit">celles de l\'identité</span>') + "</td><td>✏️</td></tr>").join("") +
+        "</tbody></table></div>"
+      : '<div class="vide">Aucune agence — ajoutez la première (ou elles se créent depuis le guide R1 au prochain chargement).</div>';
+    zone.querySelectorAll("tr[data-agence]").forEach((tr) => tr.addEventListener("click", () => ouvrirAgence(tr.dataset.agence)));
+  }
+  function ouvrirAgence(cle) {
+    const a = cle ? agences().find((x) => x.cle === cle) : null;
+    const v = (k) => escH(a && a[k] || "");
+    ouvrirModale(a ? "✏️ " + a.nom : "+ Nouvelle agence",
+      '<div class="grille-champs">' +
+      '<label style="grid-column:1/-1;">Nom<input id="agc-nom" value="' + v("nom") + '" placeholder="CENTURY 21 Kadima — Bordeaux Caudéran" /></label>' +
+      '<label style="grid-column:1/-1;">Adresse<input id="agc-adresse" value="' + v("adresse") + '" placeholder="12 rue …, 33200 Bordeaux" /></label>' +
+      '<label>Téléphone<input id="agc-tel" value="' + v("telephone") + '" /></label>' +
+      '<label>E-mail<input id="agc-email" type="email" value="' + v("email") + '" /></label>' +
+      '<label style="grid-column:1/-1;">Avis Google de cette agence (lien « laissez-nous un avis » ; vide = celui de l\'identité)<input id="agc-avis" value="' + v("avis") + '" placeholder="https://g.page/r/…/review" /></label>' +
+      '<label style="grid-column:1/-1;">Mentions légales (vide = celles de l\'identité de l\'agence)<textarea id="agc-mentions" style="min-height:80px;">' + v("mentions") + "</textarea></label></div>",
+      (a ? '<button class="btn btn-danger" id="agc-supprimer">Supprimer</button>' : "") +
+      '<button class="btn" id="agc-annuler">Annuler</button><button class="btn btn-or" id="agc-save">Enregistrer</button>');
+    $("agc-annuler").addEventListener("click", fermerModale);
+    $("agc-save").addEventListener("click", async () => {
+      const maj = { cle: a ? a.cle : "", nom: $("agc-nom").value.trim(), adresse: $("agc-adresse").value.trim(), telephone: $("agc-tel").value.trim(), email: $("agc-email").value.trim(), avis: $("agc-avis").value.trim(), mentions: $("agc-mentions").value.trim() };
+      if (!maj.nom) { toast("Le nom de l'agence est requis", true); return; }
+      const liste = a ? agences().map((x) => (x.cle === a.cle ? maj : x)) : agences().concat([maj]);
+      if (await sauverReglages({ agences: liste }, "Agence enregistrée")) { fermerModale(); chargerConseillers(); }
+    });
+    if (a) $("agc-supprimer").addEventListener("click", async () => {
+      if (!confirm("Retirer « " + a.nom + " » ? Les conseillers qui y sont rattachés reprendront l'identité générale.")) return;
+      if (await sauverReglages({ agences: agences().filter((x) => x.cle !== a.cle) }, "Agence retirée")) { fermerModale(); chargerConseillers(); }
+    });
   }
   async function sauverReglages(partiel, message) {
     try {
@@ -2144,7 +2186,21 @@
   let profilsImportes = false;
   async function importerConseillers(annoncer) {
     let profils = [];
-    try { profils = ((await fetch("assets/guide-r1.json").then((r) => r.json())).conseillers || []).map((c) => ({ prenom: c.prenom, nom: c.nom, email: c.email, telephone: c.telephone })); } catch { /* guide absent : les comptes suffisent */ }
+    try {
+      const meta = await fetch("assets/guide-r1.json").then((r) => r.json());
+      profils = (meta.conseillers || []).map((c) => ({ prenom: c.prenom, nom: c.nom, email: c.email, telephone: c.telephone }));
+      // L'équipe du site century21-kadima.fr : photo, fonction et agence de
+      // chacun (les photos sont dans assets/conseillers, réduites à 240 px).
+      for (const m of meta.equipe || []) {
+        let photo = "";
+        try { const b = await fetch(m.photo).then((r) => (r.ok ? r.blob() : null)); if (b) photo = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); }); } catch { /* sans photo */ }
+        profils.push({ prenom: m.prenom, nom: m.nom, fonction: m.fonction || "", agence: m.agence || "", photo });
+      }
+      // Les points de vente du groupe se créent une fois, depuis le guide ; le reste se complète dans Réglages.
+      if (reglages && !agences().length && Array.isArray(meta.agences) && meta.agences.length) {
+        try { reglages = (await api("/crm/reglages", { method: "PUT", json: { agences: meta.agences } })).reglages; remplirFormulaires(); } catch { /* sans agences : identité générale */ }
+      }
+    } catch { /* guide absent : les comptes suffisent */ }
     try {
       const r = await api("/crm/conseillers/importer", { json: { profils, directeurs: DIRECTION } });
       if (annoncer) toast(r.ajoutes ? r.ajoutes + " profil(s) ajouté(s)" + (r.completes ? ", " + r.completes + " complété(s)" : "") : "Tous les conseillers ont déjà leur profil");
@@ -2161,7 +2217,7 @@
         conseillers.map((c) => '<tr class="cliquable" data-conseiller="' + c.id + '"><td>' +
           (c.photo_url ? '<img class="avatar" src="' + escH(c.photo_url) + '" alt="" />' : '<span class="avatar"></span>') + "</td><td><strong>" +
           escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</strong>" + (c.actif ? "" : ' <span class="puce grise">inactif</span>') + (c.direction ? ' <span class="puce">direction</span>' : "") + "</td><td>" +
-          escH(c.fonction) + "</td><td>" + escH(c.telephone) + "</td><td>" + escH(c.email) + "</td><td>✏️</td></tr>").join("") +
+          escH([c.fonction, nomAgence(c.agence)].filter(Boolean).join(" · ")) + "</td><td>" + escH(c.telephone) + "</td><td>" + escH(c.email) + "</td><td>✏️</td></tr>").join("") +
         "</tbody></table></div>"
       : '<div class="vide">Aucun conseiller — ajoutez le premier.</div>';
     zone.querySelectorAll("tr[data-conseiller]").forEach((tr) => tr.addEventListener("click", () => ouvrirConseiller(tr.dataset.conseiller)));
@@ -2195,6 +2251,8 @@
       '<label>Fonction<input id="cs-fonction" value="' + escH(c && c.fonction || "") + '" placeholder="Conseiller immobilier" /></label>' +
       '<label>Téléphone<input id="cs-tel" value="' + escH(c && c.telephone || "") + '" /></label>' +
       '<label>E-mail<input id="cs-email" type="email" value="' + escH(c && c.email || "") + '" /></label>' +
+      '<label>Agence (ses e-mails et guides en portent le nom, l\'adresse et les mentions légales)<select id="cs-agence"><option value="">— identité générale —</option>' +
+      agences().map((a) => '<option value="' + escH(a.cle) + '"' + ((c && c.agence) === a.cle ? " selected" : "") + ">" + escH(a.nom) + "</option>").join("") + "</select></label>" +
       '<label>Conseiller / conseillère (guide R2)<select id="cs-genre">' + [["", "Selon le prénom"], ["m", "Conseiller"], ["f", "Conseillère"]].map(([k, l]) =>
         '<option value="' + k + '"' + ((c && c.genre_pose) === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" +
       '<label class="case" style="align-self:end;"><input type="checkbox" id="cs-actif"' + (!c || c.actif ? " checked" : "") + " /> Actif</label>" +
@@ -2210,7 +2268,10 @@
     $("cs-photo-retirer").addEventListener("click", () => { photo = ""; $("cs-apercu").src = ""; });
     $("cs-save").addEventListener("click", async () => {
       const corps = { id: c ? c.id : undefined, prenom: $("cs-prenom").value.trim(), nom: $("cs-nom").value.trim(), fonction: $("cs-fonction").value.trim(),
-        telephone: $("cs-tel").value.trim(), email: $("cs-email").value.trim(), actif: $("cs-actif").checked, direction: $("cs-direction").checked, bio: $("cs-bio").value.trim(), genre: $("cs-genre").value };
+        telephone: $("cs-tel").value.trim(), email: $("cs-email").value.trim(), actif: $("cs-actif").checked, direction: $("cs-direction").checked, agence: $("cs-agence").value, genre: $("cs-genre").value };
+      // Le texte personnel saisi depuis un guide R2 ne doit pas être écrasé par
+      // une fiche ouverte avant : il ne part que s'il a été modifié ici.
+      if ($("cs-bio").value.trim() !== ((c && c.bio) || "").trim()) corps.bio = $("cs-bio").value.trim();
       if (photo !== undefined) corps.photo = photo;
       try { await api("/crm/conseillers", { method: "PUT", json: corps }); toast("Conseiller enregistré"); fermerModale(); chargerConseillers(); }
       catch (e) { toast(e.message, true); }
@@ -2363,7 +2424,8 @@
     const cs = p.conseiller;
     const csDetail = cs
       ? (cs.photo_url ? '<img class="avatar" src="' + escH(cs.photo_url) + '" alt="" /> ' : "") +
-        escH([cs.fonction, cs.telephone, cs.email].filter(Boolean).join(" · ") || "ni téléphone ni e-mail sur son profil (Réglages → Les conseillers)")
+        escH([cs.fonction, cs.telephone, cs.email].filter(Boolean).join(" · ") || "ni téléphone ni e-mail sur son profil (Réglages → Les conseillers)") +
+        (p.agence && p.agence.pv ? ' <span class="puce grise">' + escH(p.agence.nom) + "</span>" : "")
       : '<span style="color:#e07a5f;">aucun conseiller choisi — les e-mails seraient signés de l\'agence</span>';
     const csLigne = '<select id="px-signe" style="max-width:260px; vertical-align:middle;"><option value="">— choisir le conseiller —</option>' +
       conseillers.filter((c) => c.actif || p.conseiller_id === c.id).map((c) => '<option value="' + c.id + '"' + (p.conseiller_id === c.id ? " selected" : "") + ">" + escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</option>").join("") +
@@ -2433,7 +2495,8 @@
     // Le prochain rendez-vous : date, heure, adresse de l'agence.
     const rdv = meta.rdv;
     const idx = ordre.indexOf(rdv.page);
-    if (idx >= 0 && (p.r2 || (reglages && reglages.agence.adresse))) {
+    const adresseAgence = (p.agence && p.agence.adresse) || (reglages && reglages.agence.adresse) || "";
+    if (idx >= 0 && (p.r2 || adresseAgence)) {
       const page = doc.getPage(idx);
       const font = await doc.embedFont(StandardFonts.HelveticaBold);
       const h = page.getHeight();
@@ -2443,7 +2506,7 @@
       const d = m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null;
       ecrire(d ? jours[d.getUTCDay()] + " " + (+m[3]) + " " + mois[+m[2] - 1] + " " + m[1] : "", rdv.date);
       ecrire(p.r2_heure ? p.r2_heure.replace(/^(\d{1,2}):(\d{2})$/, (t, a, b) => (+a) + "h" + (b === "00" ? "" : b)) : "", rdv.heure);
-      ecrire((reglages && reglages.agence.adresse) || "", rdv.agence);
+      ecrire(adresseAgence, rdv.agence);
     }
     // Page 1 : le client (« Famille NOM » ou civilité + nom), l'adresse du
     // bien et la date du jour, alignés à droite comme sur le modèle.
@@ -2454,8 +2517,7 @@
       const font = await doc.embedFont(StandardFonts.Helvetica);
       const h = page.getHeight();
       const droite = (texte, spec) => { if (texte) page.drawText(texte, { x: p1.droite - font.widthOfTextAtSize(texte, spec.taille), y: h - spec.y, size: spec.taille, font, color: rgb(0, 0, 0) }); };
-      const nomMaj = (p.nom || "").toUpperCase();
-      droite(p.civilite === "M. et Mme" ? "Famille " + nomMaj : [p.civilite, nomMaj].filter(Boolean).join(" "), p1.nom);
+      droite([p.civilite, p.prenom, (p.nom || "").toUpperCase()].filter(Boolean).join(" "), p1.nom);
       droite((p.adresse || "").toUpperCase(), p1.adresse);
       droite([p.cp, (p.ville || "").toUpperCase()].filter(Boolean).join(" "), p1.ville);
       droite(new Date().toLocaleDateString("fr-FR"), p1.date);
@@ -2707,6 +2769,11 @@
       return api("/crm/parcours/" + id + "/r2");
     };
     $("r2-save").addEventListener("click", async () => { try { r2 = await sauver(); toast("Guide R2 : saisie enregistrée"); } catch (e) { toast(e.message, true); } });
+    // Ce qui est saisi reste, même sans cliquer : chaque champ s'enregistre
+    // dès qu'on le quitte, et le profil du conseiller (son texte) se met à jour.
+    for (const id of ["r2-forts", "r2-objections", "r2-bio"]) $(id).addEventListener("change", async () => {
+      try { r2 = await sauver(); $("r2-etat").textContent = "Enregistré."; chargerConseillers(); } catch (e) { toast(e.message, true); }
+    });
     $("r2-generer").addEventListener("click", async () => {
       const btn = $("r2-generer"), etat = $("r2-etat"); btn.disabled = true;
       try {
@@ -2717,6 +2784,7 @@
         etat.textContent = "Cartes et assemblage du guide…";
         await genererGuideR2({ ...p, cp: p.cp, ville: p.ville }, r2, envr);
         await api("/crm/parcours/" + id + "/etape", { json: { etape: "guide-r2" } });
+        chargerConseillers();
         toast("Guide R2 prêt : il s'ouvre dans un nouvel onglet, à imprimer ou enregistrer");
         ouvrirParcours(id);
       } catch (e) { toast(e.message, true); etat.textContent = ""; btn.disabled = false; }
@@ -3019,8 +3087,10 @@
       site: $("ag-site").value.trim(), logoUrl: $("ag-logo").value.trim(),
       signataire: $("ag-signataire").value.trim(), fonction: $("ag-fonction").value.trim(),
       instagram: $("ag-instagram").value.trim(), facebook: $("ag-facebook").value.trim(), avis: $("ag-avis").value.trim(),
+      mentions: $("ag-mentions").value.trim(),
     },
   }));
+  $("btn-nouvelle-agence").addEventListener("click", () => ouvrirAgence(null));
 
   demarrer();
 })();

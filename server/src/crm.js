@@ -782,7 +782,12 @@ export function defaultReglages(agency) {
   return {
     agence: { nom: (agency && agency.name) || "", adresse: "", telephone: "", email: "", site: "", logoUrl: "",
       signataire: "", fonction: "", // qui signe les vœux et messages (ex. Benoît REMPENAULT, Directeur)
-      instagram: "", facebook: "", avis: "" }, // réseaux et lien « laissez-nous un avis » (parcours R1/R2)
+      instagram: "", facebook: "", avis: "", // réseaux et lien « laissez-nous un avis » (parcours R1/R2)
+      mentions: "" }, // mentions légales (pied des e-mails), reprises par les agences qui n'en ont pas
+    // Les points de vente du groupe : chaque conseiller est rattaché à l'un
+    // d'eux, et ses e-mails/guides portent le nom, l'adresse, le téléphone,
+    // l'e-mail et les mentions légales de SON agence (à défaut, ceux d'`agence`).
+    agences: [], // [{cle, nom, adresse, telephone, email, mentions}]
     anniversaires: { enabled: false, naissance: true, achat: true, cci: "", smsEnabled: false, smsSignature: "", canal: "les-deux" },
     annonces: { autoSync: false, siteUrl: "" },
     acheteurs: { enabled: false, cci: "" },
@@ -802,6 +807,7 @@ export async function getReglages(db, agency) {
   try { data = JSON.parse(row.data); } catch { }
   return {
     agence: { ...def.agence, ...(data.agence || {}) },
+    agences: Array.isArray(data.agences) ? data.agences : [],
     anniversaires: { ...def.anniversaires, ...(data.anniversaires || {}) },
     annonces: { ...def.annonces, ...(data.annonces || {}) },
     acheteurs: { ...def.acheteurs, ...(data.acheteurs || {}) },
@@ -811,10 +817,38 @@ export async function getReglages(db, agency) {
     offres: { ...def.offres, ...(data.offres || {}) },
   };
 }
+const slug = (t) => sansAccentsMin(t).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+export function sanitizeAgences(liste) {
+  const vues = new Set(), out = [];
+  for (const a of (Array.isArray(liste) ? liste : []).slice(0, 20)) {
+    if (!a || typeof a !== "object") continue;
+    const nom = strip(a.nom, 120);
+    if (!nom) continue;
+    let cle = slug(a.cle) || slug(nom) || "agence";
+    let n = 2; const base = cle;
+    while (vues.has(cle)) cle = base + "-" + n++;
+    vues.add(cle);
+    out.push({ cle, nom, adresse: strip(a.adresse, 300), telephone: strip(a.telephone, 40), email: strip(a.email, 160).toLowerCase(), avis: strip(a.avis, 300), mentions: strip(a.mentions, 1000) });
+  }
+  return out;
+}
+// L'identité qui habille un e-mail ou un guide : celle de l'agence du
+// conseiller quand il en a une (clé `agence` de son profil), complétée par
+// l'identité générale pour tout ce que le point de vente ne précise pas.
+export function agencePour(reglages, conseiller) {
+  const base = reglages.agence || {};
+  const cle = conseiller && conseiller.agence;
+  const pv = cle ? (reglages.agences || []).find((a) => a.cle === cle) : null;
+  if (!pv) return base;
+  const out = { ...base, pv: pv.cle };
+  for (const k of ["nom", "adresse", "telephone", "email", "avis", "mentions"]) if (pv[k]) out[k] = pv[k];
+  return out;
+}
 export async function saveReglages(db, agency, userId, incoming) {
   const cur = await getReglages(db, agency);
   const next = {
     agence: { ...cur.agence, ...(incoming.agence || {}) },
+    agences: Array.isArray(incoming.agences) ? sanitizeAgences(incoming.agences) : cur.agences,
     anniversaires: { ...cur.anniversaires, ...(incoming.anniversaires || {}) },
     annonces: { ...cur.annonces, ...(incoming.annonces || {}) },
     acheteurs: { ...cur.acheteurs, ...(incoming.acheteurs || {}) },
@@ -823,7 +857,7 @@ export async function saveReglages(db, agency, userId, incoming) {
     modeles: { ...cur.modeles, ...(incoming.modeles || {}) },
     offres: OFFRES.sanitizeReglagesOffres(incoming.offres && typeof incoming.offres === "object" ? incoming.offres : {}, cur.offres),
   };
-  for (const k of Object.keys(next.agence)) next.agence[k] = strip(next.agence[k], 300);
+  for (const k of Object.keys(next.agence)) next.agence[k] = strip(next.agence[k], k === "mentions" ? 1000 : 300);
   next.anniversaires.enabled = !!next.anniversaires.enabled;
   next.anniversaires.naissance = !!next.anniversaires.naissance;
   next.anniversaires.achat = !!next.anniversaires.achat;
@@ -1066,6 +1100,7 @@ export function wrapEmail(ag, { eyebrow, headline, bodyHtml, signatureName, sign
           <div style="font-family:Helvetica,Arial,sans-serif; color:${gold}; font-size:12px; letter-spacing:1px;">${esc(nom)}</div>
           ${ag.adresse ? `<div style="font-family:Helvetica,Arial,sans-serif; color:#b5b5b0; font-size:11px; margin-top:6px;">${esc(ag.adresse)}</div>` : ""}
           ${contactLine ? `<div style="font-family:Helvetica,Arial,sans-serif; color:#b5b5b0; font-size:11px; margin-top:4px;">${contactLine}</div>` : ""}
+          ${ag.mentions ? `<div style="font-family:Helvetica,Arial,sans-serif; color:#8a8a86; font-size:10px; line-height:1.5; margin-top:10px;">${esc(ag.mentions)}</div>` : ""}
         </td></tr>
       </table>
       <div style="max-width:600px; font-family:Helvetica,Arial,sans-serif; color:#a09d95; font-size:10px; line-height:1.5; margin-top:14px; padding:0 8px;">

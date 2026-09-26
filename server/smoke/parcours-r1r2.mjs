@@ -28,8 +28,10 @@ export default async function () {
     await page.click('[data-onglet="reglages"]');
     await page.waitForFunction(() => document.querySelector("#table-conseillers tr[data-conseiller]"), null, { timeout: 8000 });
     const tableCs = await page.textContent("#table-conseillers");
-    ok(tableCs.includes("BESSON") && await page.locator("#table-conseillers img.avatar").count() === 1 && tableCs.includes("Zamora") && tableCs.includes("smoke-parcours@test.fr"),
-      "Réglages : Teddy avec sa photo, et les profils importés (accès créés + guide R1) sans doublon");
+    const nbPhotos = await page.locator("#table-conseillers img.avatar").count();
+    const puceDirection = await page.evaluate(() => [...document.querySelectorAll("#table-conseillers tr")].filter((tr) => /Rempenault|Faure|Duverger|Delbecq/.test(tr.textContent) && /direction/.test(tr.textContent)).length);
+    ok(tableCs.includes("BESSON") && nbPhotos >= 25 && tableCs.includes("Zamora") && tableCs.includes("smoke-parcours@test.fr") && (tableCs.match(/Besson/gi) || []).length === 2 && puceDirection === 4,
+      "Réglages : Teddy sans doublon, l'équipe du site importée avec ses photos, la direction repérée (" + JSON.stringify({ nbPhotos, puceDirection }) + ")");
 
     await page.click('[data-onglet="parcours"]');
     await page.click("#btn-nouveau-parcours");

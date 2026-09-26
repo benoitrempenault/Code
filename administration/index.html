@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/admin.css?v=9" />
+  <link rel="stylesheet" href="assets/css/admin.css?v=10" />
 </head>
 <body>
 
@@ -295,6 +295,7 @@
         <label>Instagram (lien)<input id="ag-instagram" placeholder="https://instagram.com/century_21_kadima" /></label>
         <label>Facebook (lien)<input id="ag-facebook" placeholder="https://www.facebook.com/century21.kadima" /></label>
         <label>Avis Google (lien « laissez-nous un avis »)<input id="ag-avis" placeholder="https://g.page/r/…/review" /></label>
+        <label style="grid-column:1/-1;">Mentions légales (pied des e-mails ; reprises par les agences qui n'en ont pas)<textarea id="ag-mentions" style="min-height:70px;" placeholder="SAS … au capital de … € — RCS Bordeaux … — Carte professionnelle n° … délivrée par la CCI de … — Garantie financière : …"></textarea></label>
       </div>
       <p class="aide">Le signataire signe TOUS les vœux (e-mails et SMS), quel que soit le conseiller de la fiche.
         Laissez vide pour signer du conseiller de la fiche, sinon de l'équipe. La formule d'appel
@@ -304,6 +305,14 @@
       </div>
       <p class="petit">Les e-mails partent via le serveur Studio Brochure au nom de l'agence —
         rien à configurer de plus (pas de mot de passe SMTP).</p>
+    </div>
+    <div class="carte">
+      <h2>Nos agences</h2>
+      <p class="aide">Les points de vente du groupe. Chaque conseiller est rattaché à l'un d'eux (dans son profil) :
+        ses e-mails et ses guides portent alors le nom, l'adresse, le téléphone, l'e-mail et les mentions légales
+        de SON agence. Ce qu'une agence ne précise pas vient de l'identité ci-dessus.</p>
+      <div class="barre"><button class="btn btn-or" id="btn-nouvelle-agence">+ Ajouter une agence</button></div>
+      <div id="table-agences"></div>
     </div>
         <div class="carte">
       <h2>Les conseillers</h2>
@@ -443,7 +452,7 @@
 <script src="assets/js/vendor/pdf-lib.min.js"></script>
 <script src="assets/js/vendor/fontkit.umd.min.js"></script>
 <script src="assets/js/zip.js"></script>
-<script src="assets/js/admin.js?v=9"></script>
+<script src="assets/js/admin.js?v=10"></script>
 <script src="../assets/js/compte-bandeau.js"></script>
 </body>
 </html>

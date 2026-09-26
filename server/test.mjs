@@ -3343,6 +3343,13 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "l'import crée un profil par accès Studio et par conseiller du guide, sans doubler Teddy (" + JSON.stringify(imp1.json) + ")");
   const teddyImp = csImp.find((x) => x.id === teddy.json.id);
   ok(teddyImp.telephone === "06 00 00 00 01" && teddyImp.email === "teddy@kadima.test" && teddyImp.a_photo, "le profil déjà renseigné de Teddy garde téléphone, e-mail et photo");
+  // L'équipe du site : photo, fonction et agence complètent les profils qui n'en ont pas, sans toucher au reste.
+  const impE = await callR("/crm/conseillers/importer", { headers: auth, body: { profils: [{ prenom: "Marine", nom: "Zamora", photo: pixel, agence: "saint-medard", fonction: "" }, { prenom: "Teddy", nom: "Besson", photo: "data:image/png;base64,iVBORw0KGgo=", fonction: "Négociateur", agence: "cauderan" }] } });
+  const csE = (await callR("/crm/conseillers", { headers: auth })).json.conseillers;
+  const marineE = csE.find((x) => x.nom === "Zamora"), teddyE = csE.find((x) => x.id === teddy.json.id);
+  ok(impE.json.completes === 2 && marineE.a_photo && marineE.agence === "saint-medard" && teddyE.fonction === "Conseiller immobilier" && teddyE.agence === "cauderan" && (await appR.fetch(new Request("http://api.test/public/conseillers/" + teddy.json.id + "/photo"))).headers.get("content-type") === "image/jpeg",
+     "l'import pose la photo et l'agence manquantes, garde la fonction et la photo déjà en place (" + JSON.stringify(impE.json) + ")");
+  await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test", agence: "" } });
   const imp2 = await callR("/crm/conseillers/importer", { headers: auth, body: {} });
   ok(imp2.status === 200 && imp2.json.ajoutes === 0 && (await callR("/crm/conseillers", { headers: auth })).json.conseillers.length === csImp.length, "relancer l'import n'ajoute rien");
   const doublon = await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "teddy", nom: "besson", fonction: "Négociateur" } });
@@ -3380,6 +3387,10 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "entre R1 et R2 : date du R2, adresse de l'agence, liste des pièces d'une maison");
   const ap3 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=apres-r2", { headers: authP })).json;
   ok(/g\.page\/r\/CUA5uMo/.test(ap3.texte) && /<a href="https:\/\/g\.page/.test(ap3.html), "après R2 : le lien d'avis Google, cliquable dans le rendu");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agence: { avis: "" } } });
+  const ap3b = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=apres-r2", { headers: authP })).json;
+  ok(/https:\/\/g\.page\/r\/CUA5uMo-Z_RcEB0\/review/.test(ap3b.texte) && /Nos avis clients/.test(ap3b.html), "sans réglage « Avis Google », le lien Kadima part quand même (texte et signature)");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agence: { avis: "https://g.page/r/CUA5uMo-Z_RcEB0/review" } } });
   // Envoi avec le texte relu : le mail part au nom du conseiller, se journalise, et la séquence auto ne le renverra pas.
   const avantEnvoi = mailsRecus.length;
   const envPx = await callR("/crm/parcours/" + pxId + "/envoyer", { headers: authP, body: { jalon: "avant-r1", sujet: ap1.sujet, texte: ap1.texte.replace("belle journée", "excellente journée") } });
@@ -3399,6 +3410,29 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: marine.id } });
   const apM = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
   ok(/Marine Zamora/.test(apM.html) && /Conseillère immobilier/.test(apM.html) && /06 11 22 33 44/.test(apM.html), "changer le signataire : nom, fonction par défaut au féminin et téléphone dans la signature");
+  // Les agences du groupe : le conseiller rattaché à un point de vente écrit au nom de SON agence (nom, adresse, mentions).
+  const rgA = await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agence: { mentions: "SAS Kadima — RCS Bordeaux 000 000 000" },
+    agences: [{ nom: "CENTURY 21 Kadima — Saint-Médard-en-Jalles" }, { nom: "CENTURY 21 Kadima — Bordeaux Caudéran", adresse: "5 avenue de Caudéran, 33200 Bordeaux", telephone: "05 56 00 00 00", mentions: "Carte pro CPI 3301 2026 000 000 002" }, { cle: "x", nom: "" }] } });
+  const agcs = rgA.json.reglages.agences;
+  ok(rgA.status === 200 && agcs.length === 2 && agcs[0].cle === "century-21-kadima-saint-medard-en-jalles" && agcs[1].cle === "century-21-kadima-bordeaux-cauderan" && rgA.json.reglages.agence.mentions.startsWith("SAS Kadima"),
+     "les agences se rangent avec une clé lisible, une agence sans nom est ignorée, les mentions générales sont gardées (" + JSON.stringify(agcs.map((a) => a.cle)) + ")");
+  await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: marine.id, prenom: "Marine", nom: "Zamora", telephone: "06 11 22 33 44", agence: agcs[1].cle } });
+  const csAg = (await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === marine.id);
+  const ficheAg = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
+  const apAg = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
+  ok(csAg.agence === agcs[1].cle && ficheAg.agence.pv === agcs[1].cle && ficheAg.agence.adresse === "5 avenue de Caudéran, 33200 Bordeaux" && ficheAg.agence.mentions.startsWith("Carte pro"),
+     "le profil porte son agence et la fiche parcours renvoie l'identité de cette agence pour les guides");
+  ok(/5 avenue de Caudéran/.test(apAg.texte) && !/François Mitterrand/.test(apAg.texte) && /Bordeaux Caudéran/.test(apAg.html) && /Carte pro CPI/.test(apAg.html) && !/SAS Kadima/.test(apAg.html),
+     "le mail entre R1 et R2 donne rendez-vous à l'agence du conseiller, avec son nom et ses mentions légales");
+  await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: marine.id, prenom: "Marine", nom: "Zamora", telephone: "06 11 22 33 44", agence: agcs[0].cle } });
+  const apAg2 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
+  ok(/François Mitterrand/.test(apAg2.texte) && /SAS Kadima/.test(apAg2.html) && /Saint-Médard-en-Jalles/.test(apAg2.html),
+     "une agence sans adresse ni mentions reprend celles de l'identité générale");
+  await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test", bio: "Texte gardé" } });
+  ok((await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === teddy.json.id).bio === "Texte gardé"
+     && (await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test" } })).status === 200
+     && (await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === teddy.json.id).bio === "Texte gardé",
+     "enregistrer le profil sans le champ texte ne l'efface pas");
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: teddy.json.id } });
   // Périmètre : un conseiller ne voit que ses parcours (conseiller ou créateur) ; la direction voit tout.
   const remi = await callR("/agency/users", { headers: auth, method: "POST", body: { email: "remi@ach-test.fr", name: "Rémi Blanc" } });

@@ -936,3 +936,11 @@ CREATE TABLE IF NOT EXISTS crm_conseillers_direction (
   direction  INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL
 );
+-- Point de vente du conseiller (clé d'une agence des réglages `agences`) :
+-- ses e-mails et guides portent le nom, l'adresse et les mentions légales
+-- de SON agence.
+CREATE TABLE IF NOT EXISTS crm_conseillers_pv (
+  id         TEXT PRIMARY KEY,               -- crm_conseillers.id
+  pv         TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL
+);
