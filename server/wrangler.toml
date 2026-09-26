@@ -33,6 +33,8 @@ crons = ["0 5 * * 1,5", "30 3 * * *", "0 6 * * *"]
 APP_ORIGINS = "https://benoitrempenault.github.io,https://studiobrochure.fr,https://century21-kadima.fr,https://www.century21-kadima.fr"
 SUIVI_BASE = "https://benoitrempenault.github.io/Code/suivi"  # liens des récaps
 OFFRE_BASE = "https://benoitrempenault.github.io/Code/offre"  # espace public de l'offre d'achat (liens magiques) — passer à https://century21-kadima.fr/offre une fois le dossier posé sur le site
+SITE_STATS_BASE = "https://api.century21-kadima.fr"  # bilans vendeurs : stats par annonce du site (secret SITE_STATS_KEY = STUDIO_STATS_KEY côté Render)
+BILANS_BASE = "https://benoitrempenault.github.io/Code/bilans/"  # Studio Bilans : lien des e-mails « bilans à relire » aux conseillers
 RECAP_AUTO = ""  # passer à "1" (puis redéployer) pour activer l'envoi lundi/vendredi
 APP_BASE = "https://studiobrochure.fr/app"  # dossier de l'app compte par défaut (clients) ; Kadima a son app_base en base
 MAIL_FROM = "Studio Brochure <connexion@studiobrochure.fr>"

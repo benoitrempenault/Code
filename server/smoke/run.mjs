@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 const ICI = new URL(".", import.meta.url).pathname;
 const RACINE = resolve(ICI, "../..");
 const PORT_API = 8788, PORT_SITE = 8014, PORT_BAN = 18796;
-const PARCOURS = ["suppression", "anniversaires", "suivi", "fiche-adresse", "compte", "maisons", "offre", "parcours-r1r2"];
+const PARCOURS = ["suppression", "anniversaires", "suivi", "fiche-adresse", "compte", "maisons", "offre", "parcours-r1r2", "bilans"];
 const choisis = process.argv.slice(2).length ? process.argv.slice(2) : PARCOURS;
 
 // 1) Fausse BAN pour le serveur (géocodage direct) : toute adresse trouve une
@@ -55,6 +55,23 @@ const resend = createServer(async (req, res) => {
   res.end(JSON.stringify({ id: "email_smoke_" + mails.length }));
 }).listen(PORT_RESEND);
 
+// 1 quater) Faux site Kadima (bilans vendeurs) : la route à clé des
+// statistiques par annonce, trois semaines, deux annonces en vente.
+const PORT_STATS = 18803;
+// Les trois dernières semaines COMPLÈTES, calculées au jour du test : la
+// dernière est celle que couvre le bilan.
+const lundiStats = (n) => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7) - 7 * n); return d.toISOString().slice(0, 10); };
+const LUNDIS_STATS = [lundiStats(3), lundiStats(2), lundiStats(1)];
+const semStats = (a, b, c, v = 0) => ({ [LUNDIS_STATS[0]]: { vues: a, visites: 0, brochures: 0 }, [LUNDIS_STATS[1]]: { vues: b, visites: 0, brochures: 0 }, [LUNDIS_STATS[2]]: { vues: c, visites: v, brochures: 0 } });
+const statsSite = createServer((req, res) => {
+  if (req.headers["x-studio-key"] !== "cle-smoke") { res.writeHead(401); return res.end("{}"); }
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ semaines: LUNDIS_STATS, annonces: [
+    { ref: "8282", url: "https://site.test/annonces/a/", type: "Maison", ville: "Saint-Médard-en-Jalles", prix: 380000, surface: 100, semaines: semStats(40, 30, 22) },
+    { ref: "7510", url: "https://site.test/annonces/b/", type: "Maison", ville: "Saint-Médard-en-Jalles", prix: 290000, surface: 100, semaines: semStats(8, 9, 12, 1) },
+  ] }));
+}).listen(PORT_STATS);
+
 // 2) Le site, servi tel quel depuis la racine du dépôt.
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json",
   ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".woff2": "font/woff2" };
@@ -77,7 +94,8 @@ const apiProc = spawn(process.execPath, ["node.js"], {
   cwd: resolve(ICI, ".."), stdio: ["ignore", "pipe", "pipe"],
   env: { ...process.env, PORT: String(PORT_API), DB_PATH: dbPath, DEV_MODE: "1", ADMIN_KEY: "dev-admin",
     APP_ORIGINS: "http://localhost:" + PORT_SITE, OFFRE_BASE: "http://localhost:" + PORT_SITE + "/offre", BAN_BASE: "http://localhost:" + PORT_BAN, DVF_BASE: "http://localhost:1", BATIMENTS_BASE: "http://localhost:" + PORT_IGN,
-    RESEND_API_KEY: "re_smoke", RESEND_BASE: "http://localhost:" + PORT_RESEND, MAIL_FROM: "smoke@studio.test" },
+    RESEND_API_KEY: "re_smoke", RESEND_BASE: "http://localhost:" + PORT_RESEND, MAIL_FROM: "smoke@studio.test",
+    SITE_STATS_BASE: "http://localhost:" + PORT_STATS, SITE_STATS_KEY: "cle-smoke" },
 });
 let journalApi = "";
 apiProc.stdout.on("data", (d) => { journalApi += d; });
@@ -102,7 +120,7 @@ for (const nom of choisis) {
   }
 }
 apiProc.kill();
-ban.close(); ign.close(); site.close(); resend.close();
+ban.close(); ign.close(); site.close(); resend.close(); statsSite.close();
 try { await unlink(dbPath); } catch { }
 if (echecsTotal && /\[500\]/.test(journalApi)) console.log("\nJournal API :\n" + journalApi.split("\n").filter((l) => l.includes("[500]")).join("\n"));
 console.log("\n" + (echecsTotal ? "SMOKES : " + echecsTotal + " échec(s)" : "SMOKES OK (" + choisis.length + " parcours)"));

@@ -28,7 +28,7 @@ jobs:
       - name: Garde-fou — syntaxe JS (bloque le déploiement si cassé)
         run: |
           set -e
-          for f in $(find assets pro mandat mandat-pro suivi permanence rdv offre administration prospection estimation -name '*.js' -not -path '*/node_modules/*'); do
+          for f in $(find assets pro mandat mandat-pro suivi permanence rdv offre administration prospection estimation bilans -name '*.js' -not -path '*/node_modules/*'); do
             node --check "$f"
           done
           echo "Syntaxe JS OK — déploiement autorisé."
@@ -74,6 +74,10 @@ jobs:
           mkdir -p _site/estimation/assets
           cp estimation/index.html estimation/favicon.svg _site/estimation/
           cp -r estimation/assets/* _site/estimation/assets/
+          # Studio Bilans (bilans vendeurs hebdomadaires) sous /bilans/
+          mkdir -p _site/bilans/assets
+          cp bilans/index.html bilans/favicon.svg _site/bilans/
+          cp -r bilans/assets/* _site/bilans/assets/
           # Espace public de l'offre d'achat (lien magique acquéreur / vendeur) sous /offre/
           mkdir -p _site/offre/assets
           cp offre/index.html offre/favicon.svg _site/offre/

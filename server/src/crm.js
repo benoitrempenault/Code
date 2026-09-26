@@ -787,6 +787,9 @@ export function defaultReglages(agency) {
     annonces: { autoSync: false, siteUrl: "" },
     acheteurs: { enabled: false, cci: "" },
     estimations: { enabled: false, cci: "" },
+    // Bilans vendeurs hebdomadaires : brouillons préparés le lundi matin,
+    // relus et envoyés par le conseiller (bilans.js).
+    bilans: { enabled: false, cci: "" },
     // Fichier des mandats AMEPI : relevé nocturne des biens des confrères ;
     // « relance » = les proposer aussi aux acquéreurs (délégation de mandat).
     amepi: { enabled: false, sources: ["2"], relance: false, communes: "", departements: "33" },
@@ -806,6 +809,7 @@ export async function getReglages(db, agency) {
     annonces: { ...def.annonces, ...(data.annonces || {}) },
     acheteurs: { ...def.acheteurs, ...(data.acheteurs || {}) },
     estimations: { ...def.estimations, ...(data.estimations || {}) },
+    bilans: { ...def.bilans, ...(data.bilans || {}) },
     amepi: { ...def.amepi, ...(data.amepi || {}) },
     modeles: data.modeles && typeof data.modeles === "object" ? data.modeles : {},
     offres: { ...def.offres, ...(data.offres || {}) },
@@ -819,6 +823,7 @@ export async function saveReglages(db, agency, userId, incoming) {
     annonces: { ...cur.annonces, ...(incoming.annonces || {}) },
     acheteurs: { ...cur.acheteurs, ...(incoming.acheteurs || {}) },
     estimations: { ...cur.estimations, ...(incoming.estimations || {}) },
+    bilans: { ...cur.bilans, ...(incoming.bilans || {}) },
     amepi: { ...cur.amepi, ...(incoming.amepi || {}) },
     modeles: { ...cur.modeles, ...(incoming.modeles || {}) },
     offres: OFFRES.sanitizeReglagesOffres(incoming.offres && typeof incoming.offres === "object" ? incoming.offres : {}, cur.offres),
@@ -834,6 +839,7 @@ export async function saveReglages(db, agency, userId, incoming) {
   next.acheteurs.cci = strip(next.acheteurs.cci, 160);
   next.estimations.enabled = !!next.estimations.enabled;
   next.estimations.cci = strip(next.estimations.cci, 160);
+  next.bilans = { enabled: !!next.bilans.enabled, cci: strip(next.bilans.cci, 160) };
   next.amepi.enabled = !!next.amepi.enabled;
   next.amepi.relance = !!next.amepi.relance;
   next.amepi.sources = [...new Set((Array.isArray(next.amepi.sources) ? next.amepi.sources : []).map(String).filter((x) => ["1", "2", "3"].includes(x)))];

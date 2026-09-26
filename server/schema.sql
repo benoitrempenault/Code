@@ -903,3 +903,45 @@ CREATE TABLE IF NOT EXISTS crm_conseillers (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_crm_conseillers_ag ON crm_conseillers(agency_id, nom);
+
+-- Bilans vendeurs hebdomadaires (bilans.js). Le portefeuille de mandats vient
+-- de l'export C21 (remplacé à chaque import : l'export EST le portefeuille) ;
+-- la référence `ref` est celle de l'annonce sur le site de l'agence.
+CREATE TABLE IF NOT EXISTS crm_bilan_mandats (
+  agency_id    TEXT NOT NULL REFERENCES agencies(id),
+  ref          TEXT NOT NULL,               -- référence du bien (= annonce du site)
+  mandat       TEXT NOT NULL DEFAULT '',    -- numéro de mandat
+  vendeur      TEXT NOT NULL DEFAULT '',    -- « NOM Prénom, Prénom… »
+  email        TEXT NOT NULL DEFAULT '',
+  conseiller   TEXT NOT NULL DEFAULT '',    -- « NOM Prénom » tel que dans l'export
+  ville        TEXT NOT NULL DEFAULT '',
+  adresse      TEXT NOT NULL DEFAULT '',
+  debut        TEXT NOT NULL DEFAULT '',    -- début du mandat AAAA-MM-JJ
+  avenant      TEXT NOT NULL DEFAULT '',    -- dernier avenant AAAA-MM-JJ
+  prix         INTEGER,
+  prix_initial INTEGER,
+  updated_at   INTEGER NOT NULL,
+  PRIMARY KEY (agency_id, ref)
+);
+
+-- Un bilan = un mandat × une semaine (lundi). Brouillon préparé le lundi,
+-- relu (modifie = 1 : la régénération n'y touche plus) puis envoyé.
+CREATE TABLE IF NOT EXISTS crm_bilans (
+  id          TEXT PRIMARY KEY,             -- bl_xxxxxxxx
+  agency_id   TEXT NOT NULL REFERENCES agencies(id),
+  ref         TEXT NOT NULL,
+  semaine     TEXT NOT NULL,                -- lundi de la semaine couverte
+  statut      TEXT NOT NULL DEFAULT 'brouillon', -- brouillon | envoye | ignore
+  modifie     INTEGER NOT NULL DEFAULT 0,
+  email       TEXT NOT NULL DEFAULT '',
+  conseiller  TEXT NOT NULL DEFAULT '',
+  sujet       TEXT NOT NULL DEFAULT '',
+  texte       TEXT NOT NULL DEFAULT '',
+  donnees     TEXT NOT NULL DEFAULT '{}',   -- chiffres, comparables, alertes (JSON)
+  envoye_at   INTEGER,
+  envoye_par  TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  UNIQUE (agency_id, ref, semaine)
+);
+CREATE INDEX IF NOT EXISTS idx_crm_bilans_sem ON crm_bilans(agency_id, semaine);

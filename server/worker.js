@@ -8,6 +8,7 @@ import { runRecap } from "./src/recap.js";
 import { releverAbsencesOutlook } from "./src/releve.js";
 import { runCrmDaily, menageQuotidien } from "./src/crm.js";
 import { rappelsOffres } from "./src/offres-cron.js";
+import { runBilans } from "./src/bilans.js";
 
 export default {
   // Cron (wrangler.toml [triggers]) : récapitulatif des actions à mener
@@ -21,6 +22,10 @@ export default {
     // activé dans ses réglages Administration.
     // Le ménage (corbeille > 30 j, sessions mortes, liens périmés) passe avant.
     if (event.cron === "0 6 * * *") { ctx.waitUntil(menageQuotidien(db, env.FILES || null).then(() => runCrmDaily(env, db)).then(() => rappelsOffres(env, db))); return; }
+    // Lundi 5h UTC : brouillons des bilans vendeurs de la semaine écoulée
+    // (budget de sous-requêtes à part de celui du cron de 6h). Inerte tant
+    // que l'agence n'a pas activé les bilans dans ses réglages.
+    if (event.cron === "0 5 * * 1,5" && new Date().getUTCDay() === 1) ctx.waitUntil(runBilans(env, db));
     // Relevé nocturne des absences Outlook (permanences). Inerte tant que
     // l'agence n'a pas coché « relever automatiquement » dans ses réglages.
     ctx.waitUntil(releverAbsencesOutlook(env, db));
@@ -48,6 +53,11 @@ export default {
       AMEPI_AGENCY: env.AMEPI_AGENCY || "",
       MAIL_FROM: env.MAIL_FROM || "",
       OFFRE_BASE: env.OFFRE_BASE || "", // page publique de l'offre d'achat (dossier offre/)
+      // Bilans vendeurs : statistiques par annonce du site de l'agence
+      // (kadima-site, clé partagée = STUDIO_STATS_KEY côté site).
+      SITE_STATS_BASE: env.SITE_STATS_BASE || "",
+      SITE_STATS_KEY: env.SITE_STATS_KEY || "",
+      BILANS_BASE: env.BILANS_BASE || "",
       STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET || "",
       AI_MODELS: env.AI_MODELS || "",
       AI_RATE_PER_MIN: env.AI_RATE_PER_MIN || "",

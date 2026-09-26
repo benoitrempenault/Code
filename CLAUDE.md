@@ -614,6 +614,39 @@ corps binaires). Limite connue : avec le compte SSO partagé Kadima, tous les
 collaborateurs sont le même `user_id` — l'accès aux pièces « conseiller du dossier » ne
 cloisonne que des comptes distincts.
 
+**`bilans/` — Studio Bilans**, les **bilans vendeurs hebdomadaires** (interne Kadima,
+26/09/2026). Serveur `server/src/bilans.js` (`monterRoutesBilans`, `runBilans`). Le
+portefeuille = l'**export des mandats C21** (xlsx lu dans le navigateur, colonnes reconnues
+par leurs en-têtes « Ref », « Email », « Conseiller », « Prix », « Prix Initial », « Date
+Début Mandat »… ; lignes avec « Date compromis » ignorées) déposé sur `POST
+/crm/bilans/mandats` (admin) qui REMPLACE `crm_bilan_mandats` — l'export EST le
+portefeuille. La colonne `Ref` est la référence de l'annonce du site (68/75 en ligne sur
+l'export réel du 26/09, prix identiques). L'audience vient de **kadima-site** : route
+`GET /api/studio/stats-annonces` (clé `X-Studio-Key` = `STUDIO_STATS_KEY` côté Render,
+`SITE_STATS_KEY` secret Worker, `SITE_STATS_BASE` = https://api.century21-kadima.fr ; 404
+sans la variable) — vues, demandes de visite, brochures PAR SEMAINE (lundi). Le marché
+vient d'AMEPI déjà relevé (`crm_amepi` en_vente même commune/type, surface ±25 % puis ±40 %,
+annonces KADIMA de l'ALFA exclues, ≥ 3 comparables sinon pas de position de prix) et de
+son journal (`crm_annonces_events` amepi: baisses/retraits/nouveautés de la semaine).
+`calculerBilan` → chiffres + **alertes internes** (prix-haut > +8 %, sans-demande,
+faible-audience indice < 50, audience-baisse, concurrence-baisse, ancien > 180 j) +
+**recommandation** (mandat > 180 j, ou prix haut sans demande : repositionnement à la
+médiane €/m² × surface arrondie au millier inférieur si écart > 3 %, sinon « renouveler
+la présentation »). `texteBilan` = texte déterministe (aucune IA, aucun chiffre inventé)
+que le conseiller relit ; les alertes ne partent jamais. Semaine couverte = dernière
+semaine COMPLÈTE. `crm_bilans` (un par mandat × semaine, brouillon|envoye|ignore ;
+`modifie` = relu → la régénération n'y touche plus). Délégations (« DELEGATION … ») et
+mandats absents du site : pas de bilan. Cron : lundi sur « 0 5 * * 1,5 » (budget de
+sous-requêtes séparé du 6h), si `reglages.bilans.enabled` — brouillons + e-mail « N bilans
+à relire » à chaque conseiller (profil `crm_conseillers` retrouvé par le nom de l'export)
+et à la boîte de l'agence ; **le cron n'écrit JAMAIS à un vendeur**. Envoi = geste du
+conseiller (`POST /crm/bilans/:id/envoyer`, membre, confirmation en deux clics), signé de
+son profil, reply-to vers lui, journal `crm_envois` type `bilan-vendeur`. App membre
+(les conseillers non admin y ont accès — l'Administration leur est fermée) ; onglet-lien
+« 📈 Bilans vendeurs » de l'Administration, réglage dans Réglages. Tests : bloc « Bilans
+vendeurs » de test.mjs + smoke `bilans` (faux site sur 18803). V2 non faite : stats des
+portails (SeLoger, Bien'ici, Leboncoin : pas d'API, back-offices séparés), réseaux sociaux.
+
 **`permanence/` — Studio Permanence**, l'app interne Kadima du **tour de permanence physique
 des points de vente** (Saint-Médard, Caudéran, Blanquefort…), avec sa page publique de prise
 de rendez-vous sous **`rdv/`**. Créneaux 9h-12h / 12h-14h / 14h-17h / 17h-19h du lundi au

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; frame-src 'self' about:; connect-src 'self' https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev https://fonts.googleapis.com https://fonts.gstatic.com" />
+  <title>Studio Brochure — Bilans vendeurs</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <meta name="robots" content="noindex" />
+  <meta name="description" content="Chaque semaine, le point sur la commercialisation de chaque bien : audience de l'annonce, demandes, position de prix face aux comparables — relu et envoyé par le conseiller." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/bilans.css?v=1" />
+</head>
+<body>
+
+<header class="topbar">
+  <a class="home" href="../administration/" title="Administration">⌂</a>
+  <h1>Studio <em>Bilans</em></h1>
+  <div class="topbar-right"><span id="who" class="who"></span></div>
+</header>
+
+<div id="ecran-connexion" class="connexion" hidden>
+  <div class="connexion-carte">
+    <h2>Connexion requise</h2>
+    <p>Les bilans vendeurs utilisent votre compte Studio Brochure — le même que pour le
+      Suivi et l'Administration.</p>
+    <a class="btn btn-or" id="lien-connexion" href="../mandat-pro/compte.html?retour=../bilans/">Se connecter</a>
+    <p class="petit" id="connexion-detail"></p>
+  </div>
+</div>
+
+<main id="app" hidden>
+  <section class="entete">
+    <div>
+      <h2>Bilans vendeurs</h2>
+      <p class="aide">Chaque lundi matin, un bilan par mandat publié sur le site : audience de l'annonce
+        semaine après semaine, demandes de visite, prix face aux biens comparables des confrères,
+        mouvements du marché. <strong>Rien ne part tout seul</strong> : relisez, ajustez, envoyez.</p>
+    </div>
+    <div class="compteurs" id="compteurs"></div>
+  </section>
+
+  <section class="barre">
+    <label>Semaine<select id="semaine"></select></label>
+    <label>Conseiller<select id="filtre-conseiller"><option value="">Tous</option></select></label>
+    <label>Afficher<select id="filtre-statut">
+      <option value="brouillon">À relire</option>
+      <option value="">Tous</option>
+      <option value="envoye">Envoyés</option>
+      <option value="ignore">Écartés</option>
+    </select></label>
+    <span class="espace"></span>
+    <span class="admin-seul" hidden>
+      <button class="btn" id="btn-import">📥 Importer l'export des mandats</button>
+      <button class="btn btn-or" id="btn-generer">⟳ Préparer les bilans</button>
+    </span>
+    <input type="file" id="fichier-mandats" accept=".xlsx,.xls,.csv" hidden />
+  </section>
+  <p class="petit" id="etat-sources"></p>
+
+  <section id="liste" class="liste"></section>
+</main>
+
+<div class="voile" id="voile" hidden>
+  <div class="modale">
+    <div class="modale-tete">
+      <h2 id="modale-titre"></h2>
+      <button class="fermer" id="modale-fermer">&times;</button>
+    </div>
+    <div class="modale-corps" id="modale-corps"></div>
+    <div class="modale-pied" id="modale-pied"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/vendor/xlsx.full.min.js"></script>
+<script src="assets/js/bilans.js?v=1"></script>
+<script src="../assets/js/compte-bandeau.js"></script>
+</body>
+</html>

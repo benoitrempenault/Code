@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/admin.css?v=4" />
+  <link rel="stylesheet" href="assets/css/admin.css?v=5" />
 </head>
 <body>
 
@@ -49,6 +49,7 @@
     <button class="onglet" data-onglet="annonces">🏠 Annonces</button>
     <a class="onglet onglet-lien" href="../prospection/">🗺️ Prospection</a>
     <a class="onglet onglet-lien" href="../estimation/">📐 Estimation</a>
+    <a class="onglet onglet-lien" href="../bilans/">📈 Bilans vendeurs</a>
     <button class="onglet" data-onglet="reglages">🔧 Réglages</button>
   </nav>
 
@@ -280,6 +281,18 @@
   <!-- ============================= RÉGLAGES ============================ -->
   <section id="panneau-reglages" class="panneau">
     <div class="carte">
+      <h2>📈 Bilans vendeurs hebdomadaires</h2>
+      <p class="aide">Chaque lundi matin, un brouillon de bilan par mandat publié sur le site (audience de
+        l'annonce, demandes, prix face aux comparables AMEPI) ; chaque conseiller reçoit la liste des siens
+        à relire. <strong>Aucun e-mail ne part au vendeur sans le geste du conseiller.</strong>
+        Import de l'export des mandats, relecture et envoi : <a href="../bilans/">Studio Bilans</a>.</p>
+      <div class="barre">
+        <label class="case"><input type="checkbox" id="bilans-enabled" /> <strong>Préparer les bilans chaque lundi</strong></label>
+        <input type="email" id="bilans-cci" placeholder="copie cachée des envois (optionnel)" style="min-width:240px;" />
+        <button class="btn btn-or" id="btn-bilans-save">Enregistrer</button>
+      </div>
+    </div>
+    <div class="carte">
       <h2>Identité de l'agence</h2>
       <p class="aide">Ces informations habillent les e-mails envoyés (en-tête, signature,
         pied de page). Les réponses des clients arrivent dans la boîte de l'agence.</p>
@@ -439,7 +452,7 @@
 <script src="assets/js/vendor/xlsx.full.min.js"></script>
 <script src="assets/js/vendor/pdf-lib.min.js"></script>
 <script src="assets/js/zip.js"></script>
-<script src="assets/js/admin.js?v=4"></script>
+<script src="assets/js/admin.js?v=5"></script>
 <script src="../assets/js/compte-bandeau.js"></script>
 </body>
 </html>

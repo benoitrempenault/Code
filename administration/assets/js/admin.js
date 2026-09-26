@@ -978,6 +978,8 @@
   $("ach-cci").value = (reglages.acheteurs && reglages.acheteurs.cci) || "";
   $("estim-enabled").checked = !!(reglages.estimations && reglages.estimations.enabled);
   $("estim-cci").value = (reglages.estimations && reglages.estimations.cci) || "";
+  $("bilans-enabled").checked = !!(reglages.bilans && reglages.bilans.enabled);
+  $("bilans-cci").value = (reglages.bilans && reglages.bilans.cci) || "";
     $("annonces-auto").checked = !!reglages.annonces.autoSync;
     $("annonces-site").value = reglages.annonces.siteUrl || "";
     $("ag-nom").value = reglages.agence.nom || "";
@@ -2580,6 +2582,9 @@
   $("btn-estim-save").addEventListener("click", () => sauverReglages({
     estimations: { enabled: $("estim-enabled").checked, cci: $("estim-cci").value.trim() },
   }, "Réglages du suivi estimation enregistrés"));
+  $("btn-bilans-save").addEventListener("click", () => sauverReglages({
+    bilans: { enabled: $("bilans-enabled").checked, cci: $("bilans-cci").value.trim() },
+  }, "Réglages des bilans vendeurs enregistrés"));
   $("btn-estim-run").addEventListener("click", lancerEstimations);
   document.querySelectorAll("[data-apercu-estim]").forEach((b) => b.addEventListener("click", async () => {
     try {
