@@ -585,6 +585,38 @@ retenues (carte zoom 15 de toutes les ventes DVF ≤ 1,5 km + tableau 27 lignes 
 date décroissante, `donnees.ventesDvf` posé par ouvrirAcm) ; acheteurs : résumé
 vivant dans la fenêtre (`#acm-ach-resume`, nb de budgets ≥ prix / basse / haute) et
 trois encadrés sur la page.
+Bien'ici (26/09) : `GET /crm/parcours/:id/acm/portails?prix=` → `bieniciCommune()` :
+zone via `res.bienici.com/suggest.json?q=ville` (city dont insee_codes contient le
+code INSEE, sinon même nom), puis `www.bienici.com/realEstateAds.json?filters=`
+(buy, propertyType house|flat, onTheMarket, 60 par publicationDate) → biens
+{source bienici, id bienici:<id>, agence (accountDisplayName), prix, surface,
+terrain, pièces, chambres, quartier, image (photos[0].url_photo), url
+/annonce/vente/<ville>/<type>/<n>pieces/<id>, lat/lng (blurInfo.position, ±125 m),
+jours, baisse (priceHasDecreased), dpe} ; filtre 0,6–1,5 × prix, tri distance, cache
+3 h par ville|cp|type (mémoire) ; env BIENICI_BASE / BIENICI_SUGGEST (faux serveurs
+tests 18786, smoke 18783 ; node.js les transmet). SeLoger répond 403 côté serveur,
+leboncoin idem : saisie manuelle. Relais d'images : hôtes file.bienici.com,
+images.century21.fr, photos.bienici.com autorisés en plus des URL en base (les deux
+redirigent vers un stockage OVH, `redirect: follow`). Fenêtre ACM : `.modale.large`
+(1240 px, 98 vh), listes `.liste-choix` 44 vh / `.haute` 78 vh ; 📷 par bien
+(`[data-photo]`, reduireImage 1200 px → `photo` data URL gardée dans
+acm.concurrence, prioritaire sur le relais) ; DVF 24 mois, tableau à colonnes
+fixes ; financement : tableau 3 niveaux (basse / prix estimé / haute) × 15/20/25
+ans + coût sur la durée. Commune de repli : `geocoderBan` renvoie `citycode` ;
+`/acm/donnees` l'utilise si geo.api.gouv.fr est muet et renvoie `erreurs`.
+`GET /diag/livret?cp=&ville=` (public, 10 min) : commune, BAN, millésimes DVF
+(2026 → 404 tant que le millésime n'existe pas), photo Bien'ici, photo AMEPI.
+**Vignettes AMEPI par l'agent (26/09)** : les images des mandats sont sur
+amepistorageprod.blob.core.windows.net → 403 sans session. Table
+`crm_amepi_photos (agency_id, id, photo jpeg ≤ 110 Ko data URL)`. Routes agent
+(X-Agent-Key) : `GET /crm/amepi/photos/manquantes` (≤ 150 mandats en vente avec
+image http et sans photo, {id, image}) et `POST /crm/amepi/photos {photos:[{id,
+photo}]}` (≤ 60, JPEG seulement, mandat connu) → {gardees, refusees}. Agent
+PowerShell, phase 3 après le relevé : System.Drawing, réduction à 320 px, qualité
+78, lots de 40, échecs comptés, étape sautée sans faire échouer le relevé.
+`/acm/donnees` joint la vignette (`photo`) aux mandats ALFA ; fenêtre et générateur
+l'utilisent (`a.photo || a.image`), la photo posée à la main reste prioritaire.
+Assets admin : `?v=17`.
 **Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
 bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la
 police Bugaki complète, non versionnée) ; le navigateur y écrit « Famille NOM » (ou
