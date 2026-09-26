@@ -1967,6 +1967,16 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     } else { res.writeHead(404); res.end("Not Found"); }
   });
   await new Promise((r) => fauxDvf.listen(18792, r));
+  // Faux Bien'ici : zones (suggest) et annonces de la commune.
+  const fauxBienici = (await import("node:http")).createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    if (req.url.startsWith("/suggest.json")) return res.end(JSON.stringify([{ id: "z1", name: "Le Haillan", type: "city", insee_codes: ["33200"], postalCodes: ["33185"], zoneIds: ["-999"] }]));
+    res.end(JSON.stringify({ total: 2, realEstateAds: [
+      { id: "orpi-1", reference: "R1", accountDisplayName: "ORPI Le Haillan", adType: "buy", propertyType: "house", price: 349000, surfaceArea: 95, landSurfaceArea: 322, roomsQuantity: 4, bedroomsQuantity: 3, city: "Le Haillan", postalCode: "33185", publicationDate: new Date(Date.now() - 12 * 86400000).toISOString(), priceHasDecreased: true, energyClassification: "C", blurInfo: { position: { lat: 44.8705, lon: -0.7125 } }, photos: [{ url_photo: "https://file.bienici.com/photo/orpi-1.jpg" }], district: { libelle: "Centre" } },
+      { id: "loin-2", accountDisplayName: "X", adType: "buy", propertyType: "house", price: 900000, surfaceArea: 200, roomsQuantity: 7, city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString(), blurInfo: { position: { lat: 44.8705, lon: -0.7125 } }, photos: [] },
+    ] }));
+  });
+  await new Promise((r) => fauxBienici.listen(18786, r));
   // Fausse BAN : géocode « Vignes », ignore le reste — pour tester le
   // géocodage AUTOMATIQUE des ventes (le serveur appelle la BAN lui-même).
   let fauxBanCsv = false; // le géocodage EN MASSE (CSV) n'est servi que quand un test l'allume
@@ -2019,7 +2029,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin",
     APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
     RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18791",
-    DVF_BASE: "http://localhost:18792", BAN_BASE: "http://localhost:18793", BATIMENTS_BASE: "http://localhost:18799",
+    DVF_BASE: "http://localhost:18792", BIENICI_BASE: "http://localhost:18786", BIENICI_SUGGEST: "http://localhost:18786/suggest.json", BAN_BASE: "http://localhost:18793", BATIMENTS_BASE: "http://localhost:18799",
     MAIL_FROM: "Studio Brochure <connexion@studiobrochure.fr>",
     AMEPI_BASE: "http://localhost:18798", AMEPI_EMAIL: "benoit@kadima.test", AMEPI_PASSWORD: "secret-amepi",
   });
@@ -3545,6 +3555,9 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      && dn.amepi.length === 1 && dn.amepi[0].agence === "Orpi Le Haillan" && dn.amepi[0].baisse === 10000 && dn.amepi[0].dist < 6000
      && dn.acheteurs.some((a) => a.budget_max === 340000) && dn.acheteurs.length === (dn0.acheteurs || []).length + 1,
      "les données comparables : commune INSEE, ventes de l'agence à 2 km, notre annonce (baisse, ancienneté), le mandat ALFA de même type, l'acheteur qui cherche une maison au Haillan — pas celui d'un appartement ni la recherche en pause (" + JSON.stringify({ com: dn.commune, v: dn.ventes.length, vignes: dn.ventes.some((v) => /Vignes/.test(v.adresse)), anH: anH && { baisse: anH.baisse, jours: anH.jours }, appt: dn.annonces.some((a) => a.type === "appartement"), am: dn.amepi.map((a) => [a.agence, a.baisse, a.dist]), ach: [dn.acheteurs.length, (dn0.acheteurs || []).length, dn.acheteurs.some((a) => a.budget_max === 340000)] }) + ")");
+  const portails = (await callR("/crm/parcours/" + pxId + "/acm/portails?prix=330000", { headers: authP })).json;
+  ok(portails.biens.length === 1 && portails.biens[0].id === "bienici:orpi-1" && portails.biens[0].agence === "ORPI Le Haillan" && portails.biens[0].baisse === 1 && portails.biens[0].jours >= 11 && portails.biens[0].terrain === 322 && /bienici\.com\/annonce\/vente\/le-haillan\/maison\/4pieces\/orpi-1/.test(portails.biens[0].url) && portails.biens[0].dist != null,
+     "Bien'ici : les biens de la commune, même type, autour du prix (le bien à 900 000 € écarté), avec agence, baisse, ancienneté, distance et lien (" + JSON.stringify(portails.biens.map((b) => [b.id, b.dist])) + ")");
   ok((await callR("/crm/parcours-image?u=https://site/photos/inconnue.jpg", { headers: authP })).status === 404 && (await callR("/crm/parcours-image?u=javascript:alert(1)", { headers: authP })).status === 400,
      "le relais d'images ne sert que les photos connues des annonces et mandats");
   await db.run("DELETE FROM crm_annonces WHERE id = 'maison-haillan-1'"); await db.run("DELETE FROM crm_amepi WHERE id IN ('am-1', 'am-2')"); await db.run("DELETE FROM crm_recherches WHERE contact_id IN ('ct_ach1', 'ct_ach2', 'ct_ach3')");

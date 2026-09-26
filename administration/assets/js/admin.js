@@ -2928,7 +2928,7 @@
     let dvf = [];
     if (donnees.commune && donnees.commune.code) { try { dvf = await chargerDvfCommune(donnees.commune.code, donnees.commune.dep); } catch { dvf = []; } }
     const typeDvf = donnees.type === "appartement" ? "Appartement" : "Maison";
-    const depuis = new Date(); depuis.setFullYear(depuis.getFullYear() - 3);
+    const depuis = new Date(); depuis.setFullYear(depuis.getFullYear() - 2); // 24 derniers mois
     const ventesDvf = dvf.filter((v) => v.type === typeDvf && v.date >= depuis.toISOString().slice(0, 10))
       .map((v) => ({ ...v, source: "dvf", dist: Math.round(distM(donnees.lat, donnees.lng, v.lat, v.lng)) })).filter((v) => v.dist <= 1500).sort((a, b) => a.dist - b.dist).slice(0, 30);
     const ventesAgence = (donnees.ventes || []).filter((v) => v.prix > 0).map((v) => ({ ...v, source: "agence", dist: Math.round(v.dist) }));
@@ -2939,16 +2939,22 @@
     // Les biens vus sur les portails (leboncoin, SeLoger…), saisis à la main avec
     // l'adresse retrouvée (précisément.fr) : gardés dans la saisie du livret.
     const manuels = (acm.concurrence || []).filter((c) => c.source === "portail");
-    const candidatsConc = [...manuels, ...(donnees.annonces || []).map((a) => ({ ...a, id: "agence:" + a.id })), ...(donnees.amepi || []).map((a) => ({ ...a, id: "amepi:" + a.id }))];
+    let portails = { biens: [] };
+    try { portails = await api("/crm/parcours/" + id + "/acm/portails" + (acm.prix ? "?prix=" + acm.prix : "")); } catch { portails = { biens: [] }; }
+    // Les photos déjà posées à la main (📷) restent attachées aux biens.
+    const photosPosees = new Map((acm.concurrence || []).filter((c) => c.photo).map((c) => [c.id, c.photo]));
+    const candidatsConc = [...manuels, ...(donnees.annonces || []).map((a) => ({ ...a, id: "agence:" + a.id })), ...(donnees.amepi || []).map((a) => ({ ...a, id: "amepi:" + a.id })), ...(portails.biens || [])]
+      .map((a) => (photosPosees.has(a.id) ? { ...a, photo: photosPosees.get(a.id) } : a));
     const dejaV = new Set((acm.ventes || []).map((v) => v.id)), dejaC = new Set((acm.concurrence || []).map((v) => v.id));
     const cocheV = (v, i) => (acm.ventes ? dejaV.has(v.id) : i < 4), cocheC = (v, i) => (acm.concurrence ? dejaC.has(v.id) : i < 4);
     const ligneVente = (v, i) => '<label class="case" style="display:flex; gap:8px; align-items:flex-start; padding:4px 0; border-bottom:1px solid var(--line);"><input type="checkbox" data-vente="' + escH(v.id) + '"' + (cocheV(v, i) ? " checked" : "") + ' /> <span><strong>' +
       escH(fmtPrix(v.prix)) + "</strong> · " + escH(fmtDateAcm(v.date)) + " · " + escH(v.adresse || "") + (v.ville ? ", " + escH(v.ville) : "") + '<br /><span class="petit">' +
       escH([v.type, v.pieces ? v.pieces + " pièces" : "", v.surface ? Math.round(v.surface) + " m²" : "", v.terrain ? "terrain " + Math.round(v.terrain) + " m²" : "", fmtM2(v), "à " + v.dist + " m", v.source === "agence" ? "vendu par l'agence" : "DVF"].filter(Boolean).join(" · ")) + "</span></span></label>";
     const ligneConc = (a, i) => '<label class="case" style="display:flex; gap:8px; align-items:flex-start; padding:4px 0; border-bottom:1px solid var(--line);"><input type="checkbox" data-conc="' + escH(a.id) + '"' + (cocheC(a, i) ? " checked" : "") + ' /> ' +
-      (a.image ? '<img src="' + escH(a.image) + '" alt="" style="width:72px; height:54px; object-fit:cover; border-radius:6px; flex:none; background:var(--line);" loading="lazy" />' : '<span style="width:72px; height:54px; border-radius:6px; background:var(--line); flex:none;"></span>') + "<span><strong>" +
+      '<span style="flex:none; display:flex; flex-direction:column; gap:2px; align-items:center;">' + ((a.photo || a.image) ? '<img data-vignette="' + escH(a.id) + '" src="' + escH(a.photo || a.image) + '" alt="" style="width:72px; height:54px; object-fit:cover; border-radius:6px; background:var(--line);" loading="lazy" />' : '<span data-vignette="' + escH(a.id) + '" style="width:72px; height:54px; border-radius:6px; background:var(--line); display:block;"></span>') +
+      '<label class="btn" style="padding:1px 6px; font-size:11px;" title="Poser ou remplacer la photo qui ira dans le livret">📷<input type="file" accept="image/*" data-photo="' + escH(a.id) + '" hidden /></label></span><span><strong>' +
       escH(fmtPrix(a.prix)) + "</strong> · " + escH(a.titre || "") + (a.ville ? " · " + escH(a.ville) : "") + '<br /><span class="petit">' +
-      escH([a.adresse || "", a.pieces ? a.pieces + " pièces" : "", a.surface ? Math.round(a.surface) + " m²" : "", a.terrain ? "terrain " + Math.round(a.terrain) + " m²" : "", fmtM2(a), a.dist != null ? "à " + Math.round(a.dist) + " m" : "", a.jours ? "en vente depuis " + a.jours + " j" : "", a.baisse > 0 ? "baisse de " + fmtPrix(a.baisse) : "", a.source === "amepi" ? "ALFA · " + (a.agence || "confrère") : a.source === "portail" ? "vu sur " + (a.portail || "un portail") : "notre agence"].filter(Boolean).join(" · ")) +
+      escH([a.adresse || "", a.pieces ? a.pieces + " pièces" : "", a.surface ? Math.round(a.surface) + " m²" : "", a.terrain ? "terrain " + Math.round(a.terrain) + " m²" : "", fmtM2(a), a.dist != null ? "à " + Math.round(a.dist) + " m" : "", a.jours ? "en vente depuis " + a.jours + " j" : "", a.baisse > 0 ? "baisse de " + fmtPrix(a.baisse) : "", a.source === "amepi" ? "ALFA · " + (a.agence || "confrère") : a.source === "portail" ? "vu sur " + (a.portail || "un portail") : a.source === "bienici" ? "Bien'ici · " + (a.agence || "agence") + (a.quartier ? " · " + a.quartier : "") : "notre agence"].filter(Boolean).join(" · ")) +
       (a.url ? ' · <a href="' + escH(a.url) + '" target="_blank" rel="noopener">voir l\'annonce ↗</a>' : "") + "</span></span></label>";
     const commission = (acm.commission && acm.commission.length ? acm.commission : [{ nb: "", basse: "", haute: "" }, { nb: "", basse: "", haute: "" }, { nb: "", basse: "", haute: "" }]);
     const ach = donnees.acheteurs || [];
@@ -2971,7 +2977,7 @@
       '<label>Fourchette haute<input id="acm-haute" type="number" step="1000" value="' + escH(acm.haute || "") + '" /></label></div>' +
       '<h3 style="margin:14px 0 4px;">1. Les biens récemment vendus <span class="petit">(' + candidatsVentes.length + ' à moins de 1,5 km — DVF 3 ans et ventes de l\'agence)</span></h3>' +
       '<div id="acm-ventes" style="max-height:220px; overflow-y:auto;">' + (candidatsVentes.length ? candidatsVentes.map(ligneVente).join("") : '<p class="petit">Aucune vente comparable trouvée' + (dvf.length ? "" : " (fichier DVF de la commune indisponible)") + ".</p>") + "</div>" +
-      '<h3 style="margin:14px 0 4px;">2. Les biens en concurrence <span class="petit">(nos annonces et les mandats de l\'ALFA, même type, même secteur)</span></h3>' +
+      '<h3 style="margin:14px 0 4px;">2. Les biens en concurrence <span class="petit">(nos annonces, les mandats de l\'ALFA et Bien\'ici — même type, même commune' + (portails.erreur ? " ; Bien'ici indisponible : " + escH(portails.erreur) : "") + ")</span></h3>" +
       '<div id="acm-conc" style="max-height:220px; overflow-y:auto;">' + (candidatsConc.length ? candidatsConc.map(ligneConc).join("") : '<p class="petit">Aucun bien en vente comparable pour le moment.</p>') + "</div>" +
       '<details style="margin-top:6px;"><summary class="petit" style="cursor:pointer;">+ Ajouter un bien vu sur un portail (adresse retrouvée sur précisément.fr)</summary>' +
       '<div class="grille-champs" style="margin-top:6px;"><label style="grid-column:1/-1;">Adresse<input id="acm-m-adresse" placeholder="9 allée Lamartine, Le Taillan-Médoc" /></label>' +
@@ -2993,6 +2999,18 @@
     $("modale-pied").innerHTML = '<button class="btn" id="acm-retour">Retour</button><button class="btn" id="acm-save">Enregistrer</button><button class="btn btn-or" id="acm-generer">🖨 Générer le livret</button>';
     $("acm-retour").addEventListener("click", () => ouvrirParcours(id));
     $("acm-ach-resume").textContent = resumeAch();
+    $("acm-conc").addEventListener("change", async (ev) => {
+      const inp = ev.target; if (!inp.matches || !inp.matches("[data-photo]")) return;
+      const f = inp.files && inp.files[0]; if (!f) return;
+      try {
+        const photo = await reduireImage(f, 1200, 0.82);
+        const cand = candidatsConc.find((x) => x.id === inp.dataset.photo); if (cand) cand.photo = photo;
+        const vig = document.querySelector('[data-vignette="' + inp.dataset.photo + '"]');
+        if (vig) { const img = document.createElement("img"); img.src = photo; img.alt = ""; img.style.cssText = "width:72px; height:54px; object-fit:cover; border-radius:6px;"; img.dataset.vignette = inp.dataset.photo; vig.replaceWith(img); }
+        const cb = document.querySelector('[data-conc="' + inp.dataset.photo + '"]'); if (cb) cb.checked = true;
+        toast("Photo posée sur ce bien");
+      } catch (e) { toast(e.message, true); }
+    });
     for (const k of ["acm-prix", "acm-basse", "acm-haute"]) $(k).addEventListener("input", () => { $("acm-ach-resume").textContent = resumeAch(); });
     $("acm-m-ajouter").addEventListener("click", () => {
       const num = (k) => { const v = parseFloat($(k).value); return Number.isFinite(v) ? v : null; };
@@ -3121,16 +3139,16 @@
     const dvfTous = (donnees.ventesDvf || []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
     if (dvfTous.length) {
       const pg = await pageContenu("TOUTES LES VENTES AUTOUR DU BIEN", "(DVF)");
-      ecrire(pg, dvfTous.length + " vente(s) de " + typeLib.toLowerCase() + (typeLib === "Maison" ? "s" : "s") + " à moins de 1,5 km sur 3 ans — données notariales publiques (DVF, data.gouv.fr)", G, 88, 9, fR, gris);
+      couper(dvfTous.length + " vente(s) de " + typeLib.toLowerCase() + "s à moins de 1,5 km sur les 24 derniers mois — données notariales publiques (DVF, data.gouv.fr)", fR, 9, L).slice(0, 1).forEach((l) => ecrire(pg, l, G, 88, 9, fR, gris));
       await carte(pg, G, 98, L, 230, { lat: donnees.lat, lng: donnees.lng, zoom: 15, points: dvfTous.map((v) => ({ lat: v.lat, lng: v.lng, couleur: "#BEB18A", rayon: 6 })) });
-      const cols = [["Date", G, 50], ["Adresse", G + 50, 150], ["Type", G + 200, 58], ["Surface", G + 258, 46], ["Prix", G + 304, 66], ["€/m²", G + 370, 42], ["Dist.", G + 412, 32]];
+      const cols = [["Date", G, 56], ["Adresse", G + 56, 138], ["Type", G + 194, 56], ["Surface", G + 250, 44], ["Prix", G + 294, 64], ["€/m²", G + 358, 44], ["Dist.", G + 402, 42]];
       rect(pg, G, 344, L, 18, { color: or });
       cols.forEach(([t, x]) => ecrire(pg, t, x + 4, 357, 8.5, fB, blanc));
       dvfTous.slice(0, 27).forEach((v, j) => {
         const y = 376 + j * 14.5;
         if (j % 2 === 0) rect(pg, G, y - 10, L, 14.5, { color: sable });
         const cellules = [fmtDateAcm(v.date), (v.adresse || "").toUpperCase(), [v.type, v.pieces ? v.pieces + " p." : ""].filter(Boolean).join(" "), v.surface ? Math.round(v.surface) + " m²" : "", fmtPrix(v.prix), fmtM2(v).replace(" €/m²", ""), v.dist != null ? Math.round(v.dist) + " m" : ""];
-        cellules.forEach((t, c) => { let txt = String(t); while (largeur(txt, fR, 8.5) > cols[c][2] - 6 && txt.length > 3) txt = txt.slice(0, -2) + "…"; ecrire(pg, txt, cols[c][1] + 4, y, 8.5, c === 4 ? fS : fR, noir); });
+        cellules.forEach((t, c) => { let txt = String(t); while (largeur(txt, fR, 8) > cols[c][2] - 5 && txt.length > 3) txt = txt.slice(0, -2) + "…"; ecrire(pg, txt, cols[c][1] + 3, y, 8, c === 4 ? fS : fR, noir); });
       });
       if (dvfTous.length > 27) ecrire(pg, "… et " + (dvfTous.length - 27) + " autre(s) vente(s).", G, 376 + 27 * 14.5 + 4, 8.5, fR, gris);
     }
@@ -3142,7 +3160,8 @@
       for (let k = 0; k < 2 && i + k < conc.length; k++) {
         const a = conc[i + k], y0 = 100 + k * 340;
         let photo = null;
-        if (a.image) { try { const r = await fetch(API + "/crm/parcours-image?u=" + encodeURIComponent(a.image), { headers: { Authorization: "Bearer " + account().session } }); if (r.ok) { const b = await r.arrayBuffer(); const type = r.headers.get("content-type") || ""; photo = /png/.test(type) ? await doc.embedPng(b) : await doc.embedJpg(b); } } catch { photo = null; } }
+        if (a.photo) { try { const oct = Uint8Array.from(atob(a.photo.split(",")[1]), (ch) => ch.charCodeAt(0)); photo = /^data:image\/png/.test(a.photo) ? await doc.embedPng(oct) : await doc.embedJpg(oct); } catch { photo = null; } }
+        if (!photo && a.image) { try { const r = await fetch(API + "/crm/parcours-image?u=" + encodeURIComponent(a.image), { headers: { Authorization: "Bearer " + account().session } }); if (r.ok) { const b = await r.arrayBuffer(); const type = r.headers.get("content-type") || ""; photo = /png/.test(type) ? await doc.embedPng(b) : await doc.embedJpg(b); } } catch { photo = null; } }
         if (photo) imageCadree(pg, photo, G, y0, CW, CH);
         else { rect(pg, G, y0, CW, CH, { color: sable, borderColor: or, borderWidth: 0.8 }); ecrireCentre(pg, "photo non disponible", G + CW / 2, y0 + CH / 2 + 3, 9, fR, gris); }
         ecrire(pg, fmtPrix(a.prix), XF, y0 + 22, 18, fB, noir);
@@ -3210,12 +3229,21 @@
       ecrireCentre(pg, Math.round(mens + mAss).toLocaleString("fr-FR") + " €", G + L / 2, 232, 34, fB, or);
       const lignes = [["Montant de votre prêt", fmtPrix(Math.round(montant))], ["Votre mensualité", Math.round(mens + mAss).toLocaleString("fr-FR") + " €/mois*"], ["Dont assurance", Math.round(mAss).toLocaleString("fr-FR") + " €/mois"], ["Coût total du crédit", fmtPrix(Math.round(total + totalAss))], ["Dont assurance", fmtPrix(Math.round(totalAss))]];
       lignes.forEach(([a, b], j) => { ecrire(pg, a, G + 24, 262 + j * 13, 9.5, fR, gris); ecrireDroite(pg, b, D - 24, 262 + j * 13, 9.5, fS, noir); });
-      ecrire(pg, "Selon la durée", G, 370, 12, fS, noir);
+      // Les trois niveaux de prix (fourchette basse, prix estimé, fourchette haute) × durées.
+      ecrire(pg, "Selon le prix et la durée (mensualités par mois, assurance comprise)", G, 370, 12, fS, noir);
+      const niveaux = [["Fourchette basse", acm.basse], ["Prix estimé", acm.prix], ["Fourchette haute", acm.haute]].filter(([, v]) => v);
+      const lignesN = niveaux.length ? niveaux : [["Prix retenu", prixRef]];
+      const colX = [G, G + L * 0.30, G + L * 0.46, G + L * 0.62, G + L * 0.78], cx = (j) => colX[j] + L * (j === 4 ? 0.11 : 0.08);
       rect(pg, G, 378, L, 22, { color: or });
-      ["Durée", "Mensualité*", "Coût du crédit"].forEach((t, j) => ecrireCentre(pg, t, G + L * (0.18 + j * 0.32), 393, 10, fB, blanc));
-      [15, 20, 25].forEach((d, j) => { const m = mensualite(montant, taux, d), y = 425 + j * 24; if (j % 2 === 0) rect(pg, G, y - 13, L, 22, { color: sable });
-        ecrireCentre(pg, d + " ans", G + L * 0.18, y + 2, 10.5, fS, noir); ecrireCentre(pg, Math.round(m + mAss).toLocaleString("fr-FR") + " €/mois", G + L * 0.5, y + 2, 10.5, fS, noir); ecrireCentre(pg, fmtPrix(Math.round(m * d * 12 - montant + mAss * d * 12)), G + L * 0.82, y + 2, 10.5, fS, noir); });
-      couper("* assurance comprise. Simulation indicative, hors frais de dossier et de garantie ; les conditions dépendent du profil de l'emprunteur et de l'établissement prêteur.", fR, 8, L).forEach((l, j) => ecrire(pg, l, G, 520 + j * 11, 8, fR, gris)); }
+      ["Prix", "15 ans", "20 ans", "25 ans", "Coût sur " + duree + " ans"].forEach((t, j) => (j === 0 ? ecrire(pg, t, colX[j] + 8, 393, 10, fB, blanc) : ecrireCentre(pg, t, cx(j), 393, 9.5, fB, blanc)));
+      lignesN.forEach(([lib, v], j) => {
+        const y = 425 + j * 30, mt = Math.max(0, v - (acm.apport || 0)), mA = mt * ass / 100 / 12;
+        if (j % 2 === 0) rect(pg, G, y - 19, L, 30, { color: sable });
+        ecrire(pg, lib, colX[0] + 8, y - 6, 9, fR, gris); ecrire(pg, fmtPrix(v), colX[0] + 8, y + 6, 10.5, fS, noir);
+        [15, 20, 25].forEach((d, k) => ecrireCentre(pg, Math.round(mensualite(mt, taux, d) + mA).toLocaleString("fr-FR") + " €", cx(k + 1), y + 2, 10.5, fS, noir));
+        ecrireCentre(pg, fmtPrix(Math.round(mensualite(mt, taux, duree) * duree * 12 - mt + mA * duree * 12)), cx(4), y + 2, 10.5, fS, noir);
+      });
+      couper("Simulation indicative, taux " + taux.toLocaleString("fr-FR") + " % et assurance " + ass.toLocaleString("fr-FR") + " % du capital, hors frais de dossier et de garantie ; les conditions dépendent du profil de l'emprunteur et de l'établissement prêteur.", fR, 8, L).forEach((l, j) => ecrire(pg, l, G, 445 + lignesN.length * 30 + j * 11, 8, fR, gris)); }
     doc.setTitle("Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));

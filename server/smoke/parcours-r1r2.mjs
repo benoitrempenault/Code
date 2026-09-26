@@ -119,6 +119,9 @@ export default async function () {
     await page.waitForSelector("#acm-generer", { timeout: 20000 });
     const nbVentes = await page.locator("[data-vente]").count();
     ok(nbVentes >= 1 && (await page.locator("[data-vente]:checked").count()) >= 1, "le livret propose les ventes DVF à moins de 1,5 km, les premières cochées (" + nbVentes + " " + JSON.stringify(await page.evaluate(() => window.__acmDebug)) + ")");
+    const pxListe = (await api("/crm/parcours", { headers: admin.auth })).json.parcours;
+    const portailsRep = await api("/crm/parcours/" + pxListe[0].id + "/acm/portails", { headers: admin.auth });
+    ok((await page.locator('[data-conc^="bienici:"]').count()) === 2 && /ORPI Smoke/.test(await page.textContent("#acm-conc")), "les biens Bien'ici de la commune sont proposés avec leur agence (" + JSON.stringify(portailsRep.json).slice(0, 300) + ")");
     await page.fill("#acm-surface", "115"); await page.fill("#acm-terrain", "513");
     await page.fill("#acm-prix", "330000"); await page.fill("#acm-basse", "320000"); await page.fill("#acm-haute", "340000");
     await page.click("details summary");

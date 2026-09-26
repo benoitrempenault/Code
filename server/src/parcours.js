@@ -900,6 +900,55 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     for (const r of await db.all("SELECT budget_min, budget_max, types, villes, pieces_min FROM crm_projets WHERE agency_id = ? AND kind = 'achat' AND statut = 'actif'", [ctx.agency.id])) if (garder(r)) acheteurs.push({ budget_min: r.budget_min, budget_max: r.budget_max, pieces_min: r.pieces_min, surface_min: null });
     return c.json({ lat, lng, type, commune: com ? { code: com.code, nom: com.nom, dep: String(p.px.cp || "").slice(0, 2) } : null, ventes, annonces, amepi, acheteurs: acheteurs.slice(0, 300) });
   });
+  // Bien'ici (portail) : les biens en vente sur la commune, même type, autour du
+  // prix — photo, prix, surface, terrain, pièces, position approchée (125 m),
+  // agence, lien. SeLoger et leboncoin refusent les requêtes serveur.
+  const cacheBienici = new Map();
+  app.get("/crm/parcours/:id/acm/portails", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    let pos; try { pos = await positionDe(p); } catch { pos = null; }
+    const type = p.px.type_bien === "appartement" ? "flat" : "house";
+    const prix = Number(c.req.query("prix")) || 0;
+    const com = await commune(p.px.cp, p.est.ville).catch(() => null);
+    const cle = [sansAccents(p.est.ville), p.px.cp, type].join("|");
+    let liste = cacheBienici.get(cle);
+    if (!liste || liste.le < now() - 3 * 3600) {
+      try { liste = { le: now(), biens: await bieniciCommune(p.est.ville, p.px.cp, com && com.code, type) }; cacheBienici.set(cle, liste); }
+      catch (e) { return c.json({ biens: [], erreur: String(e.message || e).slice(0, 160) }); }
+    }
+    const biens = liste.biens.map((b) => ({ ...b, dist: pos && b.lat && b.lng ? Math.round(distanceM(pos.lat, pos.lng, b.lat, b.lng)) : null }))
+      .filter((b) => !prix || (b.prix >= prix * 0.6 && b.prix <= prix * 1.5))
+      .sort((a, b) => (a.dist ?? 1e9) - (b.dist ?? 1e9)).slice(0, 40);
+    return c.json({ biens, erreur: "" });
+  });
+  async function bieniciCommune(ville, cp, codeInsee, type) {
+    const suggest = (env.BIENICI_SUGGEST || "https://res.bienici.com/suggest.json") + "?q=" + encodeURIComponent(ville || cp || "");
+    const ua = { "User-Agent": "Mozilla/5.0 (StudioKadima)", Accept: "application/json" };
+    const rs = await fetch(suggest, { headers: ua, signal: AbortSignal.timeout(15000) });
+    if (!rs.ok) throw new Error("Bien'ici (zones) répond " + rs.status);
+    const zones = await rs.json();
+    const zone = (Array.isArray(zones) ? zones : []).find((z) => z.type === "city" && (codeInsee ? (z.insee_codes || []).includes(codeInsee) : (z.postalCodes || []).includes(cp)))
+      || (Array.isArray(zones) ? zones : []).find((z) => z.type === "city" && sansAccents(z.name) === sansAccents(ville));
+    if (!zone || !zone.zoneIds || !zone.zoneIds.length) throw new Error("aucune zone Bien'ici pour " + (ville || cp) + (Array.isArray(zones) ? " (" + zones.length + " proposée(s))" : " (réponse inattendue)"));
+    const filtres = { size: 60, from: 0, filterType: "buy", propertyType: [type], page: 1, sortBy: "publicationDate", sortOrder: "desc", onTheMarket: [true], zoneIdsByTypes: { zoneIds: zone.zoneIds.slice(0, 1) } };
+    const url = (env.BIENICI_BASE || "https://www.bienici.com") + "/realEstateAds.json?filters=" + encodeURIComponent(JSON.stringify(filtres));
+    const r = await fetch(url, { headers: ua, signal: AbortSignal.timeout(20000) });
+    if (!r.ok) throw new Error("Bien'ici répond " + r.status);
+    const j = await r.json();
+    const slug = (t) => sansAccents(t).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    return (j.realEstateAds || []).map((a) => {
+      const pos = a.blurInfo && (a.blurInfo.position || a.blurInfo.centroid);
+      const photo = a.photos && a.photos[0] ? (a.photos[0].url_photo || a.photos[0].url || "") : "";
+      const pieces = a.roomsQuantity || 0;
+      return { source: "bienici", id: "bienici:" + a.id, ref: String(a.reference || ""), agence: a.accountDisplayName || "", prix: a.price || 0, surface: a.surfaceArea || 0, terrain: a.landSurfaceArea || 0,
+        pieces, chambres: a.bedroomsQuantity || 0, type: type === "flat" ? "Appartement" : "Maison", ville: a.city || "", cp: a.postalCode || "", quartier: a.district && a.district.libelle ? String(a.district.libelle).slice(0, 60) : "",
+        titre: [type === "flat" ? "Appartement" : "Maison", pieces ? pieces + " pièces" : "", a.surfaceArea ? Math.round(a.surfaceArea) + " m²" : ""].filter(Boolean).join(" · "),
+        image: photo, url: "https://www.bienici.com/annonce/" + (a.adType === "rent" ? "location" : "vente") + "/" + slug(a.city || ville) + "/" + (type === "flat" ? "appartement" : "maison") + "/" + (pieces || 1) + "pieces/" + encodeURIComponent(a.id),
+        lat: pos ? pos.lat : null, lng: pos ? pos.lon : null, jours: a.publicationDate ? Math.max(0, Math.round((Date.now() - Date.parse(a.publicationDate)) / 86400000)) : null, baisse: a.priceHasDecreased ? 1 : 0, dpe: a.energyClassification || "" };
+    });
+  }
   const jsonArrLocal = (v) => { try { const a = Array.isArray(v) ? v : JSON.parse(v || "[]"); return Array.isArray(a) ? a : []; } catch { return []; } };
   // Les photos des annonces et des mandats, relayées pour le livret (le
   // navigateur ne peut pas les lire directement) : seulement les URL connues
@@ -908,7 +957,10 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const u = String(c.req.query("u") || "");
     if (!/^https?:\/\//.test(u)) return err(c, 400, "URL attendue.");
-    const connue = (await db.get("SELECT 1 AS ok FROM crm_annonces WHERE agency_id = ? AND image = ?", [ctx.agency.id, u]))
+    let hote = ""; try { hote = new URL(u).hostname; } catch { hote = ""; }
+    const HOTES_PORTAILS = ["file.bienici.com", "images.century21.fr", "photos.bienici.com", ...(env.BIENICI_BASE ? [new URL(env.BIENICI_BASE).hostname] : [])];
+    const connue = HOTES_PORTAILS.includes(hote)
+      || (await db.get("SELECT 1 AS ok FROM crm_annonces WHERE agency_id = ? AND image = ?", [ctx.agency.id, u]))
       || (await db.get("SELECT 1 AS ok FROM crm_amepi WHERE agency_id = ? AND image = ?", [ctx.agency.id, u]));
     if (!connue) return err(c, 404, "Image inconnue.");
     let r;

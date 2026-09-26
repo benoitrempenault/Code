@@ -88,6 +88,17 @@ const dvf = createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/csv" }); res.end(lignes.join("\n") + "\n");
 }).listen(PORT_DVF);
 
+// 1 sexies) Faux Bien'ici : une zone et deux maisons en vente sur la commune.
+const PORT_BIENICI = 18783;
+const bienici = createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "application/json" });
+  if (req.url.startsWith("/suggest.json")) return res.end(JSON.stringify([{ id: "z", name: "Saint-Médard-en-Jalles", type: "city", insee_codes: ["33449"], postalCodes: ["33160"], zoneIds: ["-110581"] }]));
+  res.end(JSON.stringify({ total: 2, realEstateAds: [
+    { id: "orpi-smoke-1", accountDisplayName: "ORPI Smoke", adType: "buy", propertyType: "house", price: 335000, surfaceArea: 98, landSurfaceArea: 410, roomsQuantity: 5, bedroomsQuantity: 3, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date(Date.now() - 20 * 86400000).toISOString(), priceHasDecreased: false, blurInfo: { position: { lat: 44.90, lon: -0.72 } }, photos: [], district: { libelle: "Gajac" } },
+    { id: "human-smoke-2", accountDisplayName: "HUMAN Immobilier", adType: "buy", propertyType: "house", price: 349900, surfaceArea: 95, landSurfaceArea: 322, roomsQuantity: 4, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date().toISOString(), priceHasDecreased: true, blurInfo: { position: { lat: 44.91, lon: -0.73 } }, photos: [] },
+  ] }));
+}).listen(PORT_BIENICI);
+
 // 2) Le site, servi tel quel depuis la racine du dépôt.
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json",
   ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".woff2": "font/woff2" };
@@ -109,7 +120,7 @@ const dbPath = join(tmpdir(), "studio-smoke-" + process.pid + ".sqlite");
 const apiProc = spawn(process.execPath, ["node.js"], {
   cwd: resolve(ICI, ".."), stdio: ["ignore", "pipe", "pipe"],
   env: { ...process.env, PORT: String(PORT_API), DB_PATH: dbPath, DEV_MODE: "1", ADMIN_KEY: "dev-admin",
-    APP_ORIGINS: "http://localhost:" + PORT_SITE, OFFRE_BASE: "http://localhost:" + PORT_SITE + "/offre", BAN_BASE: "http://localhost:" + PORT_BAN, DVF_BASE: "http://localhost:" + PORT_DVF, BATIMENTS_BASE: "http://localhost:" + PORT_IGN,
+    APP_ORIGINS: "http://localhost:" + PORT_SITE, OFFRE_BASE: "http://localhost:" + PORT_SITE + "/offre", BAN_BASE: "http://localhost:" + PORT_BAN, DVF_BASE: "http://localhost:" + PORT_DVF, BIENICI_BASE: "http://localhost:" + PORT_BIENICI, BIENICI_SUGGEST: "http://localhost:" + PORT_BIENICI + "/suggest.json", BATIMENTS_BASE: "http://localhost:" + PORT_IGN,
     RESEND_API_KEY: "re_smoke", RESEND_BASE: "http://localhost:" + PORT_RESEND, MAIL_FROM: "smoke@studio.test",
     OVERPASS_BASE: "http://localhost:" + PORT_OVERPASS, GEO_BASE: "http://localhost:" + PORT_GEO },
 });
