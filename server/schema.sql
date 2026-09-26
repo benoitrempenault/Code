@@ -953,3 +953,12 @@ CREATE TABLE IF NOT EXISTS crm_parcours_acm (
   data          TEXT NOT NULL DEFAULT '{}',
   updated_at    INTEGER NOT NULL
 );
+-- Vignettes des mandats AMEPI, rapatriées par l'agent de l'agence (les
+-- images d'Amanda sont sur un stockage qui refuse toute lecture sans session).
+CREATE TABLE IF NOT EXISTS crm_amepi_photos (
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  id         TEXT NOT NULL,                  -- crm_amepi.id
+  photo      TEXT NOT NULL,                  -- data:image/jpeg;base64,… (≤ 80 Ko)
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agency_id, id)
+);

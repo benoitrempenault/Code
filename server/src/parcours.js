@@ -921,11 +921,12 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       .map((a) => ({ source: "agence", id: a.id, url: a.url, titre: a.titre, type: a.type, prix: a.prix, ville: a.ville, cp: a.cp, pieces: a.pieces, surface: a.surface, dpe: a.dpe, image: a.image, jours: Math.round((now() - a.first_seen) / 86400), baisse: (() => { try { const h = JSON.parse(a.price_history || "[]"); return h.length > 1 ? h[0].prix - h[h.length - 1].prix : 0; } catch { return 0; } })() }));
     const dLat = 3000 / 111320, dLng = 3000 / (111320 * Math.cos(lat * Math.PI / 180));
     const amepi = (await db.all(
-      `SELECT id, ref, agence, type, prix, ancien_prix, ville, cp, pieces, chambres, surface, terrain, lat, lng, image, url, first_seen FROM crm_amepi
-       WHERE agency_id = ? AND statut = 'en_vente' AND ((lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?) OR ville = ? COLLATE NOCASE) ORDER BY prix`,
+      `SELECT a.id, a.ref, a.agence, a.type, a.prix, a.ancien_prix, a.ville, a.cp, a.pieces, a.chambres, a.surface, a.terrain, a.lat, a.lng, a.image, a.url, a.first_seen, ph.photo
+       FROM crm_amepi a LEFT JOIN crm_amepi_photos ph ON ph.agency_id = a.agency_id AND ph.id = a.id
+       WHERE a.agency_id = ? AND a.statut = 'en_vente' AND ((a.lat BETWEEN ? AND ? AND a.lng BETWEEN ? AND ?) OR a.ville = ? COLLATE NOCASE) ORDER BY a.prix`,
       [ctx.agency.id, lat - dLat, lat + dLat, lng - dLng, lng + dLng, p.est.ville || "-"]))
       .filter((a) => sansAccents(a.type) === type)
-      .map((a) => ({ source: "amepi", id: a.id, ref: a.ref, agence: a.agence, url: a.url, titre: [a.type, a.pieces ? a.pieces + " pièces" : "", a.surface ? Math.round(a.surface) + " m²" : ""].filter(Boolean).join(" · "), type: a.type, prix: a.prix, ancien_prix: a.ancien_prix, ville: a.ville, cp: a.cp, pieces: a.pieces, chambres: a.chambres, surface: a.surface, terrain: a.terrain, image: a.image, lat: a.lat, lng: a.lng, dist: a.lat && a.lng ? distanceM(lat, lng, a.lat, a.lng) : null, jours: Math.round((now() - a.first_seen) / 86400), baisse: a.ancien_prix && a.prix ? a.ancien_prix - a.prix : 0 }))
+      .map((a) => ({ source: "amepi", id: a.id, ref: a.ref, agence: a.agence, url: a.url, photo: a.photo || "", titre: [a.type, a.pieces ? a.pieces + " pièces" : "", a.surface ? Math.round(a.surface) + " m²" : ""].filter(Boolean).join(" · "), type: a.type, prix: a.prix, ancien_prix: a.ancien_prix, ville: a.ville, cp: a.cp, pieces: a.pieces, chambres: a.chambres, surface: a.surface, terrain: a.terrain, image: a.image, lat: a.lat, lng: a.lng, dist: a.lat && a.lng ? distanceM(lat, lng, a.lat, a.lng) : null, jours: Math.round((now() - a.first_seen) / 86400), baisse: a.ancien_prix && a.prix ? a.ancien_prix - a.prix : 0 }))
       .sort((a, b) => (a.dist ?? 1e9) - (b.dist ?? 1e9)).slice(0, 40);
     // Les acheteurs en recherche : fiches contact (crm_recherches) + projets d'achat, filtrés par type et commune.
     const acheteurs = [];

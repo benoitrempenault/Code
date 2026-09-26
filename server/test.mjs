@@ -3556,6 +3556,10 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      && dn.acheteurs.some((a) => a.budget_max === 340000) && dn.acheteurs.length === (dn0.acheteurs || []).length + 1,
      "les données comparables : commune INSEE, ventes de l'agence à 2 km, notre annonce (baisse, ancienneté), le mandat ALFA de même type, l'acheteur qui cherche une maison au Haillan — pas celui d'un appartement ni la recherche en pause (" + JSON.stringify({ com: dn.commune, v: dn.ventes.length, vignes: dn.ventes.some((v) => /Vignes/.test(v.adresse)), anH: anH && { baisse: anH.baisse, jours: anH.jours }, appt: dn.annonces.some((a) => a.type === "appartement"), am: dn.amepi.map((a) => [a.agence, a.baisse, a.dist]), ach: [dn.acheteurs.length, (dn0.acheteurs || []).length, dn.acheteurs.some((a) => a.budget_max === 340000)] }) + ")");
   const portails = (await callR("/crm/parcours/" + pxId + "/acm/portails?prix=330000", { headers: authP })).json;
+  await db.run("INSERT OR REPLACE INTO crm_amepi_photos (agency_id, id, photo, updated_at) VALUES (?, 'am-1', ?, 1)", [agId, pixel]);
+  const dnPh = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
+  ok(dnPh.amepi.find((a) => a.id === "am-1").photo === pixel, "la vignette rapatriée par l'agent accompagne le mandat ALFA dans les données du livret");
+  await db.run("DELETE FROM crm_amepi_photos WHERE id = 'am-1'");
   ok(portails.biens.length === 1 && portails.biens[0].id === "bienici:orpi-1" && portails.biens[0].agence === "ORPI Le Haillan" && portails.biens[0].baisse === 1 && portails.biens[0].jours >= 11 && portails.biens[0].terrain === 322 && /bienici\.com\/annonce\/vente\/le-haillan\/maison\/4pieces\/orpi-1/.test(portails.biens[0].url) && portails.biens[0].dist != null,
      "Bien'ici : les biens de la commune, même type, autour du prix (le bien à 900 000 € écarté), avec agence, baisse, ancienneté, distance et lien (" + JSON.stringify(portails.biens.map((b) => [b.id, b.dist])) + ")");
   ok((await callR("/crm/parcours-image?u=https://site/photos/inconnue.jpg", { headers: authP })).status === 404 && (await callR("/crm/parcours-image?u=javascript:alert(1)", { headers: authP })).status === 400,
@@ -3661,6 +3665,15 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(cons.status === 200 && JSON.stringify(cons.json.sources) === '["1","2","3"]' && JSON.stringify(cons.json.departements) === '["33"]',
      "l'agent lit ses consignes (sources, départements) avec sa clé (" + JSON.stringify(cons.json) + ")");
   ok((await callR("/crm/amepi/consignes", {})).status === 401, "sans clé, pas de consignes");
+  // Les vignettes : l'agent voit les mandats en vente sans photo, dépose des JPEG réduits ; les autres formats et les inconnus sont refusés.
+  await db.run("INSERT OR REPLACE INTO crm_amepi (agency_id, id, ref, agence, source, type, prix, ancien_prix, ville, cp, pieces, chambres, surface, terrain, lat, lng, etat_id, statut, image, url, maj, first_seen, last_seen) VALUES (?, 'ph-1', 'P1', 'Orpi', '2', 'maison', 300000, NULL, 'Le Haillan', '33185', 4, 3, 90, 300, 44.87, -0.71, 1, 'en_vente', 'https://amepistorageprod.blob.core.windows.net/ph-1.jpg', '', '', 1, 2)", [agId]);
+  const mq1 = (await callR("/crm/amepi/photos/manquantes", { headers: enteteAgent })).json;
+  ok(mq1.mandats.some((m) => m.id === "ph-1" && /blob\.core/.test(m.image)), "l'agent reçoit les mandats en vente dont la vignette manque, avec l'URL à télécharger");
+  const dep = await callR("/crm/amepi/photos", { headers: enteteAgent, body: { photos: [{ id: "ph-1", photo: pixel }, { id: "inconnu", photo: pixel }, { id: "ph-1", photo: "data:image/png;base64,iVBORw0KGgo=" }] } });
+  const mq2 = (await callR("/crm/amepi/photos/manquantes", { headers: enteteAgent })).json;
+  ok(dep.status === 200 && dep.json.gardees === 1 && dep.json.refusees === 2 && !mq2.mandats.some((m) => m.id === "ph-1"), "le dépôt garde le JPEG du mandat connu, refuse l'inconnu et le PNG ; le mandat sort des manquants (" + JSON.stringify(dep.json) + ")");
+  ok((await callR("/crm/amepi/photos", { body: { photos: [] } })).status === 401, "sans clé, pas de dépôt de photos");
+  await db.run("DELETE FROM crm_amepi WHERE id = 'ph-1'"); await db.run("DELETE FROM crm_amepi_photos WHERE id = 'ph-1'");
   ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: new Array(501).fill({ id: 1 }) } })).status === 400, "plus de 500 mandats par dépôt : refusé");
   // Le fichier Amanda couvre toute la France : seuls les départements du
   // réglage (33 par défaut) entrent en base ; un changement de réglage purge.

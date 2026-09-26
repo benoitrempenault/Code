@@ -1418,6 +1418,34 @@ export function createApp(env) {
     return c.json({ ok: true, stats: await AMEPI.importerAmepi(db, agency, b, await CRM.getReglages(db, agency)) });
   });
 
+  // Les vignettes des mandats : l'agent demande lesquelles manquent (en vente,
+  // avec une URL d'image), les télécharge avec sa session Amanda, les réduit et
+  // les dépose ici. Le livret prix et le rapprochement s'en servent.
+  app.get("/crm/amepi/photos/manquantes", async (c) => {
+    const { k, agency, resp } = await agentAmepi(c); if (!k) return resp;
+    const rows = await db.all(
+      `SELECT a.id, a.image FROM crm_amepi a LEFT JOIN crm_amepi_photos p ON p.agency_id = a.agency_id AND p.id = a.id
+       WHERE a.agency_id = ? AND a.statut = 'en_vente' AND a.image LIKE 'http%' AND p.id IS NULL ORDER BY a.last_seen DESC LIMIT 150`, [agency.id]);
+    return c.json({ mandats: rows });
+  });
+  app.post("/crm/amepi/photos", async (c) => {
+    const { k, agency, resp } = await agentAmepi(c); if (!k) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b || !Array.isArray(b.photos)) return err(c, 400, "Corps JSON attendu : { photos: [{ id, photo }] }.");
+    if (b.photos.length > 60) return err(c, 400, "60 photos au plus par dépôt.");
+    let gardees = 0, refusees = 0;
+    for (const ph of b.photos) {
+      const id = String((ph && ph.id) || "").slice(0, 80), photo = String((ph && ph.photo) || "");
+      if (!id || !/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(photo) || photo.length > 110000) { refusees++; continue; }
+      const existe = await db.get("SELECT 1 AS ok FROM crm_amepi WHERE agency_id = ? AND id = ?", [agency.id, id]);
+      if (!existe) { refusees++; continue; }
+      await db.run("INSERT INTO crm_amepi_photos (agency_id, id, photo, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(agency_id, id) DO UPDATE SET photo = excluded.photo, updated_at = excluded.updated_at", [agency.id, id, photo, now()]);
+      gardees++;
+    }
+    await db.run("UPDATE crm_agent_keys SET last_used = ? WHERE key_hash = ?", [now(), k.key_hash]);
+    return c.json({ ok: true, gardees, refusees });
+  });
+
   app.post("/crm/amepi/diagnostic", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const reglages = await CRM.getReglages(db, ctx.agency);
