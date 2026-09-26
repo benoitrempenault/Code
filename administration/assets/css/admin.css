@@ -141,6 +141,11 @@ s { color: var(--muted); }
   background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
   width: 100%; max-width: 760px; max-height: 92vh; display: flex; flex-direction: column;
 }
+/* Fenêtre large (livret prix) : listes longues à cocher, vignettes. */
+.modale.large { max-width: 1080px; max-height: 96vh; }
+.modale.large .liste-choix { max-height: 44vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px; }
+.modale.large .liste-choix.haute { max-height: 62vh;
+}
 .modale-tete {
   display: flex; align-items: center; justify-content: space-between;
   padding: 16px 22px; border-bottom: 1px solid var(--line);

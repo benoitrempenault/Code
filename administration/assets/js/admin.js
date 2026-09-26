@@ -77,7 +77,7 @@
     $("modale-pied").innerHTML = piedHtml || "";
     $("voile").hidden = false;
   }
-  function fermerModale() { $("voile").hidden = true; }
+  function fermerModale() { $("voile").hidden = true; document.querySelector(".modale").classList.remove("large"); }
 
   /* ------------------------------ Contacts -------------------------------- */
   async function chargerContacts() {
@@ -2925,6 +2925,7 @@
     catch (e) { toast(e.message, true); return; }
     acm = acm.acm || {};
     ouvrirModale("🖨 Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), '<p class="aide">Ventes DVF autour du bien…</p>', "");
+    document.querySelector(".modale").classList.add("large");
     let dvf = [];
     if (donnees.commune && donnees.commune.code) { try { dvf = await chargerDvfCommune(donnees.commune.code, donnees.commune.dep); } catch { dvf = []; } }
     const typeDvf = donnees.type === "appartement" ? "Appartement" : "Maison";
@@ -2976,9 +2977,9 @@
       '<label>Fourchette basse<input id="acm-basse" type="number" step="1000" value="' + escH(acm.basse || "") + '" /></label>' +
       '<label>Fourchette haute<input id="acm-haute" type="number" step="1000" value="' + escH(acm.haute || "") + '" /></label></div>' +
       '<h3 style="margin:14px 0 4px;">1. Les biens récemment vendus <span class="petit">(' + candidatsVentes.length + ' à moins de 1,5 km — DVF 3 ans et ventes de l\'agence)</span></h3>' +
-      '<div id="acm-ventes" style="max-height:220px; overflow-y:auto;">' + (candidatsVentes.length ? candidatsVentes.map(ligneVente).join("") : '<p class="petit">Aucune vente comparable trouvée' + (dvf.length ? "" : " (fichier DVF de la commune indisponible)") + ".</p>") + "</div>" +
+      '<div id="acm-ventes" class="liste-choix">' + (candidatsVentes.length ? candidatsVentes.map(ligneVente).join("") : '<p class="petit">Aucune vente comparable trouvée' + (dvf.length ? "" : " (fichier DVF de la commune indisponible)") + ".</p>") + "</div>" +
       '<h3 style="margin:14px 0 4px;">2. Les biens en concurrence <span class="petit">(nos annonces, les mandats de l\'ALFA et Bien\'ici — même type, même commune' + (portails.erreur ? " ; Bien'ici indisponible : " + escH(portails.erreur) : "") + ")</span></h3>" +
-      '<div id="acm-conc" style="max-height:220px; overflow-y:auto;">' + (candidatsConc.length ? candidatsConc.map(ligneConc).join("") : '<p class="petit">Aucun bien en vente comparable pour le moment.</p>') + "</div>" +
+      '<div id="acm-conc" class="liste-choix haute">' + (candidatsConc.length ? candidatsConc.map(ligneConc).join("") : '<p class="petit">Aucun bien en vente comparable pour le moment.</p>') + "</div>" +
       '<details style="margin-top:6px;"><summary class="petit" style="cursor:pointer;">+ Ajouter un bien vu sur un portail (adresse retrouvée sur précisément.fr)</summary>' +
       '<div class="grille-champs" style="margin-top:6px;"><label style="grid-column:1/-1;">Adresse<input id="acm-m-adresse" placeholder="9 allée Lamartine, Le Taillan-Médoc" /></label>' +
       '<label>Prix<input id="acm-m-prix" type="number" step="1000" /></label><label>Surface (m²)<input id="acm-m-surface" type="number" /></label><label>Pièces<input id="acm-m-pieces" type="number" /></label><label>Terrain (m²)<input id="acm-m-terrain" type="number" /></label>' +
@@ -2997,7 +2998,7 @@
       '<label>Durée (ans)<select id="acm-duree">' + [15, 20, 25].map((d) => '<option' + ((acm.duree || 25) === d ? " selected" : "") + ">" + d + "</option>").join("") + "</select></label></div>" +
       '<p class="petit" id="acm-etat"></p>';
     $("modale-pied").innerHTML = '<button class="btn" id="acm-retour">Retour</button><button class="btn" id="acm-save">Enregistrer</button><button class="btn btn-or" id="acm-generer">🖨 Générer le livret</button>';
-    $("acm-retour").addEventListener("click", () => ouvrirParcours(id));
+    $("acm-retour").addEventListener("click", () => { document.querySelector(".modale").classList.remove("large"); ouvrirParcours(id); });
     $("acm-ach-resume").textContent = resumeAch();
     $("acm-conc").addEventListener("change", async (ev) => {
       const inp = ev.target; if (!inp.matches || !inp.matches("[data-photo]")) return;
@@ -3040,7 +3041,7 @@
         await genererLivretPrix(p, d, donnees);
         await api("/crm/parcours/" + id + "/etape", { json: { etape: "acm" } });
         toast("Livret prix prêt : il s'ouvre dans un nouvel onglet, à imprimer ou enregistrer");
-        ouvrirParcours(id);
+        document.querySelector(".modale").classList.remove("large"); ouvrirParcours(id);
       } catch (e) { toast(e.message, true); etat.textContent = ""; btn.disabled = false; }
     });
   }
