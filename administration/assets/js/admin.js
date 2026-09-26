@@ -2436,6 +2436,21 @@
       ecrire(p.r2_heure ? p.r2_heure.replace(/^(\d{1,2}):(\d{2})$/, (t, a, b) => (+a) + "h" + (b === "00" ? "" : b)) : "", rdv.heure);
       ecrire((reglages && reglages.agence.adresse) || "", rdv.agence);
     }
+    // Page 1 : le client (« Famille NOM » ou civilité + nom), l'adresse du
+    // bien et la date du jour, alignés à droite comme sur le modèle.
+    const p1 = meta.p1;
+    const idx1 = p1 ? ordre.indexOf(p1.page) : -1;
+    if (idx1 >= 0) {
+      const page = doc.getPage(idx1);
+      const font = await doc.embedFont(StandardFonts.Helvetica);
+      const h = page.getHeight();
+      const droite = (texte, spec) => { if (texte) page.drawText(texte, { x: p1.droite - font.widthOfTextAtSize(texte, spec.taille), y: h - spec.y, size: spec.taille, font, color: rgb(0, 0, 0) }); };
+      const nomMaj = (p.nom || "").toUpperCase();
+      droite(p.civilite === "M. et Mme" ? "Famille " + nomMaj : [p.civilite, nomMaj].filter(Boolean).join(" "), p1.nom);
+      droite((p.adresse || "").toUpperCase(), p1.adresse);
+      droite([p.cp, (p.ville || "").toUpperCase()].filter(Boolean).join(" "), p1.ville);
+      droite(new Date().toLocaleDateString("fr-FR"), p1.date);
+    }
     doc.setTitle("Guide de commercialisation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));

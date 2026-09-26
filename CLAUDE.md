@@ -484,7 +484,7 @@ au lieu de doubler. L'Administration lance l'import à chaque chargement
 parcours : menu déroulant visible « Signé par » (`#px-signe`, PUT conseiller_id
 immédiat) + détail fonction · tel · mail ; la modale d'envoi rappelle le signataire.
 `signatureHtml` : fonction par défaut « Conseiller/Conseillère immobilier » selon
-le genre quand le profil n'en a pas. Assets `?v=7`.
+le genre quand le profil n'en a pas. Assets `?v=8`.
 **Guide R1 personnalisé (26/09)** : `administration/assets/guide-r1.pdf` (25 pages :
 13 communes + 12 pages « Votre conseiller », corrigé de l'original de Benoît avec
 pymupdf — p2 : 14 conseillers St-Médard, 2 gestionnaires St-Aubin ; p3 : 9,5/10

@@ -4,6 +4,19 @@ import { api, attendreToast, creerAgence, ouvrir, parcours } from "./lib.mjs";
 
 const PIXEL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
 
+// Le guide généré est gardé dans captures/ (ignoré par git) pour un contrôle visuel.
+async function garderGuide(page, taille, nom) {
+  try {
+    const PAS = 1500000, morceaux = [];
+    for (let debut = 0; debut < taille; debut += PAS) {
+      morceaux.push(Buffer.from(await page.evaluate(([d, n]) => { const o = window.__dernierGuide.octets; let s = ""; const u = new Uint8Array(o.buffer, o.byteOffset + d, Math.min(n, o.byteLength - d)); for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(s); }, [debut, PAS]), "base64"));
+    }
+    const fs = await import("node:fs/promises");
+    await fs.mkdir(new URL("./captures/", import.meta.url), { recursive: true });
+    await fs.writeFile(new URL("./captures/" + nom, import.meta.url), Buffer.concat(morceaux));
+  } catch { }
+}
+
 export default async function () {
   const admin = await creerAgence("Smoke Parcours", "smoke-parcours@test.fr");
   await api("/crm/reglages", { headers: admin.auth, method: "PUT", body: { agence: { adresse: "20 rue François Mitterrand, Saint-Médard-en-Jalles", avis: "https://g.page/r/smoke/review" } } });
@@ -82,6 +95,7 @@ export default async function () {
     });
     ok(guide.pages === 14 && /MOUNEYRES/.test(guide.titre) && guide.octets > 100000,
       "le guide R1 fait 14 pages (13 communes + Teddy Besson) au nom du client (" + JSON.stringify(guide) + ")");
+    await garderGuide(page, guide.octets, "guide-r1-smoke.pdf");
     // Le guide R2 : points forts, objections, texte du conseiller, puis commune + commodités + ventes + cartes.
     await page.click('[data-guide="r2"]');
     await page.waitForSelector("#r2-generer", { timeout: 8000 });
@@ -97,16 +111,7 @@ export default async function () {
     });
     ok(guide2.pages === 20 && /Vendons ensemble/.test(guide2.titre) && /MOUNEYRES/.test(guide2.titre) && guide2.octets > 1000000,
       "le guide R2 fait 20 pages au nom du client, cartes et polices embarquées (" + JSON.stringify(guide2) + ")");
-    // Le guide généré est gardé dans captures/ (ignoré par git) pour un contrôle visuel.
-    try {
-      const PAS = 1500000, morceaux = [];
-      for (let debut = 0; debut < guide2.octets; debut += PAS) {
-        morceaux.push(Buffer.from(await page.evaluate(([d, n]) => { const o = window.__dernierGuide.octets; let s = ""; const u = new Uint8Array(o.buffer, o.byteOffset + d, Math.min(n, o.byteLength - d)); for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(s); }, [debut, PAS]), "base64"));
-      }
-      const fs = await import("node:fs/promises");
-      await fs.mkdir(new URL("./captures/", import.meta.url), { recursive: true });
-      await fs.writeFile(new URL("./captures/guide-r2-smoke.pdf", import.meta.url), Buffer.concat(morceaux));
-    } catch { }
+    await garderGuide(page, guide2.octets, "guide-r2-smoke.pdf");
     await page.click("#modale-ok");
     await page.waitForFunction(() => /3\/6/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
     ok(true, "la liste montre l'avancement 3/6");
