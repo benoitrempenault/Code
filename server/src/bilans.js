@@ -21,6 +21,7 @@
 import { now, randId } from "./util.js";
 import { wrapEmail, envoyerMailHtml, getReglages } from "./crm.js";
 import { texteEnHtml, signatureHtml } from "./parcours.js";
+import { PORTAILS, statsPortailsSemaine } from "./portails.js";
 
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
@@ -106,7 +107,7 @@ export const estDelegation = (m) => /^\s*d[ée]l[ée]gation\b/i.test(m.vendeur |
 // `pairs`   : les autres annonces en vente du site (pour l'indice d'audience)
 // `amepi`   : biens des confrères [{id, type, prix, ancien_prix, ville, surface, statut, agence}]
 // `events`  : journal AMEPI de la semaine [{annonce_id, kind, ancien_prix, prix}]
-export function calculerBilan({ mandat, annonce, pairs, amepi, events, semaine, lundis, aujourdhui }) {
+export function calculerBilan({ mandat, annonce, pairs, amepi, events, semaine, lundis, aujourdhui, portails }) {
   const semPrec = plusJours(semaine, -7);
   const serie = (lundis || []).filter((l) => l <= semaine).slice(-8)
     .map((l) => ({ semaine: l, ...(annonce.semaines[l] || { vues: 0, visites: 0, brochures: 0 }) }));
@@ -163,10 +164,19 @@ export function calculerBilan({ mandat, annonce, pairs, amepi, events, semaine, 
   const vues4 = somme(quatre, "vues"), demandes4 = somme(quatre, "visites") + somme(quatre, "brochures");
   if (ecart != null && ecart > 0.08) alertes.push({ code: "prix-haut", niveau: "fort", texte: `Prix ${pct(ecart)} au-dessus de la médiane de ${comparables.length} comparables` });
   if (ecart != null && ecart < -0.1) alertes.push({ code: "prix-bas", niveau: "info", texte: `Prix ${pct(ecart)} sous la médiane des comparables — argument de vente` });
-  if (medVues4 && vues4 >= medVues4 && demandes4 === 0) alertes.push({ code: "sans-demande", niveau: "fort", texte: "Beaucoup de vues, aucune demande en 4 semaines : le prix ou l'annonce freine" });
+  // Les portails (SeLoger, Bien'ici, Leboncoin) relevés par l'agent de l'agence.
+  const pt = portails || {};
+  const listePortails = Object.keys(PORTAILS).filter((k) => pt[k]).map((k) => ({ portail: k, nom: PORTAILS[k].nom, ...pt[k] }));
+  const totalPortails = listePortails.length ? {
+    vues: listePortails.reduce((t, x) => t + (x.vues || 0), 0), contacts: listePortails.reduce((t, x) => t + (x.contacts || 0), 0),
+    favoris: listePortails.reduce((t, x) => t + (x.favoris || 0), 0), semaine: listePortails.every((x) => x.base === "semaine"),
+  } : null;
+  const contactsPortails = totalPortails && totalPortails.semaine ? totalPortails.contacts : 0;
+  if (medVues4 && vues4 >= medVues4 && demandes4 === 0 && !contactsPortails) alertes.push({ code: "sans-demande", niveau: "fort", texte: "Beaucoup de vues, aucune demande en 4 semaines : le prix ou l'annonce freine" });
   if (indice != null && indice < 50) alertes.push({ code: "faible-audience", niveau: "moyen", texte: `Audience faible : indice ${indice} (100 = médiane de nos biens)` });
   if (p.vues >= 10 && s.vues < 0.6 * p.vues) alertes.push({ code: "audience-baisse", niveau: "moyen", texte: `Vues en baisse : ${s.vues} contre ${p.vues} la semaine précédente` });
   if (marche.baisses) alertes.push({ code: "concurrence-baisse", niveau: "moyen", texte: `${marche.baisses} comparable(s) ont baissé leur prix cette semaine` });
+  if (totalPortails && totalPortails.semaine && totalPortails.vues >= 150 && totalPortails.contacts === 0) alertes.push({ code: "portails-sans-contact", niveau: "fort", texte: `${totalPortails.vues} vues sur les portails cette semaine, aucun contact` });
   if (comparables.length < 3) alertes.push({ code: "peu-de-comparables", niveau: "info", texte: `Seulement ${comparables.length} comparable(s) en vente : position de prix non calculée` });
   if (anciennete != null && anciennete > ANCIEN_JOURS) alertes.push({ code: "ancien", niveau: "fort", texte: `En vente depuis ${anciennete} jours : le bilan propose une action` });
 
@@ -187,6 +197,7 @@ export function calculerBilan({ mandat, annonce, pairs, amepi, events, semaine, 
     semaine, fin: plusJours(semaine, 6), ref: annonce.ref, url: annonce.url || "",
     bien: { type, typeLibelle: annonce.type || "", ville: annonce.ville || mandat.ville, adresse: mandat.adresse, prix, surface, pieces: Number(annonce.pieces) || null },
     site: { vues: s.vues, visites: s.visites, brochures: s.brochures, vuesPrec: p.vues, vues4, demandes4, indice, medianeVues: medVues, serie },
+    portails: listePortails, totalPortails,
     prix: { notreM2, medM2, medPrix, ecart, comparables: comparables.length, tolerance,
       exemples: comparables.slice(0, 6).map((a) => ({ prix: a.prix, surface: a.surface, agence: a.agence || "" })) },
     marche,
@@ -216,6 +227,20 @@ export function texteBilan(d, { conseiller }) {
         : "- Votre annonce est moins consultée que la moyenne de nos biens");
   }
   lignes.push(["Sur notre site internet", ...site].join("\n"));
+
+  if (d.portails && d.portails.length) {
+    const pl = d.portails.map((x) => {
+      const bouts = [];
+      if (x.vues != null) bouts.push(`${fmt(x.vues)} consultation${x.vues > 1 ? "s" : ""}`);
+      if (x.contacts != null) bouts.push(`${fmt(x.contacts)} contact${x.contacts > 1 ? "s" : ""}`);
+      if (x.favoris) bouts.push(`${fmt(x.favoris)} mise${x.favoris > 1 ? "s" : ""} en favori`);
+      const quand = x.base === "semaine" ? "cette semaine" : x.base === "cumul" ? "depuis la mise en ligne" : "sur la période suivie par le portail";
+      return `- ${x.nom} : ${bouts.join(", ") || "chiffres indisponibles"} ${quand}`;
+    });
+    const t = d.totalPortails;
+    if (t && t.semaine && d.portails.length > 1) pl.push(`- Au total : ${fmt(t.vues + (d.site.vues || 0))} consultations de votre annonce cette semaine, site compris`);
+    lignes.push(["Sur les portails immobiliers", ...pl].join("\n"));
+  }
 
   const marche = [];
   if (d.prix.comparables >= 3) {
@@ -309,6 +334,7 @@ export async function genererBilans(env, db, agency, { semaine, aujourdhui } = {
   const events = await db.all(
     "SELECT annonce_id, kind, ancien_prix, prix FROM crm_annonces_events WHERE agency_id = ? AND created_at >= ? AND created_at < ? AND substr(annonce_id, 1, 6) = 'amepi:'",
     [agency.id, debut, fin]);
+  const portailsSem = await statsPortailsSemaine(db, agency.id, sem);
   const existants = new Map((await db.all("SELECT id, ref, statut, modifie FROM crm_bilans WHERE agency_id = ? AND semaine = ?", [agency.id, sem])).map((b) => [b.ref, b]));
   const reglages = await getReglages(db, agency);
   const out = { semaine: sem, crees: 0, misAJour: 0, gardes: 0, nonPublies: [], exclus: [], sansEmail: [], alertes: 0 };
@@ -319,7 +345,7 @@ export async function genererBilans(env, db, agency, { semaine, aujourdhui } = {
     if (!a) { out.nonPublies.push(m.ref); continue; }
     const ex = existants.get(m.ref);
     if (ex && (ex.statut !== "brouillon" || ex.modifie)) { out.gardes++; continue; }
-    const d = calculerBilan({ mandat: m, annonce: a, pairs: annonces, amepi, events, semaine: sem, lundis: stats.semaines || [], aujourdhui: auj });
+    const d = calculerBilan({ mandat: m, annonce: a, pairs: annonces, amepi, events, semaine: sem, lundis: stats.semaines || [], aujourdhui: auj, portails: portailsSem[String(m.ref)] });
     d.conseiller = m.conseiller; d.vendeur = m.vendeur; d.mandatNo = m.mandat;
     const cons = nomConseiller(m.conseiller).complet;
     if (!m.email) out.sansEmail.push(m.ref);
@@ -452,6 +478,7 @@ export function monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAge
         let d = {}; try { d = JSON.parse(r.donnees); } catch { }
         const { donnees, ...reste } = r;
         return { ...reste, conseillerNom: nomConseiller(r.conseiller).complet, bien: d.bien, site: d.site && { vues: d.site.vues, vuesPrec: d.site.vuesPrec, visites: d.site.visites, brochures: d.site.brochures, indice: d.site.indice },
+          portails: d.totalPortails || null,
           ecart: d.prix ? d.prix.ecart : null, comparables: d.prix ? d.prix.comparables : 0, anciennete: d.mandat ? d.mandat.anciennete : null,
           alertes: d.alertes || [], recommandation: d.recommandation || null };
       }),

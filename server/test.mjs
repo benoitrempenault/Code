@@ -3986,6 +3986,84 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   fauxSite.close(); fauxResendB.close();
 }
 
+
+/* ================= Statistiques des portails (agent de l'agence) ================= */
+{
+  console.log("— Portails : extraction des statistiques, dépôt de l'agent, bilans");
+  const P = await import("./src/portails.js");
+  // Forme « Bien'ici » : total + parts + série datée sous l'annonce.
+  const bi = P.extraireStats({ ads: [
+    { id: "x1", reference: "8282", price: 380000, surfaceArea: 100, statistics: { views: 240, phoneContacts: 1, emailContacts: 2, bookmarks: 6,
+      daily: [{ date: "2026-09-21", views: 30, emailContacts: 1 }, { date: "2026-09-22", views: 12, phoneContacts: 1 }] } },
+    { id: "x2", reference: "9999", statistics: { views: 50 } },
+  ] }, ["8282", "7510"]);
+  const s8 = bi.get("8282");
+  ok(bi.size === 1 && s8.vues === 240 && s8.contacts === 3 && s8.favoris === 6, "Bien'ici : 240 vues, 3 contacts (appel + e-mails), 6 favoris ; annonce inconnue ignorée");
+  ok(s8.parJour["2026-09-21"].vues === 30 && s8.parJour["2026-09-22"].contacts === 1, "la série datée est gardée jour par jour, sans gonfler le total");
+  // Forme « Leboncoin » : référence préfixée, compteurs à part, prix et surface ignorés.
+  const lbc = P.extraireStats({ data: { ads: [{ list_id: 2811, subject: "Maison 5 pièces", ad_reference: "KAD-7510", price: [290000], counters: { views: 310, favorites: 4, contact_mail: 2, contact_phone: 1 } }] } }, ["8282", "7510"]);
+  ok(lbc.get("7510") && lbc.get("7510").vues === 310 && lbc.get("7510").contacts === 3 && lbc.get("7510").favoris === 4, "Leboncoin : référence « KAD-7510 » reconnue, 310 vues, 3 contacts, 4 favoris");
+  // Forme « tableau de stats à côté de la liste » : le total explicite l'emporte sur les parts.
+  const sl = P.extraireStats({ listings: [{ customerReference: "8282", stats: { totalContacts: 9, contactsEmail: 4, detailViews: 800, listImpressions: 12000 } }] }, ["8282"]);
+  ok(sl.get("8282").contacts === 9 && sl.get("8282").vues === 800 && sl.get("8282").impressions === 12000, "SeLoger : total de contacts explicite, vues de fiche distinctes des apparitions en liste");
+  ok(P.extraireStats({ prix: 8282, surface: 100, views: 3 }, ["8282"]).size === 0, "un nombre égal à une référence (prix…) n'est pas pris pour une référence");
+
+  const cons = P.sanitizeConsignes({ portails: { bienici: { pages: [{ url: "https://pro.bienici.com/stats" }, { url: "https://evil.example.com/x" }, { url: "http://pro.bienici.com/a" }, { url: "https://pro.bienici.com.evil.fr/x" }] } } });
+  ok(cons.portails.bienici.pages.length === 1 && cons.portails.bienici.pages[0].url === "https://pro.bienici.com/stats", "consignes : seules les pages https des domaines du portail sont gardées");
+
+  const cr = await call("/admin/agencies", { headers: admin, body: { name: "Agence Portails Test", email: "portails@portails-test.fr", user_name: "Admin Portails" } });
+  const agP = cr.json.agency.id;
+  const authP = { Authorization: "Bearer " + (await call("/auth/exchange", { body: { token: cr.json.welcome_link.split("#token=")[1] } })).json.session };
+  await call("/crm/bilans/mandats", { headers: authP, body: { mandats: [{ ref: "8282", email: "v@exemple.fr", conseiller: "DUPONT Jean", prix: 380000 }, { ref: "7510", email: "w@exemple.fr", conseiller: "DUPONT Jean", prix: 290000 }] } });
+  ok((await call("/crm/portails/consignes", { headers: { "X-Agent-Key": "ak_faux" } })).status === 401, "agent sans clé valide : refusé");
+  const cle = (await call("/crm/portails/cle", { headers: authP, body: {} })).json.cle;
+  const hA = { "X-Agent-Key": cle };
+  const amepiCle = await db.get("SELECT COUNT(*) AS n FROM crm_agent_keys WHERE agency_id = ? AND usage = 'amepi'", [agP]);
+  ok(/^ak_/.test(cle) && amepiCle.n === 0, "clé de l'agent des portails créée (distincte de la clé AMEPI)");
+  await call("/crm/portails/consignes", { method: "PUT", headers: authP, body: { portails: { bienici: { mode: "cumul", pages: [{ url: "https://pro.bienici.com/stats" }] }, leboncoin: { actif: false } } } });
+  const consA = (await call("/crm/portails/consignes", { headers: hA })).json;
+  ok(consA.portails.bienici.pages.length === 1 && !consA.portails.leboncoin, "l'agent reçoit ses pages ; un portail désactivé n'est pas relevé");
+
+  // Deux relevés « compteur » : semaine précédente puis cette semaine → l'écart = la semaine.
+  const lundi = "2026-09-21";
+  const depot = (vues, contacts) => call("/crm/portails/depot", { headers: hA, body: { portail: "bienici", mode: "releve", url: "https://pro.bienici.com/stats",
+    reponses: [{ url: "https://pro.bienici.com/api/stats", json: { ads: [{ reference: "8282", statistics: { views: vues, contacts } }] } }] } });
+  const d1 = await depot(200, 3);
+  ok(d1.status === 200 && d1.json.annonces === 1, "dépôt de l'agent : 1 annonce reconnue");
+  await db.run("UPDATE crm_portail_stats SET jour = ? WHERE agency_id = ? AND nature = 'releve'", ["2026-09-19", agP]);
+  await depot(260, 5);
+  await db.run("UPDATE crm_portail_stats SET jour = ? WHERE agency_id = ? AND nature = 'releve' AND jour <> '2026-09-19'", ["2026-09-27", agP]);
+  const sem = await P.statsPortailsSemaine(db, agP, lundi);
+  ok(sem["8282"] && sem["8282"].bienici.vues === 60 && sem["8282"].bienici.contacts === 2 && sem["8282"].bienici.base === "semaine", "compteurs cumulés : la semaine = l'écart entre deux relevés (60 vues, 2 contacts)");
+  // Série datée (Leboncoin) : la somme des jours de la semaine.
+  await call("/crm/portails/consignes", { method: "PUT", headers: authP, body: { portails: { bienici: { mode: "cumul", pages: [{ url: "https://pro.bienici.com/stats" }] }, leboncoin: { pages: [{ url: "https://www.leboncoin.fr/pro/stats" }] } } } });
+  const auj = new Date().toISOString().slice(0, 10), hier = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  await call("/crm/portails/depot", { headers: hA, body: { portail: "leboncoin", url: "https://www.leboncoin.fr/pro/stats", reponses: [{ url: "https://api.leboncoin.fr/stats",
+    json: { ad_reference: "7510", history: [{ day: hier, views: 40, contact_mail: 1 }, { day: auj, views: 25 }] } }] } });
+  const semL = await P.statsPortailsSemaine(db, agP, (await import("./src/bilans.js")).lundiDe(auj));
+  const attendu = (await import("./src/bilans.js")).lundiDe(hier) === (await import("./src/bilans.js")).lundiDe(auj) ? 65 : 25;
+  ok(semL["7510"] && semL["7510"].leboncoin.vues === attendu && semL["7510"].leboncoin.base === "semaine", "série jour par jour : somme des jours de la semaine (" + JSON.stringify(semL["7510"]) + ")");
+
+  const exp = await call("/crm/portails/depot", { headers: hA, body: { portail: "leboncoin", url: "https://www.leboncoin.fr/pro/stats", session: "expiree" } });
+  const etat = (await call("/crm/portails", { headers: authP })).json;
+  ok(exp.status === 200 && etat.etat.find((e) => e.portail === "leboncoin").statut === "session" && etat.captures.length >= 3 && etat.agent, "session expirée remontée, captures listées, agent visible");
+  const cap = (await call("/crm/portails/captures/" + etat.captures[0].id, { headers: authP })).json;
+  ok(Array.isArray(cap.contenu) && cap.contenu[0].url, "une capture se relit (pour régler l'extraction)");
+  ok((await call("/crm/portails/depot", { headers: hA, body: { portail: "facebook", reponses: [] } })).status === 400, "portail inconnu refusé");
+  await call("/crm/portails/cle", { method: "DELETE", headers: authP });
+  ok((await call("/crm/portails/consignes", { headers: hA })).status === 401, "clé révoquée : l'agent est bloqué");
+
+  // Le bilan intègre les portails.
+  const B = await import("./src/bilans.js");
+  const d = B.calculerBilan({ mandat: { ref: "8282", debut: "2026-09-01", prix: 380000 }, annonce: { ref: "8282", type: "Maison", ville: "X", prix: 380000, surface: 100, semaines: { [lundi]: { vues: 20, visites: 0, brochures: 0 } } },
+    pairs: [], amepi: [], events: [], semaine: lundi, lundis: [lundi], aujourdhui: "2026-09-28",
+    portails: { bienici: { vues: 60, contacts: 2, favoris: 1, base: "semaine" }, seloger: { vues: 300, contacts: 0, favoris: null, base: "semaine" } } });
+  const txt = B.texteBilan(d, { conseiller: "Jean DUPONT" });
+  ok(/Sur les portails immobiliers/.test(txt) && /SeLoger : 300 consultations, 0 contact cette semaine/.test(txt) && /Bien'ici : 60 consultations, 2 contacts, 1 mise en favori cette semaine/.test(txt), "texte : une ligne par portail");
+  ok(/Au total : 380 consultations de votre annonce cette semaine, site compris/.test(txt), "texte : total portails + site");
+  ok(d.alertes.some((a) => a.code === "portails-sans-contact") === false && d.totalPortails.contacts === 2, "des contacts portails : pas d'alerte « sans contact »");
+}
+
 fake.close();
 faux365.close();
 console.log("\n" + passed + " réussis, " + failed + " échec(s)");

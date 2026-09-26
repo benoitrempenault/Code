@@ -644,8 +644,37 @@ conseiller (`POST /crm/bilans/:id/envoyer`, membre, confirmation en deux clics),
 son profil, reply-to vers lui, journal `crm_envois` type `bilan-vendeur`. App membre
 (les conseillers non admin y ont accès — l'Administration leur est fermée) ; onglet-lien
 « 📈 Bilans vendeurs » de l'Administration, réglage dans Réglages. Tests : bloc « Bilans
-vendeurs » de test.mjs + smoke `bilans` (faux site sur 18803). V2 non faite : stats des
-portails (SeLoger, Bien'ici, Leboncoin : pas d'API, back-offices séparés), réseaux sociaux.
+vendeurs » de test.mjs + smoke `bilans` (faux site sur 18803). Réseaux sociaux : pas faits.
+**Portails (SeLoger, Bien'ici, Leboncoin)** : aucun n'ouvre d'API de statistiques aux agences
+(Leboncoin : 30 jours max dans l'espace pro, pas d'export). D'où `tools/agent-portails/`
+(Node + playwright-core, **Microsoft Edge** piloté `channel: "msedge"` avec un PROFIL DÉDIÉ
+`profil-navigateur` où l'agence se connecte une fois — aucun mot de passe chez nous ;
+Node portable téléchargé par `installer.ps1` si absent ; tâche planifiée ouverture de
+session + 20 h, un relevé/jour ; fenêtre hors écran, jamais headless — anti-robots).
+Trois modes : `CONNECTER.cmd`, `APPRENDRE.cmd` (l'agence navigue jusqu'aux stats, chaque
+page visitée est déposée en mode « apprentissage »), relevé (pages des consignes). L'agent
+ne lit RIEN : il dépose les réponses JSON des domaines du portail sur `POST
+/crm/portails/depot` (clé `X-Agent-Key`, `crm_agent_keys.usage = 'portails'`) et lit ses
+consignes sur `GET /crm/portails/consignes`. `server/src/portails.js` : `extraireStats`
+reconnaît chaque annonce par sa RÉFÉRENCE (celles de `crm_bilan_mandats` ; valeur texte, ou
+chiffres d'un champ « ref/reference/mandat/external… » → « KAD-7510 » ok ; un nombre égal à
+une réf. hors champ ref ne compte pas) et classe les champs par NOM (impressions ≠ vues,
+contacts = appels + e-mails sauf total explicite, favoris) ; une valeur DATÉE va dans la
+série jour par jour, jamais dans le total. Tables `crm_portail_consignes` (pages https des
+domaines du portail uniquement, mode cumul|periode), `crm_portail_captures` (40 gardées
+par portail, 400 Ko, relisibles pour régler l'extraction), `crm_portail_stats` (nature
+jour|releve), `crm_portail_etat` (ok|vide|session — redirection vers une page de
+connexion = « session expirée »). `statsPortailsSemaine` : somme de la série si datée,
+sinon écart entre le dernier relevé de la semaine et le précédent (mode cumul), sinon
+dernière valeur « sur la période du portail ». Le bilan ajoute « Sur les portails
+immobiliers » (une ligne par portail + total site compris) et l'alerte
+`portails-sans-contact` (≥ 150 vues, 0 contact). UI : bouton « 🔌 Portails » de Studio
+Bilans (clé, 📦 `bilans/agent-portails.zip` construit par pages.yml, état, pages apprises →
+« ＋ Relever cette page »). Tests : bloc « Portails » de test.mjs ; l'agent a été éprouvé
+bout à bout contre de faux portails HTTPS (Chromium, `args_navigateur` host-resolver-rules,
+`AGENT_HEADLESS=1`). **Les formes JSON réelles des trois portails ne sont pas encore
+connues** : après le premier APPRENDRE, relire les captures (⬇) et ajuster
+`extraireStats` si des annonces ne sont pas reconnues.
 
 **`permanence/` — Studio Permanence**, l'app interne Kadima du **tour de permanence physique
 des points de vente** (Saint-Médard, Caudéran, Blanquefort…), avec sa page publique de prise

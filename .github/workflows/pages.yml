@@ -78,6 +78,9 @@ jobs:
           mkdir -p _site/bilans/assets
           cp bilans/index.html bilans/favicon.svg _site/bilans/
           cp -r bilans/assets/* _site/bilans/assets/
+          # L'agent des portails (SeLoger, Bien'ici, Leboncoin) en archive, sans
+          # config ni profil de navigateur ni journal.
+          (cd tools && zip -q -r ../_site/bilans/agent-portails.zip agent-portails -x 'agent-portails/config.json' 'agent-portails/*.log' 'agent-portails/node_modules/*' 'agent-portails/node/*' 'agent-portails/profil-navigateur/*' 'agent-portails/dernier-releve.json' 'agent-portails/node-chemin.txt' 'agent-portails/package-lock.json')
           # Espace public de l'offre d'achat (lien magique acquéreur / vendeur) sous /offre/
           mkdir -p _site/offre/assets
           cp offre/index.html offre/favicon.svg _site/offre/

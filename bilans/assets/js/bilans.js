@@ -116,7 +116,8 @@
           '<span class="puce' + (a.niveau === "fort" ? " fort" : a.code === "prix-bas" ? " ok" : "") + '">' + escH(a.texte) + "</span>").join("") + "</div></div>" +
         '<div class="chiffres"><span><b>' + (s.vues ?? "—") + "</b> vue" + (s.vues > 1 ? "s " : " ") + escH(evol) + "</span><span><b>" + ((s.visites || 0) + (s.brochures || 0)) + "</b> demande" + ((s.visites || 0) + (s.brochures || 0) > 1 ? "s" : "") + "</span>" +
         (b.ecart != null ? '<span><b class="' + (b.ecart > 0.08 ? "haut" : b.ecart < -0.05 ? "bas" : "") + '">' + pct(b.ecart) + "</b> vs " + b.comparables + " comparables</span>" : "<span>prix : peu de comparables</span>") +
-        (s.indice != null ? "<span>indice <b>" + s.indice + "</b></span>" : "") + "</div>" +
+        (s.indice != null ? "<span>indice <b>" + s.indice + "</b></span>" : "") +
+        (b.portails ? "<span><b>" + b.portails.vues + "</b> vues portails · <b>" + b.portails.contacts + "</b> contacts</span>" : "") + "</div>" +
         "<div>" + statut + "</div></div>";
     }
     $("liste").innerHTML = html;
@@ -217,6 +218,91 @@
     finally { $("fichier-mandats").value = ""; }
   }
 
+  /* -------------------------------- Portails ------------------------------- */
+  // L'agent installé à l'agence relève SeLoger, Bien'ici et Leboncoin. Ici :
+  // sa clé, l'état de chaque portail, et les pages apprises à relever.
+  const STATUTS = { ok: ["ok", "✓ relevé"], session: ["fort", "session expirée — CONNECTER.cmd"], vide: ["fort", "aucune annonce reconnue"], erreur: ["fort", "erreur"] };
+  let portailsEtat = null;
+  async function ouvrirPortails() {
+    try { portailsEtat = await api("/crm/portails"); } catch (e) { toast(e.message, true); return; }
+    rendrePortails();
+  }
+  function rendrePortails() {
+    const P = portailsEtat, cons = P.consignes.portails;
+    const date = (t) => t ? new Date(t * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "jamais";
+    const blocs = Object.entries(P.portails).map(([k, def]) => {
+      const c = cons[k], e = P.etat.find((x) => x.portail === k);
+      const st = e ? STATUTS[e.statut] || ["gris", e.statut] : ["gris", "pas encore relevé"];
+      return '<div class="portail" data-portail="' + k + '"><h3>' + escH(def.nom) +
+        ' <span class="puce ' + st[0] + '">' + escH(st[1]) + "</span>" +
+        (e ? ' <span class="petit" style="margin:0">' + escH(e.message) + " · " + date(e.updated_at) + "</span>" : "") + "</h3>" +
+        '<div class="barre" style="margin-top:8px"><label class="case" style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" data-actif ' + (c.actif ? "checked" : "") + " /> relever ce portail</label>" +
+        '<label>Les chiffres affichés sont<select data-mode><option value="cumul"' + (c.mode === "cumul" ? " selected" : "") + ">des totaux depuis la mise en ligne</option>" +
+        '<option value="periode"' + (c.mode === "periode" ? " selected" : "") + ">une période glissante (ex. 30 jours)</option></select></label></div>" +
+        '<div class="pages">' + (c.pages.length ? c.pages.map((pg, i) => '<div class="page"><code title="' + escH(pg.url) + '">' + escH(pg.url) + "</code>" +
+          '<label class="case" style="font-size:12px"><input type="checkbox" data-defiler="' + i + '" ' + (pg.defiler ? "checked" : "") + " /> faire défiler</label>" +
+          '<button class="btn mini btn-danger" data-retirer="' + i + '">✕</button></div>').join("")
+          : '<p class="petit">Aucune page retenue : lancez APPRENDRE.cmd sur le PC de l\'agent, puis « ＋ Relever cette page » ci-dessous.</p>') + "</div></div>";
+    }).join("");
+    const caps = P.captures.length ? '<table class="captures"><thead><tr><th>Portail</th><th>Mode</th><th>Page</th><th>Annonces</th><th>Le</th><th></th></tr></thead><tbody>' +
+      P.captures.map((c) => "<tr><td>" + escH((P.portails[c.portail] || {}).nom || c.portail) + "</td><td>" + escH(c.mode) + '</td><td class="url" title="' + escH(c.url) + '">' + escH(c.url) +
+        "</td><td><b>" + c.lignes + "</b></td><td>" + date(c.created_at) + "</td><td>" +
+        (c.mode === "apprentissage" && !cons[c.portail].pages.some((pg) => pg.url === c.url) ? '<button class="btn mini btn-or" data-garder="' + escH(c.id) + '">＋ Relever cette page</button> ' : "") +
+        '<button class="btn mini" data-voir="' + escH(c.id) + '" title="Télécharger ce que la page a reçu (pour régler la lecture)">⬇</button></td></tr>').join("") + "</tbody></table>"
+      : '<p class="petit">Aucune capture pour l\'instant.</p>';
+    ouvrirModale("🔌 Statistiques des portails",
+      '<div class="interne"><h3>Comment ça marche</h3><ul>' +
+      "<li>SeLoger, Bien'ici et Leboncoin n'ont pas d'accès automatique : un <strong>agent installé sur un PC de l'agence</strong> ouvre Edge avec la connexion de l'agence et relève chaque jour les pages retenues ci-dessous.</li>" +
+      "<li>Installation : <a href=\"agent-portails.zip\" style=\"color:var(--accent)\">📦 télécharger l'agent</a>, puis suivez LISEZMOI.md (INSTALLER, CONNECTER, APPRENDRE).</li>" +
+      "<li>Les annonces sont reconnues par leur <strong>référence</strong> (celle de l'export des mandats) : importez l'export avant l'apprentissage.</li></ul>" +
+      '<div class="barre" style="margin-top:10px"><span class="petit" style="margin:0">Agent : ' + (P.agent ? escH(P.agent.label) + " · dernier contact " + date(P.agent.last_used) : "aucune clé") + "</span>" +
+      '<button class="btn mini" id="pt-cle">🔑 Nouvelle clé de l\'agent</button>' + (P.agent ? '<button class="btn mini btn-danger" id="pt-revoquer">Révoquer</button>' : "") + '</div><div id="pt-cle-zone"></div></div>' +
+      blocs + "<h3 style=\"font-family:Fraunces,Georgia,serif;font-weight:500;margin:14px 0 6px\">Pages reçues de l'agent</h3>" + caps,
+      '<button class="btn" id="pt-fermer">Fermer</button><button class="btn btn-or" id="pt-enregistrer">Enregistrer les consignes</button>');
+    const lireConsignes = () => {
+      const out = { portails: {} };
+      document.querySelectorAll(".portail[data-portail]").forEach((el) => {
+        const k = el.dataset.portail;
+        out.portails[k] = { actif: el.querySelector("[data-actif]").checked, mode: el.querySelector("[data-mode]").value,
+          pages: cons[k].pages.map((pg, i) => ({ url: pg.url, defiler: !!(el.querySelector('[data-defiler="' + i + '"]') || {}).checked })) };
+      });
+      return out;
+    };
+    const enregistrer = async (msg) => {
+      try { const r = await api("/crm/portails/consignes", { method: "PUT", json: lireConsignes() }); portailsEtat.consignes = r.consignes; toast(msg || "Consignes enregistrées — l'agent les suivra au prochain relevé"); rendrePortails(); }
+      catch (e) { toast(e.message, true); }
+    };
+    $("pt-fermer").addEventListener("click", fermerModale);
+    $("pt-enregistrer").addEventListener("click", () => enregistrer());
+    document.querySelectorAll("[data-retirer]").forEach((b) => b.addEventListener("click", () => {
+      const k = b.closest(".portail").dataset.portail;
+      cons[k].pages.splice(+b.dataset.retirer, 1); enregistrer("Page retirée");
+    }));
+    document.querySelectorAll("[data-garder]").forEach((b) => b.addEventListener("click", () => {
+      const c = P.captures.find((x) => x.id === b.dataset.garder);
+      cons[c.portail].pages.push({ url: c.url, defiler: false }); enregistrer("Page ajoutée aux relevés de " + P.portails[c.portail].nom);
+    }));
+    document.querySelectorAll("[data-voir]").forEach((b) => b.addEventListener("click", async () => {
+      try {
+        const c = await api("/crm/portails/captures/" + b.dataset.voir);
+        const url = URL.createObjectURL(new Blob([JSON.stringify(c, null, 1)], { type: "application/json" }));
+        const a = document.createElement("a"); a.href = url; a.download = "capture-" + c.portail + "-" + c.id + ".json"; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      } catch (e) { toast(e.message, true); }
+    }));
+    $("pt-cle").addEventListener("click", async () => {
+      if (P.agent && !confirm("Une nouvelle clé remplace l'ancienne : l'agent déjà installé sera bloqué jusqu'à ce que vous mettiez la nouvelle dans son config.json. Continuer ?")) return;
+      try {
+        const r = await api("/crm/portails/cle", { json: {} });
+        $("pt-cle-zone").innerHTML = '<p class="petit">Clé de l\'agent (montrée une seule fois) — à coller dans config.exemple.json :</p><div class="cle">' + escH(r.cle) + "</div>" +
+          '<p class="petit">Adresse du serveur (studio_api) : ' + escH(r.api) + "</p>";
+      } catch (e) { toast(e.message, true); }
+    });
+    if ($("pt-revoquer")) $("pt-revoquer").addEventListener("click", async () => {
+      try { await api("/crm/portails/cle", { method: "DELETE" }); toast("Clé révoquée : l'agent est bloqué"); ouvrirPortails(); } catch (e) { toast(e.message, true); }
+    });
+  }
+
   /* ------------------------------ Démarrage -------------------------------- */
   async function demarrer() {
     const a = account();
@@ -234,6 +320,7 @@
   $("filtre-conseiller").addEventListener("change", rendre);
   $("filtre-statut").addEventListener("change", rendre);
   $("btn-import").addEventListener("click", () => $("fichier-mandats").click());
+  $("btn-portails").addEventListener("click", ouvrirPortails);
   $("fichier-mandats").addEventListener("change", () => { const f = $("fichier-mandats").files[0]; if (f) importer(f); });
   $("btn-generer").addEventListener("click", async () => {
     const btn = $("btn-generer"); btn.disabled = true; btn.textContent = "Préparation…";

@@ -945,3 +945,45 @@ CREATE TABLE IF NOT EXISTS crm_bilans (
   UNIQUE (agency_id, ref, semaine)
 );
 CREATE INDEX IF NOT EXISTS idx_crm_bilans_sem ON crm_bilans(agency_id, semaine);
+
+-- Statistiques des portails (SeLoger, Bien'ici, Leboncoin) relevées par
+-- l'agent installé à l'agence (tools/agent-portails, portails.js). Les
+-- espaces pro n'ont pas d'API : l'agent navigue avec la session de l'agence
+-- et dépose ce que les pages reçoivent ; le serveur en extrait les chiffres.
+CREATE TABLE IF NOT EXISTS crm_portail_consignes (
+  agency_id  TEXT PRIMARY KEY REFERENCES agencies(id),
+  data       TEXT NOT NULL DEFAULT '{}',   -- {portails:{seloger:{pages:[{url}], mode}}}
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS crm_portail_captures (
+  id         TEXT PRIMARY KEY,              -- pc_xxxxxxxx
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  portail    TEXT NOT NULL,                 -- seloger | bienici | leboncoin
+  mode       TEXT NOT NULL DEFAULT 'releve',-- releve | apprentissage
+  url        TEXT NOT NULL DEFAULT '',      -- page visitée
+  contenu    TEXT NOT NULL DEFAULT '[]',    -- [{url, json}] tronqué
+  lignes     INTEGER NOT NULL DEFAULT 0,    -- annonces reconnues dans cette capture
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_portail_captures ON crm_portail_captures(agency_id, portail, created_at);
+CREATE TABLE IF NOT EXISTS crm_portail_stats (
+  agency_id TEXT NOT NULL REFERENCES agencies(id),
+  portail   TEXT NOT NULL,
+  ref       TEXT NOT NULL,                  -- référence du mandat (= annonce du site)
+  jour      TEXT NOT NULL,                  -- AAAA-MM-JJ (jour de la série, ou du relevé)
+  nature    TEXT NOT NULL DEFAULT 'releve', -- jour = valeur DU jour (série du portail) | releve = compteur lu ce jour-là
+  vues      INTEGER,
+  contacts  INTEGER,
+  favoris   INTEGER,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agency_id, portail, ref, jour, nature)
+);
+CREATE TABLE IF NOT EXISTS crm_portail_etat (
+  agency_id TEXT NOT NULL REFERENCES agencies(id),
+  portail   TEXT NOT NULL,
+  statut    TEXT NOT NULL DEFAULT '',       -- ok | session | vide | erreur
+  message   TEXT NOT NULL DEFAULT '',
+  annonces  INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agency_id, portail)
+);

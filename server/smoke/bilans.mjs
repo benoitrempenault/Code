@@ -83,6 +83,20 @@ export default async function () {
     await page.selectOption("#filtre-statut", "");
     ok(/envoyé/.test(await page.locator('.bilan:has-text("Réf. 8282")').textContent()), "le bilan passe « envoyé »");
 
+    // Portails : une page apprise par l'agent devient une page relevée.
+    const cleP = await api("/crm/portails/cle", { headers: admin.auth, body: {} });
+    await api("/crm/portails/depot", { headers: { "X-Agent-Key": cleP.json.cle }, body: { portail: "bienici", mode: "apprentissage", url: "https://pro.bienici.com/statistiques",
+      reponses: [{ url: "https://pro.bienici.com/api/stats", json: { ads: [{ reference: "8282", statistics: { views: 240, emailContacts: 2 } }] } }] } });
+    await page.click("#btn-portails");
+    await page.waitForSelector(".portail[data-portail=bienici]", { timeout: 8000 });
+    ok(/Agent portails/.test(await page.textContent("#modale-corps")) && /Bien'ici/.test(await page.textContent(".captures")), "Portails : l'agent et la page apprise sont listés");
+    if (cap) await page.screenshot({ path: cap + "/bilans-portails.png" });
+    await page.click("[data-garder]");
+    await attendreToast(page, "Page ajoutée aux relevés de Bien'ici");
+    const consP = await api("/crm/portails", { headers: admin.auth });
+    ok(consP.json.consignes.portails.bienici.pages[0].url === "https://pro.bienici.com/statistiques", "la page est enregistrée dans les consignes de l'agent");
+    await page.click("#pt-fermer");
+
     // Un conseiller : la liste, sans l'import.
     await ouvrir(page, "/bilans/", lucie);
     await page.waitForSelector(".bilan", { timeout: 8000 });
