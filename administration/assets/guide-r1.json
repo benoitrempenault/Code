@@ -1,0 +1,135 @@
+{
+ "version": "2026-09-26",
+ "pages": 25,
+ "communes": [
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13
+ ],
+ "insertion": 4,
+ "rdv": {
+  "page": 11,
+  "hauteur": 842.25,
+  "date": [
+   185,
+   345
+  ],
+  "heure": [
+   185,
+   369
+  ],
+  "agence": [
+   272,
+   392
+  ],
+  "taille": 11.9
+ },
+ "conseillers": [
+  {
+   "page": 14,
+   "prenom": "Lucie",
+   "nom": "Giusti Marcilhac",
+   "email": "lucie.giustimarcilhac@century21.fr",
+   "telephone": "07 69 62 08 78",
+   "cle": "lucie giusti marcilhac"
+  },
+  {
+   "page": 15,
+   "prenom": "Adelaide",
+   "nom": "Rempenault",
+   "email": "adelaide.rempenault@century21.fr",
+   "telephone": "07 81 65 62 43",
+   "cle": "adelaide rempenault"
+  },
+  {
+   "page": 16,
+   "prenom": "Vincent",
+   "nom": "Leroux",
+   "email": "vincent.leroux@century21.fr",
+   "telephone": "07 69 92 63 55",
+   "cle": "vincent leroux"
+  },
+  {
+   "page": 17,
+   "prenom": "Emma",
+   "nom": "Geoffrion",
+   "email": "emma.geoffrion@century21.fr",
+   "telephone": "06 47 84 76 62",
+   "cle": "emma geoffrion"
+  },
+  {
+   "page": 18,
+   "prenom": "Laurence",
+   "nom": "Ariztoy",
+   "email": "laurence.ariztoy@century21.fr",
+   "telephone": "06 11 36 18 18",
+   "cle": "laurence ariztoy"
+  },
+  {
+   "page": 19,
+   "prenom": "Rémi",
+   "nom": "Blanc",
+   "email": "remi.blanc@century21.fr",
+   "telephone": "06 70 44 85 03",
+   "cle": "remi blanc"
+  },
+  {
+   "page": 20,
+   "prenom": "Nathalie",
+   "nom": "Frick",
+   "email": "nathalie.frick@century21.fr",
+   "telephone": "06 63 35 89 75",
+   "cle": "nathalie frick"
+  },
+  {
+   "page": 21,
+   "prenom": "Gaby",
+   "nom": "Hivert",
+   "email": "gaby.hivert@century21.fr",
+   "telephone": "07 77 69 79 45",
+   "cle": "gaby hivert"
+  },
+  {
+   "page": 22,
+   "prenom": "Marine",
+   "nom": "Zamora",
+   "email": "marine.zamora@century21.fr",
+   "telephone": "06 76 83 31 54",
+   "cle": "marine zamora"
+  },
+  {
+   "page": 23,
+   "prenom": "Teddy",
+   "nom": "Besson",
+   "email": "teddy.besson@century21.fr",
+   "telephone": "07 49 96 59 21",
+   "cle": "teddy besson"
+  },
+  {
+   "page": 24,
+   "prenom": "Adeline",
+   "nom": "Lebon",
+   "email": "adeline.lebon@century21.fr",
+   "telephone": "06 52 87 97 09",
+   "cle": "adeline lebon"
+  },
+  {
+   "page": 25,
+   "prenom": "Laurence",
+   "nom": "Bougault",
+   "email": "laurence.bougault@century21.fr",
+   "telephone": "07 49 92 47 77",
+   "cle": "laurence bougault"
+  }
+ ]
+}

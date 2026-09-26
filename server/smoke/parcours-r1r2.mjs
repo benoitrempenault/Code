@@ -57,9 +57,17 @@ export default async function () {
     const mails = await (await fetch("http://localhost:18795/__mails")).json();
     ok(mails.some((m) => /MOUNEYRES/.test(m.html || "") && /excellente journée/.test(m.html || "")), "le faux Resend a bien reçu l'e-mail relu");
 
-    await page.click('[data-cocher="guide-r1"]');
+    // Le guide R1 personnalisé : 13 pages communes + la page de Teddy Besson en 4e position, R2 écrit.
+    await page.click('[data-guide="r1"]');
+    await attendreToast(page, "Guide R1 prêt", 30000);
     await page.waitForFunction(() => document.querySelectorAll(".etape.faite").length === 2, null, { timeout: 8000 });
-    ok(true, "le guide R1 se coche comme fait");
+    const guide = await page.evaluate(async () => {
+      const octets = window.__dernierGuide.octets;
+      const doc = await window.PDFLib.PDFDocument.load(octets);
+      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: octets.byteLength };
+    });
+    ok(guide.pages === 14 && /MOUNEYRES/.test(guide.titre) && guide.octets > 100000,
+      "le guide R1 fait 14 pages (13 communes + Teddy Besson) au nom du client (" + JSON.stringify(guide) + ")");
     await page.click("#modale-ok");
     await page.waitForFunction(() => /2\/6/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
     ok(true, "la liste montre l'avancement 2/6");

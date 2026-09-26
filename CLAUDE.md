@@ -464,7 +464,22 @@ URL ≤ 200 Ko réduite côté navigateur à 240 px, servie par
 `GET /public/conseillers/:id/photo`), routes /crm/conseillers (liste membre,
 PUT/DELETE admin), carte « Les conseillers » dans Réglages. Réglages agence :
 instagram, facebook, avis. Smoke `parcours-r1r2` (faux Resend sur 18795 dans
-run.mjs, `/__mails`). Admin : assets versionnés `?v=3`.
+run.mjs, `/__mails`). Admin : assets versionnés `?v=4`.
+**Guide R1 personnalisé (26/09)** : `administration/assets/guide-r1.pdf` (25 pages :
+13 communes + 12 pages « Votre conseiller », corrigé de l'original de Benoît avec
+pymupdf — p2 : 14 conseillers St-Médard, 2 gestionnaires St-Aubin ; p3 : 9,5/10
+sur 1 610 avis (site C21, Qualitelis) et 4,9/5 sur 864 avis Google, relevés le
+26/09 ; le « 6 » n'existe pas dans la police Bugaki embarquée → un 9 tourné de
+180°, effet or/noir/or reproduit) + `guide-r1.json` (pages communes, insertion en
+4e position, positions du bloc « Notre prochain rendez-vous » p11, conseillers →
+page par clé « prenom nom » sans accents). Assemblé DANS LE NAVIGATEUR par
+`genererGuideR1()` (admin.js, pdf-lib vendorisé `assets/js/vendor/pdf-lib.min.js`
+— la CSP de l'admin n'autorise pas les CDN) : pages 1-3, page du conseiller de la
+fiche, 4-13 ; R2 (date en toutes lettres, heure, adresse de l'agence) écrit en
+Helvetica-Bold ; ouvert dans un onglet (blob) et l'étape guide-r1 cochée.
+Pour changer les chiffres du guide : refaire la passe pymupdf (polices extraites
+des sous-ensembles embarqués, `bugaki3.ttf` = page 3). Un conseiller absent du
+guide → toast et guide sans sa page.
 **Maisons dessinées + signets (carte, 15/09)** : `GET /crm/batiments?bbox=minLng,
 minLat,maxLng,maxLat` (membre) relaie le WFS IGN BD TOPO (`BATIMENTS_BASE`,
 CRS:84, COUNT 3000, bbox ≤ 0,02°×0,012°) et renvoie `{batiments:[{id, nature,

@@ -2294,7 +2294,9 @@
       const quand = f ? "fait le " + new Date(f.le * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) + (f.par ? " par " + escH(f.par) : "") + (f.email ? " → " + escH(f.email) : "") : "";
       const actions = e.mail
         ? '<button class="btn btn-or" data-mail="' + e.cle + '">' + (f ? "✉️ Renvoyer" : "✉️ Préparer et envoyer") + "</button>"
-        : '<button class="btn" disabled title="Le modèle du document arrive : il sera imprimable ici">🖨 Modèle à venir</button>' +
+        : (e.cle === "guide-r1"
+          ? '<button class="btn btn-or" data-guide="r1" title="Le guide de commercialisation, avec la page du conseiller et le prochain rendez-vous">🖨 Guide R1 personnalisé</button>'
+          : '<button class="btn" disabled title="Le modèle du document arrive : il sera imprimable ici">🖨 Modèle à venir</button>') +
           '<button class="btn" data-cocher="' + e.cle + '">' + (f ? "↩ Décocher" : "✓ Fait") + "</button>";
       return '<div class="etape' + (f ? " faite" : "") + '"><span class="num">' + (f ? "✓" : i + 1) + '</span><div class="titre"><strong>' + escH(e.titre) + "</strong>" +
         (quand ? '<div class="quand">' + quand + "</div>" : "") + "</div>" + actions + "</div>";
@@ -2316,11 +2318,71 @@
       catch (e) { toast(e.message, true); }
     });
     document.querySelectorAll("[data-mail]").forEach((b) => b.addEventListener("click", () => preparerMailParcours(id, b.dataset.mail, p)));
+    document.querySelectorAll("[data-guide]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true; b.textContent = "Préparation…";
+      try {
+        await genererGuideR1(p);
+        if (!faites.has("guide-r1")) await api("/crm/parcours/" + id + "/etape", { json: { etape: "guide-r1" } });
+        toast("Guide R1 prêt : il s'ouvre dans un nouvel onglet, à imprimer ou enregistrer");
+        ouvrirParcours(id);
+      } catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "🖨 Guide R1 personnalisé"; }
+    }));
     document.querySelectorAll("[data-cocher]").forEach((b) => b.addEventListener("click", async () => {
       const deja = faites.has(b.dataset.cocher);
       try { await api("/crm/parcours/" + id + "/etape", { json: { etape: b.dataset.cocher, defaire: deja } }); ouvrirParcours(id); }
       catch (e) { toast(e.message, true); }
     }));
+  }
+  // Le guide R1 personnalisé, assemblé dans le navigateur (pdf-lib) à partir
+  // du guide de commercialisation (assets/guide-r1.pdf, 13 pages communes +
+  // une page par conseiller) : pages 1-3, la page du conseiller de la fiche,
+  // puis la suite ; le prochain rendez-vous (R2) écrit sur la page « De quoi
+  // parlerons-nous ». Ouvert dans un nouvel onglet, prêt à imprimer.
+  let guideR1Cache = null;
+  const sansAccentsMin = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+  async function genererGuideR1(p) {
+    if (!window.PDFLib) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
+    if (!guideR1Cache) {
+      const [meta, pdf] = await Promise.all([
+        fetch("assets/guide-r1.json").then((r) => r.json()),
+        fetch("assets/guide-r1.pdf").then((r) => { if (!r.ok) throw new Error("Guide introuvable."); return r.arrayBuffer(); }),
+      ]);
+      guideR1Cache = { meta, pdf };
+    }
+    const { meta, pdf } = guideR1Cache;
+    const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
+    const source = await PDFDocument.load(pdf);
+    const cs = p.conseiller || {};
+    const cle = sansAccentsMin([cs.prenom, cs.nom].filter(Boolean).join(" "));
+    const pageCs = meta.conseillers.find((c) => c.cle === cle) ||
+      meta.conseillers.find((c) => cle && (cle.includes(c.cle) || c.cle.includes(cle)));
+    if (cs.nom && !pageCs) toast("Pas de page « votre conseiller » pour " + [cs.prenom, cs.nom].join(" ") + " dans le guide : il part sans", true);
+    const ordre = meta.communes.slice(0, meta.insertion - 1).concat(pageCs ? [pageCs.page] : [], meta.communes.slice(meta.insertion - 1));
+    const doc = await PDFDocument.create();
+    const pages = await doc.copyPages(source, ordre.map((n) => n - 1));
+    pages.forEach((pg) => doc.addPage(pg));
+    // Le prochain rendez-vous : date, heure, adresse de l'agence.
+    const rdv = meta.rdv;
+    const idx = ordre.indexOf(rdv.page);
+    if (idx >= 0 && (p.r2 || (reglages && reglages.agence.adresse))) {
+      const page = doc.getPage(idx);
+      const font = await doc.embedFont(StandardFonts.HelveticaBold);
+      const h = page.getHeight();
+      const ecrire = (texte, xy) => { if (texte) page.drawText(texte, { x: xy[0], y: h - xy[1], size: rdv.taille, font, color: rgb(0.11, 0.11, 0.11) }); };
+      const jours = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"], mois = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p.r2 || "");
+      const d = m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null;
+      ecrire(d ? jours[d.getUTCDay()] + " " + (+m[3]) + " " + mois[+m[2] - 1] + " " + m[1] : "", rdv.date);
+      ecrire(p.r2_heure ? p.r2_heure.replace(/^(\d{1,2}):(\d{2})$/, (t, a, b) => (+a) + "h" + (b === "00" ? "" : b)) : "", rdv.heure);
+      ecrire((reglages && reglages.agence.adresse) || "", rdv.agence);
+    }
+    doc.setTitle("Guide de commercialisation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
+    const octets = await doc.save();
+    const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
+    window.__dernierGuide = { url, octets }; // relu par les parcours navigateur
+    const fen = window.open(url, "_blank");
+    if (!fen) { const a = document.createElement("a"); a.href = url; a.download = "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf"; a.click(); }
+    return url;
   }
   // Le mail d'un jalon : sujet et texte pré-remplis, à relire ; aperçu du
   // rendu ; envoi à toutes les personnes de la fiche.
