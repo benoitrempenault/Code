@@ -2417,6 +2417,8 @@
           ? '<button class="btn btn-or" data-guide="r1" title="Le guide de commercialisation, avec la page du conseiller et le prochain rendez-vous">🖨 Guide R1 personnalisé</button>'
           : e.cle === "guide-r2"
           ? '<button class="btn btn-or" data-guide="r2" title="Photo du bien, points forts, objections, environnement, ventes autour, page du conseiller">🖨 Guide R2 personnalisé</button>'
+          : e.cle === "acm"
+          ? '<button class="btn btn-or" data-guide="acm" title="Ventes DVF et de l\'agence, biens en concurrence, commission d\'évaluation, acheteurs, financement">🖨 Livret prix (ACM)</button>'
           : '<button class="btn" disabled title="Le modèle du document arrive : il sera imprimable ici">🖨 Modèle à venir</button>') +
           '<button class="btn" data-cocher="' + e.cle + '">' + (f ? "↩ Décocher" : "✓ Fait") + "</button>";
       return '<div class="etape' + (f ? " faite" : "") + '"><span class="num">' + (f ? "✓" : i + 1) + '</span><div class="titre"><strong>' + escH(e.titre) + "</strong>" +
@@ -2464,6 +2466,7 @@
     document.querySelectorAll("[data-mail]").forEach((b) => b.addEventListener("click", () => preparerMailParcours(id, b.dataset.mail, p)));
     document.querySelectorAll("[data-guide]").forEach((b) => b.addEventListener("click", async () => {
       if (b.dataset.guide === "r2") { ouvrirGuideR2(id, p); return; }
+      if (b.dataset.guide === "acm") { ouvrirAcm(id, p); return; }
       b.disabled = true; b.textContent = "Préparation…";
       try {
         await genererGuideR1(p);
@@ -2869,6 +2872,312 @@
       try { const r = await api("/crm/parcours/" + id + "/proprietaires", { json: corps }); toast(r.contact_cree ? "Co-propriétaire ajouté, et sa fiche contact créée" : "Co-propriétaire ajouté"); ouvrirParcours(id); }
       catch (e) { toast(e.message, true); }
     });
+  }
+
+  /* ----------------------------- Livret prix ------------------------------ */
+  // L'analyse comparative de marché, sur le modèle « Votre livret prix » :
+  // les 3 pages fixes, puis chaque chapitre (page de titre du modèle) suivi
+  // des pages générées — ventes DVF et de l'agence retenues (carte + fiche),
+  // biens en concurrence (photo + fiche), commission d'évaluation, acheteurs
+  // du moment (facultatif), conditions de financement.
+  const dvfCacheAcm = new Map();
+  function parseDvfCsv(texte) {
+    const lignes = texte.split("\n");
+    if (lignes.length < 2) return [];
+    const cols = lignes[0].split(","); const idx = {}; cols.forEach((c, i) => { idx[c] = i; });
+    const parId = new Map();
+    for (let i = 1; i < lignes.length; i++) {
+      const c = lignes[i].split(",");
+      if (c.length < cols.length - 2) continue;
+      const lat = parseFloat(c[idx.latitude]), lng = parseFloat(c[idx.longitude]), prix = parseFloat(c[idx.valeur_fonciere]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(prix) || prix < 1000) continue;
+      if (c[idx.nature_mutation] !== "Vente" && c[idx.nature_mutation] !== "Vente en l'état futur d'achèvement") continue;
+      const id = c[idx.id_mutation];
+      const ligne = { id: "dvf:" + id, date: c[idx.date_mutation], prix, lat, lng, type: c[idx.type_local] || "", surface: parseFloat(c[idx.surface_reelle_bati]) || 0,
+        pieces: parseInt(c[idx.nombre_pieces_principales], 10) || 0, terrain: parseFloat(c[idx.surface_terrain]) || 0,
+        adresse: [c[idx.adresse_numero], c[idx.adresse_nom_voie]].filter(Boolean).join(" "), ville: c[idx.nom_commune] || "" };
+      const cur = parId.get(id);
+      if (!cur || ligne.surface > cur.surface) { if (cur) ligne.terrain = Math.max(ligne.terrain, cur.terrain); parId.set(id, ligne); }
+      else cur.terrain = Math.max(cur.terrain, ligne.terrain);
+    }
+    return [...parId.values()].filter((v) => (v.type === "Maison" || v.type === "Appartement") && v.surface > 0);
+  }
+  async function chargerDvfCommune(code, dep) {
+    if (dvfCacheAcm.has(code)) return dvfCacheAcm.get(code);
+    const annee = new Date().getFullYear(), ventes = []; let trouvees = 0;
+    for (let a = annee; a >= annee - 4 && trouvees < 3; a--) {
+      try {
+        const r = await fetch(API + "/crm/dvf/" + a + "/" + dep + "/" + code, { headers: { Authorization: "Bearer " + account().session } });
+        if (!r.ok) continue;
+        ventes.push(...parseDvfCsv(await r.text())); trouvees++;
+      } catch { /* millésime absent */ }
+    }
+    dvfCacheAcm.set(code, ventes);
+    return ventes;
+  }
+  const distM = (a, b, c, d) => { const R = 6371000, r = Math.PI / 180, x = (d - b) * r * Math.cos((a + c) / 2 * r), y = (c - a) * r; return Math.sqrt(x * x + y * y) * R; };
+  const fmtM2 = (v) => (v && v.surface && v.prix ? Math.round(v.prix / v.surface).toLocaleString("fr-FR") + " €/m²" : "");
+  const fmtDateAcm = (d) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || "")); return m ? m[3] + "/" + m[2] + "/" + m[1] : String(d || ""); };
+  const mensualite = (montant, tauxPct, annees) => { const t = tauxPct / 100 / 12, n = annees * 12; if (!montant || !n) return 0; return t ? montant * t / (1 - Math.pow(1 + t, -n)) : montant / n; };
+  async function ouvrirAcm(id, p) {
+    let acm, donnees;
+    try { [acm, donnees] = await Promise.all([api("/crm/parcours/" + id + "/acm"), api("/crm/parcours/" + id + "/acm/donnees")]); }
+    catch (e) { toast(e.message, true); return; }
+    acm = acm.acm || {};
+    ouvrirModale("🖨 Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), '<p class="aide">Ventes DVF autour du bien…</p>', "");
+    let dvf = [];
+    if (donnees.commune && donnees.commune.code) { try { dvf = await chargerDvfCommune(donnees.commune.code, donnees.commune.dep); } catch { dvf = []; } }
+    const typeDvf = donnees.type === "appartement" ? "Appartement" : "Maison";
+    const depuis = new Date(); depuis.setFullYear(depuis.getFullYear() - 3);
+    const ventesDvf = dvf.filter((v) => v.type === typeDvf && v.date >= depuis.toISOString().slice(0, 10))
+      .map((v) => ({ ...v, source: "dvf", dist: Math.round(distM(donnees.lat, donnees.lng, v.lat, v.lng)) })).filter((v) => v.dist <= 1500).sort((a, b) => a.dist - b.dist).slice(0, 30);
+    const ventesAgence = (donnees.ventes || []).filter((v) => v.prix > 0).map((v) => ({ ...v, source: "agence", dist: Math.round(v.dist) }));
+    const candidatsVentes = [...ventesAgence, ...ventesDvf];
+    window.__acmDebug = { dvf: dvf.length, ventesDvf: ventesDvf.length, commune: donnees.commune, lat: donnees.lat, lng: donnees.lng, type: donnees.type }; // relu par le smoke
+    // Les biens vus sur les portails (leboncoin, SeLoger…), saisis à la main avec
+    // l'adresse retrouvée (précisément.fr) : gardés dans la saisie du livret.
+    const manuels = (acm.concurrence || []).filter((c) => c.source === "portail");
+    const candidatsConc = [...manuels, ...(donnees.annonces || []).map((a) => ({ ...a, id: "agence:" + a.id })), ...(donnees.amepi || []).map((a) => ({ ...a, id: "amepi:" + a.id }))];
+    const dejaV = new Set((acm.ventes || []).map((v) => v.id)), dejaC = new Set((acm.concurrence || []).map((v) => v.id));
+    const cocheV = (v, i) => (acm.ventes ? dejaV.has(v.id) : i < 4), cocheC = (v, i) => (acm.concurrence ? dejaC.has(v.id) : i < 4);
+    const ligneVente = (v, i) => '<label class="case" style="display:flex; gap:8px; align-items:flex-start; padding:4px 0; border-bottom:1px solid var(--line);"><input type="checkbox" data-vente="' + escH(v.id) + '"' + (cocheV(v, i) ? " checked" : "") + ' /> <span><strong>' +
+      escH(fmtPrix(v.prix)) + "</strong> · " + escH(fmtDateAcm(v.date)) + " · " + escH(v.adresse || "") + (v.ville ? ", " + escH(v.ville) : "") + '<br /><span class="petit">' +
+      escH([v.type, v.pieces ? v.pieces + " pièces" : "", v.surface ? Math.round(v.surface) + " m²" : "", v.terrain ? "terrain " + Math.round(v.terrain) + " m²" : "", fmtM2(v), "à " + v.dist + " m", v.source === "agence" ? "vendu par l'agence" : "DVF"].filter(Boolean).join(" · ")) + "</span></span></label>";
+    const ligneConc = (a, i) => '<label class="case" style="display:flex; gap:8px; align-items:flex-start; padding:4px 0; border-bottom:1px solid var(--line);"><input type="checkbox" data-conc="' + escH(a.id) + '"' + (cocheC(a, i) ? " checked" : "") + ' /> <span><strong>' +
+      escH(fmtPrix(a.prix)) + "</strong> · " + escH(a.titre || "") + (a.ville ? " · " + escH(a.ville) : "") + '<br /><span class="petit">' +
+      escH([a.adresse || "", a.pieces ? a.pieces + " pièces" : "", a.surface ? Math.round(a.surface) + " m²" : "", a.terrain ? "terrain " + Math.round(a.terrain) + " m²" : "", fmtM2(a), a.dist != null ? "à " + Math.round(a.dist) + " m" : "", a.jours ? "en vente depuis " + a.jours + " j" : "", a.baisse > 0 ? "baisse de " + fmtPrix(a.baisse) : "", a.source === "amepi" ? "ALFA · " + (a.agence || "confrère") : a.source === "portail" ? "vu sur " + (a.portail || "un portail") : "notre agence"].filter(Boolean).join(" · ")) + "</span></span></label>";
+    const commission = (acm.commission && acm.commission.length ? acm.commission : [{ nb: "", basse: "", haute: "" }, { nb: "", basse: "", haute: "" }, { nb: "", basse: "", haute: "" }]);
+    const ach = donnees.acheteurs || [];
+    const budgets = ach.map((a) => a.budget_max).filter((b) => b > 0).sort((a, b) => a - b);
+    const resumeAch = ach.length ? ach.length + " acheteur(s) en recherche d'" + (donnees.type === "appartement" ? "un appartement" : "une maison") + (p.ville ? " à " + p.ville : "") +
+      (budgets.length ? ", budgets de " + fmtPrix(budgets[0]) + " à " + fmtPrix(budgets[budgets.length - 1]) : "") : "Aucun acheteur en recherche sur ce secteur dans Studio.";
+    $("modale-corps").innerHTML =
+      '<p class="aide">Cochez ce qui entre dans le livret, complétez la commission d\'évaluation et le financement. Tout s\'enregistre sur la fiche.</p>' +
+      '<h3 style="margin:10px 0 4px;">Le bien</h3>' +
+      '<div class="grille-champs"><label>Surface habitable (m²)<input id="acm-surface" type="number" step="1" value="' + escH(acm.surface || "") + '" /></label>' +
+      '<label>Terrain (m²)<input id="acm-terrain" type="number" step="1" value="' + escH(acm.terrain || "") + '" /></label>' +
+      '<label>Prix estimé par le conseiller (net vendeur)<input id="acm-prix" type="number" step="1000" value="' + escH(acm.prix || "") + '" /></label>' +
+      '<label>Fourchette basse<input id="acm-basse" type="number" step="1000" value="' + escH(acm.basse || "") + '" /></label>' +
+      '<label>Fourchette haute<input id="acm-haute" type="number" step="1000" value="' + escH(acm.haute || "") + '" /></label></div>' +
+      '<h3 style="margin:14px 0 4px;">1. Les biens récemment vendus <span class="petit">(' + candidatsVentes.length + ' à moins de 1,5 km — DVF 3 ans et ventes de l\'agence)</span></h3>' +
+      '<div id="acm-ventes" style="max-height:220px; overflow-y:auto;">' + (candidatsVentes.length ? candidatsVentes.map(ligneVente).join("") : '<p class="petit">Aucune vente comparable trouvée' + (dvf.length ? "" : " (fichier DVF de la commune indisponible)") + ".</p>") + "</div>" +
+      '<h3 style="margin:14px 0 4px;">2. Les biens en concurrence <span class="petit">(nos annonces et les mandats de l\'ALFA, même type, même secteur)</span></h3>' +
+      '<div id="acm-conc" style="max-height:220px; overflow-y:auto;">' + (candidatsConc.length ? candidatsConc.map(ligneConc).join("") : '<p class="petit">Aucun bien en vente comparable pour le moment.</p>') + "</div>" +
+      '<details style="margin-top:6px;"><summary class="petit" style="cursor:pointer;">+ Ajouter un bien vu sur un portail (adresse retrouvée sur précisément.fr)</summary>' +
+      '<div class="grille-champs" style="margin-top:6px;"><label style="grid-column:1/-1;">Adresse<input id="acm-m-adresse" placeholder="9 allée Lamartine, Le Taillan-Médoc" /></label>' +
+      '<label>Prix<input id="acm-m-prix" type="number" step="1000" /></label><label>Surface (m²)<input id="acm-m-surface" type="number" /></label><label>Pièces<input id="acm-m-pieces" type="number" /></label><label>Terrain (m²)<input id="acm-m-terrain" type="number" /></label>' +
+      '<label>Portail / agence<input id="acm-m-portail" placeholder="Leboncoin — ORPI" /></label><label>Lien de l\'annonce<input id="acm-m-url" placeholder="https://…" /></label></div>' +
+      '<div class="barre"><button class="btn" id="acm-m-ajouter">Ajouter à la liste</button></div></details>' +
+      '<h3 style="margin:14px 0 4px;">3. Commission d\'évaluation <span class="petit">(nombre de conseillers par fourchette, net vendeur)</span></h3>' +
+      '<div id="acm-commission">' + commission.map((l, i) => '<div class="grille-champs" style="margin:2px 0;"><label>Conseillers<input type="number" min="0" data-com-nb="' + i + '" value="' + escH(l.nb) + '" /></label><label>De<input type="number" step="1000" data-com-basse="' + i + '" value="' + escH(l.basse) + '" /></label><label>À<input type="number" step="1000" data-com-haute="' + i + '" value="' + escH(l.haute) + '" /></label></div>').join("") + "</div>" +
+      '<h3 style="margin:14px 0 4px;">4. Les réactions des acheteurs du moment</h3>' +
+      '<p class="petit">' + escH(resumeAch) + "</p>" +
+      '<label class="case"><input type="checkbox" id="acm-ach-inclure"' + (acm.acheteurs_inclure ? " checked" : "") + " /> Inclure cette page dans le livret</label>" +
+      '<textarea id="acm-ach-texte" style="width:100%; min-height:70px; margin-top:6px;" placeholder="Retours de visites, remarques des acheteurs…">' + escH(acm.acheteurs_texte || "") + "</textarea>" +
+      '<h3 style="margin:14px 0 4px;">5. Les conditions de financement</h3>' +
+      '<div class="grille-champs"><label>Taux (%)<input id="acm-taux" type="number" step="0.05" value="' + escH(acm.taux ?? 3.9) + '" /></label>' +
+      '<label>Assurance (%)<input id="acm-assurance" type="number" step="0.01" value="' + escH(acm.assurance ?? 0.34) + '" /></label>' +
+      '<label>Apport<input id="acm-apport" type="number" step="1000" value="' + escH(acm.apport ?? 0) + '" /></label>' +
+      '<label>Durée (ans)<select id="acm-duree">' + [15, 20, 25].map((d) => '<option' + ((acm.duree || 25) === d ? " selected" : "") + ">" + d + "</option>").join("") + "</select></label></div>" +
+      '<p class="petit" id="acm-etat"></p>';
+    $("modale-pied").innerHTML = '<button class="btn" id="acm-retour">Retour</button><button class="btn" id="acm-save">Enregistrer</button><button class="btn btn-or" id="acm-generer">🖨 Générer le livret</button>';
+    $("acm-retour").addEventListener("click", () => ouvrirParcours(id));
+    $("acm-m-ajouter").addEventListener("click", () => {
+      const num = (k) => { const v = parseFloat($(k).value); return Number.isFinite(v) ? v : null; };
+      const m = { id: "portail:" + Date.now(), source: "portail", adresse: $("acm-m-adresse").value.trim(), prix: num("acm-m-prix"), surface: num("acm-m-surface"), pieces: num("acm-m-pieces"), terrain: num("acm-m-terrain"), portail: $("acm-m-portail").value.trim(), url: $("acm-m-url").value.trim(), type: donnees.type === "appartement" ? "Appartement" : "Maison" };
+      if (!m.adresse || !m.prix) { toast("Adresse et prix sont requis", true); return; }
+      m.titre = [m.type, m.pieces ? m.pieces + " pièces" : "", m.surface ? Math.round(m.surface) + " m²" : ""].filter(Boolean).join(" · ");
+      candidatsConc.unshift(m);
+      const zone = $("acm-conc"); zone.insertAdjacentHTML("afterbegin", ligneConc(m, 0).replace('type="checkbox"', 'type="checkbox" checked'));
+      for (const k of ["acm-m-adresse", "acm-m-prix", "acm-m-surface", "acm-m-pieces", "acm-m-terrain", "acm-m-url"]) $(k).value = "";
+      toast("Bien ajouté à la liste");
+    });
+    const lire = () => {
+      const num = (k) => { const v = parseFloat($(k).value); return Number.isFinite(v) ? v : null; };
+      const cochees = (sel, liste) => [...document.querySelectorAll(sel)].filter((x) => x.checked).map((x) => liste.find((v) => v.id === x.dataset.vente || v.id === x.dataset.conc)).filter(Boolean);
+      const com = [...document.querySelectorAll("[data-com-nb]")].map((x) => { const i = x.dataset.comNb; return { nb: parseInt(x.value, 10) || 0, basse: parseFloat(document.querySelector('[data-com-basse="' + i + '"]').value) || 0, haute: parseFloat(document.querySelector('[data-com-haute="' + i + '"]').value) || 0 }; }).filter((l) => l.nb > 0);
+      return { prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), ventes: cochees("[data-vente]", candidatsVentes), concurrence: cochees("[data-conc]", candidatsConc),
+        commission: com, acheteurs_inclure: $("acm-ach-inclure").checked, acheteurs_texte: $("acm-ach-texte").value.trim(), acheteurs_n: ach.length, acheteurs_budgets: budgets,
+        taux: num("acm-taux") ?? 3.9, assurance: num("acm-assurance") ?? 0.34, apport: num("acm-apport") || 0, duree: parseInt($("acm-duree").value, 10) || 25 };
+    };
+    const sauver = async () => { const d = lire(); await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: d }); return d; };
+    $("acm-save").addEventListener("click", async () => { try { await sauver(); toast("Livret prix : saisie enregistrée"); } catch (e) { toast(e.message, true); } });
+    $("acm-generer").addEventListener("click", async () => {
+      const btn = $("acm-generer"), etat = $("acm-etat"); btn.disabled = true;
+      try {
+        etat.textContent = "Enregistrement…"; const d = await sauver();
+        etat.textContent = "Cartes, photos et assemblage du livret…";
+        await genererLivretPrix(p, d, donnees);
+        await api("/crm/parcours/" + id + "/etape", { json: { etape: "acm" } });
+        toast("Livret prix prêt : il s'ouvre dans un nouvel onglet, à imprimer ou enregistrer");
+        ouvrirParcours(id);
+      } catch (e) { toast(e.message, true); etat.textContent = ""; btn.disabled = false; }
+    });
+  }
+  let livretCache = null;
+  async function genererLivretPrix(p, acm, donnees) {
+    if (!window.PDFLib || !window.fontkit) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
+    if (!livretCache) {
+      const meta = await fetch("assets/livret-prix.json").then((r) => r.json());
+      const [pdf, ...fontes] = await Promise.all([fetch("assets/livret-prix.pdf").then((r) => { if (!r.ok) throw new Error("Livret prix introuvable."); return r.arrayBuffer(); }),
+        ...["Montserrat-Bold", "Montserrat-SemiBold", "Montserrat-Regular"].map((f) => fetch("assets/fonts/" + f + ".ttf").then((r) => r.arrayBuffer()))]);
+      livretCache = { meta, pdf, fontes };
+    }
+    const { meta, pdf, fontes } = livretCache;
+    const { PDFDocument, rgb } = window.PDFLib;
+    const source = await PDFDocument.load(pdf);
+    const doc = await PDFDocument.create();
+    doc.registerFontkit(window.fontkit);
+    const [fB, fS, fR] = await Promise.all(fontes.map((b) => doc.embedFont(b, { subset: true })));
+    const C = (hex) => rgb(...hex.replace("#", "").match(/\w\w/g).map((h) => parseInt(h, 16) / 255));
+    const or = C(meta.or), noir = C(meta.noir), gris = C(meta.gris), blanc = rgb(1, 1, 1), sable = rgb(0.93, 0.91, 0.86);
+    // Les espaces insécables (fines) des nombres formatés n'existent pas dans la police : des espaces simples.
+    const propre = (t) => String(t).replace(/[\u202f\u00a0\u2009]/g, " ");
+    const ecrire = (pg, texte, x, y, taille, font, couleur) => { if (texte != null && texte !== "") pg.drawText(propre(texte), { x, y: pg.getHeight() - y, size: taille, font: font || fR, color: couleur || noir }); };
+    const ecrireDroite = (pg, texte, xD, y, taille, font, couleur) => { if (texte) ecrire(pg, texte, xD - (font || fR).widthOfTextAtSize(propre(texte), taille), y, taille, font, couleur); };
+    const ecrireCentre = (pg, texte, xc, y, taille, font, couleur) => { if (texte) ecrire(pg, texte, xc - (font || fR).widthOfTextAtSize(propre(texte), taille) / 2, y, taille, font, couleur); };
+    const couper = (texte, font, taille, largeur) => {
+      const lignes = [];
+      for (const para of String(texte || "").replace(/\r/g, "").split(/\n/)) {
+        let ligne = "";
+        for (const mot of para.split(/\s+/)) { const essai = ligne ? ligne + " " + mot : mot; if (font.widthOfTextAtSize(essai, taille) > largeur && ligne) { lignes.push(ligne); ligne = mot; } else ligne = essai; }
+        lignes.push(ligne);
+      }
+      return lignes;
+    };
+    const ajouterModele = async (n) => { const [pg] = await doc.copyPages(source, [n - 1]); doc.addPage(pg); return pg; };
+    // Une page de contenu : la page de chapitre du modèle, son titre effacé, un en-tête discret.
+    const pageContenu = async (titre, titreOr) => {
+      const pg = await ajouterModele(meta.separateur);
+      const b = meta.blanc; pg.drawRectangle({ x: b[0], y: pg.getHeight() - b[3], width: b[2] - b[0], height: b[3] - b[1], color: blanc });
+      ecrire(pg, titre + " ", 60, 62, 15, fB, noir); ecrire(pg, titreOr, 60 + fB.widthOfTextAtSize(titre + " ", 15), 62, 15, fB, or);
+      pg.drawLine({ start: { x: 60, y: pg.getHeight() - 72 }, end: { x: 536, y: pg.getHeight() - 72 }, thickness: 1, color: or });
+      return pg;
+    };
+    const dateJour = new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+    const prixRef = acm.haute || acm.prix || acm.basse || 0;
+    // Couverture + pages fixes.
+    { const pg = await ajouterModele(1); const c = meta.couverture;
+      ecrireCentre(pg, nomsClient(p), 297.75, c.client.y, c.client.taille, fS, noir);
+      ecrireCentre(pg, [p.adresse, [p.cp, p.ville].filter(Boolean).join(" ")].filter(Boolean).join(", "), 297.75, c.adresse.y, c.adresse.taille, fR, gris);
+      ecrireCentre(pg, dateJour, 297.75, c.date.y, c.date.taille, fR, gris);
+      const bien = [(donnees.type === "appartement" ? "Appartement" : "Maison") + (acm.surface ? " de " + Math.round(acm.surface) + " m²" : ""), acm.terrain ? "terrain de " + Math.round(acm.terrain) + " m²" : ""].filter(Boolean).join(" · ");
+      if (acm.surface || acm.terrain) ecrireCentre(pg, bien, 297.75, c.date.y + 20, c.date.taille, fS, noir); }
+    await ajouterModele(2); await ajouterModele(3);
+    // 1. Les biens récemment vendus : 2 ventes par page, carte + fiche.
+    await ajouterModele(meta.sections.vendus);
+    const ventes = acm.ventes || [];
+    const m2 = ventes.filter((v) => v.surface && v.prix).map((v) => v.prix / v.surface).sort((a, b) => a - b);
+    const mediane = m2.length ? Math.round(m2[Math.floor(m2.length / 2)]) : 0;
+    for (let i = 0; i < ventes.length; i += 2) {
+      const pg = await pageContenu("LES BIENS RÉCEMMENT", "VENDUS");
+      if (i === 0 && mediane) ecrire(pg, ventes.length + " vente(s) comparable(s) retenue(s) · prix médian " + mediane.toLocaleString("fr-FR") + " €/m²" + (acm.surface ? " · soit " + fmtPrix(Math.round(mediane * acm.surface / 1000) * 1000) + " pour " + Math.round(acm.surface) + " m²" : ""), 60, 90, 9.5, fR, gris);
+      for (let k = 0; k < 2 && i + k < ventes.length; k++) {
+        const v = ventes[i + k], y0 = 110 + k * 355;
+        const png = await dessinerCarte({ lat: v.lat, lng: v.lng, zoom: 16, largeur: 560, hauteur: 400, points: [{ lat: v.lat, lng: v.lng, couleur: "#BEB18A", rayon: 11 }], centre: { lat: donnees.lat, lng: donnees.lng } });
+        const im = await doc.embedPng(Uint8Array.from(atob(png.split(",")[1]), (ch) => ch.charCodeAt(0)));
+        pg.drawImage(im, { x: 60, y: pg.getHeight() - (y0 + 200), width: 280, height: 200 });
+        pg.drawRectangle({ x: 60, y: pg.getHeight() - (y0 + 200), width: 280, height: 200, borderColor: or, borderWidth: 0.8 });
+        const x = 356;
+        ecrire(pg, fmtPrix(v.prix), x, y0 + 22, 18, fB, noir);
+        ecrire(pg, "Vente du " + fmtDateAcm(v.date), x, y0 + 40, 10, fS, gris);
+        for (const [j, l] of couper([v.adresse, v.ville].filter(Boolean).join(", ").toUpperCase(), fR, 9, 180).slice(0, 2).entries()) ecrire(pg, l, x, y0 + 56 + j * 12, 9, fR, noir);
+        const lignes = [[v.type || (donnees.type === "appartement" ? "Appartement" : "Maison"), v.pieces ? v.pieces + " pièces" : ""].filter(Boolean).join(" · "), v.surface ? Math.round(v.surface) + " m² habitables" : "", v.terrain ? Math.round(v.terrain) + " m² de terrain" : "", fmtM2(v) ? "soit " + fmtM2(v) : "", v.dist != null ? "à " + Math.round(v.dist) + " m du bien" : "", v.source === "agence" ? "Vendu par notre agence" : "Source : DVF (données notariales)"].filter(Boolean);
+        lignes.forEach((l, j) => ecrire(pg, l, x, y0 + 92 + j * 15, 10, j === 5 ? fR : fS, j === 5 ? gris : noir));
+        pg.drawRectangle({ x: 60, y: pg.getHeight() - (y0 + 215), width: 476, height: 0.6, color: sable });
+      }
+    }
+    if (!ventes.length) { const pg = await pageContenu("LES BIENS RÉCEMMENT", "VENDUS"); ecrire(pg, "Aucune vente comparable retenue.", 60, 100, 11, fR, gris); }
+    // 2. Les biens en concurrence : 2 biens par page, photo + fiche.
+    await ajouterModele(meta.sections.concurrence);
+    const conc = acm.concurrence || [];
+    for (let i = 0; i < conc.length; i += 2) {
+      const pg = await pageContenu("LES BIENS EN", "CONCURRENCE");
+      for (let k = 0; k < 2 && i + k < conc.length; k++) {
+        const a = conc[i + k], y0 = 100 + k * 355;
+        let photo = null;
+        if (a.image) { try { const r = await fetch(API + "/crm/parcours-image?u=" + encodeURIComponent(a.image), { headers: { Authorization: "Bearer " + account().session } }); if (r.ok) { const b = await r.arrayBuffer(); const type = r.headers.get("content-type") || ""; photo = /png/.test(type) ? await doc.embedPng(b) : await doc.embedJpg(b); } } catch { photo = null; } }
+        if (photo) {
+          const W = 280, H = 200, k2 = Math.max(W / photo.width, H / photo.height), w = photo.width * k2, h = photo.height * k2;
+          const x = 60 - (w - W) / 2, y = pg.getHeight() - (y0 + 200) - (h - H) / 2;
+          pg.drawImage(photo, { x, y, width: w, height: h });
+          const ph = pg.getHeight();
+          if (w > W) { pg.drawRectangle({ x: 0, y: ph - (y0 + 200), width: 60, height: H, color: blanc }); pg.drawRectangle({ x: 340, y: ph - (y0 + 200), width: 260, height: H, color: blanc }); }
+          if (h > H) { pg.drawRectangle({ x: 60, y: y, width: W, height: ph - (y0 + 200) - y, color: blanc }); pg.drawRectangle({ x: 60, y: ph - y0, width: W, height: y + h - (ph - y0), color: blanc }); }
+        } else { pg.drawRectangle({ x: 60, y: pg.getHeight() - (y0 + 200), width: 280, height: 200, color: sable }); ecrireCentre(pg, "photo indisponible", 200, y0 + 105, 9, fR, gris); }
+        pg.drawRectangle({ x: 60, y: pg.getHeight() - (y0 + 200), width: 280, height: 200, borderColor: or, borderWidth: 0.8 });
+        const x = 356;
+        ecrire(pg, fmtPrix(a.prix), x, y0 + 22, 18, fB, noir);
+        if (fmtM2(a)) ecrire(pg, "soit " + fmtM2(a), x, y0 + 38, 10, fS, gris);
+        for (const [j, l] of couper(a.titre || "", fS, 10, 180).slice(0, 2).entries()) ecrire(pg, l, x, y0 + 58 + j * 13, 10, fS, noir);
+        const lignes = [[a.type, a.pieces ? a.pieces + " pièces" : "", a.chambres ? a.chambres + " ch." : ""].filter(Boolean).join(" · "), a.surface ? Math.round(a.surface) + " m² habitables" : "", a.terrain ? Math.round(a.terrain) + " m² de terrain" : "", a.adresse || [a.cp, a.ville].filter(Boolean).join(" "), a.dist != null ? "à " + Math.round(a.dist) + " m du bien" : "", a.jours ? "En vente depuis " + a.jours + " jours" : "", a.baisse > 0 ? "Prix baissé de " + fmtPrix(a.baisse) : "", a.source === "amepi" ? "Mandat confrère (" + (a.agence || "ALFA") + ")" : a.source === "portail" ? "Vu sur " + (a.portail || "un portail") : "Annonce de notre agence"].filter(Boolean);
+        lignes.forEach((l, j) => ecrire(pg, l, x, y0 + 92 + j * 15, 10, fS, noir));
+        pg.drawRectangle({ x: 60, y: pg.getHeight() - (y0 + 215), width: 476, height: 0.6, color: sable });
+      }
+    }
+    if (!conc.length) { const pg = await pageContenu("LES BIENS EN", "CONCURRENCE"); ecrire(pg, "Aucun bien en concurrence retenu.", 60, 100, 11, fR, gris); }
+    // 3. Commission d'évaluation.
+    await ajouterModele(meta.sections.opinion);
+    { const pg = await pageContenu("L'OPINION DE PLUSIEURS", "PROFESSIONNELS");
+      ecrire(pg, "COMMISSION D'ÉVALUATION", 60, 110, 14, fB, noir);
+      ecrireDroite(pg, nomsClient(p), 536, 150, 11, fS, noir);
+      ecrireDroite(pg, p.adresse || "", 536, 166, 10, fR, noir);
+      ecrireDroite(pg, [p.cp, (p.ville || "").toUpperCase()].filter(Boolean).join(" "), 536, 181, 10, fR, noir);
+      const com = acm.commission || [];
+      pg.drawRectangle({ x: 60, y: pg.getHeight() - 260, width: 476, height: 26, color: or });
+      ecrireCentre(pg, "Nb de conseillers", 170, 252, 10.5, fB, blanc); ecrireCentre(pg, "Estimations (net vendeur)", 400, 252, 10.5, fB, blanc);
+      com.forEach((l, j) => {
+        const y = 290 + j * 30;
+        if (j % 2 === 0) pg.drawRectangle({ x: 60, y: pg.getHeight() - (y + 16), width: 476, height: 26, color: sable });
+        ecrireCentre(pg, String(l.nb), 170, y + 10, 12, fS, noir);
+        ecrireCentre(pg, fmtPrix(l.basse) + "  –  " + fmtPrix(l.haute), 400, y + 10, 12, fS, noir);
+      });
+      const total = com.reduce((n, l) => n + (l.nb || 0), 0);
+      const yT = 300 + com.length * 30 + 30;
+      ecrireDroite(pg, "Total de nb de conseillers :", 330, yT + 10, 11, fR, noir);
+      pg.drawRectangle({ x: 350, y: pg.getHeight() - (yT + 16), width: 90, height: 24, color: or });
+      ecrireCentre(pg, String(total), 395, yT + 9, 12, fB, blanc);
+      const bienL = [(donnees.type === "appartement" ? "Appartement" : "Maison") + (acm.surface ? " de " + Math.round(acm.surface) + " m²" : ""), acm.terrain ? "terrain de " + Math.round(acm.terrain) + " m²" : ""].filter(Boolean).join(" · ");
+      if (acm.surface || acm.terrain) ecrireCentre(pg, bienL, 298, yT + 50, 10.5, fR, gris);
+      if (acm.prix) ecrireCentre(pg, "Prix estimé par votre conseiller : " + fmtPrix(acm.prix) + ((acm.basse || acm.haute) ? " (fourchette " + [acm.basse ? fmtPrix(acm.basse) : "", acm.haute ? fmtPrix(acm.haute) : ""].filter(Boolean).join(" – ") + ")" : ""), 298, yT + 70, 11, fS, noir);
+      ecrireCentre(pg, "CENTURY 21 Kadima", 298, 760, 14, fB, or); }
+    // 4. Les réactions des acheteurs du moment (facultatif).
+    if (acm.acheteurs_inclure) {
+      await ajouterModele(meta.sections.acheteurs);
+      const pg = await pageContenu("LES RÉACTIONS DES ACHETEURS DU", "MOMENT");
+      const n = acm.acheteurs_n || 0, b = acm.acheteurs_budgets || [];
+      ecrire(pg, n + " acheteur(s) en recherche active d'" + (donnees.type === "appartement" ? "un appartement" : "une maison") + (p.ville ? " à " + p.ville : "") + " dans notre fichier", 60, 105, 11, fS, noir);
+      if (b.length) {
+        ecrire(pg, "Budgets : de " + fmtPrix(b[0]) + " à " + fmtPrix(b[b.length - 1]) + " · médiane " + fmtPrix(b[Math.floor(b.length / 2)]), 60, 124, 10, fR, gris);
+        if (prixRef) { const ok = b.filter((x) => x >= prixRef).length; ecrire(pg, ok + " acheteur(s) ont un budget au moins égal à " + fmtPrix(prixRef) + (acm.basse ? ", " + b.filter((x) => x >= acm.basse).length + " au moins égal à " + fmtPrix(acm.basse) : ""), 60, 141, 10, fR, gris); }
+      }
+      couper(acm.acheteurs_texte || "", fR, 10.5, 476).slice(0, 40).forEach((l, j) => ecrire(pg, l, 60, 175 + j * 15, 10.5, fR, noir));
+    }
+    // 5. Les conditions de financement.
+    await ajouterModele(meta.sections.financement);
+    { const pg = await pageContenu("LES CONDITIONS DE", "FINANCEMENT");
+      const montant = Math.max(0, (prixRef || 0) - (acm.apport || 0)), taux = acm.taux ?? 3.9, ass = acm.assurance ?? 0.34, duree = acm.duree || 25;
+      const mens = mensualite(montant, taux, duree), mAss = montant * ass / 100 / 12, total = mens * duree * 12 - montant, totalAss = mAss * duree * 12;
+      ecrire(pg, "Calcul des mensualités de votre prêt immobilier", 60, 105, 12, fS, noir);
+      ecrire(pg, "Sur la base d'un prix de " + fmtPrix(prixRef) + (acm.apport ? ", apport de " + fmtPrix(acm.apport) : "") + ", taux " + taux.toLocaleString("fr-FR") + " % sur " + duree + " ans, assurance " + ass.toLocaleString("fr-FR") + " %", 60, 122, 9.5, fR, gris);
+      pg.drawRectangle({ x: 60, y: pg.getHeight() - 330, width: 476, height: 170, borderColor: or, borderWidth: 1.2, color: blanc });
+      ecrireCentre(pg, "Votre mensualité sera de", 298, 190, 12, fR, noir);
+      ecrireCentre(pg, Math.round(mens + mAss).toLocaleString("fr-FR") + " €", 298, 232, 34, fB, or);
+      const lignes = [["Montant de votre prêt", fmtPrix(Math.round(montant))], ["Votre mensualité", Math.round(mens + mAss).toLocaleString("fr-FR") + " €/mois*"], ["Dont assurance", Math.round(mAss).toLocaleString("fr-FR") + " €/mois"], ["Coût total du crédit", fmtPrix(Math.round(total + totalAss))], ["Dont assurance", fmtPrix(Math.round(totalAss))]];
+      lignes.forEach(([a, b], j) => { ecrire(pg, a, 90, 262 + j * 13, 9.5, fR, gris); ecrireDroite(pg, b, 506, 262 + j * 13, 9.5, fS, noir); });
+      ecrire(pg, "Selon la durée", 60, 370, 12, fS, noir);
+      pg.drawRectangle({ x: 60, y: pg.getHeight() - 400, width: 476, height: 22, color: or });
+      ["Durée", "Mensualité*", "Coût du crédit"].forEach((t, j) => ecrireCentre(pg, t, 140 + j * 158, 394, 10, fB, blanc));
+      [15, 20, 25].forEach((d, j) => { const m = mensualite(montant, taux, d), y = 425 + j * 24; if (j % 2 === 0) pg.drawRectangle({ x: 60, y: pg.getHeight() - (y + 13), width: 476, height: 22, color: sable });
+        ecrireCentre(pg, d + " ans", 140, y + 9, 10.5, fS, noir); ecrireCentre(pg, Math.round(m + mAss).toLocaleString("fr-FR") + " €/mois", 298, y + 9, 10.5, fS, noir); ecrireCentre(pg, fmtPrix(Math.round(m * d * 12 - montant + mAss * d * 12)), 456, y + 9, 10.5, fS, noir); });
+      couper("* assurance comprise. Simulation indicative, hors frais de dossier et de garantie ; les conditions dépendent du profil de l'emprunteur et de l'établissement prêteur.", fR, 8, 476).forEach((l, j) => ecrire(pg, l, 60, 520 + j * 11, 8, fR, gris)); }
+    doc.setTitle("Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
+    const octets = await doc.save();
+    const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
+    window.__dernierGuide = { url, octets };
+    const fen = window.open(url, "_blank");
+    if (!fen) { const a = document.createElement("a"); a.href = url; a.download = "livret-prix-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf"; a.click(); }
+    return url;
   }
 
   // Le mail d'un jalon : sujet et texte pré-remplis, à relire ; aperçu du

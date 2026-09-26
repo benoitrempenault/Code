@@ -114,6 +114,30 @@ export default async function () {
     ok(guide2.pages === 20 && /Vendons ensemble/.test(guide2.titre) && /MOUNEYRES/.test(guide2.titre) && guide2.octets > 1000000,
       "le guide R2 fait 20 pages au nom du client, cartes et polices embarquées (" + JSON.stringify(guide2) + ")");
     await garderGuide(page, guide2.octets, "guide-r2-smoke.pdf");
+    // Le livret prix : ventes DVF autour du bien, commission d'évaluation, financement → PDF.
+    await page.click('[data-guide="acm"]');
+    await page.waitForSelector("#acm-generer", { timeout: 20000 });
+    const nbVentes = await page.locator("[data-vente]").count();
+    ok(nbVentes >= 1 && (await page.locator("[data-vente]:checked").count()) >= 1, "le livret propose les ventes DVF à moins de 1,5 km, les premières cochées (" + nbVentes + " " + JSON.stringify(await page.evaluate(() => window.__acmDebug)) + ")");
+    await page.fill("#acm-surface", "115"); await page.fill("#acm-terrain", "513");
+    await page.fill("#acm-prix", "330000"); await page.fill("#acm-basse", "320000"); await page.fill("#acm-haute", "340000");
+    await page.click("details summary");
+    await page.fill("#acm-m-adresse", "9 allée Lamartine, Le Taillan-Médoc"); await page.fill("#acm-m-prix", "339000"); await page.fill("#acm-m-surface", "91"); await page.fill("#acm-m-pieces", "4"); await page.fill("#acm-m-terrain", "377"); await page.fill("#acm-m-portail", "Leboncoin — ORPI");
+    await page.click("#acm-m-ajouter");
+    await attendreToast(page, "Bien ajouté");
+    ok((await page.locator('[data-conc^="portail:"]:checked').count()) === 1, "un bien vu sur un portail s'ajoute à la main, coché");
+    await page.fill('[data-com-nb="0"]', "3"); await page.fill('[data-com-basse="0"]', "300000"); await page.fill('[data-com-haute="0"]', "320000");
+    await page.fill('[data-com-nb="1"]', "6"); await page.fill('[data-com-basse="1"]', "310000"); await page.fill('[data-com-haute="1"]', "330000");
+    await page.check("#acm-ach-inclure"); await page.fill("#acm-ach-texte", "Les visiteurs apprécient le jardin, réserves sur la route.");
+    await page.click("#acm-generer");
+    await attendreToast(page, "Livret prix prêt", 90000);
+    await page.waitForFunction(() => document.querySelectorAll(".etape.faite").length === 4, null, { timeout: 8000 });
+    const livret = await page.evaluate(async () => {
+      const doc = await window.PDFLib.PDFDocument.load(window.__dernierGuide.octets);
+      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength };
+    });
+    ok(livret.pages >= 11 && /Livret prix/.test(livret.titre) && /MOUNEYRES/.test(livret.titre), "le livret prix est assemblé : pages fixes, ventes, concurrence, commission, acheteurs, financement (" + JSON.stringify(livret) + ")");
+    await garderGuide(page, livret.octets, "livret-prix-smoke.pdf");
     // Un co-propriétaire, créé depuis la fiche : il apparaît sur la fiche, dans le mail et dans la liste.
     await page.click("#px-ajouter-prop");
     await page.waitForSelector("#pp-ajouter", { timeout: 8000 });
@@ -127,8 +151,8 @@ export default async function () {
     await page.click("#pm-annuler");
     await page.waitForSelector("#modale-ok", { timeout: 8000 });
     await page.click("#modale-ok");
-    await page.waitForFunction(() => /3\/6/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
-    ok(/\+1/.test(await page.textContent("#table-parcours")), "la liste montre l'avancement 3/6 et le second propriétaire");
+    await page.waitForFunction(() => /4\/6/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
+    ok(/\+1/.test(await page.textContent("#table-parcours")), "la liste montre l'avancement 4/6 et le second propriétaire");
     // Effacer le parcours depuis la fiche.
     await page.click("#table-parcours tr[data-parcours]");
     await page.waitForSelector("#px-effacer", { timeout: 8000 });

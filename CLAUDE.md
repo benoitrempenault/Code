@@ -551,6 +551,32 @@ Adélaïde REMPENAULT » (MM./Mmes si même civilité), noms différents → « 
 MOUNEYRES et Mme Sophie DURAND » ; R2 = même ordre en toutes lettres. Commodités :
 un cache crm_environnement sans commodité est ignoré (relevé refait) ;
 `GET /diag/overpass` (sans session, 10 min de cache) dit quel relais répond.
+**Livret prix — ACM (26/09)** : modèle `administration/assets/livret-prix.pdf` (8 pages :
+couverture, 5 facteurs, données, puis 5 pages de chapitre au titre centré) +
+`livret-prix.json` (séparateur 4, rect `blanc` qui efface le titre pour faire une
+page de contenu, sections, repères couverture) ; polices Montserrat Bold/SemiBold/
+Regular dans assets/fonts (jsDelivr JulietaUla/Montserrat). Saisie : table
+`crm_parcours_acm` (JSON, `nettoyerJson` ≤ 120 Ko) via GET/PUT
+`/crm/parcours/:id/acm` ; données : `GET …/acm/donnees` → position (`positionDe`,
+BAN), commune INSEE (geo), `ventesAutour` 2 km (crm_ventes + dossiers vendus, ids
+vt:/do:), annonces de l'agence (même cp/ville et type, baisse depuis price_history,
+jours), mandats AMEPI (3 km ou même ville, même type, baisse = ancien_prix − prix),
+acheteurs (crm_recherches actifs + projets achat filtrés type/ville). Les ventes
+DVF sont chargées par le navigateur (`chargerDvfCommune` via /crm/dvf, parse
+identique à Studio Estimation, même type, 3 ans, ≤ 1,5 km). Photos des annonces via
+`GET /crm/parcours-image?u=` (seulement les URL présentes dans crm_annonces /
+crm_amepi de l'agence). Admin : étape « acm » → `ouvrirAcm` (le bien : surface,
+terrain, prix estimé, fourchette ; ventes cochées ; concurrence cochée + saisie
+manuelle d'un bien vu sur un portail avec son adresse ; commission d'évaluation
+nb/basse/haute ; acheteurs (résumé auto + texte, page facultative) ; financement
+taux/assurance/apport/durée) → `genererLivretPrix` : couverture (client, adresse,
+date, bien), pages fixes, puis par chapitre la page du modèle + pages générées
+(2 ventes ou 2 biens par page : carte OSM zoom 16 / photo + fiche ; commission :
+tableau + total + prix estimé ; financement : mensualité (formule annuité + assurance
+sur capital) et tableau 15/20/25 ans — vérifié sur l'exemple Meilleurtaux du livret
+de Benoît). Espaces fines (U+202F) remplacées (absentes de la police). Smoke : faux
+DVF (18797, grille de ventes), captures/livret-prix-smoke.pdf. À venir : branchement
+aux estimations (surface/terrain/prix automatiques).
 **Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
 bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la
 police Bugaki complète, non versionnée) ; le navigateur y écrit « Famille NOM » (ou

@@ -795,25 +795,130 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         "INSERT INTO crm_environnement (cle, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(cle) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
         [cle, JSON.stringify(data), now()]);
     }
-    // Les ventes de l'agence à 1 km : ventes importées + dossiers vendus du Suivi.
-    const dLat = 1000 / 111320, dLng = 1000 / (111320 * Math.cos(lat * Math.PI / 180));
+    const ventes = await ventesAutour(ctx.agency.id, lat, lng, 1000);
+    return c.json({ lat, lng, commune: data.commune, commodites: data.commodites, erreur: data.erreur || "", ventes: ventes.slice(0, 80), categories: CATEGORIES.map(([cle, libelle]) => ({ cle, libelle })) });
+  });
+  // Les ventes de l'agence autour d'un point : ventes importées + dossiers
+  // vendus du Suivi, à `rayon` mètres, les plus proches d'abord.
+  async function ventesAutour(agencyId, lat, lng, rayon) {
+    const dLat = rayon / 111320, dLng = rayon / (111320 * Math.cos(lat * Math.PI / 180));
     const boite = `g.lat BETWEEN ${lat - dLat} AND ${lat + dLat} AND g.lng BETWEEN ${lng - dLng} AND ${lng + dLng}`;
     const ventes = [];
     for (const r of await db.all(
-      `SELECT v.adresse, v.ville, v.date_acte, v.prix, v.type, v.surface, g.lat, g.lng FROM crm_ventes v JOIN crm_geo g ON g.contact_id = v.id WHERE v.agency_id = ? AND ${boite}`, [ctx.agency.id])) {
+      `SELECT v.id, v.adresse, v.ville, v.date_acte, v.prix, v.type, v.surface, g.lat, g.lng FROM crm_ventes v JOIN crm_geo g ON g.contact_id = v.id WHERE v.agency_id = ? AND ${boite}`, [agencyId])) {
       const dist = distanceM(lat, lng, r.lat, r.lng);
-      if (dist <= 1000) ventes.push({ adresse: adresseDossier(r.adresse, r.ville), date: r.date_acte, prix: r.prix, type: r.type, surface: r.surface, lat: r.lat, lng: r.lng, dist });
+      if (dist <= rayon) ventes.push({ id: "vt:" + r.id, adresse: adresseDossier(r.adresse, r.ville), date: r.date_acte, prix: r.prix, type: r.type, surface: r.surface, lat: r.lat, lng: r.lng, dist });
     }
     for (const r of await db.all(
-      `SELECT d.adresse, d.statut, d.data, g.lat, g.lng FROM dossiers d JOIN crm_geo g ON g.contact_id = d.id WHERE d.agency_id = ? AND d.statut <> 'annule' AND ${boite}`, [ctx.agency.id])) {
+      `SELECT d.id, d.adresse, d.statut, d.data, g.lat, g.lng FROM dossiers d JOIN crm_geo g ON g.contact_id = d.id WHERE d.agency_id = ? AND d.statut <> 'annule' AND ${boite}`, [agencyId])) {
       let data2; try { data2 = JSON.parse(r.data); } catch { data2 = {}; }
       if (!dossierVendu(r.statut, data2)) continue;
       const dist = distanceM(lat, lng, r.lat, r.lng);
-      if (dist <= 1000) ventes.push({ adresse: adresseDossier(r.adresse, data2.bien && data2.bien.ville), date: String((data2.dates && (data2.dates.signature_acte || "")) || "").slice(0, 10),
-        prix: Number(data2.prix && data2.prix.prix_vente) || 0, type: (data2.bien && data2.bien.type) || "", surface: 0, lat: r.lat, lng: r.lng, dist });
+      if (dist <= rayon) ventes.push({ id: "do:" + r.id, adresse: adresseDossier(r.adresse, data2.bien && data2.bien.ville), date: String((data2.dates && (data2.dates.signature_acte || "")) || "").slice(0, 10),
+        prix: Number(data2.prix && data2.prix.prix_vente) || 0, type: (data2.bien && data2.bien.type) || "", surface: Number(data2.bien && data2.bien.surface) || 0, lat: r.lat, lng: r.lng, dist });
     }
     ventes.sort((a, b) => a.dist - b.dist);
-    return c.json({ lat, lng, commune: data.commune, commodites: data.commodites, erreur: data.erreur || "", ventes: ventes.slice(0, 80), categories: CATEGORIES.map(([cle, libelle]) => ({ cle, libelle })) });
+    return ventes;
+  }
+  // La position du bien : celle de la fiche, sinon géocodée (BAN) et gardée.
+  async function positionDe(p) {
+    let { lat, lng } = p.est;
+    if (lat || lng) return { lat, lng };
+    const g = await geocoderBan(p.est.adresse, p.px.cp, p.est.ville);
+    if (!g) return null;
+    await db.run("UPDATE crm_estimations SET lat = ?, lng = ? WHERE id = ?", [g.lat, g.lng, p.est.id]);
+    return { lat: g.lat, lng: g.lng };
+  }
+
+  /* ------------------------- Livret prix (ACM) ----------------------------- */
+  // Le JSON de saisie, nettoyé : chaînes sans caractères de contrôle, listes
+  // et objets bornés, profondeur limitée.
+  const nettoyerJson = (v, prof = 0) => {
+    if (prof > 5) return null;
+    if (typeof v === "string") return v.replace(/[\u0000-\u0008\u000b-\u001f]/g, "").slice(0, 3000);
+    if (typeof v === "number") return Number.isFinite(v) ? v : null;
+    if (typeof v === "boolean" || v === null) return v;
+    if (Array.isArray(v)) return v.slice(0, 80).map((x) => nettoyerJson(x, prof + 1));
+    if (typeof v === "object") { const o = {}; for (const k of Object.keys(v).slice(0, 60)) o[String(k).slice(0, 60)] = nettoyerJson(v[k], prof + 1); return o; }
+    return null;
+  };
+  app.get("/crm/parcours/:id/acm", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    const row = await db.get("SELECT data, updated_at FROM crm_parcours_acm WHERE estimation_id = ?", [p.est.id]);
+    let acm = {}; try { acm = row ? JSON.parse(row.data) : {}; } catch { acm = {}; }
+    return c.json({ acm, updated_at: row ? row.updated_at : 0 });
+  });
+  app.put("/crm/parcours/:id/acm", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b || typeof b !== "object") return err(c, 400, "Corps JSON attendu.");
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    const data = JSON.stringify(nettoyerJson(b) || {});
+    if (data.length > 120000) return err(c, 400, "Saisie trop volumineuse.");
+    await db.run(
+      "INSERT INTO crm_parcours_acm (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(estimation_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+      [p.est.id, ctx.agency.id, data, now()]);
+    return c.json({ ok: true });
+  });
+  // Les données comparables autour du bien : position, commune (code INSEE
+  // pour les fichiers DVF, chargés par le navigateur), ventes de l'agence à
+  // 2 km, nos annonces et les mandats de l'ALFA (même type, même secteur),
+  // acheteurs en recherche sur la commune.
+  app.get("/crm/parcours/:id/acm/donnees", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    let pos;
+    try { pos = await positionDe(p); } catch (e) { return err(c, 502, e.message); }
+    if (!pos) return err(c, 400, "Adresse du bien introuvable (vérifiez l'adresse, le code postal et la ville).");
+    const { lat, lng } = pos;
+    const type = p.px.type_bien === "appartement" ? "appartement" : "maison";
+    const com = await commune(p.px.cp, p.est.ville).catch(() => null);
+    const ventes = (await ventesAutour(ctx.agency.id, lat, lng, 2000)).slice(0, 40);
+    const villeN = sansAccents(p.est.ville);
+    const brutesAnnonces = await db.all(
+      `SELECT id, url, titre, type, prix, ville, cp, pieces, surface, dpe, image, price_history, first_seen FROM crm_annonces
+       WHERE agency_id = ? AND statut = 'en_vente' AND (cp = ? OR ville = ? COLLATE NOCASE) ORDER BY prix`, [ctx.agency.id, p.px.cp || "-", p.est.ville || "-"]);
+    const annonces = brutesAnnonces
+      .filter((a) => sansAccents(a.type) === type).slice(0, 30)
+      .map((a) => ({ source: "agence", id: a.id, url: a.url, titre: a.titre, type: a.type, prix: a.prix, ville: a.ville, cp: a.cp, pieces: a.pieces, surface: a.surface, dpe: a.dpe, image: a.image, jours: Math.round((now() - a.first_seen) / 86400), baisse: (() => { try { const h = JSON.parse(a.price_history || "[]"); return h.length > 1 ? h[0].prix - h[h.length - 1].prix : 0; } catch { return 0; } })() }));
+    const dLat = 3000 / 111320, dLng = 3000 / (111320 * Math.cos(lat * Math.PI / 180));
+    const amepi = (await db.all(
+      `SELECT id, ref, agence, type, prix, ancien_prix, ville, cp, pieces, chambres, surface, terrain, lat, lng, image, url, first_seen FROM crm_amepi
+       WHERE agency_id = ? AND statut = 'en_vente' AND ((lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?) OR ville = ? COLLATE NOCASE) ORDER BY prix`,
+      [ctx.agency.id, lat - dLat, lat + dLat, lng - dLng, lng + dLng, p.est.ville || "-"]))
+      .filter((a) => sansAccents(a.type) === type)
+      .map((a) => ({ source: "amepi", id: a.id, ref: a.ref, agence: a.agence, url: a.url, titre: [a.type, a.pieces ? a.pieces + " pièces" : "", a.surface ? Math.round(a.surface) + " m²" : ""].filter(Boolean).join(" · "), type: a.type, prix: a.prix, ancien_prix: a.ancien_prix, ville: a.ville, cp: a.cp, pieces: a.pieces, chambres: a.chambres, surface: a.surface, terrain: a.terrain, image: a.image, lat: a.lat, lng: a.lng, dist: a.lat && a.lng ? distanceM(lat, lng, a.lat, a.lng) : null, jours: Math.round((now() - a.first_seen) / 86400), baisse: a.ancien_prix && a.prix ? a.ancien_prix - a.prix : 0 }))
+      .sort((a, b) => (a.dist ?? 1e9) - (b.dist ?? 1e9)).slice(0, 40);
+    // Les acheteurs en recherche : fiches contact (crm_recherches) + projets d'achat, filtrés par type et commune.
+    const acheteurs = [];
+    const garder = (r) => { const t = jsonArrLocal(r.types).map(sansAccents), v = jsonArrLocal(r.villes).map(sansAccents); return (!t.length || t.includes(type)) && (!v.length || v.includes(villeN)); };
+    for (const r of await db.all("SELECT budget_min, budget_max, types, villes, pieces_min, surface_min FROM crm_recherches WHERE agency_id = ? AND actif = 1", [ctx.agency.id])) if (garder(r)) acheteurs.push({ budget_min: r.budget_min, budget_max: r.budget_max, pieces_min: r.pieces_min, surface_min: r.surface_min });
+    for (const r of await db.all("SELECT budget_min, budget_max, types, villes, pieces_min FROM crm_projets WHERE agency_id = ? AND kind = 'achat' AND statut = 'actif'", [ctx.agency.id])) if (garder(r)) acheteurs.push({ budget_min: r.budget_min, budget_max: r.budget_max, pieces_min: r.pieces_min, surface_min: null });
+    return c.json({ lat, lng, type, commune: com ? { code: com.code, nom: com.nom, dep: String(p.px.cp || "").slice(0, 2) } : null, ventes, annonces, amepi, acheteurs: acheteurs.slice(0, 300) });
+  });
+  const jsonArrLocal = (v) => { try { const a = Array.isArray(v) ? v : JSON.parse(v || "[]"); return Array.isArray(a) ? a : []; } catch { return []; } };
+  // Les photos des annonces et des mandats, relayées pour le livret (le
+  // navigateur ne peut pas les lire directement) : seulement les URL connues
+  // dans les tables de l'agence.
+  app.get("/crm/parcours-image", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const u = String(c.req.query("u") || "");
+    if (!/^https?:\/\//.test(u)) return err(c, 400, "URL attendue.");
+    const connue = (await db.get("SELECT 1 AS ok FROM crm_annonces WHERE agency_id = ? AND image = ?", [ctx.agency.id, u]))
+      || (await db.get("SELECT 1 AS ok FROM crm_amepi WHERE agency_id = ? AND image = ?", [ctx.agency.id, u]));
+    if (!connue) return err(c, 404, "Image inconnue.");
+    let r;
+    try { r = await fetch(u, { headers: { "User-Agent": "StudioKadima/1.0" }, signal: AbortSignal.timeout(15000) }); } catch { return err(c, 502, "Image injoignable."); }
+    if (!r.ok) return err(c, 502, "Image : réponse " + r.status);
+    const type = r.headers.get("content-type") || "image/jpeg";
+    if (!/^image\//.test(type)) return err(c, 502, "Ce n'est pas une image.");
+    const buf = await r.arrayBuffer();
+    if (buf.byteLength > 4000000) return err(c, 502, "Image trop lourde.");
+    return new Response(buf, { headers: { "Content-Type": type, "Cache-Control": "private, max-age=86400" } });
   });
 
   // Une étape faite hors e-mail (guide imprimé, ACM remise…) : on la coche.

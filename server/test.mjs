@@ -3524,6 +3524,30 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "les ventes de l'agence à moins d'un kilomètre sont retenues, la lointaine non (" + envr.json.ventes.length + ")");
   ok((await db.get("SELECT lat FROM crm_estimations WHERE id = ?", [pxId])).lat > 44, "la position géocodée est gardée sur la fiche");
   ok((await db.get("SELECT COUNT(*) AS n FROM crm_environnement")).n === 1, "commune et commodités sont mises en cache");
+  // Livret prix : la saisie se garde (nettoyée), les données comparables se relèvent, les photos ne se relaient que si elles sont connues.
+  const tNow = Math.floor(Date.now() / 1000);
+  const acmPut = await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { prix: 330000, basse: 320000, haute: 340000, commission: [{ nb: 3, basse: 300000, haute: 320000 }], ventes: [{ id: "dvf:1", prix: 315000, surface: 100, adresse: "1 rue\u0007Test" }], acheteurs_texte: "ok", profond: { a: { b: { c: { d: { e: { f: 1 } } } } } } } });
+  const acmGet = (await callR("/crm/parcours/" + pxId + "/acm", { headers: authP })).json;
+  ok(acmPut.status === 200 && acmGet.acm.prix === 330000 && acmGet.acm.commission[0].nb === 3 && acmGet.acm.ventes[0].adresse === "1 rueTest" && acmGet.acm.profond.a.b.c.d.e === null,
+     "la saisie du livret prix se relit, nettoyée des caractères de contrôle et bornée en profondeur");
+  ok((await callR("/crm/parcours/" + pxId + "/acm", { headers: authR })).status === 404, "le livret d'un parcours hors périmètre est introuvable");
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } });
+  const dn0 = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
+  await db.run("INSERT OR REPLACE INTO crm_annonces (agency_id, id, url, titre, type, prix, ville, cp, pieces, surface, dpe, description, image, statut, price_history, first_seen, last_seen) VALUES (?, 'maison-haillan-1', 'https://site/maison-1', 'Maison 4 pièces', 'maison', 349000, 'Le Haillan', '33185', 4, 95, 'C', '', 'https://site/photos/m1.jpg', 'en_vente', '[{\"date\":\"2026-08-01\",\"prix\":359000},{\"date\":\"2026-09-01\",\"prix\":349000}]', ?, ?)", [agId, tNow - 40 * 86400, tNow]);
+  await db.run("INSERT OR REPLACE INTO crm_amepi (agency_id, id, ref, agence, source, type, prix, ancien_prix, ville, cp, pieces, chambres, surface, terrain, lat, lng, etat_id, statut, image, url, maj, first_seen, last_seen) VALUES (?, 'am-1', 'REF1', 'Orpi Le Haillan', '2', 'maison', 329000, 339000, 'Le Haillan', '33185', 4, 3, 87, 137, 44.8705, -0.7125, 1, 'en_vente', 'https://amanda/photos/am1.jpg', 'https://amanda/am-1', '', ?, ?), (?, 'am-2', 'REF2', 'X', '2', 'appartement', 200000, NULL, 'Le Haillan', '33185', 2, 1, 45, 0, 44.8705, -0.7125, 1, 'en_vente', '', '', '', ?, ?)", [agId, tNow - 10 * 86400, tNow, agId, tNow, tNow]);
+  await db.run("INSERT OR REPLACE INTO crm_recherches (contact_id, agency_id, actif, budget_min, budget_max, types, villes, pieces_min, surface_min, notes, user_id, created_at, updated_at) VALUES ('ct_ach1', ?, 1, 250000, 340000, '[\"maison\"]', '[\"Le Haillan\"]', 4, 80, '', '', 1, 1), ('ct_ach2', ?, 1, 0, 200000, '[\"appartement\"]', '[]', 0, 0, '', '', 1, 1), ('ct_ach3', ?, 0, 0, 900000, '[]', '[]', 0, 0, '', '', 1, 1)", [agId, agId, agId]);
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } });
+  const dnRep = await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP });
+  const dn = dnRep.json || {};
+  dn.ventes = dn.ventes || []; dn.annonces = dn.annonces || []; dn.amepi = dn.amepi || []; dn.acheteurs = dn.acheteurs || [];
+  const anH = dn.annonces.find((a) => a.id === "maison-haillan-1");
+  ok(dn.commune && dn.commune.code && dn.type === "maison" && dn.ventes.some((v) => /Vignes/.test(v.adresse)) && anH && anH.baisse === 10000 && anH.jours >= 39 && !dn.annonces.some((a) => a.type === "appartement")
+     && dn.amepi.length === 1 && dn.amepi[0].agence === "Orpi Le Haillan" && dn.amepi[0].baisse === 10000 && dn.amepi[0].dist < 6000
+     && dn.acheteurs.some((a) => a.budget_max === 340000) && dn.acheteurs.length === (dn0.acheteurs || []).length + 1,
+     "les données comparables : commune INSEE, ventes de l'agence à 2 km, notre annonce (baisse, ancienneté), le mandat ALFA de même type, l'acheteur qui cherche une maison au Haillan — pas celui d'un appartement ni la recherche en pause (" + JSON.stringify({ com: dn.commune, v: dn.ventes.length, vignes: dn.ventes.some((v) => /Vignes/.test(v.adresse)), anH: anH && { baisse: anH.baisse, jours: anH.jours }, appt: dn.annonces.some((a) => a.type === "appartement"), am: dn.amepi.map((a) => [a.agence, a.baisse, a.dist]), ach: [dn.acheteurs.length, (dn0.acheteurs || []).length, dn.acheteurs.some((a) => a.budget_max === 340000)] }) + ")");
+  ok((await callR("/crm/parcours-image?u=https://site/photos/inconnue.jpg", { headers: authP })).status === 404 && (await callR("/crm/parcours-image?u=javascript:alert(1)", { headers: authP })).status === 400,
+     "le relais d'images ne sert que les photos connues des annonces et mandats");
+  await db.run("DELETE FROM crm_annonces WHERE id = 'maison-haillan-1'"); await db.run("DELETE FROM crm_amepi WHERE id IN ('am-1', 'am-2')"); await db.run("DELETE FROM crm_recherches WHERE contact_id IN ('ct_ach1', 'ct_ach2', 'ct_ach3')");
 
   console.log("— AMEPI : connexion, relevé du fichier des mandats, rapprochement");
   // Le réglage par défaut ne garde que « mon ALFA » (2) ; ce bloc teste les trois sources.

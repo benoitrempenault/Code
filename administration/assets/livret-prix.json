@@ -1,0 +1,35 @@
+{
+ "version": "2026-09-26",
+ "pages": 8,
+ "separateur": 4,
+ "blanc": [
+  0,
+  355,
+  596,
+  485
+ ],
+ "sections": {
+  "vendus": 4,
+  "concurrence": 5,
+  "opinion": 6,
+  "acheteurs": 7,
+  "financement": 8
+ },
+ "couverture": {
+  "client": {
+   "y": 560,
+   "taille": 13
+  },
+  "adresse": {
+   "y": 580,
+   "taille": 11
+  },
+  "date": {
+   "y": 598,
+   "taille": 11
+  }
+ },
+ "or": "#BEB18A",
+ "noir": "#000000",
+ "gris": "#5A5A5A"
+}

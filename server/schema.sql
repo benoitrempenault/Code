@@ -944,3 +944,12 @@ CREATE TABLE IF NOT EXISTS crm_conseillers_pv (
   pv         TEXT NOT NULL DEFAULT '',
   updated_at INTEGER NOT NULL
 );
+-- Livret prix (analyse comparative de marché) d'un parcours : la saisie du
+-- conseiller (prix, ventes et biens retenus, commission d'évaluation,
+-- acheteurs, financement), en JSON.
+CREATE TABLE IF NOT EXISTS crm_parcours_acm (
+  estimation_id TEXT PRIMARY KEY,             -- crm_estimations.id
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  data          TEXT NOT NULL DEFAULT '{}',
+  updated_at    INTEGER NOT NULL
+);

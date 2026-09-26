@@ -73,6 +73,21 @@ const geo = createServer((req, res) => {
   res.end(JSON.stringify([{ nom: "Saint-Médard-en-Jalles", code: "33449", population: 32000, surface: 8524, departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } }]));
 }).listen(PORT_GEO);
 
+// 1 quinquies) Faux DVF : une grille de ventes de maisons sur toute la zone
+// de la fausse BAN, pour qu'il y en ait toujours à moins de 1,5 km du bien.
+const PORT_DVF = 18797;
+const dvf = createServer((req, res) => {
+  if (!/^\/2026\/communes\/33\/33449\.csv$/.test(req.url)) { res.writeHead(404); return res.end("Not Found"); }
+  const lignes = ["id_mutation,date_mutation,nature_mutation,valeur_fonciere,adresse_numero,adresse_nom_voie,nom_commune,type_local,surface_reelle_bati,nombre_pieces_principales,surface_terrain,longitude,latitude"];
+  let n = 0;
+  for (let i = 0; i < 40; i++) for (let j = 0; j < 28; j++) {
+    n++;
+    lignes.push(["2026-" + n, "2026-0" + (1 + (n % 9)) + "-1" + (n % 9), "Vente", 280000 + (n % 7) * 15000, 1 + (n % 40), "ALLEE DES SMOKES", "Saint-Medard-en-Jalles", "Maison", 85 + (n % 6) * 12, 4 + (n % 3), 400 + (n % 5) * 60,
+      (-0.92 + i * 0.0085).toFixed(5), (44.80 + j * 0.0075).toFixed(5)].join(","));
+  }
+  res.writeHead(200, { "Content-Type": "text/csv" }); res.end(lignes.join("\n") + "\n");
+}).listen(PORT_DVF);
+
 // 2) Le site, servi tel quel depuis la racine du dépôt.
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json",
   ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".woff2": "font/woff2" };
@@ -94,7 +109,7 @@ const dbPath = join(tmpdir(), "studio-smoke-" + process.pid + ".sqlite");
 const apiProc = spawn(process.execPath, ["node.js"], {
   cwd: resolve(ICI, ".."), stdio: ["ignore", "pipe", "pipe"],
   env: { ...process.env, PORT: String(PORT_API), DB_PATH: dbPath, DEV_MODE: "1", ADMIN_KEY: "dev-admin",
-    APP_ORIGINS: "http://localhost:" + PORT_SITE, OFFRE_BASE: "http://localhost:" + PORT_SITE + "/offre", BAN_BASE: "http://localhost:" + PORT_BAN, DVF_BASE: "http://localhost:1", BATIMENTS_BASE: "http://localhost:" + PORT_IGN,
+    APP_ORIGINS: "http://localhost:" + PORT_SITE, OFFRE_BASE: "http://localhost:" + PORT_SITE + "/offre", BAN_BASE: "http://localhost:" + PORT_BAN, DVF_BASE: "http://localhost:" + PORT_DVF, BATIMENTS_BASE: "http://localhost:" + PORT_IGN,
     RESEND_API_KEY: "re_smoke", RESEND_BASE: "http://localhost:" + PORT_RESEND, MAIL_FROM: "smoke@studio.test",
     OVERPASS_BASE: "http://localhost:" + PORT_OVERPASS, GEO_BASE: "http://localhost:" + PORT_GEO },
 });
