@@ -464,7 +464,7 @@ URL ≤ 200 Ko réduite côté navigateur à 240 px, servie par
 `GET /public/conseillers/:id/photo`), routes /crm/conseillers (liste membre,
 PUT/DELETE admin), carte « Les conseillers » dans Réglages. Réglages agence :
 instagram, facebook, avis. Smoke `parcours-r1r2` (faux Resend sur 18795 dans
-run.mjs, `/__mails`). Admin : assets versionnés `?v=6`.
+run.mjs, `/__mails`). Admin : assets versionnés `?v=7`.
 « + Nouveau parcours » cherche D'ABORD dans les contacts (`#px-q` →
 `/crm/contacts/recherche`, boutons `[data-ct]` qui préremplissent le formulaire et
 fixent `contact_id`) ; sinon les champs saisis créent la fiche. Côté serveur
@@ -472,6 +472,19 @@ fixent `contact_id`) ; sinon les champs saisis créent la fiche. Côté serveur
 sinon nom+prénom (NOCASE) → sinon INSERT crm_contacts (types ["estime"], source
 'parcours') ; lien `crm_estimation_contacts` (INSERT OR IGNORE) ; réponse
 {ok, id, contact_id, contact_cree}.
+**Conseiller signataire (26/09)** : `POST /crm/conseillers/importer {profils}` (admin)
+crée un profil crm_conseillers pour chaque compte Studio de l'agence (users : name
+coupé prénom/nom, email, user_id), chaque profil fourni (l'Administration envoie
+les 12 conseillers de guide-r1.json : prénom, nom, tel, mail) et chaque conseiller
+de l'annuaire ; dédoublonne par email puis prénom+nom NOCASE (`profilExistant`),
+n'écrase rien, complète seulement tel/mail/user_id vides → {ajoutes, completes}.
+`PUT /crm/conseillers` sans id sur un profil existant le complète (`existant: true`)
+au lieu de doubler. L'Administration lance l'import à chaque chargement
+(`importerConseillers`, bouton « ⟳ Importer les conseillers » dans Réglages). Fiche
+parcours : menu déroulant visible « Signé par » (`#px-signe`, PUT conseiller_id
+immédiat) + détail fonction · tel · mail ; la modale d'envoi rappelle le signataire.
+`signatureHtml` : fonction par défaut « Conseiller/Conseillère immobilier » selon
+le genre quand le profil n'en a pas. Assets `?v=7`.
 **Guide R1 personnalisé (26/09)** : `administration/assets/guide-r1.pdf` (25 pages :
 13 communes + 12 pages « Votre conseiller », corrigé de l'original de Benoît avec
 pymupdf — p2 : 14 conseillers St-Médard, 2 gestionnaires St-Aubin ; p3 : 9,5/10

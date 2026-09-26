@@ -2134,7 +2134,21 @@
   // Profils qui signent documents et e-mails du parcours R1/R2 : photo
   // réduite dans le navigateur (240 px, JPEG) avant d'être envoyée.
   let conseillers = [];
+  // Les profils suivent les accès : à chaque ouverture, les comptes de
+  // l'agence (+ les conseillers du guide R1, + l'annuaire) qui n'ont pas
+  // encore de profil en reçoivent un. Rien n'est écrasé.
+  let profilsImportes = false;
+  async function importerConseillers(annoncer) {
+    let profils = [];
+    try { profils = ((await fetch("assets/guide-r1.json").then((r) => r.json())).conseillers || []).map((c) => ({ prenom: c.prenom, nom: c.nom, email: c.email, telephone: c.telephone })); } catch { /* guide absent : les comptes suffisent */ }
+    try {
+      const r = await api("/crm/conseillers/importer", { json: { profils } });
+      if (annoncer) toast(r.ajoutes ? r.ajoutes + " profil(s) ajouté(s)" + (r.completes ? ", " + r.completes + " complété(s)" : "") : "Tous les conseillers ont déjà leur profil");
+      return r;
+    } catch (e) { if (annoncer) toast(e.message, true); return null; }
+  }
   async function chargerConseillers() {
+    if (!profilsImportes) { profilsImportes = true; await importerConseillers(false); }
     try { conseillers = (await api("/crm/conseillers")).conseillers; } catch { conseillers = []; }
     const zone = $("table-conseillers");
     if (!zone) return;
@@ -2253,7 +2267,7 @@
       '<label>Nom<input id="px-nom" value="' + v("nom") + '" /></label>' +
       '<label>E-mail<input id="px-email" type="email" value="' + v("email") + '" /></label>' +
       '<label>Téléphone<input id="px-tel" value="' + v("telephone") + '" /></label>' +
-      '<label>Conseiller<select id="px-conseiller">' + csOptions + "</select></label>" +
+      '<label>Conseiller (signe les e-mails)<select id="px-conseiller">' + csOptions + "</select></label>" +
       '<label style="grid-column:1/-1;">Adresse du bien<input id="px-adresse" value="' + v("adresse") + '" placeholder="12 rue du Mandat Confiance" /></label>' +
       '<label>Code postal<input id="px-cp" value="' + v("cp") + '" /></label>' +
       '<label>Ville<input id="px-ville" value="' + v("ville") + '" /></label>' +
@@ -2337,18 +2351,27 @@
       return '<div class="etape' + (f ? " faite" : "") + '"><span class="num">' + (f ? "✓" : i + 1) + '</span><div class="titre"><strong>' + escH(e.titre) + "</strong>" +
         (quand ? '<div class="quand">' + quand + "</div>" : "") + "</div>" + actions + "</div>";
     }).join("") + "</div>";
-    const csLigne = p.conseiller
-      ? (p.conseiller.photo_url ? '<img class="avatar" src="' + escH(p.conseiller.photo_url) + '" alt="" /> ' : "") + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + (p.conseiller.fonction ? " · " + escH(p.conseiller.fonction) : "")
-      : '<span class="petit">aucun conseiller choisi — les e-mails seront signés de l\'agence</span>';
+    const cs = p.conseiller;
+    const csDetail = cs
+      ? (cs.photo_url ? '<img class="avatar" src="' + escH(cs.photo_url) + '" alt="" /> ' : "") +
+        escH([cs.fonction, cs.telephone, cs.email].filter(Boolean).join(" · ") || "ni téléphone ni e-mail sur son profil (Réglages → Les conseillers)")
+      : '<span style="color:#e07a5f;">aucun conseiller choisi — les e-mails seraient signés de l\'agence</span>';
+    const csLigne = '<select id="px-signe" style="max-width:260px; vertical-align:middle;"><option value="">— choisir le conseiller —</option>' +
+      conseillers.filter((c) => c.actif || p.conseiller_id === c.id).map((c) => '<option value="' + c.id + '"' + (p.conseiller_id === c.id ? " selected" : "") + ">" + escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</option>").join("") +
+      '</select> <span class="petit" id="px-signe-detail">' + csDetail + "</span>";
     ouvrirModale("🧭 " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
       '<details><summary style="cursor:pointer;">Fiche client et rendez-vous — ' + escH([p.adresse, p.ville].filter(Boolean).join(", ")) +
       " · R1 " + dateFrCourte(p.r1, p.r1_heure) + " · R2 " + dateFrCourte(p.r2, p.r2_heure) + "</summary>" +
       '<div style="margin-top:10px;">' + formulaireParcours(p) + '<div class="barre" style="margin-top:8px;"><button class="btn btn-or" id="px-maj">Enregistrer la fiche</button></div></div></details>' +
-      '<p class="petit" style="margin:12px 0 0;">Signé par : ' + csLigne + "</p>" +
+      '<p style="margin:12px 0 0;"><strong>Signé par :</strong> ' + csLigne + "</p>" +
       (p.emails.length ? "" : '<p class="petit" style="color:#e07a5f;">Aucun e-mail sur cette fiche : les envois seront refusés tant que l\'adresse manque.</p>') +
       etapesHtml,
       '<button class="btn btn-or" id="modale-ok">Fermer</button>');
     $("modale-ok").addEventListener("click", () => { fermerModale(); chargerParcours(); });
+    $("px-signe").addEventListener("change", async () => {
+      try { await api("/crm/parcours/" + id, { method: "PUT", json: { conseiller_id: $("px-signe").value } }); toast("Les e-mails partiront signés du conseiller choisi"); await chargerParcours(); ouvrirParcours(id); }
+      catch (e) { toast(e.message, true); }
+    });
     $("px-maj").addEventListener("click", async () => {
       try { await api("/crm/parcours/" + id, { method: "PUT", json: lireFormulaireParcours(p) }); toast("Fiche enregistrée"); await chargerParcours(); ouvrirParcours(id); }
       catch (e) { toast(e.message, true); }
@@ -2685,8 +2708,10 @@
     if (relu) { a.sujet = relu.sujet; a.texte = relu.texte; }
     const etape = ETAPES_PARCOURS.find((e) => e.cle === jalon);
     ouvrirModale("✉️ " + (etape ? etape.titre : jalon),
-      '<p class="aide">Relisez et ajustez : ce texte partira tel quel, au nom du conseiller, à ' +
-      (a.destinataires.length ? escH(a.destinataires.join(", ")) : "<strong>personne (pas d'e-mail sur la fiche)</strong>") + ".</p>" +
+      '<p class="aide">Relisez et ajustez : ce texte partira tel quel à ' +
+      (a.destinataires.length ? escH(a.destinataires.join(", ")) : "<strong>personne (pas d'e-mail sur la fiche)</strong>") + ", signé " +
+      (p.conseiller ? "<strong>" + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + "</strong>" + escH([p.conseiller.telephone, p.conseiller.email].filter(Boolean).map((x) => " · " + x).join(""))
+        : "<strong>de l'agence</strong> (choisissez le conseiller sur la fiche)") + ".</p>" +
       '<div class="grille-champs"><label style="grid-column:1/-1;">Objet<input id="pm-sujet" value="' + escH(a.sujet) + '" /></label></div>' +
       '<textarea id="pm-texte" style="width:100%; min-height:320px; margin-top:10px; font:14px/1.5 inherit;">' + escH(a.texte) + "</textarea>" +
       '<p class="petit">Le texte type se modifie pour toute l\'agence dans Réglages → Bibliothèque des messages (« Parcours — … »).</p>',
@@ -2801,6 +2826,7 @@
   $("parcours-recherche").addEventListener("input", rendreParcours);
   $("parcours-tous").addEventListener("change", rendreParcours);
   $("btn-nouveau-conseiller").addEventListener("click", () => ouvrirConseiller(null));
+  $("btn-importer-conseillers").addEventListener("click", async () => { await importerConseillers(true); chargerConseillers(); });
   $("table-contacts").addEventListener("click", (e) => {
     if (e.target.closest("input[type=checkbox]")) return; // cocher n'ouvre pas la fiche
     const tr = e.target.closest("tr[data-contact]");

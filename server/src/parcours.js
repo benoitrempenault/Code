@@ -104,7 +104,8 @@ export function texteEnHtml(texte) {
 export function signatureHtml(conseiller, ag, photoUrl) {
   const c = conseiller || {};
   const nomComplet = [c.prenom, c.nom].filter(Boolean).join(" ") || ag.signataire || ag.nom || "";
-  const lignes = [c.fonction || (!c.prenom && ag.fonction) || "", c.telephone, c.email].filter(Boolean);
+  const fonctionDefaut = c.prenom || c.nom ? (c.genre === "f" ? "Conseillère immobilier" : "Conseiller immobilier") : ag.fonction || "";
+  const lignes = [c.fonction || fonctionDefaut, c.telephone, c.email].filter(Boolean);
   const reseaux = [
     ag.instagram ? `<a href="${esc(ag.instagram)}" style="color:#BEAF87; text-decoration:none;">Instagram</a>` : "",
     ag.facebook ? `<a href="${esc(ag.facebook)}" style="color:#BEAF87; text-decoration:none;">Facebook</a>` : "",
@@ -207,6 +208,16 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(id, b);
       return c.json({ ok: true, id });
     }
+    // Sans id : un profil qui existe déjà (même e-mail, ou même prénom + nom)
+    // est complété plutôt que doublé — le menu déroulant reste propre.
+    const deja = await profilExistant(ctx.agency.id, v);
+    if (deja) {
+      await db.run(
+        "UPDATE crm_conseillers SET user_id = COALESCE(NULLIF(?, ''), user_id), fonction = COALESCE(NULLIF(?, ''), fonction), telephone = COALESCE(NULLIF(?, ''), telephone), email = COALESCE(NULLIF(?, ''), email), photo = COALESCE(NULLIF(?, ''), photo), actif = ?, updated_at = ? WHERE id = ?",
+        [v.user_id, v.fonction, v.telephone, v.email, v.photo, v.actif, now(), deja.id]);
+      if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(deja.id, b);
+      return c.json({ ok: true, id: deja.id, existant: true });
+    }
     const nb = await db.get("SELECT COUNT(*) AS n FROM crm_conseillers WHERE agency_id = ?", [ctx.agency.id]);
     if ((nb?.n || 0) >= 200) return err(c, 400, "Trop de profils conseillers.");
     const nid = randId("cs");
@@ -215,6 +226,58 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       [nid, ctx.agency.id, v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, v.photo, v.actif, now(), now()]);
     if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(nid, b);
     return c.json({ ok: true, id: nid });
+  });
+  async function profilExistant(agencyId, v) {
+    if (v.email) {
+      const r = await db.get("SELECT id FROM crm_conseillers WHERE agency_id = ? AND email = ?", [agencyId, v.email]);
+      if (r) return r;
+    }
+    if (v.prenom || v.nom) {
+      return db.get("SELECT id FROM crm_conseillers WHERE agency_id = ? AND prenom = ? COLLATE NOCASE AND nom = ? COLLATE NOCASE", [agencyId, v.prenom, v.nom]);
+    }
+    return null;
+  }
+  // Import des profils : les conseillers fournis (ceux du guide R1, envoyés
+  // par l'Administration), les comptes Studio de l'agence et l'annuaire.
+  // N'écrase rien : ajoute les absents, complète téléphone/e-mail manquants.
+  app.post("/crm/conseillers/importer", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = (await c.req.json().catch(() => null)) || {};
+    const fournis = Array.isArray(b.profils) ? b.profils.slice(0, 100) : [];
+    const users = await db.all("SELECT id, name, email FROM users WHERE agency_id = ? ORDER BY created_at ASC", [ctx.agency.id]);
+    const annuaire = await db.all("SELECT nom, telephone, email FROM annuaire WHERE agency_id = ? AND type = 'conseiller' ORDER BY nom", [ctx.agency.id]);
+    const couper = (nomComplet) => {
+      const parts = strip(nomComplet, 120).split(/\s+/).filter(Boolean);
+      return { prenom: parts[0] || "", nom: parts.slice(1).join(" ") };
+    };
+    const candidats = [
+      ...fournis.map((f) => ({ prenom: f.prenom, nom: f.nom, fonction: f.fonction, telephone: f.telephone, email: f.email })),
+      ...users.map((u) => ({ ...couper(u.name || String(u.email || "").split("@")[0].replace(/[._-]+/g, " ")), email: u.email, user_id: u.id })),
+      ...annuaire.map((a) => ({ ...couper(a.nom), telephone: a.telephone, email: a.email })),
+    ];
+    let ajoutes = 0, completes = 0;
+    for (const cand of candidats) {
+      let v; try { v = sanitizeConseiller(cand); } catch { continue; }
+      if (!v.nom && !v.prenom) continue;
+      const deja = await profilExistant(ctx.agency.id, v);
+      if (deja) {
+        // Un profil en place ne perd rien : seuls les vides se complètent.
+        const cur = await db.get("SELECT user_id, telephone, email FROM crm_conseillers WHERE id = ?", [deja.id]);
+        const maj = { user_id: cur.user_id || v.user_id, telephone: cur.telephone || v.telephone, email: cur.email || v.email };
+        if (maj.user_id !== cur.user_id || maj.telephone !== cur.telephone || maj.email !== cur.email) {
+          await db.run("UPDATE crm_conseillers SET user_id = ?, telephone = ?, email = ?, updated_at = ? WHERE id = ?", [maj.user_id, maj.telephone, maj.email, now(), deja.id]);
+          completes++;
+        }
+        continue;
+      }
+      const nb = await db.get("SELECT COUNT(*) AS n FROM crm_conseillers WHERE agency_id = ?", [ctx.agency.id]);
+      if ((nb?.n || 0) >= 200) break;
+      await db.run(
+        "INSERT INTO crm_conseillers (id, agency_id, user_id, prenom, nom, fonction, telephone, email, photo, actif, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', 1, ?, ?)",
+        [randId("cs"), ctx.agency.id, v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, now(), now()]);
+      ajoutes++;
+    }
+    return c.json({ ok: true, ajoutes, completes });
   });
   app.delete("/crm/conseillers/:id", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;

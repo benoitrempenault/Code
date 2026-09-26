@@ -3331,6 +3331,24 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(photoRep.status === 200 && photoRep.headers.get("content-type") === "image/jpeg", "la photo se sert en JPEG sans session");
   ok((await appR.fetch(new Request("http://api.test/public/conseillers/cs_inconnu/photo"))).status === 404, "id inconnu → 404");
   ok((await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "X", photo: "data:text/html;base64,PGI+" } })).status === 400, "une photo qui n'est pas une image est refusée");
+  // Import des profils : les comptes de l'agence (accès créés) + les conseillers du guide R1. Rien n'est écrasé, les vides se complètent.
+  ok((await callR("/crm/conseillers/importer", { headers: authP, body: {} })).status === 403, "l'import des profils est réservé à l'administrateur");
+  const imp1 = await callR("/crm/conseillers/importer", { headers: auth, body: { profils: [{ prenom: "Teddy", nom: "Besson", telephone: "07 49 96 59 21", email: "teddy.besson@century21.fr" }, { prenom: "Marine", nom: "Zamora", telephone: "06 11 22 33 44" }] } });
+  const csImp = (await callR("/crm/conseillers", { headers: auth })).json.conseillers;
+  const nbTeddy = csImp.filter((x) => /besson/i.test(x.nom)).length;
+  const marine = csImp.find((x) => x.nom === "Zamora");
+  const adminAch = csImp.find((x) => x.email === "ach-admin@ach-test.fr");
+  const carto = csImp.find((x) => x.email === "carto@ach-test.fr");
+  ok(imp1.status === 200 && imp1.json.ajoutes >= 3 && nbTeddy === 1 && marine && marine.telephone === "06 11 22 33 44" && adminAch && adminAch.prenom === "Admin" && adminAch.nom === "Ach" && carto && carto.user_id === membreP.json.user.id,
+     "l'import crée un profil par accès Studio et par conseiller du guide, sans doubler Teddy (" + JSON.stringify(imp1.json) + ")");
+  const teddyImp = csImp.find((x) => x.id === teddy.json.id);
+  ok(teddyImp.telephone === "06 00 00 00 01" && teddyImp.email === "teddy@kadima.test" && teddyImp.a_photo, "le profil déjà renseigné de Teddy garde téléphone, e-mail et photo");
+  const imp2 = await callR("/crm/conseillers/importer", { headers: auth, body: {} });
+  ok(imp2.status === 200 && imp2.json.ajoutes === 0 && (await callR("/crm/conseillers", { headers: auth })).json.conseillers.length === csImp.length, "relancer l'import n'ajoute rien");
+  const doublon = await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "teddy", nom: "besson", fonction: "Négociateur" } });
+  ok(doublon.status === 200 && doublon.json.id === teddy.json.id && doublon.json.existant, "créer « teddy besson » sans id complète le profil existant au lieu de le doubler");
+  await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test" } });
+  for (const x of csImp) if (x.id !== teddy.json.id && x.nom !== "Zamora") await callR("/crm/conseillers/" + x.id, { headers: auth, method: "DELETE" });
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agence: { adresse: "20 rue François Mitterrand, Saint-Médard-en-Jalles", instagram: "https://instagram.com/century_21_kadima", facebook: "https://www.facebook.com/century21.kadima", avis: "https://g.page/r/CUA5uMo-Z_RcEB0/review" } } });
   // La fiche du parcours : client, bien, conseiller, R1 et R2 avec leurs heures.
   const pxCree = await callR("/crm/parcours", { headers: authP, body: {
@@ -3378,6 +3396,10 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const ap2b = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
   ok(pxMaj.status === 200 && /mardi 28 avril à 9h/.test(ap2b.texte) && /procès-verbaux/.test(ap2b.texte) && /votre appartement/.test(ap2b.texte),
      "modifier la fiche (appartement, nouveau R2) change le texte proposé");
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: marine.id } });
+  const apM = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
+  ok(/Marine Zamora/.test(apM.html) && /Conseillère immobilier/.test(apM.html) && /06 11 22 33 44/.test(apM.html), "changer le signataire : nom, fonction par défaut au féminin et téléphone dans la signature");
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: teddy.json.id } });
   const lp = (await callR("/crm/parcours", { headers: authP })).json.parcours.find((p) => p.id === pxId);
   ok(lp && lp.cs_nom === "BESSON" && lp.journal.length === 2, "la liste des parcours porte le conseiller et l'avancement (" + JSON.stringify(lp && { cs: lp.cs_nom, journal: lp.journal }) + ")");
   // Guide R2 : ce que le conseiller saisit (photo du bien, points forts, objections, son texte).

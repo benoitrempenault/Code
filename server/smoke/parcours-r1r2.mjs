@@ -14,8 +14,9 @@ export default async function () {
     await page.waitForSelector("#app:not([hidden])", { timeout: 8000 });
     await page.click('[data-onglet="reglages"]');
     await page.waitForFunction(() => document.querySelector("#table-conseillers tr[data-conseiller]"), null, { timeout: 8000 });
-    ok((await page.textContent("#table-conseillers")).includes("BESSON") && await page.locator("#table-conseillers img.avatar").count() === 1,
-      "Réglages : le conseiller est listé avec sa photo");
+    const tableCs = await page.textContent("#table-conseillers");
+    ok(tableCs.includes("BESSON") && await page.locator("#table-conseillers img.avatar").count() === 1 && tableCs.includes("Zamora") && tableCs.includes("smoke-parcours@test.fr"),
+      "Réglages : Teddy avec sa photo, et les profils importés (accès créés + guide R1) sans doublon");
 
     await page.click('[data-onglet="parcours"]');
     await page.click("#btn-nouveau-parcours");
@@ -34,8 +35,21 @@ export default async function () {
     await page.click("#px-creer");
     await attendreToast(page, "Parcours créé");
     await page.waitForSelector(".etapes", { timeout: 8000 });
-    ok((await page.locator(".etape").count()) === 6 && (await page.textContent("#modale-corps")).includes("Teddy BESSON"),
-      "la fiche s'ouvre sur ses 6 étapes, signée par Teddy BESSON");
+    ok((await page.locator(".etape").count()) === 6 && await page.inputValue("#px-signe") === cs.json.id && (await page.textContent("#px-signe-detail")).includes("06 00 00 00 01"),
+      "la fiche s'ouvre sur ses 6 étapes, « Signé par » Teddy BESSON avec son téléphone");
+    // Changer le signataire depuis la fiche : menu déroulant, enregistré aussitôt.
+    const idZamora = await page.evaluate(() => [...document.querySelectorAll("#px-signe option")].find((o) => /Zamora/.test(o.textContent))?.value);
+    await page.selectOption("#px-signe", idZamora);
+    await attendreToast(page, "signés du conseiller choisi");
+    await page.waitForFunction((id) => document.querySelector("#px-signe") && document.querySelector("#px-signe").value === id, idZamora, { timeout: 8000 });
+    await page.click('[data-mail="avant-r1"]');
+    await page.waitForSelector("#pm-texte", { timeout: 8000 });
+    ok(/signé.*Marine Zamora/.test(await page.textContent("#modale-corps")), "l'envoi rappelle le signataire choisi");
+    await page.click("#pm-annuler");
+    await page.waitForSelector("#px-signe", { timeout: 8000 });
+    await page.selectOption("#px-signe", cs.json.id);
+    await attendreToast(page, "signés du conseiller choisi");
+    await page.waitForFunction((id) => document.querySelector("#px-signe") && document.querySelector("#px-signe").value === id, cs.json.id, { timeout: 8000 });
 
     await page.click('[data-mail="avant-r1"]');
     await page.waitForSelector("#pm-texte", { timeout: 8000 });
