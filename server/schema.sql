@@ -867,3 +867,39 @@ CREATE TABLE IF NOT EXISTS crm_amepi_brut (
   brut       TEXT NOT NULL DEFAULT '',
   updated_at INTEGER NOT NULL
 );
+
+-- Parcours R1/R2 (brique d'envoi de documents) : ce qu'une fiche estimation
+-- ne porte pas — civilité, prénom, CP, type de bien, heures des RDV,
+-- conseiller (profil) et journal des étapes faites.
+CREATE TABLE IF NOT EXISTS crm_parcours (
+  estimation_id TEXT PRIMARY KEY,
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  civilite      TEXT NOT NULL DEFAULT '',    -- M. | Mme | M. et Mme
+  prenom        TEXT NOT NULL DEFAULT '',
+  cp            TEXT NOT NULL DEFAULT '',
+  type_bien     TEXT NOT NULL DEFAULT 'maison', -- maison | appartement
+  r1_heure      TEXT NOT NULL DEFAULT '',    -- HH:MM
+  r2_heure      TEXT NOT NULL DEFAULT '',
+  conseiller_id TEXT NOT NULL DEFAULT '',    -- crm_conseillers.id
+  journal       TEXT NOT NULL DEFAULT '[]',  -- [{etape, le, par, email}]
+  updated_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_parcours_ag ON crm_parcours(agency_id, updated_at);
+
+-- Profils des conseillers pour personnaliser documents et e-mails : photo
+-- (data URL, ≤ 200 Ko), fonction, téléphone, e-mail.
+CREATE TABLE IF NOT EXISTS crm_conseillers (
+  id         TEXT PRIMARY KEY,               -- cs_xxxxxxxx
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  user_id    TEXT NOT NULL DEFAULT '',       -- compte Studio lié (optionnel)
+  prenom     TEXT NOT NULL DEFAULT '',
+  nom        TEXT NOT NULL DEFAULT '',
+  fonction   TEXT NOT NULL DEFAULT '',
+  telephone  TEXT NOT NULL DEFAULT '',
+  email      TEXT NOT NULL DEFAULT '',
+  photo      TEXT NOT NULL DEFAULT '',       -- data:image/jpeg;base64,…
+  actif      INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_conseillers_ag ON crm_conseillers(agency_id, nom);

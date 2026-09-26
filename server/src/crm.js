@@ -781,7 +781,8 @@ export async function executerNettoyage(db, agency, userId, action, curseur = ""
 export function defaultReglages(agency) {
   return {
     agence: { nom: (agency && agency.name) || "", adresse: "", telephone: "", email: "", site: "", logoUrl: "",
-      signataire: "", fonction: "" }, // qui signe les vœux et messages (ex. Benoît REMPENAULT, Directeur)
+      signataire: "", fonction: "", // qui signe les vœux et messages (ex. Benoît REMPENAULT, Directeur)
+      instagram: "", facebook: "", avis: "" }, // réseaux et lien « laissez-nous un avis » (parcours R1/R2)
     anniversaires: { enabled: false, naissance: true, achat: true, cci: "", smsEnabled: false, smsSignature: "", canal: "les-deux" },
     annonces: { autoSync: false, siteUrl: "" },
     acheteurs: { enabled: false, cci: "" },
@@ -903,6 +904,21 @@ export const MODELES = {
   "estimation-relance-90": { titre: "Estimation — relance 3 mois", canal: "email",
     sujet: "Votre projet de vente, trois mois après",
     texte: "Trois mois se sont écoulés depuis l'estimation du {adresse} — et le marché de votre quartier a continué de vivre : des ventes se sont signées, des biens se sont affichés.\n\nSi votre projet mûrit encore, c'est parfait. S'il se précise, parlons-en : nous réactualiserons votre avis de valeur au marché du jour, sans engagement." },
+  // Parcours R1/R2 (brique d'envoi de documents) : les e-mails de l'agence,
+  // tels que Benoît les écrit — le conseiller les relit et les ajuste avant
+  // d'envoyer. Variables : {civilite_nom} (« madame, monsieur DUPONT »),
+  // {date_r1} (« jeudi 20 avril à 10h »), {date_r2}, {adresse_bien}, {type_bien}
+  // (maison / appartement), {documents_r1}, {documents_r2} (listes selon le
+  // type de bien), {agence}, {agence_adresse}, {lien_avis}.
+  "parcours-avant-r1": { titre: "Parcours — avant le R1 (confirmation du rendez-vous)", canal: "email",
+    sujet: "Votre rendez-vous d'estimation du {date_r1}",
+    texte: "Bonjour {civilite_nom},\n\nJe vous confirme notre rendez-vous de {date_r1} directement au {adresse_bien}.\n\nEn vue de notre rendez-vous d'estimation, je vous remercie de bien vouloir préparer quelques documents préalables si vous les avez en votre possession :\n{documents_r1}\n\nDans l'attente de vous rencontrer, je vous souhaite une belle journée.\n\nCordialement," },
+  "parcours-entre-r1-r2": { titre: "Parcours — entre le R1 et le R2 (confirmation de la restitution)", canal: "email",
+    sujet: "Merci pour votre accueil — remise de votre estimation le {date_r2}",
+    texte: "Bonjour {civilite_nom},\n\nTout d'abord, merci de votre accueil et de votre confiance lors de l'estimation de votre {type_bien}.\n\nJe vous confirme notre rendez-vous de {date_r2} pour la remise de votre estimation, à notre agence située {agence_adresse}.\n\nLors de ce rendez-vous, après avoir fait un point sur toutes les caractéristiques de votre bien, nous échangerons sur l'état du marché immobilier actuel et notre manière de travailler pour vous accompagner dans ce projet, aller chercher ensemble la valeur haute de l'estimation que nous vous proposerons et vous apporter le meilleur service.\n\nPour vous accompagner au mieux, nous aurons par la suite besoin des documents suivants. Ils nous permettront d'être réactifs dans la rédaction et la signature d'un compromis de vente ; cette liste vous permettra de commencer à rassembler toutes les pièces.\n{documents_r2}\n\nJe reste disponible et à votre écoute." },
+  "parcours-apres-r2": { titre: "Parcours — après le R2 (remerciement et avis)", canal: "email",
+    sujet: "Merci pour votre confiance",
+    texte: "Bonjour {civilite_nom},\n\nJe vous remercie de la confiance que vous nous avez manifestée en faisant appel à notre agence {agence} dans le cadre de l'estimation de votre {type_bien}.\n\nC'est avec grand plaisir que nous vous accompagnerons, avec l'ensemble de l'équipe, tout au long de ce processus et de votre projet dans son ensemble.\n\nComme vous le savez, ce travail est offert, mais notre plus belle rémunération restera à jamais la satisfaction de nos clients.\n\nSi vous avez été satisfaits du travail que nous avons réalisé dans le cadre de ces rendez-vous, je vous invite à nous laisser un avis sur notre page Google ; l'ensemble de l'équipe vous en remercie grandement.\n\nVoici le lien direct pour nous laisser un avis :\n{lien_avis}\n\nBien à vous," },
   "estimation-relance-180": { titre: "Estimation — relance 6 mois", canal: "email",
     sujet: "Votre estimation a six mois — on la réactualise ?",
     texte: "Votre estimation du {adresse} a six mois. En immobilier, c'est l'âge où un avis de valeur mérite un regard neuf : le marché du quartier a bougé, dans un sens ou dans l'autre.\n\nNous vous proposons de la réactualiser gratuitement — un simple échange suffit souvent. Répondez à cet e-mail ou appelez-nous quand vous voulez." },
@@ -1020,7 +1036,7 @@ export function salutation(c) {
 
 // Gabarit commun : carte blanche sur fond creme, bandeau sombre, filet dore —
 // CSS inline uniquement (compatibilite clients mail).
-export function wrapEmail(ag, { eyebrow, headline, bodyHtml, signatureName, signatureTitre }) {
+export function wrapEmail(ag, { eyebrow, headline, bodyHtml, signatureName, signatureTitre, signatureHtml }) {
   const gold = "#BEAF87", dark = "#1D1D1B";
   const nom = ag.nom || "Votre agence";
   const logo = ag.logoUrl
@@ -1041,10 +1057,10 @@ export function wrapEmail(ag, { eyebrow, headline, bodyHtml, signatureName, sign
           <div style="width:56px; height:2px; background:${gold}; margin:22px auto 0;"></div>
         </td></tr>
         <tr><td style="padding:24px 48px 8px; font-family:Georgia,'Times New Roman',serif; color:#3d3d3b; font-size:16px; line-height:1.7;">${bodyHtml}</td></tr>
-        <tr><td style="padding:26px 48px 40px;" align="center">
+        <tr><td style="padding:26px 48px 40px;" align="center">${signatureHtml || `
           <div style="font-family:Georgia,'Times New Roman',serif; font-style:italic; color:${dark}; font-size:19px;">${esc(signatureName)}</div>
           ${signatureTitre ? `<div style="font-family:Helvetica,Arial,sans-serif; color:#3d3d3b; font-size:13px; margin-top:4px;">${esc(signatureTitre)}</div>` : ""}
-          <div style="font-family:Helvetica,Arial,sans-serif; color:#8a8a86; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; margin-top:6px;">${esc(nom)}</div>
+          <div style="font-family:Helvetica,Arial,sans-serif; color:#8a8a86; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; margin-top:6px;">${esc(nom)}</div>`}
         </td></tr>
         <tr><td align="center" style="background:${dark}; padding:20px 24px;">
           <div style="font-family:Helvetica,Arial,sans-serif; color:${gold}; font-size:12px; letter-spacing:1px;">${esc(nom)}</div>

@@ -2698,8 +2698,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   /* ---- Bibliothèque des messages : textes de l'agence -------------------- */
   console.log("— Bibliothèque des messages (surcharges de l'agence)");
   const modeles0 = (await callR("/crm/modeles", { headers: auth })).json.modeles;
-  ok(modeles0.length === 14 && modeles0.every((m) => m.texte && !m.personnalise),
-    "la bibliothèque liste les 14 messages avec leur texte d'origine (dont les deux vœux couple)");
+  ok(modeles0.length === 17 && modeles0.every((m) => m.texte && !m.personnalise),
+    "la bibliothèque liste les 17 messages avec leur texte d'origine (dont les deux vœux couple et les trois du parcours R1/R2)");
   ok((await callR("/crm/modeles", { headers: authP })).status === 200,
     "la bibliothèque se lit par tout membre (pour les envois individuels) — l'édition reste admin");
   // Surcharge du mail « veille du R1 » : le prochain envoi part avec CE texte.
@@ -3297,6 +3297,61 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/contacts/" + cbCt.id + "/effacer", { headers: auth, body: {} })).status === 404, "effacer deux fois → introuvable");
 
   /* ---- AMEPI : fichier des mandats des confrères ------------------------- */
+  console.log("— Parcours R1/R2 : profils conseillers, fiche, e-mails personnalisés");
+  // Un pixel JPEG (data URL) : la photo du conseiller, servie par une URL publique.
+  const pixel = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
+  ok((await callR("/crm/conseillers", { headers: authP, method: "PUT", body: { prenom: "Teddy", nom: "BESSON" } })).status === 403, "seul un administrateur crée un profil conseiller");
+  const teddy = await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test", photo: pixel } });
+  ok(teddy.status === 200 && teddy.json.id, "profil conseiller créé avec sa photo");
+  const listeCs = (await callR("/crm/conseillers", { headers: authP })).json.conseillers;
+  const csT = listeCs.find((x) => x.id === teddy.json.id);
+  ok(csT && csT.a_photo && csT.photo_url.includes("/public/conseillers/" + teddy.json.id + "/photo") && !("photo" in csT), "la liste donne l'URL publique de la photo, jamais la photo elle-même");
+  const photoRep = await appR.fetch(new Request("http://api.test/public/conseillers/" + teddy.json.id + "/photo"));
+  ok(photoRep.status === 200 && photoRep.headers.get("content-type") === "image/jpeg", "la photo se sert en JPEG sans session");
+  ok((await appR.fetch(new Request("http://api.test/public/conseillers/cs_inconnu/photo"))).status === 404, "id inconnu → 404");
+  ok((await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "X", photo: "data:text/html;base64,PGI+" } })).status === 400, "une photo qui n'est pas une image est refusée");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agence: { adresse: "20 rue François Mitterrand, Saint-Médard-en-Jalles", instagram: "https://instagram.com/century_21_kadima", facebook: "https://www.facebook.com/century21.kadima", avis: "https://g.page/r/CUA5uMo-Z_RcEB0/review" } } });
+  // La fiche du parcours : client, bien, conseiller, R1 et R2 avec leurs heures.
+  const pxCree = await callR("/crm/parcours", { headers: authP, body: {
+    civilite: "M. et Mme", prenom: "Jean", nom: "MOUNEYRES", email: "mouneyres@exemple.fr", telephone: "0600000002",
+    adresse: "12 rue du Mandat Confiance", cp: "33160", ville: "SAINT AUBIN DE MEDOC", type_bien: "maison",
+    conseiller_id: teddy.json.id, r1: "2026-04-20", r1_heure: "10:00", r2: "2026-04-27", r2_heure: "12:30" } });
+  ok(pxCree.status === 200 && pxCree.json.id, "fiche parcours créée (elle est aussi une fiche estimation)");
+  const pxId = pxCree.json.id;
+  const pxFiche = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
+  ok(pxFiche.prenom === "Jean" && pxFiche.type_bien === "maison" && pxFiche.r1_heure === "10:00" && pxFiche.conseiller.nom === "BESSON" && pxFiche.conseiller.photo_url && pxFiche.emails.includes("mouneyres@exemple.fr"),
+     "la fiche relit civilité, prénom, type de bien, heures, conseiller (avec photo) et destinataires");
+  ok((await callR("/crm/estimations", { headers: authP })).json.estimations.some((e) => e.id === pxId && e.conseiller === "Teddy BESSON"), "Studio Estimation voit la même fiche, au nom du conseiller");
+  const ap1 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
+  ok(/lundi 20 avril à 10h/.test(ap1.texte) && /madame, monsieur MOUNEYRES/.test(ap1.texte) && /12 rue du Mandat Confiance, 33160 SAINT AUBIN DE MEDOC/.test(ap1.texte)
+     && /titre de propriété/i.test(ap1.texte) && !/copropriété/i.test(ap1.texte),
+     "avant R1 : date en toutes lettres, civilité, adresse, pièces à préparer sans la copropriété (maison)");
+  ok(/Teddy BESSON/.test(ap1.html) && /Conseiller immobilier/.test(ap1.html) && ap1.html.includes("/public/conseillers/" + teddy.json.id + "/photo") && /Instagram/.test(ap1.html) && /Nos avis clients/.test(ap1.html),
+     "le rendu porte la signature du conseiller (photo, fonction) et les réseaux de l'agence");
+  const ap2 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
+  ok(/lundi 27 avril à 12h30/.test(ap2.texte) && /20 rue François Mitterrand/.test(ap2.texte) && /Permis de construire/.test(ap2.texte) && /votre maison/.test(ap2.texte),
+     "entre R1 et R2 : date du R2, adresse de l'agence, liste des pièces d'une maison");
+  const ap3 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=apres-r2", { headers: authP })).json;
+  ok(/g\.page\/r\/CUA5uMo/.test(ap3.texte) && /<a href="https:\/\/g\.page/.test(ap3.html), "après R2 : le lien d'avis Google, cliquable dans le rendu");
+  // Envoi avec le texte relu : le mail part au nom du conseiller, se journalise, et la séquence auto ne le renverra pas.
+  const avantEnvoi = mailsRecus.length;
+  const envPx = await callR("/crm/parcours/" + pxId + "/envoyer", { headers: authP, body: { jalon: "avant-r1", sujet: ap1.sujet, texte: ap1.texte.replace("belle journée", "excellente journée") } });
+  const dernierPx = mailsRecus[mailsRecus.length - 1] || {};
+  ok(envPx.status === 200 && envPx.json.envoyes === 1 && mailsRecus.length > avantEnvoi && /excellente journée/.test(dernierPx.html || "") && /Teddy BESSON/.test(dernierPx.from || dernierPx.html || ""),
+     "l'e-mail avant R1 part avec le texte relu, signé du conseiller (" + JSON.stringify(envPx.json) + ")");
+  const pxApres = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
+  ok(pxApres.journal.some((j) => j.etape === "avant-r1" && j.le > 0), "l'étape est cochée dans le journal du parcours");
+  ok((await db.get("SELECT id FROM crm_envois WHERE agency_id = ? AND contact_id = ? AND type = 'estimation-avant-r1' AND statut = 'ok'", [agId, pxId])), "l'envoi manuel est dans crm_envois : la séquence automatique ne doublera pas");
+  const et = await callR("/crm/parcours/" + pxId + "/etape", { headers: authP, body: { etape: "guide-r1" } });
+  ok(et.status === 200 && et.json.journal.some((j) => j.etape === "guide-r1"), "une étape faite hors e-mail (guide imprimé) se coche");
+  ok((await callR("/crm/parcours/" + pxId + "/apercu?jalon=inconnu", { headers: authP })).status === 400, "jalon inconnu refusé");
+  const pxMaj = await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "appartement", r2: "2026-04-28", r2_heure: "9:00" } });
+  const ap2b = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
+  ok(pxMaj.status === 200 && /mardi 28 avril à 9h/.test(ap2b.texte) && /procès-verbaux/.test(ap2b.texte) && /votre appartement/.test(ap2b.texte),
+     "modifier la fiche (appartement, nouveau R2) change le texte proposé");
+  const lp = (await callR("/crm/parcours", { headers: authP })).json.parcours.find((p) => p.id === pxId);
+  ok(lp && lp.cs_nom === "BESSON" && lp.journal.length === 2, "la liste des parcours porte le conseiller et l'avancement (" + JSON.stringify(lp && { cs: lp.cs_nom, journal: lp.journal }) + ")");
+
   console.log("— AMEPI : connexion, relevé du fichier des mandats, rapprochement");
   // Le réglage par défaut ne garde que « mon ALFA » (2) ; ce bloc teste les trois sources.
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { sources: ["1", "2", "3"] } } });
