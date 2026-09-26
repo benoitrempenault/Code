@@ -752,6 +752,21 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     // Au plus 12 par catégorie (les arrêts de bus pullulent) ; ordonné par distance.
     const parCat = {}; return out.filter((o) => (parCat[o.cat] = (parCat[o.cat] || 0) + 1) <= 12);
   }
+  // Diagnostic : quel relais Overpass répond depuis le serveur (sans session,
+  // résultat gardé 10 min pour ne pas solliciter les relais).
+  let diagOverpass = { le: 0, resultat: null };
+  app.get("/diag/overpass", async (c) => {
+    if (diagOverpass.resultat && diagOverpass.le > now() - 600) return c.json(diagOverpass.resultat);
+    const relais = [...new Set([(env.OVERPASS_BASE || RELAIS_OVERPASS[0]).replace(/\/+$/, ""), ...RELAIS_OVERPASS])];
+    const resultat = [];
+    for (const base of relais) {
+      const t0 = Date.now();
+      try { const l = await commoditesVia(base, 44.8969, -0.7169); resultat.push({ relais: base, ok: true, commodites: l.length, ms: Date.now() - t0 }); }
+      catch (e) { resultat.push({ relais: base, ok: false, erreur: String(e.message || e).slice(0, 160), ms: Date.now() - t0 }); }
+    }
+    diagOverpass = { le: now(), resultat: { relais: resultat } };
+    return c.json(diagOverpass.resultat);
+  });
   app.get("/crm/parcours/:id/environnement", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const p = await lireParcoursDe(ctx, c.req.param("id"));
@@ -768,6 +783,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     let data = null;
     const cache = await db.get("SELECT data, updated_at FROM crm_environnement WHERE cle = ?", [cle]);
     if (cache && cache.updated_at > now() - 30 * 86400) { try { data = JSON.parse(cache.data); } catch { data = null; } }
+    // Un cache sans commodité (relevé raté autrefois) ne vaut rien : on refait.
+    if (data && !(data.commodites || []).length) data = null;
     if (!data) {
       const [com, liste] = await Promise.all([commune(p.px.cp, p.est.ville).catch(() => null), commodites(lat, lng).catch((e) => ({ erreur: e.message }))]);
       data = { commune: com, commodites: Array.isArray(liste) ? liste : [], erreur: liste && liste.erreur ? liste.erreur : "" };

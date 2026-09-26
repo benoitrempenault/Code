@@ -2485,13 +2485,25 @@
   // parlerons-nous ». Ouvert dans un nouvel onglet, prêt à imprimer.
   // « M. Jean et Mme Sophie MOUNEYRES », ou « Mme Sophie DURAND et M. Jean
   // MOUNEYRES » : tous les propriétaires en page 1 des guides.
+  // La civilité telle qu'elle vient des fiches (« Madame », « Mr », « M. ») se
+  // normalise ; le prénom prend une majuscule (« ADELAIDE » → « Adelaide »).
+  const civiliteCourte = (c) => { const t = sansAccentsMin(c); return /et|&|\//.test(t) ? "M. et Mme" : /mme|madame|mlle|mademoiselle/.test(t) ? "Mme" : /^m\b|monsieur|mr/.test(t) ? "M." : ""; };
+  const civiliteLongue = (c) => ({ "M.": "Monsieur", "Mme": "Madame", "M. et Mme": "Monsieur et Madame" }[civiliteCourte(c)] || "");
+  const prenomPropre = (t) => String(t || "").trim().toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
   function nomsClient(p, civ) {
-    const c = civ || ((x) => x || "");
+    const c = civ || civiliteCourte;
     const l = (p.proprietaires || []).filter((o) => o.nom || o.prenom);
     const maj = (o) => (o.nom || "").toUpperCase();
-    if (l.length < 2) return [c(p.civilite), p.prenom, (p.nom || "").toUpperCase()].filter(Boolean).join(" ");
-    if (new Set(l.map((o) => sansAccentsMin(o.nom))).size === 1) return l.map((o) => [c(o.civilite), o.prenom].filter(Boolean).join(" ")).join(" et ") + " " + maj(l[0]);
-    return l.map((o) => [c(o.civilite), o.prenom, maj(o)].filter(Boolean).join(" ")).join(" et ");
+    if (l.length < 2) return [c(p.civilite), prenomPropre(p.prenom), (p.nom || "").toUpperCase()].filter(Boolean).join(" ");
+    const prenoms = l.map((o) => prenomPropre(o.prenom)).filter(Boolean).join(" et ");
+    if (new Set(l.map((o) => sansAccentsMin(o.nom))).size === 1) {
+      // Un même nom : « M. et Mme Benoît et Adélaïde REMPENAULT ».
+      const civs = [...new Set(l.map((o) => civiliteCourte(o.civilite)).filter(Boolean))];
+      const civ2 = civs.length === 1 && civs[0] !== "M. et Mme" ? (civs[0] === "Mme" ? "Mmes" : "MM.") : "M. et Mme";
+      const longue = { "M. et Mme": "Monsieur et Madame", "MM.": "Messieurs", "Mmes": "Mesdames" };
+      return [civ === civiliteLongue ? longue[civ2] : civ2, prenoms, maj(l[0])].filter(Boolean).join(" ");
+    }
+    return l.map((o) => [c(o.civilite), prenomPropre(o.prenom), maj(o)].filter(Boolean).join(" ")).join(" et ");
   }
   let guideR1Cache = null;
   const sansAccentsMin = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -2570,7 +2582,6 @@
   // Barlow sont embarquées (fontkit) pour rester dans la maquette.
   let guideR2Cache = null;
   const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-  const civiliteLongue = (c) => ({ "M.": "Monsieur", "Mme": "Madame", "M. et Mme": "Monsieur et Madame" }[c] || c || "");
   function reduireImage(fichier, largeur, qualite) {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -2676,7 +2687,7 @@
     // Page 1 : photo, client, adresse, date du jour.
     { const s = meta.p1, pg = page(s.page);
       await image(pg, r2.photo, s.photo, true);
-      ecrireDroite(pg, (p.proprietaires || []).length > 1 ? nomsClient(p, civiliteLongue) : [civiliteLongue(p.civilite), p.nom, p.prenom].filter(Boolean).join(" "), s.droite, s.nom.y, s.nom.taille, fR);
+      ecrireDroite(pg, nomsClient(p, civiliteLongue), s.droite, s.nom.y, s.nom.taille, fR);
       ecrireDroite(pg, p.adresse, s.droite, s.adresse.y, s.adresse.taille, fR);
       ecrireDroite(pg, cpVille, s.droite, s.cpville.y, s.cpville.taille, fR);
       ecrireDroite(pg, dateJour, s.droite, s.date.y, s.date.taille, fR); }

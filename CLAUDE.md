@@ -545,6 +545,12 @@ bouton « 🗑 Effacer » (confirm) sur la fiche. Doublons de profils :
 reçoit les vides, prénom/nom accentués gagnent, parcours ré-attribués, extra /
 direction / pv fusionnés) → `fusions` dans la réponse. Réglages agences : champ
 `avis` par agence (lien Google de Caudéran à coller par Benoît).
+Noms en page 1 (26/09) : `civiliteCourte`/`civiliteLongue` normalisent « Madame », « Mr »… ;
+`prenomPropre` met la majuscule ; couple de même nom → « M. et Mme Benoît et
+Adélaïde REMPENAULT » (MM./Mmes si même civilité), noms différents → « M. Jean
+MOUNEYRES et Mme Sophie DURAND » ; R2 = même ordre en toutes lettres. Commodités :
+un cache crm_environnement sans commodité est ignoré (relevé refait) ;
+`GET /diag/overpass` (sans session, 10 min de cache) dit quel relais répond.
 **Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
 bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la
 police Bugaki complète, non versionnée) ; le navigateur y écrit « Famille NOM » (ou
