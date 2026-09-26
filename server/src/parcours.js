@@ -701,7 +701,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!r.ok) throw new Error("géocodage : la BAN répond " + r.status);
     const f = ((await r.json()).features || [])[0];
     if (!f || !f.geometry || (f.properties && f.properties.score < 0.4)) return null;
-    return { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], label: (f.properties && f.properties.label) || q };
+    return { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], label: (f.properties && f.properties.label) || q, citycode: (f.properties && f.properties.citycode) || "", city: (f.properties && f.properties.city) || "" };
   }
   async function commune(cp, ville) {
     const base = (env.GEO_BASE || "https://geo.api.gouv.fr").replace(/\/+$/, "");
@@ -768,6 +768,29 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     }
     diagOverpass = { le: now(), resultat: { relais: resultat } };
     return c.json(diagOverpass.resultat);
+  });
+  // Diagnostic du livret prix (sans session, 10 min de cache) : la commune, les
+  // millésimes DVF joignables depuis le serveur, une photo de portail.
+  let diagLivret = { le: 0, cle: "", resultat: null };
+  app.get("/diag/livret", async (c) => {
+    const cp = String(c.req.query("cp") || "33160").slice(0, 5), ville = String(c.req.query("ville") || "Saint-Médard-en-Jalles").slice(0, 60);
+    const cle = cp + "|" + ville;
+    if (diagLivret.resultat && diagLivret.cle === cle && diagLivret.le > now() - 600) return c.json(diagLivret.resultat);
+    const r = { commune: null, ban: null, dvf: [], photo: null };
+    try { r.commune = await commune(cp, ville); } catch (e) { r.commune = { erreur: String(e.message || e).slice(0, 160) }; }
+    try { const g = await geocoderBan("", cp, ville); r.ban = g ? { citycode: g.citycode, city: g.city } : { erreur: "adresse introuvable" }; } catch (e) { r.ban = { erreur: String(e.message || e).slice(0, 160) }; }
+    const code = (r.commune && r.commune.code) || (r.ban && r.ban.citycode) || "";
+    const base = env.DVF_BASE || "https://files.data.gouv.fr/geo-dvf/latest/csv";
+    const annee = new Date().getFullYear();
+    for (let a = annee; a >= annee - 3 && code; a--) {
+      const t0 = Date.now();
+      try { const rep = await fetch(`${base}/${a}/communes/${cp.slice(0, 2)}/${code}.csv`, { redirect: "follow", signal: AbortSignal.timeout(20000) }); const txt = rep.ok ? await rep.text() : ""; r.dvf.push({ annee: a, status: rep.status, lignes: txt ? txt.split("\n").length - 1 : 0, ms: Date.now() - t0 }); }
+      catch (e) { r.dvf.push({ annee: a, erreur: String(e.message || e).slice(0, 120), ms: Date.now() - t0 }); }
+    }
+    try { const rep = await fetch("https://file.bienici.com/photo/century-21-202_3578_7489_images.century21.fr_202_3578_c21_202_3578_7489_1_44DDD90F-FF1D-4747-A31A-3531B00031CF.jpg", { headers: { "User-Agent": "StudioKadima/1.0" }, signal: AbortSignal.timeout(15000) }); r.photo = { status: rep.status, type: rep.headers.get("content-type"), octets: rep.ok ? (await rep.arrayBuffer()).byteLength : 0 }; }
+    catch (e) { r.photo = { erreur: String(e.message || e).slice(0, 120) }; }
+    diagLivret = { le: now(), cle, resultat: r };
+    return c.json(r);
   });
   app.get("/crm/parcours/:id/environnement", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
@@ -876,7 +899,12 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!pos) return err(c, 400, "Adresse du bien introuvable (vérifiez l'adresse, le code postal et la ville).");
     const { lat, lng } = pos;
     const type = p.px.type_bien === "appartement" ? "appartement" : "maison";
-    const com = await commune(p.px.cp, p.est.ville).catch(() => null);
+    let erreurs = [];
+    let com = await commune(p.px.cp, p.est.ville).catch((e) => { erreurs.push("commune : " + e.message); return null; });
+    if (!com || !com.code) {
+      // geo.api.gouv.fr muet : la BAN connaît aussi le code INSEE de l'adresse.
+      try { const g = await geocoderBan(p.est.adresse, p.px.cp, p.est.ville); if (g && g.citycode) com = { code: g.citycode, nom: g.city || p.est.ville }; } catch (e) { erreurs.push("BAN : " + e.message); }
+    }
     const ventes = (await ventesAutour(ctx.agency.id, lat, lng, 2000)).slice(0, 40);
     const villeN = sansAccents(p.est.ville);
     const brutesAnnonces = await db.all(
@@ -898,7 +926,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const garder = (r) => { const t = jsonArrLocal(r.types).map(sansAccents), v = jsonArrLocal(r.villes).map(sansAccents); return (!t.length || t.includes(type)) && (!v.length || v.includes(villeN)); };
     for (const r of await db.all("SELECT budget_min, budget_max, types, villes, pieces_min, surface_min FROM crm_recherches WHERE agency_id = ? AND actif = 1", [ctx.agency.id])) if (garder(r)) acheteurs.push({ budget_min: r.budget_min, budget_max: r.budget_max, pieces_min: r.pieces_min, surface_min: r.surface_min });
     for (const r of await db.all("SELECT budget_min, budget_max, types, villes, pieces_min FROM crm_projets WHERE agency_id = ? AND kind = 'achat' AND statut = 'actif'", [ctx.agency.id])) if (garder(r)) acheteurs.push({ budget_min: r.budget_min, budget_max: r.budget_max, pieces_min: r.pieces_min, surface_min: null });
-    return c.json({ lat, lng, type, commune: com ? { code: com.code, nom: com.nom, dep: String(p.px.cp || "").slice(0, 2) } : null, ventes, annonces, amepi, acheteurs: acheteurs.slice(0, 300) });
+    return c.json({ lat, lng, type, commune: com && com.code ? { code: com.code, nom: com.nom, dep: String(p.px.cp || com.code || "").slice(0, 2) } : null, erreurs, ventes, annonces, amepi, acheteurs: acheteurs.slice(0, 300) });
   });
   // Bien'ici (portail) : les biens en vente sur la commune, même type, autour du
   // prix — photo, prix, surface, terrain, pièces, position approchée (125 m),
