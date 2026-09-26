@@ -464,7 +464,14 @@ URL ≤ 200 Ko réduite côté navigateur à 240 px, servie par
 `GET /public/conseillers/:id/photo`), routes /crm/conseillers (liste membre,
 PUT/DELETE admin), carte « Les conseillers » dans Réglages. Réglages agence :
 instagram, facebook, avis. Smoke `parcours-r1r2` (faux Resend sur 18795 dans
-run.mjs, `/__mails`). Admin : assets versionnés `?v=5`.
+run.mjs, `/__mails`). Admin : assets versionnés `?v=6`.
+« + Nouveau parcours » cherche D'ABORD dans les contacts (`#px-q` →
+`/crm/contacts/recherche`, boutons `[data-ct]` qui préremplissent le formulaire et
+fixent `contact_id`) ; sinon les champs saisis créent la fiche. Côté serveur
+`POST /crm/parcours` relie le contact : contact_id vérifié → sinon même email →
+sinon nom+prénom (NOCASE) → sinon INSERT crm_contacts (types ["estime"], source
+'parcours') ; lien `crm_estimation_contacts` (INSERT OR IGNORE) ; réponse
+{ok, id, contact_id, contact_cree}.
 **Guide R1 personnalisé (26/09)** : `administration/assets/guide-r1.pdf` (25 pages :
 13 communes + 12 pages « Votre conseiller », corrigé de l'original de Benoît avec
 pymupdf — p2 : 14 conseillers St-Médard, 2 gestionnaires St-Aubin ; p3 : 9,5/10

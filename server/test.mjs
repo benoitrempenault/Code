@@ -3337,7 +3337,15 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     civilite: "M. et Mme", prenom: "Jean", nom: "MOUNEYRES", email: "mouneyres@exemple.fr", telephone: "0600000002",
     adresse: "12 rue du Mandat Confiance", cp: "33160", ville: "SAINT AUBIN DE MEDOC", type_bien: "maison",
     conseiller_id: teddy.json.id, r1: "2026-04-20", r1_heure: "10:00", r2: "2026-04-27", r2_heure: "12:30" } });
-  ok(pxCree.status === 200 && pxCree.json.id, "fiche parcours créée (elle est aussi une fiche estimation)");
+  ok(pxCree.status === 200 && pxCree.json.id && pxCree.json.contact_cree && pxCree.json.contact_id, "fiche parcours créée (elle est aussi une fiche estimation) et le contact avec elle");
+  const ctPx = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.id === pxCree.json.contact_id);
+  ok(ctPx && ctPx.nom === "MOUNEYRES" && ctPx.prenom === "Jean" && ctPx.civilite === "M. et Mme" && ctPx.email === "mouneyres@exemple.fr" && ctPx.types.includes("estime") && ctPx.source === "parcours",
+     "le contact créé porte civilité, prénom, nom, e-mail, et la typologie « estimé »");
+  const pxBis = await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "MOUNEYRES", prenom: "Jean", adresse: "Ailleurs", ville: "Pessac" } });
+  ok(pxBis.status === 200 && !pxBis.json.contact_cree && pxBis.json.contact_id === pxCree.json.contact_id, "un second parcours pour le même nom + prénom réutilise la fiche contact");
+  const pxChoisi = await callR("/crm/parcours", { headers: authP, body: { contact_id: ctPx.id, nom: "AUTRE NOM", adresse: "3 rue Choisie", ville: "Pessac" } });
+  ok(pxChoisi.status === 200 && pxChoisi.json.contact_id === ctPx.id && !pxChoisi.json.contact_cree, "un contact choisi dans la recherche est lié tel quel");
+  for (const idSup of [pxBis.json.id, pxChoisi.json.id]) await db.run("DELETE FROM crm_estimations WHERE id = ?", [idSup]);
   const pxId = pxCree.json.id;
   const pxFiche = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
   ok(pxFiche.prenom === "Jean" && pxFiche.type_bien === "maison" && pxFiche.r1_heure === "10:00" && pxFiche.conseiller.nom === "BESSON" && pxFiche.conseiller.photo_url && pxFiche.emails.includes("mouneyres@exemple.fr"),

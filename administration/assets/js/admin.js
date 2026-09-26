@@ -2277,14 +2277,45 @@
     if (p) o.statut = $("px-statut").value;
     return o;
   }
+  // Nouveau parcours : on cherche D'ABORD la personne dans les contacts ; la
+  // fiche choisie pré-remplit le formulaire. Introuvable ? On remplit, et le
+  // contact est créé en même temps que le parcours.
   function nouveauParcours() {
-    ouvrirModale("+ Nouveau parcours R1/R2", formulaireParcours(null),
+    let contactId = "";
+    ouvrirModale("+ Nouveau parcours R1/R2",
+      '<div class="grille-champs"><label>1. Chercher la personne dans les contacts<input id="px-q" placeholder="nom, e-mail, téléphone, adresse…" autocomplete="off" /></label></div>' +
+      '<div id="px-resultats" style="max-height:170px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:6px 12px; margin:6px 0 12px;"><p class="petit">Tapez au moins 2 caractères. Personne ne correspond ? Remplissez la fiche ci-dessous : le contact sera créé avec le parcours.</p></div>' +
+      '<p class="petit" id="px-choisi"></p>' +
+      '<p class="petit"><strong>2. La fiche du parcours</strong></p>' + formulaireParcours(null),
       '<button class="btn" id="px-annuler">Annuler</button><button class="btn btn-or" id="px-creer">Créer le parcours</button>');
     $("px-annuler").addEventListener("click", fermerModale);
+    let minuteur = null;
+    const chercher = async () => {
+      const q = $("px-q").value.trim(); const zone = $("px-resultats");
+      if (q.length < 2) return;
+      try {
+        const r = await api("/crm/contacts/recherche?q=" + encodeURIComponent(q));
+        zone.innerHTML = (r.contacts || []).length
+          ? r.contacts.map((x) => '<button type="button" class="btn" data-ct="' + escH(x.id) + '" style="display:block; width:100%; text-align:left; margin:3px 0; padding:6px 10px;"><strong>' +
+            escH(x.nom) + "</strong> " + escH(x.prenom) + (x.civilite ? " (" + escH(x.civilite) + ")" : "") +
+            ' <span class="puce grise">' + escH([x.email, x.telephone, [x.adresse, x.ville].filter(Boolean).join(" ")].filter(Boolean).join(" · ") || "sans coordonnées") + "</span></button>").join("")
+          : '<p class="petit">Aucun contact ne correspond — remplissez la fiche ci-dessous, le contact sera créé.</p>';
+        zone.querySelectorAll("[data-ct]").forEach((b) => b.addEventListener("click", () => {
+          const x = r.contacts.find((y) => y.id === b.dataset.ct); if (!x) return;
+          contactId = x.id;
+          if (["M.", "Mme", "M. et Mme"].includes(x.civilite)) $("px-civilite").value = x.civilite;
+          $("px-prenom").value = x.prenom || ""; $("px-nom").value = x.nom || ""; $("px-email").value = x.email || ""; $("px-tel").value = x.telephone || "";
+          $("px-adresse").value = x.adresse || ""; $("px-ville").value = x.ville || "";
+          $("px-choisi").innerHTML = "Contact choisi : <strong>" + escH([x.prenom, x.nom].filter(Boolean).join(" ")) + "</strong> — la fiche ci-dessous est pré-remplie, complétez le bien et les rendez-vous.";
+          zone.querySelectorAll("[data-ct]").forEach((o) => o.classList.toggle("btn-or", o === b));
+        }));
+      } catch (e) { toast(e.message, true); }
+    };
+    $("px-q").addEventListener("input", () => { clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
     $("px-creer").addEventListener("click", async () => {
       try {
-        const r = await api("/crm/parcours", { json: lireFormulaireParcours(null) });
-        toast("Parcours créé"); await chargerParcours(); ouvrirParcours(r.id);
+        const r = await api("/crm/parcours", { json: { ...lireFormulaireParcours(null), contact_id: contactId } });
+        toast(r.contact_cree ? "Parcours créé, et la fiche contact avec lui" : "Parcours créé"); await chargerParcours(); ouvrirParcours(r.id);
       } catch (e) { toast(e.message, true); }
     });
   }

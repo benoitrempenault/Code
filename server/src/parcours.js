@@ -16,7 +16,7 @@
    que le conseiller a déjà envoyé à la main.
    ========================================================================= */
 import { now, randId } from "./util.js";
-import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, sanitizeEstimation, genrePrenom, dossierVendu, adresseDossier } from "./crm.js";
+import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, sanitizeEstimation, sanitizeContact, genrePrenom, dossierVendu, adresseDossier } from "./crm.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
@@ -292,15 +292,36 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     // Le conseiller (nom lisible) suit le profil choisi.
     const cs = b.conseiller_id ? await db.get("SELECT prenom, nom FROM crm_conseillers WHERE id = ? AND agency_id = ?", [String(b.conseiller_id), ctx.agency.id]) : null;
     if (cs) v.conseiller = [cs.prenom, cs.nom].filter(Boolean).join(" ");
+    // Le client est TOUJOURS une fiche contact : celle choisie dans la
+    // recherche, sinon une fiche existante qui porte le même e-mail ou le même
+    // nom + prénom, sinon une nouvelle (typée « estimé »).
+    let contactId = v.contact_id ? ((await db.get("SELECT id FROM crm_contacts WHERE id = ? AND agency_id = ?", [v.contact_id, ctx.agency.id])) || {}).id || "" : "";
+    let contactCree = false;
+    if (!contactId) {
+      const px = sanitizeParcours(b);
+      const existant = v.email ? await db.get("SELECT id FROM crm_contacts WHERE agency_id = ? AND email = ?", [ctx.agency.id, v.email]) : null;
+      const homonyme = !existant && v.nom ? await db.get(
+        "SELECT id FROM crm_contacts WHERE agency_id = ? AND nom = ? COLLATE NOCASE AND prenom = ? COLLATE NOCASE", [ctx.agency.id, v.nom, px.prenom]) : null;
+      contactId = (existant || homonyme || {}).id || "";
+      if (!contactId) {
+        const ct = sanitizeContact({ civilite: px.civilite, prenom: px.prenom, nom: v.nom, email: v.email, telephone: v.telephone, adresse: v.adresse, cp: px.cp, ville: v.ville, types: ["estime"], conseiller: v.conseiller });
+        contactId = randId("ct"); contactCree = true;
+        await db.run(
+          `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone, adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, '', 'parcours', 0, ?, ?)`,
+          [contactId, ctx.agency.id, ctx.user.id, ct.civilite, ct.prenom, ct.nom, ct.email, ct.telephone, ct.adresse, ct.cp, ct.ville, JSON.stringify(ct.types), ct.conseiller, now(), now()]);
+      }
+    }
     const id = randId("es");
     await db.run(
       `INSERT INTO crm_estimations (id, agency_id, contact_id, nom, email, telephone, adresse, ville,
        lat, lng, r1, r2, statut, qualification, conseiller, notes, user_id, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, ctx.agency.id, v.contact_id, v.nom, v.email, v.telephone, v.adresse, v.ville,
+      [id, ctx.agency.id, contactId, v.nom, v.email, v.telephone, v.adresse, v.ville,
         v.lat, v.lng, v.r1, v.r2, v.statut, v.qualification, v.conseiller, v.notes, ctx.user.id, now(), now()]);
+    if (contactId) await db.run("INSERT OR IGNORE INTO crm_estimation_contacts (estimation_id, contact_id, agency_id) VALUES (?, ?, ?)", [id, contactId, ctx.agency.id]);
     await ecrireParcours(c, ctx, id, b);
-    return c.json({ ok: true, id });
+    return c.json({ ok: true, id, contact_id: contactId, contact_cree: contactCree });
   });
 
   app.put("/crm/parcours/:id", async (c) => {

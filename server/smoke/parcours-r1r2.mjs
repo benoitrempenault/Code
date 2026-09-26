@@ -8,6 +8,7 @@ export default async function () {
   const admin = await creerAgence("Smoke Parcours", "smoke-parcours@test.fr");
   await api("/crm/reglages", { headers: admin.auth, method: "PUT", body: { agence: { adresse: "20 rue François Mitterrand, Saint-Médard-en-Jalles", avis: "https://g.page/r/smoke/review" } } });
   const cs = await api("/crm/conseillers", { headers: admin.auth, method: "PUT", body: { prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@smoke.fr", photo: PIXEL } });
+  await api("/crm/contacts/bulk", { headers: admin.auth, body: { rows: [{ civilite: "M. et Mme", nom: "MOUNEYRES", prenom: "Jean", email: "mouneyres@smoke.fr", telephone: "0600000002", adresse: "12 rue du Mandat Confiance", ville: "SAINT AUBIN DE MEDOC" }] } });
   return parcours("parcours-r1r2", {}, async ({ page, ok }) => {
     await ouvrir(page, "/administration/", admin);
     await page.waitForSelector("#app:not([hidden])", { timeout: 8000 });
@@ -19,14 +20,13 @@ export default async function () {
     await page.click('[data-onglet="parcours"]');
     await page.click("#btn-nouveau-parcours");
     await page.waitForSelector("#px-creer", { timeout: 6000 });
-    await page.selectOption("#px-civilite", "M. et Mme");
-    await page.fill("#px-prenom", "Jean");
-    await page.fill("#px-nom", "MOUNEYRES");
-    await page.fill("#px-email", "mouneyres@smoke.fr");
+    await page.fill("#px-q", "mouney");
+    await page.waitForSelector("#px-resultats [data-ct]", { timeout: 8000 });
+    await page.click("#px-resultats [data-ct]");
+    ok(await page.inputValue("#px-nom") === "MOUNEYRES" && await page.inputValue("#px-email") === "mouneyres@smoke.fr" && await page.inputValue("#px-adresse") === "12 rue du Mandat Confiance",
+      "le contact trouvé pré-remplit la fiche du parcours");
     await page.selectOption("#px-conseiller", cs.json.id);
-    await page.fill("#px-adresse", "12 rue du Mandat Confiance");
     await page.fill("#px-cp", "33160");
-    await page.fill("#px-ville", "SAINT AUBIN DE MEDOC");
     await page.fill("#px-r1", "2026-04-20");
     await page.fill("#px-r1h", "10:00");
     await page.fill("#px-r2", "2026-04-27");
