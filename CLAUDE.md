@@ -484,7 +484,27 @@ au lieu de doubler. L'Administration lance l'import à chaque chargement
 parcours : menu déroulant visible « Signé par » (`#px-signe`, PUT conseiller_id
 immédiat) + détail fonction · tel · mail ; la modale d'envoi rappelle le signataire.
 `signatureHtml` : fonction par défaut « Conseiller/Conseillère immobilier » selon
-le genre quand le profil n'en a pas. Assets `?v=8`.
+le genre quand le profil n'en a pas. Assets `?v=9`.
+**Périmètre des parcours (26/09)** : table satellite `crm_conseillers_direction`
+(id, direction). `perimetre(ctx)` (parcours.js) cherche les profils liés au compte
+(user_id ou même e-mail) : l'un a `direction` → tout voir (null) ; sinon
+{ids, userId}. `dansPerimetre` : conseiller du parcours ∈ ids OU créateur
+(crm_estimations.user_id, que le PUT ne change plus). `lireParcoursDe(ctx, id)`
+garde toutes les routes /crm/parcours/:id (404 hors périmètre) ; la liste filtre
+en SQL et renvoie `tous`. Le rôle admin ne donne rien (toute l'Administration est
+réservée aux admins). Drapeau posé par l'import (`directeurs: [prénoms]`, envoyé
+par admin.js : DIRECTION = benoit, benjamin, tiephaine/tiphaine, nathan), par la
+case « Direction — voit tous les parcours » du profil (PUT `direction`), puce
+« direction » dans Réglages ; note `#parcours-perimetre` dans l'onglet quand
+`tous` est faux.
+**Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
+bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la
+police Bugaki complète, non versionnée) ; le navigateur y écrit « Famille NOM » (ou
+civilité + NOM), l'adresse et « CP VILLE » en majuscules, la date du jour, alignés à
+droite (`meta.p1` de guide-r1.json : droite 506, y = ligne de base, page Letter 792 pt).
+Chiffres p2 (14) et p3 (1 610 / 864 avis) redessinés comme l'original : ombre or à
+40 % décalée de 1,6 pt puis le chiffre en or (la couche noire de l'original est à
+opacité 0). Smoke : guide R1 gardé dans captures/guide-r1-smoke.pdf (`garderGuide`).
 **Guide R1 personnalisé (26/09)** : `administration/assets/guide-r1.pdf` (25 pages :
 13 communes + 12 pages « Votre conseiller », corrigé de l'original de Benoît avec
 pymupdf — p2 : 14 conseillers St-Médard, 2 gestionnaires St-Aubin ; p3 : 9,5/10

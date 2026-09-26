@@ -2137,12 +2137,16 @@
   // Les profils suivent les accès : à chaque ouverture, les comptes de
   // l'agence (+ les conseillers du guide R1, + l'annuaire) qui n'ont pas
   // encore de profil en reçoivent un. Rien n'est écrasé.
+  // La direction voit tous les parcours R1/R2 ; les autres conseillers ne
+  // voient que les leurs. Le drapeau se pose à l'import (par prénom) et se
+  // change dans le profil.
+  const DIRECTION = ["benoit", "benjamin", "tiephaine", "tiphaine", "nathan"];
   let profilsImportes = false;
   async function importerConseillers(annoncer) {
     let profils = [];
     try { profils = ((await fetch("assets/guide-r1.json").then((r) => r.json())).conseillers || []).map((c) => ({ prenom: c.prenom, nom: c.nom, email: c.email, telephone: c.telephone })); } catch { /* guide absent : les comptes suffisent */ }
     try {
-      const r = await api("/crm/conseillers/importer", { json: { profils } });
+      const r = await api("/crm/conseillers/importer", { json: { profils, directeurs: DIRECTION } });
       if (annoncer) toast(r.ajoutes ? r.ajoutes + " profil(s) ajouté(s)" + (r.completes ? ", " + r.completes + " complété(s)" : "") : "Tous les conseillers ont déjà leur profil");
       return r;
     } catch (e) { if (annoncer) toast(e.message, true); return null; }
@@ -2156,7 +2160,7 @@
       ? '<div class="tableau-cadre"><table><thead><tr><th></th><th>Conseiller</th><th>Fonction</th><th>Téléphone</th><th>E-mail</th><th></th></tr></thead><tbody>' +
         conseillers.map((c) => '<tr class="cliquable" data-conseiller="' + c.id + '"><td>' +
           (c.photo_url ? '<img class="avatar" src="' + escH(c.photo_url) + '" alt="" />' : '<span class="avatar"></span>') + "</td><td><strong>" +
-          escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</strong>" + (c.actif ? "" : ' <span class="puce grise">inactif</span>') + "</td><td>" +
+          escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</strong>" + (c.actif ? "" : ' <span class="puce grise">inactif</span>') + (c.direction ? ' <span class="puce">direction</span>' : "") + "</td><td>" +
           escH(c.fonction) + "</td><td>" + escH(c.telephone) + "</td><td>" + escH(c.email) + "</td><td>✏️</td></tr>").join("") +
         "</tbody></table></div>"
       : '<div class="vide">Aucun conseiller — ajoutez le premier.</div>';
@@ -2194,6 +2198,7 @@
       '<label>Conseiller / conseillère (guide R2)<select id="cs-genre">' + [["", "Selon le prénom"], ["m", "Conseiller"], ["f", "Conseillère"]].map(([k, l]) =>
         '<option value="' + k + '"' + ((c && c.genre_pose) === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" +
       '<label class="case" style="align-self:end;"><input type="checkbox" id="cs-actif"' + (!c || c.actif ? " checked" : "") + " /> Actif</label>" +
+      '<label class="case" style="align-self:end;" title="Sans cette case, le conseiller ne voit que ses propres parcours R1/R2"><input type="checkbox" id="cs-direction"' + (c && c.direction ? " checked" : "") + " /> Direction — voit tous les parcours</label>" +
       '<label style="grid-column:1/-1;">Texte personnel (page « Votre conseiller » du guide R2 — un paragraphe par ligne vide)<textarea id="cs-bio" style="min-height:110px;">' + escH(c && c.bio || "") + "</textarea></label></div>",
       (c ? '<button class="btn btn-danger" id="cs-supprimer">Supprimer</button>' : "") +
       '<button class="btn" id="cs-annuler">Annuler</button><button class="btn btn-or" id="cs-save">Enregistrer</button>');
@@ -2205,7 +2210,7 @@
     $("cs-photo-retirer").addEventListener("click", () => { photo = ""; $("cs-apercu").src = ""; });
     $("cs-save").addEventListener("click", async () => {
       const corps = { id: c ? c.id : undefined, prenom: $("cs-prenom").value.trim(), nom: $("cs-nom").value.trim(), fonction: $("cs-fonction").value.trim(),
-        telephone: $("cs-tel").value.trim(), email: $("cs-email").value.trim(), actif: $("cs-actif").checked, bio: $("cs-bio").value.trim(), genre: $("cs-genre").value };
+        telephone: $("cs-tel").value.trim(), email: $("cs-email").value.trim(), actif: $("cs-actif").checked, direction: $("cs-direction").checked, bio: $("cs-bio").value.trim(), genre: $("cs-genre").value };
       if (photo !== undefined) corps.photo = photo;
       try { await api("/crm/conseillers", { method: "PUT", json: corps }); toast("Conseiller enregistré"); fermerModale(); chargerConseillers(); }
       catch (e) { toast(e.message, true); }
@@ -2232,8 +2237,12 @@
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
     return m ? m[3] + "/" + m[2] + "/" + m[1] + (heure ? " " + heure : "") : "—";
   };
+  let parcoursTous = true;
   async function chargerParcours() {
-    try { parcours = (await api("/crm/parcours")).parcours; } catch (e) { const z = $("table-parcours"); if (z) z.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; return; }
+    try { const r = await api("/crm/parcours"); parcours = r.parcours; parcoursTous = r.tous !== false; }
+    catch (e) { const z = $("table-parcours"); if (z) z.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; return; }
+    const note = $("parcours-perimetre");
+    if (note) note.textContent = parcoursTous ? "" : "Vous voyez vos parcours (ceux dont vous êtes le conseiller, ou que vous avez créés) ; la direction les voit tous.";
     rendreParcours();
   }
   function rendreParcours() {

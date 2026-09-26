@@ -182,13 +182,16 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       "INSERT INTO crm_conseillers_extra (id, bio, genre, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET bio = excluded.bio, genre = excluded.genre, updated_at = excluded.updated_at",
       [id, bio, genre, now()]);
   };
+  const ecrireDirection = (id, direction) => db.run(
+    "INSERT INTO crm_conseillers_direction (id, direction, updated_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET direction = excluded.direction, updated_at = excluded.updated_at",
+    [id, direction ? 1 : 0, now()]);
   app.get("/crm/conseillers", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const rows = await db.all(
-      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre
-       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id WHERE cs.agency_id = ? ORDER BY cs.nom, cs.prenom`,
+      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre, COALESCE(d.direction, 0) AS direction
+       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_direction d ON d.id = cs.id WHERE cs.agency_id = ? ORDER BY cs.nom, cs.prenom`,
       [ctx.agency.id]);
-    return c.json({ conseillers: rows.map((r) => ({ ...r, bio: r.bio || "", genre_pose: r.genre || "", genre: r.genre || genrePrenom(r.prenom), a_photo: !!r.a_photo, photo_url: r.a_photo ? photoUrl(c, r.id) : "" })) });
+    return c.json({ conseillers: rows.map((r) => ({ ...r, direction: !!r.direction, bio: r.bio || "", genre_pose: r.genre || "", genre: r.genre || genrePrenom(r.prenom), a_photo: !!r.a_photo, photo_url: r.a_photo ? photoUrl(c, r.id) : "" })) });
   });
   app.put("/crm/conseillers", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
@@ -206,6 +209,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         "UPDATE crm_conseillers SET user_id = ?, prenom = ?, nom = ?, fonction = ?, telephone = ?, email = ?, photo = ?, actif = ?, updated_at = ? WHERE id = ?",
         [v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, photo, v.actif, now(), id]);
       if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(id, b);
+      if (b.direction !== undefined) await ecrireDirection(id, b.direction === true || b.direction === 1);
       return c.json({ ok: true, id });
     }
     // Sans id : un profil qui existe déjà (même e-mail, ou même prénom + nom)
@@ -216,6 +220,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         "UPDATE crm_conseillers SET user_id = COALESCE(NULLIF(?, ''), user_id), fonction = COALESCE(NULLIF(?, ''), fonction), telephone = COALESCE(NULLIF(?, ''), telephone), email = COALESCE(NULLIF(?, ''), email), photo = COALESCE(NULLIF(?, ''), photo), actif = ?, updated_at = ? WHERE id = ?",
         [v.user_id, v.fonction, v.telephone, v.email, v.photo, v.actif, now(), deja.id]);
       if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(deja.id, b);
+      if (b.direction !== undefined) await ecrireDirection(deja.id, b.direction === true || b.direction === 1);
       return c.json({ ok: true, id: deja.id, existant: true });
     }
     const nb = await db.get("SELECT COUNT(*) AS n FROM crm_conseillers WHERE agency_id = ?", [ctx.agency.id]);
@@ -225,6 +230,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       "INSERT INTO crm_conseillers (id, agency_id, user_id, prenom, nom, fonction, telephone, email, photo, actif, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [nid, ctx.agency.id, v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, v.photo, v.actif, now(), now()]);
     if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(nid, b);
+    if (b.direction !== undefined) await ecrireDirection(nid, b.direction === true || b.direction === 1);
     return c.json({ ok: true, id: nid });
   });
   async function profilExistant(agencyId, v) {
@@ -277,7 +283,18 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         [randId("cs"), ctx.agency.id, v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, now(), now()]);
       ajoutes++;
     }
-    return c.json({ ok: true, ajoutes, completes });
+    // La direction (prénoms fournis par l'Administration) voit tous les
+    // parcours ; le drapeau se pose ici et ne se retire qu'à la main.
+    const directeurs = new Set((Array.isArray(b.directeurs) ? b.directeurs : []).map(sansAccents).filter(Boolean));
+    let direction = 0;
+    if (directeurs.size) {
+      const tous = await db.all("SELECT cs.id, cs.prenom, COALESCE(d.direction, 0) AS direction FROM crm_conseillers cs LEFT JOIN crm_conseillers_direction d ON d.id = cs.id WHERE cs.agency_id = ?", [ctx.agency.id]);
+      for (const cs of tous) {
+        if (cs.direction || !directeurs.has(sansAccents(cs.prenom).split(/[\s-]+/)[0])) continue;
+        await ecrireDirection(cs.id, true); direction++;
+      }
+    }
+    return c.json({ ok: true, ajoutes, completes, direction });
   });
   app.delete("/crm/conseillers/:id", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
@@ -295,6 +312,24 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   });
 
   /* -------------------------------- Parcours ------------------------------- */
+  // Qui voit quoi : la direction (drapeau du profil) voit tous les parcours ;
+  // un autre conseiller ne voit que les siens — ceux dont il est le
+  // conseiller (profil lié à son compte par user_id ou e-mail) ou qu'il a créés.
+  const sansAccents = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  const perimetre = async (ctx) => {
+    const profils = await db.all(
+      `SELECT cs.id, COALESCE(d.direction, 0) AS direction FROM crm_conseillers cs LEFT JOIN crm_conseillers_direction d ON d.id = cs.id
+       WHERE cs.agency_id = ? AND (cs.user_id = ? OR (cs.email <> '' AND cs.email = ?))`,
+      [ctx.agency.id, ctx.user.id, String(ctx.user.email || "").toLowerCase()]);
+    if (profils.some((p) => p.direction)) return null;
+    return { ids: profils.map((p) => p.id), userId: ctx.user.id };
+  };
+  const dansPerimetre = (per, est, px) => !per || per.ids.includes((px && px.conseiller_id) || "") || est.user_id === per.userId;
+  const lireParcoursDe = async (ctx, id) => {
+    const p = await lireParcours(ctx.agency.id, id);
+    if (!p) return null;
+    return dansPerimetre(await perimetre(ctx), p.est, p.px) ? p : null;
+  };
   const lireParcours = async (agencyId, id) => {
     const est = await db.get("SELECT * FROM crm_estimations WHERE id = ? AND agency_id = ?", [id, agencyId]);
     if (!est) return null;
@@ -316,14 +351,17 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
 
   app.get("/crm/parcours", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const per = await perimetre(ctx);
+    const filtre = per ? ` AND (e.user_id = ?${per.ids.length ? ` OR p.conseiller_id IN (${per.ids.map(() => "?").join(",")})` : ""})` : "";
     const rows = await db.all(
       `SELECT e.id, e.nom, e.email, e.telephone, e.adresse, e.ville, e.r1, e.r2, e.statut, e.conseiller, e.updated_at,
               p.civilite, p.prenom, p.cp, p.type_bien, p.r1_heure, p.r2_heure, p.conseiller_id, p.journal,
               cs.prenom AS cs_prenom, cs.nom AS cs_nom
        FROM crm_estimations e JOIN crm_parcours p ON p.estimation_id = e.id
        LEFT JOIN crm_conseillers cs ON cs.id = p.conseiller_id
-       WHERE e.agency_id = ? ORDER BY CASE WHEN e.statut = 'en_cours' THEN 0 ELSE 1 END, e.updated_at DESC LIMIT 300`, [ctx.agency.id]);
-    return c.json({ parcours: rows.map((r) => { let j = []; try { j = JSON.parse(r.journal || "[]"); } catch { } return { ...r, journal: j }; }) });
+       WHERE e.agency_id = ?${filtre} ORDER BY CASE WHEN e.statut = 'en_cours' THEN 0 ELSE 1 END, e.updated_at DESC LIMIT 300`,
+      [ctx.agency.id, ...(per ? [per.userId, ...per.ids] : [])]);
+    return c.json({ tous: !per, parcours: rows.map((r) => { let j = []; try { j = JSON.parse(r.journal || "[]"); } catch { } return { ...r, journal: j }; }) });
   });
 
   // Une mise à jour partielle garde ce qu'elle ne mentionne pas.
@@ -391,8 +429,9 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const b = await c.req.json().catch(() => null);
     if (!b) return err(c, 400, "Corps JSON attendu.");
-    const cur = await db.get("SELECT * FROM crm_estimations WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
-    if (!cur) return err(c, 404, "Fiche introuvable.");
+    const vu = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!vu) return err(c, 404, "Fiche introuvable.");
+    const cur = vu.est;
     let v;
     try { v = sanitizeEstimation({ ...cur, ...b }); } catch (e) { return err(c, 400, e.message); }
     const cs = b.conseiller_id ? await db.get("SELECT prenom, nom FROM crm_conseillers WHERE id = ? AND agency_id = ?", [String(b.conseiller_id), ctx.agency.id]) : null;
@@ -400,14 +439,14 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     await db.run(
       `UPDATE crm_estimations SET nom = ?, email = ?, telephone = ?, adresse = ?, ville = ?, r1 = ?, r2 = ?, statut = ?,
        conseiller = ?, notes = ?, user_id = ?, updated_at = ? WHERE id = ?`,
-      [v.nom, v.email, v.telephone, v.adresse, v.ville, v.r1, v.r2, v.statut, v.conseiller, v.notes, ctx.user.id, now(), cur.id]);
+      [v.nom, v.email, v.telephone, v.adresse, v.ville, v.r1, v.r2, v.statut, v.conseiller, v.notes, cur.user_id || ctx.user.id, now(), cur.id]);
     await ecrireParcours(c, ctx, cur.id, b);
     return c.json({ ok: true, id: cur.id });
   });
 
   app.get("/crm/parcours/:id", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
-    const p = await lireParcours(ctx.agency.id, c.req.param("id"));
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
     return c.json({ ...p.est, ...p.px, id: p.est.id, emails: await emailsDe(ctx.agency.id, p.est),
       conseiller: p.conseiller ? { ...p.conseiller, photo_url: p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "" } : null });
@@ -418,7 +457,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const jalon = String(c.req.query("jalon") || "");
     if (!JALONS_MAIL.includes(jalon)) return err(c, 400, "Jalon inconnu.");
-    const p = await lireParcours(ctx.agency.id, c.req.param("id"));
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
     const reglages = await getReglages(db, ctx.agency);
     const prep = preparerMail(p.est, p.px, jalon, reglages.agence, reglages.modeles);
@@ -434,7 +473,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const b = await c.req.json().catch(() => ({}));
     const jalon = String(b.jalon || "");
     if (!JALONS_MAIL.includes(jalon)) return err(c, 400, "Jalon inconnu.");
-    const p = await lireParcours(ctx.agency.id, c.req.param("id"));
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
     const destinataires = await emailsDe(ctx.agency.id, p.est);
     if (!destinataires.length) return err(c, 400, "Aucune adresse e-mail sur cette fiche.");
@@ -477,7 +516,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   const PHOTO_BIEN_MAX = 400000;
   app.get("/crm/parcours/:id/r2", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
-    const p = await lireParcours(ctx.agency.id, c.req.param("id"));
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
     const r2 = (await db.get("SELECT photo, points_forts, objections FROM crm_parcours_r2 WHERE estimation_id = ?", [p.est.id])) || { photo: "", points_forts: "", objections: "" };
     // La photo du conseiller en data URL : le guide s'assemble dans le navigateur.
@@ -492,7 +531,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const b = await c.req.json().catch(() => null);
     if (!b) return err(c, 400, "Corps JSON attendu.");
-    const p = await lireParcours(ctx.agency.id, c.req.param("id"));
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
     const cur = (await db.get("SELECT photo, points_forts, objections FROM crm_parcours_r2 WHERE estimation_id = ?", [p.est.id])) || { photo: "", points_forts: "", objections: "" };
     const photo = b.photo === undefined ? cur.photo : String(b.photo || "");
@@ -574,7 +613,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   }
   app.get("/crm/parcours/:id/environnement", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
-    const p = await lireParcours(ctx.agency.id, c.req.param("id"));
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
     let { lat, lng } = p.est;
     if (!lat && !lng) {
@@ -622,7 +661,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const b = await c.req.json().catch(() => ({}));
     const etape = String(b.etape || "");
     if (!ETAPES.includes(etape)) return err(c, 400, "Étape inconnue.");
-    const p = await lireParcours(ctx.agency.id, c.req.param("id"));
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
     const journal = b.defaire ? p.px.journal.filter((j) => j.etape !== etape)
       : [...p.px.journal.filter((j) => j.etape !== etape), { etape, le: now(), par: ctx.user.name || ctx.user.email }];

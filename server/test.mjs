@@ -3400,6 +3400,35 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const apM = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
   ok(/Marine Zamora/.test(apM.html) && /Conseillère immobilier/.test(apM.html) && /06 11 22 33 44/.test(apM.html), "changer le signataire : nom, fonction par défaut au féminin et téléphone dans la signature");
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: teddy.json.id } });
+  // Périmètre : un conseiller ne voit que ses parcours (conseiller ou créateur) ; la direction voit tout.
+  const remi = await callR("/agency/users", { headers: auth, method: "POST", body: { email: "remi@ach-test.fr", name: "Rémi Blanc" } });
+  const authR = { Authorization: "Bearer " + (await callR("/auth/exchange", { body: { token: remi.json.invite_link.split("#token=")[1] } })).json.session };
+  const impD = await callR("/crm/conseillers/importer", { headers: auth, body: { directeurs: ["Admin"] } });
+  const csDir = (await callR("/crm/conseillers", { headers: auth })).json.conseillers;
+  const profilRemi = csDir.find((x) => x.email === "remi@ach-test.fr"), profilAdmin = csDir.find((x) => x.email === "ach-admin@ach-test.fr");
+  ok(impD.json.direction === 1 && profilAdmin && profilAdmin.direction && profilRemi && !profilRemi.direction && profilRemi.prenom === "Rémi",
+     "l'import relie le nouveau compte et pose le drapeau direction sur les prénoms donnés (" + JSON.stringify(impD.json) + ")");
+  const listeR = (await callR("/crm/parcours", { headers: authR })).json;
+  ok(listeR.tous === false && listeR.parcours.length === 0 && (await callR("/crm/parcours/" + pxId, { headers: authR })).status === 404,
+     "un conseiller sans parcours n'en voit aucun, et la fiche d'un autre lui est introuvable");
+  ok((await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authR })).status === 404 && (await callR("/crm/parcours/" + pxId + "/etape", { headers: authR, body: { etape: "acm" } })).status === 404
+     && (await callR("/crm/parcours/" + pxId, { headers: authR, method: "PUT", body: { nom: "PIRATE" } })).status === 404,
+     "ni l'aperçu, ni les étapes, ni la modification d'un parcours hors périmètre");
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: profilRemi.id } });
+  const listeR2 = (await callR("/crm/parcours", { headers: authR })).json.parcours;
+  ok(listeR2.length === 1 && listeR2[0].id === pxId && (await callR("/crm/parcours/" + pxId, { headers: authR })).status === 200, "devenu conseiller du parcours, il le voit et l'ouvre");
+  const listeP = (await callR("/crm/parcours", { headers: authP })).json;
+  ok(listeP.tous === false && listeP.parcours.some((p) => p.id === pxId), "le créateur de la fiche continue de la voir");
+  const pxR = await callR("/crm/parcours", { headers: authR, body: { civilite: "Mme", nom: "PRIVEE", prenom: "Anne", adresse: "1 rue Secrète", ville: "Pessac" } });
+  ok(pxR.status === 200 && !(await callR("/crm/parcours", { headers: authP })).json.parcours.some((p) => p.id === pxR.json.id) && (await callR("/crm/parcours/" + pxR.json.id, { headers: authP })).status === 404,
+     "le parcours créé par Rémi est invisible pour Carto");
+  const listeDir = (await callR("/crm/parcours", { headers: auth })).json;
+  ok(listeDir.tous === true && listeDir.parcours.some((p) => p.id === pxR.json.id) && listeDir.parcours.some((p) => p.id === pxId), "la direction voit tout");
+  await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { ...profilAdmin, direction: false } });
+  ok((await callR("/crm/parcours", { headers: auth })).json.tous === false, "le drapeau direction se retire depuis le profil");
+  await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { ...profilAdmin, direction: true } });
+  await db.run("DELETE FROM crm_estimations WHERE id = ?", [pxR.json.id]);
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: teddy.json.id } });
   const lp = (await callR("/crm/parcours", { headers: authP })).json.parcours.find((p) => p.id === pxId);
   ok(lp && lp.cs_nom === "BESSON" && lp.journal.length === 2, "la liste des parcours porte le conseiller et l'avancement (" + JSON.stringify(lp && { cs: lp.cs_nom, journal: lp.journal }) + ")");
   // Guide R2 : ce que le conseiller saisit (photo du bien, points forts, objections, son texte).

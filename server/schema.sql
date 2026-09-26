@@ -929,3 +929,10 @@ CREATE TABLE IF NOT EXISTS crm_environnement (
   data       TEXT NOT NULL,                  -- JSON {commune, commodites}
   updated_at INTEGER NOT NULL
 );
+-- Direction : le profil voit tous les parcours R1/R2 (les autres conseillers
+-- ne voient que les leurs : conseiller du parcours ou créateur de la fiche).
+CREATE TABLE IF NOT EXISTS crm_conseillers_direction (
+  id         TEXT PRIMARY KEY,               -- crm_conseillers.id
+  direction  INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
