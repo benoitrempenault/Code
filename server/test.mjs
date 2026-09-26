@@ -3350,6 +3350,17 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(impE.json.completes === 2 && marineE.a_photo && marineE.agence === "saint-medard" && teddyE.fonction === "Conseiller immobilier" && teddyE.agence === "cauderan" && (await appR.fetch(new Request("http://api.test/public/conseillers/" + teddy.json.id + "/photo"))).headers.get("content-type") === "image/jpeg",
      "l'import pose la photo et l'agence manquantes, garde la fonction et la photo déjà en place (" + JSON.stringify(impE.json) + ")");
   await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test", agence: "" } });
+  // Doublons : « Adelaide Rempenault » (compte) et « Adélaïde Rempenault » (site) sont la même personne ; les doublons déjà créés fusionnent.
+  await db.run("INSERT INTO crm_conseillers (id, agency_id, user_id, prenom, nom, fonction, telephone, email, photo, actif, created_at, updated_at) VALUES ('cs_dbl1', ?, 'us_x', 'Adelaide', 'Rempenault', '', '06 99 99 99 99', '', '', 1, 1, 1), ('cs_dbl2', ?, '', 'Adélaïde', 'Rempenault', 'Conseillère', '', 'adelaide@kadima.test', ?, 1, 2, 2)", [agId, agId, pixel]);
+  await db.run("INSERT INTO crm_conseillers_direction (id, direction, updated_at) VALUES ('cs_dbl2', 1, 1)");
+  await db.run("INSERT INTO crm_parcours (estimation_id, agency_id, civilite, prenom, cp, type_bien, r1_heure, r2_heure, conseiller_id, journal, updated_at) VALUES ('es_dbl', ?, '', '', '', 'maison', '', '', 'cs_dbl2', '[]', 1)", [agId]);
+  const impF = await callR("/crm/conseillers/importer", { headers: auth, body: { profils: [{ prenom: "Adélaïde", nom: "Rempenault", agence: "saint-medard" }] } });
+  const csF = (await callR("/crm/conseillers", { headers: auth })).json.conseillers.filter((x) => /rempenault/i.test(x.nom) && /^ad.l/i.test(x.prenom));
+  ok(impF.json.fusions === 1 && csF.length === 1 && csF[0].id === "cs_dbl1" && csF[0].prenom === "Adélaïde" && csF[0].telephone === "06 99 99 99 99" && csF[0].email === "adelaide@kadima.test" && csF[0].a_photo && csF[0].direction && csF[0].fonction === "Conseillère" && csF[0].agence === "saint-medard"
+     && (await db.get("SELECT conseiller_id FROM crm_parcours WHERE estimation_id = 'es_dbl'")).conseiller_id === "cs_dbl1",
+     "les deux Adélaïde fusionnent : un seul profil, accentué, avec tout ce que les deux avaient, et le parcours suit (" + JSON.stringify(impF.json) + " " + JSON.stringify(csF.map((x) => ({ ...x, photo_url: undefined }))) + ")");
+  await db.run("DELETE FROM crm_parcours WHERE estimation_id = 'es_dbl'");
+  await callR("/crm/conseillers/cs_dbl1", { headers: auth, method: "DELETE" });
   const imp2 = await callR("/crm/conseillers/importer", { headers: auth, body: {} });
   ok(imp2.status === 200 && imp2.json.ajoutes === 0 && (await callR("/crm/conseillers", { headers: auth })).json.conseillers.length === csImp.length, "relancer l'import n'ajoute rien");
   const doublon = await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "teddy", nom: "besson", fonction: "Négociateur" } });
@@ -3463,6 +3474,32 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { ...profilAdmin, direction: true } });
   await db.run("DELETE FROM crm_estimations WHERE id = ?", [pxR.json.id]);
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: teddy.json.id } });
+  // Plusieurs propriétaires : un co-propriétaire choisi ou créé, les mails s'adressent à tous, chacun reçoit sa copie.
+  const prop1 = await callR("/crm/parcours/" + pxId + "/proprietaires", { headers: authP, body: { civilite: "Mme", prenom: "Sophie", nom: "DURAND", email: "sophie.durand@exemple.fr" } });
+  ok(prop1.status === 200 && prop1.json.contact_cree && prop1.json.proprietaires.length === 2 && prop1.json.proprietaires[0].principal && prop1.json.proprietaires[0].nom === "MOUNEYRES" && prop1.json.proprietaires[1].nom === "DURAND",
+     "un co-propriétaire se crée et se lie, la fiche principale reste en tête");
+  const ficheProp = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
+  const apProp = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
+  ok(ficheProp.proprietaires.length === 2 && ficheProp.emails.includes("sophie.durand@exemple.fr") && /madame, monsieur MOUNEYRES, madame DURAND/.test(apProp.texte) && apProp.destinataires.length === 2,
+     "le mail s'adresse aux deux propriétaires et part aux deux adresses (" + JSON.stringify({ civ: apProp.texte.split("\n")[0] }) + ")");
+  const prop2 = await callR("/crm/parcours/" + pxId + "/proprietaires", { headers: authP, body: { civilite: "Mme", prenom: "Sophie", nom: "durand" } });
+  ok(prop2.status === 200 && !prop2.json.contact_cree && prop2.json.contact_id === prop1.json.contact_id && prop2.json.proprietaires.length === 2, "le même nom + prénom ne crée pas de doublon");
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ civilite: "Mme", nom: "MOUNEYRES", prenom: "Anne", email: "anne.mouneyres@exemple.fr" }] } });
+  const anneCt = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.email === "anne.mouneyres@exemple.fr");
+  const propMemeNom = await callR("/crm/parcours/" + pxId + "/proprietaires", { headers: authP, body: { contact_id: anneCt.id } });
+  const apMemeNom = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
+  ok(propMemeNom.status === 200 && propMemeNom.json.proprietaires.length === 3 && apMemeNom.destinataires.length === 3, "un contact choisi dans la recherche se lie tel quel (" + JSON.stringify(propMemeNom.json.proprietaires.map((o) => o.nom)) + ")");
+  ok((await callR("/crm/parcours/" + pxId + "/proprietaires/" + ctPx.id, { headers: authP, method: "DELETE" })).status === 400, "la fiche principale ne se retire pas");
+  for (const cid of [prop1.json.contact_id, propMemeNom.json.contact_id]) await callR("/crm/parcours/" + pxId + "/proprietaires/" + cid, { headers: authP, method: "DELETE" });
+  const apSeul = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
+  ok((await callR("/crm/parcours/" + pxId, { headers: authP })).json.proprietaires.length === 1 && /madame, monsieur MOUNEYRES,\n/.test(apSeul.texte) && apSeul.destinataires.length === 1, "retirés, le mail redevient celui d'un seul foyer");
+  // Effacer un parcours : dans son périmètre seulement ; la fiche disparaît de Studio Estimation, le contact reste.
+  const pxSup = (await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "EFFACE", prenom: "Paul", adresse: "1 rue Gommée", ville: "Pessac" } })).json;
+  ok((await callR("/crm/parcours/" + pxSup.id, { headers: authR, method: "DELETE" })).status === 404, "un autre conseiller ne peut pas effacer ce parcours");
+  const supPx = await callR("/crm/parcours/" + pxSup.id, { headers: authP, method: "DELETE" });
+  ok(supPx.status === 200 && (await callR("/crm/parcours/" + pxSup.id, { headers: authP })).status === 404 && !(await callR("/crm/estimations", { headers: authP })).json.estimations.some((e) => e.id === pxSup.id)
+     && (await callR("/crm/contacts", { headers: auth })).json.contacts.some((x) => x.id === pxSup.contact_id),
+     "effacé : plus de parcours ni de fiche estimation, le contact est gardé");
   const lp = (await callR("/crm/parcours", { headers: authP })).json.parcours.find((p) => p.id === pxId);
   ok(lp && lp.cs_nom === "BESSON" && lp.journal.length === 2, "la liste des parcours porte le conseiller et l'avancement (" + JSON.stringify(lp && { cs: lp.cs_nom, journal: lp.journal }) + ")");
   // Guide R2 : ce que le conseiller saisit (photo du bien, points forts, objections, son texte).

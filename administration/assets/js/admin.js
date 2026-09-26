@@ -2318,6 +2318,7 @@
         lignes.map((p) => {
           const faites = new Set(p.journal.map((j) => j.etape));
           return '<tr class="cliquable" data-parcours="' + p.id + '"><td><strong>' + escH([p.civilite, p.prenom, p.nom].filter(Boolean).join(" ")) + "</strong>" +
+            (p.nb_proprietaires > 1 ? ' <span class="puce grise" title="Plusieurs propriétaires">+' + (p.nb_proprietaires - 1) + "</span>" : "") +
             (p.statut !== "en_cours" ? ' <span class="puce grise">' + escH(p.statut) + "</span>" : "") + "</td><td>" +
             escH([p.adresse, p.ville].filter(Boolean).join(", ")) + ' <span class="puce grise">' + (p.type_bien === "appartement" ? "appt" : "maison") + "</span></td><td>" +
             escH([p.cs_prenom, p.cs_nom].filter(Boolean).join(" ") || p.conseiller || "—") + "</td><td>" + dateFrCourte(p.r1, p.r1_heure) + "</td><td>" + dateFrCourte(p.r2, p.r2_heure) + "</td><td>" +
@@ -2435,10 +2436,23 @@
       " · R1 " + dateFrCourte(p.r1, p.r1_heure) + " · R2 " + dateFrCourte(p.r2, p.r2_heure) + "</summary>" +
       '<div style="margin-top:10px;">' + formulaireParcours(p) + '<div class="barre" style="margin-top:8px;"><button class="btn btn-or" id="px-maj">Enregistrer la fiche</button></div></div></details>' +
       '<p style="margin:12px 0 0;"><strong>Signé par :</strong> ' + csLigne + "</p>" +
+      '<p style="margin:10px 0 0;"><strong>Propriétaires :</strong> ' + (p.proprietaires || []).map((o) => '<span class="puce grise" style="margin:2px 4px 2px 0;">' +
+        escH([o.civilite, o.prenom, o.nom].filter(Boolean).join(" ")) + (o.email ? " · " + escH(o.email) : "") +
+        (o.principal ? "" : ' <button type="button" data-retirer="' + escH(o.id) + '" title="Retirer ce propriétaire" style="border:0; background:none; cursor:pointer; color:#e07a5f;">✕</button>') + "</span>").join("") +
+      ' <button class="btn" id="px-ajouter-prop" style="padding:3px 10px; font-size:12px;">+ Co-propriétaire</button></p>' +
       (p.emails.length ? "" : '<p class="petit" style="color:#e07a5f;">Aucun e-mail sur cette fiche : les envois seront refusés tant que l\'adresse manque.</p>') +
       etapesHtml,
+      '<button class="btn btn-danger" id="px-effacer" title="Efface la fiche du parcours (et sa fiche estimation) ; les contacts restent">🗑 Effacer</button>' +
       '<button class="btn btn-or" id="modale-ok">Fermer</button>');
     $("modale-ok").addEventListener("click", () => { fermerModale(); chargerParcours(); });
+    $("px-effacer").addEventListener("click", async () => {
+      if (!confirm("Effacer le parcours de " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" ") + " ? La fiche estimation disparaît aussi ; les fiches contact restent.")) return;
+      try { await api("/crm/parcours/" + id, { method: "DELETE" }); toast("Parcours effacé"); fermerModale(); chargerParcours(); } catch (e) { toast(e.message, true); }
+    });
+    $("px-ajouter-prop").addEventListener("click", () => ajouterProprietaire(id, p));
+    document.querySelectorAll("[data-retirer]").forEach((b) => b.addEventListener("click", async () => {
+      try { await api("/crm/parcours/" + id + "/proprietaires/" + b.dataset.retirer, { method: "DELETE" }); toast("Propriétaire retiré"); ouvrirParcours(id); } catch (e) { toast(e.message, true); }
+    }));
     $("px-signe").addEventListener("change", async () => {
       try { await api("/crm/parcours/" + id, { method: "PUT", json: { conseiller_id: $("px-signe").value } }); toast("Les e-mails partiront signés du conseiller choisi"); await chargerParcours(); ouvrirParcours(id); }
       catch (e) { toast(e.message, true); }
@@ -2469,6 +2483,16 @@
   // une page par conseiller) : pages 1-3, la page du conseiller de la fiche,
   // puis la suite ; le prochain rendez-vous (R2) écrit sur la page « De quoi
   // parlerons-nous ». Ouvert dans un nouvel onglet, prêt à imprimer.
+  // « M. Jean et Mme Sophie MOUNEYRES », ou « Mme Sophie DURAND et M. Jean
+  // MOUNEYRES » : tous les propriétaires en page 1 des guides.
+  function nomsClient(p, civ) {
+    const c = civ || ((x) => x || "");
+    const l = (p.proprietaires || []).filter((o) => o.nom || o.prenom);
+    const maj = (o) => (o.nom || "").toUpperCase();
+    if (l.length < 2) return [c(p.civilite), p.prenom, (p.nom || "").toUpperCase()].filter(Boolean).join(" ");
+    if (new Set(l.map((o) => sansAccentsMin(o.nom))).size === 1) return l.map((o) => [c(o.civilite), o.prenom].filter(Boolean).join(" ")).join(" et ") + " " + maj(l[0]);
+    return l.map((o) => [c(o.civilite), o.prenom, maj(o)].filter(Boolean).join(" ")).join(" et ");
+  }
   let guideR1Cache = null;
   const sansAccentsMin = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
   async function genererGuideR1(p) {
@@ -2516,8 +2540,14 @@
       const page = doc.getPage(idx1);
       const font = await doc.embedFont(StandardFonts.Helvetica);
       const h = page.getHeight();
-      const droite = (texte, spec) => { if (texte) page.drawText(texte, { x: p1.droite - font.widthOfTextAtSize(texte, spec.taille), y: h - spec.y, size: spec.taille, font, color: rgb(0, 0, 0) }); };
-      droite([p.civilite, p.prenom, (p.nom || "").toUpperCase()].filter(Boolean).join(" "), p1.nom);
+      // Un texte trop long pour la place (jusqu'au titre, à gauche) se réduit.
+      const droite = (texte, spec) => {
+        if (!texte) return;
+        let taille = spec.taille;
+        while (taille > 8 && font.widthOfTextAtSize(texte, taille) > p1.droite - 300) taille -= 0.5;
+        page.drawText(texte, { x: p1.droite - font.widthOfTextAtSize(texte, taille), y: h - spec.y, size: taille, font, color: rgb(0, 0, 0) });
+      };
+      droite(nomsClient(p), p1.nom);
       droite((p.adresse || "").toUpperCase(), p1.adresse);
       droite([p.cp, (p.ville || "").toUpperCase()].filter(Boolean).join(" "), p1.ville);
       droite(new Date().toLocaleDateString("fr-FR"), p1.date);
@@ -2646,7 +2676,7 @@
     // Page 1 : photo, client, adresse, date du jour.
     { const s = meta.p1, pg = page(s.page);
       await image(pg, r2.photo, s.photo, true);
-      ecrireDroite(pg, [civiliteLongue(p.civilite), p.nom, p.prenom].filter(Boolean).join(" "), s.droite, s.nom.y, s.nom.taille, fR);
+      ecrireDroite(pg, (p.proprietaires || []).length > 1 ? nomsClient(p, civiliteLongue) : [civiliteLongue(p.civilite), p.nom, p.prenom].filter(Boolean).join(" "), s.droite, s.nom.y, s.nom.taille, fR);
       ecrireDroite(pg, p.adresse, s.droite, s.adresse.y, s.adresse.taille, fR);
       ecrireDroite(pg, cpVille, s.droite, s.cpville.y, s.cpville.taille, fR);
       ecrireDroite(pg, dateJour, s.droite, s.date.y, s.date.taille, fR); }
@@ -2788,6 +2818,45 @@
         toast("Guide R2 prêt : il s'ouvre dans un nouvel onglet, à imprimer ou enregistrer");
         ouvrirParcours(id);
       } catch (e) { toast(e.message, true); etat.textContent = ""; btn.disabled = false; }
+    });
+  }
+
+  // Un co-propriétaire : d'abord la recherche dans les contacts, sinon les
+  // quelques champs d'une nouvelle fiche (créée avec l'adresse du bien).
+  function ajouterProprietaire(id, p) {
+    let contactId = "";
+    ouvrirModale("+ Co-propriétaire — " + [p.prenom, p.nom].filter(Boolean).join(" "),
+      '<div class="grille-champs"><label>Chercher dans les contacts<input id="pp-q" placeholder="nom, e-mail, téléphone…" autocomplete="off" /></label></div>' +
+      '<div id="pp-resultats" style="max-height:150px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:6px 12px; margin:6px 0 12px;"><p class="petit">Tapez au moins 2 caractères. Introuvable ? Remplissez ci-dessous : la fiche contact sera créée.</p></div>' +
+      '<p class="petit" id="pp-choisi"></p>' +
+      '<div class="grille-champs">' +
+      '<label>Civilité<select id="pp-civilite">' + ["Mme", "M."].map((c) => "<option>" + c + "</option>").join("") + "</select></label>" +
+      '<label>Prénom<input id="pp-prenom" /></label><label>Nom<input id="pp-nom" /></label>' +
+      '<label>E-mail<input id="pp-email" type="email" /></label><label>Téléphone<input id="pp-tel" /></label></div>',
+      '<button class="btn" id="pp-annuler">Retour</button><button class="btn btn-or" id="pp-ajouter">Ajouter</button>');
+    $("pp-annuler").addEventListener("click", () => ouvrirParcours(id));
+    let minuteur = null;
+    const chercher = async () => {
+      const q = $("pp-q").value.trim(); const zone = $("pp-resultats");
+      if (q.length < 2) return;
+      try {
+        const r = await api("/crm/contacts/recherche?q=" + encodeURIComponent(q));
+        zone.innerHTML = (r.contacts || []).length
+          ? r.contacts.map((x) => '<button type="button" class="btn" data-pp="' + escH(x.id) + '" style="display:block; width:100%; text-align:left; margin:3px 0; padding:6px 10px;"><strong>' +
+            escH(x.nom) + "</strong> " + escH(x.prenom) + (x.email ? ' <span class="petit">' + escH(x.email) + "</span>" : "") + "</button>").join("")
+          : '<p class="petit">Personne ne correspond : remplissez la fiche ci-dessous.</p>';
+        zone.querySelectorAll("[data-pp]").forEach((b) => b.addEventListener("click", () => {
+          const x = r.contacts.find((c) => c.id === b.dataset.pp); contactId = x.id;
+          $("pp-civilite").value = x.civilite === "M." ? "M." : "Mme"; $("pp-prenom").value = x.prenom || ""; $("pp-nom").value = x.nom || ""; $("pp-email").value = x.email || ""; $("pp-tel").value = x.telephone || "";
+          $("pp-choisi").textContent = "Fiche choisie : " + [x.prenom, x.nom].filter(Boolean).join(" ");
+        }));
+      } catch (e) { zone.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; }
+    };
+    $("pp-q").addEventListener("input", () => { contactId = ""; $("pp-choisi").textContent = ""; clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
+    $("pp-ajouter").addEventListener("click", async () => {
+      const corps = contactId ? { contact_id: contactId } : { civilite: $("pp-civilite").value, prenom: $("pp-prenom").value.trim(), nom: $("pp-nom").value.trim(), email: $("pp-email").value.trim(), telephone: $("pp-tel").value.trim() };
+      try { const r = await api("/crm/parcours/" + id + "/proprietaires", { json: corps }); toast(r.contact_cree ? "Co-propriétaire ajouté, et sa fiche contact créée" : "Co-propriétaire ajouté"); ouvrirParcours(id); }
+      catch (e) { toast(e.message, true); }
     });
   }
 

@@ -525,6 +525,26 @@ gris #595959 tournée, courbe pointillée Bézier (Catmull-Rom depuis 2024-2025)
 p4 « Octobre 2026 » Barlow-Bold 11,3 blanc centré ; p10/p11 chiffres comme le R1
 (relief or 40 %). ACM : livret prix reçu (scratchpad acm-livret-prix.pdf), à
 travailler plus tard.
+**Co-propriétaires, suppression, doublons (26/09)** : `proprietairesDe(agencyId, est)`
+(contacts liés via crm_estimation_contacts, fiche principale = est.contact_id en
+tête, `principal`) porté par lireParcours → GET /crm/parcours/:id `proprietaires`,
+liste `nb_proprietaires` (puce « +N »). `POST /crm/parcours/:id/proprietaires`
+{contact_id | civilite, prenom, nom, email, telephone} (≤ 4 ; existant par e-mail
+ou nom+prénom, sinon fiche créée typée estimé source parcours, adresse du bien) ;
+`DELETE …/proprietaires/:contactId` (jamais la principale). `civiliteNoms()` :
+« madame, monsieur MOUNEYRES » si même nom, sinon « madame DURAND, monsieur
+MOUNEYRES » (preparerMail 6e param) ; emailsDe envoie déjà à tous les liés. Admin :
+bloc « Propriétaires » sur la fiche (✕ retirer, « + Co-propriétaire » →
+`ajouterProprietaire` recherche puis mini-fiche), `nomsClient(p, civ)` pour la
+page 1 des guides (R1 réduit la taille jusqu'à 8 pt pour tenir ; R2 avec
+civiliteLongue). `DELETE /crm/parcours/:id` (périmètre) efface crm_parcours_r2,
+crm_parcours, crm_estimation_contacts, crm_estimations — les contacts restent ;
+bouton « 🗑 Effacer » (confirm) sur la fiche. Doublons de profils :
+`clePersonne` (prénom + nom sans accents) dans `profilExistant`, et
+`fusionnerDoublons(agencyId)` au début de l'import (le plus ancien garde tout,
+reçoit les vides, prénom/nom accentués gagnent, parcours ré-attribués, extra /
+direction / pv fusionnés) → `fusions` dans la réponse. Réglages agences : champ
+`avis` par agence (lien Google de Caudéran à coller par Benoît).
 **Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
 bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la
 police Bugaki complète, non versionnée) ; le navigateur y écrit « Famille NOM » (ou

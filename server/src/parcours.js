@@ -44,6 +44,17 @@ export function civiliteNom(civilite, nom) {
   return [qui, String(nom || "").trim()].filter(Boolean).join(" ");
 }
 
+// Plusieurs propriétaires : « madame DURAND, monsieur MOUNEYRES », ou
+// « madame, monsieur MOUNEYRES » quand ils portent le même nom.
+const sansAccentsBas = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+export function civiliteNoms(civilite, nom, proprietaires) {
+  const liste = (proprietaires || []).filter((o) => o && (o.nom || o.prenom));
+  if (liste.length < 2) return civiliteNom(civilite, nom);
+  const noms = new Set(liste.map((o) => sansAccentsBas(o.nom)));
+  if (noms.size === 1) return civiliteNom("M. et Mme", liste[0].nom);
+  return liste.map((o) => civiliteNom(o.civilite || "M. et Mme", o.nom)).join(", ");
+}
+
 // Les pièces à préparer, selon le type de bien (à relire avant envoi).
 export function documentsR1(typeBien) {
   const l = ["Le titre de propriété", "Le plan de la maison / de l'appartement (si vous l'avez)",
@@ -126,13 +137,13 @@ export function signatureHtml(conseiller, ag, photoUrl) {
 // dans le modèle — le mail après R2 ne part jamais sans lien.
 export const AVIS_DEFAUT = "https://g.page/r/CUA5uMo-Z_RcEB0/review";
 // Variables + texte type (ou surcharge de l'agence) pour un jalon.
-export function preparerMail(est, px, jalon, ag, modeles) {
+export function preparerMail(est, px, jalon, ag, modeles, proprietaires) {
   const cle = "parcours-" + jalon;
   const modele = surchargeModele({ modeles }, cle) || MODELES[cle];
   if (!modele) throw new Error("Jalon inconnu : " + jalon);
   const adresseBien = [est.adresse, [px.cp, est.ville].filter(Boolean).join(" ")].filter(Boolean).join(", ");
   const vars = {
-    civilite_nom: civiliteNom(px.civilite, est.nom), prenom: px.prenom || "", nom: est.nom || "",
+    civilite_nom: civiliteNoms(px.civilite, est.nom, proprietaires), prenom: px.prenom || "", nom: est.nom || "",
     date_r1: dateFr(est.r1, px.r1_heure), date_r2: dateFr(est.r2, px.r2_heure),
     adresse_bien: adresseBien, adresse: adresseBien, ville: est.ville || "",
     type_bien: px.type_bien === "appartement" ? "appartement" : "maison",
@@ -244,15 +255,54 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (b.agence !== undefined) await ecrirePv(nid, b.agence);
     return c.json({ ok: true, id: nid });
   });
+  // Même personne : même e-mail, ou même prénom + nom sans accents ni casse
+  // (« Adelaide » du compte Studio = « Adélaïde » du site).
+  const clePersonne = (prenom, nom) => sansAccents(prenom).replace(/[^a-z0-9]+/g, " ").trim() + "|" + sansAccents(nom).replace(/[^a-z0-9]+/g, " ").trim();
   async function profilExistant(agencyId, v) {
     if (v.email) {
       const r = await db.get("SELECT id FROM crm_conseillers WHERE agency_id = ? AND email = ?", [agencyId, v.email]);
       if (r) return r;
     }
     if (v.prenom || v.nom) {
-      return db.get("SELECT id FROM crm_conseillers WHERE agency_id = ? AND prenom = ? COLLATE NOCASE AND nom = ? COLLATE NOCASE", [agencyId, v.prenom, v.nom]);
+      const cle = clePersonne(v.prenom, v.nom);
+      const tous = await db.all("SELECT id, prenom, nom FROM crm_conseillers WHERE agency_id = ? ORDER BY created_at", [agencyId]);
+      return tous.find((r) => clePersonne(r.prenom, r.nom) === cle) || null;
     }
     return null;
+  }
+  // Les doublons déjà créés se fondent : le plus ancien profil garde tout ce
+  // qu'il a, reçoit ce qui lui manque, hérite des parcours signés par l'autre.
+  async function fusionnerDoublons(agencyId) {
+    const tous = await db.all(
+      `SELECT cs.*, x.bio, x.genre, COALESCE(d.direction, 0) AS direction, COALESCE(pv.pv, '') AS pv FROM crm_conseillers cs
+       LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_direction d ON d.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id
+       WHERE cs.agency_id = ? ORDER BY cs.created_at, cs.id`, [agencyId]);
+    const groupes = new Map();
+    for (const r of tous) { const k = clePersonne(r.prenom, r.nom); if (!groupes.has(k)) groupes.set(k, []); groupes.get(k).push(r); }
+    let fusions = 0;
+    for (const [, g] of groupes) {
+      if (g.length < 2) continue;
+      const [garde, ...autres] = g;
+      const champs = ["user_id", "fonction", "telephone", "email", "photo"];
+      const maj = {}; for (const k of champs) maj[k] = garde[k];
+      let bio = garde.bio || "", genre = garde.genre || "", direction = garde.direction, pv = garde.pv;
+      // Le prénom / nom accentués (ceux du site) l'emportent sur la version sans accents du compte.
+      let prenom = garde.prenom, nom = garde.nom;
+      for (const a of autres) {
+        for (const k of champs) if (!maj[k] && a[k]) maj[k] = a[k];
+        if (!bio && a.bio) bio = a.bio; if (!genre && a.genre) genre = a.genre; if (a.direction) direction = 1; if (!pv && a.pv) pv = a.pv;
+        if (/[^\x00-\x7f]/.test(a.prenom + a.nom) && !/[^\x00-\x7f]/.test(prenom + nom)) { prenom = a.prenom; nom = a.nom; }
+        await db.run("UPDATE crm_parcours SET conseiller_id = ? WHERE conseiller_id = ?", [garde.id, a.id]);
+        for (const t of ["crm_conseillers_extra", "crm_conseillers_direction", "crm_conseillers_pv", "crm_conseillers"]) await db.run(`DELETE FROM ${t} WHERE id = ?`, [a.id]);
+        fusions++;
+      }
+      await db.run("UPDATE crm_conseillers SET prenom = ?, nom = ?, user_id = ?, fonction = ?, telephone = ?, email = ?, photo = ?, updated_at = ? WHERE id = ?",
+        [prenom, nom, maj.user_id, maj.fonction, maj.telephone, maj.email, maj.photo, now(), garde.id]);
+      if (bio || genre) await ecrireExtra(garde.id, { bio, genre });
+      if (direction) await ecrireDirection(garde.id, true);
+      if (pv) await ecrirePv(garde.id, pv);
+    }
+    return fusions;
   }
   // Import des profils : les conseillers fournis (ceux du guide R1, envoyés
   // par l'Administration), les comptes Studio de l'agence et l'annuaire.
@@ -273,6 +323,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       ...annuaire.map((a) => ({ ...couper(a.nom), telephone: a.telephone, email: a.email })),
     ];
     let ajoutes = 0, completes = 0;
+    const fusions = await fusionnerDoublons(ctx.agency.id);
     for (const cand of candidats) {
       let v; try { v = sanitizeConseiller(cand); } catch { continue; }
       if (!v.nom && !v.prenom) continue;
@@ -310,7 +361,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         await ecrireDirection(cs.id, true); direction++;
       }
     }
-    return c.json({ ok: true, ajoutes, completes, direction });
+    return c.json({ ok: true, ajoutes, completes, direction, fusions });
   });
   app.delete("/crm/conseillers/:id", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
@@ -346,6 +397,14 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!p) return null;
     return dansPerimetre(await perimetre(ctx), p.est, p.px) ? p : null;
   };
+  // Les propriétaires du bien : les contacts liés à la fiche, la fiche
+  // principale (celle de la création) en premier.
+  const proprietairesDe = async (agencyId, est) => {
+    const rows = await db.all(
+      `SELECT c.id, c.civilite, c.prenom, c.nom, c.email, c.telephone FROM crm_estimation_contacts ec JOIN crm_contacts c ON c.id = ec.contact_id
+       WHERE ec.estimation_id = ? AND ec.agency_id = ? ORDER BY CASE WHEN c.id = ? THEN 0 ELSE 1 END, c.nom, c.prenom`, [est.id, agencyId, est.contact_id || ""]);
+    return rows.map((r) => ({ ...r, principal: r.id === est.contact_id }));
+  };
   const lireParcours = async (agencyId, id) => {
     const est = await db.get("SELECT * FROM crm_estimations WHERE id = ? AND agency_id = ?", [id, agencyId]);
     if (!est) return null;
@@ -356,7 +415,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, (cs.photo <> '') AS a_photo, x.bio, x.genre, COALESCE(pv.pv, '') AS agence
        FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id WHERE cs.id = ? AND cs.agency_id = ?`, [px.conseiller_id, agencyId]) : null;
     if (conseiller) { conseiller.bio = conseiller.bio || ""; conseiller.genre = conseiller.genre || genrePrenom(conseiller.prenom); }
-    return { est, px: { ...px, journal, conseiller_prenom: conseiller ? conseiller.prenom : "", conseiller_nom: conseiller ? conseiller.nom : "" }, conseiller };
+    const proprietaires = await proprietairesDe(agencyId, est);
+    return { est, px: { ...px, journal, conseiller_prenom: conseiller ? conseiller.prenom : "", conseiller_nom: conseiller ? conseiller.nom : "" }, conseiller, proprietaires };
   };
   const emailsDe = async (agencyId, est) => {
     const lies = await db.all(
@@ -372,7 +432,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const rows = await db.all(
       `SELECT e.id, e.nom, e.email, e.telephone, e.adresse, e.ville, e.r1, e.r2, e.statut, e.conseiller, e.updated_at,
               p.civilite, p.prenom, p.cp, p.type_bien, p.r1_heure, p.r2_heure, p.conseiller_id, p.journal,
-              cs.prenom AS cs_prenom, cs.nom AS cs_nom
+              cs.prenom AS cs_prenom, cs.nom AS cs_nom,
+              (SELECT COUNT(*) FROM crm_estimation_contacts ec WHERE ec.estimation_id = e.id) AS nb_proprietaires
        FROM crm_estimations e JOIN crm_parcours p ON p.estimation_id = e.id
        LEFT JOIN crm_conseillers cs ON cs.id = p.conseiller_id
        WHERE e.agency_id = ?${filtre} ORDER BY CASE WHEN e.statut = 'en_cours' THEN 0 ELSE 1 END, e.updated_at DESC LIMIT 300`,
@@ -465,9 +526,58 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
     const ag = agencePour(await getReglages(db, ctx.agency), p.conseiller);
-    return c.json({ ...p.est, ...p.px, id: p.est.id, emails: await emailsDe(ctx.agency.id, p.est),
+    return c.json({ ...p.est, ...p.px, id: p.est.id, emails: await emailsDe(ctx.agency.id, p.est), proprietaires: p.proprietaires,
       agence: { pv: ag.pv || "", nom: ag.nom || "", adresse: ag.adresse || "", telephone: ag.telephone || "", email: ag.email || "", mentions: ag.mentions || "" },
       conseiller: p.conseiller ? { ...p.conseiller, photo_url: p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "" } : null });
+  });
+
+  // Effacer un parcours : la fiche estimation et tout ce qui s'y rattache
+  // (parcours, saisie R2, liens vers les contacts) ; les contacts restent.
+  app.delete("/crm/parcours/:id", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    for (const [table, col] of [["crm_parcours_r2", "estimation_id"], ["crm_parcours", "estimation_id"], ["crm_estimation_contacts", "estimation_id"], ["crm_estimations", "id"]]) {
+      await db.run(`DELETE FROM ${table} WHERE ${col} = ?`, [p.est.id]);
+    }
+    return c.json({ ok: true });
+  });
+  // Un co-propriétaire : un contact choisi dans la recherche, sinon une fiche
+  // existante (même e-mail, ou même nom + prénom), sinon une nouvelle fiche.
+  app.post("/crm/parcours/:id/proprietaires", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    if (p.proprietaires.length >= 4) return err(c, 400, "Quatre propriétaires au plus par fiche.");
+    let contactId = b.contact_id ? ((await db.get("SELECT id FROM crm_contacts WHERE id = ? AND agency_id = ?", [strip(b.contact_id, 40), ctx.agency.id])) || {}).id || "" : "";
+    let cree = false;
+    if (!contactId) {
+      let ct; try { ct = sanitizeContact({ civilite: b.civilite, prenom: b.prenom, nom: b.nom, email: b.email, telephone: b.telephone, adresse: p.est.adresse, cp: p.px.cp, ville: p.est.ville, types: ["estime"], conseiller: p.est.conseiller }); } catch (e) { return err(c, 400, e.message); }
+      if (!ct.nom) return err(c, 400, "Le nom du propriétaire est requis.");
+      const existant = ct.email ? await db.get("SELECT id FROM crm_contacts WHERE agency_id = ? AND email = ?", [ctx.agency.id, ct.email]) : null;
+      const homonyme = !existant ? await db.get("SELECT id FROM crm_contacts WHERE agency_id = ? AND nom = ? COLLATE NOCASE AND prenom = ? COLLATE NOCASE", [ctx.agency.id, ct.nom, ct.prenom]) : null;
+      contactId = (existant || homonyme || {}).id || "";
+      if (!contactId) {
+        contactId = randId("ct"); cree = true;
+        await db.run(
+          `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone, adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, '', 'parcours', 0, ?, ?)`,
+          [contactId, ctx.agency.id, ctx.user.id, ct.civilite, ct.prenom, ct.nom, ct.email, ct.telephone, ct.adresse, ct.cp, ct.ville, JSON.stringify(ct.types), ct.conseiller, now(), now()]);
+      }
+    }
+    await db.run("INSERT OR IGNORE INTO crm_estimation_contacts (estimation_id, contact_id, agency_id) VALUES (?, ?, ?)", [p.est.id, contactId, ctx.agency.id]);
+    return c.json({ ok: true, contact_id: contactId, contact_cree: cree, proprietaires: await proprietairesDe(ctx.agency.id, p.est) });
+  });
+  app.delete("/crm/parcours/:id/proprietaires/:contactId", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    const cid = c.req.param("contactId");
+    if (cid === p.est.contact_id) return err(c, 400, "La fiche principale ne se retire pas : modifiez-la, ou effacez le parcours.");
+    await db.run("DELETE FROM crm_estimation_contacts WHERE estimation_id = ? AND contact_id = ? AND agency_id = ?", [p.est.id, cid, ctx.agency.id]);
+    return c.json({ ok: true, proprietaires: await proprietairesDe(ctx.agency.id, p.est) });
   });
 
   // Le mail pré-rempli d'un jalon : sujet + texte à relire, et son rendu.
@@ -479,7 +589,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!p) return err(c, 404, "Fiche introuvable.");
     const reglages = await getReglages(db, ctx.agency);
     const ag = agencePour(reglages, p.conseiller);
-    const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles);
+    const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles, p.proprietaires);
     // ?sujet=&texte= : le rendu du texte relu par le conseiller, avant envoi.
     const relu = { sujet: strip(c.req.query("sujet"), 200) || prep.sujet, texte: String(c.req.query("texte") || "").slice(0, 8000) || prep.texte };
     const html = composerMail(relu, jalon, ag, p.conseiller, p.conseiller && p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "");
@@ -498,7 +608,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!destinataires.length) return err(c, 400, "Aucune adresse e-mail sur cette fiche.");
     const reglages = await getReglages(db, ctx.agency);
     const ag = agencePour(reglages, p.conseiller);
-    const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles);
+    const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles, p.proprietaires);
     const sujet = strip(b.sujet, 200) || prep.sujet;
     const texte = String(b.texte || "").replace(/[\u0000-\u0008\u000b-\u001f]/g, "").slice(0, 8000) || prep.texte;
     const html = composerMail({ sujet, texte }, jalon, ag, p.conseiller, p.conseiller && p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "");

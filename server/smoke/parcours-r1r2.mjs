@@ -114,8 +114,27 @@ export default async function () {
     ok(guide2.pages === 20 && /Vendons ensemble/.test(guide2.titre) && /MOUNEYRES/.test(guide2.titre) && guide2.octets > 1000000,
       "le guide R2 fait 20 pages au nom du client, cartes et polices embarquées (" + JSON.stringify(guide2) + ")");
     await garderGuide(page, guide2.octets, "guide-r2-smoke.pdf");
+    // Un co-propriétaire, créé depuis la fiche : il apparaît sur la fiche, dans le mail et dans la liste.
+    await page.click("#px-ajouter-prop");
+    await page.waitForSelector("#pp-ajouter", { timeout: 8000 });
+    await page.fill("#pp-prenom", "Sophie"); await page.fill("#pp-nom", "DURAND"); await page.fill("#pp-email", "sophie@smoke.fr");
+    await page.click("#pp-ajouter");
+    await attendreToast(page, "Co-propriétaire ajouté");
+    await page.waitForFunction(() => /DURAND/.test(document.getElementById("modale-corps")?.textContent || ""), null, { timeout: 8000 });
+    await page.click('[data-mail="avant-r1"]');
+    await page.waitForSelector("#pm-texte", { timeout: 8000 });
+    ok(/madame, monsieur MOUNEYRES, madame DURAND/.test(await page.inputValue("#pm-texte")) && /sophie@smoke.fr/.test(await page.textContent("#modale-corps")), "le mail s'adresse aux deux propriétaires et part aux deux");
+    await page.click("#pm-annuler");
+    await page.waitForSelector("#modale-ok", { timeout: 8000 });
     await page.click("#modale-ok");
     await page.waitForFunction(() => /3\/6/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
-    ok(true, "la liste montre l'avancement 3/6");
+    ok(/\+1/.test(await page.textContent("#table-parcours")), "la liste montre l'avancement 3/6 et le second propriétaire");
+    // Effacer le parcours depuis la fiche.
+    await page.click("#table-parcours tr[data-parcours]");
+    await page.waitForSelector("#px-effacer", { timeout: 8000 });
+    await page.click("#px-effacer");
+    await attendreToast(page, "Parcours effacé");
+    await page.waitForFunction(() => /Aucun parcours/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
+    ok(true, "le parcours effacé disparaît de la liste");
   });
 }
