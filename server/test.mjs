@@ -1994,7 +1994,28 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
       : { features: [] }));
   });
   await new Promise((r) => fauxBan.listen(18793, r));
+  // Faux Overpass (commodités OSM) et faux geo.api.gouv.fr (commune) : les guides R2.
+  const fauxOverpass = (await import("node:http")).createServer(async (req, res) => {
+    const chunks = []; for await (const ch of req) chunks.push(ch);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ elements: [
+      { type: "node", id: 1, lat: 44.9020, lon: -0.6790, tags: { amenity: "school", name: "École des Vignes" } },
+      { type: "way", id: 2, center: { lat: 44.9030, lon: -0.6810 }, tags: { shop: "supermarket", name: "Super U" } },
+      { type: "node", id: 3, lat: 44.9005, lon: -0.6795, tags: { amenity: "pharmacy", name: "Pharmacie du Bourg" } },
+      { type: "node", id: 4, lat: 44.9008, lon: -0.6802, tags: { highway: "bus_stop", name: "Mairie" } },
+      { type: "node", id: 5, lat: 44.9009, lon: -0.6803, tags: { highway: "bus_stop", name: "Mairie" } },
+      { type: "node", id: 6, lat: 44.9100, lon: -0.6700, tags: { leisure: "park", name: "Parc" } },
+      { type: "node", id: 7, lat: 44.9011, lon: -0.6799, tags: { tourism: "hotel", name: "Hôtel ignoré" } },
+    ] }));
+  });
+  await new Promise((r) => fauxOverpass.listen(18784, r));
+  const fauxGeo = (await import("node:http")).createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify([{ nom: "Le Haillan", code: "33200", population: 11900, surface: 926, departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } }]));
+  });
+  await new Promise((r) => fauxGeo.listen(18785, r));
   const appR = createApp({
+    OVERPASS_BASE: "http://localhost:18784", GEO_BASE: "http://localhost:18785",
     db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin",
     APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
     RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18791",
@@ -3351,6 +3372,28 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "modifier la fiche (appartement, nouveau R2) change le texte proposé");
   const lp = (await callR("/crm/parcours", { headers: authP })).json.parcours.find((p) => p.id === pxId);
   ok(lp && lp.cs_nom === "BESSON" && lp.journal.length === 2, "la liste des parcours porte le conseiller et l'avancement (" + JSON.stringify(lp && { cs: lp.cs_nom, journal: lp.journal }) + ")");
+  // Guide R2 : ce que le conseiller saisit (photo du bien, points forts, objections, son texte).
+  const r2put = await callR("/crm/parcours/" + pxId + "/r2", { headers: authP, method: "PUT", body: { photo: pixel, points_forts: "Le box\nLa disposition des pièces", objections: "La route passante", bio: "Après 12 ans dans la grande distribution…", genre: "m" } });
+  const r2 = (await callR("/crm/parcours/" + pxId + "/r2", { headers: authP })).json;
+  ok(r2put.status === 200 && r2.photo === pixel && /box/.test(r2.points_forts) && r2.objections === "La route passante" && r2.conseiller.bio.startsWith("Après 12 ans") && r2.conseiller.genre === "m" && r2.conseiller.photo === pixel,
+     "photo, points forts, objections et texte du conseiller sont relus (" + JSON.stringify({ genre: r2.conseiller.genre }) + ")");
+  ok((await callR("/crm/parcours/" + pxId + "/r2", { headers: authP, method: "PUT", body: { photo: "data:text/plain;base64,QUJD" } })).status === 400, "une photo qui n'est pas une image est refusée");
+  ok((await callR("/crm/conseillers", { headers: authP })).json.conseillers.find((x) => x.id === teddy.json.id).bio.startsWith("Après 12 ans"), "le texte du conseiller est aussi dans son profil");
+  // Environnement du bien : géocodage (BAN), commune, commodités, ventes à 1 km.
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { adresse: "7 Impasse des Vignes", cp: "33185", ville: "Le Haillan" } });
+  await db.run("INSERT INTO crm_ventes (id, agency_id, vendeur, adresse, ville, date_acte, prix, type, cle, created_at, updated_at) VALUES ('vt_pres', ?, 'DUPONT', '9 impasse des Vignes', 'Le Haillan', '2025-06-01', 380000, 'maison', 'vt-pres', 1, 1), ('vt_loin', ?, 'MARTIN', '1 rue Lointaine', 'Bordeaux', '2025-01-01', 250000, 'appartement', 'vt-loin', 1, 1)", [agId, agId]);
+  await db.run("INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES ('vt_pres', ?, 44.9030, -0.6790, 'x', 1, 'x', 1), ('vt_loin', ?, 44.8400, -0.5800, 'y', 1, 'y', 1)", [agId, agId]);
+  const envr = await callR("/crm/parcours/" + pxId + "/environnement", { headers: authP });
+  const cats = new Set((envr.json.commodites || []).map((x) => x.cat));
+  ok(envr.status === 200 && Math.abs(envr.json.lat - 44.9012) < 0.001 && envr.json.commune.nom === "Le Haillan" && envr.json.commune.densite === 1285 && envr.json.commune.departement === "Gironde",
+     "le bien est géocodé et sa commune lue avec sa densité (" + JSON.stringify(envr.json.commune) + ")");
+  ok(cats.has("ecole") && cats.has("commerce") && cats.has("sante") && cats.has("transport") && cats.has("loisir") && !envr.json.commodites.some((x) => /Hôtel/.test(x.nom))
+     && envr.json.commodites.filter((x) => x.nom === "Mairie").length === 1 && envr.json.commodites[0].dist <= envr.json.commodites[1].dist,
+     "les commodités sont classées, dédoublonnées et triées par distance (" + envr.json.commodites.length + ")");
+  ok(envr.json.ventes.some((v) => v.date === "2025-06-01" && v.dist > 100 && v.dist < 1000) && !envr.json.ventes.some((v) => /Lointaine/.test(v.adresse)) && envr.json.ventes.every((v) => v.dist <= 1000),
+     "les ventes de l'agence à moins d'un kilomètre sont retenues, la lointaine non (" + envr.json.ventes.length + ")");
+  ok((await db.get("SELECT lat FROM crm_estimations WHERE id = ?", [pxId])).lat > 44, "la position géocodée est gardée sur la fiche");
+  ok((await db.get("SELECT COUNT(*) AS n FROM crm_environnement")).n === 1, "commune et commodités sont mises en cache");
 
   console.log("— AMEPI : connexion, relevé du fichier des mandats, rapprochement");
   // Le réglage par défaut ne garde que « mon ALFA » (2) ; ce bloc teste les trois sources.
@@ -3569,7 +3612,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/ilots/bulk", { headers: authP, body: { ilots: [] } })).status === 403,
     "l'import d'îlots est réservé aux administrateurs");
 
-  fauxResend.close();
+  fauxResend.close(); fauxOverpass.close(); fauxGeo.close();
   fauxDvf.close();
   fauxBan.close();
 }

@@ -903,3 +903,29 @@ CREATE TABLE IF NOT EXISTS crm_conseillers (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_crm_conseillers_ag ON crm_conseillers(agency_id, nom);
+
+-- Guide R2 d'un parcours : photo du bien (data URL ≤ 300 Ko), points forts,
+-- objections — ce que le conseiller saisit avant d'imprimer.
+CREATE TABLE IF NOT EXISTS crm_parcours_r2 (
+  estimation_id TEXT PRIMARY KEY,
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  photo         TEXT NOT NULL DEFAULT '',
+  points_forts  TEXT NOT NULL DEFAULT '',   -- une ligne par point
+  objections    TEXT NOT NULL DEFAULT '',
+  updated_at    INTEGER NOT NULL
+);
+-- Compléments du profil conseiller (schema.sql n'altère jamais une table) :
+-- le texte personnel de la page « Votre conseiller » du guide R2.
+CREATE TABLE IF NOT EXISTS crm_conseillers_extra (
+  id         TEXT PRIMARY KEY,               -- crm_conseillers.id
+  bio        TEXT NOT NULL DEFAULT '',
+  genre      TEXT NOT NULL DEFAULT '',       -- m | f | '' (deviné du prénom)
+  updated_at INTEGER NOT NULL
+);
+-- Environnement d'une adresse (commune, commodités OpenStreetMap) : cache
+-- 30 jours par position arrondie (≈ 100 m), pour les guides R2.
+CREATE TABLE IF NOT EXISTS crm_environnement (
+  cle        TEXT PRIMARY KEY,               -- "lat,lng" à 3 décimales
+  data       TEXT NOT NULL,                  -- JSON {commune, commodites}
+  updated_at INTEGER NOT NULL
+);

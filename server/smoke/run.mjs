@@ -55,6 +55,24 @@ const resend = createServer(async (req, res) => {
   res.end(JSON.stringify({ id: "email_smoke_" + mails.length }));
 }).listen(PORT_RESEND);
 
+// 1 quater) Faux Overpass (commodités) et faux geo.api.gouv.fr (commune) : guide R2.
+const PORT_OVERPASS = 18781, PORT_GEO = 18782;
+const overpass = createServer(async (req, res) => {
+  const chunks = []; for await (const c of req) chunks.push(c);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ elements: [
+    { type: "node", id: 1, lat: 44.8975, lon: -0.7175, tags: { amenity: "school", name: "École Jean Jaurès" } },
+    { type: "way", id: 2, center: { lat: 44.8990, lon: -0.7200 }, tags: { shop: "supermarket", name: "Carrefour Market" } },
+    { type: "node", id: 3, lat: 44.8960, lon: -0.7190, tags: { amenity: "pharmacy", name: "Pharmacie du Centre" } },
+    { type: "node", id: 4, lat: 44.8950, lon: -0.7160, tags: { highway: "bus_stop", name: "République" } },
+    { type: "node", id: 5, lat: 44.9010, lon: -0.7150, tags: { leisure: "park", name: "Parc de l'Ingénieur" } },
+  ] }));
+}).listen(PORT_OVERPASS);
+const geo = createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify([{ nom: "Saint-Médard-en-Jalles", code: "33449", population: 32000, surface: 8524, departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } }]));
+}).listen(PORT_GEO);
+
 // 2) Le site, servi tel quel depuis la racine du dépôt.
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json",
   ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".woff2": "font/woff2" };
@@ -77,7 +95,8 @@ const apiProc = spawn(process.execPath, ["node.js"], {
   cwd: resolve(ICI, ".."), stdio: ["ignore", "pipe", "pipe"],
   env: { ...process.env, PORT: String(PORT_API), DB_PATH: dbPath, DEV_MODE: "1", ADMIN_KEY: "dev-admin",
     APP_ORIGINS: "http://localhost:" + PORT_SITE, OFFRE_BASE: "http://localhost:" + PORT_SITE + "/offre", BAN_BASE: "http://localhost:" + PORT_BAN, DVF_BASE: "http://localhost:1", BATIMENTS_BASE: "http://localhost:" + PORT_IGN,
-    RESEND_API_KEY: "re_smoke", RESEND_BASE: "http://localhost:" + PORT_RESEND, MAIL_FROM: "smoke@studio.test" },
+    RESEND_API_KEY: "re_smoke", RESEND_BASE: "http://localhost:" + PORT_RESEND, MAIL_FROM: "smoke@studio.test",
+    OVERPASS_BASE: "http://localhost:" + PORT_OVERPASS, GEO_BASE: "http://localhost:" + PORT_GEO },
 });
 let journalApi = "";
 apiProc.stdout.on("data", (d) => { journalApi += d; });
@@ -102,7 +121,7 @@ for (const nom of choisis) {
   }
 }
 apiProc.kill();
-ban.close(); ign.close(); site.close(); resend.close();
+ban.close(); ign.close(); site.close(); resend.close(); overpass.close(); geo.close();
 try { await unlink(dbPath); } catch { }
 if (echecsTotal && /\[500\]/.test(journalApi)) console.log("\nJournal API :\n" + journalApi.split("\n").filter((l) => l.includes("[500]")).join("\n"));
 console.log("\n" + (echecsTotal ? "SMOKES : " + echecsTotal + " échec(s)" : "SMOKES OK (" + choisis.length + " parcours)"));

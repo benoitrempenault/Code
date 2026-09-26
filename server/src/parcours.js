@@ -16,7 +16,7 @@
    que le conseiller a déjà envoyé à la main.
    ========================================================================= */
 import { now, randId } from "./util.js";
-import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, sanitizeEstimation } from "./crm.js";
+import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, sanitizeEstimation, genrePrenom, dossierVendu, adresseDossier } from "./crm.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
@@ -171,12 +171,23 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   const photoUrl = (c, id) => (c ? `${(apiBase || new URL(c.req.url).origin).replace(/\/+$/, "")}/public/conseillers/${encodeURIComponent(id)}/photo` : "");
 
   /* ------------------------------ Conseillers ------------------------------ */
+  // Texte personnel et genre (conseiller / conseillère) du profil : le genre
+  // se devine du prénom, mais se pose à la main quand le prénom est ambigu.
+  const ecrireExtra = async (id, b) => {
+    const cur = (await db.get("SELECT bio, genre FROM crm_conseillers_extra WHERE id = ?", [id])) || { bio: "", genre: "" };
+    const bio = b.bio === undefined ? cur.bio : String(b.bio || "").replace(/[\u0000-\u0008\u000b-\u001f]/g, "").slice(0, 2000);
+    const genre = b.genre === undefined ? cur.genre : (["m", "f"].includes(String(b.genre)) ? String(b.genre) : "");
+    await db.run(
+      "INSERT INTO crm_conseillers_extra (id, bio, genre, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET bio = excluded.bio, genre = excluded.genre, updated_at = excluded.updated_at",
+      [id, bio, genre, now()]);
+  };
   app.get("/crm/conseillers", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const rows = await db.all(
-      "SELECT id, user_id, prenom, nom, fonction, telephone, email, actif, (photo <> '') AS a_photo, updated_at FROM crm_conseillers WHERE agency_id = ? ORDER BY nom, prenom",
+      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre
+       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id WHERE cs.agency_id = ? ORDER BY cs.nom, cs.prenom`,
       [ctx.agency.id]);
-    return c.json({ conseillers: rows.map((r) => ({ ...r, a_photo: !!r.a_photo, photo_url: r.a_photo ? photoUrl(c, r.id) : "" })) });
+    return c.json({ conseillers: rows.map((r) => ({ ...r, bio: r.bio || "", genre_pose: r.genre || "", genre: r.genre || genrePrenom(r.prenom), a_photo: !!r.a_photo, photo_url: r.a_photo ? photoUrl(c, r.id) : "" })) });
   });
   app.put("/crm/conseillers", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
@@ -193,6 +204,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       await db.run(
         "UPDATE crm_conseillers SET user_id = ?, prenom = ?, nom = ?, fonction = ?, telephone = ?, email = ?, photo = ?, actif = ?, updated_at = ? WHERE id = ?",
         [v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, photo, v.actif, now(), id]);
+      if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(id, b);
       return c.json({ ok: true, id });
     }
     const nb = await db.get("SELECT COUNT(*) AS n FROM crm_conseillers WHERE agency_id = ?", [ctx.agency.id]);
@@ -201,6 +213,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     await db.run(
       "INSERT INTO crm_conseillers (id, agency_id, user_id, prenom, nom, fonction, telephone, email, photo, actif, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [nid, ctx.agency.id, v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, v.photo, v.actif, now(), now()]);
+    if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(nid, b);
     return c.json({ ok: true, id: nid });
   });
   app.delete("/crm/conseillers/:id", async (c) => {
@@ -225,7 +238,10 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const px = (await db.get("SELECT * FROM crm_parcours WHERE estimation_id = ?", [id])) ||
       { estimation_id: id, civilite: "", prenom: "", cp: "", type_bien: "maison", r1_heure: "", r2_heure: "", conseiller_id: "", journal: "[]" };
     let journal = []; try { journal = JSON.parse(px.journal || "[]"); } catch { }
-    const conseiller = px.conseiller_id ? await db.get("SELECT id, prenom, nom, fonction, telephone, email, (photo <> '') AS a_photo FROM crm_conseillers WHERE id = ? AND agency_id = ?", [px.conseiller_id, agencyId]) : null;
+    const conseiller = px.conseiller_id ? await db.get(
+      `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, (cs.photo <> '') AS a_photo, x.bio, x.genre
+       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id WHERE cs.id = ? AND cs.agency_id = ?`, [px.conseiller_id, agencyId]) : null;
+    if (conseiller) { conseiller.bio = conseiller.bio || ""; conseiller.genre = conseiller.genre || genrePrenom(conseiller.prenom); }
     return { est, px: { ...px, journal, conseiller_prenom: conseiller ? conseiller.prenom : "", conseiller_nom: conseiller ? conseiller.nom : "" }, conseiller };
   };
   const emailsDe = async (agencyId, est) => {
@@ -369,6 +385,151 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     }
     if (!envoyes) return err(c, 502, "Envoi impossible : " + derniereErreur);
     return c.json({ ok: true, envoyes, erreurs, destinataires });
+  });
+
+  /* ----------------------------- Guide R2 ---------------------------------- */
+  // Ce que le conseiller saisit pour le guide R2 : photo du bien, points
+  // forts, objections. Le guide lui-même s'assemble dans le navigateur.
+  const PHOTO_BIEN_MAX = 400000;
+  app.get("/crm/parcours/:id/r2", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcours(ctx.agency.id, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    const r2 = (await db.get("SELECT photo, points_forts, objections FROM crm_parcours_r2 WHERE estimation_id = ?", [p.est.id])) || { photo: "", points_forts: "", objections: "" };
+    // La photo du conseiller en data URL : le guide s'assemble dans le navigateur.
+    let conseiller = p.conseiller;
+    if (conseiller && conseiller.a_photo) {
+      const ph = await db.get("SELECT photo FROM crm_conseillers WHERE id = ?", [conseiller.id]);
+      conseiller = { ...conseiller, photo: (ph && ph.photo) || "" };
+    }
+    return c.json({ ...r2, conseiller });
+  });
+  app.put("/crm/parcours/:id/r2", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    const p = await lireParcours(ctx.agency.id, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    const cur = (await db.get("SELECT photo, points_forts, objections FROM crm_parcours_r2 WHERE estimation_id = ?", [p.est.id])) || { photo: "", points_forts: "", objections: "" };
+    const photo = b.photo === undefined ? cur.photo : String(b.photo || "");
+    if (photo && !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(photo)) return err(c, 400, "Photo attendue en JPEG, PNG ou WebP.");
+    if (photo.length > PHOTO_BIEN_MAX) return err(c, 400, "Photo trop lourde (300 Ko maximum après réduction).");
+    const texte = (v, cur) => (v === undefined ? cur : String(v || "").replace(/[\u0000-\u0008\u000b-\u001f]/g, "").slice(0, 2000));
+    await db.run(
+      `INSERT INTO crm_parcours_r2 (estimation_id, agency_id, photo, points_forts, objections, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(estimation_id) DO UPDATE SET photo = excluded.photo, points_forts = excluded.points_forts, objections = excluded.objections, updated_at = excluded.updated_at`,
+      [p.est.id, ctx.agency.id, photo, texte(b.points_forts, cur.points_forts), texte(b.objections, cur.objections), now()]);
+    // Le texte personnel du conseiller se modifie aussi d'ici.
+    if (p.conseiller && (b.bio !== undefined || b.genre !== undefined)) await ecrireExtra(p.conseiller.id, b);
+    return c.json({ ok: true });
+  });
+
+  // L'environnement du bien : position (géocodée si besoin), commune
+  // (geo.api.gouv.fr), commodités OpenStreetMap à 1,5 km (Overpass) et les
+  // ventes de l'agence à 1 km. Commune + commodités sont mises en cache 30 j.
+  const distanceM = (lat1, lng1, lat2, lng2) => {
+    const r = Math.PI / 180, dl = (lat2 - lat1) * r, dg = (lng2 - lng1) * r;
+    const a = Math.sin(dl / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(dg / 2) ** 2;
+    return Math.round(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  };
+  const CATEGORIES = [
+    ["ecole", "Écoles et crèches", (t) => /^(school|kindergarten|college|university)$/.test(t.amenity || "")],
+    ["commerce", "Commerces", (t) => /^(supermarket|bakery|convenience|butcher|greengrocer|mall|department_store)$/.test(t.shop || "") || t.amenity === "marketplace"],
+    ["sante", "Santé", (t) => /^(pharmacy|doctors|hospital|clinic|dentist)$/.test(t.amenity || "")],
+    ["transport", "Transports", (t) => t.railway === "station" || t.highway === "bus_stop" || t.railway === "tram_stop"],
+    ["loisir", "Parcs, sport et loisirs", (t) => /^(park|playground|sports_centre|swimming_pool|pitch|fitness_centre)$/.test(t.leisure || "")],
+    ["service", "Services", (t) => /^(bank|post_office|townhall|library|restaurant|cafe)$/.test(t.amenity || "")],
+  ];
+  const DEPARTEMENTS = { 16: "CHARENTE", 17: "CHARENTE-MARITIME", 19: "CORRÈZE", 23: "CREUSE", 24: "DORDOGNE", 33: "GIRONDE", 40: "LANDES", 47: "LOT-ET-GARONNE", 64: "PYRÉNÉES-ATLANTIQUES", 79: "DEUX-SÈVRES", 86: "VIENNE", 87: "HAUTE-VIENNE" };
+  async function geocoderBan(adresse, cp, ville) {
+    const base = (env.BAN_BASE || "https://api-adresse.data.gouv.fr").replace(/\/+$/, "");
+    const q = [adresse, cp, ville].filter(Boolean).join(" ");
+    const r = await fetch(base + "/search/?limit=1&q=" + encodeURIComponent(q), { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error("géocodage : la BAN répond " + r.status);
+    const f = ((await r.json()).features || [])[0];
+    if (!f || !f.geometry || (f.properties && f.properties.score < 0.4)) return null;
+    return { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], label: (f.properties && f.properties.label) || q };
+  }
+  async function commune(cp, ville) {
+    const base = (env.GEO_BASE || "https://geo.api.gouv.fr").replace(/\/+$/, "");
+    const url = base + "/communes?fields=nom,code,population,surface,departement,region&format=json&" +
+      (cp ? "codePostal=" + encodeURIComponent(cp) : "nom=" + encodeURIComponent(ville || ""));
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    const liste = await r.json();
+    if (!Array.isArray(liste) || !liste.length) return null;
+    const norm = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
+    const c = liste.find((x) => norm(x.nom) === norm(ville)) || liste[0];
+    return { nom: c.nom, code: c.code, population: c.population || 0, surface: c.surface || 0,
+      densite: c.surface ? Math.round((c.population || 0) / (c.surface / 100)) : 0,
+      departement: (c.departement && c.departement.nom) || DEPARTEMENTS[String(cp || "").slice(0, 2)] || "", region: (c.region && c.region.nom) || "" };
+  }
+  async function commodites(lat, lng) {
+    const base = (env.OVERPASS_BASE || "https://overpass.kumi.systems").replace(/\/+$/, "");
+    const autour = `(around:1500,${lat},${lng})`;
+    const q = `[out:json][timeout:25];(nwr${autour}[amenity~"^(school|kindergarten|college|pharmacy|doctors|hospital|clinic|dentist|bank|post_office|townhall|library|restaurant|cafe|marketplace)$"];` +
+      `nwr${autour}[shop~"^(supermarket|bakery|convenience|butcher|greengrocer|mall|department_store)$"];nwr${autour}[railway~"^(station|tram_stop)$"];` +
+      `node${autour}[highway=bus_stop];nwr${autour}[leisure~"^(park|playground|sports_centre|swimming_pool|fitness_centre)$"];);out center 300;`;
+    const r = await fetch(base + "/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(q),
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "StudioKadima/1.0" }, signal: AbortSignal.timeout(30000) });
+    if (!r.ok) throw new Error("commodités : Overpass répond " + r.status);
+    const els = (await r.json()).elements || [];
+    const vus = new Set(), out = [];
+    for (const e of els) {
+      const t = e.tags || {}; const y = e.lat ?? (e.center && e.center.lat), x = e.lon ?? (e.center && e.center.lon);
+      if (y == null || x == null) continue;
+      const cat = CATEGORIES.find(([, , f]) => f(t)); if (!cat) continue;
+      const nom = String(t.name || t.brand || "").slice(0, 60);
+      const cle = cat[0] + "|" + (nom || Math.round(y * 2000) + "," + Math.round(x * 2000));
+      if (vus.has(cle)) continue; vus.add(cle);
+      out.push({ cat: cat[0], nom, lat: y, lng: x, dist: distanceM(lat, lng, y, x) });
+    }
+    out.sort((a, b) => a.dist - b.dist);
+    // Au plus 12 par catégorie (les arrêts de bus pullulent) ; ordonné par distance.
+    const parCat = {}; return out.filter((o) => (parCat[o.cat] = (parCat[o.cat] || 0) + 1) <= 12);
+  }
+  app.get("/crm/parcours/:id/environnement", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcours(ctx.agency.id, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    let { lat, lng } = p.est;
+    if (!lat && !lng) {
+      let g = null;
+      try { g = await geocoderBan(p.est.adresse, p.px.cp, p.est.ville); } catch (e) { return err(c, 502, e.message); }
+      if (!g) return err(c, 400, "Adresse du bien introuvable (vérifiez l'adresse, le code postal et la ville).");
+      lat = g.lat; lng = g.lng;
+      await db.run("UPDATE crm_estimations SET lat = ?, lng = ? WHERE id = ?", [lat, lng, p.est.id]);
+    }
+    const cle = lat.toFixed(3) + "," + lng.toFixed(3);
+    let data = null;
+    const cache = await db.get("SELECT data, updated_at FROM crm_environnement WHERE cle = ?", [cle]);
+    if (cache && cache.updated_at > now() - 30 * 86400) { try { data = JSON.parse(cache.data); } catch { data = null; } }
+    if (!data) {
+      const [com, liste] = await Promise.all([commune(p.px.cp, p.est.ville).catch(() => null), commodites(lat, lng).catch((e) => ({ erreur: e.message }))]);
+      data = { commune: com, commodites: Array.isArray(liste) ? liste : [], erreur: liste && liste.erreur ? liste.erreur : "" };
+      if (!data.erreur) await db.run(
+        "INSERT INTO crm_environnement (cle, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(cle) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+        [cle, JSON.stringify(data), now()]);
+    }
+    // Les ventes de l'agence à 1 km : ventes importées + dossiers vendus du Suivi.
+    const dLat = 1000 / 111320, dLng = 1000 / (111320 * Math.cos(lat * Math.PI / 180));
+    const boite = `g.lat BETWEEN ${lat - dLat} AND ${lat + dLat} AND g.lng BETWEEN ${lng - dLng} AND ${lng + dLng}`;
+    const ventes = [];
+    for (const r of await db.all(
+      `SELECT v.adresse, v.ville, v.date_acte, v.prix, v.type, v.surface, g.lat, g.lng FROM crm_ventes v JOIN crm_geo g ON g.contact_id = v.id WHERE v.agency_id = ? AND ${boite}`, [ctx.agency.id])) {
+      const dist = distanceM(lat, lng, r.lat, r.lng);
+      if (dist <= 1000) ventes.push({ adresse: adresseDossier(r.adresse, r.ville), date: r.date_acte, prix: r.prix, type: r.type, surface: r.surface, lat: r.lat, lng: r.lng, dist });
+    }
+    for (const r of await db.all(
+      `SELECT d.adresse, d.statut, d.data, g.lat, g.lng FROM dossiers d JOIN crm_geo g ON g.contact_id = d.id WHERE d.agency_id = ? AND d.statut <> 'annule' AND ${boite}`, [ctx.agency.id])) {
+      let data2; try { data2 = JSON.parse(r.data); } catch { data2 = {}; }
+      if (!dossierVendu(r.statut, data2)) continue;
+      const dist = distanceM(lat, lng, r.lat, r.lng);
+      if (dist <= 1000) ventes.push({ adresse: adresseDossier(r.adresse, data2.bien && data2.bien.ville), date: String((data2.dates && (data2.dates.signature_acte || "")) || "").slice(0, 10),
+        prix: Number(data2.prix && data2.prix.prix_vente) || 0, type: (data2.bien && data2.bien.type) || "", surface: 0, lat: r.lat, lng: r.lng, dist });
+    }
+    ventes.sort((a, b) => a.dist - b.dist);
+    return c.json({ lat, lng, commune: data.commune, commodites: data.commodites, erreur: data.erreur || "", ventes: ventes.slice(0, 80), categories: CATEGORIES.map(([cle, libelle]) => ({ cle, libelle })) });
   });
 
   // Une étape faite hors e-mail (guide imprimé, ACM remise…) : on la coche.

@@ -68,8 +68,33 @@ export default async function () {
     });
     ok(guide.pages === 14 && /MOUNEYRES/.test(guide.titre) && guide.octets > 100000,
       "le guide R1 fait 14 pages (13 communes + Teddy Besson) au nom du client (" + JSON.stringify(guide) + ")");
+    // Le guide R2 : points forts, objections, texte du conseiller, puis commune + commodités + ventes + cartes.
+    await page.click('[data-guide="r2"]');
+    await page.waitForSelector("#r2-generer", { timeout: 8000 });
+    await page.fill("#r2-forts", "Le box\nLa disposition des pièces");
+    await page.fill("#r2-objections", "La route passante");
+    await page.fill("#r2-bio", "Après 12 ans dans la grande distribution, j'ai rejoint Century 21 Kadima.\n\nJe suis déterminé à vous fournir un service personnalisé.");
+    await page.click("#r2-generer");
+    await attendreToast(page, "Guide R2 prêt", 90000);
+    await page.waitForFunction(() => document.querySelectorAll(".etape.faite").length === 3, null, { timeout: 8000 });
+    const guide2 = await page.evaluate(async () => {
+      const doc = await window.PDFLib.PDFDocument.load(window.__dernierGuide.octets);
+      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength };
+    });
+    ok(guide2.pages === 20 && /Vendons ensemble/.test(guide2.titre) && /MOUNEYRES/.test(guide2.titre) && guide2.octets > 1000000,
+      "le guide R2 fait 20 pages au nom du client, cartes et polices embarquées (" + JSON.stringify(guide2) + ")");
+    // Le guide généré est gardé dans captures/ (ignoré par git) pour un contrôle visuel.
+    try {
+      const PAS = 1500000, morceaux = [];
+      for (let debut = 0; debut < guide2.octets; debut += PAS) {
+        morceaux.push(Buffer.from(await page.evaluate(([d, n]) => { const o = window.__dernierGuide.octets; let s = ""; const u = new Uint8Array(o.buffer, o.byteOffset + d, Math.min(n, o.byteLength - d)); for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(s); }, [debut, PAS]), "base64"));
+      }
+      const fs = await import("node:fs/promises");
+      await fs.mkdir(new URL("./captures/", import.meta.url), { recursive: true });
+      await fs.writeFile(new URL("./captures/guide-r2-smoke.pdf", import.meta.url), Buffer.concat(morceaux));
+    } catch { }
     await page.click("#modale-ok");
-    await page.waitForFunction(() => /2\/6/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
-    ok(true, "la liste montre l'avancement 2/6");
+    await page.waitForFunction(() => /3\/6/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
+    ok(true, "la liste montre l'avancement 3/6");
   });
 }

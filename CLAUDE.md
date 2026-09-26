@@ -464,7 +464,7 @@ URL ≤ 200 Ko réduite côté navigateur à 240 px, servie par
 `GET /public/conseillers/:id/photo`), routes /crm/conseillers (liste membre,
 PUT/DELETE admin), carte « Les conseillers » dans Réglages. Réglages agence :
 instagram, facebook, avis. Smoke `parcours-r1r2` (faux Resend sur 18795 dans
-run.mjs, `/__mails`). Admin : assets versionnés `?v=4`.
+run.mjs, `/__mails`). Admin : assets versionnés `?v=5`.
 **Guide R1 personnalisé (26/09)** : `administration/assets/guide-r1.pdf` (25 pages :
 13 communes + 12 pages « Votre conseiller », corrigé de l'original de Benoît avec
 pymupdf — p2 : 14 conseillers St-Médard, 2 gestionnaires St-Aubin ; p3 : 9,5/10
@@ -480,6 +480,32 @@ Helvetica-Bold ; ouvert dans un onglet (blob) et l'étape guide-r1 cochée.
 Pour changer les chiffres du guide : refaire la passe pymupdf (polices extraites
 des sous-ensembles embarqués, `bugaki3.ttf` = page 3). Un conseiller absent du
 guide → toast et guide sans sa page.
+**Guide R2 « Vendons ensemble votre bien » (26/09)** : `administration/assets/guide-r2.pdf`
+(20 pages, 12,8 Mo, préparé avec pymupdf depuis l'original : p3 point 2026 =
+900 000 en pointillé + cadre prolongé, p4 « 10/2026 », p5 courbe des prix
+redessinée 2017-2026 avec 3 287 € en 2026, p10/p11 = corrections du R1, zones
+variables blanchies en p1/p6/p7/p8/p9/p12) + `guide-r2.json` (coordonnées des
+zones, en repère haut-gauche). Assemblé dans le navigateur par `genererGuideR2()`
+(admin.js, pdf-lib + fontkit vendorisés, polices Barlow dans assets/fonts) :
+p1 photo du bien (recadrée) + client + date du jour ; p6 photo, adresse, points
+forts / objections (flèches or) — « tous les arguments » laissé vide exprès ;
+p7 commune (nom, département, région, densité) + carte OSM des commodités
+(canvas : tuiles tile.openstreetmap.org CORS, repères colorés par catégorie,
+épingle rouge du bien, échelle, attribution) + tableau des commodités ; p8 carte
+des ventes de l'agence à 1 km + légende réduite à « biens vendus » ; p9 mois
+courant ; p12 photo/nom/genre/téléphone/e-mail/texte du conseiller. Données :
+`GET /crm/parcours/:id/environnement` (parcours.js) — géocode via BAN si la
+fiche n'a pas de lat/lng (stockés sur crm_estimations), commune via
+geo.api.gouv.fr (`GEO_BASE`), commodités via Overpass (`OVERPASS_BASE`, défaut
+overpass.kumi.systems — overpass-api.de est injoignable depuis le bac à sable),
+cache 30 j `crm_environnement` par lat/lng à 3 décimales, ventes = crm_ventes +
+dossiers vendus à 1 km. Saisie : `GET/PUT /crm/parcours/:id/r2` (photo data URL
+≤ 400 Ko réduite à 1 600 px, points_forts, objections, bio du conseiller) ;
+profil conseiller : `crm_conseillers_extra` (bio, genre m|f posé à la main sinon
+`genrePrenom`). Tests : faux Overpass 18784 + faux geo 18785 (test.mjs), 18781 /
+18782 dans run.mjs ; le smoke garde le PDF généré dans captures/guide-r2-smoke.pdf
+(les tuiles ne se chargent pas dans le Chromium du bac à sable : carte grise).
+ACM : toujours « modèle à venir ».
 **Maisons dessinées + signets (carte, 15/09)** : `GET /crm/batiments?bbox=minLng,
 minLat,maxLng,maxLat` (membre) relaie le WFS IGN BD TOPO (`BATIMENTS_BASE`,
 CRS:84, COUNT 3000, bbox ≤ 0,02°×0,012°) et renvoie `{batiments:[{id, nature,
