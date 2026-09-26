@@ -577,6 +577,14 @@ sur capital) et tableau 15/20/25 ans — vérifié sur l'exemple Meilleurtaux du
 de Benoît). Espaces fines (U+202F) remplacées (absentes de la police). Smoke : faux
 DVF (18797, grille de ventes), captures/livret-prix-smoke.pdf. À venir : branchement
 aux estimations (surface/terrain/prix automatiques).
+Peaufinage (26/09) : marge gauche `meta.marge` = 92 pt (le bandeau du modèle va
+jusqu'à 75 pt), zone utile 92–536 ; ventes à choisir triées par date ; vignettes
+(`<img src>` direct) et lien « voir l'annonce » dans la sélection des biens en
+concurrence ; page « TOUTES LES VENTES AUTOUR DU BIEN (DVF) » après les ventes
+retenues (carte zoom 15 de toutes les ventes DVF ≤ 1,5 km + tableau 27 lignes par
+date décroissante, `donnees.ventesDvf` posé par ouvrirAcm) ; acheteurs : résumé
+vivant dans la fenêtre (`#acm-ach-resume`, nb de budgets ≥ prix / basse / haute) et
+trois encadrés sur la page.
 **Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
 bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la
 police Bugaki complète, non versionnée) ; le navigateur y écrit « Famille NOM » (ou

@@ -128,6 +128,7 @@ export default async function () {
     ok((await page.locator('[data-conc^="portail:"]:checked').count()) === 1, "un bien vu sur un portail s'ajoute à la main, coché");
     await page.fill('[data-com-nb="0"]', "3"); await page.fill('[data-com-basse="0"]', "300000"); await page.fill('[data-com-haute="0"]', "320000");
     await page.fill('[data-com-nb="1"]', "6"); await page.fill('[data-com-basse="1"]', "310000"); await page.fill('[data-com-haute="1"]', "330000");
+    ok(/acheteur/.test(await page.textContent("#acm-ach-resume")), "la fenêtre montre le résumé des acheteurs par niveau de prix");
     await page.check("#acm-ach-inclure"); await page.fill("#acm-ach-texte", "Les visiteurs apprécient le jardin, réserves sur la route.");
     await page.click("#acm-generer");
     await attendreToast(page, "Livret prix prêt", 90000);
@@ -136,7 +137,7 @@ export default async function () {
       const doc = await window.PDFLib.PDFDocument.load(window.__dernierGuide.octets);
       return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength };
     });
-    ok(livret.pages >= 11 && /Livret prix/.test(livret.titre) && /MOUNEYRES/.test(livret.titre), "le livret prix est assemblé : pages fixes, ventes, concurrence, commission, acheteurs, financement (" + JSON.stringify(livret) + ")");
+    ok(livret.pages >= 13 && /Livret prix/.test(livret.titre) && /MOUNEYRES/.test(livret.titre), "le livret prix est assemblé : pages fixes, ventes retenues, toutes les ventes DVF, concurrence, commission, acheteurs, financement (" + JSON.stringify(livret) + ")");
     await garderGuide(page, livret.octets, "livret-prix-smoke.pdf");
     // Un co-propriétaire, créé depuis la fiche : il apparaît sur la fiche, dans le mail et dans la liste.
     await page.click("#px-ajouter-prop");

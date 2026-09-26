@@ -31,5 +31,6 @@
  },
  "or": "#BEB18A",
  "noir": "#000000",
- "gris": "#5A5A5A"
+ "gris": "#5A5A5A",
+ "marge": 92
 }
