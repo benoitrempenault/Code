@@ -665,7 +665,7 @@ basse/prix/haute **écrasés** par les montants repli/raison/ambition saisis,
 (le PUT remplace tout) ; pré-remplit les lignes depuis la commission tant qu'elles
 n'ont pas été saisies à la main. Livret, page commission : sous le total, 3 cadres
 or « PRIX DE REPLI / RAISON / AMBITION » (montant + « de … à … ») dès que
-`tiers_ajustes` existe, puis la ligne prix estimé. Assets admin `?v=22`. Photos du livret : `decoderPhoto` (canvas → JPEG 1200 px, WebP compris) puis `embarquerPhoto` (photo posée, sinon relais) ; relais et acm/donnees résolvent les URL relatives de nos annonces sur `annonces.siteUrl`.
+`tiers_ajustes` existe, puis la ligne prix estimé. Assets admin `?v=23` (27/09 : un clic sur le voile hors de la fenêtre ne ferme plus la modale — on perdait la saisie ; seuls ×, Retour/Annuler et le bouton « précédent » ferment). Photos du livret : `decoderPhoto` (canvas → JPEG 1200 px, WebP compris) puis `embarquerPhoto` (photo posée, sinon relais) ; relais et acm/donnees résolvent les URL relatives de nos annonces sur `annonces.siteUrl`.
 **Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
 bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la
 police Bugaki complète, non versionnée) ; le navigateur y écrit « Famille NOM » (ou

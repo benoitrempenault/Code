@@ -3496,7 +3496,8 @@
   document.querySelectorAll(".onglet").forEach((b) =>
     b.addEventListener("click", () => activerOnglet(b.dataset.onglet)));
   $("modale-fermer").addEventListener("click", fermerModale);
-  $("voile").addEventListener("click", (e) => { if (e.target === $("voile")) fermerModale(); });
+  // Un clic à côté de la fenêtre ne la ferme plus (on perdait la saisie en cours) :
+  // seuls la croix, les boutons Retour / Annuler et le bouton « précédent » la ferment.
   $("recherche-contacts").addEventListener("input", rendreContacts);
   $("filtre-type").addEventListener("change", rendreContacts);
   $("btn-nouveau-contact").addEventListener("click", () => ouvrirContact(null));
