@@ -140,7 +140,7 @@ export default async function () {
     await page.waitForSelector("[data-commission]", { timeout: 8000 });
     await page.click("[data-commission]");
     await page.waitForFunction(() => /Marine Zamora/.test(document.getElementById("modale-corps")?.textContent || ""), null, { timeout: 10000 });
-    ok(/310 000/.test(await page.textContent("#modale-corps")) && /Belle parcelle/.test(await page.textContent("#modale-corps")), "le conseiller voit l'avis reçu, la fourchette groupée et les 3 fourchettes");
+    ok(/310.000/.test(await page.textContent("#modale-corps")) && /Belle parcelle/.test(await page.textContent("#modale-corps")), "le conseiller voit l'avis reçu, la fourchette groupée et les 3 fourchettes");
     await page.click("#com-reporter");
     await attendreToast(page, "reportée dans le livret");
     await page.click("#com-retour");
