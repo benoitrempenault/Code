@@ -46,8 +46,9 @@ export default async function () {
     await page.fill("#px-adresse", "12 rue du Man");
     await page.waitForSelector(".sugg-adresse div", { timeout: 8000 });
     await page.keyboard.press("ArrowDown"); await page.keyboard.press("Enter");
-    ok(await page.inputValue("#px-adresse") === "7 rue Nouvelle" && await page.inputValue("#px-cp") === "33160" && await page.inputValue("#px-ville") === "Saint-Médard-en-Jalles",
-      "la saisie automatique remplit l'adresse, le code postal et la ville (" + await page.inputValue("#px-adresse") + ")");
+    await page.waitForTimeout(600);
+    ok(await page.inputValue("#px-adresse") === "7 rue Nouvelle" && await page.inputValue("#px-cp") === "33160" && await page.inputValue("#px-ville") === "Saint-Médard-en-Jalles" && (await page.locator(".sugg-adresse").count()) === 0,
+      "la saisie automatique remplit l'adresse, le code postal et la ville, puis la liste se referme (" + await page.inputValue("#px-adresse") + ")");
     await page.fill("#px-adresse", adrAvant); await page.fill("#px-ville", villeAvant);
     await page.selectOption("#px-conseiller", cs.json.id);
     await page.fill("#px-cp", "33160");

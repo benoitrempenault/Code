@@ -91,7 +91,9 @@
       const f = resultats[i]; if (!f) return;
       const pr = f.properties || {};
       const voisins = cfg.cp || cfg.ville;
-      poser(input.id, voisins ? (pr.name || pr.label || "") : (pr.label || ""));
+      // Le champ lui-même est posé sans évènement « input » : sinon la recherche repartait et la liste se rouvrait.
+      clearTimeout(minuteur); derniereReq++;
+      input.value = voisins ? (pr.name || pr.label || "") : (pr.label || ""); input.dispatchEvent(new Event("change", { bubbles: true }));
       if (cfg.cp) poser(cfg.cp, pr.postcode || ""); if (cfg.ville) poser(cfg.ville, pr.city || "");
       fermer();
     };
@@ -2414,7 +2416,7 @@
         '<option value="' + k + '"' + (p && p.type_bien === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" +
       '<label>Surface habitable (m²)<input id="px-surface" type="number" step="1" value="' + escH(b.surface || "") + '" /></label>' +
       '<label>Terrain (m²)<input id="px-terrain" type="number" step="1" value="' + escH(b.terrain || "") + '" /></label>' +
-      '<label>Chambres <span class="petit">(commission, livret)</span><input id="px-chambres" type="number" step="1" min="0" value="' + escH(b.chambres || "") + '" /></label>' +
+      '<label>Chambres<input id="px-chambres" type="number" step="1" min="0" value="' + escH(b.chambres || "") + '" /></label>' +
       '<label>Pièce de vie / séjour (m²)<input id="px-piece-vie" type="number" step="1" value="' + escH(b.piece_vie || "") + '" /></label>' +
       '<label>R1 — date<input id="px-r1" type="date" value="' + v("r1") + '" /></label>' +
       '<label>R1 — heure<input id="px-r1h" type="time" value="' + v("r1_heure") + '" /></label>' +
