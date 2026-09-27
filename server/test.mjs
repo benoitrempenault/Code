@@ -3355,6 +3355,14 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(teddyImp.telephone === "06 00 00 00 01" && teddyImp.email === "teddy@kadima.test" && teddyImp.a_photo, "le profil déjà renseigné de Teddy garde téléphone, e-mail et photo");
   // L'équipe du site : photo, fonction et agence complètent les profils qui n'en ont pas, sans toucher au reste.
   const impE = await callR("/crm/conseillers/importer", { headers: auth, body: { profils: [{ prenom: "Marine", nom: "Zamora", photo: pixel, agence: "saint-medard", fonction: "" }, { prenom: "Teddy", nom: "Besson", photo: "data:image/png;base64,iVBORw0KGgo=", fonction: "Négociateur", agence: "cauderan" }] } });
+  // Une vignette minuscule (premiers imports à 240 px) cède la place à une photo nette ; une vraie photo, elle, reste.
+  const grande = pixel + "A".repeat(60000);
+  const impG = await callR("/crm/conseillers/importer", { headers: auth, body: { profils: [{ prenom: "Marine", nom: "Zamora", photo: grande }] } });
+  const marineG = (await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.nom === "Zamora");
+  const photoG = (await db.get("SELECT length(photo) AS n FROM crm_conseillers WHERE id = ?", [marineG.id])).n;
+  const impG2 = await callR("/crm/conseillers/importer", { headers: auth, body: { profils: [{ prenom: "Marine", nom: "Zamora", photo: grande + "AAAA" }] } });
+  const photoG2 = (await db.get("SELECT length(photo) AS n FROM crm_conseillers WHERE id = ?", [marineG.id])).n;
+  ok(impG.json.completes === 1 && photoG === grande.length && impG2.json.completes === 0 && photoG2 === grande.length, "l'import remplace une vignette minuscule par une photo nette, puis n'y touche plus (" + JSON.stringify({ c1: impG.json.completes, c2: impG2.json.completes }) + ")");
   const csE = (await callR("/crm/conseillers", { headers: auth })).json.conseillers;
   const marineE = csE.find((x) => x.nom === "Zamora"), teddyE = csE.find((x) => x.id === teddy.json.id);
   ok(impE.json.completes === 2 && marineE.a_photo && marineE.agence === "saint-medard" && teddyE.fonction === "Conseiller immobilier" && teddyE.agence === "cauderan" && (await appR.fetch(new Request("http://api.test/public/conseillers/" + teddy.json.id + "/photo"))).headers.get("content-type") === "image/jpeg",

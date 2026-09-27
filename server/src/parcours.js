@@ -331,7 +331,9 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       if (deja) {
         // Un profil en place ne perd rien : seuls les vides se complètent.
         const cur = await db.get("SELECT user_id, telephone, email, fonction, photo FROM crm_conseillers WHERE id = ?", [deja.id]);
-        const maj = { user_id: cur.user_id || v.user_id, telephone: cur.telephone || v.telephone, email: cur.email || v.email, fonction: cur.fonction || v.fonction, photo: cur.photo || v.photo };
+        // La photo ne se remplace que si celle en place est une petite vignette (< 40 Ko) et la nouvelle nettement plus grande.
+        const photoMieux = v.photo && v.photo.length > cur.photo.length * 2 && cur.photo.length < 40000;
+        const maj = { user_id: cur.user_id || v.user_id, telephone: cur.telephone || v.telephone, email: cur.email || v.email, fonction: cur.fonction || v.fonction, photo: photoMieux ? v.photo : (cur.photo || v.photo) };
         let touche = false;
         if (["user_id", "telephone", "email", "fonction", "photo"].some((k) => maj[k] !== cur[k])) {
           await db.run("UPDATE crm_conseillers SET user_id = ?, telephone = ?, email = ?, fonction = ?, photo = ?, updated_at = ? WHERE id = ?", [maj.user_id, maj.telephone, maj.email, maj.fonction, maj.photo, now(), deja.id]);

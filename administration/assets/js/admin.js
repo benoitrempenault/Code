@@ -2226,12 +2226,14 @@
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
-        const taille = 240, cv = document.createElement("canvas");
-        cv.width = taille; cv.height = taille;
-        const cx = cv.getContext("2d");
+        // Carré recadré au centre, assez grand pour la page « Votre conseiller »
+        // du guide R2 (214 × 284 pt) : 720 px, et au plus ~200 Ko côté serveur.
         const min = Math.min(img.width, img.height);
-        cx.drawImage(img, (img.width - min) / 2, (img.height - min) / 2, min, min, 0, 0, taille, taille);
-        resolve(cv.toDataURL("image/jpeg", 0.85));
+        const rendre = (taille, qualite) => { const cv = document.createElement("canvas"); cv.width = taille; cv.height = taille; cv.getContext("2d").drawImage(img, (img.width - min) / 2, (img.height - min) / 2, min, min, 0, 0, taille, taille); return cv.toDataURL("image/jpeg", qualite); };
+        let photo = rendre(Math.min(720, min), 0.86);
+        if (photo.length > 250000) photo = rendre(Math.min(640, min), 0.78);
+        if (photo.length > 250000) photo = rendre(Math.min(520, min), 0.72);
+        resolve(photo);
       };
       img.onerror = () => reject(new Error("Image illisible."));
       img.src = URL.createObjectURL(fichier);

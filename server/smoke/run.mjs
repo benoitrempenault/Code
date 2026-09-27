@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 const ICI = new URL(".", import.meta.url).pathname;
 const RACINE = resolve(ICI, "../..");
 const PORT_API = 8788, PORT_SITE = 8014, PORT_BAN = 18796;
-const PARCOURS = ["suppression", "anniversaires", "suivi", "fiche-adresse", "compte", "maisons", "offre", "parcours-r1r2"];
+const PARCOURS = ["suppression", "anniversaires", "suivi", "fiche-adresse", "compte", "maisons", "offre", "parcours-r1r2", "mobile"];
 const choisis = process.argv.slice(2).length ? process.argv.slice(2) : PARCOURS;
 
 // 1) Fausse BAN pour le serveur (géocodage direct) : toute adresse trouve une

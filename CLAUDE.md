@@ -616,7 +616,16 @@ PowerShell, phase 3 après le relevé : System.Drawing, réduction à 320 px, qu
 78, lots de 40, échecs comptés, étape sautée sans faire échouer le relevé.
 `/acm/donnees` joint la vignette (`photo`) aux mandats ALFA ; fenêtre et générateur
 l'utilisent (`a.photo || a.image`), la photo posée à la main reste prioritaire.
-Assets admin : `?v=17`.
+Assets admin : `?v=18`.
+**Téléphone et photo du conseiller (27/09)** : admin.css `@media (max-width: 720px)`
+(onglets défilants, grille en une colonne, champs 16 px contre le zoom iOS, tableaux
+en défilement, modales plein écran avec pied en boutons larges, étapes empilées,
+listes ACM 40/55 vh) ; smoke `mobile` (390 × 844, captures mobile-*.png, pas de
+débordement, modale 390 px, champs pleine largeur). Photo de profil : `reduirePhoto`
+recadre en carré 720 px (puis 640/520 si > 250 Ko) pour la page « Votre conseiller »
+du R2 (214 × 284 pt) ; photos du site régénérées à 640 px dans assets/conseillers ;
+l'import remplace une photo en place seulement si elle est minuscule (< 40 Ko) et la
+nouvelle au moins deux fois plus grande (`photoMieux`).
 **Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
 bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la
 police Bugaki complète, non versionnée) ; le navigateur y écrit « Famille NOM » (ou
