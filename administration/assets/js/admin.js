@@ -3106,6 +3106,22 @@
       pg.drawImage(im, { x, y: pg.getHeight() - (y + h), width: w, height: h });
       rect(pg, x, y, w, h, { borderColor: or, borderWidth: 0.8 });
     };
+    // Une photo (data URL ou octets relayés, WebP compris) passe par le décodeur
+    // du navigateur et ressort en JPEG ≤ 1200 px : pdf-lib n'accepte que JPEG et PNG.
+    const decoderPhoto = (source) => new Promise((resolve) => {
+      const img = new Image(); let urlTmp = "";
+      img.onload = () => { try { const k = Math.min(1, 1200 / Math.max(img.width, img.height)); const cv = document.createElement("canvas"); cv.width = Math.max(1, Math.round(img.width * k)); cv.height = Math.max(1, Math.round(img.height * k)); cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height); resolve(cv.toDataURL("image/jpeg", 0.85)); } catch { resolve(""); } if (urlTmp) URL.revokeObjectURL(urlTmp); };
+      img.onerror = () => { resolve(""); if (urlTmp) URL.revokeObjectURL(urlTmp); };
+      if (typeof source === "string") img.src = source; else { urlTmp = URL.createObjectURL(source); img.src = urlTmp; }
+    });
+    const embarquerPhoto = async (a) => {
+      let source = a.photo || "";
+      if (!source && a.image) { try { const r = await fetch(API + "/crm/parcours-image?u=" + encodeURIComponent(a.image), { headers: { Authorization: "Bearer " + account().session } }); if (r.ok) source = await r.blob(); } catch { source = ""; } }
+      if (!source) return null;
+      const jpeg = await decoderPhoto(source);
+      if (!jpeg) return null;
+      try { return await doc.embedJpg(Uint8Array.from(atob(jpeg.split(",")[1]), (ch) => ch.charCodeAt(0))); } catch { return null; }
+    };
     const dateJour = new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
     const prixRef = acm.haute || acm.prix || acm.basse || 0;
     const typeLib = donnees.type === "appartement" ? "Appartement" : "Maison";
@@ -3163,9 +3179,7 @@
       const pg = await pageContenu("LES BIENS EN", "CONCURRENCE");
       for (let k = 0; k < 2 && i + k < conc.length; k++) {
         const a = conc[i + k], y0 = 100 + k * 340;
-        let photo = null;
-        if (a.photo) { try { const oct = Uint8Array.from(atob(a.photo.split(",")[1]), (ch) => ch.charCodeAt(0)); photo = /^data:image\/png/.test(a.photo) ? await doc.embedPng(oct) : await doc.embedJpg(oct); } catch { photo = null; } }
-        if (!photo && a.image) { try { const r = await fetch(API + "/crm/parcours-image?u=" + encodeURIComponent(a.image), { headers: { Authorization: "Bearer " + account().session } }); if (r.ok) { const b = await r.arrayBuffer(); const type = r.headers.get("content-type") || ""; photo = /png/.test(type) ? await doc.embedPng(b) : await doc.embedJpg(b); } } catch { photo = null; } }
+        const photo = await embarquerPhoto(a);
         if (photo) imageCadree(pg, photo, G, y0, CW, CH);
         else { rect(pg, G, y0, CW, CH, { color: sable, borderColor: or, borderWidth: 0.8 }); ecrireCentre(pg, "photo non disponible", G + CW / 2, y0 + CH / 2 + 3, 9, fR, gris); }
         ecrire(pg, fmtPrix(a.prix), XF, y0 + 22, 18, fB, noir);

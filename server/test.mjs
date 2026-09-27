@@ -3570,6 +3570,14 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await db.run("DELETE FROM crm_amepi_photos WHERE id = 'am-1'");
   ok(portails.biens.length === 1 && portails.biens[0].id === "bienici:orpi-1" && portails.biens[0].agence === "ORPI Le Haillan" && portails.biens[0].baisse === 1 && portails.biens[0].jours >= 11 && portails.biens[0].terrain === 322 && /bienici\.com\/annonce\/vente\/le-haillan\/maison\/4pieces\/orpi-1/.test(portails.biens[0].url) && portails.biens[0].dist != null,
      "Bien'ici : les biens de la commune, même type, autour du prix (le bien à 900 000 € écarté), avec agence, baisse, ancienneté, distance et lien (" + JSON.stringify(portails.biens.map((b) => [b.id, b.dist])) + ")");
+  await db.run("UPDATE crm_annonces SET image = '/photos/biens/relative-640.webp' WHERE id = 'maison-haillan-1'");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { annonces: { siteUrl: "http://localhost:1" } } });
+  const dnRel = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
+  const relRep = await callR("/crm/parcours-image?u=" + encodeURIComponent("/photos/biens/relative-640.webp"), { headers: authP });
+  const absRep = await callR("/crm/parcours-image?u=" + encodeURIComponent("http://localhost:1/photos/biens/relative-640.webp"), { headers: authP });
+  ok(dnRel.annonces.find((a) => a.id === "maison-haillan-1").image === "http://localhost:1/photos/biens/relative-640.webp" && relRep.status === 502 && absRep.status === 502,
+     "l'image relative de notre annonce est résolue sur le site de l'agence, et le relais l'accepte sous ses deux formes (" + relRep.status + "/" + absRep.status + ")");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { annonces: { siteUrl: "" } } });
   ok((await callR("/crm/parcours-image?u=https://site/photos/inconnue.jpg", { headers: authP })).status === 404 && (await callR("/crm/parcours-image?u=javascript:alert(1)", { headers: authP })).status === 400,
      "le relais d'images ne sert que les photos connues des annonces et mandats");
   await db.run("DELETE FROM crm_annonces WHERE id = 'maison-haillan-1'"); await db.run("DELETE FROM crm_amepi WHERE id IN ('am-1', 'am-2')"); await db.run("DELETE FROM crm_recherches WHERE contact_id IN ('ct_ach1', 'ct_ach2', 'ct_ach3')");

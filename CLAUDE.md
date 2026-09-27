@@ -632,7 +632,7 @@ fichier}` ; `documentPret(id, titre, url, fichier)` affiche « Document prêt »
 « 📄 Ouvrir » (lien target _blank, sur un geste : jamais bloqué), « ⬇ Enregistrer »
 (download) et « ← Retour au parcours ». `ouvrirModale` pousse un état d'historique
 (`{modale:true}`) ; `popstate` ferme la fenêtre (bouton retour du téléphone) ;
-`fermerModale` fait `history.back()` si l'état est le sien. Assets `?v=19`.
+`fermerModale` fait `history.back()` si l'état est le sien. Assets `?v=20`. Photos du livret : `decoderPhoto` (canvas → JPEG 1200 px, WebP compris) puis `embarquerPhoto` (photo posée, sinon relais) ; relais et acm/donnees résolvent les URL relatives de nos annonces sur `annonces.siteUrl`.
 **Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
 bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la
 police Bugaki complète, non versionnée) ; le navigateur y écrit « Famille NOM » (ou

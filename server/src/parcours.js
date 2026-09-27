@@ -915,12 +915,14 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     }
     const ventes = (await ventesAutour(ctx.agency.id, lat, lng, 2000)).slice(0, 40);
     const villeN = sansAccents(p.est.ville);
+    const siteAg = ((await getReglages(db, ctx.agency)).annonces.siteUrl || "").replace(/\/+$/, "");
+    const absolue = (img) => (img && /^\//.test(img) && siteAg ? siteAg + img : img || "");
     const brutesAnnonces = await db.all(
       `SELECT id, url, titre, type, prix, ville, cp, pieces, surface, dpe, image, price_history, first_seen FROM crm_annonces
        WHERE agency_id = ? AND statut = 'en_vente' AND (cp = ? OR ville = ? COLLATE NOCASE) ORDER BY prix`, [ctx.agency.id, p.px.cp || "-", p.est.ville || "-"]);
     const annonces = brutesAnnonces
       .filter((a) => sansAccents(a.type) === type).slice(0, 30)
-      .map((a) => ({ source: "agence", id: a.id, url: a.url, titre: a.titre, type: a.type, prix: a.prix, ville: a.ville, cp: a.cp, pieces: a.pieces, surface: a.surface, dpe: a.dpe, image: a.image, jours: Math.round((now() - a.first_seen) / 86400), baisse: (() => { try { const h = JSON.parse(a.price_history || "[]"); return h.length > 1 ? h[0].prix - h[h.length - 1].prix : 0; } catch { return 0; } })() }));
+      .map((a) => ({ source: "agence", id: a.id, url: a.url, titre: a.titre, type: a.type, prix: a.prix, ville: a.ville, cp: a.cp, pieces: a.pieces, surface: a.surface, dpe: a.dpe, image: absolue(a.image), jours: Math.round((now() - a.first_seen) / 86400), baisse: (() => { try { const h = JSON.parse(a.price_history || "[]"); return h.length > 1 ? h[0].prix - h[h.length - 1].prix : 0; } catch { return 0; } })() }));
     const dLat = 3000 / 111320, dLng = 3000 / (111320 * Math.cos(lat * Math.PI / 180));
     const amepi = (await db.all(
       `SELECT a.id, a.ref, a.agence, a.type, a.prix, a.ancien_prix, a.ville, a.cp, a.pieces, a.chambres, a.surface, a.terrain, a.lat, a.lng, a.image, a.url, a.first_seen, ph.photo
@@ -992,12 +994,18 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   // dans les tables de l'agence.
   app.get("/crm/parcours-image", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
-    const u = String(c.req.query("u") || "");
+    let u = String(c.req.query("u") || "");
+    // Nos annonces gardent l'URL telle que le site l'écrit, souvent relative
+    // (« /photos/biens/… ») : on la résout sur le site de l'agence.
+    const site = ((await getReglages(db, ctx.agency)).annonces.siteUrl || "").replace(/\/+$/, "");
+    const relative = /^\//.test(u) ? u : (site && u.startsWith(site + "/") ? u.slice(site.length) : "");
+    if (relative) { if (!site) return err(c, 400, "Site de l'agence non réglé."); u = site + relative; }
     if (!/^https?:\/\//.test(u)) return err(c, 400, "URL attendue.");
     let hote = ""; try { hote = new URL(u).hostname; } catch { hote = ""; }
     const HOTES_PORTAILS = ["file.bienici.com", "images.century21.fr", "photos.bienici.com", ...(env.BIENICI_BASE ? [new URL(env.BIENICI_BASE).hostname] : [])];
+    const formes = [...new Set([u, relative].filter(Boolean))];
     const connue = HOTES_PORTAILS.includes(hote)
-      || (await db.get("SELECT 1 AS ok FROM crm_annonces WHERE agency_id = ? AND image = ?", [ctx.agency.id, u]))
+      || (await db.get(`SELECT 1 AS ok FROM crm_annonces WHERE agency_id = ? AND image IN (${formes.map(() => "?").join(",")})`, [ctx.agency.id, ...formes]))
       || (await db.get("SELECT 1 AS ok FROM crm_amepi WHERE agency_id = ? AND image = ?", [ctx.agency.id, u]));
     if (!connue) return err(c, 404, "Image inconnue.");
     let r;
