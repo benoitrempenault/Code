@@ -632,7 +632,28 @@ fichier}` ; `documentPret(id, titre, url, fichier)` affiche « Document prêt »
 « 📄 Ouvrir » (lien target _blank, sur un geste : jamais bloqué), « ⬇ Enregistrer »
 (download) et « ← Retour au parcours ». `ouvrirModale` pousse un état d'historique
 (`{modale:true}`) ; `popstate` ferme la fenêtre (bouton retour du téléphone) ;
-`fermerModale` fait `history.back()` si l'état est le sien. Assets `?v=20`. Photos du livret : `decoderPhoto` (canvas → JPEG 1200 px, WebP compris) puis `embarquerPhoto` (photo posée, sinon relais) ; relais et acm/donnees résolvent les URL relatives de nos annonces sur `annonces.siteUrl`.
+`fermerModale` fait `history.back()` si l'état est le sien. Assets `?v=20`.
+**Commission d'évaluation (27/09)** : Kadimestim (repo benoitrempenault/kadimestim,
+Firebase) refait dans le parcours. Tables `crm_parcours_commission` (estimation_id,
+token unique, ferme) et `crm_parcours_avis` (nom, prix_min, prix_max, note, ip).
+Routes membre (périmètre) : `GET /crm/parcours/:id/commission` {ouvert, ferme, lien,
+avis, groupes, tiers}, `POST …/commission/ouvrir` (jeton randToken(24) gardé, même
+lien ensuite, rouvre si close), `POST …/commission/fermer`, `DELETE …/commission/avis/:aid`.
+Public : `GET /public/commission?t=` (bien : adresse, type, surface/terrain de
+l'ACM, photo et points forts du R2, conseiller, agence, nb_avis, ferme) et `POST`
+{nom, prix_min, prix_max, note} (min < max, ≤ 60 avis, 409 si close). Lien =
+`ADMIN_BASE` ou OFFRE_BASE avec /offre → /administration, + `/commission.html?t=`.
+`groupesDe` = fourchettes identiques (nb, notes) ; `tiersDe` = repli / raison /
+ambition sur les moyennes triées, tiers bas et haut = ⌊n/3⌋ (1 chacun si n = 2),
+médian = le reste (Kadimestim laissait le haut vide hors multiples de 3). Page
+publique `administration/commission.html` + `assets/js/commission.js` (sans compte,
+garde-fou localStorage « déjà répondu »). Admin : bouton « 🗳 Commission
+d'évaluation » sur l'étape ACM → `ouvrirCommission` (lien, Copier, WhatsApp wa.me,
+avis avec ✕, groupes, 3 fourchettes, Actualiser, Clore/Rouvrir, « Reporter dans le
+livret » → acm.commission = `lignesDepuisCommission` (groupes si ≤ 4, sinon tiers) +
+basse/prix/haute depuis repli/raison/ambition si vides, `commission_source`) ;
+`ouvrirAcm` pré-remplit les lignes depuis la commission tant qu'elles n'ont pas été
+saisies à la main. Assets admin `?v=21`. Photos du livret : `decoderPhoto` (canvas → JPEG 1200 px, WebP compris) puis `embarquerPhoto` (photo posée, sinon relais) ; relais et acm/donnees résolvent les URL relatives de nos annonces sur `annonces.siteUrl`.
 **Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
 bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la
 police Bugaki complète, non versionnée) ; le navigateur y écrit « Famille NOM » (ou

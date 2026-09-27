@@ -15,7 +15,7 @@
    séquence automatique (runEstimations) ne renvoie donc jamais un e-mail
    que le conseiller a déjà envoyé à la main.
    ========================================================================= */
-import { now, randId } from "./util.js";
+import { now, randId, randToken } from "./util.js";
 import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, genrePrenom, dossierVendu, adresseDossier } from "./crm.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -988,6 +988,105 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         lat: pos ? pos.lat : null, lng: pos ? pos.lon : null, jours: a.publicationDate ? Math.max(0, Math.round((Date.now() - Date.parse(a.publicationDate)) / 86400000)) : null, baisse: a.priceHasDecreased ? 1 : 0, dpe: a.energyClassification || "" };
     });
   }
+  /* ------------------- Commission d'évaluation (Kadimestim) ------------------ */
+  // Comme dans Kadimestim : les collègues reçoivent un lien, donnent une
+  // fourchette ; on groupe par fourchette identique et on calcule les tiers
+  // (repli = tiers bas, raison = tiers médian, ambition = tiers haut).
+  const groupesDe = (avis) => {
+    const map = new Map();
+    for (const a of [...avis].sort((x, y) => x.prix_min - y.prix_min || x.prix_max - y.prix_max)) {
+      const k = a.prix_min + "|" + a.prix_max;
+      if (!map.has(k)) map.set(k, { basse: a.prix_min, haute: a.prix_max, moyenne: Math.round((a.prix_min + a.prix_max) / 2), nb: 0, notes: [] });
+      const g = map.get(k); g.nb++; if (a.note) g.notes.push(a.note);
+    }
+    return [...map.values()];
+  };
+  const tiersDe = (avis) => {
+    const moys = avis.map((a) => (a.prix_min + a.prix_max) / 2).sort((x, y) => x - y);
+    // Tiers équilibrés (Kadimestim laissait le tiers haut vide dès que n n'était
+    // pas multiple de 3) : bas et haut = n/3 arrondi en dessous, le médian prend le reste.
+    const n = moys.length, t = n >= 3 ? Math.floor(n / 3) : (n === 2 ? 1 : 0);
+    const part = (l) => ({ nb: l.length, moyenne: l.length ? Math.round(l.reduce((s2, v) => s2 + v, 0) / l.length / 1000) * 1000 : 0, min: l.length ? Math.min(...l) : 0, max: l.length ? Math.max(...l) : 0 });
+    return { repli: part(moys.slice(0, t)), raison: part(moys.slice(t, n - t)), ambition: part(moys.slice(n - t)) };
+  };
+  const lienCommission = (token) => {
+    const base = (env.ADMIN_BASE || String(env.OFFRE_BASE || "").replace(/\/offre\/?$/, "/administration") || "").replace(/\/+$/, "");
+    return (base || "/administration") + "/commission.html?t=" + encodeURIComponent(token);
+  };
+  const avisDe = async (estId) => db.all("SELECT id, nom, prix_min, prix_max, note, created_at FROM crm_parcours_avis WHERE estimation_id = ? ORDER BY created_at", [estId]);
+  const vueCommission = async (row, estId) => {
+    const avis = await avisDe(estId);
+    return { ouvert: !!row, ferme: !!(row && row.ferme), lien: row ? lienCommission(row.token) : "", avis, groupes: groupesDe(avis), tiers: tiersDe(avis) };
+  };
+  app.get("/crm/parcours/:id/commission", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    const row = await db.get("SELECT * FROM crm_parcours_commission WHERE estimation_id = ?", [p.est.id]);
+    return c.json(await vueCommission(row, p.est.id));
+  });
+  // Ouvrir (ou rouvrir) : le lien reste le même tant que la commission existe.
+  app.post("/crm/parcours/:id/commission/ouvrir", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    let row = await db.get("SELECT * FROM crm_parcours_commission WHERE estimation_id = ?", [p.est.id]);
+    if (!row) {
+      row = { estimation_id: p.est.id, agency_id: ctx.agency.id, token: randToken(24), ferme: 0, created_at: now() };
+      await db.run("INSERT INTO crm_parcours_commission (estimation_id, agency_id, token, ferme, created_at) VALUES (?, ?, ?, 0, ?)", [row.estimation_id, row.agency_id, row.token, row.created_at]);
+    } else if (row.ferme) { await db.run("UPDATE crm_parcours_commission SET ferme = 0 WHERE estimation_id = ?", [p.est.id]); row.ferme = 0; }
+    return c.json(await vueCommission(row, p.est.id));
+  });
+  app.post("/crm/parcours/:id/commission/fermer", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    await db.run("UPDATE crm_parcours_commission SET ferme = 1 WHERE estimation_id = ?", [p.est.id]);
+    return c.json(await vueCommission(await db.get("SELECT * FROM crm_parcours_commission WHERE estimation_id = ?", [p.est.id]), p.est.id));
+  });
+  app.delete("/crm/parcours/:id/commission/avis/:aid", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    await db.run("DELETE FROM crm_parcours_avis WHERE id = ? AND estimation_id = ?", [c.req.param("aid"), p.est.id]);
+    return c.json(await vueCommission(await db.get("SELECT * FROM crm_parcours_commission WHERE estimation_id = ?", [p.est.id]), p.est.id));
+  });
+  // La page publique du collègue : le bien, puis sa fourchette.
+  const commissionPublique = async (c) => {
+    const t = String(c.req.query("t") || "").trim();
+    if (!/^[A-Za-z0-9_-]{16,80}$/.test(t)) return { resp: err(c, 400, "Lien invalide.") };
+    const row = await db.get("SELECT * FROM crm_parcours_commission WHERE token = ?", [t]);
+    if (!row) return { resp: err(c, 404, "Ce lien ne correspond à aucune commission d'évaluation.") };
+    const est = await db.get("SELECT * FROM crm_estimations WHERE id = ? AND agency_id = ?", [row.estimation_id, row.agency_id]);
+    if (!est) return { resp: err(c, 404, "Fiche disparue.") };
+    return { row, est };
+  };
+  app.get("/public/commission", async (c) => {
+    const { row, est, resp } = await commissionPublique(c); if (!row) return resp;
+    const px = (await db.get("SELECT civilite, prenom, cp, type_bien FROM crm_parcours WHERE estimation_id = ?", [est.id])) || {};
+    const r2 = (await db.get("SELECT photo, points_forts FROM crm_parcours_r2 WHERE estimation_id = ?", [est.id])) || {};
+    let acm = {}; try { acm = JSON.parse(((await db.get("SELECT data FROM crm_parcours_acm WHERE estimation_id = ?", [est.id])) || {}).data || "{}"); } catch { acm = {}; }
+    const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [row.agency_id]);
+    const ag = (await getReglages(db, agency)).agence;
+    const nb = (await db.get("SELECT COUNT(*) AS n FROM crm_parcours_avis WHERE estimation_id = ?", [est.id])).n;
+    return c.json({ ferme: !!row.ferme, nb_avis: nb, agence: ag.nom || (agency && agency.name) || "",
+      bien: { adresse: est.adresse || "", cp: px.cp || "", ville: est.ville || "", type: px.type_bien === "appartement" ? "Appartement" : "Maison", surface: acm.surface || null, terrain: acm.terrain || null, points_forts: r2.points_forts || "", photo: r2.photo || "", conseiller: est.conseiller || "" } });
+  });
+  app.post("/public/commission", async (c) => {
+    const { row, est, resp } = await commissionPublique(c); if (!row) return resp;
+    if (row.ferme) return err(c, 409, "Cette commission est close : le conseiller a arrêté les avis.");
+    const b = await c.req.json().catch(() => null);
+    if (!b) return err(c, 400, "Corps JSON attendu.");
+    const prixMin = Math.round(Number(b.prix_min)), prixMax = Math.round(Number(b.prix_max));
+    if (!Number.isFinite(prixMin) || !Number.isFinite(prixMax) || prixMin < 1000 || prixMax <= prixMin || prixMax > 100000000) return err(c, 400, "Fourchette invalide : le prix bas doit être inférieur au prix haut.");
+    const nb = (await db.get("SELECT COUNT(*) AS n FROM crm_parcours_avis WHERE estimation_id = ?", [est.id])).n;
+    if (nb >= 60) return err(c, 429, "Assez d'avis pour cette commission.");
+    const ip = c.req.header("CF-Connecting-IP") || c.req.header("X-Forwarded-For") || "";
+    const id = randId("av");
+    await db.run("INSERT INTO crm_parcours_avis (id, agency_id, estimation_id, nom, prix_min, prix_max, note, ip, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [id, row.agency_id, est.id, strip(b.nom, 80), prixMin, prixMax, strip(b.note, 400), String(ip).slice(0, 60), now()]);
+    return c.json({ ok: true, id, nb_avis: nb + 1 });
+  });
   const jsonArrLocal = (v) => { try { const a = Array.isArray(v) ? v : JSON.parse(v || "[]"); return Array.isArray(a) ? a : []; } catch { return []; } };
   // Les photos des annonces et des mandats, relayées pour le livret (le
   // navigateur ne peut pas les lire directement) : seulement les URL connues

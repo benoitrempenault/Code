@@ -2428,7 +2428,7 @@
           : e.cle === "guide-r2"
           ? '<button class="btn btn-or" data-guide="r2" title="Photo du bien, points forts, objections, environnement, ventes autour, page du conseiller">🖨 Guide R2 personnalisé</button>'
           : e.cle === "acm"
-          ? '<button class="btn btn-or" data-guide="acm" title="Ventes DVF et de l\'agence, biens en concurrence, commission d\'évaluation, acheteurs, financement">🖨 Livret prix (ACM)</button>'
+          ? '<button class="btn" data-commission="1" title="Le lien à partager aux collègues : chacun donne sa fourchette, le livret reprend les résultats">🗳 Commission d\'évaluation</button><button class="btn btn-or" data-guide="acm" title="Ventes DVF et de l\'agence, biens en concurrence, commission d\'évaluation, acheteurs, financement">🖨 Livret prix (ACM)</button>'
           : '<button class="btn" disabled title="Le modèle du document arrive : il sera imprimable ici">🖨 Modèle à venir</button>') +
           '<button class="btn" data-cocher="' + e.cle + '">' + (f ? "↩ Décocher" : "✓ Fait") + "</button>";
       return '<div class="etape' + (f ? " faite" : "") + '"><span class="num">' + (f ? "✓" : i + 1) + '</span><div class="titre"><strong>' + escH(e.titre) + "</strong>" +
@@ -2474,6 +2474,7 @@
       catch (e) { toast(e.message, true); }
     });
     document.querySelectorAll("[data-mail]").forEach((b) => b.addEventListener("click", () => preparerMailParcours(id, b.dataset.mail, p)));
+    document.querySelectorAll("[data-commission]").forEach((b) => b.addEventListener("click", () => ouvrirCommission(id, p)));
     document.querySelectorAll("[data-guide]").forEach((b) => b.addEventListener("click", async () => {
       if (b.dataset.guide === "r2") { ouvrirGuideR2(id, p); return; }
       if (b.dataset.guide === "acm") { ouvrirAcm(id, p); return; }
@@ -2961,7 +2962,10 @@
       escH(fmtPrix(a.prix)) + "</strong> · " + escH(a.titre || "") + (a.ville ? " · " + escH(a.ville) : "") + '<br /><span class="petit">' +
       escH([a.adresse || "", a.pieces ? a.pieces + " pièces" : "", a.surface ? Math.round(a.surface) + " m²" : "", a.terrain ? "terrain " + Math.round(a.terrain) + " m²" : "", fmtM2(a), a.dist != null ? "à " + Math.round(a.dist) + " m" : "", a.jours ? "en vente depuis " + a.jours + " j" : "", a.baisse > 0 ? "baisse de " + fmtPrix(a.baisse) : "", a.source === "amepi" ? "ALFA · " + (a.agence || "confrère") : a.source === "portail" ? "vu sur " + (a.portail || "un portail") : a.source === "bienici" ? "Bien'ici · " + (a.agence || "agence") + (a.quartier ? " · " + a.quartier : "") : "notre agence"].filter(Boolean).join(" · ")) +
       (a.url ? ' · <a href="' + escH(a.url) + '" target="_blank" rel="noopener">voir l\'annonce ↗</a>' : "") + "</span></span></label>";
-    const commission = (acm.commission && acm.commission.length ? acm.commission : [{ nb: "", basse: "", haute: "" }, { nb: "", basse: "", haute: "" }, { nb: "", basse: "", haute: "" }]);
+    let comAvis = null;
+    try { comAvis = await api("/crm/parcours/" + id + "/commission"); } catch { comAvis = null; }
+    const depuisCommission = comAvis && (comAvis.avis || []).length && (!acm.commission || !acm.commission.length || acm.commission_source === "commission") ? lignesDepuisCommission(comAvis) : null;
+    const commission = (depuisCommission && depuisCommission.length ? depuisCommission : acm.commission && acm.commission.length ? acm.commission : [{ nb: "", basse: "", haute: "" }, { nb: "", basse: "", haute: "" }, { nb: "", basse: "", haute: "" }]);
     const ach = donnees.acheteurs || [];
     const budgets = ach.map((a) => a.budget_max).filter((b) => b > 0).sort((a, b) => a - b);
     const nbAu = (prix) => (prix ? budgets.filter((b) => b >= prix).length : null);
@@ -2989,7 +2993,8 @@
       '<label>Prix<input id="acm-m-prix" type="number" step="1000" /></label><label>Surface (m²)<input id="acm-m-surface" type="number" /></label><label>Pièces<input id="acm-m-pieces" type="number" /></label><label>Terrain (m²)<input id="acm-m-terrain" type="number" /></label>' +
       '<label>Portail / agence<input id="acm-m-portail" placeholder="Leboncoin — ORPI" /></label><label>Lien de l\'annonce<input id="acm-m-url" placeholder="https://…" /></label></div>' +
       '<div class="barre"><button class="btn" id="acm-m-ajouter">Ajouter à la liste</button></div></details>' +
-      '<h3 style="margin:14px 0 4px;">3. Commission d\'évaluation <span class="petit">(nombre de conseillers par fourchette, net vendeur)</span></h3>' +
+      '<h3 style="margin:14px 0 4px;">3. Commission d\'évaluation <span class="petit">(' + (comAvis && (comAvis.avis || []).length ? comAvis.avis.length + " avis de collègues reçus, lignes pré-remplies — " : "") + 'nombre de conseillers par fourchette, net vendeur)</span></h3>' +
+      '<div class="barre"><button class="btn" id="acm-commission" type="button">🗳 ' + (comAvis && comAvis.ouvert ? "Voir la commission" : "Lancer la commission d\'évaluation") + "</button></div>" +
       '<div id="acm-commission">' + commission.map((l, i) => '<div class="grille-champs" style="margin:2px 0;"><label>Conseillers<input type="number" min="0" data-com-nb="' + i + '" value="' + escH(l.nb) + '" /></label><label>De<input type="number" step="1000" data-com-basse="' + i + '" value="' + escH(l.basse) + '" /></label><label>À<input type="number" step="1000" data-com-haute="' + i + '" value="' + escH(l.haute) + '" /></label></div>').join("") + "</div>" +
       '<h3 style="margin:14px 0 4px;">4. Les réactions des acheteurs du moment</h3>' +
       '<p class="petit" id="acm-ach-resume"></p>' +
@@ -3003,6 +3008,7 @@
       '<p class="petit" id="acm-etat"></p>';
     $("modale-pied").innerHTML = '<button class="btn" id="acm-retour">Retour</button><button class="btn" id="acm-save">Enregistrer</button><button class="btn btn-or" id="acm-generer">🖨 Générer le livret</button>';
     $("acm-retour").addEventListener("click", () => { document.querySelector(".modale").classList.remove("large"); ouvrirParcours(id); });
+    $("acm-commission").addEventListener("click", () => { document.querySelector(".modale").classList.remove("large"); ouvrirCommission(id, p); });
     $("acm-ach-resume").textContent = resumeAch();
     $("acm-conc").addEventListener("change", async (ev) => {
       const inp = ev.target; if (!inp.matches || !inp.matches("[data-photo]")) return;
@@ -3047,6 +3053,60 @@
         documentPret(id, "Livret prix prêt", urlAcm, window.__dernierGuide && window.__dernierGuide.fichier);
       } catch (e) { toast(e.message, true); etat.textContent = ""; btn.disabled = false; }
     });
+  }
+  /* ------------------------ Commission d'évaluation ------------------------ */
+  // Comme Kadimestim, dans le parcours : un lien pour les collègues, leurs
+  // fourchettes en direct, les tiers repli / raison / ambition, et un clic pour
+  // reporter le tout dans le livret prix.
+  const lignesDepuisCommission = (com) => {
+    const g = com.groupes || [];
+    if (g.length && g.length <= 4) return g.map((x) => ({ nb: x.nb, basse: x.basse, haute: x.haute }));
+    const t = com.tiers || {};
+    return [["repli", t.repli], ["raison", t.raison], ["ambition", t.ambition]].filter(([, x]) => x && x.nb).map(([, x]) => ({ nb: x.nb, basse: Math.round(x.min / 1000) * 1000, haute: Math.round(x.max / 1000) * 1000 }));
+  };
+  async function ouvrirCommission(id, p) {
+    let com;
+    try { com = await api("/crm/parcours/" + id + "/commission"); if (!com.ouvert) com = await api("/crm/parcours/" + id + "/commission/ouvrir", { json: {} }); }
+    catch (e) { toast(e.message, true); return; }
+    const rendre = () => {
+      const t = com.tiers || {}, tiers = [["Prix de repli", "moyenne du tiers bas", t.repli], ["Prix de raison", "moyenne du tiers médian", t.raison], ["Prix d'ambition", "moyenne du tiers haut", t.ambition]];
+      const texteWa = "Commission d'évaluation — " + [p.type_bien === "appartement" ? "appartement" : "maison", p.adresse, p.ville].filter(Boolean).join(" ") + " : donnez votre fourchette de prix ici → " + com.lien;
+      $("modale-corps").innerHTML =
+        '<p class="aide">Partagez ce lien aux collègues (SMS, WhatsApp, mail) : chacun ouvre le bien et donne sa fourchette, sans compte. Les réponses arrivent ici' + (com.ferme ? " — <strong>commission close</strong>" : "") + ".</p>" +
+        '<div class="barre"><input id="com-lien" readonly value="' + escH(com.lien) + '" style="flex:1; min-width:200px;" /><button class="btn" id="com-copier">Copier</button>' +
+        '<a class="btn" href="https://wa.me/?text=' + encodeURIComponent(texteWa) + '" target="_blank" rel="noopener">💬 WhatsApp</a></div>' +
+        '<h3 style="margin:16px 0 6px;">Avis reçus <span class="puce">' + (com.avis || []).length + "</span></h3>" +
+        ((com.avis || []).length
+          ? '<div class="tableau-cadre"><table><thead><tr><th>Conseiller</th><th>Prix bas</th><th>Prix haut</th><th>Moyenne</th><th>Remarque</th><th></th></tr></thead><tbody>' +
+            com.avis.map((a) => "<tr><td>" + escH(a.nom || "—") + "</td><td>" + escH(fmtPrix(a.prix_min)) + "</td><td>" + escH(fmtPrix(a.prix_max)) + "</td><td>" + escH(fmtPrix(Math.round((a.prix_min + a.prix_max) / 2))) + '</td><td class="petit">' + escH(a.note || "") + '</td><td><button type="button" class="btn" data-av="' + escH(a.id) + '" title="Retirer cet avis" style="padding:2px 8px;">✕</button></td></tr>').join("") + "</tbody></table></div>"
+          : '<p class="petit">📬 En attente des fourchettes des collègues… (actualisez pour voir les nouvelles).</p>') +
+        ((com.groupes || []).length ? '<h3 style="margin:16px 0 6px;">Par fourchette</h3><div class="tableau-cadre"><table><thead><tr><th>Prix bas</th><th>Prix haut</th><th>Moyenne</th><th>Nb de conseillers</th></tr></thead><tbody>' +
+          com.groupes.map((g) => "<tr><td>" + escH(fmtPrix(g.basse)) + "</td><td>" + escH(fmtPrix(g.haute)) + "</td><td>" + escH(fmtPrix(g.moyenne)) + '</td><td><span class="puce">' + g.nb + "</span></td></tr>").join("") + "</tbody></table></div>" : "") +
+        ((com.avis || []).length ? '<h3 style="margin:16px 0 6px;">Les 3 fourchettes de prix</h3><div class="grille-champs">' +
+          tiers.map(([lib, sous, x]) => '<div class="carte" style="padding:12px;"><div class="petit">' + escH(lib) + " · " + escH(sous) + '</div><div style="font-size:22px; font-weight:700; margin:4px 0;">' + escH(x && x.nb ? fmtPrix(x.moyenne) : "—") + '</div><div class="petit">' + (x && x.nb ? x.nb + " avis · de " + escH(fmtPrix(Math.round(x.min))) + " à " + escH(fmtPrix(Math.round(x.max))) : "pas assez d'avis") + "</div></div>").join("") + "</div>" : "");
+      $("modale-pied").innerHTML = '<button class="btn" id="com-retour">Retour</button><button class="btn" id="com-actualiser">⟳ Actualiser</button>' +
+        '<button class="btn" id="com-clore">' + (com.ferme ? "Rouvrir" : "Clore") + "</button>" +
+        '<button class="btn btn-or" id="com-reporter"' + ((com.avis || []).length ? "" : " disabled") + ">→ Reporter dans le livret prix</button>";
+      $("com-retour").addEventListener("click", () => ouvrirParcours(id));
+      $("com-copier").addEventListener("click", async () => { try { await navigator.clipboard.writeText(com.lien); toast("Lien copié"); } catch { $("com-lien").select(); toast("Sélectionnez le lien et copiez-le"); } });
+      $("com-actualiser").addEventListener("click", async () => { try { com = await api("/crm/parcours/" + id + "/commission"); rendre(); } catch (e) { toast(e.message, true); } });
+      $("com-clore").addEventListener("click", async () => { try { com = await api("/crm/parcours/" + id + "/commission/" + (com.ferme ? "ouvrir" : "fermer"), { json: {} }); rendre(); } catch (e) { toast(e.message, true); } });
+      document.querySelectorAll("[data-av]").forEach((b) => b.addEventListener("click", async () => { try { com = await api("/crm/parcours/" + id + "/commission/avis/" + b.dataset.av, { method: "DELETE" }); rendre(); } catch (e) { toast(e.message, true); } }));
+      $("com-reporter").addEventListener("click", async () => {
+        try {
+          const acm = (await api("/crm/parcours/" + id + "/acm")).acm || {};
+          const t2 = com.tiers || {};
+          const maj = { ...acm, commission: lignesDepuisCommission(com), commission_source: "commission" };
+          if (t2.repli && t2.repli.nb && !acm.basse) maj.basse = t2.repli.moyenne;
+          if (t2.raison && t2.raison.nb && !acm.prix) maj.prix = t2.raison.moyenne;
+          if (t2.ambition && t2.ambition.nb && !acm.haute) maj.haute = t2.ambition.moyenne;
+          await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: maj });
+          toast("Commission reportée dans le livret prix (" + maj.commission.length + " ligne(s))");
+        } catch (e) { toast(e.message, true); }
+      });
+    };
+    ouvrirModale("🗳 Commission d'évaluation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), "", "");
+    rendre();
   }
   let livretCache = null;
   async function genererLivretPrix(p, acm, donnees) {

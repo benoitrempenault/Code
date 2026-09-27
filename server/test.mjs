@@ -3511,6 +3511,24 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   for (const cid of [prop1.json.contact_id, propMemeNom.json.contact_id]) await callR("/crm/parcours/" + pxId + "/proprietaires/" + cid, { headers: authP, method: "DELETE" });
   const apSeul = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
   ok((await callR("/crm/parcours/" + pxId, { headers: authP })).json.proprietaires.length === 1 && /madame, monsieur MOUNEYRES,\n/.test(apSeul.texte) && apSeul.destinataires.length === 1, "retirés, le mail redevient celui d'un seul foyer");
+  // Commission d'évaluation : lien public, avis des collègues, groupes et tiers comme Kadimestim, clôture.
+  const comOuv = await callR("/crm/parcours/" + pxId + "/commission/ouvrir", { headers: authP, body: {} });
+  const jeton = new URL(comOuv.json.lien, "http://x").searchParams.get("t");
+  ok(comOuv.status === 200 && comOuv.json.ouvert && /\/administration\/commission\.html\?t=/.test(comOuv.json.lien) && jeton && jeton.length >= 20 && comOuv.json.avis.length === 0, "la commission s'ouvre avec un lien public (" + comOuv.json.lien.slice(0, 60) + "…)");
+  ok((await callR("/crm/parcours/" + pxId + "/commission/ouvrir", { headers: authP, body: {} })).json.lien === comOuv.json.lien, "rouvrir garde le même lien");
+  ok((await callR("/crm/parcours/" + pxId + "/commission", { headers: authR })).status === 404, "la commission d'un parcours hors périmètre est introuvable");
+  const pub = await callR("/public/commission?t=" + jeton, {});
+  ok(pub.status === 200 && ["Maison", "Appartement"].includes(pub.json.bien.type) && /Mandat Confiance|Vignes/.test(pub.json.bien.adresse) && pub.json.nb_avis === 0 && !pub.json.ferme, "le collègue voit le bien sans session (" + JSON.stringify(pub.json.bien).slice(0, 120) + ")");
+  ok((await callR("/public/commission?t=inconnu-inconnu-inconnu", {})).status === 404 && (await callR("/public/commission?t=x", {})).status === 400, "lien inconnu ou mal formé refusé");
+  for (const [nom, mn, mx] of [["Teddy", 300000, 320000], ["Marine", 310000, 330000], ["Rémi", 310000, 330000], ["Adeline", 320000, 340000]]) ok((await callR("/public/commission?t=" + jeton, { body: { nom, prix_min: mn, prix_max: mx, note: nom === "Rémi" ? "belle parcelle" : "" } })).status === 200, "avis de " + nom + " accepté");
+  ok((await callR("/public/commission?t=" + jeton, { body: { nom: "X", prix_min: 320000, prix_max: 300000 } })).status === 400, "une fourchette inversée est refusée");
+  const comVue = (await callR("/crm/parcours/" + pxId + "/commission", { headers: authP })).json;
+  ok(comVue.avis.length === 4 && comVue.groupes.length === 3 && comVue.groupes[1].nb === 2 && comVue.groupes[1].notes[0] === "belle parcelle" && comVue.tiers.raison.nb === 2 && comVue.tiers.repli.moyenne === 310000 && comVue.tiers.ambition.moyenne === 330000,
+     "4 avis → 3 fourchettes groupées (2 conseillers sur 310–330 k) et les tiers repli / raison / ambition (" + JSON.stringify(comVue.tiers) + ")");
+  const supAv = await callR("/crm/parcours/" + pxId + "/commission/avis/" + comVue.avis[3].id, { headers: authP, method: "DELETE" });
+  ok(supAv.status === 200 && supAv.json.avis.length === 3, "un avis se retire");
+  const ferme = await callR("/crm/parcours/" + pxId + "/commission/fermer", { headers: authP, body: {} });
+  ok(ferme.json.ferme && (await callR("/public/commission?t=" + jeton, { body: { nom: "Tard", prix_min: 300000, prix_max: 310000 } })).status === 409 && (await callR("/public/commission?t=" + jeton, {})).json.ferme, "close, la commission n'accepte plus d'avis");
   // Effacer un parcours : dans son périmètre seulement ; la fiche disparaît de Studio Estimation, le contact reste.
   const pxSup = (await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "EFFACE", prenom: "Paul", adresse: "1 rue Gommée", ville: "Pessac" } })).json;
   ok((await callR("/crm/parcours/" + pxSup.id, { headers: authR, method: "DELETE" })).status === 404, "un autre conseiller ne peut pas effacer ce parcours");

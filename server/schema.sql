@@ -962,3 +962,26 @@ CREATE TABLE IF NOT EXISTS crm_amepi_photos (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (agency_id, id)
 );
+-- Commission d'évaluation d'un parcours (comme Kadimestim) : un lien public
+-- partagé aux collègues, chacun envoie sa fourchette ; le livret prix en
+-- tire ses lignes (nb de conseillers par fourchette, tiers repli / raison /
+-- ambition).
+CREATE TABLE IF NOT EXISTS crm_parcours_commission (
+  estimation_id TEXT PRIMARY KEY,             -- crm_estimations.id
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  token         TEXT NOT NULL UNIQUE,         -- jeton du lien public
+  ferme         INTEGER NOT NULL DEFAULT 0,   -- 1 = plus d'avis acceptés
+  created_at    INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS crm_parcours_avis (
+  id            TEXT PRIMARY KEY,             -- av_xxxxxxxx
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  estimation_id TEXT NOT NULL,
+  nom           TEXT NOT NULL DEFAULT '',
+  prix_min      INTEGER NOT NULL,
+  prix_max      INTEGER NOT NULL,
+  note          TEXT NOT NULL DEFAULT '',
+  ip            TEXT NOT NULL DEFAULT '',
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_parcours_avis_est ON crm_parcours_avis(estimation_id, created_at);

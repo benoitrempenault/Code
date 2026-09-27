@@ -119,6 +119,32 @@ export default async function () {
     ok(guide2.pages === 20 && /Vendons ensemble/.test(guide2.titre) && /MOUNEYRES/.test(guide2.titre) && guide2.octets > 1000000,
       "le guide R2 fait 20 pages au nom du client, cartes et polices embarquées (" + JSON.stringify(guide2) + ")");
     await garderGuide(page, guide2.octets, "guide-r2-smoke.pdf");
+    // La commission d'évaluation : le lien, un collègue qui vote depuis la page publique, le report dans le livret.
+    await page.click("[data-commission]");
+    await page.waitForSelector("#com-lien", { timeout: 10000 });
+    const lienCom = await page.inputValue("#com-lien");
+    ok(/commission\.html\?t=/.test(lienCom), "la commission donne un lien à partager (" + lienCom.slice(0, 50) + "…)");
+    // Le collègue, sur la page publique (même navigateur : on y va, on vote, on revient).
+    await page.goto(lienCom.replace(/^https?:\/\/[^/]+\/(Code\/)?/, "http://localhost:8014/"));
+    await page.waitForSelector("#av-envoyer", { timeout: 10000 });
+    ok(/Maison/.test(await page.textContent("#bien")) && /SAINT AUBIN|Mandat Confiance/.test(await page.textContent("#bien")), "le collègue voit le bien sans se connecter");
+    await page.fill("#av-nom", "Marine Zamora"); await page.fill("#av-min", "310000"); await page.fill("#av-max", "330000"); await page.fill("#av-note", "Belle parcelle");
+    await page.click("#av-envoyer");
+    await page.waitForSelector("#merci:not([hidden])", { timeout: 10000 });
+    ok(/1 avis/.test(await page.textContent("#merci-detail")), "sa fourchette est transmise");
+    await ouvrir(page, "/administration/", admin);
+    await page.waitForSelector("#app:not([hidden])", { timeout: 8000 });
+    await page.click('[data-onglet="parcours"]');
+    await page.waitForFunction(() => document.querySelector("#table-parcours tr[data-parcours]"), null, { timeout: 8000 });
+    await page.click("#table-parcours tr[data-parcours]");
+    await page.waitForSelector("[data-commission]", { timeout: 8000 });
+    await page.click("[data-commission]");
+    await page.waitForFunction(() => /Marine Zamora/.test(document.getElementById("modale-corps")?.textContent || ""), null, { timeout: 10000 });
+    ok(/310 000/.test(await page.textContent("#modale-corps")) && /Belle parcelle/.test(await page.textContent("#modale-corps")), "le conseiller voit l'avis reçu, la fourchette groupée et les 3 fourchettes");
+    await page.click("#com-reporter");
+    await attendreToast(page, "reportée dans le livret");
+    await page.click("#com-retour");
+    await page.waitForSelector(".etapes", { timeout: 8000 });
     // Le livret prix : ventes DVF autour du bien, commission d'évaluation, financement → PDF.
     await page.click('[data-guide="acm"]');
     await page.waitForSelector("#acm-generer", { timeout: 20000 });
@@ -134,8 +160,8 @@ export default async function () {
     await page.click("#acm-m-ajouter");
     await attendreToast(page, "Bien ajouté");
     ok((await page.locator('[data-conc^="portail:"]:checked').count()) === 1, "un bien vu sur un portail s'ajoute à la main, coché");
+    ok(await page.inputValue('[data-com-nb="0"]') === "1" && await page.inputValue('[data-com-basse="0"]') === "310000", "le livret reprend la commission (1 conseiller sur 310–330 k)");
     await page.fill('[data-com-nb="0"]', "3"); await page.fill('[data-com-basse="0"]', "300000"); await page.fill('[data-com-haute="0"]', "320000");
-    await page.fill('[data-com-nb="1"]', "6"); await page.fill('[data-com-basse="1"]', "310000"); await page.fill('[data-com-haute="1"]', "330000");
     ok(/acheteur/.test(await page.textContent("#acm-ach-resume")), "la fenêtre montre le résumé des acheteurs par niveau de prix");
     await page.check("#acm-ach-inclure"); await page.fill("#acm-ach-texte", "Les visiteurs apprécient le jardin, réserves sur la route.");
     await page.click("#acm-generer");
