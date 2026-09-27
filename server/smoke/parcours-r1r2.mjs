@@ -197,6 +197,13 @@ export default async function () {
     await page.click("#acm-com-ajouter");
     await page.click("#acm-com-lignes .ligne-com:last-child [data-com-suppr]");
     ok((await page.locator(".ligne-com").count()) === nbLignesAvant + 1, "une ligne de commission s'ajoute et une autre se retire depuis le livret (" + (nbLignesAvant + 1) + " lignes)");
+    // La ligne ajoutée reste quand on quitte et rouvre le livret (enregistrement automatique).
+    await page.click("#acm-retour");
+    await page.waitForSelector(".etapes", { timeout: 8000 });
+    await page.click('[data-guide="acm"]');
+    await page.waitForSelector("#acm-generer", { timeout: 20000 });
+    ok((await page.locator(".ligne-com").count()) === nbLignesAvant + 1 && await page.inputValue('[data-com-nb="1"]') === "2" && await page.inputValue('[data-com-basse="1"]') === "330000" && await page.inputValue('[data-com-nb="0"]') === "3",
+      "les lignes de commission retouchées sont retrouvées à la réouverture (" + (await page.locator(".ligne-com").count()) + " lignes)");
     ok(/acheteur/.test(await page.textContent("#acm-ach-resume")), "la fenêtre montre le résumé des acheteurs par niveau de prix");
     await page.check("#acm-ach-inclure"); await page.fill("#acm-ach-texte", "Les visiteurs apprécient le jardin, réserves sur la route.");
     await page.click("#acm-generer");

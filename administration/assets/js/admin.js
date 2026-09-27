@@ -3089,7 +3089,12 @@
       '<label>Durée (ans)<select id="acm-duree">' + [15, 20, 25].map((d) => '<option' + ((acm.duree || 25) === d ? " selected" : "") + ">" + d + "</option>").join("") + "</select></label></div>" +
       '<p class="petit" id="acm-etat"></p>';
     $("modale-pied").innerHTML = '<button class="btn" id="acm-retour">Retour</button><button class="btn" id="acm-save">Enregistrer</button><button class="btn btn-or" id="acm-generer">🖨 Générer le livret</button>';
-    $("acm-retour").addEventListener("click", () => { document.querySelector(".modale").classList.remove("large"); ouvrirParcours(id); });
+    $("acm-retour").addEventListener("click", async () => { try { await sauver(); } catch { /* on revient quand même */ } document.querySelector(".modale").classList.remove("large"); ouvrirParcours(id); });
+    // Toute saisie du livret s'enregistre d'elle-même (comme le guide R2) : une
+    // ligne de commission ajoutée reste là quand on rouvre.
+    let autoSauve = 0;
+    $("modale-corps").addEventListener("change", () => { clearTimeout(autoSauve); autoSauve = setTimeout(() => sauver().catch(() => {}), 500); });
+    $("acm-com-lignes").addEventListener("click", (e) => { if (e.target.closest("[data-com-suppr]")) { clearTimeout(autoSauve); autoSauve = setTimeout(() => sauver().catch(() => {}), 500); } });
     $("acm-commission").addEventListener("click", () => { document.querySelector(".modale").classList.remove("large"); ouvrirCommission(id, p); });
     $("acm-com-ajouter").addEventListener("click", () => { $("acm-com-lignes").insertAdjacentHTML("beforeend", ligneCom({ nb: "", basse: "", haute: "" }, comIdx++)); const der = $("acm-com-lignes").lastElementChild.querySelector("input"); if (der) der.focus(); });
     $("acm-com-lignes").addEventListener("click", (e) => { const b = e.target.closest("[data-com-suppr]"); if (b) b.closest(".ligne-com").remove(); });
@@ -3120,8 +3125,11 @@
     const lire = () => {
       const num = (k) => { const v = parseFloat($(k).value); return Number.isFinite(v) ? v : null; };
       const cochees = (sel, liste) => [...document.querySelectorAll(sel)].filter((x) => x.checked).map((x) => liste.find((v) => v.id === x.dataset.vente || v.id === x.dataset.conc)).filter(Boolean);
-      const com = [...document.querySelectorAll("[data-com-nb]")].map((x) => { const i = x.dataset.comNb; return { nb: parseInt(x.value, 10) || 0, basse: parseFloat(document.querySelector('[data-com-basse="' + i + '"]').value) || 0, haute: parseFloat(document.querySelector('[data-com-haute="' + i + '"]').value) || 0 }; }).filter((l) => l.nb > 0);
-      return { ...acm, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes), concurrence: cochees("[data-conc]", candidatsConc),
+      const com = [...document.querySelectorAll("[data-com-nb]")].map((x) => { const i = x.dataset.comNb; return { nb: parseInt(x.value, 10) || 0, basse: parseFloat(document.querySelector('[data-com-basse="' + i + '"]').value) || 0, haute: parseFloat(document.querySelector('[data-com-haute="' + i + '"]').value) || 0 }; }).filter((l) => l.nb > 0 || l.basse || l.haute);
+      // Des lignes retouchées à la main ne sont plus écrasées par la commission à la réouverture.
+      const auto = depuisCommission || [];
+      const source = com.length === auto.length && com.every((l, i) => l.nb === auto[i].nb && l.basse === auto[i].basse && l.haute === auto[i].haute) ? acm.commission_source : "main";
+      return { ...acm, commission_source: source, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes), concurrence: cochees("[data-conc]", candidatsConc),
         commission: com, acheteurs_inclure: $("acm-ach-inclure").checked, acheteurs_texte: $("acm-ach-texte").value.trim(), acheteurs_n: ach.length, acheteurs_budgets: budgets,
         taux: num("acm-taux") ?? 3.9, assurance: num("acm-assurance") ?? 0.34, apport: num("acm-apport") || 0, duree: parseInt($("acm-duree").value, 10) || 25 };
     };
@@ -3375,7 +3383,7 @@
       com.forEach((l, j) => {
         const y = 290 + j * 30;
         if (j % 2 === 0) rect(pg, G, y - 16, L, 26, { color: sable });
-        ecrireCentre(pg, String(l.nb), G + L * 0.25, y, 12, fS, noir);
+        ecrireCentre(pg, l.nb ? String(l.nb) : "—", G + L * 0.25, y, 12, fS, noir);
         ecrireCentre(pg, fmtPrix(l.basse) + "  –  " + fmtPrix(l.haute), G + L * 0.72, y, 12, fS, noir);
       });
       const total = com.reduce((n, l) => n + (l.nb || 0), 0);
