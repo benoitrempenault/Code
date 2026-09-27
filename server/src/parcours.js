@@ -1070,7 +1070,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const ag = (await getReglages(db, agency)).agence;
     const nb = (await db.get("SELECT COUNT(*) AS n FROM crm_parcours_avis WHERE estimation_id = ?", [est.id])).n;
     return c.json({ ferme: !!row.ferme, nb_avis: nb, agence: ag.nom || (agency && agency.name) || "",
-      bien: { adresse: est.adresse || "", cp: px.cp || "", ville: est.ville || "", type: px.type_bien === "appartement" ? "Appartement" : "Maison", surface: acm.surface || null, terrain: acm.terrain || null, points_forts: r2.points_forts || "", photo: r2.photo || "", conseiller: est.conseiller || "" } });
+      bien: { adresse: est.adresse || "", cp: px.cp || "", ville: est.ville || "", type: px.type_bien === "appartement" ? "Appartement" : "Maison", surface: acm.surface || null, terrain: acm.terrain || null, chambres: acm.chambres || null, piece_vie: acm.piece_vie || null, points_forts: r2.points_forts || "", photo: r2.photo || "", conseiller: est.conseiller || "", client: est.nom || "" } });
   });
   app.post("/public/commission", async (c) => {
     const { row, est, resp } = await commissionPublique(c); if (!row) return resp;

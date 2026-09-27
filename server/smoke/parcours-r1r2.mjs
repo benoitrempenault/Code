@@ -121,9 +121,11 @@ export default async function () {
     await garderGuide(page, guide2.octets, "guide-r2-smoke.pdf");
     // La commission d'évaluation : le lien, un collègue qui vote depuis la page publique, le report dans le livret.
     await page.click("[data-commission]");
-    await page.waitForSelector("#com-lien", { timeout: 10000 });
-    const lienCom = await page.inputValue("#com-lien");
-    ok(/commission\.html\?t=/.test(lienCom), "la commission donne un lien à partager (" + lienCom.slice(0, 50) + "…)");
+    await page.waitForSelector("#com-qr", { timeout: 10000 });
+    const lienCom = await page.$eval("#com-lien", (el) => el.value);
+    const qrSrc = await page.getAttribute("#com-qr", "src");
+    ok(/commission\.html\?t=/.test(lienCom) && /^data:image\/gif;base64,/.test(qrSrc || "") && !(await page.locator("#com-copier, #com-wa, a[href*='wa.me']").count()),
+      "la commission montre un QR code fabriqué sur place, sans lien à copier ni WhatsApp (" + lienCom.slice(0, 50) + "…)");
     // Le collègue, sur la page publique (même navigateur : on y va, on vote, on revient).
     await page.goto(lienCom.replace(/^https?:\/\/[^/]+\/(Code\/)?/, "http://localhost:8014/"));
     await page.waitForSelector("#av-envoyer", { timeout: 10000 });
@@ -139,12 +141,18 @@ export default async function () {
     await page.click("#table-parcours tr[data-parcours]");
     await page.waitForSelector("[data-commission]", { timeout: 8000 });
     await page.click("[data-commission]");
-    await page.waitForSelector("#com-lien", { timeout: 10000 });
+    await page.waitForSelector("#com-qr", { timeout: 10000 });
     await page.waitForFunction(() => /Belle parcelle/.test(document.getElementById("modale-corps")?.textContent || ""), null, { timeout: 10000 });
     const corpsCom = await page.textContent("#modale-corps");
-    ok(/310.000/.test(corpsCom) && /Belle parcelle/.test(corpsCom), "le conseiller voit l'avis reçu, la fourchette groupée et les 3 fourchettes (" + corpsCom.replace(/\s+/g, " ").slice(0, 400) + ")");
+    const raisonCalc = await page.inputValue('[data-tier="raison"][data-champ="montant"]');
+    ok(/310.000/.test(corpsCom) && /Belle parcelle/.test(corpsCom) && raisonCalc === "320000", "le conseiller voit l'avis reçu, la fourchette groupée et les 3 fourchettes calculées (raison " + raisonCalc + " ; " + corpsCom.replace(/\s+/g, " ").slice(0, 300) + ")");
+    // Le résultat se retouche à la main avant d'être reporté, comme dans Kadimestim.
+    await page.fill('[data-tier="raison"][data-champ="montant"]', "325000");
+    await page.fill('[data-tier="ambition"][data-champ="montant"]', "345000"); await page.fill('[data-tier="ambition"][data-champ="min"]', "340000"); await page.fill('[data-tier="ambition"][data-champ="max"]', "350000");
     await page.click("#com-reporter");
     await attendreToast(page, "reportée dans le livret");
+    await page.waitForSelector("#com-recalculer", { timeout: 8000 });
+    ok(await page.inputValue('[data-tier="raison"][data-champ="montant"]') === "325000", "les fourchettes retouchées restent après le report");
     await page.click("#com-retour");
     await page.waitForSelector(".etapes", { timeout: 8000 });
     // Le livret prix : ventes DVF autour du bien, commission d'évaluation, financement → PDF.
@@ -155,7 +163,8 @@ export default async function () {
     const pxListe = (await api("/crm/parcours", { headers: admin.auth })).json.parcours;
     const portailsRep = await api("/crm/parcours/" + pxListe[0].id + "/acm/portails", { headers: admin.auth });
     ok((await page.locator('[data-conc^="bienici:"]').count()) === 2 && /ORPI Smoke/.test(await page.textContent("#acm-conc")), "les biens Bien'ici de la commune sont proposés avec leur agence (" + JSON.stringify(portailsRep.json).slice(0, 300) + ")");
-    await page.fill("#acm-surface", "115"); await page.fill("#acm-terrain", "513");
+    ok(await page.inputValue("#acm-prix") === "325000" && await page.inputValue("#acm-haute") === "345000", "le livret reprend le prix de raison et d'ambition retouchés (" + await page.inputValue("#acm-prix") + " / " + await page.inputValue("#acm-haute") + ")");
+    await page.fill("#acm-surface", "115"); await page.fill("#acm-terrain", "513"); await page.fill("#acm-piece-vie", "38"); await page.fill("#acm-chambres", "4");
     await page.fill("#acm-prix", "330000"); await page.fill("#acm-basse", "320000"); await page.fill("#acm-haute", "340000");
     await page.click("details summary");
     await page.fill("#acm-m-adresse", "9 allée Lamartine, Le Taillan-Médoc"); await page.fill("#acm-m-prix", "339000"); await page.fill("#acm-m-surface", "91"); await page.fill("#acm-m-pieces", "4"); await page.fill("#acm-m-terrain", "377"); await page.fill("#acm-m-portail", "Leboncoin — ORPI");

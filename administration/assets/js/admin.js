@@ -2981,6 +2981,8 @@
       '<h3 style="margin:10px 0 4px;">Le bien</h3>' +
       '<div class="grille-champs"><label>Surface habitable (m²)<input id="acm-surface" type="number" step="1" value="' + escH(acm.surface || "") + '" /></label>' +
       '<label>Terrain (m²)<input id="acm-terrain" type="number" step="1" value="' + escH(acm.terrain || "") + '" /></label>' +
+      '<label>Pièce de vie (m²)<input id="acm-piece-vie" type="number" step="1" value="' + escH(acm.piece_vie || "") + '" /></label>' +
+      '<label>Chambres<input id="acm-chambres" type="number" step="1" min="0" value="' + escH(acm.chambres || "") + '" /></label>' +
       '<label>Prix estimé par le conseiller (net vendeur)<input id="acm-prix" type="number" step="1000" value="' + escH(acm.prix || "") + '" /></label>' +
       '<label>Fourchette basse<input id="acm-basse" type="number" step="1000" value="' + escH(acm.basse || "") + '" /></label>' +
       '<label>Fourchette haute<input id="acm-haute" type="number" step="1000" value="' + escH(acm.haute || "") + '" /></label></div>' +
@@ -3037,7 +3039,7 @@
       const num = (k) => { const v = parseFloat($(k).value); return Number.isFinite(v) ? v : null; };
       const cochees = (sel, liste) => [...document.querySelectorAll(sel)].filter((x) => x.checked).map((x) => liste.find((v) => v.id === x.dataset.vente || v.id === x.dataset.conc)).filter(Boolean);
       const com = [...document.querySelectorAll("[data-com-nb]")].map((x) => { const i = x.dataset.comNb; return { nb: parseInt(x.value, 10) || 0, basse: parseFloat(document.querySelector('[data-com-basse="' + i + '"]').value) || 0, haute: parseFloat(document.querySelector('[data-com-haute="' + i + '"]').value) || 0 }; }).filter((l) => l.nb > 0);
-      return { prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), ventes: cochees("[data-vente]", candidatsVentes), concurrence: cochees("[data-conc]", candidatsConc),
+      return { ...acm, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes), concurrence: cochees("[data-conc]", candidatsConc),
         commission: com, acheteurs_inclure: $("acm-ach-inclure").checked, acheteurs_texte: $("acm-ach-texte").value.trim(), acheteurs_n: ach.length, acheteurs_budgets: budgets,
         taux: num("acm-taux") ?? 3.9, assurance: num("acm-assurance") ?? 0.34, apport: num("acm-apport") || 0, duree: parseInt($("acm-duree").value, 10) || 25 };
     };
@@ -3064,17 +3066,33 @@
     const t = com.tiers || {};
     return [["repli", t.repli], ["raison", t.raison], ["ambition", t.ambition]].filter(([, x]) => x && x.nb).map(([, x]) => ({ nb: x.nb, basse: Math.round(x.min / 1000) * 1000, haute: Math.round(x.max / 1000) * 1000 }));
   };
+  const TIERS_LIB = [["repli", "Prix de repli", "moyenne du tiers bas"], ["raison", "Prix de raison", "moyenne du tiers médian"], ["ambition", "Prix d'ambition", "moyenne du tiers haut"]];
+  // Le QR code de la page de vote, fabriqué sur place (aucun service tiers ne voit le jeton).
+  const qrDataUrl = (texte) => {
+    try { const q = window.qrcode(0, "M"); q.addData(texte); q.make(); return q.createDataURL(6, 8); } catch { return ""; }
+  };
   async function ouvrirCommission(id, p) {
-    let com;
-    try { com = await api("/crm/parcours/" + id + "/commission"); if (!com.ouvert) com = await api("/crm/parcours/" + id + "/commission/ouvrir", { json: {} }); }
-    catch (e) { toast(e.message, true); return; }
+    let com, acm = {};
+    try {
+      com = await api("/crm/parcours/" + id + "/commission"); if (!com.ouvert) com = await api("/crm/parcours/" + id + "/commission/ouvrir", { json: {} });
+      acm = (await api("/crm/parcours/" + id + "/acm")).acm || {};
+    } catch (e) { toast(e.message, true); return; }
+    // Les 3 fourchettes affichées : celles retouchées par le conseiller si elles existent, sinon le calcul.
+    const tiersAffiches = () => {
+      const t = com.tiers || {}, aj = acm.tiers_ajustes || {};
+      const o = {};
+      for (const [k] of TIERS_LIB) {
+        const c = t[k] || {}, a = aj[k] || {};
+        o[k] = { nb: c.nb || 0, montant: a.montant ?? (c.nb ? c.moyenne : ""), min: a.min ?? (c.nb ? Math.round(c.min) : ""), max: a.max ?? (c.nb ? Math.round(c.max) : "") };
+      }
+      return o;
+    };
     const rendre = () => {
-      const t = com.tiers || {}, tiers = [["Prix de repli", "moyenne du tiers bas", t.repli], ["Prix de raison", "moyenne du tiers médian", t.raison], ["Prix d'ambition", "moyenne du tiers haut", t.ambition]];
-      const texteWa = "Commission d'évaluation — " + [p.type_bien === "appartement" ? "appartement" : "maison", p.adresse, p.ville].filter(Boolean).join(" ") + " : donnez votre fourchette de prix ici → " + com.lien;
+      const tiers = tiersAffiches(), qr = qrDataUrl(com.lien);
       $("modale-corps").innerHTML =
-        '<p class="aide">Partagez ce lien aux collègues (SMS, WhatsApp, mail) : chacun ouvre le bien et donne sa fourchette, sans compte. Les réponses arrivent ici' + (com.ferme ? " — <strong>commission close</strong>" : "") + ".</p>" +
-        '<div class="barre"><input id="com-lien" readonly value="' + escH(com.lien) + '" style="flex:1; min-width:200px;" /><button class="btn" id="com-copier">Copier</button>' +
-        '<a class="btn" href="https://wa.me/?text=' + encodeURIComponent(texteWa) + '" target="_blank" rel="noopener">💬 WhatsApp</a></div>' +
+        '<p class="aide">Faites scanner ce QR code aux collègues (en réunion ou en photo) : chacun ouvre le bien et donne sa fourchette, sans compte. Les réponses arrivent ici' + (com.ferme ? " — <strong>commission close</strong>" : "") + ".</p>" +
+        '<input id="com-lien" type="hidden" value="' + escH(com.lien) + '" />' +
+        '<div style="text-align:center; margin:8px 0;">' + (qr ? '<img id="com-qr" src="' + qr + '" alt="QR code de la commission d\'évaluation" style="width:min(260px, 70vw); image-rendering:pixelated; border:1px solid var(--line); border-radius:8px; background:#fff;" />' : '<p class="petit">QR code indisponible (rechargez la page).</p>') + "</div>" +
         '<h3 style="margin:16px 0 6px;">Avis reçus <span class="puce">' + (com.avis || []).length + "</span></h3>" +
         ((com.avis || []).length
           ? '<div class="tableau-cadre"><table><thead><tr><th>Conseiller</th><th>Prix bas</th><th>Prix haut</th><th>Moyenne</th><th>Remarque</th><th></th></tr></thead><tbody>' +
@@ -3082,26 +3100,33 @@
           : '<p class="petit">📬 En attente des fourchettes des collègues… (actualisez pour voir les nouvelles).</p>') +
         ((com.groupes || []).length ? '<h3 style="margin:16px 0 6px;">Par fourchette</h3><div class="tableau-cadre"><table><thead><tr><th>Prix bas</th><th>Prix haut</th><th>Moyenne</th><th>Nb de conseillers</th></tr></thead><tbody>' +
           com.groupes.map((g) => "<tr><td>" + escH(fmtPrix(g.basse)) + "</td><td>" + escH(fmtPrix(g.haute)) + "</td><td>" + escH(fmtPrix(g.moyenne)) + '</td><td><span class="puce">' + g.nb + "</span></td></tr>").join("") + "</tbody></table></div>" : "") +
-        ((com.avis || []).length ? '<h3 style="margin:16px 0 6px;">Les 3 fourchettes de prix</h3><div class="grille-champs">' +
-          tiers.map(([lib, sous, x]) => '<div class="carte" style="padding:12px;"><div class="petit">' + escH(lib) + " · " + escH(sous) + '</div><div style="font-size:22px; font-weight:700; margin:4px 0;">' + escH(x && x.nb ? fmtPrix(x.moyenne) : "—") + '</div><div class="petit">' + (x && x.nb ? x.nb + " avis · de " + escH(fmtPrix(Math.round(x.min))) + " à " + escH(fmtPrix(Math.round(x.max))) : "pas assez d'avis") + "</div></div>").join("") + "</div>" : "");
+        '<h3 style="margin:16px 0 6px;">Les 3 fourchettes de prix <span class="petit">(calculées, modifiables avant le report)</span></h3><div class="grille-champs">' +
+        TIERS_LIB.map(([k, lib, sous]) => { const x = tiers[k]; return '<div class="carte" style="padding:12px;"><div class="petit">' + escH(lib) + " · " + escH(sous) + (x.nb ? " · " + x.nb + " avis" : "") + "</div>" +
+          '<label>Montant<input type="number" step="1000" data-tier="' + k + '" data-champ="montant" value="' + escH(x.montant) + '" style="font-size:18px; font-weight:700;" /></label>' +
+          '<div class="grille-champs" style="margin-top:4px;"><label>De<input type="number" step="1000" data-tier="' + k + '" data-champ="min" value="' + escH(x.min) + '" /></label><label>À<input type="number" step="1000" data-tier="' + k + '" data-champ="max" value="' + escH(x.max) + '" /></label></div></div>'; }).join("") + "</div>" +
+        (acm.tiers_ajustes ? '<p class="petit">Fourchettes retouchées à la main — <button type="button" class="btn" id="com-recalculer" style="padding:2px 8px;">↺ Reprendre le calcul</button></p>' : "");
       $("modale-pied").innerHTML = '<button class="btn" id="com-retour">Retour</button><button class="btn" id="com-actualiser">⟳ Actualiser</button>' +
         '<button class="btn" id="com-clore">' + (com.ferme ? "Rouvrir" : "Clore") + "</button>" +
-        '<button class="btn btn-or" id="com-reporter"' + ((com.avis || []).length ? "" : " disabled") + ">→ Reporter dans le livret prix</button>";
+        '<button class="btn btn-or" id="com-reporter">→ Enregistrer et reporter dans le livret prix</button>';
       $("com-retour").addEventListener("click", () => ouvrirParcours(id));
-      $("com-copier").addEventListener("click", async () => { try { await navigator.clipboard.writeText(com.lien); toast("Lien copié"); } catch { $("com-lien").select(); toast("Sélectionnez le lien et copiez-le"); } });
       $("com-actualiser").addEventListener("click", async () => { try { com = await api("/crm/parcours/" + id + "/commission"); rendre(); } catch (e) { toast(e.message, true); } });
       $("com-clore").addEventListener("click", async () => { try { com = await api("/crm/parcours/" + id + "/commission/" + (com.ferme ? "ouvrir" : "fermer"), { json: {} }); rendre(); } catch (e) { toast(e.message, true); } });
       document.querySelectorAll("[data-av]").forEach((b) => b.addEventListener("click", async () => { try { com = await api("/crm/parcours/" + id + "/commission/avis/" + b.dataset.av, { method: "DELETE" }); rendre(); } catch (e) { toast(e.message, true); } }));
+      if ($("com-recalculer")) $("com-recalculer").addEventListener("click", () => { delete acm.tiers_ajustes; rendre(); });
       $("com-reporter").addEventListener("click", async () => {
         try {
-          const acm = (await api("/crm/parcours/" + id + "/acm")).acm || {};
-          const t2 = com.tiers || {};
-          const maj = { ...acm, commission: lignesDepuisCommission(com), commission_source: "commission" };
-          if (t2.repli && t2.repli.nb && !acm.basse) maj.basse = t2.repli.moyenne;
-          if (t2.raison && t2.raison.nb && !acm.prix) maj.prix = t2.raison.moyenne;
-          if (t2.ambition && t2.ambition.nb && !acm.haute) maj.haute = t2.ambition.moyenne;
+          const lireTier = (k, champ) => { const v = parseFloat((document.querySelector('[data-tier="' + k + '"][data-champ="' + champ + '"]') || {}).value); return Number.isFinite(v) ? v : null; };
+          const aj = {};
+          for (const [k] of TIERS_LIB) aj[k] = { nb: (com.tiers && com.tiers[k] && com.tiers[k].nb) || 0, montant: lireTier(k, "montant"), min: lireTier(k, "min"), max: lireTier(k, "max") };
+          if (Object.values(aj).some((x) => x.min && x.max && x.min > x.max)) { toast("Le prix bas doit être inférieur au prix haut.", true); return; }
+          const maj = { ...acm, commission: lignesDepuisCommission(com), commission_source: "commission", tiers_ajustes: aj, tiers_calcules: com.tiers || {} };
+          if (aj.repli.montant) maj.basse = aj.repli.montant;
+          if (aj.raison.montant) maj.prix = aj.raison.montant;
+          if (aj.ambition.montant) maj.haute = aj.ambition.montant;
           await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: maj });
-          toast("Commission reportée dans le livret prix (" + maj.commission.length + " ligne(s))");
+          acm = maj;
+          toast("Commission reportée dans le livret prix (" + maj.commission.length + " ligne(s), 3 fourchettes)");
+          rendre();
         } catch (e) { toast(e.message, true); }
       });
     };
@@ -3273,8 +3298,21 @@
       ecrireDroite(pg, "Total de nb de conseillers :", G + L * 0.55, yT + 10, 11, fR, noir);
       rect(pg, G + L * 0.6, yT - 6, 90, 24, { color: or });
       ecrireCentre(pg, String(total), G + L * 0.6 + 45, yT + 10, 12, fB, blanc);
-      if (acm.surface || acm.terrain) ecrireCentre(pg, bienLib, G + L / 2, yT + 50, 10.5, fR, gris);
-      if (acm.prix) couper("Prix estimé par votre conseiller : " + fmtPrix(acm.prix) + ((acm.basse || acm.haute) ? " (fourchette " + [acm.basse ? fmtPrix(acm.basse) : "", acm.haute ? fmtPrix(acm.haute) : ""].filter(Boolean).join(" – ") + ")" : ""), fS, 11, L).forEach((l, j) => ecrireCentre(pg, l, G + L / 2, yT + 70 + j * 14, 11, fS, noir));
+      if (acm.surface || acm.terrain) ecrireCentre(pg, bienLib, G + L / 2, yT + 36, 10.5, fR, gris);
+      let yF = yT + 50;
+      const aj = acm.tiers_ajustes || {};
+      const fourchettes = TIERS_LIB.map(([k, lib]) => [lib, aj[k] || {}]).filter(([, x]) => x.montant);
+      if (fourchettes.length) {
+        fourchettes.forEach(([lib, x], j) => {
+          const w = L / fourchettes.length - 10, x0 = G + j * (L / fourchettes.length);
+          rect(pg, x0, yF, w, 72, { borderColor: or, borderWidth: 1, color: blanc });
+          ecrireCentre(pg, lib.toUpperCase(), x0 + w / 2, yF + 18, 9, fB, or);
+          ecrireCentre(pg, fmtPrix(x.montant), x0 + w / 2, yF + 40, 14, fB, noir);
+          if (x.min && x.max && x.min !== x.max) ecrireCentre(pg, "de " + fmtPrix(x.min) + " à " + fmtPrix(x.max), x0 + w / 2, yF + 58, 8.5, fR, gris);
+        });
+        yF += 92;
+      }
+      if (acm.prix) couper("Prix estimé par votre conseiller : " + fmtPrix(acm.prix) + ((acm.basse || acm.haute) ? " (fourchette " + [acm.basse ? fmtPrix(acm.basse) : "", acm.haute ? fmtPrix(acm.haute) : ""].filter(Boolean).join(" – ") + ")" : ""), fS, 11, L).forEach((l, j) => ecrireCentre(pg, l, G + L / 2, yF + 12 + j * 14, 11, fS, noir));
       ecrireCentre(pg, "CENTURY 21 Kadima", G + L / 2, 760, 14, fB, or); }
     // 4. Les réactions des acheteurs du moment (facultatif) : combien cherchent à ce prix.
     if (acm.acheteurs_inclure) {
