@@ -164,6 +164,11 @@ export default async function () {
     const portailsRep = await api("/crm/parcours/" + pxListe[0].id + "/acm/portails", { headers: admin.auth });
     ok((await page.locator('[data-conc^="bienici:"]').count()) === 2 && /ORPI Smoke/.test(await page.textContent("#acm-conc")), "les biens Bien'ici de la commune sont proposés avec leur agence (" + JSON.stringify(portailsRep.json).slice(0, 300) + ")");
     ok(await page.inputValue("#acm-prix") === "325000" && await page.inputValue("#acm-haute") === "345000", "le livret reprend le prix de raison et d'ambition retouchés (" + await page.inputValue("#acm-prix") + " / " + await page.inputValue("#acm-haute") + ")");
+    // Contrôle visuel : la liste des biens en concurrence au format téléphone.
+    { const vp = page.viewportSize(); await page.setViewportSize({ width: 390, height: 844 });
+      await page.evaluate(() => document.getElementById("acm-conc").scrollIntoView());
+      await page.screenshot({ path: new URL("./captures/mobile-livret-concurrence.png", import.meta.url).pathname });
+      await page.setViewportSize(vp || { width: 1280, height: 900 }); }
     await page.fill("#acm-surface", "115"); await page.fill("#acm-terrain", "513"); await page.fill("#acm-piece-vie", "38"); await page.fill("#acm-chambres", "4");
     await page.fill("#acm-prix", "330000"); await page.fill("#acm-basse", "320000"); await page.fill("#acm-haute", "340000");
     await page.click("details summary");
@@ -173,6 +178,14 @@ export default async function () {
     ok((await page.locator('[data-conc^="portail:"]:checked').count()) === 1, "un bien vu sur un portail s'ajoute à la main, coché");
     ok(await page.inputValue('[data-com-nb="0"]') === "1" && await page.inputValue('[data-com-basse="0"]') === "310000", "le livret reprend la commission (1 conseiller sur 310–330 k)");
     await page.fill('[data-com-nb="0"]', "3"); await page.fill('[data-com-basse="0"]', "300000"); await page.fill('[data-com-haute="0"]', "320000");
+    // Des lignes s'ajoutent et se retirent depuis le livret.
+    const nbLignesAvant = await page.locator(".ligne-com").count();
+    await page.click("#acm-com-ajouter");
+    const idxNouv = await page.$eval("#acm-com-lignes .ligne-com:last-child [data-com-nb]", (el) => el.dataset.comNb);
+    await page.fill('[data-com-nb="' + idxNouv + '"]', "2"); await page.fill('[data-com-basse="' + idxNouv + '"]', "330000"); await page.fill('[data-com-haute="' + idxNouv + '"]', "350000");
+    await page.click("#acm-com-ajouter");
+    await page.click("#acm-com-lignes .ligne-com:last-child [data-com-suppr]");
+    ok((await page.locator(".ligne-com").count()) === nbLignesAvant + 1, "une ligne de commission s'ajoute et une autre se retire depuis le livret (" + (nbLignesAvant + 1) + " lignes)");
     ok(/acheteur/.test(await page.textContent("#acm-ach-resume")), "la fenêtre montre le résumé des acheteurs par niveau de prix");
     await page.check("#acm-ach-inclure"); await page.fill("#acm-ach-texte", "Les visiteurs apprécient le jardin, réserves sur la route.");
     await page.click("#acm-generer");

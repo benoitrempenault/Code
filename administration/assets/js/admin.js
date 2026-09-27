@@ -2956,8 +2956,8 @@
     const ligneVente = (v, i) => '<label class="case" style="display:flex; gap:8px; align-items:flex-start; padding:4px 0; border-bottom:1px solid var(--line);"><input type="checkbox" data-vente="' + escH(v.id) + '"' + (cocheV(v, i) ? " checked" : "") + ' /> <span><strong>' +
       escH(fmtPrix(v.prix)) + "</strong> · " + escH(fmtDateAcm(v.date)) + " · " + escH(v.adresse || "") + (v.ville ? ", " + escH(v.ville) : "") + '<br /><span class="petit">' +
       escH([v.type, v.pieces ? v.pieces + " pièces" : "", v.surface ? Math.round(v.surface) + " m²" : "", v.terrain ? "terrain " + Math.round(v.terrain) + " m²" : "", fmtM2(v), "à " + v.dist + " m", v.source === "agence" ? "vendu par l'agence" : "DVF"].filter(Boolean).join(" · ")) + "</span></span></label>";
-    const ligneConc = (a, i) => '<label class="case" style="display:flex; gap:8px; align-items:flex-start; padding:4px 0; border-bottom:1px solid var(--line);"><input type="checkbox" data-conc="' + escH(a.id) + '"' + (cocheC(a, i) ? " checked" : "") + ' /> ' +
-      '<span style="flex:none; display:flex; flex-direction:column; gap:2px; align-items:center;">' + ((a.photo || a.image) ? '<img data-vignette="' + escH(a.id) + '" src="' + escH(a.photo || a.image) + '" alt="" style="width:72px; height:54px; object-fit:cover; border-radius:6px; background:var(--line);" loading="lazy" />' : '<span data-vignette="' + escH(a.id) + '" style="width:72px; height:54px; border-radius:6px; background:var(--line); display:block;"></span>') +
+    const ligneConc = (a, i) => '<label class="case ligne-conc"><input type="checkbox" data-conc="' + escH(a.id) + '"' + (cocheC(a, i) ? " checked" : "") + ' /> ' +
+      '<span class="bloc-vignette">' + ((a.photo || a.image) ? '<img class="vignette-conc" data-vignette="' + escH(a.id) + '" src="' + escH(a.photo || a.image) + '" alt="" loading="lazy" />' : '<span class="vignette-conc" data-vignette="' + escH(a.id) + '"></span>') +
       '<label class="btn" style="padding:1px 6px; font-size:11px;" title="Poser ou remplacer la photo qui ira dans le livret">📷<input type="file" accept="image/*" data-photo="' + escH(a.id) + '" hidden /></label></span><span><strong>' +
       escH(fmtPrix(a.prix)) + "</strong> · " + escH(a.titre || "") + (a.ville ? " · " + escH(a.ville) : "") + '<br /><span class="petit">' +
       escH([a.adresse || "", a.pieces ? a.pieces + " pièces" : "", a.surface ? Math.round(a.surface) + " m²" : "", a.terrain ? "terrain " + Math.round(a.terrain) + " m²" : "", fmtM2(a), a.dist != null ? "à " + Math.round(a.dist) + " m" : "", a.jours ? "en vente depuis " + a.jours + " j" : "", a.baisse > 0 ? "baisse de " + fmtPrix(a.baisse) : "", a.source === "amepi" ? "ALFA · " + (a.agence || "confrère") : a.source === "portail" ? "vu sur " + (a.portail || "un portail") : a.source === "bienici" ? "Bien'ici · " + (a.agence || "agence") + (a.quartier ? " · " + a.quartier : "") : "notre agence"].filter(Boolean).join(" · ")) +
@@ -2966,6 +2966,10 @@
     try { comAvis = await api("/crm/parcours/" + id + "/commission"); } catch { comAvis = null; }
     const depuisCommission = comAvis && (comAvis.avis || []).length && (!acm.commission || !acm.commission.length || acm.commission_source === "commission") ? lignesDepuisCommission(comAvis) : null;
     const commission = (depuisCommission && depuisCommission.length ? depuisCommission : acm.commission && acm.commission.length ? acm.commission : [{ nb: "", basse: "", haute: "" }, { nb: "", basse: "", haute: "" }, { nb: "", basse: "", haute: "" }]);
+    // Une ligne de la commission (nb de conseillers, de, à) avec sa croix ; les
+    // index restent uniques même après suppression (lire() relit par index).
+    let comIdx = commission.length;
+    const ligneCom = (l, i) => '<div class="grille-champs ligne-com" style="margin:2px 0; grid-template-columns: 1fr 1fr 1fr auto; align-items:end;"><label>Conseillers<input type="number" min="0" data-com-nb="' + i + '" value="' + escH(l.nb) + '" /></label><label>De<input type="number" step="1000" data-com-basse="' + i + '" value="' + escH(l.basse) + '" /></label><label>À<input type="number" step="1000" data-com-haute="' + i + '" value="' + escH(l.haute) + '" /></label><button type="button" class="btn" data-com-suppr="' + i + '" title="Retirer cette ligne" style="padding:6px 10px;">✕</button></div>';
     const ach = donnees.acheteurs || [];
     const budgets = ach.map((a) => a.budget_max).filter((b) => b > 0).sort((a, b) => a - b);
     const nbAu = (prix) => (prix ? budgets.filter((b) => b >= prix).length : null);
@@ -2997,7 +3001,8 @@
       '<div class="barre"><button class="btn" id="acm-m-ajouter">Ajouter à la liste</button></div></details>' +
       '<h3 style="margin:14px 0 4px;">3. Commission d\'évaluation <span class="petit">(' + (comAvis && (comAvis.avis || []).length ? comAvis.avis.length + " avis de collègues reçus, lignes pré-remplies — " : "") + 'nombre de conseillers par fourchette, net vendeur)</span></h3>' +
       '<div class="barre"><button class="btn" id="acm-commission" type="button">🗳 ' + (comAvis && comAvis.ouvert ? "Voir la commission" : "Lancer la commission d\'évaluation") + "</button></div>" +
-      '<div id="acm-commission">' + commission.map((l, i) => '<div class="grille-champs" style="margin:2px 0;"><label>Conseillers<input type="number" min="0" data-com-nb="' + i + '" value="' + escH(l.nb) + '" /></label><label>De<input type="number" step="1000" data-com-basse="' + i + '" value="' + escH(l.basse) + '" /></label><label>À<input type="number" step="1000" data-com-haute="' + i + '" value="' + escH(l.haute) + '" /></label></div>').join("") + "</div>" +
+      '<div id="acm-com-lignes">' + commission.map(ligneCom).join("") + "</div>" +
+      '<div class="barre"><button class="btn" id="acm-com-ajouter" type="button">+ Ajouter une ligne</button></div>' +
       '<h3 style="margin:14px 0 4px;">4. Les réactions des acheteurs du moment</h3>' +
       '<p class="petit" id="acm-ach-resume"></p>' +
       '<label class="case"><input type="checkbox" id="acm-ach-inclure"' + (acm.acheteurs_inclure ? " checked" : "") + " /> Inclure cette page dans le livret</label>" +
@@ -3011,6 +3016,8 @@
     $("modale-pied").innerHTML = '<button class="btn" id="acm-retour">Retour</button><button class="btn" id="acm-save">Enregistrer</button><button class="btn btn-or" id="acm-generer">🖨 Générer le livret</button>';
     $("acm-retour").addEventListener("click", () => { document.querySelector(".modale").classList.remove("large"); ouvrirParcours(id); });
     $("acm-commission").addEventListener("click", () => { document.querySelector(".modale").classList.remove("large"); ouvrirCommission(id, p); });
+    $("acm-com-ajouter").addEventListener("click", () => { $("acm-com-lignes").insertAdjacentHTML("beforeend", ligneCom({ nb: "", basse: "", haute: "" }, comIdx++)); const der = $("acm-com-lignes").lastElementChild.querySelector("input"); if (der) der.focus(); });
+    $("acm-com-lignes").addEventListener("click", (e) => { const b = e.target.closest("[data-com-suppr]"); if (b) b.closest(".ligne-com").remove(); });
     $("acm-ach-resume").textContent = resumeAch();
     $("acm-conc").addEventListener("change", async (ev) => {
       const inp = ev.target; if (!inp.matches || !inp.matches("[data-photo]")) return;
@@ -3019,7 +3026,7 @@
         const photo = await reduireImage(f, 1200, 0.82);
         const cand = candidatsConc.find((x) => x.id === inp.dataset.photo); if (cand) cand.photo = photo;
         const vig = document.querySelector('[data-vignette="' + inp.dataset.photo + '"]');
-        if (vig) { const img = document.createElement("img"); img.src = photo; img.alt = ""; img.style.cssText = "width:72px; height:54px; object-fit:cover; border-radius:6px;"; img.dataset.vignette = inp.dataset.photo; vig.replaceWith(img); }
+        if (vig) { const img = document.createElement("img"); img.src = photo; img.alt = ""; img.className = "vignette-conc"; img.dataset.vignette = inp.dataset.photo; vig.replaceWith(img); }
         const cb = document.querySelector('[data-conc="' + inp.dataset.photo + '"]'); if (cb) cb.checked = true;
         toast("Photo posée sur ce bien");
       } catch (e) { toast(e.message, true); }

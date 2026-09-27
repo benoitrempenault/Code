@@ -144,6 +144,11 @@ s { color: var(--muted); }
 }
 /* Fenêtre large (livret prix) : listes longues à cocher, vignettes. */
 .modale.large { max-width: 1240px; max-height: 98vh; }
+/* Biens en concurrence : une ligne = case, photo (grande, pleine largeur sur téléphone), texte. */
+.ligne-conc { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.ligne-conc > span:not(.bloc-vignette) { flex: 1 1 200px; min-width: 0; }
+.bloc-vignette { flex: none; display: flex; flex-direction: column; gap: 3px; align-items: center; }
+.vignette-conc { display: block; width: 132px; height: 99px; object-fit: cover; border-radius: 8px; background: var(--line); }
 .modale.large .liste-choix { max-height: 44vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px; }
 .modale.large .liste-choix.haute { max-height: 78vh;
 }
@@ -213,6 +218,10 @@ s { color: var(--muted); }
   .modale-pied { padding: 10px 12px; gap: 8px; }
   .modale-pied .btn { flex: 1 1 45%; text-align: center; }
   .modale-pied .btn-danger { margin-right: 0; }
+  .ligne-conc { flex-wrap: wrap; }
+  .ligne-conc .bloc-vignette { flex: 1 1 100%; order: 3; align-items: stretch; }
+  .ligne-conc .bloc-vignette .btn { align-self: flex-end; }
+  .vignette-conc { width: 100%; height: 220px; }
   .modale.large .liste-choix { max-height: 40vh; }
   .modale.large .liste-choix.haute { max-height: 55vh; }
   .apercu-mail { height: 60vh; }
