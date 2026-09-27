@@ -647,7 +647,7 @@ l'ACM, photo et points forts du R2, conseiller, agence, nb_avis, ferme) et `POST
 ambition sur les moyennes triées, tiers bas et haut = ⌊n/3⌋ (1 chacun si n = 2),
 médian = le reste (Kadimestim laissait le haut vide hors multiples de 3). Page
 publique `administration/commission.html` + `assets/js/commission.js` (sans compte,
-garde-fou localStorage « déjà répondu »). Admin : bouton « 🗳 Commission
+garde-fou localStorage « déjà répondu ») ; pages.yml copie commission.html à côté de index.html. Admin : bouton « 🗳 Commission
 d'évaluation » sur l'étape ACM → `ouvrirCommission` (lien, Copier, WhatsApp wa.me,
 avis avec ✕, groupes, 3 fourchettes, Actualiser, Clore/Rouvrir, « Reporter dans le
 livret » → acm.commission = `lignesDepuisCommission` (groupes si ≤ 4, sinon tiers) +

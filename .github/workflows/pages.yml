@@ -62,7 +62,7 @@ jobs:
           cp -r permanence/assets/* _site/permanence/assets/
           # Studio Administration (contacts, anniversaires, annonces — interne Kadima) sous /administration/
           mkdir -p _site/administration/assets
-          cp administration/index.html administration/favicon.svg _site/administration/
+          cp administration/index.html administration/commission.html administration/favicon.svg _site/administration/
           cp -r administration/assets/* _site/administration/assets/
           # L'agent AMEPI (scripts PowerShell à installer sur un PC de l'agence) en archive
           (cd tools && zip -q -r ../_site/administration/agent-amepi.zip agent-amepi -x 'agent-amepi/config.json' 'agent-amepi/*.log')
