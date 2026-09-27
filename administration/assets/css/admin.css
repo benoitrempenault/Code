@@ -216,7 +216,9 @@ s { color: var(--muted); }
   table { min-width: 560px; font-size: 12.5px; }
   .ligne-map { grid-template-columns: 1fr; }
   .voile { padding: 0; align-items: stretch; }
-  .modale, .modale.large { max-width: 100%; max-height: 100vh; height: 100vh; border-radius: 0; border: 0; }
+  /* 100dvh : la hauteur réellement visible (la barre de Safari / Chrome cachait le pied de la fenêtre). */
+  .modale, .modale.large { max-width: 100%; max-height: 100vh; height: 100vh; max-height: 100dvh; height: 100dvh; border-radius: 0; border: 0; }
+  .modale-corps { padding-bottom: 24px; }
   .modale-tete { padding: 12px 14px; }
   .modale-tete h2 { font-size: 16px; }
   .modale-corps { padding: 12px 12px; }
@@ -230,9 +232,10 @@ s { color: var(--muted); }
   .modale.large .liste-choix { max-height: 40vh; }
   .modale.large .liste-choix.haute { max-height: 55vh; }
   .apercu-mail { height: 60vh; }
-  .etape { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
-  .etape .titre { flex: 1 1 100%; }
-  .etape .btn { flex: 1 1 auto; font-size: 12.5px; padding: 7px 10px; }
+  /* Spécificité 3 classes : les règles générales des étapes (plus bas) ne les écrasent pas. */
+  .etapes .etape { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .etapes .etape .titre { flex: 1 1 calc(100% - 40px); }
+  .etapes .etape .btn { flex: 1 1 auto; font-size: 12.5px; padding: 7px 10px; }
   #px-signe, #px-signe[style] { max-width: 100% !important; width: 100%; margin-top: 4px; }
   textarea { min-height: 90px; }
 }

@@ -2275,8 +2275,10 @@
     } catch (e) { if (annoncer) toast(e.message, true); return null; }
   }
   async function chargerConseillers() {
-    if (!profilsImportes) { profilsImportes = true; await importerConseillers(false); }
     try { conseillers = (await api("/crm/conseillers")).conseillers; } catch { conseillers = []; }
+    // L'import des profils (photos du site, lent sur téléphone) se fait en tâche
+    // de fond : le menu « Conseiller » n'attend pas, il se recharge ensuite.
+    if (!profilsImportes) { profilsImportes = true; importerConseillers(false).then((r) => { if (r && (r.ajoutes || r.completes)) chargerConseillers(); }); }
     const zone = $("table-conseillers");
     if (!zone) return;
     zone.innerHTML = conseillers.length
@@ -2426,6 +2428,15 @@
         '<option value="' + k + '"' + (p.statut === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" : "") +
       "</div>";
   }
+  // Menu « Conseiller » ouvert avant que la liste soit arrivée (téléphone) :
+  // on la recharge au premier focus et on complète les options.
+  function brancherMenuConseillers(selId) {
+    const sel = $(selId); if (!sel) return;
+    const remplir = () => { const v = sel.value; sel.innerHTML = '<option value="">— conseiller —</option>' + conseillers.filter((c) => c.actif || c.id === v).map((c) => '<option value="' + c.id + '"' + (c.id === v ? " selected" : "") + ">" + escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</option>").join(""); };
+    const verifier = async () => { if (sel.options.length > 1) return; try { conseillers = (await api("/crm/conseillers")).conseillers; } catch { /* rien */ } remplir(); };
+    sel.addEventListener("focus", verifier); sel.addEventListener("touchstart", verifier, { passive: true });
+    if (sel.options.length <= 1) verifier();
+  }
   function lireFormulaireParcours(p) {
     const o = {
       civilite: $("px-civilite").value, prenom: $("px-prenom").value.trim(), nom: $("px-nom").value.trim(),
@@ -2480,6 +2491,7 @@
       } catch (e) { toast(e.message, true); }
     };
     $("px-q").addEventListener("input", () => { clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
+    brancherMenuConseillers("px-conseiller");
     $("px-creer").addEventListener("click", async () => {
       try {
         const bien = lireBienFiche();
@@ -2546,6 +2558,7 @@
       try { await api("/crm/parcours/" + id, { method: "PUT", json: { conseiller_id: $("px-signe").value } }); toast("Les e-mails partiront signés du conseiller choisi"); await chargerParcours(); ouvrirParcours(id); }
       catch (e) { toast(e.message, true); }
     });
+    brancherMenuConseillers("px-conseiller");
     // Le bien (surface, terrain, chambres, pièce de vie) s'enregistre dès qu'un
     // champ change : fermer la fiche sans « Enregistrer » ne perd plus rien.
     for (const k of ["px-surface", "px-terrain", "px-chambres", "px-piece-vie"]) $(k).addEventListener("change", async () => {
@@ -3589,7 +3602,7 @@
     chargerBiblio();
     chargerRappels();
     chargerOffres();
-    chargerConseillers().then(chargerParcours);
+    chargerParcours(); chargerConseillers(); // indépendants : la liste des parcours n'attend plus les profils
   }
 
   /* ---------------------------- Branchements ------------------------------- */

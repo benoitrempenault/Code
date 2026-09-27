@@ -100,8 +100,11 @@ export async function ouvrir(page, chemin, compte) {
   await page.reload();
 }
 
+// Le toast attendu est « consommé » (texte vidé) : le prochain attendreToast
+// exige un nouveau message, un toast qui traîne 3 s ne le satisfait pas.
 export const attendreToast = (page, motif, timeout = 8000) =>
-  page.waitForFunction((m) => new RegExp(m).test(document.getElementById("toast")?.textContent || ""), motif, { timeout });
+  page.waitForFunction((m) => new RegExp(m).test(document.getElementById("toast")?.textContent || ""), motif, { timeout })
+    .then(() => page.evaluate(() => { const t = document.getElementById("toast"); if (t) t.textContent = ""; }));
 
 // Un parcours complet : navigateur, page relayée, rapport ; en cas de
 // plantage, une capture d'écran est posée dans captures/<nom>.png.
@@ -111,7 +114,9 @@ export async function parcours(nom, options, fn) {
   const page = await nouvellePage(browser, options || {});
   try { await fn({ page, ok }); }
   catch (e) {
-    ok(false, "planté : " + ((e && e.message) || e).split("\n")[0]);
+    const cadres = [...((e && e.stack) || "").matchAll(/smoke\/([a-z0-9-]+\.mjs):(\d+)/g)];
+    const ligne = cadres.find((m) => m[1] !== "lib.mjs") || cadres[0];
+    ok(false, "planté : " + ((e && e.message) || e).split("\n")[0] + (ligne ? " (" + ligne[1] + ":" + ligne[2] + ")" : ""));
     try { await mkdir(new URL("./captures/", import.meta.url), { recursive: true }); await page.screenshot({ path: new URL("./captures/" + nom + ".png", import.meta.url).pathname }); } catch { }
   } finally { await browser.close(); }
   return bilan(page);

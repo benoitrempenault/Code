@@ -26,7 +26,8 @@ export default async function () {
     await ouvrir(page, "/administration/", admin);
     await page.waitForSelector("#app:not([hidden])", { timeout: 8000 });
     await page.click('[data-onglet="reglages"]');
-    await page.waitForFunction(() => document.querySelector("#table-conseillers tr[data-conseiller]"), null, { timeout: 8000 });
+    // L'import des profils du site (photos) se fait en tâche de fond : on l'attend ici.
+    await page.waitForFunction(() => document.querySelectorAll("#table-conseillers img.avatar").length >= 25, null, { timeout: 60000 });
     const tableCs = await page.textContent("#table-conseillers");
     const nbPhotos = await page.locator("#table-conseillers img.avatar").count();
     const puceDirection = await page.evaluate(() => [...document.querySelectorAll("#table-conseillers tr")].filter((tr) => /Rempenault|Faure|Duverger|Delbecq/.test(tr.textContent) && /direction/.test(tr.textContent)).length);

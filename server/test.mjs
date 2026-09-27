@@ -3432,6 +3432,13 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const et = await callR("/crm/parcours/" + pxId + "/etape", { headers: authP, body: { etape: "guide-r1" } });
   ok(et.status === 200 && et.json.journal.some((j) => j.etape === "guide-r1"), "une étape faite hors e-mail (guide imprimé) se coche");
   ok((await callR("/crm/parcours/" + pxId + "/apercu?jalon=inconnu", { headers: authP })).status === 400, "jalon inconnu refusé");
+  // Compléter la fiche du parcours met à jour la fiche contact principale (sans rien effacer).
+  const ctAvant = await db.get("SELECT * FROM crm_contacts WHERE id = ?", [pxFiche.contact_id]);
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { telephone: "06 11 22 33 44", adresse: "14 rue du Mandat Confiance", cp: "33160", ville: "Saint-Aubin-de-Médoc", prenom: "" } });
+  const ctApres = await db.get("SELECT * FROM crm_contacts WHERE id = ?", [pxFiche.contact_id]);
+  ok(ctAvant && ctApres.telephone === "06 11 22 33 44" && ctApres.adresse === "14 rue du Mandat Confiance" && ctApres.cp === "33160" && ctApres.email === ctAvant.email && ctApres.prenom === ctAvant.prenom && ctApres.updated_at >= ctAvant.updated_at,
+     "compléter la fiche du parcours (téléphone, adresse) remonte sur la fiche contact ; un champ vidé n'efface rien (" + ctApres.telephone + ", " + ctApres.adresse + ")");
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { adresse: "12 rue du Mandat Confiance", prenom: "Jean" } });
   const pxMaj = await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "appartement", r2: "2026-04-28", r2_heure: "9:00" } });
   const ap2b = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
   ok(pxMaj.status === 200 && /mardi 28 avril à 9h/.test(ap2b.texte) && /procès-verbaux/.test(ap2b.texte) && /votre appartement/.test(ap2b.texte),

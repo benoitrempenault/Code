@@ -520,8 +520,31 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
        conseiller = ?, notes = ?, user_id = ?, updated_at = ? WHERE id = ?`,
       [v.nom, v.email, v.telephone, v.adresse, v.ville, v.r1, v.r2, v.statut, v.conseiller, v.notes, cur.user_id || ctx.user.id, now(), cur.id]);
     await ecrireParcours(c, ctx, cur.id, b);
+    await reporterSurContact(ctx, cur, v, b);
     return c.json({ ok: true, id: cur.id });
   });
+  // Ce que le conseiller complète dans la fiche du parcours (civilité, prénom,
+  // nom, e-mail, téléphone, adresse, CP, ville) remonte sur la fiche contact
+  // principale — valeurs non vides seulement : rien ne s'efface d'ici.
+  const CHAMPS_CONTACT = ["civilite", "prenom", "nom", "email", "telephone", "adresse", "cp", "ville"];
+  async function reporterSurContact(ctx, est, v, b) {
+    if (!est.contact_id || !CHAMPS_CONTACT.some((k) => k in b)) return;
+    const ct = await db.get("SELECT * FROM crm_contacts WHERE id = ? AND agency_id = ?", [est.contact_id, ctx.agency.id]);
+    if (!ct) return;
+    const px = (await db.get("SELECT civilite, prenom, cp FROM crm_parcours WHERE estimation_id = ?", [est.id])) || {};
+    const src = { civilite: px.civilite, prenom: px.prenom, nom: v.nom, email: v.email, telephone: v.telephone, adresse: v.adresse, cp: px.cp, ville: v.ville };
+    const maj = {};
+    for (const k of CHAMPS_CONTACT) {
+      if (!(k in b)) continue;
+      const val = k === "email" ? strip(src[k], 160).toLowerCase() : strip(src[k], k === "adresse" ? 200 : 80);
+      if (val && val !== ct[k]) maj[k] = val;
+    }
+    if (!Object.keys(maj).length) return;
+    const n = { ...ct, ...maj };
+    await db.run(
+      `UPDATE crm_contacts SET civilite = ?, prenom = ?, nom = ?, email = ?, telephone = ?, adresse = ?, cp = ?, ville = ?, user_id = ?, updated_at = ? WHERE id = ?`,
+      [n.civilite, n.prenom, n.nom, n.email, n.telephone, n.adresse, n.cp, n.ville, ctx.user.id, now(), ct.id]);
+  }
 
   app.get("/crm/parcours/:id", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
