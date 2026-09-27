@@ -10,7 +10,8 @@ import { tmpdir } from "node:os";
 import { api, attendreToast, creerAgence, ajouterConseiller, ouvrir, parcours } from "./lib.mjs";
 
 const XLSX = createRequire(import.meta.url)("../../bilans/assets/js/vendor/xlsx.full.min.js");
-const serie = (joursAvant) => Math.round((Date.now() - joursAvant * 86400000 - Date.UTC(1899, 11, 30)) / 86400000);
+// Numéro de série Excel d'un jour entier (sinon, le soir, « 400 jours » devient 399).
+const serie = (joursAvant) => { const j = new Date(); j.setUTCHours(0, 0, 0, 0); return Math.round((j.getTime() - joursAvant * 86400000 - Date.UTC(1899, 11, 30)) / 86400000); };
 
 export default async function () {
   const admin = await creerAgence("Smoke Bilans", "smoke-bilans@test.fr");
@@ -96,6 +97,23 @@ export default async function () {
     const consP = await api("/crm/portails", { headers: admin.auth });
     ok(consP.json.consignes.portails.bienici.pages[0].url === "https://pro.bienici.com/statistiques", "la page est enregistrée dans les consignes de l'agent");
     await page.click("#pt-fermer");
+
+    // Réseaux : connexion de la page, relevé, suggestion validée.
+    await page.click("#btn-reseaux");
+    await page.waitForSelector("#rs-connecter", { timeout: 8000 });
+    await page.fill("#rs-jeton", "EAAshortsmokeSHORTSHORTSHORTSHORT");
+    await page.fill("#rs-app", "123");
+    await page.fill("#rs-secret", "secret");
+    await page.click("#rs-connecter");
+    await attendreToast(page, "Connecté : Kadima Smoke \\+ @kadima_smoke");
+    await page.waitForSelector(".post", { timeout: 8000 });
+    ok(await page.locator(".post").count() === 3 && await page.locator(".post.a-valider").count() === 1, "Réseaux : 3 publications, 1 suggestion à valider (Saint-Médard, 290 000 €)");
+    if (cap) await page.screenshot({ path: cap + "/bilans-reseaux.png" });
+    await page.click("[data-valider]");
+    await attendreToast(page, "rattachée au bien réf. 7510");
+    const meta = await api("/crm/meta", { headers: admin.auth });
+    ok(meta.json.posts.find((p) => p.id === "fb:P1_2").ref === "7510" && meta.json.posts.filter((p) => p.ref === "8282").length === 2, "suggestion validée ; les 2 posts « Réf. 8282 » rattachés d'office");
+    await page.click("#rs-fermer");
 
     // Un conseiller : la liste, sans l'import.
     await ouvrir(page, "/bilans/", lucie);

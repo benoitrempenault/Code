@@ -22,6 +22,7 @@ import { now, randId } from "./util.js";
 import { wrapEmail, envoyerMailHtml, getReglages } from "./crm.js";
 import { texteEnHtml, signatureHtml } from "./parcours.js";
 import { PORTAILS, statsPortailsSemaine } from "./portails.js";
+import { releverMeta, statsReseauxSemaine } from "./meta.js";
 
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
@@ -107,7 +108,7 @@ export const estDelegation = (m) => /^\s*d[ée]l[ée]gation\b/i.test(m.vendeur |
 // `pairs`   : les autres annonces en vente du site (pour l'indice d'audience)
 // `amepi`   : biens des confrères [{id, type, prix, ancien_prix, ville, surface, statut, agence}]
 // `events`  : journal AMEPI de la semaine [{annonce_id, kind, ancien_prix, prix}]
-export function calculerBilan({ mandat, annonce, pairs, amepi, events, semaine, lundis, aujourdhui, portails }) {
+export function calculerBilan({ mandat, annonce, pairs, amepi, events, semaine, lundis, aujourdhui, portails, reseaux }) {
   const semPrec = plusJours(semaine, -7);
   const serie = (lundis || []).filter((l) => l <= semaine).slice(-8)
     .map((l) => ({ semaine: l, ...(annonce.semaines[l] || { vues: 0, visites: 0, brochures: 0 }) }));
@@ -177,6 +178,14 @@ export function calculerBilan({ mandat, annonce, pairs, amepi, events, semaine, 
   if (p.vues >= 10 && s.vues < 0.6 * p.vues) alertes.push({ code: "audience-baisse", niveau: "moyen", texte: `Vues en baisse : ${s.vues} contre ${p.vues} la semaine précédente` });
   if (marche.baisses) alertes.push({ code: "concurrence-baisse", niveau: "moyen", texte: `${marche.baisses} comparable(s) ont baissé leur prix cette semaine` });
   if (totalPortails && totalPortails.semaine && totalPortails.vues >= 150 && totalPortails.contacts === 0) alertes.push({ code: "portails-sans-contact", niveau: "fort", texte: `${totalPortails.vues} vues sur les portails cette semaine, aucun contact` });
+  // Réseaux sociaux (Facebook, Instagram), si la page de l'agence est connectée.
+  const rs = reseaux && reseaux.connecte ? (reseaux.stats || null) : null;
+  if (reseaux && reseaux.connecte) {
+    const dernier = rs && rs.dernierPost;
+    const age = dernier ? Math.round((Date.parse(aujourdhui + "T00:00:00Z") - Date.parse(dernier + "T00:00:00Z")) / 86400000) : null;
+    if (!dernier) alertes.push({ code: "reseaux-aucun-post", niveau: "moyen", texte: "Aucune publication Facebook/Instagram rattachée à ce bien (90 derniers jours)" });
+    else if (age > 30) alertes.push({ code: "reseaux-ancien-post", niveau: "moyen", texte: `Dernière publication sur les réseaux il y a ${age} jours` });
+  }
   if (comparables.length < 3) alertes.push({ code: "peu-de-comparables", niveau: "info", texte: `Seulement ${comparables.length} comparable(s) en vente : position de prix non calculée` });
   if (anciennete != null && anciennete > ANCIEN_JOURS) alertes.push({ code: "ancien", niveau: "fort", texte: `En vente depuis ${anciennete} jours : le bilan propose une action` });
 
@@ -198,6 +207,7 @@ export function calculerBilan({ mandat, annonce, pairs, amepi, events, semaine, 
     bien: { type, typeLibelle: annonce.type || "", ville: annonce.ville || mandat.ville, adresse: mandat.adresse, prix, surface, pieces: Number(annonce.pieces) || null },
     site: { vues: s.vues, visites: s.visites, brochures: s.brochures, vuesPrec: p.vues, vues4, demandes4, indice, medianeVues: medVues, serie },
     portails: listePortails, totalPortails,
+    reseaux: rs && rs.total && rs.total.posts ? { fb: rs.fb, ig: rs.ig, total: rs.total, base: rs.base, publiesSemaine: rs.publiesSemaine, dernierPost: rs.dernierPost } : null,
     prix: { notreM2, medM2, medPrix, ecart, comparables: comparables.length, tolerance,
       exemples: comparables.slice(0, 6).map((a) => ({ prix: a.prix, surface: a.surface, agence: a.agence || "" })) },
     marche,
@@ -240,6 +250,20 @@ export function texteBilan(d, { conseiller }) {
     const t = d.totalPortails;
     if (t && t.semaine && d.portails.length > 1) pl.push(`- Au total : ${fmt(t.vues + (d.site.vues || 0))} consultations de votre annonce cette semaine, site compris`);
     lignes.push(["Sur les portails immobiliers", ...pl].join("\n"));
+  }
+
+  if (d.reseaux && d.reseaux.total.posts) {
+    const r = d.reseaux, quand = r.base === "semaine" ? "cette semaine" : "depuis leur publication";
+    const ligne = (nom, x) => {
+      if (!x.posts) return null;
+      const b = [`${x.posts} publication${x.posts > 1 ? "s" : ""}`];
+      if (x.vues != null) b.push(`${fmt(x.vues)} vue${x.vues > 1 ? "s" : ""}`);
+      b.push(`${fmt(x.interactions)} interaction${x.interactions > 1 ? "s" : ""} (réactions, commentaires, partages)`);
+      return `- ${nom} : ${b.join(", ")} ${quand}`;
+    };
+    const rl = [ligne("Facebook", r.fb), ligne("Instagram", r.ig)].filter(Boolean);
+    if (r.publiesSemaine) rl.push(`- ${r.publiesSemaine} nouvelle${r.publiesSemaine > 1 ? "s" : ""} publication${r.publiesSemaine > 1 ? "s" : ""} consacrée${r.publiesSemaine > 1 ? "s" : ""} à votre bien cette semaine`);
+    lignes.push(["Sur nos réseaux sociaux", ...rl].join("\n"));
   }
 
   const marche = [];
@@ -316,6 +340,15 @@ export async function lireStatsSite(env) {
   return j;
 }
 
+// Chemin de chaque annonce du site → sa référence (rattacher un post qui
+// porte le lien de l'annonce).
+export async function urlsAnnonces(env) {
+  const stats = await lireStatsSite(env);
+  const m = new Map();
+  for (const a of stats.annonces) { try { if (a.url && a.ref) m.set(new URL(a.url).pathname.replace(/\/?$/, "/"), String(a.ref)); } catch { } }
+  return m;
+}
+
 /* -------------------------------- Génération ------------------------------ */
 // Une quinzaine de requêtes quel que soit le portefeuille (plafond de
 // sous-requêtes du Worker) : tout est lu en bloc, écrit en INSERT multi-lignes.
@@ -335,6 +368,7 @@ export async function genererBilans(env, db, agency, { semaine, aujourdhui } = {
     "SELECT annonce_id, kind, ancien_prix, prix FROM crm_annonces_events WHERE agency_id = ? AND created_at >= ? AND created_at < ? AND substr(annonce_id, 1, 6) = 'amepi:'",
     [agency.id, debut, fin]);
   const portailsSem = await statsPortailsSemaine(db, agency.id, sem);
+  const reseauxSem = await statsReseauxSemaine(db, agency.id, sem);
   const existants = new Map((await db.all("SELECT id, ref, statut, modifie FROM crm_bilans WHERE agency_id = ? AND semaine = ?", [agency.id, sem])).map((b) => [b.ref, b]));
   const reglages = await getReglages(db, agency);
   const out = { semaine: sem, crees: 0, misAJour: 0, gardes: 0, nonPublies: [], exclus: [], sansEmail: [], alertes: 0 };
@@ -345,7 +379,8 @@ export async function genererBilans(env, db, agency, { semaine, aujourdhui } = {
     if (!a) { out.nonPublies.push(m.ref); continue; }
     const ex = existants.get(m.ref);
     if (ex && (ex.statut !== "brouillon" || ex.modifie)) { out.gardes++; continue; }
-    const d = calculerBilan({ mandat: m, annonce: a, pairs: annonces, amepi, events, semaine: sem, lundis: stats.semaines || [], aujourdhui: auj, portails: portailsSem[String(m.ref)] });
+    const d = calculerBilan({ mandat: m, annonce: a, pairs: annonces, amepi, events, semaine: sem, lundis: stats.semaines || [], aujourdhui: auj, portails: portailsSem[String(m.ref)],
+      reseaux: { connecte: reseauxSem.connecte, stats: reseauxSem.parRef[String(m.ref)] || null } });
     d.conseiller = m.conseiller; d.vendeur = m.vendeur; d.mandatNo = m.mandat;
     const cons = nomConseiller(m.conseiller).complet;
     if (!m.email) out.sansEmail.push(m.ref);
@@ -412,7 +447,12 @@ export async function runBilans(env, db, { aujourdhui } = {}) {
     const reglages = await getReglages(db, agency);
     if (!reglages.bilans.enabled) continue;
     try {
+      // Facebook / Instagram d'abord : le relevé du lundi ferme la semaine.
+      let reseaux = null;
+      try { reseaux = await releverMeta(env, db, agency.id, { urlsParChemin: await urlsAnnonces(env).catch(() => null) }); }
+      catch (e) { reseaux = { erreur: e.message }; }
       const r = await genererBilans(env, db, agency, { aujourdhui });
+      r.reseaux = reseaux;
       r.prevenus = await prevenirConseillers(env, db, agency, reglages, r.semaine);
       res.push({ agency: agency.id, ...r });
     } catch (e) { res.push({ agency: agency.id, erreur: e.message }); }
@@ -478,7 +518,7 @@ export function monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAge
         let d = {}; try { d = JSON.parse(r.donnees); } catch { }
         const { donnees, ...reste } = r;
         return { ...reste, conseillerNom: nomConseiller(r.conseiller).complet, bien: d.bien, site: d.site && { vues: d.site.vues, vuesPrec: d.site.vuesPrec, visites: d.site.visites, brochures: d.site.brochures, indice: d.site.indice },
-          portails: d.totalPortails || null,
+          portails: d.totalPortails || null, reseaux: d.reseaux ? d.reseaux.total : null,
           ecart: d.prix ? d.prix.ecart : null, comparables: d.prix ? d.prix.comparables : 0, anciennete: d.mandat ? d.mandat.anciennete : null,
           alertes: d.alertes || [], recommandation: d.recommandation || null };
       }),

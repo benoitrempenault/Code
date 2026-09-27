@@ -675,6 +675,25 @@ bout à bout contre de faux portails HTTPS (Chromium, `args_navigateur` host-res
 `AGENT_HEADLESS=1`). **Les formes JSON réelles des trois portails ne sont pas encore
 connues** : après le premier APPRENDRE, relire les captures (⬇) et ajuster
 `extraireStats` si des annonces ne sont pas reconnues.
+**Réseaux (Facebook, Instagram)** : `server/src/meta.js`, API OFFICIELLE Meta (Graph,
+`META_GRAPH_BASE` défaut v23.0, surchargeable en test). Connexion admin `POST /crm/meta/jeton`
+{jeton, appId, appSecret} : jeton court échangé (`fb_exchange_token`) → `/me/accounts` →
+jeton de PAGE (n'expire pas), Instagram pro relié lu sur la page ; stocké CHIFFRÉ
+(`chiffrer/dechiffrer` de util.js : AES-GCM, clé dérivée de SESSION_SECRET) dans
+`crm_meta_compte`, jamais renvoyé ; la clé de l'app n'est pas gardée. `releverMeta` :
+publications 90 j (FB `/posts` + `insights.metric(post_media_view)`, IG `/media` +
+`insights.metric(views,reach,saved,shares)` ; une métrique refusée → relevé repris SANS
+insights, interactions gardées — Meta a remplacé impressions par views : IG avril 2025,
+FB juin 2026), cumuls du jour dans `crm_meta_stats`. `rattacher` : AUTO si « Réf. 8282 »
+ou lien de l'annonce du site (`urlsAnnonces` via la route de stats de kadima-site),
+SUGGESTION si commune (sans article, sans « en … ») + prix à 1 % — une suggestion ne
+compte JAMAIS tant qu'elle n'est pas validée (`PUT /crm/meta/posts/:id`, manuel survit
+aux relevés). Le relevé tourne le lundi dans `runBilans` AVANT la préparation ;
+`statsReseauxSemaine` = relevé ≤ lundi S+7 moins relevé ≤ lundi S (sinon base
+« publication »). Bilan : bloc « Sur nos réseaux sociaux » ; alertes internes
+`reseaux-aucun-post` / `reseaux-ancien-post` (> 30 j), jamais dans le texte au vendeur.
+UI : « 📣 Réseaux » de Studio Bilans (procédure de connexion, relevé, rattachement par
+liste). Tests : bloc « Réseaux » de test.mjs (faux Graph 18807) + smoke `bilans` (18808).
 
 **`permanence/` — Studio Permanence**, l'app interne Kadima du **tour de permanence physique
 des points de vente** (Saint-Médard, Caudéran, Blanquefort…), avec sa page publique de prise

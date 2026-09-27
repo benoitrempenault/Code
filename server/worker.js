@@ -58,6 +58,7 @@ export default {
       SITE_STATS_BASE: env.SITE_STATS_BASE || "",
       SITE_STATS_KEY: env.SITE_STATS_KEY || "",
       BILANS_BASE: env.BILANS_BASE || "",
+      META_GRAPH_BASE: env.META_GRAPH_BASE || "", // Facebook / Instagram (bilans vendeurs) : surchargeable en test
       STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET || "",
       AI_MODELS: env.AI_MODELS || "",
       AI_RATE_PER_MIN: env.AI_RATE_PER_MIN || "",

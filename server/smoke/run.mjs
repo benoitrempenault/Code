@@ -72,6 +72,22 @@ const statsSite = createServer((req, res) => {
   ] }));
 }).listen(PORT_STATS);
 
+// 1 quinquies) Faux Meta (Graph API) : une page, un Instagram, trois publications.
+const PORT_META = 18808;
+const fauxMeta = createServer((req, res) => {
+  const u = new URL(req.url, "http://x");
+  const rep = (j) => { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(j)); };
+  if (u.pathname.endsWith("/oauth/access_token")) return rep({ access_token: "EAAlongsmokeLONGLONGLONGLONGLONGLONG" });
+  if (u.pathname.endsWith("/me/accounts")) return rep({ data: [{ id: "P1", name: "Kadima Smoke", access_token: "EAApagesmokePAGEPAGEPAGEPAGEPAGE" }] });
+  if (u.pathname.endsWith("/P1")) return rep({ name: "Kadima Smoke", instagram_business_account: { id: "IG1", username: "kadima_smoke" } });
+  if (u.pathname.endsWith("/P1/posts")) return rep({ data: [
+    { id: "P1_1", message: "Nouveauté Réf. 8282 !", permalink_url: "https://fb.test/1", created_time: new Date().toISOString(), reactions: { summary: { total_count: 9 } }, comments: { summary: { total_count: 1 } }, insights: { data: [{ name: "post_media_view", values: [{ value: 420 }] }] } },
+    { id: "P1_2", message: "Maison à Saint-Médard, 290 000 €", permalink_url: "https://fb.test/2", created_time: new Date().toISOString() },
+  ] });
+  if (u.pathname.endsWith("/IG1/media")) return rep({ data: [{ id: "M1", caption: "Réf. 8282", permalink: "https://ig.test/1", timestamp: new Date().toISOString(), like_count: 25, comments_count: 2 }] });
+  res.writeHead(404); res.end("{}");
+}).listen(PORT_META);
+
 // 2) Le site, servi tel quel depuis la racine du dépôt.
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json",
   ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".woff2": "font/woff2" };
@@ -95,7 +111,7 @@ const apiProc = spawn(process.execPath, ["node.js"], {
   env: { ...process.env, PORT: String(PORT_API), DB_PATH: dbPath, DEV_MODE: "1", ADMIN_KEY: "dev-admin",
     APP_ORIGINS: "http://localhost:" + PORT_SITE, OFFRE_BASE: "http://localhost:" + PORT_SITE + "/offre", BAN_BASE: "http://localhost:" + PORT_BAN, DVF_BASE: "http://localhost:1", BATIMENTS_BASE: "http://localhost:" + PORT_IGN,
     RESEND_API_KEY: "re_smoke", RESEND_BASE: "http://localhost:" + PORT_RESEND, MAIL_FROM: "smoke@studio.test",
-    SITE_STATS_BASE: "http://localhost:" + PORT_STATS, SITE_STATS_KEY: "cle-smoke" },
+    SITE_STATS_BASE: "http://localhost:" + PORT_STATS, SITE_STATS_KEY: "cle-smoke", META_GRAPH_BASE: "http://localhost:" + PORT_META + "/v23.0" },
 });
 let journalApi = "";
 apiProc.stdout.on("data", (d) => { journalApi += d; });
@@ -120,7 +136,7 @@ for (const nom of choisis) {
   }
 }
 apiProc.kill();
-ban.close(); ign.close(); site.close(); resend.close(); statsSite.close();
+ban.close(); ign.close(); site.close(); resend.close(); statsSite.close(); fauxMeta.close();
 try { await unlink(dbPath); } catch { }
 if (echecsTotal && /\[500\]/.test(journalApi)) console.log("\nJournal API :\n" + journalApi.split("\n").filter((l) => l.includes("[500]")).join("\n"));
 console.log("\n" + (echecsTotal ? "SMOKES : " + echecsTotal + " échec(s)" : "SMOKES OK (" + choisis.length + " parcours)"));

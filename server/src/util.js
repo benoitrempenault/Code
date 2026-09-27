@@ -98,3 +98,22 @@ export function costMicros(model, tokensIn, tokensOut) {
   const eur = ((tokensIn / 1e6) * p.in + (tokensOut / 1e6) * p.out) * 0.95;
   return Math.round(eur * 1e6);
 }
+
+// Chiffrement réversible d'un secret stocké en base (jeton d'API d'un tiers) :
+// AES-GCM 256, clé dérivée du secret du serveur. Format : v1.<iv>.<données> (base64url).
+async function cleChiffrement(secret) {
+  const brut = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("studio-chiffrement:" + String(secret || "")));
+  return crypto.subtle.importKey("raw", brut, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+}
+const deB64url = (s) => Uint8Array.from(atob(String(s).replace(/-/g, "+").replace(/_/g, "/") + "===".slice((String(s).length + 3) % 4)), (c) => c.charCodeAt(0));
+export async function chiffrer(secret, texte) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const c = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await cleChiffrement(secret), new TextEncoder().encode(texte));
+  return "v1." + b64url(iv) + "." + b64url(c);
+}
+export async function dechiffrer(secret, chiffre) {
+  const [v, iv, c] = String(chiffre || "").split(".");
+  if (v !== "v1" || !iv || !c) throw new Error("Secret illisible.");
+  const clair = await crypto.subtle.decrypt({ name: "AES-GCM", iv: deB64url(iv) }, await cleChiffrement(secret), deB64url(c));
+  return new TextDecoder().decode(clair);
+}

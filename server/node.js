@@ -49,6 +49,7 @@ const app = createApp({
   SITE_STATS_BASE: process.env.SITE_STATS_BASE || "",
   SITE_STATS_KEY: process.env.SITE_STATS_KEY || "",
   BILANS_BASE: process.env.BILANS_BASE || "",
+  META_GRAPH_BASE: process.env.META_GRAPH_BASE || "",
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || "",
   AI_MODELS: process.env.AI_MODELS || "",
   AI_RATE_PER_MIN: process.env.AI_RATE_PER_MIN || "",

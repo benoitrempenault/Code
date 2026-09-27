@@ -987,3 +987,46 @@ CREATE TABLE IF NOT EXISTS crm_portail_etat (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (agency_id, portail)
 );
+
+-- Réseaux sociaux (Facebook, Instagram) pour les bilans vendeurs (meta.js) :
+-- l'API officielle de Meta, avec le jeton de page de l'agence (chiffré en
+-- AES-GCM, clé dérivée de SESSION_SECRET — jamais renvoyé au navigateur).
+CREATE TABLE IF NOT EXISTS crm_meta_compte (
+  agency_id   TEXT PRIMARY KEY REFERENCES agencies(id),
+  jeton_chiffre TEXT NOT NULL,
+  page_id     TEXT NOT NULL DEFAULT '',
+  page_nom    TEXT NOT NULL DEFAULT '',
+  ig_id       TEXT NOT NULL DEFAULT '',
+  ig_nom      TEXT NOT NULL DEFAULT '',
+  statut      TEXT NOT NULL DEFAULT 'ok',    -- ok | erreur
+  message     TEXT NOT NULL DEFAULT '',
+  releve_at   INTEGER,
+  updated_at  INTEGER NOT NULL
+);
+-- Une publication (fb | ig) et le bien auquel elle est rattachée : auto
+-- (« Réf. 8282 » ou lien vers l'annonce), manuel (validé dans Studio Bilans),
+-- ou seulement suggéré (ville + prix) — une suggestion ne compte PAS.
+CREATE TABLE IF NOT EXISTS crm_meta_posts (
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  id         TEXT NOT NULL,                  -- fb:<id> | ig:<id>
+  reseau     TEXT NOT NULL,                  -- fb | ig
+  texte      TEXT NOT NULL DEFAULT '',
+  lien       TEXT NOT NULL DEFAULT '',       -- permalink
+  cree_le    TEXT NOT NULL DEFAULT '',       -- AAAA-MM-JJ
+  ref        TEXT NOT NULL DEFAULT '',       -- mandat rattaché
+  rattachement TEXT NOT NULL DEFAULT '',     -- auto | manuel | suggestion | aucun
+  suggestion TEXT NOT NULL DEFAULT '',       -- ref suggérée (ville + prix)
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agency_id, id)
+);
+-- Compteurs d'une publication relevés un jour donné (cumul depuis la publication).
+CREATE TABLE IF NOT EXISTS crm_meta_stats (
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  post_id    TEXT NOT NULL,
+  jour       TEXT NOT NULL,
+  vues       INTEGER,
+  portee     INTEGER,
+  interactions INTEGER,                      -- réactions/j'aime + commentaires + partages + enregistrements
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agency_id, post_id, jour)
+);

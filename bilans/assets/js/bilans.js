@@ -117,7 +117,8 @@
         '<div class="chiffres"><span><b>' + (s.vues ?? "—") + "</b> vue" + (s.vues > 1 ? "s " : " ") + escH(evol) + "</span><span><b>" + ((s.visites || 0) + (s.brochures || 0)) + "</b> demande" + ((s.visites || 0) + (s.brochures || 0) > 1 ? "s" : "") + "</span>" +
         (b.ecart != null ? '<span><b class="' + (b.ecart > 0.08 ? "haut" : b.ecart < -0.05 ? "bas" : "") + '">' + pct(b.ecart) + "</b> vs " + b.comparables + " comparables</span>" : "<span>prix : peu de comparables</span>") +
         (s.indice != null ? "<span>indice <b>" + s.indice + "</b></span>" : "") +
-        (b.portails ? "<span><b>" + b.portails.vues + "</b> vues portails · <b>" + b.portails.contacts + "</b> contacts</span>" : "") + "</div>" +
+        (b.portails ? "<span><b>" + b.portails.vues + "</b> vues portails · <b>" + b.portails.contacts + "</b> contacts</span>" : "") +
+        (b.reseaux ? "<span><b>" + b.reseaux.posts + "</b> post" + (b.reseaux.posts > 1 ? "s" : "") + (b.reseaux.vues != null ? " · <b>" + b.reseaux.vues + "</b> vues" : "") + " · <b>" + b.reseaux.interactions + "</b> interactions</span>" : "") + "</div>" +
         "<div>" + statut + "</div></div>";
     }
     $("liste").innerHTML = html;
@@ -303,6 +304,73 @@
     });
   }
 
+  /* ------------------------------- Réseaux --------------------------------- */
+  // Facebook + Instagram par l'API officielle de Meta : connexion de la page
+  // (jeton chiffré côté serveur), relevé, rattachement des publications.
+  let reseaux = null;
+  async function ouvrirReseaux() {
+    try { reseaux = await api("/crm/meta"); } catch (e) { toast(e.message, true); return; }
+    rendreReseaux();
+  }
+  function rendreReseaux() {
+    const R = reseaux, c = R.compte;
+    const date = (t) => t ? new Date(t * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "jamais";
+    const options = (sel) => '<option value="">— aucun bien —</option>' + R.mandats.map((m) =>
+      '<option value="' + escH(m.ref) + '"' + (m.ref === sel ? " selected" : "") + ">Réf. " + escH(m.ref) + " · " + escH([m.adresse, m.ville].filter(Boolean).join(", ")) + (m.prix ? " · " + euros(m.prix) : "") + "</option>").join("");
+    const connexion = '<div class="interne"><h3>Connexion de la page (une fois)</h3><ol style="padding-left:18px">' +
+      '<li>Sur <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener" style="color:var(--accent)">developers.facebook.com/apps</a> : « Créer une app » (type Entreprise), laissez-la en mode développement. Notez son <strong>ID</strong> et sa <strong>clé secrète</strong> (Paramètres › Général).</li>' +
+      '<li>Dans l\'<a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener" style="color:var(--accent)">Explorateur de l\'API Graph</a> : choisissez l\'app, cochez <code>pages_show_list</code>, <code>pages_read_engagement</code>, <code>read_insights</code>, <code>instagram_basic</code>, <code>instagram_manage_insights</code>, « Generate Access Token », acceptez pour la page Kadima et son Instagram, puis copiez le jeton (EA…).</li>' +
+      "<li>Collez ci-dessous le jeton, l'ID et la clé de l'app : Studio en tire un jeton de page <strong>qui n'expire pas</strong>, le chiffre, et oublie la clé de l'app.</li></ol>" +
+      '<div class="formulaire"><label>Jeton (EA…)<input id="rs-jeton" autocomplete="off" /></label><label>ID de l\'app<input id="rs-app" autocomplete="off" /></label>' +
+      '<label>Clé secrète de l\'app<input id="rs-secret" type="password" autocomplete="off" /></label></div>' +
+      '<div class="barre" style="margin-top:10px"><button class="btn btn-or" id="rs-connecter">Connecter</button></div></div>';
+    const etat = c ? '<div class="interne"><h3>Page connectée</h3><p>📘 ' + escH(c.page_nom) + (c.ig_nom ? " · 📸 @" + escH(c.ig_nom) : " · <span style=\"color:var(--err)\">aucun Instagram professionnel relié à la page</span>") +
+      ' <span class="puce ' + (c.statut === "ok" ? "ok" : "fort") + '">' + (c.statut === "ok" ? "✓" : "erreur") + "</span></p>" +
+      '<p class="petit">' + escH(c.message || "") + " · dernier relevé " + date(c.releve_at) + "</p>" +
+      '<div class="barre"><button class="btn btn-or" id="rs-relever">⟳ Relever maintenant</button><button class="btn" id="rs-reconnecter">Changer de jeton</button><button class="btn btn-danger" id="rs-deconnecter">Déconnecter</button></div>' +
+      '<p class="petit">Le relevé se fait aussi tout seul chaque lundi, avant la préparation des bilans. Astuce : écrivez « Réf. 8282 » dans vos publications, elles seront rattachées sans intervention.</p></div>' : "";
+    const aValider = R.posts.filter((p) => !p.ref && p.suggestion).length;
+    const posts = R.posts.length ? '<h3 style="font-family:Fraunces,Georgia,serif;font-weight:500;margin:14px 0 6px">Publications des 90 derniers jours' + (aValider ? ' <span class="puce fort">' + aValider + " suggestion(s) à valider</span>" : "") + '</h3><div class="posts">' +
+      R.posts.map((p) => {
+        const etatR = p.ref ? (p.rattachement === "auto" ? '<span class="puce ok">auto</span>' : '<span class="puce">validé</span>') : p.suggestion ? '<span class="puce fort">suggestion</span>' : "";
+        return '<div class="post' + (!p.ref && p.suggestion ? " a-valider" : "") + '"><div class="reseau">' + (p.reseau === "ig" ? "📸" : "📘") + "</div>" +
+          '<div><div class="texte">' + escH(p.texte || "(sans texte)") + '</div><div class="meta">' + escH(p.cree_le) + (p.vues != null ? " · " + p.vues + " vues" : "") + " · " + (p.interactions || 0) + " interactions" +
+          (p.lien ? ' · <a href="' + escH(p.lien) + '" target="_blank" rel="noopener" style="color:var(--accent)">voir</a>' : "") + " " + etatR + "</div></div>" +
+          '<div><select data-post="' + escH(p.id) + '">' + options(p.ref || p.suggestion) + "</select>" +
+          (!p.ref && p.suggestion ? '<button class="btn mini btn-or" style="margin-top:4px" data-valider="' + escH(p.id) + '">✓ Valider la suggestion</button>' : "") + "</div></div>";
+      }).join("") + "</div>" : (c ? '<p class="petit">Aucune publication relevée pour l\'instant — « Relever maintenant ».</p>' : "");
+    ouvrirModale("📣 Facebook et Instagram", (c ? etat : connexion) + '<div id="rs-reco" hidden>' + (c ? connexion : "") + "</div>" + posts,
+      '<button class="btn" id="rs-fermer">Fermer</button>');
+    $("rs-fermer").addEventListener("click", fermerModale);
+    const brancher = () => { if (!$("rs-connecter")) return; $("rs-connecter").addEventListener("click", async () => {
+      const btn = $("rs-connecter"); btn.disabled = true; btn.textContent = "Connexion…";
+      try {
+        const r = await api("/crm/meta/jeton", { json: { jeton: $("rs-jeton").value.trim(), appId: $("rs-app").value.trim(), appSecret: $("rs-secret").value.trim() } });
+        toast("Connecté : " + r.page.nom + (r.instagram ? " + @" + r.instagram.nom : " (sans Instagram)") + (r.autresPages ? " — plusieurs pages : la première a été prise" : ""));
+        await api("/crm/meta/relever", { json: {} }).catch((e) => toast(e.message, true));
+        ouvrirReseaux();
+      } catch (e) { toast(e.message, true); btn.disabled = false; btn.textContent = "Connecter"; }
+    }); };
+    brancher();
+    if ($("rs-reconnecter")) $("rs-reconnecter").addEventListener("click", () => { $("rs-reco").hidden = false; });
+    if ($("rs-deconnecter")) $("rs-deconnecter").addEventListener("click", async () => {
+      try { await api("/crm/meta/jeton", { method: "DELETE" }); toast("Page déconnectée"); ouvrirReseaux(); } catch (e) { toast(e.message, true); }
+    });
+    if ($("rs-relever")) $("rs-relever").addEventListener("click", async () => {
+      const btn = $("rs-relever"); btn.disabled = true; btn.textContent = "Relevé…";
+      try { const r = await api("/crm/meta/relever", { json: {} }); toast(r.publications + " publication(s) relevée(s)"); ouvrirReseaux(); }
+      catch (e) { toast(e.message, true); btn.disabled = false; btn.textContent = "⟳ Relever maintenant"; }
+    });
+    const rattacher = async (id, ref) => {
+      try { await api("/crm/meta/posts/" + encodeURIComponent(id), { method: "PUT", json: { ref } }); toast(ref ? "Publication rattachée au bien réf. " + ref : "Publication détachée"); ouvrirReseaux(); }
+      catch (e) { toast(e.message, true); }
+    };
+    document.querySelectorAll("[data-post]").forEach((sel) => sel.addEventListener("change", () => rattacher(sel.dataset.post, sel.value)));
+    document.querySelectorAll("[data-valider]").forEach((b) => b.addEventListener("click", () => {
+      const p = R.posts.find((x) => x.id === b.dataset.valider); rattacher(p.id, p.suggestion);
+    }));
+  }
+
   /* ------------------------------ Démarrage -------------------------------- */
   async function demarrer() {
     const a = account();
@@ -321,6 +389,7 @@
   $("filtre-statut").addEventListener("change", rendre);
   $("btn-import").addEventListener("click", () => $("fichier-mandats").click());
   $("btn-portails").addEventListener("click", ouvrirPortails);
+  $("btn-reseaux").addEventListener("click", ouvrirReseaux);
   $("fichier-mandats").addEventListener("change", () => { const f = $("fichier-mandats").files[0]; if (f) importer(f); });
   $("btn-generer").addEventListener("click", async () => {
     const btn = $("btn-generer"); btn.disabled = true; btn.textContent = "Préparation…";

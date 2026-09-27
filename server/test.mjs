@@ -4064,6 +4064,103 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(d.alertes.some((a) => a.code === "portails-sans-contact") === false && d.totalPortails.contacts === 2, "des contacts portails : pas d'alerte « sans contact »");
 }
 
+
+/* ===================== Réseaux sociaux (Facebook, Instagram) ===================== */
+{
+  console.log("— Réseaux : connexion Meta, relevé, rattachement des publications, bilans");
+  const M = await import("./src/meta.js");
+  const mandatsT = [{ ref: "8282", ville: "SAINT MEDARD EN JALLES", prix: 380000 }, { ref: "7510", ville: "LE HAILLAN", prix: 290000 }];
+  const urls = new Map([["/annonces/maison-le-haillan-27180/", "7510"]]);
+  ok(M.rattacher({ texte: "🏡 Nouveauté ! Maison 5 pièces — Réf. 8282 — 380 000 €" }, mandatsT, urls).rattachement === "auto", "« Réf. 8282 » dans le texte : rattachement automatique");
+  ok(M.rattacher({ texte: "Coup de cœur au Haillan", lien: "https://century21-kadima.fr/annonces/maison-le-haillan-27180" }, mandatsT, urls).ref === "7510", "lien vers l'annonce du site : rattachement automatique");
+  const sug = M.rattacher({ texte: "Belle maison à Saint-Médard-en-Jalles, 380.000€, jardin" }, mandatsT, urls);
+  ok(sug.rattachement === "suggestion" && sug.ref === "8282", "ville + prix : seulement une SUGGESTION");
+  ok(M.rattacher({ texte: "Maison au Haillan, 290 000 €" }, mandatsT, urls).ref === "7510" && M.rattacher({ texte: "Dernière chance à Saint-Médard ! 380 000 €" }, mandatsT, urls).ref === "8282", "commune sans article ni « en Jalles » reconnue");
+  ok(M.rattacher({ texte: "Maison au Haillan, 450 000 €" }, mandatsT, urls).rattachement === "aucun", "bonne commune, mauvais prix : rien");
+  ok(M.rattacher({ texte: "Bonne fête des mères à toutes !" }, mandatsT, urls).rattachement === "aucun" && M.rattacher({ texte: "Terrain de 8282 m²" }, mandatsT, urls).rattachement === "aucun", "rien de sûr : aucun rattachement (un nombre seul n'est pas une réf.)");
+  ok(JSON.stringify(M.prixDansTexte("380 000 € ou 1,2 M€, 450K€, 2750 m²")) === "[380000,450000,1200000]" || M.prixDansTexte("380 000 € ou 1,2 M€, 450K€, 2750 m²").sort().join() === [380000, 450000, 1200000].sort().join(), "prix lus dans un texte (m² ignorés)");
+
+  // Faux Graph API Meta.
+  const appelsMeta = [];
+  let jetonMort = false, igSansInsights = true, vuesFb = 500;
+  const fauxMeta = (await import("node:http")).createServer((req, res) => {
+    const u = new URL(req.url, "http://x");
+    appelsMeta.push(u.pathname + "?" + [...u.searchParams.keys()].join(","));
+    const tok = u.searchParams.get("access_token");
+    const rep = (code, j) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(j)); };
+    if (jetonMort) return rep(400, { error: { message: "Error validating access token", code: 190 } });
+    if (u.pathname === "/v23.0/oauth/access_token") return rep(200, { access_token: "EAAlongtokenLONGLONGLONGLONGLONG" });
+    if (u.pathname === "/v23.0/me/accounts") return rep(200, { data: [{ id: "P1", name: "Century 21 Kadima", access_token: "EAApagetokenPAGEPAGEPAGEPAGEPAGE" }] });
+    if (tok !== "EAApagetokenPAGEPAGEPAGEPAGEPAGE") return rep(400, { error: { message: "mauvais jeton : " + tok, code: 190 } });
+    if (u.pathname === "/v23.0/P1") return rep(200, { name: "Century 21 Kadima", instagram_business_account: { id: "IG1", username: "c21kadima" } });
+    if (u.pathname === "/v23.0/P1/posts") {
+      const avecIns = /insights/.test(u.searchParams.get("fields"));
+      return rep(200, { data: [
+        { id: "P1_1", message: "Nouveauté ! Réf. 8282, maison familiale", permalink_url: "https://fb.com/1", created_time: "2026-09-10T10:00:00+0000",
+          reactions: { summary: { total_count: 12 } }, comments: { summary: { total_count: 3 } }, shares: { count: 2 }, ...(avecIns ? { insights: { data: [{ name: "post_media_view", values: [{ value: vuesFb }] }] } } : {}) },
+        { id: "P1_2", message: "Maison au Haillan, 290 000 €, à découvrir", permalink_url: "https://fb.com/2", created_time: "2026-09-22T10:00:00+0000", reactions: { summary: { total_count: 4 } }, comments: { summary: { total_count: 0 } } },
+      ] });
+    }
+    if (u.pathname === "/v23.0/IG1/media") {
+      if (/insights/.test(u.searchParams.get("fields")) && igSansInsights) return rep(400, { error: { message: "(#100) metric views is not supported", code: 100 } });
+      return rep(200, { data: [{ id: "M1", caption: "Réf. 8282 🏡", permalink: "https://instagram.com/p/1", timestamp: new Date(Date.now() - 5 * 86400000).toISOString(), like_count: 30, comments_count: 2 }] });
+    }
+    rep(404, { error: { message: "inconnu " + u.pathname } });
+  });
+  await new Promise((r) => fauxMeta.listen(18807, r));
+  const envM = { db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: true, META_GRAPH_BASE: "http://localhost:18807/v23.0" };
+  const appM = createApp(envM);
+  const callM = async (path, opts = {}) => {
+    const res = await appM.fetch(new Request("http://api.test" + path, { method: opts.method || (opts.body ? "POST" : "GET"), headers: { "Content-Type": "application/json", ...(opts.headers || {}) }, body: opts.body ? JSON.stringify(opts.body) : undefined }));
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+  const cr = await call("/admin/agencies", { headers: admin, body: { name: "Agence Meta Test", email: "meta@meta-test.fr", user_name: "Admin Meta" } });
+  const agM = cr.json.agency.id;
+  const authM = { Authorization: "Bearer " + (await call("/auth/exchange", { body: { token: cr.json.welcome_link.split("#token=")[1] } })).json.session };
+  await callM("/crm/bilans/mandats", { headers: authM, body: { mandats: mandatsT.map((m) => ({ ...m, email: "v@exemple.fr", conseiller: "DUPONT Jean" })) } });
+  ok((await callM("/crm/meta/jeton", { headers: authM, body: { jeton: "pas-un-jeton" } })).status === 400, "jeton mal formé refusé");
+  const con = await callM("/crm/meta/jeton", { headers: authM, body: { jeton: "EAAshorttokenSHORTSHORTSHORTSHORT", appId: "123", appSecret: "secret" } });
+  ok(con.status === 200 && con.json.page.nom === "Century 21 Kadima" && con.json.instagram.nom === "c21kadima", "connexion : jeton court échangé, page et Instagram relié trouvés");
+  const brut = await db.get("SELECT jeton_chiffre FROM crm_meta_compte WHERE agency_id = ?", [agM]);
+  ok(/^v1\./.test(brut.jeton_chiffre) && !brut.jeton_chiffre.includes("EAApage"), "le jeton de page est CHIFFRÉ en base");
+  ok(!JSON.stringify((await callM("/crm/meta", { headers: authM })).json).includes("EAA"), "le jeton n'est jamais renvoyé au navigateur");
+
+  const rel = await callM("/crm/meta/relever", { headers: authM, body: {} });
+  ok(rel.status === 200 && rel.json.publications === 3 && rel.json.auto === 2 && rel.json.suggestions === 1, "relevé : 3 publications, 2 rattachées d'office, 1 suggestion (" + JSON.stringify(rel.json) + ")");
+  ok(appelsMeta.filter((a) => a.startsWith("/v23.0/IG1/media")).length === 2, "Instagram refuse une métrique : relevé repris sans elle (interactions gardées)");
+  const vue = (await callM("/crm/meta", { headers: authM })).json;
+  const fb1 = vue.posts.find((p) => p.id === "fb:P1_1"), fb2 = vue.posts.find((p) => p.id === "fb:P1_2"), ig1 = vue.posts.find((p) => p.id === "ig:M1");
+  ok(fb1.ref === "8282" && fb1.vues === 500 && fb1.interactions === 17 && ig1.ref === "8282" && ig1.interactions === 32, "Facebook : 500 vues, 17 interactions ; Instagram : 32 interactions");
+  ok(fb2.ref === "" && fb2.suggestion === "7510", "la suggestion n'est pas un rattachement");
+  ok((await callM("/crm/meta/posts/fb:P1_2", { method: "PUT", headers: authM, body: { ref: "7510" } })).status === 200, "suggestion validée à la main");
+  ok((await callM("/crm/meta/posts/fb:P1_2", { method: "PUT", headers: authM, body: { ref: "0000" } })).status === 400, "rattacher à un mandat inconnu : refusé");
+
+  // Semaine : relevé du lundi S (500 vues) → relevé du lundi S+7 (740 vues) = 240 vues.
+  const S = "2026-09-21";
+  await db.run("UPDATE crm_meta_stats SET jour = ? WHERE agency_id = ?", [S, agM]);
+  vuesFb = 740; igSansInsights = false;
+  await callM("/crm/meta/relever", { headers: authM, body: {} });
+  await db.run("UPDATE crm_meta_stats SET jour = ? WHERE agency_id = ? AND jour <> ?", ["2026-09-28", agM, S]);
+  ok((await db.get("SELECT ref, rattachement FROM crm_meta_posts WHERE agency_id = ? AND id = 'fb:P1_2'", [agM])).rattachement === "manuel", "un rattachement manuel survit au relevé suivant");
+  const sem = await M.statsReseauxSemaine(db, agM, S);
+  ok(sem.connecte && sem.parRef["8282"].fb.vues === 240 && sem.parRef["8282"].fb.posts === 1 && sem.parRef["8282"].base === "semaine", "semaine = écart entre les deux relevés du lundi (240 vues Facebook)");
+  ok(sem.parRef["7510"] && sem.parRef["7510"].publiesSemaine === 1, "publication de la semaine comptée pour le bien 7510");
+
+  const B = await import("./src/bilans.js");
+  const annonce = { ref: "8282", type: "Maison", ville: "Saint-Médard-en-Jalles", prix: 380000, surface: 100, semaines: { [S]: { vues: 20, visites: 0, brochures: 0 } } };
+  const dR = B.calculerBilan({ mandat: { ref: "8282", debut: "2026-09-01", prix: 380000 }, annonce, pairs: [], amepi: [], events: [], semaine: S, lundis: [S], aujourdhui: "2026-09-28",
+    reseaux: { connecte: true, stats: sem.parRef["8282"] } });
+  const tR = B.texteBilan(dR, { conseiller: "Jean DUPONT" });
+  ok(/Sur nos réseaux sociaux/.test(tR) && /Facebook : 1 publication, 240 vues, \d+ interactions? \(réactions, commentaires, partages\) cette semaine/.test(tR) && /Instagram : 1 publication/.test(tR), "le bilan dit ce que les réseaux ont fait pour le bien");
+  const dVide = B.calculerBilan({ mandat: { ref: "9999", debut: "2026-09-01", prix: 1 }, annonce: { ...annonce, ref: "9999" }, pairs: [], amepi: [], events: [], semaine: S, lundis: [S], aujourdhui: "2026-09-28", reseaux: { connecte: true, stats: null } });
+  ok(dVide.alertes.some((a) => a.code === "reseaux-aucun-post") && !/réseaux sociaux/.test(B.texteBilan(dVide, {})), "bien jamais publié : alerte au conseiller, rien dans le texte au vendeur");
+
+  jetonMort = true;
+  const mort = await callM("/crm/meta/relever", { headers: authM, body: {} });
+  ok(mort.status === 502 && /expiré ou révoqué/.test(mort.json.error) && (await callM("/crm/meta", { headers: authM })).json.compte.statut === "erreur", "jeton expiré : message clair, statut en erreur");
+  fauxMeta.close();
+}
+
 fake.close();
 faux365.close();
 console.log("\n" + passed + " réussis, " + failed + " échec(s)");
