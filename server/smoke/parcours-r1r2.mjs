@@ -139,8 +139,10 @@ export default async function () {
     await page.click("#table-parcours tr[data-parcours]");
     await page.waitForSelector("[data-commission]", { timeout: 8000 });
     await page.click("[data-commission]");
-    await page.waitForFunction(() => /Marine Zamora/.test(document.getElementById("modale-corps")?.textContent || ""), null, { timeout: 10000 });
-    ok(/310.000/.test(await page.textContent("#modale-corps")) && /Belle parcelle/.test(await page.textContent("#modale-corps")), "le conseiller voit l'avis reçu, la fourchette groupée et les 3 fourchettes");
+    await page.waitForSelector("#com-lien", { timeout: 10000 });
+    await page.waitForFunction(() => /Belle parcelle/.test(document.getElementById("modale-corps")?.textContent || ""), null, { timeout: 10000 });
+    const corpsCom = await page.textContent("#modale-corps");
+    ok(/310.000/.test(corpsCom) && /Belle parcelle/.test(corpsCom), "le conseiller voit l'avis reçu, la fourchette groupée et les 3 fourchettes (" + corpsCom.replace(/\s+/g, " ").slice(0, 400) + ")");
     await page.click("#com-reporter");
     await attendreToast(page, "reportée dans le livret");
     await page.click("#com-retour");
