@@ -75,9 +75,17 @@
     $("modale-titre").textContent = titre;
     $("modale-corps").innerHTML = corpsHtml;
     $("modale-pied").innerHTML = piedHtml || "";
+    if ($("voile").hidden && !(history.state && history.state.modale)) { try { history.pushState({ modale: true }, ""); } catch { /* sans historique */ } }
     $("voile").hidden = false;
+    $("modale-corps").scrollTop = 0;
   }
-  function fermerModale() { $("voile").hidden = true; document.querySelector(".modale").classList.remove("large"); }
+  // Le bouton « retour » (téléphone, navigateur) ferme la fenêtre ouverte au
+  // lieu de quitter l'Administration.
+  window.addEventListener("popstate", () => { if (!$("voile").hidden) { $("voile").hidden = true; document.querySelector(".modale").classList.remove("large"); } });
+  function fermerModale() {
+    $("voile").hidden = true; document.querySelector(".modale").classList.remove("large");
+    if (history.state && history.state.modale) { try { history.back(); } catch { /* rien */ } }
+  }
 
   /* ------------------------------ Contacts -------------------------------- */
   async function chargerContacts() {
@@ -2471,10 +2479,9 @@
       if (b.dataset.guide === "acm") { ouvrirAcm(id, p); return; }
       b.disabled = true; b.textContent = "Préparation…";
       try {
-        await genererGuideR1(p);
+        const urlR1 = await genererGuideR1(p);
         if (!faites.has("guide-r1")) await api("/crm/parcours/" + id + "/etape", { json: { etape: "guide-r1" } });
-        toast("Guide R1 prêt : il s'ouvre dans un nouvel onglet, à imprimer ou enregistrer");
-        ouvrirParcours(id);
+        documentPret(id, "Guide R1 prêt", urlR1, window.__dernierGuide && window.__dernierGuide.fichier);
       } catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "🖨 Guide R1 personnalisé"; }
     }));
     document.querySelectorAll("[data-cocher]").forEach((b) => b.addEventListener("click", async () => {
@@ -2572,9 +2579,7 @@
     doc.setTitle("Guide de commercialisation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets }; // relu par les parcours navigateur
-    const fen = window.open(url, "_blank");
-    if (!fen) { const a = document.createElement("a"); a.href = url; a.download = "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf"; a.click(); }
+    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf" }; // relu par les parcours navigateur
     return url;
   }
   /* ------------------------------ Guide R2 --------------------------------- */
@@ -2778,9 +2783,7 @@
     doc.setTitle("Vendons ensemble votre bien — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets };
-    const fen = window.open(url, "_blank");
-    if (!fen) { const a = document.createElement("a"); a.href = url; a.download = "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf"; a.click(); }
+    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf" };
     return url;
   }
   // La fenêtre du guide R2 : photo du bien, points forts, objections, texte
@@ -2828,11 +2831,10 @@
         const envr = await api("/crm/parcours/" + id + "/environnement");
         if (envr.erreur) toast("Commodités indisponibles : " + envr.erreur, true);
         etat.textContent = "Cartes et assemblage du guide…";
-        await genererGuideR2({ ...p, cp: p.cp, ville: p.ville }, r2, envr);
+        const urlR2 = await genererGuideR2({ ...p, cp: p.cp, ville: p.ville }, r2, envr);
         await api("/crm/parcours/" + id + "/etape", { json: { etape: "guide-r2" } });
         chargerConseillers();
-        toast("Guide R2 prêt : il s'ouvre dans un nouvel onglet, à imprimer ou enregistrer");
-        ouvrirParcours(id);
+        documentPret(id, "Guide R2 prêt", urlR2, window.__dernierGuide && window.__dernierGuide.fichier);
       } catch (e) { toast(e.message, true); etat.textContent = ""; btn.disabled = false; }
     });
   }
@@ -3040,10 +3042,9 @@
       try {
         etat.textContent = "Enregistrement…"; const d = await sauver();
         etat.textContent = "Cartes, photos et assemblage du livret…";
-        await genererLivretPrix(p, d, donnees);
+        const urlAcm = await genererLivretPrix(p, d, donnees);
         await api("/crm/parcours/" + id + "/etape", { json: { etape: "acm" } });
-        toast("Livret prix prêt : il s'ouvre dans un nouvel onglet, à imprimer ou enregistrer");
-        document.querySelector(".modale").classList.remove("large"); ouvrirParcours(id);
+        documentPret(id, "Livret prix prêt", urlAcm, window.__dernierGuide && window.__dernierGuide.fichier);
       } catch (e) { toast(e.message, true); etat.textContent = ""; btn.disabled = false; }
     });
   }
@@ -3250,10 +3251,21 @@
     doc.setTitle("Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets };
-    const fen = window.open(url, "_blank");
-    if (!fen) { const a = document.createElement("a"); a.href = url; a.download = "livret-prix-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf"; a.click(); }
+    window.__dernierGuide = { url, octets, fichier: "livret-prix-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf" }; // relu par les parcours navigateur
     return url;
+  }
+
+  // Après un guide ou un livret : on ne quitte pas le parcours. L'onglet ne
+  // s'ouvre que sur un clic (jamais bloqué, même sur téléphone) ; « Enregistrer »
+  // télécharge ; « Retour » rouvre la fiche.
+  function documentPret(id, titre, url, fichier) {
+    ouvrirModale("✅ " + titre,
+      '<p class="aide">Le document est prêt. Ouvrez-le dans un nouvel onglet pour le lire ou l\'imprimer, ou enregistrez-le ; la fiche du parcours vous attend derrière.</p>' +
+      '<div class="barre"><a class="btn btn-or" id="doc-ouvrir" href="' + escH(url) + '" target="_blank" rel="noopener">📄 Ouvrir le document</a>' +
+      '<a class="btn" id="doc-enregistrer" href="' + escH(url) + '" download="' + escH(fichier || "document.pdf") + '">⬇ Enregistrer</a></div>',
+      '<button class="btn btn-or" id="doc-retour">← Retour au parcours</button>');
+    document.querySelector(".modale").classList.remove("large");
+    $("doc-retour").addEventListener("click", () => ouvrirParcours(id));
   }
 
   // Le mail d'un jalon : sujet et texte pré-remplis, à relire ; aperçu du

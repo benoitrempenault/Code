@@ -88,7 +88,10 @@ export default async function () {
 
     // Le guide R1 personnalisé : 13 pages communes + la page de Teddy Besson en 4e position, R2 écrit.
     await page.click('[data-guide="r1"]');
-    await attendreToast(page, "Guide R1 prêt", 30000);
+    await page.waitForSelector("#doc-retour", { timeout: 30000 });
+    ok(/Guide R1 prêt/.test(await page.textContent("#modale-titre")) && (await page.getAttribute("#doc-ouvrir", "href") || "").startsWith("blob:") && /guide-r1-mouneyres\.pdf/.test(await page.getAttribute("#doc-enregistrer", "download") || ""),
+      "après le guide R1 : écran « prêt » avec Ouvrir, Enregistrer et Retour au parcours");
+    await page.click("#doc-retour");
     await page.waitForFunction(() => document.querySelectorAll(".etape.faite").length === 2, null, { timeout: 8000 });
     const guide = await page.evaluate(async () => {
       const octets = window.__dernierGuide.octets;
@@ -105,7 +108,9 @@ export default async function () {
     await page.fill("#r2-objections", "La route passante");
     await page.fill("#r2-bio", "Après 12 ans dans la grande distribution, j'ai rejoint Century 21 Kadima.\n\nJe suis déterminé à vous fournir un service personnalisé.");
     await page.click("#r2-generer");
-    await attendreToast(page, "Guide R2 prêt", 90000);
+    await page.waitForSelector("#doc-retour", { timeout: 90000 });
+    ok(/Guide R2 prêt/.test(await page.textContent("#modale-titre")), "après le guide R2 : écran « prêt » avec retour au parcours");
+    await page.click("#doc-retour");
     await page.waitForFunction(() => document.querySelectorAll(".etape.faite").length === 3, null, { timeout: 8000 });
     const guide2 = await page.evaluate(async () => {
       const doc = await window.PDFLib.PDFDocument.load(window.__dernierGuide.octets);
@@ -134,7 +139,9 @@ export default async function () {
     ok(/acheteur/.test(await page.textContent("#acm-ach-resume")), "la fenêtre montre le résumé des acheteurs par niveau de prix");
     await page.check("#acm-ach-inclure"); await page.fill("#acm-ach-texte", "Les visiteurs apprécient le jardin, réserves sur la route.");
     await page.click("#acm-generer");
-    await attendreToast(page, "Livret prix prêt", 90000);
+    await page.waitForSelector("#doc-retour", { timeout: 90000 });
+    ok(/Livret prix prêt/.test(await page.textContent("#modale-titre")), "après le livret : écran « prêt » avec retour au parcours");
+    await page.click("#doc-retour");
     await page.waitForFunction(() => document.querySelectorAll(".etape.faite").length === 4, null, { timeout: 8000 });
     const livret = await page.evaluate(async () => {
       const doc = await window.PDFLib.PDFDocument.load(window.__dernierGuide.octets);

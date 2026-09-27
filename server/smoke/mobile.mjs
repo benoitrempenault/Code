@@ -21,7 +21,9 @@ export default async function () {
     ok(modale.w === 390 && modale.x === 0 && modale.h >= 800, "la fiche parcours occupe tout l'écran du téléphone (" + JSON.stringify(modale) + ")");
     ok((await deborde()) <= 1, "la fiche ne déborde pas horizontalement");
     await capture(page, "mobile-fiche");
-    await page.click("#modale-ok");
+    await page.goBack();
+    await page.waitForFunction(() => document.getElementById("voile").hidden, null, { timeout: 5000 });
+    ok(await page.evaluate(() => document.getElementById("voile").hidden && !!document.getElementById("app") && !document.getElementById("app").hidden), "le bouton « retour » du téléphone ferme la fiche sans quitter l'Administration");
     await page.click('[data-onglet="reglages"]');
     await page.waitForSelector("#ag-nom", { timeout: 8000 });
     const largeurChamp = await page.evaluate(() => Math.round(document.getElementById("ag-nom").getBoundingClientRect().width));

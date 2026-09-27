@@ -90,6 +90,7 @@ input::placeholder { color: #6c6960; }
 }
 .grille-champs input, .grille-champs select, .grille-champs textarea { width: 100%; }
 
+a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
 .btn {
   padding: 9px 16px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--panel-2); color: var(--text); font-size: 14px; font-weight: 500;

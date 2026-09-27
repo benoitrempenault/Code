@@ -626,6 +626,13 @@ recadre en carré 720 px (puis 640/520 si > 250 Ko) pour la page « Votre consei
 du R2 (214 × 284 pt) ; photos du site régénérées à 640 px dans assets/conseillers ;
 l'import remplace une photo en place seulement si elle est minuscule (< 40 Ko) et la
 nouvelle au moins deux fois plus grande (`photoMieux`).
+**Retour partout (27/09)** : les générateurs (R1, R2, livret) n'ouvrent plus d'onglet
+eux-mêmes : ils rendent l'URL blob et posent `window.__dernierGuide = {url, octets,
+fichier}` ; `documentPret(id, titre, url, fichier)` affiche « Document prêt » avec
+« 📄 Ouvrir » (lien target _blank, sur un geste : jamais bloqué), « ⬇ Enregistrer »
+(download) et « ← Retour au parcours ». `ouvrirModale` pousse un état d'historique
+(`{modale:true}`) ; `popstate` ferme la fenêtre (bouton retour du téléphone) ;
+`fermerModale` fait `history.back()` si l'état est le sien. Assets `?v=19`.
 **Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
 bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la
 police Bugaki complète, non versionnée) ; le navigateur y écrit « Famille NOM » (ou
