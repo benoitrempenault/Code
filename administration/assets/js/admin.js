@@ -2546,6 +2546,11 @@
       try { await api("/crm/parcours/" + id, { method: "PUT", json: { conseiller_id: $("px-signe").value } }); toast("Les e-mails partiront signés du conseiller choisi"); await chargerParcours(); ouvrirParcours(id); }
       catch (e) { toast(e.message, true); }
     });
+    // Le bien (surface, terrain, chambres, pièce de vie) s'enregistre dès qu'un
+    // champ change : fermer la fiche sans « Enregistrer » ne perd plus rien.
+    for (const k of ["px-surface", "px-terrain", "px-chambres", "px-piece-vie"]) $(k).addEventListener("change", async () => {
+      try { await sauverBienFiche(id, lireBienFiche()); toast("Bien enregistré"); } catch (e) { toast(e.message, true); }
+    });
     $("px-maj").addEventListener("click", async () => {
       try { await api("/crm/parcours/" + id, { method: "PUT", json: lireFormulaireParcours(p) }); await sauverBienFiche(id, lireBienFiche()); toast("Fiche enregistrée"); await chargerParcours(); ouvrirParcours(id); }
       catch (e) { toast(e.message, true); }

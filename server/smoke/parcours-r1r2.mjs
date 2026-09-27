@@ -62,6 +62,18 @@ export default async function () {
     await page.waitForSelector(".etapes", { timeout: 8000 });
     ok((await page.locator(".etape").count()) === 6 && await page.inputValue("#px-signe") === cs.json.id && (await page.textContent("#px-signe-detail")).includes("06 00 00 00 01"),
       "la fiche s'ouvre sur ses 6 étapes, « Signé par » Teddy BESSON avec son téléphone");
+    // Le bien se corrige depuis la fiche et reste même si l'on ferme sans « Enregistrer ».
+    await page.click("#modale-corps details:first-of-type summary");
+    await page.fill("#px-chambres", "5"); await page.keyboard.press("Tab");
+    await attendreToast(page, "Bien enregistré");
+    await page.click("#modale-fermer");
+    await page.waitForFunction(() => document.getElementById("voile").hidden, null, { timeout: 5000 });
+    await page.click("#table-parcours tr[data-parcours]");
+    await page.waitForSelector(".etapes", { timeout: 8000 });
+    await page.click("#modale-corps details:first-of-type summary");
+    ok(await page.inputValue("#px-chambres") === "5", "les chambres saisies dans la fiche sont retrouvées après fermeture et réouverture");
+    await page.fill("#px-chambres", "4"); await page.keyboard.press("Tab");
+    await attendreToast(page, "Bien enregistré");
     // Changer le signataire depuis la fiche : menu déroulant, enregistré aussitôt.
     const idZamora = await page.evaluate(() => [...document.querySelectorAll("#px-signe option")].find((o) => /Zamora/.test(o.textContent))?.value);
     await page.selectOption("#px-signe", idZamora);
