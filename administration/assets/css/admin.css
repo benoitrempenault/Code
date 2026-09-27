@@ -133,6 +133,11 @@ td img.mini { width: 62px; height: 42px; object-fit: cover; border-radius: 8px; 
 .erreur { color: var(--err); font-weight: 600; }
 s { color: var(--muted); }
 
+/* Suggestions d'adresses (BAN) sous le champ en cours de saisie. */
+.sugg-adresse { position: absolute; z-index: 120; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); max-height: 240px; overflow-y: auto; font-size: 14px; }
+.sugg-adresse div { padding: 8px 12px; cursor: pointer; }
+.sugg-adresse div:hover, .sugg-adresse div.actif { background: var(--panel-2); }
+.grille-champs label, .barre { position: relative; }
 /* -------------------------------- Modale ------------------------------- */
 .voile {
   position: fixed; inset: 0; background: rgba(0, 0, 0, .65);

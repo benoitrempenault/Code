@@ -41,8 +41,17 @@ export default async function () {
     await page.click("#px-resultats [data-ct]");
     ok(await page.inputValue("#px-nom") === "MOUNEYRES" && await page.inputValue("#px-email") === "mouneyres@smoke.fr" && await page.inputValue("#px-adresse") === "12 rue du Mandat Confiance",
       "le contact trouvé pré-remplit la fiche du parcours");
+    // La saisie automatique des adresses (BAN) : une suggestion choisie remplit adresse, CP et ville.
+    const adrAvant = await page.inputValue("#px-adresse"), villeAvant = await page.inputValue("#px-ville");
+    await page.fill("#px-adresse", "12 rue du Man");
+    await page.waitForSelector(".sugg-adresse div", { timeout: 8000 });
+    await page.keyboard.press("ArrowDown"); await page.keyboard.press("Enter");
+    ok(await page.inputValue("#px-adresse") === "7 rue Nouvelle" && await page.inputValue("#px-cp") === "33160" && await page.inputValue("#px-ville") === "Saint-Médard-en-Jalles",
+      "la saisie automatique remplit l'adresse, le code postal et la ville (" + await page.inputValue("#px-adresse") + ")");
+    await page.fill("#px-adresse", adrAvant); await page.fill("#px-ville", villeAvant);
     await page.selectOption("#px-conseiller", cs.json.id);
     await page.fill("#px-cp", "33160");
+    await page.fill("#px-surface", "115"); await page.fill("#px-terrain", "513"); await page.fill("#px-chambres", "4"); await page.fill("#px-piece-vie", "38");
     await page.fill("#px-r1", "2026-04-20");
     await page.fill("#px-r1h", "10:00");
     await page.fill("#px-r2", "2026-04-27");
@@ -124,12 +133,14 @@ export default async function () {
     await page.waitForSelector("#com-qr", { timeout: 10000 });
     const lienCom = await page.$eval("#com-lien", (el) => el.value);
     const qrSrc = await page.getAttribute("#com-qr", "src");
+    ok(/google\.com\/maps/.test(await page.getAttribute("#modale-corps a.plan", "href") || ""), "la fenêtre de la commission montre l'adresse cliquable vers le plan");
     ok(/commission\.html\?t=/.test(lienCom) && /^data:image\/gif;base64,/.test(qrSrc || "") && !(await page.locator("#com-copier, #com-wa, a[href*='wa.me']").count()),
       "la commission montre un QR code fabriqué sur place, sans lien à copier ni WhatsApp (" + lienCom.slice(0, 50) + "…)");
     // Le collègue, sur la page publique (même navigateur : on y va, on vote, on revient).
     await page.goto(lienCom.replace(/^https?:\/\/[^/]+\/(Code\/)?/, "http://localhost:8014/"));
     await page.waitForSelector("#av-envoyer", { timeout: 10000 });
-    ok(/Maison/.test(await page.textContent("#bien")) && /SAINT AUBIN|Mandat Confiance/.test(await page.textContent("#bien")), "le collègue voit le bien sans se connecter");
+    ok(/Maison/.test(await page.textContent("#bien")) && /SAINT AUBIN|Mandat Confiance/.test(await page.textContent("#bien")) && /4 chambre/.test(await page.textContent("#bien")) && /google\.com\/maps/.test(await page.getAttribute("#bien a.plan", "href") || ""),
+      "le collègue voit le bien sans se connecter, avec les chambres, la pièce de vie et l'adresse cliquable vers le plan");
     await page.fill("#av-nom", "Marine Zamora"); await page.fill("#av-min", "310000"); await page.fill("#av-max", "330000"); await page.fill("#av-note", "Belle parcelle");
     await page.click("#av-envoyer");
     await page.waitForSelector("#merci:not([hidden])", { timeout: 10000 });
@@ -169,7 +180,7 @@ export default async function () {
       await page.evaluate(() => document.getElementById("acm-conc").scrollIntoView());
       await page.screenshot({ path: new URL("./captures/mobile-livret-concurrence.png", import.meta.url).pathname });
       await page.setViewportSize(vp || { width: 1280, height: 900 }); }
-    await page.fill("#acm-surface", "115"); await page.fill("#acm-terrain", "513"); await page.fill("#acm-piece-vie", "38"); await page.fill("#acm-chambres", "4");
+    ok(await page.inputValue("#acm-surface") === "115" && await page.inputValue("#acm-terrain") === "513" && await page.inputValue("#acm-chambres") === "4" && await page.inputValue("#acm-piece-vie") === "38", "le livret reprend le bien décrit dans la fiche du parcours");
     await page.fill("#acm-prix", "330000"); await page.fill("#acm-basse", "320000"); await page.fill("#acm-haute", "340000");
     await page.click("details summary");
     await page.fill("#acm-m-adresse", "9 allée Lamartine, Le Taillan-Médoc"); await page.fill("#acm-m-prix", "339000"); await page.fill("#acm-m-surface", "91"); await page.fill("#acm-m-pieces", "4"); await page.fill("#acm-m-terrain", "377"); await page.fill("#acm-m-portail", "Leboncoin — ORPI");

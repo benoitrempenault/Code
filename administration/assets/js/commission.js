@@ -17,7 +17,7 @@
     const b = d.bien;
     $("bien").innerHTML = (b.photo ? '<img class="photo" src="' + escH(b.photo) + '" alt="" />' : "") +
       "<h2>" + escH(b.type) + (b.ville ? " à " + escH(b.ville) : "") + "</h2>" +
-      '<p class="petit">' + escH([b.adresse, [b.cp, b.ville].filter(Boolean).join(" ")].filter(Boolean).join(", ")) + "</p>" +
+      (b.adresse || b.ville ? '<p class="petit">📍 <a class="plan" href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent([b.adresse, [b.cp, b.ville].filter(Boolean).join(" ")].filter(Boolean).join(", ")) + '" target="_blank" rel="noopener" title="Ouvrir le plan">' + escH([b.adresse, [b.cp, b.ville].filter(Boolean).join(" ")].filter(Boolean).join(", ")) + "</a> <span>· voir le plan</span></p>" : "") +
       '<div class="infos">' + [b.surface ? Math.round(b.surface) + " m² habitables" : "", b.terrain ? Math.round(b.terrain) + " m² de terrain" : "", b.piece_vie ? "pièce de vie " + Math.round(b.piece_vie) + " m²" : "", b.chambres ? b.chambres + " chambre(s)" : "", b.conseiller ? "Conseiller : " + b.conseiller : ""].filter(Boolean).map((x) => "<span>" + escH(x) + "</span>").join("") + "</div>" +
       (b.points_forts ? '<p class="petit"><strong>Points forts</strong></p><p class="forts">' + escH(b.points_forts) + "</p>" : "") +
       '<p class="petit" style="margin-top:10px;">' + escH(d.agence) + " · " + d.nb_avis + " avis déjà reçu(s)</p>";

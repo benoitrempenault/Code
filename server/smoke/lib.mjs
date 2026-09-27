@@ -73,7 +73,7 @@ export async function nouvellePage(browser, options = {}) {
   const inverse = options.adresseInverse || { name: "7 rue Nouvelle", postcode: "33160", city: "Saint-Médard-en-Jalles" };
   await page.route(/api-adresse|data\.geopf/, (r) => r.fulfill({
     contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" },
-    body: JSON.stringify({ features: [{ properties: inverse, geometry: { coordinates: [-0.7191, 44.8963] } }] }) }));
+    body: JSON.stringify({ features: [{ properties: { label: [inverse.name, inverse.postcode, inverse.city].filter(Boolean).join(" "), ...inverse }, geometry: { coordinates: [-0.7191, 44.8963] } }] }) }));
   await page.route(API_PROD, async (r) => {
     const u = new URL(r.request().url());
     try {

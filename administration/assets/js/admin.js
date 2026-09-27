@@ -70,6 +70,63 @@
   let contactEnCours = null;   // id du contact ouvert dans la modale
   let importData = null;       // { entetes, lignes } en attente de mappage
 
+  /* -------------------------- Adresses (BAN) ------------------------------ */
+  // Saisie automatique des adresses sur tous les champs d'adresse : la BAN
+  // (api-adresse.data.gouv.fr) est interrogée par le navigateur, sans jeton.
+  // Un champ listé avec cp/ville reçoit « numéro + rue » et remplit ses voisins ;
+  // les autres reçoivent l'adresse complète.
+  const CHAMPS_ADRESSE = {
+    "px-adresse": { cp: "px-cp", ville: "px-ville" }, "of-adresse": { cp: "of-cp", ville: "of-ville" },
+    "p-adresse": { ville: "p-ville" }, "ee-adresse": { ville: "ee-ville" },
+    "agc-adresse": {}, "ag-adresse": {}, "acm-m-adresse": {}, "v-bien": {},
+  };
+  const BAN_BASE = ((window.StudioConfig && window.StudioConfig.banBase) || "https://api-adresse.data.gouv.fr").replace(/\/+$/, "");
+  function brancherAdresse(input, cfg) {
+    if (input.dataset.banOk) return;
+    input.dataset.banOk = "1"; input.setAttribute("autocomplete", "off");
+    let liste = null, minuteur = 0, actif = -1, resultats = [], derniereReq = 0;
+    const fermer = () => { if (liste) liste.remove(); liste = null; actif = -1; };
+    const poser = (champId, val) => { const el = champId && $(champId); if (!el) return; el.value = val; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); };
+    const choisir = (i) => {
+      const f = resultats[i]; if (!f) return;
+      const pr = f.properties || {};
+      const voisins = cfg.cp || cfg.ville;
+      poser(input.id, voisins ? (pr.name || pr.label || "") : (pr.label || ""));
+      if (cfg.cp) poser(cfg.cp, pr.postcode || ""); if (cfg.ville) poser(cfg.ville, pr.city || "");
+      fermer();
+    };
+    const rendre = () => {
+      fermer(); if (!resultats.length) return;
+      liste = document.createElement("div"); liste.className = "sugg-adresse";
+      liste.style.left = input.offsetLeft + "px"; liste.style.top = (input.offsetTop + input.offsetHeight + 2) + "px"; liste.style.width = Math.max(input.offsetWidth, 240) + "px";
+      liste.innerHTML = resultats.map((f, i) => '<div data-i="' + i + '"' + (i === actif ? ' class="actif"' : "") + ">" + escH((f.properties || {}).label || "") + "</div>").join("");
+      liste.addEventListener("mousedown", (e) => { const d = e.target.closest("[data-i]"); if (d) { e.preventDefault(); choisir(+d.dataset.i); } });
+      input.insertAdjacentElement("afterend", liste);
+    };
+    const chercher = async () => {
+      const q = input.value.trim(); if (q.length < 3) { fermer(); return; }
+      const req = ++derniereReq;
+      try {
+        const r = await fetch(BAN_BASE + "/search/?q=" + encodeURIComponent(q) + "&limit=6&autocomplete=1");
+        const d = await r.json(); if (req !== derniereReq || document.activeElement !== input) return;
+        resultats = (d.features || []).filter((f) => f.properties && f.properties.label); actif = -1; rendre();
+      } catch { /* BAN muette : on laisse saisir */ }
+    };
+    input.addEventListener("input", () => { clearTimeout(minuteur); minuteur = setTimeout(chercher, 220); });
+    input.addEventListener("keydown", (e) => {
+      if (!liste) return;
+      if (e.key === "ArrowDown") { e.preventDefault(); actif = Math.min(actif + 1, resultats.length - 1); rendre(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); actif = Math.max(actif - 1, 0); rendre(); }
+      else if (e.key === "Enter") { e.preventDefault(); choisir(actif < 0 ? 0 : actif); }
+      else if (e.key === "Escape") fermer();
+    });
+    input.addEventListener("blur", () => setTimeout(fermer, 150));
+  }
+  document.addEventListener("focusin", (e) => {
+    const el = e.target;
+    if (el && el.tagName === "INPUT" && Object.prototype.hasOwnProperty.call(CHAMPS_ADRESSE, el.id)) brancherAdresse(el, CHAMPS_ADRESSE[el.id]);
+  });
+
   /* ------------------------------- Modale -------------------------------- */
   function ouvrirModale(titre, corpsHtml, piedHtml) {
     $("modale-titre").textContent = titre;
@@ -2340,6 +2397,7 @@
   }
   function formulaireParcours(p) {
     const v = (k) => escH(p && p[k] || "");
+    const b = (p && p.bien) || {};
     const csOptions = '<option value="">— conseiller —</option>' + conseillers.filter((c) => c.actif || (p && p.conseiller_id === c.id)).map((c) =>
       '<option value="' + c.id + '"' + (p && p.conseiller_id === c.id ? " selected" : "") + ">" + escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</option>").join("");
     return '<div class="grille-champs">' +
@@ -2354,6 +2412,10 @@
       '<label>Ville<input id="px-ville" value="' + v("ville") + '" /></label>' +
       '<label>Type de bien<select id="px-type">' + [["maison", "Maison"], ["appartement", "Appartement"]].map(([k, l]) =>
         '<option value="' + k + '"' + (p && p.type_bien === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" +
+      '<label>Surface habitable (m²)<input id="px-surface" type="number" step="1" value="' + escH(b.surface || "") + '" /></label>' +
+      '<label>Terrain (m²)<input id="px-terrain" type="number" step="1" value="' + escH(b.terrain || "") + '" /></label>' +
+      '<label>Chambres <span class="petit">(commission, livret)</span><input id="px-chambres" type="number" step="1" min="0" value="' + escH(b.chambres || "") + '" /></label>' +
+      '<label>Pièce de vie / séjour (m²)<input id="px-piece-vie" type="number" step="1" value="' + escH(b.piece_vie || "") + '" /></label>' +
       '<label>R1 — date<input id="px-r1" type="date" value="' + v("r1") + '" /></label>' +
       '<label>R1 — heure<input id="px-r1h" type="time" value="' + v("r1_heure") + '" /></label>' +
       '<label>R2 — date<input id="px-r2" type="date" value="' + v("r2") + '" /></label>' +
@@ -2371,6 +2433,15 @@
     };
     if (p) o.statut = $("px-statut").value;
     return o;
+  }
+  // Le bien (surface, terrain, chambres, pièce de vie) vit dans la saisie du
+  // livret (acm) : la fiche, le livret, la commission et la page publique
+  // lisent la même chose. Le PUT acm remplace tout → on relit avant d'écrire.
+  const lireBienFiche = () => { const n = (k) => { const v = parseFloat($(k).value); return Number.isFinite(v) ? v : null; }; return { surface: n("px-surface"), terrain: n("px-terrain"), chambres: n("px-chambres"), piece_vie: n("px-piece-vie") }; };
+  async function sauverBienFiche(id, bien) {
+    const acm = (await api("/crm/parcours/" + id + "/acm")).acm || {};
+    if (["surface", "terrain", "chambres", "piece_vie"].every((k) => (acm[k] || null) === (bien[k] || null))) return;
+    await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: { ...acm, ...bien } });
   }
   // Nouveau parcours : on cherche D'ABORD la personne dans les contacts ; la
   // fiche choisie pré-remplit le formulaire. Introuvable ? On remplit, et le
@@ -2409,15 +2480,18 @@
     $("px-q").addEventListener("input", () => { clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
     $("px-creer").addEventListener("click", async () => {
       try {
+        const bien = lireBienFiche();
         const r = await api("/crm/parcours", { json: { ...lireFormulaireParcours(null), contact_id: contactId } });
+        if (Object.values(bien).some((x) => x != null)) { try { await sauverBienFiche(r.id, bien); } catch (e) { toast("Le bien n'a pas été enregistré : " + e.message, true); } }
         toast(r.contact_cree ? "Parcours créé, et la fiche contact avec lui" : "Parcours créé"); await chargerParcours(); ouvrirParcours(r.id);
       } catch (e) { toast(e.message, true); }
     });
   }
   async function ouvrirParcours(id) {
     let p;
-    try { p = await api("/crm/parcours/" + id); } catch (e) { toast(e.message, true); return; }
+    try { p = await api("/crm/parcours/" + id); p.bien = (await api("/crm/parcours/" + id + "/acm")).acm || {}; } catch (e) { toast(e.message, true); return; }
     const faites = new Map(p.journal.map((j) => [j.etape, j]));
+    const bienManque = ["surface", "chambres", "piece_vie"].filter((k) => !p.bien[k]);
     const etapesHtml = '<div class="etapes">' + ETAPES_PARCOURS.map((e, i) => {
       const f = faites.get(e.cle);
       const quand = f ? "fait le " + new Date(f.le * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) + (f.par ? " par " + escH(f.par) : "") + (f.email ? " → " + escH(f.email) : "") : "";
@@ -2445,7 +2519,8 @@
       '</select> <span class="petit" id="px-signe-detail">' + csDetail + "</span>";
     ouvrirModale("🧭 " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
       '<details><summary style="cursor:pointer;">Fiche client et rendez-vous — ' + escH([p.adresse, p.ville].filter(Boolean).join(", ")) +
-      " · R1 " + dateFrCourte(p.r1, p.r1_heure) + " · R2 " + dateFrCourte(p.r2, p.r2_heure) + "</summary>" +
+      " · R1 " + dateFrCourte(p.r1, p.r1_heure) + " · R2 " + dateFrCourte(p.r2, p.r2_heure) +
+      (bienManque.length ? ' <span class="puce" style="background:#e07a5f; color:#fff;" title="Ces informations passent dans la commission d\'évaluation et le livret prix">à renseigner : ' + escH(bienManque.map((k) => ({ surface: "surface", chambres: "chambres", piece_vie: "pièce de vie" })[k]).join(", ")) + "</span>" : "") + "</summary>" +
       '<div style="margin-top:10px;">' + formulaireParcours(p) + '<div class="barre" style="margin-top:8px;"><button class="btn btn-or" id="px-maj">Enregistrer la fiche</button></div></div></details>' +
       '<p style="margin:12px 0 0;"><strong>Signé par :</strong> ' + csLigne + "</p>" +
       '<p style="margin:10px 0 0;"><strong>Propriétaires :</strong> ' + (p.proprietaires || []).map((o) => '<span class="puce grise" style="margin:2px 4px 2px 0;">' +
@@ -2470,7 +2545,7 @@
       catch (e) { toast(e.message, true); }
     });
     $("px-maj").addEventListener("click", async () => {
-      try { await api("/crm/parcours/" + id, { method: "PUT", json: lireFormulaireParcours(p) }); toast("Fiche enregistrée"); await chargerParcours(); ouvrirParcours(id); }
+      try { await api("/crm/parcours/" + id, { method: "PUT", json: lireFormulaireParcours(p) }); await sauverBienFiche(id, lireBienFiche()); toast("Fiche enregistrée"); await chargerParcours(); ouvrirParcours(id); }
       catch (e) { toast(e.message, true); }
     });
     document.querySelectorAll("[data-mail]").forEach((b) => b.addEventListener("click", () => preparerMailParcours(id, b.dataset.mail, p)));
@@ -3073,6 +3148,8 @@
     const t = com.tiers || {};
     return [["repli", t.repli], ["raison", t.raison], ["ambition", t.ambition]].filter(([, x]) => x && x.nb).map(([, x]) => ({ nb: x.nb, basse: Math.round(x.min / 1000) * 1000, haute: Math.round(x.max / 1000) * 1000 }));
   };
+  // Le plan d'une adresse (Google Maps ouvre l'application sur téléphone).
+  const lienPlan = (adresse, cp, ville) => "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent([adresse, [cp, ville].filter(Boolean).join(" ")].filter(Boolean).join(", "));
   const TIERS_LIB = [["repli", "Prix de repli", "moyenne du tiers bas"], ["raison", "Prix de raison", "moyenne du tiers médian"], ["ambition", "Prix d'ambition", "moyenne du tiers haut"]];
   // Le QR code de la page de vote, fabriqué sur place (aucun service tiers ne voit le jeton).
   const qrDataUrl = (texte) => {
@@ -3099,6 +3176,7 @@
       $("modale-corps").innerHTML =
         '<p class="aide">Faites scanner ce QR code aux collègues (en réunion ou en photo) : chacun ouvre le bien et donne sa fourchette, sans compte. Les réponses arrivent ici' + (com.ferme ? " — <strong>commission close</strong>" : "") + ".</p>" +
         '<input id="com-lien" type="hidden" value="' + escH(com.lien) + '" />' +
+        (p.adresse ? '<p class="petit">📍 <a class="plan" href="' + escH(lienPlan(p.adresse, p.cp, p.ville)) + '" target="_blank" rel="noopener">' + escH([p.adresse, [p.cp, p.ville].filter(Boolean).join(" ")].filter(Boolean).join(", ")) + "</a></p>" : "") +
         '<div style="text-align:center; margin:8px 0;">' + (qr ? '<img id="com-qr" src="' + qr + '" alt="QR code de la commission d\'évaluation" style="width:min(260px, 70vw); image-rendering:pixelated; border:1px solid var(--line); border-radius:8px; background:#fff;" />' : '<p class="petit">QR code indisponible (rechargez la page).</p>') + "</div>" +
         '<h3 style="margin:16px 0 6px;">Avis reçus <span class="puce">' + (com.avis || []).length + "</span></h3>" +
         ((com.avis || []).length
