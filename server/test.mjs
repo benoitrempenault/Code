@@ -3698,6 +3698,17 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const re = await callR("/crm/projets/auto", { headers: auth, body: { rows: [{ nom: "REMPLACE", email: "pur.remplace@exemple.fr", criteres: { budgetMax: 210000, types: ["maison"] } }] } });
     ok(re.json.crees === 1, "après remplacement, l'import reconstruit fiches et projets d'achat");
   }
+  // Concordance d'un fichier avec la base (sans importer) et compteurs par typologie.
+  {
+    const conc = await callR("/crm/contacts/concordance", { headers: auth, body: { type: "acquereur", rows: [
+      { nom: "REMPLACE", prenom: "Pur", email: "pur.remplace@exemple.fr" }, { nom: "REMPLACE", prenom: "Mixte", email: "mixte.remplace@exemple.fr" },
+      { nom: "INCONNUE", prenom: "Zoé", email: "zoe.inconnue@exemple.fr" }, { nom: "REMPLACE", prenom: "Pur", email: "pur.remplace@exemple.fr" }] } });
+    ok(conc.status === 200 && conc.json.distincts === 3 && conc.json.presents === 2 && conc.json.absents === 1 && conc.json.avecType === 1 && /Zoé INCONNUE/.test(conc.json.exemplesAbsents.join(" ")),
+       "la concordance compte présents, absents (avec exemples) et fiches portant la typologie attendue, sans doublon (" + JSON.stringify(conc.json) + ")");
+    const cpt = await callR("/crm/contacts/compteurs", { headers: auth });
+    ok(cpt.status === 200 && cpt.json.total > 0 && cpt.json.parType.acquereur >= 1 && cpt.json.projetsAchat >= 1 && cpt.json.corbeille >= 1, "les compteurs de la base se lisent (" + JSON.stringify(cpt.json) + ")");
+    ok((await callR("/crm/contacts/compteurs", { headers: authP })).status === 403, "compteurs et concordance sont réservés aux administrateurs");
+  }
   // L'agent de l'agence dépose le fichier page par page, avec sa clé.
   console.log("— AMEPI : dépôt par l'agent de l'agence (clé dédiée)");
   ok((await callR("/crm/amepi/import", { body: { mandats: [] } })).status === 401, "sans clé d'agent, le dépôt est refusé");

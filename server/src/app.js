@@ -1026,6 +1026,19 @@ export function createApp(env) {
   });
 
   // Import d'extraction : lignes déjà mappées côté navigateur (colonne → champ).
+  // Vérification d'un fichier contre la base, sans rien importer (admin).
+  app.get("/crm/contacts/compteurs", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json(await CRM.compteursContacts(db, ctx.agency.id));
+  });
+  app.post("/crm/contacts/concordance", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b || !Array.isArray(b.rows) || !b.rows.length) return err(c, 400, "Aucune ligne à vérifier.");
+    if (b.rows.length > CRM_BULK_MAX) return err(c, 400, `Vérification limitée à ${CRM_BULK_MAX} lignes à la fois.`);
+    const type = ["acquereur", "vendeur", "estime", "bailleur", "locataire", "prospect"].includes(String(b.type)) ? String(b.type) : "";
+    return c.json(await CRM.concordanceContacts(db, ctx.agency.id, b.rows, type));
+  });
   app.post("/crm/contacts/bulk", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const b = await c.req.json().catch(() => null);

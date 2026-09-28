@@ -691,7 +691,7 @@ acquéreurs (preset `acquereurs`, 918 lignes toutes actives) : case « Remplacer
 acquéreurs » (cochée par défaut, confirm()) → boucle `POST /crm/acquereurs/remplacer`
 (admin, `remplacerAcquereurs` : projets kind achat effacés avec liaisons et critères, fiches
 typées seulement acquereur → `supprimerContacts` corbeille 30 j, les mixtes perdent juste le
-type ; 150 fiches par appel, `restants`) puis import normal + projets. Assets admin `?v=35`.
+type ; 150 fiches par appel, `restants`) puis import normal + projets. Vérification sans import : `GET /crm/contacts/compteurs` (total, sansType, parType, projetsAchat, corbeille) et `POST /crm/contacts/concordance` {rows ≤ 400, type} (même rapprochement que l'import → distincts / presents / absents / avecType / exemplesAbsents) ; bouton « 🔍 Vérifier la concordance » dans l'écran d'import pour les 3 presets (`lignesPreset()` factorise les lignes). Assets admin `?v=36`.
 Fichiers reçus le 28/09 : estime.xlsx (2 051), acquereur.xlsx (918), CONTACT_8 à 11 (16 952
 contacts, tous non archivés ; tranches 1 à 7 non reçues).
 **Carte du R2, biens estimés (28/09)** : `/crm/parcours/:id/environnement` renvoie aussi

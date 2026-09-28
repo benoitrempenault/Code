@@ -174,6 +174,47 @@ const CONTACT_COLS = ["id", "agency_id", "user_id", "civilite", "prenom", "nom",
   "conseiller", "notes", "source", "opt_out", "created_at", "updated_at"];
 const COLS_NUM = new Set(["opt_out", "created_at", "updated_at"]);
 
+// Compteurs de la base : total, par typologie, projets d'achat, corbeille.
+export async function compteursContacts(db, agencyId) {
+  const parType = {};
+  for (const t of ["acquereur", "vendeur", "estime", "bailleur", "locataire", "prospect"]) {
+    parType[t] = ((await db.get("SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND types LIKE ?", [agencyId, '%"' + t + '"%'])) || {}).n || 0;
+  }
+  return {
+    total: ((await db.get("SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ?", [agencyId])) || {}).n || 0,
+    sansType: ((await db.get("SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND (types = '[]' OR types = '')", [agencyId])) || {}).n || 0,
+    parType,
+    projetsAchat: ((await db.get("SELECT COUNT(*) AS n FROM crm_projets WHERE agency_id = ? AND kind = 'achat'", [agencyId])) || {}).n || 0,
+    corbeille: ((await db.get("SELECT COUNT(*) AS n FROM crm_corbeille WHERE agency_id = ? AND restored_at = 0", [agencyId])) || {}).n || 0,
+  };
+}
+
+// Concordance d'un fichier avec la base, SANS importer : pour chaque ligne
+// (même rapprochement que l'import : e-mail, sinon nom + prénom), la fiche
+// existe-t-elle, et porte-t-elle la typologie attendue ?
+export async function concordanceContacts(db, agencyId, rows, type = "") {
+  const keyName = (nom, prenom) => `${(nom || "").toLowerCase()}|${(prenom || "").toLowerCase()}`;
+  const propres = rows.map((r) => sanitizeContact(r)).filter((v) => v.nom || v.prenom || v.email);
+  const emails = [...new Set(propres.map((v) => v.email).filter(Boolean))];
+  const noms = [...new Set(propres.flatMap((v) => (v.nom ? [v.nom, v.nom.toLowerCase(), v.nom.toUpperCase()] : [])))];
+  const conditions = [];
+  if (emails.length) conditions.push(`email IN (${emails.map(sqlText).join(",")})`);
+  if (noms.length) conditions.push(`nom COLLATE NOCASE IN (${noms.map(sqlText).join(",")})`);
+  const existing = conditions.length ? await db.all(`SELECT id, nom, prenom, email, types FROM crm_contacts WHERE agency_id = ? AND (${conditions.join(" OR ")})`, [agencyId]) : [];
+  const byEmail = new Map(), byName = new Map();
+  for (const c of existing) { if (c.email) byEmail.set(c.email, c); byName.set(keyName(c.nom, c.prenom), c); }
+  const vus = new Set(); let presents = 0, absents = 0, avecType = 0; const exemplesAbsents = [];
+  for (const v of propres) {
+    const k = v.email || keyName(v.nom, v.prenom);
+    if (vus.has(k)) continue; vus.add(k);
+    const m = (v.email && byEmail.get(v.email)) || byName.get(keyName(v.nom, v.prenom));
+    if (!m) { absents++; if (exemplesAbsents.length < 8) exemplesAbsents.push([v.prenom, v.nom, v.email].filter(Boolean).join(" ")); continue; }
+    presents++;
+    if (type && String(m.types || "").includes('"' + type + '"')) avecType++;
+  }
+  return { distincts: vus.size, presents, absents, avecType, exemplesAbsents };
+}
+
 export async function bulkUpsertContacts(db, agencyId, userId, rows, source = "import") {
   // À 60 000 fiches, relire TOUTE la base à chaque lot de 400 ferait fondre
   // les quotas D1 : on ne lit que les CANDIDATS à la fusion du lot — mêmes

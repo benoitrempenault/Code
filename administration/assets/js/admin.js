@@ -719,9 +719,11 @@
       '<input type="file" id="fichier-import" accept=".xlsx,.xls,.csv" hidden />' +
       '<div id="etape-mappage"></div>',
       '<button class="btn" id="btn-annuler-import">Annuler</button>' +
+      '<button class="btn" id="btn-concordance" hidden title="Compare le fichier à la base sans rien importer">🔍 Vérifier la concordance</button>' +
       '<button class="btn btn-or" id="btn-go-import" hidden>Importer</button>');
     $("btn-annuler-import").addEventListener("click", fermerModale);
     $("btn-go-import").addEventListener("click", validerImport);
+    $("btn-concordance").addEventListener("click", verifierConcordance);
     const zone = $("zone-fichier"), input = $("fichier-import");
     zone.addEventListener("click", () => input.click());
     zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("survol"); });
@@ -760,7 +762,7 @@
           '<option value="estime"' + (typologie === "estime" ? " selected" : "") + ">Estimés</option>" +
           '<option value="vendeur"' + (typologie === "vendeur" ? " selected" : "") + ">Vendeurs (mandats)</option>" +
           "</select></label></div>";
-        $("btn-go-import").hidden = false;
+        $("btn-go-import").hidden = false; $("btn-concordance").hidden = false;
         return;
       }
       if (importData.preset === "acquereurs") {
@@ -771,7 +773,7 @@
           '<label class="case" style="margin-top:8px;"><input type="checkbox" id="preset-remplacer" checked /> Remplacer toute la base acquéreurs : ' +
           "les projets d'achat sont effacés et les fiches typées seulement Acquéreur partent à la corbeille (30 jours) avant l'import ; " +
           "les fiches qui ont d'autres typologies perdent juste le type Acquéreur. Décochez pour simplement fusionner.</label>";
-        $("btn-go-import").hidden = false;
+        $("btn-go-import").hidden = false; $("btn-concordance").hidden = false;
         return;
       }
       if (importData.preset === "contacts") {
@@ -781,7 +783,7 @@
           "Chaque ligne devient (ou complète) une fiche : civilité, prénom, nom, e-mail, téléphone, adresse recomposée (n°, type et nom de voie), " +
           "code postal, ville, date de naissance, typologies lues dans « Profils du contact », notes et dernier contact. " +
           "Les refus d'e-mail (opt-in décoché) sont respectés. Déposez les tranches l'une après l'autre : les fiches fusionnent par e-mail, sinon par nom + prénom.</p>";
-        $("btn-go-import").hidden = false;
+        $("btn-go-import").hidden = false; $("btn-concordance").hidden = false;
         return;
       }
       $("etape-mappage").innerHTML = '<p class="aide" style="margin-top:14px;">Associez chaque colonne :</p>' +
@@ -925,6 +927,41 @@
         },
       };
     }).filter(Boolean);
+  }
+  // Les lignes d'un fichier reconnu, telles que l'import les enverrait.
+  function lignesPreset() {
+    if (importData.preset === "biens") return { rows: lignesPresetBiens($("preset-typologie").value), type: $("preset-typologie").value };
+    if (importData.preset === "acquereurs") return { rows: lignesPresetAcquereurs(), type: "acquereur" };
+    if (importData.preset === "contacts") return { rows: lignesPresetContacts(), type: "" };
+    return null;
+  }
+  // Concordance : le fichier est-il bien dans la base ? Présents / absents /
+  // typés comme attendu, plus les compteurs globaux — sans rien importer.
+  async function verifierConcordance() {
+    const jeu = lignesPreset(); if (!jeu) return;
+    const btn = $("btn-concordance"); btn.disabled = true;
+    const total = { distincts: 0, presents: 0, absents: 0, avecType: 0, exemplesAbsents: [] };
+    try {
+      for (let i = 0; i < jeu.rows.length; i += 400) {
+        btn.textContent = "Vérification… " + Math.min(i + 400, jeu.rows.length) + " / " + jeu.rows.length;
+        const r = await api("/crm/contacts/concordance", { json: { rows: jeu.rows.slice(i, i + 400).map((x) => ({ nom: x.nom, prenom: x.prenom, email: x.email })), type: jeu.type } });
+        total.distincts += r.distincts; total.presents += r.presents; total.absents += r.absents; total.avecType += r.avecType;
+        if (total.exemplesAbsents.length < 8) total.exemplesAbsents.push(...r.exemplesAbsents.slice(0, 8 - total.exemplesAbsents.length));
+      }
+      const cpt = await api("/crm/contacts/compteurs");
+      const libType = jeu.type ? (TYPES[jeu.type] || jeu.type) : "";
+      const bloc = document.createElement("div"); bloc.className = "carte"; bloc.style.marginTop = "12px"; bloc.id = "concordance";
+      bloc.innerHTML = "<h2>Concordance avec la base</h2>" +
+        "<p><strong>Fichier</strong> : " + jeu.rows.length + " ligne(s), " + total.distincts + " personne(s) distincte(s) par lot.</p>" +
+        "<p><strong>Présentes dans la base</strong> : " + total.presents + (jeu.type ? " (dont " + total.avecType + " typée(s) " + escH(libType) + ")" : "") + " · <strong>absentes</strong> : " + total.absents +
+        (total.exemplesAbsents.length ? '<br /><span class="petit">Exemples d\'absentes : ' + escH(total.exemplesAbsents.join(" ; ")) + "</span>" : "") + "</p>" +
+        "<p><strong>Base entière</strong> : " + cpt.total + " contact(s)" + (cpt.sansType ? " (" + cpt.sansType + " sans typologie)" : "") + " · " +
+        Object.entries(cpt.parType).map(([t, n]) => escH(TYPES[t] || t) + " " + n).join(" · ") + " · projets d'achat " + cpt.projetsAchat + " · corbeille " + cpt.corbeille + "</p>" +
+        '<p class="petit">Copiez ce bloc pour le transmettre. Les personnes distinctes sont comptées par lot de 400 : une même personne présente dans deux lots compte deux fois.</p>';
+      const ancien = $("concordance"); if (ancien) ancien.remove();
+      $("etape-mappage").appendChild(bloc);
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = false; btn.textContent = "🔍 Vérifier la concordance";
   }
   async function validerImport() {
     if (!importData) return;
