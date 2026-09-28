@@ -23,10 +23,12 @@ export default async function () {
   const cle = await api("/crm/amepi/cle", { headers: admin.auth, body: {} });
   const amepiH = { "X-Agent-Key": cle.json && cle.json.cle };
   await api("/crm/reglages", { headers: admin.auth, method: "PUT", body: { amepi: { enabled: true, sources: ["2"], departements: "33" } } });
-  const dep = await api("/crm/amepi/import", { headers: amepiH, body: { debut: true, fini: true, total: 3, sources: ["2"], mandats: [
+  const dep = await api("/crm/amepi/import", { headers: amepiH, body: { debut: true, fini: true, total: 5, sources: ["2"], mandats: [
     { id: 901, transactionStateId: 1, price: 300000, publicTown: "Saint-Médard-en-Jalles", postalCode: "33160", livingArea: 100, assetTypeId: 2, agencyName: "Agence Alpha", reference: "A1" },
     { id: 902, transactionStateId: 1, price: 295000, publicTown: "Saint-Médard-en-Jalles", postalCode: "33160", livingArea: 98, assetTypeId: 2, agencyName: "Agence Beta", reference: "B1" },
     { id: 903, transactionStateId: 1, price: 310000, publicTown: "Saint-Médard-en-Jalles", postalCode: "33160", livingArea: 103, assetTypeId: 2, agencyName: "Agence Gamma", reference: "C1" },
+    { id: 904, transactionStateId: 1, price: 300000, publicTown: "Saint-Médard-en-Jalles", postalCode: "33160", livingArea: 101, assetTypeId: 2, agencyName: "Agence Delta", reference: "D1" },
+    { id: 905, transactionStateId: 1, price: 305000, publicTown: "Saint-Médard-en-Jalles", postalCode: "33160", livingArea: 100, assetTypeId: 2, agencyName: "Agence Epsilon", reference: "E1" },
   ] } });
 
   // L'export, au format du logiciel C21.
@@ -44,7 +46,7 @@ export default async function () {
   await writeFile(fichier, XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
 
   const echecs = await parcours("bilans", {}, async ({ page, ok }) => {
-    ok(dep.status === 200, "décor : 3 comparables AMEPI déposés (" + JSON.stringify(dep.json).slice(0, 80) + ")");
+    ok(dep.status === 200, "décor : 5 comparables AMEPI déposés (" + JSON.stringify(dep.json).slice(0, 80) + ")");
     await ouvrir(page, "/bilans/", admin);
     await page.waitForSelector("#app:not([hidden])", { timeout: 8000 });
     ok(await page.isVisible("#btn-import"), "l'admin voit l'import et la préparation");
@@ -57,7 +59,7 @@ export default async function () {
     ok(await page.locator(".bilan").count() === 2, "2 bilans à relire (la délégation est exclue)");
     const carte = page.locator('.bilan:has-text("Réf. 8282")');
     const txt = await carte.textContent();
-    ok(/22\s*vues/.test(txt) && /\+26 %/.test(txt) && /En vente depuis 400 jours/.test(txt), "la carte montre les vues, l'écart de prix (+26 % vs 3 comparables) et l'alerte d'ancienneté");
+    ok(/22\s*vues/.test(txt) && /\+26 %/.test(txt) && /En vente depuis 400 jours/.test(txt), "la carte montre les vues, l'écart de prix (+26 % vs 5 comparables) et l'alerte d'ancienneté");
     // SMOKE_CAPTURES=<dossier> : captures d'écran de la liste et d'un bilan ouvert.
     const cap = process.env.SMOKE_CAPTURES;
     if (cap) await page.screenshot({ path: cap + "/bilans-liste.png", fullPage: true });

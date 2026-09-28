@@ -4076,6 +4076,18 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(B.nomConseiller("GIUSTI MARCILHAC Lucie").complet === "Lucie GIUSTI MARCILHAC" && B.nomConseiller("REMPENAULT Adélaïde").prenom === "Adélaïde", "conseiller : « NOM Prénom » remis dans l'ordre");
   ok(B.normVille("SAINT MEDARD EN JALLES") === B.normVille("Saint-Médard-en-Jalles") && B.normVille("St Aubin de Médoc") === B.normVille("SAINT AUBIN DE MEDOC"), "communes comparées sans casse, accents ni tirets");
   ok(B.semaineCouverte("2026-09-28") === "2026-09-21" && B.semaineCouverte("2026-10-01") === "2026-09-21", "la semaine couverte est la dernière semaine complète");
+  ok(B.emailBidon("kadima@century21.fr") && B.emailBidon("pasdemail@pasmail.com") && !B.emailBidon("jean.dupont@gmail.com") && B.sanitizeMandat({ ref: "1", email: "pasdemail@pasmail.com" }).email === "", "adresses de remplissage ou de l'agence : traitées comme « sans e-mail »");
+  {
+    const base = { mandat: { ref: "X", debut: "2026-09-01", prix: 280000 }, pairs: [], events: [], semaine: "2026-09-21", lundis: ["2026-09-21"], aujourdhui: "2026-09-28" };
+    const comps = [1, 2, 3, 4, 5, 6].map((i) => ({ id: "c" + i, type: "maison", statut: "en_vente", ville: "Saint-Médard-en-Jalles", prix: 520000 + i * 1000, surface: 150 + i, agence: "Agence " + i }));
+    const grande = B.calculerBilan({ ...base, annonce: { ref: "X", type: "Maison", ville: "Saint-Médard-en-Jalles", prix: 280000, surface: 157, pieces: 7, semaines: {} }, amepi: comps });
+    ok(grande.prix.atypique && grande.prix.ecart === null && grande.alertes.some((a) => a.code === "prix-atypique") && !/m² en valeur médiane/.test(B.texteBilan(grande, {})) && !grande.recommandation,
+      "écart de −46 % au m² : bien atypique, rien au vendeur, pas de recommandation de prix (vu sur la réf. 8090 réelle)");
+    const terrain = B.calculerBilan({ ...base, annonce: { ref: "X", type: "Terrain", ville: "Saint-Médard-en-Jalles", prix: 200000, surface: null, semaines: {} }, amepi: comps.map((c) => ({ ...c, type: "terrain" })) });
+    ok(terrain.prix.ecart === null && terrain.alertes.some((a) => /Terrain/.test(a.texte)), "terrain : pas de position de prix");
+    const siteSeul = B.calculerBilan({ ...base, annonce: { ref: "X", type: "Maison", ville: "Y", prix: 1, surface: 100, semaines: { "2026-09-21": { vues: 50, visites: 0, brochures: 0 } } }, pairs: [{ ref: "Z", type: "Maison", semaines: { "2026-09-21": { vues: 5 } } }], amepi: [] });
+    ok(!siteSeul.alertes.some((a) => a.code === "sans-demande"), "« vues sans demande » jamais conclu sur le seul site (demandes trop rares)");
+  }
   ok(B.estDelegation({ vendeur: "DELEGATION OKA IMMOBILIER" }) && !B.estDelegation({ vendeur: "FAURET Angele" }), "une délégation de confrère est reconnue");
 
   const mailsB = [];
@@ -4123,10 +4135,10 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   const ilYa = (j) => new Date(Date.now() - j * 86400000).toISOString().slice(0, 10);
   const serie = (d) => String(Math.round((Date.parse(d + "T00:00:00Z") - Date.UTC(1899, 11, 30)) / 86400000));
   const mandatsExport = [
-    { ref: "100", mandat: "2091", vendeur: "FAURET Angele, Patrice", email: "fauret@exemple.fr", conseiller: "GIUSTI MARCILHAC Lucie", ville: "SAINT MEDARD EN JALLES", adresse: "21 ALLEE DES GRAVETTES", debut: serie(ilYa(400)), prix: 380000, prixInitial: 420000 },
-    { ref: "200", mandat: "2092", vendeur: "MARTIN Paul", email: "martin@exemple.fr", conseiller: "GIUSTI MARCILHAC Lucie", ville: "SAINT MEDARD EN JALLES", adresse: "2 AVENUE JEAN JAURES", debut: serie(ilYa(30)), prix: 300000, prixInitial: 300000 },
+    { ref: "100", mandat: "2091", vendeur: "FAURET Angele, Patrice", email: "fauret@vendeurs-test.fr", conseiller: "GIUSTI MARCILHAC Lucie", ville: "SAINT MEDARD EN JALLES", adresse: "21 ALLEE DES GRAVETTES", debut: serie(ilYa(400)), prix: 380000, prixInitial: 420000 },
+    { ref: "200", mandat: "2092", vendeur: "MARTIN Paul", email: "martin@vendeurs-test.fr", conseiller: "GIUSTI MARCILHAC Lucie", ville: "SAINT MEDARD EN JALLES", adresse: "2 AVENUE JEAN JAURES", debut: serie(ilYa(30)), prix: 300000, prixInitial: 300000 },
     { ref: "300", mandat: "2093", vendeur: "DELEGATION OKA IMMOBILIER", email: "", conseiller: "BESSON Teddy", ville: "LE HAILLAN", adresse: "1 rue X", debut: serie(ilYa(10)), prix: 150000, prixInitial: 150000 },
-    { ref: "400", mandat: "2094", vendeur: "DURAND Luc", email: "durand@exemple.fr", conseiller: "BESSON Teddy", ville: "LE HAILLAN", adresse: "2 rue Y", debut: serie(ilYa(10)), prix: 150000, prixInitial: 150000 },
+    { ref: "400", mandat: "2094", vendeur: "DURAND Luc", email: "durand@vendeurs-test.fr", conseiller: "BESSON Teddy", ville: "LE HAILLAN", adresse: "2 rue Y", debut: serie(ilYa(10)), prix: 150000, prixInitial: 150000 },
     { ref: "500", mandat: "2095", vendeur: "BARRAUD", email: "", conseiller: "BESSON Teddy", ville: "LE HAILLAN", adresse: "3 rue Z", debut: serie(ilYa(20)), prix: 200000, prixInitial: 200000 },
   ];
   ok((await callB("/crm/bilans/mandats", { headers: authLucie, body: { mandats: mandatsExport } })).status === 403, "l'import de l'export est réservé aux admins");
@@ -4138,6 +4150,7 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   const amepiLignes = [
     ["a1", 300000, 100, "Agence Alpha", "en_vente"], ["a2", 290000, 95, "Agence Beta", "en_vente"], ["a3", 315000, 105, "Agence Gamma", "en_vente"],
     ["a4", 285000, 98, "Agence Delta", "en_vente"], ["a5", 500000, 100, "CENTURY 21 Kadima", "en_vente"], ["a6", 310000, 100, "Agence Epsilon", "retiree"],
+    ["a7", 305000, 100, "Agence Zeta", "en_vente"],
   ];
   for (const [id, prix, surface, agence, statut] of amepiLignes) {
     await db.run("INSERT INTO crm_amepi (agency_id, id, type, prix, ville, surface, agence, statut, first_seen, last_seen) VALUES (?, ?, 'maison', ?, 'Saint-Médard-en-Jalles', ?, ?, ?, ?, ?)", [agB, id, prix, surface, agence, statut, t0 - 30 * 86400, t0]);
@@ -4156,7 +4169,7 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(liste.status === 200 && liste.json.bilans.length === 3 && liste.json.statsBranchees === true && liste.json.admin === false, "la liste est ouverte aux conseillers (sans les droits d'import)");
   const bA = liste.json.bilans.find((b) => b.ref === "100"), bB = liste.json.bilans.find((b) => b.ref === "200"), bE = liste.json.bilans.find((b) => b.ref === "500");
   ok(bA.conseillerNom === "Lucie GIUSTI MARCILHAC" && bA.site.vues === 32 && bA.site.vuesPrec === 30, "audience de la semaine et de la précédente");
-  ok(bA.comparables === 4 && Math.abs(bA.ecart - (3800 / 3000 - 1)) < 0.02, "4 comparables (notre annonce ALFA exclue, retirée exclue), prix +27 % au m² (" + bA.ecart + ")");
+  ok(bA.comparables === 5 && Math.abs(bA.ecart - (3800 / 3000 - 1)) < 0.02, "5 comparables (notre annonce ALFA exclue, retirée exclue), prix +27 % au m² (" + bA.ecart + ")");
   ok(bA.alertes.some((a) => a.code === "prix-haut") && bA.alertes.some((a) => a.code === "ancien") && bA.alertes.some((a) => a.code === "concurrence-baisse"), "alertes : prix haut, mandat ancien, un concurrent a baissé");
   ok(bA.recommandation && bA.recommandation.type === "prix" && bA.recommandation.prixCible === 300000, "au-delà de 6 mois : repositionnement proposé à 300 000 € (médiane 3 000 €/m² × 100 m²) (" + JSON.stringify(bA.recommandation) + ")");
   ok(!bB.recommandation && !bB.alertes.some((a) => a.code === "prix-haut") && bB.site.visites === 2, "mandat récent au prix du marché : pas de recommandation, 2 demandes de visite");
@@ -4177,13 +4190,13 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   // Envoi.
   mailsB.length = 0;
   const envA = await callB("/crm/bilans/" + bA.id + "/envoyer", { headers: authLucie, body: {} });
-  ok(envA.status === 200 && mailsB.length === 1 && mailsB[0].to[0] === "fauret@exemple.fr" && /^Lucie Giusti Marcilhac </.test(mailsB[0].from) && mailsB[0].reply_to[0] === "lucie@bilan-test.fr",
+  ok(envA.status === 200 && mailsB.length === 1 && mailsB[0].to[0] === "fauret@vendeurs-test.fr" && /^Lucie Giusti Marcilhac </.test(mailsB[0].from) && mailsB[0].reply_to[0] === "lucie@bilan-test.fr",
     "envoyé au vendeur, au nom de Lucie, réponse vers sa boîte");
   ok((await callB("/crm/bilans/" + bA.id + "/envoyer", { headers: authLucie, body: {} })).status === 409, "pas de double envoi");
   ok((await callB("/crm/bilans/" + bA.id, { method: "PUT", headers: authLucie, body: { texte: "x" } })).status === 409, "un bilan envoyé n'est plus modifiable");
   ok((await db.get("SELECT COUNT(*) AS n FROM crm_envois WHERE agency_id = ? AND type = 'bilan-vendeur' AND statut = 'ok'", [agB])).n === 1, "envoi journalisé (bilan-vendeur)");
   ok((await callB("/crm/bilans/" + bE.id + "/envoyer", { headers: authLucie, body: {} })).status === 400, "vendeur sans e-mail : envoi refusé…");
-  ok((await callB("/crm/bilans/" + bE.id + "/envoyer", { headers: authLucie, body: { email: "barraud@exemple.fr" } })).status === 200 && mailsB.at(-1).to[0] === "barraud@exemple.fr", "…jusqu'à ce que le conseiller saisisse l'adresse");
+  ok((await callB("/crm/bilans/" + bE.id + "/envoyer", { headers: authLucie, body: { email: "barraud@vendeurs-test.fr" } })).status === 200 && mailsB.at(-1).to[0] === "barraud@vendeurs-test.fr", "…jusqu'à ce que le conseiller saisisse l'adresse");
   ok((await callB("/crm/bilans/" + bB.id + "/ignorer", { headers: authLucie, body: {} })).status === 200 && (await callB("/crm/bilans?semaine=2026-09-21", { headers: authLucie })).json.bilans.find((b) => b.ref === "200").statut === "ignore", "un bilan peut être écarté pour la semaine");
 
   // Le cron du lundi : brouillons de la semaine écoulée + conseillers prévenus.

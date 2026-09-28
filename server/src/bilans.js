@@ -31,6 +31,8 @@ const sqlNum = (v) => (v == null || !Number.isFinite(Number(v)) ? "NULL" : Strin
 const MANDATS_MAX = 1000;
 const SEMAINES = 12;          // historique demandé au site
 const ANCIEN_JOURS = 180;     // au-delà, le bilan propose une action
+const COMPARABLES_MIN = 5;    // en dessous, pas de position de prix
+const ECART_MAX = 0.3;        // au-delà, bien « atypique » : comparaison au m² non montrée
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 const fmt = (n) => Math.round(Number(n) || 0).toLocaleString("fr-FR").replace(/ | /g, " ");
 const euros = (n) => fmt(n) + " €";
@@ -90,10 +92,13 @@ const mediane = (l) => {
 const pct = (x) => (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(Math.round(x * 100)) + " %";
 
 /* ------------------------------ Import mandats ---------------------------- */
+// Adresses de remplissage (« pasdemail@pasmail.com ») ou de l'agence elle-même
+// (« kadima@century21.fr ») : un bilan n'y part jamais.
+export const emailBidon = (e) => /@century21\.fr$|pas.?de.?mail|pasmail|no.?mail|sans.?mail|aucun|inconnu|exemple\.|example\.|test@/i.test(String(e || ""));
 export function sanitizeMandat(b) {
   const prix = Math.round(Number(String(b.prix ?? "").replace(/[^\d.]/g, ""))) || null;
   const initial = Math.round(Number(String(b.prixInitial ?? b.prix_initial ?? "").replace(/[^\d.]/g, ""))) || null;
-  const email = strip(b.email, 160).toLowerCase().split(/[\s;,]+/).find((e) => /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(e)) || "";
+  const email = strip(b.email, 160).toLowerCase().split(/[\s;,]+/).find((e) => /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(e) && !emailBidon(e)) || "";
   return {
     ref: strip(b.ref, 40), mandat: strip(b.mandat, 40), vendeur: strip(b.vendeur, 200), email,
     conseiller: strip(b.conseiller, 120), ville: strip(b.ville, 120), adresse: strip(b.adresse, 200),
@@ -128,24 +133,32 @@ export function calculerBilan({ mandat, annonce, pairs, amepi, events, semaine, 
   const medVues4 = mediane(base.map((x) => quatre.reduce((t, q) => t + ((x.semaines[q.semaine] || {}).vues || 0), 0)));
   const indice = medVues ? Math.round((s.vues / medVues) * 100) : null;
 
-  // Comparables : même commune, même type, surface proche (±25 %, puis ±40 %).
+  // Comparables : même commune, même type, surface proche (±20 %, puis ±30 %),
+  // même nombre de pièces à 1 près quand on le connaît. Le prix au m² ne tient
+  // compte ni de l'état, ni du terrain, ni des prestations : on n'affiche une
+  // position de prix que si elle est solide (≥ 5 comparables, surface connue,
+  // écart ≤ 30 %). Au-delà, le bien est « atypique » : alerte au conseiller,
+  // rien au vendeur. Terrains : pas de surface fiable → pas de position.
   const candidats = amepi.filter((a) => a.statut === "en_vente" && normType(a.type) === type && normVille(a.ville) === ville && a.prix > 0 && !/kadima/i.test(a.agence || ""));
-  let comparables = candidats;
+  const pieces = Number(annonce.pieces) || null;
+  let comparables = [];
   let tolerance = null;
-  if (surface && type !== "terrain") {
-    for (const t of [0.25, 0.4]) {
-      comparables = candidats.filter((a) => a.surface && Math.abs(a.surface - surface) / surface <= t);
-      tolerance = t;
-      if (comparables.length >= 3) break;
+  if (surface && type !== "terrain" && type !== "autre") {
+    for (const t of [0.2, 0.3]) {
+      let l = candidats.filter((a) => a.surface && Math.abs(a.surface - surface) / surface <= t);
+      const memesPieces = pieces ? l.filter((a) => a.pieces && Math.abs(a.pieces - pieces) <= 1) : [];
+      if (memesPieces.length >= COMPARABLES_MIN) l = memesPieces;
+      comparables = l; tolerance = t;
+      if (comparables.length >= COMPARABLES_MIN) break;
     }
   }
   const m2 = (x) => (x.surface ? x.prix / x.surface : null);
-  const medM2 = surface && type !== "terrain" ? mediane(comparables.map(m2)) : null;
+  const medM2 = comparables.length ? mediane(comparables.map(m2)) : null;
   const medPrix = mediane(comparables.map((a) => a.prix));
   const notreM2 = surface && prix ? prix / surface : null;
-  const ecart = comparables.length >= 3
-    ? (medM2 && notreM2 ? notreM2 / medM2 - 1 : medPrix && prix ? prix / medPrix - 1 : null)
-    : null;
+  const ecartBrut = comparables.length >= COMPARABLES_MIN && medM2 && notreM2 ? notreM2 / medM2 - 1 : null;
+  const atypique = ecartBrut != null && Math.abs(ecartBrut) > ECART_MAX;
+  const ecart = atypique ? null : ecartBrut;
 
   // Le marché de la semaine, sur CES comparables (id AMEPI).
   const ids = new Set(candidats.map((a) => "amepi:" + a.id));
@@ -163,6 +176,7 @@ export function calculerBilan({ mandat, annonce, pairs, amepi, events, semaine, 
   // Alertes pour le conseiller (jamais envoyées telles quelles).
   const alertes = [];
   const vues4 = somme(quatre, "vues"), demandes4 = somme(quatre, "visites") + somme(quatre, "brochures");
+  if (atypique) alertes.push({ code: "prix-atypique", niveau: "moyen", texte: `Écart de ${pct(ecartBrut)} au m² avec ${comparables.length} comparables : bien atypique (état, terrain, prestations ?) — position de prix NON montrée au vendeur` });
   if (ecart != null && ecart > 0.08) alertes.push({ code: "prix-haut", niveau: "fort", texte: `Prix ${pct(ecart)} au-dessus de la médiane de ${comparables.length} comparables` });
   if (ecart != null && ecart < -0.1) alertes.push({ code: "prix-bas", niveau: "info", texte: `Prix ${pct(ecart)} sous la médiane des comparables — argument de vente` });
   // Les portails (SeLoger, Bien'ici, Leboncoin) relevés par l'agent de l'agence.
@@ -173,7 +187,10 @@ export function calculerBilan({ mandat, annonce, pairs, amepi, events, semaine, 
     favoris: listePortails.reduce((t, x) => t + (x.favoris || 0), 0), semaine: listePortails.every((x) => x.base === "semaine"),
   } : null;
   const contactsPortails = totalPortails && totalPortails.semaine ? totalPortails.contacts : 0;
-  if (medVues4 && vues4 >= medVues4 && demandes4 === 0 && !contactsPortails) alertes.push({ code: "sans-demande", niveau: "fort", texte: "Beaucoup de vues, aucune demande en 4 semaines : le prix ou l'annonce freine" });
+  // « Vues sans demande » : seulement quand les portails sont relevés (les
+  // demandes passent par eux et par le téléphone ; celles du seul site sont
+  // trop rares — 1 à 2 par semaine pour toute l'agence — pour conclure).
+  if (totalPortails && totalPortails.semaine && medVues4 && vues4 >= medVues4 && demandes4 === 0 && !contactsPortails) alertes.push({ code: "sans-demande", niveau: "fort", texte: "Beaucoup de vues, aucune demande en 4 semaines : le prix ou l'annonce freine" });
   if (indice != null && indice < 50) alertes.push({ code: "faible-audience", niveau: "moyen", texte: `Audience faible : indice ${indice} (100 = médiane de nos biens)` });
   if (p.vues >= 10 && s.vues < 0.6 * p.vues) alertes.push({ code: "audience-baisse", niveau: "moyen", texte: `Vues en baisse : ${s.vues} contre ${p.vues} la semaine précédente` });
   if (marche.baisses) alertes.push({ code: "concurrence-baisse", niveau: "moyen", texte: `${marche.baisses} comparable(s) ont baissé leur prix cette semaine` });
@@ -186,13 +203,13 @@ export function calculerBilan({ mandat, annonce, pairs, amepi, events, semaine, 
     if (!dernier) alertes.push({ code: "reseaux-aucun-post", niveau: "moyen", texte: "Aucune publication Facebook/Instagram rattachée à ce bien (90 derniers jours)" });
     else if (age > 30) alertes.push({ code: "reseaux-ancien-post", niveau: "moyen", texte: `Dernière publication sur les réseaux il y a ${age} jours` });
   }
-  if (comparables.length < 3) alertes.push({ code: "peu-de-comparables", niveau: "info", texte: `Seulement ${comparables.length} comparable(s) en vente : position de prix non calculée` });
+  if (!atypique && ecart == null) alertes.push({ code: "peu-de-comparables", niveau: "info", texte: type === "terrain" ? "Terrain : pas de position de prix (surface inconnue)" : `Seulement ${comparables.length} comparable(s) proche(s) en vente : position de prix non calculée` });
   if (anciennete != null && anciennete > ANCIEN_JOURS) alertes.push({ code: "ancien", niveau: "fort", texte: `En vente depuis ${anciennete} jours : le bilan propose une action` });
 
   // Recommandation : obligatoire au-delà de 6 mois, ou prix haut + pas de demande.
   let recommandation = null;
   const doitAgir = (anciennete != null && anciennete > ANCIEN_JOURS) ||
-    (alertes.some((a) => a.code === "prix-haut") && alertes.some((a) => a.code === "sans-demande"));
+    (alertes.some((a) => a.code === "prix-haut") && alertes.some((a) => a.code === "sans-demande" || a.code === "portails-sans-contact"));
   if (doitAgir) {
     if (ecart != null && ecart > 0.03) {
       const cible = medM2 && surface ? medM2 * surface : medPrix;
@@ -208,7 +225,7 @@ export function calculerBilan({ mandat, annonce, pairs, amepi, events, semaine, 
     site: { vues: s.vues, visites: s.visites, brochures: s.brochures, vuesPrec: p.vues, vues4, demandes4, indice, medianeVues: medVues, serie },
     portails: listePortails, totalPortails,
     reseaux: rs && rs.total && rs.total.posts ? { fb: rs.fb, ig: rs.ig, total: rs.total, base: rs.base, publiesSemaine: rs.publiesSemaine, dernierPost: rs.dernierPost } : null,
-    prix: { notreM2, medM2, medPrix, ecart, comparables: comparables.length, tolerance,
+    prix: { notreM2, medM2, medPrix, ecart, ecartBrut, atypique, comparables: comparables.length, tolerance,
       exemples: comparables.slice(0, 6).map((a) => ({ prix: a.prix, surface: a.surface, agence: a.agence || "" })) },
     marche,
     mandat: { debut: mandat.debut, anciennete, prixInitial: mandat.prix_initial, baisse: baisseMandat, avenant: mandat.avenant },
@@ -267,12 +284,10 @@ export function texteBilan(d, { conseiller }) {
   }
 
   const marche = [];
-  if (d.prix.comparables >= 3) {
-    if (d.prix.medM2 && d.prix.notreM2) {
-      marche.push(`- ${d.prix.comparables} biens comparables (même type, même commune, surface proche) sont en vente chez nos confrères, à ${euros(d.prix.medM2)}/m² en valeur médiane ; votre bien est affiché à ${euros(d.prix.notreM2)}/m²`);
-    } else {
-      marche.push(`- ${d.prix.comparables} biens comparables sont en vente chez nos confrères, au prix médian de ${euros(d.prix.medPrix)}`);
-    }
+  if (d.prix.ecart != null) {
+    marche.push(`- ${d.prix.comparables} biens comparables (même type, même commune, surface proche) sont en vente chez nos confrères, à ${euros(d.prix.medM2)}/m² en valeur médiane ; votre bien est affiché à ${euros(d.prix.notreM2)}/m²`);
+  } else if (d.prix.atypique) {
+    marche.push("- Votre bien a des caractéristiques qui le rendent difficile à comparer au mètre carré avec les biens actuellement en vente dans votre commune");
   } else {
     marche.push("- Peu de biens réellement comparables sont en vente en ce moment dans votre commune");
   }
@@ -373,8 +388,14 @@ export async function genererBilans(env, db, agency, { semaine, aujourdhui } = {
   const reglages = await getReglages(db, agency);
   const out = { semaine: sem, crees: 0, misAJour: 0, gardes: 0, nonPublies: [], exclus: [], sansEmail: [], alertes: 0 };
   const lignes = [];
+  const vus = new Map();
+  out.doublons = [];
   for (const m of mandats) {
     if (estDelegation(m)) { out.exclus.push(m.ref); continue; }
+    // Deux références pour le même bien et le même vendeur : un seul bilan.
+    const cle = normVille(m.email || m.vendeur) + "|" + normVille(m.adresse) + "|" + normVille(m.ville);
+    if (m.adresse && vus.has(cle) && parRef.has(String(vus.get(cle)))) { out.doublons.push(m.ref + " = " + vus.get(cle)); continue; }
+    if (m.adresse && !vus.has(cle) && parRef.has(String(m.ref))) vus.set(cle, m.ref);
     const a = parRef.get(String(m.ref));
     if (!a) { out.nonPublies.push(m.ref); continue; }
     const ex = existants.get(m.ref);
@@ -519,7 +540,7 @@ export function monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAge
         const { donnees, ...reste } = r;
         return { ...reste, conseillerNom: nomConseiller(r.conseiller).complet, bien: d.bien, site: d.site && { vues: d.site.vues, vuesPrec: d.site.vuesPrec, visites: d.site.visites, brochures: d.site.brochures, indice: d.site.indice },
           portails: d.totalPortails || null, reseaux: d.reseaux ? d.reseaux.total : null,
-          ecart: d.prix ? d.prix.ecart : null, comparables: d.prix ? d.prix.comparables : 0, anciennete: d.mandat ? d.mandat.anciennete : null,
+          ecart: d.prix ? d.prix.ecart : null, atypique: !!(d.prix && d.prix.atypique), comparables: d.prix ? d.prix.comparables : 0, anciennete: d.mandat ? d.mandat.anciennete : null,
           alertes: d.alertes || [], recommandation: d.recommandation || null };
       }),
     });

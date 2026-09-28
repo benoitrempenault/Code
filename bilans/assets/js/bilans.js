@@ -115,7 +115,7 @@
         '<div class="puces">' + b.alertes.filter((a) => a.niveau !== "info" || a.code === "prix-bas").map((a) =>
           '<span class="puce' + (a.niveau === "fort" ? " fort" : a.code === "prix-bas" ? " ok" : "") + '">' + escH(a.texte) + "</span>").join("") + "</div></div>" +
         '<div class="chiffres"><span><b>' + (s.vues ?? "—") + "</b> vue" + (s.vues > 1 ? "s " : " ") + escH(evol) + "</span><span><b>" + ((s.visites || 0) + (s.brochures || 0)) + "</b> demande" + ((s.visites || 0) + (s.brochures || 0) > 1 ? "s" : "") + "</span>" +
-        (b.ecart != null ? '<span><b class="' + (b.ecart > 0.08 ? "haut" : b.ecart < -0.05 ? "bas" : "") + '">' + pct(b.ecart) + "</b> vs " + b.comparables + " comparables</span>" : "<span>prix : peu de comparables</span>") +
+        (b.ecart != null ? '<span><b class="' + (b.ecart > 0.08 ? "haut" : b.ecart < -0.05 ? "bas" : "") + '">' + pct(b.ecart) + "</b> vs " + b.comparables + " comparables</span>" : "<span>prix : " + (b.atypique ? "bien atypique, non comparé" : "peu de comparables") + "</span>") +
         (s.indice != null ? "<span>indice <b>" + s.indice + "</b></span>" : "") +
         (b.portails ? "<span><b>" + b.portails.vues + "</b> vues portails · <b>" + b.portails.contacts + "</b> contacts</span>" : "") +
         (b.reseaux ? "<span><b>" + b.reseaux.posts + "</b> post" + (b.reseaux.posts > 1 ? "s" : "") + (b.reseaux.vues != null ? " · <b>" + b.reseaux.vues + "</b> vues" : "") + " · <b>" + b.reseaux.interactions + "</b> interactions</span>" : "") + "</div>" +

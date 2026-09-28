@@ -878,7 +878,7 @@ l'export réel du 26/09, prix identiques). L'audience vient de **kadima-site** :
 `SITE_STATS_KEY` secret Worker, `SITE_STATS_BASE` = https://api.century21-kadima.fr ; 404
 sans la variable) — vues, demandes de visite, brochures PAR SEMAINE (lundi). Le marché
 vient d'AMEPI déjà relevé (`crm_amepi` en_vente même commune/type, surface ±25 % puis ±40 %,
-annonces KADIMA de l'ALFA exclues, ≥ 3 comparables sinon pas de position de prix) et de
+annonces KADIMA de l'ALFA exclues). **Calibré sur les données réelles du 28/09** : surface ±20 % puis ±30 %, pièces à ±1 si ≥ 5, position de prix seulement avec ≥ 5 comparables et |écart| ≤ 30 % (au-delà : `prix-atypique`, alerte interne, rien au vendeur — une maison de 157 m² à 1 783 €/m² ressortait à « −46 % ») ; terrains jamais comparés (pas de surface) ; « vues sans demande » seulement quand les portails sont relevés (le site seul fait 1 à 2 demandes/semaine pour TOUTE l'agence) ; e-mails de remplissage ou de l'agence (`emailBidon` : @century21.fr, pasdemail…) = sans e-mail ; même vendeur + même adresse sous deux réf. = un seul bilan (`doublons`) et de
 son journal (`crm_annonces_events` amepi: baisses/retraits/nouveautés de la semaine).
 `calculerBilan` → chiffres + **alertes internes** (prix-haut > +8 %, sans-demande,
 faible-audience indice < 50, audience-baisse, concurrence-baisse, ancien > 180 j) +
