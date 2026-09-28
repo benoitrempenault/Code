@@ -3160,7 +3160,8 @@
   const mensualite = (montant, tauxPct, annees) => { const t = tauxPct / 100 / 12, n = annees * 12; if (!montant || !n) return 0; return t ? montant * t / (1 - Math.pow(1 + t, -n)) : montant / n; };
   async function ouvrirAcm(id, p) {
     let acm, donnees;
-    try { [acm, donnees] = await Promise.all([api("/crm/parcours/" + id + "/acm"), api("/crm/parcours/" + id + "/acm/donnees")]); }
+    let photosRep = { photos: {} };
+    try { [acm, donnees, photosRep] = await Promise.all([api("/crm/parcours/" + id + "/acm"), api("/crm/parcours/" + id + "/acm/donnees"), api("/crm/parcours/" + id + "/acm/photos").catch(() => ({ photos: {} }))]); }
     catch (e) { toast(e.message, true); return; }
     const depuisEstimation = acm.depuis_estimation || [];
     acm = acm.acm || {};
@@ -3183,8 +3184,14 @@
     let portails = { biens: [] };
     try { portails = await api("/crm/parcours/" + id + "/acm/portails" + (acm.prix ? "?prix=" + acm.prix : "")); } catch { portails = { biens: [] }; }
     // Les photos déjà posées à la main (📷) restent attachées aux biens.
-    const photosPosees = new Map((acm.concurrence || []).filter((c) => c.photo).map((c) => [c.id, c.photo]));
-    const candidatsConc = [...manuels, ...(donnees.annonces || []).map((a) => ({ ...a, id: "agence:" + a.id })), ...(donnees.amepi || []).map((a) => ({ ...a, id: "amepi:" + a.id })), ...(portails.biens || [])]
+    // Photos posées à la main : table dédiée (jamais la saisie acm, dont les chaînes sont tronquées).
+    const photosPosees = new Map(Object.entries((photosRep && photosRep.photos) || {}));
+    // Les plus proches d'abord ; sans position connue, la commune du bien avant les autres. Les biens ajoutés à la main restent en tête.
+    const memeCommune = (a) => (a.cp && p.cp && String(a.cp) === String(p.cp)) || (a.ville && p.ville && String(a.ville).toLowerCase() === String(p.ville).toLowerCase());
+    const distanceDe = (a) => { if (Number.isFinite(a.dist) && a.dist !== null) return a.dist; if (a.lat && a.lng && donnees.lat && donnees.lng) { const r = Math.PI / 180, dLat = (a.lat - donnees.lat) * r, dLng = (a.lng - donnees.lng) * r, h = Math.sin(dLat / 2) ** 2 + Math.cos(donnees.lat * r) * Math.cos(a.lat * r) * Math.sin(dLng / 2) ** 2; return 2 * 6371000 * Math.asin(Math.sqrt(h)); } return null; };
+    const rang = (a) => { const d = distanceDe(a); return d !== null ? d : (memeCommune(a) ? 1e6 : 2e6); };
+    const candidatsConc = [...manuels, ...[...(donnees.annonces || []).map((a) => ({ ...a, id: "agence:" + a.id })), ...(donnees.amepi || []).map((a) => ({ ...a, id: "amepi:" + a.id })), ...(portails.biens || [])]
+      .map((a) => ({ ...a, dist: distanceDe(a) })).sort((a, b) => rang(a) - rang(b))]
       .map((a) => (photosPosees.has(a.id) ? { ...a, photo: photosPosees.get(a.id) } : a));
     const dejaV = new Set((acm.ventes || []).map((v) => v.id)), dejaC = new Set((acm.concurrence || []).map((v) => v.id));
     const cocheV = (v, i) => (acm.ventes ? dejaV.has(v.id) : i < 4), cocheC = (v, i) => (acm.concurrence ? dejaC.has(v.id) : i < 4);
@@ -3264,7 +3271,10 @@
       const inp = ev.target; if (!inp.matches || !inp.matches("[data-photo]")) return;
       const f = inp.files && inp.files[0]; if (!f) return;
       try {
-        const photo = await reduireImage(f, 1200, 0.82);
+        // Rangée à part (table dédiée), jamais dans la saisie du livret : 900 px, poids borné.
+        let photo = await reduireImage(f, 900, 0.78);
+        if (photo.length > 150000) photo = await reduireImage(f, 700, 0.7);
+        await api("/crm/parcours/" + id + "/acm/photos/" + encodeURIComponent(inp.dataset.photo), { method: "PUT", json: { photo } });
         const cand = candidatsConc.find((x) => x.id === inp.dataset.photo); if (cand) cand.photo = photo;
         const vig = document.querySelector('[data-vignette="' + inp.dataset.photo + '"]');
         if (vig) { const img = document.createElement("img"); img.src = photo; img.alt = ""; img.className = "vignette-conc"; img.dataset.vignette = inp.dataset.photo; vig.replaceWith(img); }
@@ -3290,7 +3300,7 @@
       // Des lignes retouchées à la main ne sont plus écrasées par la commission à la réouverture.
       const auto = depuisCommission || [];
       const source = com.length === auto.length && com.every((l, i) => l.nb === auto[i].nb && l.basse === auto[i].basse && l.haute === auto[i].haute) ? acm.commission_source : "main";
-      return { ...acm, commission_source: source, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes), concurrence: cochees("[data-conc]", candidatsConc),
+      return { ...acm, commission_source: source, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes), concurrence: cochees("[data-conc]", candidatsConc).map(({ photo, ...reste }) => reste),
         commission: com, acheteurs_inclure: $("acm-ach-inclure").checked, acheteurs_texte: $("acm-ach-texte").value.trim(), acheteurs_n: ach.length, acheteurs_budgets: budgets,
         taux: num("acm-taux") ?? 3.9, assurance: num("acm-assurance") ?? 0.34, apport: num("acm-apport") || 0, duree: parseInt($("acm-duree").value, 10) || 25 };
     };
@@ -3453,8 +3463,15 @@
       img.onerror = () => { resolve(""); if (urlTmp) URL.revokeObjectURL(urlTmp); };
       if (typeof source === "string") img.src = source; else { urlTmp = URL.createObjectURL(source); img.src = urlTmp; }
     });
+    // La photo d'un bien en concurrence, dans l'ordre : posée à la main (table
+    // dédiée), vignette fraîche (ALFA via l'agent, nos annonces), sinon le relais
+    // sur l'URL de l'annonce. Jamais a.photo relu de la saisie (tronqué à 3 000 caractères).
+    let photosPosees = {}; try { photosPosees = (await api("/crm/parcours/" + p.id + "/acm/photos")).photos || {}; } catch { photosPosees = {}; }
+    const frais = new Map([...(donnees.amepi || []).map((x) => ["amepi:" + x.id, x]), ...(donnees.annonces || []).map((x) => ["agence:" + x.id, x])]);
     const embarquerPhoto = async (a) => {
-      let source = a.photo || "";
+      const f = frais.get(a.id);
+      let source = photosPosees[a.id] || (f && f.photo && /^data:image\//.test(f.photo) ? f.photo : "");
+      if (!source && f && f.image) a = { ...a, image: f.image };
       if (!source && a.image) { try { const r = await fetch(API + "/crm/parcours-image?u=" + encodeURIComponent(a.image), { headers: { Authorization: "Bearer " + account().session } }); if (r.ok) source = await r.blob(); } catch { source = ""; } }
       if (!source) return null;
       const jpeg = await decoderPhoto(source);

@@ -716,6 +716,22 @@ aussi via p.bien). `PUT …/acm` → `completerBien` : l'estimation reçoit surf
 chambres/pieceVie qu'elle n'avait pas, jamais d'écrasement. `sanitizeBienEstimation`
 connaît `chambres` et `pieceVie` ; Studio Estimation les saisit (fb-chambres,
 fb-piece-vie, estimation.js?v=2). Assets admin `?v=31`.
+**Photos du livret, correctif (28/09)** : `nettoyerJson` coupe les chaînes de l'acm à 3 000
+caractères → les data URL (vignettes ALFA, photos posées) rangées dans acm.concurrence
+étaient tronquées, d'où « photo non disponible ». Désormais `lire()` retire `photo` des
+biens cochés ; table `crm_parcours_photos` (estimation_id, conc_id, photo JPEG ≤ 160 Ko)
+via `GET /crm/parcours/:id/acm/photos` et `PUT …/acm/photos/:cid` (membre, périmètre) ;
+l'upload 📷 fait un PUT (900 px q0,78, sinon 700 px) ; `ouvrirAcm` charge ces photos avec
+acm et donnees. `genererLivretPrix` : `embarquerPhoto` prend la photo posée, sinon la
+vignette FRAÎCHE de `donnees` (amepi:`id`, agence:`id`), sinon le relais sur l'URL fraîche
+ou celle de la saisie ; jamais a.photo relu de l'acm. Biens en concurrence triés : distance
+au bien (dist serveur, sinon haversine lat/lng ↔ donnees.lat/lng), sans position → même
+commune (cp ou ville du parcours) avant les autres ; les biens ajoutés à la main restent en
+tête. Assets admin `?v=38`.
+**Guide R1 p2, passe 3 (28/09)** : `tools/guides/retoucher-guide-r1-passe3.py` (Bugaki non
+versionnée) : le « 2 » des gestionnaires (colonne Saint-Aubin) était 1,5 pt trop bas et 4 pt
+trop à droite ; zone [414,440,454,496] redigée puis « 1 » (421,4 ; 438,7) et « 2 » (419,3 ;
+477,6) reposés en relief ; repère : insert_text à la ligne de base y donne un sommet à y − 33,5.
 **Agent AMEPI (28/09)** : phase Vignettes en boucle (jusqu'à 20 tours de 150, arrêt si un tour ne dépose rien : seuls les échecs restent) ; premier passage réel 28/09 : 1 916 mandats, 148 vignettes au premier tour. `/diag/livret` publie `vignettes` {deposees, mandats_sans_photo} (comptes seulement). Test permanence : les assertions « 4 rendez-vous / 3 après réservation » filtrent `pv === "medard"` car la permanence Caudéran à date fixe (2026-10-01) peut tomber sur « aujourd'hui + 3 ». Smokes : `attendreToast` vide le texte du toast une fois vu (un toast qui traîne 3 s satisfaisait le wait suivant → échec intermittent ligne « signés du conseiller choisi » : le « Bien enregistré » de la saisie précédente écrasait le toast attendu) ; `parcours()` indique fichier:ligne du plantage. CSS téléphone : les règles des étapes du bloc `@media (max-width: 720px)` sont écrites en `.etapes .etape …` (3 classes) parce que les règles générales `.etape .titre` viennent APRÈS dans le fichier et les écrasaient (titre écrasé, boutons en colonne) ; la modale prend `100dvh` (la barre de Safari cachait Effacer / Fermer). Assets admin `?v=29`. (27/09 : un clic sur le voile hors de la fenêtre ne ferme plus la modale — on perdait la saisie ; seuls ×, Retour/Annuler et le bouton « précédent » ferment). Photos du livret : `decoderPhoto` (canvas → JPEG 1200 px, WebP compris) puis `embarquerPhoto` (photo posée, sinon relais) ; relais et acm/donnees résolvent les URL relatives de nos annonces sur `annonces.siteUrl`.
 **Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
 bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la

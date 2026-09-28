@@ -995,6 +995,31 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       [p.est.id, ctx.agency.id, data, now()]);
     return c.json({ ok: true });
   });
+  // Photos posées à la main sur les biens en concurrence : une ligne par bien,
+  // relues à la génération du livret (jamais stockées dans la saisie acm).
+  app.get("/crm/parcours/:id/acm/photos", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    const rows = await db.all("SELECT conc_id, photo FROM crm_parcours_photos WHERE estimation_id = ? AND agency_id = ?", [p.est.id, ctx.agency.id]);
+    const photos = {}; for (const r of rows) photos[r.conc_id] = r.photo;
+    return c.json({ photos });
+  });
+  app.put("/crm/parcours/:id/acm/photos/:cid", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    const cid = strip(c.req.param("cid"), 80);
+    const b = await c.req.json().catch(() => null);
+    const photo = String((b && b.photo) || "");
+    if (!cid) return err(c, 400, "Bien inconnu.");
+    if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(photo)) return err(c, 400, "Photo attendue en JPEG.");
+    if (photo.length > 160000) return err(c, 400, "Photo trop lourde (160 Ko au plus).");
+    await db.run(
+      "INSERT INTO crm_parcours_photos (estimation_id, conc_id, agency_id, photo, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(estimation_id, conc_id) DO UPDATE SET photo = excluded.photo, updated_at = excluded.updated_at",
+      [p.est.id, cid, ctx.agency.id, photo, now()]);
+    return c.json({ ok: true });
+  });
   // Les données comparables autour du bien : position, commune (code INSEE
   // pour les fichiers DVF, chargés par le navigateur), ventes de l'agence à
   // 2 km, nos annonces et les mandats de l'ALFA (même type, même secteur),

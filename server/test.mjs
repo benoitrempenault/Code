@@ -3578,6 +3578,14 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const bienApres = JSON.parse((await db.get("SELECT data FROM crm_estimation_bien WHERE estimation_id = ?", [pxId])).data);
   ok(bienApres.surface === 120 && bienApres.chambres === 4 && bienApres.pieceVie === 40 && bienApres.prixEnvisage === 345000,
      "la fiche estimation reçoit en retour ce qui lui manquait (chambres, pièce de vie) sans que sa surface ni son prix soient écrasés");
+  // Photos posées sur un bien en concurrence : table dédiée, relues à la génération, réservées au périmètre.
+  {
+    const ph = await callR("/crm/parcours/" + pxId + "/acm/photos/bienici:abc", { headers: authP, method: "PUT", body: { photo: pixel } });
+    const lu = (await callR("/crm/parcours/" + pxId + "/acm/photos", { headers: authP })).json;
+    ok(ph.status === 200 && lu.photos["bienici:abc"] === pixel, "une photo posée sur un bien en concurrence se range et se relit");
+    ok((await callR("/crm/parcours/" + pxId + "/acm/photos/bienici:abc", { headers: authP, method: "PUT", body: { photo: "data:text/plain;base64,QUJD" } })).status === 400, "une photo qui n'est pas un JPEG est refusée");
+    ok((await callR("/crm/parcours/" + pxId + "/acm/photos", { headers: authR })).status === 404, "les photos d'un parcours hors périmètre sont introuvables");
+  }
   const tNow = Math.floor(Date.now() / 1000);
   const acmPut = await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { prix: 330000, basse: 320000, haute: 340000, commission: [{ nb: 3, basse: 300000, haute: 320000 }], ventes: [{ id: "dvf:1", prix: 315000, surface: 100, adresse: "1 rue\u0007Test" }], acheteurs_texte: "ok", profond: { a: { b: { c: { d: { e: { f: 1 } } } } } } } });
   const acmGet = (await callR("/crm/parcours/" + pxId + "/acm", { headers: authP })).json;
