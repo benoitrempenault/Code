@@ -220,6 +220,7 @@
       return;
     }
     let rec = null, listening = false, started = false, base = "", hintTimer = null;
+    let incidentsReseau = 0; // erreurs « network » d'affilée : on relance avant d'abandonner
 
     function setIdle() {
       btn.textContent = "🎙️ Dicter la fiche";
@@ -241,6 +242,21 @@
       scheduleRender();
     }
     stopVoice = function () { if (rec || listening || started) stop(""); };
+    // Relance après un arrêt du navigateur (silence, plafond de durée interne,
+    // coupure réseau). Un start() lancé trop tôt après la fin est refusé par
+    // certains navigateurs : on attend un peu et on réessaie plusieurs fois
+    // avant de conclure — une dictée longue ne doit jamais s'éteindre en silence.
+    function relancer(essai) {
+      if (!listening) return;
+      setTimeout(function () {
+        if (!listening) return;
+        try { rec = newRec(); rec.start(); }
+        catch (e) {
+          if (essai < 4) relancer(essai + 1);
+          else stop("La dictée s'est interrompue — touchez le bouton pour reprendre, le texte est conservé.", true);
+        }
+      }, essai === 0 ? 120 : 400 * essai);
+    }
     function newRec() {
       const r = new SR();
       r.lang = "fr-FR";
@@ -263,11 +279,18 @@
           else interim += res[0].transcript;
         }
         r.__finals = finals;
+        incidentsReseau = 0;
         notes.value = fixSpeech(base + finals) + interim;
         scheduleRender();
       };
       r.onerror = function (ev) {
         if (ev.error === "no-speech" || ev.error === "aborted") return; // silence : onend relancera
+        if (ev.error === "network" && ++incidentsReseau <= 3) {
+          // Coupure passagère (le service coupe aussi les longues dictées) :
+          // onend relancera, le texte acquis est déjà consolidé.
+          status.textContent = "Connexion au service vocal perdue — reprise automatique…";
+          return;
+        }
         const msgs = {
           "not-allowed": "Micro refusé — autorisez le micro pour ce site (icône 🔒 ou réglages du navigateur).",
           "service-not-allowed": /iPhone|iPad/.test(navigator.userAgent)
@@ -284,7 +307,7 @@
         if (!listening) return;
         if (r.__finals) base = fixSpeech(base + r.__finals);
         notes.value = base;
-        try { rec = newRec(); rec.start(); } catch (e) { stop(); }
+        relancer(0);
       };
       return r;
     }
