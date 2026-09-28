@@ -3621,6 +3621,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(dnRel.annonces.find((a) => a.id === "maison-haillan-1").image === "http://localhost:1/photos/biens/relative-640.webp" && relRep.status === 502 && absRep.status === 502,
      "l'image relative de notre annonce est résolue sur le site de l'agence, et le relais l'accepte sous ses deux formes (" + relRep.status + "/" + absRep.status + ")");
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { annonces: { siteUrl: "" } } });
+  ok((await callR("/crm/parcours-image?u=http://autre-site.test/photos/inconnue.jpg", { headers: authP })).status === 404, "en http, une image d'un hôte inconnu est refusée");
   ok((await callR("/crm/parcours-image?u=https://site/photos/inconnue.jpg", { headers: authP })).status === 404 && (await callR("/crm/parcours-image?u=javascript:alert(1)", { headers: authP })).status === 400,
      "le relais d'images ne sert que les photos connues des annonces et mandats");
   await db.run("DELETE FROM crm_annonces WHERE id = 'maison-haillan-1'"); await db.run("DELETE FROM crm_amepi WHERE id IN ('am-1', 'am-2')"); await db.run("DELETE FROM crm_recherches WHERE contact_id IN ('ct_ach1', 'ct_ach2', 'ct_ach3')");

@@ -1229,7 +1229,12 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     let hote = ""; try { hote = new URL(u).hostname; } catch { hote = ""; }
     const HOTES_PORTAILS = ["file.bienici.com", "images.century21.fr", "photos.bienici.com", ...(env.BIENICI_BASE ? [new URL(env.BIENICI_BASE).hostname] : [])];
     const formes = [...new Set([u, relative].filter(Boolean))];
+    // Les photos des annonces Bien'ici des autres agences vivent chez leur
+    // logiciel (Hektor, Apimo, Netty…), pas sur file.bienici.com : toute image
+    // en https sur un vrai nom de domaine passe (le relais exige ensuite un
+    // content-type image/* et 4 Mo au plus) ; en http, seuls les hôtes connus.
     const connue = HOTES_PORTAILS.includes(hote)
+      || (/^https:\/\//.test(u) && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(hote))
       || (await db.get(`SELECT 1 AS ok FROM crm_annonces WHERE agency_id = ? AND image IN (${formes.map(() => "?").join(",")})`, [ctx.agency.id, ...formes]))
       || (await db.get("SELECT 1 AS ok FROM crm_amepi WHERE agency_id = ? AND image = ?", [ctx.agency.id, u]));
     if (!connue) return err(c, 404, "Image inconnue.");

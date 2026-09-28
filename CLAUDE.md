@@ -716,6 +716,7 @@ aussi via p.bien). `PUT …/acm` → `completerBien` : l'estimation reçoit surf
 chambres/pieceVie qu'elle n'avait pas, jamais d'écrasement. `sanitizeBienEstimation`
 connaît `chambres` et `pieceVie` ; Studio Estimation les saisit (fb-chambres,
 fb-piece-vie, estimation.js?v=2). Assets admin `?v=31`.
+**Relais d'images (28/09 soir)** : `/crm/parcours-image` accepte toute URL https sur un vrai nom de domaine (les photos Bien'ici des autres agences sont chez Hektor, Apimo, Netty… : seule l'annonce Century 21 passait) ; en http seuls HOTES_PORTAILS et les images connues en base ; toujours content-type image/* et ≤ 4 Mo.
 **Photos du livret, correctif (28/09)** : `nettoyerJson` coupe les chaînes de l'acm à 3 000
 caractères → les data URL (vignettes ALFA, photos posées) rangées dans acm.concurrence
 étaient tronquées, d'où « photo non disponible ». Désormais `lire()` retire `photo` des
