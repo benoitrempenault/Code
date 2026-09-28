@@ -26,7 +26,7 @@ const PROFIL = join(ICI, "profil-navigateur");
 const ACCUEILS = {
   seloger: "https://myselogerpro.com/login",
   bienici: "https://pro.bienici.com/",
-  leboncoin: "https://www.leboncoin.fr/",
+  leboncoin: "https://www.leboncoin.fr/compte/pro/mon-activite",
 };
 const JSON_MAX = 3 * 1024 * 1024;
 
@@ -138,8 +138,12 @@ if (mode === "apprendre") {
   };
   ctx.pages().forEach(suivre);
   ctx.on("page", suivre);
-  const premiere = ctx.pages()[0] || await ctx.newPage();
-  await premiere.goto(ACCUEILS.bienici, { waitUntil: "domcontentloaded" }).catch(() => { });
+  // Un onglet par portail, déjà sur son espace pro.
+  let n = 0;
+  for (const url of Object.values(ACCUEILS)) {
+    const pg = n++ === 0 ? (ctx.pages()[0] || await ctx.newPage()) : await ctx.newPage();
+    await pg.goto(url, { waitUntil: "domcontentloaded" }).catch(() => { });
+  }
   await log("Mode apprentissage : allez sur chaque portail jusqu'à la page des statistiques de vos annonces (la liste, puis une annonce), laissez-la charger quelques secondes, puis fermez Edge.");
   // Toutes les 15 s, ce qui est arrivé sur la page courante part aussi.
   const minuterie = setInterval(() => ctx.pages().forEach((pg) => envoyer(pg, pg.url())), 15000);
