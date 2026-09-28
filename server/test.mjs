@@ -1322,7 +1322,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     body: { from: demain, to: demain, pvs: ["medard"], lignes: [{ pv: "medard", date: demain, creneau: "matin", debut: "09:00", fin: "12:00", cle: "u2@azur-immo.fr", nom: "Claire Test", email: "u2@azur-immo.fr" }] }
   });
   const dispo2 = await call("/public/permanence?slug=azur-test");
-  ok(dispo2.json.creneaux.filter((c) => c.date === demain).length === 4, "3h de permanence → 4 rendez-vous proposés au public");
+  // Filtré sur le point de vente : une permanence de Caudéran à date fixe plus haut peut tomber le même jour.
+  ok(dispo2.json.creneaux.filter((c) => c.date === demain && c.pv === "medard").length === 4, "3h de permanence → 4 rendez-vous proposés au public");
   const resa = await call("/public/rdv", { body: { slug: "azur-test", pv: "medard", date: demain, debut: "09:00", cle: "u2@azur-immo.fr", objet: "estimation", client_nom: "Jean Dupont", client_tel: "0600000000" } });
   ok(resa.status === 200 && resa.json.conseiller === "Claire Test", "rendez-vous pris auprès du conseiller de permanence");
   const doublon = await call("/public/rdv", { body: { slug: "azur-test", pv: "medard", date: demain, debut: "09:00", cle: "u2@azur-immo.fr", client_nom: "Autre", client_tel: "0611111111" } });
@@ -1331,7 +1332,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(horsPlanning.status === 409, "créneau hors permanence refusé (le serveur ne croit pas le navigateur)");
   ok((await call("/public/rdv", { body: { slug: "azur-test", pv: "medard", date: demain, debut: "09:45", cle: "u2@azur-immo.fr", client_nom: "X" } })).status === 400,
     "sans téléphone ni e-mail, la demande est refusée");
-  ok((await call("/public/permanence?slug=azur-test")).json.creneaux.filter((c) => c.date === demain).length === 3,
+  ok((await call("/public/permanence?slug=azur-test")).json.creneaux.filter((c) => c.date === demain && c.pv === "medard").length === 3,
     "le créneau réservé disparaît de la page publique");
   const mesRdv = await call("/rdv?from=" + demain + "&to=" + demain, { headers: auth });
   ok(mesRdv.json.rdv.length === 1 && mesRdv.json.rdv[0].client_nom === "Jean Dupont", "l'agence voit le rendez-vous pris en ligne");

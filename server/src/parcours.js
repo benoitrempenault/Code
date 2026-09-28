@@ -820,6 +820,12 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       if (am) { const rep = await fetch(am.image, { headers: { "User-Agent": "StudioKadima/1.0" }, signal: AbortSignal.timeout(15000) }); r.amepi = { hote: new URL(am.image).hostname, status: rep.status, type: rep.headers.get("content-type"), octets: rep.ok ? (await rep.arrayBuffer()).byteLength : 0 }; }
       else r.amepi = { erreur: "aucune image de mandat en base" };
     } catch (e) { r.amepi = { erreur: String(e.message || e).slice(0, 120) }; }
+    // Les vignettes déposées par l'agent (comptes seulement : rien de nominatif).
+    try {
+      const tot = await db.get("SELECT COUNT(*) AS n FROM crm_amepi_photos");
+      const sans = await db.get("SELECT COUNT(*) AS n FROM crm_amepi a WHERE a.image LIKE 'http%' AND NOT EXISTS (SELECT 1 FROM crm_amepi_photos p WHERE p.id = a.id)");
+      r.vignettes = { deposees: (tot && tot.n) || 0, mandats_sans_photo: (sans && sans.n) || 0 };
+    } catch (e) { r.vignettes = { erreur: String(e.message || e).slice(0, 120) }; }
     diagLivret = { le: now(), cle, resultat: r };
     return c.json(r);
   });

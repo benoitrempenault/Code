@@ -118,12 +118,17 @@ try {
 
   # 3) Les vignettes : Studio dit lesquelles manquent, on les télécharge avec la
   #    session Amanda (leur stockage refuse tout lecteur non connecté), on les
-  #    réduit à 320 px et on les dépose par lots de 40. Au plus 150 par relevé.
+  #    réduit à 320 px et on les dépose par lots de 40. Studio en donne 150 à la
+  #    fois : on enchaîne les tours jusqu'à ce qu'il n'en manque plus (au plus 20
+  #    tours, et on s'arrête si un tour n'a rien pu déposer).
   try {
     Add-Type -AssemblyName System.Drawing
+    $totalEnvoyees = 0; $totalRatees = 0
+    for ($tour = 1; $tour -le 20; $tour++) {
     $mq = Invoke-WebRequest -Uri "$studio/crm/amepi/photos/manquantes" -Headers @{ "X-Agent-Key" = "$($cfg.studio_cle)".Trim() } -UseBasicParsing
     $manquants = @(([Text.Encoding]::UTF8.GetString($mq.RawContentStream.ToArray()) | ConvertFrom-Json).mandats)
-    if ($manquants.Count -gt 0) { Log "Vignettes : $($manquants.Count) mandat(s) sans photo." }
+    if ($manquants.Count -eq 0) { break }
+    Log "Vignettes, tour $tour : $($manquants.Count) mandat(s) sans photo."
     $lot = @(); $envoyees = 0; $ratees = 0
     foreach ($m in $manquants) {
       try {
@@ -152,7 +157,10 @@ try {
       Invoke-WebRequest -Uri "$studio/crm/amepi/photos" -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($corpsPh)) -ContentType "application/json" -Headers @{ "X-Agent-Key" = "$($cfg.studio_cle)".Trim() } -UseBasicParsing | Out-Null
       $envoyees += $lot.Count
     }
-    if ($manquants.Count -gt 0) { Log "Vignettes : $envoyees déposée(s), $ratees en échec." }
+    $totalEnvoyees += $envoyees; $totalRatees += $ratees
+    if ($envoyees -eq 0) { break }
+    }
+    if ($totalEnvoyees -gt 0 -or $totalRatees -gt 0) { Log "Vignettes : $totalEnvoyees déposée(s), $totalRatees en échec." }
   } catch { Log ("Vignettes : étape sautée (" + $_.Exception.Message + ")") }
   exit 0
 } catch {
