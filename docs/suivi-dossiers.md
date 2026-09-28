@@ -194,6 +194,16 @@ changements à la main. Supprimer le dossier efface compromis et avenants.
 
 ### Destinataires particuliers
 
+**Retrouver un notaire lu dans le compromis** : à l'ouverture d'un dossier
+(`autofillFromAnnuaire`) et quand on tape un nom, les coordonnées vides viennent de la
+fiche annuaire retrouvée par `annFuzzy()` — nom exact, puis noms « compatibles » (tous les
+mots du plus court couverts par le plus long), puis **par patronyme** : les mots en
+capitales du nom (sinon son dernier mot) doivent figurer dans la fiche, et s'il y a
+plusieurs fiches (PULON Antoine / PULON Bertrand) celle qui partage le plus d'autres mots
+l'emporte, à égalité rien. Ainsi « Maître Antoine PULON, notaire à Saint-Médard »,
+« SCP NAUTIACQ & Associés » ou une fiche « Me NAUTIACQ (Saint-Médard) » se rapprochent ;
+un simple mot de lieu partagé ne suffit jamais.
+
 **L'annuaire est le carnet central** : corriger l'e-mail **ou le téléphone** d'une
 fiche notaire ou syndic le répercute sur **tous les dossiers** où cette personne
 figure (rapprochement par nom via `annFuzzy` — homonymes non tranchés : on ne touche

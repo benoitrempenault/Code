@@ -1099,6 +1099,25 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   ok(!ajouts.some((a) => a.id === "aj_3"), "action ajoutée déjà faite : hors récap");
 }
 
+/* ---- Annuaire : retrouver le notaire du compromis dans la liste --------- */
+{
+  const src = readFileSync(new URL("../suivi/assets/js/app.js", import.meta.url), "utf8");
+  const bloc = src.slice(src.indexOf("  function annByNom(types, nom) {"), src.indexOf("  // Complète depuis l'annuaire"));
+  const fuzzy = (annuaire, nom) => new Function("annuaire", bloc + "\nreturn annFuzzy(['notaire'], arguments[1]);")(annuaire, nom);
+  const N = (nom, email) => ({ type: "notaire", nom, email });
+  const liste = [N("PULON Antoine", "antoine@pulon.fr"), N("PULON Bertrand", "bertrand@pulon.fr"),
+    N("Me NAUTIACQ (Saint-Médard)", "etude@nautiacq.fr"), N("Sophie DUPIN", "s@dupin.fr"), N("MELLAC", "office@mellac.fr")];
+  const mail = (nom) => (fuzzy(liste, nom) || {}).email || "";
+  ok(mail("Maître Antoine PULON, notaire à Saint-Médard-en-Jalles") === "antoine@pulon.fr", "phrase du compromis (« notaire à … ») → fiche du bon notaire");
+  ok(mail("Me PULON") === "", "patronyme seul avec deux notaires de la famille : on ne devine pas");
+  ok(mail("Me Bertrand NAUTIACQ") === "etude@nautiacq.fr", "fiche annuaire avec la ville entre parenthèses → retrouvée");
+  ok(mail("SCP NAUTIACQ & Associés") === "etude@nautiacq.fr", "nom d'étude (« & Associés ») → retrouvé par le patronyme");
+  ok(mail("Me DUPIN Sophie") === "s@dupin.fr", "ordre prénom / nom inversé → retrouvé");
+  ok(mail("Office notarial MELLAC — Me Claire MELLAC") === "office@mellac.fr", "office + notaire → retrouvé");
+  ok(mail("Me DURAND, notaire à Saint-Médard") === "", "un simple mot de lieu partagé ne rapproche jamais d'une autre étude");
+  ok(mail("Me Bertrand PULON") === "bertrand@pulon.fr", "prénom présent : le bon des deux PULON");
+}
+
 /* ---- Séquestre : comptabilité de l'étude dépositaire -------------------- */
 {
   // comptableDe() vit dans l'IIFE du client : on isole le bloc de
