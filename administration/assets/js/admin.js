@@ -3319,9 +3319,12 @@
         etat.textContent = "Cartes, photos et assemblage du livret…";
         const urlAcm = await genererLivretPrix(p, d, donnees);
         await api("/crm/parcours/" + id + "/etape", { json: { etape: "acm" } });
-        documentPret(id, "Livret prix prêt", urlAcm, window.__dernierGuide && window.__dernierGuide.fichier);
-        const dbg = window.__dernierGuide && window.__dernierGuide.debug;
-        if (dbg && (dbg.photos || dbg.sansPhoto)) toast("Biens en concurrence : " + dbg.photos + " photo(s) embarquée(s)" + (dbg.sansPhoto ? ", " + dbg.sansPhoto + " sans photo (" + dbg.sources.filter((x) => /:non$/.test(x)).map((x) => x.replace(/:non$/, "")).join(", ") + ")" : ""));
+        // Compte-rendu des photos (biens en concurrence) et version du script : de quoi diagnostiquer sans deviner.
+        const dbg = (window.__dernierGuide && window.__dernierGuide.debug) || { photos: 0, sansPhoto: 0, sources: [] };
+        const version = ((document.querySelector('script[src*="admin.js"]') || {}).src || "").replace(/^.*v=/, "") || "?";
+        const note = "Biens en concurrence : " + dbg.photos + " photo(s) embarquée(s), " + dbg.sansPhoto + " sans photo" +
+          (dbg.sources.length ? "\n" + dbg.sources.map((x) => x.replace(/:ok$/, " ✓").replace(/:non$/, " ✗")).join("\n") : "") + "\nScript v" + version;
+        documentPret(id, "Livret prix prêt", urlAcm, window.__dernierGuide && window.__dernierGuide.fichier, note);
       } catch (e) { toast(e.message, true); etat.textContent = ""; btn.disabled = false; }
     });
   }
@@ -3651,9 +3654,10 @@
   // Après un guide ou un livret : on ne quitte pas le parcours. L'onglet ne
   // s'ouvre que sur un clic (jamais bloqué, même sur téléphone) ; « Enregistrer »
   // télécharge ; « Retour » rouvre la fiche.
-  function documentPret(id, titre, url, fichier) {
+  function documentPret(id, titre, url, fichier, note) {
     ouvrirModale("✅ " + titre,
       '<p class="aide">Le document est prêt. Ouvrez-le dans un nouvel onglet pour le lire ou l\'imprimer, ou enregistrez-le ; la fiche du parcours vous attend derrière.</p>' +
+      (note ? '<p class="petit" id="doc-note" style="white-space:pre-wrap;">' + escH(note) + "</p>" : "") +
       '<div class="barre"><a class="btn btn-or" id="doc-ouvrir" href="' + escH(url) + '" target="_blank" rel="noopener">📄 Ouvrir le document</a>' +
       '<a class="btn" id="doc-enregistrer" href="' + escH(url) + '" download="' + escH(fichier || "document.pdf") + '">⬇ Enregistrer</a></div>',
       '<button class="btn btn-or" id="doc-retour">← Retour au parcours</button>');
