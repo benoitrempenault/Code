@@ -985,3 +985,130 @@ CREATE TABLE IF NOT EXISTS crm_parcours_avis (
   created_at    INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_crm_parcours_avis_est ON crm_parcours_avis(estimation_id, created_at);
+
+-- Bilans vendeurs hebdomadaires (bilans.js). Le portefeuille de mandats vient
+-- de l'export C21 (remplacé à chaque import : l'export EST le portefeuille) ;
+-- la référence `ref` est celle de l'annonce sur le site de l'agence.
+CREATE TABLE IF NOT EXISTS crm_bilan_mandats (
+  agency_id    TEXT NOT NULL REFERENCES agencies(id),
+  ref          TEXT NOT NULL,               -- référence du bien (= annonce du site)
+  mandat       TEXT NOT NULL DEFAULT '',    -- numéro de mandat
+  vendeur      TEXT NOT NULL DEFAULT '',    -- « NOM Prénom, Prénom… »
+  email        TEXT NOT NULL DEFAULT '',
+  conseiller   TEXT NOT NULL DEFAULT '',    -- « NOM Prénom » tel que dans l'export
+  ville        TEXT NOT NULL DEFAULT '',
+  adresse      TEXT NOT NULL DEFAULT '',
+  debut        TEXT NOT NULL DEFAULT '',    -- début du mandat AAAA-MM-JJ
+  avenant      TEXT NOT NULL DEFAULT '',    -- dernier avenant AAAA-MM-JJ
+  prix         INTEGER,
+  prix_initial INTEGER,
+  updated_at   INTEGER NOT NULL,
+  PRIMARY KEY (agency_id, ref)
+);
+
+-- Un bilan = un mandat × une semaine (lundi). Brouillon préparé le lundi,
+-- relu (modifie = 1 : la régénération n'y touche plus) puis envoyé.
+CREATE TABLE IF NOT EXISTS crm_bilans (
+  id          TEXT PRIMARY KEY,             -- bl_xxxxxxxx
+  agency_id   TEXT NOT NULL REFERENCES agencies(id),
+  ref         TEXT NOT NULL,
+  semaine     TEXT NOT NULL,                -- lundi de la semaine couverte
+  statut      TEXT NOT NULL DEFAULT 'brouillon', -- brouillon | envoye | ignore
+  modifie     INTEGER NOT NULL DEFAULT 0,
+  email       TEXT NOT NULL DEFAULT '',
+  conseiller  TEXT NOT NULL DEFAULT '',
+  sujet       TEXT NOT NULL DEFAULT '',
+  texte       TEXT NOT NULL DEFAULT '',
+  donnees     TEXT NOT NULL DEFAULT '{}',   -- chiffres, comparables, alertes (JSON)
+  envoye_at   INTEGER,
+  envoye_par  TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  UNIQUE (agency_id, ref, semaine)
+);
+CREATE INDEX IF NOT EXISTS idx_crm_bilans_sem ON crm_bilans(agency_id, semaine);
+
+-- Statistiques des portails (SeLoger, Bien'ici, Leboncoin) relevées par
+-- l'agent installé à l'agence (tools/agent-portails, portails.js). Les
+-- espaces pro n'ont pas d'API : l'agent navigue avec la session de l'agence
+-- et dépose ce que les pages reçoivent ; le serveur en extrait les chiffres.
+CREATE TABLE IF NOT EXISTS crm_portail_consignes (
+  agency_id  TEXT PRIMARY KEY REFERENCES agencies(id),
+  data       TEXT NOT NULL DEFAULT '{}',   -- {portails:{seloger:{pages:[{url}], mode}}}
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS crm_portail_captures (
+  id         TEXT PRIMARY KEY,              -- pc_xxxxxxxx
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  portail    TEXT NOT NULL,                 -- seloger | bienici | leboncoin
+  mode       TEXT NOT NULL DEFAULT 'releve',-- releve | apprentissage
+  url        TEXT NOT NULL DEFAULT '',      -- page visitée
+  contenu    TEXT NOT NULL DEFAULT '[]',    -- [{url, json}] tronqué
+  lignes     INTEGER NOT NULL DEFAULT 0,    -- annonces reconnues dans cette capture
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_portail_captures ON crm_portail_captures(agency_id, portail, created_at);
+CREATE TABLE IF NOT EXISTS crm_portail_stats (
+  agency_id TEXT NOT NULL REFERENCES agencies(id),
+  portail   TEXT NOT NULL,
+  ref       TEXT NOT NULL,                  -- référence du mandat (= annonce du site)
+  jour      TEXT NOT NULL,                  -- AAAA-MM-JJ (jour de la série, ou du relevé)
+  nature    TEXT NOT NULL DEFAULT 'releve', -- jour = valeur DU jour (série du portail) | releve = compteur lu ce jour-là
+  vues      INTEGER,
+  contacts  INTEGER,
+  favoris   INTEGER,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agency_id, portail, ref, jour, nature)
+);
+CREATE TABLE IF NOT EXISTS crm_portail_etat (
+  agency_id TEXT NOT NULL REFERENCES agencies(id),
+  portail   TEXT NOT NULL,
+  statut    TEXT NOT NULL DEFAULT '',       -- ok | session | vide | erreur
+  message   TEXT NOT NULL DEFAULT '',
+  annonces  INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agency_id, portail)
+);
+
+-- Réseaux sociaux (Facebook, Instagram) pour les bilans vendeurs (meta.js) :
+-- l'API officielle de Meta, avec le jeton de page de l'agence (chiffré en
+-- AES-GCM, clé dérivée de SESSION_SECRET — jamais renvoyé au navigateur).
+CREATE TABLE IF NOT EXISTS crm_meta_compte (
+  agency_id   TEXT PRIMARY KEY REFERENCES agencies(id),
+  jeton_chiffre TEXT NOT NULL,
+  page_id     TEXT NOT NULL DEFAULT '',
+  page_nom    TEXT NOT NULL DEFAULT '',
+  ig_id       TEXT NOT NULL DEFAULT '',
+  ig_nom      TEXT NOT NULL DEFAULT '',
+  statut      TEXT NOT NULL DEFAULT 'ok',    -- ok | erreur
+  message     TEXT NOT NULL DEFAULT '',
+  releve_at   INTEGER,
+  updated_at  INTEGER NOT NULL
+);
+-- Une publication (fb | ig) et le bien auquel elle est rattachée : auto
+-- (« Réf. 8282 » ou lien vers l'annonce), manuel (validé dans Studio Bilans),
+-- ou seulement suggéré (ville + prix) — une suggestion ne compte PAS.
+CREATE TABLE IF NOT EXISTS crm_meta_posts (
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  id         TEXT NOT NULL,                  -- fb:<id> | ig:<id>
+  reseau     TEXT NOT NULL,                  -- fb | ig
+  texte      TEXT NOT NULL DEFAULT '',
+  lien       TEXT NOT NULL DEFAULT '',       -- permalink
+  cree_le    TEXT NOT NULL DEFAULT '',       -- AAAA-MM-JJ
+  ref        TEXT NOT NULL DEFAULT '',       -- mandat rattaché
+  rattachement TEXT NOT NULL DEFAULT '',     -- auto | manuel | suggestion | aucun
+  suggestion TEXT NOT NULL DEFAULT '',       -- ref suggérée (ville + prix)
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agency_id, id)
+);
+-- Compteurs d'une publication relevés un jour donné (cumul depuis la publication).
+CREATE TABLE IF NOT EXISTS crm_meta_stats (
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  post_id    TEXT NOT NULL,
+  jour       TEXT NOT NULL,
+  vues       INTEGER,
+  portee     INTEGER,
+  interactions INTEGER,                      -- réactions/j'aime + commentaires + partages + enregistrements
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agency_id, post_id, jour)
+);

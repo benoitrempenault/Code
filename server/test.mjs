@@ -4113,6 +4113,319 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   fauxResendO.close();
 }
 
+
+/* ====================== Bilans vendeurs hebdomadaires ===================== */
+{
+  console.log("— Bilans vendeurs : import de l'export C21, audience du site, comparables AMEPI, brouillon relu et envoyé");
+  const B = await import("./src/bilans.js");
+  ok(B.dateIso("46239") === "2026-08-05" && B.dateIso("46290.79") === "2026-09-25" && B.dateIso("05/08/2026") === "2026-08-05", "dates de l'export : numéros de série Excel et JJ/MM/AAAA");
+  ok(B.nomConseiller("GIUSTI MARCILHAC Lucie").complet === "Lucie GIUSTI MARCILHAC" && B.nomConseiller("REMPENAULT Adélaïde").prenom === "Adélaïde", "conseiller : « NOM Prénom » remis dans l'ordre");
+  ok(B.normVille("SAINT MEDARD EN JALLES") === B.normVille("Saint-Médard-en-Jalles") && B.normVille("St Aubin de Médoc") === B.normVille("SAINT AUBIN DE MEDOC"), "communes comparées sans casse, accents ni tirets");
+  ok(B.semaineCouverte("2026-09-28") === "2026-09-21" && B.semaineCouverte("2026-10-01") === "2026-09-21", "la semaine couverte est la dernière semaine complète");
+  ok(B.estDelegation({ vendeur: "DELEGATION OKA IMMOBILIER" }) && !B.estDelegation({ vendeur: "FAURET Angele" }), "une délégation de confrère est reconnue");
+
+  const mailsB = [];
+  const fauxResendB = (await import("node:http")).createServer(async (req, res) => {
+    const chunks = []; for await (const c of req) chunks.push(c);
+    mailsB.push(JSON.parse(Buffer.concat(chunks).toString()));
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ id: "email_test" }));
+  });
+  await new Promise((r) => fauxResendB.listen(18802, r));
+  // Faux site Kadima : la route à clé des statistiques par annonce.
+  const L = ["2026-09-07", "2026-09-14", "2026-09-21"];
+  const sem = (a, b, c) => ({ "2026-09-07": { vues: a, visites: 0, brochures: 0 }, "2026-09-14": { vues: b, visites: 0, brochures: 0 }, "2026-09-21": { vues: c, visites: 0, brochures: 0 } });
+  const annoncesSite = [
+    { ref: "100", url: "https://site.test/annonces/a/", type: "Maison", ville: "Saint-Médard-en-Jalles", prix: 380000, surface: 100, pieces: 5, semaines: sem(40, 30, 32) },
+    { ref: "200", url: "https://site.test/annonces/b/", type: "Maison", ville: "Saint-Médard-en-Jalles", prix: 300000, surface: 100, pieces: 5, semaines: { ...sem(10, 12, 14), "2026-09-21": { vues: 14, visites: 2, brochures: 1 } } },
+    { ref: "500", url: "https://site.test/annonces/e/", type: "Appartement", ville: "Le Haillan", prix: 200000, surface: 60, pieces: 3, semaines: sem(5, 5, 5) },
+    ...[1, 2, 3, 4, 5].map((i) => ({ ref: "90" + i, url: "", type: "Maison", ville: "Blanquefort", prix: 250000, surface: 90, pieces: 4, semaines: sem(20, 20, 20) })),
+  ];
+  const statsAppels = [];
+  const fauxSite = (await import("node:http")).createServer((req, res) => {
+    statsAppels.push({ url: req.url, cle: req.headers["x-studio-key"] });
+    if (req.headers["x-studio-key"] !== "cle-site") { res.writeHead(401); return res.end("{}"); }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ genere: new Date().toISOString(), depuis: L[0], semaines: L, annonces: annoncesSite }));
+  });
+  await new Promise((r) => fauxSite.listen(18801, r));
+  const envB = { db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
+    RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18802", MAIL_FROM: "Studio Brochure <connexion@studiobrochure.fr>",
+    SITE_STATS_BASE: "http://localhost:18801", SITE_STATS_KEY: "cle-site", BILANS_BASE: "https://exemple.test/bilans/" };
+  const appB = createApp(envB);
+  const callB = async (path, opts = {}) => {
+    const res = await appB.fetch(new Request("http://api.test" + path, { method: opts.method || (opts.body ? "POST" : "GET"), headers: { "Content-Type": "application/json", ...(opts.headers || {}) }, body: opts.body ? JSON.stringify(opts.body) : undefined }));
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+  const cr = await call("/admin/agencies", { headers: admin, body: { name: "Agence Bilan Test", email: "bilan-admin@bilan-test.fr", user_name: "Admin Bilan" } });
+  const agB = cr.json.agency.id;
+  const authB = { Authorization: "Bearer " + (await call("/auth/exchange", { body: { token: cr.json.welcome_link.split("#token=")[1] } })).json.session };
+  await call("/admin/users", { headers: admin, body: { agency_id: agB, email: "lucie@bilan-test.fr", name: "Lucie" } });
+  await db.run("DELETE FROM login_tokens", []);
+  const tL = (await call("/auth/request-link", { body: { email: "lucie@bilan-test.fr" } })).json.dev_token;
+  const authLucie = { Authorization: "Bearer " + (await call("/auth/exchange", { body: { token: tL } })).json.session };
+  await callB("/crm/reglages", { method: "PUT", headers: authB, body: { agence: { nom: "Agence Bilan", email: "agence@bilan-test.fr" }, bilans: { enabled: true, cci: "" } } });
+  await callB("/crm/conseillers", { method: "PUT", headers: authB, body: { prenom: "Lucie", nom: "Giusti Marcilhac", email: "lucie@bilan-test.fr", telephone: "06 00 00 00 01" } });
+
+  const ilYa = (j) => new Date(Date.now() - j * 86400000).toISOString().slice(0, 10);
+  const serie = (d) => String(Math.round((Date.parse(d + "T00:00:00Z") - Date.UTC(1899, 11, 30)) / 86400000));
+  const mandatsExport = [
+    { ref: "100", mandat: "2091", vendeur: "FAURET Angele, Patrice", email: "fauret@exemple.fr", conseiller: "GIUSTI MARCILHAC Lucie", ville: "SAINT MEDARD EN JALLES", adresse: "21 ALLEE DES GRAVETTES", debut: serie(ilYa(400)), prix: 380000, prixInitial: 420000 },
+    { ref: "200", mandat: "2092", vendeur: "MARTIN Paul", email: "martin@exemple.fr", conseiller: "GIUSTI MARCILHAC Lucie", ville: "SAINT MEDARD EN JALLES", adresse: "2 AVENUE JEAN JAURES", debut: serie(ilYa(30)), prix: 300000, prixInitial: 300000 },
+    { ref: "300", mandat: "2093", vendeur: "DELEGATION OKA IMMOBILIER", email: "", conseiller: "BESSON Teddy", ville: "LE HAILLAN", adresse: "1 rue X", debut: serie(ilYa(10)), prix: 150000, prixInitial: 150000 },
+    { ref: "400", mandat: "2094", vendeur: "DURAND Luc", email: "durand@exemple.fr", conseiller: "BESSON Teddy", ville: "LE HAILLAN", adresse: "2 rue Y", debut: serie(ilYa(10)), prix: 150000, prixInitial: 150000 },
+    { ref: "500", mandat: "2095", vendeur: "BARRAUD", email: "", conseiller: "BESSON Teddy", ville: "LE HAILLAN", adresse: "3 rue Z", debut: serie(ilYa(20)), prix: 200000, prixInitial: 200000 },
+  ];
+  ok((await callB("/crm/bilans/mandats", { headers: authLucie, body: { mandats: mandatsExport } })).status === 403, "l'import de l'export est réservé aux admins");
+  const imp = await callB("/crm/bilans/mandats", { headers: authB, body: { mandats: mandatsExport } });
+  ok(imp.status === 200 && imp.json.importes === 5 && imp.json.sansEmail === 1 && imp.json.delegations === 1, "export importé : 5 mandats, 1 vendeur sans e-mail (la délégation n'est pas comptée), 1 délégation");
+
+  // Le marché : 4 maisons ~100 m² à Saint-Médard chez les confrères (≈ 3 000 €/m²), une de NOS annonces dans l'ALFA (exclue).
+  const t0 = Math.floor(Date.parse("2026-09-22T10:00:00Z") / 1000);
+  const amepiLignes = [
+    ["a1", 300000, 100, "Agence Alpha", "en_vente"], ["a2", 290000, 95, "Agence Beta", "en_vente"], ["a3", 315000, 105, "Agence Gamma", "en_vente"],
+    ["a4", 285000, 98, "Agence Delta", "en_vente"], ["a5", 500000, 100, "CENTURY 21 Kadima", "en_vente"], ["a6", 310000, 100, "Agence Epsilon", "retiree"],
+  ];
+  for (const [id, prix, surface, agence, statut] of amepiLignes) {
+    await db.run("INSERT INTO crm_amepi (agency_id, id, type, prix, ville, surface, agence, statut, first_seen, last_seen) VALUES (?, ?, 'maison', ?, 'Saint-Médard-en-Jalles', ?, ?, ?, ?, ?)", [agB, id, prix, surface, agence, statut, t0 - 30 * 86400, t0]);
+  }
+  await db.run("INSERT INTO crm_annonces_events (agency_id, kind, annonce_id, ville, ancien_prix, prix, created_at) VALUES (?, 'baisse', 'amepi:a2', 'Saint-Médard-en-Jalles', 305000, 290000, ?)", [agB, t0]);
+  await db.run("INSERT INTO crm_annonces_events (agency_id, kind, annonce_id, ville, prix, created_at) VALUES (?, 'retrait', 'amepi:a6', 'Saint-Médard-en-Jalles', 310000, ?)", [agB, t0 + 3600]);
+  await db.run("INSERT INTO crm_annonces_events (agency_id, kind, annonce_id, ville, ancien_prix, prix, created_at) VALUES (?, 'baisse', 'amepi:a1', 'Saint-Médard-en-Jalles', 320000, 300000, ?)", [agB, t0 - 20 * 86400]);
+
+  const gen = await callB("/crm/bilans/generer", { headers: authB, body: { semaine: "2026-09-21" } });
+  ok(gen.status === 200 && gen.json.crees === 3 && gen.json.semaine === "2026-09-21", "3 brouillons préparés (" + JSON.stringify(gen.json) + ")");
+  ok(JSON.stringify(gen.json.nonPublies) === '["400"]' && JSON.stringify(gen.json.exclus) === '["300"]' && JSON.stringify(gen.json.sansEmail) === '["500"]',
+    "mandat absent du site sans bilan, délégation exclue, vendeur sans e-mail signalé");
+  ok(statsAppels.at(-1).cle === "cle-site" && /semaines=12/.test(statsAppels.at(-1).url), "le site est interrogé avec la clé partagée, 12 semaines");
+
+  const liste = await callB("/crm/bilans?semaine=2026-09-21", { headers: authLucie });
+  ok(liste.status === 200 && liste.json.bilans.length === 3 && liste.json.statsBranchees === true && liste.json.admin === false, "la liste est ouverte aux conseillers (sans les droits d'import)");
+  const bA = liste.json.bilans.find((b) => b.ref === "100"), bB = liste.json.bilans.find((b) => b.ref === "200"), bE = liste.json.bilans.find((b) => b.ref === "500");
+  ok(bA.conseillerNom === "Lucie GIUSTI MARCILHAC" && bA.site.vues === 32 && bA.site.vuesPrec === 30, "audience de la semaine et de la précédente");
+  ok(bA.comparables === 4 && Math.abs(bA.ecart - (3800 / 3000 - 1)) < 0.02, "4 comparables (notre annonce ALFA exclue, retirée exclue), prix +27 % au m² (" + bA.ecart + ")");
+  ok(bA.alertes.some((a) => a.code === "prix-haut") && bA.alertes.some((a) => a.code === "ancien") && bA.alertes.some((a) => a.code === "concurrence-baisse"), "alertes : prix haut, mandat ancien, un concurrent a baissé");
+  ok(bA.recommandation && bA.recommandation.type === "prix" && bA.recommandation.prixCible === 300000, "au-delà de 6 mois : repositionnement proposé à 300 000 € (médiane 3 000 €/m² × 100 m²) (" + JSON.stringify(bA.recommandation) + ")");
+  ok(!bB.recommandation && !bB.alertes.some((a) => a.code === "prix-haut") && bB.site.visites === 2, "mandat récent au prix du marché : pas de recommandation, 2 demandes de visite");
+  ok(bE.alertes.some((a) => a.code === "peu-de-comparables") && bE.ecart === null, "sans comparables : pas de position de prix inventée");
+
+  const detA = (await callB("/crm/bilans/" + bA.id, { headers: authLucie })).json;
+  ok(/300 000 €/.test(detA.texte) && /Sur notre site internet/.test(detA.texte) && /32 consultations de votre annonce cette semaine \(contre 30/.test(detA.texte), "le texte reprend les chiffres et la recommandation");
+  ok(/1 a baissé son prix/.test(detA.texte) && /1 est sorti du marché/.test(detA.texte), "les mouvements du marché de la semaine");
+  ok(!/kadima/i.test(detA.texte) && !/fort|alerte/i.test(detA.texte), "les alertes internes ne sont pas dans le texte au vendeur");
+  ok(/Consultations de votre annonce, semaine par semaine/.test(detA.html) && /Lucie/.test(detA.html) && /06 00 00 00 01/.test(detA.html), "rendu : histogramme des vues + signature du profil conseiller");
+
+  // Relecture : le texte modifié est gardé, la régénération n'y touche plus.
+  ok((await callB("/crm/bilans/" + bA.id, { method: "PUT", headers: authLucie, body: { texte: "Bonjour,\n\nTexte relu par Lucie." } })).status === 200, "texte relu enregistré");
+  const gen2 = (await callB("/crm/bilans/generer", { headers: authB, body: { semaine: "2026-09-21" } })).json;
+  ok(gen2.crees === 0 && gen2.misAJour === 2 && gen2.gardes === 1, "régénération : le brouillon relu est gardé, les autres rafraîchis");
+  ok((await callB("/crm/bilans/" + bA.id, { headers: authLucie })).json.texte.includes("Texte relu par Lucie"), "…et le texte relu est intact");
+
+  // Envoi.
+  mailsB.length = 0;
+  const envA = await callB("/crm/bilans/" + bA.id + "/envoyer", { headers: authLucie, body: {} });
+  ok(envA.status === 200 && mailsB.length === 1 && mailsB[0].to[0] === "fauret@exemple.fr" && /^Lucie Giusti Marcilhac </.test(mailsB[0].from) && mailsB[0].reply_to[0] === "lucie@bilan-test.fr",
+    "envoyé au vendeur, au nom de Lucie, réponse vers sa boîte");
+  ok((await callB("/crm/bilans/" + bA.id + "/envoyer", { headers: authLucie, body: {} })).status === 409, "pas de double envoi");
+  ok((await callB("/crm/bilans/" + bA.id, { method: "PUT", headers: authLucie, body: { texte: "x" } })).status === 409, "un bilan envoyé n'est plus modifiable");
+  ok((await db.get("SELECT COUNT(*) AS n FROM crm_envois WHERE agency_id = ? AND type = 'bilan-vendeur' AND statut = 'ok'", [agB])).n === 1, "envoi journalisé (bilan-vendeur)");
+  ok((await callB("/crm/bilans/" + bE.id + "/envoyer", { headers: authLucie, body: {} })).status === 400, "vendeur sans e-mail : envoi refusé…");
+  ok((await callB("/crm/bilans/" + bE.id + "/envoyer", { headers: authLucie, body: { email: "barraud@exemple.fr" } })).status === 200 && mailsB.at(-1).to[0] === "barraud@exemple.fr", "…jusqu'à ce que le conseiller saisisse l'adresse");
+  ok((await callB("/crm/bilans/" + bB.id + "/ignorer", { headers: authLucie, body: {} })).status === 200 && (await callB("/crm/bilans?semaine=2026-09-21", { headers: authLucie })).json.bilans.find((b) => b.ref === "200").statut === "ignore", "un bilan peut être écarté pour la semaine");
+
+  // Le cron du lundi : brouillons de la semaine écoulée + conseillers prévenus.
+  mailsB.length = 0;
+  const runs = await B.runBilans(envB, db, { aujourdhui: "2026-09-28" });
+  const rB = runs.find((r) => r.agency === agB);
+  ok(rB && rB.semaine === "2026-09-21" && rB.gardes === 3 && rB.crees === 0, "cron du lundi : semaine écoulée, rien d'envoyé ou d'écarté n'est écrasé");
+  const runs2 = await B.runBilans(envB, db, { aujourdhui: "2026-10-05" });
+  const rB2 = runs2.find((r) => r.agency === agB);
+  ok(rB2.crees === 3 && mailsB.some((m) => m.to[0] === "lucie@bilan-test.fr" && /^2 bilans vendeurs à relire$/.test(m.subject)) && mailsB.some((m) => m.to[0] === "agence@bilan-test.fr"),
+    "semaine suivante : nouveaux brouillons, Lucie et la boîte de l'agence sont prévenues");
+  ok(mailsB.filter((m) => !["lucie@bilan-test.fr", "agence@bilan-test.fr"].includes(m.to[0])).length === 0, "le cron n'écrit JAMAIS à un vendeur");
+  ok(mailsB.some((m) => m.to[0] === "lucie@bilan-test.fr" && m.html.includes("https://exemple.test/bilans/")), "le mail au conseiller mène à Studio Bilans");
+
+  // Site mal branché : message explicite.
+  const appKo = createApp({ ...envB, SITE_STATS_KEY: "mauvaise" });
+  const ko = await appKo.fetch(new Request("http://api.test/crm/bilans/generer", { method: "POST", headers: { "Content-Type": "application/json", ...authB }, body: "{}" }));
+  ok(ko.status === 502 && /Clé refusée/.test((await ko.json()).error), "clé refusée par le site : erreur explicite");
+  fauxSite.close(); fauxResendB.close();
+}
+
+
+/* ================= Statistiques des portails (agent de l'agence) ================= */
+{
+  console.log("— Portails : extraction des statistiques, dépôt de l'agent, bilans");
+  const P = await import("./src/portails.js");
+  // Forme « Bien'ici » : total + parts + série datée sous l'annonce.
+  const bi = P.extraireStats({ ads: [
+    { id: "x1", reference: "8282", price: 380000, surfaceArea: 100, statistics: { views: 240, phoneContacts: 1, emailContacts: 2, bookmarks: 6,
+      daily: [{ date: "2026-09-21", views: 30, emailContacts: 1 }, { date: "2026-09-22", views: 12, phoneContacts: 1 }] } },
+    { id: "x2", reference: "9999", statistics: { views: 50 } },
+  ] }, ["8282", "7510"]);
+  const s8 = bi.get("8282");
+  ok(bi.size === 1 && s8.vues === 240 && s8.contacts === 3 && s8.favoris === 6, "Bien'ici : 240 vues, 3 contacts (appel + e-mails), 6 favoris ; annonce inconnue ignorée");
+  ok(s8.parJour["2026-09-21"].vues === 30 && s8.parJour["2026-09-22"].contacts === 1, "la série datée est gardée jour par jour, sans gonfler le total");
+  // Forme « Leboncoin » : référence préfixée, compteurs à part, prix et surface ignorés.
+  const lbc = P.extraireStats({ data: { ads: [{ list_id: 2811, subject: "Maison 5 pièces", ad_reference: "KAD-7510", price: [290000], counters: { views: 310, favorites: 4, contact_mail: 2, contact_phone: 1 } }] } }, ["8282", "7510"]);
+  ok(lbc.get("7510") && lbc.get("7510").vues === 310 && lbc.get("7510").contacts === 3 && lbc.get("7510").favoris === 4, "Leboncoin : référence « KAD-7510 » reconnue, 310 vues, 3 contacts, 4 favoris");
+  // Forme « tableau de stats à côté de la liste » : le total explicite l'emporte sur les parts.
+  const sl = P.extraireStats({ listings: [{ customerReference: "8282", stats: { totalContacts: 9, contactsEmail: 4, detailViews: 800, listImpressions: 12000 } }] }, ["8282"]);
+  ok(sl.get("8282").contacts === 9 && sl.get("8282").vues === 800 && sl.get("8282").impressions === 12000, "SeLoger : total de contacts explicite, vues de fiche distinctes des apparitions en liste");
+  ok(P.extraireStats({ prix: 8282, surface: 100, views: 3 }, ["8282"]).size === 0, "un nombre égal à une référence (prix…) n'est pas pris pour une référence");
+
+  const cons = P.sanitizeConsignes({ portails: { bienici: { pages: [{ url: "https://pro.bienici.com/stats" }, { url: "https://evil.example.com/x" }, { url: "http://pro.bienici.com/a" }, { url: "https://pro.bienici.com.evil.fr/x" }] } } });
+  ok(cons.portails.bienici.pages.length === 1 && cons.portails.bienici.pages[0].url === "https://pro.bienici.com/stats", "consignes : seules les pages https des domaines du portail sont gardées");
+
+  const cr = await call("/admin/agencies", { headers: admin, body: { name: "Agence Portails Test", email: "portails@portails-test.fr", user_name: "Admin Portails" } });
+  const agP = cr.json.agency.id;
+  const authP = { Authorization: "Bearer " + (await call("/auth/exchange", { body: { token: cr.json.welcome_link.split("#token=")[1] } })).json.session };
+  await call("/crm/bilans/mandats", { headers: authP, body: { mandats: [{ ref: "8282", email: "v@exemple.fr", conseiller: "DUPONT Jean", prix: 380000 }, { ref: "7510", email: "w@exemple.fr", conseiller: "DUPONT Jean", prix: 290000 }] } });
+  ok((await call("/crm/portails/consignes", { headers: { "X-Agent-Key": "ak_faux" } })).status === 401, "agent sans clé valide : refusé");
+  const cle = (await call("/crm/portails/cle", { headers: authP, body: {} })).json.cle;
+  const hA = { "X-Agent-Key": cle };
+  const amepiCle = await db.get("SELECT COUNT(*) AS n FROM crm_agent_keys WHERE agency_id = ? AND usage = 'amepi'", [agP]);
+  ok(/^ak_/.test(cle) && amepiCle.n === 0, "clé de l'agent des portails créée (distincte de la clé AMEPI)");
+  await call("/crm/portails/consignes", { method: "PUT", headers: authP, body: { portails: { bienici: { mode: "cumul", pages: [{ url: "https://pro.bienici.com/stats" }] }, leboncoin: { actif: false } } } });
+  const consA = (await call("/crm/portails/consignes", { headers: hA })).json;
+  ok(consA.portails.bienici.pages.length === 1 && !consA.portails.leboncoin, "l'agent reçoit ses pages ; un portail désactivé n'est pas relevé");
+
+  // Deux relevés « compteur » : semaine précédente puis cette semaine → l'écart = la semaine.
+  const lundi = "2026-09-21";
+  const depot = (vues, contacts) => call("/crm/portails/depot", { headers: hA, body: { portail: "bienici", mode: "releve", url: "https://pro.bienici.com/stats",
+    reponses: [{ url: "https://pro.bienici.com/api/stats", json: { ads: [{ reference: "8282", statistics: { views: vues, contacts } }] } }] } });
+  const d1 = await depot(200, 3);
+  ok(d1.status === 200 && d1.json.annonces === 1, "dépôt de l'agent : 1 annonce reconnue");
+  await db.run("UPDATE crm_portail_stats SET jour = ? WHERE agency_id = ? AND nature = 'releve'", ["2026-09-19", agP]);
+  await depot(260, 5);
+  await db.run("UPDATE crm_portail_stats SET jour = ? WHERE agency_id = ? AND nature = 'releve' AND jour <> '2026-09-19'", ["2026-09-27", agP]);
+  const sem = await P.statsPortailsSemaine(db, agP, lundi);
+  ok(sem["8282"] && sem["8282"].bienici.vues === 60 && sem["8282"].bienici.contacts === 2 && sem["8282"].bienici.base === "semaine", "compteurs cumulés : la semaine = l'écart entre deux relevés (60 vues, 2 contacts)");
+  // Série datée (Leboncoin) : la somme des jours de la semaine.
+  await call("/crm/portails/consignes", { method: "PUT", headers: authP, body: { portails: { bienici: { mode: "cumul", pages: [{ url: "https://pro.bienici.com/stats" }] }, leboncoin: { pages: [{ url: "https://www.leboncoin.fr/pro/stats" }] } } } });
+  const auj = new Date().toISOString().slice(0, 10), hier = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  await call("/crm/portails/depot", { headers: hA, body: { portail: "leboncoin", url: "https://www.leboncoin.fr/pro/stats", reponses: [{ url: "https://api.leboncoin.fr/stats",
+    json: { ad_reference: "7510", history: [{ day: hier, views: 40, contact_mail: 1 }, { day: auj, views: 25 }] } }] } });
+  const semL = await P.statsPortailsSemaine(db, agP, (await import("./src/bilans.js")).lundiDe(auj));
+  const attendu = (await import("./src/bilans.js")).lundiDe(hier) === (await import("./src/bilans.js")).lundiDe(auj) ? 65 : 25;
+  ok(semL["7510"] && semL["7510"].leboncoin.vues === attendu && semL["7510"].leboncoin.base === "semaine", "série jour par jour : somme des jours de la semaine (" + JSON.stringify(semL["7510"]) + ")");
+
+  const exp = await call("/crm/portails/depot", { headers: hA, body: { portail: "leboncoin", url: "https://www.leboncoin.fr/pro/stats", session: "expiree" } });
+  const etat = (await call("/crm/portails", { headers: authP })).json;
+  ok(exp.status === 200 && etat.etat.find((e) => e.portail === "leboncoin").statut === "session" && etat.captures.length >= 3 && etat.agent, "session expirée remontée, captures listées, agent visible");
+  const cap = (await call("/crm/portails/captures/" + etat.captures[0].id, { headers: authP })).json;
+  ok(Array.isArray(cap.contenu) && cap.contenu[0].url, "une capture se relit (pour régler l'extraction)");
+  ok((await call("/crm/portails/depot", { headers: hA, body: { portail: "facebook", reponses: [] } })).status === 400, "portail inconnu refusé");
+  await call("/crm/portails/cle", { method: "DELETE", headers: authP });
+  ok((await call("/crm/portails/consignes", { headers: hA })).status === 401, "clé révoquée : l'agent est bloqué");
+
+  // Le bilan intègre les portails.
+  const B = await import("./src/bilans.js");
+  const d = B.calculerBilan({ mandat: { ref: "8282", debut: "2026-09-01", prix: 380000 }, annonce: { ref: "8282", type: "Maison", ville: "X", prix: 380000, surface: 100, semaines: { [lundi]: { vues: 20, visites: 0, brochures: 0 } } },
+    pairs: [], amepi: [], events: [], semaine: lundi, lundis: [lundi], aujourdhui: "2026-09-28",
+    portails: { bienici: { vues: 60, contacts: 2, favoris: 1, base: "semaine" }, seloger: { vues: 300, contacts: 0, favoris: null, base: "semaine" } } });
+  const txt = B.texteBilan(d, { conseiller: "Jean DUPONT" });
+  ok(/Sur les portails immobiliers/.test(txt) && /SeLoger : 300 consultations, 0 contact cette semaine/.test(txt) && /Bien'ici : 60 consultations, 2 contacts, 1 mise en favori cette semaine/.test(txt), "texte : une ligne par portail");
+  ok(/Au total : 380 consultations de votre annonce cette semaine, site compris/.test(txt), "texte : total portails + site");
+  ok(d.alertes.some((a) => a.code === "portails-sans-contact") === false && d.totalPortails.contacts === 2, "des contacts portails : pas d'alerte « sans contact »");
+}
+
+
+/* ===================== Réseaux sociaux (Facebook, Instagram) ===================== */
+{
+  console.log("— Réseaux : connexion Meta, relevé, rattachement des publications, bilans");
+  const M = await import("./src/meta.js");
+  const mandatsT = [{ ref: "8282", ville: "SAINT MEDARD EN JALLES", prix: 380000 }, { ref: "7510", ville: "LE HAILLAN", prix: 290000 }];
+  const urls = new Map([["/annonces/maison-le-haillan-27180/", "7510"]]);
+  ok(M.rattacher({ texte: "🏡 Nouveauté ! Maison 5 pièces — Réf. 8282 — 380 000 €" }, mandatsT, urls).rattachement === "auto", "« Réf. 8282 » dans le texte : rattachement automatique");
+  ok(M.rattacher({ texte: "Coup de cœur au Haillan", lien: "https://century21-kadima.fr/annonces/maison-le-haillan-27180" }, mandatsT, urls).ref === "7510", "lien vers l'annonce du site : rattachement automatique");
+  const sug = M.rattacher({ texte: "Belle maison à Saint-Médard-en-Jalles, 380.000€, jardin" }, mandatsT, urls);
+  ok(sug.rattachement === "suggestion" && sug.ref === "8282", "ville + prix : seulement une SUGGESTION");
+  ok(M.rattacher({ texte: "Maison au Haillan, 290 000 €" }, mandatsT, urls).ref === "7510" && M.rattacher({ texte: "Dernière chance à Saint-Médard ! 380 000 €" }, mandatsT, urls).ref === "8282", "commune sans article ni « en Jalles » reconnue");
+  ok(M.rattacher({ texte: "Maison au Haillan, 450 000 €" }, mandatsT, urls).rattachement === "aucun", "bonne commune, mauvais prix : rien");
+  ok(M.rattacher({ texte: "Bonne fête des mères à toutes !" }, mandatsT, urls).rattachement === "aucun" && M.rattacher({ texte: "Terrain de 8282 m²" }, mandatsT, urls).rattachement === "aucun", "rien de sûr : aucun rattachement (un nombre seul n'est pas une réf.)");
+  ok(JSON.stringify(M.prixDansTexte("380 000 € ou 1,2 M€, 450K€, 2750 m²")) === "[380000,450000,1200000]" || M.prixDansTexte("380 000 € ou 1,2 M€, 450K€, 2750 m²").sort().join() === [380000, 450000, 1200000].sort().join(), "prix lus dans un texte (m² ignorés)");
+
+  // Faux Graph API Meta.
+  const appelsMeta = [];
+  let jetonMort = false, igSansInsights = true, vuesFb = 500;
+  const fauxMeta = (await import("node:http")).createServer((req, res) => {
+    const u = new URL(req.url, "http://x");
+    appelsMeta.push(u.pathname + "?" + [...u.searchParams.keys()].join(","));
+    const tok = u.searchParams.get("access_token");
+    const rep = (code, j) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(j)); };
+    if (jetonMort) return rep(400, { error: { message: "Error validating access token", code: 190 } });
+    if (u.pathname === "/v23.0/oauth/access_token") return rep(200, { access_token: "EAAlongtokenLONGLONGLONGLONGLONG" });
+    if (u.pathname === "/v23.0/me/accounts") return rep(200, { data: [{ id: "P1", name: "Century 21 Kadima", access_token: "EAApagetokenPAGEPAGEPAGEPAGEPAGE" }] });
+    if (tok !== "EAApagetokenPAGEPAGEPAGEPAGEPAGE") return rep(400, { error: { message: "mauvais jeton : " + tok, code: 190 } });
+    if (u.pathname === "/v23.0/P1") return rep(200, { name: "Century 21 Kadima", instagram_business_account: { id: "IG1", username: "c21kadima" } });
+    if (u.pathname === "/v23.0/P1/posts") {
+      const avecIns = /insights/.test(u.searchParams.get("fields"));
+      return rep(200, { data: [
+        { id: "P1_1", message: "Nouveauté ! Réf. 8282, maison familiale", permalink_url: "https://fb.com/1", created_time: "2026-09-10T10:00:00+0000",
+          reactions: { summary: { total_count: 12 } }, comments: { summary: { total_count: 3 } }, shares: { count: 2 }, ...(avecIns ? { insights: { data: [{ name: "post_media_view", values: [{ value: vuesFb }] }] } } : {}) },
+        { id: "P1_2", message: "Maison au Haillan, 290 000 €, à découvrir", permalink_url: "https://fb.com/2", created_time: "2026-09-22T10:00:00+0000", reactions: { summary: { total_count: 4 } }, comments: { summary: { total_count: 0 } } },
+      ] });
+    }
+    if (u.pathname === "/v23.0/IG1/media") {
+      if (/insights/.test(u.searchParams.get("fields")) && igSansInsights) return rep(400, { error: { message: "(#100) metric views is not supported", code: 100 } });
+      return rep(200, { data: [{ id: "M1", caption: "Réf. 8282 🏡", permalink: "https://instagram.com/p/1", timestamp: new Date(Date.now() - 5 * 86400000).toISOString(), like_count: 30, comments_count: 2 }] });
+    }
+    rep(404, { error: { message: "inconnu " + u.pathname } });
+  });
+  await new Promise((r) => fauxMeta.listen(18807, r));
+  const envM = { db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: true, META_GRAPH_BASE: "http://localhost:18807/v23.0" };
+  const appM = createApp(envM);
+  const callM = async (path, opts = {}) => {
+    const res = await appM.fetch(new Request("http://api.test" + path, { method: opts.method || (opts.body ? "POST" : "GET"), headers: { "Content-Type": "application/json", ...(opts.headers || {}) }, body: opts.body ? JSON.stringify(opts.body) : undefined }));
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+  const cr = await call("/admin/agencies", { headers: admin, body: { name: "Agence Meta Test", email: "meta@meta-test.fr", user_name: "Admin Meta" } });
+  const agM = cr.json.agency.id;
+  const authM = { Authorization: "Bearer " + (await call("/auth/exchange", { body: { token: cr.json.welcome_link.split("#token=")[1] } })).json.session };
+  await callM("/crm/bilans/mandats", { headers: authM, body: { mandats: mandatsT.map((m) => ({ ...m, email: "v@exemple.fr", conseiller: "DUPONT Jean" })) } });
+  ok((await callM("/crm/meta/jeton", { headers: authM, body: { jeton: "pas-un-jeton" } })).status === 400, "jeton mal formé refusé");
+  const con = await callM("/crm/meta/jeton", { headers: authM, body: { jeton: "EAAshorttokenSHORTSHORTSHORTSHORT", appId: "123", appSecret: "secret" } });
+  ok(con.status === 200 && con.json.page.nom === "Century 21 Kadima" && con.json.instagram.nom === "c21kadima", "connexion : jeton court échangé, page et Instagram relié trouvés");
+  const brut = await db.get("SELECT jeton_chiffre FROM crm_meta_compte WHERE agency_id = ?", [agM]);
+  ok(/^v1\./.test(brut.jeton_chiffre) && !brut.jeton_chiffre.includes("EAApage"), "le jeton de page est CHIFFRÉ en base");
+  ok(!JSON.stringify((await callM("/crm/meta", { headers: authM })).json).includes("EAA"), "le jeton n'est jamais renvoyé au navigateur");
+
+  const rel = await callM("/crm/meta/relever", { headers: authM, body: {} });
+  ok(rel.status === 200 && rel.json.publications === 3 && rel.json.auto === 2 && rel.json.suggestions === 1, "relevé : 3 publications, 2 rattachées d'office, 1 suggestion (" + JSON.stringify(rel.json) + ")");
+  ok(appelsMeta.filter((a) => a.startsWith("/v23.0/IG1/media")).length === 2, "Instagram refuse une métrique : relevé repris sans elle (interactions gardées)");
+  const vue = (await callM("/crm/meta", { headers: authM })).json;
+  const fb1 = vue.posts.find((p) => p.id === "fb:P1_1"), fb2 = vue.posts.find((p) => p.id === "fb:P1_2"), ig1 = vue.posts.find((p) => p.id === "ig:M1");
+  ok(fb1.ref === "8282" && fb1.vues === 500 && fb1.interactions === 17 && ig1.ref === "8282" && ig1.interactions === 32, "Facebook : 500 vues, 17 interactions ; Instagram : 32 interactions");
+  ok(fb2.ref === "" && fb2.suggestion === "7510", "la suggestion n'est pas un rattachement");
+  ok((await callM("/crm/meta/posts/fb:P1_2", { method: "PUT", headers: authM, body: { ref: "7510" } })).status === 200, "suggestion validée à la main");
+  ok((await callM("/crm/meta/posts/fb:P1_2", { method: "PUT", headers: authM, body: { ref: "0000" } })).status === 400, "rattacher à un mandat inconnu : refusé");
+
+  // Semaine : relevé du lundi S (500 vues) → relevé du lundi S+7 (740 vues) = 240 vues.
+  const S = "2026-09-21";
+  await db.run("UPDATE crm_meta_stats SET jour = ? WHERE agency_id = ?", [S, agM]);
+  vuesFb = 740; igSansInsights = false;
+  await callM("/crm/meta/relever", { headers: authM, body: {} });
+  await db.run("UPDATE crm_meta_stats SET jour = ? WHERE agency_id = ? AND jour <> ?", ["2026-09-28", agM, S]);
+  ok((await db.get("SELECT ref, rattachement FROM crm_meta_posts WHERE agency_id = ? AND id = 'fb:P1_2'", [agM])).rattachement === "manuel", "un rattachement manuel survit au relevé suivant");
+  const sem = await M.statsReseauxSemaine(db, agM, S);
+  ok(sem.connecte && sem.parRef["8282"].fb.vues === 240 && sem.parRef["8282"].fb.posts === 1 && sem.parRef["8282"].base === "semaine", "semaine = écart entre les deux relevés du lundi (240 vues Facebook)");
+  ok(sem.parRef["7510"] && sem.parRef["7510"].publiesSemaine === 1, "publication de la semaine comptée pour le bien 7510");
+
+  const B = await import("./src/bilans.js");
+  const annonce = { ref: "8282", type: "Maison", ville: "Saint-Médard-en-Jalles", prix: 380000, surface: 100, semaines: { [S]: { vues: 20, visites: 0, brochures: 0 } } };
+  const dR = B.calculerBilan({ mandat: { ref: "8282", debut: "2026-09-01", prix: 380000 }, annonce, pairs: [], amepi: [], events: [], semaine: S, lundis: [S], aujourdhui: "2026-09-28",
+    reseaux: { connecte: true, stats: sem.parRef["8282"] } });
+  const tR = B.texteBilan(dR, { conseiller: "Jean DUPONT" });
+  ok(/Sur nos réseaux sociaux/.test(tR) && /Facebook : 1 publication, 240 vues, \d+ interactions? \(réactions, commentaires, partages\) cette semaine/.test(tR) && /Instagram : 1 publication/.test(tR), "le bilan dit ce que les réseaux ont fait pour le bien");
+  const dVide = B.calculerBilan({ mandat: { ref: "9999", debut: "2026-09-01", prix: 1 }, annonce: { ...annonce, ref: "9999" }, pairs: [], amepi: [], events: [], semaine: S, lundis: [S], aujourdhui: "2026-09-28", reseaux: { connecte: true, stats: null } });
+  ok(dVide.alertes.some((a) => a.code === "reseaux-aucun-post") && !/réseaux sociaux/.test(B.texteBilan(dVide, {})), "bien jamais publié : alerte au conseiller, rien dans le texte au vendeur");
+
+  jetonMort = true;
+  const mort = await callM("/crm/meta/relever", { headers: authM, body: {} });
+  ok(mort.status === 502 && /expiré ou révoqué/.test(mort.json.error) && (await callM("/crm/meta", { headers: authM })).json.compte.statut === "erreur", "jeton expiré : message clair, statut en erreur");
+  fauxMeta.close();
+}
+
 fake.close();
 faux365.close();
 console.log("\n" + passed + " réussis, " + failed + " échec(s)");

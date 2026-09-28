@@ -1,0 +1,9 @@
+{
+  "name": "agent-portails",
+  "private": true,
+  "type": "module",
+  "description": "Releve des statistiques SeLoger / Bien'ici / Leboncoin pour Studio (bilans vendeurs)",
+  "dependencies": {
+    "playwright-core": "^1.55.0"
+  }
+}

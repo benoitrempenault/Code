@@ -26,6 +26,10 @@ import * as PERM from "./permanence.js";
 import * as GRAPH from "./graph.js";
 import { monterRoutesOffres } from "./offres-routes.js";
 import { monterRoutesParcours } from "./parcours.js";
+import { monterRoutesBilans } from "./bilans.js";
+import { monterRoutesPortails } from "./portails.js";
+import { monterRoutesMeta } from "./meta.js";
+import { urlsAnnonces } from "./bilans.js";
 import { reparerReponseFiche } from "./fiche.js";
 
 // 7 jours d'inactivité : sur une tablette partagée ou un poste de l'agence,
@@ -3749,6 +3753,9 @@ export function createApp(env) {
   monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAgencyAdmin, filesReady, DOSSIERS_MAX });
   // Parcours R1/R2 (envoi de documents) + profils conseillers : parcours.js.
   monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, apiBase: env.APP_API_BASE || "" });
+  monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAgencyAdmin, apiBase: env.APP_API_BASE || "" });
+  monterRoutesPortails(app, { db, env, err, crmCtx, agencyOpen });
+  monterRoutesMeta(app, { db, env, err, crmCtx, urlsAnnonces: () => urlsAnnonces(env) });
 
   return app;
 }

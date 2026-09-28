@@ -864,6 +864,87 @@ corps binaires). Limite connue : avec le compte SSO partagé Kadima, tous les
 collaborateurs sont le même `user_id` — l'accès aux pièces « conseiller du dossier » ne
 cloisonne que des comptes distincts.
 
+**`bilans/` — Studio Bilans**, les **bilans vendeurs hebdomadaires** (interne Kadima,
+26/09/2026). Serveur `server/src/bilans.js` (`monterRoutesBilans`, `runBilans`). Le
+portefeuille = l'**export des mandats C21** (xlsx lu dans le navigateur, colonnes reconnues
+par leurs en-têtes « Ref », « Email », « Conseiller », « Prix », « Prix Initial », « Date
+Début Mandat »… ; lignes avec « Date compromis » ignorées) déposé sur `POST
+/crm/bilans/mandats` (admin) qui REMPLACE `crm_bilan_mandats` — l'export EST le
+portefeuille. La colonne `Ref` est la référence de l'annonce du site (68/75 en ligne sur
+l'export réel du 26/09, prix identiques). L'audience vient de **kadima-site** : route
+`GET /api/studio/stats-annonces` (clé `X-Studio-Key` = `STUDIO_STATS_KEY` côté Render,
+`SITE_STATS_KEY` secret Worker, `SITE_STATS_BASE` = https://api.century21-kadima.fr ; 404
+sans la variable) — vues, demandes de visite, brochures PAR SEMAINE (lundi). Le marché
+vient d'AMEPI déjà relevé (`crm_amepi` en_vente même commune/type, surface ±25 % puis ±40 %,
+annonces KADIMA de l'ALFA exclues, ≥ 3 comparables sinon pas de position de prix) et de
+son journal (`crm_annonces_events` amepi: baisses/retraits/nouveautés de la semaine).
+`calculerBilan` → chiffres + **alertes internes** (prix-haut > +8 %, sans-demande,
+faible-audience indice < 50, audience-baisse, concurrence-baisse, ancien > 180 j) +
+**recommandation** (mandat > 180 j, ou prix haut sans demande : repositionnement à la
+médiane €/m² × surface arrondie au millier inférieur si écart > 3 %, sinon « renouveler
+la présentation »). `texteBilan` = texte déterministe (aucune IA, aucun chiffre inventé)
+que le conseiller relit ; les alertes ne partent jamais. Semaine couverte = dernière
+semaine COMPLÈTE. `crm_bilans` (un par mandat × semaine, brouillon|envoye|ignore ;
+`modifie` = relu → la régénération n'y touche plus). Délégations (« DELEGATION … ») et
+mandats absents du site : pas de bilan. Cron : lundi sur « 0 5 * * 1,5 » (budget de
+sous-requêtes séparé du 6h), si `reglages.bilans.enabled` — brouillons + e-mail « N bilans
+à relire » à chaque conseiller (profil `crm_conseillers` retrouvé par le nom de l'export)
+et à la boîte de l'agence ; **le cron n'écrit JAMAIS à un vendeur**. Envoi = geste du
+conseiller (`POST /crm/bilans/:id/envoyer`, membre, confirmation en deux clics), signé de
+son profil, reply-to vers lui, journal `crm_envois` type `bilan-vendeur`. App membre
+(les conseillers non admin y ont accès — l'Administration leur est fermée) ; onglet-lien
+« 📈 Bilans vendeurs » de l'Administration, réglage dans Réglages. Tests : bloc « Bilans
+vendeurs » de test.mjs + smoke `bilans` (faux site sur 18803). Réseaux sociaux : pas faits.
+**Portails (SeLoger, Bien'ici, Leboncoin)** : aucun n'ouvre d'API de statistiques aux agences
+(Leboncoin : 30 jours max dans l'espace pro, pas d'export). D'où `tools/agent-portails/`
+(Node + playwright-core, **Microsoft Edge** piloté `channel: "msedge"` avec un PROFIL DÉDIÉ
+`profil-navigateur` où l'agence se connecte une fois — aucun mot de passe chez nous ;
+Node portable téléchargé par `installer.ps1` si absent ; tâche planifiée ouverture de
+session + 20 h, un relevé/jour ; fenêtre hors écran, jamais headless — anti-robots).
+Trois modes : `CONNECTER.cmd`, `APPRENDRE.cmd` (l'agence navigue jusqu'aux stats, chaque
+page visitée est déposée en mode « apprentissage »), relevé (pages des consignes). L'agent
+ne lit RIEN : il dépose les réponses JSON des domaines du portail sur `POST
+/crm/portails/depot` (clé `X-Agent-Key`, `crm_agent_keys.usage = 'portails'`) et lit ses
+consignes sur `GET /crm/portails/consignes`. `server/src/portails.js` : `extraireStats`
+reconnaît chaque annonce par sa RÉFÉRENCE (celles de `crm_bilan_mandats` ; valeur texte, ou
+chiffres d'un champ « ref/reference/mandat/external… » → « KAD-7510 » ok ; un nombre égal à
+une réf. hors champ ref ne compte pas) et classe les champs par NOM (impressions ≠ vues,
+contacts = appels + e-mails sauf total explicite, favoris) ; une valeur DATÉE va dans la
+série jour par jour, jamais dans le total. Tables `crm_portail_consignes` (pages https des
+domaines du portail uniquement, mode cumul|periode), `crm_portail_captures` (40 gardées
+par portail, 400 Ko, relisibles pour régler l'extraction), `crm_portail_stats` (nature
+jour|releve), `crm_portail_etat` (ok|vide|session — redirection vers une page de
+connexion = « session expirée »). `statsPortailsSemaine` : somme de la série si datée,
+sinon écart entre le dernier relevé de la semaine et le précédent (mode cumul), sinon
+dernière valeur « sur la période du portail ». Le bilan ajoute « Sur les portails
+immobiliers » (une ligne par portail + total site compris) et l'alerte
+`portails-sans-contact` (≥ 150 vues, 0 contact). UI : bouton « 🔌 Portails » de Studio
+Bilans (clé, 📦 `bilans/agent-portails.zip` construit par pages.yml, état, pages apprises →
+« ＋ Relever cette page »). Tests : bloc « Portails » de test.mjs ; l'agent a été éprouvé
+bout à bout contre de faux portails HTTPS (Chromium, `args_navigateur` host-resolver-rules,
+`AGENT_HEADLESS=1`). **Les formes JSON réelles des trois portails ne sont pas encore
+connues** : après le premier APPRENDRE, relire les captures (⬇) et ajuster
+`extraireStats` si des annonces ne sont pas reconnues.
+**Réseaux (Facebook, Instagram)** : `server/src/meta.js`, API OFFICIELLE Meta (Graph,
+`META_GRAPH_BASE` défaut v23.0, surchargeable en test). Connexion admin `POST /crm/meta/jeton`
+{jeton, appId, appSecret} : jeton court échangé (`fb_exchange_token`) → `/me/accounts` →
+jeton de PAGE (n'expire pas), Instagram pro relié lu sur la page ; stocké CHIFFRÉ
+(`chiffrer/dechiffrer` de util.js : AES-GCM, clé dérivée de SESSION_SECRET) dans
+`crm_meta_compte`, jamais renvoyé ; la clé de l'app n'est pas gardée. `releverMeta` :
+publications 90 j (FB `/posts` + `insights.metric(post_media_view)`, IG `/media` +
+`insights.metric(views,reach,saved,shares)` ; une métrique refusée → relevé repris SANS
+insights, interactions gardées — Meta a remplacé impressions par views : IG avril 2025,
+FB juin 2026), cumuls du jour dans `crm_meta_stats`. `rattacher` : AUTO si « Réf. 8282 »
+ou lien de l'annonce du site (`urlsAnnonces` via la route de stats de kadima-site),
+SUGGESTION si commune (sans article, sans « en … ») + prix à 1 % — une suggestion ne
+compte JAMAIS tant qu'elle n'est pas validée (`PUT /crm/meta/posts/:id`, manuel survit
+aux relevés). Le relevé tourne le lundi dans `runBilans` AVANT la préparation ;
+`statsReseauxSemaine` = relevé ≤ lundi S+7 moins relevé ≤ lundi S (sinon base
+« publication »). Bilan : bloc « Sur nos réseaux sociaux » ; alertes internes
+`reseaux-aucun-post` / `reseaux-ancien-post` (> 30 j), jamais dans le texte au vendeur.
+UI : « 📣 Réseaux » de Studio Bilans (procédure de connexion, relevé, rattachement par
+liste). Tests : bloc « Réseaux » de test.mjs (faux Graph 18807) + smoke `bilans` (18808).
+
 **`permanence/` — Studio Permanence**, l'app interne Kadima du **tour de permanence physique
 des points de vente** (Saint-Médard, Caudéran, Blanquefort…), avec sa page publique de prise
 de rendez-vous sous **`rdv/`**. Créneaux 9h-12h / 12h-14h / 14h-17h / 17h-19h du lundi au
