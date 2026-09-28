@@ -3677,6 +3677,27 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      evAm.some((e) => e.kind === "retrait" && e.annonce_id === "amepi:502") && evAm.some((e) => e.kind === "nouvelle" && e.annonce_id === "amepi:503"),
      "le journal du marché porte nouveautés, baisse et retrait AMEPI");
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { enabled: false, relance: false, communes: "" } } });
+  // Remplacement de la base acquéreurs avant ré-import du fichier C21 : projets d'achat effacés, fiches « acquereur » seules à la corbeille, type retiré ailleurs.
+  console.log("— Acquéreurs : remplacement de la base avant ré-import");
+  {
+    await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "REMPLACE", prenom: "Pur", email: "pur.remplace@exemple.fr", types: "acquereur" }, { nom: "REMPLACE", prenom: "Mixte", email: "mixte.remplace@exemple.fr", types: "acquereur, prospect" }] } });
+    await callR("/crm/projets/auto", { headers: auth, body: { rows: [{ nom: "REMPLACE", email: "pur.remplace@exemple.fr", criteres: { budgetMax: 200000, types: ["maison"] } }] } });
+    const avantR = (await db.get("SELECT COUNT(*) AS n FROM crm_projets WHERE agency_id = ? AND kind = 'achat'", [agId])).n;
+    ok((await callR("/crm/acquereurs/remplacer", { headers: authP, body: {} })).status === 403, "le remplacement de la base acquéreurs est réservé aux administrateurs");
+    const rempl = await callR("/crm/acquereurs/remplacer", { headers: auth, body: {} });
+    const apresR = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+    const mixte = apresR.find((x) => x.email === "mixte.remplace@exemple.fr");
+    ok(rempl.status === 200 && avantR >= 2 && rempl.json.projets === avantR && rempl.json.supprimes >= 2 && rempl.json.restants === 0
+       && !apresR.some((x) => x.email === "pur.remplace@exemple.fr") && !apresR.some((x) => x.email === "nora.amepi@exemple.fr")
+       && mixte && !mixte.types.includes("acquereur") && mixte.types.includes("prospect")
+       && (await db.get("SELECT COUNT(*) AS n FROM crm_projets WHERE agency_id = ? AND kind = 'achat'", [agId])).n === 0
+       && (await db.get("SELECT COUNT(*) AS n FROM crm_corbeille WHERE agency_id = ? AND libelle LIKE '%REMPLACE%'", [agId])).n >= 1,
+       "remplacement : projets d'achat effacés, les fiches seulement acquéreur sont à la corbeille, la mixte garde ses autres types (" + JSON.stringify(rempl.json) + ")");
+    // Le fichier ré-importé reconstruit la base : fiche + projet d'achat.
+    await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "REMPLACE", prenom: "Pur", email: "pur.remplace@exemple.fr", types: "acquereur" }] } });
+    const re = await callR("/crm/projets/auto", { headers: auth, body: { rows: [{ nom: "REMPLACE", email: "pur.remplace@exemple.fr", criteres: { budgetMax: 210000, types: ["maison"] } }] } });
+    ok(re.json.crees === 1, "après remplacement, l'import reconstruit fiches et projets d'achat");
+  }
   // L'agent de l'agence dépose le fichier page par page, avec sa clé.
   console.log("— AMEPI : dépôt par l'agent de l'agence (clé dédiée)");
   ok((await callR("/crm/amepi/import", { body: { mandats: [] } })).status === 401, "sans clé d'agent, le dépôt est refusé");

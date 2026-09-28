@@ -766,9 +766,21 @@
       if (importData.preset === "acquereurs") {
         $("etape-mappage").innerHTML =
           '<p class="aide" style="margin-top:14px;">Extraction Century 21 reconnue : <strong>acquéreurs</strong>. ' +
-          "Chaque ligne devient (ou complète) une fiche typée Acquéreur — coordonnées, conseiller, et en note : " +
-          "qualification A/B/C, budget, critères et secteurs. Les refus d'e-mail (opt-in décoché) sont respectés. " +
-          "Re-déposez ce fichier à chaque mise à jour : les fiches fusionnent sans doublon.</p>";
+          "Chaque ligne devient une fiche typée Acquéreur — coordonnées, conseiller, et en note : " +
+          "qualification A/B/C, budget, critères et secteurs — et un projet d'achat. Les refus d'e-mail (opt-in décoché) sont respectés.</p>" +
+          '<label class="case" style="margin-top:8px;"><input type="checkbox" id="preset-remplacer" checked /> Remplacer toute la base acquéreurs : ' +
+          "les projets d'achat sont effacés et les fiches typées seulement Acquéreur partent à la corbeille (30 jours) avant l'import ; " +
+          "les fiches qui ont d'autres typologies perdent juste le type Acquéreur. Décochez pour simplement fusionner.</label>";
+        $("btn-go-import").hidden = false;
+        return;
+      }
+      if (importData.preset === "contacts") {
+        const archives = importData.lignes.filter((l) => String(l[colonneC21("archive")] || "") === "True").length;
+        $("etape-mappage").innerHTML =
+          '<p class="aide" style="margin-top:14px;">Extraction Century 21 reconnue : <strong>contacts</strong> (' + importData.lignes.length + " lignes" + (archives ? ", dont " + archives + " archivée(s) laissée(s) de côté" : "") + "). " +
+          "Chaque ligne devient (ou complète) une fiche : civilité, prénom, nom, e-mail, téléphone, adresse recomposée (n°, type et nom de voie), " +
+          "code postal, ville, date de naissance, typologies lues dans « Profils du contact », notes et dernier contact. " +
+          "Les refus d'e-mail (opt-in décoché) sont respectés. Déposez les tranches l'une après l'autre : les fiches fusionnent par e-mail, sinon par nom + prénom.</p>";
         $("btn-go-import").hidden = false;
         return;
       }
@@ -795,6 +807,7 @@
     const a = entetes.map((h) => h.toLowerCase());
     if (a.includes("vendeur / bailleur") && a.includes("adresse du bien")) return "biens";
     if (a.includes("budget") && a.includes("nom voie") && a.includes("projet")) return "acquereurs";
+    if (a.includes("profils du contact") && a.includes("nom voie") && a.includes("adresse normalisée")) return "contacts";
     return null;
   }
   function colonneC21(nom) {
@@ -821,6 +834,36 @@
       return { nom: v("nom"), email: v("email"), adresse: v("adresse"), ville: v("ville"),
         conseiller: v("conseiller"), types: typologie, notes };
     });
+  }
+  // L'extraction CONTACT de CenturyNet (par tranches de 5 000 lignes) : adresse
+  // recomposée depuis n° / type de voie / nom de voie, typologies lues dans
+  // « Profils du contact » (Prospect 2021, Acquéreur 2025, Estimé 2026, Bailleur
+  // à conquérir, Candidat locataire…), date de naissance (série Excel), notes et
+  // dernier contact ; les archivés sont laissés de côté.
+  const CIVILITES_C21 = { "monsieur": "M.", "madame": "Mme", "mademoiselle": "Mlle", "monsieur et madame": "M. et Mme", "madame et monsieur": "M. et Mme" };
+  function lignesPresetContacts() {
+    const noms = ["civilité", "prénom", "nom", "email", "téléphone", "n°", "type voie", "nom voie", "complément adresse", "code postal", "ville",
+      "date de naissance", "profils du contact", "notes", "commentaire du dernier contact", "opt-in", "archive", "raison sociale"];
+    const i = {}; for (const n of noms) i[n] = colonneC21(n);
+    return importData.lignes.map((l) => {
+      const v = (k) => String(i[k] >= 0 ? (l[i[k]] ?? "") : "").trim();
+      if (v("archive") === "True") return null;
+      // « Estimé retiré de la vente » reste un estimé, pas un vendeur.
+      const profils = v("profils du contact").replace(/retir[ée]e? de la vente/gi, "");
+      const notes = [v("notes"), v("commentaire du dernier contact") ? "Dernier contact : " + v("commentaire du dernier contact") : ""].filter(Boolean).join("  //  ");
+      // Une « adresse » sans trois lettres qui se suivent (« . », « xxx ») n'en est pas une.
+      const adresse = [[v("n°"), v("type voie"), v("nom voie")].filter(Boolean).join(" "), v("complément adresse")].filter(Boolean).join(", ");
+      const o = {
+        civilite: CIVILITES_C21[v("civilité").toLowerCase()] || v("civilité"),
+        prenom: v("prénom"), nom: v("nom") || v("raison sociale"), email: v("email"), telephone: v("téléphone"),
+        adresse: /[a-zà-ÿ]{3}/i.test(adresse) ? adresse : "",
+        cp: v("code postal"), ville: v("ville"),
+        dateNaissance: i["date de naissance"] >= 0 ? l[i["date de naissance"]] : "",
+        types: profils, notes,
+      };
+      if (v("opt-in") === "False") o.opt_out = 1;
+      return o;
+    }).filter(Boolean);
   }
   function lignesPresetAcquereurs() {
     const civilites = { "monsieur": "M.", "madame": "Mme", "mademoiselle": "Mlle", "monsieur et madame": "M. et Mme" };
@@ -890,6 +933,8 @@
       rows = lignesPresetBiens($("preset-typologie").value);
     } else if (importData.preset === "acquereurs") {
       rows = lignesPresetAcquereurs();
+    } else if (importData.preset === "contacts") {
+      rows = lignesPresetContacts();
     } else {
       const map = Array.from(document.querySelectorAll(".map-cible"))
         .map((s) => ({ col: parseInt(s.dataset.col, 10), champ: s.value }))
@@ -910,12 +955,24 @@
       });
     }
     const btn = $("btn-go-import");
+    const remplacer = importData.preset === "acquereurs" && $("preset-remplacer") && $("preset-remplacer").checked;
+    if (remplacer && !confirm("Remplacer toute la base acquéreurs ? Les projets d'achat sont effacés et les fiches typées seulement Acquéreur partent à la corbeille (restaurables 30 jours), puis le fichier est importé.")) return;
     btn.disabled = true;
     // Envoi par lots : garde chaque appel leger pour le serveur, et permet
     // une vraie progression sur les grosses extractions.
     const LOT = 400;
     const total = { created: 0, updated: 0, skipped: 0 };
+    let remplaces = null;
     try {
+      if (remplacer) {
+        remplaces = { supprimes: 0, retypes: 0, projets: 0 };
+        for (let tour = 0; tour < 200; tour++) {
+          const r = await api("/crm/acquereurs/remplacer", { json: {} });
+          remplaces.supprimes += r.supprimes; remplaces.retypes += r.retypes; remplaces.projets += r.projets;
+          btn.textContent = "Base acquéreurs retirée… " + (remplaces.supprimes + remplaces.retypes) + " fiche(s), " + (r.restants || 0) + " restante(s)";
+          if (!r.restants) break;
+        }
+      }
       for (let i = 0; i < rows.length; i += LOT) {
         btn.textContent = "Import… " + Math.min(i + LOT, rows.length) + " / " + rows.length;
         const r = await api("/crm/contacts/bulk", { json: { rows: rows.slice(i, i + LOT), source: "import" } });
@@ -933,7 +990,8 @@
         }
       }
       fermerModale();
-      toast("Import terminé : " + total.created + " créé(s), " + total.updated + " mis à jour, " + total.skipped + " ignoré(s)" +
+      toast((remplaces ? "Base acquéreurs remplacée (" + remplaces.supprimes + " fiche(s) à la corbeille, " + remplaces.retypes + " retypée(s), " + remplaces.projets + " projet(s) effacé(s)) · " : "") +
+        "Import terminé : " + total.created + " créé(s), " + total.updated + " mis à jour, " + total.skipped + " ignoré(s)" +
         (projetsCrees ? " · " + projetsCrees + " projet(s) d'achat créé(s)" : ""));
       await chargerContacts();
       chargerUpcoming();

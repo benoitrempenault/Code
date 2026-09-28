@@ -1173,6 +1173,13 @@ export function createApp(env) {
   // Projets d'achat automatiques depuis l'extraction acquéreurs (admin) :
   // appelé par l'import après les fiches contact. Idempotent — un contact
   // déjà relié à un projet d'achat n'est jamais retouché.
+  // Avant un ré-import du fichier acquéreurs : on repart de zéro (projets
+  // d'achat effacés, fiches « acquereur » à la corbeille, types retirés
+  // ailleurs). 150 fiches par appel, l'Administration boucle.
+  app.post("/crm/acquereurs/remplacer", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json(await CRM.remplacerAcquereurs(db, ctx.agency.id, ctx.user.id, 150));
+  });
   app.post("/crm/projets/auto", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const b = await c.req.json().catch(() => null);

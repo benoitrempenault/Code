@@ -458,6 +458,31 @@ export async function menageQuotidien(db, files = null) {
 // suivis). Avec `corbeille: userId`, chaque fiche part en corbeille avec tout
 // ce qui l'accompagne (restaurable 30 jours) ; sans, c'est définitif
 // (nettoyage de masse, effacement RGPD).
+// Remplacement de la base ACQUÉREURS avant un ré-import du fichier C21 : les
+// projets d'achat sont effacés (le fichier les recrée), les fiches typées
+// seulement « acquereur » partent à la corbeille (30 jours), celles qui ont
+// d'autres typologies perdent juste le type. Par paquets de `max` fiches :
+// l'Administration rappelle tant que `restants` > 0.
+export async function remplacerAcquereurs(db, agencyId, userId, max = 150) {
+  const projets = await db.get("SELECT COUNT(*) AS n FROM crm_projets WHERE agency_id = ? AND kind = 'achat'", [agencyId]);
+  if (projets && projets.n) {
+    await db.run("DELETE FROM crm_projet_contacts WHERE agency_id = ? AND projet_id IN (SELECT id FROM crm_projets WHERE agency_id = ? AND kind = 'achat')", [agencyId, agencyId]);
+    await db.run("DELETE FROM crm_projet_criteres WHERE agency_id = ? AND projet_id IN (SELECT id FROM crm_projets WHERE agency_id = ? AND kind = 'achat')", [agencyId, agencyId]);
+    await db.run("DELETE FROM crm_projets WHERE agency_id = ? AND kind = 'achat'", [agencyId]);
+  }
+  const rows = await db.all("SELECT id, types FROM crm_contacts WHERE agency_id = ? AND types LIKE '%acquereur%' LIMIT ?", [agencyId, Math.max(1, max) + 1]);
+  const lot = rows.slice(0, max);
+  const purs = [], mixtes = [];
+  for (const r of lot) {
+    let types = []; try { types = JSON.parse(r.types || "[]"); } catch { types = []; }
+    const autres = types.filter((t) => t !== "acquereur");
+    if (autres.length) mixtes.push({ id: r.id, types: autres }); else purs.push(r.id);
+  }
+  const supprimes = purs.length ? await supprimerContacts(db, agencyId, purs, { corbeille: userId }) : 0;
+  for (const m of mixtes) await db.run("UPDATE crm_contacts SET types = ?, updated_at = ? WHERE id = ? AND agency_id = ?", [JSON.stringify(m.types), now(), m.id, agencyId]);
+  return { projets: (projets && projets.n) || 0, supprimes, retypes: mixtes.length, restants: rows.length > max ? rows.length - max : 0 };
+}
+
 export async function supprimerContacts(db, agencyId, ids, options = {}) {
   const propres = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))];
   const corbeille = options.corbeille || "";
