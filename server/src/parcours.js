@@ -856,9 +856,29 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         [cle, JSON.stringify(data), now()]);
     }
     const ventes = await ventesAutour(ctx.agency.id, lat, lng, 1000);
-    return c.json({ lat, lng, commune: data.commune, commodites: data.commodites, erreur: data.erreur || "", ventes: ventes.slice(0, 80), categories: CATEGORIES.map(([cle, libelle]) => ({ cle, libelle })) });
+    const estimations = await estimationsAutour(ctx.agency.id, lat, lng, 1000, p.est.id);
+    return c.json({ lat, lng, commune: data.commune, commodites: data.commodites, erreur: data.erreur || "", ventes: ventes.slice(0, 80), estimations, categories: CATEGORIES.map(([cle, libelle]) => ({ cle, libelle })) });
   });
   // Les ventes de l'agence autour d'un point : ventes importées + dossiers
+  // Les biens déjà estimés par l'agence autour du bien (carte du guide R2) :
+  // contacts typés « estime » géocodés (import CenturyNet, Studio Estimation)
+  // et fiches estimation positionnées, sauf celle du parcours. Dédoublonnés
+  // par position, les plus proches d'abord.
+  async function estimationsAutour(agencyId, lat, lng, rayon, exclureId) {
+    const dLat = rayon / 111320, dLng = rayon / (111320 * Math.cos(lat * Math.PI / 180));
+    const boite = (t) => `${t}.lat BETWEEN ${lat - dLat} AND ${lat + dLat} AND ${t}.lng BETWEEN ${lng - dLng} AND ${lng + dLng}`;
+    const vus = new Set(), liste = [];
+    const poser = (x) => { const k = x.lat.toFixed(4) + "," + x.lng.toFixed(4); if (vus.has(k) || x.dist > rayon) return; vus.add(k); liste.push(x); };
+    for (const r of await db.all(
+      `SELECT c.id, c.adresse, c.ville, g.lat, g.lng FROM crm_contacts c JOIN crm_geo g ON g.contact_id = c.id
+       WHERE c.agency_id = ? AND c.types LIKE '%estime%' AND ${boite("g")}`, [agencyId]))
+      poser({ id: "ct:" + r.id, adresse: adresseDossier(r.adresse, r.ville), lat: r.lat, lng: r.lng, dist: distanceM(lat, lng, r.lat, r.lng) });
+    for (const r of await db.all(
+      `SELECT e.id, e.adresse, e.ville, e.lat, e.lng, e.statut FROM crm_estimations e
+       WHERE e.agency_id = ? AND e.id <> ? AND NOT (e.lat = 0 AND e.lng = 0) AND ${boite("e")}`, [agencyId, exclureId || ""]))
+      poser({ id: "es:" + r.id, adresse: adresseDossier(r.adresse, r.ville), statut: r.statut, lat: r.lat, lng: r.lng, dist: distanceM(lat, lng, r.lat, r.lng) });
+    return liste.sort((a, b) => a.dist - b.dist).slice(0, 60);
+  }
   // vendus du Suivi, à `rayon` mètres, les plus proches d'abord.
   async function ventesAutour(agencyId, lat, lng, rayon) {
     const dLat = rayon / 111320, dLng = rayon / (111320 * Math.cos(lat * Math.PI / 180));

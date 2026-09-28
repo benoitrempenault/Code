@@ -2845,16 +2845,21 @@
       if (!n) ecrire(pg, envr.erreur ? "Commodités indisponibles pour le moment." : "Aucune commodité relevée à moins de 1,5 km.", s.tableau.x, s.tableau.y, s.tableau.taille, fI, couleurs.gris); }
     // Page 8 : les ventes de l'agence à 1 km.
     { const s = meta.p8, pg = page(s.page);
-      const pts = (envr.ventes || []).map((v) => ({ lat: v.lat, lng: v.lng, couleur: "#e8b33c", rayon: 10 }));
+      // Les biens estimés (bleu) sous les ventes (or) : une vente prime quand les deux se superposent.
+      const estims = envr.estimations || [];
+      const pts = estims.map((e) => ({ lat: e.lat, lng: e.lng, couleur: "#2f6f9f", rayon: 8 }))
+        .concat((envr.ventes || []).map((v) => ({ lat: v.lat, lng: v.lng, couleur: "#e8b33c", rayon: 10 })));
       const W = s.carte[2] - s.carte[0], H = s.carte[3] - s.carte[1];
       const png = await dessinerCarte({ lat: envr.lat, lng: envr.lng, zoom: 16, largeur: Math.round(W * 2), hauteur: Math.round(H * 2), points: pts, centre: envr });
       await image(pg, png, s.carte, false);
       // La carte de la légende, blanche, posée sur le bas de la carte comme dans la maquette.
-      pg.drawRectangle({ x: s.legende.x - 12, y: pg.getHeight() - (s.legende.y + 58), width: s.legende.largeur + 24, height: 76, color: rgb(1, 1, 1), borderColor: rgb(0.85, 0.82, 0.75), borderWidth: 0.8 });
+      pg.drawRectangle({ x: s.legende.x - 12, y: pg.getHeight() - (s.legende.y + 76), width: s.legende.largeur + 24, height: 94, color: rgb(1, 1, 1), borderColor: rgb(0.85, 0.82, 0.75), borderWidth: 0.8 });
       ecrire(pg, "LÉGENDE", s.legende.x, s.legende.y, 12, fB, couleurs.or);
       pg.drawCircle({ x: s.legende.x + 6, y: pg.getHeight() - (s.legende.y + 21) + 3.5, size: 5, color: rgb(0.91, 0.70, 0.24) });
       ecrire(pg, "Biens vendus par l'agence", s.legende.x + 17, s.legende.y + 21, 10, fR);
-      ecrire(pg, (envr.ventes || []).length + " vente(s) à moins d'un kilomètre", s.legende.x, s.legende.y + 40, 9.5, fI, couleurs.gris); }
+      pg.drawCircle({ x: s.legende.x + 6, y: pg.getHeight() - (s.legende.y + 38) + 3.5, size: 4.2, color: rgb(0.184, 0.435, 0.624) });
+      ecrire(pg, "Biens estimés par l'agence", s.legende.x + 17, s.legende.y + 38, 10, fR);
+      ecrire(pg, (envr.ventes || []).length + " vente(s) et " + estims.length + " bien(s) estimé(s) à moins d'un kilomètre", s.legende.x, s.legende.y + 57, 9, fI, couleurs.gris); }
     // Page 9 : le mois.
     { const s = meta.p9, pg = page(s.page);
       ecrire(pg, (MOIS_FR[aujourdhui.getMonth()] + "  " + aujourdhui.getFullYear()).toUpperCase(), s.mois.x, s.mois.y, s.mois.taille, fR, rgb(0.145, 0.145, 0.149)); }

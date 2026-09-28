@@ -3521,7 +3521,14 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { adresse: "7 Impasse des Vignes", cp: "33185", ville: "Le Haillan" } });
   await db.run("INSERT INTO crm_ventes (id, agency_id, vendeur, adresse, ville, date_acte, prix, type, cle, created_at, updated_at) VALUES ('vt_pres', ?, 'DUPONT', '9 impasse des Vignes', 'Le Haillan', '2025-06-01', 380000, 'maison', 'vt-pres', 1, 1), ('vt_loin', ?, 'MARTIN', '1 rue Lointaine', 'Bordeaux', '2025-01-01', 250000, 'appartement', 'vt-loin', 1, 1)", [agId, agId]);
   await db.run("INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES ('vt_pres', ?, 44.9030, -0.6790, 'x', 1, 'x', 1), ('vt_loin', ?, 44.8400, -0.5800, 'y', 1, 'y', 1)", [agId, agId]);
+  // Un bien déjà estimé par l'agence à côté (contact typé estime, géocodé), un autre trop loin.
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "ESTIMEPRES", prenom: "Paul", adresse: "11 impasse des Vignes", ville: "Le Haillan", types: "estime" }, { nom: "ESTIMELOIN", prenom: "Luc", adresse: "1 rue Loin", ville: "Bordeaux", types: "estime" }] } });
+  const ctsEst = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  const estPres = ctsEst.find((x) => x.nom === "ESTIMEPRES"), estLoin = ctsEst.find((x) => x.nom === "ESTIMELOIN");
+  await db.run("INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES (?, ?, 44.9025, -0.6800, 'x', 1, 'x', 1), (?, ?, 44.8400, -0.5800, 'y', 1, 'y', 1)", [estPres.id, agId, estLoin.id, agId]);
   const envr = await callR("/crm/parcours/" + pxId + "/environnement", { headers: authP });
+  ok(envr.json.estimations.length === 1 && envr.json.estimations[0].id === "ct:" + estPres.id && /11 impasse des Vignes/.test(envr.json.estimations[0].adresse) && envr.json.estimations[0].dist < 1000,
+     "les biens déjà estimés par l'agence à moins d'un kilomètre sont donnés pour la carte du R2, le lointain non (" + JSON.stringify(envr.json.estimations) + ")");
   const cats = new Set((envr.json.commodites || []).map((x) => x.cat));
   ok(envr.status === 200 && Math.abs(envr.json.lat - 44.9012) < 0.001 && envr.json.commune.nom === "Le Haillan" && envr.json.commune.densite === 1285 && envr.json.commune.departement === "Gironde",
      "le bien est géocodé et sa commune lue avec sa densité (" + JSON.stringify(envr.json.commune) + ")");
