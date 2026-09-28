@@ -3194,7 +3194,13 @@
       .map((a) => ({ ...a, dist: distanceDe(a) })).sort((a, b) => rang(a) - rang(b))]
       .map((a) => (photosPosees.has(a.id) ? { ...a, photo: photosPosees.get(a.id) } : a));
     const dejaV = new Set((acm.ventes || []).map((v) => v.id)), dejaC = new Set((acm.concurrence || []).map((v) => v.id));
-    const cocheV = (v, i) => (acm.ventes ? dejaV.has(v.id) : i < 4), cocheC = (v, i) => (acm.concurrence ? dejaC.has(v.id) : i < 4);
+    // Sans sélection enregistrée : les 4 biens dont le prix est le plus proche du prix estimé
+    // (fiche, sinon estimation) sont pré-cochés ; sans prix de référence, les 4 plus proches.
+    const prixRefConc = acm.prix || acm.haute || acm.basse || 0;
+    const prechoixConc = new Set(prixRefConc
+      ? candidatsConc.map((a, i) => ({ a, i })).filter((x) => x.a.prix > 0).sort((x, y) => Math.abs(x.a.prix - prixRefConc) - Math.abs(y.a.prix - prixRefConc) || x.i - y.i).slice(0, 4).map((x) => x.a.id)
+      : candidatsConc.slice(0, 4).map((a) => a.id));
+    const cocheV = (v, i) => (acm.ventes ? dejaV.has(v.id) : i < 4), cocheC = (v) => (acm.concurrence ? dejaC.has(v.id) : prechoixConc.has(v.id));
     const ligneVente = (v, i) => '<label class="case" style="display:flex; gap:8px; align-items:flex-start; padding:4px 0; border-bottom:1px solid var(--line);"><input type="checkbox" data-vente="' + escH(v.id) + '"' + (cocheV(v, i) ? " checked" : "") + ' /> <span><strong>' +
       escH(fmtPrix(v.prix)) + "</strong> · " + escH(fmtDateAcm(v.date)) + " · " + escH(v.adresse || "") + (v.ville ? ", " + escH(v.ville) : "") + '<br /><span class="petit">' +
       escH([v.type, v.pieces ? v.pieces + " pièces" : "", v.surface ? Math.round(v.surface) + " m²" : "", v.terrain ? "terrain " + Math.round(v.terrain) + " m²" : "", fmtM2(v), "à " + v.dist + " m", v.source === "agence" ? "vendu par l'agence" : "DVF"].filter(Boolean).join(" · ")) + "</span></span></label>";
@@ -3235,7 +3241,7 @@
       '<label>Fourchette haute<input id="acm-haute" type="number" step="1000" value="' + escH(acm.haute || "") + '" /></label></div>' +
       '<h3 style="margin:14px 0 4px;">1. Les biens récemment vendus <span class="petit">(' + candidatsVentes.length + ' à moins de 1,5 km — DVF 3 ans et ventes de l\'agence)</span></h3>' +
       '<div id="acm-ventes" class="liste-choix">' + (candidatsVentes.length ? candidatsVentes.map(ligneVente).join("") : '<p class="petit">Aucune vente comparable trouvée' + (dvf.length ? " à moins de 1,5 km sur 24 mois (" + dvf.length + " ventes DVF dans la commune)" : donnees.commune ? " (fichier DVF de la commune " + escH(donnees.commune.code) + " indisponible)" : " (commune introuvable : " + escH((donnees.erreurs || []).join(" ; ") || "geo.api.gouv.fr muet") + ")") + ".</p>") + "</div>" +
-      '<h3 style="margin:14px 0 4px;">2. Les biens en concurrence <span class="petit">(nos annonces, les mandats de l\'ALFA et Bien\'ici — même type, même commune' + (portails.erreur ? " ; Bien'ici indisponible : " + escH(portails.erreur) : "") + ")</span></h3>" +
+      '<h3 style="margin:14px 0 4px;">2. Les biens en concurrence <span class="petit">(nos annonces, les mandats de l\'ALFA et Bien\'ici — même type, même commune, les plus proches d\'abord ; pré-cochés : les 4 prix les plus proches de l\'estimation' + (portails.erreur ? " ; Bien'ici indisponible : " + escH(portails.erreur) : "") + ")</span></h3>" +
       '<div id="acm-conc" class="liste-choix haute">' + (candidatsConc.length ? candidatsConc.map(ligneConc).join("") : '<p class="petit">Aucun bien en vente comparable pour le moment.</p>') + "</div>" +
       '<details style="margin-top:6px;"><summary class="petit" style="cursor:pointer;">+ Ajouter un bien vu sur un portail (adresse retrouvée sur précisément.fr)</summary>' +
       '<div class="grille-champs" style="margin-top:6px;"><label style="grid-column:1/-1;">Adresse<input id="acm-m-adresse" placeholder="9 allée Lamartine, Le Taillan-Médoc" /></label>' +
