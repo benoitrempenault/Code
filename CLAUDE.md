@@ -423,8 +423,8 @@ nomme le serveur (Studio = clé remplacée, Amanda). Plafond 400 pages. L'archiv
 fenêtre de clé régénérait la clé et invalidait config.json). À 13 000 biens :
 `preparerStock()` (formes normalisées + index par ville) et `candidatsPour()`
 dans rapprochements/runRelances, `MATCHES_MAX` 40 par projet (+ `total`),
-GET /crm/amepi renvoie compteurs + 150 en vente + 50 autres statuts, et le cron
-saute `syncAmepi` quand une clé d'agent a servi depuis 3 jours. Réglage
+GET /crm/amepi renvoie compteurs + 150 en vente + 50 autres statuts ; le cron ne
+relève plus rien (agent seul depuis le 28/09). Réglage
 `amepi.departements` (« 33 » par défaut) : `departementsDe()`/`dansDepartements()`
 filtrent au dépôt (stats.horsSecteur), `purgerHorsDepartements()` à la clôture
 d'un relevé et à l'enregistrement des réglages (`PUT /crm/reglages` renvoie
@@ -757,8 +757,11 @@ JS du site (mandate.dist.js) : GET /Account/Login (jeton `__RequestVerificationT
 `mandateResultFilter.page/itemsPerPage`) → `{value, total, searchId}`.
 `mapperMandat()` lit les champs avec variantes (price/oldPrice, publicTown,
 numberOfRooms, livingArea, latitude…, transactionStateId 1 en vente / 2 compromis /
-3 vendu). Secrets Worker : AMEPI_EMAIL, AMEPI_PASSWORD (+ AMEPI_BASE, AMEPI_AGENCY
-optionnels) — jamais en base. Tables `crm_amepi` (PK agency+id, statut
+3 vendu). **Plus aucun identifiant AMEPI sur le Worker (28/09)** : la connexion
+serveur à Amanda (connexionAmepi, syncAmepi, diagnosticAmepi, routes sync /
+diagnostic, cron) est retirée, Amanda refusant tout accès hors du réseau de
+l'agence ; seul l'agent dépose (importerAmepi). Benoît a supprimé les secrets
+Cloudflare le 28/09. Tables `crm_amepi` (PK agency+id, statut
 en_vente|compromis|vendu|retiree|autre, ancien_prix) et `crm_amepi_etat` (curseur
 de pages). `syncAmepi()` : 8 pages de 100 par appel, upsert multi-lignes (une requête
 par page — limite de sous-requêtes), retirées = non revues depuis `debut` quand la
@@ -767,10 +770,9 @@ dernière page est lue, événements nouvelle/baisse/retrait dans crm_annonces_e
 `rapprochements()` ajoute les biens AMEPI (`commeAnnonce()`, source "amepi",
 agence) quand enabled ; `runRelances()` ne les propose aux clients que si
 `relance` (mention « en partenariat avec … » dans le mail). Routes admin :
-GET /crm/amepi, POST /crm/amepi/sync {recommencer}, POST /crm/amepi/diagnostic
-(bruts + lus des 3 premiers biens). Cron : après estimations. UI : carte AMEPI
+GET /crm/amepi (plus de sync ni diagnostic). UI : carte AMEPI
 dans l'onglet Annonces (réglages, 🔌 Tester, 🔄 Relever, liste), puce 🤝 violette
-dans les rapprochements. Tests : faux AMEPI sur 18798 (jeton, cookie, pagination).
+dans les rapprochements. Tests : le stock `amepiStock` est déposé par la route agent (`deposerFichier`, base http://localhost:18798 pour les URL), plus de faux serveur Amanda. Agent : tâche planifiée à l'ouverture de session ET tous les jours à 7h15 (installer.ps1, 28/09).
 **Suivi d'une fiche estimation** : `GET /crm/estimations/:id/envois` (membre) ;
 la modale affiche l'historique + la prochaine action calculée des dates R1/R2.
 Studio Estimation a un bouton 📍 (pompe /crm/geo/serveur, admin) ; la priorité

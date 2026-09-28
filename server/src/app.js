@@ -1367,17 +1367,9 @@ export function createApp(env) {
     // pourquoi un bien est là (ou pas) sans lire la base.
     const parSource = await db.all("SELECT source, COUNT(*) AS n FROM crm_amepi WHERE agency_id = ? GROUP BY source ORDER BY n DESC", [ctx.agency.id]);
     const parDep = await db.all("SELECT substr(cp, 1, 2) AS dep, COUNT(*) AS n FROM crm_amepi WHERE agency_id = ? GROUP BY dep ORDER BY n DESC LIMIT 12", [ctx.agency.id]);
-    return c.json({ configure: AMEPI.amepiConfigure(env), reglages: reglages.amepi, etat: await AMEPI.etatAmepi(db, ctx.agency.id),
+    return c.json({ reglages: reglages.amepi, etat: await AMEPI.etatAmepi(db, ctx.agency.id),
       agent: cle || null, biens: biens.concat(autres), total: compte?.total || 0, enVente: compte?.en_vente || 0,
       parSource, parDep, echantillon: await AMEPI.brutAmepi(db, ctx.agency.id) });
-  });
-  app.post("/crm/amepi/sync", async (c) => {
-    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
-    const b = await c.req.json().catch(() => ({}));
-    const reglages = await CRM.getReglages(db, ctx.agency);
-    try {
-      return c.json({ ok: true, stats: await AMEPI.syncAmepi(env, db, ctx.agency, reglages, { recommencer: !!(b && b.recommencer) }) });
-    } catch (e) { return err(c, 502, e.message); }
   });
   // La clé de l'AGENT (programme qui tourne à l'agence et dépose le fichier
   // AMEPI) : générée une fois, montrée une fois, révocable. Une seule clé
@@ -1448,13 +1440,6 @@ export function createApp(env) {
     }
     await db.run("UPDATE crm_agent_keys SET last_used = ? WHERE key_hash = ?", [now(), k.key_hash]);
     return c.json({ ok: true, gardees, refusees });
-  });
-
-  app.post("/crm/amepi/diagnostic", async (c) => {
-    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
-    const reglages = await CRM.getReglages(db, ctx.agency);
-    try { return c.json(await AMEPI.diagnosticAmepi(env, reglages)); }
-    catch (e) { return err(c, 502, e.message); }
   });
 
   app.get("/crm/annonces", async (c) => {

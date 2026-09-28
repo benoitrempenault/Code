@@ -1,10 +1,10 @@
 /* =========================================================================
-   amepi.js — le fichier des mandats AMEPI (Amanda), relevé par le serveur.
-   Le site AMEPI est une application ASP.NET Core : connexion par formulaire
-   (jeton anti-falsification + cookie de session), puis une recherche en
-   JSON sur /search, paginée. Aucun navigateur ici : deux fetch suffisent.
-   Identifiants : AMEPI_EMAIL / AMEPI_PASSWORD (secrets du Worker), jamais
-   en base ni dans l'interface.
+   amepi.js — le fichier des mandats AMEPI (Amanda), déposé par l'agent.
+   Amanda refuse toute connexion hors du réseau de l'agence : c'est l'agent
+   (tools/agent-amepi, PowerShell sur un poste de l'agence) qui se connecte,
+   lit le fichier page par page et le dépose ici avec sa clé (importerAmepi).
+   Ce module lit les mandats bruts (mapperMandat), tient la table et son
+   journal. Aucun identifiant AMEPI sur le serveur.
    ========================================================================= */
 import { now } from "./util.js";
 import { changesOf } from "./db.js";
@@ -14,128 +14,14 @@ const BASE_DEFAUT = "https://agglomeration-bordelaise.amanda.team";
 export const AMEPI_TYPES = { 1: "appartement", 2: "maison", 3: "parking", 4: "terrain", 5: "autre", 6: "immeuble", 7: "local", 8: "local", 9: "bureau" };
 export const AMEPI_SOURCES = { 1: "Mon agence", 2: "Mon ALFA", 3: "Mes ALFA voisines" };
 export const AMEPI_ETATS = { 1: "en_vente", 2: "compromis", 3: "vendu", 6: "autre" };
-const PAR_PAGE = 100;      // biens par page demandés à AMEPI
-const PAGES_PAR_APPEL = 8; // pages lues par appel (cron ou bouton) : 8 fetch + 8 requêtes D1
 
-// Amanda répond à un navigateur : on s'annonce comme tel (certains pare-feux
-// renvoient une page vide ou une redirection aux clients anonymes).
-const ENTETES_NAVIGATEUR = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36 StudioKadima/1.0",
-  Accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8", "Accept-Language": "fr-FR,fr;q=0.9",
-};
 const sqlText = (v) => "'" + String(v ?? "").replace(/'/g, "''") + "'";
 const sqlNum = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? "NULL" : String(Number(v)));
 
-// --- Session --------------------------------------------------------------
-function cookiesDe(res) {
-  const brut = typeof res.headers.getSetCookie === "function"
-    ? res.headers.getSetCookie()
-    : String(res.headers.get("set-cookie") || "").split(/,(?=\s*[A-Za-z0-9_.-]+=)/);
-  return brut.map((c) => c.split(";")[0].trim()).filter(Boolean);
-}
-function fusionnerCookies(jar, nouveaux) {
-  const m = new Map(jar.map((c) => [c.split("=")[0], c]));
-  for (const c of nouveaux) m.set(c.split("=")[0], c);
-  return [...m.values()];
-}
-function jetonDe(html) {
-  const m = /name="__RequestVerificationToken"[^>]*value="([^"]+)"/.exec(html) ||
-    /value="([^"]+)"[^>]*name="__RequestVerificationToken"/.exec(html);
-  return m ? m[1] : "";
-}
-// L'agence du compte : le formulaire la demande (champ caché SelectedAgency)
-// et la page la trouve elle-même par GET /api/getMainAgency?login=<e-mail>
-// (204 = aucune → 0, comme le fait le script du site).
-async function agencePrincipale(base, email, cookie) {
-  try {
-    const r = await fetch(base + "/api/getMainAgency?login=" + encodeURIComponent(email), { headers: { ...ENTETES_NAVIGATEUR, Accept: "application/json", Cookie: cookie } });
-    if (r.status !== 200) return "0";
-    const j = await r.json().catch(() => null);
-    return j && j.id !== undefined && j.id !== null ? String(j.id) : "0";
-  } catch { return "0"; }
-}
-// Le message d'erreur que le formulaire réaffiche (mot de passe refusé…).
-function erreurFormulaire(html) {
-  const m = /class="[^"]*(validation-summary-errors|field-validation-error|text-danger)[^"]*"[^>]*>([\s\S]*?)<\/(div|span|ul)>/i.exec(html || "");
-  return m ? m[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160) : "";
-}
-
-// Les secrets collés dans le tableau de bord traînent parfois un espace ou
-// un retour à la ligne : on les nettoie avant de les présenter à Amanda.
-const secret = (v) => String(v || "").replace(/[\r\n\t]/g, "").trim();
-export function amepiConfigure(env) { return !!(secret(env.AMEPI_EMAIL) && secret(env.AMEPI_PASSWORD)); }
-
-// Ouvre une session AMEPI : { base, cookie }. Lève une erreur lisible sinon.
-export async function connexionAmepi(env) {
-  let base = String(env.AMEPI_BASE || BASE_DEFAUT).trim().replace(/\/+$/, "");
-  if (!/^https?:\/\//i.test(base)) base = "https://" + base;
-  if (!amepiConfigure(env)) throw new Error("Identifiants AMEPI absents du serveur — posez AMEPI_EMAIL et AMEPI_PASSWORD (secrets du Worker).");
-  // La page de connexion : on suit les redirections (http → https, nom
-  // canonique du site…) et on garde l'origine finale pour la suite.
-  const r1 = await fetch(base + "/Account/Login", { redirect: "follow", headers: ENTETES_NAVIGATEUR });
-  const html = await r1.text();
-  try { base = new URL(r1.url || base).origin; } catch { }
-  let jar = cookiesDe(r1);
-  const jeton = jetonDe(html);
-  if (!r1.ok || !jeton) {
-    const titre = (/<title>([^<]*)<\/title>/i.exec(html) || [])[1] || "";
-    const extrait = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 140);
-    throw new Error(`Page de connexion AMEPI inattendue (statut ${r1.status}, ${r1.url || base}${titre ? ", titre « " + titre.trim() + " »" : ""}${extrait ? ", début : « " + extrait + " »" : ""}) — pas de jeton anti-falsification.`);
-  }
-  const email = secret(env.AMEPI_EMAIL), motDePasse = secret(env.AMEPI_PASSWORD);
-  // Le formulaire du site envoie SelectedAgency = 0 : son script sait chercher
-  // l'agence du compte mais n'est jamais appelé. Envoyer la vraie agence
-  // (12253…) fait échouer la connexion. On fait comme le navigateur — sauf
-  // si AMEPI_AGENCY force une agence, ou AMEPI_AGENCY=auto pour la chercher.
-  const forcee = secret(env.AMEPI_AGENCY);
-  const agence = forcee === "auto" ? await agencePrincipale(base, email, jar.join("; ")) : (forcee || "0");
-  const corps = new URLSearchParams({
-    Email: email, Password: motDePasse, RememberMe: "false",
-    SelectedAgency: agence, __RequestVerificationToken: jeton,
-  });
-  const r2 = await fetch(base + "/Account/Login", {
-    method: "POST", redirect: "manual",
-    headers: { ...ENTETES_NAVIGATEUR, "Content-Type": "application/x-www-form-urlencoded", Cookie: jar.join("; "), Referer: base + "/Account/Login", Origin: base },
-    body: corps.toString(),
-  });
-  jar = fusionnerCookies(jar, cookiesDe(r2));
-  if (r2.status !== 302 && r2.status !== 301) {
-    const detail = erreurFormulaire(await r2.text().catch(() => ""));
-    // Trace neutre de ce que le serveur a en main : l'e-mail, et du mot de
-    // passe seulement la longueur et ses extrémités (jamais le mot de passe).
-    const mp = [...motDePasse];
-    const trace = `e-mail « ${email} », mot de passe de ${mp.length} caractères` +
-      (mp.length ? ` (commence par « ${mp[0]} », finit par « ${mp[mp.length - 1]} »` + (/[^\x20-\x7e]/.test(motDePasse) ? ", contient des caractères accentués ou spéciaux" : "") + ")" : "");
-    throw new Error("Connexion AMEPI refusée (statut " + r2.status + (detail ? " : « " + detail + " »" : "") + ") — agence " + agence + ", " + trace + ".");
-  }
-  return { base, cookie: jar.join("; ") };
-}
-
-// Le formulaire de recherche tel que le site le construit (initMandateForm),
-// vente en cours, sources choisies, communes (codes postaux) si demandées.
-export function formulaireAmepi({ login = "", sources = ["1", "2", "3"], page = 1, parPage = PAR_PAGE, cps = [], searchTypeId = 1 } = {}) {
-  const f = {
-    searchTypeId, assetTypes: [], rooms: [], bedrooms: [], transactionStates: [],
-    sourceTypes: sources.map(String), sector: null, sectorBBAL: false, sectorBBAV: false,
-    filterResults: false, userLogin: login, agenciesList: [],
-    mandateResultFilter: { displayType: 1, isPrivate: false, filterType: 1, selectAll: false, numberOfSelected: 0, page, itemsPerPage: parPage },
-  };
-  if (cps.length) f.location = cps;
-  return f;
-}
-
-export async function rechercherAmepi(session, formulaire) {
-  const r = await fetch(session.base + "/search", {
-    method: "POST", redirect: "manual",
-    headers: { ...ENTETES_NAVIGATEUR, "Content-Type": "application/json;charset=utf-8", Accept: "application/json", Cookie: session.cookie, Referer: session.base + "/mandate/search", "X-Requested-With": "XMLHttpRequest" },
-    body: JSON.stringify(formulaire),
-  });
-  if (r.status === 302 || r.status === 401 || r.status === 403) throw new Error("Session AMEPI refusée sur /search (statut " + r.status + ").");
-  if (!r.ok) throw new Error("Recherche AMEPI en erreur (statut " + r.status + ").");
-  const j = await r.json().catch(() => null);
-  if (!j || !Array.isArray(j.value)) throw new Error("Réponse AMEPI inattendue (pas de liste « value »).");
-  return { value: j.value, total: Number(j.total) || j.value.length, searchId: j.searchId || null };
-}
+// Le serveur ne se connecte plus à Amanda (28/09) : le site refuse toute
+// connexion hors du réseau de l'agence, c'est l'agent (tools/agent-amepi) qui
+// lit le fichier et dépose les pages brutes via importerAmepi. Les identifiants
+// AMEPI ne vivent que dans le config.json de l'agent, jamais sur le Worker.
 
 // --- Lecture tolérante d'un mandat ------------------------------------------
 // Les noms de champs viennent du code du site ; on accepte les variantes
@@ -225,15 +111,6 @@ async function poserEtat(db, agencyId, e) {
     `INSERT INTO crm_amepi_compteurs (agency_id, hors_secteur, updated_at) VALUES (?, ?, ?)
      ON CONFLICT(agency_id) DO UPDATE SET hors_secteur = excluded.hors_secteur, updated_at = excluded.updated_at`,
     [agencyId, e.hors_secteur | 0, now()]);
-}
-
-// Diagnostic (bouton « Tester la connexion ») : connexion + première page,
-// et les premiers biens BRUTS tels qu'AMEPI les renvoie — pour vérifier
-// que la lecture des champs colle à la réalité.
-export async function diagnosticAmepi(env, reglages) {
-  const session = await connexionAmepi(env);
-  const r = await rechercherAmepi(session, formulaireAmepi({ login: env.AMEPI_EMAIL, sources: reglages.amepi.sources, page: 1, parPage: 5, cps: communesDe(reglages) }));
-  return { connexion: "ok", total: r.total, recus: r.value.length, bruts: r.value.slice(0, 3), lus: r.value.slice(0, 3).map((m) => mapperMandat(m, session.base)) };
 }
 
 export function communesDe(reglages) {
@@ -345,44 +222,6 @@ async function journaliser(db, agencyId, evenements, t) {
     }).join(",");
     await db.run(`INSERT INTO crm_annonces_events (agency_id, kind, annonce_id, titre, ville, ancien_prix, prix, created_at) VALUES ${lot}`, []);
   }
-}
-
-// Le relevé DEPUIS LE SERVEUR, par pages : chaque appel lit PAGES_PAR_APPEL
-// pages et avance le curseur ; à la dernière page, clôture du relevé.
-// Tout est set-based : une requête par page, pas une par bien (limite de
-// sous-requêtes du Worker). NB : Amanda refuse les connexions par mot de
-// passe venant d'ailleurs que du réseau de l'agence — en pratique c'est
-// l'AGENT (importerAmepi) qui alimente le fichier ; ce chemin reste pour
-// une agence dont Amanda accepterait le serveur.
-export async function syncAmepi(env, db, agency, reglages, options = {}) {
-  const t = now();
-  const etat = await etatAmepi(db, agency.id);
-  const reprise = etat.page > 0 && !options.recommencer;
-  const debut = reprise ? etat.debut : t;
-  let page = reprise ? etat.page : 1;
-  const stats = { pages: 0, biens: 0, nouveaux: 0, baisses: 0, retirees: 0, total: etat.total || 0, fini: false };
-  const existants = existantsDe(await db.all("SELECT id, prix, statut, ref, agence FROM crm_amepi WHERE agency_id = ?", [agency.id]));
-  const evenements = [];
-  const deps = filtreDe(reglages);
-  try {
-    const session = await connexionAmepi(env);
-    const maxPages = options.maxPages || PAGES_PAR_APPEL;
-    for (let i = 0; i < maxPages; i++) {
-      const r = await rechercherAmepi(session, formulaireAmepi({ login: env.AMEPI_EMAIL, sources: reglages.amepi.sources, page, parPage: PAR_PAGE, cps: communesDe(reglages) }));
-      stats.pages++; stats.total = r.total;
-      const lot = await enregistrerLot(db, agency.id, session.base, r.value, t, existants, evenements, deps);
-      stats.biens += lot.biens; stats.nouveaux += lot.nouveaux; stats.baisses += lot.baisses;
-      page++;
-      if (r.value.length < PAR_PAGE || (page - 1) * PAR_PAGE >= r.total) { stats.fini = true; break; }
-    }
-  } catch (e) {
-    await poserEtat(db, agency.id, { ...etat, debut, page: stats.fini ? 0 : page, total: stats.total, erreur: e.message });
-    throw e;
-  }
-  if (stats.fini) { stats.retirees = await cloreReleve(db, agency.id, debut, etat.fini_le, evenements); await purgerHorsSecteur(db, agency.id, deps); }
-  await journaliser(db, agency.id, evenements, t);
-  await poserEtat(db, agency.id, { debut, page: stats.fini ? 0 : page, total: stats.total, fini_le: stats.fini ? t : (etat.fini_le || 0), erreur: "" });
-  return stats;
 }
 
 // Le relevé DEPUIS L'AGENCE : l'agent (tools/agent-amepi) se connecte à Amanda

@@ -16,7 +16,7 @@
 import * as OFFRES from "./offres.js";
 import { now, randId } from "./util.js";
 import { changesOf } from "./db.js";
-import { syncAmepi, listerAmepi, commeAnnonce, amepiConfigure } from "./amepi.js";
+import { listerAmepi, commeAnnonce } from "./amepi.js";
 
 export const CRM_TYPES = ["acquereur", "vendeur", "estime", "bailleur", "locataire", "prospect"];
 const CONTACTS_MAX = 80000;   // base globale de l'agence (~60 000 fiches visées)
@@ -2734,19 +2734,7 @@ export async function runCrmDaily(env, db) {
         try { r.estimations = await runEstimations(env, db, agency, reglages); }
         catch (e) { r.estimationsError = e.message; }
       }
-      // Le fichier des mandats AMEPI, par pages (le curseur reprend la nuit suivante).
-      // Quand un agent installé à l'agence dépose le fichier (clé utilisée
-      // ces 3 derniers jours), le serveur ne tente pas sa propre connexion.
-      if (reglages.amepi.enabled && amepiConfigure(env)) {
-        const agent = await db.get(
-          "SELECT last_used FROM crm_agent_keys WHERE agency_id = ? AND usage = 'amepi' AND revoked = 0 AND last_used > ?",
-          [agency.id, now() - 3 * 86400]);
-        if (agent) r.amepi = { agent: true };
-        else {
-          try { r.amepi = await syncAmepi(env, db, agency, reglages); }
-          catch (e) { r.amepiError = e.message; }
-        }
-      }
+      // Le fichier des mandats AMEPI est déposé par l'agent de l'agence (importerAmepi), jamais relevé d'ici.
       // Les ventes du Suivi rejoignent la carte toutes seules, un lot par nuit.
       // 12 max : chaque adresse peut coûter 2 appels (BAN + IGN) et le cron
       // partage son plafond de sous-requêtes avec le relevé et les e-mails.

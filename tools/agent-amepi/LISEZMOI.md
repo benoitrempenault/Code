@@ -19,15 +19,17 @@ dans Windows.
 4. Double-cliquez sur `INSTALLER.cmd` (si Windows affiche « Windows a protégé votre
    ordinateur », cliquez « Informations complémentaires » puis « Exécuter quand même »).
    Cela installe la tâche planifiée « Studio Kadima - Agent AMEPI » (lancée à chaque
-   ouverture de session, deux minutes après) et fait un premier relevé tout de suite.
+   ouverture de session, deux minutes après, et tous les jours à 7h15) et fait un
+   premier relevé tout de suite.
    La fenêtre reste ouverte pour lire le résultat. `RELEVER-MAINTENANT.cmd` refait un
    relevé à la demande.
 5. Dans l'Administration, la carte AMEPI affiche le nombre de biens relevés.
 
 ## Au quotidien
 
-Rien à faire : à chaque ouverture de session Windows, le relevé se fait tout seul.
-Le journal est dans `agent-amepi.log` à côté du script. Si Amanda refuse la
+Rien à faire : le relevé se fait tout seul à chaque ouverture de session Windows
+et tous les jours à 7h15 si le poste est allumé (un poste éteint le rattrape à
+l'allumage suivant). Le journal est dans `agent-amepi.log` à côté du script. Si Amanda refuse la
 connexion (mot de passe changé), l'erreur remonte aussi dans l'Administration.
 
 ## Si vous changez de mot de passe Amanda

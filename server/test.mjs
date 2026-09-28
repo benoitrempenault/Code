@@ -1906,42 +1906,6 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     { id: 503, mandateRef: "K-503", agencyName: "Agence Confrère A", sourceTypeId: 2, assetTypeId: 2, price: 410000,
       publicTown: "Saint-Médard-en-Jalles", publicPostalCode: "33160", numberOfRooms: 4, livingArea: 95, latitude: 44.89, longitude: -0.72, transactionStateId: 2, updateDate: "2026-09-12T08:00:00" },
   ];
-  const amepiAppels = [];
-  const fauxAmepi = (await import("node:http")).createServer(async (req, res) => {
-    const chunks = []; for await (const c of req) chunks.push(c);
-    const corps = Buffer.concat(chunks).toString();
-    amepiAppels.push({ m: req.method, u: req.url, cookie: req.headers.cookie || "", corps });
-    if (req.method === "GET" && req.url.startsWith("/Account/Login")) {
-      res.writeHead(200, { "Content-Type": "text/html", "Set-Cookie": "ARRAffinity=aff1; Path=/" });
-      res.end('<form id="frmLogin" method="post"><input name="Email"><input name="Password"><input type="hidden" :value="agency ? agency.id : 0" id="SelectedAgency" name="SelectedAgency" /><input name="__RequestVerificationToken" type="hidden" value="JETON-XYZ"></form>');
-      return;
-    }
-    if (req.method === "GET" && req.url.startsWith("/api/getMainAgency")) {
-      // L'agence principale du compte, comme le script de la page la demande.
-      if (!/login=benoit%40kadima\.test/.test(req.url)) { res.writeHead(204); res.end(); return; }
-      res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ id: "AG-KADIMA", name: "Kadima" })); return;
-    }
-    if (req.method === "POST" && req.url.startsWith("/Account/Login")) {
-      const f = new URLSearchParams(corps);
-      if (f.get("__RequestVerificationToken") !== "JETON-XYZ" || f.get("Email") !== "benoit@kadima.test" || f.get("Password") !== "secret-amepi" || f.get("SelectedAgency") !== "0" || !/ARRAffinity=aff1/.test(req.headers.cookie || "")) {
-        res.writeHead(200, { "Content-Type": "text/html" }); res.end("<form>Identifiants incorrects</form>"); return;
-      }
-      res.writeHead(302, { Location: "/", "Set-Cookie": ".AspNetCore.Identity.Application=SESSION-OK; Path=/; HttpOnly" });
-      res.end(); return;
-    }
-    if (req.method === "POST" && req.url === "/search") {
-      if (!/SESSION-OK/.test(req.headers.cookie || "")) { res.writeHead(302, { Location: "/Account/Login" }); res.end(); return; }
-      const f = JSON.parse(corps);
-      const sources = new Set((f.sourceTypes || []).map(String));
-      const lot = amepiStock.filter((m) => sources.has(String(m.sourceTypeId)) && (!f.location || f.location.includes(m.publicPostalCode)));
-      const page = f.mandateResultFilter.page, n = f.mandateResultFilter.itemsPerPage;
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ value: lot.slice((page - 1) * n, page * n), total: lot.length, searchId: "S1" }));
-      return;
-    }
-    res.writeHead(404); res.end();
-  });
-  await new Promise((r) => fauxAmepi.listen(18798, r));
   // Faux IGN (WFS bâtiments) : un multipolygone 3D autour du 12 rue des Acacias,
   // un polygone simple à côté, et un point sans géométrie.
   const fauxIgn = (await import("node:http")).createServer((req, res) => {
@@ -2032,7 +1996,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18791",
     DVF_BASE: "http://localhost:18792", BIENICI_BASE: "http://localhost:18786", BIENICI_SUGGEST: "http://localhost:18786/suggest.json", BAN_BASE: "http://localhost:18793", BATIMENTS_BASE: "http://localhost:18799",
     MAIL_FROM: "Studio Brochure <connexion@studiobrochure.fr>",
-    AMEPI_BASE: "http://localhost:18798", AMEPI_EMAIL: "benoit@kadima.test", AMEPI_PASSWORD: "secret-amepi",
+
   });
   const callR = async (path, opts = {}) => {
     const req = new Request("http://api.test" + path, {
@@ -3611,21 +3575,15 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   console.log("— AMEPI : connexion, relevé du fichier des mandats, rapprochement");
   // Le réglage par défaut ne garde que « mon ALFA » (2) ; ce bloc teste les trois sources.
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { sources: ["1", "2", "3"] } } });
-  ok((await callR("/crm/amepi/diagnostic", { headers: authP, body: {} })).status === 403, "le connecteur AMEPI est réservé aux administrateurs");
-  const diagAm = await callR("/crm/amepi/diagnostic", { headers: auth, body: {} });
-  ok(diagAm.status === 200 && diagAm.json.connexion === "ok" && diagAm.json.total === 3 && diagAm.json.bruts.length === 3 &&
-     diagAm.json.lus[0].type === "maison" && diagAm.json.lus[0].agence === "Agence Confrère A" && diagAm.json.lus[0].image === "http://localhost:18798/img/501.jpg",
-     "le diagnostic se connecte (jeton + cookie), lit une page et montre les champs bruts et lus");
-  const login = amepiAppels.find((a) => a.m === "POST" && a.u.startsWith("/Account/Login"));
-  ok(login && /SelectedAgency=0(&|$)/.test(login.corps) && /RememberMe=false/.test(login.corps) && /__RequestVerificationToken=JETON-XYZ/.test(login.corps),
-     "la connexion envoie SelectedAgency=0 comme le navigateur, avec le jeton anti-falsification");
-  ok(!amepiAppels.some((a) => a.u.startsWith("/api/getMainAgency")), "…sans chercher l'agence (le site ne le fait pas non plus)");
+  // Le serveur ne se connecte plus à Amanda : c'est l'agent de l'agence qui dépose le fichier, avec sa clé.
+  const cleA0 = (await callR("/crm/amepi/cle", { headers: auth, body: {} })).json;
+  const deposerFichier = (mandats) => callR("/crm/amepi/import", { headers: { "X-Agent-Key": cleA0.cle }, body: { debut: true, fini: true, total: mandats.length, base: "http://localhost:18798", sources: ["1", "2", "3"], mandats } });
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { enabled: true, sources: ["1", "2", "3"], relance: false } } });
-  const sync1 = await callR("/crm/amepi/sync", { headers: auth, body: {} });
+  const sync1 = await deposerFichier(amepiStock);
   ok(sync1.status === 200 && sync1.json.stats.fini && sync1.json.stats.biens === 3 && sync1.json.stats.nouveaux === 3,
-     "le relevé lit tout le fichier (" + JSON.stringify(sync1.json.stats) + ")");
+     "l'agent dépose tout le fichier en un relevé (" + JSON.stringify(sync1.json.stats) + ")");
   const liste1 = (await callR("/crm/amepi", { headers: auth })).json;
-  ok(liste1.configure === true && liste1.biens.length === 3 && liste1.enVente === 2 && liste1.etat.page === 0 && liste1.etat.fini_le > 0,
+  ok(liste1.biens.length === 3 && liste1.enVente === 2 && liste1.etat.page === 0 && liste1.etat.fini_le > 0,
      "la liste montre 3 biens dont 2 en vente (le compromis est classé à part), relevé terminé");
   const b501 = liste1.biens.find((b) => b.id === "501");
   ok(b501.prix === 350000 && b501.ville === "Le Haillan" && b501.pieces === 5 && b501.chambres === 3 && b501.surface === 110 && b501.lat === 44.87 &&
@@ -3664,7 +3622,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   // (le relevé précédent date « d'hier » : dans les tests tout tient dans la même seconde)
   await db.run("UPDATE crm_amepi SET last_seen = last_seen - 100 WHERE agency_id = ?", [agId]);
   await db.run("UPDATE crm_amepi_etat SET fini_le = fini_le - 100 WHERE agency_id = ?", [agId]);
-  const sync2 = await callR("/crm/amepi/sync", { headers: auth, body: {} });
+  const sync2 = await deposerFichier(amepiStock);
   ok(sync2.json.stats.baisses === 1 && sync2.json.stats.retirees === 1, "le relevé suivant voit la baisse et le retrait (" + JSON.stringify(sync2.json.stats) + ")");
   const liste2 = (await callR("/crm/amepi", { headers: auth })).json;
   ok(liste2.biens.find((b) => b.id === "501").prix === 330000 && liste2.biens.find((b) => b.id === "501").ancien_prix === 350000 &&
@@ -3673,10 +3631,6 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(evAm.some((e) => e.kind === "baisse" && e.annonce_id === "amepi:501" && e.ancien_prix === 350000 && e.prix === 330000) &&
      evAm.some((e) => e.kind === "retrait" && e.annonce_id === "amepi:502") && evAm.some((e) => e.kind === "nouvelle" && e.annonce_id === "amepi:503"),
      "le journal du marché porte nouveautés, baisse et retrait AMEPI");
-  // Filtre par communes : seuls les codes postaux demandés sont relevés.
-  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { communes: "33185, 33160" } } });
-  const diagC = (await callR("/crm/amepi/diagnostic", { headers: auth, body: {} })).json;
-  ok(diagC.total === 2 && amepiAppels[amepiAppels.length - 1].corps.includes('"location":["33185","33160"]'), "le filtre par communes est transmis à AMEPI");
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { enabled: false, relance: false, communes: "" } } });
   // L'agent de l'agence dépose le fichier page par page, avec sa clé.
   console.log("— AMEPI : dépôt par l'agent de l'agence (clé dédiée)");

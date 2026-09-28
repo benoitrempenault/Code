@@ -19,11 +19,15 @@ if (-not (Test-Path $config)) {
 }
 $script = Join-Path $ici "agent-amepi.ps1"
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`""
-$declencheur = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-$declencheur.Delay = "PT2M"   # deux minutes après l'ouverture de session, le temps du réseau
+# Deux déclencheurs : à l'ouverture de session (deux minutes après, le temps du
+# réseau) et tous les jours à 7h15, pour un poste qui reste ouvert des semaines.
+$auDemarrage = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$auDemarrage.Delay = "PT2M"
+$chaqueJour = New-ScheduledTaskTrigger -Daily -At 7:15
+$declencheur = @($auDemarrage, $chaqueJour)
 $reglages = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -RunOnlyIfNetworkAvailable
 Register-ScheduledTask -TaskName "Studio Kadima - Agent AMEPI" -Action $action -Trigger $declencheur -Settings $reglages -Force | Out-Null
-Write-Host "Tâche planifiée installée : « Studio Kadima - Agent AMEPI » (à chaque ouverture de session)." -ForegroundColor Green
+Write-Host "Tâche planifiée installée : « Studio Kadima - Agent AMEPI » (à chaque ouverture de session et tous les jours à 7h15)." -ForegroundColor Green
 Write-Host "Premier relevé maintenant..." -ForegroundColor Cyan
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script
 Write-Host "Journal : $(Join-Path $ici 'agent-amepi.log')"
