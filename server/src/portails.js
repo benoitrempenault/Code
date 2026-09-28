@@ -24,7 +24,7 @@
 import { now, randId, randToken, sha256hex } from "./util.js";
 
 export const PORTAILS = {
-  seloger: { nom: "SeLoger", domaines: ["seloger.com", "selogerpro.com", "seloger-pro.com", "logic-immo.com"] },
+  seloger: { nom: "SeLoger", domaines: ["seloger.com", "selogerpro.com", "seloger-pro.com", "myselogerpro.com", "logic-immo.com"] },
   bienici: { nom: "Bien'ici", domaines: ["bienici.com"] },
   leboncoin: { nom: "Leboncoin", domaines: ["leboncoin.fr", "leboncoin.info", "lbc.fr"] },
 };

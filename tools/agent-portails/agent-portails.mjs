@@ -24,7 +24,7 @@ const JOURNAL = join(ICI, "agent-portails.log");
 const ETAT = join(ICI, "dernier-releve.json");
 const PROFIL = join(ICI, "profil-navigateur");
 const ACCUEILS = {
-  seloger: "https://www.seloger.com/",
+  seloger: "https://myselogerpro.com/login",
   bienici: "https://pro.bienici.com/",
   leboncoin: "https://www.leboncoin.fr/",
 };
@@ -59,7 +59,11 @@ async function ouvrir(visible) {
     headless: !!process.env.AGENT_HEADLESS, viewport: null,
     args: [...(visible ? ["--start-maximized"] : ["--window-position=-32000,-32000", "--window-size=1366,900"]), ...(cfg.args_navigateur || [])],
     ignoreHTTPSErrors: !!cfg.ignorer_certificats,
+    // Sans la bannière « navigateur contrôlé » ni navigator.webdriver : les
+    // anti-robots (Leboncoin) bloquent sinon dès la page d'accueil.
+    ignoreDefaultArgs: ["--enable-automation"],
   };
+  opts.args.push("--disable-blink-features=AutomationControlled");
   if (cfg.chemin_navigateur) opts.executablePath = cfg.chemin_navigateur;
   else opts.channel = cfg.navigateur || "msedge";
   return chromium.launchPersistentContext(PROFIL, opts);
