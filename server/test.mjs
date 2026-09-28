@@ -3544,9 +3544,18 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "ESTIMEPRES", prenom: "Paul", adresse: "11 impasse des Vignes", ville: "Le Haillan", types: "estime" }, { nom: "ESTIMELOIN", prenom: "Luc", adresse: "1 rue Loin", ville: "Bordeaux", types: "estime" }] } });
   const ctsEst = (await callR("/crm/contacts", { headers: auth })).json.contacts;
   const estPres = ctsEst.find((x) => x.nom === "ESTIMEPRES"), estLoin = ctsEst.find((x) => x.nom === "ESTIMELOIN");
-  await db.run("INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES (?, ?, 44.9025, -0.6800, 'x', 1, 'x', 1), (?, ?, 44.8400, -0.5800, 'y', 1, 'y', 1)", [estPres.id, agId, estLoin.id, agId]);
+  // (adresse mémorisée = celle de la fiche : sinon le positionnement à la demande les re-géocoderait)
+  await db.run("INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES (?, ?, 44.9025, -0.6800, 'x', 1, '11 impasse des Vignes Le Haillan', 1), (?, ?, 44.8400, -0.5800, 'y', 1, '1 rue Loin Bordeaux', 1)", [estPres.id, agId, estLoin.id, agId]);
+  // Un estimé de la même commune sans position : le parcours le fait positionner (BAN) avant la carte.
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "ESTIMECP", prenom: "Ana", adresse: "5 impasse des Vignes", cp: "33185", ville: "Le Haillan", types: "estime" }] } });
+  ok((await callR("/crm/contacts/estimes/positionner", { headers: authP, body: {} })).status === 403, "le positionnement de toute la base est réservé aux administrateurs");
+  const posi = await callR("/crm/parcours/" + pxId + "/estimes/positionner", { headers: authP, body: {} });
+  ok(posi.status === 200 && posi.json.geocodes >= 1 && posi.json.restants === 0, "les biens estimés de la commune sans position sont géocodés à la demande (" + JSON.stringify(posi.json) + ")");
   const envr = await callR("/crm/parcours/" + pxId + "/environnement", { headers: authP });
-  ok(envr.json.estimations.length === 1 && envr.json.estimations[0].id === "ct:" + estPres.id && /11 impasse des Vignes/.test(envr.json.estimations[0].adresse) && envr.json.estimations[0].dist < 1000,
+  ok((await callR("/crm/contacts/estimes/positionner", { headers: auth, body: {} })).json.restants === 0, "après le parcours, plus rien à positionner pour l'agence");
+  ok(envr.json.estimations.some((e) => /5 impasse des Vignes/.test(e.adresse)) && envr.json.estimationsEnAttente === 0 && !envr.json.estimations.some((e) => e.id === "ct:" + pxFiche.contact_id),
+     "l'estimé fraîchement positionné est sur la carte, sans le contact du parcours lui-même (" + envr.json.estimations.length + ")");
+  ok(envr.json.estimations.some((e) => e.id === "ct:" + estPres.id && /11 impasse des Vignes/.test(e.adresse) && e.dist < 1000) && !envr.json.estimations.some((e) => e.id === "ct:" + estLoin.id),
      "les biens déjà estimés par l'agence à moins d'un kilomètre sont donnés pour la carte du R2, le lointain non (" + JSON.stringify(envr.json.estimations) + ")");
   const cats = new Set((envr.json.commodites || []).map((x) => x.cat));
   ok(envr.status === 200 && Math.abs(envr.json.lat - 44.9012) < 0.001 && envr.json.commune.nom === "Le Haillan" && envr.json.commune.densite === 1285 && envr.json.commune.departement === "Gironde",

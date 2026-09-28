@@ -1795,6 +1795,14 @@ export function createApp(env) {
     return Math.round(2 * rayonTerre * Math.asin(Math.sqrt(a)));
   };
 
+  // Positionne un paquet de biens estimés (contacts typés estime) sans position,
+  // toute l'agence : après un import, l'Administration rappelle jusqu'à
+  // `restants` = 0 (12 adresses par appel, BAN puis IGN en file indienne).
+  app.post("/crm/contacts/estimes/positionner", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    try { return c.json(await CRM.geocoderEstimesCommune(env, db, ctx.agency.id, "", "", 12)); }
+    catch (e) { return err(c, 502, e.message); }
+  });
   app.get("/crm/estimation/quartier", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const lat = parseFloat(c.req.query("lat")), lng = parseFloat(c.req.query("lng"));

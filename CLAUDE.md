@@ -684,8 +684,14 @@ la page publique commission.html (ouvre l'appli Plans sur téléphone). Livret :
 `estimations` (`estimationsAutour` : contacts typés estime géocodés + fiches
 crm_estimations positionnées sauf celle du parcours, dédoublonnés par position à 4
 décimales, ≤ 1 km, ≤ 60) ; page 8 du guide R2 : points bleus #2f6f9f (rayon 8) sous les
-ventes or, légende à 3 lignes (cadre 94 pt) « Biens estimés par l'agence » + compte.
-Assets admin `?v=32`.
+ventes or, légende à 3 lignes (cadre 94 pt) « Biens estimés par l'agence » + compte. Les contacts
+du parcours (propriétaires) sont exclus. Comme les estimés se géocodent par lots de fond
+(des milliers en attente en prod), `POST /crm/parcours/:id/estimes/positionner`
+(`geocoderEstimesCommune` : estimés du même CP ou ville sans position, 12 par appel,
+BAN puis IGN via `geocoderLot`, cœur extrait de `geocoderVentes`) est appelé en boucle
+par genererGuideR2 avant la carte (≤ 40 appels, « N restant(s) ») ; `environnement`
+renvoie `estimationsEnAttente` (toast si des adresses restent introuvables).
+`POST /crm/contacts/estimes/positionner` (admin, même helper sans commune, LIMIT 400) derrière le bouton « 📍 Positionner les biens estimés » de l'onglet Contacts (boucle ≤ 400 appels, compte placés / introuvables / restants) — à cliquer après l'import du fichier estimé C21 (preset « biens », 2 051 lignes le 28/09). Assets admin `?v=34`.
 **Estimation ↔ livret (28/09)** : `GET /crm/parcours/:id/acm` complète l'acm avec le bien de
 la fiche estimation (`crm_estimation_bien`, écrit par Studio Estimation) pour les champs
 vides — surface, terrain, prix ← prixEnvisage, chambres ← bien.chambres sinon nombre de

@@ -2642,6 +2642,37 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
     .sort((a, b) => (a.echec ? 1 : 0) - (b.echec ? 1 : 0));
   const attente = enAttente.slice(0, Math.max(0, max));
   if (!attente.length) return { geocodes: 0, traites: 0, restants: 0 };
+  return geocoderLot(env, db, agencyId, attente, enAttente.length);
+}
+
+// Les biens estimés d'une commune (contacts typés estime, même code postal ou
+// même ville) sans position : la carte du guide R2 les veut tout de suite,
+// pas au rythme du géocodage de fond. Par paquets de `max`, le navigateur
+// rappelle jusqu'à `restants` = 0.
+export async function geocoderEstimesCommune(env, db, agencyId, cp, ville, max = 12) {
+  // Sans commune : tous les estimés de l'agence (bouton « Positionner » de l'Administration).
+  const commune = String(cp || "").trim() || String(ville || "").trim();
+  const rows = await db.all(
+    `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng, g.updated_at AS geo_maj
+     FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
+     WHERE c.agency_id = ? AND c.adresse <> '' AND c.types LIKE '%estime%'${commune ? " AND (c.cp = ? OR c.ville = ? COLLATE NOCASE)" : ""}
+       AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0) OR substr(g.adresse, 1, length(c.adresse)) <> c.adresse)
+     ORDER BY CASE WHEN g.contact_id IS NULL THEN 0 WHEN g.lat = 0 AND g.lng = 0 THEN 2 ELSE 1 END
+     LIMIT 400`, commune ? [agencyId, String(cp || "").trim() || "-", String(ville || "").trim() || "-"] : [agencyId]);
+  const enAttente = rows
+    .map((r) => ({ id: r.id, adresse: [r.adresse, r.cp, r.ville].filter(Boolean).join(" "), deja: r.geo_adresse,
+      echec: r.geo_adresse != null && r.geo_lat === 0 && r.geo_lng === 0, maj: r.geo_maj || 0 }))
+    .filter((r) => r.adresse && (r.adresse !== r.deja || r.echec))
+    .filter((r) => !(r.echec && r.adresse === r.deja && (r.maj || 0) > now() - ECHEC_RETENTE_APRES))
+    .sort((a, b) => (a.echec ? 1 : 0) - (b.echec ? 1 : 0));
+  const attente = enAttente.slice(0, Math.max(0, max));
+  if (!attente.length) return { geocodes: 0, traites: 0, restants: 0 };
+  return geocoderLot(env, db, agencyId, attente, enAttente.length);
+}
+
+// Géocode une liste d'adresses {id, adresse, echec} et mémorise les positions.
+async function geocoderLot(env, db, agencyId, attente, total) {
+  const enAttente = { length: total };
   // Deux géocodeurs officiels, même API : la BAN puis le géocodeur IGN
   // (data.geopf.fr) en relève — la BAN limite parfois le débit des serveurs
   // (dont Cloudflare) et de certains réseaux. Surchargables en test.

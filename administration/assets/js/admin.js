@@ -2930,8 +2930,16 @@
       const btn = $("r2-generer"), etat = $("r2-etat"); btn.disabled = true;
       try {
         etat.textContent = "Enregistrement…"; r2 = await sauver();
+        // Les biens estimés de la commune sans position se géocodent d'abord (12 par appel, 40 appels au plus).
+        for (let tour = 0; tour < 40; tour++) {
+          let g; try { g = await api("/crm/parcours/" + id + "/estimes/positionner", { json: {} }); } catch { break; }
+          if (!g.traites && !g.geocodes) break;
+          etat.textContent = "Positionnement des biens estimés de la commune… " + (g.restants || 0) + " restant(s)";
+          if (!g.restants) break;
+        }
         etat.textContent = "Commune, commodités et ventes autour du bien…";
         const envr = await api("/crm/parcours/" + id + "/environnement");
+        if (envr.estimationsEnAttente) toast(envr.estimationsEnAttente + " bien(s) estimé(s) de la commune sans position (adresse introuvable) : absents de la carte");
         if (envr.erreur) toast("Commodités indisponibles : " + envr.erreur, true);
         etat.textContent = "Cartes et assemblage du guide…";
         const urlR2 = await genererGuideR2({ ...p, cp: p.cp, ville: p.ville }, r2, envr);
@@ -3625,6 +3633,21 @@
   $("btn-nouveau-contact").addEventListener("click", () => ouvrirContact(null));
   $("btn-nettoyage").addEventListener("click", ouvrirNettoyage);
   $("btn-diagnostic").addEventListener("click", ouvrirDiagnostic);
+  // Les biens estimés sans position, par paquets de 12, jusqu'à épuisement (bouton réutilisable).
+  $("btn-positionner-estimes").addEventListener("click", async () => {
+    const btn = $("btn-positionner-estimes"); btn.disabled = true;
+    let total = 0, restants = 0, introuvables = 0;
+    try {
+      for (let tour = 0; tour < 400; tour++) {
+        const g = await api("/crm/contacts/estimes/positionner", { json: {} });
+        total += g.geocodes || 0; introuvables += (g.traites || 0) - (g.geocodes || 0); restants = g.restants || 0;
+        btn.textContent = "📍 Positionnement… " + total + " placé(s), " + restants + " restant(s)";
+        if (!g.traites || !restants) break;
+      }
+      toast(total + " bien(s) estimé(s) positionné(s)" + (introuvables ? ", " + introuvables + " adresse(s) introuvable(s)" : "") + (restants ? ", " + restants + " restant(s) : recliquez" : ""));
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = false; btn.textContent = "📍 Positionner les biens estimés";
+  });
   $("btn-import").addEventListener("click", ouvrirImport);
   $("btn-nouveau-parcours").addEventListener("click", nouveauParcours);
   $("parcours-recherche").addEventListener("input", rendreParcours);
