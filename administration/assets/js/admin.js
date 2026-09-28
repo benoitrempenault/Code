@@ -3025,6 +3025,7 @@
     let acm, donnees;
     try { [acm, donnees] = await Promise.all([api("/crm/parcours/" + id + "/acm"), api("/crm/parcours/" + id + "/acm/donnees")]); }
     catch (e) { toast(e.message, true); return; }
+    const depuisEstimation = acm.depuis_estimation || [];
     acm = acm.acm || {};
     ouvrirModale("🖨 Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), '<p class="aide">Ventes DVF autour du bien…</p>', "");
     document.querySelector(".modale").classList.add("large");
@@ -3080,6 +3081,7 @@
     $("modale-corps").innerHTML =
       '<p class="aide">Cochez ce qui entre dans le livret, complétez la commission d\'évaluation et le financement. Tout s\'enregistre sur la fiche.</p>' +
       '<h3 style="margin:10px 0 4px;">Le bien</h3>' +
+      (depuisEstimation.length ? '<p class="petit">Pré-rempli depuis la fiche estimation : ' + escH(depuisEstimation.map((k) => ({ surface: "surface", terrain: "terrain", prix: "prix envisagé", chambres: "chambres", piece_vie: "pièce de vie" })[k] || k).join(", ")) + ". Corrigez si besoin, le livret garde votre saisie.</p>" : "") +
       '<div class="grille-champs"><label>Surface habitable (m²)<input id="acm-surface" type="number" step="1" value="' + escH(acm.surface || "") + '" /></label>' +
       '<label>Terrain (m²)<input id="acm-terrain" type="number" step="1" value="' + escH(acm.terrain || "") + '" /></label>' +
       '<label>Pièce de vie (m²)<input id="acm-piece-vie" type="number" step="1" value="' + escH(acm.piece_vie || "") + '" /></label>' +

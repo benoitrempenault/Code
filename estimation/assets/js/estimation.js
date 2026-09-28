@@ -462,6 +462,8 @@
       "</div>",
       '<div class="fiche-3col">',
       '<label>Terrain (m²)<input id="fb-terrain" type="number" min="0" value="' + nb(bien.terrain) + '" /></label>',
+      '<label>Chambres<input id="fb-chambres" type="number" min="0" value="' + nb(bien.chambres) + '" /></label>',
+      '<label>Pièce de vie / séjour (m²)<input id="fb-piece-vie" type="number" min="0" value="' + nb(bien.pieceVie) + '" /></label>',
       '<label>Année<input id="fb-annee" type="number" min="0" value="' + nb(bien.annee) + '" /></label>',
       '<label>DPE<select id="fb-dpe"><option value="">—</option>' +
         ["A", "B", "C", "D", "E", "F", "G"].map((d) => "<option" + (bien.dpe === d ? " selected" : "") + ">" + d + "</option>").join("") +
@@ -787,6 +789,7 @@
           ...bien,
           type: $("fb-type").value.trim(), surface: $("fb-surface").value,
           pieces: $("fb-pieces").value, terrain: $("fb-terrain").value,
+          chambres: $("fb-chambres").value, pieceVie: $("fb-piece-vie").value,
           annee: $("fb-annee").value, dpe: $("fb-dpe").value, ges: $("fb-ges").value,
           etage: $("fb-etage").value.trim(), chauffage: $("fb-chauffage").value.trim(),
           dv: $("fb-dv").checked, piecesDetail: $("fb-pdetail").value.trim(),
