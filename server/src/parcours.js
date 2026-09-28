@@ -16,7 +16,7 @@
    que le conseiller a déjà envoyé à la main.
    ========================================================================= */
 import { now, randId, randToken } from "./util.js";
-import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, genrePrenom, dossierVendu, adresseDossier } from "./crm.js";
+import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, genrePrenom, dossierVendu, adresseDossier } from "./crm.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
@@ -902,13 +902,49 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (typeof v === "object") { const o = {}; for (const k of Object.keys(v).slice(0, 60)) o[String(k).slice(0, 60)] = nettoyerJson(v[k], prof + 1); return o; }
     return null;
   };
+  // Le bien de la fiche estimation (Studio Estimation, crm_estimation_bien) et
+  // la saisie du livret (acm) se complètent l'un l'autre, sans jamais s'écraser :
+  // à la lecture, le livret prend ce qui lui manque (surface, terrain, prix
+  // envisagé, chambres et pièce de vie — au besoin lus dans le détail des pièces) ;
+  // à l'enregistrement, l'estimation reçoit ce qu'elle n'avait pas.
+  const bienEstimationDe = async (estId) => {
+    const row = await db.get("SELECT data FROM crm_estimation_bien WHERE estimation_id = ?", [estId]);
+    try { return row ? JSON.parse(row.data) || {} : {}; } catch { return {}; }
+  };
+  const vide = (v) => v === undefined || v === null || v === "" || Number(v) === 0;
+  const lireDetailPieces = (texte) => {
+    const lignes = String(texte || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const chambres = lignes.filter((l) => /^chambre/i.test(l)).length;
+    const sejour = lignes.find((l) => /s[ée]jour|pi[èe]ce de vie|salon/i.test(l));
+    const m = sejour && sejour.match(/(\d+(?:[.,]\d+)?)\s*m/);
+    return { chambres, piece_vie: m ? parseFloat(m[1].replace(",", ".")) : 0 };
+  };
+  const completerAcm = (acm, bien) => {
+    const detail = lireDetailPieces(bien.piecesDetail);
+    const sources = { surface: bien.surface, terrain: bien.terrain, prix: bien.prixEnvisage, chambres: bien.chambres || detail.chambres, piece_vie: bien.pieceVie || detail.piece_vie };
+    const depuis = [];
+    for (const [k, v] of Object.entries(sources)) if (vide(acm[k]) && !vide(v)) { acm[k] = Number(v); depuis.push(k); }
+    return depuis;
+  };
+  const completerBien = async (ctx, estId, acm) => {
+    const bien = await bienEstimationDe(estId);
+    const maj = { ...bien };
+    let change = false;
+    for (const [kb, ka] of [["surface", "surface"], ["terrain", "terrain"], ["chambres", "chambres"], ["pieceVie", "piece_vie"]]) {
+      if (vide(bien[kb]) && !vide(acm[ka])) { maj[kb] = Number(acm[ka]); change = true; }
+    }
+    if (!change) return;
+    await db.run("INSERT OR REPLACE INTO crm_estimation_bien (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?)",
+      [estId, ctx.agency.id, JSON.stringify(sanitizeBienEstimation(maj)), now()]);
+  };
   app.get("/crm/parcours/:id/acm", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
     const row = await db.get("SELECT data, updated_at FROM crm_parcours_acm WHERE estimation_id = ?", [p.est.id]);
     let acm = {}; try { acm = row ? JSON.parse(row.data) : {}; } catch { acm = {}; }
-    return c.json({ acm, updated_at: row ? row.updated_at : 0 });
+    const depuis = completerAcm(acm, await bienEstimationDe(p.est.id));
+    return c.json({ acm, updated_at: row ? row.updated_at : 0, depuis_estimation: depuis });
   });
   app.put("/crm/parcours/:id/acm", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
@@ -918,6 +954,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!p) return err(c, 404, "Fiche introuvable.");
     const data = JSON.stringify(nettoyerJson(b) || {});
     if (data.length > 120000) return err(c, 400, "Saisie trop volumineuse.");
+    await completerBien(ctx, p.est.id, b);
     await db.run(
       "INSERT INTO crm_parcours_acm (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(estimation_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
       [p.est.id, ctx.agency.id, data, now()]);

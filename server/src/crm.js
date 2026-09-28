@@ -2044,6 +2044,8 @@ export function sanitizeBienEstimation(b) {
     surface: num(o.surface, 100000),
     terrain: num(o.terrain, 10000000),
     pieces: Math.round(num(o.pieces, 100)),
+    chambres: Math.round(num(o.chambres, 50)),
+    pieceVie: num(o.pieceVie, 1000),
     annee: Math.round(num(o.annee, 3000)),
     dpe: /^[a-g]$/i.test(String(o.dpe || "")) ? String(o.dpe).toUpperCase() : "",
     ges: /^[a-g]$/i.test(String(o.ges || "")) ? String(o.ges).toUpperCase() : "",

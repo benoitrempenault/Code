@@ -3533,6 +3533,16 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await db.get("SELECT lat FROM crm_estimations WHERE id = ?", [pxId])).lat > 44, "la position géocodée est gardée sur la fiche");
   ok((await db.get("SELECT COUNT(*) AS n FROM crm_environnement")).n === 1, "commune et commodités sont mises en cache");
   // Livret prix : la saisie se garde (nettoyée), les données comparables se relèvent, les photos ne se relaient que si elles sont connues.
+  // Le livret se pré-remplit depuis le bien de la fiche estimation (Studio Estimation), et la complète en retour.
+  await db.run("INSERT OR REPLACE INTO crm_estimation_bien (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?)",
+    [pxId, agId, JSON.stringify({ type: "maison", surface: 120, terrain: 600, prixEnvisage: 345000, piecesDetail: "Séjour : 38 m²\nChambre 1 : 12 m²\nChambre 2 : 11 m²\nChambre 3" }), Math.floor(Date.now() / 1000)]);
+  const acmPre = (await callR("/crm/parcours/" + pxId + "/acm", { headers: authP })).json;
+  ok(acmPre.acm.surface === 120 && acmPre.acm.terrain === 600 && acmPre.acm.prix === 345000 && acmPre.acm.chambres === 3 && acmPre.acm.piece_vie === 38 && acmPre.depuis_estimation.includes("piece_vie"),
+     "le livret prix se pré-remplit depuis la fiche estimation : surface, terrain, prix envisagé, chambres et séjour lus dans le détail des pièces (" + JSON.stringify(acmPre.acm) + ")");
+  await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { surface: 125, chambres: 4, piece_vie: 40 } });
+  const bienApres = JSON.parse((await db.get("SELECT data FROM crm_estimation_bien WHERE estimation_id = ?", [pxId])).data);
+  ok(bienApres.surface === 120 && bienApres.chambres === 4 && bienApres.pieceVie === 40 && bienApres.prixEnvisage === 345000,
+     "la fiche estimation reçoit en retour ce qui lui manquait (chambres, pièce de vie) sans que sa surface ni son prix soient écrasés");
   const tNow = Math.floor(Date.now() / 1000);
   const acmPut = await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { prix: 330000, basse: 320000, haute: 340000, commission: [{ nb: 3, basse: 300000, haute: 320000 }], ventes: [{ id: "dvf:1", prix: 315000, surface: 100, adresse: "1 rue\u0007Test" }], acheteurs_texte: "ok", profond: { a: { b: { c: { d: { e: { f: 1 } } } } } } } });
   const acmGet = (await callR("/crm/parcours/" + pxId + "/acm", { headers: authP })).json;
