@@ -170,11 +170,43 @@
     const n = motsNom(nom).length;
     if (!n) return null;
     const cand = annuaire.filter((a) => types.includes(a.type) && nomsCompatibles(a.nom, nom));
-    if (cand.length <= 1) return cand[0] || null;
-    // Plusieurs fiches compatibles : on ne retient que celle qui a exactement
-    // le même niveau de détail (prénom compris), sinon rien.
-    const precis = cand.filter((a) => motsNom(a.nom).length === n);
-    return precis.length === 1 ? precis[0] : null;
+    if (cand.length === 1) return cand[0];
+    if (cand.length > 1) {
+      // Plusieurs fiches compatibles : on ne retient que celle qui a exactement
+      // le même niveau de détail (prénom compris), sinon rien.
+      const precis = cand.filter((a) => motsNom(a.nom).length === n);
+      return precis.length === 1 ? precis[0] : null;
+    }
+    return annParPatronyme(types, nom);
+  }
+  /* Troisième chance, par PATRONYME : le compromis écrit « Maître Antoine
+     PULON, notaire à Saint-Médard-en-Jalles » ou « SCP NAUTIACQ & Associés »,
+     l'annuaire « PULON Antoine » ou « Me NAUTIACQ (Saint-Médard) » — un mot
+     de trop d'un côté ou de l'autre et les deux noms ne sont plus
+     « compatibles ». On cherche alors les fiches qui portent le patronyme
+     (les mots EN CAPITALES du nom, sinon son dernier mot) ; s'il y en a
+     plusieurs, celle qui partage le plus d'autres mots (le prénom) l'emporte,
+     et à égalité on ne devine pas — deux notaires d'une même famille restent
+     deux personnes. Un mot de lieu ne suffit jamais : le patronyme est requis. */
+  function patronymeDe(nom) {
+    const brut = String(nom || "").trim().split(/[\s,'’.]+/).filter(Boolean);
+    const caps = brut.filter((w) => /[A-ZÀ-Þ]{2}/.test(w) && w === w.toUpperCase()).map(normMot).filter((w) => w.length >= 3 && !MOTS_VIDES.test(w));
+    if (caps.length) return caps;
+    const mots = motsNom(nom).filter((w) => w.length >= 3);
+    return mots.length ? [mots[mots.length - 1]] : [];
+  }
+  function annParPatronyme(types, nom) {
+    const patro = patronymeDe(nom);
+    if (!patro.length) return null;
+    const mots = motsNom(nom);
+    let best = [], bestN = -1;
+    annuaire.filter((a) => types.includes(a.type)).forEach((a) => {
+      const am = motsNom(a.nom);
+      if (!patro.every((p) => am.some((x) => motCouvre(p, x)))) return;
+      const n = mots.filter((w) => am.some((x) => motCouvre(w, x))).length;
+      if (n > bestN) { bestN = n; best = [a]; } else if (n === bestN) best.push(a);
+    });
+    return best.length === 1 ? best[0] : null;
   }
   // Complète depuis l'annuaire les coordonnées vides des notaires et du
   // syndic d'un dossier (jamais d'écrasement). Renvoie vrai si modifié.
