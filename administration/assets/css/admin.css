@@ -90,6 +90,7 @@ input::placeholder { color: #6c6960; }
 }
 .grille-champs input, .grille-champs select, .grille-champs textarea { width: 100%; }
 
+a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
 .btn {
   padding: 9px 16px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--panel-2); color: var(--text); font-size: 14px; font-weight: 500;
@@ -132,6 +133,11 @@ td img.mini { width: 62px; height: 42px; object-fit: cover; border-radius: 8px; 
 .erreur { color: var(--err); font-weight: 600; }
 s { color: var(--muted); }
 
+/* Suggestions d'adresses (BAN) sous le champ en cours de saisie. */
+.sugg-adresse { position: absolute; z-index: 120; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); max-height: 240px; overflow-y: auto; font-size: 14px; }
+.sugg-adresse div { padding: 8px 12px; cursor: pointer; }
+.sugg-adresse div:hover, .sugg-adresse div.actif { background: var(--panel-2); }
+.grille-champs label, .barre { position: relative; }
 /* -------------------------------- Modale ------------------------------- */
 .voile {
   position: fixed; inset: 0; background: rgba(0, 0, 0, .65);
@@ -140,6 +146,16 @@ s { color: var(--muted); }
 .modale {
   background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
   width: 100%; max-width: 760px; max-height: 92vh; display: flex; flex-direction: column;
+}
+/* Fenêtre large (livret prix) : listes longues à cocher, vignettes. */
+.modale.large { max-width: 1240px; max-height: 98vh; }
+/* Biens en concurrence : une ligne = case, photo (grande, pleine largeur sur téléphone), texte. */
+.ligne-conc { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.ligne-conc > span:not(.bloc-vignette) { flex: 1 1 200px; min-width: 0; }
+.bloc-vignette { flex: none; display: flex; flex-direction: column; gap: 3px; align-items: center; }
+.vignette-conc { display: block; width: 132px; height: 99px; object-fit: cover; border-radius: 8px; background: var(--line); }
+.modale.large .liste-choix { max-height: 44vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px; }
+.modale.large .liste-choix.haute { max-height: 78vh;
 }
 .modale-tete {
   display: flex; align-items: center; justify-content: space-between;
@@ -180,9 +196,51 @@ s { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) {
   .toast, .btn, .onglet { transition: none; }
 }
-@media (max-width: 640px) {
-  main { padding: 14px 12px 60px; }
-  .carte { padding: 16px; }
+/* Téléphone : tout en une colonne, onglets qui défilent, fenêtres plein écran. */
+@media (max-width: 720px) {
+  main { padding: 10px 10px 60px; }
+  .topbar { padding: 10px 12px; gap: 10px; }
+  .topbar h1 { font-size: 16px; }
+  .onglets { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 6px; margin-bottom: 12px; scrollbar-width: none; }
+  .onglets::-webkit-scrollbar { display: none; }
+  .onglet { white-space: nowrap; flex: none; }
+  .carte { padding: 14px 12px; border-radius: 12px; }
+  .carte h2 { font-size: 17px; }
+  .aide { font-size: 13px; }
+  .grille-champs { grid-template-columns: 1fr; gap: 10px; }
+  .grille-champs label[style*="grid-column"] { grid-column: auto !important; }
+  input, select, textarea { font-size: 16px; } /* évite le zoom automatique d'iOS */
+  .barre { gap: 8px; }
+  .barre input[type="search"], .barre input[type="search"][style] { min-width: 0 !important; width: 100%; flex: 1 1 100%; }
+  .btn { padding: 8px 12px; font-size: 13px; }
+  table { min-width: 560px; font-size: 12.5px; }
+  .ligne-map { grid-template-columns: 1fr; }
+  .voile { padding: 0; align-items: stretch; }
+  /* 100dvh : la hauteur réellement visible (la barre de Safari / Chrome cachait le pied de la fenêtre). */
+  .modale, .modale.large { max-width: 100%; max-height: 100vh; height: 100vh; max-height: 100dvh; height: 100dvh; border-radius: 0; border: 0; }
+  .modale-corps { padding-bottom: 24px; }
+  .modale-tete { padding: 12px 14px; }
+  .modale-tete h2 { font-size: 16px; }
+  .modale-corps { padding: 12px 12px; }
+  .modale-pied { padding: 10px 12px; gap: 8px; }
+  .modale-pied .btn { flex: 1 1 45%; text-align: center; }
+  .modale-pied .btn-danger { margin-right: 0; }
+  .ligne-conc { flex-wrap: wrap; }
+  .ligne-conc .bloc-vignette { flex: 1 1 100%; order: 3; align-items: stretch; }
+  .ligne-conc .bloc-vignette .btn { align-self: flex-end; }
+  .vignette-conc { width: 100%; height: 220px; }
+  .modale.large .liste-choix { max-height: 40vh; }
+  .modale.large .liste-choix.haute { max-height: 55vh; }
+  .apercu-mail { height: 60vh; }
+  /* Spécificité 3 classes : les règles générales des étapes (plus bas) ne les écrasent pas. */
+  .etapes .etape { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .etapes .etape .titre { flex: 1 1 calc(100% - 40px); }
+  .etapes .etape .btn { flex: 1 1 auto; font-size: 12.5px; padding: 7px 10px; }
+  #px-signe, #px-signe[style] { max-width: 100% !important; width: 100%; margin-top: 4px; }
+  textarea { min-height: 90px; }
+}
+@media (max-width: 420px) {
+  .modale-pied .btn { flex: 1 1 100%; }
 }
 
 /* Parcours R1/R2 */

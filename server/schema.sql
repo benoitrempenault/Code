@@ -904,6 +904,88 @@ CREATE TABLE IF NOT EXISTS crm_conseillers (
 );
 CREATE INDEX IF NOT EXISTS idx_crm_conseillers_ag ON crm_conseillers(agency_id, nom);
 
+-- Guide R2 d'un parcours : photo du bien (data URL ≤ 300 Ko), points forts,
+-- objections — ce que le conseiller saisit avant d'imprimer.
+CREATE TABLE IF NOT EXISTS crm_parcours_r2 (
+  estimation_id TEXT PRIMARY KEY,
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  photo         TEXT NOT NULL DEFAULT '',
+  points_forts  TEXT NOT NULL DEFAULT '',   -- une ligne par point
+  objections    TEXT NOT NULL DEFAULT '',
+  updated_at    INTEGER NOT NULL
+);
+-- Compléments du profil conseiller (schema.sql n'altère jamais une table) :
+-- le texte personnel de la page « Votre conseiller » du guide R2.
+CREATE TABLE IF NOT EXISTS crm_conseillers_extra (
+  id         TEXT PRIMARY KEY,               -- crm_conseillers.id
+  bio        TEXT NOT NULL DEFAULT '',
+  genre      TEXT NOT NULL DEFAULT '',       -- m | f | '' (deviné du prénom)
+  updated_at INTEGER NOT NULL
+);
+-- Environnement d'une adresse (commune, commodités OpenStreetMap) : cache
+-- 30 jours par position arrondie (≈ 100 m), pour les guides R2.
+CREATE TABLE IF NOT EXISTS crm_environnement (
+  cle        TEXT PRIMARY KEY,               -- "lat,lng" à 3 décimales
+  data       TEXT NOT NULL,                  -- JSON {commune, commodites}
+  updated_at INTEGER NOT NULL
+);
+-- Direction : le profil voit tous les parcours R1/R2 (les autres conseillers
+-- ne voient que les leurs : conseiller du parcours ou créateur de la fiche).
+CREATE TABLE IF NOT EXISTS crm_conseillers_direction (
+  id         TEXT PRIMARY KEY,               -- crm_conseillers.id
+  direction  INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
+-- Point de vente du conseiller (clé d'une agence des réglages `agences`) :
+-- ses e-mails et guides portent le nom, l'adresse et les mentions légales
+-- de SON agence.
+CREATE TABLE IF NOT EXISTS crm_conseillers_pv (
+  id         TEXT PRIMARY KEY,               -- crm_conseillers.id
+  pv         TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL
+);
+-- Livret prix (analyse comparative de marché) d'un parcours : la saisie du
+-- conseiller (prix, ventes et biens retenus, commission d'évaluation,
+-- acheteurs, financement), en JSON.
+CREATE TABLE IF NOT EXISTS crm_parcours_acm (
+  estimation_id TEXT PRIMARY KEY,             -- crm_estimations.id
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  data          TEXT NOT NULL DEFAULT '{}',
+  updated_at    INTEGER NOT NULL
+);
+-- Vignettes des mandats AMEPI, rapatriées par l'agent de l'agence (les
+-- images d'Amanda sont sur un stockage qui refuse toute lecture sans session).
+CREATE TABLE IF NOT EXISTS crm_amepi_photos (
+  agency_id  TEXT NOT NULL REFERENCES agencies(id),
+  id         TEXT NOT NULL,                  -- crm_amepi.id
+  photo      TEXT NOT NULL,                  -- data:image/jpeg;base64,… (≤ 80 Ko)
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (agency_id, id)
+);
+-- Commission d'évaluation d'un parcours (comme Kadimestim) : un lien public
+-- partagé aux collègues, chacun envoie sa fourchette ; le livret prix en
+-- tire ses lignes (nb de conseillers par fourchette, tiers repli / raison /
+-- ambition).
+CREATE TABLE IF NOT EXISTS crm_parcours_commission (
+  estimation_id TEXT PRIMARY KEY,             -- crm_estimations.id
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  token         TEXT NOT NULL UNIQUE,         -- jeton du lien public
+  ferme         INTEGER NOT NULL DEFAULT 0,   -- 1 = plus d'avis acceptés
+  created_at    INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS crm_parcours_avis (
+  id            TEXT PRIMARY KEY,             -- av_xxxxxxxx
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  estimation_id TEXT NOT NULL,
+  nom           TEXT NOT NULL DEFAULT '',
+  prix_min      INTEGER NOT NULL,
+  prix_max      INTEGER NOT NULL,
+  note          TEXT NOT NULL DEFAULT '',
+  ip            TEXT NOT NULL DEFAULT '',
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_parcours_avis_est ON crm_parcours_avis(estimation_id, created_at);
+
 -- Bilans vendeurs hebdomadaires (bilans.js). Le portefeuille de mandats vient
 -- de l'export C21 (remplacé à chaque import : l'export EST le portefeuille) ;
 -- la référence `ref` est celle de l'annonce sur le site de l'agence.

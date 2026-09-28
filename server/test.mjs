@@ -1967,6 +1967,16 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     } else { res.writeHead(404); res.end("Not Found"); }
   });
   await new Promise((r) => fauxDvf.listen(18792, r));
+  // Faux Bien'ici : zones (suggest) et annonces de la commune.
+  const fauxBienici = (await import("node:http")).createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    if (req.url.startsWith("/suggest.json")) return res.end(JSON.stringify([{ id: "z1", name: "Le Haillan", type: "city", insee_codes: ["33200"], postalCodes: ["33185"], zoneIds: ["-999"] }]));
+    res.end(JSON.stringify({ total: 2, realEstateAds: [
+      { id: "orpi-1", reference: "R1", accountDisplayName: "ORPI Le Haillan", adType: "buy", propertyType: "house", price: 349000, surfaceArea: 95, landSurfaceArea: 322, roomsQuantity: 4, bedroomsQuantity: 3, city: "Le Haillan", postalCode: "33185", publicationDate: new Date(Date.now() - 12 * 86400000).toISOString(), priceHasDecreased: true, energyClassification: "C", blurInfo: { position: { lat: 44.8705, lon: -0.7125 } }, photos: [{ url_photo: "https://file.bienici.com/photo/orpi-1.jpg" }], district: { libelle: "Centre" } },
+      { id: "loin-2", accountDisplayName: "X", adType: "buy", propertyType: "house", price: 900000, surfaceArea: 200, roomsQuantity: 7, city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString(), blurInfo: { position: { lat: 44.8705, lon: -0.7125 } }, photos: [] },
+    ] }));
+  });
+  await new Promise((r) => fauxBienici.listen(18786, r));
   // Fausse BAN : géocode « Vignes », ignore le reste — pour tester le
   // géocodage AUTOMATIQUE des ventes (le serveur appelle la BAN lui-même).
   let fauxBanCsv = false; // le géocodage EN MASSE (CSV) n'est servi que quand un test l'allume
@@ -1994,11 +2004,32 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
       : { features: [] }));
   });
   await new Promise((r) => fauxBan.listen(18793, r));
+  // Faux Overpass (commodités OSM) et faux geo.api.gouv.fr (commune) : les guides R2.
+  const fauxOverpass = (await import("node:http")).createServer(async (req, res) => {
+    const chunks = []; for await (const ch of req) chunks.push(ch);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ elements: [
+      { type: "node", id: 1, lat: 44.9020, lon: -0.6790, tags: { amenity: "school", name: "École des Vignes" } },
+      { type: "way", id: 2, center: { lat: 44.9030, lon: -0.6810 }, tags: { shop: "supermarket", name: "Super U" } },
+      { type: "node", id: 3, lat: 44.9005, lon: -0.6795, tags: { amenity: "pharmacy", name: "Pharmacie du Bourg" } },
+      { type: "node", id: 4, lat: 44.9008, lon: -0.6802, tags: { highway: "bus_stop", name: "Mairie" } },
+      { type: "node", id: 5, lat: 44.9009, lon: -0.6803, tags: { highway: "bus_stop", name: "Mairie" } },
+      { type: "node", id: 6, lat: 44.9100, lon: -0.6700, tags: { leisure: "park", name: "Parc" } },
+      { type: "node", id: 7, lat: 44.9011, lon: -0.6799, tags: { tourism: "hotel", name: "Hôtel ignoré" } },
+    ] }));
+  });
+  await new Promise((r) => fauxOverpass.listen(18784, r));
+  const fauxGeo = (await import("node:http")).createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify([{ nom: "Le Haillan", code: "33200", population: 11900, surface: 926, departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } }]));
+  });
+  await new Promise((r) => fauxGeo.listen(18785, r));
   const appR = createApp({
+    OVERPASS_BASE: "http://localhost:18784", GEO_BASE: "http://localhost:18785",
     db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin",
     APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
     RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18791",
-    DVF_BASE: "http://localhost:18792", BAN_BASE: "http://localhost:18793", BATIMENTS_BASE: "http://localhost:18799",
+    DVF_BASE: "http://localhost:18792", BIENICI_BASE: "http://localhost:18786", BIENICI_SUGGEST: "http://localhost:18786/suggest.json", BAN_BASE: "http://localhost:18793", BATIMENTS_BASE: "http://localhost:18799",
     MAIL_FROM: "Studio Brochure <connexion@studiobrochure.fr>",
     AMEPI_BASE: "http://localhost:18798", AMEPI_EMAIL: "benoit@kadima.test", AMEPI_PASSWORD: "secret-amepi",
   });
@@ -3310,13 +3341,65 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(photoRep.status === 200 && photoRep.headers.get("content-type") === "image/jpeg", "la photo se sert en JPEG sans session");
   ok((await appR.fetch(new Request("http://api.test/public/conseillers/cs_inconnu/photo"))).status === 404, "id inconnu → 404");
   ok((await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "X", photo: "data:text/html;base64,PGI+" } })).status === 400, "une photo qui n'est pas une image est refusée");
+  // Import des profils : les comptes de l'agence (accès créés) + les conseillers du guide R1. Rien n'est écrasé, les vides se complètent.
+  ok((await callR("/crm/conseillers/importer", { headers: authP, body: {} })).status === 403, "l'import des profils est réservé à l'administrateur");
+  const imp1 = await callR("/crm/conseillers/importer", { headers: auth, body: { profils: [{ prenom: "Teddy", nom: "Besson", telephone: "07 49 96 59 21", email: "teddy.besson@century21.fr" }, { prenom: "Marine", nom: "Zamora", telephone: "06 11 22 33 44" }] } });
+  const csImp = (await callR("/crm/conseillers", { headers: auth })).json.conseillers;
+  const nbTeddy = csImp.filter((x) => /besson/i.test(x.nom)).length;
+  const marine = csImp.find((x) => x.nom === "Zamora");
+  const adminAch = csImp.find((x) => x.email === "ach-admin@ach-test.fr");
+  const carto = csImp.find((x) => x.email === "carto@ach-test.fr");
+  ok(imp1.status === 200 && imp1.json.ajoutes >= 3 && nbTeddy === 1 && marine && marine.telephone === "06 11 22 33 44" && adminAch && adminAch.prenom === "Admin" && adminAch.nom === "Ach" && carto && carto.user_id === membreP.json.user.id,
+     "l'import crée un profil par accès Studio et par conseiller du guide, sans doubler Teddy (" + JSON.stringify(imp1.json) + ")");
+  const teddyImp = csImp.find((x) => x.id === teddy.json.id);
+  ok(teddyImp.telephone === "06 00 00 00 01" && teddyImp.email === "teddy@kadima.test" && teddyImp.a_photo, "le profil déjà renseigné de Teddy garde téléphone, e-mail et photo");
+  // L'équipe du site : photo, fonction et agence complètent les profils qui n'en ont pas, sans toucher au reste.
+  const impE = await callR("/crm/conseillers/importer", { headers: auth, body: { profils: [{ prenom: "Marine", nom: "Zamora", photo: pixel, agence: "saint-medard", fonction: "" }, { prenom: "Teddy", nom: "Besson", photo: "data:image/png;base64,iVBORw0KGgo=", fonction: "Négociateur", agence: "cauderan" }] } });
+  // Une vignette minuscule (premiers imports à 240 px) cède la place à une photo nette ; une vraie photo, elle, reste.
+  const grande = pixel + "A".repeat(60000);
+  const impG = await callR("/crm/conseillers/importer", { headers: auth, body: { profils: [{ prenom: "Marine", nom: "Zamora", photo: grande }] } });
+  const marineG = (await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.nom === "Zamora");
+  const photoG = (await db.get("SELECT length(photo) AS n FROM crm_conseillers WHERE id = ?", [marineG.id])).n;
+  const impG2 = await callR("/crm/conseillers/importer", { headers: auth, body: { profils: [{ prenom: "Marine", nom: "Zamora", photo: grande + "AAAA" }] } });
+  const photoG2 = (await db.get("SELECT length(photo) AS n FROM crm_conseillers WHERE id = ?", [marineG.id])).n;
+  ok(impG.json.completes === 1 && photoG === grande.length && impG2.json.completes === 0 && photoG2 === grande.length, "l'import remplace une vignette minuscule par une photo nette, puis n'y touche plus (" + JSON.stringify({ c1: impG.json.completes, c2: impG2.json.completes }) + ")");
+  const csE = (await callR("/crm/conseillers", { headers: auth })).json.conseillers;
+  const marineE = csE.find((x) => x.nom === "Zamora"), teddyE = csE.find((x) => x.id === teddy.json.id);
+  ok(impE.json.completes === 2 && marineE.a_photo && marineE.agence === "saint-medard" && teddyE.fonction === "Conseiller immobilier" && teddyE.agence === "cauderan" && (await appR.fetch(new Request("http://api.test/public/conseillers/" + teddy.json.id + "/photo"))).headers.get("content-type") === "image/jpeg",
+     "l'import pose la photo et l'agence manquantes, garde la fonction et la photo déjà en place (" + JSON.stringify(impE.json) + ")");
+  await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test", agence: "" } });
+  // Doublons : « Adelaide Rempenault » (compte) et « Adélaïde Rempenault » (site) sont la même personne ; les doublons déjà créés fusionnent.
+  await db.run("INSERT INTO crm_conseillers (id, agency_id, user_id, prenom, nom, fonction, telephone, email, photo, actif, created_at, updated_at) VALUES ('cs_dbl1', ?, 'us_x', 'Adelaide', 'Rempenault', '', '06 99 99 99 99', '', '', 1, 1, 1), ('cs_dbl2', ?, '', 'Adélaïde', 'Rempenault', 'Conseillère', '', 'adelaide@kadima.test', ?, 1, 2, 2)", [agId, agId, pixel]);
+  await db.run("INSERT INTO crm_conseillers_direction (id, direction, updated_at) VALUES ('cs_dbl2', 1, 1)");
+  await db.run("INSERT INTO crm_parcours (estimation_id, agency_id, civilite, prenom, cp, type_bien, r1_heure, r2_heure, conseiller_id, journal, updated_at) VALUES ('es_dbl', ?, '', '', '', 'maison', '', '', 'cs_dbl2', '[]', 1)", [agId]);
+  const impF = await callR("/crm/conseillers/importer", { headers: auth, body: { profils: [{ prenom: "Adélaïde", nom: "Rempenault", agence: "saint-medard" }] } });
+  const csF = (await callR("/crm/conseillers", { headers: auth })).json.conseillers.filter((x) => /rempenault/i.test(x.nom) && /^ad.l/i.test(x.prenom));
+  ok(impF.json.fusions === 1 && csF.length === 1 && csF[0].id === "cs_dbl1" && csF[0].prenom === "Adélaïde" && csF[0].telephone === "06 99 99 99 99" && csF[0].email === "adelaide@kadima.test" && csF[0].a_photo && csF[0].direction && csF[0].fonction === "Conseillère" && csF[0].agence === "saint-medard"
+     && (await db.get("SELECT conseiller_id FROM crm_parcours WHERE estimation_id = 'es_dbl'")).conseiller_id === "cs_dbl1",
+     "les deux Adélaïde fusionnent : un seul profil, accentué, avec tout ce que les deux avaient, et le parcours suit (" + JSON.stringify(impF.json) + " " + JSON.stringify(csF.map((x) => ({ ...x, photo_url: undefined }))) + ")");
+  await db.run("DELETE FROM crm_parcours WHERE estimation_id = 'es_dbl'");
+  await callR("/crm/conseillers/cs_dbl1", { headers: auth, method: "DELETE" });
+  const imp2 = await callR("/crm/conseillers/importer", { headers: auth, body: {} });
+  ok(imp2.status === 200 && imp2.json.ajoutes === 0 && (await callR("/crm/conseillers", { headers: auth })).json.conseillers.length === csImp.length, "relancer l'import n'ajoute rien");
+  const doublon = await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "teddy", nom: "besson", fonction: "Négociateur" } });
+  ok(doublon.status === 200 && doublon.json.id === teddy.json.id && doublon.json.existant, "créer « teddy besson » sans id complète le profil existant au lieu de le doubler");
+  await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test" } });
+  for (const x of csImp) if (x.id !== teddy.json.id && x.nom !== "Zamora") await callR("/crm/conseillers/" + x.id, { headers: auth, method: "DELETE" });
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agence: { adresse: "20 rue François Mitterrand, Saint-Médard-en-Jalles", instagram: "https://instagram.com/century_21_kadima", facebook: "https://www.facebook.com/century21.kadima", avis: "https://g.page/r/CUA5uMo-Z_RcEB0/review" } } });
   // La fiche du parcours : client, bien, conseiller, R1 et R2 avec leurs heures.
   const pxCree = await callR("/crm/parcours", { headers: authP, body: {
     civilite: "M. et Mme", prenom: "Jean", nom: "MOUNEYRES", email: "mouneyres@exemple.fr", telephone: "0600000002",
     adresse: "12 rue du Mandat Confiance", cp: "33160", ville: "SAINT AUBIN DE MEDOC", type_bien: "maison",
     conseiller_id: teddy.json.id, r1: "2026-04-20", r1_heure: "10:00", r2: "2026-04-27", r2_heure: "12:30" } });
-  ok(pxCree.status === 200 && pxCree.json.id, "fiche parcours créée (elle est aussi une fiche estimation)");
+  ok(pxCree.status === 200 && pxCree.json.id && pxCree.json.contact_cree && pxCree.json.contact_id, "fiche parcours créée (elle est aussi une fiche estimation) et le contact avec elle");
+  const ctPx = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.id === pxCree.json.contact_id);
+  ok(ctPx && ctPx.nom === "MOUNEYRES" && ctPx.prenom === "Jean" && ctPx.civilite === "M. et Mme" && ctPx.email === "mouneyres@exemple.fr" && ctPx.types.includes("estime") && ctPx.source === "parcours",
+     "le contact créé porte civilité, prénom, nom, e-mail, et la typologie « estimé »");
+  const pxBis = await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "MOUNEYRES", prenom: "Jean", adresse: "Ailleurs", ville: "Pessac" } });
+  ok(pxBis.status === 200 && !pxBis.json.contact_cree && pxBis.json.contact_id === pxCree.json.contact_id, "un second parcours pour le même nom + prénom réutilise la fiche contact");
+  const pxChoisi = await callR("/crm/parcours", { headers: authP, body: { contact_id: ctPx.id, nom: "AUTRE NOM", adresse: "3 rue Choisie", ville: "Pessac" } });
+  ok(pxChoisi.status === 200 && pxChoisi.json.contact_id === ctPx.id && !pxChoisi.json.contact_cree, "un contact choisi dans la recherche est lié tel quel");
+  for (const idSup of [pxBis.json.id, pxChoisi.json.id]) await db.run("DELETE FROM crm_estimations WHERE id = ?", [idSup]);
   const pxId = pxCree.json.id;
   const pxFiche = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
   ok(pxFiche.prenom === "Jean" && pxFiche.type_bien === "maison" && pxFiche.r1_heure === "10:00" && pxFiche.conseiller.nom === "BESSON" && pxFiche.conseiller.photo_url && pxFiche.emails.includes("mouneyres@exemple.fr"),
@@ -3333,6 +3416,10 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "entre R1 et R2 : date du R2, adresse de l'agence, liste des pièces d'une maison");
   const ap3 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=apres-r2", { headers: authP })).json;
   ok(/g\.page\/r\/CUA5uMo/.test(ap3.texte) && /<a href="https:\/\/g\.page/.test(ap3.html), "après R2 : le lien d'avis Google, cliquable dans le rendu");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agence: { avis: "" } } });
+  const ap3b = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=apres-r2", { headers: authP })).json;
+  ok(/https:\/\/g\.page\/r\/CUA5uMo-Z_RcEB0\/review/.test(ap3b.texte) && /Nos avis clients/.test(ap3b.html), "sans réglage « Avis Google », le lien Kadima part quand même (texte et signature)");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agence: { avis: "https://g.page/r/CUA5uMo-Z_RcEB0/review" } } });
   // Envoi avec le texte relu : le mail part au nom du conseiller, se journalise, et la séquence auto ne le renverra pas.
   const avantEnvoi = mailsRecus.length;
   const envPx = await callR("/crm/parcours/" + pxId + "/envoyer", { headers: authP, body: { jalon: "avant-r1", sujet: ap1.sujet, texte: ap1.texte.replace("belle journée", "excellente journée") } });
@@ -3345,12 +3432,180 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const et = await callR("/crm/parcours/" + pxId + "/etape", { headers: authP, body: { etape: "guide-r1" } });
   ok(et.status === 200 && et.json.journal.some((j) => j.etape === "guide-r1"), "une étape faite hors e-mail (guide imprimé) se coche");
   ok((await callR("/crm/parcours/" + pxId + "/apercu?jalon=inconnu", { headers: authP })).status === 400, "jalon inconnu refusé");
+  // Compléter la fiche du parcours met à jour la fiche contact principale (sans rien effacer).
+  const ctAvant = await db.get("SELECT * FROM crm_contacts WHERE id = ?", [pxFiche.contact_id]);
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { telephone: "06 11 22 33 44", adresse: "14 rue du Mandat Confiance", cp: "33160", ville: "Saint-Aubin-de-Médoc", prenom: "" } });
+  const ctApres = await db.get("SELECT * FROM crm_contacts WHERE id = ?", [pxFiche.contact_id]);
+  ok(ctAvant && ctApres.telephone === "06 11 22 33 44" && ctApres.adresse === "14 rue du Mandat Confiance" && ctApres.cp === "33160" && ctApres.email === ctAvant.email && ctApres.prenom === ctAvant.prenom && ctApres.updated_at >= ctAvant.updated_at,
+     "compléter la fiche du parcours (téléphone, adresse) remonte sur la fiche contact ; un champ vidé n'efface rien (" + ctApres.telephone + ", " + ctApres.adresse + ")");
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { adresse: "12 rue du Mandat Confiance", prenom: "Jean" } });
   const pxMaj = await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "appartement", r2: "2026-04-28", r2_heure: "9:00" } });
   const ap2b = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
   ok(pxMaj.status === 200 && /mardi 28 avril à 9h/.test(ap2b.texte) && /procès-verbaux/.test(ap2b.texte) && /votre appartement/.test(ap2b.texte),
      "modifier la fiche (appartement, nouveau R2) change le texte proposé");
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: marine.id } });
+  const apM = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
+  ok(/Marine Zamora/.test(apM.html) && /Conseillère immobilier/.test(apM.html) && /06 11 22 33 44/.test(apM.html), "changer le signataire : nom, fonction par défaut au féminin et téléphone dans la signature");
+  // Les agences du groupe : le conseiller rattaché à un point de vente écrit au nom de SON agence (nom, adresse, mentions).
+  const rgA = await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agence: { mentions: "SAS Kadima — RCS Bordeaux 000 000 000" },
+    agences: [{ nom: "CENTURY 21 Kadima — Saint-Médard-en-Jalles" }, { nom: "CENTURY 21 Kadima — Bordeaux Caudéran", adresse: "5 avenue de Caudéran, 33200 Bordeaux", telephone: "05 56 00 00 00", mentions: "Carte pro CPI 3301 2026 000 000 002" }, { cle: "x", nom: "" }] } });
+  const agcs = rgA.json.reglages.agences;
+  ok(rgA.status === 200 && agcs.length === 2 && agcs[0].cle === "century-21-kadima-saint-medard-en-jalles" && agcs[1].cle === "century-21-kadima-bordeaux-cauderan" && rgA.json.reglages.agence.mentions.startsWith("SAS Kadima"),
+     "les agences se rangent avec une clé lisible, une agence sans nom est ignorée, les mentions générales sont gardées (" + JSON.stringify(agcs.map((a) => a.cle)) + ")");
+  await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: marine.id, prenom: "Marine", nom: "Zamora", telephone: "06 11 22 33 44", agence: agcs[1].cle } });
+  const csAg = (await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === marine.id);
+  const ficheAg = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
+  const apAg = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
+  ok(csAg.agence === agcs[1].cle && ficheAg.agence.pv === agcs[1].cle && ficheAg.agence.adresse === "5 avenue de Caudéran, 33200 Bordeaux" && ficheAg.agence.mentions.startsWith("Carte pro"),
+     "le profil porte son agence et la fiche parcours renvoie l'identité de cette agence pour les guides");
+  ok(/5 avenue de Caudéran/.test(apAg.texte) && !/François Mitterrand/.test(apAg.texte) && /Bordeaux Caudéran/.test(apAg.html) && /Carte pro CPI/.test(apAg.html) && !/SAS Kadima/.test(apAg.html),
+     "le mail entre R1 et R2 donne rendez-vous à l'agence du conseiller, avec son nom et ses mentions légales");
+  await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: marine.id, prenom: "Marine", nom: "Zamora", telephone: "06 11 22 33 44", agence: agcs[0].cle } });
+  const apAg2 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
+  ok(/François Mitterrand/.test(apAg2.texte) && /SAS Kadima/.test(apAg2.html) && /Saint-Médard-en-Jalles/.test(apAg2.html),
+     "une agence sans adresse ni mentions reprend celles de l'identité générale");
+  await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test", bio: "Texte gardé" } });
+  ok((await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === teddy.json.id).bio === "Texte gardé"
+     && (await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test" } })).status === 200
+     && (await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === teddy.json.id).bio === "Texte gardé",
+     "enregistrer le profil sans le champ texte ne l'efface pas");
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: teddy.json.id } });
+  // Périmètre : un conseiller ne voit que ses parcours (conseiller ou créateur) ; la direction voit tout.
+  const remi = await callR("/agency/users", { headers: auth, method: "POST", body: { email: "remi@ach-test.fr", name: "Rémi Blanc" } });
+  const authR = { Authorization: "Bearer " + (await callR("/auth/exchange", { body: { token: remi.json.invite_link.split("#token=")[1] } })).json.session };
+  const impD = await callR("/crm/conseillers/importer", { headers: auth, body: { directeurs: ["Admin"] } });
+  const csDir = (await callR("/crm/conseillers", { headers: auth })).json.conseillers;
+  const profilRemi = csDir.find((x) => x.email === "remi@ach-test.fr"), profilAdmin = csDir.find((x) => x.email === "ach-admin@ach-test.fr");
+  ok(impD.json.direction === 1 && profilAdmin && profilAdmin.direction && profilRemi && !profilRemi.direction && profilRemi.prenom === "Rémi",
+     "l'import relie le nouveau compte et pose le drapeau direction sur les prénoms donnés (" + JSON.stringify(impD.json) + ")");
+  const listeR = (await callR("/crm/parcours", { headers: authR })).json;
+  ok(listeR.tous === false && listeR.parcours.length === 0 && (await callR("/crm/parcours/" + pxId, { headers: authR })).status === 404,
+     "un conseiller sans parcours n'en voit aucun, et la fiche d'un autre lui est introuvable");
+  ok((await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authR })).status === 404 && (await callR("/crm/parcours/" + pxId + "/etape", { headers: authR, body: { etape: "acm" } })).status === 404
+     && (await callR("/crm/parcours/" + pxId, { headers: authR, method: "PUT", body: { nom: "PIRATE" } })).status === 404,
+     "ni l'aperçu, ni les étapes, ni la modification d'un parcours hors périmètre");
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: profilRemi.id } });
+  const listeR2 = (await callR("/crm/parcours", { headers: authR })).json.parcours;
+  ok(listeR2.length === 1 && listeR2[0].id === pxId && (await callR("/crm/parcours/" + pxId, { headers: authR })).status === 200, "devenu conseiller du parcours, il le voit et l'ouvre");
+  const listeP = (await callR("/crm/parcours", { headers: authP })).json;
+  ok(listeP.tous === false && listeP.parcours.some((p) => p.id === pxId), "le créateur de la fiche continue de la voir");
+  const pxR = await callR("/crm/parcours", { headers: authR, body: { civilite: "Mme", nom: "PRIVEE", prenom: "Anne", adresse: "1 rue Secrète", ville: "Pessac" } });
+  ok(pxR.status === 200 && !(await callR("/crm/parcours", { headers: authP })).json.parcours.some((p) => p.id === pxR.json.id) && (await callR("/crm/parcours/" + pxR.json.id, { headers: authP })).status === 404,
+     "le parcours créé par Rémi est invisible pour Carto");
+  const listeDir = (await callR("/crm/parcours", { headers: auth })).json;
+  ok(listeDir.tous === true && listeDir.parcours.some((p) => p.id === pxR.json.id) && listeDir.parcours.some((p) => p.id === pxId), "la direction voit tout");
+  await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { ...profilAdmin, direction: false } });
+  ok((await callR("/crm/parcours", { headers: auth })).json.tous === false, "le drapeau direction se retire depuis le profil");
+  await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { ...profilAdmin, direction: true } });
+  await db.run("DELETE FROM crm_estimations WHERE id = ?", [pxR.json.id]);
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: teddy.json.id } });
+  // Plusieurs propriétaires : un co-propriétaire choisi ou créé, les mails s'adressent à tous, chacun reçoit sa copie.
+  const prop1 = await callR("/crm/parcours/" + pxId + "/proprietaires", { headers: authP, body: { civilite: "Mme", prenom: "Sophie", nom: "DURAND", email: "sophie.durand@exemple.fr" } });
+  ok(prop1.status === 200 && prop1.json.contact_cree && prop1.json.proprietaires.length === 2 && prop1.json.proprietaires[0].principal && prop1.json.proprietaires[0].nom === "MOUNEYRES" && prop1.json.proprietaires[1].nom === "DURAND",
+     "un co-propriétaire se crée et se lie, la fiche principale reste en tête");
+  const ficheProp = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
+  const apProp = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
+  ok(ficheProp.proprietaires.length === 2 && ficheProp.emails.includes("sophie.durand@exemple.fr") && /madame, monsieur MOUNEYRES, madame DURAND/.test(apProp.texte) && apProp.destinataires.length === 2,
+     "le mail s'adresse aux deux propriétaires et part aux deux adresses (" + JSON.stringify({ civ: apProp.texte.split("\n")[0] }) + ")");
+  const prop2 = await callR("/crm/parcours/" + pxId + "/proprietaires", { headers: authP, body: { civilite: "Mme", prenom: "Sophie", nom: "durand" } });
+  ok(prop2.status === 200 && !prop2.json.contact_cree && prop2.json.contact_id === prop1.json.contact_id && prop2.json.proprietaires.length === 2, "le même nom + prénom ne crée pas de doublon");
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ civilite: "Mme", nom: "MOUNEYRES", prenom: "Anne", email: "anne.mouneyres@exemple.fr" }] } });
+  const anneCt = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.email === "anne.mouneyres@exemple.fr");
+  const propMemeNom = await callR("/crm/parcours/" + pxId + "/proprietaires", { headers: authP, body: { contact_id: anneCt.id } });
+  const apMemeNom = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
+  ok(propMemeNom.status === 200 && propMemeNom.json.proprietaires.length === 3 && apMemeNom.destinataires.length === 3, "un contact choisi dans la recherche se lie tel quel (" + JSON.stringify(propMemeNom.json.proprietaires.map((o) => o.nom)) + ")");
+  ok((await callR("/crm/parcours/" + pxId + "/proprietaires/" + ctPx.id, { headers: authP, method: "DELETE" })).status === 400, "la fiche principale ne se retire pas");
+  for (const cid of [prop1.json.contact_id, propMemeNom.json.contact_id]) await callR("/crm/parcours/" + pxId + "/proprietaires/" + cid, { headers: authP, method: "DELETE" });
+  const apSeul = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
+  ok((await callR("/crm/parcours/" + pxId, { headers: authP })).json.proprietaires.length === 1 && /madame, monsieur MOUNEYRES,\n/.test(apSeul.texte) && apSeul.destinataires.length === 1, "retirés, le mail redevient celui d'un seul foyer");
+  // Commission d'évaluation : lien public, avis des collègues, groupes et tiers comme Kadimestim, clôture.
+  const comOuv = await callR("/crm/parcours/" + pxId + "/commission/ouvrir", { headers: authP, body: {} });
+  const jeton = new URL(comOuv.json.lien, "http://x").searchParams.get("t");
+  ok(comOuv.status === 200 && comOuv.json.ouvert && /\/administration\/commission\.html\?t=/.test(comOuv.json.lien) && jeton && jeton.length >= 20 && comOuv.json.avis.length === 0, "la commission s'ouvre avec un lien public (" + comOuv.json.lien.slice(0, 60) + "…)");
+  ok((await callR("/crm/parcours/" + pxId + "/commission/ouvrir", { headers: authP, body: {} })).json.lien === comOuv.json.lien, "rouvrir garde le même lien");
+  ok((await callR("/crm/parcours/" + pxId + "/commission", { headers: authR })).status === 404, "la commission d'un parcours hors périmètre est introuvable");
+  const pub = await callR("/public/commission?t=" + jeton, {});
+  ok(pub.status === 200 && ["Maison", "Appartement"].includes(pub.json.bien.type) && /Mandat Confiance|Vignes/.test(pub.json.bien.adresse) && pub.json.nb_avis === 0 && !pub.json.ferme, "le collègue voit le bien sans session (" + JSON.stringify(pub.json.bien).slice(0, 120) + ")");
+  ok((await callR("/public/commission?t=inconnu-inconnu-inconnu", {})).status === 404 && (await callR("/public/commission?t=x", {})).status === 400, "lien inconnu ou mal formé refusé");
+  for (const [nom, mn, mx] of [["Teddy", 300000, 320000], ["Marine", 310000, 330000], ["Rémi", 310000, 330000], ["Adeline", 320000, 340000]]) ok((await callR("/public/commission?t=" + jeton, { body: { nom, prix_min: mn, prix_max: mx, note: nom === "Rémi" ? "belle parcelle" : "" } })).status === 200, "avis de " + nom + " accepté");
+  ok((await callR("/public/commission?t=" + jeton, { body: { nom: "X", prix_min: 320000, prix_max: 300000 } })).status === 400, "une fourchette inversée est refusée");
+  const comVue = (await callR("/crm/parcours/" + pxId + "/commission", { headers: authP })).json;
+  ok(comVue.avis.length === 4 && comVue.groupes.length === 3 && comVue.groupes[1].nb === 2 && comVue.groupes[1].notes[0] === "belle parcelle" && comVue.tiers.raison.nb === 2 && comVue.tiers.repli.moyenne === 310000 && comVue.tiers.ambition.moyenne === 330000,
+     "4 avis → 3 fourchettes groupées (2 conseillers sur 310–330 k) et les tiers repli / raison / ambition (" + JSON.stringify(comVue.tiers) + ")");
+  const supAv = await callR("/crm/parcours/" + pxId + "/commission/avis/" + comVue.avis[3].id, { headers: authP, method: "DELETE" });
+  ok(supAv.status === 200 && supAv.json.avis.length === 3, "un avis se retire");
+  const ferme = await callR("/crm/parcours/" + pxId + "/commission/fermer", { headers: authP, body: {} });
+  ok(ferme.json.ferme && (await callR("/public/commission?t=" + jeton, { body: { nom: "Tard", prix_min: 300000, prix_max: 310000 } })).status === 409 && (await callR("/public/commission?t=" + jeton, {})).json.ferme, "close, la commission n'accepte plus d'avis");
+  // Effacer un parcours : dans son périmètre seulement ; la fiche disparaît de Studio Estimation, le contact reste.
+  const pxSup = (await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "EFFACE", prenom: "Paul", adresse: "1 rue Gommée", ville: "Pessac" } })).json;
+  ok((await callR("/crm/parcours/" + pxSup.id, { headers: authR, method: "DELETE" })).status === 404, "un autre conseiller ne peut pas effacer ce parcours");
+  const supPx = await callR("/crm/parcours/" + pxSup.id, { headers: authP, method: "DELETE" });
+  ok(supPx.status === 200 && (await callR("/crm/parcours/" + pxSup.id, { headers: authP })).status === 404 && !(await callR("/crm/estimations", { headers: authP })).json.estimations.some((e) => e.id === pxSup.id)
+     && (await callR("/crm/contacts", { headers: auth })).json.contacts.some((x) => x.id === pxSup.contact_id),
+     "effacé : plus de parcours ni de fiche estimation, le contact est gardé");
   const lp = (await callR("/crm/parcours", { headers: authP })).json.parcours.find((p) => p.id === pxId);
   ok(lp && lp.cs_nom === "BESSON" && lp.journal.length === 2, "la liste des parcours porte le conseiller et l'avancement (" + JSON.stringify(lp && { cs: lp.cs_nom, journal: lp.journal }) + ")");
+  // Guide R2 : ce que le conseiller saisit (photo du bien, points forts, objections, son texte).
+  const r2put = await callR("/crm/parcours/" + pxId + "/r2", { headers: authP, method: "PUT", body: { photo: pixel, points_forts: "Le box\nLa disposition des pièces", objections: "La route passante", bio: "Après 12 ans dans la grande distribution…", genre: "m" } });
+  const r2 = (await callR("/crm/parcours/" + pxId + "/r2", { headers: authP })).json;
+  ok(r2put.status === 200 && r2.photo === pixel && /box/.test(r2.points_forts) && r2.objections === "La route passante" && r2.conseiller.bio.startsWith("Après 12 ans") && r2.conseiller.genre === "m" && r2.conseiller.photo === pixel,
+     "photo, points forts, objections et texte du conseiller sont relus (" + JSON.stringify({ genre: r2.conseiller.genre }) + ")");
+  ok((await callR("/crm/parcours/" + pxId + "/r2", { headers: authP, method: "PUT", body: { photo: "data:text/plain;base64,QUJD" } })).status === 400, "une photo qui n'est pas une image est refusée");
+  ok((await callR("/crm/conseillers", { headers: authP })).json.conseillers.find((x) => x.id === teddy.json.id).bio.startsWith("Après 12 ans"), "le texte du conseiller est aussi dans son profil");
+  // Environnement du bien : géocodage (BAN), commune, commodités, ventes à 1 km.
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { adresse: "7 Impasse des Vignes", cp: "33185", ville: "Le Haillan" } });
+  await db.run("INSERT INTO crm_ventes (id, agency_id, vendeur, adresse, ville, date_acte, prix, type, cle, created_at, updated_at) VALUES ('vt_pres', ?, 'DUPONT', '9 impasse des Vignes', 'Le Haillan', '2025-06-01', 380000, 'maison', 'vt-pres', 1, 1), ('vt_loin', ?, 'MARTIN', '1 rue Lointaine', 'Bordeaux', '2025-01-01', 250000, 'appartement', 'vt-loin', 1, 1)", [agId, agId]);
+  await db.run("INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES ('vt_pres', ?, 44.9030, -0.6790, 'x', 1, 'x', 1), ('vt_loin', ?, 44.8400, -0.5800, 'y', 1, 'y', 1)", [agId, agId]);
+  const envr = await callR("/crm/parcours/" + pxId + "/environnement", { headers: authP });
+  const cats = new Set((envr.json.commodites || []).map((x) => x.cat));
+  ok(envr.status === 200 && Math.abs(envr.json.lat - 44.9012) < 0.001 && envr.json.commune.nom === "Le Haillan" && envr.json.commune.densite === 1285 && envr.json.commune.departement === "Gironde",
+     "le bien est géocodé et sa commune lue avec sa densité (" + JSON.stringify(envr.json.commune) + ")");
+  ok(cats.has("ecole") && cats.has("commerce") && cats.has("sante") && cats.has("transport") && cats.has("loisir") && !envr.json.commodites.some((x) => /Hôtel/.test(x.nom))
+     && envr.json.commodites.filter((x) => x.nom === "Mairie").length === 1 && envr.json.commodites[0].dist <= envr.json.commodites[1].dist,
+     "les commodités sont classées, dédoublonnées et triées par distance (" + envr.json.commodites.length + ")");
+  ok(envr.json.ventes.some((v) => v.date === "2025-06-01" && v.dist > 100 && v.dist < 1000) && !envr.json.ventes.some((v) => /Lointaine/.test(v.adresse)) && envr.json.ventes.every((v) => v.dist <= 1000),
+     "les ventes de l'agence à moins d'un kilomètre sont retenues, la lointaine non (" + envr.json.ventes.length + ")");
+  ok((await db.get("SELECT lat FROM crm_estimations WHERE id = ?", [pxId])).lat > 44, "la position géocodée est gardée sur la fiche");
+  ok((await db.get("SELECT COUNT(*) AS n FROM crm_environnement")).n === 1, "commune et commodités sont mises en cache");
+  // Livret prix : la saisie se garde (nettoyée), les données comparables se relèvent, les photos ne se relaient que si elles sont connues.
+  const tNow = Math.floor(Date.now() / 1000);
+  const acmPut = await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { prix: 330000, basse: 320000, haute: 340000, commission: [{ nb: 3, basse: 300000, haute: 320000 }], ventes: [{ id: "dvf:1", prix: 315000, surface: 100, adresse: "1 rue\u0007Test" }], acheteurs_texte: "ok", profond: { a: { b: { c: { d: { e: { f: 1 } } } } } } } });
+  const acmGet = (await callR("/crm/parcours/" + pxId + "/acm", { headers: authP })).json;
+  ok(acmPut.status === 200 && acmGet.acm.prix === 330000 && acmGet.acm.commission[0].nb === 3 && acmGet.acm.ventes[0].adresse === "1 rueTest" && acmGet.acm.profond.a.b.c.d.e === null,
+     "la saisie du livret prix se relit, nettoyée des caractères de contrôle et bornée en profondeur");
+  ok((await callR("/crm/parcours/" + pxId + "/acm", { headers: authR })).status === 404, "le livret d'un parcours hors périmètre est introuvable");
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } });
+  const dn0 = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
+  await db.run("INSERT OR REPLACE INTO crm_annonces (agency_id, id, url, titre, type, prix, ville, cp, pieces, surface, dpe, description, image, statut, price_history, first_seen, last_seen) VALUES (?, 'maison-haillan-1', 'https://site/maison-1', 'Maison 4 pièces', 'maison', 349000, 'Le Haillan', '33185', 4, 95, 'C', '', 'https://site/photos/m1.jpg', 'en_vente', '[{\"date\":\"2026-08-01\",\"prix\":359000},{\"date\":\"2026-09-01\",\"prix\":349000}]', ?, ?)", [agId, tNow - 40 * 86400, tNow]);
+  await db.run("INSERT OR REPLACE INTO crm_amepi (agency_id, id, ref, agence, source, type, prix, ancien_prix, ville, cp, pieces, chambres, surface, terrain, lat, lng, etat_id, statut, image, url, maj, first_seen, last_seen) VALUES (?, 'am-1', 'REF1', 'Orpi Le Haillan', '2', 'maison', 329000, 339000, 'Le Haillan', '33185', 4, 3, 87, 137, 44.8705, -0.7125, 1, 'en_vente', 'https://amanda/photos/am1.jpg', 'https://amanda/am-1', '', ?, ?), (?, 'am-2', 'REF2', 'X', '2', 'appartement', 200000, NULL, 'Le Haillan', '33185', 2, 1, 45, 0, 44.8705, -0.7125, 1, 'en_vente', '', '', '', ?, ?)", [agId, tNow - 10 * 86400, tNow, agId, tNow, tNow]);
+  await db.run("INSERT OR REPLACE INTO crm_recherches (contact_id, agency_id, actif, budget_min, budget_max, types, villes, pieces_min, surface_min, notes, user_id, created_at, updated_at) VALUES ('ct_ach1', ?, 1, 250000, 340000, '[\"maison\"]', '[\"Le Haillan\"]', 4, 80, '', '', 1, 1), ('ct_ach2', ?, 1, 0, 200000, '[\"appartement\"]', '[]', 0, 0, '', '', 1, 1), ('ct_ach3', ?, 0, 0, 900000, '[]', '[]', 0, 0, '', '', 1, 1)", [agId, agId, agId]);
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } });
+  const dnRep = await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP });
+  const dn = dnRep.json || {};
+  dn.ventes = dn.ventes || []; dn.annonces = dn.annonces || []; dn.amepi = dn.amepi || []; dn.acheteurs = dn.acheteurs || [];
+  const anH = dn.annonces.find((a) => a.id === "maison-haillan-1");
+  ok(dn.commune && dn.commune.code && dn.type === "maison" && dn.ventes.some((v) => /Vignes/.test(v.adresse)) && anH && anH.baisse === 10000 && anH.jours >= 39 && !dn.annonces.some((a) => a.type === "appartement")
+     && dn.amepi.length === 1 && dn.amepi[0].agence === "Orpi Le Haillan" && dn.amepi[0].baisse === 10000 && dn.amepi[0].dist < 6000
+     && dn.acheteurs.some((a) => a.budget_max === 340000) && dn.acheteurs.length === (dn0.acheteurs || []).length + 1,
+     "les données comparables : commune INSEE, ventes de l'agence à 2 km, notre annonce (baisse, ancienneté), le mandat ALFA de même type, l'acheteur qui cherche une maison au Haillan — pas celui d'un appartement ni la recherche en pause (" + JSON.stringify({ com: dn.commune, v: dn.ventes.length, vignes: dn.ventes.some((v) => /Vignes/.test(v.adresse)), anH: anH && { baisse: anH.baisse, jours: anH.jours }, appt: dn.annonces.some((a) => a.type === "appartement"), am: dn.amepi.map((a) => [a.agence, a.baisse, a.dist]), ach: [dn.acheteurs.length, (dn0.acheteurs || []).length, dn.acheteurs.some((a) => a.budget_max === 340000)] }) + ")");
+  const portails = (await callR("/crm/parcours/" + pxId + "/acm/portails?prix=330000", { headers: authP })).json;
+  await db.run("INSERT OR REPLACE INTO crm_amepi_photos (agency_id, id, photo, updated_at) VALUES (?, 'am-1', ?, 1)", [agId, pixel]);
+  const dnPh = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
+  ok(dnPh.amepi.find((a) => a.id === "am-1").photo === pixel, "la vignette rapatriée par l'agent accompagne le mandat ALFA dans les données du livret");
+  await db.run("DELETE FROM crm_amepi_photos WHERE id = 'am-1'");
+  ok(portails.biens.length === 1 && portails.biens[0].id === "bienici:orpi-1" && portails.biens[0].agence === "ORPI Le Haillan" && portails.biens[0].baisse === 1 && portails.biens[0].jours >= 11 && portails.biens[0].terrain === 322 && /bienici\.com\/annonce\/vente\/le-haillan\/maison\/4pieces\/orpi-1/.test(portails.biens[0].url) && portails.biens[0].dist != null,
+     "Bien'ici : les biens de la commune, même type, autour du prix (le bien à 900 000 € écarté), avec agence, baisse, ancienneté, distance et lien (" + JSON.stringify(portails.biens.map((b) => [b.id, b.dist])) + ")");
+  await db.run("UPDATE crm_annonces SET image = '/photos/biens/relative-640.webp' WHERE id = 'maison-haillan-1'");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { annonces: { siteUrl: "http://localhost:1" } } });
+  const dnRel = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
+  const relRep = await callR("/crm/parcours-image?u=" + encodeURIComponent("/photos/biens/relative-640.webp"), { headers: authP });
+  const absRep = await callR("/crm/parcours-image?u=" + encodeURIComponent("http://localhost:1/photos/biens/relative-640.webp"), { headers: authP });
+  ok(dnRel.annonces.find((a) => a.id === "maison-haillan-1").image === "http://localhost:1/photos/biens/relative-640.webp" && relRep.status === 502 && absRep.status === 502,
+     "l'image relative de notre annonce est résolue sur le site de l'agence, et le relais l'accepte sous ses deux formes (" + relRep.status + "/" + absRep.status + ")");
+  await callR("/crm/reglages", { headers: auth, method: "PUT", body: { annonces: { siteUrl: "" } } });
+  ok((await callR("/crm/parcours-image?u=https://site/photos/inconnue.jpg", { headers: authP })).status === 404 && (await callR("/crm/parcours-image?u=javascript:alert(1)", { headers: authP })).status === 400,
+     "le relais d'images ne sert que les photos connues des annonces et mandats");
+  await db.run("DELETE FROM crm_annonces WHERE id = 'maison-haillan-1'"); await db.run("DELETE FROM crm_amepi WHERE id IN ('am-1', 'am-2')"); await db.run("DELETE FROM crm_recherches WHERE contact_id IN ('ct_ach1', 'ct_ach2', 'ct_ach3')");
 
   console.log("— AMEPI : connexion, relevé du fichier des mandats, rapprochement");
   // Le réglage par défaut ne garde que « mon ALFA » (2) ; ce bloc teste les trois sources.
@@ -3451,6 +3706,15 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(cons.status === 200 && JSON.stringify(cons.json.sources) === '["1","2","3"]' && JSON.stringify(cons.json.departements) === '["33"]',
      "l'agent lit ses consignes (sources, départements) avec sa clé (" + JSON.stringify(cons.json) + ")");
   ok((await callR("/crm/amepi/consignes", {})).status === 401, "sans clé, pas de consignes");
+  // Les vignettes : l'agent voit les mandats en vente sans photo, dépose des JPEG réduits ; les autres formats et les inconnus sont refusés.
+  await db.run("INSERT OR REPLACE INTO crm_amepi (agency_id, id, ref, agence, source, type, prix, ancien_prix, ville, cp, pieces, chambres, surface, terrain, lat, lng, etat_id, statut, image, url, maj, first_seen, last_seen) VALUES (?, 'ph-1', 'P1', 'Orpi', '2', 'maison', 300000, NULL, 'Le Haillan', '33185', 4, 3, 90, 300, 44.87, -0.71, 1, 'en_vente', 'https://amepistorageprod.blob.core.windows.net/ph-1.jpg', '', '', 1, 2)", [agId]);
+  const mq1 = (await callR("/crm/amepi/photos/manquantes", { headers: enteteAgent })).json;
+  ok(mq1.mandats.some((m) => m.id === "ph-1" && /blob\.core/.test(m.image)), "l'agent reçoit les mandats en vente dont la vignette manque, avec l'URL à télécharger");
+  const dep = await callR("/crm/amepi/photos", { headers: enteteAgent, body: { photos: [{ id: "ph-1", photo: pixel }, { id: "inconnu", photo: pixel }, { id: "ph-1", photo: "data:image/png;base64,iVBORw0KGgo=" }] } });
+  const mq2 = (await callR("/crm/amepi/photos/manquantes", { headers: enteteAgent })).json;
+  ok(dep.status === 200 && dep.json.gardees === 1 && dep.json.refusees === 2 && !mq2.mandats.some((m) => m.id === "ph-1"), "le dépôt garde le JPEG du mandat connu, refuse l'inconnu et le PNG ; le mandat sort des manquants (" + JSON.stringify(dep.json) + ")");
+  ok((await callR("/crm/amepi/photos", { body: { photos: [] } })).status === 401, "sans clé, pas de dépôt de photos");
+  await db.run("DELETE FROM crm_amepi WHERE id = 'ph-1'"); await db.run("DELETE FROM crm_amepi_photos WHERE id = 'ph-1'");
   ok((await callR("/crm/amepi/import", { headers: enteteAgent, body: { mandats: new Array(501).fill({ id: 1 }) } })).status === 400, "plus de 500 mandats par dépôt : refusé");
   // Le fichier Amanda couvre toute la France : seuls les départements du
   // réglage (33 par défaut) entrent en base ; un changement de réglage purge.
@@ -3569,7 +3833,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/ilots/bulk", { headers: authP, body: { ilots: [] } })).status === 403,
     "l'import d'îlots est réservé aux administrateurs");
 
-  fauxResend.close();
+  fauxResend.close(); fauxOverpass.close(); fauxGeo.close();
   fauxDvf.close();
   fauxBan.close();
 }

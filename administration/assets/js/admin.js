@@ -70,14 +70,81 @@
   let contactEnCours = null;   // id du contact ouvert dans la modale
   let importData = null;       // { entetes, lignes } en attente de mappage
 
+  /* -------------------------- Adresses (BAN) ------------------------------ */
+  // Saisie automatique des adresses sur tous les champs d'adresse : la BAN
+  // (api-adresse.data.gouv.fr) est interrogée par le navigateur, sans jeton.
+  // Un champ listé avec cp/ville reçoit « numéro + rue » et remplit ses voisins ;
+  // les autres reçoivent l'adresse complète.
+  const CHAMPS_ADRESSE = {
+    "px-adresse": { cp: "px-cp", ville: "px-ville" }, "of-adresse": { cp: "of-cp", ville: "of-ville" },
+    "p-adresse": { ville: "p-ville" }, "ee-adresse": { ville: "ee-ville" },
+    "agc-adresse": {}, "ag-adresse": {}, "acm-m-adresse": {}, "v-bien": {},
+  };
+  const BAN_BASE = ((window.StudioConfig && window.StudioConfig.banBase) || "https://api-adresse.data.gouv.fr").replace(/\/+$/, "");
+  function brancherAdresse(input, cfg) {
+    if (input.dataset.banOk) return;
+    input.dataset.banOk = "1"; input.setAttribute("autocomplete", "off");
+    let liste = null, minuteur = 0, actif = -1, resultats = [], derniereReq = 0;
+    const fermer = () => { if (liste) liste.remove(); liste = null; actif = -1; };
+    const poser = (champId, val) => { const el = champId && $(champId); if (!el) return; el.value = val; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); };
+    const choisir = (i) => {
+      const f = resultats[i]; if (!f) return;
+      const pr = f.properties || {};
+      const voisins = cfg.cp || cfg.ville;
+      // Le champ lui-même est posé sans évènement « input » : sinon la recherche repartait et la liste se rouvrait.
+      clearTimeout(minuteur); derniereReq++;
+      input.value = voisins ? (pr.name || pr.label || "") : (pr.label || ""); input.dispatchEvent(new Event("change", { bubbles: true }));
+      if (cfg.cp) poser(cfg.cp, pr.postcode || ""); if (cfg.ville) poser(cfg.ville, pr.city || "");
+      fermer();
+    };
+    const rendre = () => {
+      fermer(); if (!resultats.length) return;
+      liste = document.createElement("div"); liste.className = "sugg-adresse";
+      liste.style.left = input.offsetLeft + "px"; liste.style.top = (input.offsetTop + input.offsetHeight + 2) + "px"; liste.style.width = Math.max(input.offsetWidth, 240) + "px";
+      liste.innerHTML = resultats.map((f, i) => '<div data-i="' + i + '"' + (i === actif ? ' class="actif"' : "") + ">" + escH((f.properties || {}).label || "") + "</div>").join("");
+      liste.addEventListener("mousedown", (e) => { const d = e.target.closest("[data-i]"); if (d) { e.preventDefault(); choisir(+d.dataset.i); } });
+      input.insertAdjacentElement("afterend", liste);
+    };
+    const chercher = async () => {
+      const q = input.value.trim(); if (q.length < 3) { fermer(); return; }
+      const req = ++derniereReq;
+      try {
+        const r = await fetch(BAN_BASE + "/search/?q=" + encodeURIComponent(q) + "&limit=6&autocomplete=1");
+        const d = await r.json(); if (req !== derniereReq || document.activeElement !== input) return;
+        resultats = (d.features || []).filter((f) => f.properties && f.properties.label); actif = -1; rendre();
+      } catch { /* BAN muette : on laisse saisir */ }
+    };
+    input.addEventListener("input", () => { clearTimeout(minuteur); minuteur = setTimeout(chercher, 220); });
+    input.addEventListener("keydown", (e) => {
+      if (!liste) return;
+      if (e.key === "ArrowDown") { e.preventDefault(); actif = Math.min(actif + 1, resultats.length - 1); rendre(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); actif = Math.max(actif - 1, 0); rendre(); }
+      else if (e.key === "Enter") { e.preventDefault(); choisir(actif < 0 ? 0 : actif); }
+      else if (e.key === "Escape") fermer();
+    });
+    input.addEventListener("blur", () => setTimeout(fermer, 150));
+  }
+  document.addEventListener("focusin", (e) => {
+    const el = e.target;
+    if (el && el.tagName === "INPUT" && Object.prototype.hasOwnProperty.call(CHAMPS_ADRESSE, el.id)) brancherAdresse(el, CHAMPS_ADRESSE[el.id]);
+  });
+
   /* ------------------------------- Modale -------------------------------- */
   function ouvrirModale(titre, corpsHtml, piedHtml) {
     $("modale-titre").textContent = titre;
     $("modale-corps").innerHTML = corpsHtml;
     $("modale-pied").innerHTML = piedHtml || "";
+    if ($("voile").hidden && !(history.state && history.state.modale)) { try { history.pushState({ modale: true }, ""); } catch { /* sans historique */ } }
     $("voile").hidden = false;
+    $("modale-corps").scrollTop = 0;
   }
-  function fermerModale() { $("voile").hidden = true; }
+  // Le bouton « retour » (téléphone, navigateur) ferme la fenêtre ouverte au
+  // lieu de quitter l'Administration.
+  window.addEventListener("popstate", () => { if (!$("voile").hidden) { $("voile").hidden = true; document.querySelector(".modale").classList.remove("large"); } });
+  function fermerModale() {
+    $("voile").hidden = true; document.querySelector(".modale").classList.remove("large");
+    if (history.state && history.state.modale) { try { history.back(); } catch { /* rien */ } }
+  }
 
   /* ------------------------------ Contacts -------------------------------- */
   async function chargerContacts() {
@@ -993,6 +1060,8 @@
     $("ag-instagram").value = reglages.agence.instagram || "";
     $("ag-facebook").value = reglages.agence.facebook || "";
     $("ag-avis").value = reglages.agence.avis || "";
+    $("ag-mentions").value = reglages.agence.mentions || "";
+    rendreAgences();
     const of = reglages.offres || {};
     $("ofr-entete").value = of.entete || "";
     $("ofr-representant").value = of.representant || "";
@@ -1073,6 +1142,46 @@
         catch (e) { toast(e.message, true); }
       });
     } catch (e) { toast(e.message, true); }
+  }
+  /* --------------------------- Nos agences --------------------------- */
+  const agences = () => (reglages && Array.isArray(reglages.agences) ? reglages.agences : []);
+  const nomAgence = (cle) => { const a = agences().find((x) => x.cle === cle); return a ? a.nom : ""; };
+  function rendreAgences() {
+    const zone = $("table-agences");
+    if (!zone) return;
+    const liste = agences();
+    zone.innerHTML = liste.length
+      ? '<div class="tableau-cadre"><table><thead><tr><th>Agence</th><th>Adresse</th><th>Téléphone</th><th>E-mail</th><th>Mentions légales</th><th></th></tr></thead><tbody>' +
+        liste.map((a) => '<tr class="cliquable" data-agence="' + escH(a.cle) + '"><td><strong>' + escH(a.nom) + "</strong></td><td>" + escH(a.adresse || "—") + "</td><td>" +
+          escH(a.telephone || "—") + "</td><td>" + escH(a.email || "—") + "</td><td>" + (a.mentions ? "✓" : '<span class="petit">celles de l\'identité</span>') + "</td><td>✏️</td></tr>").join("") +
+        "</tbody></table></div>"
+      : '<div class="vide">Aucune agence — ajoutez la première (ou elles se créent depuis le guide R1 au prochain chargement).</div>';
+    zone.querySelectorAll("tr[data-agence]").forEach((tr) => tr.addEventListener("click", () => ouvrirAgence(tr.dataset.agence)));
+  }
+  function ouvrirAgence(cle) {
+    const a = cle ? agences().find((x) => x.cle === cle) : null;
+    const v = (k) => escH(a && a[k] || "");
+    ouvrirModale(a ? "✏️ " + a.nom : "+ Nouvelle agence",
+      '<div class="grille-champs">' +
+      '<label style="grid-column:1/-1;">Nom<input id="agc-nom" value="' + v("nom") + '" placeholder="CENTURY 21 Kadima — Bordeaux Caudéran" /></label>' +
+      '<label style="grid-column:1/-1;">Adresse<input id="agc-adresse" value="' + v("adresse") + '" placeholder="12 rue …, 33200 Bordeaux" /></label>' +
+      '<label>Téléphone<input id="agc-tel" value="' + v("telephone") + '" /></label>' +
+      '<label>E-mail<input id="agc-email" type="email" value="' + v("email") + '" /></label>' +
+      '<label style="grid-column:1/-1;">Avis Google de cette agence (lien « laissez-nous un avis » ; vide = celui de l\'identité)<input id="agc-avis" value="' + v("avis") + '" placeholder="https://g.page/r/…/review" /></label>' +
+      '<label style="grid-column:1/-1;">Mentions légales (vide = celles de l\'identité de l\'agence)<textarea id="agc-mentions" style="min-height:80px;">' + v("mentions") + "</textarea></label></div>",
+      (a ? '<button class="btn btn-danger" id="agc-supprimer">Supprimer</button>' : "") +
+      '<button class="btn" id="agc-annuler">Annuler</button><button class="btn btn-or" id="agc-save">Enregistrer</button>');
+    $("agc-annuler").addEventListener("click", fermerModale);
+    $("agc-save").addEventListener("click", async () => {
+      const maj = { cle: a ? a.cle : "", nom: $("agc-nom").value.trim(), adresse: $("agc-adresse").value.trim(), telephone: $("agc-tel").value.trim(), email: $("agc-email").value.trim(), avis: $("agc-avis").value.trim(), mentions: $("agc-mentions").value.trim() };
+      if (!maj.nom) { toast("Le nom de l'agence est requis", true); return; }
+      const liste = a ? agences().map((x) => (x.cle === a.cle ? maj : x)) : agences().concat([maj]);
+      if (await sauverReglages({ agences: liste }, "Agence enregistrée")) { fermerModale(); chargerConseillers(); }
+    });
+    if (a) $("agc-supprimer").addEventListener("click", async () => {
+      if (!confirm("Retirer « " + a.nom + " » ? Les conseillers qui y sont rattachés reprendront l'identité générale.")) return;
+      if (await sauverReglages({ agences: agences().filter((x) => x.cle !== a.cle) }, "Agence retirée")) { fermerModale(); chargerConseillers(); }
+    });
   }
   async function sauverReglages(partiel, message) {
     try {
@@ -2136,16 +2245,50 @@
   // Profils qui signent documents et e-mails du parcours R1/R2 : photo
   // réduite dans le navigateur (240 px, JPEG) avant d'être envoyée.
   let conseillers = [];
+  // Les profils suivent les accès : à chaque ouverture, les comptes de
+  // l'agence (+ les conseillers du guide R1, + l'annuaire) qui n'ont pas
+  // encore de profil en reçoivent un. Rien n'est écrasé.
+  // La direction voit tous les parcours R1/R2 ; les autres conseillers ne
+  // voient que les leurs. Le drapeau se pose à l'import (par prénom) et se
+  // change dans le profil.
+  const DIRECTION = ["benoit", "benjamin", "tiephaine", "tiphaine", "nathan"];
+  let profilsImportes = false;
+  async function importerConseillers(annoncer) {
+    let profils = [];
+    try {
+      const meta = await fetch("assets/guide-r1.json").then((r) => r.json());
+      profils = (meta.conseillers || []).map((c) => ({ prenom: c.prenom, nom: c.nom, email: c.email, telephone: c.telephone }));
+      // L'équipe du site century21-kadima.fr : photo, fonction et agence de
+      // chacun (les photos sont dans assets/conseillers, réduites à 240 px).
+      for (const m of meta.equipe || []) {
+        let photo = "";
+        try { const b = await fetch(m.photo).then((r) => (r.ok ? r.blob() : null)); if (b) photo = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); }); } catch { /* sans photo */ }
+        profils.push({ prenom: m.prenom, nom: m.nom, fonction: m.fonction || "", agence: m.agence || "", photo });
+      }
+      // Les points de vente du groupe se créent une fois, depuis le guide ; le reste se complète dans Réglages.
+      if (reglages && !agences().length && Array.isArray(meta.agences) && meta.agences.length) {
+        try { reglages = (await api("/crm/reglages", { method: "PUT", json: { agences: meta.agences } })).reglages; remplirFormulaires(); } catch { /* sans agences : identité générale */ }
+      }
+    } catch { /* guide absent : les comptes suffisent */ }
+    try {
+      const r = await api("/crm/conseillers/importer", { json: { profils, directeurs: DIRECTION } });
+      if (annoncer) toast(r.ajoutes ? r.ajoutes + " profil(s) ajouté(s)" + (r.completes ? ", " + r.completes + " complété(s)" : "") : "Tous les conseillers ont déjà leur profil");
+      return r;
+    } catch (e) { if (annoncer) toast(e.message, true); return null; }
+  }
   async function chargerConseillers() {
     try { conseillers = (await api("/crm/conseillers")).conseillers; } catch { conseillers = []; }
+    // L'import des profils (photos du site, lent sur téléphone) se fait en tâche
+    // de fond : le menu « Conseiller » n'attend pas, il se recharge ensuite.
+    if (!profilsImportes) { profilsImportes = true; importerConseillers(false).then((r) => { if (r && (r.ajoutes || r.completes)) chargerConseillers(); }); }
     const zone = $("table-conseillers");
     if (!zone) return;
     zone.innerHTML = conseillers.length
       ? '<div class="tableau-cadre"><table><thead><tr><th></th><th>Conseiller</th><th>Fonction</th><th>Téléphone</th><th>E-mail</th><th></th></tr></thead><tbody>' +
         conseillers.map((c) => '<tr class="cliquable" data-conseiller="' + c.id + '"><td>' +
           (c.photo_url ? '<img class="avatar" src="' + escH(c.photo_url) + '" alt="" />' : '<span class="avatar"></span>') + "</td><td><strong>" +
-          escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</strong>" + (c.actif ? "" : ' <span class="puce grise">inactif</span>') + "</td><td>" +
-          escH(c.fonction) + "</td><td>" + escH(c.telephone) + "</td><td>" + escH(c.email) + "</td><td>✏️</td></tr>").join("") +
+          escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</strong>" + (c.actif ? "" : ' <span class="puce grise">inactif</span>') + (c.direction ? ' <span class="puce">direction</span>' : "") + "</td><td>" +
+          escH([c.fonction, nomAgence(c.agence)].filter(Boolean).join(" · ")) + "</td><td>" + escH(c.telephone) + "</td><td>" + escH(c.email) + "</td><td>✏️</td></tr>").join("") +
         "</tbody></table></div>"
       : '<div class="vide">Aucun conseiller — ajoutez le premier.</div>';
     zone.querySelectorAll("tr[data-conseiller]").forEach((tr) => tr.addEventListener("click", () => ouvrirConseiller(tr.dataset.conseiller)));
@@ -2154,12 +2297,14 @@
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
-        const taille = 240, cv = document.createElement("canvas");
-        cv.width = taille; cv.height = taille;
-        const cx = cv.getContext("2d");
+        // Carré recadré au centre, assez grand pour la page « Votre conseiller »
+        // du guide R2 (214 × 284 pt) : 720 px, et au plus ~200 Ko côté serveur.
         const min = Math.min(img.width, img.height);
-        cx.drawImage(img, (img.width - min) / 2, (img.height - min) / 2, min, min, 0, 0, taille, taille);
-        resolve(cv.toDataURL("image/jpeg", 0.85));
+        const rendre = (taille, qualite) => { const cv = document.createElement("canvas"); cv.width = taille; cv.height = taille; cv.getContext("2d").drawImage(img, (img.width - min) / 2, (img.height - min) / 2, min, min, 0, 0, taille, taille); return cv.toDataURL("image/jpeg", qualite); };
+        let photo = rendre(Math.min(720, min), 0.86);
+        if (photo.length > 250000) photo = rendre(Math.min(640, min), 0.78);
+        if (photo.length > 250000) photo = rendre(Math.min(520, min), 0.72);
+        resolve(photo);
       };
       img.onerror = () => reject(new Error("Image illisible."));
       img.src = URL.createObjectURL(fichier);
@@ -2179,7 +2324,13 @@
       '<label>Fonction<input id="cs-fonction" value="' + escH(c && c.fonction || "") + '" placeholder="Conseiller immobilier" /></label>' +
       '<label>Téléphone<input id="cs-tel" value="' + escH(c && c.telephone || "") + '" /></label>' +
       '<label>E-mail<input id="cs-email" type="email" value="' + escH(c && c.email || "") + '" /></label>' +
-      '<label class="case" style="align-self:end;"><input type="checkbox" id="cs-actif"' + (!c || c.actif ? " checked" : "") + " /> Actif</label></div>",
+      '<label>Agence (ses e-mails et guides en portent le nom, l\'adresse et les mentions légales)<select id="cs-agence"><option value="">— identité générale —</option>' +
+      agences().map((a) => '<option value="' + escH(a.cle) + '"' + ((c && c.agence) === a.cle ? " selected" : "") + ">" + escH(a.nom) + "</option>").join("") + "</select></label>" +
+      '<label>Conseiller / conseillère (guide R2)<select id="cs-genre">' + [["", "Selon le prénom"], ["m", "Conseiller"], ["f", "Conseillère"]].map(([k, l]) =>
+        '<option value="' + k + '"' + ((c && c.genre_pose) === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" +
+      '<label class="case" style="align-self:end;"><input type="checkbox" id="cs-actif"' + (!c || c.actif ? " checked" : "") + " /> Actif</label>" +
+      '<label class="case" style="align-self:end;" title="Sans cette case, le conseiller ne voit que ses propres parcours R1/R2"><input type="checkbox" id="cs-direction"' + (c && c.direction ? " checked" : "") + " /> Direction — voit tous les parcours</label>" +
+      '<label style="grid-column:1/-1;">Texte personnel (page « Votre conseiller » du guide R2 — un paragraphe par ligne vide)<textarea id="cs-bio" style="min-height:110px;">' + escH(c && c.bio || "") + "</textarea></label></div>",
       (c ? '<button class="btn btn-danger" id="cs-supprimer">Supprimer</button>' : "") +
       '<button class="btn" id="cs-annuler">Annuler</button><button class="btn btn-or" id="cs-save">Enregistrer</button>');
     $("cs-annuler").addEventListener("click", fermerModale);
@@ -2190,7 +2341,10 @@
     $("cs-photo-retirer").addEventListener("click", () => { photo = ""; $("cs-apercu").src = ""; });
     $("cs-save").addEventListener("click", async () => {
       const corps = { id: c ? c.id : undefined, prenom: $("cs-prenom").value.trim(), nom: $("cs-nom").value.trim(), fonction: $("cs-fonction").value.trim(),
-        telephone: $("cs-tel").value.trim(), email: $("cs-email").value.trim(), actif: $("cs-actif").checked };
+        telephone: $("cs-tel").value.trim(), email: $("cs-email").value.trim(), actif: $("cs-actif").checked, direction: $("cs-direction").checked, agence: $("cs-agence").value, genre: $("cs-genre").value };
+      // Le texte personnel saisi depuis un guide R2 ne doit pas être écrasé par
+      // une fiche ouverte avant : il ne part que s'il a été modifié ici.
+      if ($("cs-bio").value.trim() !== ((c && c.bio) || "").trim()) corps.bio = $("cs-bio").value.trim();
       if (photo !== undefined) corps.photo = photo;
       try { await api("/crm/conseillers", { method: "PUT", json: corps }); toast("Conseiller enregistré"); fermerModale(); chargerConseillers(); }
       catch (e) { toast(e.message, true); }
@@ -2217,8 +2371,12 @@
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
     return m ? m[3] + "/" + m[2] + "/" + m[1] + (heure ? " " + heure : "") : "—";
   };
+  let parcoursTous = true;
   async function chargerParcours() {
-    try { parcours = (await api("/crm/parcours")).parcours; } catch (e) { const z = $("table-parcours"); if (z) z.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; return; }
+    try { const r = await api("/crm/parcours"); parcours = r.parcours; parcoursTous = r.tous !== false; }
+    catch (e) { const z = $("table-parcours"); if (z) z.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; return; }
+    const note = $("parcours-perimetre");
+    if (note) note.textContent = parcoursTous ? "" : "Vous voyez vos parcours (ceux dont vous êtes le conseiller, ou que vous avez créés) ; la direction les voit tous.";
     rendreParcours();
   }
   function rendreParcours() {
@@ -2233,6 +2391,7 @@
         lignes.map((p) => {
           const faites = new Set(p.journal.map((j) => j.etape));
           return '<tr class="cliquable" data-parcours="' + p.id + '"><td><strong>' + escH([p.civilite, p.prenom, p.nom].filter(Boolean).join(" ")) + "</strong>" +
+            (p.nb_proprietaires > 1 ? ' <span class="puce grise" title="Plusieurs propriétaires">+' + (p.nb_proprietaires - 1) + "</span>" : "") +
             (p.statut !== "en_cours" ? ' <span class="puce grise">' + escH(p.statut) + "</span>" : "") + "</td><td>" +
             escH([p.adresse, p.ville].filter(Boolean).join(", ")) + ' <span class="puce grise">' + (p.type_bien === "appartement" ? "appt" : "maison") + "</span></td><td>" +
             escH([p.cs_prenom, p.cs_nom].filter(Boolean).join(" ") || p.conseiller || "—") + "</td><td>" + dateFrCourte(p.r1, p.r1_heure) + "</td><td>" + dateFrCourte(p.r2, p.r2_heure) + "</td><td>" +
@@ -2244,6 +2403,7 @@
   }
   function formulaireParcours(p) {
     const v = (k) => escH(p && p[k] || "");
+    const b = (p && p.bien) || {};
     const csOptions = '<option value="">— conseiller —</option>' + conseillers.filter((c) => c.actif || (p && p.conseiller_id === c.id)).map((c) =>
       '<option value="' + c.id + '"' + (p && p.conseiller_id === c.id ? " selected" : "") + ">" + escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</option>").join("");
     return '<div class="grille-champs">' +
@@ -2252,12 +2412,16 @@
       '<label>Nom<input id="px-nom" value="' + v("nom") + '" /></label>' +
       '<label>E-mail<input id="px-email" type="email" value="' + v("email") + '" /></label>' +
       '<label>Téléphone<input id="px-tel" value="' + v("telephone") + '" /></label>' +
-      '<label>Conseiller<select id="px-conseiller">' + csOptions + "</select></label>" +
+      '<label>Conseiller (signe les e-mails)<select id="px-conseiller">' + csOptions + "</select></label>" +
       '<label style="grid-column:1/-1;">Adresse du bien<input id="px-adresse" value="' + v("adresse") + '" placeholder="12 rue du Mandat Confiance" /></label>' +
       '<label>Code postal<input id="px-cp" value="' + v("cp") + '" /></label>' +
       '<label>Ville<input id="px-ville" value="' + v("ville") + '" /></label>' +
       '<label>Type de bien<select id="px-type">' + [["maison", "Maison"], ["appartement", "Appartement"]].map(([k, l]) =>
         '<option value="' + k + '"' + (p && p.type_bien === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" +
+      '<label>Surface habitable (m²)<input id="px-surface" type="number" step="1" value="' + escH(b.surface || "") + '" /></label>' +
+      '<label>Terrain (m²)<input id="px-terrain" type="number" step="1" value="' + escH(b.terrain || "") + '" /></label>' +
+      '<label>Chambres<input id="px-chambres" type="number" step="1" min="0" value="' + escH(b.chambres || "") + '" /></label>' +
+      '<label>Pièce de vie / séjour (m²)<input id="px-piece-vie" type="number" step="1" value="' + escH(b.piece_vie || "") + '" /></label>' +
       '<label>R1 — date<input id="px-r1" type="date" value="' + v("r1") + '" /></label>' +
       '<label>R1 — heure<input id="px-r1h" type="time" value="' + v("r1_heure") + '" /></label>' +
       '<label>R2 — date<input id="px-r2" type="date" value="' + v("r2") + '" /></label>' +
@@ -2265,6 +2429,15 @@
       (p ? '<label>Statut<select id="px-statut">' + [["en_cours", "En cours"], ["mandat", "Mandat signé"], ["perdu", "Perdu"], ["abandonne", "Abandonné"]].map(([k, l]) =>
         '<option value="' + k + '"' + (p.statut === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" : "") +
       "</div>";
+  }
+  // Menu « Conseiller » ouvert avant que la liste soit arrivée (téléphone) :
+  // on la recharge au premier focus et on complète les options.
+  function brancherMenuConseillers(selId) {
+    const sel = $(selId); if (!sel) return;
+    const remplir = () => { const v = sel.value; sel.innerHTML = '<option value="">— conseiller —</option>' + conseillers.filter((c) => c.actif || c.id === v).map((c) => '<option value="' + c.id + '"' + (c.id === v ? " selected" : "") + ">" + escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</option>").join(""); };
+    const verifier = async () => { if (sel.options.length > 1) return; try { conseillers = (await api("/crm/conseillers")).conseillers; } catch { /* rien */ } remplir(); };
+    sel.addEventListener("focus", verifier); sel.addEventListener("touchstart", verifier, { passive: true });
+    if (sel.options.length <= 1) verifier();
   }
   function lireFormulaireParcours(p) {
     const o = {
@@ -2276,21 +2449,65 @@
     if (p) o.statut = $("px-statut").value;
     return o;
   }
+  // Le bien (surface, terrain, chambres, pièce de vie) vit dans la saisie du
+  // livret (acm) : la fiche, le livret, la commission et la page publique
+  // lisent la même chose. Le PUT acm remplace tout → on relit avant d'écrire.
+  const lireBienFiche = () => { const n = (k) => { const v = parseFloat($(k).value); return Number.isFinite(v) ? v : null; }; return { surface: n("px-surface"), terrain: n("px-terrain"), chambres: n("px-chambres"), piece_vie: n("px-piece-vie") }; };
+  async function sauverBienFiche(id, bien) {
+    const acm = (await api("/crm/parcours/" + id + "/acm")).acm || {};
+    if (["surface", "terrain", "chambres", "piece_vie"].every((k) => (acm[k] || null) === (bien[k] || null))) return;
+    await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: { ...acm, ...bien } });
+  }
+  // Nouveau parcours : on cherche D'ABORD la personne dans les contacts ; la
+  // fiche choisie pré-remplit le formulaire. Introuvable ? On remplit, et le
+  // contact est créé en même temps que le parcours.
   function nouveauParcours() {
-    ouvrirModale("+ Nouveau parcours R1/R2", formulaireParcours(null),
+    let contactId = "";
+    ouvrirModale("+ Nouveau parcours R1/R2",
+      '<div class="grille-champs"><label>1. Chercher la personne dans les contacts<input id="px-q" placeholder="nom, e-mail, téléphone, adresse…" autocomplete="off" /></label></div>' +
+      '<div id="px-resultats" style="max-height:170px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:6px 12px; margin:6px 0 12px;"><p class="petit">Tapez au moins 2 caractères. Personne ne correspond ? Remplissez la fiche ci-dessous : le contact sera créé avec le parcours.</p></div>' +
+      '<p class="petit" id="px-choisi"></p>' +
+      '<p class="petit"><strong>2. La fiche du parcours</strong></p>' + formulaireParcours(null),
       '<button class="btn" id="px-annuler">Annuler</button><button class="btn btn-or" id="px-creer">Créer le parcours</button>');
     $("px-annuler").addEventListener("click", fermerModale);
+    let minuteur = null;
+    const chercher = async () => {
+      const q = $("px-q").value.trim(); const zone = $("px-resultats");
+      if (q.length < 2) return;
+      try {
+        const r = await api("/crm/contacts/recherche?q=" + encodeURIComponent(q));
+        zone.innerHTML = (r.contacts || []).length
+          ? r.contacts.map((x) => '<button type="button" class="btn" data-ct="' + escH(x.id) + '" style="display:block; width:100%; text-align:left; margin:3px 0; padding:6px 10px;"><strong>' +
+            escH(x.nom) + "</strong> " + escH(x.prenom) + (x.civilite ? " (" + escH(x.civilite) + ")" : "") +
+            ' <span class="puce grise">' + escH([x.email, x.telephone, [x.adresse, x.ville].filter(Boolean).join(" ")].filter(Boolean).join(" · ") || "sans coordonnées") + "</span></button>").join("")
+          : '<p class="petit">Aucun contact ne correspond — remplissez la fiche ci-dessous, le contact sera créé.</p>';
+        zone.querySelectorAll("[data-ct]").forEach((b) => b.addEventListener("click", () => {
+          const x = r.contacts.find((y) => y.id === b.dataset.ct); if (!x) return;
+          contactId = x.id;
+          if (["M.", "Mme", "M. et Mme"].includes(x.civilite)) $("px-civilite").value = x.civilite;
+          $("px-prenom").value = x.prenom || ""; $("px-nom").value = x.nom || ""; $("px-email").value = x.email || ""; $("px-tel").value = x.telephone || "";
+          $("px-adresse").value = x.adresse || ""; $("px-ville").value = x.ville || "";
+          $("px-choisi").innerHTML = "Contact choisi : <strong>" + escH([x.prenom, x.nom].filter(Boolean).join(" ")) + "</strong> — la fiche ci-dessous est pré-remplie, complétez le bien et les rendez-vous.";
+          zone.querySelectorAll("[data-ct]").forEach((o) => o.classList.toggle("btn-or", o === b));
+        }));
+      } catch (e) { toast(e.message, true); }
+    };
+    $("px-q").addEventListener("input", () => { clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
+    brancherMenuConseillers("px-conseiller");
     $("px-creer").addEventListener("click", async () => {
       try {
-        const r = await api("/crm/parcours", { json: lireFormulaireParcours(null) });
-        toast("Parcours créé"); await chargerParcours(); ouvrirParcours(r.id);
+        const bien = lireBienFiche();
+        const r = await api("/crm/parcours", { json: { ...lireFormulaireParcours(null), contact_id: contactId } });
+        if (Object.values(bien).some((x) => x != null)) { try { await sauverBienFiche(r.id, bien); } catch (e) { toast("Le bien n'a pas été enregistré : " + e.message, true); } }
+        toast(r.contact_cree ? "Parcours créé, et la fiche contact avec lui" : "Parcours créé"); await chargerParcours(); ouvrirParcours(r.id);
       } catch (e) { toast(e.message, true); }
     });
   }
   async function ouvrirParcours(id) {
     let p;
-    try { p = await api("/crm/parcours/" + id); } catch (e) { toast(e.message, true); return; }
+    try { p = await api("/crm/parcours/" + id); p.bien = (await api("/crm/parcours/" + id + "/acm")).acm || {}; } catch (e) { toast(e.message, true); return; }
     const faites = new Map(p.journal.map((j) => [j.etape, j]));
+    const bienManque = ["surface", "chambres", "piece_vie"].filter((k) => !p.bien[k]);
     const etapesHtml = '<div class="etapes">' + ETAPES_PARCOURS.map((e, i) => {
       const f = faites.get(e.cle);
       const quand = f ? "fait le " + new Date(f.le * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) + (f.par ? " par " + escH(f.par) : "") + (f.email ? " → " + escH(f.email) : "") : "";
@@ -2298,35 +2515,71 @@
         ? '<button class="btn btn-or" data-mail="' + e.cle + '">' + (f ? "✉️ Renvoyer" : "✉️ Préparer et envoyer") + "</button>"
         : (e.cle === "guide-r1"
           ? '<button class="btn btn-or" data-guide="r1" title="Le guide de commercialisation, avec la page du conseiller et le prochain rendez-vous">🖨 Guide R1 personnalisé</button>'
+          : e.cle === "guide-r2"
+          ? '<button class="btn btn-or" data-guide="r2" title="Photo du bien, points forts, objections, environnement, ventes autour, page du conseiller">🖨 Guide R2 personnalisé</button>'
+          : e.cle === "acm"
+          ? '<button class="btn" data-commission="1" title="Le lien à partager aux collègues : chacun donne sa fourchette, le livret reprend les résultats">🗳 Commission d\'évaluation</button><button class="btn btn-or" data-guide="acm" title="Ventes DVF et de l\'agence, biens en concurrence, commission d\'évaluation, acheteurs, financement">🖨 Livret prix (ACM)</button>'
           : '<button class="btn" disabled title="Le modèle du document arrive : il sera imprimable ici">🖨 Modèle à venir</button>') +
           '<button class="btn" data-cocher="' + e.cle + '">' + (f ? "↩ Décocher" : "✓ Fait") + "</button>";
       return '<div class="etape' + (f ? " faite" : "") + '"><span class="num">' + (f ? "✓" : i + 1) + '</span><div class="titre"><strong>' + escH(e.titre) + "</strong>" +
         (quand ? '<div class="quand">' + quand + "</div>" : "") + "</div>" + actions + "</div>";
     }).join("") + "</div>";
-    const csLigne = p.conseiller
-      ? (p.conseiller.photo_url ? '<img class="avatar" src="' + escH(p.conseiller.photo_url) + '" alt="" /> ' : "") + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + (p.conseiller.fonction ? " · " + escH(p.conseiller.fonction) : "")
-      : '<span class="petit">aucun conseiller choisi — les e-mails seront signés de l\'agence</span>';
+    const cs = p.conseiller;
+    const csDetail = cs
+      ? (cs.photo_url ? '<img class="avatar" src="' + escH(cs.photo_url) + '" alt="" /> ' : "") +
+        escH([cs.fonction, cs.telephone, cs.email].filter(Boolean).join(" · ") || "ni téléphone ni e-mail sur son profil (Réglages → Les conseillers)") +
+        (p.agence && p.agence.pv ? ' <span class="puce grise">' + escH(p.agence.nom) + "</span>" : "")
+      : '<span style="color:#e07a5f;">aucun conseiller choisi — les e-mails seraient signés de l\'agence</span>';
+    const csLigne = '<select id="px-signe" style="max-width:260px; vertical-align:middle;"><option value="">— choisir le conseiller —</option>' +
+      conseillers.filter((c) => c.actif || p.conseiller_id === c.id).map((c) => '<option value="' + c.id + '"' + (p.conseiller_id === c.id ? " selected" : "") + ">" + escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</option>").join("") +
+      '</select> <span class="petit" id="px-signe-detail">' + csDetail + "</span>";
     ouvrirModale("🧭 " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
       '<details><summary style="cursor:pointer;">Fiche client et rendez-vous — ' + escH([p.adresse, p.ville].filter(Boolean).join(", ")) +
-      " · R1 " + dateFrCourte(p.r1, p.r1_heure) + " · R2 " + dateFrCourte(p.r2, p.r2_heure) + "</summary>" +
+      " · R1 " + dateFrCourte(p.r1, p.r1_heure) + " · R2 " + dateFrCourte(p.r2, p.r2_heure) +
+      (bienManque.length ? ' <span class="puce" style="background:#e07a5f; color:#fff;" title="Ces informations passent dans la commission d\'évaluation et le livret prix">à renseigner : ' + escH(bienManque.map((k) => ({ surface: "surface", chambres: "chambres", piece_vie: "pièce de vie" })[k]).join(", ")) + "</span>" : "") + "</summary>" +
       '<div style="margin-top:10px;">' + formulaireParcours(p) + '<div class="barre" style="margin-top:8px;"><button class="btn btn-or" id="px-maj">Enregistrer la fiche</button></div></div></details>' +
-      '<p class="petit" style="margin:12px 0 0;">Signé par : ' + csLigne + "</p>" +
+      '<p style="margin:12px 0 0;"><strong>Signé par :</strong> ' + csLigne + "</p>" +
+      '<p style="margin:10px 0 0;"><strong>Propriétaires :</strong> ' + (p.proprietaires || []).map((o) => '<span class="puce grise" style="margin:2px 4px 2px 0;">' +
+        escH([o.civilite, o.prenom, o.nom].filter(Boolean).join(" ")) + (o.email ? " · " + escH(o.email) : "") +
+        (o.principal ? "" : ' <button type="button" data-retirer="' + escH(o.id) + '" title="Retirer ce propriétaire" style="border:0; background:none; cursor:pointer; color:#e07a5f;">✕</button>') + "</span>").join("") +
+      ' <button class="btn" id="px-ajouter-prop" style="padding:3px 10px; font-size:12px;">+ Co-propriétaire</button></p>' +
       (p.emails.length ? "" : '<p class="petit" style="color:#e07a5f;">Aucun e-mail sur cette fiche : les envois seront refusés tant que l\'adresse manque.</p>') +
       etapesHtml,
+      '<button class="btn btn-danger" id="px-effacer" title="Efface la fiche du parcours (et sa fiche estimation) ; les contacts restent">🗑 Effacer</button>' +
       '<button class="btn btn-or" id="modale-ok">Fermer</button>');
     $("modale-ok").addEventListener("click", () => { fermerModale(); chargerParcours(); });
+    $("px-effacer").addEventListener("click", async () => {
+      if (!confirm("Effacer le parcours de " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" ") + " ? La fiche estimation disparaît aussi ; les fiches contact restent.")) return;
+      try { await api("/crm/parcours/" + id, { method: "DELETE" }); toast("Parcours effacé"); fermerModale(); chargerParcours(); } catch (e) { toast(e.message, true); }
+    });
+    $("px-ajouter-prop").addEventListener("click", () => ajouterProprietaire(id, p));
+    document.querySelectorAll("[data-retirer]").forEach((b) => b.addEventListener("click", async () => {
+      try { await api("/crm/parcours/" + id + "/proprietaires/" + b.dataset.retirer, { method: "DELETE" }); toast("Propriétaire retiré"); ouvrirParcours(id); } catch (e) { toast(e.message, true); }
+    }));
+    $("px-signe").addEventListener("change", async () => {
+      try { await api("/crm/parcours/" + id, { method: "PUT", json: { conseiller_id: $("px-signe").value } }); toast("Les e-mails partiront signés du conseiller choisi"); await chargerParcours(); ouvrirParcours(id); }
+      catch (e) { toast(e.message, true); }
+    });
+    brancherMenuConseillers("px-conseiller");
+    // Le bien (surface, terrain, chambres, pièce de vie) s'enregistre dès qu'un
+    // champ change : fermer la fiche sans « Enregistrer » ne perd plus rien.
+    for (const k of ["px-surface", "px-terrain", "px-chambres", "px-piece-vie"]) $(k).addEventListener("change", async () => {
+      try { await sauverBienFiche(id, lireBienFiche()); toast("Bien enregistré"); } catch (e) { toast(e.message, true); }
+    });
     $("px-maj").addEventListener("click", async () => {
-      try { await api("/crm/parcours/" + id, { method: "PUT", json: lireFormulaireParcours(p) }); toast("Fiche enregistrée"); await chargerParcours(); ouvrirParcours(id); }
+      try { await api("/crm/parcours/" + id, { method: "PUT", json: lireFormulaireParcours(p) }); await sauverBienFiche(id, lireBienFiche()); toast("Fiche enregistrée"); await chargerParcours(); ouvrirParcours(id); }
       catch (e) { toast(e.message, true); }
     });
     document.querySelectorAll("[data-mail]").forEach((b) => b.addEventListener("click", () => preparerMailParcours(id, b.dataset.mail, p)));
+    document.querySelectorAll("[data-commission]").forEach((b) => b.addEventListener("click", () => ouvrirCommission(id, p)));
     document.querySelectorAll("[data-guide]").forEach((b) => b.addEventListener("click", async () => {
+      if (b.dataset.guide === "r2") { ouvrirGuideR2(id, p); return; }
+      if (b.dataset.guide === "acm") { ouvrirAcm(id, p); return; }
       b.disabled = true; b.textContent = "Préparation…";
       try {
-        await genererGuideR1(p);
+        const urlR1 = await genererGuideR1(p);
         if (!faites.has("guide-r1")) await api("/crm/parcours/" + id + "/etape", { json: { etape: "guide-r1" } });
-        toast("Guide R1 prêt : il s'ouvre dans un nouvel onglet, à imprimer ou enregistrer");
-        ouvrirParcours(id);
+        documentPret(id, "Guide R1 prêt", urlR1, window.__dernierGuide && window.__dernierGuide.fichier);
       } catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "🖨 Guide R1 personnalisé"; }
     }));
     document.querySelectorAll("[data-cocher]").forEach((b) => b.addEventListener("click", async () => {
@@ -2340,6 +2593,28 @@
   // une page par conseiller) : pages 1-3, la page du conseiller de la fiche,
   // puis la suite ; le prochain rendez-vous (R2) écrit sur la page « De quoi
   // parlerons-nous ». Ouvert dans un nouvel onglet, prêt à imprimer.
+  // « M. Jean et Mme Sophie MOUNEYRES », ou « Mme Sophie DURAND et M. Jean
+  // MOUNEYRES » : tous les propriétaires en page 1 des guides.
+  // La civilité telle qu'elle vient des fiches (« Madame », « Mr », « M. ») se
+  // normalise ; le prénom prend une majuscule (« ADELAIDE » → « Adelaide »).
+  const civiliteCourte = (c) => { const t = sansAccentsMin(c); return /et|&|\//.test(t) ? "M. et Mme" : /mme|madame|mlle|mademoiselle/.test(t) ? "Mme" : /^m\b|monsieur|mr/.test(t) ? "M." : ""; };
+  const civiliteLongue = (c) => ({ "M.": "Monsieur", "Mme": "Madame", "M. et Mme": "Monsieur et Madame" }[civiliteCourte(c)] || "");
+  const prenomPropre = (t) => String(t || "").trim().toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+  function nomsClient(p, civ) {
+    const c = civ || civiliteCourte;
+    const l = (p.proprietaires || []).filter((o) => o.nom || o.prenom);
+    const maj = (o) => (o.nom || "").toUpperCase();
+    if (l.length < 2) return [c(p.civilite), prenomPropre(p.prenom), (p.nom || "").toUpperCase()].filter(Boolean).join(" ");
+    const prenoms = l.map((o) => prenomPropre(o.prenom)).filter(Boolean).join(" et ");
+    if (new Set(l.map((o) => sansAccentsMin(o.nom))).size === 1) {
+      // Un même nom : « M. et Mme Benoît et Adélaïde REMPENAULT ».
+      const civs = [...new Set(l.map((o) => civiliteCourte(o.civilite)).filter(Boolean))];
+      const civ2 = civs.length === 1 && civs[0] !== "M. et Mme" ? (civs[0] === "Mme" ? "Mmes" : "MM.") : "M. et Mme";
+      const longue = { "M. et Mme": "Monsieur et Madame", "MM.": "Messieurs", "Mmes": "Mesdames" };
+      return [civ === civiliteLongue ? longue[civ2] : civ2, prenoms, maj(l[0])].filter(Boolean).join(" ");
+    }
+    return l.map((o) => [c(o.civilite), prenomPropre(o.prenom), maj(o)].filter(Boolean).join(" ")).join(" et ");
+  }
   let guideR1Cache = null;
   const sansAccentsMin = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
   async function genererGuideR1(p) {
@@ -2366,7 +2641,8 @@
     // Le prochain rendez-vous : date, heure, adresse de l'agence.
     const rdv = meta.rdv;
     const idx = ordre.indexOf(rdv.page);
-    if (idx >= 0 && (p.r2 || (reglages && reglages.agence.adresse))) {
+    const adresseAgence = (p.agence && p.agence.adresse) || (reglages && reglages.agence.adresse) || "";
+    if (idx >= 0 && (p.r2 || adresseAgence)) {
       const page = doc.getPage(idx);
       const font = await doc.embedFont(StandardFonts.HelveticaBold);
       const h = page.getHeight();
@@ -2376,16 +2652,849 @@
       const d = m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null;
       ecrire(d ? jours[d.getUTCDay()] + " " + (+m[3]) + " " + mois[+m[2] - 1] + " " + m[1] : "", rdv.date);
       ecrire(p.r2_heure ? p.r2_heure.replace(/^(\d{1,2}):(\d{2})$/, (t, a, b) => (+a) + "h" + (b === "00" ? "" : b)) : "", rdv.heure);
-      ecrire((reglages && reglages.agence.adresse) || "", rdv.agence);
+      ecrire(adresseAgence, rdv.agence);
+    }
+    // Page 1 : le client (« Famille NOM » ou civilité + nom), l'adresse du
+    // bien et la date du jour, alignés à droite comme sur le modèle.
+    const p1 = meta.p1;
+    const idx1 = p1 ? ordre.indexOf(p1.page) : -1;
+    if (idx1 >= 0) {
+      const page = doc.getPage(idx1);
+      const font = await doc.embedFont(StandardFonts.Helvetica);
+      const h = page.getHeight();
+      // Un texte trop long pour la place (jusqu'au titre, à gauche) se réduit.
+      const droite = (texte, spec) => {
+        if (!texte) return;
+        let taille = spec.taille;
+        while (taille > 8 && font.widthOfTextAtSize(texte, taille) > p1.droite - 300) taille -= 0.5;
+        page.drawText(texte, { x: p1.droite - font.widthOfTextAtSize(texte, taille), y: h - spec.y, size: taille, font, color: rgb(0, 0, 0) });
+      };
+      droite(nomsClient(p), p1.nom);
+      droite((p.adresse || "").toUpperCase(), p1.adresse);
+      droite([p.cp, (p.ville || "").toUpperCase()].filter(Boolean).join(" "), p1.ville);
+      droite(new Date().toLocaleDateString("fr-FR"), p1.date);
     }
     doc.setTitle("Guide de commercialisation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets }; // relu par les parcours navigateur
-    const fen = window.open(url, "_blank");
-    if (!fen) { const a = document.createElement("a"); a.href = url; a.download = "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf"; a.click(); }
+    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf" }; // relu par les parcours navigateur
     return url;
   }
+  /* ------------------------------ Guide R2 --------------------------------- */
+  // Le guide R2 (« Vendons ensemble votre bien »), assemblé dans le navigateur
+  // à partir de assets/guide-r2.pdf (20 pages, zones variables blanchies) :
+  // page 1 photo du bien + client + date du jour ; page 6 photo, adresse,
+  // points forts / objections ; page 7 commune + carte des commodités (OSM)
+  // + tableau des commodités ; page 8 carte des ventes de l'agence à 1 km ;
+  // page 9 mois courant ; page 12 conseiller (photo, nom, texte). Les polices
+  // Barlow sont embarquées (fontkit) pour rester dans la maquette.
+  let guideR2Cache = null;
+  const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+  function reduireImage(fichier, largeur, qualite) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, largeur / img.width), cv = document.createElement("canvas");
+        cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+        let q = qualite, out = cv.toDataURL("image/jpeg", q);
+        while (out.length > 380000 && q > 0.4) { q -= 0.1; out = cv.toDataURL("image/jpeg", q); }
+        resolve(out);
+      };
+      img.onerror = () => reject(new Error("Image illisible."));
+      img.src = URL.createObjectURL(fichier);
+    });
+  }
+  async function chargerImage(src) {
+    return new Promise((resolve, reject) => { const i = new Image(); i.crossOrigin = "anonymous"; i.onload = () => resolve(i); i.onerror = () => reject(new Error("image")); i.src = src; });
+  }
+  // Une carte OpenStreetMap dessinée sur un canvas (tuiles + repères), rendue en PNG.
+  async function dessinerCarte({ lat, lng, zoom, largeur, hauteur, points, centre }) {
+    const cv = document.createElement("canvas"); cv.width = largeur; cv.height = hauteur;
+    const cx = cv.getContext("2d");
+    cx.fillStyle = "#e9e5dc"; cx.fillRect(0, 0, largeur, hauteur);
+    const n = Math.pow(2, zoom);
+    const xT = (lo) => (lo + 180) / 360 * n, yT = (la) => (1 - Math.log(Math.tan(la * Math.PI / 180) + 1 / Math.cos(la * Math.PI / 180)) / Math.PI) / 2 * n;
+    const x0 = xT(lng) - largeur / 512, y0 = yT(lat) - hauteur / 512; // en tuiles (256 px)
+    const px = (la, lo) => ({ x: (xT(lo) - x0) * 256, y: (yT(la) - y0) * 256 });
+    const tuiles = [];
+    for (let tx = Math.floor(x0); tx < x0 + largeur / 256; tx++) for (let ty = Math.floor(y0); ty < y0 + hauteur / 256; ty++) tuiles.push([tx, ty]);
+    await Promise.all(tuiles.map(async ([tx, ty]) => {
+      try { const im = await chargerImage("https://tile.openstreetmap.org/" + zoom + "/" + tx + "/" + ty + ".png"); cx.drawImage(im, (tx - x0) * 256, (ty - y0) * 256); } catch { }
+    }));
+    const disque = (x, y, r, couleur, lettre) => {
+      cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fillStyle = couleur; cx.fill(); cx.lineWidth = 2; cx.strokeStyle = "#fff"; cx.stroke();
+      if (lettre) { cx.fillStyle = "#fff"; cx.font = "bold " + Math.round(r * 1.2) + "px Helvetica, Arial, sans-serif"; cx.textAlign = "center"; cx.textBaseline = "middle"; cx.fillText(lettre, x, y + 1); }
+    };
+    for (const p of points) { const q = px(p.lat, p.lng); disque(q.x, q.y, p.rayon || 11, p.couleur, p.lettre); }
+    // Le bien : repère rouge en forme d'épingle.
+    const c = px(centre.lat, centre.lng);
+    cx.beginPath(); cx.moveTo(c.x, c.y); cx.lineTo(c.x - 13, c.y - 22); cx.arc(c.x, c.y - 26, 14, Math.PI * 0.85, Math.PI * 2.15); cx.lineTo(c.x, c.y);
+    cx.fillStyle = "#b3261e"; cx.fill(); cx.lineWidth = 2; cx.strokeStyle = "#fff"; cx.stroke();
+    cx.beginPath(); cx.arc(c.x, c.y - 26, 6, 0, Math.PI * 2); cx.fillStyle = "#fff"; cx.fill();
+    // Échelle et attribution.
+    const mParPx = 156543.03 * Math.cos(lat * Math.PI / 180) / n, barre = 500 / mParPx;
+    cx.fillStyle = "rgba(255,255,255,.85)"; cx.fillRect(10, hauteur - 34, barre + 20, 24);
+    cx.fillStyle = "#222"; cx.fillRect(20, hauteur - 18, barre, 3); cx.font = "12px Helvetica, Arial, sans-serif"; cx.textAlign = "left"; cx.textBaseline = "alphabetic"; cx.fillText("500 m", 20, hauteur - 22);
+    cx.fillStyle = "rgba(255,255,255,.85)"; cx.fillRect(largeur - 178, hauteur - 20, 178, 20);
+    cx.fillStyle = "#333"; cx.font = "11px Helvetica, Arial, sans-serif"; cx.fillText("© OpenStreetMap contributors", largeur - 172, hauteur - 6);
+    return cv.toDataURL("image/png");
+  }
+  const CAT_STYLE = { ecole: ["#e8912d", "É"], commerce: ["#2d7dd2", "C"], sante: ["#d94a4a", "S"], transport: ["#5a5a5a", "T"], loisir: ["#3aa655", "L"], service: ["#8a6fd1", "•"] };
+  const fmtDist = (m) => (m >= 1000 ? (m / 1000).toFixed(1).replace(".", ",") + " km" : m + " m");
+  async function genererGuideR2(p, r2, envr) {
+    if (!window.PDFLib || !window.fontkit) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
+    if (!guideR2Cache) {
+      const meta = await fetch("assets/guide-r2.json").then((r) => r.json());
+      const [pdf, ...fontes] = await Promise.all([fetch("assets/guide-r2.pdf").then((r) => { if (!r.ok) throw new Error("Guide R2 introuvable."); return r.arrayBuffer(); }),
+        ...["regular", "bold", "extrabold", "italic"].map((k) => fetch(meta.fonts[k]).then((r) => r.arrayBuffer()))]);
+      guideR2Cache = { meta, pdf, fontes };
+    }
+    const { meta, pdf, fontes } = guideR2Cache;
+    const { PDFDocument, rgb } = window.PDFLib;
+    const doc = await PDFDocument.load(pdf);
+    doc.registerFontkit(window.fontkit);
+    const [fR, fB, fX, fI] = await Promise.all(fontes.map((b) => doc.embedFont(b, { subset: true })));
+    const C = (t) => rgb(t[0], t[1], t[2]);
+    const couleurs = { texte: C(meta.couleurs.texte), or: C(meta.couleurs.or), gris: C(meta.couleurs.gris), tan: C(meta.couleurs.tan) };
+    const page = (n) => doc.getPage(n - 1);
+    const ecrire = (pg, texte, x, y, taille, font, couleur) => { if (texte) pg.drawText(String(texte), { x, y: pg.getHeight() - y, size: taille, font, color: couleur || couleurs.texte }); };
+    const ecrireDroite = (pg, texte, xDroite, y, taille, font, couleur) => { if (texte) ecrire(pg, texte, xDroite - font.widthOfTextAtSize(String(texte), taille), y, taille, font, couleur); };
+    const couper = (texte, font, taille, largeur) => {
+      const lignes = [];
+      for (const para of String(texte || "").replace(/\r/g, "").split(/\n/)) {
+        let ligne = "";
+        for (const mot of para.split(/\s+/).filter(Boolean)) {
+          const essai = ligne ? ligne + " " + mot : mot;
+          if (font.widthOfTextAtSize(essai, taille) > largeur && ligne) { lignes.push(ligne); ligne = mot; } else ligne = essai;
+        }
+        lignes.push(ligne);
+      }
+      return lignes;
+    };
+    const image = async (pg, dataUrl, rect, couvrir) => {
+      if (!dataUrl) { pg.drawRectangle({ x: rect[0], y: pg.getHeight() - rect[3], width: rect[2] - rect[0], height: rect[3] - rect[1], color: rgb(1, 1, 1) }); return; }
+      const octets = Uint8Array.from(atob(dataUrl.split(",")[1]), (ch) => ch.charCodeAt(0));
+      const im = /^data:image\/png/.test(dataUrl) ? await doc.embedPng(octets) : await doc.embedJpg(octets);
+      const W = rect[2] - rect[0], H = rect[3] - rect[1];
+      if (couvrir) {
+        // Recadrage centré : l'image remplit le cadre sans déformation (le trop-plein est masqué par un cadre blanc).
+        const k = Math.max(W / im.width, H / im.height), w = im.width * k, h = im.height * k;
+        const x = rect[0] - (w - W) / 2, y = pg.getHeight() - rect[3] - (h - H) / 2;
+        pg.drawImage(im, { x, y, width: w, height: h });
+        const blanc = rgb(1, 1, 1), ph = pg.getHeight();
+        if (w > W) { pg.drawRectangle({ x: x, y: ph - rect[3], width: rect[0] - x, height: H, color: blanc }); pg.drawRectangle({ x: rect[2], y: ph - rect[3], width: x + w - rect[2], height: H, color: blanc }); }
+        if (h > H) { pg.drawRectangle({ x: rect[0], y: y, width: W, height: ph - rect[3] - y, color: blanc }); pg.drawRectangle({ x: rect[0], y: ph - rect[1], width: W, height: y + h - (ph - rect[1]), color: blanc }); }
+      } else {
+        const k = Math.min(W / im.width, H / im.height), w = im.width * k, h = im.height * k;
+        pg.drawImage(im, { x: rect[0] + (W - w) / 2, y: pg.getHeight() - rect[3] + (H - h) / 2, width: w, height: h });
+      }
+    };
+    const cpVille = [p.cp, p.ville].filter(Boolean).join(" ");
+    const aujourdhui = new Date(); const dateJour = aujourdhui.getDate() + " " + MOIS_FR[aujourdhui.getMonth()] + " " + aujourdhui.getFullYear();
+    // Page 1 : photo, client, adresse, date du jour.
+    { const s = meta.p1, pg = page(s.page);
+      await image(pg, r2.photo, s.photo, true);
+      ecrireDroite(pg, nomsClient(p, civiliteLongue), s.droite, s.nom.y, s.nom.taille, fR);
+      ecrireDroite(pg, p.adresse, s.droite, s.adresse.y, s.adresse.taille, fR);
+      ecrireDroite(pg, cpVille, s.droite, s.cpville.y, s.cpville.taille, fR);
+      ecrireDroite(pg, dateJour, s.droite, s.date.y, s.date.taille, fR); }
+    // Page 6 : photo, adresse, points forts, objections.
+    { const s = meta.p6, pg = page(s.page);
+      await image(pg, r2.photo, s.photo, true);
+      ecrireDroite(pg, p.adresse, s.droite, s.adresse.y, s.adresse.taille, fR);
+      ecrireDroite(pg, cpVille, s.droite, s.cpville.y, s.cpville.taille, fR);
+      const liste = (texte, z) => {
+        const items = String(texte || "").split(/\n/).map((t) => t.trim()).filter(Boolean).slice(0, z.max);
+        items.forEach((t, i) => {
+          const y = z.y + i * z.pas, yb = pg.getHeight() - y;
+          pg.drawLine({ start: { x: z.x, y: yb + 2.6 }, end: { x: z.x + 6, y: yb + 2.6 }, thickness: 1.1, color: couleurs.or });
+          pg.drawLine({ start: { x: z.x + 3.5, y: yb + 5 }, end: { x: z.x + 6, y: yb + 2.6 }, thickness: 1.1, color: couleurs.or });
+          pg.drawLine({ start: { x: z.x + 3.5, y: yb + 0.2 }, end: { x: z.x + 6, y: yb + 2.6 }, thickness: 1.1, color: couleurs.or });
+          ecrire(pg, couper(t, fB, z.taille, z.largeur)[0], z.xTexte, y, z.taille, fB);
+        });
+      };
+      liste(r2.points_forts, s.forts); liste(r2.objections, s.objections); }
+    // Page 7 : commune, carte des commodités, tableau.
+    { const s = meta.p7, pg = page(s.page), com = envr.commune || {};
+      ecrire(pg, (com.nom || p.ville || "").toUpperCase(), s.ville.x, s.ville.y, s.ville.taille, fR);
+      ecrire(pg, (com.departement || "").toUpperCase(), s.departement.x, s.departement.y, s.departement.taille, fR);
+      ecrire(pg, (com.region || "").toUpperCase(), s.region.x, s.region.y, s.region.taille, fR);
+      ecrire(pg, com.densite ? String(com.densite).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " hab/km²" : "", s.population.x, s.population.y, s.population.taille, fR);
+      const pts = (envr.commodites || []).map((c) => ({ lat: c.lat, lng: c.lng, couleur: (CAT_STYLE[c.cat] || CAT_STYLE.service)[0], lettre: (CAT_STYLE[c.cat] || CAT_STYLE.service)[1] }));
+      const W = s.carte[2] - s.carte[0], H = s.carte[3] - s.carte[1];
+      const png = await dessinerCarte({ lat: envr.lat, lng: envr.lng, zoom: 15, largeur: Math.round(W * 2), hauteur: Math.round(H * 2), points: pts, centre: envr });
+      await image(pg, png, s.carte, false);
+      const cats = envr.categories || [];
+      let y = s.tableau.y, n = 0;
+      for (const cat of cats) {
+        const liste = (envr.commodites || []).filter((c) => c.cat === cat.cle);
+        if (!liste.length || n >= s.tableau.max) continue;
+        const noms = []; const vus = new Set();
+        for (const c of liste) { const nom = c.nom || cat.libelle.replace(/s$/, ""); if (vus.has(nom)) continue; vus.add(nom); noms.push(nom + " (" + fmtDist(c.dist) + ")"); if (noms.length >= 3) break; }
+        const [style] = [CAT_STYLE[cat.cle] || CAT_STYLE.service];
+        pg.drawCircle({ x: s.tableau.x + 5, y: pg.getHeight() - y + 3, size: 4.5, color: rgb(...style[0].match(/\w\w/g).map((h) => parseInt(h, 16) / 255)) });
+        ecrire(pg, cat.libelle + " : ", s.tableau.x + 14, y, s.tableau.taille, fB);
+        const lx = s.tableau.x + 14 + fB.widthOfTextAtSize(cat.libelle + " : ", s.tableau.taille);
+        const texte = liste.length + " à moins de 1,5 km — " + noms.join(", ");
+        const lignes = couper(texte, fR, s.tableau.taille, s.tableau.largeur - (lx - s.tableau.x));
+        ecrire(pg, lignes[0], lx, y, s.tableau.taille, fR, couleurs.gris);
+        if (lignes[1]) ecrire(pg, lignes.slice(1).join(" ").slice(0, 90), s.tableau.x + 14, y + 11, s.tableau.taille, fR, couleurs.gris);
+        y += s.tableau.pas; n++;
+      }
+      if (!n) ecrire(pg, envr.erreur ? "Commodités indisponibles pour le moment." : "Aucune commodité relevée à moins de 1,5 km.", s.tableau.x, s.tableau.y, s.tableau.taille, fI, couleurs.gris); }
+    // Page 8 : les ventes de l'agence à 1 km.
+    { const s = meta.p8, pg = page(s.page);
+      const pts = (envr.ventes || []).map((v) => ({ lat: v.lat, lng: v.lng, couleur: "#e8b33c", rayon: 10 }));
+      const W = s.carte[2] - s.carte[0], H = s.carte[3] - s.carte[1];
+      const png = await dessinerCarte({ lat: envr.lat, lng: envr.lng, zoom: 16, largeur: Math.round(W * 2), hauteur: Math.round(H * 2), points: pts, centre: envr });
+      await image(pg, png, s.carte, false);
+      // La carte de la légende, blanche, posée sur le bas de la carte comme dans la maquette.
+      pg.drawRectangle({ x: s.legende.x - 12, y: pg.getHeight() - (s.legende.y + 58), width: s.legende.largeur + 24, height: 76, color: rgb(1, 1, 1), borderColor: rgb(0.85, 0.82, 0.75), borderWidth: 0.8 });
+      ecrire(pg, "LÉGENDE", s.legende.x, s.legende.y, 12, fB, couleurs.or);
+      pg.drawCircle({ x: s.legende.x + 6, y: pg.getHeight() - (s.legende.y + 21) + 3.5, size: 5, color: rgb(0.91, 0.70, 0.24) });
+      ecrire(pg, "Biens vendus par l'agence", s.legende.x + 17, s.legende.y + 21, 10, fR);
+      ecrire(pg, (envr.ventes || []).length + " vente(s) à moins d'un kilomètre", s.legende.x, s.legende.y + 40, 9.5, fI, couleurs.gris); }
+    // Page 9 : le mois.
+    { const s = meta.p9, pg = page(s.page);
+      ecrire(pg, (MOIS_FR[aujourdhui.getMonth()] + "  " + aujourdhui.getFullYear()).toUpperCase(), s.mois.x, s.mois.y, s.mois.taille, fR, rgb(0.145, 0.145, 0.149)); }
+    // Page 12 : le conseiller.
+    { const s = meta.p12, pg = page(s.page), cs = r2.conseiller || p.conseiller || {};
+      const f = cs.genre === "f";
+      ecrire(pg, f ? "VOTRE CONSEILLÈRE :" : "VOTRE CONSEILLER :", s.titre.x, s.titre.y[0], s.titre.taille, fX);
+      ecrire(pg, f ? "UNE INTERLOCUTRICE UNIQUE" : "UN INTERLOCUTEUR UNIQUE", s.titre.x, s.titre.y[1], s.titre.taille, fX, couleurs.or);
+      ecrire(pg, "A VOTRE ECOUTE", s.titre.x, s.titre.y[2], s.titre.taille, fX, couleurs.or);
+      let photoCs = cs.photo || "";
+      if (!photoCs && cs.photo_url) { try { const r = await fetch(cs.photo_url); const b = await r.blob(); photoCs = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(b); }); } catch { photoCs = ""; } }
+      await image(pg, photoCs, s.photo, true);
+      ecrire(pg, cs.prenom || "", s.prenom.x, s.prenom.y, s.prenom.taille, fR);
+      ecrire(pg, (cs.nom || "").toUpperCase(), s.nom.x, s.nom.y, s.nom.taille, fR);
+      ecrire(pg, f ? "VOTRE CONSEILLÈRE :" : "VOTRE CONSEILLER :", s.role.x, s.role.y, s.role.taille, fR, couleurs.or);
+      ecrire(pg, "DE L'AGENCE CENTURY 21", s.agence.x, s.agence.y, s.agence.taille, fR, couleurs.or);
+      ecrire(pg, cs.telephone ? "Port. " + cs.telephone : "", s.port.x, s.port.y, s.port.taille, fR);
+      ecrire(pg, cs.email || "", s.email.x, s.email.y, s.email.taille, fR);
+      let y = s.bio.y, n = 0;
+      for (const para of String(r2.bio != null ? r2.bio : cs.bio || "").replace(/\r/g, "").split(/\n\s*\n/)) {
+        for (const l of couper(para, fI, s.bio.taille, s.bio.largeur)) { if (n++ >= s.bio.max) break; ecrire(pg, l, s.bio.x, y, s.bio.taille, fI); y += s.bio.pas; }
+        y += s.bio.pas * 0.6;
+      } }
+    doc.setTitle("Vendons ensemble votre bien — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
+    const octets = await doc.save();
+    const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
+    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf" };
+    return url;
+  }
+  // La fenêtre du guide R2 : photo du bien, points forts, objections, texte
+  // du conseiller — enregistrés sur la fiche — puis assemblage et impression.
+  async function ouvrirGuideR2(id, p) {
+    let r2;
+    try { r2 = await api("/crm/parcours/" + id + "/r2"); } catch (e) { toast(e.message, true); return; }
+    let photo; // undefined = inchangée
+    const cs = r2.conseiller || {};
+    ouvrirModale("🖨 Guide R2 — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
+      '<p class="aide">Ce qui manque au guide : la photo du bien, vos points forts et objections, votre texte. Le reste (commune, commodités à 1,5 km, ventes de l\'agence à 1 km, date du jour, mois) se remplit tout seul.</p>' +
+      '<div class="barre" style="align-items:center;">' +
+      '<img id="r2-apercu" src="' + escH(r2.photo || "") + '" alt="" style="width:160px; height:106px; object-fit:cover; border-radius:10px; background:var(--line);" />' +
+      '<label class="btn">📷 Photo du bien<input type="file" id="r2-photo" accept="image/*" hidden /></label></div>' +
+      '<div class="grille-champs" style="margin-top:12px;">' +
+      '<label>Les points forts (un par ligne, 4 au plus)<textarea id="r2-forts" style="min-height:90px;">' + escH(r2.points_forts || "") + "</textarea></label>" +
+      '<label>Les objections potentielles (une par ligne, 4 au plus)<textarea id="r2-objections" style="min-height:90px;">' + escH(r2.objections || "") + "</textarea></label>" +
+      '<label style="grid-column:1/-1;">Texte de ' + escH([cs.prenom, cs.nom].filter(Boolean).join(" ") || "votre conseiller") + ' (page « Votre conseiller » — un paragraphe par ligne vide)<textarea id="r2-bio" style="min-height:120px;">' + escH(cs.bio || "") + "</textarea></label></div>" +
+      (cs.id ? "" : '<p class="petit" style="color:#e07a5f;">Aucun conseiller sur la fiche : la page « Votre conseiller » restera vide.</p>') +
+      '<p class="petit" id="r2-etat"></p>',
+      '<button class="btn" id="r2-retour">Retour</button><button class="btn" id="r2-save">Enregistrer</button><button class="btn btn-or" id="r2-generer">🖨 Générer le guide</button>');
+    $("r2-retour").addEventListener("click", () => ouvrirParcours(id));
+    $("r2-photo").addEventListener("change", async () => {
+      const f = $("r2-photo").files[0]; if (!f) return;
+      try { photo = await reduireImage(f, 1600, 0.82); $("r2-apercu").src = photo; } catch (e) { toast(e.message, true); }
+    });
+    const sauver = async () => {
+      const corps = { points_forts: $("r2-forts").value.trim(), objections: $("r2-objections").value.trim(), bio: $("r2-bio").value.trim() };
+      if (photo !== undefined) corps.photo = photo;
+      await api("/crm/parcours/" + id + "/r2", { method: "PUT", json: corps });
+      photo = undefined;
+      return api("/crm/parcours/" + id + "/r2");
+    };
+    $("r2-save").addEventListener("click", async () => { try { r2 = await sauver(); toast("Guide R2 : saisie enregistrée"); } catch (e) { toast(e.message, true); } });
+    // Ce qui est saisi reste, même sans cliquer : chaque champ s'enregistre
+    // dès qu'on le quitte, et le profil du conseiller (son texte) se met à jour.
+    for (const id of ["r2-forts", "r2-objections", "r2-bio"]) $(id).addEventListener("change", async () => {
+      try { r2 = await sauver(); $("r2-etat").textContent = "Enregistré."; chargerConseillers(); } catch (e) { toast(e.message, true); }
+    });
+    $("r2-generer").addEventListener("click", async () => {
+      const btn = $("r2-generer"), etat = $("r2-etat"); btn.disabled = true;
+      try {
+        etat.textContent = "Enregistrement…"; r2 = await sauver();
+        etat.textContent = "Commune, commodités et ventes autour du bien…";
+        const envr = await api("/crm/parcours/" + id + "/environnement");
+        if (envr.erreur) toast("Commodités indisponibles : " + envr.erreur, true);
+        etat.textContent = "Cartes et assemblage du guide…";
+        const urlR2 = await genererGuideR2({ ...p, cp: p.cp, ville: p.ville }, r2, envr);
+        await api("/crm/parcours/" + id + "/etape", { json: { etape: "guide-r2" } });
+        chargerConseillers();
+        documentPret(id, "Guide R2 prêt", urlR2, window.__dernierGuide && window.__dernierGuide.fichier);
+      } catch (e) { toast(e.message, true); etat.textContent = ""; btn.disabled = false; }
+    });
+  }
+
+  // Un co-propriétaire : d'abord la recherche dans les contacts, sinon les
+  // quelques champs d'une nouvelle fiche (créée avec l'adresse du bien).
+  function ajouterProprietaire(id, p) {
+    let contactId = "";
+    ouvrirModale("+ Co-propriétaire — " + [p.prenom, p.nom].filter(Boolean).join(" "),
+      '<div class="grille-champs"><label>Chercher dans les contacts<input id="pp-q" placeholder="nom, e-mail, téléphone…" autocomplete="off" /></label></div>' +
+      '<div id="pp-resultats" style="max-height:150px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:6px 12px; margin:6px 0 12px;"><p class="petit">Tapez au moins 2 caractères. Introuvable ? Remplissez ci-dessous : la fiche contact sera créée.</p></div>' +
+      '<p class="petit" id="pp-choisi"></p>' +
+      '<div class="grille-champs">' +
+      '<label>Civilité<select id="pp-civilite">' + ["Mme", "M."].map((c) => "<option>" + c + "</option>").join("") + "</select></label>" +
+      '<label>Prénom<input id="pp-prenom" /></label><label>Nom<input id="pp-nom" /></label>' +
+      '<label>E-mail<input id="pp-email" type="email" /></label><label>Téléphone<input id="pp-tel" /></label></div>',
+      '<button class="btn" id="pp-annuler">Retour</button><button class="btn btn-or" id="pp-ajouter">Ajouter</button>');
+    $("pp-annuler").addEventListener("click", () => ouvrirParcours(id));
+    let minuteur = null;
+    const chercher = async () => {
+      const q = $("pp-q").value.trim(); const zone = $("pp-resultats");
+      if (q.length < 2) return;
+      try {
+        const r = await api("/crm/contacts/recherche?q=" + encodeURIComponent(q));
+        zone.innerHTML = (r.contacts || []).length
+          ? r.contacts.map((x) => '<button type="button" class="btn" data-pp="' + escH(x.id) + '" style="display:block; width:100%; text-align:left; margin:3px 0; padding:6px 10px;"><strong>' +
+            escH(x.nom) + "</strong> " + escH(x.prenom) + (x.email ? ' <span class="petit">' + escH(x.email) + "</span>" : "") + "</button>").join("")
+          : '<p class="petit">Personne ne correspond : remplissez la fiche ci-dessous.</p>';
+        zone.querySelectorAll("[data-pp]").forEach((b) => b.addEventListener("click", () => {
+          const x = r.contacts.find((c) => c.id === b.dataset.pp); contactId = x.id;
+          $("pp-civilite").value = x.civilite === "M." ? "M." : "Mme"; $("pp-prenom").value = x.prenom || ""; $("pp-nom").value = x.nom || ""; $("pp-email").value = x.email || ""; $("pp-tel").value = x.telephone || "";
+          $("pp-choisi").textContent = "Fiche choisie : " + [x.prenom, x.nom].filter(Boolean).join(" ");
+        }));
+      } catch (e) { zone.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; }
+    };
+    $("pp-q").addEventListener("input", () => { contactId = ""; $("pp-choisi").textContent = ""; clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
+    $("pp-ajouter").addEventListener("click", async () => {
+      const corps = contactId ? { contact_id: contactId } : { civilite: $("pp-civilite").value, prenom: $("pp-prenom").value.trim(), nom: $("pp-nom").value.trim(), email: $("pp-email").value.trim(), telephone: $("pp-tel").value.trim() };
+      try { const r = await api("/crm/parcours/" + id + "/proprietaires", { json: corps }); toast(r.contact_cree ? "Co-propriétaire ajouté, et sa fiche contact créée" : "Co-propriétaire ajouté"); ouvrirParcours(id); }
+      catch (e) { toast(e.message, true); }
+    });
+  }
+
+  /* ----------------------------- Livret prix ------------------------------ */
+  // L'analyse comparative de marché, sur le modèle « Votre livret prix » :
+  // les 3 pages fixes, puis chaque chapitre (page de titre du modèle) suivi
+  // des pages générées — ventes DVF et de l'agence retenues (carte + fiche),
+  // biens en concurrence (photo + fiche), commission d'évaluation, acheteurs
+  // du moment (facultatif), conditions de financement.
+  const dvfCacheAcm = new Map();
+  function parseDvfCsv(texte) {
+    const lignes = texte.split("\n");
+    if (lignes.length < 2) return [];
+    const cols = lignes[0].split(","); const idx = {}; cols.forEach((c, i) => { idx[c] = i; });
+    const parId = new Map();
+    for (let i = 1; i < lignes.length; i++) {
+      const c = lignes[i].split(",");
+      if (c.length < cols.length - 2) continue;
+      const lat = parseFloat(c[idx.latitude]), lng = parseFloat(c[idx.longitude]), prix = parseFloat(c[idx.valeur_fonciere]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(prix) || prix < 1000) continue;
+      if (c[idx.nature_mutation] !== "Vente" && c[idx.nature_mutation] !== "Vente en l'état futur d'achèvement") continue;
+      const id = c[idx.id_mutation];
+      const ligne = { id: "dvf:" + id, date: c[idx.date_mutation], prix, lat, lng, type: c[idx.type_local] || "", surface: parseFloat(c[idx.surface_reelle_bati]) || 0,
+        pieces: parseInt(c[idx.nombre_pieces_principales], 10) || 0, terrain: parseFloat(c[idx.surface_terrain]) || 0,
+        adresse: [c[idx.adresse_numero], c[idx.adresse_nom_voie]].filter(Boolean).join(" "), ville: c[idx.nom_commune] || "" };
+      const cur = parId.get(id);
+      if (!cur || ligne.surface > cur.surface) { if (cur) ligne.terrain = Math.max(ligne.terrain, cur.terrain); parId.set(id, ligne); }
+      else cur.terrain = Math.max(cur.terrain, ligne.terrain);
+    }
+    return [...parId.values()].filter((v) => (v.type === "Maison" || v.type === "Appartement") && v.surface > 0);
+  }
+  async function chargerDvfCommune(code, dep) {
+    if (dvfCacheAcm.has(code)) return dvfCacheAcm.get(code);
+    const annee = new Date().getFullYear(), ventes = []; let trouvees = 0;
+    for (let a = annee; a >= annee - 4 && trouvees < 3; a--) {
+      try {
+        const r = await fetch(API + "/crm/dvf/" + a + "/" + dep + "/" + code, { headers: { Authorization: "Bearer " + account().session } });
+        if (!r.ok) continue;
+        ventes.push(...parseDvfCsv(await r.text())); trouvees++;
+      } catch { /* millésime absent */ }
+    }
+    dvfCacheAcm.set(code, ventes);
+    return ventes;
+  }
+  const distM = (a, b, c, d) => { const R = 6371000, r = Math.PI / 180, x = (d - b) * r * Math.cos((a + c) / 2 * r), y = (c - a) * r; return Math.sqrt(x * x + y * y) * R; };
+  const fmtM2 = (v) => (v && v.surface && v.prix ? Math.round(v.prix / v.surface).toLocaleString("fr-FR") + " €/m²" : "");
+  const fmtDateAcm = (d) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || "")); return m ? m[3] + "/" + m[2] + "/" + m[1] : String(d || ""); };
+  const mensualite = (montant, tauxPct, annees) => { const t = tauxPct / 100 / 12, n = annees * 12; if (!montant || !n) return 0; return t ? montant * t / (1 - Math.pow(1 + t, -n)) : montant / n; };
+  async function ouvrirAcm(id, p) {
+    let acm, donnees;
+    try { [acm, donnees] = await Promise.all([api("/crm/parcours/" + id + "/acm"), api("/crm/parcours/" + id + "/acm/donnees")]); }
+    catch (e) { toast(e.message, true); return; }
+    acm = acm.acm || {};
+    ouvrirModale("🖨 Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), '<p class="aide">Ventes DVF autour du bien…</p>', "");
+    document.querySelector(".modale").classList.add("large");
+    let dvf = [];
+    if (donnees.commune && donnees.commune.code) { try { dvf = await chargerDvfCommune(donnees.commune.code, donnees.commune.dep); } catch { dvf = []; } }
+    const typeDvf = donnees.type === "appartement" ? "Appartement" : "Maison";
+    const depuis = new Date(); depuis.setFullYear(depuis.getFullYear() - 2); // 24 derniers mois
+    const ventesDvf = dvf.filter((v) => v.type === typeDvf && v.date >= depuis.toISOString().slice(0, 10))
+      .map((v) => ({ ...v, source: "dvf", dist: Math.round(distM(donnees.lat, donnees.lng, v.lat, v.lng)) })).filter((v) => v.dist <= 1500).sort((a, b) => a.dist - b.dist).slice(0, 30);
+    const ventesAgence = (donnees.ventes || []).filter((v) => v.prix > 0).map((v) => ({ ...v, source: "agence", dist: Math.round(v.dist) }));
+    // Les ventes à choisir, les plus récentes d'abord (celles de l'agence à égalité de date).
+    const candidatsVentes = [...ventesAgence, ...ventesDvf].sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || (a.source === "agence" ? -1 : 1));
+    donnees.ventesDvf = ventesDvf; // toutes les ventes DVF autour : page dédiée du livret
+    window.__acmDebug = { dvf: dvf.length, ventesDvf: ventesDvf.length, commune: donnees.commune, lat: donnees.lat, lng: donnees.lng, type: donnees.type }; // relu par le smoke
+    // Les biens vus sur les portails (leboncoin, SeLoger…), saisis à la main avec
+    // l'adresse retrouvée (précisément.fr) : gardés dans la saisie du livret.
+    const manuels = (acm.concurrence || []).filter((c) => c.source === "portail");
+    let portails = { biens: [] };
+    try { portails = await api("/crm/parcours/" + id + "/acm/portails" + (acm.prix ? "?prix=" + acm.prix : "")); } catch { portails = { biens: [] }; }
+    // Les photos déjà posées à la main (📷) restent attachées aux biens.
+    const photosPosees = new Map((acm.concurrence || []).filter((c) => c.photo).map((c) => [c.id, c.photo]));
+    const candidatsConc = [...manuels, ...(donnees.annonces || []).map((a) => ({ ...a, id: "agence:" + a.id })), ...(donnees.amepi || []).map((a) => ({ ...a, id: "amepi:" + a.id })), ...(portails.biens || [])]
+      .map((a) => (photosPosees.has(a.id) ? { ...a, photo: photosPosees.get(a.id) } : a));
+    const dejaV = new Set((acm.ventes || []).map((v) => v.id)), dejaC = new Set((acm.concurrence || []).map((v) => v.id));
+    const cocheV = (v, i) => (acm.ventes ? dejaV.has(v.id) : i < 4), cocheC = (v, i) => (acm.concurrence ? dejaC.has(v.id) : i < 4);
+    const ligneVente = (v, i) => '<label class="case" style="display:flex; gap:8px; align-items:flex-start; padding:4px 0; border-bottom:1px solid var(--line);"><input type="checkbox" data-vente="' + escH(v.id) + '"' + (cocheV(v, i) ? " checked" : "") + ' /> <span><strong>' +
+      escH(fmtPrix(v.prix)) + "</strong> · " + escH(fmtDateAcm(v.date)) + " · " + escH(v.adresse || "") + (v.ville ? ", " + escH(v.ville) : "") + '<br /><span class="petit">' +
+      escH([v.type, v.pieces ? v.pieces + " pièces" : "", v.surface ? Math.round(v.surface) + " m²" : "", v.terrain ? "terrain " + Math.round(v.terrain) + " m²" : "", fmtM2(v), "à " + v.dist + " m", v.source === "agence" ? "vendu par l'agence" : "DVF"].filter(Boolean).join(" · ")) + "</span></span></label>";
+    const ligneConc = (a, i) => '<label class="case ligne-conc"><input type="checkbox" data-conc="' + escH(a.id) + '"' + (cocheC(a, i) ? " checked" : "") + ' /> ' +
+      '<span class="bloc-vignette">' + ((a.photo || a.image) ? '<img class="vignette-conc" data-vignette="' + escH(a.id) + '" src="' + escH(a.photo || a.image) + '" alt="" loading="lazy" />' : '<span class="vignette-conc" data-vignette="' + escH(a.id) + '"></span>') +
+      '<label class="btn" style="padding:1px 6px; font-size:11px;" title="Poser ou remplacer la photo qui ira dans le livret">📷<input type="file" accept="image/*" data-photo="' + escH(a.id) + '" hidden /></label></span><span><strong>' +
+      escH(fmtPrix(a.prix)) + "</strong> · " + escH(a.titre || "") + (a.ville ? " · " + escH(a.ville) : "") + '<br /><span class="petit">' +
+      escH([a.adresse || "", a.pieces ? a.pieces + " pièces" : "", a.surface ? Math.round(a.surface) + " m²" : "", a.terrain ? "terrain " + Math.round(a.terrain) + " m²" : "", fmtM2(a), a.dist != null ? "à " + Math.round(a.dist) + " m" : "", a.jours ? "en vente depuis " + a.jours + " j" : "", a.baisse > 0 ? "baisse de " + fmtPrix(a.baisse) : "", a.source === "amepi" ? "ALFA · " + (a.agence || "confrère") : a.source === "portail" ? "vu sur " + (a.portail || "un portail") : a.source === "bienici" ? "Bien'ici · " + (a.agence || "agence") + (a.quartier ? " · " + a.quartier : "") : "notre agence"].filter(Boolean).join(" · ")) +
+      (a.url ? ' · <a href="' + escH(a.url) + '" target="_blank" rel="noopener">voir l\'annonce ↗</a>' : "") + "</span></span></label>";
+    let comAvis = null;
+    try { comAvis = await api("/crm/parcours/" + id + "/commission"); } catch { comAvis = null; }
+    const depuisCommission = comAvis && (comAvis.avis || []).length && (!acm.commission || !acm.commission.length || acm.commission_source === "commission") ? lignesDepuisCommission(comAvis) : null;
+    const commission = (depuisCommission && depuisCommission.length ? depuisCommission : acm.commission && acm.commission.length ? acm.commission : [{ nb: "", basse: "", haute: "" }, { nb: "", basse: "", haute: "" }, { nb: "", basse: "", haute: "" }]);
+    // Une ligne de la commission (nb de conseillers, de, à) avec sa croix ; les
+    // index restent uniques même après suppression (lire() relit par index).
+    let comIdx = commission.length;
+    const ligneCom = (l, i) => '<div class="grille-champs ligne-com" style="margin:2px 0; grid-template-columns: 1fr 1fr 1fr auto; align-items:end;"><label>Conseillers<input type="number" min="0" data-com-nb="' + i + '" value="' + escH(l.nb) + '" /></label><label>De<input type="number" step="1000" data-com-basse="' + i + '" value="' + escH(l.basse) + '" /></label><label>À<input type="number" step="1000" data-com-haute="' + i + '" value="' + escH(l.haute) + '" /></label><button type="button" class="btn" data-com-suppr="' + i + '" title="Retirer cette ligne" style="padding:6px 10px;">✕</button></div>';
+    const ach = donnees.acheteurs || [];
+    const budgets = ach.map((a) => a.budget_max).filter((b) => b > 0).sort((a, b) => a - b);
+    const nbAu = (prix) => (prix ? budgets.filter((b) => b >= prix).length : null);
+    const resumeAch = () => {
+      const prix = parseFloat($("acm-prix") && $("acm-prix").value), basse = parseFloat($("acm-basse") && $("acm-basse").value), haute = parseFloat($("acm-haute") && $("acm-haute").value);
+      if (!ach.length) return "Aucun acheteur en recherche sur ce secteur dans Studio.";
+      return ach.length + " acheteur(s) en recherche d'" + (donnees.type === "appartement" ? "un appartement" : "une maison") + (p.ville ? " à " + p.ville : "") +
+        (budgets.length ? " (budgets de " + fmtPrix(budgets[0]) + " à " + fmtPrix(budgets[budgets.length - 1]) + ")" : "") +
+        (prix ? ". À " + fmtPrix(prix) + " : " + nbAu(prix) + " acheteur(s)" : "") + (basse ? " · fourchette basse " + fmtPrix(basse) + " : " + nbAu(basse) : "") + (haute ? " · fourchette haute " + fmtPrix(haute) + " : " + nbAu(haute) : "") + ".";
+    };
+    $("modale-corps").innerHTML =
+      '<p class="aide">Cochez ce qui entre dans le livret, complétez la commission d\'évaluation et le financement. Tout s\'enregistre sur la fiche.</p>' +
+      '<h3 style="margin:10px 0 4px;">Le bien</h3>' +
+      '<div class="grille-champs"><label>Surface habitable (m²)<input id="acm-surface" type="number" step="1" value="' + escH(acm.surface || "") + '" /></label>' +
+      '<label>Terrain (m²)<input id="acm-terrain" type="number" step="1" value="' + escH(acm.terrain || "") + '" /></label>' +
+      '<label>Pièce de vie (m²)<input id="acm-piece-vie" type="number" step="1" value="' + escH(acm.piece_vie || "") + '" /></label>' +
+      '<label>Chambres<input id="acm-chambres" type="number" step="1" min="0" value="' + escH(acm.chambres || "") + '" /></label>' +
+      '<label>Prix estimé par le conseiller (net vendeur)<input id="acm-prix" type="number" step="1000" value="' + escH(acm.prix || "") + '" /></label>' +
+      '<label>Fourchette basse<input id="acm-basse" type="number" step="1000" value="' + escH(acm.basse || "") + '" /></label>' +
+      '<label>Fourchette haute<input id="acm-haute" type="number" step="1000" value="' + escH(acm.haute || "") + '" /></label></div>' +
+      '<h3 style="margin:14px 0 4px;">1. Les biens récemment vendus <span class="petit">(' + candidatsVentes.length + ' à moins de 1,5 km — DVF 3 ans et ventes de l\'agence)</span></h3>' +
+      '<div id="acm-ventes" class="liste-choix">' + (candidatsVentes.length ? candidatsVentes.map(ligneVente).join("") : '<p class="petit">Aucune vente comparable trouvée' + (dvf.length ? " à moins de 1,5 km sur 24 mois (" + dvf.length + " ventes DVF dans la commune)" : donnees.commune ? " (fichier DVF de la commune " + escH(donnees.commune.code) + " indisponible)" : " (commune introuvable : " + escH((donnees.erreurs || []).join(" ; ") || "geo.api.gouv.fr muet") + ")") + ".</p>") + "</div>" +
+      '<h3 style="margin:14px 0 4px;">2. Les biens en concurrence <span class="petit">(nos annonces, les mandats de l\'ALFA et Bien\'ici — même type, même commune' + (portails.erreur ? " ; Bien'ici indisponible : " + escH(portails.erreur) : "") + ")</span></h3>" +
+      '<div id="acm-conc" class="liste-choix haute">' + (candidatsConc.length ? candidatsConc.map(ligneConc).join("") : '<p class="petit">Aucun bien en vente comparable pour le moment.</p>') + "</div>" +
+      '<details style="margin-top:6px;"><summary class="petit" style="cursor:pointer;">+ Ajouter un bien vu sur un portail (adresse retrouvée sur précisément.fr)</summary>' +
+      '<div class="grille-champs" style="margin-top:6px;"><label style="grid-column:1/-1;">Adresse<input id="acm-m-adresse" placeholder="9 allée Lamartine, Le Taillan-Médoc" /></label>' +
+      '<label>Prix<input id="acm-m-prix" type="number" step="1000" /></label><label>Surface (m²)<input id="acm-m-surface" type="number" /></label><label>Pièces<input id="acm-m-pieces" type="number" /></label><label>Terrain (m²)<input id="acm-m-terrain" type="number" /></label>' +
+      '<label>Portail / agence<input id="acm-m-portail" placeholder="Leboncoin — ORPI" /></label><label>Lien de l\'annonce<input id="acm-m-url" placeholder="https://…" /></label></div>' +
+      '<div class="barre"><button class="btn" id="acm-m-ajouter">Ajouter à la liste</button></div></details>' +
+      '<h3 style="margin:14px 0 4px;">3. Commission d\'évaluation <span class="petit">(' + (comAvis && (comAvis.avis || []).length ? comAvis.avis.length + " avis de collègues reçus, lignes pré-remplies — " : "") + 'nombre de conseillers par fourchette, net vendeur)</span></h3>' +
+      '<div class="barre"><button class="btn" id="acm-commission" type="button">🗳 ' + (comAvis && comAvis.ouvert ? "Voir la commission" : "Lancer la commission d\'évaluation") + "</button></div>" +
+      '<div id="acm-com-lignes">' + commission.map(ligneCom).join("") + "</div>" +
+      '<div class="barre"><button class="btn" id="acm-com-ajouter" type="button">+ Ajouter une ligne</button></div>' +
+      '<h3 style="margin:14px 0 4px;">4. Les réactions des acheteurs du moment</h3>' +
+      '<p class="petit" id="acm-ach-resume"></p>' +
+      '<label class="case"><input type="checkbox" id="acm-ach-inclure"' + (acm.acheteurs_inclure ? " checked" : "") + " /> Inclure cette page dans le livret</label>" +
+      '<textarea id="acm-ach-texte" style="width:100%; min-height:70px; margin-top:6px;" placeholder="Retours de visites, remarques des acheteurs…">' + escH(acm.acheteurs_texte || "") + "</textarea>" +
+      '<h3 style="margin:14px 0 4px;">5. Les conditions de financement</h3>' +
+      '<div class="grille-champs"><label>Taux (%)<input id="acm-taux" type="number" step="0.05" value="' + escH(acm.taux ?? 3.9) + '" /></label>' +
+      '<label>Assurance (%)<input id="acm-assurance" type="number" step="0.01" value="' + escH(acm.assurance ?? 0.34) + '" /></label>' +
+      '<label>Apport<input id="acm-apport" type="number" step="1000" value="' + escH(acm.apport ?? 0) + '" /></label>' +
+      '<label>Durée (ans)<select id="acm-duree">' + [15, 20, 25].map((d) => '<option' + ((acm.duree || 25) === d ? " selected" : "") + ">" + d + "</option>").join("") + "</select></label></div>" +
+      '<p class="petit" id="acm-etat"></p>';
+    $("modale-pied").innerHTML = '<button class="btn" id="acm-retour">Retour</button><button class="btn" id="acm-save">Enregistrer</button><button class="btn btn-or" id="acm-generer">🖨 Générer le livret</button>';
+    $("acm-retour").addEventListener("click", async () => { try { await sauver(); } catch { /* on revient quand même */ } document.querySelector(".modale").classList.remove("large"); ouvrirParcours(id); });
+    // Toute saisie du livret s'enregistre d'elle-même (comme le guide R2) : une
+    // ligne de commission ajoutée reste là quand on rouvre.
+    let autoSauve = 0;
+    $("modale-corps").addEventListener("change", () => { clearTimeout(autoSauve); autoSauve = setTimeout(() => sauver().catch(() => {}), 500); });
+    $("acm-com-lignes").addEventListener("click", (e) => { if (e.target.closest("[data-com-suppr]")) { clearTimeout(autoSauve); autoSauve = setTimeout(() => sauver().catch(() => {}), 500); } });
+    $("acm-commission").addEventListener("click", () => { document.querySelector(".modale").classList.remove("large"); ouvrirCommission(id, p); });
+    $("acm-com-ajouter").addEventListener("click", () => { $("acm-com-lignes").insertAdjacentHTML("beforeend", ligneCom({ nb: "", basse: "", haute: "" }, comIdx++)); const der = $("acm-com-lignes").lastElementChild.querySelector("input"); if (der) der.focus(); });
+    $("acm-com-lignes").addEventListener("click", (e) => { const b = e.target.closest("[data-com-suppr]"); if (b) b.closest(".ligne-com").remove(); });
+    $("acm-ach-resume").textContent = resumeAch();
+    $("acm-conc").addEventListener("change", async (ev) => {
+      const inp = ev.target; if (!inp.matches || !inp.matches("[data-photo]")) return;
+      const f = inp.files && inp.files[0]; if (!f) return;
+      try {
+        const photo = await reduireImage(f, 1200, 0.82);
+        const cand = candidatsConc.find((x) => x.id === inp.dataset.photo); if (cand) cand.photo = photo;
+        const vig = document.querySelector('[data-vignette="' + inp.dataset.photo + '"]');
+        if (vig) { const img = document.createElement("img"); img.src = photo; img.alt = ""; img.className = "vignette-conc"; img.dataset.vignette = inp.dataset.photo; vig.replaceWith(img); }
+        const cb = document.querySelector('[data-conc="' + inp.dataset.photo + '"]'); if (cb) cb.checked = true;
+        toast("Photo posée sur ce bien");
+      } catch (e) { toast(e.message, true); }
+    });
+    for (const k of ["acm-prix", "acm-basse", "acm-haute"]) $(k).addEventListener("input", () => { $("acm-ach-resume").textContent = resumeAch(); });
+    $("acm-m-ajouter").addEventListener("click", () => {
+      const num = (k) => { const v = parseFloat($(k).value); return Number.isFinite(v) ? v : null; };
+      const m = { id: "portail:" + Date.now(), source: "portail", adresse: $("acm-m-adresse").value.trim(), prix: num("acm-m-prix"), surface: num("acm-m-surface"), pieces: num("acm-m-pieces"), terrain: num("acm-m-terrain"), portail: $("acm-m-portail").value.trim(), url: $("acm-m-url").value.trim(), type: donnees.type === "appartement" ? "Appartement" : "Maison" };
+      if (!m.adresse || !m.prix) { toast("Adresse et prix sont requis", true); return; }
+      m.titre = [m.type, m.pieces ? m.pieces + " pièces" : "", m.surface ? Math.round(m.surface) + " m²" : ""].filter(Boolean).join(" · ");
+      candidatsConc.unshift(m);
+      const zone = $("acm-conc"); zone.insertAdjacentHTML("afterbegin", ligneConc(m, 0).replace('type="checkbox"', 'type="checkbox" checked'));
+      for (const k of ["acm-m-adresse", "acm-m-prix", "acm-m-surface", "acm-m-pieces", "acm-m-terrain", "acm-m-url"]) $(k).value = "";
+      toast("Bien ajouté à la liste");
+    });
+    const lire = () => {
+      const num = (k) => { const v = parseFloat($(k).value); return Number.isFinite(v) ? v : null; };
+      const cochees = (sel, liste) => [...document.querySelectorAll(sel)].filter((x) => x.checked).map((x) => liste.find((v) => v.id === x.dataset.vente || v.id === x.dataset.conc)).filter(Boolean);
+      const com = [...document.querySelectorAll("[data-com-nb]")].map((x) => { const i = x.dataset.comNb; return { nb: parseInt(x.value, 10) || 0, basse: parseFloat(document.querySelector('[data-com-basse="' + i + '"]').value) || 0, haute: parseFloat(document.querySelector('[data-com-haute="' + i + '"]').value) || 0 }; }).filter((l) => l.nb > 0 || l.basse || l.haute);
+      // Des lignes retouchées à la main ne sont plus écrasées par la commission à la réouverture.
+      const auto = depuisCommission || [];
+      const source = com.length === auto.length && com.every((l, i) => l.nb === auto[i].nb && l.basse === auto[i].basse && l.haute === auto[i].haute) ? acm.commission_source : "main";
+      return { ...acm, commission_source: source, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes), concurrence: cochees("[data-conc]", candidatsConc),
+        commission: com, acheteurs_inclure: $("acm-ach-inclure").checked, acheteurs_texte: $("acm-ach-texte").value.trim(), acheteurs_n: ach.length, acheteurs_budgets: budgets,
+        taux: num("acm-taux") ?? 3.9, assurance: num("acm-assurance") ?? 0.34, apport: num("acm-apport") || 0, duree: parseInt($("acm-duree").value, 10) || 25 };
+    };
+    const sauver = async () => { const d = lire(); await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: d }); return d; };
+    $("acm-save").addEventListener("click", async () => { try { await sauver(); toast("Livret prix : saisie enregistrée"); } catch (e) { toast(e.message, true); } });
+    $("acm-generer").addEventListener("click", async () => {
+      const btn = $("acm-generer"), etat = $("acm-etat"); btn.disabled = true;
+      try {
+        etat.textContent = "Enregistrement…"; const d = await sauver();
+        etat.textContent = "Cartes, photos et assemblage du livret…";
+        const urlAcm = await genererLivretPrix(p, d, donnees);
+        await api("/crm/parcours/" + id + "/etape", { json: { etape: "acm" } });
+        documentPret(id, "Livret prix prêt", urlAcm, window.__dernierGuide && window.__dernierGuide.fichier);
+      } catch (e) { toast(e.message, true); etat.textContent = ""; btn.disabled = false; }
+    });
+  }
+  /* ------------------------ Commission d'évaluation ------------------------ */
+  // Comme Kadimestim, dans le parcours : un lien pour les collègues, leurs
+  // fourchettes en direct, les tiers repli / raison / ambition, et un clic pour
+  // reporter le tout dans le livret prix.
+  const lignesDepuisCommission = (com) => {
+    const g = com.groupes || [];
+    if (g.length && g.length <= 4) return g.map((x) => ({ nb: x.nb, basse: x.basse, haute: x.haute }));
+    const t = com.tiers || {};
+    return [["repli", t.repli], ["raison", t.raison], ["ambition", t.ambition]].filter(([, x]) => x && x.nb).map(([, x]) => ({ nb: x.nb, basse: Math.round(x.min / 1000) * 1000, haute: Math.round(x.max / 1000) * 1000 }));
+  };
+  // Le plan d'une adresse (Google Maps ouvre l'application sur téléphone).
+  const lienPlan = (adresse, cp, ville) => "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent([adresse, [cp, ville].filter(Boolean).join(" ")].filter(Boolean).join(", "));
+  const TIERS_LIB = [["repli", "Prix de repli", "moyenne du tiers bas"], ["raison", "Prix de raison", "moyenne du tiers médian"], ["ambition", "Prix d'ambition", "moyenne du tiers haut"]];
+  // Le QR code de la page de vote, fabriqué sur place (aucun service tiers ne voit le jeton).
+  const qrDataUrl = (texte) => {
+    try { const q = window.qrcode(0, "M"); q.addData(texte); q.make(); return q.createDataURL(6, 8); } catch { return ""; }
+  };
+  async function ouvrirCommission(id, p) {
+    let com, acm = {};
+    try {
+      com = await api("/crm/parcours/" + id + "/commission"); if (!com.ouvert) com = await api("/crm/parcours/" + id + "/commission/ouvrir", { json: {} });
+      acm = (await api("/crm/parcours/" + id + "/acm")).acm || {};
+    } catch (e) { toast(e.message, true); return; }
+    // Les 3 fourchettes affichées : celles retouchées par le conseiller si elles existent, sinon le calcul.
+    const tiersAffiches = () => {
+      const t = com.tiers || {}, aj = acm.tiers_ajustes || {};
+      const o = {};
+      for (const [k] of TIERS_LIB) {
+        const c = t[k] || {}, a = aj[k] || {};
+        o[k] = { nb: c.nb || 0, montant: a.montant ?? (c.nb ? c.moyenne : ""), min: a.min ?? (c.nb ? Math.round(c.min) : ""), max: a.max ?? (c.nb ? Math.round(c.max) : "") };
+      }
+      return o;
+    };
+    const rendre = () => {
+      const tiers = tiersAffiches(), qr = qrDataUrl(com.lien);
+      $("modale-corps").innerHTML =
+        '<p class="aide">Faites scanner ce QR code aux collègues (en réunion ou en photo) : chacun ouvre le bien et donne sa fourchette, sans compte. Les réponses arrivent ici' + (com.ferme ? " — <strong>commission close</strong>" : "") + ".</p>" +
+        '<input id="com-lien" type="hidden" value="' + escH(com.lien) + '" />' +
+        (p.adresse ? '<p class="petit">📍 <a class="plan" href="' + escH(lienPlan(p.adresse, p.cp, p.ville)) + '" target="_blank" rel="noopener">' + escH([p.adresse, [p.cp, p.ville].filter(Boolean).join(" ")].filter(Boolean).join(", ")) + "</a></p>" : "") +
+        '<div style="text-align:center; margin:8px 0;">' + (qr ? '<img id="com-qr" src="' + qr + '" alt="QR code de la commission d\'évaluation" style="width:min(260px, 70vw); image-rendering:pixelated; border:1px solid var(--line); border-radius:8px; background:#fff;" />' : '<p class="petit">QR code indisponible (rechargez la page).</p>') + "</div>" +
+        '<h3 style="margin:16px 0 6px;">Avis reçus <span class="puce">' + (com.avis || []).length + "</span></h3>" +
+        ((com.avis || []).length
+          ? '<div class="tableau-cadre"><table><thead><tr><th>Conseiller</th><th>Prix bas</th><th>Prix haut</th><th>Moyenne</th><th>Remarque</th><th></th></tr></thead><tbody>' +
+            com.avis.map((a) => "<tr><td>" + escH(a.nom || "—") + "</td><td>" + escH(fmtPrix(a.prix_min)) + "</td><td>" + escH(fmtPrix(a.prix_max)) + "</td><td>" + escH(fmtPrix(Math.round((a.prix_min + a.prix_max) / 2))) + '</td><td class="petit">' + escH(a.note || "") + '</td><td><button type="button" class="btn" data-av="' + escH(a.id) + '" title="Retirer cet avis" style="padding:2px 8px;">✕</button></td></tr>').join("") + "</tbody></table></div>"
+          : '<p class="petit">📬 En attente des fourchettes des collègues… (actualisez pour voir les nouvelles).</p>') +
+        ((com.groupes || []).length ? '<h3 style="margin:16px 0 6px;">Par fourchette</h3><div class="tableau-cadre"><table><thead><tr><th>Prix bas</th><th>Prix haut</th><th>Moyenne</th><th>Nb de conseillers</th></tr></thead><tbody>' +
+          com.groupes.map((g) => "<tr><td>" + escH(fmtPrix(g.basse)) + "</td><td>" + escH(fmtPrix(g.haute)) + "</td><td>" + escH(fmtPrix(g.moyenne)) + '</td><td><span class="puce">' + g.nb + "</span></td></tr>").join("") + "</tbody></table></div>" : "") +
+        '<h3 style="margin:16px 0 6px;">Les 3 fourchettes de prix <span class="petit">(calculées, modifiables avant le report)</span></h3><div class="grille-champs">' +
+        TIERS_LIB.map(([k, lib, sous]) => { const x = tiers[k]; return '<div class="carte" style="padding:12px;"><div class="petit">' + escH(lib) + " · " + escH(sous) + (x.nb ? " · " + x.nb + " avis" : "") + "</div>" +
+          '<label>Montant<input type="number" step="1000" data-tier="' + k + '" data-champ="montant" value="' + escH(x.montant) + '" style="font-size:18px; font-weight:700;" /></label>' +
+          '<div class="grille-champs" style="margin-top:4px;"><label>De<input type="number" step="1000" data-tier="' + k + '" data-champ="min" value="' + escH(x.min) + '" /></label><label>À<input type="number" step="1000" data-tier="' + k + '" data-champ="max" value="' + escH(x.max) + '" /></label></div></div>'; }).join("") + "</div>" +
+        (acm.tiers_ajustes ? '<p class="petit">Fourchettes retouchées à la main — <button type="button" class="btn" id="com-recalculer" style="padding:2px 8px;">↺ Reprendre le calcul</button></p>' : "");
+      $("modale-pied").innerHTML = '<button class="btn" id="com-retour">Retour</button><button class="btn" id="com-actualiser">⟳ Actualiser</button>' +
+        '<button class="btn" id="com-clore">' + (com.ferme ? "Rouvrir" : "Clore") + "</button>" +
+        '<button class="btn btn-or" id="com-reporter">→ Enregistrer et reporter dans le livret prix</button>';
+      $("com-retour").addEventListener("click", () => ouvrirParcours(id));
+      $("com-actualiser").addEventListener("click", async () => { try { com = await api("/crm/parcours/" + id + "/commission"); rendre(); } catch (e) { toast(e.message, true); } });
+      $("com-clore").addEventListener("click", async () => { try { com = await api("/crm/parcours/" + id + "/commission/" + (com.ferme ? "ouvrir" : "fermer"), { json: {} }); rendre(); } catch (e) { toast(e.message, true); } });
+      document.querySelectorAll("[data-av]").forEach((b) => b.addEventListener("click", async () => { try { com = await api("/crm/parcours/" + id + "/commission/avis/" + b.dataset.av, { method: "DELETE" }); rendre(); } catch (e) { toast(e.message, true); } }));
+      if ($("com-recalculer")) $("com-recalculer").addEventListener("click", () => { delete acm.tiers_ajustes; rendre(); });
+      $("com-reporter").addEventListener("click", async () => {
+        try {
+          const lireTier = (k, champ) => { const v = parseFloat((document.querySelector('[data-tier="' + k + '"][data-champ="' + champ + '"]') || {}).value); return Number.isFinite(v) ? v : null; };
+          const aj = {};
+          for (const [k] of TIERS_LIB) aj[k] = { nb: (com.tiers && com.tiers[k] && com.tiers[k].nb) || 0, montant: lireTier(k, "montant"), min: lireTier(k, "min"), max: lireTier(k, "max") };
+          if (Object.values(aj).some((x) => x.min && x.max && x.min > x.max)) { toast("Le prix bas doit être inférieur au prix haut.", true); return; }
+          const maj = { ...acm, commission: lignesDepuisCommission(com), commission_source: "commission", tiers_ajustes: aj, tiers_calcules: com.tiers || {} };
+          if (aj.repli.montant) maj.basse = aj.repli.montant;
+          if (aj.raison.montant) maj.prix = aj.raison.montant;
+          if (aj.ambition.montant) maj.haute = aj.ambition.montant;
+          await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: maj });
+          acm = maj;
+          toast("Commission reportée dans le livret prix (" + maj.commission.length + " ligne(s), 3 fourchettes)");
+          rendre();
+        } catch (e) { toast(e.message, true); }
+      });
+    };
+    ouvrirModale("🗳 Commission d'évaluation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), "", "");
+    rendre();
+  }
+  let livretCache = null;
+  async function genererLivretPrix(p, acm, donnees) {
+    if (!window.PDFLib || !window.fontkit) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
+    if (!livretCache) {
+      const meta = await fetch("assets/livret-prix.json").then((r) => r.json());
+      const [pdf, ...fontes] = await Promise.all([fetch("assets/livret-prix.pdf").then((r) => { if (!r.ok) throw new Error("Livret prix introuvable."); return r.arrayBuffer(); }),
+        ...["Montserrat-Bold", "Montserrat-SemiBold", "Montserrat-Regular"].map((f) => fetch("assets/fonts/" + f + ".ttf").then((r) => r.arrayBuffer()))]);
+      livretCache = { meta, pdf, fontes };
+    }
+    const { meta, pdf, fontes } = livretCache;
+    const { PDFDocument, rgb } = window.PDFLib;
+    const source = await PDFDocument.load(pdf);
+    const doc = await PDFDocument.create();
+    doc.registerFontkit(window.fontkit);
+    const [fB, fS, fR] = await Promise.all(fontes.map((b) => doc.embedFont(b, { subset: true })));
+    const C = (hex) => rgb(...hex.replace("#", "").match(/\w\w/g).map((h) => parseInt(h, 16) / 255));
+    const or = C(meta.or), noir = C(meta.noir), gris = C(meta.gris), blanc = rgb(1, 1, 1), sable = rgb(0.93, 0.91, 0.86);
+    // La zone utile : à droite du bandeau décoratif du modèle (il va jusqu'à 75 pt).
+    const G = meta.marge || 92, D = 536, L = D - G;
+    const propre = (t) => String(t).replace(/[   ]/g, " ");
+    const ecrire = (pg, texte, x, y, taille, font, couleur) => { if (texte != null && texte !== "") pg.drawText(propre(texte), { x, y: pg.getHeight() - y, size: taille, font: font || fR, color: couleur || noir }); };
+    const largeur = (texte, font, taille) => (font || fR).widthOfTextAtSize(propre(texte), taille);
+    const ecrireDroite = (pg, texte, xD, y, taille, font, couleur) => { if (texte) ecrire(pg, texte, xD - largeur(texte, font, taille), y, taille, font, couleur); };
+    const ecrireCentre = (pg, texte, xc, y, taille, font, couleur) => { if (texte) ecrire(pg, texte, xc - largeur(texte, font, taille) / 2, y, taille, font, couleur); };
+    const couper = (texte, font, taille, larg) => {
+      const lignes = [];
+      for (const para of String(texte || "").replace(/\r/g, "").split(/\n/)) {
+        let ligne = "";
+        for (const mot of para.split(/\s+/)) { const essai = ligne ? ligne + " " + mot : mot; if (largeur(essai, font, taille) > larg && ligne) { lignes.push(ligne); ligne = mot; } else ligne = essai; }
+        lignes.push(ligne);
+      }
+      return lignes;
+    };
+    const rect = (pg, x, y, w, h, opts) => pg.drawRectangle({ x, y: pg.getHeight() - (y + h), width: w, height: h, ...opts });
+    const ajouterModele = async (n) => { const [pg] = await doc.copyPages(source, [n - 1]); doc.addPage(pg); return pg; };
+    // Une page de contenu : la page de chapitre du modèle, son titre effacé, un en-tête discret.
+    const pageContenu = async (titre, titreOr) => {
+      const pg = await ajouterModele(meta.separateur);
+      const b = meta.blanc; rect(pg, b[0], b[1], b[2] - b[0], b[3] - b[1], { color: blanc });
+      ecrire(pg, titre + " ", G, 62, 15, fB, noir); ecrire(pg, titreOr, G + largeur(titre + " ", fB, 15), 62, 15, fB, or);
+      pg.drawLine({ start: { x: G, y: pg.getHeight() - 72 }, end: { x: D, y: pg.getHeight() - 72 }, thickness: 1, color: or });
+      return pg;
+    };
+    const imageCadree = (pg, im, x, y, w, h) => {
+      const k = Math.max(w / im.width, h / im.height), iw = im.width * k, ih = im.height * k;
+      const ix = x - (iw - w) / 2, iy = pg.getHeight() - (y + h) - (ih - h) / 2;
+      pg.drawImage(im, { x: ix, y: iy, width: iw, height: ih });
+      const ph = pg.getHeight();
+      if (iw > w) { rect(pg, ix, y, x - ix, h, { color: blanc }); rect(pg, x + w, y, ix + iw - (x + w), h, { color: blanc }); }
+      if (ih > h) { pg.drawRectangle({ x, y: iy, width: w, height: ph - (y + h) - iy, color: blanc }); pg.drawRectangle({ x, y: ph - y, width: w, height: iy + ih - (ph - y), color: blanc }); }
+      rect(pg, x, y, w, h, { borderColor: or, borderWidth: 0.8 });
+    };
+    const carte = async (pg, x, y, w, h, opts) => {
+      const png = await dessinerCarte({ largeur: Math.round(w * 2), hauteur: Math.round(h * 2), centre: { lat: donnees.lat, lng: donnees.lng }, ...opts });
+      const im = await doc.embedPng(Uint8Array.from(atob(png.split(",")[1]), (ch) => ch.charCodeAt(0)));
+      pg.drawImage(im, { x, y: pg.getHeight() - (y + h), width: w, height: h });
+      rect(pg, x, y, w, h, { borderColor: or, borderWidth: 0.8 });
+    };
+    // Une photo (data URL ou octets relayés, WebP compris) passe par le décodeur
+    // du navigateur et ressort en JPEG ≤ 1200 px : pdf-lib n'accepte que JPEG et PNG.
+    const decoderPhoto = (source) => new Promise((resolve) => {
+      const img = new Image(); let urlTmp = "";
+      img.onload = () => { try { const k = Math.min(1, 1200 / Math.max(img.width, img.height)); const cv = document.createElement("canvas"); cv.width = Math.max(1, Math.round(img.width * k)); cv.height = Math.max(1, Math.round(img.height * k)); cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height); resolve(cv.toDataURL("image/jpeg", 0.85)); } catch { resolve(""); } if (urlTmp) URL.revokeObjectURL(urlTmp); };
+      img.onerror = () => { resolve(""); if (urlTmp) URL.revokeObjectURL(urlTmp); };
+      if (typeof source === "string") img.src = source; else { urlTmp = URL.createObjectURL(source); img.src = urlTmp; }
+    });
+    const embarquerPhoto = async (a) => {
+      let source = a.photo || "";
+      if (!source && a.image) { try { const r = await fetch(API + "/crm/parcours-image?u=" + encodeURIComponent(a.image), { headers: { Authorization: "Bearer " + account().session } }); if (r.ok) source = await r.blob(); } catch { source = ""; } }
+      if (!source) return null;
+      const jpeg = await decoderPhoto(source);
+      if (!jpeg) return null;
+      try { return await doc.embedJpg(Uint8Array.from(atob(jpeg.split(",")[1]), (ch) => ch.charCodeAt(0))); } catch { return null; }
+    };
+    const dateJour = new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+    const prixRef = acm.haute || acm.prix || acm.basse || 0;
+    const typeLib = donnees.type === "appartement" ? "Appartement" : "Maison";
+    const bienLib = [typeLib + (acm.surface ? " de " + Math.round(acm.surface) + " m²" : ""), acm.terrain ? "terrain de " + Math.round(acm.terrain) + " m²" : ""].filter(Boolean).join(" · ");
+    // Couverture + pages fixes.
+    { const pg = await ajouterModele(1); const c = meta.couverture;
+      ecrireCentre(pg, nomsClient(p), 297.75, c.client.y, c.client.taille, fS, noir);
+      ecrireCentre(pg, [p.adresse, [p.cp, p.ville].filter(Boolean).join(" ")].filter(Boolean).join(", "), 297.75, c.adresse.y, c.adresse.taille, fR, gris);
+      ecrireCentre(pg, dateJour, 297.75, c.date.y, c.date.taille, fR, gris);
+      if (acm.surface || acm.terrain) ecrireCentre(pg, bienLib, 297.75, c.date.y + 20, c.date.taille, fS, noir); }
+    await ajouterModele(2); await ajouterModele(3);
+    // 1. Les biens récemment vendus : 2 ventes par page (carte + fiche), puis toutes les ventes DVF autour.
+    await ajouterModele(meta.sections.vendus);
+    const ventes = acm.ventes || [];
+    const m2 = ventes.filter((v) => v.surface && v.prix).map((v) => v.prix / v.surface).sort((a, b) => a - b);
+    const mediane = m2.length ? Math.round(m2[Math.floor(m2.length / 2)]) : 0;
+    const CW = 236, CH = 176, XF = G + CW + 16;
+    for (let i = 0; i < ventes.length; i += 2) {
+      const pg = await pageContenu("LES BIENS RÉCEMMENT", "VENDUS");
+      if (i === 0 && mediane) couper(ventes.length + " vente(s) comparable(s) retenue(s) · prix médian " + mediane.toLocaleString("fr-FR") + " €/m²" + (acm.surface ? " · soit " + fmtPrix(Math.round(mediane * acm.surface / 1000) * 1000) + " pour " + Math.round(acm.surface) + " m²" : ""), fR, 9.5, L).forEach((l, j) => ecrire(pg, l, G, 90 + j * 12, 9.5, fR, gris));
+      for (let k = 0; k < 2 && i + k < ventes.length; k++) {
+        const v = ventes[i + k], y0 = 118 + k * 330;
+        await carte(pg, G, y0, CW, CH, { lat: v.lat, lng: v.lng, zoom: 16, points: [{ lat: v.lat, lng: v.lng, couleur: "#BEB18A", rayon: 11 }] });
+        ecrire(pg, fmtPrix(v.prix), XF, y0 + 22, 18, fB, noir);
+        ecrire(pg, "Vente du " + fmtDateAcm(v.date), XF, y0 + 40, 10, fS, gris);
+        couper([v.adresse, v.ville].filter(Boolean).join(", ").toUpperCase(), fR, 9, D - XF).slice(0, 2).forEach((l, j) => ecrire(pg, l, XF, y0 + 56 + j * 12, 9, fR, noir));
+        const lignes = [[v.type || typeLib, v.pieces ? v.pieces + " pièces" : ""].filter(Boolean).join(" · "), v.surface ? Math.round(v.surface) + " m² habitables" : "", v.terrain ? Math.round(v.terrain) + " m² de terrain" : "", fmtM2(v) ? "soit " + fmtM2(v) : "", v.dist != null ? "à " + Math.round(v.dist) + " m du bien" : ""].filter(Boolean);
+        lignes.forEach((l, j) => ecrire(pg, l, XF, y0 + 92 + j * 15, 10, fS, noir));
+        ecrire(pg, v.source === "agence" ? "Vendu par notre agence" : "Source : DVF (données notariales)", XF, y0 + 92 + lignes.length * 15, 9, fR, gris);
+        rect(pg, G, y0 + CH + 14, L, 0.6, { color: sable });
+      }
+    }
+    if (!ventes.length) { const pg = await pageContenu("LES BIENS RÉCEMMENT", "VENDUS"); ecrire(pg, "Aucune vente comparable retenue.", G, 100, 11, fR, gris); }
+    // Toutes les ventes DVF autour du bien (les clients y ont accès) : carte + tableau, les plus récentes d'abord.
+    const dvfTous = (donnees.ventesDvf || []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+    if (dvfTous.length) {
+      const pg = await pageContenu("TOUTES LES VENTES AUTOUR DU BIEN", "(DVF)");
+      couper(dvfTous.length + " vente(s) de " + typeLib.toLowerCase() + "s à moins de 1,5 km sur les 24 derniers mois — données notariales publiques (DVF, data.gouv.fr)", fR, 9, L).slice(0, 1).forEach((l) => ecrire(pg, l, G, 88, 9, fR, gris));
+      await carte(pg, G, 98, L, 230, { lat: donnees.lat, lng: donnees.lng, zoom: 15, points: dvfTous.map((v) => ({ lat: v.lat, lng: v.lng, couleur: "#BEB18A", rayon: 6 })) });
+      const cols = [["Date", G, 56], ["Adresse", G + 56, 138], ["Type", G + 194, 56], ["Surface", G + 250, 44], ["Prix", G + 294, 64], ["€/m²", G + 358, 44], ["Dist.", G + 402, 42]];
+      rect(pg, G, 344, L, 18, { color: or });
+      cols.forEach(([t, x]) => ecrire(pg, t, x + 4, 357, 8.5, fB, blanc));
+      dvfTous.slice(0, 27).forEach((v, j) => {
+        const y = 376 + j * 14.5;
+        if (j % 2 === 0) rect(pg, G, y - 10, L, 14.5, { color: sable });
+        const cellules = [fmtDateAcm(v.date), (v.adresse || "").toUpperCase(), [v.type, v.pieces ? v.pieces + " p." : ""].filter(Boolean).join(" "), v.surface ? Math.round(v.surface) + " m²" : "", fmtPrix(v.prix), fmtM2(v).replace(" €/m²", ""), v.dist != null ? Math.round(v.dist) + " m" : ""];
+        cellules.forEach((t, c) => { let txt = String(t); while (largeur(txt, fR, 8) > cols[c][2] - 5 && txt.length > 3) txt = txt.slice(0, -2) + "…"; ecrire(pg, txt, cols[c][1] + 3, y, 8, c === 4 ? fS : fR, noir); });
+      });
+      if (dvfTous.length > 27) ecrire(pg, "… et " + (dvfTous.length - 27) + " autre(s) vente(s).", G, 376 + 27 * 14.5 + 4, 8.5, fR, gris);
+    }
+    // 2. Les biens en concurrence : 2 biens par page, photo + fiche.
+    await ajouterModele(meta.sections.concurrence);
+    const conc = acm.concurrence || [];
+    for (let i = 0; i < conc.length; i += 2) {
+      const pg = await pageContenu("LES BIENS EN", "CONCURRENCE");
+      for (let k = 0; k < 2 && i + k < conc.length; k++) {
+        const a = conc[i + k], y0 = 100 + k * 340;
+        const photo = await embarquerPhoto(a);
+        if (photo) imageCadree(pg, photo, G, y0, CW, CH);
+        else { rect(pg, G, y0, CW, CH, { color: sable, borderColor: or, borderWidth: 0.8 }); ecrireCentre(pg, "photo non disponible", G + CW / 2, y0 + CH / 2 + 3, 9, fR, gris); }
+        ecrire(pg, fmtPrix(a.prix), XF, y0 + 22, 18, fB, noir);
+        if (fmtM2(a)) ecrire(pg, "soit " + fmtM2(a), XF, y0 + 38, 10, fS, gris);
+        couper(a.titre || "", fS, 10, D - XF).slice(0, 2).forEach((l, j) => ecrire(pg, l, XF, y0 + 58 + j * 13, 10, fS, noir));
+        const lignes = [[a.type, a.pieces ? a.pieces + " pièces" : "", a.chambres ? a.chambres + " ch." : ""].filter(Boolean).join(" · "), a.surface ? Math.round(a.surface) + " m² habitables" : "", a.terrain ? Math.round(a.terrain) + " m² de terrain" : "", ...couper(a.adresse || [a.cp, a.ville].filter(Boolean).join(" "), fS, 10, D - XF).slice(0, 2), a.dist != null ? "à " + Math.round(a.dist) + " m du bien" : "", a.jours ? "En vente depuis " + a.jours + " jours" : "", a.baisse > 0 ? "Prix baissé de " + fmtPrix(a.baisse) : ""].filter(Boolean);
+        lignes.forEach((l, j) => ecrire(pg, l, XF, y0 + 92 + j * 15, 10, fS, noir));
+        ecrire(pg, a.source === "amepi" ? "Mandat confrère (" + (a.agence || "ALFA") + ")" : a.source === "portail" ? "Vu sur " + (a.portail || "un portail") : "Annonce de notre agence", XF, y0 + 92 + lignes.length * 15, 9, fR, gris);
+        rect(pg, G, y0 + CH + 14, L, 0.6, { color: sable });
+      }
+    }
+    if (!conc.length) { const pg = await pageContenu("LES BIENS EN", "CONCURRENCE"); ecrire(pg, "Aucun bien en concurrence retenu.", G, 100, 11, fR, gris); }
+    // 3. Commission d'évaluation.
+    await ajouterModele(meta.sections.opinion);
+    { const pg = await pageContenu("L'OPINION DE PLUSIEURS", "PROFESSIONNELS");
+      ecrire(pg, "COMMISSION D'ÉVALUATION", G, 110, 14, fB, noir);
+      ecrireDroite(pg, nomsClient(p), D, 150, 11, fS, noir);
+      ecrireDroite(pg, p.adresse || "", D, 166, 10, fR, noir);
+      ecrireDroite(pg, [p.cp, (p.ville || "").toUpperCase()].filter(Boolean).join(" "), D, 181, 10, fR, noir);
+      const com = acm.commission || [];
+      rect(pg, G, 234, L, 26, { color: or });
+      ecrireCentre(pg, "Nb de conseillers", G + L * 0.25, 252, 10.5, fB, blanc); ecrireCentre(pg, "Estimations (net vendeur)", G + L * 0.72, 252, 10.5, fB, blanc);
+      com.forEach((l, j) => {
+        const y = 290 + j * 30;
+        if (j % 2 === 0) rect(pg, G, y - 16, L, 26, { color: sable });
+        ecrireCentre(pg, l.nb ? String(l.nb) : "—", G + L * 0.25, y, 12, fS, noir);
+        ecrireCentre(pg, fmtPrix(l.basse) + "  –  " + fmtPrix(l.haute), G + L * 0.72, y, 12, fS, noir);
+      });
+      const total = com.reduce((n, l) => n + (l.nb || 0), 0);
+      const yT = 300 + com.length * 30 + 30;
+      ecrireDroite(pg, "Total de nb de conseillers :", G + L * 0.55, yT + 10, 11, fR, noir);
+      rect(pg, G + L * 0.6, yT - 6, 90, 24, { color: or });
+      ecrireCentre(pg, String(total), G + L * 0.6 + 45, yT + 10, 12, fB, blanc);
+      if (acm.surface || acm.terrain) ecrireCentre(pg, bienLib, G + L / 2, yT + 36, 10.5, fR, gris);
+      let yF = yT + 50;
+      const aj = acm.tiers_ajustes || {};
+      const fourchettes = TIERS_LIB.map(([k, lib]) => [lib, aj[k] || {}]).filter(([, x]) => x.montant);
+      if (fourchettes.length) {
+        fourchettes.forEach(([lib, x], j) => {
+          const w = L / fourchettes.length - 10, x0 = G + j * (L / fourchettes.length);
+          rect(pg, x0, yF, w, 72, { borderColor: or, borderWidth: 1, color: blanc });
+          ecrireCentre(pg, lib.toUpperCase(), x0 + w / 2, yF + 18, 9, fB, or);
+          ecrireCentre(pg, fmtPrix(x.montant), x0 + w / 2, yF + 40, 14, fB, noir);
+          if (x.min && x.max && x.min !== x.max) ecrireCentre(pg, "de " + fmtPrix(x.min) + " à " + fmtPrix(x.max), x0 + w / 2, yF + 58, 8.5, fR, gris);
+        });
+        yF += 92;
+      }
+      if (acm.prix) couper("Prix estimé par votre conseiller : " + fmtPrix(acm.prix) + ((acm.basse || acm.haute) ? " (fourchette " + [acm.basse ? fmtPrix(acm.basse) : "", acm.haute ? fmtPrix(acm.haute) : ""].filter(Boolean).join(" – ") + ")" : ""), fS, 11, L).forEach((l, j) => ecrireCentre(pg, l, G + L / 2, yF + 12 + j * 14, 11, fS, noir));
+      ecrireCentre(pg, "CENTURY 21 Kadima", G + L / 2, 760, 14, fB, or); }
+    // 4. Les réactions des acheteurs du moment (facultatif) : combien cherchent à ce prix.
+    if (acm.acheteurs_inclure) {
+      await ajouterModele(meta.sections.acheteurs);
+      const pg = await pageContenu("LES RÉACTIONS DES ACHETEURS DU", "MOMENT");
+      const n = acm.acheteurs_n || 0, b = (acm.acheteurs_budgets || []).slice().sort((x, y) => x - y);
+      const intro = couper(n + " acheteur(s) en recherche active d'" + (donnees.type === "appartement" ? "un appartement" : "une maison") + (p.ville ? " à " + p.ville : "") + " dans notre fichier", fS, 11, L);
+      intro.forEach((l, j) => ecrire(pg, l, G, 105 + j * 14, 11, fS, noir));
+      if (b.length) ecrire(pg, "Budgets : de " + fmtPrix(b[0]) + " à " + fmtPrix(b[b.length - 1]) + " · médiane " + fmtPrix(b[Math.floor(b.length / 2)]), G, 108 + intro.length * 14, 10, fR, gris);
+      const niveaux = [["Fourchette basse", acm.basse], ["Prix estimé", acm.prix], ["Fourchette haute", acm.haute]].filter(([, v]) => v);
+      niveaux.forEach(([lib, v], j) => {
+        const x = G + j * (L / Math.max(niveaux.length, 1)), w = L / Math.max(niveaux.length, 1) - 12;
+        rect(pg, x, 150, w, 92, { borderColor: or, borderWidth: 1, color: blanc });
+        ecrireCentre(pg, lib, x + w / 2, 170, 9.5, fR, gris);
+        ecrireCentre(pg, fmtPrix(v), x + w / 2, 188, 11, fS, noir);
+        ecrireCentre(pg, String(b.filter((x2) => x2 >= v).length), x + w / 2, 222, 26, fB, or);
+        ecrireCentre(pg, "acheteur(s) à ce prix", x + w / 2, 236, 8.5, fR, gris);
+      });
+      couper(acm.acheteurs_texte || "", fR, 10.5, L).slice(0, 36).forEach((l, j) => ecrire(pg, l, G, 275 + j * 15, 10.5, fR, noir));
+    }
+    // 5. Les conditions de financement.
+    await ajouterModele(meta.sections.financement);
+    { const pg = await pageContenu("LES CONDITIONS DE", "FINANCEMENT");
+      const montant = Math.max(0, (prixRef || 0) - (acm.apport || 0)), taux = acm.taux ?? 3.9, ass = acm.assurance ?? 0.34, duree = acm.duree || 25;
+      const mens = mensualite(montant, taux, duree), mAss = montant * ass / 100 / 12, total = mens * duree * 12 - montant, totalAss = mAss * duree * 12;
+      ecrire(pg, "Calcul des mensualités de votre prêt immobilier", G, 105, 12, fS, noir);
+      couper("Sur la base d'un prix de " + fmtPrix(prixRef) + (acm.apport ? ", apport de " + fmtPrix(acm.apport) : "") + ", taux " + taux.toLocaleString("fr-FR") + " % sur " + duree + " ans, assurance " + ass.toLocaleString("fr-FR") + " %", fR, 9.5, L).forEach((l, j) => ecrire(pg, l, G, 122 + j * 12, 9.5, fR, gris));
+      rect(pg, G, 160, L, 170, { borderColor: or, borderWidth: 1.2, color: blanc });
+      ecrireCentre(pg, "Votre mensualité sera de", G + L / 2, 190, 12, fR, noir);
+      ecrireCentre(pg, Math.round(mens + mAss).toLocaleString("fr-FR") + " €", G + L / 2, 232, 34, fB, or);
+      const lignes = [["Montant de votre prêt", fmtPrix(Math.round(montant))], ["Votre mensualité", Math.round(mens + mAss).toLocaleString("fr-FR") + " €/mois*"], ["Dont assurance", Math.round(mAss).toLocaleString("fr-FR") + " €/mois"], ["Coût total du crédit", fmtPrix(Math.round(total + totalAss))], ["Dont assurance", fmtPrix(Math.round(totalAss))]];
+      lignes.forEach(([a, b], j) => { ecrire(pg, a, G + 24, 262 + j * 13, 9.5, fR, gris); ecrireDroite(pg, b, D - 24, 262 + j * 13, 9.5, fS, noir); });
+      // Les trois niveaux de prix (fourchette basse, prix estimé, fourchette haute) × durées.
+      ecrire(pg, "Selon le prix et la durée (mensualités par mois, assurance comprise)", G, 370, 12, fS, noir);
+      const niveaux = [["Fourchette basse", acm.basse], ["Prix estimé", acm.prix], ["Fourchette haute", acm.haute]].filter(([, v]) => v);
+      const lignesN = niveaux.length ? niveaux : [["Prix retenu", prixRef]];
+      const colX = [G, G + L * 0.30, G + L * 0.46, G + L * 0.62, G + L * 0.78], cx = (j) => colX[j] + L * (j === 4 ? 0.11 : 0.08);
+      rect(pg, G, 378, L, 22, { color: or });
+      ["Prix", "15 ans", "20 ans", "25 ans", "Coût sur " + duree + " ans"].forEach((t, j) => (j === 0 ? ecrire(pg, t, colX[j] + 8, 393, 10, fB, blanc) : ecrireCentre(pg, t, cx(j), 393, 9.5, fB, blanc)));
+      lignesN.forEach(([lib, v], j) => {
+        const y = 425 + j * 30, mt = Math.max(0, v - (acm.apport || 0)), mA = mt * ass / 100 / 12;
+        if (j % 2 === 0) rect(pg, G, y - 19, L, 30, { color: sable });
+        ecrire(pg, lib, colX[0] + 8, y - 6, 9, fR, gris); ecrire(pg, fmtPrix(v), colX[0] + 8, y + 6, 10.5, fS, noir);
+        [15, 20, 25].forEach((d, k) => ecrireCentre(pg, Math.round(mensualite(mt, taux, d) + mA).toLocaleString("fr-FR") + " €", cx(k + 1), y + 2, 10.5, fS, noir));
+        ecrireCentre(pg, fmtPrix(Math.round(mensualite(mt, taux, duree) * duree * 12 - mt + mA * duree * 12)), cx(4), y + 2, 10.5, fS, noir);
+      });
+      couper("Simulation indicative, taux " + taux.toLocaleString("fr-FR") + " % et assurance " + ass.toLocaleString("fr-FR") + " % du capital, hors frais de dossier et de garantie ; les conditions dépendent du profil de l'emprunteur et de l'établissement prêteur.", fR, 8, L).forEach((l, j) => ecrire(pg, l, G, 445 + lignesN.length * 30 + j * 11, 8, fR, gris)); }
+    doc.setTitle("Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
+    const octets = await doc.save();
+    const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
+    window.__dernierGuide = { url, octets, fichier: "livret-prix-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf" }; // relu par les parcours navigateur
+    return url;
+  }
+
+  // Après un guide ou un livret : on ne quitte pas le parcours. L'onglet ne
+  // s'ouvre que sur un clic (jamais bloqué, même sur téléphone) ; « Enregistrer »
+  // télécharge ; « Retour » rouvre la fiche.
+  function documentPret(id, titre, url, fichier) {
+    ouvrirModale("✅ " + titre,
+      '<p class="aide">Le document est prêt. Ouvrez-le dans un nouvel onglet pour le lire ou l\'imprimer, ou enregistrez-le ; la fiche du parcours vous attend derrière.</p>' +
+      '<div class="barre"><a class="btn btn-or" id="doc-ouvrir" href="' + escH(url) + '" target="_blank" rel="noopener">📄 Ouvrir le document</a>' +
+      '<a class="btn" id="doc-enregistrer" href="' + escH(url) + '" download="' + escH(fichier || "document.pdf") + '">⬇ Enregistrer</a></div>',
+      '<button class="btn btn-or" id="doc-retour">← Retour au parcours</button>');
+    document.querySelector(".modale").classList.remove("large");
+    $("doc-retour").addEventListener("click", () => ouvrirParcours(id));
+  }
+
   // Le mail d'un jalon : sujet et texte pré-remplis, à relire ; aperçu du
   // rendu ; envoi à toutes les personnes de la fiche.
   async function preparerMailParcours(id, jalon, p, relu) {
@@ -2395,8 +3504,10 @@
     if (relu) { a.sujet = relu.sujet; a.texte = relu.texte; }
     const etape = ETAPES_PARCOURS.find((e) => e.cle === jalon);
     ouvrirModale("✉️ " + (etape ? etape.titre : jalon),
-      '<p class="aide">Relisez et ajustez : ce texte partira tel quel, au nom du conseiller, à ' +
-      (a.destinataires.length ? escH(a.destinataires.join(", ")) : "<strong>personne (pas d'e-mail sur la fiche)</strong>") + ".</p>" +
+      '<p class="aide">Relisez et ajustez : ce texte partira tel quel à ' +
+      (a.destinataires.length ? escH(a.destinataires.join(", ")) : "<strong>personne (pas d'e-mail sur la fiche)</strong>") + ", signé " +
+      (p.conseiller ? "<strong>" + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + "</strong>" + escH([p.conseiller.telephone, p.conseiller.email].filter(Boolean).map((x) => " · " + x).join(""))
+        : "<strong>de l'agence</strong> (choisissez le conseiller sur la fiche)") + ".</p>" +
       '<div class="grille-champs"><label style="grid-column:1/-1;">Objet<input id="pm-sujet" value="' + escH(a.sujet) + '" /></label></div>' +
       '<textarea id="pm-texte" style="width:100%; min-height:320px; margin-top:10px; font:14px/1.5 inherit;">' + escH(a.texte) + "</textarea>" +
       '<p class="petit">Le texte type se modifie pour toute l\'agence dans Réglages → Bibliothèque des messages (« Parcours — … »).</p>',
@@ -2493,14 +3604,15 @@
     chargerBiblio();
     chargerRappels();
     chargerOffres();
-    chargerConseillers().then(chargerParcours);
+    chargerParcours(); chargerConseillers(); // indépendants : la liste des parcours n'attend plus les profils
   }
 
   /* ---------------------------- Branchements ------------------------------- */
   document.querySelectorAll(".onglet").forEach((b) =>
     b.addEventListener("click", () => activerOnglet(b.dataset.onglet)));
   $("modale-fermer").addEventListener("click", fermerModale);
-  $("voile").addEventListener("click", (e) => { if (e.target === $("voile")) fermerModale(); });
+  // Un clic à côté de la fenêtre ne la ferme plus (on perdait la saisie en cours) :
+  // seuls la croix, les boutons Retour / Annuler et le bouton « précédent » la ferment.
   $("recherche-contacts").addEventListener("input", rendreContacts);
   $("filtre-type").addEventListener("change", rendreContacts);
   $("btn-nouveau-contact").addEventListener("click", () => ouvrirContact(null));
@@ -2511,6 +3623,7 @@
   $("parcours-recherche").addEventListener("input", rendreParcours);
   $("parcours-tous").addEventListener("change", rendreParcours);
   $("btn-nouveau-conseiller").addEventListener("click", () => ouvrirConseiller(null));
+  $("btn-importer-conseillers").addEventListener("click", async () => { await importerConseillers(true); chargerConseillers(); });
   $("table-contacts").addEventListener("click", (e) => {
     if (e.target.closest("input[type=checkbox]")) return; // cocher n'ouvre pas la fiche
     const tr = e.target.closest("tr[data-contact]");
@@ -2682,8 +3795,10 @@
       site: $("ag-site").value.trim(), logoUrl: $("ag-logo").value.trim(),
       signataire: $("ag-signataire").value.trim(), fonction: $("ag-fonction").value.trim(),
       instagram: $("ag-instagram").value.trim(), facebook: $("ag-facebook").value.trim(), avis: $("ag-avis").value.trim(),
+      mentions: $("ag-mentions").value.trim(),
     },
   }));
+  $("btn-nouvelle-agence").addEventListener("click", () => ouvrirAgence(null));
 
   demarrer();
 })();

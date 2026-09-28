@@ -40,3 +40,7 @@ Modifiez `amepi_password` dans `config.json`. C'est tout.
   dossier.
 - La clé de l'agent ne permet que de déposer le fichier AMEPI (rien d'autre). Elle se
   révoque d'un clic dans l'Administration (« Révoquer »), ce qui bloque l'agent.
+
+## Vignettes des mandats
+
+Apres le releve, l'agent demande a Studio la liste des mandats en vente sans photo, telecharge chaque vignette avec sa session Amanda (leur stockage refuse tout lecteur non connecte), la reduit a 320 px et la depose (150 au plus par releve, par lots de 40). Ces vignettes illustrent les biens en concurrence du livret prix. Un echec sur une image n'arrete pas le releve : le journal indique « Vignettes : X deposee(s), Y en echec ».

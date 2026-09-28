@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 const ICI = new URL(".", import.meta.url).pathname;
 const RACINE = resolve(ICI, "../..");
 const PORT_API = 8788, PORT_SITE = 8014, PORT_BAN = 18796;
-const PARCOURS = ["suppression", "anniversaires", "suivi", "fiche-adresse", "compte", "maisons", "offre", "parcours-r1r2", "bilans"];
+const PARCOURS = ["suppression", "anniversaires", "suivi", "fiche-adresse", "compte", "maisons", "offre", "parcours-r1r2", "mobile", "bilans"];
 const choisis = process.argv.slice(2).length ? process.argv.slice(2) : PARCOURS;
 
 // 1) Fausse BAN pour le serveur (géocodage direct) : toute adresse trouve une
@@ -54,6 +54,50 @@ const resend = createServer(async (req, res) => {
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ id: "email_smoke_" + mails.length }));
 }).listen(PORT_RESEND);
+
+// 1 quater) Faux Overpass (commodités) et faux geo.api.gouv.fr (commune) : guide R2.
+const PORT_OVERPASS = 18781, PORT_GEO = 18782;
+const overpass = createServer(async (req, res) => {
+  const chunks = []; for await (const c of req) chunks.push(c);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ elements: [
+    { type: "node", id: 1, lat: 44.8975, lon: -0.7175, tags: { amenity: "school", name: "École Jean Jaurès" } },
+    { type: "way", id: 2, center: { lat: 44.8990, lon: -0.7200 }, tags: { shop: "supermarket", name: "Carrefour Market" } },
+    { type: "node", id: 3, lat: 44.8960, lon: -0.7190, tags: { amenity: "pharmacy", name: "Pharmacie du Centre" } },
+    { type: "node", id: 4, lat: 44.8950, lon: -0.7160, tags: { highway: "bus_stop", name: "République" } },
+    { type: "node", id: 5, lat: 44.9010, lon: -0.7150, tags: { leisure: "park", name: "Parc de l'Ingénieur" } },
+  ] }));
+}).listen(PORT_OVERPASS);
+const geo = createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify([{ nom: "Saint-Médard-en-Jalles", code: "33449", population: 32000, surface: 8524, departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } }]));
+}).listen(PORT_GEO);
+
+// 1 quinquies) Faux DVF : une grille de ventes de maisons sur toute la zone
+// de la fausse BAN, pour qu'il y en ait toujours à moins de 1,5 km du bien.
+const PORT_DVF = 18797;
+const dvf = createServer((req, res) => {
+  if (!/^\/2026\/communes\/33\/33449\.csv$/.test(req.url)) { res.writeHead(404); return res.end("Not Found"); }
+  const lignes = ["id_mutation,date_mutation,nature_mutation,valeur_fonciere,adresse_numero,adresse_nom_voie,nom_commune,type_local,surface_reelle_bati,nombre_pieces_principales,surface_terrain,longitude,latitude"];
+  let n = 0;
+  for (let i = 0; i < 40; i++) for (let j = 0; j < 28; j++) {
+    n++;
+    lignes.push(["2026-" + n, "2026-0" + (1 + (n % 9)) + "-1" + (n % 9), "Vente", 280000 + (n % 7) * 15000, 1 + (n % 40), "ALLEE DES SMOKES", "Saint-Medard-en-Jalles", "Maison", 85 + (n % 6) * 12, 4 + (n % 3), 400 + (n % 5) * 60,
+      (-0.92 + i * 0.0085).toFixed(5), (44.80 + j * 0.0075).toFixed(5)].join(","));
+  }
+  res.writeHead(200, { "Content-Type": "text/csv" }); res.end(lignes.join("\n") + "\n");
+}).listen(PORT_DVF);
+
+// 1 sexies) Faux Bien'ici : une zone et deux maisons en vente sur la commune.
+const PORT_BIENICI = 18783;
+const bienici = createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "application/json" });
+  if (req.url.startsWith("/suggest.json")) return res.end(JSON.stringify([{ id: "z", name: "Saint-Médard-en-Jalles", type: "city", insee_codes: ["33449"], postalCodes: ["33160"], zoneIds: ["-110581"] }]));
+  res.end(JSON.stringify({ total: 2, realEstateAds: [
+    { id: "orpi-smoke-1", accountDisplayName: "ORPI Smoke", adType: "buy", propertyType: "house", price: 335000, surfaceArea: 98, landSurfaceArea: 410, roomsQuantity: 5, bedroomsQuantity: 3, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date(Date.now() - 20 * 86400000).toISOString(), priceHasDecreased: false, blurInfo: { position: { lat: 44.90, lon: -0.72 } }, photos: [], district: { libelle: "Gajac" } },
+    { id: "human-smoke-2", accountDisplayName: "HUMAN Immobilier", adType: "buy", propertyType: "house", price: 349900, surfaceArea: 95, landSurfaceArea: 322, roomsQuantity: 4, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date().toISOString(), priceHasDecreased: true, blurInfo: { position: { lat: 44.91, lon: -0.73 } }, photos: [] },
+  ] }));
+}).listen(PORT_BIENICI);
 
 // 1 quater) Faux site Kadima (bilans vendeurs) : la route à clé des
 // statistiques par annonce, trois semaines, deux annonces en vente.
@@ -109,8 +153,9 @@ const dbPath = join(tmpdir(), "studio-smoke-" + process.pid + ".sqlite");
 const apiProc = spawn(process.execPath, ["node.js"], {
   cwd: resolve(ICI, ".."), stdio: ["ignore", "pipe", "pipe"],
   env: { ...process.env, PORT: String(PORT_API), DB_PATH: dbPath, DEV_MODE: "1", ADMIN_KEY: "dev-admin",
-    APP_ORIGINS: "http://localhost:" + PORT_SITE, OFFRE_BASE: "http://localhost:" + PORT_SITE + "/offre", BAN_BASE: "http://localhost:" + PORT_BAN, DVF_BASE: "http://localhost:1", BATIMENTS_BASE: "http://localhost:" + PORT_IGN,
+    APP_ORIGINS: "http://localhost:" + PORT_SITE, OFFRE_BASE: "http://localhost:" + PORT_SITE + "/offre", BAN_BASE: "http://localhost:" + PORT_BAN, DVF_BASE: "http://localhost:" + PORT_DVF, BIENICI_BASE: "http://localhost:" + PORT_BIENICI, BIENICI_SUGGEST: "http://localhost:" + PORT_BIENICI + "/suggest.json", BATIMENTS_BASE: "http://localhost:" + PORT_IGN,
     RESEND_API_KEY: "re_smoke", RESEND_BASE: "http://localhost:" + PORT_RESEND, MAIL_FROM: "smoke@studio.test",
+    OVERPASS_BASE: "http://localhost:" + PORT_OVERPASS, GEO_BASE: "http://localhost:" + PORT_GEO,
     SITE_STATS_BASE: "http://localhost:" + PORT_STATS, SITE_STATS_KEY: "cle-smoke", META_GRAPH_BASE: "http://localhost:" + PORT_META + "/v23.0" },
 });
 let journalApi = "";
@@ -136,7 +181,7 @@ for (const nom of choisis) {
   }
 }
 apiProc.kill();
-ban.close(); ign.close(); site.close(); resend.close(); statsSite.close(); fauxMeta.close();
+ban.close(); ign.close(); site.close(); resend.close(); overpass.close(); geo.close(); statsSite.close(); fauxMeta.close();
 try { await unlink(dbPath); } catch { }
 if (echecsTotal && /\[500\]/.test(journalApi)) console.log("\nJournal API :\n" + journalApi.split("\n").filter((l) => l.includes("[500]")).join("\n"));
 console.log("\n" + (echecsTotal ? "SMOKES : " + echecsTotal + " échec(s)" : "SMOKES OK (" + choisis.length + " parcours)"));

@@ -1,0 +1,209 @@
+{
+ "version": "2026-09-26",
+ "pages": 20,
+ "fonts": {
+  "regular": "assets/fonts/Barlow-Regular.ttf",
+  "bold": "assets/fonts/Barlow-Bold.ttf",
+  "extrabold": "assets/fonts/Barlow-ExtraBold.ttf",
+  "italic": "assets/fonts/Barlow-Italic.ttf"
+ },
+ "couleurs": {
+  "texte": [
+   0.227,
+   0.208,
+   0.212
+  ],
+  "or": [
+   0.745,
+   0.686,
+   0.529
+  ],
+  "gris": [
+   0.35,
+   0.35,
+   0.35
+  ],
+  "tan": [
+   0.847,
+   0.804,
+   0.698
+  ]
+ },
+ "p1": {
+  "page": 1,
+  "droite": 538,
+  "nom": {
+   "y": 220.6,
+   "taille": 16.5
+  },
+  "adresse": {
+   "y": 238.7,
+   "taille": 12
+  },
+  "cpville": {
+   "y": 258.8,
+   "taille": 12
+  },
+  "date": {
+   "y": 278.9,
+   "taille": 12
+  },
+  "photo": [
+   42,
+   375,
+   552,
+   715
+  ]
+ },
+ "p6": {
+  "page": 6,
+  "photo": [
+   127,
+   68,
+   543,
+   345
+  ],
+  "droite": 539,
+  "adresse": {
+   "y": 392.3,
+   "taille": 13.5
+  },
+  "cpville": {
+   "y": 408.5,
+   "taille": 13.5
+  },
+  "forts": {
+   "x": 124.2,
+   "xTexte": 134.1,
+   "y": 693.1,
+   "pas": 14.4,
+   "max": 4,
+   "taille": 8.3,
+   "largeur": 165
+  },
+  "objections": {
+   "x": 354.0,
+   "xTexte": 363.9,
+   "y": 693.1,
+   "pas": 14.4,
+   "max": 4,
+   "taille": 8.3,
+   "largeur": 165
+  }
+ },
+ "p7": {
+  "page": 7,
+  "ville": {
+   "x": 188.0,
+   "y": 208.4,
+   "taille": 24
+  },
+  "departement": {
+   "x": 266.7,
+   "y": 226.8,
+   "taille": 12
+  },
+  "region": {
+   "x": 229.2,
+   "y": 245.6,
+   "taille": 12
+  },
+  "population": {
+   "x": 259.2,
+   "y": 264.7,
+   "taille": 12
+  },
+  "carte": [
+   87,
+   277,
+   509,
+   543
+  ],
+  "tableau": {
+   "x": 96,
+   "y": 604,
+   "pas": 22,
+   "largeur": 400,
+   "taille": 9.5,
+   "max": 6
+  }
+ },
+ "p8": {
+  "page": 8,
+  "carte": [
+   64,
+   188,
+   560,
+   500
+  ],
+  "legende": {
+   "x": 332,
+   "y": 496,
+   "largeur": 200
+  }
+ },
+ "p9": {
+  "page": 9,
+  "mois": {
+   "x": 248.1,
+   "y": 106.2,
+   "taille": 14
+  }
+ },
+ "p12": {
+  "page": 12,
+  "titre": {
+   "x": 56.7,
+   "y": [
+    103.1,
+    134.6,
+    166.1
+   ],
+   "taille": 34.5
+  },
+  "photo": [
+   64,
+   199,
+   278,
+   483
+  ],
+  "prenom": {
+   "x": 308,
+   "y": 251.0,
+   "taille": 18
+  },
+  "nom": {
+   "x": 308,
+   "y": 273.5,
+   "taille": 18
+  },
+  "role": {
+   "x": 308,
+   "y": 290.9,
+   "taille": 12.8
+  },
+  "agence": {
+   "x": 308,
+   "y": 307.4,
+   "taille": 12.8
+  },
+  "port": {
+   "x": 308,
+   "y": 406.5,
+   "taille": 8.3
+  },
+  "email": {
+   "x": 308,
+   "y": 435.0,
+   "taille": 8.3
+  },
+  "bio": {
+   "x": 94.2,
+   "y": 513.1,
+   "pas": 12.6,
+   "largeur": 194,
+   "taille": 10.5,
+   "max": 14
+  }
+ }
+}

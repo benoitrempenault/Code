@@ -49,9 +49,8 @@ export default async function () {
     await page.waitForSelector("#app:not([hidden])", { timeout: 8000 });
     ok(await page.isVisible("#btn-import"), "l'admin voit l'import et la préparation");
     await page.setInputFiles("#fichier-mandats", fichier);
-    await attendreToast(page, "3 mandats importés");
-    ok(/3 mandats importés · 1 sans e-mail/.test(await page.textContent("#toast")) && /1 délégation/.test(await page.textContent("#toast")) && /1 sous compromis/.test(await page.textContent("#toast")),
-      "import : sous compromis ignoré, délégation et vendeur sans e-mail signalés — " + await page.textContent("#toast"));
+    await attendreToast(page, "3 mandats importés · 1 sans e-mail · 1 délégation\\(s\\) exclue\\(s\\) · 1 sous compromis ignoré\\(s\\)");
+    ok(true, "import : sous compromis ignoré, délégation et vendeur sans e-mail signalés");
     await page.click("#btn-generer");
     await attendreToast(page, "bilan\\(s\\) préparé\\(s\\)");
     await page.waitForSelector(".bilan", { timeout: 8000 });

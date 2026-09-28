@@ -115,6 +115,45 @@ try {
     if ($numero -gt 400) { throw "Plus de 400 pages (40 000 biens) : arrêt de sécurité." }
   } until ($fini)
   Log "Terminé : $lus bien(s) lus sur $total annoncés."
+
+  # 3) Les vignettes : Studio dit lesquelles manquent, on les télécharge avec la
+  #    session Amanda (leur stockage refuse tout lecteur non connecté), on les
+  #    réduit à 320 px et on les dépose par lots de 40. Au plus 150 par relevé.
+  try {
+    Add-Type -AssemblyName System.Drawing
+    $mq = Invoke-WebRequest -Uri "$studio/crm/amepi/photos/manquantes" -Headers @{ "X-Agent-Key" = "$($cfg.studio_cle)".Trim() } -UseBasicParsing
+    $manquants = @(([Text.Encoding]::UTF8.GetString($mq.RawContentStream.ToArray()) | ConvertFrom-Json).mandats)
+    if ($manquants.Count -gt 0) { Log "Vignettes : $($manquants.Count) mandat(s) sans photo." }
+    $lot = @(); $envoyees = 0; $ratees = 0
+    foreach ($m in $manquants) {
+      try {
+        $img = Invoke-WebRequest -Uri $m.image -WebSession $session -UserAgent $ua -UseBasicParsing -TimeoutSec 20
+        $flux = New-Object IO.MemoryStream (,$img.Content)
+        $bmp = [Drawing.Image]::FromStream($flux)
+        $k = [Math]::Min(1.0, 320.0 / [Math]::Max($bmp.Width, 1))
+        $w = [int][Math]::Max(1, [Math]::Round($bmp.Width * $k)); $h = [int][Math]::Max(1, [Math]::Round($bmp.Height * $k))
+        $petit = New-Object Drawing.Bitmap $w, $h
+        $g = [Drawing.Graphics]::FromImage($petit); $g.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic; $g.DrawImage($bmp, 0, 0, $w, $h); $g.Dispose()
+        $codec = [Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq "image/jpeg" }
+        $params = New-Object Drawing.Imaging.EncoderParameters 1
+        $params.Param[0] = New-Object Drawing.Imaging.EncoderParameter ([Drawing.Imaging.Encoder]::Quality, [long]78)
+        $sortie = New-Object IO.MemoryStream; $petit.Save($sortie, $codec, $params)
+        $lot += @{ id = $m.id; photo = "data:image/jpeg;base64," + [Convert]::ToBase64String($sortie.ToArray()) }
+        $bmp.Dispose(); $petit.Dispose(); $flux.Dispose(); $sortie.Dispose()
+      } catch { $ratees++ }
+      if ($lot.Count -ge 40) {
+        $corpsPh = @{ photos = $lot } | ConvertTo-Json -Depth 4 -Compress
+        Invoke-WebRequest -Uri "$studio/crm/amepi/photos" -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($corpsPh)) -ContentType "application/json" -Headers @{ "X-Agent-Key" = "$($cfg.studio_cle)".Trim() } -UseBasicParsing | Out-Null
+        $envoyees += $lot.Count; $lot = @()
+      }
+    }
+    if ($lot.Count -gt 0) {
+      $corpsPh = @{ photos = $lot } | ConvertTo-Json -Depth 4 -Compress
+      Invoke-WebRequest -Uri "$studio/crm/amepi/photos" -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($corpsPh)) -ContentType "application/json" -Headers @{ "X-Agent-Key" = "$($cfg.studio_cle)".Trim() } -UseBasicParsing | Out-Null
+      $envoyees += $lot.Count
+    }
+    if ($manquants.Count -gt 0) { Log "Vignettes : $envoyees déposée(s), $ratees en échec." }
+  } catch { Log ("Vignettes : étape sautée (" + $_.Exception.Message + ")") }
   exit 0
 } catch {
   Log ("ERREUR : " + $_.Exception.Message)

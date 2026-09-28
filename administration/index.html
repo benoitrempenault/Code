@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; frame-src 'self' blob: data:; connect-src 'self' https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev https://fonts.googleapis.com https://fonts.gstatic.com" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; frame-src 'self' blob: data:; connect-src 'self' https://api-adresse.data.gouv.fr https://api.studiobrochure.fr https://studio-brochure-api.studiobrochure.workers.dev https://fonts.googleapis.com https://fonts.gstatic.com" />
   <title>Studio Brochure — Administration</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <meta name="robots" content="noindex" />
@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/admin.css?v=5" />
+  <link rel="stylesheet" href="assets/css/admin.css?v=30" />
 </head>
 <body>
 
@@ -308,6 +308,7 @@
         <label>Instagram (lien)<input id="ag-instagram" placeholder="https://instagram.com/century_21_kadima" /></label>
         <label>Facebook (lien)<input id="ag-facebook" placeholder="https://www.facebook.com/century21.kadima" /></label>
         <label>Avis Google (lien « laissez-nous un avis »)<input id="ag-avis" placeholder="https://g.page/r/…/review" /></label>
+        <label style="grid-column:1/-1;">Mentions légales (pied des e-mails ; reprises par les agences qui n'en ont pas)<textarea id="ag-mentions" style="min-height:70px;" placeholder="SAS … au capital de … € — RCS Bordeaux … — Carte professionnelle n° … délivrée par la CCI de … — Garantie financière : …"></textarea></label>
       </div>
       <p class="aide">Le signataire signe TOUS les vœux (e-mails et SMS), quel que soit le conseiller de la fiche.
         Laissez vide pour signer du conseiller de la fiche, sinon de l'équipe. La formule d'appel
@@ -318,11 +319,21 @@
       <p class="petit">Les e-mails partent via le serveur Studio Brochure au nom de l'agence —
         rien à configurer de plus (pas de mot de passe SMTP).</p>
     </div>
+    <div class="carte">
+      <h2>Nos agences</h2>
+      <p class="aide">Les points de vente du groupe. Chaque conseiller est rattaché à l'un d'eux (dans son profil) :
+        ses e-mails et ses guides portent alors le nom, l'adresse, le téléphone, l'e-mail et les mentions légales
+        de SON agence. Ce qu'une agence ne précise pas vient de l'identité ci-dessus.</p>
+      <div class="barre"><button class="btn btn-or" id="btn-nouvelle-agence">+ Ajouter une agence</button></div>
+      <div id="table-agences"></div>
+    </div>
         <div class="carte">
       <h2>Les conseillers</h2>
       <p class="aide">Chaque conseiller signe ses documents et ses e-mails du parcours R1/R2 avec sa photo,
         sa fonction, son téléphone et son e-mail. La photo est réduite ici avant l'envoi (200 Ko au plus).</p>
-      <div class="barre"><button class="btn btn-or" id="btn-nouveau-conseiller">+ Ajouter un conseiller</button></div>
+      <div class="barre"><button class="btn btn-or" id="btn-nouveau-conseiller">+ Ajouter un conseiller</button>
+        <button class="btn" id="btn-importer-conseillers" title="Crée un profil pour chaque compte Studio de l'agence, chaque conseiller du guide R1 et de l'annuaire qui n'en a pas encore">⟳ Importer les conseillers (accès créés)</button></div>
+      <p class="petit">Les conseillers qui ont un accès Studio reçoivent automatiquement leur profil ; complétez photo, fonction et téléphone.</p>
       <div id="table-conseillers"></div>
     </div>
 <div class="carte">
@@ -378,6 +389,7 @@
         <input type="search" id="parcours-recherche" placeholder="🔍 Nom, adresse, conseiller…" style="min-width:260px;" />
         <label class="case"><input type="checkbox" id="parcours-tous" /> Voir aussi les parcours terminés</label>
       </div>
+      <p class="petit" id="parcours-perimetre"></p>
       <div id="table-parcours"></div>
     </div>
   </section>
@@ -451,8 +463,10 @@
 <script src="assets/js/config.js"></script>
 <script src="assets/js/vendor/xlsx.full.min.js"></script>
 <script src="assets/js/vendor/pdf-lib.min.js"></script>
+<script src="assets/js/vendor/fontkit.umd.min.js"></script>
+<script src="assets/js/vendor/qrcode.min.js"></script>
 <script src="assets/js/zip.js"></script>
-<script src="assets/js/admin.js?v=5"></script>
+<script src="assets/js/admin.js?v=30"></script>
 <script src="../assets/js/compte-bandeau.js"></script>
 </body>
 </html>

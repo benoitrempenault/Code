@@ -464,7 +464,231 @@ URL ≤ 200 Ko réduite côté navigateur à 240 px, servie par
 `GET /public/conseillers/:id/photo`), routes /crm/conseillers (liste membre,
 PUT/DELETE admin), carte « Les conseillers » dans Réglages. Réglages agence :
 instagram, facebook, avis. Smoke `parcours-r1r2` (faux Resend sur 18795 dans
-run.mjs, `/__mails`). Admin : assets versionnés `?v=4`.
+run.mjs, `/__mails`). Admin : assets versionnés `?v=7`.
+« + Nouveau parcours » cherche D'ABORD dans les contacts (`#px-q` →
+`/crm/contacts/recherche`, boutons `[data-ct]` qui préremplissent le formulaire et
+fixent `contact_id`) ; sinon les champs saisis créent la fiche. Côté serveur
+`POST /crm/parcours` relie le contact : contact_id vérifié → sinon même email →
+sinon nom+prénom (NOCASE) → sinon INSERT crm_contacts (types ["estime"], source
+'parcours') ; lien `crm_estimation_contacts` (INSERT OR IGNORE) ; réponse
+{ok, id, contact_id, contact_cree}.
+**Conseiller signataire (26/09)** : `POST /crm/conseillers/importer {profils}` (admin)
+crée un profil crm_conseillers pour chaque compte Studio de l'agence (users : name
+coupé prénom/nom, email, user_id), chaque profil fourni (l'Administration envoie
+les 12 conseillers de guide-r1.json : prénom, nom, tel, mail) et chaque conseiller
+de l'annuaire ; dédoublonne par email puis prénom+nom NOCASE (`profilExistant`),
+n'écrase rien, complète seulement tel/mail/user_id vides → {ajoutes, completes}.
+`PUT /crm/conseillers` sans id sur un profil existant le complète (`existant: true`)
+au lieu de doubler. L'Administration lance l'import à chaque chargement
+(`importerConseillers`, bouton « ⟳ Importer les conseillers » dans Réglages). Fiche
+parcours : menu déroulant visible « Signé par » (`#px-signe`, PUT conseiller_id
+immédiat) + détail fonction · tel · mail ; la modale d'envoi rappelle le signataire.
+`signatureHtml` : fonction par défaut « Conseiller/Conseillère immobilier » selon
+le genre quand le profil n'en a pas. Assets `?v=9`.
+**Périmètre des parcours (26/09)** : table satellite `crm_conseillers_direction`
+(id, direction). `perimetre(ctx)` (parcours.js) cherche les profils liés au compte
+(user_id ou même e-mail) : l'un a `direction` → tout voir (null) ; sinon
+{ids, userId}. `dansPerimetre` : conseiller du parcours ∈ ids OU créateur
+(crm_estimations.user_id, que le PUT ne change plus). `lireParcoursDe(ctx, id)`
+garde toutes les routes /crm/parcours/:id (404 hors périmètre) ; la liste filtre
+en SQL et renvoie `tous`. Le rôle admin ne donne rien (toute l'Administration est
+réservée aux admins). Drapeau posé par l'import (`directeurs: [prénoms]`, envoyé
+par admin.js : DIRECTION = benoit, benjamin, tiephaine/tiphaine, nathan), par la
+case « Direction — voit tous les parcours » du profil (PUT `direction`), puce
+« direction » dans Réglages ; note `#parcours-perimetre` dans l'onglet quand
+`tous` est faux.
+**Agences, équipe du site, mentions légales (26/09)** : réglages `agence.mentions`
+(≤ 1000) et `agences: [{cle, nom, adresse, telephone, email, avis, mentions}]`
+(`sanitizeAgences`, clé slug, ≤ 20) ; `agencePour(reglages, conseiller)` (crm.js) =
+identité générale surchargée par le point de vente du profil (table satellite
+`crm_conseillers_pv`, champ `agence` des routes /crm/conseillers) → utilisée par
+apercu/envoyer (variables agence, agence_adresse, lien_avis, pied wrapEmail avec
+`mentions`, fromName/replyTo) et renvoyée par GET /crm/parcours/:id (`agence`) pour
+le guide R1 (adresse du RDV). `AVIS_DEFAUT` (parcours.js) = page Google Kadima si
+aucun lien d'avis n'est réglé (texte + signature). guide-r1.json porte `agences`
+(4 points de vente du site, adresses/tel/mail) et `equipe` (29 membres : prénom,
+nom, fonction du site sauf « Agent commercial EI » → vide, agence, photo
+`assets/conseillers/<slug>.jpg` 240 px tirée de century21-kadima.fr) ;
+`importerConseillers` (admin.js) crée les agences si aucune, envoie profils +
+équipe (photos en data URL) + `directeurs` ; `POST /crm/conseillers/importer`
+complète photo/fonction/agence/tel/mail/user_id vides, ne remplace rien. Réglages :
+carte « Nos agences » (`#table-agences`, `ouvrirAgence`), champ `#ag-mentions`,
+sélecteur `#cs-agence` du profil. Guide R2 : saisie (points forts, objections,
+texte) enregistrée au `change` de chaque champ (`sauver`), profil rafraîchi ; la
+fiche profil n'envoie `bio` que si modifiée (sinon un profil ouvert avant
+écrasait le texte saisi depuis le R2). Overpass : `RELAIS_OVERPASS` essayés dans
+l'ordre (lz4 en premier — seul relais qui répond depuis Cloudflare le 26/09 —, kumi, private.coffee, overpass-api.de ; 15 s chacun), `remark` sans élément =
+erreur, réponse vide jamais mise en cache (crm_environnement).
+**Guide R2 — 2e passe (26/09)** : `tools/guides/retoucher-guide-r2-passe2.py`
+(le graphique p3 et les en-têtes p4 sont des images) : étiquette « 2026 » Barlow 15
+gris #595959 tournée, courbe pointillée Bézier (Catmull-Rom depuis 2024-2025) ;
+p4 « Octobre 2026 » Barlow-Bold 11,3 blanc centré ; p10/p11 chiffres comme le R1
+(relief or 40 %). ACM : livret prix reçu (scratchpad acm-livret-prix.pdf), à
+travailler plus tard.
+**Co-propriétaires, suppression, doublons (26/09)** : `proprietairesDe(agencyId, est)`
+(contacts liés via crm_estimation_contacts, fiche principale = est.contact_id en
+tête, `principal`) porté par lireParcours → GET /crm/parcours/:id `proprietaires`,
+liste `nb_proprietaires` (puce « +N »). `POST /crm/parcours/:id/proprietaires`
+{contact_id | civilite, prenom, nom, email, telephone} (≤ 4 ; existant par e-mail
+ou nom+prénom, sinon fiche créée typée estimé source parcours, adresse du bien) ;
+`DELETE …/proprietaires/:contactId` (jamais la principale). `civiliteNoms()` :
+« madame, monsieur MOUNEYRES » si même nom, sinon « madame DURAND, monsieur
+MOUNEYRES » (preparerMail 6e param) ; emailsDe envoie déjà à tous les liés. Admin :
+bloc « Propriétaires » sur la fiche (✕ retirer, « + Co-propriétaire » →
+`ajouterProprietaire` recherche puis mini-fiche), `nomsClient(p, civ)` pour la
+page 1 des guides (R1 réduit la taille jusqu'à 8 pt pour tenir ; R2 avec
+civiliteLongue). `DELETE /crm/parcours/:id` (périmètre) efface crm_parcours_r2,
+crm_parcours, crm_estimation_contacts, crm_estimations — les contacts restent ;
+bouton « 🗑 Effacer » (confirm) sur la fiche. Doublons de profils :
+`clePersonne` (prénom + nom sans accents) dans `profilExistant`, et
+`fusionnerDoublons(agencyId)` au début de l'import (le plus ancien garde tout,
+reçoit les vides, prénom/nom accentués gagnent, parcours ré-attribués, extra /
+direction / pv fusionnés) → `fusions` dans la réponse. Réglages agences : champ
+`avis` par agence (lien Google de Caudéran à coller par Benoît).
+Noms en page 1 (26/09) : `civiliteCourte`/`civiliteLongue` normalisent « Madame », « Mr »… ;
+`prenomPropre` met la majuscule ; couple de même nom → « M. et Mme Benoît et
+Adélaïde REMPENAULT » (MM./Mmes si même civilité), noms différents → « M. Jean
+MOUNEYRES et Mme Sophie DURAND » ; R2 = même ordre en toutes lettres. Commodités :
+un cache crm_environnement sans commodité est ignoré (relevé refait) ;
+`GET /diag/overpass` (sans session, 10 min de cache) dit quel relais répond.
+**Livret prix — ACM (26/09)** : modèle `administration/assets/livret-prix.pdf` (8 pages :
+couverture, 5 facteurs, données, puis 5 pages de chapitre au titre centré) +
+`livret-prix.json` (séparateur 4, rect `blanc` qui efface le titre pour faire une
+page de contenu, sections, repères couverture) ; polices Montserrat Bold/SemiBold/
+Regular dans assets/fonts (jsDelivr JulietaUla/Montserrat). Saisie : table
+`crm_parcours_acm` (JSON, `nettoyerJson` ≤ 120 Ko) via GET/PUT
+`/crm/parcours/:id/acm` ; données : `GET …/acm/donnees` → position (`positionDe`,
+BAN), commune INSEE (geo), `ventesAutour` 2 km (crm_ventes + dossiers vendus, ids
+vt:/do:), annonces de l'agence (même cp/ville et type, baisse depuis price_history,
+jours), mandats AMEPI (3 km ou même ville, même type, baisse = ancien_prix − prix),
+acheteurs (crm_recherches actifs + projets achat filtrés type/ville). Les ventes
+DVF sont chargées par le navigateur (`chargerDvfCommune` via /crm/dvf, parse
+identique à Studio Estimation, même type, 3 ans, ≤ 1,5 km). Photos des annonces via
+`GET /crm/parcours-image?u=` (seulement les URL présentes dans crm_annonces /
+crm_amepi de l'agence). Admin : étape « acm » → `ouvrirAcm` (le bien : surface,
+terrain, prix estimé, fourchette ; ventes cochées ; concurrence cochée + saisie
+manuelle d'un bien vu sur un portail avec son adresse ; commission d'évaluation
+nb/basse/haute ; acheteurs (résumé auto + texte, page facultative) ; financement
+taux/assurance/apport/durée) → `genererLivretPrix` : couverture (client, adresse,
+date, bien), pages fixes, puis par chapitre la page du modèle + pages générées
+(2 ventes ou 2 biens par page : carte OSM zoom 16 / photo + fiche ; commission :
+tableau + total + prix estimé ; financement : mensualité (formule annuité + assurance
+sur capital) et tableau 15/20/25 ans — vérifié sur l'exemple Meilleurtaux du livret
+de Benoît). Espaces fines (U+202F) remplacées (absentes de la police). Smoke : faux
+DVF (18797, grille de ventes), captures/livret-prix-smoke.pdf. À venir : branchement
+aux estimations (surface/terrain/prix automatiques).
+Peaufinage (26/09) : marge gauche `meta.marge` = 92 pt (le bandeau du modèle va
+jusqu'à 75 pt), zone utile 92–536 ; ventes à choisir triées par date ; vignettes
+(`<img src>` direct) et lien « voir l'annonce » dans la sélection des biens en
+concurrence ; page « TOUTES LES VENTES AUTOUR DU BIEN (DVF) » après les ventes
+retenues (carte zoom 15 de toutes les ventes DVF ≤ 1,5 km + tableau 27 lignes par
+date décroissante, `donnees.ventesDvf` posé par ouvrirAcm) ; acheteurs : résumé
+vivant dans la fenêtre (`#acm-ach-resume`, nb de budgets ≥ prix / basse / haute) et
+trois encadrés sur la page.
+Bien'ici (26/09) : `GET /crm/parcours/:id/acm/portails?prix=` → `bieniciCommune()` :
+zone via `res.bienici.com/suggest.json?q=ville` (city dont insee_codes contient le
+code INSEE, sinon même nom), puis `www.bienici.com/realEstateAds.json?filters=`
+(buy, propertyType house|flat, onTheMarket, 60 par publicationDate) → biens
+{source bienici, id bienici:<id>, agence (accountDisplayName), prix, surface,
+terrain, pièces, chambres, quartier, image (photos[0].url_photo), url
+/annonce/vente/<ville>/<type>/<n>pieces/<id>, lat/lng (blurInfo.position, ±125 m),
+jours, baisse (priceHasDecreased), dpe} ; filtre 0,6–1,5 × prix, tri distance, cache
+3 h par ville|cp|type (mémoire) ; env BIENICI_BASE / BIENICI_SUGGEST (faux serveurs
+tests 18786, smoke 18783 ; node.js les transmet). SeLoger répond 403 côté serveur,
+leboncoin idem : saisie manuelle. Relais d'images : hôtes file.bienici.com,
+images.century21.fr, photos.bienici.com autorisés en plus des URL en base (les deux
+redirigent vers un stockage OVH, `redirect: follow`). Fenêtre ACM : `.modale.large`
+(1240 px, 98 vh), listes `.liste-choix` 44 vh / `.haute` 78 vh ; 📷 par bien
+(`[data-photo]`, reduireImage 1200 px → `photo` data URL gardée dans
+acm.concurrence, prioritaire sur le relais) ; DVF 24 mois, tableau à colonnes
+fixes ; financement : tableau 3 niveaux (basse / prix estimé / haute) × 15/20/25
+ans + coût sur la durée. Commune de repli : `geocoderBan` renvoie `citycode` ;
+`/acm/donnees` l'utilise si geo.api.gouv.fr est muet et renvoie `erreurs`.
+`GET /diag/livret?cp=&ville=` (public, 10 min) : commune, BAN, millésimes DVF
+(2026 → 404 tant que le millésime n'existe pas), photo Bien'ici, photo AMEPI.
+**Vignettes AMEPI par l'agent (26/09)** : les images des mandats sont sur
+amepistorageprod.blob.core.windows.net → 403 sans session. Table
+`crm_amepi_photos (agency_id, id, photo jpeg ≤ 110 Ko data URL)`. Routes agent
+(X-Agent-Key) : `GET /crm/amepi/photos/manquantes` (≤ 150 mandats en vente avec
+image http et sans photo, {id, image}) et `POST /crm/amepi/photos {photos:[{id,
+photo}]}` (≤ 60, JPEG seulement, mandat connu) → {gardees, refusees}. Agent
+PowerShell, phase 3 après le relevé : System.Drawing, réduction à 320 px, qualité
+78, lots de 40, échecs comptés, étape sautée sans faire échouer le relevé.
+`/acm/donnees` joint la vignette (`photo`) aux mandats ALFA ; fenêtre et générateur
+l'utilisent (`a.photo || a.image`), la photo posée à la main reste prioritaire.
+Assets admin : `?v=18`.
+**Téléphone et photo du conseiller (27/09)** : admin.css `@media (max-width: 720px)`
+(onglets défilants, grille en une colonne, champs 16 px contre le zoom iOS, tableaux
+en défilement, modales plein écran avec pied en boutons larges, étapes empilées,
+listes ACM 40/55 vh) ; smoke `mobile` (390 × 844, captures mobile-*.png, pas de
+débordement, modale 390 px, champs pleine largeur). Photo de profil : `reduirePhoto`
+recadre en carré 720 px (puis 640/520 si > 250 Ko) pour la page « Votre conseiller »
+du R2 (214 × 284 pt) ; photos du site régénérées à 640 px dans assets/conseillers ;
+l'import remplace une photo en place seulement si elle est minuscule (< 40 Ko) et la
+nouvelle au moins deux fois plus grande (`photoMieux`).
+**Retour partout (27/09)** : les générateurs (R1, R2, livret) n'ouvrent plus d'onglet
+eux-mêmes : ils rendent l'URL blob et posent `window.__dernierGuide = {url, octets,
+fichier}` ; `documentPret(id, titre, url, fichier)` affiche « Document prêt » avec
+« 📄 Ouvrir » (lien target _blank, sur un geste : jamais bloqué), « ⬇ Enregistrer »
+(download) et « ← Retour au parcours ». `ouvrirModale` pousse un état d'historique
+(`{modale:true}`) ; `popstate` ferme la fenêtre (bouton retour du téléphone) ;
+`fermerModale` fait `history.back()` si l'état est le sien. Assets `?v=20`.
+**Commission d'évaluation (27/09)** : Kadimestim (repo benoitrempenault/kadimestim,
+Firebase) refait dans le parcours. Tables `crm_parcours_commission` (estimation_id,
+token unique, ferme) et `crm_parcours_avis` (nom, prix_min, prix_max, note, ip).
+Routes membre (périmètre) : `GET /crm/parcours/:id/commission` {ouvert, ferme, lien,
+avis, groupes, tiers}, `POST …/commission/ouvrir` (jeton randToken(24) gardé, même
+lien ensuite, rouvre si close), `POST …/commission/fermer`, `DELETE …/commission/avis/:aid`.
+Public : `GET /public/commission?t=` (bien : adresse, type, surface/terrain/pièce
+de vie/chambres de l'ACM, photo et points forts du R2, conseiller, client, agence,
+nb_avis, ferme) et `POST` {nom, prix_min, prix_max, note} (min < max, ≤ 60 avis, 409
+si close). Lien = `ADMIN_BASE` ou OFFRE_BASE avec /offre → /administration, +
+`/commission.html?t=`. `groupesDe` = fourchettes identiques (nb, notes) ; `tiersDe` =
+repli / raison / ambition sur les moyennes triées, tiers bas et haut = ⌊n/3⌋ (1
+chacun si n = 2), médian = le reste (Kadimestim laissait le haut vide hors multiples
+de 3). Page publique `administration/commission.html` + `assets/js/commission.js`
+(sans compte, garde-fou localStorage « déjà répondu ») ; pages.yml copie
+commission.html à côté de index.html. Admin : bouton « 🗳 Commission d'évaluation »
+sur l'étape ACM → `ouvrirCommission` : **QR code seul** (pas de lien à copier ni
+WhatsApp, demande du 27/09) fabriqué sur place par `assets/js/vendor/qrcode.min.js`
+(qrcode-generator 1.4.4, `window.qrcode(0,"M")` → `createDataURL(6, 8)`, GIF data:
+— aucun service tiers ne voit le jeton ; `#com-lien` reste en input hidden pour les
+smokes), avis avec ✕, groupes, puis **3 fourchettes modifiables** (cartes
+`[data-tier=repli|raison|ambition][data-champ=montant|min|max]`, pré-remplies avec
+`acm.tiers_ajustes` sinon le calcul ; « ↺ Reprendre le calcul » quand des valeurs
+retouchées existent), Actualiser, Clore/Rouvrir, « Enregistrer et reporter dans le
+livret » → acm.commission = `lignesDepuisCommission` (groupes si ≤ 4, sinon tiers),
+`tiers_ajustes` {k: {nb, montant, min, max}}, `tiers_calcules` (instantané), et
+basse/prix/haute **écrasés** par les montants repli/raison/ambition saisis,
+`commission_source`. `ouvrirAcm` : champs pièce de vie / chambres (`piece_vie`,
+`chambres`), `lire()` étale `...acm` pour ne pas perdre tiers_ajustes & co au PUT
+(le PUT remplace tout) ; pré-remplit les lignes depuis la commission tant qu'elles
+n'ont pas été saisies à la main. Livret, page commission : sous le total, 3 cadres
+or « PRIX DE REPLI / RAISON / AMBITION » (montant + « de … à … ») dès que
+`tiers_ajustes` existe, puis la ligne prix estimé. Lignes de la commission dans `ouvrirAcm` : `ligneCom(l, i)` (nb / de / à + ✕ `data-com-suppr`), conteneur `#acm-com-lignes` (le bouton « Voir la commission » garde l'id `acm-commission`), « + Ajouter une ligne » `#acm-com-ajouter` (index `comIdx` croissant, jamais réutilisé : `lire()` relit par index). Biens en concurrence : `ligneConc` = `.ligne-conc` (case, `.bloc-vignette` avec `img.vignette-conc` 132×99 + 📷, texte) ; sur téléphone (≤ 720 px) la photo passe en pleine largeur, 220 px de haut, sous le texte (demande du 27/09 : « on voit pas assez sur tel »). **Adresses, bien, plan (27/09 soir)** : saisie automatique BAN sur tous les
+champs d'adresse de l'admin (`CHAMPS_ADRESSE` : px-, of-, p-, ee-, agc-, ag-,
+acm-m-adresse, v-bien ; `brancherAdresse` branché par délégation `focusin`, liste
+`.sugg-adresse` posée après l'input avec offsetLeft/Top — `.grille-champs label` et
+`.barre` sont en position:relative ; flèches/Entrée/Échap, mousedown pour choisir ;
+champ avec cp/ville → `properties.name` + voisins, sinon `label`). Le navigateur
+appelle api-adresse.data.gouv.fr directement (CSP connect-src élargie ;
+`StudioConfig.banBase` pour surcharger ; le smoke route `api-adresse` vers une
+réponse « 7 rue Nouvelle 33160 Saint-Médard-en-Jalles », `label` ajouté dans
+lib.mjs). Fiche du parcours : bloc du bien (`px-surface`, `px-terrain`,
+`px-chambres`, `px-piece-vie`) lu/écrit dans l'ACM (`lireBienFiche`,
+`sauverBienFiche` = GET acm puis PUT fusionné, à la création et à « Enregistrer la
+fiche ») ; `ouvrirParcours` charge `p.bien` et affiche une puce rouge « à
+renseigner : … » dans le résumé si surface/chambres/pièce de vie manquent. Adresse
+cliquable vers Google Maps (`lienPlan`, `a.plan`) dans la fenêtre commission et sur
+la page publique commission.html (ouvre l'appli Plans sur téléphone). Livret : toute saisie s'enregistre d'elle-même (`change` sur modale-corps débouncé 500 ms, suppression de ligne comprise, et « Retour » sauve avant de revenir) ; `lire()` garde les lignes avec nb OU de/à et pose `commission_source: "main"` dès que les lignes diffèrent de `lignesDepuisCommission` (sinon la commission les ré-écrasait à la réouverture — régression du spread `...acm`). Choix d'une suggestion : le champ est posé sans évènement `input` (sinon la recherche repartait et la liste restait ouverte). Les 4 champs du bien de la fiche s'enregistrent au `change` (toast « Bien enregistré »), pas seulement au bouton « Enregistrer la fiche ». `PUT /crm/parcours/:id` → `reporterSurContact` : les champs civilité/prénom/nom/e-mail/téléphone/adresse/CP/ville présents dans le corps et non vides remontent sur la fiche contact principale (`est.contact_id`), un champ vidé n'efface rien. `chargerConseillers` lit la liste d'abord et lance `importerConseillers` (photos du site, lent) en tâche de fond ; au démarrage `chargerParcours()` et `chargerConseillers()` partent en parallèle (la liste des parcours attendait l'import) ; `brancherMenuConseillers(selId)` recharge le menu « Conseiller » au focus/touchstart s'il est vide (téléphone). Smokes : `attendreToast` vide le texte du toast une fois vu (un toast qui traîne 3 s satisfaisait le wait suivant → échec intermittent ligne « signés du conseiller choisi » : le « Bien enregistré » de la saisie précédente écrasait le toast attendu) ; `parcours()` indique fichier:ligne du plantage. CSS téléphone : les règles des étapes du bloc `@media (max-width: 720px)` sont écrites en `.etapes .etape …` (3 classes) parce que les règles générales `.etape .titre` viennent APRÈS dans le fichier et les écrasaient (titre écrasé, boutons en colonne) ; la modale prend `100dvh` (la barre de Safari cachait Effacer / Fermer). Assets admin `?v=29`. (27/09 : un clic sur le voile hors de la fenêtre ne ferme plus la modale — on perdait la saisie ; seuls ×, Retour/Annuler et le bouton « précédent » ferment). Photos du livret : `decoderPhoto` (canvas → JPEG 1200 px, WebP compris) puis `embarquerPhoto` (photo posée, sinon relais) ; relais et acm/donnees résolvent les URL relatives de nos annonces sur `annonces.siteUrl`.
+**Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
+bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la
+police Bugaki complète, non versionnée) ; le navigateur y écrit « Famille NOM » (ou
+civilité + NOM), l'adresse et « CP VILLE » en majuscules, la date du jour, alignés à
+droite (`meta.p1` de guide-r1.json : droite 506, y = ligne de base, page Letter 792 pt).
+Chiffres p2 (14) et p3 (1 610 / 864 avis) redessinés comme l'original : ombre or à
+40 % décalée de 1,6 pt puis le chiffre en or (la couche noire de l'original est à
+opacité 0). Smoke : guide R1 gardé dans captures/guide-r1-smoke.pdf (`garderGuide`).
 **Guide R1 personnalisé (26/09)** : `administration/assets/guide-r1.pdf` (25 pages :
 13 communes + 12 pages « Votre conseiller », corrigé de l'original de Benoît avec
 pymupdf — p2 : 14 conseillers St-Médard, 2 gestionnaires St-Aubin ; p3 : 9,5/10
@@ -480,6 +704,32 @@ Helvetica-Bold ; ouvert dans un onglet (blob) et l'étape guide-r1 cochée.
 Pour changer les chiffres du guide : refaire la passe pymupdf (polices extraites
 des sous-ensembles embarqués, `bugaki3.ttf` = page 3). Un conseiller absent du
 guide → toast et guide sans sa page.
+**Guide R2 « Vendons ensemble votre bien » (26/09)** : `administration/assets/guide-r2.pdf`
+(20 pages, 12,8 Mo, préparé avec pymupdf depuis l'original : p3 point 2026 =
+900 000 en pointillé + cadre prolongé, p4 « 10/2026 », p5 courbe des prix
+redessinée 2017-2026 avec 3 287 € en 2026, p10/p11 = corrections du R1, zones
+variables blanchies en p1/p6/p7/p8/p9/p12) + `guide-r2.json` (coordonnées des
+zones, en repère haut-gauche). Assemblé dans le navigateur par `genererGuideR2()`
+(admin.js, pdf-lib + fontkit vendorisés, polices Barlow dans assets/fonts) :
+p1 photo du bien (recadrée) + client + date du jour ; p6 photo, adresse, points
+forts / objections (flèches or) — « tous les arguments » laissé vide exprès ;
+p7 commune (nom, département, région, densité) + carte OSM des commodités
+(canvas : tuiles tile.openstreetmap.org CORS, repères colorés par catégorie,
+épingle rouge du bien, échelle, attribution) + tableau des commodités ; p8 carte
+des ventes de l'agence à 1 km + légende réduite à « biens vendus » ; p9 mois
+courant ; p12 photo/nom/genre/téléphone/e-mail/texte du conseiller. Données :
+`GET /crm/parcours/:id/environnement` (parcours.js) — géocode via BAN si la
+fiche n'a pas de lat/lng (stockés sur crm_estimations), commune via
+geo.api.gouv.fr (`GEO_BASE`), commodités via Overpass (`OVERPASS_BASE`, défaut
+overpass.kumi.systems — overpass-api.de est injoignable depuis le bac à sable),
+cache 30 j `crm_environnement` par lat/lng à 3 décimales, ventes = crm_ventes +
+dossiers vendus à 1 km. Saisie : `GET/PUT /crm/parcours/:id/r2` (photo data URL
+≤ 400 Ko réduite à 1 600 px, points_forts, objections, bio du conseiller) ;
+profil conseiller : `crm_conseillers_extra` (bio, genre m|f posé à la main sinon
+`genrePrenom`). Tests : faux Overpass 18784 + faux geo 18785 (test.mjs), 18781 /
+18782 dans run.mjs ; le smoke garde le PDF généré dans captures/guide-r2-smoke.pdf
+(les tuiles ne se chargent pas dans le Chromium du bac à sable : carte grise).
+ACM : toujours « modèle à venir ».
 **Maisons dessinées + signets (carte, 15/09)** : `GET /crm/batiments?bbox=minLng,
 minLat,maxLng,maxLat` (membre) relaie le WFS IGN BD TOPO (`BATIMENTS_BASE`,
 CRS:84, COUNT 3000, bbox ≤ 0,02°×0,012°) et renvoie `{batiments:[{id, nature,
