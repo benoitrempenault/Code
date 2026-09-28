@@ -651,11 +651,26 @@
       const { entrees } = await api("/crm/corbeille");
       if (!entrees.length) { zone.innerHTML = '<p class="petit">La corbeille est vide.</p>'; return; }
       const TYPES_CB = { contact: "Fiche", suivi: "Suivi", visite: "Visite" };
-      zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr><th>Type</th><th>Quoi</th><th>Supprimé le</th><th>Reste</th><th></th></tr></thead><tbody>' +
+      zone.innerHTML = '<div class="barre"><button class="btn" id="btn-corbeille-prospects" title="Les fiches qui n\'étaient qu\'Acquéreur, retirées par le remplacement de la base acquéreurs, reviennent typées Prospect ; celles ré-importées depuis le fichier ne sont pas dupliquées">↩ Faire revenir les acquéreurs retirés, en Prospect</button></div>' +
+        '<div class="tableau-cadre"><table><thead><tr><th>Type</th><th>Quoi</th><th>Supprimé le</th><th>Reste</th><th></th></tr></thead><tbody>' +
         entrees.map((e) => "<tr><td>" + escH(TYPES_CB[e.type] || e.type) + "</td><td>" + escH(e.libelle) + "</td><td>" +
           new Date(e.created_at * 1000).toLocaleDateString("fr-FR") + "</td><td>" + e.jours_restants + " j</td>" +
           '<td><button class="btn" data-restaurer="' + escH(e.id) + '">↩ Restaurer</button></td></tr>').join("") +
         "</tbody></table></div>";
+      $("btn-corbeille-prospects").addEventListener("click", async () => {
+        const btn = $("btn-corbeille-prospects"); btn.disabled = true;
+        let restaures = 0, deja = 0, restants = 0;
+        try {
+          for (let tour = 0; tour < 300; tour++) {
+            const r = await api("/crm/corbeille/restaurer-acquereurs", { json: {} });
+            restaures += r.restaures; deja += r.dejaPresents; restants = r.restants || 0;
+            btn.textContent = "↩ Retour en cours… " + restaures + " revenue(s), " + deja + " déjà présente(s), " + restants + " restante(s)";
+            if (!restants || (!r.restaures && !r.dejaPresents)) break;
+          }
+          toast(restaures + " fiche(s) revenue(s) en Prospect, " + deja + " déjà présente(s) (ré-importées) laissée(s) telles quelles");
+          await chargerContacts(); chargerCorbeille();
+        } catch (e) { toast(e.message, true); btn.disabled = false; }
+      });
       zone.querySelectorAll("[data-restaurer]").forEach((b) => b.addEventListener("click", async () => {
         b.disabled = true;
         try {
@@ -761,7 +776,10 @@
           '<select id="preset-typologie">' +
           '<option value="estime"' + (typologie === "estime" ? " selected" : "") + ">Estimés</option>" +
           '<option value="vendeur"' + (typologie === "vendeur" ? " selected" : "") + ">Vendeurs (mandats)</option>" +
-          "</select></label></div>";
+          "</select></label></div>" +
+          '<label class="case" id="preset-retyper-bloc" style="margin-top:8px;"' + (typologie === "estime" ? "" : " hidden") + '><input type="checkbox" id="preset-retyper" checked /> ' +
+          "Les fiches typées Estimé absentes de ce fichier passent en Prospect (le fichier devient la base estimés ; leurs autres typologies sont gardées).</label>";
+        $("preset-typologie").addEventListener("change", () => { $("preset-retyper-bloc").hidden = $("preset-typologie").value !== "estime"; });
         $("btn-go-import").hidden = false; $("btn-concordance").hidden = false;
         return;
       }
@@ -1000,6 +1018,8 @@
     const LOT = 400;
     const total = { created: 0, updated: 0, skipped: 0 };
     let remplaces = null;
+    const retyper = importData.preset === "biens" && $("preset-typologie").value === "estime" && $("preset-retyper") && $("preset-retyper").checked;
+    const debutImport = Math.floor(Date.now() / 1000) - 5;
     try {
       if (remplacer) {
         remplaces = { supprimes: 0, retypes: 0, projets: 0 };
@@ -1026,8 +1046,17 @@
           projetsCrees += r.crees;
         }
       }
+      // Estimés : ce que le fichier n'a pas touché n'est plus « estimé », mais prospect.
+      let retypes = 0;
+      if (retyper) {
+        for (let tour = 0; tour < 200; tour++) {
+          const r = await api("/crm/contacts/retyper-absents", { json: { type: "estime", en: "prospect", avant: debutImport } });
+          retypes += r.retypes; btn.textContent = "Estimés absents du fichier → Prospect… " + retypes;
+          if (!r.restants || !r.retypes) break;
+        }
+      }
       fermerModale();
-      toast((remplaces ? "Base acquéreurs remplacée (" + remplaces.supprimes + " fiche(s) à la corbeille, " + remplaces.retypes + " retypée(s), " + remplaces.projets + " projet(s) effacé(s)) · " : "") +
+      toast((retypes ? retypes + " fiche(s) estimée(s) absentes du fichier passée(s) en Prospect · " : "") + (remplaces ? "Base acquéreurs remplacée (" + remplaces.supprimes + " fiche(s) à la corbeille, " + remplaces.retypes + " retypée(s), " + remplaces.projets + " projet(s) effacé(s)) · " : "") +
         "Import terminé : " + total.created + " créé(s), " + total.updated + " mis à jour, " + total.skipped + " ignoré(s)" +
         (projetsCrees ? " · " + projetsCrees + " projet(s) d'achat créé(s)" : ""));
       await chargerContacts();

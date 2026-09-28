@@ -174,6 +174,47 @@ const CONTACT_COLS = ["id", "agency_id", "user_id", "civilite", "prenom", "nom",
   "conseiller", "notes", "source", "opt_out", "created_at", "updated_at"];
 const COLS_NUM = new Set(["opt_out", "created_at", "updated_at"]);
 
+// Retour groupé des fiches retirées par le remplacement des acquéreurs (celles
+// qui n'étaient qu'« acquereur ») : elles reviennent typées « prospect », sans
+// leurs anciennes liaisons de projet (les projets ont été effacés), et JAMAIS
+// en doublon : si la personne existe déjà (ré-importée depuis le fichier), son
+// entrée de corbeille est simplement close. Par paquets, `restants` guide l'appel suivant.
+export async function restaurerAcquereursEnProspects(db, agencyId, max = 60) {
+  const keyName = (nom, prenom) => `${(nom || "").toLowerCase()}|${(prenom || "").toLowerCase()}`;
+  const rows = await db.all(
+    `SELECT id, ref_id, payload FROM crm_corbeille WHERE agency_id = ? AND type = 'contact' AND restored_at = 0
+       AND payload LIKE '%"types":"[\\"acquereur\\"]"%' ORDER BY created_at LIMIT ?`, [agencyId, Math.max(1, max) + 1]);
+  const lot = rows.slice(0, max);
+  let restaures = 0, dejaPresents = 0;
+  for (const e of lot) {
+    let c = null; try { c = (JSON.parse(e.payload || "{}").crm_contacts || [])[0] || null; } catch { c = null; }
+    const existe = c ? await db.get(
+      "SELECT id FROM crm_contacts WHERE agency_id = ? AND ((email <> '' AND email = ?) OR (nom COLLATE NOCASE = ? AND prenom COLLATE NOCASE = ?)) LIMIT 1",
+      [agencyId, String(c.email || ""), String(c.nom || ""), String(c.prenom || "")]) : null;
+    if (existe) { await db.run("UPDATE crm_corbeille SET restored_at = ? WHERE id = ?", [now(), e.id]); dejaPresents++; continue; }
+    const r = await restaurerCorbeille(db, agencyId, e.id, { sauf: ["crm_projet_contacts"] });
+    if (r) { await db.run("UPDATE crm_contacts SET types = '[\"prospect\"]', updated_at = ? WHERE id = ? AND agency_id = ?", [now(), e.ref_id, agencyId]); restaures++; }
+  }
+  return { restaures, dejaPresents, restants: rows.length > max ? rows.length - max : 0 };
+}
+
+// Après l'import d'un fichier « biens » (estimés) : les fiches typées `type`
+// que l'import n'a pas touchées (updated_at antérieur au début de l'import)
+// perdent ce type et deviennent prospect. Par paquets.
+export async function retyperAbsents(db, agencyId, type, en, avant, max = 300) {
+  if (!["estime", "vendeur", "acquereur", "bailleur", "locataire"].includes(type) || !/^[a-z]+$/.test(en)) return { retypes: 0, restants: 0 };
+  const rows = await db.all(
+    "SELECT id, types FROM crm_contacts WHERE agency_id = ? AND types LIKE ? AND updated_at < ? LIMIT ?",
+    [agencyId, '%"' + type + '"%', Number(avant) || 0, Math.max(1, max) + 1]);
+  const lot = rows.slice(0, max);
+  for (const r of lot) {
+    let types = []; try { types = JSON.parse(r.types || "[]"); } catch { types = []; }
+    const nouveaux = [...new Set(types.filter((t) => t !== type).concat(en))];
+    await db.run("UPDATE crm_contacts SET types = ?, updated_at = ? WHERE id = ? AND agency_id = ?", [JSON.stringify(nouveaux), now(), r.id, agencyId]);
+  }
+  return { retypes: lot.length, restants: rows.length > max ? rows.length - max : 0 };
+}
+
 // Compteurs de la base : total, par typologie, projets d'achat, corbeille.
 export async function compteursContacts(db, agencyId) {
   const parType = {};
@@ -453,13 +494,15 @@ export async function listerCorbeille(db, agencyId, limite = 200) {
 
 // Réinsère les lignes de l'entrée (INSERT OR IGNORE : si la fiche a été
 // recréée entre-temps, on ne l'écrase pas). Renvoie ce qui a été remis.
-export async function restaurerCorbeille(db, agencyId, id) {
+export async function restaurerCorbeille(db, agencyId, id, options = {}) {
   const e = await db.get("SELECT * FROM crm_corbeille WHERE id = ? AND agency_id = ? AND restored_at = 0", [id, agencyId]);
   if (!e) return null;
   let payload = {};
   try { payload = JSON.parse(e.payload || "{}"); } catch { payload = {}; }
   const remis = {};
+  const sauf = new Set(Array.isArray(options.sauf) ? options.sauf : []);
   for (const table of TABLES_CORBEILLE) {
+    if (sauf.has(table)) continue;
     const lignes = Array.isArray(payload[table]) ? payload[table] : [];
     let n = 0;
     for (const ligne of lignes) {

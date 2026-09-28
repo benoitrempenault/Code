@@ -973,6 +973,19 @@ export function createApp(env) {
     if (!r) return err(c, 404, "Entrée de corbeille introuvable (ou déjà restaurée).");
     return c.json({ ok: true, ...r });
   });
+  // Retour groupé, en Prospect, des fiches retirées par le remplacement des acquéreurs.
+  app.post("/crm/corbeille/restaurer-acquereurs", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json(await CRM.restaurerAcquereursEnProspects(db, ctx.agency.id, 60));
+  });
+  // Après un import : les fiches d'une typologie non touchées par l'import passent en prospect.
+  app.post("/crm/contacts/retyper-absents", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => ({}));
+    const avant = Number(b && b.avant) || 0;
+    if (!avant || avant > now() + 60 || avant < now() - 86400) return err(c, 400, "Repère temporel de l'import invalide (moins d'un jour).");
+    return c.json(await CRM.retyperAbsents(db, ctx.agency.id, String(b.type || ""), String(b.en || "prospect"), avant, 300));
+  });
   // Suppression en masse (sélection dans la liste) : 200 fiches par appel,
   // en cascade comme la suppression unitaire.
   app.post("/crm/contacts/supprimer", async (c) => {

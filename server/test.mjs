@@ -3698,6 +3698,28 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const re = await callR("/crm/projets/auto", { headers: auth, body: { rows: [{ nom: "REMPLACE", email: "pur.remplace@exemple.fr", criteres: { budgetMax: 210000, types: ["maison"] } }] } });
     ok(re.json.crees === 1, "après remplacement, l'import reconstruit fiches et projets d'achat");
   }
+  // Retour groupé en Prospect des fiches retirées par le remplacement (sans doublon avec les ré-importées), et retypage des estimés absents d'un import.
+  {
+    const rr = await callR("/crm/corbeille/restaurer-acquereurs", { headers: auth, body: {} });
+    const apresRR = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+    const purs = apresRR.filter((x) => x.email === "pur.remplace@exemple.fr");
+    const noraR = apresRR.find((x) => x.email === "nora.amepi@exemple.fr");
+    ok(rr.status === 200 && rr.json.restants === 0 && rr.json.dejaPresents >= 1 && rr.json.restaures >= 1 && purs.length === 1 && purs[0].types.includes("acquereur")
+       && noraR && noraR.types.length === 1 && noraR.types[0] === "prospect"
+       && (await db.get("SELECT COUNT(*) AS n FROM crm_corbeille WHERE agency_id = ? AND type = 'contact' AND restored_at = 0 AND payload LIKE '%acquereur%'", [agId])).n === 0,
+       "les acquéreurs retirés reviennent en Prospect, sans dupliquer ceux ré-importés (" + JSON.stringify(rr.json) + ")");
+    // Estimés : un fichier ré-importé touche A, pas B → B passe en prospect (ses autres types restent).
+    await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "ESTIMA", prenom: "Ana", email: "ana.estima@exemple.fr", types: "estime" }, { nom: "ESTIMB", prenom: "Bob", email: "bob.estimb@exemple.fr", types: "estime, vendeur" }] } });
+    await db.run("UPDATE crm_contacts SET updated_at = updated_at - 100 WHERE agency_id = ? AND nom IN ('ESTIMA', 'ESTIMB')", [agId]);
+    const debut = Math.floor(Date.now() / 1000) - 5;
+    await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "ESTIMA", prenom: "Ana", email: "ana.estima@exemple.fr", types: "estime" }] } });
+    ok((await callR("/crm/contacts/retyper-absents", { headers: auth, body: { type: "estime", en: "prospect", avant: debut - 100000 } })).status === 400, "un repère d'import trop ancien est refusé");
+    const rt = await callR("/crm/contacts/retyper-absents", { headers: auth, body: { type: "estime", en: "prospect", avant: debut } });
+    const apresRT = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+    const a = apresRT.find((x) => x.email === "ana.estima@exemple.fr"), b2 = apresRT.find((x) => x.email === "bob.estimb@exemple.fr");
+    ok(rt.status === 200 && rt.json.retypes >= 1 && a.types.includes("estime") && !b2.types.includes("estime") && b2.types.includes("prospect") && b2.types.includes("vendeur"),
+       "après l'import estimés, la fiche absente du fichier passe en prospect en gardant ses autres types, celle présente reste estimée (" + JSON.stringify(rt.json) + ")");
+  }
   // Concordance d'un fichier avec la base (sans importer) et compteurs par typologie.
   {
     const conc = await callR("/crm/contacts/concordance", { headers: auth, body: { type: "acquereur", rows: [
