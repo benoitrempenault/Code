@@ -18,6 +18,7 @@
 import { readFile, writeFile, appendFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 
 const ICI = dirname(fileURLToPath(import.meta.url));
 const JOURNAL = join(ICI, "agent-portails.log");
@@ -29,6 +30,7 @@ const ACCUEILS = {
   leboncoin: "https://www.leboncoin.fr/compte/pro/mon-activite",
 };
 const JSON_MAX = 3 * 1024 * 1024;
+const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function log(...m) {
   const l = new Date().toLocaleString("fr-FR") + "  " + m.join(" ");
@@ -66,7 +68,27 @@ async function ouvrir(visible) {
   opts.args.push("--disable-blink-features=AutomationControlled");
   if (cfg.chemin_navigateur) opts.executablePath = cfg.chemin_navigateur;
   else opts.channel = cfg.navigateur || "msedge";
-  return chromium.launchPersistentContext(PROFIL, opts);
+  // Un Edge resté ouvert sur NOTRE profil (fenêtre oubliée, relevé de 20 h en
+  // cours, Edge qui traîne en arrière-plan) fait échouer le lancement :
+  // « Ouverture dans la session de navigateur existante ». On le ferme.
+  fermerEdgeDuProfil();
+  try { return await chromium.launchPersistentContext(PROFIL, opts); }
+  catch (e) {
+    if (!/closed|existante|existing/i.test(e.message)) throw e;
+    await attendre(3000);
+    fermerEdgeDuProfil();
+    try { return await chromium.launchPersistentContext(PROFIL, opts); }
+    catch {
+      await log("Edge refuse de s'ouvrir : un Edge utilise encore le profil du robot. Fermez toutes les fenêtres Edge (ou redémarrez le PC) et relancez.");
+      process.exit(1);
+    }
+  }
+}
+function fermerEdgeDuProfil() {
+  if (process.platform !== "win32") return;
+  const cible = PROFIL.replace(/'/g, "''");
+  const ps = `Get-CimInstance Win32_Process -Filter "name='msedge.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('${cible}') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
+  try { execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], { stdio: "ignore", timeout: 20000 }); } catch { }
 }
 
 // Le portail d'une URL, d'après les domaines donnés par Studio.
@@ -95,7 +117,6 @@ function ecouter(contexte, portails) {
     vider(page) { const l = tampons.get(page) || []; tampons.set(page, []); return l; },
   };
 }
-const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ------------------------------- Connecter -------------------------------- */
 if (mode === "connecter") {
