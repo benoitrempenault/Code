@@ -90,12 +90,15 @@ const dvf = createServer((req, res) => {
 
 // 1 sexies) Faux Bien'ici : une zone et deux maisons en vente sur la commune.
 const PORT_BIENICI = 18783;
+const PIXEL_JPEG = Buffer.from("/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==", "base64");
 const bienici = createServer((req, res) => {
+  // Les photos des annonces : un vrai JPEG (minuscule), pour la vignette et le livret.
+  if (req.url.startsWith("/photo/")) { res.writeHead(200, { "Content-Type": "image/jpeg" }); return res.end(PIXEL_JPEG); }
   res.writeHead(200, { "Content-Type": "application/json" });
   if (req.url.startsWith("/suggest.json")) return res.end(JSON.stringify([{ id: "z", name: "Saint-Médard-en-Jalles", type: "city", insee_codes: ["33449"], postalCodes: ["33160"], zoneIds: ["-110581"] }]));
   res.end(JSON.stringify({ total: 2, realEstateAds: [
-    { id: "orpi-smoke-1", accountDisplayName: "ORPI Smoke", adType: "buy", propertyType: "house", price: 335000, surfaceArea: 98, landSurfaceArea: 410, roomsQuantity: 5, bedroomsQuantity: 3, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date(Date.now() - 20 * 86400000).toISOString(), priceHasDecreased: false, blurInfo: { position: { lat: 44.90, lon: -0.72 } }, photos: [], district: { libelle: "Gajac" } },
-    { id: "human-smoke-2", accountDisplayName: "HUMAN Immobilier", adType: "buy", propertyType: "house", price: 349900, surfaceArea: 95, landSurfaceArea: 322, roomsQuantity: 4, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date().toISOString(), priceHasDecreased: true, blurInfo: { position: { lat: 44.91, lon: -0.73 } }, photos: [] },
+    { id: "orpi-smoke-1", accountDisplayName: "ORPI Smoke", adType: "buy", propertyType: "house", price: 335000, surfaceArea: 98, landSurfaceArea: 410, roomsQuantity: 5, bedroomsQuantity: 3, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date(Date.now() - 20 * 86400000).toISOString(), priceHasDecreased: false, blurInfo: { position: { lat: 44.90, lon: -0.72 } }, photos: [{ url: "http://localhost:" + PORT_BIENICI + "/photo/orpi.jpg" }], district: { libelle: "Gajac" } },
+    { id: "human-smoke-2", accountDisplayName: "HUMAN Immobilier", adType: "buy", propertyType: "house", price: 349900, surfaceArea: 95, landSurfaceArea: 322, roomsQuantity: 4, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date().toISOString(), priceHasDecreased: true, blurInfo: { position: { lat: 44.91, lon: -0.73 } }, photos: [{ url: "http://localhost:" + PORT_BIENICI + "/photo/human.jpg" }] },
   ] }));
 }).listen(PORT_BIENICI);
 
@@ -180,6 +183,7 @@ for (const nom of choisis) {
     console.log("  ✗ " + nom + " a planté : " + (e && e.message || e));
   }
 }
+if (process.env.SMOKE_DEBUG) console.log("\nJournal API (debug) :\n" + journalApi.split("\n").filter((l) => /BIENICI|\[5\d\d\]/.test(l)).join("\n"));
 apiProc.kill();
 ban.close(); ign.close(); site.close(); resend.close(); overpass.close(); geo.close(); statsSite.close(); fauxMeta.close();
 try { await unlink(dbPath); } catch { }

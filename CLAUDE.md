@@ -727,7 +727,7 @@ vignette FRAÎCHE de `donnees` (amepi:`id`, agence:`id`), sinon le relais sur l'
 ou celle de la saisie ; jamais a.photo relu de l'acm. Biens en concurrence triés : distance
 au bien (dist serveur, sinon haversine lat/lng ↔ donnees.lat/lng), sans position → même
 commune (cp ou ville du parcours) avant les autres ; les biens ajoutés à la main restent en
-tête. Assets admin `?v=38`.
+tête. Pré-cochage sans sélection enregistrée : les 4 biens au prix le plus proche de `acm.prix || haute || basse` (`prechoixConc`), sinon les 4 premiers. Smoke parcours : dépôt d'un mandat ALFA (id 9001, ville du parcours) + vignette par la clé d'agent, faux Bien'ici avec `photos[].url` servies (`/photo/*.jpg`, JPEG 1 px) ; `window.__dernierGuide.debug` {photos, sansPhoto, sources} compte les photos embarquées (attendu ≥ 3, 1 sans photo = bien saisi à la main). Assets admin `?v=40`.
 **Guide R1 p2, passe 3 (28/09)** : `tools/guides/retoucher-guide-r1-passe3.py` (Bugaki non
 versionnée) : le « 2 » des gestionnaires (colonne Saint-Aubin) était 1,5 pt trop bas et 4 pt
 trop à droite ; zone [414,440,454,496] redigée puis « 1 » (421,4 ; 438,7) et « 2 » (419,3 ;

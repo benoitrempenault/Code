@@ -3320,6 +3320,8 @@
         const urlAcm = await genererLivretPrix(p, d, donnees);
         await api("/crm/parcours/" + id + "/etape", { json: { etape: "acm" } });
         documentPret(id, "Livret prix prêt", urlAcm, window.__dernierGuide && window.__dernierGuide.fichier);
+        const dbg = window.__dernierGuide && window.__dernierGuide.debug;
+        if (dbg && (dbg.photos || dbg.sansPhoto)) toast("Biens en concurrence : " + dbg.photos + " photo(s) embarquée(s)" + (dbg.sansPhoto ? ", " + dbg.sansPhoto + " sans photo (" + dbg.sources.filter((x) => /:non$/.test(x)).map((x) => x.replace(/:non$/, "")).join(", ") + ")" : ""));
       } catch (e) { toast(e.message, true); etat.textContent = ""; btn.disabled = false; }
     });
   }
@@ -3474,6 +3476,7 @@
     // sur l'URL de l'annonce. Jamais a.photo relu de la saisie (tronqué à 3 000 caractères).
     let photosPosees = {}; try { photosPosees = (await api("/crm/parcours/" + p.id + "/acm/photos")).photos || {}; } catch { photosPosees = {}; }
     const frais = new Map([...(donnees.amepi || []).map((x) => ["amepi:" + x.id, x]), ...(donnees.annonces || []).map((x) => ["agence:" + x.id, x])]);
+    const livretDebug = { photos: 0, sansPhoto: 0, sources: [] };
     const embarquerPhoto = async (a) => {
       const f = frais.get(a.id);
       let source = photosPosees[a.id] || (f && f.photo && /^data:image\//.test(f.photo) ? f.photo : "");
@@ -3542,8 +3545,9 @@
       for (let k = 0; k < 2 && i + k < conc.length; k++) {
         const a = conc[i + k], y0 = 100 + k * 340;
         const photo = await embarquerPhoto(a);
-        if (photo) imageCadree(pg, photo, G, y0, CW, CH);
-        else { rect(pg, G, y0, CW, CH, { color: sable, borderColor: or, borderWidth: 0.8 }); ecrireCentre(pg, "photo non disponible", G + CW / 2, y0 + CH / 2 + 3, 9, fR, gris); }
+        livretDebug.sources.push(a.id + ":" + (photo ? "ok" : "non"));
+        if (photo) { livretDebug.photos++; imageCadree(pg, photo, G, y0, CW, CH); }
+        else { livretDebug.sansPhoto++; rect(pg, G, y0, CW, CH, { color: sable, borderColor: or, borderWidth: 0.8 }); ecrireCentre(pg, "photo non disponible", G + CW / 2, y0 + CH / 2 + 3, 9, fR, gris); }
         ecrire(pg, fmtPrix(a.prix), XF, y0 + 22, 18, fB, noir);
         if (fmtM2(a)) ecrire(pg, "soit " + fmtM2(a), XF, y0 + 38, 10, fS, gris);
         couper(a.titre || "", fS, 10, D - XF).slice(0, 2).forEach((l, j) => ecrire(pg, l, XF, y0 + 58 + j * 13, 10, fS, noir));
@@ -3640,7 +3644,7 @@
     doc.setTitle("Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "livret-prix-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf" }; // relu par les parcours navigateur
+    window.__dernierGuide = { url, octets, debug: livretDebug, fichier: "livret-prix-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf" }; // relu par les parcours navigateur
     return url;
   }
 
