@@ -96,7 +96,7 @@ export default async function () {
     await page.click("[data-garder]");
     await attendreToast(page, "Page ajoutée aux relevés de Bien'ici");
     const consP = await api("/crm/portails", { headers: admin.auth });
-    ok(consP.json.consignes.portails.bienici.pages[0].url === "https://pro.bienici.com/statistiques", "la page est enregistrée dans les consignes de l'agent");
+    ok(consP.json.consignes.portails.bienici.pages.some((p) => p.url === "https://pro.bienici.com/statistiques"), "la page est enregistrée dans les consignes de l'agent");
     await page.click("#pt-fermer");
 
     // Réseaux : connexion de la page, relevé, suggestion validée.

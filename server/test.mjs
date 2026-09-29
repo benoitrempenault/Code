@@ -4406,6 +4406,45 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(lb.captures.length && !/rt-123|jean\.dupont|06 12 34 56 78|eyJa\.b\.c|token=abc|session=zz|zzz/.test(txtCap) && /\[masqué\]/.test(txtCap) && /\[e-mail\]/.test(txtCap) && /\[tél\]/.test(txtCap) && txtCap.includes('"7510"'),
     "captures d'un portail en un fichier : jetons, e-mails, téléphones masqués, réf. gardées");
   ok((await call("/crm/portails/captures?portail=facebook", { headers: authP })).status === 400, "export des captures : portail inconnu refusé");
+
+  // Lecteurs dédiés : formes relevées sur les espaces pro réels (29/09), données fictives.
+  await call("/crm/bilans/mandats", { headers: authP, body: { mandats: [{ ref: "8282", mandat: "2091", email: "v@exemple.fr", conseiller: "DUPONT Jean", prix: 380000 },
+    { ref: "7510", mandat: "1860", email: "w@exemple.fr", conseiller: "DUPONT Jean", prix: 290000 }] } });
+  const tr = P.traducteurRefs([{ ref: "8282", mandat: "2091" }]);
+  ok(tr("8282") === "8282" && tr("2091") === "8282" && tr("0282") === null && tr("") === null, "référence ou numéro de mandat → Ref de l'export");
+  const depotLbc = await call("/crm/portails/depot", { headers: hA, body: { portail: "leboncoin", mode: "releve", url: "https://www.leboncoin.fr/compte/pro/mon-activite",
+    reponses: [{ url: "https://api.leboncoin.fr/api/stats/proxy/v2/account/classifieds/analysis/list", json: { Facets: { Total: 2 }, Ads: [
+      { Id: "1", Info: { CustomRef: "8282", Price: 380000 }, Summary: { Views: 5216, Lists: 296372, Contacts: 16, Favorites: 162, TotalFavorites: 64 } },
+      { Id: "2", Info: { CustomRef: "4444" }, Summary: { Views: 9 } }] } }] } });
+  ok(depotLbc.json.annonces === 1, "Leboncoin « Mon activité » : l'annonce reconnue par sa CustomRef, l'inconnue ignorée");
+  const rl = await db.get("SELECT * FROM crm_portail_stats WHERE agency_id = ? AND portail = 'leboncoin' AND ref = '8282' AND nature = 'releve' ORDER BY jour DESC", [agP]);
+  ok(rl && rl.vues === 5216 && rl.contacts === 16 && rl.favoris === 162, "Leboncoin : vues, contacts et favoris depuis la mise en ligne (compteur)");
+  const lundiP = (() => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); return new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 86400000 - 7 * 86400000).toISOString().slice(0, 10); })();
+  const dimP = new Date(Date.parse(lundiP) + 6 * 86400000).toISOString().slice(0, 10);
+  const releveSl = (debut, fin) => ({ relevePerfs: { totalRow: 2, relevePerfs: [
+    { refAnnonce: "2091", idTypeTransaction: 2, affichagesListe: 755, affichagesDetail: 371, mail: 2, telephone: 1 },
+    { refAnnonce: "1860", idTypeTransaction: 1, affichagesDetail: 50, mail: 0, telephone: 0 }] } });
+  await call("/crm/portails/depot", { headers: hA, body: { portail: "seloger", mode: "releve", url: "https://myselogerpro.com/plus/Dashboard#/stats/topAd/list",
+    reponses: [{ url: `https://myselogerpro.com/api/3.0/statistics/GetRelevePerformance?request.dateDebut=${lundiP}T00:00:00.000Z&request.dateFin=${dimP}T23:59:59.999Z&request.pageIndex=0&request.pageSize=100`, json: releveSl() }] } });
+  const rs = await db.get("SELECT * FROM crm_portail_stats WHERE agency_id = ? AND portail = 'seloger' AND ref = '8282'", [agP]);
+  ok(rs && rs.nature === "jour" && rs.jour === lundiP && rs.vues === 371 && rs.contacts === 3, "SeLoger : numéro de mandat 2091 → réf. 8282, semaine pile rangée à son lundi (vues de fiche, mail + téléphone)");
+  ok(!(await db.get("SELECT 1 FROM crm_portail_stats WHERE agency_id = ? AND portail = 'seloger' AND ref = '7510'", [agP])), "SeLoger : une location n'est pas comptée");
+  const semSl = await P.statsPortailsSemaine(db, agP, lundiP);
+  ok(semSl["8282"].seloger.vues === 371 && semSl["8282"].seloger.base === "semaine", "SeLoger dans le bilan : la semaine exacte");
+  const rec = P.reecritures("2026-09-29");
+  ok(rec[0].params["request.dateDebut"] === "2026-09-21T00:00:00.000Z" && rec[0].params["request.dateFin"] === "2026-09-27T23:59:59.999Z" && rec[0].params["request.pageSize"] === "100"
+    && rec[1].json.filters.size === 100, "réécritures : SeLoger sur la dernière semaine complète, 100 lignes ; Bien'ici en une page");
+  const jBi = (n) => new Date(Date.now() - n * 86400000).toISOString();
+  await call("/crm/portails/depot", { headers: hA, body: { portail: "bienici", mode: "releve", url: "https://pro.bienici.com/mon-tableau-de-bord",
+    reponses: [{ url: "https://pro.bienici.com/realEstateAds-myads.json?filters=%7B%7D", json: { total: 1, realEstateAds: [{ id: "century-21-202_3578_7510", reference: "7510",
+      contactRequests: [{ date: jBi(1), sender: { firstName: "A" } }, { date: jBi(1) }], phoneDisplays: [{ date: jBi(2) }] }] } }] } });
+  const jb = await db.all("SELECT jour, contacts FROM crm_portail_stats WHERE agency_id = ? AND portail = 'bienici' AND ref = '7510' AND nature = 'jour'", [agP]);
+  const cj = (n) => (jb.find((x) => x.jour === jBi(n).slice(0, 10)) || {}).contacts;
+  ok(cj(1) === 2 && cj(2) === 1 && cj(5) === 0, "Bien'ici : demandes de contact et affichages du téléphone jour par jour, 0 les jours sans");
+  const capLbc = (await call("/crm/portails/captures?portail=bienici", { headers: authP })).json;
+  ok(!JSON.stringify(capLbc).includes('"firstName":"A"'), "le nom d'un particulier ne reste pas dans les captures");
+  ok((await call("/crm/portails/consignes", { headers: hA })).json.portails.seloger.pages[0].url.includes("myselogerpro.com"), "pages relevées par défaut sans réglage");
+  ok(JSON.stringify(P.forme({ a: [1, 2, 3, 4], t: "x".repeat(300) })).length < 200, "forme d'une grosse réponse : premiers éléments, textes coupés");
   await call("/crm/portails/cle", { method: "DELETE", headers: authP });
   ok((await call("/crm/portails/consignes", { headers: hA })).status === 401, "clé révoquée : l'agent est bloqué");
 

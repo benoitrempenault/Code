@@ -31,6 +31,26 @@ const ACCUEILS = {
 };
 const JSON_MAX = 3 * 1024 * 1024;
 const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
+// Réécritures demandées par Studio (ex. SeLoger : toutes les annonces, sur la
+// dernière semaine complète) : la requête de la page part avec SES en-têtes,
+// seuls les paramètres changent.
+async function reecrire(contexte, regles) {
+  for (const r of regles || []) {
+    if (!r || !r.motif || !(r.params || r.json)) continue;
+    await contexte.route((u) => u.href.includes(r.motif), (route) => {
+      try {
+        const u = new URL(route.request().url());
+        for (const [k, v] of Object.entries(r.params || {})) u.searchParams.set(k, v);
+        // Paramètre porteur d'un JSON (Bien'ici : filters={"size":24,…}).
+        for (const [k, v] of Object.entries(r.json || {})) {
+          let o = {}; try { o = JSON.parse(u.searchParams.get(k) || "{}"); } catch { }
+          u.searchParams.set(k, JSON.stringify({ ...o, ...v }));
+        }
+        return route.continue({ url: u.href });
+      } catch { return route.continue(); }
+    });
+  }
+}
 
 async function log(...m) {
   const l = new Date().toLocaleString("fr-FR") + "  " + m.join(" ");
@@ -145,6 +165,7 @@ if (mode === "connecter") {
 if (mode === "apprendre") {
   const cons = await studio("/crm/portails/consignes");
   const ctx = await ouvrir(true);
+  await reecrire(ctx, cons.reecritures);
   const ecoute = ecouter(ctx, cons.portails);
   const envoyer = async (page, url) => {
     const reponses = ecoute.vider(page);
@@ -194,6 +215,7 @@ const aFaire = Object.entries(cons.portails).filter(([, v]) => v.pages.length);
 if (!aFaire.length) { await log("Aucune page à relever : faites d'abord l'apprentissage (APPRENDRE.cmd) et choisissez les pages dans Studio Bilans."); process.exit(0); }
 
 const ctx = await ouvrir(false);
+await reecrire(ctx, cons.reecritures);
 const ecoute = ecouter(ctx, cons.portails);
 const page = ctx.pages()[0] || await ctx.newPage();
 let erreurs = 0;
