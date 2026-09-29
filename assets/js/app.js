@@ -1464,11 +1464,9 @@
         hydrateForm(); render(); save();
         renderSources(out.sources);
         status.className = "ai-status is-ok"; status.textContent = "Quartier rempli ✓";
-        // 2) En option : un mot sur l'attrait de la ville (si clé API fournie).
-        if (keyInput.value && keyInput.value.trim() && !state.property.quartierIntro) {
-          window.BrochureAI.generateCityIntro({ apiKey: keyInput.value, model: $("#aiModel").value, city: out.location, tone: $("#aiTone").value })
-            .then(function (intro) { if (intro) { state.property.quartierIntro = intro; hydrateForm(); render(); save(); } });
-        }
+        // 2) Un mot sur l'attrait de la ville — compte connecté ou clé locale,
+        //    la tâche se tait toute seule si aucun accès IA n'est disponible.
+        completerAttraitVille(out.location);
       }).catch(function (err) {
         status.className = "ai-status is-error"; status.textContent = err.message || "Erreur";
       }).then(function () { btn.disabled = false; });
@@ -1504,6 +1502,32 @@
       });
     }
     hydrateForm(); render(); save();
+    // Le modèle ne rédige « l'attrait de la ville » qu'à partir des notes — qui
+    // parlent du bien, presque jamais de la ville — et le rendait donc souvent
+    // vide. On le complète alors avec la tâche dédiée (rapide, sans les notes).
+    if (!state.property.quartierIntro) completerAttraitVille();
+  }
+
+  // Ville du bien : la localisation affichée, sinon la ville lue après le code
+  // postal de l'adresse (« …, 33160 Saint-Médard-en-Jalles »).
+  function villeDuBien(preferee) {
+    const loc = String(preferee || state.property.location || "").trim();
+    if (loc) return loc;
+    const m = /\b\d{5}\s+([^,]+)$/.exec(String(state.property.address || "").trim());
+    return m ? m[1].trim() : "";
+  }
+  let attraitEnCours = false;
+  function completerAttraitVille(villePreferee) {
+    const ville = villeDuBien(villePreferee);
+    if (!ville || attraitEnCours || state.property.quartierIntro) return;
+    attraitEnCours = true;
+    const key = $("#aiKey"), model = $("#aiModel"), tone = $("#aiTone");
+    window.BrochureAI.generateCityIntro({
+      apiKey: key ? key.value : "", model: model ? model.value : "", city: ville, tone: tone ? tone.value : ""
+    }).then(function (intro) {
+      if (intro && !state.property.quartierIntro) { state.property.quartierIntro = intro; hydrateForm(); render(); save(); }
+    }).catch(function () { /* silencieux : la page Quartier reste sans intro */ })
+      .then(function () { attraitEnCours = false; });
   }
 
   /* ------------------------------- Toast -------------------------------- */
