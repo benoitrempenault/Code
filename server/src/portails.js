@@ -297,7 +297,7 @@ const CLE_PERSONNE = /^(first|last|full|given|family|user|display|sender)_?name$
 export function forme(v, prof = 0) {
   if (prof > 8) return "…";
   if (Array.isArray(v)) return v.length ? [...v.slice(0, 2).map((x) => forme(x, prof + 1)), ...(v.length > 2 ? [`… ${v.length} éléments`] : [])] : [];
-  if (v && typeof v === "object") { const o = {}; for (const [k, x] of Object.entries(v).slice(0, 80)) o[k] = forme(x, prof + 1); return o; }
+  if (v && typeof v === "object") { const o = {}; for (const [k, x] of Object.entries(v).slice(0, 400)) o[k] = forme(x, prof + 1); return o; }
   return typeof v === "string" ? v.slice(0, 120) : v;
 }
 export const masquerUrl = (u) => String(u || "").replace(PARAM_SECRET, "$1[masqué]");
