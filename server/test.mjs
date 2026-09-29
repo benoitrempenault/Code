@@ -663,7 +663,10 @@ ok(badModel2.status === 400, "modèle hors liste blanche refusé (claude-opus-3-
 // le dépasser (la réservation atomique ferme la course « check-then-act »).
 await db.run("DELETE FROM quota_counters WHERE scope = ?", [agencyId]);
 await db.run("DELETE FROM ai_rate WHERE scope = ?", [agencyId]);
-await db.run("UPDATE agencies SET quota_eur = 2 WHERE id = ?", [agencyId]);
+// Quota calé sur le tarif Opus 4.8 (réservation ≈ 0,19 € pour 8 192 tokens
+// de sortie) : 0,6 € laisse passer ~3 appels sur 10.
+const QUOTA_RAFALE = 0.6;
+await db.run("UPDATE agencies SET quota_eur = ? WHERE id = ?", [QUOTA_RAFALE, agencyId]);
 const burst = await Promise.all(Array.from({ length: 10 }, () =>
   call("/v1/messages", { headers: { Authorization: "Bearer " + s3 }, body: { model: "claude-opus-4-8", max_tokens: 8192, messages: [{ role: "user", content: "test" }] } })
 ));
@@ -671,7 +674,7 @@ const ok200 = burst.filter((r) => r.status === 200).length;
 const ko429 = burst.filter((r) => r.status === 429).length;
 ok(ok200 < 10 && ok200 >= 1 && ko429 >= 4, "rafale de 10 : course fermée (" + ok200 + " passés / " + ko429 + " refusés)");
 const spent = await db.get("SELECT spent_micros FROM quota_counters WHERE scope = ? AND month = ?", [agencyId, (new Date()).getUTCFullYear() + "-" + String((new Date()).getUTCMonth() + 1).padStart(2, "0")]);
-ok((spent?.spent_micros || 0) <= 2 * 1e6, "quota jamais dépassé sous rafale (" + (spent?.spent_micros || 0) + " ≤ " + (2 * 1e6) + ")");
+ok((spent?.spent_micros || 0) <= QUOTA_RAFALE * 1e6, "quota jamais dépassé sous rafale (" + (spent?.spent_micros || 0) + " ≤ " + (QUOTA_RAFALE * 1e6) + ")");
 await db.run("DELETE FROM quota_counters WHERE scope = ?", [agencyId]);
 await db.run("DELETE FROM ai_rate WHERE scope = ?", [agencyId]);
 await db.run("UPDATE agencies SET quota_eur = 20 WHERE id = ?", [agencyId]);

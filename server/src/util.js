@@ -87,14 +87,22 @@ export function safeEqual(a, b) {
 /* --------- Estimation de coût IA (micro-euros) — table indicative -------- */
 // Prix par million de tokens (USD), convertis grossièrement en EUR (×0,95).
 // Sert aux quotas fair-use et aux stats internes, pas à la facturation client.
+// Grille Anthropic au 25/09/2026. Les motifs précis passent AVANT les motifs
+// de famille (anciens modèles, plus chers) ; un modèle inconnu est compté au
+// tarif le plus haut, par prudence.
 const PRICES = [
-  { match: /^claude-opus/, in: 15, out: 75 },
-  { match: /^claude-sonnet/, in: 3, out: 15 },
+  { match: /^claude-opus-5-5/, in: 4, out: 20 },
+  { match: /^claude-opus-(5|4-[5-8])/, in: 5, out: 25 },
+  { match: /^claude-opus/, in: 15, out: 75 },          // Opus 4.1 et antérieurs
+  { match: /^claude-sonnet-5/, in: 2, out: 10 },       // Sonnet 5 et 5.5
+  { match: /^claude-sonnet/, in: 3, out: 15 },         // Sonnet 4.x
+  { match: /^claude-haiku-4-5/, in: 1, out: 5 },
   { match: /^claude-haiku/, in: 0.8, out: 4 },
-  { match: /^claude-fable/, in: 15, out: 75 } // aligné Opus par prudence — à ajuster selon la grille publiée
+  { match: /^claude-fable/, in: 10, out: 50 }
 ];
+const PRIX_INCONNU = { in: 15, out: 75 };
 export function costMicros(model, tokensIn, tokensOut) {
-  const p = PRICES.find((x) => x.match.test(model || "")) || PRICES[0];
+  const p = PRICES.find((x) => x.match.test(model || "")) || PRIX_INCONNU;
   const eur = ((tokensIn / 1e6) * p.in + (tokensOut / 1e6) * p.out) * 0.95;
   return Math.round(eur * 1e6);
 }
