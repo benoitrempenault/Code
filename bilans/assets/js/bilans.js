@@ -243,7 +243,8 @@
         '<div class="pages">' + (c.pages.length ? c.pages.map((pg, i) => '<div class="page"><code title="' + escH(pg.url) + '">' + escH(pg.url) + "</code>" +
           '<label class="case" style="font-size:12px"><input type="checkbox" data-defiler="' + i + '" ' + (pg.defiler ? "checked" : "") + " /> faire défiler</label>" +
           '<button class="btn mini btn-danger" data-retirer="' + i + '">✕</button></div>').join("")
-          : '<p class="petit">Aucune page retenue : lancez APPRENDRE.cmd sur le PC de l\'agent, puis « ＋ Relever cette page » ci-dessous.</p>') + "</div></div>";
+          : '<p class="petit">Aucune page retenue : lancez APPRENDRE.cmd sur le PC de l\'agent, puis « ＋ Relever cette page » ci-dessous.</p>') + "</div>" +
+        (P.captures.some((x) => x.portail === k) ? '<button class="btn mini" data-tout="' + k + '" title="Tout ce que ce portail a envoyé, en un fichier (jetons, e-mails et téléphones masqués)">⬇ Tout ce que ' + escH(def.nom) + " a envoyé</button>" : "") + "</div>";
     }).join("");
     const caps = P.captures.length ? '<table class="captures"><thead><tr><th>Portail</th><th>Mode</th><th>Page</th><th>Annonces</th><th>Le</th><th></th></tr></thead><tbody>' +
       P.captures.map((c) => "<tr><td>" + escH((P.portails[c.portail] || {}).nom || c.portail) + "</td><td>" + escH(c.mode) + '</td><td class="url" title="' + escH(c.url) + '">' + escH(c.url) +
@@ -288,6 +289,14 @@
         const c = await api("/crm/portails/captures/" + b.dataset.voir);
         const url = URL.createObjectURL(new Blob([JSON.stringify(c, null, 1)], { type: "application/json" }));
         const a = document.createElement("a"); a.href = url; a.download = "capture-" + c.portail + "-" + c.id + ".json"; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      } catch (e) { toast(e.message, true); }
+    }));
+    document.querySelectorAll("[data-tout]").forEach((b) => b.addEventListener("click", async () => {
+      try {
+        const c = await api("/crm/portails/captures?portail=" + encodeURIComponent(b.dataset.tout));
+        const url = URL.createObjectURL(new Blob([JSON.stringify(c)], { type: "application/json" }));
+        const a = document.createElement("a"); a.href = url; a.download = "captures-" + c.portail + ".json"; a.click();
         setTimeout(() => URL.revokeObjectURL(url), 5000);
       } catch (e) { toast(e.message, true); }
     }));

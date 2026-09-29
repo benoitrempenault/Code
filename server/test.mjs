@@ -4292,6 +4292,19 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   const cap = (await call("/crm/portails/captures/" + etat.captures[0].id, { headers: authP })).json;
   ok(Array.isArray(cap.contenu) && cap.contenu[0].url, "une capture se relit (pour régler l'extraction)");
   ok((await call("/crm/portails/depot", { headers: hA, body: { portail: "facebook", reponses: [] } })).status === 400, "portail inconnu refusé");
+  // Masquage : jamais de jeton, d'e-mail ni de téléphone dans une capture ; pages de connexion ignorées.
+  const nCap = (await call("/crm/portails", { headers: authP })).json.captures.length;
+  const lg = await call("/crm/portails/depot", { headers: hA, body: { portail: "leboncoin", mode: "apprentissage",
+    url: "https://www.leboncoin.fr/oauth2callback?code=eyJabc.def.ghi&scope=x", reponses: [{ url: "https://auth.leboncoin.fr/api/token", json: { access_token: "secret" } }] } });
+  ok(lg.json.annonces === 0 && (await call("/crm/portails", { headers: authP })).json.captures.length === nCap, "page de connexion : rien n'est gardé");
+  await call("/crm/portails/depot", { headers: hA, body: { portail: "leboncoin", mode: "apprentissage", url: "https://www.leboncoin.fr/compte/pro/mon-activite?token=abc",
+    reponses: [{ url: "https://api.leboncoin.fr/pro/contacts?session=zz", json: { refreshToken: "rt-123", user: { mail: "jean.dupont@gmail.com", tel: "06 12 34 56 78", jwt2: "eyJa.b.c" },
+      ads: [{ reference: "7510", views: 12 }] } }, { url: "https://auth.leboncoin.fr/x", json: { id_token: "zzz" } }] } });
+  const lb = (await call("/crm/portails/captures?portail=leboncoin", { headers: authP })).json;
+  const txtCap = JSON.stringify(lb);
+  ok(lb.captures.length && !/rt-123|jean\.dupont|06 12 34 56 78|eyJa\.b\.c|token=abc|session=zz|zzz/.test(txtCap) && /\[masqué\]/.test(txtCap) && /\[e-mail\]/.test(txtCap) && /\[tél\]/.test(txtCap) && txtCap.includes('"7510"'),
+    "captures d'un portail en un fichier : jetons, e-mails, téléphones masqués, réf. gardées");
+  ok((await call("/crm/portails/captures?portail=facebook", { headers: authP })).status === 400, "export des captures : portail inconnu refusé");
   await call("/crm/portails/cle", { method: "DELETE", headers: authP });
   ok((await call("/crm/portails/consignes", { headers: hA })).status === 401, "clé révoquée : l'agent est bloqué");
 

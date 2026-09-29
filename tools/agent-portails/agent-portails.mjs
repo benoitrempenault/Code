@@ -91,6 +91,13 @@ function fermerEdgeDuProfil() {
   try { execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], { stdio: "ignore", timeout: 20000 }); } catch { }
 }
 
+// Pages de connexion : jamais envoyées (elles transportent des jetons).
+function connexion(url) {
+  try {
+    const u = new URL(url);
+    return /^(auth|login|connect|accounts?|sso|oauth|id|identity)\./i.test(u.hostname) || /oauth2?callback|\/login\b|\/connexion\b|\/signin\b|\/verify\b|two-factor|trusted-browser/i.test(u.pathname + u.search);
+  } catch { return true; }
+}
 // Le portail d'une URL, d'après les domaines donnés par Studio.
 function portailDe(url, portails) {
   let h = "";
@@ -104,7 +111,7 @@ function ecouter(contexte, portails) {
   contexte.on("response", async (rep) => {
     try {
       const ct = rep.headers()["content-type"] || "";
-      if (!/json/i.test(ct) || !portailDe(rep.url(), portails)) return;
+      if (!/json/i.test(ct) || !portailDe(rep.url(), portails) || connexion(rep.url())) return;
       const page = rep.frame() && rep.frame().page();
       if (!page) return;
       const corps = await rep.body().catch(() => null);
@@ -142,7 +149,7 @@ if (mode === "apprendre") {
   const envoyer = async (page, url) => {
     const reponses = ecoute.vider(page);
     const p = portailDe(url, cons.portails);
-    if (!p || !reponses.length) return;
+    if (!p || !reponses.length || connexion(url)) return;
     try {
       const r = await studio("/crm/portails/depot", { portail: p, mode: "apprentissage", url, reponses });
       await log(`[${p}] ${url} → ${reponses.length} réponse(s), ${r.annonces} annonce(s) reconnue(s)`);

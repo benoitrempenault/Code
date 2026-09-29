@@ -160,6 +160,36 @@ async function lireConsignes(db, agencyId) {
   try { return sanitizeConsignes(r ? JSON.parse(r.data) : null); } catch { return consignesParDefaut(); }
 }
 
+/* ------------------------- Masquage des captures --------------------------- */
+// Les captures sont relues par des humains (réglage de la lecture) : on n'y
+// garde jamais un jeton de session, un mot de passe, ni les coordonnées des
+// particuliers qui ont contacté l'agence. Les pages de connexion ne sont pas
+// gardées du tout.
+const CLE_SECRETE = /token|password|passwd|secret|cookie|authori[sz]ation|bearer|jwt|refresh|session_?id|code_?verifier|^code$|^otp$|api_?key|signature|^state$/i;
+const JWT = /^eyJ[\w-]+\.[\w-]+\.[\w-]+$/;
+const EMAIL = /[^\s@"'<>]+@[^\s@"'<>]+\.[a-z]{2,}/gi;
+const TEL = /(?:\+33\s?|\b0)[1-9](?:[\s.-]?\d{2}){4}\b/g;
+const PARAM_SECRET = /([?&#](?:code|token|access_token|id_token|refresh_token|state|session|sid)=)[^&#]*/gi;
+const HOTE_AUTH = /^(auth|login|connect|accounts?|sso|oauth|id|identity)\./i;
+export function estPageConnexion(url) {
+  try {
+    const u = new URL(String(url || ""));
+    return HOTE_AUTH.test(u.hostname) || /oauth2?callback|\/login\b|\/connexion\b|\/signin\b|\/verify\b|two-factor|trusted-browser/i.test(u.pathname + u.search);
+  } catch { return false; }
+}
+export const masquerUrl = (u) => String(u || "").replace(PARAM_SECRET, "$1[masqué]");
+export function masquer(v, prof = 0) {
+  if (prof > 40) return null;
+  if (Array.isArray(v)) return v.map((x) => masquer(x, prof + 1));
+  if (v && typeof v === "object") {
+    const o = {};
+    for (const [k, x] of Object.entries(v)) o[k] = CLE_SECRETE.test(k) && x != null && typeof x !== "object" ? "[masqué]" : masquer(x, prof + 1);
+    return o;
+  }
+  if (typeof v === "string") return JWT.test(v) || /^bearer\s/i.test(v) ? "[masqué]" : masquerUrl(v).replace(EMAIL, "[e-mail]").replace(TEL, "[tél]");
+  return v;
+}
+
 /* ------------------------------- Dépôt ------------------------------------ */
 // Un dépôt = une page visitée : { portail, mode, url, reponses:[{url, json}], session? }
 export async function deposer(db, agencyId, b) {
@@ -171,7 +201,9 @@ export async function deposer(db, agencyId, b) {
     await ecrireEtat(db, agencyId, portail, "session", "Session expirée : reconnectez-vous au portail (CONNECTER.cmd sur le PC de l'agent).", 0);
     return { portail, session: "expiree", annonces: 0 };
   }
-  const reponses = (Array.isArray(b.reponses) ? b.reponses : []).slice(0, 60);
+  // Une page de connexion n'apprend rien et transporte des jetons : ignorée.
+  if (estPageConnexion(b.url)) return { portail, mode, annonces: 0, ignore: "connexion" };
+  const reponses = (Array.isArray(b.reponses) ? b.reponses : []).slice(0, 60).filter((r) => r && !estPageConnexion(r.url));
   const refs = (await db.all("SELECT ref FROM crm_bilan_mandats WHERE agency_id = ?", [agencyId])).map((r) => r.ref);
   const stats = new Map();
   for (const rep of reponses) {
@@ -185,19 +217,20 @@ export async function deposer(db, agencyId, b) {
     }
   }
   // La capture brute (tronquée) : c'est elle qu'on lit pour régler l'extraction.
-  let contenu = JSON.stringify(reponses.map((r) => ({ url: strip(r && r.url, 600), json: r && r.json })));
+  const propres = reponses.map((r) => ({ url: masquerUrl(strip(r.url, 600)), json: masquer(r.json) }));
+  let contenu = JSON.stringify(propres);
   if (contenu.length > CAPTURE_MAX) {
     const legeres = [];
     let taille = 2;
-    for (const r of reponses) {
-      const s = JSON.stringify({ url: strip(r && r.url, 600), json: r && r.json });
-      if (taille + s.length > CAPTURE_MAX) { legeres.push({ url: strip(r && r.url, 600), tronque: s.length }); continue; }
+    for (const r of propres) {
+      const s = JSON.stringify(r);
+      if (taille + s.length > CAPTURE_MAX) { legeres.push({ url: r.url, tronque: s.length }); continue; }
       legeres.push(JSON.parse(s)); taille += s.length + 1;
     }
     contenu = JSON.stringify(legeres);
   }
   await db.run("INSERT INTO crm_portail_captures (id, agency_id, portail, mode, url, contenu, lignes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    [randId("pc"), agencyId, portail, mode, strip(b.url, 600), contenu, stats.size, t]);
+    [randId("pc"), agencyId, portail, mode, masquerUrl(strip(b.url, 600)), contenu, stats.size, t]);
   await db.run(`DELETE FROM crm_portail_captures WHERE agency_id = ? AND portail = ? AND id NOT IN
     (SELECT id FROM crm_portail_captures WHERE agency_id = ? AND portail = ? ORDER BY created_at DESC LIMIT ${CAPTURES_GARDEES})`, [agencyId, portail, agencyId, portail]);
 
@@ -281,6 +314,9 @@ export function monterRoutesPortails(app, { db, env, err, crmCtx, agencyOpen }) 
   app.get("/crm/portails", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const etat = await db.all("SELECT portail, statut, message, annonces, updated_at FROM crm_portail_etat WHERE agency_id = ?", [ctx.agency.id]);
+    // Captures d'avant le masquage : les pages de connexion s'en vont.
+    await db.run(`DELETE FROM crm_portail_captures WHERE agency_id = ? AND (url LIKE '%://auth.%' OR url LIKE '%://login.%' OR url LIKE '%oauth2callback%'
+      OR url LIKE '%/login%' OR url LIKE '%/verify/%' OR url LIKE '%two-factor%' OR url LIKE '%trusted-browser%')`, [ctx.agency.id]);
     const captures = await db.all("SELECT id, portail, mode, url, lignes, created_at, length(contenu) AS taille FROM crm_portail_captures WHERE agency_id = ? ORDER BY created_at DESC LIMIT 60", [ctx.agency.id]);
     const cle = await db.get("SELECT label, created_at, last_used FROM crm_agent_keys WHERE agency_id = ? AND usage = 'portails' AND revoked = 0", [ctx.agency.id]);
     return c.json({ portails: PORTAILS, consignes: await lireConsignes(db, ctx.agency.id), etat, captures, agent: cle || null });
@@ -293,12 +329,21 @@ export function monterRoutesPortails(app, { db, env, err, crmCtx, agencyOpen }) 
       ON CONFLICT(agency_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`, [ctx.agency.id, JSON.stringify(v), now()]);
     return c.json({ ok: true, consignes: v });
   });
+  const lireCapture = (r) => { let contenu = []; try { contenu = masquer(JSON.parse(r.contenu)); } catch { } return { ...r, url: masquerUrl(r.url), contenu }; };
+  // Toutes les captures d'un portail en un fichier (réglage de la lecture).
+  app.get("/crm/portails/captures", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const portail = c.req.query("portail");
+    if (!PORTAILS[portail]) return err(c, 400, "Portail inconnu.");
+    const rows = await db.all("SELECT * FROM crm_portail_captures WHERE agency_id = ? AND portail = ? ORDER BY created_at", [ctx.agency.id, portail]);
+    return c.json({ portail, genere: new Date().toISOString(), refs: (await db.all("SELECT ref FROM crm_bilan_mandats WHERE agency_id = ?", [ctx.agency.id])).map((r) => r.ref),
+      captures: rows.filter((r) => !estPageConnexion(r.url)).map(lireCapture) });
+  });
   app.get("/crm/portails/captures/:id", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const r = await db.get("SELECT * FROM crm_portail_captures WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
     if (!r) return err(c, 404, "Capture introuvable.");
-    let contenu = []; try { contenu = JSON.parse(r.contenu); } catch { }
-    return c.json({ ...r, contenu });
+    return c.json(lireCapture(r));
   });
   app.post("/crm/portails/cle", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
