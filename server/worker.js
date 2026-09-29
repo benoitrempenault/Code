@@ -8,7 +8,7 @@ import { runRecap } from "./src/recap.js";
 import { releverAbsencesOutlook } from "./src/releve.js";
 import { runCrmDaily, menageQuotidien } from "./src/crm.js";
 import { rappelsOffres } from "./src/offres-cron.js";
-import { runBilans } from "./src/bilans.js";
+import { runBilans, rappelImport } from "./src/bilans.js";
 
 export default {
   // Cron (wrangler.toml [triggers]) : récapitulatif des actions à mener
@@ -26,6 +26,8 @@ export default {
     // (budget de sous-requêtes à part de celui du cron de 6h). Inerte tant
     // que l'agence n'a pas activé les bilans dans ses réglages.
     if (event.cron === "0 5 * * 1,5" && new Date().getUTCDay() === 1) ctx.waitUntil(runBilans(env, db));
+    // Vendredi 5h UTC : rappel d'importer l'export des mandats avant lundi.
+    if (event.cron === "0 5 * * 1,5" && new Date().getUTCDay() === 5) ctx.waitUntil(rappelImport(env, db));
     // Relevé nocturne des absences Outlook (permanences). Inerte tant que
     // l'agence n'a pas coché « relever automatiquement » dans ses réglages.
     ctx.waitUntil(releverAbsencesOutlook(env, db));

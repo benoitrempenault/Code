@@ -1171,6 +1171,7 @@
   $("estim-cci").value = (reglages.estimations && reglages.estimations.cci) || "";
   $("bilans-enabled").checked = !!(reglages.bilans && reglages.bilans.enabled);
   $("bilans-cci").value = (reglages.bilans && reglages.bilans.cci) || "";
+  $("bilans-rappel").value = (reglages.bilans && reglages.bilans.rappel) || "";
     $("annonces-auto").checked = !!reglages.annonces.autoSync;
     $("annonces-site").value = reglages.annonces.siteUrl || "";
     $("ag-nom").value = reglages.agence.nom || "";
@@ -3881,8 +3882,15 @@
     estimations: { enabled: $("estim-enabled").checked, cci: $("estim-cci").value.trim() },
   }, "Réglages du suivi estimation enregistrés"));
   $("btn-bilans-save").addEventListener("click", () => sauverReglages({
-    bilans: { enabled: $("bilans-enabled").checked, cci: $("bilans-cci").value.trim() },
+    bilans: { enabled: $("bilans-enabled").checked, cci: $("bilans-cci").value.trim(), rappel: $("bilans-rappel").value.trim() },
   }, "Réglages des bilans vendeurs enregistrés"));
+  $("btn-bilans-rappel").addEventListener("click", async () => {
+    // Enregistre d'abord l'adresse saisie, puis envoie le rappel tout de suite.
+    const r = await sauverReglages({ bilans: { enabled: $("bilans-enabled").checked, cci: $("bilans-cci").value.trim(), rappel: $("bilans-rappel").value.trim() } }, "Adresse du rappel enregistrée");
+    if (!r) return;
+    try { const t = await api("/crm/bilans/rappel/tester", { json: {} }); toast(t.envoye ? "Rappel envoyé à " + t.to : "Envoi impossible"); }
+    catch (e) { toast(e.message, true); }
+  });
   $("btn-estim-run").addEventListener("click", lancerEstimations);
   document.querySelectorAll("[data-apercu-estim]").forEach((b) => b.addEventListener("click", async () => {
     try {

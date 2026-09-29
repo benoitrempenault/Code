@@ -158,7 +158,7 @@
       '</div><div class="apercu" id="bl-apercu"></div></div>',
       modifiable
         ? '<button class="btn btn-danger gauche" id="bl-ignorer">' + (b.statut === "ignore" ? "↩ Remettre à relire" : "Écarter cette semaine") + "</button>" +
-          '<button class="btn" id="bl-voir">👁 Actualiser l\'aperçu</button><button class="btn" id="bl-garder">Enregistrer</button>' +
+          '<button class="btn" id="bl-voir">👁 Actualiser l\'aperçu</button><button class="btn" id="bl-tester" title="Vous recevez l\'e-mail du lundi (bloc interne + texte du vendeur). Rien ne part au vendeur.">📨 M\'envoyer un test</button><button class="btn" id="bl-garder">Enregistrer</button>' +
           '<button class="btn btn-or" id="bl-envoyer">✉️ Envoyer au vendeur</button>'
         : '<span class="petit gauche">Envoyé le ' + new Date(b.envoye_at * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) + " à " + escH(b.email) + (b.envoye_par ? " par " + escH(b.envoye_par) : "") + '</span><button class="btn btn-or" id="bl-fermer">Fermer</button>');
     afficherApercu(b.html);
@@ -166,6 +166,10 @@
     const lire = () => ({ email: $("bl-email").value.trim(), sujet: $("bl-sujet").value.trim(), texte: $("bl-texte").value });
     $("bl-voir").addEventListener("click", async () => {
       try { afficherApercu((await api("/crm/bilans/" + id + "/apercu", { json: lire() })).html); } catch (e) { toast(e.message, true); }
+    });
+    $("bl-tester").addEventListener("click", async () => {
+      try { const r = await api("/crm/bilans/" + id + "/tester", { json: lire() }); toast("Test envoyé à " + r.email + " — rien n'est parti au vendeur"); }
+      catch (e) { toast(e.message, true); }
     });
     $("bl-garder").addEventListener("click", async () => {
       try { await api("/crm/bilans/" + id, { method: "PUT", json: lire() }); toast("Bilan enregistré — il ne sera plus régénéré"); await charger(etat.semaine); }

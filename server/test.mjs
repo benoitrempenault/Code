@@ -4337,6 +4337,27 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(mailsB.filter((m) => !["lucie@bilan-test.fr", "agence@bilan-test.fr"].includes(m.to[0])).length === 0, "le cron n'écrit JAMAIS à un vendeur");
   ok(mailsB.some((m) => m.to[0] === "agence@bilan-test.fr" && /Sans e-mail dans les profils conseillers.*BESSON/i.test(m.html)), "la boîte de l'agence voit les conseillers qui n'ont pas reçu leurs bilans");
 
+  // Test d'un bilan : l'e-mail du conseiller part à la personne connectée, le bilan ne change pas.
+  mailsB.length = 0;
+  const bT = (await callB("/crm/bilans?semaine=2026-09-28", { headers: authLucie })).json.bilans.find((b) => b.statut === "brouillon");
+  const tst = await callB("/crm/bilans/" + bT.id + "/tester", { headers: authLucie, body: {} });
+  ok(tst.status === 200 && mailsB.length === 1 && mailsB[0].to[0] === "lucie@bilan-test.fr" && /^\[Test\] Bilan à relire/.test(mailsB[0].subject) && /Ce que recevra le vendeur/.test(mailsB[0].html)
+    && (await callB("/crm/bilans/" + bT.id, { headers: authLucie })).json.statut === "brouillon", "« M'envoyer un test » : le conseiller reçoit le bilan, rien au vendeur, le bilan reste à relire");
+  // Rappel du vendredi : à l'adresse réglée, sauf import de moins de 24 h.
+  ok((await callB("/crm/bilans/rappel/tester", { headers: authB, body: {} })).status === 400, "rappel sans adresse réglée : refusé avec un message");
+  await callB("/crm/reglages", { method: "PUT", headers: authB, body: { bilans: { enabled: true, cci: "", rappel: "benoit@bilan-test.fr" } } });
+  mailsB.length = 0;
+  const auj = new Date().toISOString().slice(0, 10);
+  const r1 = await B.rappelImport(envB, db, { aujourdhui: auj });
+  ok(r1.find((x) => x.agency === agB).saute && mailsB.length === 0, "vendredi : export importé il y a moins de 24 h → pas de rappel");
+  const dans3 = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  await B.rappelImport(envB, db, { aujourdhui: dans3 });
+  ok(mailsB.length === 1 && mailsB[0].to[0] === "benoit@bilan-test.fr" && /Pensez à importer/.test(mailsB[0].subject) && /il y a 3 jours/.test(mailsB[0].html) && /Importer l'export/.test(mailsB[0].html),
+    "vendredi : rappel d'importer l'export à l'adresse réglée (« il y a 3 jours »)");
+  const rt = await callB("/crm/bilans/rappel/tester", { headers: authB, body: {} });
+  ok(rt.status === 200 && rt.json.envoye && rt.json.to === "benoit@bilan-test.fr", "« Tester le rappel » l'envoie tout de suite");
+  ok((await callB("/crm/bilans/rappel/tester", { headers: authLucie, body: {} })).status === 403, "tester le rappel : réservé aux admins");
+
   // Site mal branché : message explicite.
   const appKo = createApp({ ...envB, SITE_STATS_KEY: "mauvaise" });
   const ko = await appKo.fetch(new Request("http://api.test/crm/bilans/generer", { method: "POST", headers: { "Content-Type": "application/json", ...authB }, body: "{}" }));

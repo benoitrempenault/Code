@@ -65,7 +65,8 @@ export default async function () {
     await page.selectOption("#formFinancement select[name=situation]", "marie");
     await page.click("#formFinancement button[type=submit]");
     await page.waitForFunction(() => /Enregistré/.test(document.getElementById("msgFinancement").textContent), null, { timeout: 6000 });
-    await page.waitForFunction(() => document.querySelectorAll(".piece").length >= 4, null, { timeout: 6000 });
+    // La liste peut compter 4 pièces AVANT d'être redessinée : on attend la pièce attendue elle-même.
+    await page.waitForFunction(() => /fonds/.test(document.getElementById("pieces").textContent), null, { timeout: 6000 }).catch(() => { });
     ok((await page.textContent("#pieces")).includes("fonds"), "la liste des pièces s'adapte (achat sans prêt → justificatif des fonds)");
     // Sa pièce d'identité : la première pièce « identité » est la sienne.
     const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.click('.piece [data-type="identite"] >> nth=0')]);
