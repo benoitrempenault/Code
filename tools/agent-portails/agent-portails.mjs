@@ -131,12 +131,19 @@ function ecouter(contexte, portails) {
   contexte.on("response", async (rep) => {
     try {
       const ct = rep.headers()["content-type"] || "";
-      if (!/json/i.test(ct) || !portailDe(rep.url(), portails) || connexion(rep.url())) return;
+      // Les données arrivent par des appels xhr/fetch ; certains portails ne les
+      // déclarent pas en JSON (Bien'ici « Mes annonces ») : on tente la lecture.
+      const type = rep.request().resourceType();
+      if (!(/json/i.test(ct) || type === "xhr" || type === "fetch")) return;
+      if (/image\/|text\/css|javascript|font\//i.test(ct)) return;
+      if (!portailDe(rep.url(), portails) || connexion(rep.url())) return;
       const page = rep.frame() && rep.frame().page();
       if (!page) return;
       const corps = await rep.body().catch(() => null);
       if (!corps || corps.length > JSON_MAX) return;
-      const json = JSON.parse(corps.toString("utf8"));
+      const texte = corps.toString("utf8").replace(/^\)\]\}',?\s*/, "").trim();
+      if (!/^[[{]/.test(texte)) return;
+      const json = JSON.parse(texte);
       (tampons.get(page) || tampons.set(page, []).get(page)).push({ url: rep.url(), json });
     } catch { /* réponse illisible : ignorée */ }
   });
