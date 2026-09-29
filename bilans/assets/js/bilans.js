@@ -381,8 +381,16 @@
   }
 
   /* ------------------------------ Démarrage -------------------------------- */
+  // Lien « Modifier et envoyer » d'un e-mail de bilan : #bilan=<id>. Gardé le
+  // temps d'une connexion (le passage par la page compte perd le #).
+  const bilanDemande = () => {
+    const m = /[#&]bilan=([\w-]+)/.exec(location.hash);
+    if (m) { try { sessionStorage.setItem("bilan-a-ouvrir", m[1]); } catch { } return m[1]; }
+    try { return sessionStorage.getItem("bilan-a-ouvrir"); } catch { return null; }
+  };
   async function demarrer() {
     const a = account();
+    const demande = bilanDemande();
     if (!a || !a.session) { $("ecran-connexion").hidden = false; return; }
     $("who").textContent = (a.user && (a.user.name || a.user.email)) || "";
     try { await charger(); }
@@ -392,6 +400,11 @@
       return;
     }
     $("app").hidden = false;
+    if (demande) {
+      try { sessionStorage.removeItem("bilan-a-ouvrir"); } catch { }
+      history.replaceState(null, "", location.pathname + location.search);
+      ouvrir(demande);
+    }
   }
   $("semaine").addEventListener("change", () => charger($("semaine").value).catch((e) => toast(e.message, true)));
   $("filtre-conseiller").addEventListener("change", rendre);

@@ -1366,6 +1366,30 @@ export async function envoyerMailHtml(env, { to, subject, html, fromName, replyT
   return { ok: true };
 }
 
+// Plusieurs e-mails en UNE requête (Resend /emails/batch, 100 max par appel) :
+// un seul appel sortant, au lieu d'un par message (plafond de sous-requêtes).
+export async function envoyerMailsLot(env, mails) {
+  if (!env.RESEND_API_KEY) return { envoyes: 0, dryRun: true };
+  const m = /<([^>]+)>/.exec(env.MAIL_FROM || "");
+  const fromEmail = (m && m[1]) || "connexion@studiobrochure.fr";
+  let envoyes = 0; const erreurs = [];
+  for (let i = 0; i < mails.length; i += 100) {
+    const lot = mails.slice(i, i + 100).map((x) => {
+      const o = { from: `${(x.fromName || "Studio Brochure").replace(/["<>]/g, "")} <${fromEmail}>`, to: [x.to], subject: x.subject, html: x.html };
+      if (x.replyTo) o.reply_to = [x.replyTo];
+      return o;
+    });
+    const res = await fetch((env.RESEND_BASE || "https://api.resend.com") + "/emails/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.RESEND_API_KEY },
+      body: JSON.stringify(lot),
+    }).catch(() => null);
+    if (res && res.ok) envoyes += lot.length;
+    else erreurs.push(`Resend ${res ? res.status : "injoignable"} ${res ? (await res.text().catch(() => "")).slice(0, 200) : ""}`.trim());
+  }
+  return { envoyes, erreurs };
+}
+
 /* ----------------------- Occurrences d'anniversaires ---------------------- */
 export function occurrencesOf(contacts, reglages, isoDay) {
   const out = [];
