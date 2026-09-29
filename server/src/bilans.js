@@ -546,6 +546,40 @@ async function prevenirConseillers(env, db, agency, reglages, semaine) {
   return r.envoyes || 0;
 }
 
+/* ------------------------ Rappel du vendredi (import) --------------------- */
+// Le portefeuille ne bouge que si l'export des mandats est réimporté : le
+// vendredi matin, un rappel à l'adresse réglée (Réglages → Bilans vendeurs),
+// sauf si l'export a été importé depuis moins de 24 h.
+export function mailRappelImport({ dernier, nb, base, aujourdhui }) {
+  const jours = dernier ? Math.floor((Date.parse(aujourdhui + "T12:00:00Z") / 1000 - dernier) / 86400) : null;
+  const quand = dernier == null ? "Aucun export n'a encore été importé."
+    : `Dernier import : ${jourFr(new Date(dernier * 1000).toISOString().slice(0, 10))} (il y a ${jours} jour${jours > 1 ? "s" : ""}), ${nb} mandat${nb > 1 ? "s" : ""}.`;
+  const lien = base ? `<p style="margin:0 0 16px;"><a href="${esc(String(base).replace(/\/?$/, "/"))}" style="display:inline-block; background:#1D1D1B; color:#ffffff; padding:12px 22px; text-decoration:none; font-weight:bold; border-radius:4px;">📥 Importer l'export dans Studio Bilans</a></p>` : "";
+  return {
+    subject: "Pensez à importer l'export des mandats",
+    html: `<p style="margin:0 0 12px;">Bonjour, lundi matin les bilans vendeurs seront préparés à partir du portefeuille de Studio. Pour que les nouveaux mandats aient leur bilan et que les biens sous compromis n'en reçoivent plus, importez l'export des mandats du logiciel Century 21 avant lundi.</p>`
+      + `<p style="margin:0 0 16px; font-weight:bold;">${esc(quand)}</p>` + lien,
+  };
+}
+export async function rappelImport(env, db, { aujourdhui = new Date().toISOString().slice(0, 10), force = false, agencyId = null } = {}) {
+  const agences = agencyId ? await db.all("SELECT * FROM agencies WHERE id = ?", [agencyId])
+    : await db.all("SELECT a.* FROM agencies a JOIN crm_reglages r ON r.agency_id = a.id WHERE a.status IN ('active','trial')");
+  const res = [];
+  for (const agency of agences) {
+    const reglages = await getReglages(db, agency);
+    const to = reglages.bilans.rappel;
+    if (!to) continue;
+    const r = await db.get("SELECT MAX(updated_at) AS dernier, COUNT(*) AS nb FROM crm_bilan_mandats WHERE agency_id = ?", [agency.id]);
+    const dernier = r && r.dernier ? r.dernier : null;
+    if (!force && dernier && Date.parse(aujourdhui + "T12:00:00Z") / 1000 - dernier < 86400) { res.push({ agency: agency.id, saute: "import récent" }); continue; }
+    const m = mailRappelImport({ dernier, nb: (r && r.nb) || 0, base: env.BILANS_BASE, aujourdhui });
+    const html = wrapEmail(reglages.agence, { eyebrow: "Bilans vendeurs", headline: esc(m.subject), bodyHtml: m.html, signatureName: "Studio" });
+    const e = await envoyerMailHtml(env, { to, subject: m.subject, html, fromName: reglages.agence.nom || agency.name });
+    res.push({ agency: agency.id, envoye: !!e.ok, to });
+  }
+  return res;
+}
+
 /* --------------------------------- Routes --------------------------------- */
 export function monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAgencyAdmin, apiBase }) {
   const photoUrl = (c, id) => `${(apiBase || new URL(c.req.url).origin).replace(/\/+$/, "")}/public/conseillers/${encodeURIComponent(id)}/photo`;
@@ -646,6 +680,30 @@ export function monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAge
     return c.json({ ok: true });
   });
 
+  // Avant les routes /:id/… (sinon « rappel » serait pris pour un id).
+  app.post("/crm/bilans/rappel/tester", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const r = await rappelImport(env, db, { force: true, agencyId: ctx.agency.id });
+    if (!r.length) return err(c, 400, "Aucune adresse de rappel dans les réglages.");
+    return c.json({ ok: true, ...r[0] });
+  });
+  // Test : l'e-mail que le conseiller reçoit le lundi (bloc interne + texte du
+  // vendeur), envoyé à la personne connectée. Le bilan ne change pas d'état.
+  app.post("/crm/bilans/:id/tester", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const b = await db.get(`SELECT b.*, m.vendeur FROM crm_bilans b LEFT JOIN crm_bilan_mandats m ON m.agency_id = b.agency_id AND m.ref = b.ref
+      WHERE b.id = ? AND b.agency_id = ?`, [c.req.param("id"), ctx.agency.id]);
+    if (!b) return err(c, 404, "Bilan introuvable.");
+    const to = String(ctx.user.email || "").toLowerCase();
+    if (!emailValide(to)) return err(c, 400, "Votre compte n'a pas d'adresse e-mail.");
+    const q = await c.req.json().catch(() => ({}));
+    const reglages = await getReglages(db, ctx.agency);
+    const m = mailBilanConseiller({ ...b, sujet: strip(q.sujet, 200) || b.sujet, texte: nettoyerTexte(q.texte) || b.texte }, (ctx.user.name || "").split(" ")[0], env.BILANS_BASE);
+    const html = wrapEmail(reglages.agence, { eyebrow: "Bilan vendeur à relire (test)", headline: esc(m.subject), bodyHtml: m.html, signatureName: "Studio" });
+    const r = await envoyerMailHtml(env, { to, subject: "[Test] " + m.subject, html, fromName: reglages.agence.nom || ctx.agency.name });
+    if (!r.ok) return err(c, 502, "Envoi impossible : " + (r.error || "RESEND_API_KEY absent"));
+    return c.json({ ok: true, email: to });
+  });
   app.post("/crm/bilans/:id/envoyer", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const b = await lire(ctx.agency.id, c.req.param("id"));

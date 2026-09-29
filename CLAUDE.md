@@ -950,7 +950,13 @@ et envoyer » vers `BILANS_BASE#bilan=<id>`, que Studio Bilans ouvre directement
 sessionStorage le temps d'une connexion ; profil `crm_conseillers` retrouvé par le nom de
 l'export) et le récapitulatif à la boîte de l'agence (avec les conseillers sans e-mail de
 profil) — TOUT en un appel Resend `/emails/batch` (`envoyerMailsLot`, crm.js, 100 par lot :
-plafond de sous-requêtes) ; **le cron n'écrit JAMAIS à un vendeur**. Envoi = geste du
+plafond de sous-requêtes) ; **le cron n'écrit JAMAIS à un vendeur**. Vendredi (même cron,
+`getUTCDay() === 5`) : `rappelImport` envoie « Pensez à importer l'export des mandats » à
+`reglages.bilans.rappel` (champ `#bilans-rappel` des Réglages, bouton « 📨 Tester le rappel » →
+`POST /crm/bilans/rappel/tester`, admin, déclaré AVANT les routes `/:id/…`), sauf import de
+moins de 24 h (MAX(updated_at) de crm_bilan_mandats). « 📨 M'envoyer un test » sur un bilan
+(`POST /crm/bilans/:id/tester`, membre) envoie l'e-mail du conseiller à la personne connectée,
+sans changer l'état du bilan. Envoi = geste du
 conseiller (`POST /crm/bilans/:id/envoyer`, membre, confirmation en deux clics), signé de
 son profil, reply-to vers lui, journal `crm_envois` type `bilan-vendeur`. App membre
 (les conseillers non admin y ont accès — l'Administration leur est fermée) ; onglet-lien
