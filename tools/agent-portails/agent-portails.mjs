@@ -125,20 +125,32 @@ function portailDe(url, portails) {
   for (const [p, v] of Object.entries(portails)) if (v.domaines.some((d) => h === d || h.endsWith("." + d))) return p;
   return null;
 }
-// Toutes les réponses JSON des portails, rangées par onglet.
-function ecouter(contexte, portails) {
-  const tampons = new Map();
+// Toutes les réponses JSON des portails, rangées par onglet. Avec `journal`
+// (APPRENDRE), chaque requête du portail est aussi notée — adresse, type,
+// taille, sans son contenu — pour trouver par où passent les chiffres.
+function ecouter(contexte, portails, { journal = false } = {}) {
+  const tampons = new Map(), journaux = new Map();
+  let derniere = null;                       // onglet actif (réponses sans onglet)
+  contexte.on("page", (p) => { derniere = p; });
+  const pageDe = (rep) => {
+    try { const f = rep.frame(); if (f && f.page()) return (derniere = f.page()); } catch { }
+    return derniere || contexte.pages()[0] || null;   // service worker, etc.
+  };
   contexte.on("response", async (rep) => {
     try {
+      if (!portailDe(rep.url(), portails) || connexion(rep.url())) return;
       const ct = rep.headers()["content-type"] || "";
+      const type = rep.request().resourceType();
+      const page = pageDe(rep);
+      if (!page) return;
+      if (journal && !/^(image|font|stylesheet|media)$/.test(type)) {
+        (journaux.get(page) || journaux.set(page, []).get(page)).push({ url: rep.url().slice(0, 400), type, methode: rep.request().method(),
+          statut: rep.status(), ct: ct.slice(0, 60), taille: Number(rep.headers()["content-length"]) || null });
+      }
       // Les données arrivent par des appels xhr/fetch ; certains portails ne les
       // déclarent pas en JSON (Bien'ici « Mes annonces ») : on tente la lecture.
-      const type = rep.request().resourceType();
       if (!(/json/i.test(ct) || type === "xhr" || type === "fetch")) return;
       if (/image\/|text\/css|javascript|font\//i.test(ct)) return;
-      if (!portailDe(rep.url(), portails) || connexion(rep.url())) return;
-      const page = rep.frame() && rep.frame().page();
-      if (!page) return;
       const corps = await rep.body().catch(() => null);
       if (!corps || corps.length > JSON_MAX) return;
       const texte = corps.toString("utf8").replace(/^\)\]\}',?\s*/, "").trim();
@@ -148,7 +160,12 @@ function ecouter(contexte, portails) {
     } catch { /* réponse illisible : ignorée */ }
   });
   return {
-    vider(page) { const l = tampons.get(page) || []; tampons.set(page, []); return l; },
+    vider(page) {
+      const l = tampons.get(page) || []; tampons.set(page, []);
+      const j = journaux.get(page) || []; journaux.set(page, []);
+      if (j.length) l.push({ url: "https://journal.agent/requetes", json: { requetes: j } });
+      return l;
+    },
   };
 }
 
@@ -173,7 +190,7 @@ if (mode === "apprendre") {
   const cons = await studio("/crm/portails/consignes");
   const ctx = await ouvrir(true);
   await reecrire(ctx, cons.reecritures);
-  const ecoute = ecouter(ctx, cons.portails);
+  const ecoute = ecouter(ctx, cons.portails, { journal: true });
   const envoyer = async (page, url) => {
     const reponses = ecoute.vider(page);
     const p = portailDe(url, cons.portails);
