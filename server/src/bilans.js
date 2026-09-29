@@ -181,7 +181,11 @@ export function calculerBilan({ mandat, annonce, pairs, amepi, events, semaine, 
   if (ecart != null && ecart < -0.1) alertes.push({ code: "prix-bas", niveau: "info", texte: `Prix ${pct(ecart)} sous la médiane des comparables — argument de vente` });
   // Les portails (SeLoger, Bien'ici, Leboncoin) relevés par l'agent de l'agence.
   const pt = portails || {};
-  const listePortails = Object.keys(PORTAILS).filter((k) => pt[k]).map((k) => ({ portail: k, nom: PORTAILS[k].nom, ...pt[k] }));
+  // Un portail sans vues connues et sans aucun contact ni favori n'apprend
+  // rien au vendeur (Bien'ici ne donne pas les vues par annonce) : « 0 contact »
+  // seul ferait croire que personne ne regarde. Il revient dès un contact.
+  const listePortails = Object.keys(PORTAILS).filter((k) => pt[k] && (pt[k].vues != null || pt[k].contacts || pt[k].favoris))
+    .map((k) => ({ portail: k, nom: PORTAILS[k].nom, ...pt[k] }));
   const totalPortails = listePortails.length ? {
     vues: listePortails.reduce((t, x) => t + (x.vues || 0), 0), contacts: listePortails.reduce((t, x) => t + (x.contacts || 0), 0),
     favoris: listePortails.reduce((t, x) => t + (x.favoris || 0), 0), semaine: listePortails.every((x) => x.base === "semaine"),
