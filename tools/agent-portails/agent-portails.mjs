@@ -131,7 +131,23 @@ function portailDe(url, portails) {
 function ecouter(contexte, portails, { journal = false } = {}) {
   const tampons = new Map(), journaux = new Map();
   let derniere = null;                       // onglet actif (réponses sans onglet)
-  contexte.on("page", (p) => { derniere = p; });
+  // Canal permanent (WebSocket, socket.io) : certains portails y poussent leurs
+  // chiffres (Bien'ici « watcher »). Chaque message JSON reçu est gardé comme
+  // une réponse ; le journal en note un extrait.
+  const ecouterSockets = (p) => p.on("websocket", (ws) => {
+    if (!portailDe(ws.url(), portails) || connexion(ws.url())) return;
+    ws.on("framereceived", ({ payload }) => {
+      try {
+        const brut = typeof payload === "string" ? payload : Buffer.from(payload).toString("utf8");
+        if (journal) (journaux.get(p) || journaux.set(p, []).get(p)).push({ url: ws.url().slice(0, 300), type: "websocket", methode: "frame", statut: 0, ct: "", taille: brut.length, extrait: brut.slice(0, 1500) });
+        const texte = brut.replace(/^\d+/, "").trim();
+        if (!/^[[{]/.test(texte) || texte.length > JSON_MAX) return;
+        (tampons.get(p) || tampons.set(p, []).get(p)).push({ url: ws.url(), json: JSON.parse(texte) });
+      } catch { }
+    });
+  });
+  contexte.pages().forEach(ecouterSockets);
+  contexte.on("page", (p) => { derniere = p; ecouterSockets(p); });
   const pageDe = (rep) => {
     try { const f = rep.frame(); if (f && f.page()) return (derniere = f.page()); } catch { }
     return derniere || contexte.pages()[0] || null;   // service worker, etc.
