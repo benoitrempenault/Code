@@ -174,6 +174,88 @@ const CONTACT_COLS = ["id", "agency_id", "user_id", "civilite", "prenom", "nom",
   "conseiller", "notes", "source", "opt_out", "created_at", "updated_at"];
 const COLS_NUM = new Set(["opt_out", "created_at", "updated_at"]);
 
+// Retour groupé des fiches retirées par le remplacement des acquéreurs (celles
+// qui n'étaient qu'« acquereur ») : elles reviennent typées « prospect », sans
+// leurs anciennes liaisons de projet (les projets ont été effacés), et JAMAIS
+// en doublon : si la personne existe déjà (ré-importée depuis le fichier), son
+// entrée de corbeille est simplement close. Par paquets, `restants` guide l'appel suivant.
+export async function restaurerAcquereursEnProspects(db, agencyId, max = 60) {
+  const keyName = (nom, prenom) => `${(nom || "").toLowerCase()}|${(prenom || "").toLowerCase()}`;
+  const rows = await db.all(
+    `SELECT id, ref_id, payload FROM crm_corbeille WHERE agency_id = ? AND type = 'contact' AND restored_at = 0
+       AND payload LIKE '%"types":"[\\"acquereur\\"]"%' ORDER BY created_at LIMIT ?`, [agencyId, Math.max(1, max) + 1]);
+  const lot = rows.slice(0, max);
+  let restaures = 0, dejaPresents = 0;
+  for (const e of lot) {
+    let c = null; try { c = (JSON.parse(e.payload || "{}").crm_contacts || [])[0] || null; } catch { c = null; }
+    const existe = c ? await db.get(
+      "SELECT id FROM crm_contacts WHERE agency_id = ? AND ((email <> '' AND email = ?) OR (nom COLLATE NOCASE = ? AND prenom COLLATE NOCASE = ?)) LIMIT 1",
+      [agencyId, String(c.email || ""), String(c.nom || ""), String(c.prenom || "")]) : null;
+    if (existe) { await db.run("UPDATE crm_corbeille SET restored_at = ? WHERE id = ?", [now(), e.id]); dejaPresents++; continue; }
+    const r = await restaurerCorbeille(db, agencyId, e.id, { sauf: ["crm_projet_contacts"] });
+    if (r) { await db.run("UPDATE crm_contacts SET types = '[\"prospect\"]', updated_at = ? WHERE id = ? AND agency_id = ?", [now(), e.ref_id, agencyId]); restaures++; }
+  }
+  return { restaures, dejaPresents, restants: rows.length > max ? rows.length - max : 0 };
+}
+
+// Après l'import d'un fichier « biens » (estimés) : les fiches typées `type`
+// que l'import n'a pas touchées (updated_at antérieur au début de l'import)
+// perdent ce type et deviennent prospect. Par paquets.
+export async function retyperAbsents(db, agencyId, type, en, avant, max = 300) {
+  if (!["estime", "vendeur", "acquereur", "bailleur", "locataire"].includes(type) || !/^[a-z]+$/.test(en)) return { retypes: 0, restants: 0 };
+  const rows = await db.all(
+    "SELECT id, types FROM crm_contacts WHERE agency_id = ? AND types LIKE ? AND updated_at < ? LIMIT ?",
+    [agencyId, '%"' + type + '"%', Number(avant) || 0, Math.max(1, max) + 1]);
+  const lot = rows.slice(0, max);
+  for (const r of lot) {
+    let types = []; try { types = JSON.parse(r.types || "[]"); } catch { types = []; }
+    const nouveaux = [...new Set(types.filter((t) => t !== type).concat(en))];
+    await db.run("UPDATE crm_contacts SET types = ?, updated_at = ? WHERE id = ? AND agency_id = ?", [JSON.stringify(nouveaux), now(), r.id, agencyId]);
+  }
+  return { retypes: lot.length, restants: rows.length > max ? rows.length - max : 0 };
+}
+
+// Compteurs de la base : total, par typologie, projets d'achat, corbeille.
+export async function compteursContacts(db, agencyId) {
+  const parType = {};
+  for (const t of ["acquereur", "vendeur", "estime", "bailleur", "locataire", "prospect"]) {
+    parType[t] = ((await db.get("SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND types LIKE ?", [agencyId, '%"' + t + '"%'])) || {}).n || 0;
+  }
+  return {
+    total: ((await db.get("SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ?", [agencyId])) || {}).n || 0,
+    sansType: ((await db.get("SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND (types = '[]' OR types = '')", [agencyId])) || {}).n || 0,
+    parType,
+    projetsAchat: ((await db.get("SELECT COUNT(*) AS n FROM crm_projets WHERE agency_id = ? AND kind = 'achat'", [agencyId])) || {}).n || 0,
+    corbeille: ((await db.get("SELECT COUNT(*) AS n FROM crm_corbeille WHERE agency_id = ? AND restored_at = 0", [agencyId])) || {}).n || 0,
+  };
+}
+
+// Concordance d'un fichier avec la base, SANS importer : pour chaque ligne
+// (même rapprochement que l'import : e-mail, sinon nom + prénom), la fiche
+// existe-t-elle, et porte-t-elle la typologie attendue ?
+export async function concordanceContacts(db, agencyId, rows, type = "") {
+  const keyName = (nom, prenom) => `${(nom || "").toLowerCase()}|${(prenom || "").toLowerCase()}`;
+  const propres = rows.map((r) => sanitizeContact(r)).filter((v) => v.nom || v.prenom || v.email);
+  const emails = [...new Set(propres.map((v) => v.email).filter(Boolean))];
+  const noms = [...new Set(propres.flatMap((v) => (v.nom ? [v.nom, v.nom.toLowerCase(), v.nom.toUpperCase()] : [])))];
+  const conditions = [];
+  if (emails.length) conditions.push(`email IN (${emails.map(sqlText).join(",")})`);
+  if (noms.length) conditions.push(`nom COLLATE NOCASE IN (${noms.map(sqlText).join(",")})`);
+  const existing = conditions.length ? await db.all(`SELECT id, nom, prenom, email, types FROM crm_contacts WHERE agency_id = ? AND (${conditions.join(" OR ")})`, [agencyId]) : [];
+  const byEmail = new Map(), byName = new Map();
+  for (const c of existing) { if (c.email) byEmail.set(c.email, c); byName.set(keyName(c.nom, c.prenom), c); }
+  const vus = new Set(); let presents = 0, absents = 0, avecType = 0; const exemplesAbsents = [];
+  for (const v of propres) {
+    const k = v.email || keyName(v.nom, v.prenom);
+    if (vus.has(k)) continue; vus.add(k);
+    const m = (v.email && byEmail.get(v.email)) || byName.get(keyName(v.nom, v.prenom));
+    if (!m) { absents++; if (exemplesAbsents.length < 8) exemplesAbsents.push([v.prenom, v.nom, v.email].filter(Boolean).join(" ")); continue; }
+    presents++;
+    if (type && String(m.types || "").includes('"' + type + '"')) avecType++;
+  }
+  return { distincts: vus.size, presents, absents, avecType, exemplesAbsents };
+}
+
 export async function bulkUpsertContacts(db, agencyId, userId, rows, source = "import") {
   // À 60 000 fiches, relire TOUTE la base à chaque lot de 400 ferait fondre
   // les quotas D1 : on ne lit que les CANDIDATS à la fusion du lot — mêmes
@@ -412,13 +494,15 @@ export async function listerCorbeille(db, agencyId, limite = 200) {
 
 // Réinsère les lignes de l'entrée (INSERT OR IGNORE : si la fiche a été
 // recréée entre-temps, on ne l'écrase pas). Renvoie ce qui a été remis.
-export async function restaurerCorbeille(db, agencyId, id) {
+export async function restaurerCorbeille(db, agencyId, id, options = {}) {
   const e = await db.get("SELECT * FROM crm_corbeille WHERE id = ? AND agency_id = ? AND restored_at = 0", [id, agencyId]);
   if (!e) return null;
   let payload = {};
   try { payload = JSON.parse(e.payload || "{}"); } catch { payload = {}; }
   const remis = {};
+  const sauf = new Set(Array.isArray(options.sauf) ? options.sauf : []);
   for (const table of TABLES_CORBEILLE) {
+    if (sauf.has(table)) continue;
     const lignes = Array.isArray(payload[table]) ? payload[table] : [];
     let n = 0;
     for (const ligne of lignes) {
@@ -458,6 +542,31 @@ export async function menageQuotidien(db, files = null) {
 // suivis). Avec `corbeille: userId`, chaque fiche part en corbeille avec tout
 // ce qui l'accompagne (restaurable 30 jours) ; sans, c'est définitif
 // (nettoyage de masse, effacement RGPD).
+// Remplacement de la base ACQUÉREURS avant un ré-import du fichier C21 : les
+// projets d'achat sont effacés (le fichier les recrée), les fiches typées
+// seulement « acquereur » partent à la corbeille (30 jours), celles qui ont
+// d'autres typologies perdent juste le type. Par paquets de `max` fiches :
+// l'Administration rappelle tant que `restants` > 0.
+export async function remplacerAcquereurs(db, agencyId, userId, max = 150) {
+  const projets = await db.get("SELECT COUNT(*) AS n FROM crm_projets WHERE agency_id = ? AND kind = 'achat'", [agencyId]);
+  if (projets && projets.n) {
+    await db.run("DELETE FROM crm_projet_contacts WHERE agency_id = ? AND projet_id IN (SELECT id FROM crm_projets WHERE agency_id = ? AND kind = 'achat')", [agencyId, agencyId]);
+    await db.run("DELETE FROM crm_projet_criteres WHERE agency_id = ? AND projet_id IN (SELECT id FROM crm_projets WHERE agency_id = ? AND kind = 'achat')", [agencyId, agencyId]);
+    await db.run("DELETE FROM crm_projets WHERE agency_id = ? AND kind = 'achat'", [agencyId]);
+  }
+  const rows = await db.all("SELECT id, types FROM crm_contacts WHERE agency_id = ? AND types LIKE '%acquereur%' LIMIT ?", [agencyId, Math.max(1, max) + 1]);
+  const lot = rows.slice(0, max);
+  const purs = [], mixtes = [];
+  for (const r of lot) {
+    let types = []; try { types = JSON.parse(r.types || "[]"); } catch { types = []; }
+    const autres = types.filter((t) => t !== "acquereur");
+    if (autres.length) mixtes.push({ id: r.id, types: autres }); else purs.push(r.id);
+  }
+  const supprimes = purs.length ? await supprimerContacts(db, agencyId, purs, { corbeille: userId }) : 0;
+  for (const m of mixtes) await db.run("UPDATE crm_contacts SET types = ?, updated_at = ? WHERE id = ? AND agency_id = ?", [JSON.stringify(m.types), now(), m.id, agencyId]);
+  return { projets: (projets && projets.n) || 0, supprimes, retypes: mixtes.length, restants: rows.length > max ? rows.length - max : 0 };
+}
+
 export async function supprimerContacts(db, agencyId, ids, options = {}) {
   const propres = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))];
   const corbeille = options.corbeille || "";
@@ -2642,6 +2751,37 @@ export async function geocoderVentes(env, db, agencyId, max = 12, avecContacts =
     .sort((a, b) => (a.echec ? 1 : 0) - (b.echec ? 1 : 0));
   const attente = enAttente.slice(0, Math.max(0, max));
   if (!attente.length) return { geocodes: 0, traites: 0, restants: 0 };
+  return geocoderLot(env, db, agencyId, attente, enAttente.length);
+}
+
+// Les biens estimés d'une commune (contacts typés estime, même code postal ou
+// même ville) sans position : la carte du guide R2 les veut tout de suite,
+// pas au rythme du géocodage de fond. Par paquets de `max`, le navigateur
+// rappelle jusqu'à `restants` = 0.
+export async function geocoderEstimesCommune(env, db, agencyId, cp, ville, max = 12) {
+  // Sans commune : tous les estimés de l'agence (bouton « Positionner » de l'Administration).
+  const commune = String(cp || "").trim() || String(ville || "").trim();
+  const rows = await db.all(
+    `SELECT c.id, c.adresse, c.cp, c.ville, g.adresse AS geo_adresse, g.lat AS geo_lat, g.lng AS geo_lng, g.updated_at AS geo_maj
+     FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
+     WHERE c.agency_id = ? AND c.adresse <> '' AND c.types LIKE '%estime%'${commune ? " AND (c.cp = ? OR c.ville = ? COLLATE NOCASE)" : ""}
+       AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0) OR substr(g.adresse, 1, length(c.adresse)) <> c.adresse)
+     ORDER BY CASE WHEN g.contact_id IS NULL THEN 0 WHEN g.lat = 0 AND g.lng = 0 THEN 2 ELSE 1 END
+     LIMIT 400`, commune ? [agencyId, String(cp || "").trim() || "-", String(ville || "").trim() || "-"] : [agencyId]);
+  const enAttente = rows
+    .map((r) => ({ id: r.id, adresse: [r.adresse, r.cp, r.ville].filter(Boolean).join(" "), deja: r.geo_adresse,
+      echec: r.geo_adresse != null && r.geo_lat === 0 && r.geo_lng === 0, maj: r.geo_maj || 0 }))
+    .filter((r) => r.adresse && (r.adresse !== r.deja || r.echec))
+    .filter((r) => !(r.echec && r.adresse === r.deja && (r.maj || 0) > now() - ECHEC_RETENTE_APRES))
+    .sort((a, b) => (a.echec ? 1 : 0) - (b.echec ? 1 : 0));
+  const attente = enAttente.slice(0, Math.max(0, max));
+  if (!attente.length) return { geocodes: 0, traites: 0, restants: 0 };
+  return geocoderLot(env, db, agencyId, attente, enAttente.length);
+}
+
+// Géocode une liste d'adresses {id, adresse, echec} et mémorise les positions.
+async function geocoderLot(env, db, agencyId, attente, total) {
+  const enAttente = { length: total };
   // Deux géocodeurs officiels, même API : la BAN puis le géocodeur IGN
   // (data.geopf.fr) en relève — la BAN limite parfois le débit des serveurs
   // (dont Cloudflare) et de certains réseaux. Surchargables en test.

@@ -651,11 +651,26 @@
       const { entrees } = await api("/crm/corbeille");
       if (!entrees.length) { zone.innerHTML = '<p class="petit">La corbeille est vide.</p>'; return; }
       const TYPES_CB = { contact: "Fiche", suivi: "Suivi", visite: "Visite" };
-      zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr><th>Type</th><th>Quoi</th><th>Supprimé le</th><th>Reste</th><th></th></tr></thead><tbody>' +
+      zone.innerHTML = '<div class="barre"><button class="btn" id="btn-corbeille-prospects" title="Les fiches qui n\'étaient qu\'Acquéreur, retirées par le remplacement de la base acquéreurs, reviennent typées Prospect ; celles ré-importées depuis le fichier ne sont pas dupliquées">↩ Faire revenir les acquéreurs retirés, en Prospect</button></div>' +
+        '<div class="tableau-cadre"><table><thead><tr><th>Type</th><th>Quoi</th><th>Supprimé le</th><th>Reste</th><th></th></tr></thead><tbody>' +
         entrees.map((e) => "<tr><td>" + escH(TYPES_CB[e.type] || e.type) + "</td><td>" + escH(e.libelle) + "</td><td>" +
           new Date(e.created_at * 1000).toLocaleDateString("fr-FR") + "</td><td>" + e.jours_restants + " j</td>" +
           '<td><button class="btn" data-restaurer="' + escH(e.id) + '">↩ Restaurer</button></td></tr>').join("") +
         "</tbody></table></div>";
+      $("btn-corbeille-prospects").addEventListener("click", async () => {
+        const btn = $("btn-corbeille-prospects"); btn.disabled = true;
+        let restaures = 0, deja = 0, restants = 0;
+        try {
+          for (let tour = 0; tour < 300; tour++) {
+            const r = await api("/crm/corbeille/restaurer-acquereurs", { json: {} });
+            restaures += r.restaures; deja += r.dejaPresents; restants = r.restants || 0;
+            btn.textContent = "↩ Retour en cours… " + restaures + " revenue(s), " + deja + " déjà présente(s), " + restants + " restante(s)";
+            if (!restants || (!r.restaures && !r.dejaPresents)) break;
+          }
+          toast(restaures + " fiche(s) revenue(s) en Prospect, " + deja + " déjà présente(s) (ré-importées) laissée(s) telles quelles");
+          await chargerContacts(); chargerCorbeille();
+        } catch (e) { toast(e.message, true); btn.disabled = false; }
+      });
       zone.querySelectorAll("[data-restaurer]").forEach((b) => b.addEventListener("click", async () => {
         b.disabled = true;
         try {
@@ -719,9 +734,11 @@
       '<input type="file" id="fichier-import" accept=".xlsx,.xls,.csv" hidden />' +
       '<div id="etape-mappage"></div>',
       '<button class="btn" id="btn-annuler-import">Annuler</button>' +
+      '<button class="btn" id="btn-concordance" hidden title="Compare le fichier à la base sans rien importer">🔍 Vérifier la concordance</button>' +
       '<button class="btn btn-or" id="btn-go-import" hidden>Importer</button>');
     $("btn-annuler-import").addEventListener("click", fermerModale);
     $("btn-go-import").addEventListener("click", validerImport);
+    $("btn-concordance").addEventListener("click", verifierConcordance);
     const zone = $("zone-fichier"), input = $("fichier-import");
     zone.addEventListener("click", () => input.click());
     zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("survol"); });
@@ -759,17 +776,32 @@
           '<select id="preset-typologie">' +
           '<option value="estime"' + (typologie === "estime" ? " selected" : "") + ">Estimés</option>" +
           '<option value="vendeur"' + (typologie === "vendeur" ? " selected" : "") + ">Vendeurs (mandats)</option>" +
-          "</select></label></div>";
-        $("btn-go-import").hidden = false;
+          "</select></label></div>" +
+          '<label class="case" id="preset-retyper-bloc" style="margin-top:8px;"' + (typologie === "estime" ? "" : " hidden") + '><input type="checkbox" id="preset-retyper" checked /> ' +
+          "Les fiches typées Estimé absentes de ce fichier passent en Prospect (le fichier devient la base estimés ; leurs autres typologies sont gardées).</label>";
+        $("preset-typologie").addEventListener("change", () => { $("preset-retyper-bloc").hidden = $("preset-typologie").value !== "estime"; });
+        $("btn-go-import").hidden = false; $("btn-concordance").hidden = false;
         return;
       }
       if (importData.preset === "acquereurs") {
         $("etape-mappage").innerHTML =
           '<p class="aide" style="margin-top:14px;">Extraction Century 21 reconnue : <strong>acquéreurs</strong>. ' +
-          "Chaque ligne devient (ou complète) une fiche typée Acquéreur — coordonnées, conseiller, et en note : " +
-          "qualification A/B/C, budget, critères et secteurs. Les refus d'e-mail (opt-in décoché) sont respectés. " +
-          "Re-déposez ce fichier à chaque mise à jour : les fiches fusionnent sans doublon.</p>";
-        $("btn-go-import").hidden = false;
+          "Chaque ligne devient une fiche typée Acquéreur — coordonnées, conseiller, et en note : " +
+          "qualification A/B/C, budget, critères et secteurs — et un projet d'achat. Les refus d'e-mail (opt-in décoché) sont respectés.</p>" +
+          '<label class="case" style="margin-top:8px;"><input type="checkbox" id="preset-remplacer" checked /> Remplacer toute la base acquéreurs : ' +
+          "les projets d'achat sont effacés et les fiches typées seulement Acquéreur partent à la corbeille (30 jours) avant l'import ; " +
+          "les fiches qui ont d'autres typologies perdent juste le type Acquéreur. Décochez pour simplement fusionner.</label>";
+        $("btn-go-import").hidden = false; $("btn-concordance").hidden = false;
+        return;
+      }
+      if (importData.preset === "contacts") {
+        const archives = importData.lignes.filter((l) => String(l[colonneC21("archive")] || "") === "True").length;
+        $("etape-mappage").innerHTML =
+          '<p class="aide" style="margin-top:14px;">Extraction Century 21 reconnue : <strong>contacts</strong> (' + importData.lignes.length + " lignes" + (archives ? ", dont " + archives + " archivée(s) laissée(s) de côté" : "") + "). " +
+          "Chaque ligne devient (ou complète) une fiche : civilité, prénom, nom, e-mail, téléphone, adresse recomposée (n°, type et nom de voie), " +
+          "code postal, ville, date de naissance, typologies lues dans « Profils du contact », notes et dernier contact. " +
+          "Les refus d'e-mail (opt-in décoché) sont respectés. Déposez les tranches l'une après l'autre : les fiches fusionnent par e-mail, sinon par nom + prénom.</p>";
+        $("btn-go-import").hidden = false; $("btn-concordance").hidden = false;
         return;
       }
       $("etape-mappage").innerHTML = '<p class="aide" style="margin-top:14px;">Associez chaque colonne :</p>' +
@@ -795,6 +827,7 @@
     const a = entetes.map((h) => h.toLowerCase());
     if (a.includes("vendeur / bailleur") && a.includes("adresse du bien")) return "biens";
     if (a.includes("budget") && a.includes("nom voie") && a.includes("projet")) return "acquereurs";
+    if (a.includes("profils du contact") && a.includes("nom voie") && a.includes("adresse normalisée")) return "contacts";
     return null;
   }
   function colonneC21(nom) {
@@ -821,6 +854,36 @@
       return { nom: v("nom"), email: v("email"), adresse: v("adresse"), ville: v("ville"),
         conseiller: v("conseiller"), types: typologie, notes };
     });
+  }
+  // L'extraction CONTACT de CenturyNet (par tranches de 5 000 lignes) : adresse
+  // recomposée depuis n° / type de voie / nom de voie, typologies lues dans
+  // « Profils du contact » (Prospect 2021, Acquéreur 2025, Estimé 2026, Bailleur
+  // à conquérir, Candidat locataire…), date de naissance (série Excel), notes et
+  // dernier contact ; les archivés sont laissés de côté.
+  const CIVILITES_C21 = { "monsieur": "M.", "madame": "Mme", "mademoiselle": "Mlle", "monsieur et madame": "M. et Mme", "madame et monsieur": "M. et Mme" };
+  function lignesPresetContacts() {
+    const noms = ["civilité", "prénom", "nom", "email", "téléphone", "n°", "type voie", "nom voie", "complément adresse", "code postal", "ville",
+      "date de naissance", "profils du contact", "notes", "commentaire du dernier contact", "opt-in", "archive", "raison sociale"];
+    const i = {}; for (const n of noms) i[n] = colonneC21(n);
+    return importData.lignes.map((l) => {
+      const v = (k) => String(i[k] >= 0 ? (l[i[k]] ?? "") : "").trim();
+      if (v("archive") === "True") return null;
+      // « Estimé retiré de la vente » reste un estimé, pas un vendeur.
+      const profils = v("profils du contact").replace(/retir[ée]e? de la vente/gi, "");
+      const notes = [v("notes"), v("commentaire du dernier contact") ? "Dernier contact : " + v("commentaire du dernier contact") : ""].filter(Boolean).join("  //  ");
+      // Une « adresse » sans trois lettres qui se suivent (« . », « xxx ») n'en est pas une.
+      const adresse = [[v("n°"), v("type voie"), v("nom voie")].filter(Boolean).join(" "), v("complément adresse")].filter(Boolean).join(", ");
+      const o = {
+        civilite: CIVILITES_C21[v("civilité").toLowerCase()] || v("civilité"),
+        prenom: v("prénom"), nom: v("nom") || v("raison sociale"), email: v("email"), telephone: v("téléphone"),
+        adresse: /[a-zà-ÿ]{3}/i.test(adresse) ? adresse : "",
+        cp: v("code postal"), ville: v("ville"),
+        dateNaissance: i["date de naissance"] >= 0 ? l[i["date de naissance"]] : "",
+        types: profils, notes,
+      };
+      if (v("opt-in") === "False") o.opt_out = 1;
+      return o;
+    }).filter(Boolean);
   }
   function lignesPresetAcquereurs() {
     const civilites = { "monsieur": "M.", "madame": "Mme", "mademoiselle": "Mlle", "monsieur et madame": "M. et Mme" };
@@ -883,6 +946,41 @@
       };
     }).filter(Boolean);
   }
+  // Les lignes d'un fichier reconnu, telles que l'import les enverrait.
+  function lignesPreset() {
+    if (importData.preset === "biens") return { rows: lignesPresetBiens($("preset-typologie").value), type: $("preset-typologie").value };
+    if (importData.preset === "acquereurs") return { rows: lignesPresetAcquereurs(), type: "acquereur" };
+    if (importData.preset === "contacts") return { rows: lignesPresetContacts(), type: "" };
+    return null;
+  }
+  // Concordance : le fichier est-il bien dans la base ? Présents / absents /
+  // typés comme attendu, plus les compteurs globaux — sans rien importer.
+  async function verifierConcordance() {
+    const jeu = lignesPreset(); if (!jeu) return;
+    const btn = $("btn-concordance"); btn.disabled = true;
+    const total = { distincts: 0, presents: 0, absents: 0, avecType: 0, exemplesAbsents: [] };
+    try {
+      for (let i = 0; i < jeu.rows.length; i += 400) {
+        btn.textContent = "Vérification… " + Math.min(i + 400, jeu.rows.length) + " / " + jeu.rows.length;
+        const r = await api("/crm/contacts/concordance", { json: { rows: jeu.rows.slice(i, i + 400).map((x) => ({ nom: x.nom, prenom: x.prenom, email: x.email })), type: jeu.type } });
+        total.distincts += r.distincts; total.presents += r.presents; total.absents += r.absents; total.avecType += r.avecType;
+        if (total.exemplesAbsents.length < 8) total.exemplesAbsents.push(...r.exemplesAbsents.slice(0, 8 - total.exemplesAbsents.length));
+      }
+      const cpt = await api("/crm/contacts/compteurs");
+      const libType = jeu.type ? (TYPES[jeu.type] || jeu.type) : "";
+      const bloc = document.createElement("div"); bloc.className = "carte"; bloc.style.marginTop = "12px"; bloc.id = "concordance";
+      bloc.innerHTML = "<h2>Concordance avec la base</h2>" +
+        "<p><strong>Fichier</strong> : " + jeu.rows.length + " ligne(s), " + total.distincts + " personne(s) distincte(s) par lot.</p>" +
+        "<p><strong>Présentes dans la base</strong> : " + total.presents + (jeu.type ? " (dont " + total.avecType + " typée(s) " + escH(libType) + ")" : "") + " · <strong>absentes</strong> : " + total.absents +
+        (total.exemplesAbsents.length ? '<br /><span class="petit">Exemples d\'absentes : ' + escH(total.exemplesAbsents.join(" ; ")) + "</span>" : "") + "</p>" +
+        "<p><strong>Base entière</strong> : " + cpt.total + " contact(s)" + (cpt.sansType ? " (" + cpt.sansType + " sans typologie)" : "") + " · " +
+        Object.entries(cpt.parType).map(([t, n]) => escH(TYPES[t] || t) + " " + n).join(" · ") + " · projets d'achat " + cpt.projetsAchat + " · corbeille " + cpt.corbeille + "</p>" +
+        '<p class="petit">Copiez ce bloc pour le transmettre. Les personnes distinctes sont comptées par lot de 400 : une même personne présente dans deux lots compte deux fois.</p>';
+      const ancien = $("concordance"); if (ancien) ancien.remove();
+      $("etape-mappage").appendChild(bloc);
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = false; btn.textContent = "🔍 Vérifier la concordance";
+  }
   async function validerImport() {
     if (!importData) return;
     let rows;
@@ -890,6 +988,8 @@
       rows = lignesPresetBiens($("preset-typologie").value);
     } else if (importData.preset === "acquereurs") {
       rows = lignesPresetAcquereurs();
+    } else if (importData.preset === "contacts") {
+      rows = lignesPresetContacts();
     } else {
       const map = Array.from(document.querySelectorAll(".map-cible"))
         .map((s) => ({ col: parseInt(s.dataset.col, 10), champ: s.value }))
@@ -910,12 +1010,26 @@
       });
     }
     const btn = $("btn-go-import");
+    const remplacer = importData.preset === "acquereurs" && $("preset-remplacer") && $("preset-remplacer").checked;
+    if (remplacer && !confirm("Remplacer toute la base acquéreurs ? Les projets d'achat sont effacés et les fiches typées seulement Acquéreur partent à la corbeille (restaurables 30 jours), puis le fichier est importé.")) return;
     btn.disabled = true;
     // Envoi par lots : garde chaque appel leger pour le serveur, et permet
     // une vraie progression sur les grosses extractions.
     const LOT = 400;
     const total = { created: 0, updated: 0, skipped: 0 };
+    let remplaces = null;
+    const retyper = importData.preset === "biens" && $("preset-typologie").value === "estime" && $("preset-retyper") && $("preset-retyper").checked;
+    const debutImport = Math.floor(Date.now() / 1000) - 5;
     try {
+      if (remplacer) {
+        remplaces = { supprimes: 0, retypes: 0, projets: 0 };
+        for (let tour = 0; tour < 200; tour++) {
+          const r = await api("/crm/acquereurs/remplacer", { json: {} });
+          remplaces.supprimes += r.supprimes; remplaces.retypes += r.retypes; remplaces.projets += r.projets;
+          btn.textContent = "Base acquéreurs retirée… " + (remplaces.supprimes + remplaces.retypes) + " fiche(s), " + (r.restants || 0) + " restante(s)";
+          if (!r.restants) break;
+        }
+      }
       for (let i = 0; i < rows.length; i += LOT) {
         btn.textContent = "Import… " + Math.min(i + LOT, rows.length) + " / " + rows.length;
         const r = await api("/crm/contacts/bulk", { json: { rows: rows.slice(i, i + LOT), source: "import" } });
@@ -932,8 +1046,18 @@
           projetsCrees += r.crees;
         }
       }
+      // Estimés : ce que le fichier n'a pas touché n'est plus « estimé », mais prospect.
+      let retypes = 0;
+      if (retyper) {
+        for (let tour = 0; tour < 200; tour++) {
+          const r = await api("/crm/contacts/retyper-absents", { json: { type: "estime", en: "prospect", avant: debutImport } });
+          retypes += r.retypes; btn.textContent = "Estimés absents du fichier → Prospect… " + retypes;
+          if (!r.restants || !r.retypes) break;
+        }
+      }
       fermerModale();
-      toast("Import terminé : " + total.created + " créé(s), " + total.updated + " mis à jour, " + total.skipped + " ignoré(s)" +
+      toast((retypes ? retypes + " fiche(s) estimée(s) absentes du fichier passée(s) en Prospect · " : "") + (remplaces ? "Base acquéreurs remplacée (" + remplaces.supprimes + " fiche(s) à la corbeille, " + remplaces.retypes + " retypée(s), " + remplaces.projets + " projet(s) effacé(s)) · " : "") +
+        "Import terminé : " + total.created + " créé(s), " + total.updated + " mis à jour, " + total.skipped + " ignoré(s)" +
         (projetsCrees ? " · " + projetsCrees + " projet(s) d'achat créé(s)" : ""));
       await chargerContacts();
       chargerUpcoming();
@@ -2845,16 +2969,21 @@
       if (!n) ecrire(pg, envr.erreur ? "Commodités indisponibles pour le moment." : "Aucune commodité relevée à moins de 1,5 km.", s.tableau.x, s.tableau.y, s.tableau.taille, fI, couleurs.gris); }
     // Page 8 : les ventes de l'agence à 1 km.
     { const s = meta.p8, pg = page(s.page);
-      const pts = (envr.ventes || []).map((v) => ({ lat: v.lat, lng: v.lng, couleur: "#e8b33c", rayon: 10 }));
+      // Les biens estimés (bleu) sous les ventes (or) : une vente prime quand les deux se superposent.
+      const estims = envr.estimations || [];
+      const pts = estims.map((e) => ({ lat: e.lat, lng: e.lng, couleur: "#2f6f9f", rayon: 8 }))
+        .concat((envr.ventes || []).map((v) => ({ lat: v.lat, lng: v.lng, couleur: "#e8b33c", rayon: 10 })));
       const W = s.carte[2] - s.carte[0], H = s.carte[3] - s.carte[1];
       const png = await dessinerCarte({ lat: envr.lat, lng: envr.lng, zoom: 16, largeur: Math.round(W * 2), hauteur: Math.round(H * 2), points: pts, centre: envr });
       await image(pg, png, s.carte, false);
       // La carte de la légende, blanche, posée sur le bas de la carte comme dans la maquette.
-      pg.drawRectangle({ x: s.legende.x - 12, y: pg.getHeight() - (s.legende.y + 58), width: s.legende.largeur + 24, height: 76, color: rgb(1, 1, 1), borderColor: rgb(0.85, 0.82, 0.75), borderWidth: 0.8 });
+      pg.drawRectangle({ x: s.legende.x - 12, y: pg.getHeight() - (s.legende.y + 76), width: s.legende.largeur + 24, height: 94, color: rgb(1, 1, 1), borderColor: rgb(0.85, 0.82, 0.75), borderWidth: 0.8 });
       ecrire(pg, "LÉGENDE", s.legende.x, s.legende.y, 12, fB, couleurs.or);
       pg.drawCircle({ x: s.legende.x + 6, y: pg.getHeight() - (s.legende.y + 21) + 3.5, size: 5, color: rgb(0.91, 0.70, 0.24) });
       ecrire(pg, "Biens vendus par l'agence", s.legende.x + 17, s.legende.y + 21, 10, fR);
-      ecrire(pg, (envr.ventes || []).length + " vente(s) à moins d'un kilomètre", s.legende.x, s.legende.y + 40, 9.5, fI, couleurs.gris); }
+      pg.drawCircle({ x: s.legende.x + 6, y: pg.getHeight() - (s.legende.y + 38) + 3.5, size: 4.2, color: rgb(0.184, 0.435, 0.624) });
+      ecrire(pg, "Biens estimés par l'agence", s.legende.x + 17, s.legende.y + 38, 10, fR);
+      ecrire(pg, (envr.ventes || []).length + " vente(s) et " + estims.length + " bien(s) estimé(s) à moins d'un kilomètre", s.legende.x, s.legende.y + 57, 9, fI, couleurs.gris); }
     // Page 9 : le mois.
     { const s = meta.p9, pg = page(s.page);
       ecrire(pg, (MOIS_FR[aujourdhui.getMonth()] + "  " + aujourdhui.getFullYear()).toUpperCase(), s.mois.x, s.mois.y, s.mois.taille, fR, rgb(0.145, 0.145, 0.149)); }
@@ -2925,8 +3054,16 @@
       const btn = $("r2-generer"), etat = $("r2-etat"); btn.disabled = true;
       try {
         etat.textContent = "Enregistrement…"; r2 = await sauver();
+        // Les biens estimés de la commune sans position se géocodent d'abord (12 par appel, 40 appels au plus).
+        for (let tour = 0; tour < 40; tour++) {
+          let g; try { g = await api("/crm/parcours/" + id + "/estimes/positionner", { json: {} }); } catch { break; }
+          if (!g.traites && !g.geocodes) break;
+          etat.textContent = "Positionnement des biens estimés de la commune… " + (g.restants || 0) + " restant(s)";
+          if (!g.restants) break;
+        }
         etat.textContent = "Commune, commodités et ventes autour du bien…";
         const envr = await api("/crm/parcours/" + id + "/environnement");
+        if (envr.estimationsEnAttente) toast(envr.estimationsEnAttente + " bien(s) estimé(s) de la commune sans position (adresse introuvable) : absents de la carte");
         if (envr.erreur) toast("Commodités indisponibles : " + envr.erreur, true);
         etat.textContent = "Cartes et assemblage du guide…";
         const urlR2 = await genererGuideR2({ ...p, cp: p.cp, ville: p.ville }, r2, envr);
@@ -3023,7 +3160,8 @@
   const mensualite = (montant, tauxPct, annees) => { const t = tauxPct / 100 / 12, n = annees * 12; if (!montant || !n) return 0; return t ? montant * t / (1 - Math.pow(1 + t, -n)) : montant / n; };
   async function ouvrirAcm(id, p) {
     let acm, donnees;
-    try { [acm, donnees] = await Promise.all([api("/crm/parcours/" + id + "/acm"), api("/crm/parcours/" + id + "/acm/donnees")]); }
+    let photosRep = { photos: {} };
+    try { [acm, donnees, photosRep] = await Promise.all([api("/crm/parcours/" + id + "/acm"), api("/crm/parcours/" + id + "/acm/donnees"), api("/crm/parcours/" + id + "/acm/photos").catch(() => ({ photos: {} }))]); }
     catch (e) { toast(e.message, true); return; }
     const depuisEstimation = acm.depuis_estimation || [];
     acm = acm.acm || {};
@@ -3046,11 +3184,23 @@
     let portails = { biens: [] };
     try { portails = await api("/crm/parcours/" + id + "/acm/portails" + (acm.prix ? "?prix=" + acm.prix : "")); } catch { portails = { biens: [] }; }
     // Les photos déjà posées à la main (📷) restent attachées aux biens.
-    const photosPosees = new Map((acm.concurrence || []).filter((c) => c.photo).map((c) => [c.id, c.photo]));
-    const candidatsConc = [...manuels, ...(donnees.annonces || []).map((a) => ({ ...a, id: "agence:" + a.id })), ...(donnees.amepi || []).map((a) => ({ ...a, id: "amepi:" + a.id })), ...(portails.biens || [])]
+    // Photos posées à la main : table dédiée (jamais la saisie acm, dont les chaînes sont tronquées).
+    const photosPosees = new Map(Object.entries((photosRep && photosRep.photos) || {}));
+    // Les plus proches d'abord ; sans position connue, la commune du bien avant les autres. Les biens ajoutés à la main restent en tête.
+    const memeCommune = (a) => (a.cp && p.cp && String(a.cp) === String(p.cp)) || (a.ville && p.ville && String(a.ville).toLowerCase() === String(p.ville).toLowerCase());
+    const distanceDe = (a) => { if (Number.isFinite(a.dist) && a.dist !== null) return a.dist; if (a.lat && a.lng && donnees.lat && donnees.lng) { const r = Math.PI / 180, dLat = (a.lat - donnees.lat) * r, dLng = (a.lng - donnees.lng) * r, h = Math.sin(dLat / 2) ** 2 + Math.cos(donnees.lat * r) * Math.cos(a.lat * r) * Math.sin(dLng / 2) ** 2; return 2 * 6371000 * Math.asin(Math.sqrt(h)); } return null; };
+    const rang = (a) => { const d = distanceDe(a); return d !== null ? d : (memeCommune(a) ? 1e6 : 2e6); };
+    const candidatsConc = [...manuels, ...[...(donnees.annonces || []).map((a) => ({ ...a, id: "agence:" + a.id })), ...(donnees.amepi || []).map((a) => ({ ...a, id: "amepi:" + a.id })), ...(portails.biens || [])]
+      .map((a) => ({ ...a, dist: distanceDe(a) })).sort((a, b) => rang(a) - rang(b))]
       .map((a) => (photosPosees.has(a.id) ? { ...a, photo: photosPosees.get(a.id) } : a));
     const dejaV = new Set((acm.ventes || []).map((v) => v.id)), dejaC = new Set((acm.concurrence || []).map((v) => v.id));
-    const cocheV = (v, i) => (acm.ventes ? dejaV.has(v.id) : i < 4), cocheC = (v, i) => (acm.concurrence ? dejaC.has(v.id) : i < 4);
+    // Sans sélection enregistrée : les 4 biens dont le prix est le plus proche du prix estimé
+    // (fiche, sinon estimation) sont pré-cochés ; sans prix de référence, les 4 plus proches.
+    const prixRefConc = acm.prix || acm.haute || acm.basse || 0;
+    const prechoixConc = new Set(prixRefConc
+      ? candidatsConc.map((a, i) => ({ a, i })).filter((x) => x.a.prix > 0).sort((x, y) => Math.abs(x.a.prix - prixRefConc) - Math.abs(y.a.prix - prixRefConc) || x.i - y.i).slice(0, 4).map((x) => x.a.id)
+      : candidatsConc.slice(0, 4).map((a) => a.id));
+    const cocheV = (v, i) => (acm.ventes ? dejaV.has(v.id) : i < 4), cocheC = (v) => (acm.concurrence ? dejaC.has(v.id) : prechoixConc.has(v.id));
     const ligneVente = (v, i) => '<label class="case" style="display:flex; gap:8px; align-items:flex-start; padding:4px 0; border-bottom:1px solid var(--line);"><input type="checkbox" data-vente="' + escH(v.id) + '"' + (cocheV(v, i) ? " checked" : "") + ' /> <span><strong>' +
       escH(fmtPrix(v.prix)) + "</strong> · " + escH(fmtDateAcm(v.date)) + " · " + escH(v.adresse || "") + (v.ville ? ", " + escH(v.ville) : "") + '<br /><span class="petit">' +
       escH([v.type, v.pieces ? v.pieces + " pièces" : "", v.surface ? Math.round(v.surface) + " m²" : "", v.terrain ? "terrain " + Math.round(v.terrain) + " m²" : "", fmtM2(v), "à " + v.dist + " m", v.source === "agence" ? "vendu par l'agence" : "DVF"].filter(Boolean).join(" · ")) + "</span></span></label>";
@@ -3091,7 +3241,7 @@
       '<label>Fourchette haute<input id="acm-haute" type="number" step="1000" value="' + escH(acm.haute || "") + '" /></label></div>' +
       '<h3 style="margin:14px 0 4px;">1. Les biens récemment vendus <span class="petit">(' + candidatsVentes.length + ' à moins de 1,5 km — DVF 3 ans et ventes de l\'agence)</span></h3>' +
       '<div id="acm-ventes" class="liste-choix">' + (candidatsVentes.length ? candidatsVentes.map(ligneVente).join("") : '<p class="petit">Aucune vente comparable trouvée' + (dvf.length ? " à moins de 1,5 km sur 24 mois (" + dvf.length + " ventes DVF dans la commune)" : donnees.commune ? " (fichier DVF de la commune " + escH(donnees.commune.code) + " indisponible)" : " (commune introuvable : " + escH((donnees.erreurs || []).join(" ; ") || "geo.api.gouv.fr muet") + ")") + ".</p>") + "</div>" +
-      '<h3 style="margin:14px 0 4px;">2. Les biens en concurrence <span class="petit">(nos annonces, les mandats de l\'ALFA et Bien\'ici — même type, même commune' + (portails.erreur ? " ; Bien'ici indisponible : " + escH(portails.erreur) : "") + ")</span></h3>" +
+      '<h3 style="margin:14px 0 4px;">2. Les biens en concurrence <span class="petit">(nos annonces, les mandats de l\'ALFA et Bien\'ici — même type, même commune, les plus proches d\'abord ; pré-cochés : les 4 prix les plus proches de l\'estimation' + (portails.erreur ? " ; Bien'ici indisponible : " + escH(portails.erreur) : "") + ")</span></h3>" +
       '<div id="acm-conc" class="liste-choix haute">' + (candidatsConc.length ? candidatsConc.map(ligneConc).join("") : '<p class="petit">Aucun bien en vente comparable pour le moment.</p>') + "</div>" +
       '<details style="margin-top:6px;"><summary class="petit" style="cursor:pointer;">+ Ajouter un bien vu sur un portail (adresse retrouvée sur précisément.fr)</summary>' +
       '<div class="grille-champs" style="margin-top:6px;"><label style="grid-column:1/-1;">Adresse<input id="acm-m-adresse" placeholder="9 allée Lamartine, Le Taillan-Médoc" /></label>' +
@@ -3127,7 +3277,10 @@
       const inp = ev.target; if (!inp.matches || !inp.matches("[data-photo]")) return;
       const f = inp.files && inp.files[0]; if (!f) return;
       try {
-        const photo = await reduireImage(f, 1200, 0.82);
+        // Rangée à part (table dédiée), jamais dans la saisie du livret : 900 px, poids borné.
+        let photo = await reduireImage(f, 900, 0.78);
+        if (photo.length > 150000) photo = await reduireImage(f, 700, 0.7);
+        await api("/crm/parcours/" + id + "/acm/photos/" + encodeURIComponent(inp.dataset.photo), { method: "PUT", json: { photo } });
         const cand = candidatsConc.find((x) => x.id === inp.dataset.photo); if (cand) cand.photo = photo;
         const vig = document.querySelector('[data-vignette="' + inp.dataset.photo + '"]');
         if (vig) { const img = document.createElement("img"); img.src = photo; img.alt = ""; img.className = "vignette-conc"; img.dataset.vignette = inp.dataset.photo; vig.replaceWith(img); }
@@ -3153,7 +3306,7 @@
       // Des lignes retouchées à la main ne sont plus écrasées par la commission à la réouverture.
       const auto = depuisCommission || [];
       const source = com.length === auto.length && com.every((l, i) => l.nb === auto[i].nb && l.basse === auto[i].basse && l.haute === auto[i].haute) ? acm.commission_source : "main";
-      return { ...acm, commission_source: source, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes), concurrence: cochees("[data-conc]", candidatsConc),
+      return { ...acm, commission_source: source, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes), concurrence: cochees("[data-conc]", candidatsConc).map(({ photo, ...reste }) => reste),
         commission: com, acheteurs_inclure: $("acm-ach-inclure").checked, acheteurs_texte: $("acm-ach-texte").value.trim(), acheteurs_n: ach.length, acheteurs_budgets: budgets,
         taux: num("acm-taux") ?? 3.9, assurance: num("acm-assurance") ?? 0.34, apport: num("acm-apport") || 0, duree: parseInt($("acm-duree").value, 10) || 25 };
     };
@@ -3166,7 +3319,12 @@
         etat.textContent = "Cartes, photos et assemblage du livret…";
         const urlAcm = await genererLivretPrix(p, d, donnees);
         await api("/crm/parcours/" + id + "/etape", { json: { etape: "acm" } });
-        documentPret(id, "Livret prix prêt", urlAcm, window.__dernierGuide && window.__dernierGuide.fichier);
+        // Compte-rendu des photos (biens en concurrence) et version du script : de quoi diagnostiquer sans deviner.
+        const dbg = (window.__dernierGuide && window.__dernierGuide.debug) || { photos: 0, sansPhoto: 0, sources: [] };
+        const version = ((document.querySelector('script[src*="admin.js"]') || {}).src || "").replace(/^.*v=/, "") || "?";
+        const note = "Biens en concurrence : " + dbg.photos + " photo(s) embarquée(s), " + dbg.sansPhoto + " sans photo" +
+          (dbg.sources.length ? "\n" + dbg.sources.map((x) => x.replace(/:ok$/, " ✓").replace(/:non$/, " ✗")).join("\n") : "") + "\nScript v" + version;
+        documentPret(id, "Livret prix prêt", urlAcm, window.__dernierGuide && window.__dernierGuide.fichier, note);
       } catch (e) { toast(e.message, true); etat.textContent = ""; btn.disabled = false; }
     });
   }
@@ -3316,8 +3474,16 @@
       img.onerror = () => { resolve(""); if (urlTmp) URL.revokeObjectURL(urlTmp); };
       if (typeof source === "string") img.src = source; else { urlTmp = URL.createObjectURL(source); img.src = urlTmp; }
     });
+    // La photo d'un bien en concurrence, dans l'ordre : posée à la main (table
+    // dédiée), vignette fraîche (ALFA via l'agent, nos annonces), sinon le relais
+    // sur l'URL de l'annonce. Jamais a.photo relu de la saisie (tronqué à 3 000 caractères).
+    let photosPosees = {}; try { photosPosees = (await api("/crm/parcours/" + p.id + "/acm/photos")).photos || {}; } catch { photosPosees = {}; }
+    const frais = new Map([...(donnees.amepi || []).map((x) => ["amepi:" + x.id, x]), ...(donnees.annonces || []).map((x) => ["agence:" + x.id, x])]);
+    const livretDebug = { photos: 0, sansPhoto: 0, sources: [] };
     const embarquerPhoto = async (a) => {
-      let source = a.photo || "";
+      const f = frais.get(a.id);
+      let source = photosPosees[a.id] || (f && f.photo && /^data:image\//.test(f.photo) ? f.photo : "");
+      if (!source && f && f.image) a = { ...a, image: f.image };
       if (!source && a.image) { try { const r = await fetch(API + "/crm/parcours-image?u=" + encodeURIComponent(a.image), { headers: { Authorization: "Bearer " + account().session } }); if (r.ok) source = await r.blob(); } catch { source = ""; } }
       if (!source) return null;
       const jpeg = await decoderPhoto(source);
@@ -3382,8 +3548,9 @@
       for (let k = 0; k < 2 && i + k < conc.length; k++) {
         const a = conc[i + k], y0 = 100 + k * 340;
         const photo = await embarquerPhoto(a);
-        if (photo) imageCadree(pg, photo, G, y0, CW, CH);
-        else { rect(pg, G, y0, CW, CH, { color: sable, borderColor: or, borderWidth: 0.8 }); ecrireCentre(pg, "photo non disponible", G + CW / 2, y0 + CH / 2 + 3, 9, fR, gris); }
+        livretDebug.sources.push(a.id + ":" + (photo ? "ok" : "non"));
+        if (photo) { livretDebug.photos++; imageCadree(pg, photo, G, y0, CW, CH); }
+        else { livretDebug.sansPhoto++; rect(pg, G, y0, CW, CH, { color: sable, borderColor: or, borderWidth: 0.8 }); ecrireCentre(pg, "photo non disponible", G + CW / 2, y0 + CH / 2 + 3, 9, fR, gris); }
         ecrire(pg, fmtPrix(a.prix), XF, y0 + 22, 18, fB, noir);
         if (fmtM2(a)) ecrire(pg, "soit " + fmtM2(a), XF, y0 + 38, 10, fS, gris);
         couper(a.titre || "", fS, 10, D - XF).slice(0, 2).forEach((l, j) => ecrire(pg, l, XF, y0 + 58 + j * 13, 10, fS, noir));
@@ -3480,16 +3647,17 @@
     doc.setTitle("Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "livret-prix-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf" }; // relu par les parcours navigateur
+    window.__dernierGuide = { url, octets, debug: livretDebug, fichier: "livret-prix-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf" }; // relu par les parcours navigateur
     return url;
   }
 
   // Après un guide ou un livret : on ne quitte pas le parcours. L'onglet ne
   // s'ouvre que sur un clic (jamais bloqué, même sur téléphone) ; « Enregistrer »
   // télécharge ; « Retour » rouvre la fiche.
-  function documentPret(id, titre, url, fichier) {
+  function documentPret(id, titre, url, fichier, note) {
     ouvrirModale("✅ " + titre,
       '<p class="aide">Le document est prêt. Ouvrez-le dans un nouvel onglet pour le lire ou l\'imprimer, ou enregistrez-le ; la fiche du parcours vous attend derrière.</p>' +
+      (note ? '<p class="petit" id="doc-note" style="white-space:pre-wrap;">' + escH(note) + "</p>" : "") +
       '<div class="barre"><a class="btn btn-or" id="doc-ouvrir" href="' + escH(url) + '" target="_blank" rel="noopener">📄 Ouvrir le document</a>' +
       '<a class="btn" id="doc-enregistrer" href="' + escH(url) + '" download="' + escH(fichier || "document.pdf") + '">⬇ Enregistrer</a></div>',
       '<button class="btn btn-or" id="doc-retour">← Retour au parcours</button>');
@@ -3620,6 +3788,21 @@
   $("btn-nouveau-contact").addEventListener("click", () => ouvrirContact(null));
   $("btn-nettoyage").addEventListener("click", ouvrirNettoyage);
   $("btn-diagnostic").addEventListener("click", ouvrirDiagnostic);
+  // Les biens estimés sans position, par paquets de 12, jusqu'à épuisement (bouton réutilisable).
+  $("btn-positionner-estimes").addEventListener("click", async () => {
+    const btn = $("btn-positionner-estimes"); btn.disabled = true;
+    let total = 0, restants = 0, introuvables = 0;
+    try {
+      for (let tour = 0; tour < 400; tour++) {
+        const g = await api("/crm/contacts/estimes/positionner", { json: {} });
+        total += g.geocodes || 0; introuvables += (g.traites || 0) - (g.geocodes || 0); restants = g.restants || 0;
+        btn.textContent = "📍 Positionnement… " + total + " placé(s), " + restants + " restant(s)";
+        if (!g.traites || !restants) break;
+      }
+      toast(total + " bien(s) estimé(s) positionné(s)" + (introuvables ? ", " + introuvables + " adresse(s) introuvable(s)" : "") + (restants ? ", " + restants + " restant(s) : recliquez" : ""));
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = false; btn.textContent = "📍 Positionner les biens estimés";
+  });
   $("btn-import").addEventListener("click", ouvrirImport);
   $("btn-nouveau-parcours").addEventListener("click", nouveauParcours);
   $("parcours-recherche").addEventListener("input", rendreParcours);

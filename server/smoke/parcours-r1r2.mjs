@@ -137,7 +137,7 @@ export default async function () {
     await page.waitForFunction(() => document.querySelectorAll(".etape.faite").length === 3, null, { timeout: 8000 });
     const guide2 = await page.evaluate(async () => {
       const doc = await window.PDFLib.PDFDocument.load(window.__dernierGuide.octets);
-      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength };
+      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength, debug: window.__dernierGuide.debug || null };
     });
     ok(guide2.pages === 20 && /Vendons ensemble/.test(guide2.titre) && /MOUNEYRES/.test(guide2.titre) && guide2.octets > 1000000,
       "le guide R2 fait 20 pages au nom du client, cartes et polices embarquées (" + JSON.stringify(guide2) + ")");
@@ -181,8 +181,19 @@ export default async function () {
     await page.click("#com-retour");
     await page.waitForSelector(".etapes", { timeout: 8000 });
     // Le livret prix : ventes DVF autour du bien, commission d'évaluation, financement → PDF.
+    // Un mandat ALFA déposé par l'agent, avec sa vignette : il doit arriver dans la sélection ET dans le PDF.
+    const pxAcm = (await api("/crm/parcours", { headers: admin.auth })).json.parcours[0];
+    const ficheAcm = (await api("/crm/parcours/" + pxAcm.id, { headers: admin.auth })).json;
+    const cleAgent = (await api("/crm/amepi/cle", { headers: admin.auth, body: {} })).json.cle;
+    const depot = await api("/crm/amepi/import", { headers: { "X-Agent-Key": cleAgent }, body: { debut: true, fini: true, total: 1, sources: ["2"], mandats: [
+      { id: 9001, mandateRef: "SMK-9001", agencyName: "ALFA Smoke", sourceTypeId: 2, assetTypeId: 2, price: 331000, publicTown: ficheAcm.ville, publicPostalCode: ficheAcm.cp || "33160", numberOfRooms: 5, numberOfBedrooms: 3, livingArea: 112, landArea: 520, latitude: ficheAcm.lat || 44.9, longitude: ficheAcm.lng || -0.72, transactionStateId: 1, thumbnailUrl: "https://amepistorageprod.blob.core.windows.net/x/9001.jpg" }] } });
+    const vignette = await api("/crm/amepi/photos", { headers: { "X-Agent-Key": cleAgent }, body: { photos: [{ id: "9001", photo: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==" }] } });
+    ok(depot.status === 200 && depot.json.stats.biens === 1 && vignette.status === 200 && vignette.json.gardees === 1, "un mandat ALFA et sa vignette sont déposés par l'agent (" + JSON.stringify(depot.json.stats) + ")");
     await page.click('[data-guide="acm"]');
     await page.waitForSelector("#acm-generer", { timeout: 20000 });
+    ok((await page.locator('[data-conc="amepi:9001"]').count()) === 1 && (await page.locator('img.vignette-conc[data-vignette="amepi:9001"]').count()) === 1 && (await page.locator('img.vignette-conc[data-vignette^="bienici:"]').count()) === 2,
+      "le mandat ALFA et les annonces Bien'ici sont proposés avec leur vignette");
+    await page.check('[data-conc="amepi:9001"]'); for (const cb of await page.locator('[data-conc^="bienici:"]').all()) await cb.check();
     const nbVentes = await page.locator("[data-vente]").count();
     ok(nbVentes >= 1 && (await page.locator("[data-vente]:checked").count()) >= 1, "le livret propose les ventes DVF à moins de 1,5 km, les premières cochées (" + nbVentes + " " + JSON.stringify(await page.evaluate(() => window.__acmDebug)) + ")");
     const pxListe = (await api("/crm/parcours", { headers: admin.auth })).json.parcours;
@@ -227,8 +238,9 @@ export default async function () {
     await page.waitForFunction(() => document.querySelectorAll(".etape.faite").length === 4, null, { timeout: 8000 });
     const livret = await page.evaluate(async () => {
       const doc = await window.PDFLib.PDFDocument.load(window.__dernierGuide.octets);
-      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength };
+      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength, debug: window.__dernierGuide.debug || null };
     });
+    ok(livret.debug && livret.debug.photos >= 3 && livret.debug.sansPhoto === 1, "le livret embarque les photos des biens en concurrence (ALFA via la vignette de l'agent, Bien'ici via le relais) ; seul le bien saisi à la main sans photo n'en a pas (" + JSON.stringify(livret.debug) + ")");
     ok(livret.pages >= 13 && /Livret prix/.test(livret.titre) && /MOUNEYRES/.test(livret.titre), "le livret prix est assemblé : pages fixes, ventes retenues, toutes les ventes DVF, concurrence, commission, acheteurs, financement (" + JSON.stringify(livret) + ")");
     await garderGuide(page, livret.octets, "livret-prix-smoke.pdf");
     // Un co-propriétaire, créé depuis la fiche : il apparaît sur la fiche, dans le mail et dans la liste.

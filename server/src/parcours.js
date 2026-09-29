@@ -16,7 +16,7 @@
    que le conseiller a déjà envoyé à la main.
    ========================================================================= */
 import { now, randId, randToken } from "./util.js";
-import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, genrePrenom, dossierVendu, adresseDossier } from "./crm.js";
+import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier } from "./crm.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
@@ -829,6 +829,16 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     diagLivret = { le: now(), cle, resultat: r };
     return c.json(r);
   });
+  // Positionne (BAN puis IGN, en file indienne) un paquet de biens estimés de la
+  // commune du bien qui n'ont pas encore de position : le guide R2 les met sur
+  // sa carte. Le navigateur rappelle tant que `restants` > 0.
+  app.post("/crm/parcours/:id/estimes/positionner", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    try { return c.json(await geocoderEstimesCommune(env, db, ctx.agency.id, p.px.cp, p.est.ville, 12)); }
+    catch (e) { return err(c, 502, e.message); }
+  });
   app.get("/crm/parcours/:id/environnement", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const p = await lireParcoursDe(ctx, c.req.param("id"));
@@ -856,9 +866,34 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         [cle, JSON.stringify(data), now()]);
     }
     const ventes = await ventesAutour(ctx.agency.id, lat, lng, 1000);
-    return c.json({ lat, lng, commune: data.commune, commodites: data.commodites, erreur: data.erreur || "", ventes: ventes.slice(0, 80), categories: CATEGORIES.map(([cle, libelle]) => ({ cle, libelle })) });
+    const estimations = await estimationsAutour(ctx.agency.id, lat, lng, 1000, p.est.id, p.proprietaires.map((x) => x.id));
+    // Les estimés de la commune pas encore positionnés : le navigateur peut les faire géocoder (route ci-dessous).
+    const attenteEst = await db.get(
+      `SELECT COUNT(*) AS n FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
+       WHERE c.agency_id = ? AND c.adresse <> '' AND c.types LIKE '%estime%' AND (c.cp = ? OR c.ville = ? COLLATE NOCASE)
+         AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0))`, [ctx.agency.id, p.px.cp || "-", p.est.ville || "-"]);
+    return c.json({ lat, lng, commune: data.commune, commodites: data.commodites, erreur: data.erreur || "", ventes: ventes.slice(0, 80), estimations, estimationsEnAttente: (attenteEst && attenteEst.n) || 0, categories: CATEGORIES.map(([cle, libelle]) => ({ cle, libelle })) });
   });
   // Les ventes de l'agence autour d'un point : ventes importées + dossiers
+  // Les biens déjà estimés par l'agence autour du bien (carte du guide R2) :
+  // contacts typés « estime » géocodés (import CenturyNet, Studio Estimation)
+  // et fiches estimation positionnées, sauf celle du parcours. Dédoublonnés
+  // par position, les plus proches d'abord.
+  async function estimationsAutour(agencyId, lat, lng, rayon, exclureId, contactsExclus = []) {
+    const dLat = rayon / 111320, dLng = rayon / (111320 * Math.cos(lat * Math.PI / 180));
+    const boite = (t) => `${t}.lat BETWEEN ${lat - dLat} AND ${lat + dLat} AND ${t}.lng BETWEEN ${lng - dLng} AND ${lng + dLng}`;
+    const vus = new Set(), liste = [];
+    const poser = (x) => { const k = x.lat.toFixed(4) + "," + x.lng.toFixed(4); if (vus.has(k) || x.dist > rayon) return; vus.add(k); liste.push(x); };
+    for (const r of await db.all(
+      `SELECT c.id, c.adresse, c.ville, g.lat, g.lng FROM crm_contacts c JOIN crm_geo g ON g.contact_id = c.id
+       WHERE c.agency_id = ? AND c.types LIKE '%estime%' AND ${boite("g")}`, [agencyId]))
+      if (!contactsExclus.includes(r.id)) poser({ id: "ct:" + r.id, adresse: adresseDossier(r.adresse, r.ville), lat: r.lat, lng: r.lng, dist: distanceM(lat, lng, r.lat, r.lng) });
+    for (const r of await db.all(
+      `SELECT e.id, e.adresse, e.ville, e.lat, e.lng, e.statut FROM crm_estimations e
+       WHERE e.agency_id = ? AND e.id <> ? AND NOT (e.lat = 0 AND e.lng = 0) AND ${boite("e")}`, [agencyId, exclureId || ""]))
+      poser({ id: "es:" + r.id, adresse: adresseDossier(r.adresse, r.ville), statut: r.statut, lat: r.lat, lng: r.lng, dist: distanceM(lat, lng, r.lat, r.lng) });
+    return liste.sort((a, b) => a.dist - b.dist).slice(0, 60);
+  }
   // vendus du Suivi, à `rayon` mètres, les plus proches d'abord.
   async function ventesAutour(agencyId, lat, lng, rayon) {
     const dLat = rayon / 111320, dLng = rayon / (111320 * Math.cos(lat * Math.PI / 180));
@@ -958,6 +993,31 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     await db.run(
       "INSERT INTO crm_parcours_acm (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(estimation_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
       [p.est.id, ctx.agency.id, data, now()]);
+    return c.json({ ok: true });
+  });
+  // Photos posées à la main sur les biens en concurrence : une ligne par bien,
+  // relues à la génération du livret (jamais stockées dans la saisie acm).
+  app.get("/crm/parcours/:id/acm/photos", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    const rows = await db.all("SELECT conc_id, photo FROM crm_parcours_photos WHERE estimation_id = ? AND agency_id = ?", [p.est.id, ctx.agency.id]);
+    const photos = {}; for (const r of rows) photos[r.conc_id] = r.photo;
+    return c.json({ photos });
+  });
+  app.put("/crm/parcours/:id/acm/photos/:cid", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    const cid = strip(c.req.param("cid"), 80);
+    const b = await c.req.json().catch(() => null);
+    const photo = String((b && b.photo) || "");
+    if (!cid) return err(c, 400, "Bien inconnu.");
+    if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(photo)) return err(c, 400, "Photo attendue en JPEG.");
+    if (photo.length > 160000) return err(c, 400, "Photo trop lourde (160 Ko au plus).");
+    await db.run(
+      "INSERT INTO crm_parcours_photos (estimation_id, conc_id, agency_id, photo, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(estimation_id, conc_id) DO UPDATE SET photo = excluded.photo, updated_at = excluded.updated_at",
+      [p.est.id, cid, ctx.agency.id, photo, now()]);
     return c.json({ ok: true });
   });
   // Les données comparables autour du bien : position, commune (code INSEE
@@ -1169,7 +1229,12 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     let hote = ""; try { hote = new URL(u).hostname; } catch { hote = ""; }
     const HOTES_PORTAILS = ["file.bienici.com", "images.century21.fr", "photos.bienici.com", ...(env.BIENICI_BASE ? [new URL(env.BIENICI_BASE).hostname] : [])];
     const formes = [...new Set([u, relative].filter(Boolean))];
+    // Les photos des annonces Bien'ici des autres agences vivent chez leur
+    // logiciel (Hektor, Apimo, Netty…), pas sur file.bienici.com : toute image
+    // en https sur un vrai nom de domaine passe (le relais exige ensuite un
+    // content-type image/* et 4 Mo au plus) ; en http, seuls les hôtes connus.
     const connue = HOTES_PORTAILS.includes(hote)
+      || (/^https:\/\//.test(u) && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(hote))
       || (await db.get(`SELECT 1 AS ok FROM crm_annonces WHERE agency_id = ? AND image IN (${formes.map(() => "?").join(",")})`, [ctx.agency.id, ...formes]))
       || (await db.get("SELECT 1 AS ok FROM crm_amepi WHERE agency_id = ? AND image = ?", [ctx.agency.id, u]));
     if (!connue) return err(c, 404, "Image inconnue.");

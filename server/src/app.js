@@ -973,6 +973,19 @@ export function createApp(env) {
     if (!r) return err(c, 404, "Entrée de corbeille introuvable (ou déjà restaurée).");
     return c.json({ ok: true, ...r });
   });
+  // Retour groupé, en Prospect, des fiches retirées par le remplacement des acquéreurs.
+  app.post("/crm/corbeille/restaurer-acquereurs", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json(await CRM.restaurerAcquereursEnProspects(db, ctx.agency.id, 60));
+  });
+  // Après un import : les fiches d'une typologie non touchées par l'import passent en prospect.
+  app.post("/crm/contacts/retyper-absents", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => ({}));
+    const avant = Number(b && b.avant) || 0;
+    if (!avant || avant > now() + 60 || avant < now() - 86400) return err(c, 400, "Repère temporel de l'import invalide (moins d'un jour).");
+    return c.json(await CRM.retyperAbsents(db, ctx.agency.id, String(b.type || ""), String(b.en || "prospect"), avant, 300));
+  });
   // Suppression en masse (sélection dans la liste) : 200 fiches par appel,
   // en cascade comme la suppression unitaire.
   app.post("/crm/contacts/supprimer", async (c) => {
@@ -1026,6 +1039,19 @@ export function createApp(env) {
   });
 
   // Import d'extraction : lignes déjà mappées côté navigateur (colonne → champ).
+  // Vérification d'un fichier contre la base, sans rien importer (admin).
+  app.get("/crm/contacts/compteurs", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json(await CRM.compteursContacts(db, ctx.agency.id));
+  });
+  app.post("/crm/contacts/concordance", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => null);
+    if (!b || !Array.isArray(b.rows) || !b.rows.length) return err(c, 400, "Aucune ligne à vérifier.");
+    if (b.rows.length > CRM_BULK_MAX) return err(c, 400, `Vérification limitée à ${CRM_BULK_MAX} lignes à la fois.`);
+    const type = ["acquereur", "vendeur", "estime", "bailleur", "locataire", "prospect"].includes(String(b.type)) ? String(b.type) : "";
+    return c.json(await CRM.concordanceContacts(db, ctx.agency.id, b.rows, type));
+  });
   app.post("/crm/contacts/bulk", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const b = await c.req.json().catch(() => null);
@@ -1173,6 +1199,13 @@ export function createApp(env) {
   // Projets d'achat automatiques depuis l'extraction acquéreurs (admin) :
   // appelé par l'import après les fiches contact. Idempotent — un contact
   // déjà relié à un projet d'achat n'est jamais retouché.
+  // Avant un ré-import du fichier acquéreurs : on repart de zéro (projets
+  // d'achat effacés, fiches « acquereur » à la corbeille, types retirés
+  // ailleurs). 150 fiches par appel, l'Administration boucle.
+  app.post("/crm/acquereurs/remplacer", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json(await CRM.remplacerAcquereurs(db, ctx.agency.id, ctx.user.id, 150));
+  });
   app.post("/crm/projets/auto", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const b = await c.req.json().catch(() => null);
@@ -1795,6 +1828,14 @@ export function createApp(env) {
     return Math.round(2 * rayonTerre * Math.asin(Math.sqrt(a)));
   };
 
+  // Positionne un paquet de biens estimés (contacts typés estime) sans position,
+  // toute l'agence : après un import, l'Administration rappelle jusqu'à
+  // `restants` = 0 (12 adresses par appel, BAN puis IGN en file indienne).
+  app.post("/crm/contacts/estimes/positionner", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    try { return c.json(await CRM.geocoderEstimesCommune(env, db, ctx.agency.id, "", "", 12)); }
+    catch (e) { return err(c, 502, e.message); }
+  });
   app.get("/crm/estimation/quartier", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const lat = parseFloat(c.req.query("lat")), lng = parseFloat(c.req.query("lng"));

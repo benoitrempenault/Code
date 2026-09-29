@@ -680,7 +680,33 @@ lib.mjs). Fiche du parcours : bloc du bien (`px-surface`, `px-terrain`,
 fiche ») ; `ouvrirParcours` charge `p.bien` et affiche une puce rouge « à
 renseigner : … » dans le résumé si surface/chambres/pièce de vie manquent. Adresse
 cliquable vers Google Maps (`lienPlan`, `a.plan`) dans la fenêtre commission et sur
-la page publique commission.html (ouvre l'appli Plans sur téléphone). Livret : toute saisie s'enregistre d'elle-même (`change` sur modale-corps débouncé 500 ms, suppression de ligne comprise, et « Retour » sauve avant de revenir) ; `lire()` garde les lignes avec nb OU de/à et pose `commission_source: "main"` dès que les lignes diffèrent de `lignesDepuisCommission` (sinon la commission les ré-écrasait à la réouverture — régression du spread `...acm`). Choix d'une suggestion : le champ est posé sans évènement `input` (sinon la recherche repartait et la liste restait ouverte). Les 4 champs du bien de la fiche s'enregistrent au `change` (toast « Bien enregistré »), pas seulement au bouton « Enregistrer la fiche ». `PUT /crm/parcours/:id` → `reporterSurContact` : les champs civilité/prénom/nom/e-mail/téléphone/adresse/CP/ville présents dans le corps et non vides remontent sur la fiche contact principale (`est.contact_id`), un champ vidé n'efface rien. `chargerConseillers` lit la liste d'abord et lance `importerConseillers` (photos du site, lent) en tâche de fond ; au démarrage `chargerParcours()` et `chargerConseillers()` partent en parallèle (la liste des parcours attendait l'import) ; `brancherMenuConseillers(selId)` recharge le menu « Conseiller » au focus/touchstart s'il est vide (téléphone). **Estimation ↔ livret (28/09)** : `GET /crm/parcours/:id/acm` complète l'acm avec le bien de
+la page publique commission.html (ouvre l'appli Plans sur téléphone). Livret : toute saisie s'enregistre d'elle-même (`change` sur modale-corps débouncé 500 ms, suppression de ligne comprise, et « Retour » sauve avant de revenir) ; `lire()` garde les lignes avec nb OU de/à et pose `commission_source: "main"` dès que les lignes diffèrent de `lignesDepuisCommission` (sinon la commission les ré-écrasait à la réouverture — régression du spread `...acm`). Choix d'une suggestion : le champ est posé sans évènement `input` (sinon la recherche repartait et la liste restait ouverte). Les 4 champs du bien de la fiche s'enregistrent au `change` (toast « Bien enregistré »), pas seulement au bouton « Enregistrer la fiche ». `PUT /crm/parcours/:id` → `reporterSurContact` : les champs civilité/prénom/nom/e-mail/téléphone/adresse/CP/ville présents dans le corps et non vides remontent sur la fiche contact principale (`est.contact_id`), un champ vidé n'efface rien. `chargerConseillers` lit la liste d'abord et lance `importerConseillers` (photos du site, lent) en tâche de fond ; au démarrage `chargerParcours()` et `chargerConseillers()` partent en parallèle (la liste des parcours attendait l'import) ; `brancherMenuConseillers(selId)` recharge le menu « Conseiller » au focus/touchstart s'il est vide (téléphone). **Imports CenturyNet (28/09)** : preset `contacts` reconnu d'office (en-têtes « Profils du
+contact » + « Nom voie » + « Adresse Normalisée » : l'extraction CONTACT par tranches de
+5 000 lignes, 34 colonnes) → `lignesPresetContacts` : civilité (CIVILITES_C21), prénom, nom
+(sinon raison sociale), e-mail, téléphone, adresse = n° + type voie + nom voie (+ complément ;
+vidée si pas 3 lettres qui se suivent), CP, ville, dateNaissance (série Excel, normalizeDate),
+types = « Profils du contact » (« retiré de la vente » retiré avant typesDepuisLibelle),
+notes = Notes + « Dernier contact : … », opt_out si Opt-In = False, archivés ignorés. Fichier
+acquéreurs (preset `acquereurs`, 918 lignes toutes actives) : case « Remplacer toute la base
+acquéreurs » (cochée par défaut, confirm()) → boucle `POST /crm/acquereurs/remplacer`
+(admin, `remplacerAcquereurs` : projets kind achat effacés avec liaisons et critères, fiches
+typées seulement acquereur → `supprimerContacts` corbeille 30 j, les mixtes perdent juste le
+type ; 150 fiches par appel, `restants`) puis import normal + projets. Vérification sans import : `GET /crm/contacts/compteurs` (total, sansType, parType, projetsAchat, corbeille) et `POST /crm/contacts/concordance` {rows ≤ 400, type} (même rapprochement que l'import → distincts / presents / absents / avecType / exemplesAbsents) ; bouton « 🔍 Vérifier la concordance » dans l'écran d'import pour les 3 presets (`lignesPreset()` factorise les lignes). Retour groupé : `POST /crm/corbeille/restaurer-acquereurs` (`restaurerAcquereursEnProspects` : entrées corbeille contact dont le payload a types == ["acquereur"], 60 par appel ; si la personne existe déjà par e-mail ou nom+prénom → entrée close sans doublon, sinon restaurée sans ses liaisons projet et retypée ["prospect"]) — bouton « ↩ Faire revenir les acquéreurs retirés, en Prospect » dans la corbeille. Import estimés : case « absents du fichier → Prospect » (cochée) → après les lots, boucle `POST /crm/contacts/retyper-absents` {type: estime, en: prospect, avant: début de l'import − 5 s} (`retyperAbsents` : fiches du type avec updated_at < avant, 300 par appel ; l'upsert réécrit updated_at des fiches fusionnées, donc « touchée » = présente dans le fichier). Assets admin `?v=37`.
+Fichiers reçus le 28/09 : estime.xlsx (2 051), acquereur.xlsx (918), CONTACT_8 à 11 (16 952
+contacts, tous non archivés ; tranches 1 à 7 non reçues).
+**Carte du R2, biens estimés (28/09)** : `/crm/parcours/:id/environnement` renvoie aussi
+`estimations` (`estimationsAutour` : contacts typés estime géocodés + fiches
+crm_estimations positionnées sauf celle du parcours, dédoublonnés par position à 4
+décimales, ≤ 1 km, ≤ 60) ; page 8 du guide R2 : points bleus #2f6f9f (rayon 8) sous les
+ventes or, légende à 3 lignes (cadre 94 pt) « Biens estimés par l'agence » + compte. Les contacts
+du parcours (propriétaires) sont exclus. Comme les estimés se géocodent par lots de fond
+(des milliers en attente en prod), `POST /crm/parcours/:id/estimes/positionner`
+(`geocoderEstimesCommune` : estimés du même CP ou ville sans position, 12 par appel,
+BAN puis IGN via `geocoderLot`, cœur extrait de `geocoderVentes`) est appelé en boucle
+par genererGuideR2 avant la carte (≤ 40 appels, « N restant(s) ») ; `environnement`
+renvoie `estimationsEnAttente` (toast si des adresses restent introuvables).
+`POST /crm/contacts/estimes/positionner` (admin, même helper sans commune, LIMIT 400) derrière le bouton « 📍 Positionner les biens estimés » de l'onglet Contacts (boucle ≤ 400 appels, compte placés / introuvables / restants) — à cliquer après l'import du fichier estimé C21 (preset « biens », 2 051 lignes le 28/09). Assets admin `?v=34`.
+**Estimation ↔ livret (28/09)** : `GET /crm/parcours/:id/acm` complète l'acm avec le bien de
 la fiche estimation (`crm_estimation_bien`, écrit par Studio Estimation) pour les champs
 vides — surface, terrain, prix ← prixEnvisage, chambres ← bien.chambres sinon nombre de
 lignes « Chambre… » de piecesDetail, piece_vie ← bien.pieceVie sinon la ligne séjour /
@@ -690,6 +716,24 @@ aussi via p.bien). `PUT …/acm` → `completerBien` : l'estimation reçoit surf
 chambres/pieceVie qu'elle n'avait pas, jamais d'écrasement. `sanitizeBienEstimation`
 connaît `chambres` et `pieceVie` ; Studio Estimation les saisit (fb-chambres,
 fb-piece-vie, estimation.js?v=2). Assets admin `?v=31`.
+**Consigne de Benoît (28/09)** : ne plus lui parler du robot des portails (tools/agent-portails, Studio Bilans) — sujet clos de son côté. Photos du livret vérifiées en prod le 28/09 à 20h01 : 9 photos embarquées sur 9 biens Bien'ici.
+**Relais d'images (28/09 soir)** : `/crm/parcours-image` accepte toute URL https sur un vrai nom de domaine (les photos Bien'ici des autres agences sont chez Hektor, Apimo, Netty… : seule l'annonce Century 21 passait) ; en http seuls HOTES_PORTAILS et les images connues en base ; toujours content-type image/* et ≤ 4 Mo.
+**Photos du livret, correctif (28/09)** : `nettoyerJson` coupe les chaînes de l'acm à 3 000
+caractères → les data URL (vignettes ALFA, photos posées) rangées dans acm.concurrence
+étaient tronquées, d'où « photo non disponible ». Désormais `lire()` retire `photo` des
+biens cochés ; table `crm_parcours_photos` (estimation_id, conc_id, photo JPEG ≤ 160 Ko)
+via `GET /crm/parcours/:id/acm/photos` et `PUT …/acm/photos/:cid` (membre, périmètre) ;
+l'upload 📷 fait un PUT (900 px q0,78, sinon 700 px) ; `ouvrirAcm` charge ces photos avec
+acm et donnees. `genererLivretPrix` : `embarquerPhoto` prend la photo posée, sinon la
+vignette FRAÎCHE de `donnees` (amepi:`id`, agence:`id`), sinon le relais sur l'URL fraîche
+ou celle de la saisie ; jamais a.photo relu de l'acm. Biens en concurrence triés : distance
+au bien (dist serveur, sinon haversine lat/lng ↔ donnees.lat/lng), sans position → même
+commune (cp ou ville du parcours) avant les autres ; les biens ajoutés à la main restent en
+tête. Pré-cochage sans sélection enregistrée : les 4 biens au prix le plus proche de `acm.prix || haute || basse` (`prechoixConc`), sinon les 4 premiers. Smoke parcours : dépôt d'un mandat ALFA (id 9001, ville du parcours) + vignette par la clé d'agent, faux Bien'ici avec `photos[].url` servies (`/photo/*.jpg`, JPEG 1 px) ; `window.__dernierGuide.debug` {photos, sansPhoto, sources} compte les photos embarquées (attendu ≥ 3, 1 sans photo = bien saisi à la main). Assets admin `?v=40`.
+**Guide R1 p2, passe 3 (28/09)** : `tools/guides/retoucher-guide-r1-passe3.py` (Bugaki non
+versionnée) : le « 2 » des gestionnaires (colonne Saint-Aubin) était 1,5 pt trop bas et 4 pt
+trop à droite ; zone [414,440,454,496] redigée puis « 1 » (421,4 ; 438,7) et « 2 » (419,3 ;
+477,6) reposés en relief ; repère : insert_text à la ligne de base y donne un sommet à y − 33,5.
 **Agent AMEPI (28/09)** : phase Vignettes en boucle (jusqu'à 20 tours de 150, arrêt si un tour ne dépose rien : seuls les échecs restent) ; premier passage réel 28/09 : 1 916 mandats, 148 vignettes au premier tour. `/diag/livret` publie `vignettes` {deposees, mandats_sans_photo} (comptes seulement). Test permanence : les assertions « 4 rendez-vous / 3 après réservation » filtrent `pv === "medard"` car la permanence Caudéran à date fixe (2026-10-01) peut tomber sur « aujourd'hui + 3 ». Smokes : `attendreToast` vide le texte du toast une fois vu (un toast qui traîne 3 s satisfaisait le wait suivant → échec intermittent ligne « signés du conseiller choisi » : le « Bien enregistré » de la saisie précédente écrasait le toast attendu) ; `parcours()` indique fichier:ligne du plantage. CSS téléphone : les règles des étapes du bloc `@media (max-width: 720px)` sont écrites en `.etapes .etape …` (3 classes) parce que les règles générales `.etape .titre` viennent APRÈS dans le fichier et les écrasaient (titre écrasé, boutons en colonne) ; la modale prend `100dvh` (la barre de Safari cachait Effacer / Fermer). Assets admin `?v=29`. (27/09 : un clic sur le voile hors de la fenêtre ne ferme plus la modale — on perdait la saisie ; seuls ×, Retour/Annuler et le bouton « précédent » ferment). Photos du livret : `decoderPhoto` (canvas → JPEG 1200 px, WebP compris) puis `embarquerPhoto` (photo posée, sinon relais) ; relais et acm/donnees résolvent les URL relatives de nos annonces sur `annonces.siteUrl`.
 **Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
 bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la

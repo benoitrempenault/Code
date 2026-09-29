@@ -1112,3 +1112,15 @@ CREATE TABLE IF NOT EXISTS crm_meta_stats (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (agency_id, post_id, jour)
 );
+
+-- Photos posées à la main sur un bien en concurrence du livret prix (data URL
+-- JPEG, une ligne par bien) : jamais dans la saisie acm, dont les chaînes sont
+-- coupées à 3 000 caractères.
+CREATE TABLE IF NOT EXISTS crm_parcours_photos (
+  estimation_id TEXT NOT NULL,
+  conc_id       TEXT NOT NULL,                -- id du bien en concurrence (agence:…, amepi:…, bienici:…, portail:…)
+  agency_id     TEXT NOT NULL REFERENCES agencies(id),
+  photo         TEXT NOT NULL,                -- data:image/jpeg;base64,… (≤ 160 Ko)
+  updated_at    INTEGER NOT NULL,
+  PRIMARY KEY (estimation_id, conc_id)
+);

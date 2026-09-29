@@ -663,7 +663,10 @@ ok(badModel2.status === 400, "modèle hors liste blanche refusé (claude-opus-3-
 // le dépasser (la réservation atomique ferme la course « check-then-act »).
 await db.run("DELETE FROM quota_counters WHERE scope = ?", [agencyId]);
 await db.run("DELETE FROM ai_rate WHERE scope = ?", [agencyId]);
-await db.run("UPDATE agencies SET quota_eur = 2 WHERE id = ?", [agencyId]);
+// Quota calé sur le tarif Opus 4.8 (réservation ≈ 0,19 € pour 8 192 tokens
+// de sortie) : 0,6 € laisse passer ~3 appels sur 10.
+const QUOTA_RAFALE = 0.6;
+await db.run("UPDATE agencies SET quota_eur = ? WHERE id = ?", [QUOTA_RAFALE, agencyId]);
 const burst = await Promise.all(Array.from({ length: 10 }, () =>
   call("/v1/messages", { headers: { Authorization: "Bearer " + s3 }, body: { model: "claude-opus-4-8", max_tokens: 8192, messages: [{ role: "user", content: "test" }] } })
 ));
@@ -671,7 +674,7 @@ const ok200 = burst.filter((r) => r.status === 200).length;
 const ko429 = burst.filter((r) => r.status === 429).length;
 ok(ok200 < 10 && ok200 >= 1 && ko429 >= 4, "rafale de 10 : course fermée (" + ok200 + " passés / " + ko429 + " refusés)");
 const spent = await db.get("SELECT spent_micros FROM quota_counters WHERE scope = ? AND month = ?", [agencyId, (new Date()).getUTCFullYear() + "-" + String((new Date()).getUTCMonth() + 1).padStart(2, "0")]);
-ok((spent?.spent_micros || 0) <= 2 * 1e6, "quota jamais dépassé sous rafale (" + (spent?.spent_micros || 0) + " ≤ " + (2 * 1e6) + ")");
+ok((spent?.spent_micros || 0) <= QUOTA_RAFALE * 1e6, "quota jamais dépassé sous rafale (" + (spent?.spent_micros || 0) + " ≤ " + (QUOTA_RAFALE * 1e6) + ")");
 await db.run("DELETE FROM quota_counters WHERE scope = ?", [agencyId]);
 await db.run("DELETE FROM ai_rate WHERE scope = ?", [agencyId]);
 await db.run("UPDATE agencies SET quota_eur = 20 WHERE id = ?", [agencyId]);
@@ -1097,6 +1100,25 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   const aj2 = ajouts.find((a) => a.id === "aj_2");
   ok(aj2 && aj2.due === "2026-06-20" && aj2.label === "Rappeler le géomètre", "action libre ajoutée : intitulé et date choisis");
   ok(!ajouts.some((a) => a.id === "aj_3"), "action ajoutée déjà faite : hors récap");
+}
+
+/* ---- Annuaire : retrouver le notaire du compromis dans la liste --------- */
+{
+  const src = readFileSync(new URL("../suivi/assets/js/app.js", import.meta.url), "utf8");
+  const bloc = src.slice(src.indexOf("  function annByNom(types, nom) {"), src.indexOf("  // Complète depuis l'annuaire"));
+  const fuzzy = (annuaire, nom) => new Function("annuaire", bloc + "\nreturn annFuzzy(['notaire'], arguments[1]);")(annuaire, nom);
+  const N = (nom, email) => ({ type: "notaire", nom, email });
+  const liste = [N("PULON Antoine", "antoine@pulon.fr"), N("PULON Bertrand", "bertrand@pulon.fr"),
+    N("Me NAUTIACQ (Saint-Médard)", "etude@nautiacq.fr"), N("Sophie DUPIN", "s@dupin.fr"), N("MELLAC", "office@mellac.fr")];
+  const mail = (nom) => (fuzzy(liste, nom) || {}).email || "";
+  ok(mail("Maître Antoine PULON, notaire à Saint-Médard-en-Jalles") === "antoine@pulon.fr", "phrase du compromis (« notaire à … ») → fiche du bon notaire");
+  ok(mail("Me PULON") === "", "patronyme seul avec deux notaires de la famille : on ne devine pas");
+  ok(mail("Me Bertrand NAUTIACQ") === "etude@nautiacq.fr", "fiche annuaire avec la ville entre parenthèses → retrouvée");
+  ok(mail("SCP NAUTIACQ & Associés") === "etude@nautiacq.fr", "nom d'étude (« & Associés ») → retrouvé par le patronyme");
+  ok(mail("Me DUPIN Sophie") === "s@dupin.fr", "ordre prénom / nom inversé → retrouvé");
+  ok(mail("Office notarial MELLAC — Me Claire MELLAC") === "office@mellac.fr", "office + notaire → retrouvé");
+  ok(mail("Me DURAND, notaire à Saint-Médard") === "", "un simple mot de lieu partagé ne rapproche jamais d'une autre étude");
+  ok(mail("Me Bertrand PULON") === "bertrand@pulon.fr", "prénom présent : le bon des deux PULON");
 }
 
 /* ---- Séquestre : comptabilité de l'étude dépositaire -------------------- */
@@ -3521,7 +3543,23 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { adresse: "7 Impasse des Vignes", cp: "33185", ville: "Le Haillan" } });
   await db.run("INSERT INTO crm_ventes (id, agency_id, vendeur, adresse, ville, date_acte, prix, type, cle, created_at, updated_at) VALUES ('vt_pres', ?, 'DUPONT', '9 impasse des Vignes', 'Le Haillan', '2025-06-01', 380000, 'maison', 'vt-pres', 1, 1), ('vt_loin', ?, 'MARTIN', '1 rue Lointaine', 'Bordeaux', '2025-01-01', 250000, 'appartement', 'vt-loin', 1, 1)", [agId, agId]);
   await db.run("INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES ('vt_pres', ?, 44.9030, -0.6790, 'x', 1, 'x', 1), ('vt_loin', ?, 44.8400, -0.5800, 'y', 1, 'y', 1)", [agId, agId]);
+  // Un bien déjà estimé par l'agence à côté (contact typé estime, géocodé), un autre trop loin.
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "ESTIMEPRES", prenom: "Paul", adresse: "11 impasse des Vignes", ville: "Le Haillan", types: "estime" }, { nom: "ESTIMELOIN", prenom: "Luc", adresse: "1 rue Loin", ville: "Bordeaux", types: "estime" }] } });
+  const ctsEst = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+  const estPres = ctsEst.find((x) => x.nom === "ESTIMEPRES"), estLoin = ctsEst.find((x) => x.nom === "ESTIMELOIN");
+  // (adresse mémorisée = celle de la fiche : sinon le positionnement à la demande les re-géocoderait)
+  await db.run("INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES (?, ?, 44.9025, -0.6800, 'x', 1, '11 impasse des Vignes Le Haillan', 1), (?, ?, 44.8400, -0.5800, 'y', 1, '1 rue Loin Bordeaux', 1)", [estPres.id, agId, estLoin.id, agId]);
+  // Un estimé de la même commune sans position : le parcours le fait positionner (BAN) avant la carte.
+  await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "ESTIMECP", prenom: "Ana", adresse: "5 impasse des Vignes", cp: "33185", ville: "Le Haillan", types: "estime" }] } });
+  ok((await callR("/crm/contacts/estimes/positionner", { headers: authP, body: {} })).status === 403, "le positionnement de toute la base est réservé aux administrateurs");
+  const posi = await callR("/crm/parcours/" + pxId + "/estimes/positionner", { headers: authP, body: {} });
+  ok(posi.status === 200 && posi.json.geocodes >= 1 && posi.json.restants === 0, "les biens estimés de la commune sans position sont géocodés à la demande (" + JSON.stringify(posi.json) + ")");
   const envr = await callR("/crm/parcours/" + pxId + "/environnement", { headers: authP });
+  ok((await callR("/crm/contacts/estimes/positionner", { headers: auth, body: {} })).json.restants === 0, "après le parcours, plus rien à positionner pour l'agence");
+  ok(envr.json.estimations.some((e) => /5 impasse des Vignes/.test(e.adresse)) && envr.json.estimationsEnAttente === 0 && !envr.json.estimations.some((e) => e.id === "ct:" + pxFiche.contact_id),
+     "l'estimé fraîchement positionné est sur la carte, sans le contact du parcours lui-même (" + envr.json.estimations.length + ")");
+  ok(envr.json.estimations.some((e) => e.id === "ct:" + estPres.id && /11 impasse des Vignes/.test(e.adresse) && e.dist < 1000) && !envr.json.estimations.some((e) => e.id === "ct:" + estLoin.id),
+     "les biens déjà estimés par l'agence à moins d'un kilomètre sont donnés pour la carte du R2, le lointain non (" + JSON.stringify(envr.json.estimations) + ")");
   const cats = new Set((envr.json.commodites || []).map((x) => x.cat));
   ok(envr.status === 200 && Math.abs(envr.json.lat - 44.9012) < 0.001 && envr.json.commune.nom === "Le Haillan" && envr.json.commune.densite === 1285 && envr.json.commune.departement === "Gironde",
      "le bien est géocodé et sa commune lue avec sa densité (" + JSON.stringify(envr.json.commune) + ")");
@@ -3543,6 +3581,14 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const bienApres = JSON.parse((await db.get("SELECT data FROM crm_estimation_bien WHERE estimation_id = ?", [pxId])).data);
   ok(bienApres.surface === 120 && bienApres.chambres === 4 && bienApres.pieceVie === 40 && bienApres.prixEnvisage === 345000,
      "la fiche estimation reçoit en retour ce qui lui manquait (chambres, pièce de vie) sans que sa surface ni son prix soient écrasés");
+  // Photos posées sur un bien en concurrence : table dédiée, relues à la génération, réservées au périmètre.
+  {
+    const ph = await callR("/crm/parcours/" + pxId + "/acm/photos/bienici:abc", { headers: authP, method: "PUT", body: { photo: pixel } });
+    const lu = (await callR("/crm/parcours/" + pxId + "/acm/photos", { headers: authP })).json;
+    ok(ph.status === 200 && lu.photos["bienici:abc"] === pixel, "une photo posée sur un bien en concurrence se range et se relit");
+    ok((await callR("/crm/parcours/" + pxId + "/acm/photos/bienici:abc", { headers: authP, method: "PUT", body: { photo: "data:text/plain;base64,QUJD" } })).status === 400, "une photo qui n'est pas un JPEG est refusée");
+    ok((await callR("/crm/parcours/" + pxId + "/acm/photos", { headers: authR })).status === 404, "les photos d'un parcours hors périmètre sont introuvables");
+  }
   const tNow = Math.floor(Date.now() / 1000);
   const acmPut = await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { prix: 330000, basse: 320000, haute: 340000, commission: [{ nb: 3, basse: 300000, haute: 320000 }], ventes: [{ id: "dvf:1", prix: 315000, surface: 100, adresse: "1 rue\u0007Test" }], acheteurs_texte: "ok", profond: { a: { b: { c: { d: { e: { f: 1 } } } } } } } });
   const acmGet = (await callR("/crm/parcours/" + pxId + "/acm", { headers: authP })).json;
@@ -3578,6 +3624,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(dnRel.annonces.find((a) => a.id === "maison-haillan-1").image === "http://localhost:1/photos/biens/relative-640.webp" && relRep.status === 502 && absRep.status === 502,
      "l'image relative de notre annonce est résolue sur le site de l'agence, et le relais l'accepte sous ses deux formes (" + relRep.status + "/" + absRep.status + ")");
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { annonces: { siteUrl: "" } } });
+  ok((await callR("/crm/parcours-image?u=http://autre-site.test/photos/inconnue.jpg", { headers: authP })).status === 404, "en http, une image d'un hôte inconnu est refusée");
   ok((await callR("/crm/parcours-image?u=https://site/photos/inconnue.jpg", { headers: authP })).status === 404 && (await callR("/crm/parcours-image?u=javascript:alert(1)", { headers: authP })).status === 400,
      "le relais d'images ne sert que les photos connues des annonces et mandats");
   await db.run("DELETE FROM crm_annonces WHERE id = 'maison-haillan-1'"); await db.run("DELETE FROM crm_amepi WHERE id IN ('am-1', 'am-2')"); await db.run("DELETE FROM crm_recherches WHERE contact_id IN ('ct_ach1', 'ct_ach2', 'ct_ach3')");
@@ -3642,6 +3689,60 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      evAm.some((e) => e.kind === "retrait" && e.annonce_id === "amepi:502") && evAm.some((e) => e.kind === "nouvelle" && e.annonce_id === "amepi:503"),
      "le journal du marché porte nouveautés, baisse et retrait AMEPI");
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { enabled: false, relance: false, communes: "" } } });
+  // Remplacement de la base acquéreurs avant ré-import du fichier C21 : projets d'achat effacés, fiches « acquereur » seules à la corbeille, type retiré ailleurs.
+  console.log("— Acquéreurs : remplacement de la base avant ré-import");
+  {
+    await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "REMPLACE", prenom: "Pur", email: "pur.remplace@exemple.fr", types: "acquereur" }, { nom: "REMPLACE", prenom: "Mixte", email: "mixte.remplace@exemple.fr", types: "acquereur, prospect" }] } });
+    await callR("/crm/projets/auto", { headers: auth, body: { rows: [{ nom: "REMPLACE", email: "pur.remplace@exemple.fr", criteres: { budgetMax: 200000, types: ["maison"] } }] } });
+    const avantR = (await db.get("SELECT COUNT(*) AS n FROM crm_projets WHERE agency_id = ? AND kind = 'achat'", [agId])).n;
+    ok((await callR("/crm/acquereurs/remplacer", { headers: authP, body: {} })).status === 403, "le remplacement de la base acquéreurs est réservé aux administrateurs");
+    const rempl = await callR("/crm/acquereurs/remplacer", { headers: auth, body: {} });
+    const apresR = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+    const mixte = apresR.find((x) => x.email === "mixte.remplace@exemple.fr");
+    ok(rempl.status === 200 && avantR >= 2 && rempl.json.projets === avantR && rempl.json.supprimes >= 2 && rempl.json.restants === 0
+       && !apresR.some((x) => x.email === "pur.remplace@exemple.fr") && !apresR.some((x) => x.email === "nora.amepi@exemple.fr")
+       && mixte && !mixte.types.includes("acquereur") && mixte.types.includes("prospect")
+       && (await db.get("SELECT COUNT(*) AS n FROM crm_projets WHERE agency_id = ? AND kind = 'achat'", [agId])).n === 0
+       && (await db.get("SELECT COUNT(*) AS n FROM crm_corbeille WHERE agency_id = ? AND libelle LIKE '%REMPLACE%'", [agId])).n >= 1,
+       "remplacement : projets d'achat effacés, les fiches seulement acquéreur sont à la corbeille, la mixte garde ses autres types (" + JSON.stringify(rempl.json) + ")");
+    // Le fichier ré-importé reconstruit la base : fiche + projet d'achat.
+    await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "REMPLACE", prenom: "Pur", email: "pur.remplace@exemple.fr", types: "acquereur" }] } });
+    const re = await callR("/crm/projets/auto", { headers: auth, body: { rows: [{ nom: "REMPLACE", email: "pur.remplace@exemple.fr", criteres: { budgetMax: 210000, types: ["maison"] } }] } });
+    ok(re.json.crees === 1, "après remplacement, l'import reconstruit fiches et projets d'achat");
+  }
+  // Retour groupé en Prospect des fiches retirées par le remplacement (sans doublon avec les ré-importées), et retypage des estimés absents d'un import.
+  {
+    const rr = await callR("/crm/corbeille/restaurer-acquereurs", { headers: auth, body: {} });
+    const apresRR = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+    const purs = apresRR.filter((x) => x.email === "pur.remplace@exemple.fr");
+    const noraR = apresRR.find((x) => x.email === "nora.amepi@exemple.fr");
+    ok(rr.status === 200 && rr.json.restants === 0 && rr.json.dejaPresents >= 1 && rr.json.restaures >= 1 && purs.length === 1 && purs[0].types.includes("acquereur")
+       && noraR && noraR.types.length === 1 && noraR.types[0] === "prospect"
+       && (await db.get("SELECT COUNT(*) AS n FROM crm_corbeille WHERE agency_id = ? AND type = 'contact' AND restored_at = 0 AND payload LIKE '%acquereur%'", [agId])).n === 0,
+       "les acquéreurs retirés reviennent en Prospect, sans dupliquer ceux ré-importés (" + JSON.stringify(rr.json) + ")");
+    // Estimés : un fichier ré-importé touche A, pas B → B passe en prospect (ses autres types restent).
+    await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "ESTIMA", prenom: "Ana", email: "ana.estima@exemple.fr", types: "estime" }, { nom: "ESTIMB", prenom: "Bob", email: "bob.estimb@exemple.fr", types: "estime, vendeur" }] } });
+    await db.run("UPDATE crm_contacts SET updated_at = updated_at - 100 WHERE agency_id = ? AND nom IN ('ESTIMA', 'ESTIMB')", [agId]);
+    const debut = Math.floor(Date.now() / 1000) - 5;
+    await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "ESTIMA", prenom: "Ana", email: "ana.estima@exemple.fr", types: "estime" }] } });
+    ok((await callR("/crm/contacts/retyper-absents", { headers: auth, body: { type: "estime", en: "prospect", avant: debut - 100000 } })).status === 400, "un repère d'import trop ancien est refusé");
+    const rt = await callR("/crm/contacts/retyper-absents", { headers: auth, body: { type: "estime", en: "prospect", avant: debut } });
+    const apresRT = (await callR("/crm/contacts", { headers: auth })).json.contacts;
+    const a = apresRT.find((x) => x.email === "ana.estima@exemple.fr"), b2 = apresRT.find((x) => x.email === "bob.estimb@exemple.fr");
+    ok(rt.status === 200 && rt.json.retypes >= 1 && a.types.includes("estime") && !b2.types.includes("estime") && b2.types.includes("prospect") && b2.types.includes("vendeur"),
+       "après l'import estimés, la fiche absente du fichier passe en prospect en gardant ses autres types, celle présente reste estimée (" + JSON.stringify(rt.json) + ")");
+  }
+  // Concordance d'un fichier avec la base (sans importer) et compteurs par typologie.
+  {
+    const conc = await callR("/crm/contacts/concordance", { headers: auth, body: { type: "acquereur", rows: [
+      { nom: "REMPLACE", prenom: "Pur", email: "pur.remplace@exemple.fr" }, { nom: "REMPLACE", prenom: "Mixte", email: "mixte.remplace@exemple.fr" },
+      { nom: "INCONNUE", prenom: "Zoé", email: "zoe.inconnue@exemple.fr" }, { nom: "REMPLACE", prenom: "Pur", email: "pur.remplace@exemple.fr" }] } });
+    ok(conc.status === 200 && conc.json.distincts === 3 && conc.json.presents === 2 && conc.json.absents === 1 && conc.json.avecType === 1 && /Zoé INCONNUE/.test(conc.json.exemplesAbsents.join(" ")),
+       "la concordance compte présents, absents (avec exemples) et fiches portant la typologie attendue, sans doublon (" + JSON.stringify(conc.json) + ")");
+    const cpt = await callR("/crm/contacts/compteurs", { headers: auth });
+    ok(cpt.status === 200 && cpt.json.total > 0 && cpt.json.parType.acquereur >= 1 && cpt.json.projetsAchat >= 1 && cpt.json.corbeille >= 1, "les compteurs de la base se lisent (" + JSON.stringify(cpt.json) + ")");
+    ok((await callR("/crm/contacts/compteurs", { headers: authP })).status === 403, "compteurs et concordance sont réservés aux administrateurs");
+  }
   // L'agent de l'agence dépose le fichier page par page, avec sa clé.
   console.log("— AMEPI : dépôt par l'agent de l'agence (clé dédiée)");
   ok((await callR("/crm/amepi/import", { body: { mandats: [] } })).status === 401, "sans clé d'agent, le dépôt est refusé");
