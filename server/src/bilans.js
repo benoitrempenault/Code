@@ -306,7 +306,11 @@ export function texteBilan(d, { conseiller }) {
     if (d.recommandation.type === "prix" && d.recommandation.prixCible) {
       lignes.push(`Notre recommandation\nAu vu de ces chiffres, nous vous proposons d'échanger sur un repositionnement de votre prix autour de ${euros(d.recommandation.prixCible)}, en ligne avec les biens comparables : c'est aujourd'hui le levier le plus efficace pour déclencher des visites.`);
     } else {
-      lignes.push("Notre recommandation\nVotre prix est cohérent avec le marché. Pour relancer l'intérêt, nous vous proposons de renouveler la présentation de votre bien : nouvelles photos, texte de l'annonce retravaillé et remise en avant.");
+      // « Prix cohérent » seulement quand la comparaison a eu lieu : sans
+      // comparables (ou bien atypique), on n'affirme rien sur le prix.
+      const compare = d.prix && d.prix.ecart != null;
+      lignes.push("Notre recommandation\n" + (compare ? "Votre prix est cohérent avec le marché. " : "")
+        + "Pour relancer l'intérêt, nous vous proposons de renouveler la présentation de votre bien : nouvelles photos, texte de l'annonce retravaillé et remise en avant.");
     }
   }
   lignes.push(`${conseiller || "Votre conseiller"} reste à votre disposition pour en parler.`);

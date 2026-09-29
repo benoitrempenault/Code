@@ -4286,6 +4286,13 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(bA.recommandation && bA.recommandation.type === "prix" && bA.recommandation.prixCible === 300000, "au-delà de 6 mois : repositionnement proposé à 300 000 € (médiane 3 000 €/m² × 100 m²) (" + JSON.stringify(bA.recommandation) + ")");
   ok(!bB.recommandation && !bB.alertes.some((a) => a.code === "prix-haut") && bB.site.visites === 2, "mandat récent au prix du marché : pas de recommandation, 2 demandes de visite");
   ok(bE.alertes.some((a) => a.code === "peu-de-comparables") && bE.ecart === null, "sans comparables : pas de position de prix inventée");
+  {
+    const dSans = { ...(await callB("/crm/bilans/" + bE.id, { headers: authLucie })).json.donnees, recommandation: { type: "annonce" } };
+    const tSans = B.texteBilan(dSans, { conseiller: "Lucie" });
+    const tAvec = B.texteBilan({ ...dSans, prix: { ...dSans.prix, ecart: 0.01, comparables: 6, medM2: 3000, notreM2: 3030 } }, { conseiller: "Lucie" });
+    ok(!/cohérent avec le marché/.test(tSans) && /renouveler la présentation/.test(tSans) && /cohérent avec le marché/.test(tAvec),
+      "recommandation « présentation » : « prix cohérent » seulement quand le prix a pu être comparé");
+  }
 
   const detA = (await callB("/crm/bilans/" + bA.id, { headers: authLucie })).json;
   ok(/300 000 €/.test(detA.texte) && /Sur notre site internet/.test(detA.texte) && /32 consultations de votre annonce cette semaine \(contre 30/.test(detA.texte), "le texte reprend les chiffres et la recommandation");
