@@ -4360,7 +4360,7 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(P.extraireStats({ prix: 8282, surface: 100, views: 3 }, ["8282"]).size === 0, "un nombre égal à une référence (prix…) n'est pas pris pour une référence");
 
   const cons = P.sanitizeConsignes({ portails: { bienici: { pages: [{ url: "https://pro.bienici.com/stats" }, { url: "https://evil.example.com/x" }, { url: "http://pro.bienici.com/a" }, { url: "https://pro.bienici.com.evil.fr/x" }] } } });
-  ok(cons.portails.bienici.pages.length === 1 && cons.portails.bienici.pages[0].url === "https://pro.bienici.com/stats", "consignes : seules les pages https des domaines du portail sont gardées");
+  ok(cons.portails.bienici.pages.filter((pg) => !/mes-annonces/.test(pg.url)).length === 1 && cons.portails.bienici.pages[0].url === "https://pro.bienici.com/stats", "consignes : seules les pages https des domaines du portail sont gardées (+ « Mes annonces » Bien'ici)");
 
   const cr = await call("/admin/agencies", { headers: admin, body: { name: "Agence Portails Test", email: "portails@portails-test.fr", user_name: "Admin Portails" } });
   const agP = cr.json.agency.id;
@@ -4373,7 +4373,7 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(/^ak_/.test(cle) && amepiCle.n === 0, "clé de l'agent des portails créée (distincte de la clé AMEPI)");
   await call("/crm/portails/consignes", { method: "PUT", headers: authP, body: { portails: { bienici: { mode: "cumul", pages: [{ url: "https://pro.bienici.com/stats" }] }, leboncoin: { actif: false } } } });
   const consA = (await call("/crm/portails/consignes", { headers: hA })).json;
-  ok(consA.portails.bienici.pages.length === 1 && !consA.portails.leboncoin, "l'agent reçoit ses pages ; un portail désactivé n'est pas relevé");
+  ok(consA.portails.bienici.pages[0].url === "https://pro.bienici.com/stats" && !consA.portails.leboncoin, "l'agent reçoit ses pages ; un portail désactivé n'est pas relevé");
 
   // Deux relevés « compteur » : semaine précédente puis cette semaine → l'écart = la semaine.
   const lundi = "2026-09-21";
@@ -4452,6 +4452,23 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   const jb = await db.all("SELECT jour, contacts FROM crm_portail_stats WHERE agency_id = ? AND portail = 'bienici' AND ref = '7510' AND nature = 'jour'", [agP]);
   const cj = (n) => (jb.find((x) => x.jour === jBi(n).slice(0, 10)) || {}).contacts;
   ok(cj(1) === 2 && cj(2) === 1 && cj(5) === 0, "Bien'ici : demandes de contact et affichages du téléphone jour par jour, 0 les jours sans");
+  // Bien'ici « Mes annonces » : la connexion permanente pousse les stats par annonce, jour par jour.
+  const jIso = (n) => jBi(n).slice(0, 10);
+  await call("/crm/portails/depot", { headers: hA, body: { portail: "bienici", mode: "releve", url: "https://pro.bienici.com/mes-annonces",
+    reponses: [{ url: "wss://watcher.bienici.com/socket.io/?EIO=3&transport=websocket&sid=abc", json: ["kimono:ad:stats:century-21-202_3578_7510", { stats: {
+      followers: { total: 3, perDay: { [jIso(1)]: { total: 1 } } }, views: { total: 56, perDay: { [jIso(1)]: { total: 9 }, [jIso(2)]: { total: 7 } } },
+      contactRequests: { total: 2, perDay: { [jIso(1)]: { total: 2 } } }, phoneDisplays: { total: 1, perDay: { [jIso(2)]: { total: 1 } } },
+      adsPrints: { total: 369, perDay: { [jIso(1)]: { total: 49 } } } } }] },
+    { url: "wss://watcher.bienici.com/socket.io/", json: ["kimono:ad:stats:century-21-202_3578_9999", { stats: { views: { perDay: { [jIso(1)]: { total: 5 } } } } }] }] } });
+  const jw = await db.all("SELECT jour, vues, contacts, favoris FROM crm_portail_stats WHERE agency_id = ? AND portail = 'bienici' AND ref = '7510' AND nature = 'jour'", [agP]);
+  const jwj = (n) => jw.find((x) => x.jour === jIso(n)) || {};
+  ok(jwj(1).vues === 9 && jwj(1).contacts === 2 && jwj(1).favoris === 1 && jwj(2).vues === 7 && jwj(2).contacts === 1 && jwj(5).vues === 0,
+    "Bien'ici (connexion permanente) : clics, contacts et favoris jour par jour, réf. tirée de l'identifiant (" + JSON.stringify(jwj(1)) + ")");
+  await call("/crm/portails/depot", { headers: hA, body: { portail: "bienici", mode: "releve", url: "https://pro.bienici.com/mes-annonces",
+    reponses: [{ url: "https://pro.bienici.com/realEstateAds-myads.json?filters=%7B%7D", json: { total: 1, realEstateAds: [{ id: "century-21-202_3578_7510", reference: "7510", contactRequests: [], phoneDisplays: [] }] } }] } });
+  const apres = (await db.all("SELECT jour, vues, contacts FROM crm_portail_stats WHERE agency_id = ? AND portail = 'bienici' AND ref = '7510' AND nature = 'jour'", [agP])).find((x) => x.jour === jIso(1));
+  ok(apres.vues === 9 && apres.contacts === 2, "une lecture sans vues (liste) n'efface pas les vues ni ne fait reculer les contacts");
+  ok((await call("/crm/portails/consignes", { headers: hA })).json.portails.bienici.pages.some((pg) => /mes-annonces/.test(pg.url) && pg.defiler), "Bien'ici : « Mes annonces » relevée en défilant");
   const capLbc = (await call("/crm/portails/captures?portail=bienici", { headers: authP })).json;
   ok(!JSON.stringify(capLbc).includes('"firstName":"A"'), "le nom d'un particulier ne reste pas dans les captures");
   ok((await call("/crm/portails/consignes", { headers: hA })).json.portails.seloger.pages[0].url.includes("myselogerpro.com"), "pages relevées par défaut sans réglage");

@@ -210,6 +210,35 @@ const LECTEURS = [
       return out;
     },
   },
+  { // Bien'ici — connexion permanente (socket.io « watcher ») de « Mes annonces » :
+    // ["kimono:ad:stats:<id annonce>", {stats: {views, adsPrints, followers,
+    // contactRequests, phoneDisplays}}], chaque compteur jour par jour.
+    // views = clics (consultations de l'annonce), followers = favoris,
+    // contacts = demandes + affichages du téléphone ; adsPrints (affichages
+    // dans les résultats) n'a pas de colonne.
+    portail: "bienici", motif: /watcher\.bienici\.com/,
+    lire(json) {
+      const out = new Map();
+      if (!Array.isArray(json) || typeof json[0] !== "string") return out;
+      const m = /ad:stats:(.+)$/.exec(json[0]);
+      const st = json[1] && json[1].stats;
+      if (!m || !st) return out;
+      const parJour = {};
+      for (let i = 0; i < 14; i++) parJour[jourIso(new Date(Date.now() - i * 86400000))] = { vues: 0, contacts: 0, favoris: 0 };
+      const ajoute = (serie, champ) => {
+        for (const [d, v] of Object.entries((serie && serie.perDay) || {})) {
+          const n = num(v && v.total);
+          if (n == null || !/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+          const j = parJour[d] = parJour[d] || { vues: 0, contacts: 0, favoris: 0 };
+          j[champ] += n;
+        }
+      };
+      ajoute(st.views, "vues"); ajoute(st.followers, "favoris");
+      ajoute(st.contactRequests, "contacts"); ajoute(st.phoneDisplays, "contacts");
+      out.set("id:" + m[1], { nature: "jour", parJour, vues: null, contacts: null, favoris: null });
+      return out;
+    },
+  },
 ];
 export function lecteurDe(portail, url) {
   return LECTEURS.find((l) => l.portail === portail && l.motif.test(String(url || ""))) || null;
@@ -234,7 +263,7 @@ export function traducteurRefs(mandats) {
 // Pages relevées par défaut : celles où l'agence voit ses statistiques.
 const PAGES_DEFAUT = {
   seloger: ["https://myselogerpro.com/plus/Dashboard#/stats/topAd/list"],
-  bienici: ["https://pro.bienici.com/mon-tableau-de-bord"],
+  bienici: ["https://pro.bienici.com/mes-annonces"],
   leboncoin: ["https://www.leboncoin.fr/compte/pro/mon-activite"],
 };
 // Requêtes que l'agent réécrit à la volée (mêmes en-têtes que la page) :
@@ -266,7 +295,9 @@ export function sanitizeConsignes(b) {
       catch { return false; }
     });
     out.portails[p] = { actif: x.actif !== false, mode: x.mode === "periode" ? "periode" : "cumul",
-      pages: pages.length ? pages : PAGES_DEFAUT[p].map((url) => ({ url, defiler: false })) };
+      pages: pages.length ? pages : PAGES_DEFAUT[p].map((url) => ({ url, defiler: p === "bienici" })) };
+    // Bien'ici : les vues n'arrivent que sur « Mes annonces », en défilant.
+    if (p === "bienici" && !out.portails[p].pages.some((pg) => /\/mes-annonces/.test(pg.url))) out.portails[p].pages.push({ url: "https://pro.bienici.com/mes-annonces", defiler: true });
   }
   return out;
 }
@@ -337,7 +368,10 @@ export async function deposer(db, agencyId, b) {
     if (lecteur) {
       let lu = new Map();
       try { lu = lecteur.lire(rep.json, versRef, rep.url); } catch { }
-      for (const [ref, v] of lu) { dedies.push([ref, v]); stats.set(ref, stats.get(ref) || { vues: null, contacts: null, favoris: null, parJour: {}, dedie: true }); }
+      for (let [ref, v] of lu) {
+        // Identifiant Bien'ici « century-21-202_3578_7138 » : la Ref est le dernier morceau.
+        if (ref.startsWith("id:")) { ref = versRef(ref.slice(3).split(/[_-]/).pop()); if (!ref) continue; }
+        dedies.push([ref, v]); stats.set(ref, stats.get(ref) || { vues: null, contacts: null, favoris: null, parJour: {}, dedie: true }); }
       continue;
     }
     for (const [ref, s] of extraireStats(rep && rep.json, refs)) {
@@ -391,7 +425,13 @@ export async function deposer(db, agencyId, b) {
     vals.push(`(${sqlText(agencyId)}, ${sqlText(portail)}, ${sqlText(ref)}, ${sqlText(auj)}, 'releve', ${sqlNum(s.vues)}, ${sqlNum(s.contacts)}, ${sqlNum(s.favoris)}, ${t})`);
   }
   for (let i = 0; i < vals.length; i += 150) {
-    await db.run(`INSERT OR REPLACE INTO crm_portail_stats (agency_id, portail, ref, jour, nature, vues, contacts, favoris, updated_at) VALUES ${vals.slice(i, i + 150).join(",")}`, []);
+    // Deux lectures du même jour se complètent (Bien'ici : contacts de la liste,
+    // vues de la connexion permanente) : une valeur absente n'efface rien, et
+    // un compteur ne recule pas.
+    await db.run(`INSERT INTO crm_portail_stats (agency_id, portail, ref, jour, nature, vues, contacts, favoris, updated_at) VALUES ${vals.slice(i, i + 150).join(",")}
+      ON CONFLICT(agency_id, portail, ref, jour, nature) DO UPDATE SET ${["vues", "contacts", "favoris"].map((c) =>
+        `${c} = CASE WHEN excluded.${c} IS NULL THEN crm_portail_stats.${c} WHEN crm_portail_stats.${c} IS NULL THEN excluded.${c} ELSE MAX(excluded.${c}, crm_portail_stats.${c}) END`).join(", ")},
+      updated_at = excluded.updated_at`, []);
   }
   if (mode === "releve") {
     await ecrireEtat(db, agencyId, portail, stats.size ? "ok" : "vide",

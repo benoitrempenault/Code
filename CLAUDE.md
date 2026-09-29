@@ -993,8 +993,14 @@ ramène à la Ref), `affichagesDetail` = vues, `mail + telephone` = contacts, lo
 (idTypeTransaction 1) ignorées — les ventes arrivent en 2 ET en 8 ; fenêtre lue dans l'URL : 7 jours lundi→dimanche = ligne
 `jour` au lundi, sinon nature `periode` (fenêtre glissante). Bien'ici
 `realEstateAds-myads.json` / `realEstateAd.json` : `reference` = Ref, `contactRequests` et
-`phoneDisplays` DATÉS → contacts jour par jour (14 derniers jours à 0 par défaut) ; **aucune
-vue par annonce** dans ces réponses. `reecritures()` (servies avec les consignes) : l'agent
+`phoneDisplays` DATÉS → contacts jour par jour (14 derniers jours à 0 par défaut) ; **les vues
+arrivent par la connexion permanente** `watcher.bienici.com` (socket.io, WebSocket écouté par
+l'agent sur la page « Mes annonces ») : trames `["kimono:ad:stats:<id annonce>", {stats:{views,
+adsPrints, followers, contactRequests, phoneDisplays}}]`, chaque compteur `perDay` → views =
+vues (clics), followers = favoris, demandes + téléphone = contacts ; la Ref = dernier morceau
+de l'id (`century-21-202_3578_7138`). Les lignes `jour` se COMPLÈTENT à l'écriture (upsert :
+une valeur nulle n'efface rien, un compteur ne recule pas). « Mes annonces » (défilée) est
+toujours relevée pour Bien'ici. `reecritures()` (servies avec les consignes) : l'agent
 réécrit à la volée (`context.route`, mêmes en-têtes) SeLoger → dernière semaine complète,
 100 lignes, et Bien'ici `filters` → 100 annonces. Pages relevées par défaut (`PAGES_DEFAUT`)
 si aucune n'est retenue. L'agent capte aussi les réponses xhr/fetch non déclarées JSON (Bien'ici « Mes annonces »). Captures : pages de connexion jamais gardées (`estPageConnexion`,
