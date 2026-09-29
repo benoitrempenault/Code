@@ -302,15 +302,18 @@ export function texteBilan(d, { conseiller }) {
   if (mv.length) marche.push(`- Cette semaine, parmi les biens similaires : ${mv.join(", ")}`);
   lignes.push(["Votre bien face au marché", ...marche].join("\n"));
 
-  if (d.recommandation) {
+  // Déjà proposée au vendeur ces 3 dernières semaines : on ne la répète pas.
+  if (d.recommandation && !d.recommandation.dejaProposee) {
+    const rdv = "un rendez-vous à l'agence ou un échange par téléphone";
     if (d.recommandation.type === "prix" && d.recommandation.prixCible) {
-      lignes.push(`Notre recommandation\nAu vu de ces chiffres, nous vous proposons d'échanger sur un repositionnement de votre prix autour de ${euros(d.recommandation.prixCible)}, en ligne avec les biens comparables : c'est aujourd'hui le levier le plus efficace pour déclencher des visites.`);
+      lignes.push(`Notre recommandation\nAu vu de ces chiffres, nous vous proposons ${rdv} pour étudier ensemble un repositionnement de votre prix autour de ${euros(d.recommandation.prixCible)}, en ligne avec les biens comparables : c'est aujourd'hui le levier le plus efficace pour déclencher des visites.`);
     } else {
       // « Prix cohérent » seulement quand la comparaison a eu lieu : sans
       // comparables (ou bien atypique), on n'affirme rien sur le prix.
       const compare = d.prix && d.prix.ecart != null;
-      lignes.push("Notre recommandation\n" + (compare ? "Votre prix est cohérent avec le marché. " : "")
-        + "Pour relancer l'intérêt, nous vous proposons de renouveler la présentation de votre bien : nouvelles photos, texte de l'annonce retravaillé et remise en avant.");
+      const mois = d.mandat && d.mandat.anciennete ? Math.floor(d.mandat.anciennete / 30) : 0;
+      lignes.push("Notre recommandation\n" + (mois >= 6 ? `Votre bien est en vente depuis ${mois} mois. ` : "") + (compare ? "Votre prix est cohérent avec le marché. " : "")
+        + `Nous vous proposons ${rdv} pour faire le point ensemble et décider des actions à mettre en place.`);
     }
   }
   lignes.push(`${conseiller || "Votre conseiller"} reste à votre disposition pour en parler.`);
@@ -395,6 +398,12 @@ export async function genererBilans(env, db, agency, { semaine, aujourdhui } = {
   const portailsSem = await statsPortailsSemaine(db, agency.id, sem);
   const reseauxSem = await statsReseauxSemaine(db, agency.id, sem);
   const existants = new Map((await db.all("SELECT id, ref, statut, modifie FROM crm_bilans WHERE agency_id = ? AND semaine = ?", [agency.id, sem])).map((b) => [b.ref, b]));
+  // Une proposition de rendez-vous déjà ENVOYÉE au vendeur dans les 3 semaines
+  // précédentes n'est pas répétée (elle reste dans le bloc interne).
+  const depuis = new Date(Date.parse(sem + "T00:00:00Z") - 21 * 86400000).toISOString().slice(0, 10);
+  const recoRecente = new Set((await db.all(
+    "SELECT ref, donnees FROM crm_bilans WHERE agency_id = ? AND statut = 'envoye' AND semaine >= ? AND semaine < ?", [agency.id, depuis, sem]))
+    .filter((b) => { try { return !!JSON.parse(b.donnees).recommandation; } catch { return false; } }).map((b) => String(b.ref)));
   const reglages = await getReglages(db, agency);
   const out = { semaine: sem, crees: 0, misAJour: 0, gardes: 0, nonPublies: [], exclus: [], sansEmail: [], alertes: 0 };
   const lignes = [];
@@ -413,6 +422,7 @@ export async function genererBilans(env, db, agency, { semaine, aujourdhui } = {
     const d = calculerBilan({ mandat: m, annonce: a, pairs: annonces, amepi, events, semaine: sem, lundis: stats.semaines || [], aujourdhui: auj, portails: portailsSem[String(m.ref)],
       reseaux: { connecte: reseauxSem.connecte, stats: reseauxSem.parRef[String(m.ref)] || null } });
     d.conseiller = m.conseiller; d.vendeur = m.vendeur; d.mandatNo = m.mandat;
+    if (d.recommandation && recoRecente.has(String(m.ref))) d.recommandation.dejaProposee = true;
     const cons = nomConseiller(m.conseiller).complet;
     if (!m.email) out.sansEmail.push(m.ref);
     out.alertes += d.alertes.filter((x) => x.niveau === "fort").length;

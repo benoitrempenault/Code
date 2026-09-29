@@ -937,8 +937,11 @@ son journal (`crm_annonces_events` amepi: baisses/retraits/nouveautés de la sem
 `calculerBilan` → chiffres + **alertes internes** (prix-haut > +8 %, sans-demande,
 faible-audience indice < 50, audience-baisse, concurrence-baisse, ancien > 180 j) +
 **recommandation** (mandat > 180 j, ou prix haut sans demande : repositionnement à la
-médiane €/m² × surface arrondie au millier inférieur si écart > 3 %, sinon « renouveler
-la présentation »). `texteBilan` = texte déterministe (aucune IA, aucun chiffre inventé)
+médiane €/m² × surface arrondie au millier inférieur si écart > 3 %, sinon — 29/09, demande de
+Benoît — un **rendez-vous à l'agence ou par téléphone** pour décider des actions, jamais
+« nouvelles photos » ; « prix cohérent » seulement si le prix a été comparé ; pas répétée
+au vendeur si un bilan ENVOYÉ dans les 3 semaines précédentes la portait :
+`recommandation.dejaProposee`, reste dans le bloc interne). `texteBilan` = texte déterministe (aucune IA, aucun chiffre inventé)
 que le conseiller relit ; les alertes ne partent jamais. Semaine couverte = dernière
 semaine COMPLÈTE. `crm_bilans` (un par mandat × semaine, brouillon|envoye|ignore ;
 `modifie` = relu → la régénération n'y touche plus). Délégations (« DELEGATION … ») et

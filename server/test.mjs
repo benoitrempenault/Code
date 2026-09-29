@@ -4290,8 +4290,10 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
     const dSans = { ...(await callB("/crm/bilans/" + bE.id, { headers: authLucie })).json.donnees, recommandation: { type: "annonce" } };
     const tSans = B.texteBilan(dSans, { conseiller: "Lucie" });
     const tAvec = B.texteBilan({ ...dSans, prix: { ...dSans.prix, ecart: 0.01, comparables: 6, medM2: 3000, notreM2: 3030 } }, { conseiller: "Lucie" });
-    ok(!/cohérent avec le marché/.test(tSans) && /renouveler la présentation/.test(tSans) && /cohérent avec le marché/.test(tAvec),
-      "recommandation « présentation » : « prix cohérent » seulement quand le prix a pu être comparé");
+    ok(!/cohérent avec le marché/.test(tSans) && /rendez-vous à l'agence ou un échange par téléphone/.test(tSans) && !/photos/.test(tSans) && /cohérent avec le marché/.test(tAvec),
+      "recommandation : un rendez-vous pour décider des actions (plus de « nouvelles photos »), « prix cohérent » seulement si comparé");
+    const tDeja = B.texteBilan({ ...dSans, recommandation: { type: "annonce", dejaProposee: true } }, { conseiller: "Lucie" });
+    ok(!/Notre recommandation/.test(tDeja), "rendez-vous déjà proposé au vendeur ces 3 dernières semaines : pas répété");
   }
 
   const detA = (await callB("/crm/bilans/" + bA.id, { headers: authLucie })).json;
@@ -4325,6 +4327,9 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(rB && rB.semaine === "2026-09-21" && rB.gardes === 3 && rB.crees === 0, "cron du lundi : semaine écoulée, rien d'envoyé ou d'écarté n'est écrasé");
   const runs2 = await B.runBilans(envB, db, { aujourdhui: "2026-10-05" });
   const rB2 = runs2.find((r) => r.agency === agB);
+  const b100s = (await db.get("SELECT texte, donnees FROM crm_bilans WHERE agency_id = ? AND ref = '100' AND semaine = '2026-09-28'", [agB]));
+  ok(JSON.parse(b100s.donnees).recommandation.dejaProposee === true && !/Notre recommandation/.test(b100s.texte),
+    "le rendez-vous proposé dans le bilan envoyé la semaine d'avant n'est pas répété (reste dans le bloc interne)");
   const pourLucie = mailsB.filter((m) => m.to[0] === "lucie@bilan-test.fr");
   ok(rB2.crees === 3 && pourLucie.length === 2 && pourLucie.every((m) => /^Bilan à relire · Réf\. (100|200)/.test(m.subject)) && mailsB.some((m) => m.to[0] === "agence@bilan-test.fr"),
     "semaine suivante : Lucie reçoit chacun de ses 2 bilans, la boîte de l'agence le récapitulatif (" + pourLucie.map((m) => m.subject).join(" | ") + ")");
