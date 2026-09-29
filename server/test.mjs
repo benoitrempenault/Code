@@ -4456,6 +4456,8 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(!JSON.stringify(capLbc).includes('"firstName":"A"'), "le nom d'un particulier ne reste pas dans les captures");
   ok((await call("/crm/portails/consignes", { headers: hA })).json.portails.seloger.pages[0].url.includes("myselogerpro.com"), "pages relevées par défaut sans réglage");
   ok(JSON.stringify(P.forme({ a: [1, 2, 3, 4], t: "x".repeat(300) })).length < 200, "forme d'une grosse réponse : premiers éléments, textes coupés");
+  const beaucoup = Object.fromEntries(Array.from({ length: 150 }, (_, i) => ["champ" + i, i]));
+  ok(Object.keys(P.forme(beaucoup)).length === 150, "forme : tous les champs d'une annonce gardés (Bien'ici en a plus de 80)");
   // Premier relevé en cours de semaine : il sert de point de départ (pas d'attente d'une semaine de plus).
   await db.run("DELETE FROM crm_portail_stats WHERE agency_id = ? AND portail = 'leboncoin'", [agP]);
   await db.run(`INSERT INTO crm_portail_stats (agency_id, portail, ref, jour, nature, vues, contacts, favoris, updated_at) VALUES
