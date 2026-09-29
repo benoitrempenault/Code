@@ -135,6 +135,118 @@ export function extraireStats(json, refsListe) {
   return out;
 }
 
+/* ----------------------- Lecteurs dédiés (formes réelles) ------------------ */
+// Relevées sur les espaces pro de l'agence le 29/09/2026. Chaque lecteur
+// reconnaît UNE réponse par son adresse et rend Map ref → stats. Les
+// annonces sont reconnues par la « Ref » de l'export (Leboncoin CustomRef,
+// Bien'ici reference) ou par le NUMÉRO DE MANDAT (SeLoger refAnnonce), ramené
+// à la Ref par la table des mandats. `nature` : releve (compteur depuis la
+// mise en ligne), jour (série datée), periode (fenêtre du portail).
+const num = (v) => (Number.isFinite(Number(v)) && v !== "" && v != null ? Number(v) : null);
+const somme = (...v) => (v.some((x) => x != null) ? v.reduce((a, x) => a + (x || 0), 0) : null);
+const lundiIso = (d) => { const x = new Date(Date.parse(d + "T00:00:00Z")); return new Date(x.getTime() - ((x.getUTCDay() + 6) % 7) * 86400000).toISOString().slice(0, 10); };
+const LECTEURS = [
+  { // Leboncoin — « Mon activité » : toutes les annonces, compteurs depuis la mise en ligne.
+    portail: "leboncoin", motif: /\/stats\/proxy\/v\d+\/account\/classifieds\/analysis\/list/,
+    lire(json, versRef) {
+      const out = new Map();
+      for (const ad of (json && Array.isArray(json.Ads) ? json.Ads : [])) {
+        const ref = versRef((ad.Info || {}).CustomRef);
+        const s = ad.Summary || {};
+        if (ref) out.set(ref, { nature: "releve", vues: num(s.Views), contacts: num(s.Contacts), favoris: num(s.Favorites) });
+      }
+      return out;
+    },
+  },
+  { // SeLoger — « Relevé de performance » : une fenêtre de dates, page par page.
+    portail: "seloger", motif: /\/statistics\/GetRelevePerformance/i,
+    lire(json, versRef, url) {
+      const out = new Map();
+      const q = new URL(url).searchParams;
+      const debut = String(q.get("request.dateDebut") || "").slice(0, 10), fin = String(q.get("request.dateFin") || "").slice(0, 10);
+      const jours = debut && fin ? Math.round((Date.parse(fin) - Date.parse(debut)) / 86400000) + 1 : 0;
+      // Une semaine pile (lundi → dimanche) : c'est LA semaine du bilan.
+      const semaine = jours === 7 && lundiIso(debut) === debut ? debut : null;
+      const lignes = (((json || {}).relevePerfs || {}).relevePerfs) || [];
+      for (const l of lignes) {
+        if (Number(l.idTypeTransaction) !== 2) continue;       // 2 = vente
+        const ref = versRef(l.refAnnonce);
+        if (!ref) continue;
+        out.set(ref, { nature: semaine ? "jour" : "periode", jour: semaine, vues: num(l.affichagesDetail), contacts: somme(num(l.mail), num(l.telephone)), favoris: null });
+      }
+      return out;
+    },
+  },
+  { // Bien'ici — une annonce (ou la liste « mes annonces ») : demandes de contact
+    // et affichages du téléphone DATÉS, un par un. Les vues par annonce ne
+    // sont pas dans ces réponses.
+    portail: "bienici", motif: /pro\.bienici\.com\/realEstateAds?(-myads[\w-]*)?\.json/,
+    lire(json, versRef) {
+      const out = new Map();
+      const vus = new WeakSet();
+      const marcher = (n, prof) => {
+        if (!n || typeof n !== "object" || prof > 6 || vus.has(n)) return;
+        vus.add(n);
+        if (Array.isArray(n)) { for (const x of n) marcher(x, prof + 1); return; }
+        if (typeof n.reference === "string" && (Array.isArray(n.contactRequests) || Array.isArray(n.phoneDisplays))) {
+          const ref = versRef(n.reference);
+          if (ref) {
+            // Les 14 derniers jours sans contact valent 0 (sinon « pas de chiffre »).
+            const parJour = {};
+            for (let i = 0; i < 14; i++) parJour[jourIso(new Date(Date.now() - i * 86400000))] = { contacts: 0 };
+            for (const e of [...(n.contactRequests || []), ...(n.phoneDisplays || [])]) {
+              const d = dateDe(e && (e.date || e.createdAt || e.displayDate));
+              if (d) parJour[d] = { contacts: ((parJour[d] || {}).contacts || 0) + 1 };
+            }
+            out.set(ref, { nature: "jour", parJour, vues: null, contacts: null, favoris: null });
+          }
+          return;
+        }
+        for (const v of Object.values(n)) marcher(v, prof + 1);
+      };
+      marcher(json, 0);
+      return out;
+    },
+  },
+];
+export function lecteurDe(portail, url) {
+  return LECTEURS.find((l) => l.portail === portail && l.motif.test(String(url || ""))) || null;
+}
+// Ref ou numéro de mandat → Ref de l'export.
+export function traducteurRefs(mandats) {
+  const refs = new Set(), parMandat = new Map();
+  for (const m of mandats || []) {
+    if (m.ref) refs.add(String(m.ref));
+    if (m.mandat && m.ref) parMandat.set(String(m.mandat).trim(), String(m.ref));
+  }
+  return (v) => {
+    const s = String(v ?? "").trim();
+    if (!s) return null;
+    if (refs.has(s)) return s;
+    if (parMandat.has(s)) return parMandat.get(s);
+    const n = s.replace(/^0+/, "");
+    return refs.has(n) ? n : parMandat.get(n) || null;
+  };
+}
+
+// Pages relevées par défaut : celles où l'agence voit ses statistiques.
+const PAGES_DEFAUT = {
+  seloger: ["https://myselogerpro.com/plus/Dashboard#/stats/topAd/list"],
+  bienici: ["https://pro.bienici.com/mon-tableau-de-bord"],
+  leboncoin: ["https://www.leboncoin.fr/compte/pro/mon-activite"],
+};
+// Requêtes que l'agent réécrit à la volée (mêmes en-têtes que la page) :
+// SeLoger → toutes les annonces d'un coup, sur la dernière semaine complète.
+export function reecritures(aujourdhui = jourIso()) {
+  const lundi = lundiIso(aujourdhui);
+  const debut = new Date(Date.parse(lundi + "T00:00:00Z") - 7 * 86400000).toISOString().slice(0, 10);
+  const fin = new Date(Date.parse(lundi + "T00:00:00Z") - 86400000).toISOString().slice(0, 10);
+  return [{ portail: "seloger", motif: "statistics/GetRelevePerformance",
+    params: { "request.dateDebut": debut + "T00:00:00.000Z", "request.dateFin": fin + "T23:59:59.999Z", "request.pageIndex": "0", "request.pageSize": "100" } },
+  // Bien'ici → la liste « mes annonces » en une page (24 par défaut).
+  { portail: "bienici", motif: "realEstateAds-myads.json", json: { filters: { size: 100, from: 0, page: 1 } } }];
+}
+
 /* ------------------------------ Consignes --------------------------------- */
 export function consignesParDefaut() {
   return { portails: Object.fromEntries(Object.keys(PORTAILS).map((p) => [p, { actif: true, mode: "cumul", pages: [] }])) };
@@ -151,7 +263,8 @@ export function sanitizeConsignes(b) {
       try { const h = new URL(pg.url).hostname; return /^https:\/\//i.test(pg.url) && PORTAILS[p].domaines.some((d) => h === d || h.endsWith("." + d)); }
       catch { return false; }
     });
-    out.portails[p] = { actif: x.actif !== false, mode: x.mode === "periode" ? "periode" : "cumul", pages };
+    out.portails[p] = { actif: x.actif !== false, mode: x.mode === "periode" ? "periode" : "cumul",
+      pages: pages.length ? pages : PAGES_DEFAUT[p].map((url) => ({ url, defiler: false })) };
   }
   return out;
 }
@@ -177,13 +290,21 @@ export function estPageConnexion(url) {
     return HOTE_AUTH.test(u.hostname) || /oauth2?callback|\/login\b|\/connexion\b|\/signin\b|\/verify\b|two-factor|trusted-browser/i.test(u.pathname + u.search);
   } catch { return false; }
 }
+const CLE_PERSONNE = /^(first|last|full|given|family|user|display|sender)_?name$|^(nom|prenom|prénom|name)$|^ip(_?address)?$|user_?agent/i;
+// La forme d'une réponse : clés, deux premiers éléments des listes, textes coupés.
+export function forme(v, prof = 0) {
+  if (prof > 8) return "…";
+  if (Array.isArray(v)) return v.length ? [...v.slice(0, 2).map((x) => forme(x, prof + 1)), ...(v.length > 2 ? [`… ${v.length} éléments`] : [])] : [];
+  if (v && typeof v === "object") { const o = {}; for (const [k, x] of Object.entries(v).slice(0, 80)) o[k] = forme(x, prof + 1); return o; }
+  return typeof v === "string" ? v.slice(0, 120) : v;
+}
 export const masquerUrl = (u) => String(u || "").replace(PARAM_SECRET, "$1[masqué]");
 export function masquer(v, prof = 0) {
   if (prof > 40) return null;
   if (Array.isArray(v)) return v.map((x) => masquer(x, prof + 1));
   if (v && typeof v === "object") {
     const o = {};
-    for (const [k, x] of Object.entries(v)) o[k] = CLE_SECRETE.test(k) && x != null && typeof x !== "object" ? "[masqué]" : masquer(x, prof + 1);
+    for (const [k, x] of Object.entries(v)) o[k] = (CLE_SECRETE.test(k) || CLE_PERSONNE.test(k)) && x != null && typeof x !== "object" ? "[masqué]" : masquer(x, prof + 1);
     return o;
   }
   if (typeof v === "string") return JWT.test(v) || /^bearer\s/i.test(v) ? "[masqué]" : masquerUrl(v).replace(EMAIL, "[e-mail]").replace(TEL, "[tél]");
@@ -204,9 +325,19 @@ export async function deposer(db, agencyId, b) {
   // Une page de connexion n'apprend rien et transporte des jetons : ignorée.
   if (estPageConnexion(b.url)) return { portail, mode, annonces: 0, ignore: "connexion" };
   const reponses = (Array.isArray(b.reponses) ? b.reponses : []).slice(0, 60).filter((r) => r && !estPageConnexion(r.url));
-  const refs = (await db.all("SELECT ref FROM crm_bilan_mandats WHERE agency_id = ?", [agencyId])).map((r) => r.ref);
+  const mandats = await db.all("SELECT ref, mandat FROM crm_bilan_mandats WHERE agency_id = ?", [agencyId]);
+  const refs = mandats.map((r) => r.ref);
+  const versRef = traducteurRefs(mandats);
   const stats = new Map();
+  const dedies = [];                 // [ref, {nature, jour?, vues, contacts, favoris, parJour?}]
   for (const rep of reponses) {
+    const lecteur = lecteurDe(portail, rep.url);
+    if (lecteur) {
+      let lu = new Map();
+      try { lu = lecteur.lire(rep.json, versRef, rep.url); } catch { }
+      for (const [ref, v] of lu) { dedies.push([ref, v]); stats.set(ref, stats.get(ref) || { vues: null, contacts: null, favoris: null, parJour: {}, dedie: true }); }
+      continue;
+    }
     for (const [ref, s] of extraireStats(rep && rep.json, refs)) {
       const p = stats.get(ref);
       if (!p) stats.set(ref, s);
@@ -219,12 +350,19 @@ export async function deposer(db, agencyId, b) {
   // La capture brute (tronquée) : c'est elle qu'on lit pour régler l'extraction.
   const propres = reponses.map((r) => ({ url: masquerUrl(strip(r.url, 600)), json: masquer(r.json) }));
   let contenu = JSON.stringify(propres);
+  // Une réponse trop grosse garde au moins sa FORME (clés, premiers éléments) :
+  // c'est ce qu'il faut pour écrire son lecteur.
   if (contenu.length > CAPTURE_MAX) {
     const legeres = [];
     let taille = 2;
     for (const r of propres) {
       const s = JSON.stringify(r);
-      if (taille + s.length > CAPTURE_MAX) { legeres.push({ url: r.url, tronque: s.length }); continue; }
+      if (taille + s.length > CAPTURE_MAX) {
+        const f = JSON.stringify({ url: r.url, tronque: s.length, forme: forme(r.json) });
+        if (taille + f.length <= CAPTURE_MAX) { legeres.push(JSON.parse(f)); taille += f.length + 1; }
+        else legeres.push({ url: r.url, tronque: s.length });
+        continue;
+      }
       legeres.push(JSON.parse(s)); taille += s.length + 1;
     }
     contenu = JSON.stringify(legeres);
@@ -237,7 +375,15 @@ export async function deposer(db, agencyId, b) {
   // Les chiffres : par jour si la série est datée, sinon le compteur du jour.
   const auj = jourIso();
   const vals = [];
+  for (const [ref, v] of dedies) {
+    if (v.nature === "jour" && v.jour) vals.push(`(${sqlText(agencyId)}, ${sqlText(portail)}, ${sqlText(ref)}, ${sqlText(v.jour)}, 'jour', ${sqlNum(v.vues)}, ${sqlNum(v.contacts)}, ${sqlNum(v.favoris)}, ${t})`);
+    else if (v.nature === "jour") {
+      for (const [d, x] of Object.entries(v.parJour || {})) if (d <= auj && d >= jourIso(new Date(Date.now() - 120 * 86400000)))
+        vals.push(`(${sqlText(agencyId)}, ${sqlText(portail)}, ${sqlText(ref)}, ${sqlText(d)}, 'jour', ${sqlNum(x.vues)}, ${sqlNum(x.contacts)}, ${sqlNum(x.favoris)}, ${t})`);
+    } else vals.push(`(${sqlText(agencyId)}, ${sqlText(portail)}, ${sqlText(ref)}, ${sqlText(auj)}, ${sqlText(v.nature === "periode" ? "periode" : "releve")}, ${sqlNum(v.vues)}, ${sqlNum(v.contacts)}, ${sqlNum(v.favoris)}, ${t})`);
+  }
   for (const [ref, s] of stats) {
+    if (s.dedie) continue;
     const jours = Object.entries(s.parJour).filter(([d]) => d <= auj && d >= jourIso(new Date(Date.now() - 120 * 86400000)));
     for (const [d, v] of jours) vals.push(`(${sqlText(agencyId)}, ${sqlText(portail)}, ${sqlText(ref)}, ${sqlText(d)}, 'jour', ${sqlNum(v.vues)}, ${sqlNum(v.contacts)}, ${sqlNum(v.favoris)}, ${t})`);
     vals.push(`(${sqlText(agencyId)}, ${sqlText(portail)}, ${sqlText(ref)}, ${sqlText(auj)}, 'releve', ${sqlNum(s.vues)}, ${sqlNum(s.contacts)}, ${sqlNum(s.favoris)}, ${t})`);
@@ -279,7 +425,11 @@ export async function statsPortailsSemaine(db, agencyId, semaine) {
     const jours = l.filter((x) => x.nature === "jour" && x.jour >= semaine && x.jour <= fin);
     let s = null;
     if (jours.length) s = { vues: somme(jours, "vues"), contacts: somme(jours, "contacts"), favoris: somme(jours, "favoris"), base: "semaine" };
-    else {
+    else if (l.some((x) => x.nature === "periode" && x.jour >= semaine && x.jour <= fin)) {
+      // Fenêtre glissante du portail (SeLoger sans réécriture) : dernière lecture.
+      const p = l.filter((x) => x.nature === "periode" && x.jour >= semaine && x.jour <= fin).sort((a, b) => a.jour.localeCompare(b.jour)).pop();
+      s = { vues: p.vues, contacts: p.contacts, favoris: p.favoris, base: "periode" };
+    } else {
       const rel = l.filter((x) => x.nature === "releve").sort((a, b) => a.jour.localeCompare(b.jour));
       const dans = rel.filter((x) => x.jour >= semaine && x.jour <= fin);
       const dernier = dans[dans.length - 1];
@@ -364,7 +514,8 @@ export function monterRoutesPortails(app, { db, env, err, crmCtx, agencyOpen }) 
     const { k, agency, resp } = await agent(c); if (!k) return resp;
     const cons = await lireConsignes(db, agency.id);
     return c.json({ portails: Object.fromEntries(Object.entries(cons.portails).filter(([, v]) => v.actif)
-      .map(([p, v]) => [p, { nom: PORTAILS[p].nom, domaines: PORTAILS[p].domaines, pages: v.pages }])) });
+      .map(([p, v]) => [p, { nom: PORTAILS[p].nom, domaines: PORTAILS[p].domaines, pages: v.pages }])),
+      reecritures: reecritures().filter((r) => (cons.portails[r.portail] || {}).actif) });
   });
   app.post("/crm/portails/depot", async (c) => {
     const { k, agency, resp } = await agent(c); if (!k) return resp;

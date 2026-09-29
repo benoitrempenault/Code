@@ -978,9 +978,26 @@ immobiliers » (une ligne par portail + total site compris) et l'alerte
 Bilans (clé, 📦 `bilans/agent-portails.zip` construit par pages.yml, état, pages apprises →
 « ＋ Relever cette page »). Tests : bloc « Portails » de test.mjs ; l'agent a été éprouvé
 bout à bout contre de faux portails HTTPS (Chromium, `args_navigateur` host-resolver-rules,
-`AGENT_HEADLESS=1`). **Les formes JSON réelles des trois portails ne sont pas encore
-connues** : après le premier APPRENDRE, relire les captures (⬇) et ajuster
-`extraireStats` si des annonces ne sont pas reconnues.
+`AGENT_HEADLESS=1`). **Lecteurs dédiés (29/09, formes relevées sur les vrais espaces pro)** :
+`LECTEURS` / `lecteurDe` passent AVANT `extraireStats` (repli générique). Leboncoin
+`stats/proxy/v2/account/classifieds/analysis/list` (page « Mon activité », 70 annonces d'un
+coup) : `Info.CustomRef` = Ref de l'export, `Summary.Views/Contacts/Favorites` = compteurs
+depuis la mise en ligne (nature releve). SeLoger `statistics/GetRelevePerformance` :
+`refAnnonce` = **numéro de MANDAT** (colonne « Mandat » de l'export, `traducteurRefs` le
+ramène à la Ref), `affichagesDetail` = vues, `mail + telephone` = contacts, locations
+(idTypeTransaction ≠ 2) ignorées ; fenêtre lue dans l'URL : 7 jours lundi→dimanche = ligne
+`jour` au lundi, sinon nature `periode` (fenêtre glissante). Bien'ici
+`realEstateAds-myads.json` / `realEstateAd.json` : `reference` = Ref, `contactRequests` et
+`phoneDisplays` DATÉS → contacts jour par jour (14 derniers jours à 0 par défaut) ; **aucune
+vue par annonce** dans ces réponses. `reecritures()` (servies avec les consignes) : l'agent
+réécrit à la volée (`context.route`, mêmes en-têtes) SeLoger → dernière semaine complète,
+100 lignes, et Bien'ici `filters` → 100 annonces. Pages relevées par défaut (`PAGES_DEFAUT`)
+si aucune n'est retenue. Captures : pages de connexion jamais gardées (`estPageConnexion`,
+agent et serveur), `masquer()` retire jetons, e-mails, téléphones, noms/IP/user-agent des
+particuliers ; une réponse trop grosse garde sa `forme()` ; `GET /crm/portails/captures?portail=`
+= tout un portail en un fichier (bouton « ⬇ Tout ce que … a envoyé »). Leboncoin demande un
+code SMS à la reconnexion : si la session ne tient pas, le relevé Leboncoin ne peut pas être
+automatique.
 **Réseaux (Facebook, Instagram)** : `server/src/meta.js`, API OFFICIELLE Meta (Graph,
 `META_GRAPH_BASE` défaut v23.0, surchargeable en test). Connexion admin `POST /crm/meta/jeton`
 {jeton, appId, appSecret} : jeton court échangé (`fb_exchange_token`) → `/me/accounts` →
