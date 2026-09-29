@@ -4463,6 +4463,11 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(/Sur les portails immobiliers/.test(txt) && /SeLoger : 300 consultations, 0 contact cette semaine/.test(txt) && /Bien'ici : 60 consultations, 2 contacts, 1 mise en favori cette semaine/.test(txt), "texte : une ligne par portail");
   ok(/Au total : 380 consultations de votre annonce cette semaine, site compris/.test(txt), "texte : total portails + site");
   ok(d.alertes.some((a) => a.code === "portails-sans-contact") === false && d.totalPortails.contacts === 2, "des contacts portails : pas d'alerte « sans contact »");
+  const d0 = B.calculerBilan({ mandat: { ref: "8282", debut: "2026-09-01", prix: 380000 }, annonce: { ref: "8282", type: "Maison", ville: "X", prix: 380000, surface: 100, semaines: { [lundi]: { vues: 20, visites: 0, brochures: 0 } } },
+    pairs: [], amepi: [], events: [], semaine: lundi, lundis: [lundi], aujourdhui: "2026-09-28",
+    portails: { bienici: { vues: null, contacts: 0, favoris: null, base: "semaine" }, seloger: { vues: 300, contacts: 0, favoris: null, base: "semaine" } } });
+  const txt0 = B.texteBilan(d0, { conseiller: "Jean DUPONT" });
+  ok(!/Bien'ici/.test(txt0) && /SeLoger : 300 consultations/.test(txt0), "Bien'ici sans vues ni contact : pas de ligne « 0 contact » trompeuse");
 }
 
 
