@@ -4445,6 +4445,12 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(!JSON.stringify(capLbc).includes('"firstName":"A"'), "le nom d'un particulier ne reste pas dans les captures");
   ok((await call("/crm/portails/consignes", { headers: hA })).json.portails.seloger.pages[0].url.includes("myselogerpro.com"), "pages relevées par défaut sans réglage");
   ok(JSON.stringify(P.forme({ a: [1, 2, 3, 4], t: "x".repeat(300) })).length < 200, "forme d'une grosse réponse : premiers éléments, textes coupés");
+  // Premier relevé en cours de semaine : il sert de point de départ (pas d'attente d'une semaine de plus).
+  await db.run("DELETE FROM crm_portail_stats WHERE agency_id = ? AND portail = 'leboncoin'", [agP]);
+  await db.run(`INSERT INTO crm_portail_stats (agency_id, portail, ref, jour, nature, vues, contacts, favoris, updated_at) VALUES
+    (?, 'leboncoin', '8282', '2026-09-29', 'releve', 5216, 16, 162, 0), (?, 'leboncoin', '8282', '2026-10-04', 'releve', 5300, 18, 165, 0)`, [agP, agP]);
+  const semL1 = await P.statsPortailsSemaine(db, agP, "2026-09-28");
+  ok(semL1["8282"].leboncoin.vues === 84 && semL1["8282"].leboncoin.contacts === 2 && semL1["8282"].leboncoin.base === "semaine", "sans relevé antérieur : écart depuis le premier relevé de la semaine (" + JSON.stringify(semL1["8282"]) + ")");
   await call("/crm/portails/cle", { method: "DELETE", headers: authP });
   ok((await call("/crm/portails/consignes", { headers: hA })).status === 401, "clé révoquée : l'agent est bloqué");
 

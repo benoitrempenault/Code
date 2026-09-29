@@ -435,7 +435,9 @@ export async function statsPortailsSemaine(db, agencyId, semaine) {
       const dernier = dans[dans.length - 1];
       if (!dernier) continue;
       const mode = (consignes.portails[portail] || {}).mode;
-      const precedent = rel.filter((x) => x.jour < semaine).pop();
+      // Pas de relevé avant la semaine (agent installé en cours de semaine) :
+      // le premier relevé de la semaine sert de point de départ.
+      const precedent = rel.filter((x) => x.jour < semaine).pop() || (dans.length > 1 ? dans[0] : null);
       if (mode === "cumul" && precedent) {
         const d = (c) => (dernier[c] != null && precedent[c] != null ? Math.max(0, dernier[c] - precedent[c]) : null);
         s = { vues: d("vues"), contacts: d("contacts"), favoris: d("favoris"), base: "semaine" };
