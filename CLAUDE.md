@@ -990,14 +990,14 @@ coup) : `Info.CustomRef` = Ref de l'export, `Summary.Views/Contacts/Favorites` =
 depuis la mise en ligne (nature releve). SeLoger `statistics/GetRelevePerformance` :
 `refAnnonce` = **numéro de MANDAT** (colonne « Mandat » de l'export, `traducteurRefs` le
 ramène à la Ref), `affichagesDetail` = vues, `mail + telephone` = contacts, locations
-(idTypeTransaction ≠ 2) ignorées ; fenêtre lue dans l'URL : 7 jours lundi→dimanche = ligne
+(idTypeTransaction 1) ignorées — les ventes arrivent en 2 ET en 8 ; fenêtre lue dans l'URL : 7 jours lundi→dimanche = ligne
 `jour` au lundi, sinon nature `periode` (fenêtre glissante). Bien'ici
 `realEstateAds-myads.json` / `realEstateAd.json` : `reference` = Ref, `contactRequests` et
 `phoneDisplays` DATÉS → contacts jour par jour (14 derniers jours à 0 par défaut) ; **aucune
 vue par annonce** dans ces réponses. `reecritures()` (servies avec les consignes) : l'agent
 réécrit à la volée (`context.route`, mêmes en-têtes) SeLoger → dernière semaine complète,
 100 lignes, et Bien'ici `filters` → 100 annonces. Pages relevées par défaut (`PAGES_DEFAUT`)
-si aucune n'est retenue. Captures : pages de connexion jamais gardées (`estPageConnexion`,
+si aucune n'est retenue. L'agent capte aussi les réponses xhr/fetch non déclarées JSON (Bien'ici « Mes annonces »). Captures : pages de connexion jamais gardées (`estPageConnexion`,
 agent et serveur), `masquer()` retire jetons, e-mails, téléphones, noms/IP/user-agent des
 particuliers ; une réponse trop grosse garde sa `forme()` ; `GET /crm/portails/captures?portail=`
 = tout un portail en un fichier (bouton « ⬇ Tout ce que … a envoyé »). Leboncoin demande un

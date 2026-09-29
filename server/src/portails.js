@@ -169,7 +169,9 @@ const LECTEURS = [
       const semaine = jours === 7 && lundiIso(debut) === debut ? debut : null;
       const lignes = (((json || {}).relevePerfs || {}).relevePerfs) || [];
       for (const l of lignes) {
-        if (Number(l.idTypeTransaction) !== 2) continue;       // 2 = vente
+        // 1 = location. Les ventes arrivent en 2 ET en 8 (14 de nos mandats en
+        // 8 le 29/09) : seule la location est écartée.
+        if (Number(l.idTypeTransaction) === 1) continue;
         const ref = versRef(l.refAnnonce);
         if (!ref) continue;
         out.set(ref, { nature: semaine ? "jour" : "periode", jour: semaine, vues: num(l.affichagesDetail), contacts: somme(num(l.mail), num(l.telephone)), favoris: null });

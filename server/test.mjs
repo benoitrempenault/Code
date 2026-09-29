@@ -4417,7 +4417,8 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
 
   // Lecteurs dédiés : formes relevées sur les espaces pro réels (29/09), données fictives.
   await call("/crm/bilans/mandats", { headers: authP, body: { mandats: [{ ref: "8282", mandat: "2091", email: "v@exemple.fr", conseiller: "DUPONT Jean", prix: 380000 },
-    { ref: "7510", mandat: "1860", email: "w@exemple.fr", conseiller: "DUPONT Jean", prix: 290000 }] } });
+    { ref: "7510", mandat: "1860", email: "w@exemple.fr", conseiller: "DUPONT Jean", prix: 290000 },
+    { ref: "7511", mandat: "1861", email: "x@exemple.fr", conseiller: "DUPONT Jean", prix: 300000 }] } });
   const tr = P.traducteurRefs([{ ref: "8282", mandat: "2091" }]);
   ok(tr("8282") === "8282" && tr("2091") === "8282" && tr("0282") === null && tr("") === null, "référence ou numéro de mandat → Ref de l'export");
   const depotLbc = await call("/crm/portails/depot", { headers: hA, body: { portail: "leboncoin", mode: "releve", url: "https://www.leboncoin.fr/compte/pro/mon-activite",
@@ -4431,12 +4432,14 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   const dimP = new Date(Date.parse(lundiP) + 6 * 86400000).toISOString().slice(0, 10);
   const releveSl = (debut, fin) => ({ relevePerfs: { totalRow: 2, relevePerfs: [
     { refAnnonce: "2091", idTypeTransaction: 2, affichagesListe: 755, affichagesDetail: 371, mail: 2, telephone: 1 },
-    { refAnnonce: "1860", idTypeTransaction: 1, affichagesDetail: 50, mail: 0, telephone: 0 }] } });
+    { refAnnonce: "1860", idTypeTransaction: 1, affichagesDetail: 50, mail: 0, telephone: 0 },
+    { refAnnonce: "1861", idTypeTransaction: 8, affichagesDetail: 40, mail: 1, telephone: 0 }] } });
   await call("/crm/portails/depot", { headers: hA, body: { portail: "seloger", mode: "releve", url: "https://myselogerpro.com/plus/Dashboard#/stats/topAd/list",
     reponses: [{ url: `https://myselogerpro.com/api/3.0/statistics/GetRelevePerformance?request.dateDebut=${lundiP}T00:00:00.000Z&request.dateFin=${dimP}T23:59:59.999Z&request.pageIndex=0&request.pageSize=100`, json: releveSl() }] } });
   const rs = await db.get("SELECT * FROM crm_portail_stats WHERE agency_id = ? AND portail = 'seloger' AND ref = '8282'", [agP]);
   ok(rs && rs.nature === "jour" && rs.jour === lundiP && rs.vues === 371 && rs.contacts === 3, "SeLoger : numéro de mandat 2091 → réf. 8282, semaine pile rangée à son lundi (vues de fiche, mail + téléphone)");
   ok(!(await db.get("SELECT 1 FROM crm_portail_stats WHERE agency_id = ? AND portail = 'seloger' AND ref = '7510'", [agP])), "SeLoger : une location n'est pas comptée");
+  ok((await db.get("SELECT vues FROM crm_portail_stats WHERE agency_id = ? AND portail = 'seloger' AND ref = '7511'", [agP]) || {}).vues === 40, "SeLoger : une vente en idTypeTransaction 8 est comptée");
   const semSl = await P.statsPortailsSemaine(db, agP, lundiP);
   ok(semSl["8282"].seloger.vues === 371 && semSl["8282"].seloger.base === "semaine", "SeLoger dans le bilan : la semaine exacte");
   const rec = P.reecritures("2026-09-29");
