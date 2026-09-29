@@ -943,9 +943,14 @@ que le conseiller relit ; les alertes ne partent jamais. Semaine couverte = dern
 semaine COMPLÈTE. `crm_bilans` (un par mandat × semaine, brouillon|envoye|ignore ;
 `modifie` = relu → la régénération n'y touche plus). Délégations (« DELEGATION … ») et
 mandats absents du site : pas de bilan. Cron : lundi sur « 0 5 * * 1,5 » (budget de
-sous-requêtes séparé du 6h), si `reglages.bilans.enabled` — brouillons + e-mail « N bilans
-à relire » à chaque conseiller (profil `crm_conseillers` retrouvé par le nom de l'export)
-et à la boîte de l'agence ; **le cron n'écrit JAMAIS à un vendeur**. Envoi = geste du
+sous-requêtes séparé du 6h), si `reglages.bilans.enabled` — brouillons + **chaque bilan
+complet par e-mail à son conseiller** (29/09, demande de Benoît : `mailBilanConseiller` =
+bloc interne alertes/recommandation + texte tel que le vendeur le recevra + bouton « Modifier
+et envoyer » vers `BILANS_BASE#bilan=<id>`, que Studio Bilans ouvre directement, gardé en
+sessionStorage le temps d'une connexion ; profil `crm_conseillers` retrouvé par le nom de
+l'export) et le récapitulatif à la boîte de l'agence (avec les conseillers sans e-mail de
+profil) — TOUT en un appel Resend `/emails/batch` (`envoyerMailsLot`, crm.js, 100 par lot :
+plafond de sous-requêtes) ; **le cron n'écrit JAMAIS à un vendeur**. Envoi = geste du
 conseiller (`POST /crm/bilans/:id/envoyer`, membre, confirmation en deux clics), signé de
 son profil, reply-to vers lui, journal `crm_envois` type `bilan-vendeur`. App membre
 (les conseillers non admin y ont accès — l'Administration leur est fermée) ; onglet-lien

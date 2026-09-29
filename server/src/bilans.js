@@ -19,7 +19,7 @@
    conseillers ; l'envoi est toujours un geste du conseiller.
    ========================================================================= */
 import { now, randId } from "./util.js";
-import { wrapEmail, envoyerMailHtml, getReglages } from "./crm.js";
+import { wrapEmail, envoyerMailHtml, envoyerMailsLot, getReglages } from "./crm.js";
 import { texteEnHtml, signatureHtml } from "./parcours.js";
 import { PORTAILS, statsPortailsSemaine } from "./portails.js";
 import { releverMeta, statsReseauxSemaine } from "./meta.js";
@@ -332,14 +332,16 @@ export function graphiqueHtml(d) {
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px;"><tr>${cols}</tr></table>`;
 }
 
+// Le corps du bilan : le graphique se glisse après l'introduction.
+function corpsBilan(texte, d) {
+  const blocs = String(texte || "").split(/\n{2,}/);
+  return texteEnHtml(blocs.slice(0, 2).join("\n\n")) + (d.site ? graphiqueHtml(d) : "") + texteEnHtml(blocs.slice(2).join("\n\n"));
+}
 export function composerBilan({ sujet, texte, donnees }, ag, conseillerProfil, photoUrl, nomSignature) {
   const d = typeof donnees === "string" ? JSON.parse(donnees || "{}") : donnees || {};
-  // Le graphique se glisse après le premier paragraphe (l'introduction).
-  const blocs = String(texte || "").split(/\n{2,}/);
-  const intro = texteEnHtml(blocs.slice(0, 2).join("\n\n")), suite = texteEnHtml(blocs.slice(2).join("\n\n"));
   return wrapEmail(ag, {
     eyebrow: "Le point sur votre vente", headline: esc(sujet),
-    bodyHtml: intro + (d.site ? graphiqueHtml(d) : "") + suite,
+    bodyHtml: corpsBilan(texte, d),
     signatureName: conseillerProfil ? "" : nomSignature || ag.nom || "",
     signatureHtml: conseillerProfil ? signatureHtml(conseillerProfil, ag, photoUrl) : undefined,
   });
@@ -485,35 +487,59 @@ export async function runBilans(env, db, { aujourdhui } = {}) {
   return res;
 }
 
+// Chaque conseiller reçoit CHAQUE bilan complet dans sa boîte : le bloc
+// interne (alertes, recommandation), puis le texte tel que le vendeur le
+// recevra, et un bouton qui ouvre ce bilan dans Studio Bilans pour le
+// modifier et l'envoyer. Rien ne part au vendeur. Un seul appel Resend.
+export function mailBilanConseiller({ id, ref, semaine, sujet, texte, donnees, email, vendeur }, prenom, base) {
+  const d = typeof donnees === "string" ? JSON.parse(donnees || "{}") : donnees || {};
+  const lien = base ? String(base).replace(/\/?$/, "/") + "#bilan=" + encodeURIComponent(id) : "";
+  const euros = (n) => new Intl.NumberFormat("fr-FR").format(n).replace(/\u202f/g, " ") + " €";
+  const bouton = lien ? `<p style="margin:0 0 20px;"><a href="${esc(lien)}" style="display:inline-block; background:#1D1D1B; color:#ffffff; padding:12px 22px; text-decoration:none; font-weight:bold; border-radius:4px;">✏️ Modifier et envoyer au vendeur</a></p>` : "";
+  const alertes = (d.alertes || []).map((a) => `<li style="margin:0 0 4px;">${esc(a.texte)}</li>`);
+  if (d.recommandation) alertes.push(`<li style="margin:0 0 4px;"><strong>${d.recommandation.type === "prix" ? "Recommandation proposée : repositionner autour de " + euros(d.recommandation.prixCible) : "Recommandation proposée : renouveler la présentation"}</strong> — à valider ou corriger avant envoi</li>`);
+  const interne = `<div style="border:1px solid #BEAF87; background:#faf7ef; padding:12px 16px; margin:0 0 20px;"><p style="margin:0 0 6px; font-weight:bold;">Pour vous seulement — ce bloc ne part pas</p>
+    <ul style="margin:0; padding-left:20px;">${alertes.length ? alertes.join("") : '<li style="margin:0;">Aucune alerte cette semaine.</li>'}</ul></div>`;
+  const qui = `${vendeur ? esc(nomConseiller(vendeur).complet || vendeur) : "le vendeur"}${email ? " (" + esc(email) + ")" : " — <strong>pas d'e-mail vendeur : à compléter avant envoi</strong>"}`;
+  const ville = d.bien && d.bien.ville ? " · " + d.bien.ville : "";
+  return {
+    subject: `Bilan à relire · Réf. ${ref}${ville}`,
+    html: `<p style="margin:0 0 12px;">Bonjour ${esc(prenom || "")}, voici le bilan de la semaine du ${jourFr(semaine)} pour ${qui}. <strong>Il n'est pas encore parti.</strong></p>`
+      + bouton + interne
+      + `<p style="margin:0 0 6px; color:#8a8a86; font-size:12px; text-transform:uppercase; letter-spacing:.06em;">Ce que recevra le vendeur</p>`
+      + `<div style="border-left:3px solid #d9d3c3; padding-left:14px; margin:0 0 20px;"><p style="margin:0 0 12px; font-weight:bold;">${esc(sujet)}</p>${corpsBilan(texte, d)}</div>` + bouton,
+  };
+}
+
 async function prevenirConseillers(env, db, agency, reglages, semaine) {
-  const rows = await db.all("SELECT ref, conseiller, donnees FROM crm_bilans WHERE agency_id = ? AND semaine = ? AND statut = 'brouillon'", [agency.id, semaine]);
+  const rows = await db.all(`SELECT b.id, b.ref, b.semaine, b.conseiller, b.sujet, b.texte, b.donnees, b.email, m.vendeur
+    FROM crm_bilans b LEFT JOIN crm_bilan_mandats m ON m.agency_id = b.agency_id AND m.ref = b.ref
+    WHERE b.agency_id = ? AND b.semaine = ? AND b.statut = 'brouillon' ORDER BY b.conseiller, b.ref`, [agency.id, semaine]);
   if (!rows.length) return 0;
   const parCons = new Map();
-  for (const r of rows) {
-    let d = {}; try { d = JSON.parse(r.donnees); } catch { }
-    const l = parCons.get(r.conseiller) || [];
-    l.push({ ref: r.ref, ville: d.bien && d.bien.ville, alertes: (d.alertes || []).filter((a) => a.niveau === "fort").map((a) => a.texte) });
-    parCons.set(r.conseiller, l);
-  }
-  const lien = env.BILANS_BASE ? `<p style="margin:0 0 16px;"><a href="${esc(String(env.BILANS_BASE).replace(/\/?$/, "/"))}" style="color:#1D1D1B;">Ouvrir les bilans vendeurs</a></p>` : "";
-  const liste = (l) => `<ul style="margin:0 0 16px; padding-left:22px;">${l.map((x) => `<li style="margin:0 0 6px;">Réf. ${esc(x.ref)}${x.ville ? " — " + esc(x.ville) : ""}${x.alertes.length ? `<br><span style="color:#a5644b;">${x.alertes.map(esc).join(" · ")}</span>` : ""}</li>`).join("")}</ul>`;
-  let n = 0;
-  const envoyer = async (to, titre, corps) => {
-    const html = wrapEmail(reglages.agence, { eyebrow: "Bilans vendeurs", headline: esc(titre), bodyHtml: corps + lien, signatureName: "Studio" });
-    const r = await envoyerMailHtml(env, { to, subject: titre, html, fromName: reglages.agence.nom || agency.name });
-    if (r.ok) n++;
-  };
+  for (const r of rows) (parCons.get(r.conseiller) || parCons.set(r.conseiller, []).get(r.conseiller)).push(r);
+  const fromName = reglages.agence.nom || agency.name;
+  const mails = [], sansAdresse = [];
   for (const [brut, l] of parCons) {
     const p = await profilDe(db, agency.id, brut);
-    if (!p || !p.email) continue;
-    await envoyer(p.email, `${l.length} bilan${l.length > 1 ? "s" : ""} vendeur${l.length > 1 ? "s" : ""} à relire`,
-      `<p style="margin:0 0 16px;">Bonjour ${esc(p.prenom)}, les bilans de la semaine du ${jourFr(semaine)} sont prêts. Relisez-les, ajustez-les et envoyez-les à vos vendeurs.</p>${liste(l)}`);
+    if (!p || !p.email) { sansAdresse.push(nomConseiller(brut).complet || brut || "Sans conseiller"); continue; }
+    for (const b of l) {
+      const m = mailBilanConseiller(b, p.prenom, env.BILANS_BASE);
+      mails.push({ to: p.email, subject: m.subject, fromName,
+        html: wrapEmail(reglages.agence, { eyebrow: "Bilan vendeur à relire", headline: esc(m.subject), bodyHtml: m.html, signatureName: "Studio" }) });
+    }
   }
+  // La boîte de l'agence : le récapitulatif, et qui n'a pas pu être prévenu.
   if (reglages.agence.email) {
-    await envoyer(reglages.agence.email, `${rows.length} bilans vendeurs prêts (semaine du ${jourFr(semaine)})`,
-      [...parCons].map(([brut, l]) => `<p style="margin:0 0 4px; font-weight:bold;">${esc(nomConseiller(brut).complet || "Sans conseiller")}</p>${liste(l)}`).join(""));
+    const lien = env.BILANS_BASE ? `<p style="margin:0 0 16px;"><a href="${esc(String(env.BILANS_BASE).replace(/\/?$/, "/"))}" style="color:#1D1D1B;">Ouvrir les bilans vendeurs</a></p>` : "";
+    const liste = [...parCons].map(([brut, l]) => `<p style="margin:0 0 4px; font-weight:bold;">${esc(nomConseiller(brut).complet || "Sans conseiller")}</p><ul style="margin:0 0 16px; padding-left:22px;">${l.map((b) => `<li>Réf. ${esc(b.ref)}</li>`).join("")}</ul>`).join("");
+    const manque = sansAdresse.length ? `<p style="margin:0 0 16px; color:#a5644b;">Sans e-mail dans les profils conseillers (bilans non reçus) : ${sansAdresse.map(esc).join(", ")}.</p>` : "";
+    const titre = `${rows.length} bilans vendeurs prêts (semaine du ${jourFr(semaine)})`;
+    mails.push({ to: reglages.agence.email, subject: titre, fromName,
+      html: wrapEmail(reglages.agence, { eyebrow: "Bilans vendeurs", headline: esc(titre), bodyHtml: manque + liste + lien, signatureName: "Studio" }) });
   }
-  return n;
+  const r = await envoyerMailsLot(env, mails);
+  return r.envoyes || 0;
 }
 
 /* --------------------------------- Routes --------------------------------- */

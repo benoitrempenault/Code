@@ -50,7 +50,7 @@ const resend = createServer(async (req, res) => {
     return res.end(JSON.stringify(mails));
   }
   const chunks = []; for await (const c of req) chunks.push(c);
-  try { mails.push(JSON.parse(Buffer.concat(chunks).toString())); } catch { }
+  try { const recu = JSON.parse(Buffer.concat(chunks).toString()); for (const m of Array.isArray(recu) ? recu : [recu]) mails.push(m); } catch { }
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ id: "email_smoke_" + mails.length }));
 }).listen(PORT_RESEND);

@@ -84,6 +84,12 @@ export default async function () {
     ok(m && /Bonjour Madame Fauret/.test(m.html) && /Consultations de votre annonce/.test(m.html) && m.reply_to[0] === "lucie@smoke.fr", "e-mail parti au vendeur, texte relu, réponse vers Lucie");
     await page.selectOption("#filtre-statut", "");
     ok(/envoyé/.test(await page.locator('.bilan:has-text("Réf. 8282")').textContent()), "le bilan passe « envoyé »");
+    // Le bouton « Modifier et envoyer » du mail du conseiller : #bilan=<id> ouvre CE bilan.
+    const autre = (await api("/crm/bilans", { headers: admin.auth })).json.bilans.find((b) => b.ref !== "8282");
+    await ouvrir(page, "/bilans/#bilan=" + autre.id, admin);
+    await page.waitForSelector("#bl-texte", { timeout: 8000 });
+    ok(new RegExp("Réf\\. " + autre.ref).test(await page.textContent("#modale-titre")) && !/#bilan=/.test(page.url()), "le lien #bilan= du mail ouvre directement ce bilan, puis s'efface de l'adresse");
+    await page.click("#modale-fermer");
 
     // Portails : une page apprise par l'agent devient une page relevée.
     const cleP = await api("/crm/portails/cle", { headers: admin.auth, body: {} });

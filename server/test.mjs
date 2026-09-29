@@ -4204,7 +4204,8 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   const mailsB = [];
   const fauxResendB = (await import("node:http")).createServer(async (req, res) => {
     const chunks = []; for await (const c of req) chunks.push(c);
-    mailsB.push(JSON.parse(Buffer.concat(chunks).toString()));
+    const recu = JSON.parse(Buffer.concat(chunks).toString());
+    for (const m of Array.isArray(recu) ? recu : [recu]) mailsB.push({ ...m, lot: Array.isArray(recu) });
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ id: "email_test" }));
   });
   await new Promise((r) => fauxResendB.listen(18802, r));
@@ -4317,10 +4318,17 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(rB && rB.semaine === "2026-09-21" && rB.gardes === 3 && rB.crees === 0, "cron du lundi : semaine écoulée, rien d'envoyé ou d'écarté n'est écrasé");
   const runs2 = await B.runBilans(envB, db, { aujourdhui: "2026-10-05" });
   const rB2 = runs2.find((r) => r.agency === agB);
-  ok(rB2.crees === 3 && mailsB.some((m) => m.to[0] === "lucie@bilan-test.fr" && /^2 bilans vendeurs à relire$/.test(m.subject)) && mailsB.some((m) => m.to[0] === "agence@bilan-test.fr"),
-    "semaine suivante : nouveaux brouillons, Lucie et la boîte de l'agence sont prévenues");
+  const pourLucie = mailsB.filter((m) => m.to[0] === "lucie@bilan-test.fr");
+  ok(rB2.crees === 3 && pourLucie.length === 2 && pourLucie.every((m) => /^Bilan à relire · Réf\. (100|200)/.test(m.subject)) && mailsB.some((m) => m.to[0] === "agence@bilan-test.fr"),
+    "semaine suivante : Lucie reçoit chacun de ses 2 bilans, la boîte de l'agence le récapitulatif (" + pourLucie.map((m) => m.subject).join(" | ") + ")");
+  const mA = pourLucie.find((m) => /Réf\. 100/.test(m.subject));
+  ok(mA && /Ce que recevra le vendeur/.test(mA.html) && /Sur notre site internet/.test(mA.html) && /Pour vous seulement/.test(mA.html) && /Il n'est pas encore parti/.test(mA.html),
+    "le mail du conseiller porte le bilan complet : bloc interne + texte du vendeur");
+  const idA = (await db.get("SELECT id FROM crm_bilans WHERE agency_id = ? AND ref = '100' AND semaine = '2026-09-28'", [agB])).id;
+  ok(mA.html.includes("https://exemple.test/bilans/#bilan=" + idA) && /Modifier et envoyer au vendeur/.test(mA.html), "bouton « Modifier et envoyer » qui ouvre CE bilan dans Studio Bilans");
+  ok(mailsB.every((m) => m.lot), "tous les mails du lundi partent en un lot (une seule requête)");
   ok(mailsB.filter((m) => !["lucie@bilan-test.fr", "agence@bilan-test.fr"].includes(m.to[0])).length === 0, "le cron n'écrit JAMAIS à un vendeur");
-  ok(mailsB.some((m) => m.to[0] === "lucie@bilan-test.fr" && m.html.includes("https://exemple.test/bilans/")), "le mail au conseiller mène à Studio Bilans");
+  ok(mailsB.some((m) => m.to[0] === "agence@bilan-test.fr" && /Sans e-mail dans les profils conseillers.*BESSON/i.test(m.html)), "la boîte de l'agence voit les conseillers qui n'ont pas reçu leurs bilans");
 
   // Site mal branché : message explicite.
   const appKo = createApp({ ...envB, SITE_STATS_KEY: "mauvaise" });
