@@ -21,7 +21,7 @@
 import { now, randId } from "./util.js";
 import { wrapEmail, envoyerMailHtml, envoyerMailsLot, getReglages } from "./crm.js";
 import { texteEnHtml, signatureHtml } from "./parcours.js";
-import { PORTAILS, statsPortailsSemaine } from "./portails.js";
+import { PORTAILS, statsPortailsSemaine, nouvellesAgent } from "./portails.js";
 import { releverMeta, statsReseauxSemaine } from "./meta.js";
 
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -505,13 +505,14 @@ export async function runBilans(env, db, { aujourdhui } = {}) {
 // interne (alertes, recommandation), puis le texte tel que le vendeur le
 // recevra, et un bouton qui ouvre ce bilan dans Studio Bilans pour le
 // modifier et l'envoyer. Rien ne part au vendeur. Un seul appel Resend.
-export function mailBilanConseiller({ id, ref, semaine, sujet, texte, donnees, email, vendeur }, prenom, base) {
+export function mailBilanConseiller({ id, ref, semaine, sujet, texte, donnees, email, vendeur }, prenom, base, { exportJours = null } = {}) {
   const d = typeof donnees === "string" ? JSON.parse(donnees || "{}") : donnees || {};
   const lien = base ? String(base).replace(/\/?$/, "/") + "#bilan=" + encodeURIComponent(id) : "";
   const euros = (n) => new Intl.NumberFormat("fr-FR").format(n).replace(/\u202f/g, " ") + " €";
   const bouton = lien ? `<p style="margin:0 0 20px;"><a href="${esc(lien)}" style="display:inline-block; background:#1D1D1B; color:#ffffff; padding:12px 22px; text-decoration:none; font-weight:bold; border-radius:4px;">✏️ Modifier et envoyer au vendeur</a></p>` : "";
   const alertes = (d.alertes || []).map((a) => `<li style="margin:0 0 4px;">${esc(a.texte)}</li>`);
-  if (d.recommandation) alertes.push(`<li style="margin:0 0 4px;"><strong>${d.recommandation.type === "prix" ? "Recommandation proposée : repositionner autour de " + euros(d.recommandation.prixCible) : "Recommandation proposée : renouveler la présentation"}</strong> — à valider ou corriger avant envoi</li>`);
+  if (exportJours != null && exportJours >= EXPORT_ANCIEN) alertes.unshift(`<li style="margin:0 0 4px; color:#a5644b;"><strong>L'export des mandats n'a pas été réimporté depuis ${exportJours} jours</strong> : vérifiez que le bien est toujours en vente (ni compromis, ni retrait) avant d'envoyer.</li>`);
+  if (d.recommandation) alertes.push(`<li style="margin:0 0 4px;"><strong>${d.recommandation.type === "prix" ? "Recommandation proposée : rendez-vous pour un repositionnement autour de " + euros(d.recommandation.prixCible) : "Recommandation proposée : rendez-vous à l'agence ou par téléphone pour décider des actions"}</strong>${d.recommandation.dejaProposee ? " — déjà proposée il y a moins de 3 semaines, pas répétée au vendeur" : " — à valider ou corriger avant envoi"}</li>`);
   const interne = `<div style="border:1px solid #BEAF87; background:#faf7ef; padding:12px 16px; margin:0 0 20px;"><p style="margin:0 0 6px; font-weight:bold;">Pour vous seulement — ce bloc ne part pas</p>
     <ul style="margin:0; padding-left:20px;">${alertes.length ? alertes.join("") : '<li style="margin:0;">Aucune alerte cette semaine.</li>'}</ul></div>`;
   const qui = `${vendeur ? esc(nomConseiller(vendeur).complet || vendeur) : "le vendeur"}${email ? " (" + esc(email) + ")" : " — <strong>pas d'e-mail vendeur : à compléter avant envoi</strong>"}`;
@@ -534,11 +535,15 @@ async function prevenirConseillers(env, db, agency, reglages, semaine) {
   for (const r of rows) (parCons.get(r.conseiller) || parCons.set(r.conseiller, []).get(r.conseiller)).push(r);
   const fromName = reglages.agence.nom || agency.name;
   const mails = [], sansAdresse = [];
+  // Sans import (vacances…), les bilans partent quand même, sur le dernier
+  // portefeuille connu : chacun est prévenu que l'export date.
+  const exportJours = await ageExport(db, agency.id);
+  const ancien = exportJours != null && exportJours >= EXPORT_ANCIEN;
   for (const [brut, l] of parCons) {
     const p = await profilDe(db, agency.id, brut);
     if (!p || !p.email) { sansAdresse.push(nomConseiller(brut).complet || brut || "Sans conseiller"); continue; }
     for (const b of l) {
-      const m = mailBilanConseiller(b, p.prenom, env.BILANS_BASE);
+      const m = mailBilanConseiller(b, p.prenom, env.BILANS_BASE, { exportJours });
       mails.push({ to: p.email, subject: m.subject, fromName,
         html: wrapEmail(reglages.agence, { eyebrow: "Bilan vendeur à relire", headline: esc(m.subject), bodyHtml: m.html, signatureName: "Studio" }) });
     }
@@ -547,21 +552,31 @@ async function prevenirConseillers(env, db, agency, reglages, semaine) {
   if (reglages.agence.email) {
     const lien = env.BILANS_BASE ? `<p style="margin:0 0 16px;"><a href="${esc(String(env.BILANS_BASE).replace(/\/?$/, "/"))}" style="color:#1D1D1B;">Ouvrir les bilans vendeurs</a></p>` : "";
     const liste = [...parCons].map(([brut, l]) => `<p style="margin:0 0 4px; font-weight:bold;">${esc(nomConseiller(brut).complet || "Sans conseiller")}</p><ul style="margin:0 0 16px; padding-left:22px;">${l.map((b) => `<li>Réf. ${esc(b.ref)}</li>`).join("")}</ul>`).join("");
+    const vieux = ancien ? `<p style="margin:0 0 16px; color:#a5644b;"><strong>L'export des mandats n'a pas été réimporté depuis ${exportJours} jours</strong> : les bilans ont été préparés sur le dernier portefeuille connu. Les conseillers sont prévenus de vérifier que chaque bien est toujours en vente.</p>` : "";
     const manque = sansAdresse.length ? `<p style="margin:0 0 16px; color:#a5644b;">Sans e-mail dans les profils conseillers (bilans non reçus) : ${sansAdresse.map(esc).join(", ")}.</p>` : "";
     const titre = `${rows.length} bilans vendeurs prêts (semaine du ${jourFr(semaine)})`;
     mails.push({ to: reglages.agence.email, subject: titre, fromName,
-      html: wrapEmail(reglages.agence, { eyebrow: "Bilans vendeurs", headline: esc(titre), bodyHtml: manque + liste + lien, signatureName: "Studio" }) });
+      html: wrapEmail(reglages.agence, { eyebrow: "Bilans vendeurs", headline: esc(titre), bodyHtml: vieux + manque + liste + lien, signatureName: "Studio" }) });
   }
   const r = await envoyerMailsLot(env, mails);
   return r.envoyes || 0;
 }
 
 /* ------------------------ Rappel du vendredi (import) --------------------- */
+// Jours du calendrier entre un instant (secondes) et un jour AAAA-MM-JJ.
+export function joursDepuis(t, jour) {
+  return Math.round((Date.parse(jour + "T00:00:00Z") - Date.parse(new Date(t * 1000).toISOString().slice(0, 10) + "T00:00:00Z")) / 86400000);
+}
+export async function ageExport(db, agencyId, jour = new Date().toISOString().slice(0, 10)) {
+  const imp = await db.get("SELECT MAX(updated_at) AS le FROM crm_bilan_mandats WHERE agency_id = ?", [agencyId]);
+  return imp && imp.le ? joursDepuis(imp.le, jour) : null;
+}
+export const EXPORT_ANCIEN = 4;   // lundi : l'export du vendredi a 3 jours ; au-delà, prévenir
 // Le portefeuille ne bouge que si l'export des mandats est réimporté : le
 // vendredi matin, un rappel à l'adresse réglée (Réglages → Bilans vendeurs),
 // sauf si l'export a été importé depuis moins de 24 h.
 export function mailRappelImport({ dernier, nb, base, aujourdhui }) {
-  const jours = dernier ? Math.floor((Date.parse(aujourdhui + "T12:00:00Z") / 1000 - dernier) / 86400) : null;
+  const jours = dernier ? joursDepuis(dernier, aujourdhui) : null;
   const quand = dernier == null ? "Aucun export n'a encore été importé."
     : `Dernier import : ${jourFr(new Date(dernier * 1000).toISOString().slice(0, 10))} (il y a ${jours} jour${jours > 1 ? "s" : ""}), ${nb} mandat${nb > 1 ? "s" : ""}.`;
   const lien = base ? `<p style="margin:0 0 16px;"><a href="${esc(String(base).replace(/\/?$/, "/"))}" style="display:inline-block; background:#1D1D1B; color:#ffffff; padding:12px 22px; text-decoration:none; font-weight:bold; border-radius:4px;">📥 Importer l'export dans Studio Bilans</a></p>` : "";
@@ -610,8 +625,9 @@ export function monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAge
        WHERE b.agency_id = ? AND b.semaine = ? ORDER BY b.conseiller, b.ref`, [ctx.agency.id, semaine]);
     const mandats = await db.get("SELECT COUNT(*) AS n, MAX(updated_at) AS le FROM crm_bilan_mandats WHERE agency_id = ?", [ctx.agency.id]);
     const reglages = await getReglages(db, ctx.agency);
+    const admin = !!(isAgencyAdmin && isAgencyAdmin(ctx));
     return c.json({
-      semaine, semaines, admin: !!(isAgencyAdmin && isAgencyAdmin(ctx)), mandats: { n: mandats ? mandats.n : 0, importeLe: mandats ? mandats.le : null },
+      semaine, semaines, admin, agentPortails: admin ? await nouvellesAgent(db, ctx.agency.id) : undefined, mandats: { n: mandats ? mandats.n : 0, importeLe: mandats ? mandats.le : null },
       actif: !!reglages.bilans.enabled, statsBranchees: !!(env.SITE_STATS_BASE && env.SITE_STATS_KEY),
       bilans: rows.map((r) => {
         let d = {}; try { d = JSON.parse(r.donnees); } catch { }
@@ -708,7 +724,7 @@ export function monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAge
     if (!emailValide(to)) return err(c, 400, "Votre compte n'a pas d'adresse e-mail.");
     const q = await c.req.json().catch(() => ({}));
     const reglages = await getReglages(db, ctx.agency);
-    const m = mailBilanConseiller({ ...b, sujet: strip(q.sujet, 200) || b.sujet, texte: nettoyerTexte(q.texte) || b.texte }, (ctx.user.name || "").split(" ")[0], env.BILANS_BASE);
+    const m = mailBilanConseiller({ ...b, sujet: strip(q.sujet, 200) || b.sujet, texte: nettoyerTexte(q.texte) || b.texte }, (ctx.user.name || "").split(" ")[0], env.BILANS_BASE, { exportJours: await ageExport(db, ctx.agency.id) });
     const html = wrapEmail(reglages.agence, { eyebrow: "Bilan vendeur à relire (test)", headline: esc(m.subject), bodyHtml: m.html, signatureName: "Studio" });
     const r = await envoyerMailHtml(env, { to, subject: "[Test] " + m.subject, html, fromName: reglages.agence.nom || ctx.agency.name });
     if (!r.ok) return err(c, 502, "Envoi impossible : " + (r.error || "RESEND_API_KEY absent"));

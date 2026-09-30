@@ -4368,6 +4368,11 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   await B.rappelImport(envB, db, { aujourdhui: dans3 });
   ok(mailsB.length === 1 && mailsB[0].to[0] === "benoit@bilan-test.fr" && /Pensez à importer/.test(mailsB[0].subject) && /il y a 3 jours/.test(mailsB[0].html) && /Importer l'export/.test(mailsB[0].html),
     "vendredi : rappel d'importer l'export à l'adresse réglée (« il y a 3 jours »)");
+  ok(B.joursDepuis(Date.parse("2026-09-26T23:30:00Z") / 1000, "2026-09-29") === 3 && B.joursDepuis(Date.parse("2026-09-29T05:00:00Z") / 1000, "2026-09-29") === 0, "jours du calendrier, quelle que soit l'heure");
+  const mV = B.mailBilanConseiller({ id: "b1", ref: "8282", semaine: "2026-09-21", texte: "x", donnees: { recommandation: { type: "rdv" } } }, "Jean", "", { exportJours: 10 });
+  ok(/pas été réimporté depuis 10 jours/.test(mV.html) && /toujours en vente/.test(mV.html), "export ancien (vacances) : le conseiller est prévenu de vérifier le bien");
+  ok(!/réimporté/.test(B.mailBilanConseiller({ id: "b1", ref: "8282", semaine: "2026-09-21", texte: "x", donnees: {} }, "Jean", "", { exportJours: 3 }).html), "export du vendredi (3 jours) : pas d'avertissement");
+  ok(/rendez-vous à l'agence ou par téléphone/.test(mV.html) && !/renouveler la présentation/.test(mV.html), "bloc interne : la recommandation est le rendez-vous, plus « renouveler la présentation »");
   const rt = await callB("/crm/bilans/rappel/tester", { headers: authB, body: {} });
   ok(rt.status === 200 && rt.json.envoye && rt.json.to === "benoit@bilan-test.fr", "« Tester le rappel » l'envoie tout de suite");
   ok((await callB("/crm/bilans/rappel/tester", { headers: authLucie, body: {} })).status === 403, "tester le rappel : réservé aux admins");
@@ -4523,8 +4528,22 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
     (?, 'leboncoin', '8282', '2026-09-29', 'releve', 5216, 16, 162, 0), (?, 'leboncoin', '8282', '2026-10-04', 'releve', 5300, 18, 165, 0)`, [agP, agP]);
   const semL1 = await P.statsPortailsSemaine(db, agP, "2026-09-28");
   ok(semL1["8282"].leboncoin.vues === 84 && semL1["8282"].leboncoin.contacts === 2 && semL1["8282"].leboncoin.base === "semaine", "sans relevé antérieur : écart depuis le premier relevé de la semaine (" + JSON.stringify(semL1["8282"]) + ")");
+  // Le passage de l'agent : visible même sans relevé ; silence au-delà de 36 h.
+  ok((await call("/crm/portails/passage", { headers: { "X-Agent-Key": "ak_faux" }, body: { resultat: "termine" } })).status === 401, "passage : clé exigée");
+  ok((await call("/crm/portails/passage", { headers: hA, body: { resultat: "deja-fait", message: "a\u0000b" } })).json.ok, "passage « relevé déjà fait » accepté");
+  const nv = (await call("/crm/portails", { headers: authP })).json.nouvelles;
+  ok(nv && nv.resultat === "deja-fait" && nv.dernier && !nv.silence, "Portails : dernier passage et son résultat (" + JSON.stringify(nv) + ")");
+  ok((await call("/crm/bilans", { headers: authP })).json.agentPortails.silence === false, "Bilans : l'agent donne des nouvelles");
+  await call("/crm/portails/passage", { headers: hA, body: { resultat: "n'importe quoi" } });
+  ok((await db.get("SELECT resultat FROM crm_portail_passage WHERE agency_id = ?", [agP])).resultat === "termine", "passage : résultat inconnu ramené à « termine »");
+  await db.run("UPDATE crm_portail_passage SET at = at - 40 * 3600 WHERE agency_id = ?", [agP]);
+  await db.run("UPDATE crm_agent_keys SET last_used = last_used - 40 * 3600 WHERE agency_id = ? AND usage = 'portails'", [agP]);
+  const tu = await P.nouvellesAgent(db, agP);
+  ok(tu.silence === true && (await call("/crm/bilans", { headers: authP })).json.agentPortails.silence === true, "40 h sans passage : « plus de nouvelles »");
+  ok((await P.nouvellesAgent(db, "ag_sans_cle")) === null, "sans clé : pas d'alerte");
   await call("/crm/portails/cle", { method: "DELETE", headers: authP });
   ok((await call("/crm/portails/consignes", { headers: hA })).status === 401, "clé révoquée : l'agent est bloqué");
+  ok((await call("/crm/portails/passage", { headers: hA, body: {} })).status === 401, "clé révoquée : passage refusé");
 
   // Le bilan intègre les portails.
   const B = await import("./src/bilans.js");

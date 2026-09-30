@@ -492,6 +492,20 @@ export async function statsPortailsSemaine(db, agencyId, semaine) {
   return par;
 }
 
+export const RESULTATS_PASSAGE = ["deja-fait", "termine", "erreurs", "sans-page", "consignes"];
+export const SILENCE_AGENT = 36 * 3600;   // au-delà, l'agent « ne donne plus de nouvelles »
+
+// Nouvelles de l'agent : dernier passage signalé, sinon dernier contact (un
+// agent d'avant le signal ne se manifeste qu'en relevant). null = pas de clé.
+export async function nouvellesAgent(db, agencyId, maintenant = now()) {
+  const cle = await db.get("SELECT last_used FROM crm_agent_keys WHERE agency_id = ? AND usage = 'portails' AND revoked = 0", [agencyId]);
+  if (!cle) return null;
+  const p = await db.get("SELECT resultat, message, at FROM crm_portail_passage WHERE agency_id = ?", [agencyId]);
+  const dernier = Math.max((p && p.at) || 0, cle.last_used || 0) || null;
+  return { dernier, resultat: p ? p.resultat : null, message: p ? p.message : "",
+    silence: !dernier || maintenant - dernier > SILENCE_AGENT };
+}
+
 /* --------------------------------- Routes --------------------------------- */
 export function monterRoutesPortails(app, { db, env, err, crmCtx, agencyOpen }) {
   const agent = async (c) => {
@@ -513,7 +527,7 @@ export function monterRoutesPortails(app, { db, env, err, crmCtx, agencyOpen }) 
       OR url LIKE '%/login%' OR url LIKE '%/verify/%' OR url LIKE '%two-factor%' OR url LIKE '%trusted-browser%')`, [ctx.agency.id]);
     const captures = await db.all("SELECT id, portail, mode, url, lignes, created_at, length(contenu) AS taille FROM crm_portail_captures WHERE agency_id = ? ORDER BY created_at DESC LIMIT 60", [ctx.agency.id]);
     const cle = await db.get("SELECT label, created_at, last_used FROM crm_agent_keys WHERE agency_id = ? AND usage = 'portails' AND revoked = 0", [ctx.agency.id]);
-    return c.json({ portails: PORTAILS, consignes: await lireConsignes(db, ctx.agency.id), etat, captures, agent: cle || null });
+    return c.json({ portails: PORTAILS, consignes: await lireConsignes(db, ctx.agency.id), etat, captures, agent: cle || null, nouvelles: await nouvellesAgent(db, ctx.agency.id) });
   });
   app.put("/crm/portails/consignes", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
@@ -560,6 +574,17 @@ export function monterRoutesPortails(app, { db, env, err, crmCtx, agencyOpen }) 
     return c.json({ portails: Object.fromEntries(Object.entries(cons.portails).filter(([, v]) => v.actif)
       .map(([p, v]) => [p, { nom: PORTAILS[p].nom, domaines: PORTAILS[p].domaines, pages: v.pages }])),
       reecritures: reecritures().filter((r) => (cons.portails[r.portail] || {}).actif) });
+  });
+  // Chaque lancement de l'agent se signale, même sans relevé.
+  app.post("/crm/portails/passage", async (c) => {
+    const { k, agency, resp } = await agent(c); if (!k) return resp;
+    const b = (await c.req.json().catch(() => null)) || {};
+    const resultat = RESULTATS_PASSAGE.includes(b.resultat) ? b.resultat : "termine";
+    const message = String(b.message || "").replace(/[\u0000-\u001f]/g, " ").slice(0, 200);
+    await db.run(`INSERT INTO crm_portail_passage (agency_id, resultat, message, at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(agency_id) DO UPDATE SET resultat = excluded.resultat, message = excluded.message, at = excluded.at`,
+      [agency.id, resultat, message, now()]);
+    return c.json({ ok: true });
   });
   app.post("/crm/portails/depot", async (c) => {
     const { k, agency, resp } = await agent(c); if (!k) return resp;

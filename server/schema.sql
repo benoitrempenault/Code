@@ -1069,6 +1069,15 @@ CREATE TABLE IF NOT EXISTS crm_portail_etat (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (agency_id, portail)
 );
+-- Dernier passage de l'agent des portails, même quand il n'a rien relevé
+-- (« relevé déjà fait aujourd'hui ») : Studio distingue un agent qui se tait
+-- volontairement d'un agent arrêté ou d'un PC éteint.
+CREATE TABLE IF NOT EXISTS crm_portail_passage (
+  agency_id TEXT PRIMARY KEY REFERENCES agencies(id),
+  resultat  TEXT NOT NULL DEFAULT '',       -- deja-fait | termine | erreurs | sans-page | consignes
+  message   TEXT NOT NULL DEFAULT '',
+  at        INTEGER NOT NULL
+);
 
 -- Réseaux sociaux (Facebook, Instagram) pour les bilans vendeurs (meta.js) :
 -- l'API officielle de Meta, avec le jeton de page de l'agence (chiffré en

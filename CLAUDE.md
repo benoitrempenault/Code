@@ -1057,7 +1057,16 @@ agent et serveur), `masquer()` retire jetons, e-mails, téléphones, noms/IP/use
 particuliers ; une réponse trop grosse garde sa `forme()` ; `GET /crm/portails/captures?portail=`
 = tout un portail en un fichier (bouton « ⬇ Tout ce que … a envoyé »). Leboncoin demande un
 code SMS à la reconnexion : si la session ne tient pas, le relevé Leboncoin ne peut pas être
-automatique.
+automatique. **Nouvelles de l'agent (30/09)** : chaque lancement du relevé se signale sur
+`POST /crm/portails/passage` {resultat deja-fait|termine|erreurs|sans-page|consignes} (clé
+agent, table `crm_portail_passage`) — sans ça, « relevé déjà fait aujourd'hui » (un relevé par
+jour au plus) ressemblait à un PC éteint. `nouvellesAgent()` (portails.js) = max(passage,
+last_used) ; `silence` au-delà de 36 h (`SILENCE_AGENT`) → bandeau `#alerte-agent` en tête de
+Studio Bilans (GET /crm/bilans renvoie `agentPortails` aux admins) et « dernier passage … » dans
+🔌 Portails. **Export non réimporté (vacances)** : les bilans du lundi partent quand même, sur
+le dernier portefeuille ; à partir de 4 jours (`EXPORT_ANCIEN`, `ageExport`, jours du
+calendrier `joursDepuis`), chaque mail conseiller et le récapitulatif préviennent de vérifier
+que le bien est toujours en vente.
 **Réseaux (Facebook, Instagram)** : `server/src/meta.js`, API OFFICIELLE Meta (Graph,
 `META_GRAPH_BASE` défaut v23.0, surchargeable en test). Connexion admin `POST /crm/meta/jeton`
 {jeton, appId, appSecret} : jeton court échangé (`fb_exchange_token`) → `/me/accounts` →
