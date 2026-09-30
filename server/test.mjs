@@ -1119,6 +1119,15 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   ok(mail("Office notarial MELLAC — Me Claire MELLAC") === "office@mellac.fr", "office + notaire → retrouvé");
   ok(mail("Me DURAND, notaire à Saint-Médard") === "", "un simple mot de lieu partagé ne rapproche jamais d'une autre étude");
   ok(mail("Me Bertrand PULON") === "bertrand@pulon.fr", "prénom présent : le bon des deux PULON");
+  // Doublons d'orthographe d'une même étude (créés au fil des dossiers) :
+  // même e-mail = même étude, on remplit ; e-mails différents = on ne devine pas.
+  const doublons = [N("Me NAUTIACQ", ""), N("Maître Bertrand NAUTIACQ", "etude@nautiacq.fr"), N("NAUTIACQ Bertrand", "etude@nautiacq.fr")];
+  const mail2 = (nom) => (fuzzy(doublons, nom) || {}).email || "";
+  ok(mail2("Me NAUTIACQ") === "etude@nautiacq.fr", "plusieurs fiches NAUTIACQ au même e-mail → rempli");
+  ok(mail2("Maître NAUTIACQ, notaire à Saint-Médard-en-Jalles") === "etude@nautiacq.fr", "idem depuis la phrase du compromis");
+  const distincts = [N("PULON Antoine", "antoine@pulon.fr"), N("PULON Bertrand", "bertrand@pulon.fr"), N("Me PULON", "")];
+  ok((fuzzy(distincts, "Me PULON") || {}).email == null || (fuzzy(distincts, "Me PULON") || {}).email === "",
+    "fiches aux e-mails différents → rien de deviné");
 }
 
 /* ---- Séquestre : comptabilité de l'étude dépositaire -------------------- */

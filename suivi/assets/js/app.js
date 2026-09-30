@@ -165,19 +165,38 @@
   // « Me Bertrand NAUTIACQ » (dossier) retrouve « Me NAUTIACQ » (annuaire).
   // En cas d'homonymes (même patronyme, prénoms différents), on ne devine pas.
   function annFuzzy(types, nom) {
+    // Une fiche SANS coordonnées est un résultat faible : on regarde plus loin
+    // (une autre orthographe de la même étude porte peut-être l'e-mail) et
+    // on n'y revient qu'à défaut de mieux.
     const exact = annByNom(types, nom);
-    if (exact) return exact;
+    if (exact && champsRenseignes(exact)) return exact;
     const n = motsNom(nom).length;
-    if (!n) return null;
+    if (!n) return exact || null;
     const cand = annuaire.filter((a) => types.includes(a.type) && nomsCompatibles(a.nom, nom));
-    if (cand.length === 1) return cand[0];
-    if (cand.length > 1) {
+    let r = null;
+    if (cand.length === 1) r = cand[0];
+    else if (cand.length > 1) {
       // Plusieurs fiches compatibles : on ne retient que celle qui a exactement
-      // le même niveau de détail (prénom compris), sinon rien.
+      // le même niveau de détail (prénom compris) ; à défaut, des doublons
+      // d'une même étude se reconnaissent à leur e-mail commun.
       const precis = cand.filter((a) => motsNom(a.nom).length === n);
-      return precis.length === 1 ? precis[0] : null;
+      r = precis.length === 1 ? precis[0] : memeFiche(precis.length ? precis : cand);
     }
-    return annParPatronyme(types, nom);
+    if (r && champsRenseignes(r)) return r;
+    const p = annParPatronyme(types, nom);
+    if (p && champsRenseignes(p)) return p;
+    return r || exact || p || null;
+  }
+  /* Plusieurs fiches pour un même nom — les doublons d'orthographe que les
+     dossiers créent au fil du temps (« Me NAUTIACQ », « Maître Bertrand
+     NAUTIACQ », « NAUTIACQ Bertrand ») : si toutes celles qui portent un
+     e-mail donnent LE MÊME, c'est la même étude et on rend la mieux
+     renseignée. Deux e-mails différents = deux personnes, on ne devine pas. */
+  const champsRenseignes = (a) => ["email", "telephone", "ville"].filter((k) => (a[k] || "").trim()).length;
+  function memeFiche(cand) {
+    const mails = new Set(cand.map((a) => (a.email || "").trim().toLowerCase()).filter(Boolean));
+    if (mails.size !== 1) return null;
+    return cand.filter((a) => (a.email || "").trim()).sort((a, b) => champsRenseignes(b) - champsRenseignes(a))[0];
   }
   /* Troisième chance, par PATRONYME : le compromis écrit « Maître Antoine
      PULON, notaire à Saint-Médard-en-Jalles » ou « SCP NAUTIACQ & Associés »,
@@ -206,7 +225,14 @@
       const n = mots.filter((w) => am.some((x) => motCouvre(w, x))).length;
       if (n > bestN) { bestN = n; best = [a]; } else if (n === bestN) best.push(a);
     });
-    return best.length === 1 ? best[0] : null;
+    return best.length === 1 ? best[0] : memeFiche(best);
+  }
+  // Fiches de l'annuaire qui portent le patronyme d'un nom (pour expliquer,
+  // dans la fiche du dossier, pourquoi rien ne s'est rempli).
+  function annRessemblantes(types, nom) {
+    const patro = patronymeDe(nom);
+    if (!patro.length) return [];
+    return annuaire.filter((a) => types.includes(a.type) && patro.every((p) => motsNom(a.nom).some((x) => motCouvre(p, x))));
   }
   // Complète depuis l'annuaire les coordonnées vides des notaires et du
   // syndic d'un dossier (jamais d'écrasement). Renvoie vrai si modifié.
@@ -318,11 +344,14 @@
       jobs.push({ type: s.role === "president" ? "president" : "syndic", nom: s.nom.trim(), telephone: s.telephone, email: s.email });
     }
     for (const j of jobs) {
-      const ex = annByNom([j.type], j.nom);
+      // Fiche retrouvée souplement (même règle que le remplissage) : on
+      // l'enrichit sous SON nom, au lieu de créer un doublon à chaque
+      // orthographe rencontrée dans un compromis.
+      const ex = annFuzzy([j.type], j.nom);
       const fields = ["ville", "telephone", "email"];
       const changed = !ex || fields.some((k) => (j[k] || "").trim() && (j[k] || "").trim() !== (ex[k] || ""));
       if (!changed) continue;
-      const payload = Object.assign({}, ex || {}, { type: j.type, nom: j.nom });
+      const payload = Object.assign({}, ex || {}, { type: j.type, nom: ex ? ex.nom : j.nom });
       fields.forEach((k) => { if ((j[k] || "").trim()) payload[k] = j[k].trim(); });
       try {
         await api("/annuaire", { method: "PUT", json: payload });
@@ -1509,11 +1538,31 @@
       input("Téléphone", key + ".telephone", d) +
       "</div>" +
       input("E-mail", key + ".email", d, "email") +
+      aideAnnuaireNotaire(d[key]) +
       '<div class="grid2">' +
       input("Clerc en charge", key + ".clerc", d) +
       input("E-mail du clerc", key + ".clerc_email", d, "email") +
       "</div>" +
       "</div>";
+  }
+  /* E-mail du notaire vide : on dit POURQUOI l'annuaire n'a rien rempli —
+     aucune fiche, une fiche sans e-mail, ou plusieurs fiches ressemblantes
+     aux e-mails différents — pour que la correction se fasse au bon endroit
+     (l'annuaire) plutôt qu'en retapant l'adresse dossier après dossier. */
+  function aideAnnuaireNotaire(n) {
+    if (!n || !(n.nom || "").trim() || (n.email || "").trim()) return "";
+    let txt;
+    const fiche = annFuzzy(["notaire"], n.nom);
+    if (fiche) {
+      txt = "Fiche annuaire « " + fiche.nom + " » trouvée, mais sans e-mail : renseignez-le ici, il enrichira l'annuaire.";
+    } else {
+      const proches = annRessemblantes(["notaire"], n.nom);
+      txt = proches.length
+        ? "Annuaire : " + proches.length + " fiches ressemblent (" + proches.map((a) => a.nom).join(", ") +
+          ") sans e-mail commun — précisez le nom ici, ou complétez / fusionnez ces fiches dans l'annuaire."
+        : "Aucune fiche de l'annuaire ne correspond à ce nom : ajoutez l'étude dans l'annuaire (ou son e-mail ici), et l'adresse se remplira seule sur les prochains dossiers.";
+    }
+    return '<p class="hintline" style="margin:-6px 0 8px;color:var(--warn)">⚠ ' + esc(txt) + "</p>";
   }
   // Champ « conseiller (initiales) » relié à l'annuaire : on affiche à qui
   // les initiales correspondent (nom + e-mail), ou une alerte si inconnues.

@@ -202,7 +202,15 @@ capitales du nom (sinon son dernier mot) doivent figurer dans la fiche, et s'il 
 plusieurs fiches (PULON Antoine / PULON Bertrand) celle qui partage le plus d'autres mots
 l'emporte, à égalité rien. Ainsi « Maître Antoine PULON, notaire à Saint-Médard »,
 « SCP NAUTIACQ & Associés » ou une fiche « Me NAUTIACQ (Saint-Médard) » se rapprochent ;
-un simple mot de lieu partagé ne suffit jamais.
+un simple mot de lieu partagé ne suffit jamais. **Doublons d'une même étude** (« Me
+NAUTIACQ », « Maître Bertrand NAUTIACQ », « NAUTIACQ Bertrand » — créés au fil des
+dossiers) : si toutes les fiches qui portent un e-mail donnent le même, c'est la même
+étude et la mieux renseignée est prise (`memeFiche`) ; deux e-mails différents = deux
+personnes, rien n'est deviné. L'enrichissement de l'annuaire depuis un dossier
+(`syncAnnuaireFromDossier`) retrouve la fiche par la même règle et l'enrichit sous son
+nom, au lieu de créer un doublon par orthographe. Quand l'e-mail d'un notaire reste vide,
+la fiche du dossier **dit pourquoi** sous le champ (aucune fiche, fiche sans e-mail, ou
+fiches ressemblantes aux e-mails différents, nommées) pour corriger dans l'annuaire.
 
 **L'annuaire est le carnet central** : corriger l'e-mail **ou le téléphone** d'une
 fiche notaire ou syndic le répercute sur **tous les dossiers** où cette personne
