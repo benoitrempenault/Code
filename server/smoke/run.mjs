@@ -137,7 +137,7 @@ const fauxMeta = createServer((req, res) => {
 
 // 2) Le site, servi tel quel depuis la racine du dépôt.
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json",
-  ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".woff2": "font/woff2" };
+  ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".woff2": "font/woff2", ".wasm": "application/wasm" };
 const site = createServer(async (req, res) => {
   let chemin = decodeURIComponent(new URL(req.url, "http://x").pathname);
   if (chemin.endsWith("/")) chemin += "index.html";

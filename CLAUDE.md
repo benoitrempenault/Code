@@ -734,6 +734,24 @@ tête. Pré-cochage sans sélection enregistrée : les 4 biens au prix le plus p
 versionnée) : le « 2 » des gestionnaires (colonne Saint-Aubin) était 1,5 pt trop bas et 4 pt
 trop à droite ; zone [414,440,454,496] redigée puis « 1 » (421,4 ; 438,7) et « 2 » (419,3 ;
 477,6) reposés en relief ; repère : insert_text à la ligne de base y donne un sommet à y − 33,5.
+**Photos HEIC et autres formats (30/09)** : les trois entrées photo de l'administration
+(photo du bien du guide R2 `#r2-photo`, 📷 des biens en concurrence `[data-photo]`, photo du
+conseiller `#cs-photo`) acceptent `FORMATS_PHOTO` = `image/*,.heic,.heif,.hif,.avif,.webp`.
+`lireImage(fichier)` (admin.js) essaie d'abord le décodeur du navigateur (Safari lit le HEIC
+tout seul) ; sinon, si `estHeif` reconnaît le type, l'extension ou la marque `ftyp`
+(heic/heix/hevc/mif1/avif…), `decoderHeif` rend l'image sur un canvas avec **libheif**
+(`vendor/libheif.js` + `libheif.wasm`, libheif-js 1.23.2, LGPL — licence dans
+`vendor/libheif-LICENSE.txt`), chargé à la demande par `chargerLibheif` : le `.wasm` est lu
+par `fetch` puis passé en `wasmBinary` (ce build ne sait pas le charger seul hors worker ;
+la compilation est alors synchrone, `onRuntimeInitialized` résout l'objet d'options
+lui-même, pas la variable — TDZ). CSP admin : `script-src 'self' 'wasm-unsafe-eval'`.
+`reduireImage(source, largeur, qualité)` accepte un fichier ou une image déjà lue (les biens
+en concurrence décodent une seule fois pour les deux tailles) ; `reduirePhoto` (conseiller)
+et `decoderPhoto` (livret, blobs relayés) passent aussi par `lireImage`. Smoke
+parcours-r1r2 : `fixtures/photo.heic` (1200 × 900, générée avec pillow-heif) posée sur le
+guide R2 et relue pixel par pixel dans Chromium (qui n'a pas de HEIC natif → chemin
+WebAssembly), `fixtures/photo.webp` posée sur le bien saisi à la main (livret : 4 photos,
+0 sans photo) ; run.mjs sert `.wasm` en application/wasm. Assets admin `?v=42`.
 **Agent AMEPI (28/09)** : phase Vignettes en boucle (jusqu'à 20 tours de 150, arrêt si un tour ne dépose rien : seuls les échecs restent) ; premier passage réel 28/09 : 1 916 mandats, 148 vignettes au premier tour. `/diag/livret` publie `vignettes` {deposees, mandats_sans_photo} (comptes seulement). Test permanence : les assertions « 4 rendez-vous / 3 après réservation » filtrent `pv === "medard"` car la permanence Caudéran à date fixe (2026-10-01) peut tomber sur « aujourd'hui + 3 ». Smokes : `attendreToast` vide le texte du toast une fois vu (un toast qui traîne 3 s satisfaisait le wait suivant → échec intermittent ligne « signés du conseiller choisi » : le « Bien enregistré » de la saisie précédente écrasait le toast attendu) ; `parcours()` indique fichier:ligne du plantage. CSS téléphone : les règles des étapes du bloc `@media (max-width: 720px)` sont écrites en `.etapes .etape …` (3 classes) parce que les règles générales `.etape .titre` viennent APRÈS dans le fichier et les écrasaient (titre écrasé, boutons en colonne) ; la modale prend `100dvh` (la barre de Safari cachait Effacer / Fermer). Assets admin `?v=29`. (27/09 : un clic sur le voile hors de la fenêtre ne ferme plus la modale — on perdait la saisie ; seuls ×, Retour/Annuler et le bouton « précédent » ferment). Photos du livret : `decoderPhoto` (canvas → JPEG 1200 px, WebP compris) puis `embarquerPhoto` (photo posée, sinon relais) ; relais et acm/donnees résolvent les URL relatives de nos annonces sur `annonces.siteUrl`.
 **Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
 bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la

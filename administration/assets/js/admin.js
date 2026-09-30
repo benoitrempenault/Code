@@ -2418,22 +2418,84 @@
       : '<div class="vide">Aucun conseiller — ajoutez le premier.</div>';
     zone.querySelectorAll("tr[data-conseiller]").forEach((tr) => tr.addEventListener("click", () => ouvrirConseiller(tr.dataset.conseiller)));
   }
-  function reduirePhoto(fichier) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        // Carré recadré au centre, assez grand pour la page « Votre conseiller »
-        // du guide R2 (214 × 284 pt) : 720 px, et au plus ~200 Ko côté serveur.
-        const min = Math.min(img.width, img.height);
-        const rendre = (taille, qualite) => { const cv = document.createElement("canvas"); cv.width = taille; cv.height = taille; cv.getContext("2d").drawImage(img, (img.width - min) / 2, (img.height - min) / 2, min, min, 0, 0, taille, taille); return cv.toDataURL("image/jpeg", qualite); };
-        let photo = rendre(Math.min(720, min), 0.86);
-        if (photo.length > 250000) photo = rendre(Math.min(640, min), 0.78);
-        if (photo.length > 250000) photo = rendre(Math.min(520, min), 0.72);
-        resolve(photo);
+  /* --------------------------- Lecture des photos -------------------------- */
+  // Les photos arrivent dans tous les formats du téléphone ou du PC : JPEG, PNG,
+  // WebP, GIF, BMP, AVIF… et surtout HEIC/HEIF (iPhone). Le navigateur lit ce
+  // qu'il sait lire (Safari décode le HEIC tout seul) ; pour le reste, le décodeur
+  // libheif (WebAssembly, vendor/libheif.js + libheif.wasm, chargé à la demande)
+  // rend l'image sur un canvas. Tout ressort ensuite en JPEG redimensionné.
+  const FORMATS_PHOTO = "image/*,.heic,.heif,.hif,.avif,.webp";
+  let libheifPret = null;
+  function chargerLibheif() {
+    if (libheifPret) return libheifPret;
+    // Le binaire WebAssembly est lu ici (le module ne sait pas le charger seul
+    // hors d'un worker) ; la compilation est alors immédiate et synchrone.
+    libheifPret = fetch("assets/js/vendor/libheif.wasm").then((r) => { if (!r.ok) throw new Error("Décodeur HEIC indisponible."); return r.arrayBuffer(); }).then((wasmBinary) => new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "assets/js/vendor/libheif.js";
+      s.onload = () => {
+        try {
+          const opts = { wasmBinary, onRuntimeInitialized() { resolve(opts); } };
+          const mod = window.libheif(opts);
+          if (mod && typeof mod.HeifDecoder === "function") resolve(mod);
+        } catch (e) { reject(e); }
       };
-      img.onerror = () => reject(new Error("Image illisible."));
-      img.src = URL.createObjectURL(fichier);
+      s.onerror = () => reject(new Error("Décodeur HEIC indisponible."));
+      document.head.appendChild(s);
+    })).catch((e) => { libheifPret = null; throw e; });
+    return libheifPret;
+  }
+  // HEIC/HEIF/AVIF se reconnaissent au type, à l'extension ou à la marque « ftyp ».
+  async function estHeif(fichier) {
+    if (/^image\/(heic|heif|avif)/i.test(fichier.type || "") || /\.(heic|heif|hif|avif)$/i.test(fichier.name || "")) return true;
+    try {
+      const tete = new Uint8Array(await fichier.slice(0, 16).arrayBuffer());
+      const txt = String.fromCharCode.apply(null, tete);
+      return txt.slice(4, 8) === "ftyp" && /^(heic|heix|hevc|hevx|heim|heis|hevm|hevs|mif1|msf1|avif|avis)/.test(txt.slice(8, 12));
+    } catch { return false; }
+  }
+  async function decoderHeif(fichier) {
+    const octets = new Uint8Array(await fichier.arrayBuffer());
+    const lh = await chargerLibheif();
+    const dec = new lh.HeifDecoder();
+    const images = dec.decode(octets);
+    if (!images || !images.length) throw new Error("Photo HEIC illisible.");
+    try {
+      const im = images[0], w = im.get_width(), h = im.get_height();
+      const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+      const cx = cv.getContext("2d"), donnees = cx.createImageData(w, h);
+      await new Promise((ok, ko) => im.display(donnees, (d) => (d ? ok() : ko(new Error("Photo HEIC illisible.")))));
+      cx.putImageData(donnees, 0, 0);
+      return cv;
+    } finally {
+      for (const x of images) { try { x.free(); } catch { /* déjà libérée */ } }
+      try { if (typeof dec.free === "function") dec.free(); } catch { /* idem */ }
+    }
+  }
+  // Un fichier image → un élément dessinable sur canvas (Image ou canvas déjà
+  // rendu), quel que soit le format ; l'orientation EXIF est celle du navigateur.
+  async function lireImage(fichier) {
+    const natif = () => new Promise((resolve, reject) => {
+      const img = new Image(), u = URL.createObjectURL(fichier);
+      img.onload = () => { URL.revokeObjectURL(u); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(u); reject(new Error("Image illisible.")); };
+      img.src = u;
     });
+    try { return await natif(); } catch (e) {
+      if (await estHeif(fichier)) return decoderHeif(fichier);
+      throw new Error("Format d'image non reconnu" + (fichier.name ? " (" + fichier.name + ")" : "") + " : JPEG, PNG, HEIC, WebP, GIF ou BMP.");
+    }
+  }
+  async function reduirePhoto(fichier) {
+    const img = await lireImage(fichier);
+    // Carré recadré au centre, assez grand pour la page « Votre conseiller »
+    // du guide R2 (214 × 284 pt) : 720 px, et au plus ~200 Ko côté serveur.
+    const min = Math.min(img.width, img.height);
+    const rendre = (taille, qualite) => { const cv = document.createElement("canvas"); cv.width = taille; cv.height = taille; cv.getContext("2d").drawImage(img, (img.width - min) / 2, (img.height - min) / 2, min, min, 0, 0, taille, taille); return cv.toDataURL("image/jpeg", qualite); };
+    let photo = rendre(Math.min(720, min), 0.86);
+    if (photo.length > 250000) photo = rendre(Math.min(640, min), 0.78);
+    if (photo.length > 250000) photo = rendre(Math.min(520, min), 0.72);
+    return photo;
   }
   function ouvrirConseiller(id) {
     const c = id ? conseillers.find((x) => x.id === id) : null;
@@ -2441,7 +2503,7 @@
     ouvrirModale(c ? "✏️ " + [c.prenom, c.nom].filter(Boolean).join(" ") : "+ Nouveau conseiller",
       '<div class="barre" style="align-items:center;">' +
       '<img class="avatar" id="cs-apercu" style="width:72px;height:72px;" src="' + escH(c && c.photo_url || "") + '" alt="" />' +
-      '<label class="btn">📷 Choisir une photo<input type="file" id="cs-photo" accept="image/*" hidden /></label>' +
+      '<label class="btn">📷 Choisir une photo<input type="file" id="cs-photo" accept="' + FORMATS_PHOTO + '" hidden /></label>' +
       '<button class="btn" id="cs-photo-retirer">Sans photo</button></div>' +
       '<div class="grille-champs" style="margin-top:12px;">' +
       '<label>Prénom<input id="cs-prenom" value="' + escH(c && c.prenom || "") + '" /></label>' +
@@ -2815,20 +2877,15 @@
   // Barlow sont embarquées (fontkit) pour rester dans la maquette.
   let guideR2Cache = null;
   const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-  function reduireImage(fichier, largeur, qualite) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        const k = Math.min(1, largeur / img.width), cv = document.createElement("canvas");
-        cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
-        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
-        let q = qualite, out = cv.toDataURL("image/jpeg", q);
-        while (out.length > 380000 && q > 0.4) { q -= 0.1; out = cv.toDataURL("image/jpeg", q); }
-        resolve(out);
-      };
-      img.onerror = () => reject(new Error("Image illisible."));
-      img.src = URL.createObjectURL(fichier);
-    });
+  // Un fichier photo (tout format, HEIC compris) ou une image déjà lue → JPEG ≤ largeur px, poids borné.
+  async function reduireImage(source, largeur, qualite) {
+    const img = source instanceof Blob ? await lireImage(source) : source;
+    const k = Math.min(1, largeur / img.width), cv = document.createElement("canvas");
+    cv.width = Math.max(1, Math.round(img.width * k)); cv.height = Math.max(1, Math.round(img.height * k));
+    cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+    let q = qualite, out = cv.toDataURL("image/jpeg", q);
+    while (out.length > 380000 && q > 0.4) { q -= 0.1; out = cv.toDataURL("image/jpeg", q); }
+    return out;
   }
   async function chargerImage(src) {
     return new Promise((resolve, reject) => { const i = new Image(); i.crossOrigin = "anonymous"; i.onload = () => resolve(i); i.onerror = () => reject(new Error("image")); i.src = src; });
@@ -3025,7 +3082,7 @@
       '<p class="aide">Ce qui manque au guide : la photo du bien, vos points forts et objections, votre texte. Le reste (commune, commodités à 1,5 km, ventes de l\'agence à 1 km, date du jour, mois) se remplit tout seul.</p>' +
       '<div class="barre" style="align-items:center;">' +
       '<img id="r2-apercu" src="' + escH(r2.photo || "") + '" alt="" style="width:160px; height:106px; object-fit:cover; border-radius:10px; background:var(--line);" />' +
-      '<label class="btn">📷 Photo du bien<input type="file" id="r2-photo" accept="image/*" hidden /></label></div>' +
+      '<label class="btn">📷 Photo du bien<input type="file" id="r2-photo" accept="' + FORMATS_PHOTO + '" hidden /></label></div>' +
       '<div class="grille-champs" style="margin-top:12px;">' +
       '<label>Les points forts (un par ligne, 4 au plus)<textarea id="r2-forts" style="min-height:90px;">' + escH(r2.points_forts || "") + "</textarea></label>" +
       '<label>Les objections potentielles (une par ligne, 4 au plus)<textarea id="r2-objections" style="min-height:90px;">' + escH(r2.objections || "") + "</textarea></label>" +
@@ -3207,7 +3264,7 @@
       escH([v.type, v.pieces ? v.pieces + " pièces" : "", v.surface ? Math.round(v.surface) + " m²" : "", v.terrain ? "terrain " + Math.round(v.terrain) + " m²" : "", fmtM2(v), "à " + v.dist + " m", v.source === "agence" ? "vendu par l'agence" : "DVF"].filter(Boolean).join(" · ")) + "</span></span></label>";
     const ligneConc = (a, i) => '<label class="case ligne-conc"><input type="checkbox" data-conc="' + escH(a.id) + '"' + (cocheC(a, i) ? " checked" : "") + ' /> ' +
       '<span class="bloc-vignette">' + ((a.photo || a.image) ? '<img class="vignette-conc" data-vignette="' + escH(a.id) + '" src="' + escH(a.photo || a.image) + '" alt="" loading="lazy" />' : '<span class="vignette-conc" data-vignette="' + escH(a.id) + '"></span>') +
-      '<label class="btn" style="padding:1px 6px; font-size:11px;" title="Poser ou remplacer la photo qui ira dans le livret">📷<input type="file" accept="image/*" data-photo="' + escH(a.id) + '" hidden /></label></span><span><strong>' +
+      '<label class="btn" style="padding:1px 6px; font-size:11px;" title="Poser ou remplacer la photo qui ira dans le livret">📷<input type="file" accept="' + FORMATS_PHOTO + '" data-photo="' + escH(a.id) + '" hidden /></label></span><span><strong>' +
       escH(fmtPrix(a.prix)) + "</strong> · " + escH(a.titre || "") + (a.ville ? " · " + escH(a.ville) : "") + '<br /><span class="petit">' +
       escH([a.adresse || "", a.pieces ? a.pieces + " pièces" : "", a.surface ? Math.round(a.surface) + " m²" : "", a.terrain ? "terrain " + Math.round(a.terrain) + " m²" : "", fmtM2(a), a.dist != null ? "à " + Math.round(a.dist) + " m" : "", a.jours ? "en vente depuis " + a.jours + " j" : "", a.baisse > 0 ? "baisse de " + fmtPrix(a.baisse) : "", a.source === "amepi" ? "ALFA · " + (a.agence || "confrère") : a.source === "portail" ? "vu sur " + (a.portail || "un portail") : a.source === "bienici" ? "Bien'ici · " + (a.agence || "agence") + (a.quartier ? " · " + a.quartier : "") : "notre agence"].filter(Boolean).join(" · ")) +
       (a.url ? ' · <a href="' + escH(a.url) + '" target="_blank" rel="noopener">voir l\'annonce ↗</a>' : "") + "</span></span></label>";
@@ -3279,8 +3336,9 @@
       const f = inp.files && inp.files[0]; if (!f) return;
       try {
         // Rangée à part (table dédiée), jamais dans la saisie du livret : 900 px, poids borné.
-        let photo = await reduireImage(f, 900, 0.78);
-        if (photo.length > 150000) photo = await reduireImage(f, 700, 0.7);
+        const img = await lireImage(f); // décodée une fois (HEIC compris)
+        let photo = await reduireImage(img, 900, 0.78);
+        if (photo.length > 150000) photo = await reduireImage(img, 700, 0.7);
         await api("/crm/parcours/" + id + "/acm/photos/" + encodeURIComponent(inp.dataset.photo), { method: "PUT", json: { photo } });
         const cand = candidatsConc.find((x) => x.id === inp.dataset.photo); if (cand) cand.photo = photo;
         const vig = document.querySelector('[data-vignette="' + inp.dataset.photo + '"]');
@@ -3469,12 +3527,14 @@
     };
     // Une photo (data URL ou octets relayés, WebP compris) passe par le décodeur
     // du navigateur et ressort en JPEG ≤ 1200 px : pdf-lib n'accepte que JPEG et PNG.
-    const decoderPhoto = (source) => new Promise((resolve) => {
-      const img = new Image(); let urlTmp = "";
-      img.onload = () => { try { const k = Math.min(1, 1200 / Math.max(img.width, img.height)); const cv = document.createElement("canvas"); cv.width = Math.max(1, Math.round(img.width * k)); cv.height = Math.max(1, Math.round(img.height * k)); cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height); resolve(cv.toDataURL("image/jpeg", 0.85)); } catch { resolve(""); } if (urlTmp) URL.revokeObjectURL(urlTmp); };
-      img.onerror = () => { resolve(""); if (urlTmp) URL.revokeObjectURL(urlTmp); };
-      if (typeof source === "string") img.src = source; else { urlTmp = URL.createObjectURL(source); img.src = urlTmp; }
-    });
+    const decoderPhoto = async (source) => {
+      try {
+        const img = typeof source === "string"
+          ? await new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ko(new Error("image")); i.src = source; })
+          : await lireImage(source);
+        const k = Math.min(1, 1200 / Math.max(img.width, img.height)); const cv = document.createElement("canvas"); cv.width = Math.max(1, Math.round(img.width * k)); cv.height = Math.max(1, Math.round(img.height * k)); cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height); return cv.toDataURL("image/jpeg", 0.85);
+      } catch { return ""; }
+    };
     // La photo d'un bien en concurrence, dans l'ordre : posée à la main (table
     // dédiée), vignette fraîche (ALFA via l'agent, nos annonces), sinon le relais
     // sur l'URL de l'annonce. Jamais a.photo relu de la saisie (tronqué à 3 000 caractères).

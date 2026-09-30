@@ -127,6 +127,12 @@ export default async function () {
     // Le guide R2 : points forts, objections, texte du conseiller, puis commune + commodités + ventes + cartes.
     await page.click('[data-guide="r2"]');
     await page.waitForSelector("#r2-generer", { timeout: 8000 });
+    // La photo du bien arrive en HEIC (iPhone) : Chromium ne sait pas la lire,
+    // le décodeur libheif (WebAssembly, sous la CSP) la rend en JPEG.
+    await page.setInputFiles("#r2-photo", new URL("./fixtures/photo.heic", import.meta.url).pathname);
+    await page.waitForFunction(() => /^data:image\/jpeg/.test(document.getElementById("r2-apercu").src), null, { timeout: 30000 });
+    const heic = await page.evaluate(() => new Promise((ok) => { const i = new Image(); i.onload = () => { const cv = document.createElement("canvas"); cv.width = i.width; cv.height = i.height; const cx = cv.getContext("2d"); cx.drawImage(i, 0, 0); ok({ w: i.width, h: i.height, px: Array.from(cx.getImageData(Math.round(i.width / 4), Math.round(i.height / 3), 1, 1).data) }); }; i.src = document.getElementById("r2-apercu").src; }));
+    ok(heic.w === 1200 && heic.h === 900 && heic.px[0] > 200 && heic.px[1] > 170 && heic.px[2] < 110, "la photo HEIC du bien est décodée (1200 × 900, jaune au quart) : " + JSON.stringify(heic));
     await page.fill("#r2-forts", "Le box\nLa disposition des pièces");
     await page.fill("#r2-objections", "La route passante");
     await page.fill("#r2-bio", "Après 12 ans dans la grande distribution, j'ai rejoint Century 21 Kadima.\n\nJe suis déterminé à vous fournir un service personnalisé.");
@@ -212,6 +218,10 @@ export default async function () {
     await page.click("#acm-m-ajouter");
     await attendreToast(page, "Bien ajouté");
     ok((await page.locator('[data-conc^="portail:"]:checked').count()) === 1, "un bien vu sur un portail s'ajoute à la main, coché");
+    // Sa photo se pose à la main, ici en WebP : rangée à part, vignette JPEG dans la liste.
+    await page.setInputFiles('input[data-photo^="portail:"]', new URL("./fixtures/photo.webp", import.meta.url).pathname);
+    await attendreToast(page, "Photo posée sur ce bien");
+    ok((await page.getAttribute('img.vignette-conc[data-vignette^="portail:"]', "src") || "").startsWith("data:image/jpeg"), "la photo WebP posée sur le bien saisi à la main devient une vignette JPEG");
     ok(await page.inputValue('[data-com-nb="0"]') === "1" && await page.inputValue('[data-com-basse="0"]') === "310000", "le livret reprend la commission (1 conseiller sur 310–330 k)");
     await page.fill('[data-com-nb="0"]', "3"); await page.fill('[data-com-basse="0"]', "300000"); await page.fill('[data-com-haute="0"]', "320000");
     // Des lignes s'ajoutent et se retirent depuis le livret.
@@ -240,7 +250,7 @@ export default async function () {
       const doc = await window.PDFLib.PDFDocument.load(window.__dernierGuide.octets);
       return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength, debug: window.__dernierGuide.debug || null };
     });
-    ok(livret.debug && livret.debug.photos >= 3 && livret.debug.sansPhoto === 1, "le livret embarque les photos des biens en concurrence (ALFA via la vignette de l'agent, Bien'ici via le relais) ; seul le bien saisi à la main sans photo n'en a pas (" + JSON.stringify(livret.debug) + ")");
+    ok(livret.debug && livret.debug.photos >= 4 && livret.debug.sansPhoto === 0, "le livret embarque les photos des biens en concurrence (ALFA via la vignette de l'agent, Bien'ici via le relais, le bien saisi à la main via sa photo posée) (" + JSON.stringify(livret.debug) + ")");
     ok(livret.pages >= 13 && /Livret prix/.test(livret.titre) && /MOUNEYRES/.test(livret.titre), "le livret prix est assemblé : pages fixes, ventes retenues, toutes les ventes DVF, concurrence, commission, acheteurs, financement (" + JSON.stringify(livret) + ")");
     await garderGuide(page, livret.octets, "livret-prix-smoke.pdf");
     // Un co-propriétaire, créé depuis la fiche : il apparaît sur la fiche, dans le mail et dans la liste.
