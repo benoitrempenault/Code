@@ -156,3 +156,5 @@ select:focus, input:focus, textarea:focus { outline: none; border-color: var(--a
   .edition { grid-template-columns: 1fr; }
   .edition textarea { min-height: 260px; }
 }
+
+.alerte-agent { margin: 6px 0 12px; padding: 10px 14px; border-radius: 10px; background: rgba(224, 122, 95, .12); border: 1px solid rgba(224, 122, 95, .45); color: var(--text); font-size: 13.5px; line-height: 1.45; }

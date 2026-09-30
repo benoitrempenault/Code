@@ -81,6 +81,11 @@
     if (!etat.statsBranchees) src.push("⚠ statistiques du site non branchées (SITE_STATS_KEY)");
     src.push(etat.actif ? "préparation automatique le lundi : activée" : "préparation automatique le lundi : désactivée (Administration › Réglages)");
     $("etat-sources").textContent = src.join(" · ");
+    const ag = etat.agentPortails, alerte = $("alerte-agent");
+    alerte.hidden = !(ag && ag.silence);
+    if (ag && ag.silence) alerte.innerHTML = "⚠ <strong>L'agent des portails ne donne plus de nouvelles</strong> " +
+      (ag.dernier ? "depuis le " + escH(new Date(ag.dernier * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })) : "(jamais lancé)") +
+      " : le PC de l'agent est-il allumé, avec la session Windows ouverte ? Sans relevé, les bilans n'auront pas les chiffres de SeLoger, Bien'ici et Leboncoin.";
     rendre();
   }
   function rendre() {
@@ -228,6 +233,12 @@
   // sa clé, l'état de chaque portail, et les pages apprises à relever.
   const STATUTS = { ok: ["ok", "✓ relevé"], session: ["fort", "session expirée — CONNECTER.cmd"], vide: ["fort", "aucune annonce reconnue"], erreur: ["fort", "erreur"] };
   let portailsEtat = null;
+  const PASSAGES = { "deja-fait": "relevé déjà fait ce jour-là", termine: "relevé fait", erreurs: "relevé avec erreurs", "sans-page": "aucune page à relever", consignes: "consignes illisibles" };
+  function passageAgent(n, date) {
+    if (!n || !n.dernier) return '<span class="puce fort">jamais lancé</span>';
+    return "dernier passage " + date(n.dernier) + (n.resultat ? " (" + escH(PASSAGES[n.resultat] || n.resultat) + ")" : "") +
+      (n.silence ? ' <span class="puce fort">plus de nouvelles depuis 36 h</span>' : "");
+  }
   async function ouvrirPortails() {
     try { portailsEtat = await api("/crm/portails"); } catch (e) { toast(e.message, true); return; }
     rendrePortails();
@@ -261,7 +272,7 @@
       "<li>SeLoger, Bien'ici et Leboncoin n'ont pas d'accès automatique : un <strong>agent installé sur un PC de l'agence</strong> ouvre Edge avec la connexion de l'agence et relève chaque jour les pages retenues ci-dessous.</li>" +
       "<li>Installation : <a href=\"agent-portails.zip\" style=\"color:var(--accent)\">📦 télécharger l'agent</a>, puis suivez LISEZMOI.md (INSTALLER, CONNECTER, APPRENDRE).</li>" +
       "<li>Les annonces sont reconnues par leur <strong>référence</strong> (celle de l'export des mandats) : importez l'export avant l'apprentissage.</li></ul>" +
-      '<div class="barre" style="margin-top:10px"><span class="petit" style="margin:0">Agent : ' + (P.agent ? escH(P.agent.label) + " · dernier contact " + date(P.agent.last_used) : "aucune clé") + "</span>" +
+      '<div class="barre" style="margin-top:10px"><span class="petit" style="margin:0">Agent : ' + (P.agent ? escH(P.agent.label) + " · " + passageAgent(P.nouvelles, date) : "aucune clé") + "</span>" +
       '<button class="btn mini" id="pt-cle">🔑 Nouvelle clé de l\'agent</button>' + (P.agent ? '<button class="btn mini btn-danger" id="pt-revoquer">Révoquer</button>' : "") + '</div><div id="pt-cle-zone"></div></div>' +
       blocs + "<h3 style=\"font-family:Fraunces,Georgia,serif;font-weight:500;margin:14px 0 6px\">Pages reçues de l'agent</h3>" + caps,
       '<button class="btn" id="pt-fermer">Fermer</button><button class="btn btn-or" id="pt-enregistrer">Enregistrer les consignes</button>');

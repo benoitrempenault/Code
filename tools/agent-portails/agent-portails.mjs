@@ -72,6 +72,12 @@ async function studio(chemin, corps) {
   return j;
 }
 
+// Chaque lancement se signale à Studio, même sans relevé : sans ce signal, un
+// agent qui s'arrête exprès ressemble à un PC éteint. Jamais bloquant.
+async function passage(resultat, message = "") {
+  try { await studio("/crm/portails/passage", { resultat, message }); } catch { }
+}
+
 let chromium;
 try { ({ chromium } = await import("playwright-core")); }
 catch { await log("playwright-core absent : relancez INSTALLER.cmd."); process.exit(1); }
@@ -246,13 +252,13 @@ if (mode === "apprendre") {
 /* -------------------------------- Relevé ---------------------------------- */
 const aujourdhui = new Date().toISOString().slice(0, 10);
 if (!args.includes("--forcer")) {
-  try { if (JSON.parse(await readFile(ETAT, "utf8")).jour === aujourdhui) { await log("Relevé déjà fait aujourd'hui."); process.exit(0); } } catch { }
+  try { if (JSON.parse(await readFile(ETAT, "utf8")).jour === aujourdhui) { await log("Relevé déjà fait aujourd'hui."); await passage("deja-fait"); process.exit(0); } } catch { }
 }
 let cons;
 try { cons = await studio("/crm/portails/consignes"); }
-catch (e) { await log("Consignes illisibles : " + e.message); process.exit(1); }
+catch (e) { await log("Consignes illisibles : " + e.message); await passage("consignes", e.message); process.exit(1); }
 const aFaire = Object.entries(cons.portails).filter(([, v]) => v.pages.length);
-if (!aFaire.length) { await log("Aucune page à relever : faites d'abord l'apprentissage (APPRENDRE.cmd) et choisissez les pages dans Studio Bilans."); process.exit(0); }
+if (!aFaire.length) { await log("Aucune page à relever : faites d'abord l'apprentissage (APPRENDRE.cmd) et choisissez les pages dans Studio Bilans."); await passage("sans-page"); process.exit(0); }
 
 const ctx = await ouvrir(false);
 await reecrire(ctx, cons.reecritures);
@@ -290,4 +296,5 @@ for (const [p, v] of aFaire) {
 await ctx.close();
 if (!erreurs) await writeFile(ETAT, JSON.stringify({ jour: aujourdhui }));
 await log(erreurs ? `Relevé terminé avec ${erreurs} erreur(s).` : "Relevé terminé.");
+await passage(erreurs ? "erreurs" : "termine", erreurs ? `${erreurs} erreur(s)` : "");
 process.exit(erreurs ? 2 : 0);
