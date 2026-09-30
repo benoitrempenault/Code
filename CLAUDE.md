@@ -734,6 +734,23 @@ tête. Pré-cochage sans sélection enregistrée : les 4 biens au prix le plus p
 versionnée) : le « 2 » des gestionnaires (colonne Saint-Aubin) était 1,5 pt trop bas et 4 pt
 trop à droite ; zone [414,440,454,496] redigée puis « 1 » (421,4 ; 438,7) et « 2 » (419,3 ;
 477,6) reposés en relief ; repère : insert_text à la ligne de base y donne un sommet à y − 33,5.
+**Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py` (pymupdf +
+Pillow, Barlow-Bold du dépôt). Le graphique « Volumes de transactions » est une image raster
+(1,1 px/pt) qui s'arrête à 2025 ; la colonne 2026 avait été ajoutée en vectoriel par-dessus
+(pointillés, étiquette texte plus claire, case à part). Le script rédige les ajouts (zones
+729–808 × 266–304, 757–782 × 483–520, 732–808 × 309–326, texte et tracés couverts ; les
+pointillés résistent et sont recouverts de blanc 744–766 × 276–296,5), efface le bord droit de
+l'image (759,5–766) sauf sous le libellé 2023, prolonge la grille (748→790, gris 217/255),
+trace la graduation, la courbe pleine 2025→2026 (bézier tangentes horizontales, or
+0,72/0,66/0,49, 2,2 pt) et les points (r 3,9), compose l'étiquette « 2026 » avec les pixels
+de « 2025 » et le « 6 » de « 2016 » (23 étiquettes mesurées, pas 25,8 pt, 2026 à x = 768,4)
+et réécrit « 2025 : 925 000 » (730,6 ; 279) et « 2026 : 900 000 » (733 ; 322) en Barlow-Bold
+11,3 après le blanc. Appliqué à administration/assets/guide-r2.pdf (sauvegarde via .tmp).
+**Commodités, relais Overpass (30/09)** : depuis Cloudflare les 4 relais (lz4, kumi,
+private.coffee, overpass-api.de) expiraient tous (`/diag/overpass` : 4 × 15 s) → guide R2 sans
+commodités. `overpass.openstreetmap.fr` (2 s, 300 éléments) passe en tête de
+`RELAIS_OVERPASS` (parcours.js) ; `OVERPASS_BASE` reste prioritaire s'il est posé. Vérifier
+après déploiement avec `/diag/overpass` (cache 10 min).
 **Photos HEIC et autres formats (30/09)** : les trois entrées photo de l'administration
 (photo du bien du guide R2 `#r2-photo`, 📷 des biens en concurrence `[data-photo]`, photo du
 conseiller `#cs-photo`) acceptent `FORMATS_PHOTO` = `image/*,.heic,.heif,.hif,.avif,.webp`.

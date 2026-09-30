@@ -743,9 +743,11 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       departement: (c.departement && c.departement.nom) || DEPARTEMENTS[String(cp || "").slice(0, 2)] || "", region: (c.region && c.region.nom) || "" };
   }
   // Plusieurs relais Overpass : le premier qui répond avec des éléments gagne.
-  // Ordre d'après le diagnostic du 26/09 depuis Cloudflare : lz4 répond en
-  // ~7 s, kumi et private.coffee expirent, overpass-api.de répond 521.
-  const RELAIS_OVERPASS = ["https://lz4.overpass-api.de", "https://overpass.kumi.systems", "https://overpass.private.coffee", "https://overpass-api.de"];
+  // Le 30/09, depuis Cloudflare, lz4, kumi, private.coffee et overpass-api.de
+  // expiraient tous les quatre (15 s chacun : plus de commodités dans le guide
+  // R2) ; le relais français (overpass.openstreetmap.fr) répondait en 2 s.
+  // Il passe donc en tête, les autres restent en secours.
+  const RELAIS_OVERPASS = ["https://overpass.openstreetmap.fr", "https://lz4.overpass-api.de", "https://overpass.kumi.systems", "https://overpass.private.coffee", "https://overpass-api.de"];
   async function commodites(lat, lng) {
     const relais = [...new Set([(env.OVERPASS_BASE || RELAIS_OVERPASS[0]).replace(/\/+$/, ""), ...(env.OVERPASS_BASE ? [] : RELAIS_OVERPASS)])];
     let derniere = null;
