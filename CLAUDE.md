@@ -734,18 +734,23 @@ tête. Pré-cochage sans sélection enregistrée : les 4 biens au prix le plus p
 versionnée) : le « 2 » des gestionnaires (colonne Saint-Aubin) était 1,5 pt trop bas et 4 pt
 trop à droite ; zone [414,440,454,496] redigée puis « 1 » (421,4 ; 438,7) et « 2 » (419,3 ;
 477,6) reposés en relief ; repère : insert_text à la ligne de base y donne un sommet à y − 33,5.
-**Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py` (pymupdf +
-Pillow, Barlow-Bold du dépôt). Le graphique « Volumes de transactions » est une image raster
-(1,1 px/pt) qui s'arrête à 2025 ; la colonne 2026 avait été ajoutée en vectoriel par-dessus
-(pointillés, étiquette texte plus claire, case à part). Le script rédige les ajouts (zones
-729–808 × 266–304, 757–782 × 483–520, 732–808 × 309–326, texte et tracés couverts ; les
-pointillés résistent et sont recouverts de blanc 744–766 × 276–296,5), efface le bord droit de
-l'image (759,5–766) sauf sous le libellé 2023, prolonge la grille (748→790, gris 217/255),
-trace la graduation, la courbe pleine 2025→2026 (bézier tangentes horizontales, or
-0,72/0,66/0,49, 2,2 pt) et les points (r 3,9), compose l'étiquette « 2026 » avec les pixels
-de « 2025 » et le « 6 » de « 2016 » (23 étiquettes mesurées, pas 25,8 pt, 2026 à x = 768,4)
-et réécrit « 2025 : 925 000 » (730,6 ; 279) et « 2026 : 900 000 » (733 ; 322) en Barlow-Bold
-11,3 après le blanc. Appliqué à administration/assets/guide-r2.pdf (sauvegarde via .tmp).
+**Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
+(pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
+9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique
+« Volumes de transactions » est une image raster (1,1 px/pt) qui s'arrête à 2025 ; la colonne
+2026 avait été ajoutée en vectoriel par-dessus (étiquette texte plus claire, case à part).
+Benoît veut la courbe 2025→2026 EN POINTILLÉS (projection) et l'étiquette « 2026 » identique
+aux 23 autres. Le script : rédige les ajouts (zones 729–808 × 266–304, 757–782 × 483–520,
+732–808 × 309–326, 697–783 × 207–226 : textes + tracés couverts ; les pointillés d'origine
+résistent → blanc 744–751,5 × 276–296,5), pose un BLOC D'IMAGE par-dessus la partie droite du
+graphique (751 pt → 789,5, mêmes pixels/échelle/lignes ; `replace_image` laissait l'ancienne
+image affichée) avec bord droit effacé, grille, graduation copiée et étiquette « 2026 »
+composée des pixels de « 2025 » + le « 6 » de « 2016 » (23 blobs mesurés, pas 25,8 pt),
+comble le trou de grille 2025→bloc par des rectangles gris (217/255) alignés sur les lignes
+de pixels, retrace les pointillés (bézier tangentes horizontales, or 0,72/0,66/0,49, 2,2 pt,
+dashes [2 2.5], bouts droits) et les points (r 3,9), puis réécrit « 2023 : 1 083 000 »
+(699,1 ; 220,8), « 2025 : 925 000 » (730,6 ; 279) et « 2026 : 900 000 » (733 ; 322) en
+Barlow-Bold 11,3 par-dessus le bloc. Sauvegarde via .tmp.
 **Commodités, relais Overpass (30/09)** : depuis Cloudflare les 4 relais (lz4, kumi,
 private.coffee, overpass-api.de) expiraient tous (`/diag/overpass` : 4 × 15 s) → guide R2 sans
 commodités. `overpass.openstreetmap.fr` (2 s, 300 éléments) passe en tête de
