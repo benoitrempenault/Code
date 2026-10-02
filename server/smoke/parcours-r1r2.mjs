@@ -127,10 +127,29 @@ export default async function () {
     // Le guide R2 : points forts, objections, texte du conseiller, puis commune + commodités + ventes + cartes.
     await page.click('[data-guide="r2"]');
     await page.waitForSelector("#r2-generer", { timeout: 8000 });
+    // Une photo très détaillée (bruit = pire cas, comme un jardin) : la réduction
+    // descend sous la limite du serveur au lieu de bloquer le guide.
+    const lourde = await page.evaluate(async () => {
+      const cv = document.createElement("canvas"); cv.width = 3000; cv.height = 2000;
+      const cx = cv.getContext("2d"), im = cx.createImageData(3000, 2000);
+      for (let i = 0; i < im.data.length; i++) im.data[i] = (i & 3) === 3 ? 255 : Math.random() * 256;
+      cx.putImageData(im, 0, 0);
+      const blob = await new Promise((r) => cv.toBlob(r, "image/jpeg", 0.95));
+      const dt = new DataTransfer(); dt.items.add(new File([blob], "jardin.jpg", { type: "image/jpeg" }));
+      const inp = document.getElementById("r2-photo"); inp.files = dt.files; inp.dispatchEvent(new Event("change", { bubbles: true }));
+      return blob.size;
+    });
+    await page.waitForFunction(() => /^data:image\/jpeg/.test(document.getElementById("r2-apercu").src), null, { timeout: 30000 });
+    const reduite = await page.evaluate(() => document.getElementById("r2-apercu").src.length);
+    ok(reduite <= 380000, "photo très détaillée (" + Math.round(lourde / 1024) + " Ko) réduite sous la limite du serveur (" + reduite + " car.)");
+    await page.click("#r2-save");
+    await attendreToast(page, /saisie enregistrée/);
+    ok(true, "…et le serveur l'accepte");
     // La photo du bien arrive en HEIC (iPhone) : Chromium ne sait pas la lire,
     // le décodeur libheif (WebAssembly, sous la CSP) la rend en JPEG.
+    const avant = await page.evaluate(() => document.getElementById("r2-apercu").src);
     await page.setInputFiles("#r2-photo", new URL("./fixtures/photo.heic", import.meta.url).pathname);
-    await page.waitForFunction(() => /^data:image\/jpeg/.test(document.getElementById("r2-apercu").src), null, { timeout: 30000 });
+    await page.waitForFunction((a) => { const s = document.getElementById("r2-apercu").src; return s !== a && /^data:image\/jpeg/.test(s); }, avant, { timeout: 30000 });
     const heic = await page.evaluate(() => new Promise((ok) => { const i = new Image(); i.onload = () => { const cv = document.createElement("canvas"); cv.width = i.width; cv.height = i.height; const cx = cv.getContext("2d"); cx.drawImage(i, 0, 0); ok({ w: i.width, h: i.height, px: Array.from(cx.getImageData(Math.round(i.width / 4), Math.round(i.height / 3), 1, 1).data) }); }; i.src = document.getElementById("r2-apercu").src; }));
     ok(heic.w === 1200 && heic.h === 900 && heic.px[0] > 200 && heic.px[1] > 170 && heic.px[2] < 110, "la photo HEIC du bien est décodée (1200 × 900, jaune au quart) : " + JSON.stringify(heic));
     await page.fill("#r2-forts", "Le box\nLa disposition des pièces");

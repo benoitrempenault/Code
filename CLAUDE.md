@@ -774,6 +774,12 @@ parcours-r1r2 : `fixtures/photo.heic` (1200 × 900, générée avec pillow-heif)
 guide R2 et relue pixel par pixel dans Chromium (qui n'a pas de HEIC natif → chemin
 WebAssembly), `fixtures/photo.webp` posée sur le bien saisi à la main (livret : 4 photos,
 0 sans photo) ; run.mjs sert `.wasm` en application/wasm. Assets admin `?v=42`.
+**Photo trop lourde (02/10)** : `reduireImage(source, largeur, qualité, max = 380000)` garantit
+une data URL ≤ `max` — qualité jusqu'à ~0,5 puis largeur × 0,8 en boucle (plancher 320 px) ;
+avant, la qualité s'arrêtait à 0,4 et une photo de jardin très détaillée en 1 600 px restait
+au-dessus des 400 000 car. du serveur (« Photo trop lourde (300 Ko…) », guide R2 bloqué).
+Biens en concurrence : `max` 150 000. Smoke parcours-r1r2 : photo de bruit 3000 × 2000 posée
+sur le guide R2 puis enregistrée. Assets admin `?v=43`.
 **Agent AMEPI (28/09)** : phase Vignettes en boucle (jusqu'à 20 tours de 150, arrêt si un tour ne dépose rien : seuls les échecs restent) ; premier passage réel 28/09 : 1 916 mandats, 148 vignettes au premier tour. `/diag/livret` publie `vignettes` {deposees, mandats_sans_photo} (comptes seulement). Test permanence : les assertions « 4 rendez-vous / 3 après réservation » filtrent `pv === "medard"` car la permanence Caudéran à date fixe (2026-10-01) peut tomber sur « aujourd'hui + 3 ». Smokes : `attendreToast` vide le texte du toast une fois vu (un toast qui traîne 3 s satisfaisait le wait suivant → échec intermittent ligne « signés du conseiller choisi » : le « Bien enregistré » de la saisie précédente écrasait le toast attendu) ; `parcours()` indique fichier:ligne du plantage. CSS téléphone : les règles des étapes du bloc `@media (max-width: 720px)` sont écrites en `.etapes .etape …` (3 classes) parce que les règles générales `.etape .titre` viennent APRÈS dans le fichier et les écrasaient (titre écrasé, boutons en colonne) ; la modale prend `100dvh` (la barre de Safari cachait Effacer / Fermer). Assets admin `?v=29`. (27/09 : un clic sur le voile hors de la fenêtre ne ferme plus la modale — on perdait la saisie ; seuls ×, Retour/Annuler et le bouton « précédent » ferment). Photos du livret : `decoderPhoto` (canvas → JPEG 1200 px, WebP compris) puis `embarquerPhoto` (photo posée, sinon relais) ; relais et acm/donnees résolvent les URL relatives de nos annonces sur `annonces.siteUrl`.
 **Guide R1 — page 1 et chiffres (26/09, 2e passe)** : page 1 du modèle vidée de son
 bloc client (vecteurs redigés, `tools/guides/retoucher-guide-r1.py` avec pymupdf et la

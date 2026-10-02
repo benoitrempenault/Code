@@ -2878,14 +2878,21 @@
   let guideR2Cache = null;
   const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
   // Un fichier photo (tout format, HEIC compris) ou une image déjà lue → JPEG ≤ largeur px, poids borné.
-  async function reduireImage(source, largeur, qualite) {
+  // Toujours sous `max` (taille de la data URL) : la qualité baisse d'abord,
+  // puis l'image rapetisse — une photo très détaillée (jardin, feuillage)
+  // restait au-dessus de la limite du serveur et bloquait le guide.
+  async function reduireImage(source, largeur, qualite, max = 380000) {
     const img = source instanceof Blob ? await lireImage(source) : source;
-    const k = Math.min(1, largeur / img.width), cv = document.createElement("canvas");
-    cv.width = Math.max(1, Math.round(img.width * k)); cv.height = Math.max(1, Math.round(img.height * k));
-    cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
-    let q = qualite, out = cv.toDataURL("image/jpeg", q);
-    while (out.length > 380000 && q > 0.4) { q -= 0.1; out = cv.toDataURL("image/jpeg", q); }
-    return out;
+    let l = Math.min(largeur, img.width), out = "";
+    for (;;) {
+      const k = l / img.width, cv = document.createElement("canvas");
+      cv.width = Math.max(1, Math.round(img.width * k)); cv.height = Math.max(1, Math.round(img.height * k));
+      cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+      let q = qualite; out = cv.toDataURL("image/jpeg", q);
+      while (out.length > max && q > 0.55) { q -= 0.1; out = cv.toDataURL("image/jpeg", q); }
+      if (out.length <= max || l <= 320) return out;
+      l = Math.round(l * 0.8);
+    }
   }
   async function chargerImage(src) {
     return new Promise((resolve, reject) => { const i = new Image(); i.crossOrigin = "anonymous"; i.onload = () => resolve(i); i.onerror = () => reject(new Error("image")); i.src = src; });
@@ -3337,8 +3344,7 @@
       try {
         // Rangée à part (table dédiée), jamais dans la saisie du livret : 900 px, poids borné.
         const img = await lireImage(f); // décodée une fois (HEIC compris)
-        let photo = await reduireImage(img, 900, 0.78);
-        if (photo.length > 150000) photo = await reduireImage(img, 700, 0.7);
+        const photo = await reduireImage(img, 900, 0.78, 150000);
         await api("/crm/parcours/" + id + "/acm/photos/" + encodeURIComponent(inp.dataset.photo), { method: "PUT", json: { photo } });
         const cand = candidatsConc.find((x) => x.id === inp.dataset.photo); if (cand) cand.photo = photo;
         const vig = document.querySelector('[data-vignette="' + inp.dataset.photo + '"]');
