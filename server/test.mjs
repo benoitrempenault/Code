@@ -3424,6 +3424,14 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "l'e-mail avant R1 part avec le texte relu, signé du conseiller (" + JSON.stringify(envPx.json) + ")");
   const pxApres = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
   ok(pxApres.journal.some((j) => j.etape === "avant-r1" && j.le > 0), "l'étape est cochée dans le journal du parcours");
+  // Le titre de l'e-mail : la date passe en sous-titre, un sujet « A — B » aussi, le sur-titre ne répète pas le titre.
+  { const PM = await import("./src/parcours.js");
+    const h1 = PM.composerMail({ sujet: "Votre rendez-vous d'estimation du lundi 5 octobre à 20h28", texte: "x" }, "avant-r1", { nom: "CENTURY 21 Kadima" }, {}, "");
+    const h2 = PM.composerMail({ sujet: "Merci pour votre accueil — remise de votre estimation le jeudi 15 octobre à 18h30", texte: "Voici le lien :\nhttps://g.page/r/abc/review" }, "entre-r1-r2", { nom: "CENTURY 21 Kadima" }, {}, "");
+    const h3 = PM.composerMail({ sujet: "Merci pour votre confiance", texte: "x" }, "apres-r2", { nom: "CENTURY 21 Kadima" }, {}, "");
+    ok(/>Votre rendez-vous d'estimation<\/div>/.test(h1) && /font-size:17px[^>]*>Lundi 5 octobre à 20h28<\/div>/.test(h1), "avant R1 : titre « Votre rendez-vous d'estimation », date en sous-titre sur sa ligne");
+    ok(/>Merci pour votre accueil<\/div>/.test(h2) && />Remise de votre estimation le jeudi 15 octobre à 18h30<\/div>/.test(h2) && /Laisser un avis Google/.test(h2) && !/>https:\/\/g\.page/.test(h2), "entre R1 et R2 : sujet scindé en titre + sous-titre, lien d'avis en bouton");
+    ok(/VOTRE PROJET DE VENTE|Votre projet de vente/.test(h3) && !/Merci de votre confiance/.test(h3) && />CENTURY 21<\/div>/.test(h3) && />KADIMA<\/div>/.test(h3), "après R2 : sur-titre sans doublon, en-tête « CENTURY 21 » puis « KADIMA »"); }
   ok((await db.get("SELECT id FROM crm_envois WHERE agency_id = ? AND contact_id = ? AND type = 'estimation-avant-r1' AND statut = 'ok'", [agId, pxId])), "l'envoi manuel est dans crm_envois : la séquence automatique ne doublera pas");
   const et = await callR("/crm/parcours/" + pxId + "/etape", { headers: authP, body: { etape: "guide-r1" } });
   ok(et.status === 200 && et.json.journal.some((j) => j.etape === "guide-r1"), "une étape faite hors e-mail (guide imprimé) se coche");

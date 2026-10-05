@@ -800,7 +800,8 @@ les « 3 » et « 1 », sommet 444,1) — passe3 relançable sur le PDF retouch�
 **E-mails du parcours (05/10)** : `wrapEmail` affiche le logo (`ag.logoUrl`, max-height 88) + le point de
 vente dessous (nom sans « CENTURY 21 Kadima »), ou sans logo « CENTURY 21 » espacé puis le reste du
 nom ; titre à 26 px au-delà de 40 caractères ; nouveau champ `sousTitre`. `composerMail` scinde un
-sujet « A — B » en titre A + sous-titre B ; sur-titres sans doublon (avant-r1 « Estimation de votre
+sujet « A — B » en titre A + sous-titre B, et « … du/le/de <jour> … » en titre + date en sous-titre
+(« Votre rendez-vous d'estimation » / « Lundi 5 octobre à 20h28 », Benoît : « aligne la date ») ; sur-titres sans doublon (avant-r1 « Estimation de votre
 bien », apres-r2 « Votre projet de vente » — Benoît lisait deux fois « merci pour votre confiance »).
 `texteEnHtml` : un lien seul sur sa ligne devient un bouton or (« ★ Laisser un avis Google » si
 g.page/review/writereview, sinon « Ouvrir le lien »), police héritée (les bilans sont en Calibri et

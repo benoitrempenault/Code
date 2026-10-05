@@ -168,7 +168,11 @@ const EYEBROWS = { "avant-r1": "Estimation de votre bien", "entre-r1-r2": "Votre
 export function composerMail({ sujet, texte }, jalon, ag, conseiller, photoUrl) {
   // Un sujet en deux temps (« Merci pour votre accueil — remise de votre
   // estimation le jeudi 20 avril à 10h ») devient un titre et un sous-titre.
-  const m = /^(.{6,}?)\s+[—–-]\s+(.{4,})$/.exec(String(sujet || "").trim());
+  // De même « Votre rendez-vous d'estimation du lundi 5 octobre à 20h28 » : la
+  // date passe en sous-titre, sur sa ligne, au lieu de se casser au milieu.
+  const brut = String(sujet || "").trim();
+  const m = /^(.{6,}?)\s+[—–-]\s+(.{4,})$/.exec(brut)
+    || /^(.{6,}?)\s+(?:du|le|de)\s+((?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b.{3,})$/i.exec(brut);
   const titre = m ? m[1] : sujet, sous = m ? m[2].charAt(0).toUpperCase() + m[2].slice(1) : "";
   return wrapEmail(ag, {
     eyebrow: EYEBROWS[jalon] || "Votre projet de vente", headline: esc(titre), sousTitre: esc(sous), bodyHtml: texteEnHtml(texte),
