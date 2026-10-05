@@ -57,6 +57,15 @@ export default async function () {
     await attendreToast(page, "bilan\\(s\\) préparé\\(s\\)");
     await page.waitForSelector(".bilan", { timeout: 8000 });
     ok(await page.locator(".bilan").count() === 2, "2 bilans à relire (la délégation est exclue)");
+    // Envoi à la main aux conseillers (deux clics), compte rendu affiché, rien au vendeur.
+    const avantMails = (await (await fetch("http://localhost:18795/__mails")).json()).length;
+    await page.click("#btn-prevenir");
+    ok(/Confirmer l'envoi aux conseillers/.test(await page.textContent("#btn-prevenir")), "« Envoyer aux conseillers » : confirmation demandée");
+    await page.click("#btn-prevenir");
+    await attendreToast(page, "e-mail\\(s\\) envoyé\\(s\\) sur");
+    const partis = (await (await fetch("http://localhost:18795/__mails")).json()).slice(avantMails);
+    ok(partis.length >= 2 && partis.some((x) => x.to[0] === "lucie@smoke.fr" && /^Bilan à relire/.test(x.subject)) && !partis.some((x) => /fauret@smoke\.fr/.test(x.to[0])),
+      "les bilans à relire partent aux conseillers, jamais au vendeur (" + partis.map((x) => x.to[0]).join(", ") + ")");
     const carte = page.locator('.bilan:has-text("Réf. 8282")');
     const txt = await carte.textContent();
     ok(/22\s*vues/.test(txt) && /\+26 %/.test(txt) && /En vente depuis 400 jours/.test(txt), "la carte montre les vues, l'écart de prix (+26 % vs 5 comparables) et l'alerte d'ancienneté");

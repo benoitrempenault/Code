@@ -4233,9 +4233,10 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   }
   ok(B.estDelegation({ vendeur: "DELEGATION OKA IMMOBILIER" }) && !B.estDelegation({ vendeur: "FAURET Angele" }), "une délégation de confrère est reconnue");
 
-  const mailsB = [];
+  const mailsB = []; let resendKO = false;
   const fauxResendB = (await import("node:http")).createServer(async (req, res) => {
     const chunks = []; for await (const c of req) chunks.push(c);
+    if (resendKO) { res.writeHead(422, { "Content-Type": "application/json" }); res.end(JSON.stringify({ message: "domaine non vérifié" })); return; }
     const recu = JSON.parse(Buffer.concat(chunks).toString());
     for (const m of Array.isArray(recu) ? recu : [recu]) mailsB.push({ ...m, lot: Array.isArray(recu) });
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ id: "email_test" }));
@@ -4373,6 +4374,27 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(mailsB.every((m) => m.lot), "tous les mails du lundi partent en un lot (une seule requête)");
   ok(mailsB.filter((m) => !["lucie@bilan-test.fr", "agence@bilan-test.fr"].includes(m.to[0])).length === 0, "le cron n'écrit JAMAIS à un vendeur");
   ok(mailsB.some((m) => m.to[0] === "agence@bilan-test.fr" && /Sans e-mail dans les profils conseillers.*BESSON/i.test(m.html)), "la boîte de l'agence voit les conseillers qui n'ont pas reçu leurs bilans");
+  // La préparation du lundi laisse sa trace, lisible dans Studio Bilans.
+  const auto = (await callB("/crm/bilans", { headers: authB })).json.auto;
+  ok(auto && auto.etape === "fini" && auto.fin && auto.resultat.envoyes === pourLucie.length + 1 && auto.resultat.bilans === 3 && auto.resultat.sansAdresse.length === 1,
+    "trace du lundi : terminée, bilans, e-mails envoyés, conseiller sans e-mail (" + JSON.stringify(auto && auto.resultat) + ")");
+  ok((await callB("/crm/bilans", { headers: authLucie })).json.auto === null, "la trace n'est montrée qu'aux admins");
+  // Envoi à la main aux conseillers : mêmes mails, jamais au vendeur.
+  ok((await callB("/crm/bilans/prevenir", { headers: authLucie, body: { semaine: "2026-09-28" } })).status === 403, "envoi aux conseillers : réservé aux admins");
+  mailsB.length = 0;
+  const pv = (await callB("/crm/bilans/prevenir", { headers: authB, body: { semaine: "2026-09-28" } })).json;
+  ok(pv.ok && pv.bilans === 3 && pv.envoyes === 3 && pv.mails === 3 && pv.sansAdresse.length === 1 && mailsB.filter((m) => m.to[0] === "lucie@bilan-test.fr").length === 2 && mailsB.some((m) => m.to[0] === "agence@bilan-test.fr"),
+    "« Envoyer aux conseillers » : chaque bilan à relire à son conseiller + récapitulatif (" + JSON.stringify(pv) + ")");
+  ok(mailsB.filter((m) => !["lucie@bilan-test.fr", "agence@bilan-test.fr"].includes(m.to[0])).length === 0, "envoi à la main : rien au vendeur");
+  const nomLucie = (await callB("/crm/bilans?semaine=2026-09-28", { headers: authB })).json.bilans.find((b) => /GIUSTI/i.test(b.conseillerNom)).conseillerNom;
+  mailsB.length = 0;
+  const pv1 = (await callB("/crm/bilans/prevenir", { headers: authB, body: { semaine: "2026-09-28", conseiller: nomLucie } })).json;
+  ok(pv1.bilans === 2 && mailsB.length === 2 && mailsB.every((m) => m.to[0] === "lucie@bilan-test.fr"), "envoi à un seul conseiller : ses bilans, sans récapitulatif");
+  resendKO = true;
+  const pvKO = (await callB("/crm/bilans/prevenir", { headers: authB, body: { semaine: "2026-09-28" } })).json;
+  resendKO = false;
+  ok(pvKO.envoyes === 0 && pvKO.erreurs.length === 1 && /Resend 422.*domaine non vérifié/.test(pvKO.erreurs[0]), "une erreur de Resend est rendue, plus jamais avalée (" + pvKO.erreurs[0] + ")");
+  ok((await callB("/crm/bilans/prevenir", { headers: authB, body: { semaine: "2020-01-06" } })).json.bilans === 0, "semaine sans bilan : rien n'est envoyé");
 
   // Test d'un bilan : l'e-mail du conseiller part à la personne connectée, le bilan ne change pas.
   mailsB.length = 0;
