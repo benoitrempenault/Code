@@ -3868,9 +3868,12 @@
         ecrire(pg, fmtPrix(a.prix), XF, y0 + 22, 18, fB, noir);
         if (fmtM2(a)) ecrire(pg, "soit " + fmtM2(a), XF, y0 + 38, 10, fS, gris);
         couper(a.titre || "", fS, 10, D - XF).slice(0, 2).forEach((l, j) => ecrire(pg, l, XF, y0 + 58 + j * 13, 10, fS, noir));
-        const lignes = [[a.type, a.pieces ? a.pieces + " pièces" : "", a.chambres ? a.chambres + " ch." : ""].filter(Boolean).join(" · "), a.surface ? Math.round(a.surface) + " m² habitables" : "", a.terrain ? Math.round(a.terrain) + " m² de terrain" : "", ...couper(a.adresse || [a.cp, a.ville].filter(Boolean).join(" "), fS, 10, D - XF).slice(0, 2), a.dist != null ? "à " + Math.round(a.dist) + " m du bien" : "", a.jours ? "En vente depuis " + a.jours + " jours" : "", a.baisse > 0 ? "Prix baissé de " + fmtPrix(a.baisse) : ""].filter(Boolean);
+        // Type avec majuscule ; la baisse de prix n'est un montant que si on le connaît
+        // (Bien'ici ne dit que « a baissé » : 1 → « Prix baissé de 1 € » était faux) ;
+        // plus de ligne « Annonce de notre agence / Mandat confrère » (Benoît, 05/10).
+        const typeLib2 = String(a.type || "").charAt(0).toUpperCase() + String(a.type || "").slice(1);
+        const lignes = [[typeLib2, a.pieces ? a.pieces + " pièces" : "", a.chambres ? a.chambres + " ch." : ""].filter(Boolean).join(" · "), a.surface ? Math.round(a.surface) + " m² habitables" : "", a.terrain ? Math.round(a.terrain) + " m² de terrain" : "", ...couper(a.adresse || [a.cp, a.ville].filter(Boolean).join(" "), fS, 10, D - XF).slice(0, 2), a.dist != null ? "à " + Math.round(a.dist) + " m du bien" : "", a.jours ? "En vente depuis " + a.jours + " jours" : "", a.baisse > 1000 ? "Prix baissé de " + fmtPrix(a.baisse) : a.baisse > 0 ? "Prix baissé récemment" : ""].filter(Boolean);
         lignes.forEach((l, j) => ecrire(pg, l, XF, y0 + 92 + j * 15, 10, fS, noir));
-        ecrire(pg, a.source === "amepi" ? "Mandat confrère (" + (a.agence || "ALFA") + ")" : a.source === "portail" ? "Vu sur " + (a.portail || "un portail") : "Annonce de notre agence", XF, y0 + 92 + lignes.length * 15, 9, fR, gris);
         rect(pg, G, y0 + CH + 14, L, 0.6, { color: sable });
       }
     }
