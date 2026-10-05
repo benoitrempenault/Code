@@ -35,7 +35,7 @@
     t.textContent = msg;
     t.className = "toast visible " + (rate ? "rate" : "succes");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove("visible"), 4200);
+    toastTimer = setTimeout(() => t.classList.remove("visible"), rate ? 10000 : 4200); // une erreur reste lisible
   }
   const escH = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const euros = (n) => Math.round(Number(n) || 0).toLocaleString("fr-FR") + " €";
@@ -81,6 +81,23 @@
     if (!etat.statsBranchees) src.push("⚠ statistiques du site non branchées (SITE_STATS_KEY)");
     src.push(etat.actif ? "préparation automatique le lundi : activée" : "préparation automatique le lundi : désactivée (Administration › Réglages)");
     $("etat-sources").textContent = src.join(" · ");
+    // La préparation automatique du lundi : ce qu'elle a fait, ou où elle s'est arrêtée.
+    const au = etat.auto, quand = (t) => new Date(t * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
+    if (au) {
+      const r = au.resultat || {};
+      if (au.etape === "fini") {
+        src.push("préparation du " + quand(au.debut) + " : " + (r.bilans || 0) + " bilan(s), " + (r.envoyes || 0) + " e-mail(s) envoyé(s)");
+        const pb = [...(r.erreurs || []), ...((r.sansAdresse || []).length ? ["sans e-mail de profil : " + r.sansAdresse.join(", ")] : [])];
+        $("alerte-auto").hidden = !pb.length;
+        if (pb.length) $("alerte-auto").innerHTML = "⚠ <strong>Préparation du " + escH(quand(au.debut)) + "</strong> : " + escH(pb.join(" · ")) + " — renvoyez avec « 📨 Envoyer aux conseillers ».";
+      } else {
+        $("alerte-auto").hidden = false;
+        $("alerte-auto").innerHTML = "⚠ <strong>La préparation automatique du " + escH(quand(au.debut)) + " ne s'est pas terminée</strong> (" +
+          escH(au.etape === "erreur" ? "erreur : " + (r.erreur || "inconnue") : "arrêtée après l'étape « " + au.etape + " »") +
+          ") : les conseillers n'ont peut-être rien reçu. Cliquez sur « ⟳ Préparer les bilans » puis « 📨 Envoyer aux conseillers ».";
+      }
+      $("etat-sources").textContent = src.join(" · ");
+    } else $("alerte-auto").hidden = true;
     const ag = etat.agentPortails, alerte = $("alerte-agent");
     alerte.hidden = !(ag && ag.silence);
     if (ag && ag.silence) alerte.innerHTML = "⚠ <strong>L'agent des portails ne donne plus de nouvelles</strong> " +
@@ -440,6 +457,17 @@
       await charger(r.semaine);
     } catch (e) { toast(e.message, true); }
     finally { btn.disabled = false; btn.textContent = "⟳ Préparer les bilans"; }
+  });
+  deuxClics($("btn-prevenir"), "Confirmer l'envoi aux conseillers ?", async () => {
+    const conseiller = $("filtre-conseiller").value;
+    try {
+      const r = await api("/crm/bilans/prevenir", { json: { semaine: $("semaine").value, conseiller } });
+      if (!r.bilans) { toast("Aucun bilan à relire pour " + (conseiller || "les conseillers") + " — " + semaineFr(r.semaine), true); return; }
+      const bouts = [r.envoyes + " e-mail(s) envoyé(s) sur " + r.mails + " — " + r.bilans + " bilan(s), " + r.conseillers + " conseiller(s)"];
+      if (r.sansAdresse.length) bouts.push("sans e-mail de profil : " + r.sansAdresse.join(", "));
+      if (r.erreurs.length) bouts.push(r.erreurs.join(" · "));
+      toast(bouts.join(" · "), r.erreurs.length > 0 || r.envoyes < r.mails);
+    } catch (e) { toast(e.message, true); }
   });
   $("modale-fermer").addEventListener("click", fermerModale);
   $("voile").addEventListener("click", (e) => { if (e.target === $("voile")) fermerModale(); });

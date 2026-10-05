@@ -487,16 +487,25 @@ export async function runBilans(env, db, { aujourdhui } = {}) {
   for (const agency of agences) {
     const reglages = await getReglages(db, agency);
     if (!reglages.bilans.enabled) continue;
+    // Trace pas à pas, lisible dans Studio Bilans : un arrêt en route se voit.
+    const trace = (etape, resultat = {}, fin = null) => db.run(`INSERT INTO crm_bilans_auto (agency_id, debut, fin, etape, resultat) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(agency_id) DO UPDATE SET debut = CASE WHEN excluded.etape = 'debut' THEN excluded.debut ELSE crm_bilans_auto.debut END,
+        fin = excluded.fin, etape = excluded.etape, resultat = excluded.resultat`, [agency.id, now(), fin, etape, JSON.stringify(resultat).slice(0, 4000)]).catch(() => { });
+    await trace("debut");
     try {
       // Facebook / Instagram d'abord : le relevé du lundi ferme la semaine.
       let reseaux = null;
       try { reseaux = await releverMeta(env, db, agency.id, { urlsParChemin: await urlsAnnonces(env).catch(() => null) }); }
       catch (e) { reseaux = { erreur: e.message }; }
+      await trace("reseaux", { reseaux: reseaux && reseaux.erreur ? { erreur: reseaux.erreur } : "ok" });
       const r = await genererBilans(env, db, agency, { aujourdhui });
+      await trace("bilans", { semaine: r.semaine, bilans: (r.crees || 0) + (r.misAJour || 0), gardes: r.gardes || 0, message: r.message || "" });
       r.reseaux = reseaux;
-      r.prevenus = await prevenirConseillers(env, db, agency, reglages, r.semaine);
+      const p = await prevenirConseillers(env, db, agency, reglages, r.semaine);
+      r.prevenus = p.envoyes;
+      await trace("fini", { semaine: r.semaine, bilans: (r.crees || 0) + (r.misAJour || 0), gardes: r.gardes || 0, envoyes: p.envoyes, sansAdresse: p.sansAdresse, erreurs: p.erreurs || [] }, now());
       res.push({ agency: agency.id, ...r });
-    } catch (e) { res.push({ agency: agency.id, erreur: e.message }); }
+    } catch (e) { await trace("erreur", { erreur: e.message }, now()); res.push({ agency: agency.id, erreur: e.message }); }
   }
   return res;
 }
@@ -526,11 +535,16 @@ export function mailBilanConseiller({ id, ref, semaine, sujet, texte, donnees, e
   };
 }
 
-async function prevenirConseillers(env, db, agency, reglages, semaine) {
-  const rows = await db.all(`SELECT b.id, b.ref, b.semaine, b.conseiller, b.sujet, b.texte, b.donnees, b.email, m.vendeur
+// Le lundi (cron) et à la main (bouton « Envoyer aux conseillers ») : chaque
+// bilan À RELIRE de la semaine part à son conseiller ; `conseiller` restreint à
+// un seul (nom tel que dans l'export). Le récapitulatif ne part qu'à l'envoi
+// à tous. Jamais rien au vendeur.
+export async function prevenirConseillers(env, db, agency, reglages, semaine, { conseiller = "" } = {}) {
+  const rows = (await db.all(`SELECT b.id, b.ref, b.semaine, b.conseiller, b.sujet, b.texte, b.donnees, b.email, m.vendeur
     FROM crm_bilans b LEFT JOIN crm_bilan_mandats m ON m.agency_id = b.agency_id AND m.ref = b.ref
-    WHERE b.agency_id = ? AND b.semaine = ? AND b.statut = 'brouillon' ORDER BY b.conseiller, b.ref`, [agency.id, semaine]);
-  if (!rows.length) return 0;
+    WHERE b.agency_id = ? AND b.semaine = ? AND b.statut = 'brouillon' ORDER BY b.conseiller, b.ref`, [agency.id, semaine]))
+    .filter((r) => !conseiller || nomConseiller(r.conseiller).complet === conseiller || r.conseiller === conseiller);
+  if (!rows.length) return { envoyes: 0, mails: 0, bilans: 0, conseillers: 0, sansAdresse: [], erreurs: [] };
   const parCons = new Map();
   for (const r of rows) (parCons.get(r.conseiller) || parCons.set(r.conseiller, []).get(r.conseiller)).push(r);
   const fromName = reglages.agence.nom || agency.name;
@@ -549,7 +563,7 @@ async function prevenirConseillers(env, db, agency, reglages, semaine) {
     }
   }
   // La boîte de l'agence : le récapitulatif, et qui n'a pas pu être prévenu.
-  if (reglages.agence.email) {
+  if (reglages.agence.email && !conseiller) {
     const lien = env.BILANS_BASE ? `<p style="margin:0 0 16px;"><a href="${esc(String(env.BILANS_BASE).replace(/\/?$/, "/"))}" style="color:#1D1D1B;">Ouvrir les bilans vendeurs</a></p>` : "";
     const liste = [...parCons].map(([brut, l]) => `<p style="margin:0 0 4px; font-weight:bold;">${esc(nomConseiller(brut).complet || "Sans conseiller")}</p><ul style="margin:0 0 16px; padding-left:22px;">${l.map((b) => `<li>Réf. ${esc(b.ref)}</li>`).join("")}</ul>`).join("");
     const vieux = ancien ? `<p style="margin:0 0 16px; color:#a5644b;"><strong>L'export des mandats n'a pas été réimporté depuis ${exportJours} jours</strong> : les bilans ont été préparés sur le dernier portefeuille connu. Les conseillers sont prévenus de vérifier que chaque bien est toujours en vente.</p>` : "";
@@ -559,7 +573,7 @@ async function prevenirConseillers(env, db, agency, reglages, semaine) {
       html: wrapEmail(reglages.agence, { eyebrow: "Bilans vendeurs", headline: esc(titre), bodyHtml: vieux + manque + liste + lien, signatureName: "Studio" }) });
   }
   const r = await envoyerMailsLot(env, mails);
-  return r.envoyes || 0;
+  return { envoyes: r.envoyes || 0, mails: mails.length, bilans: rows.length, conseillers: parCons.size - sansAdresse.length, sansAdresse, erreurs: r.erreurs || (r.dryRun ? ["Envoi de mails non configuré (RESEND_API_KEY)."] : []) };
 }
 
 /* ------------------------ Rappel du vendredi (import) --------------------- */
@@ -626,8 +640,10 @@ export function monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAge
     const mandats = await db.get("SELECT COUNT(*) AS n, MAX(updated_at) AS le FROM crm_bilan_mandats WHERE agency_id = ?", [ctx.agency.id]);
     const reglages = await getReglages(db, ctx.agency);
     const admin = !!(isAgencyAdmin && isAgencyAdmin(ctx));
+    let auto;
+    if (admin) { const t = await db.get("SELECT debut, fin, etape, resultat FROM crm_bilans_auto WHERE agency_id = ?", [ctx.agency.id]); if (t) { let r = {}; try { r = JSON.parse(t.resultat); } catch { } auto = { ...t, resultat: r }; } }
     return c.json({
-      semaine, semaines, admin, agentPortails: admin ? await nouvellesAgent(db, ctx.agency.id) : undefined, mandats: { n: mandats ? mandats.n : 0, importeLe: mandats ? mandats.le : null },
+      semaine, semaines, admin, agentPortails: admin ? await nouvellesAgent(db, ctx.agency.id) : undefined, auto: auto || null, mandats: { n: mandats ? mandats.n : 0, importeLe: mandats ? mandats.le : null },
       actif: !!reglages.bilans.enabled, statsBranchees: !!(env.SITE_STATS_BASE && env.SITE_STATS_KEY),
       bilans: rows.map((r) => {
         let d = {}; try { d = JSON.parse(r.donnees); } catch { }
@@ -706,6 +722,16 @@ export function monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAge
     return c.json({ ok: true });
   });
 
+  // Envoi à la main des bilans à relire aux conseillers (admin) : la semaine
+  // affichée, tous les conseillers ou un seul. Jamais rien au vendeur.
+  app.post("/crm/bilans/prevenir", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => ({}));
+    const semaine = /^\d{4}-\d{2}-\d{2}$/.test(b.semaine || "") ? b.semaine : semaineCouverte();
+    const reglages = await getReglages(db, ctx.agency);
+    try { return c.json({ ok: true, semaine, ...(await prevenirConseillers(env, db, ctx.agency, reglages, semaine, { conseiller: strip(b.conseiller, 120) })) }); }
+    catch (e) { return err(c, 502, e.message); }
+  });
   // Avant les routes /:id/… (sinon « rappel » serait pris pour un id).
   app.post("/crm/bilans/rappel/tester", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;

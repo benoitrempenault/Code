@@ -57,11 +57,13 @@
       <button class="btn" id="btn-reseaux">📣 Réseaux</button>
       <button class="btn" id="btn-import">📥 Importer l'export des mandats</button>
       <button class="btn btn-or" id="btn-generer">⟳ Préparer les bilans</button>
+      <button class="btn" id="btn-prevenir" title="Envoie à chaque conseiller ses bilans à relire de la semaine affichée (au conseiller choisi dans le filtre, sinon à tous). Rien ne part aux vendeurs.">📨 Envoyer aux conseillers</button>
     </span>
     <input type="file" id="fichier-mandats" accept=".xlsx,.xls,.csv" hidden />
   </section>
   <p class="petit" id="etat-sources"></p>
   <p class="alerte-agent" id="alerte-agent" hidden></p>
+  <p class="alerte-agent" id="alerte-auto" hidden></p>
 
   <section id="liste" class="liste"></section>
 </main>
@@ -81,7 +83,7 @@
 
 <script src="assets/js/config.js"></script>
 <script src="assets/js/vendor/xlsx.full.min.js"></script>
-<script src="assets/js/bilans.js?v=8"></script>
+<script src="assets/js/bilans.js?v=9"></script>
 <script src="../assets/js/compte-bandeau.js"></script>
 </body>
 </html>

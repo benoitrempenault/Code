@@ -1114,7 +1114,17 @@ Studio Bilans (GET /crm/bilans renvoie `agentPortails` aux admins) et « dernier
 🔌 Portails. **Export non réimporté (vacances)** : les bilans du lundi partent quand même, sur
 le dernier portefeuille ; à partir de 4 jours (`EXPORT_ANCIEN`, `ageExport`, jours du
 calendrier `joursDepuis`), chaque mail conseiller et le récapitulatif préviennent de vérifier
-que le bien est toujours en vente.
+que le bien est toujours en vente. **Envoi à la main + trace du lundi (05/10)** : le 05/10 personne
+n'a rien reçu du cron et rien ne le disait. `prevenirConseillers` (exportée) accepte
+`{conseiller}` (nom tel que `nomConseiller().complet`, récapitulatif seulement à l'envoi à
+tous) et rend `{envoyes, mails, bilans, conseillers, sansAdresse, erreurs}` — les erreurs de
+Resend (`envoyerMailsLot`) ne sont plus avalées. `POST /crm/bilans/prevenir {semaine,
+conseiller}` (admin) derrière « 📨 Envoyer aux conseillers » (`#btn-prevenir`, deux clics,
+semaine et filtre conseiller affichés, compte rendu en toast). `runBilans` écrit sa trace
+étape par étape dans `crm_bilans_auto` (debut → reseaux → bilans → fini | erreur) : un
+Worker coupé en route laisse l'étape atteinte ; GET /crm/bilans renvoie `auto` aux admins →
+ligne « préparation du … » et bandeau `#alerte-auto` (non terminée, erreurs Resend,
+conseillers sans e-mail).
 **Réseaux (Facebook, Instagram)** : `server/src/meta.js`, API OFFICIELLE Meta (Graph,
 `META_GRAPH_BASE` défaut v23.0, surchargeable en test). Connexion admin `POST /crm/meta/jeton`
 {jeton, appId, appSecret} : jeton court échangé (`fb_exchange_token`) → `/me/accounts` →

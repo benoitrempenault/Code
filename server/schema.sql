@@ -1072,6 +1072,15 @@ CREATE TABLE IF NOT EXISTS crm_portail_etat (
 -- Dernier passage de l'agent des portails, même quand il n'a rien relevé
 -- (« relevé déjà fait aujourd'hui ») : Studio distingue un agent qui se tait
 -- volontairement d'un agent arrêté ou d'un PC éteint.
+-- Dernière préparation automatique du lundi, étape par étape : si le Worker
+-- est coupé en route (limites de l'offre), la dernière étape écrite le dit.
+CREATE TABLE IF NOT EXISTS crm_bilans_auto (
+  agency_id TEXT PRIMARY KEY REFERENCES agencies(id),
+  debut     INTEGER NOT NULL,
+  fin       INTEGER,
+  etape     TEXT NOT NULL DEFAULT '',     -- debut | reseaux | bilans | fini | erreur
+  resultat  TEXT NOT NULL DEFAULT '{}'
+);
 CREATE TABLE IF NOT EXISTS crm_portail_passage (
   agency_id TEXT PRIMARY KEY REFERENCES agencies(id),
   resultat  TEXT NOT NULL DEFAULT '',       -- deja-fait | termine | erreurs | sans-page | consignes
