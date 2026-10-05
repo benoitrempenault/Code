@@ -340,13 +340,25 @@ export function graphiqueHtml(d) {
 }
 
 // Le corps du bilan : le graphique se glisse après l'introduction.
+// Les e-mails des bilans (vendeur, conseiller, récapitulatif, rappel) sont en
+// Calibri 11 pt, titres compris (demande de Benoît, 05/10) — les autres
+// e-mails de Studio gardent le gabarit Georgia. Calibri n'existe que sous
+// Windows / Outlook : ailleurs (iPhone, Mac, Android) c'est Arial qui s'affiche.
+export const POLICE_BILANS = "Calibri,Carlito,Arial,sans-serif";
+export function enCalibri(html) {
+  return String(html)
+    .replace(/font-family:[^;"]+/g, "font-family:" + POLICE_BILANS)
+    .replace(/font-size:16px; line-height:1\.7/g, "font-size:11pt; line-height:1.45")
+    .replace(/font-size:32px; line-height:1\.25/g, "font-size:20pt; line-height:1.25");
+}
+const mailBilans = (ag, o) => enCalibri(wrapEmail(ag, o));
 function corpsBilan(texte, d) {
   const blocs = String(texte || "").split(/\n{2,}/);
   return texteEnHtml(blocs.slice(0, 2).join("\n\n")) + (d.site ? graphiqueHtml(d) : "") + texteEnHtml(blocs.slice(2).join("\n\n"));
 }
 export function composerBilan({ sujet, texte, donnees }, ag, conseillerProfil, photoUrl, nomSignature) {
   const d = typeof donnees === "string" ? JSON.parse(donnees || "{}") : donnees || {};
-  return wrapEmail(ag, {
+  return mailBilans(ag, {
     eyebrow: "Le point sur votre vente", headline: esc(sujet),
     bodyHtml: corpsBilan(texte, d),
     signatureName: conseillerProfil ? "" : nomSignature || ag.nom || "",
@@ -559,7 +571,7 @@ export async function prevenirConseillers(env, db, agency, reglages, semaine, { 
     for (const b of l) {
       const m = mailBilanConseiller(b, p.prenom, env.BILANS_BASE, { exportJours });
       mails.push({ to: p.email, subject: m.subject, fromName,
-        html: wrapEmail(reglages.agence, { eyebrow: "Bilan vendeur à relire", headline: esc(m.subject), bodyHtml: m.html, signatureName: "Studio" }) });
+        html: mailBilans(reglages.agence, { eyebrow: "Bilan vendeur à relire", headline: esc(m.subject), bodyHtml: m.html, signatureName: "Studio" }) });
     }
   }
   // La boîte de l'agence : le récapitulatif, et qui n'a pas pu être prévenu.
@@ -570,7 +582,7 @@ export async function prevenirConseillers(env, db, agency, reglages, semaine, { 
     const manque = sansAdresse.length ? `<p style="margin:0 0 16px; color:#a5644b;">Sans e-mail dans les profils conseillers (bilans non reçus) : ${sansAdresse.map(esc).join(", ")}.</p>` : "";
     const titre = `${rows.length} bilans vendeurs prêts (semaine du ${jourFr(semaine)})`;
     mails.push({ to: reglages.agence.email, subject: titre, fromName,
-      html: wrapEmail(reglages.agence, { eyebrow: "Bilans vendeurs", headline: esc(titre), bodyHtml: vieux + manque + liste + lien, signatureName: "Studio" }) });
+      html: mailBilans(reglages.agence, { eyebrow: "Bilans vendeurs", headline: esc(titre), bodyHtml: vieux + manque + liste + lien, signatureName: "Studio" }) });
   }
   const r = await envoyerMailsLot(env, mails);
   return { envoyes: r.envoyes || 0, mails: mails.length, bilans: rows.length, conseillers: parCons.size - sansAdresse.length, sansAdresse, erreurs: r.erreurs || (r.dryRun ? ["Envoi de mails non configuré (RESEND_API_KEY)."] : []) };
@@ -612,7 +624,7 @@ export async function rappelImport(env, db, { aujourdhui = new Date().toISOStrin
     const dernier = r && r.dernier ? r.dernier : null;
     if (!force && dernier && Date.parse(aujourdhui + "T12:00:00Z") / 1000 - dernier < 86400) { res.push({ agency: agency.id, saute: "import récent" }); continue; }
     const m = mailRappelImport({ dernier, nb: (r && r.nb) || 0, base: env.BILANS_BASE, aujourdhui });
-    const html = wrapEmail(reglages.agence, { eyebrow: "Bilans vendeurs", headline: esc(m.subject), bodyHtml: m.html, signatureName: "Studio" });
+    const html = mailBilans(reglages.agence, { eyebrow: "Bilans vendeurs", headline: esc(m.subject), bodyHtml: m.html, signatureName: "Studio" });
     const e = await envoyerMailHtml(env, { to, subject: m.subject, html, fromName: reglages.agence.nom || agency.name });
     res.push({ agency: agency.id, envoye: !!e.ok, to });
   }
@@ -751,7 +763,7 @@ export function monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAge
     const q = await c.req.json().catch(() => ({}));
     const reglages = await getReglages(db, ctx.agency);
     const m = mailBilanConseiller({ ...b, sujet: strip(q.sujet, 200) || b.sujet, texte: nettoyerTexte(q.texte) || b.texte }, (ctx.user.name || "").split(" ")[0], env.BILANS_BASE, { exportJours: await ageExport(db, ctx.agency.id) });
-    const html = wrapEmail(reglages.agence, { eyebrow: "Bilan vendeur à relire (test)", headline: esc(m.subject), bodyHtml: m.html, signatureName: "Studio" });
+    const html = mailBilans(reglages.agence, { eyebrow: "Bilan vendeur à relire (test)", headline: esc(m.subject), bodyHtml: m.html, signatureName: "Studio" });
     const r = await envoyerMailHtml(env, { to, subject: "[Test] " + m.subject, html, fromName: reglages.agence.nom || ctx.agency.name });
     if (!r.ok) return err(c, 502, "Envoi impossible : " + (r.error || "RESEND_API_KEY absent"));
     return c.json({ ok: true, email: to });
