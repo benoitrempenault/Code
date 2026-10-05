@@ -387,5 +387,9 @@
    "agence": "saint-aubin",
    "photo": "assets/conseillers/amelie-schiltz.jpg"
   }
- ]
+ ],
+ "mot": {
+  "page": 12,
+  "note": "page du modèle = image d'un ancien mot du directeur ; remplacée par le courrier généré (dessinerMotDirecteur)"
+ }
 }

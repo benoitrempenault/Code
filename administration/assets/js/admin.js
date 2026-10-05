@@ -2834,6 +2834,19 @@
     const doc = await PDFDocument.create();
     const pages = await doc.copyPages(source, ordre.map((n) => n - 1));
     pages.forEach((pg) => doc.addPage(pg));
+    // Le mot du directeur : la page du modèle (une image d'un ancien courrier,
+    // qui nommait toujours le même conseiller) laisse place au courrier généré,
+    // au bon conseiller, à la bonne agence, au bon site.
+    let mot = null;
+    const iMot = ordre.indexOf((meta.mot && meta.mot.page) || 12);
+    if (iMot >= 0 && window.fontkit) {
+      try {
+        doc.registerFontkit(window.fontkit);
+        doc.removePage(iMot);
+        const pgMot = doc.insertPage(iMot, [595.28, 841.89]);
+        mot = await dessinerMotDirecteur(doc, pgMot, p, source);
+      } catch (e) { console.warn("mot du directeur :", e); }
+    }
     // Le prochain rendez-vous : date, heure, puis le LIEU à cocher en fin de
     // rendez-vous avec le client — chaque agence (Réglages → Nos agences), le
     // domicile (adresse du bien), « Autre ». L'adresse figée « À l'agence
@@ -2913,7 +2926,7 @@
     doc.setTitle("Guide de commercialisation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf" }; // relu par les parcours navigateur
+    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", mot }; // relu par les parcours navigateur
     return url;
   }
   /* --------------------------- Mot du directeur --------------------------- */
@@ -2926,10 +2939,9 @@
   // conseiller du parcours accordé au féminin si besoin, emblème « 21 » en
   // filigrane, mentions légales en pied de page.
   let motCache = null;
-  async function genererMotDirecteur(p) {
-    if (!window.PDFLib || !window.fontkit) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
-    const { PDFDocument, rgb } = window.PDFLib;
-    if (!motCache) {
+  async function chargerMotCache() {
+    if (motCache) return motCache;
+    {
       const [pdfR1, embleme, ...fontes] = await Promise.all([
         guideR1Cache ? Promise.resolve(guideR1Cache.pdf) : fetch("assets/guide-r1.pdf").then((r) => { if (!r.ok) throw new Error("Guide R1 introuvable."); return r.arrayBuffer(); }),
         fetch("../assets/js/logo.js").then((r) => (r.ok ? r.text() : "")).then((t) => (/emblem:\s*"(data:image\/png;base64,[^"]+)"/.exec(t) || [])[1] || "").catch(() => ""),
@@ -2937,16 +2949,20 @@
       ]);
       motCache = { pdfR1, embleme, fontes };
     }
+    return motCache;
+  }
+  // Dessine le courrier sur une page A4 d'un document pdf-lib (fontkit déjà
+  // enregistré) ; `source` = le guide R1 déjà chargé, sinon il est relu du cache.
+  async function dessinerMotDirecteur(doc, page, p, source) {
+    const { PDFDocument, rgb } = window.PDFLib;
+    await chargerMotCache();
     const cs = p.conseiller || {};
     const base = (reglages && reglages.agence) || {};
     const ag = p.agence || base;
     const site = String(ag.site || base.site || "").replace(/^https?:\/\//, "").replace(/\/$/, "") || "www.century21-kadima.fr";
     const signataire = (ag.signataire || base.signataire || "").trim();
     const fonction = (ag.fonction || base.fonction || "Directeur d'agence").trim();
-    const doc = await PDFDocument.create();
-    doc.registerFontkit(window.fontkit);
     const [fR, fB, fI] = await Promise.all(motCache.fontes.map((f) => doc.embedFont(f)));
-    const page = doc.addPage([595.28, 841.89]);
     const h = page.getHeight(), or = rgb(0.745, 0.686, 0.529), noir = rgb(0.13, 0.13, 0.13), gris = rgb(0.4, 0.4, 0.4);
     const ecrire = (t, x, y, taille, f, c) => { if (t) page.drawText(String(t), { x, y: h - y, size: taille, font: f || fR, color: c || noir }); };
     const droite = (t, xD, y, taille, f, c) => { if (t) ecrire(t, xD - (f || fR).widthOfTextAtSize(String(t), taille), y, taille, f, c); };
@@ -2954,7 +2970,7 @@
     // Logo « 21 CENTURY 21 Kadima » et bande à motifs : repris tels quels de la
     // page « prochain rendez-vous » du guide R1 (morceaux de page embarqués).
     try {
-      const src = await PDFDocument.load(motCache.pdfR1);
+      const src = source || await PDFDocument.load(motCache.pdfR1);
       const pg11 = src.getPage(10), H = pg11.getHeight();
       const logo = await doc.embedPage(pg11, { left: 400, bottom: H - 100, right: 560, top: H - 35 });
       page.drawPage(logo, { x: 385, y: h - 108, width: 160, height: 65 });
@@ -3012,11 +3028,20 @@
     page.drawLine({ start: { x: 60, y: h - 786 }, end: { x: 535, y: h - 786 }, thickness: 0.8, color: or });
     const mentions = String(ag.mentions || base.mentions || "").trim();
     if (mentions) { let ym = 798; for (const l of couper(mentions, fR, 6.8, 475).slice(0, 4)) { ecrire(l, 60, ym, 6.8, fR, gris); ym += 8.6; } }
+    return { conseiller: [prenom, nomCs].filter(Boolean).join(" "), site, signataire, fonction, agence: ag.nom || "" };
+  }
+  // Le courrier seul, imprimable à part (bouton « Mot du directeur » du parcours).
+  async function genererMotDirecteur(p) {
+    if (!window.PDFLib || !window.fontkit) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
+    const { PDFDocument } = window.PDFLib;
+    const doc = await PDFDocument.create();
+    doc.registerFontkit(window.fontkit);
+    const page = doc.addPage([595.28, 841.89]);
+    const debug = await dessinerMotDirecteur(doc, page, p);
     doc.setTitle("Mot du directeur — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "mot-du-directeur-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf",
-      debug: { conseiller: [prenom, nomCs].filter(Boolean).join(" "), site, signataire, fonction, agence: ag.nom || "" } }; // relu par le smoke
+    window.__dernierGuide = { url, octets, fichier: "mot-du-directeur-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", debug }; // relu par le smoke
     return url;
   }
   /* ------------------------------ Guide R2 --------------------------------- */

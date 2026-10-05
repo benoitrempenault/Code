@@ -788,6 +788,15 @@ Facebook facebook.com/century21.kadima, avis g.page/r/CUA5uMo-Z_RcEB0/review, me
 894 173 947 ; CPI 3301 2021 000 000 038, RC Allianz police 41319158, garantie 16833320, non
 détention de fonds). Ce qui est saisi prime ; un champ VIDÉ reprend le défaut (getReglages
 ignore les chaînes vides de data.agence).
+**Guide R1 (05/10, suite)** : (1) la page 12 du modèle guide-r1.pdf est une IMAGE d'un ancien mot du
+directeur (nommait toujours Rémi Blanc, site C21 de Saint-Médard) → `genererGuideR1` la retire et
+insère à sa place une page dessinée par `dessinerMotDirecteur(doc, page, p, source)` (même courrier
+que le bouton « Mot du directeur », qui reste pour l'imprimer seul) ; `guide-r1.json.mot.page = 12` ;
+`window.__dernierGuide.mot` = debug relu par le smoke (page 13 du guide généré). (2) Page 5 : le
+partenaire Transac'Assur (bandeau « Vente sécurisée », icône, nom, phrase) retiré par
+`tools/guides/retoucher-guide-r1-transacassur.py` (rédaction 40–400 × 640–800). (3) Page 2 : le
+« 2 » de Saint-Aubin recentré (insert_text 417,7 ; 477,6 → boîte 419,3–443,0, centre 431,1 comme
+les « 3 » et « 1 », sommet 444,1) — passe3 relançable sur le PDF retouché. Assets `?v=47`.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

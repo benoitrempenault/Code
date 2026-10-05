@@ -119,10 +119,11 @@ export default async function () {
     const guide = await page.evaluate(async () => {
       const octets = window.__dernierGuide.octets;
       const doc = await window.PDFLib.PDFDocument.load(octets);
-      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: octets.byteLength };
+      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: octets.byteLength, mot: window.__dernierGuide.mot };
     });
     ok(guide.pages === 14 && /MOUNEYRES/.test(guide.titre) && guide.octets > 100000,
-      "le guide R1 fait 14 pages (13 communes + Teddy Besson) au nom du client (" + JSON.stringify(guide) + ")");
+      "le guide R1 fait 14 pages (13 communes + Teddy Besson) au nom du client (" + JSON.stringify({ ...guide, mot: undefined }) + ")");
+    ok(guide.mot && guide.mot.conseiller === "Teddy BESSON" && guide.mot.signataire === "Benoît REMPENAULT", "la page 13 du guide R1 est le mot du directeur généré, au nom du conseiller du parcours (" + JSON.stringify(guide.mot) + ")");
     await garderGuide(page, guide.octets, "guide-r1-smoke.pdf");
     // Le mot du directeur : courrier d'accompagnement — conseiller du parcours, agence, site et directeur des réglages.
     await page.click('[data-guide="mot"]');
