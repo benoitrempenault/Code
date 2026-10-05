@@ -1167,9 +1167,13 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       const pos = a.blurInfo && (a.blurInfo.position || a.blurInfo.centroid);
       const photo = a.photos && a.photos[0] ? (a.photos[0].url_photo || a.photos[0].url || "") : "";
       const pieces = a.roomsQuantity || 0;
-      return { source: "bienici", id: "bienici:" + a.id, ref: String(a.reference || ""), agence: a.accountDisplayName || "", prix: a.price || 0, surface: a.surfaceArea || 0, terrain: a.landSurfaceArea || 0,
+      // Les programmes neufs (constructeurs) annoncent une fourchette : price = [min, max]
+      // → on garde le prix d'appel (sinon « NaN € » dans le livret) et on le dit.
+      const neuf = !!a.newProperty || Array.isArray(a.price);
+      const prix = Array.isArray(a.price) ? Number(a.price.find((v) => Number(v) > 0)) || 0 : Number(a.price) || 0;
+      return { source: "bienici", id: "bienici:" + a.id, ref: String(a.reference || ""), agence: a.accountDisplayName || "", prix, neuf: neuf ? 1 : 0, surface: a.surfaceArea || 0, terrain: a.landSurfaceArea || 0,
         pieces, chambres: a.bedroomsQuantity || 0, type: type === "flat" ? "Appartement" : "Maison", ville: a.city || "", cp: a.postalCode || "", quartier: a.district && a.district.libelle ? String(a.district.libelle).slice(0, 60) : "",
-        titre: [type === "flat" ? "Appartement" : "Maison", pieces ? pieces + " pièces" : "", a.surfaceArea ? Math.round(a.surfaceArea) + " m²" : ""].filter(Boolean).join(" · "),
+        titre: [neuf ? "Neuf (à partir de)" : "", type === "flat" ? "Appartement" : "Maison", pieces ? pieces + " pièces" : "", a.surfaceArea ? Math.round(a.surfaceArea) + " m²" : ""].filter(Boolean).join(" · "),
         image: photo, url: "https://www.bienici.com/annonce/" + (a.adType === "rent" ? "location" : "vente") + "/" + slug(a.city || ville) + "/" + (type === "flat" ? "appartement" : "maison") + "/" + (pieces || 1) + "pieces/" + encodeURIComponent(a.id),
         lat: pos ? pos.lat : null, lng: pos ? pos.lon : null, jours: a.publicationDate ? Math.max(0, Math.round((Date.now() - Date.parse(a.publicationDate)) / 86400000)) : null, baisse: a.priceHasDecreased ? 1 : 0, dpe: a.energyClassification || "" };
     });

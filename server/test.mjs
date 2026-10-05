@@ -1970,6 +1970,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     res.end(JSON.stringify({ total: 2, realEstateAds: [
       { id: "orpi-1", reference: "R1", accountDisplayName: "ORPI Le Haillan", adType: "buy", propertyType: "house", price: 349000, surfaceArea: 95, landSurfaceArea: 322, roomsQuantity: 4, bedroomsQuantity: 3, city: "Le Haillan", postalCode: "33185", publicationDate: new Date(Date.now() - 12 * 86400000).toISOString(), priceHasDecreased: true, energyClassification: "C", blurInfo: { position: { lat: 44.8705, lon: -0.7125 } }, photos: [{ url_photo: "https://file.bienici.com/photo/orpi-1.jpg" }], district: { libelle: "Centre" } },
       { id: "loin-2", accountDisplayName: "X", adType: "buy", propertyType: "house", price: 900000, surfaceArea: 200, roomsQuantity: 7, city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString(), blurInfo: { position: { lat: 44.8705, lon: -0.7125 } }, photos: [] },
+      // Programme neuf (constructeur) : Bien'ici annonce une fourchette price = [min, max] (Benoît voyait « NaN € »).
+      { id: "neuf-3", accountDisplayName: "Maisons MCA", adType: "buy", propertyType: "house", newProperty: true, price: [328430, null], surfaceArea: 100, landSurfaceArea: 600, roomsQuantity: 4, city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString(), blurInfo: { position: { lat: 44.8705, lon: -0.7125 } }, photos: [] },
     ] }));
   });
   await new Promise((r) => fauxBienici.listen(18786, r));
@@ -3658,8 +3660,10 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const dnPh = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
   ok(dnPh.amepi.find((a) => a.id === "am-1").photo === pixel, "la vignette rapatriée par l'agent accompagne le mandat ALFA dans les données du livret");
   await db.run("DELETE FROM crm_amepi_photos WHERE id = 'am-1'");
-  ok(portails.biens.length === 1 && portails.biens[0].id === "bienici:orpi-1" && portails.biens[0].agence === "ORPI Le Haillan" && portails.biens[0].baisse === 1 && portails.biens[0].jours >= 11 && portails.biens[0].terrain === 322 && /bienici\.com\/annonce\/vente\/le-haillan\/maison\/4pieces\/orpi-1/.test(portails.biens[0].url) && portails.biens[0].dist != null,
+  const orpi1 = portails.biens.find((b) => b.id === "bienici:orpi-1"), neuf3 = portails.biens.find((b) => b.id === "bienici:neuf-3");
+  ok(portails.biens.length === 2 && orpi1 && orpi1.agence === "ORPI Le Haillan" && orpi1.baisse === 1 && orpi1.jours >= 11 && orpi1.terrain === 322 && /bienici\.com\/annonce\/vente\/le-haillan\/maison\/4pieces\/orpi-1/.test(orpi1.url) && orpi1.dist != null,
      "Bien'ici : les biens de la commune, même type, autour du prix (le bien à 900 000 € écarté), avec agence, baisse, ancienneté, distance et lien (" + JSON.stringify(portails.biens.map((b) => [b.id, b.dist])) + ")");
+  ok(neuf3 && neuf3.prix === 328430 && neuf3.neuf === 1 && /^Neuf \(à partir de\)/.test(neuf3.titre), "un programme neuf annoncé en fourchette garde son prix d'appel et se dit « Neuf (à partir de) » (" + JSON.stringify(neuf3 && [neuf3.prix, neuf3.titre]) + ")");
   await db.run("UPDATE crm_annonces SET image = '/photos/biens/relative-640.webp' WHERE id = 'maison-haillan-1'");
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { annonces: { siteUrl: "http://localhost:1" } } });
   const dnRel = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;

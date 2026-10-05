@@ -815,6 +815,11 @@ scratchpad/rendre-mails.mjs (Playwright).
 `retoucher-guide-r1-transacassur.py SRC OUT PAGE` : page 14 du R2 = les partenaires). ATTENTION : passe3
 lisait guide-r1.pdf en dur avant l'ajout du 4e argument SRC → une première exécution a écrasé guide-r2.pdf
 par une copie du R1 (restaurée par `git checkout`) ; toujours vérifier le nombre de pages après (R1 25, R2 20).
+**Bien'ici, programmes neufs (05/10)** : les constructeurs (Maisons MCA, Alpha Constructions, So'9 Habitat…)
+annoncent `price = [min, max]` et `newProperty: true` → le livret affichait « NaN € ». `bieniciCommune` garde le
+premier prix > 0, pose `neuf: 1` et préfixe le titre « Neuf (à partir de) ». Photos des biens VENDUS : seules
+sources = photo posée à la main (📷) ou vignette AMEPI au même endroit (mandats relevés depuis fin 09/2026) ;
+les ventes anciennes de l'agence (2022…) n'ont donc pas de photo automatique — expliqué à Benoît.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique
