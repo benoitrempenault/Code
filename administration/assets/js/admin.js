@@ -3211,7 +3211,8 @@
       ecrire(pg, (com.nom || p.ville || "").toUpperCase(), s.ville.x, s.ville.y, s.ville.taille, fR);
       ecrire(pg, (com.departement || "").toUpperCase(), s.departement.x, s.departement.y, s.departement.taille, fR);
       ecrire(pg, (com.region || "").toUpperCase(), s.region.x, s.region.y, s.region.taille, fR);
-      ecrire(pg, com.densite ? String(com.densite).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " hab/km²" : "", s.population.x, s.population.y, s.population.taille, fR);
+      // « 7 643 habitants » : la ligne s'appelle Population (la densité y était écrite à sa place).
+      ecrire(pg, com.population ? String(com.population).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " habitants" : "", s.population.x, s.population.y, s.population.taille, fR);
       const pts = (envr.commodites || []).map((c) => ({ lat: c.lat, lng: c.lng, couleur: (CAT_STYLE[c.cat] || CAT_STYLE.service)[0], lettre: (CAT_STYLE[c.cat] || CAT_STYLE.service)[1] }));
       const W = s.carte[2] - s.carte[0], H = s.carte[3] - s.carte[1];
       const png = await dessinerCarte({ lat: envr.lat, lng: envr.lng, zoom: 15, largeur: Math.round(W * 2), hauteur: Math.round(H * 2), points: pts, centre: envr });
@@ -3222,7 +3223,7 @@
         const liste = (envr.commodites || []).filter((c) => c.cat === cat.cle);
         if (!liste.length || n >= s.tableau.max) continue;
         const noms = []; const vus = new Set();
-        for (const c of liste) { const nom = c.nom || cat.libelle.replace(/s$/, ""); if (vus.has(nom)) continue; vus.add(nom); noms.push(nom + " (" + fmtDist(c.dist) + ")"); if (noms.length >= 3) break; }
+        for (const c of liste) { const nom = c.nom || c.libelle || cat.libelle.replace(/s$/, ""); if (vus.has(nom)) continue; vus.add(nom); noms.push(nom + " (" + fmtDist(c.dist) + ")"); if (noms.length >= 3) break; }
         const [style] = [CAT_STYLE[cat.cle] || CAT_STYLE.service];
         pg.drawCircle({ x: s.tableau.x + 5, y: pg.getHeight() - y + 3, size: 4.5, color: rgb(...style[0].match(/\w\w/g).map((h) => parseInt(h, 16) / 255)) });
         ecrire(pg, cat.libelle + " : ", s.tableau.x + 14, y, s.tableau.taille, fB);

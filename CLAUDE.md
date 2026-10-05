@@ -820,6 +820,12 @@ annoncent `price = [min, max]` et `newProperty: true` → le livret affichait «
 premier prix > 0, pose `neuf: 1` et préfixe le titre « Neuf (à partir de) ». Photos des biens VENDUS : seules
 sources = photo posée à la main (📷) ou vignette AMEPI au même endroit (mandats relevés depuis fin 09/2026) ;
 les ventes anciennes de l'agence (2022…) n'ont donc pas de photo automatique — expliqué à Benoît.
+**Guide R2 p7 Environnement (05/10)** : la ligne « Population » écrivait la DENSITÉ (« 223 hab/km² ») →
+désormais `com.population` + « habitants ». `commoditesVia` écarte les lieux `access=private|no` et les
+piscines / terrains / salles de sport sans nom (douze piscines privées du lotissement sortaient en « Parcs,
+sport et loisirs à 70 m » autour du bien) et pose `libelle` (LIBELLES_OSM : « Aire de jeux », « Arrêt de
+bus »…) utilisé par admin.js quand le lieu n'a pas de nom. Cache crm_environnement : clé suffixée « |v2 »
+(les anciens relevés gardaient les piscines). Assets `?v=49`.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

@@ -737,6 +737,11 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     ["loisir", "Parcs, sport et loisirs", (t) => /^(park|playground|sports_centre|swimming_pool|pitch|fitness_centre)$/.test(t.leisure || "")],
     ["service", "Services", (t) => /^(bank|post_office|townhall|library|restaurant|cafe)$/.test(t.amenity || "")],
   ];
+  // Le nom à écrire quand le lieu n'en a pas (« Aire de jeux (70 m) » plutôt que « Parcs, sport et loisir »).
+  const LIBELLES_OSM = { park: "Parc", playground: "Aire de jeux", sports_centre: "Complexe sportif", swimming_pool: "Piscine", pitch: "Terrain de sport", fitness_centre: "Salle de sport",
+    school: "École", kindergarten: "Crèche", college: "Collège", university: "Université", pharmacy: "Pharmacie", doctors: "Médecin", hospital: "Hôpital", clinic: "Clinique", dentist: "Dentiste",
+    bank: "Banque", post_office: "La Poste", townhall: "Mairie", library: "Bibliothèque", restaurant: "Restaurant", cafe: "Café", marketplace: "Marché",
+    supermarket: "Supermarché", bakery: "Boulangerie", convenience: "Épicerie", butcher: "Boucherie", greengrocer: "Primeur", mall: "Centre commercial", department_store: "Grand magasin" };
   const DEPARTEMENTS = { 16: "CHARENTE", 17: "CHARENTE-MARITIME", 19: "CORRÈZE", 23: "CREUSE", 24: "DORDOGNE", 33: "GIRONDE", 40: "LANDES", 47: "LOT-ET-GARONNE", 64: "PYRÉNÉES-ATLANTIQUES", 79: "DEUX-SÈVRES", 86: "VIENNE", 87: "HAUTE-VIENNE" };
   async function geocoderBan(adresse, cp, ville) {
     const base = (env.BAN_BASE || "https://api-adresse.data.gouv.fr").replace(/\/+$/, "");
@@ -791,10 +796,15 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       const t = e.tags || {}; const y = e.lat ?? (e.center && e.center.lat), x = e.lon ?? (e.center && e.center.lon);
       if (y == null || x == null) continue;
       const cat = CATEGORIES.find(([, , f]) => f(t)); if (!cat) continue;
+      // Pas de lieux privés : les piscines et terrains des jardins voisins
+      // sortaient en « 12 parcs, sport et loisirs à 70 m » autour du bien.
+      if (t.access === "private" || t.access === "no") continue;
+      if (/^(swimming_pool|pitch|fitness_centre)$/.test(t.leisure || "") && !t.name) continue;
       const nom = String(t.name || t.brand || "").slice(0, 60);
+      const libelle = LIBELLES_OSM[t.leisure] || LIBELLES_OSM[t.amenity] || LIBELLES_OSM[t.shop] || (t.highway === "bus_stop" ? "Arrêt de bus" : t.railway ? "Gare" : "");
       const cle = cat[0] + "|" + (nom || Math.round(y * 2000) + "," + Math.round(x * 2000));
       if (vus.has(cle)) continue; vus.add(cle);
-      out.push({ cat: cat[0], nom, lat: y, lng: x, dist: distanceM(lat, lng, y, x) });
+      out.push({ cat: cat[0], nom, libelle, lat: y, lng: x, dist: distanceM(lat, lng, y, x) });
     }
     out.sort((a, b) => a.dist - b.dist);
     // Au plus 12 par catégorie (les arrêts de bus pullulent) ; ordonné par distance.
@@ -872,7 +882,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       lat = g.lat; lng = g.lng;
       await db.run("UPDATE crm_estimations SET lat = ?, lng = ? WHERE id = ?", [lat, lng, p.est.id]);
     }
-    const cle = lat.toFixed(3) + "," + lng.toFixed(3);
+    const cle = lat.toFixed(3) + "," + lng.toFixed(3) + "|v2"; // v2 : sans lieux privés, avec libellés
     let data = null;
     const cache = await db.get("SELECT data, updated_at FROM crm_environnement WHERE cle = ?", [cle]);
     if (cache && cache.updated_at > now() - 30 * 86400) { try { data = JSON.parse(cache.data); } catch { data = null; } }

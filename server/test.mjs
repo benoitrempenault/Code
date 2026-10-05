@@ -2014,6 +2014,10 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
       { type: "node", id: 5, lat: 44.9009, lon: -0.6803, tags: { highway: "bus_stop", name: "Mairie" } },
       { type: "node", id: 6, lat: 44.9100, lon: -0.6700, tags: { leisure: "park", name: "Parc" } },
       { type: "node", id: 7, lat: 44.9011, lon: -0.6799, tags: { tourism: "hotel", name: "Hôtel ignoré" } },
+      // Les piscines et terrains privés des jardins voisins ne sont pas des commodités ; une aire de jeux sans nom, si.
+      { type: "way", id: 8, center: { lat: 44.9013, lon: -0.6801 }, tags: { leisure: "swimming_pool", access: "private" } },
+      { type: "way", id: 9, center: { lat: 44.9014, lon: -0.6803 }, tags: { leisure: "swimming_pool" } },
+      { type: "way", id: 10, center: { lat: 44.9016, lon: -0.6797, }, tags: { leisure: "playground" } },
     ] }));
   });
   await new Promise((r) => fauxOverpass.listen(18784, r));
@@ -3591,6 +3595,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(cats.has("ecole") && cats.has("commerce") && cats.has("sante") && cats.has("transport") && cats.has("loisir") && !envr.json.commodites.some((x) => /Hôtel/.test(x.nom))
      && envr.json.commodites.filter((x) => x.nom === "Mairie").length === 1 && envr.json.commodites[0].dist <= envr.json.commodites[1].dist,
      "les commodités sont classées, dédoublonnées et triées par distance (" + envr.json.commodites.length + ")");
+  ok(!envr.json.commodites.some((x) => x.cat === "loisir" && !x.nom && x.libelle === "Piscine") && envr.json.commodites.some((x) => x.cat === "loisir" && x.libelle === "Aire de jeux") && envr.json.commune.population === 11900,
+     "les piscines privées des voisins sont écartées, l'aire de jeux sans nom garde son libellé, la population de la commune est lue (" + JSON.stringify(envr.json.commodites.filter((x) => x.cat === "loisir").map((x) => x.nom || x.libelle)) + ")");
   ok(envr.json.ventes.some((v) => v.date === "2025-06-01" && v.dist > 100 && v.dist < 1000) && !envr.json.ventes.some((v) => /Lointaine/.test(v.adresse)) && envr.json.ventes.every((v) => v.dist <= 1000),
      "les ventes de l'agence à moins d'un kilomètre sont retenues, la lointaine non (" + envr.json.ventes.length + ")");
   ok((await db.get("SELECT lat FROM crm_estimations WHERE id = ?", [pxId])).lat > 44, "la position géocodée est gardée sur la fiche");
