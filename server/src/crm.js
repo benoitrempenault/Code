@@ -887,12 +887,27 @@ export async function executerNettoyage(db, agency, userId, action, curseur = ""
 }
 
 /* ------------------------------- Reglages -------------------------------- */
+// L'identité de CENTURY 21 Kadima (Saint-Médard-en-Jalles), demandée par Benoît
+// le 05/10 : réseaux, avis Google, site, directeur et mentions légales (numéros
+// vérifiés sur les attestations et la carte professionnelle, cf. offres.js).
+// Ce sont des valeurs par défaut : ce qui est saisi dans Réglages → Agence prime.
+export const KADIMA_AGENCY_ID = "ag_8csricwct9";
+const IDENTITE_KADIMA = {
+  adresse: "20-22 rue François Mitterrand, 33160 Saint-Médard-en-Jalles", telephone: "05 56 57 77 77", email: "kadima@century21.fr",
+  site: "www.century21-kadima.fr", signataire: "Benoît REMPENAULT", fonction: "Directeur d'agence",
+  instagram: "https://instagram.com/century_21_kadima", facebook: "https://www.facebook.com/century21.kadima",
+  avis: "https://g.page/r/CUA5uMo-Z_RcEB0/review",
+  mentions: "KADIMA TB, SAS au capital de 10 000 € - RCS Bordeaux 894 173 947 - SIRET 894 173 947 00017 - Carte professionnelle « Transaction sur immeubles et fonds de commerce » n° CPI 3301 2021 000 000 038 délivrée par la CCI de Bordeaux-Gironde - RC professionnelle Allianz IARD, 1 cours Michelet, CS 30051, 92076 Paris La Défense Cedex, police n° 41319158 - Garantie financière n° 16833320 - Non détention de fonds - Chaque agence est juridiquement et financièrement indépendante.",
+};
+export const estKadima = (agency) => !!agency && (agency.id === KADIMA_AGENCY_ID || /kadima/i.test(String(agency.name || "")));
 export function defaultReglages(agency) {
+  const kadima = estKadima(agency) ? IDENTITE_KADIMA : {};
   return {
     agence: { nom: (agency && agency.name) || "", adresse: "", telephone: "", email: "", site: "", logoUrl: "",
       signataire: "", fonction: "", // qui signe les vœux et messages (ex. Benoît REMPENAULT, Directeur)
       instagram: "", facebook: "", avis: "", // réseaux et lien « laissez-nous un avis » (parcours R1/R2)
-      mentions: "" }, // mentions légales (pied des e-mails), reprises par les agences qui n'en ont pas
+      mentions: "", // mentions légales (pied des e-mails), reprises par les agences qui n'en ont pas
+      ...kadima },
     // Les points de vente du groupe : chaque conseiller est rattaché à l'un
     // d'eux, et ses e-mails/guides portent le nom, l'adresse, le téléphone,
     // l'e-mail et les mentions légales de SON agence (à défaut, ceux d'`agence`).
@@ -918,7 +933,7 @@ export async function getReglages(db, agency) {
   let data = {};
   try { data = JSON.parse(row.data); } catch { }
   return {
-    agence: { ...def.agence, ...(data.agence || {}) },
+    agence: { ...def.agence, ...Object.fromEntries(Object.entries(data.agence || {}).filter(([, v]) => v !== "" && v != null)) }, // un champ vidé reprend sa valeur par défaut (identité Kadima)
     agences: Array.isArray(data.agences) ? data.agences : [],
     anniversaires: { ...def.anniversaires, ...(data.anniversaires || {}) },
     annonces: { ...def.annonces, ...(data.annonces || {}) },

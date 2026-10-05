@@ -3442,6 +3442,10 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: marine.id } });
   const apM = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
   ok(/Marine Zamora/.test(apM.html) && /Conseillère immobilier/.test(apM.html) && /06 11 22 33 44/.test(apM.html), "changer le signataire : nom, fonction par défaut au féminin et téléphone dans la signature");
+  // L'identité Kadima (Saint-Médard) est pré-remplie : réseaux, avis, site, directeur, mentions ; une autre agence n'a rien.
+  { const k = CRM_TEST.defaultReglages({ id: "ag_x", name: "CENTURY 21 Kadima" }).agence, autre = CRM_TEST.defaultReglages({ id: "ag_y", name: "Agence Dupont" }).agence;
+    ok(k.instagram === "https://instagram.com/century_21_kadima" && k.facebook === "https://www.facebook.com/century21.kadima" && /g\.page\/r\/.+\/review/.test(k.avis) && /894 173 947/.test(k.mentions) && /41319158/.test(k.mentions) && k.signataire === "Benoît REMPENAULT" && k.site === "www.century21-kadima.fr"
+       && !autre.instagram && !autre.mentions && !autre.avis, "l'identité Kadima vient pré-remplie (réseaux, avis Google, site, directeur, mentions légales), pas celle d'une autre agence"); }
   // Les agences du groupe : le conseiller rattaché à un point de vente écrit au nom de SON agence (nom, adresse, mentions).
   const rgA = await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agence: { mentions: "SAS Kadima — RCS Bordeaux 000 000 000" },
     agences: [{ nom: "CENTURY 21 Kadima — Saint-Médard-en-Jalles" }, { nom: "CENTURY 21 Kadima — Bordeaux Caudéran", adresse: "5 avenue de Caudéran, 33200 Bordeaux", telephone: "05 56 00 00 00", mentions: "Carte pro CPI 3301 2026 000 000 002", site: "www.c21-cauderan.fr", signataire: "Tiéphaine DUVERGER", fonction: "Directrice d'agence" }, { cle: "x", nom: "" }] } });

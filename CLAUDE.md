@@ -776,6 +776,15 @@ trop à droite ; zone [414,440,454,496] redigée puis « 1 » (421,4 ; 438,7) et
   généré après le guide R1 (`window.__dernierGuide.debug` = conseiller/site/signataire) et gardé
   dans captures/mot-du-directeur-smoke.pdf. Benoît a demandé d'ignorer sa remarque « page du
   secteur ».
+**Identité Kadima pré-remplie (05/10)** : `IDENTITE_KADIMA` / `estKadima` / `KADIMA_AGENCY_ID` dans
+crm.js : pour l'agence Kadima (id ag_8csricwct9 ou nom contenant « kadima »), `defaultReglages`
+pré-remplit Réglages → Agence : adresse, téléphone, e-mail, site www.century21-kadima.fr,
+signataire Benoît REMPENAULT / Directeur d'agence, Instagram instagram.com/century_21_kadima,
+Facebook facebook.com/century21.kadima, avis g.page/r/CUA5uMo-Z_RcEB0/review, mentions légales
+(RCS 894 173 947 — le courrier d'un autre outil portait « 894 947 173 », les attestations disent
+894 173 947 ; CPI 3301 2021 000 000 038, RC Allianz police 41319158, garantie 16833320, non
+détention de fonds). Ce qui est saisi prime ; un champ VIDÉ reprend le défaut (getReglages
+ignore les chaînes vides de data.agence).
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique
