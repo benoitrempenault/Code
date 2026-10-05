@@ -4577,7 +4577,12 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(M.rattacher({ texte: "Bonne fête des mères à toutes !" }, mandatsT, urls).rattachement === "aucun" && M.rattacher({ texte: "Terrain de 8282 m²" }, mandatsT, urls).rattachement === "aucun", "rien de sûr : aucun rattachement (un nombre seul n'est pas une réf.)");
   ok(JSON.stringify(M.prixDansTexte("380 000 € ou 1,2 M€, 450K€, 2750 m²")) === "[380000,450000,1200000]" || M.prixDansTexte("380 000 € ou 1,2 M€, 450K€, 2750 m²").sort().join() === [380000, 450000, 1200000].sort().join(), "prix lus dans un texte (m² ignorés)");
 
-  // Faux Graph API Meta.
+  // Faux Graph API Meta. Dates RELATIVES au jour du test : la semaine S est
+  // celle d'il y a deux semaines (lundi), S+7 la suivante — tout reste dans les
+  // 90 jours relevés, quel que soit le jour où les tests tournent.
+  const jourM = (base, n) => new Date(Date.parse(base + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
+  const lundiCourant = (() => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d.toISOString().slice(0, 10); })();
+  const S = jourM(lundiCourant, -14), S7 = jourM(S, 7);
   const appelsMeta = [];
   let jetonMort = false, igSansInsights = true, vuesFb = 500;
   const fauxMeta = (await import("node:http")).createServer((req, res) => {
@@ -4593,14 +4598,14 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
     if (u.pathname === "/v23.0/P1/posts") {
       const avecIns = /insights/.test(u.searchParams.get("fields"));
       return rep(200, { data: [
-        { id: "P1_1", message: "Nouveauté ! Réf. 8282, maison familiale", permalink_url: "https://fb.com/1", created_time: "2026-09-10T10:00:00+0000",
+        { id: "P1_1", message: "Nouveauté ! Réf. 8282, maison familiale", permalink_url: "https://fb.com/1", created_time: jourM(S, -11) + "T10:00:00+0000",
           reactions: { summary: { total_count: 12 } }, comments: { summary: { total_count: 3 } }, shares: { count: 2 }, ...(avecIns ? { insights: { data: [{ name: "post_media_view", values: [{ value: vuesFb }] }] } } : {}) },
-        { id: "P1_2", message: "Maison au Haillan, 290 000 €, à découvrir", permalink_url: "https://fb.com/2", created_time: "2026-09-22T10:00:00+0000", reactions: { summary: { total_count: 4 } }, comments: { summary: { total_count: 0 } } },
+        { id: "P1_2", message: "Maison au Haillan, 290 000 €, à découvrir", permalink_url: "https://fb.com/2", created_time: jourM(S, 1) + "T10:00:00+0000", reactions: { summary: { total_count: 4 } }, comments: { summary: { total_count: 0 } } },
       ] });
     }
     if (u.pathname === "/v23.0/IG1/media") {
       if (/insights/.test(u.searchParams.get("fields")) && igSansInsights) return rep(400, { error: { message: "(#100) metric views is not supported", code: 100 } });
-      return rep(200, { data: [{ id: "M1", caption: "Réf. 8282 🏡", permalink: "https://instagram.com/p/1", timestamp: new Date(Date.now() - 5 * 86400000).toISOString(), like_count: 30, comments_count: 2 }] });
+      return rep(200, { data: [{ id: "M1", caption: "Réf. 8282 🏡", permalink: "https://instagram.com/p/1", timestamp: jourM(S, 3) + "T10:00:00+0000", like_count: 30, comments_count: 2 }] });
     }
     rep(404, { error: { message: "inconnu " + u.pathname } });
   });
@@ -4633,11 +4638,10 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok((await callM("/crm/meta/posts/fb:P1_2", { method: "PUT", headers: authM, body: { ref: "0000" } })).status === 400, "rattacher à un mandat inconnu : refusé");
 
   // Semaine : relevé du lundi S (500 vues) → relevé du lundi S+7 (740 vues) = 240 vues.
-  const S = "2026-09-21";
   await db.run("UPDATE crm_meta_stats SET jour = ? WHERE agency_id = ?", [S, agM]);
   vuesFb = 740; igSansInsights = false;
   await callM("/crm/meta/relever", { headers: authM, body: {} });
-  await db.run("UPDATE crm_meta_stats SET jour = ? WHERE agency_id = ? AND jour <> ?", ["2026-09-28", agM, S]);
+  await db.run("UPDATE crm_meta_stats SET jour = ? WHERE agency_id = ? AND jour <> ?", [S7, agM, S]);
   ok((await db.get("SELECT ref, rattachement FROM crm_meta_posts WHERE agency_id = ? AND id = 'fb:P1_2'", [agM])).rattachement === "manuel", "un rattachement manuel survit au relevé suivant");
   const sem = await M.statsReseauxSemaine(db, agM, S);
   ok(sem.connecte && sem.parRef["8282"].fb.vues === 240 && sem.parRef["8282"].fb.posts === 1 && sem.parRef["8282"].base === "semaine", "semaine = écart entre les deux relevés du lundi (240 vues Facebook)");
@@ -4645,11 +4649,11 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
 
   const B = await import("./src/bilans.js");
   const annonce = { ref: "8282", type: "Maison", ville: "Saint-Médard-en-Jalles", prix: 380000, surface: 100, semaines: { [S]: { vues: 20, visites: 0, brochures: 0 } } };
-  const dR = B.calculerBilan({ mandat: { ref: "8282", debut: "2026-09-01", prix: 380000 }, annonce, pairs: [], amepi: [], events: [], semaine: S, lundis: [S], aujourdhui: "2026-09-28",
+  const dR = B.calculerBilan({ mandat: { ref: "8282", debut: jourM(S, -20), prix: 380000 }, annonce, pairs: [], amepi: [], events: [], semaine: S, lundis: [S], aujourdhui: S7,
     reseaux: { connecte: true, stats: sem.parRef["8282"] } });
   const tR = B.texteBilan(dR, { conseiller: "Jean DUPONT" });
   ok(/Sur nos réseaux sociaux/.test(tR) && /Facebook : 1 publication, 240 vues, \d+ interactions? \(réactions, commentaires, partages\) cette semaine/.test(tR) && /Instagram : 1 publication/.test(tR), "le bilan dit ce que les réseaux ont fait pour le bien");
-  const dVide = B.calculerBilan({ mandat: { ref: "9999", debut: "2026-09-01", prix: 1 }, annonce: { ...annonce, ref: "9999" }, pairs: [], amepi: [], events: [], semaine: S, lundis: [S], aujourdhui: "2026-09-28", reseaux: { connecte: true, stats: null } });
+  const dVide = B.calculerBilan({ mandat: { ref: "9999", debut: jourM(S, -20), prix: 1 }, annonce: { ...annonce, ref: "9999" }, pairs: [], amepi: [], events: [], semaine: S, lundis: [S], aujourdhui: S7, reseaux: { connecte: true, stats: null } });
   ok(dVide.alertes.some((a) => a.code === "reseaux-aucun-post") && !/réseaux sociaux/.test(B.texteBilan(dVide, {})), "bien jamais publié : alerte au conseiller, rien dans le texte au vendeur");
 
   jetonMort = true;
