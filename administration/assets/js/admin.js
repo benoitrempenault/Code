@@ -2825,21 +2825,61 @@
     const doc = await PDFDocument.create();
     const pages = await doc.copyPages(source, ordre.map((n) => n - 1));
     pages.forEach((pg) => doc.addPage(pg));
-    // Le prochain rendez-vous : date, heure, adresse de l'agence.
+    // Le prochain rendez-vous : date, heure, puis le LIEU à cocher en fin de
+    // rendez-vous avec le client — chaque agence (Réglages → Nos agences), le
+    // domicile (adresse du bien), « Autre ». L'adresse figée « À l'agence
+    // située » du modèle est effacée.
     const rdv = meta.rdv;
     const idx = ordre.indexOf(rdv.page);
     const adresseAgence = (p.agence && p.agence.adresse) || (reglages && reglages.agence.adresse) || "";
-    if (idx >= 0 && (p.r2 || adresseAgence)) {
+    if (idx >= 0) {
       const page = doc.getPage(idx);
-      const font = await doc.embedFont(StandardFonts.HelveticaBold);
-      const h = page.getHeight();
-      const ecrire = (texte, xy) => { if (texte) page.drawText(texte, { x: xy[0], y: h - xy[1], size: rdv.taille, font, color: rgb(0.11, 0.11, 0.11) }); };
+      const font = await doc.embedFont(StandardFonts.HelveticaBold), fontR = await doc.embedFont(StandardFonts.Helvetica);
+      const h = page.getHeight(), gris = rgb(0.11, 0.11, 0.11);
+      // La page du modèle a une MediaBox décalée (y0 = 7,83 pt) : pdf-lib pose
+      // alors tout 7,83 pt plus bas que la mesure pymupdf (la date et l'heure
+      // tombaient sous leur ligne). Y() corrige pour tout ce qui est écrit ici.
+      const mb = page.getMediaBox(), Y = (y) => h - y + (mb.y || 0);
+      const ecrire = (texte, xy) => { if (texte) page.drawText(texte, { x: xy[0], y: Y(xy[1]), size: rdv.taille, font, color: gris }); };
       const jours = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"], mois = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p.r2 || "");
       const d = m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null;
       ecrire(d ? jours[d.getUTCDay()] + " " + (+m[3]) + " " + mois[+m[2] - 1] + " " + m[1] : "", rdv.date);
       ecrire(p.r2_heure ? p.r2_heure.replace(/^(\d{1,2}):(\d{2})$/, (t, a, b) => (+a) + "h" + (b === "00" ? "" : b)) : "", rdv.heure);
-      ecrire(adresseAgence, rdv.agence);
+      const z = rdv.lieux || { blanc: [150, 377, 500, 500], haut: 389, bas: 497, x: 158, xTexte: 171, taille: 8.3 };
+      page.drawRectangle({ x: z.blanc[0], y: Y(z.blanc[3]), width: z.blanc[2] - z.blanc[0], height: z.blanc[3] - z.blanc[1], color: rgb(1, 1, 1) });
+      const courtNom = (nom) => String(nom || "").replace(/^century\s*21\s*/i, "").replace(/^kadima\s*/i, "").trim();
+      const lieux = [];
+      const liste = agences();
+      if (liste.length) for (const a of liste) lieux.push({ titre: "À l'agence de " + (courtNom(a.nom) || "Kadima"), texte: a.adresse || "" });
+      else lieux.push({ titre: "À l'agence", texte: adresseAgence });
+      lieux.push({ titre: "À domicile", texte: [p.adresse, [p.cp, p.ville].filter(Boolean).join(" ")].filter(Boolean).join(", ") });
+      lieux.push({ titre: "Autre :", texte: "", ligne: true });
+      const pas = Math.min(18, (z.bas - z.haut) / lieux.length);
+      const tenir = (texte, f, taille, largeur) => { let t = taille; while (t > 6 && f.widthOfTextAtSize(texte, t) > largeur) t -= 0.25; return t; };
+      lieux.forEach((l, i) => {
+        const y = z.haut + i * pas;
+        page.drawRectangle({ x: z.x, y: Y(y) - 1.5, width: 7.5, height: 7.5, borderColor: rgb(0.35, 0.35, 0.35), borderWidth: 0.8 });
+        page.drawText(l.titre, { x: z.xTexte, y: Y(y), size: z.taille, font, color: gris });
+        if (l.texte) page.drawText(l.texte, { x: z.xTexte, y: Y(y) - 8.8, size: tenir(l.texte, fontR, z.taille - 0.3, z.blanc[2] - z.xTexte - 8), font: fontR, color: gris });
+        if (l.ligne) page.drawLine({ start: { x: z.xTexte + font.widthOfTextAtSize(l.titre, z.taille) + 6, y: Y(y) - 1 }, end: { x: z.blanc[2] - 20, y: Y(y) - 1 }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
+      });
+      // L'avis client : une légende qui dit à quoi sert le QR code, et le QR de
+      // l'agence du conseiller quand elle a son propre lien d'avis (Caudéran…).
+      const q = rdv.avis || { x: 55, y: 655, largeur: 310, taille: 9.5, qr: [392, 636, 150] };
+      page.drawText("Votre avis compte !", { x: q.x, y: Y(q.y), size: q.taille, font, color: gris });
+      const phrase = "Scannez ce QR code avec l'appareil photo de votre téléphone pour nous laisser un avis Google sur notre accueil.";
+      let ligne = "", yq = q.y + 13;
+      for (const mot of phrase.split(" ")) { const essai = ligne ? ligne + " " + mot : mot; if (fontR.widthOfTextAtSize(essai, q.taille) > q.largeur && ligne) { page.drawText(ligne, { x: q.x, y: Y(yq), size: q.taille, font: fontR, color: gris }); yq += 12.5; ligne = mot; } else ligne = essai; }
+      if (ligne) page.drawText(ligne, { x: q.x, y: Y(yq), size: q.taille, font: fontR, color: gris });
+      const avisAgence = p.agence && p.agence.pv && p.agence.avis;
+      if (avisAgence) {
+        try {
+          const png = await doc.embedPng(Uint8Array.from(atob(qrDataUrl(avisAgence).split(",")[1]), (ch) => ch.charCodeAt(0)));
+          page.drawRectangle({ x: q.qr[0] - 14, y: Y(q.qr[1] + q.qr[2] + 14), width: q.qr[2] + 28, height: q.qr[2] + 28, color: rgb(1, 1, 1) });
+          page.drawImage(png, { x: q.qr[0], y: Y(q.qr[1] + q.qr[2]), width: q.qr[2], height: q.qr[2] });
+        } catch { /* le QR du modèle reste */ }
+      }
     }
     // Page 1 : le client (« Famille NOM » ou civilité + nom), l'adresse du
     // bien et la date du jour, alignés à droite comme sur le modèle.
@@ -2894,6 +2934,22 @@
       l = Math.round(l * 0.8);
     }
   }
+  // Recadre une image (data URL) au format d'un cadre W × H, centrée — comme
+  // object-fit: cover — et la rend en JPEG : le PDF la pose alors dans son
+  // cadre sans rien masquer autour (les caches blancs débordaient sur les
+  // bandeaux et textes des modèles).
+  async function recadrerImage(src, W, H, maxPx = 1600) {
+    const img = await new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ko(new Error("Image illisible.")); i.src = src; });
+    const r = W / H; let sw = img.width, sh = img.height, sx = 0, sy = 0;
+    if (sw / sh > r) { sw = Math.max(1, Math.round(sh * r)); sx = Math.round((img.width - sw) / 2); } else { sh = Math.max(1, Math.round(sw / r)); sy = Math.round((img.height - sh) / 2); }
+    const k = Math.min(1, maxPx / Math.max(sw, sh)), cv = document.createElement("canvas");
+    cv.width = Math.max(1, Math.round(sw * k)); cv.height = Math.max(1, Math.round(sh * k));
+    cv.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+    return cv.toDataURL("image/jpeg", 0.86);
+  }
+  // « 1 vente comparable retenue », « 5 ventes comparables retenues » : les
+  // pluriels écrits, jamais de « (s) » dans les documents remis au client.
+  const pluriel = (n, un, des) => n + " " + (Math.abs(n) > 1 ? des : un);
   async function chargerImage(src) {
     return new Promise((resolve, reject) => { const i = new Image(); i.crossOrigin = "anonymous"; i.onload = () => resolve(i); i.onerror = () => reject(new Error("image")); i.src = src; });
   }
@@ -2963,18 +3019,17 @@
     };
     const image = async (pg, dataUrl, rect, couvrir) => {
       if (!dataUrl) { pg.drawRectangle({ x: rect[0], y: pg.getHeight() - rect[3], width: rect[2] - rect[0], height: rect[3] - rect[1], color: rgb(1, 1, 1) }); return; }
-      const octets = Uint8Array.from(atob(dataUrl.split(",")[1]), (ch) => ch.charCodeAt(0));
-      const im = /^data:image\/png/.test(dataUrl) ? await doc.embedPng(octets) : await doc.embedJpg(octets);
       const W = rect[2] - rect[0], H = rect[3] - rect[1];
       if (couvrir) {
-        // Recadrage centré : l'image remplit le cadre sans déformation (le trop-plein est masqué par un cadre blanc).
-        const k = Math.max(W / im.width, H / im.height), w = im.width * k, h = im.height * k;
-        const x = rect[0] - (w - W) / 2, y = pg.getHeight() - rect[3] - (h - H) / 2;
-        pg.drawImage(im, { x, y, width: w, height: h });
-        const blanc = rgb(1, 1, 1), ph = pg.getHeight();
-        if (w > W) { pg.drawRectangle({ x: x, y: ph - rect[3], width: rect[0] - x, height: H, color: blanc }); pg.drawRectangle({ x: rect[2], y: ph - rect[3], width: x + w - rect[2], height: H, color: blanc }); }
-        if (h > H) { pg.drawRectangle({ x: rect[0], y: y, width: W, height: ph - rect[3] - y, color: blanc }); pg.drawRectangle({ x: rect[0], y: ph - rect[1], width: W, height: y + h - (ph - rect[1]), color: blanc }); }
+        // Recadrage centré AVANT l'embarquement : l'image remplit exactement le
+        // cadre sans déformation. (Les caches blancs d'autrefois débordaient sur
+        // le bandeau de la page de garde et le pied de page.)
+        const jpeg = await recadrerImage(dataUrl, W, H);
+        const im = await doc.embedJpg(Uint8Array.from(atob(jpeg.split(",")[1]), (ch) => ch.charCodeAt(0)));
+        pg.drawImage(im, { x: rect[0], y: pg.getHeight() - rect[3], width: W, height: H });
       } else {
+        const octets = Uint8Array.from(atob(dataUrl.split(",")[1]), (ch) => ch.charCodeAt(0));
+        const im = /^data:image\/png/.test(dataUrl) ? await doc.embedPng(octets) : await doc.embedJpg(octets);
         const k = Math.min(W / im.width, H / im.height), w = im.width * k, h = im.height * k;
         pg.drawImage(im, { x: rect[0] + (W - w) / 2, y: pg.getHeight() - rect[3] + (H - h) / 2, width: w, height: h });
       }
@@ -2993,14 +3048,24 @@
       await image(pg, r2.photo, s.photo, true);
       ecrireDroite(pg, p.adresse, s.droite, s.adresse.y, s.adresse.taille, fR);
       ecrireDroite(pg, cpVille, s.droite, s.cpville.y, s.cpville.taille, fR);
+      // Chaque point va à la ligne dans son cadre (Benoît préfère ça à une
+      // limite de caractères) ; au-delà de 6 lignes le texte se resserre un peu.
       const liste = (texte, z) => {
         const items = String(texte || "").split(/\n/).map((t) => t.trim()).filter(Boolean).slice(0, z.max);
-        items.forEach((t, i) => {
-          const y = z.y + i * z.pas, yb = pg.getHeight() - y;
-          pg.drawLine({ start: { x: z.x, y: yb + 2.6 }, end: { x: z.x + 6, y: yb + 2.6 }, thickness: 1.1, color: couleurs.or });
-          pg.drawLine({ start: { x: z.x + 3.5, y: yb + 5 }, end: { x: z.x + 6, y: yb + 2.6 }, thickness: 1.1, color: couleurs.or });
-          pg.drawLine({ start: { x: z.x + 3.5, y: yb + 0.2 }, end: { x: z.x + 6, y: yb + 2.6 }, thickness: 1.1, color: couleurs.or });
-          ecrire(pg, couper(t, fB, z.taille, z.largeur)[0], z.xTexte, y, z.taille, fB);
+        let taille = z.taille, pas = z.pas, lignes = [];
+        for (let essai = 0; essai < 3; essai++) {
+          lignes = []; for (const t of items) couper(t, fB, taille, z.largeur).forEach((l, j) => lignes.push({ l, fleche: j === 0 }));
+          if (lignes.length <= (z.maxLignes || 6)) break;
+          taille *= 0.9; pas *= 0.9;
+        }
+        lignes.slice(0, (z.maxLignes || 6) + 1).forEach(({ l, fleche }, i) => {
+          const y = z.y + i * pas, yb = pg.getHeight() - y;
+          if (fleche) {
+            pg.drawLine({ start: { x: z.x, y: yb + 2.6 }, end: { x: z.x + 6, y: yb + 2.6 }, thickness: 1.1, color: couleurs.or });
+            pg.drawLine({ start: { x: z.x + 3.5, y: yb + 5 }, end: { x: z.x + 6, y: yb + 2.6 }, thickness: 1.1, color: couleurs.or });
+            pg.drawLine({ start: { x: z.x + 3.5, y: yb + 0.2 }, end: { x: z.x + 6, y: yb + 2.6 }, thickness: 1.1, color: couleurs.or });
+          }
+          ecrire(pg, l, z.xTexte, y, taille, fB);
         });
       };
       liste(r2.points_forts, s.forts); liste(r2.objections, s.objections); }
@@ -3048,7 +3113,7 @@
       ecrire(pg, "Biens vendus par l'agence", s.legende.x + 17, s.legende.y + 21, 10, fR);
       pg.drawCircle({ x: s.legende.x + 6, y: pg.getHeight() - (s.legende.y + 38) + 3.5, size: 4.2, color: rgb(0.184, 0.435, 0.624) });
       ecrire(pg, "Biens estimés par l'agence", s.legende.x + 17, s.legende.y + 38, 10, fR);
-      ecrire(pg, (envr.ventes || []).length + " vente(s) et " + estims.length + " bien(s) estimé(s) à moins d'un kilomètre", s.legende.x, s.legende.y + 57, 9, fI, couleurs.gris); }
+      ecrire(pg, pluriel((envr.ventes || []).length, "vente", "ventes") + " et " + pluriel(estims.length, "bien estimé", "biens estimés") + " à moins d'un kilomètre", s.legende.x, s.legende.y + 57, 9, fI, couleurs.gris); }
     // Page 9 : le mois.
     { const s = meta.p9, pg = page(s.page);
       ecrire(pg, (MOIS_FR[aujourdhui.getMonth()] + "  " + aujourdhui.getFullYear()).toUpperCase(), s.mois.x, s.mois.y, s.mois.taille, fR, rgb(0.145, 0.145, 0.149)); }
@@ -3065,12 +3130,32 @@
       ecrire(pg, (cs.nom || "").toUpperCase(), s.nom.x, s.nom.y, s.nom.taille, fR);
       ecrire(pg, f ? "VOTRE CONSEILLÈRE :" : "VOTRE CONSEILLER :", s.role.x, s.role.y, s.role.taille, fR, couleurs.or);
       ecrire(pg, "DE L'AGENCE CENTURY 21", s.agence.x, s.agence.y, s.agence.taille, fR, couleurs.or);
+      // Le bloc de l'agence : celle du conseiller (Réglages → Nos agences), à
+      // défaut l'identité générale ; le site vient des réglages (Agence → Site),
+      // le modèle portait en dur le site Century 21 de Saint-Médard.
+      { const ag = p.agence || (reglages && reglages.agence) || {};
+        const adr = String(ag.adresse || ""), virg = adr.lastIndexOf(",");
+        const l1 = virg > 0 ? adr.slice(0, virg).trim() : adr, l2 = virg > 0 ? adr.slice(virg + 1).trim().toUpperCase() : "";
+        const site = String((reglages && reglages.agence && reglages.agence.site) || "").replace(/^https?:\/\//, "").replace(/\/$/, "") || "www.century21-kadima.fr";
+        pg.drawRectangle({ x: 300, y: pg.getHeight() - 470, width: 250, height: 124, color: rgb(1, 1, 1) });
+        [[l1, 363.7], [l2, 377.9], [ag.telephone ? "Tel. " + ag.telephone : "", 392.1], [ag.email || "", 449.2], [site, 463.4]].forEach(([t, y]) => ecrire(pg, t, s.port.x, y, s.port.taille, fR)); }
       ecrire(pg, cs.telephone ? "Port. " + cs.telephone : "", s.port.x, s.port.y, s.port.taille, fR);
       ecrire(pg, cs.email || "", s.email.x, s.email.y, s.email.taille, fR);
-      let y = s.bio.y, n = 0;
-      for (const para of String(r2.bio != null ? r2.bio : cs.bio || "").replace(/\r/g, "").split(/\n\s*\n/)) {
-        for (const l of couper(para, fI, s.bio.taille, s.bio.largeur)) { if (n++ >= s.bio.max) break; ecrire(pg, l, s.bio.x, y, s.bio.taille, fI); y += s.bio.pas; }
-        y += s.bio.pas * 0.6;
+      // Le texte du conseiller tient dans son cadre (jusqu'à 684 pt) : la taille
+      // descend par paliers avant de couper — plus de lignes sous le pavé gris.
+      const paras = String(r2.bio != null ? r2.bio : cs.bio || "").replace(/\r/g, "").split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean);
+      const basBio = s.bio.bas || 684;
+      let taille = s.bio.taille, pas = s.bio.pas, blocs = [];
+      const hauteur = (b) => b.reduce((h, l) => h + l.length * pas, 0) + Math.max(0, b.length - 1) * pas * 0.6;
+      for (let essai = 0; essai < 5; essai++) {
+        blocs = paras.map((t) => couper(t, fI, taille, s.bio.largeur));
+        if (s.bio.y + hauteur(blocs) - pas <= basBio) break;
+        taille -= 0.5; pas = Math.round(taille * 1.2 * 10) / 10;
+      }
+      let y = s.bio.y;
+      for (const b of blocs) {
+        for (const l of b) { if (y > basBio) break; ecrire(pg, l, s.bio.x, y, taille, fI); y += pas; }
+        y += pas * 0.6;
       } }
     doc.setTitle("Vendons ensemble votre bien — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
@@ -3251,6 +3336,12 @@
     // Les photos déjà posées à la main (📷) restent attachées aux biens.
     // Photos posées à la main : table dédiée (jamais la saisie acm, dont les chaînes sont tronquées).
     const photosPosees = new Map(Object.entries((photosRep && photosRep.photos) || {}));
+    // Les photos des biens vendus : posées à la main ou vignette AMEPI au même endroit.
+    if (candidatsVentes.length) {
+      let photosVentes = {};
+      try { photosVentes = (await api("/crm/parcours/" + id + "/acm/ventes/photos", { method: "POST", json: { ventes: candidatsVentes.map(({ id: vid, lat, lng, type, surface }) => ({ id: vid, lat, lng, type, surface })) } })).photos || {}; } catch { photosVentes = {}; }
+      for (const v of candidatsVentes) { const ph = photosVentes[v.id]; if (ph && ph.photo) v.photo = ph.photo; else if (ph && ph.image) v.image = ph.image; }
+    }
     // Les plus proches d'abord ; sans position connue, la commune du bien avant les autres. Les biens ajoutés à la main restent en tête.
     const memeCommune = (a) => (a.cp && p.cp && String(a.cp) === String(p.cp)) || (a.ville && p.ville && String(a.ville).toLowerCase() === String(p.ville).toLowerCase());
     const distanceDe = (a) => { if (Number.isFinite(a.dist) && a.dist !== null) return a.dist; if (a.lat && a.lng && donnees.lat && donnees.lng) { const r = Math.PI / 180, dLat = (a.lat - donnees.lat) * r, dLng = (a.lng - donnees.lng) * r, h = Math.sin(dLat / 2) ** 2 + Math.cos(donnees.lat * r) * Math.cos(a.lat * r) * Math.sin(dLng / 2) ** 2; return 2 * 6371000 * Math.asin(Math.sqrt(h)); } return null; };
@@ -3266,7 +3357,9 @@
       ? candidatsConc.map((a, i) => ({ a, i })).filter((x) => x.a.prix > 0).sort((x, y) => Math.abs(x.a.prix - prixRefConc) - Math.abs(y.a.prix - prixRefConc) || x.i - y.i).slice(0, 4).map((x) => x.a.id)
       : candidatsConc.slice(0, 4).map((a) => a.id));
     const cocheV = (v, i) => (acm.ventes ? dejaV.has(v.id) : i < 4), cocheC = (v) => (acm.concurrence ? dejaC.has(v.id) : prechoixConc.has(v.id));
-    const ligneVente = (v, i) => '<label class="case" style="display:flex; gap:8px; align-items:flex-start; padding:4px 0; border-bottom:1px solid var(--line);"><input type="checkbox" data-vente="' + escH(v.id) + '"' + (cocheV(v, i) ? " checked" : "") + ' /> <span><strong>' +
+    const ligneVente = (v, i) => '<label class="case ligne-conc"><input type="checkbox" data-vente="' + escH(v.id) + '"' + (cocheV(v, i) ? " checked" : "") + ' /> ' +
+      '<span class="bloc-vignette">' + ((v.photo || v.image) ? '<img class="vignette-conc" data-vignette="' + escH(v.id) + '" src="' + escH(v.photo || v.image) + '" alt="" loading="lazy" />' : '<span class="vignette-conc" data-vignette="' + escH(v.id) + '"></span>') +
+      '<label class="btn" style="padding:1px 6px; font-size:11px;" title="Poser la photo du bien vendu (elle remplace la carte dans le livret)">📷<input type="file" accept="' + FORMATS_PHOTO + '" data-photo-vente="' + escH(v.id) + '" hidden /></label></span><span><strong>' +
       escH(fmtPrix(v.prix)) + "</strong> · " + escH(fmtDateAcm(v.date)) + " · " + escH(v.adresse || "") + (v.ville ? ", " + escH(v.ville) : "") + '<br /><span class="petit">' +
       escH([v.type, v.pieces ? v.pieces + " pièces" : "", v.surface ? Math.round(v.surface) + " m²" : "", v.terrain ? "terrain " + Math.round(v.terrain) + " m²" : "", fmtM2(v), "à " + v.dist + " m", v.source === "agence" ? "vendu par l'agence" : "DVF"].filter(Boolean).join(" · ")) + "</span></span></label>";
     const ligneConc = (a, i) => '<label class="case ligne-conc"><input type="checkbox" data-conc="' + escH(a.id) + '"' + (cocheC(a, i) ? " checked" : "") + ' /> ' +
@@ -3338,21 +3431,23 @@
     $("acm-com-ajouter").addEventListener("click", () => { $("acm-com-lignes").insertAdjacentHTML("beforeend", ligneCom({ nb: "", basse: "", haute: "" }, comIdx++)); const der = $("acm-com-lignes").lastElementChild.querySelector("input"); if (der) der.focus(); });
     $("acm-com-lignes").addEventListener("click", (e) => { const b = e.target.closest("[data-com-suppr]"); if (b) b.closest(".ligne-com").remove(); });
     $("acm-ach-resume").textContent = resumeAch();
-    $("acm-conc").addEventListener("change", async (ev) => {
-      const inp = ev.target; if (!inp.matches || !inp.matches("[data-photo]")) return;
+    // Poser une photo sur un bien (en concurrence ou vendu) : rangée à part
+    // (table dédiée), jamais dans la saisie du livret : 900 px, poids borné.
+    const poserPhoto = async (inp, cle, liste, selCase) => {
       const f = inp.files && inp.files[0]; if (!f) return;
       try {
-        // Rangée à part (table dédiée), jamais dans la saisie du livret : 900 px, poids borné.
         const img = await lireImage(f); // décodée une fois (HEIC compris)
         const photo = await reduireImage(img, 900, 0.78, 150000);
-        await api("/crm/parcours/" + id + "/acm/photos/" + encodeURIComponent(inp.dataset.photo), { method: "PUT", json: { photo } });
-        const cand = candidatsConc.find((x) => x.id === inp.dataset.photo); if (cand) cand.photo = photo;
-        const vig = document.querySelector('[data-vignette="' + inp.dataset.photo + '"]');
-        if (vig) { const img = document.createElement("img"); img.src = photo; img.alt = ""; img.className = "vignette-conc"; img.dataset.vignette = inp.dataset.photo; vig.replaceWith(img); }
-        const cb = document.querySelector('[data-conc="' + inp.dataset.photo + '"]'); if (cb) cb.checked = true;
+        await api("/crm/parcours/" + id + "/acm/photos/" + encodeURIComponent(cle), { method: "PUT", json: { photo } });
+        const cand = liste.find((x) => x.id === cle); if (cand) cand.photo = photo;
+        const vig = document.querySelector('[data-vignette="' + cle + '"]');
+        if (vig) { const im = document.createElement("img"); im.src = photo; im.alt = ""; im.className = "vignette-conc"; im.dataset.vignette = cle; vig.replaceWith(im); }
+        const cb = document.querySelector('[' + selCase + '="' + cle + '"]'); if (cb) cb.checked = true;
         toast("Photo posée sur ce bien");
       } catch (e) { toast(e.message, true); }
-    });
+    };
+    $("acm-conc").addEventListener("change", (ev) => { const inp = ev.target; if (inp.matches && inp.matches("[data-photo]")) poserPhoto(inp, inp.dataset.photo, candidatsConc, "data-conc"); });
+    $("acm-ventes").addEventListener("change", (ev) => { const inp = ev.target; if (inp.matches && inp.matches("[data-photo-vente]")) poserPhoto(inp, inp.dataset.photoVente, candidatsVentes, "data-vente"); });
     for (const k of ["acm-prix", "acm-basse", "acm-haute"]) $(k).addEventListener("input", () => { $("acm-ach-resume").textContent = resumeAch(); });
     $("acm-m-ajouter").addEventListener("click", () => {
       const num = (k) => { const v = parseFloat($(k).value); return Number.isFinite(v) ? v : null; };
@@ -3371,7 +3466,7 @@
       // Des lignes retouchées à la main ne sont plus écrasées par la commission à la réouverture.
       const auto = depuisCommission || [];
       const source = com.length === auto.length && com.every((l, i) => l.nb === auto[i].nb && l.basse === auto[i].basse && l.haute === auto[i].haute) ? acm.commission_source : "main";
-      return { ...acm, commission_source: source, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes), concurrence: cochees("[data-conc]", candidatsConc).map(({ photo, ...reste }) => reste),
+      return { ...acm, commission_source: source, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes).map(({ photo, image, ...reste }) => reste), concurrence: cochees("[data-conc]", candidatsConc).map(({ photo, ...reste }) => reste),
         commission: com, acheteurs_inclure: $("acm-ach-inclure").checked, acheteurs_texte: $("acm-ach-texte").value.trim(), acheteurs_n: ach.length, acheteurs_budgets: budgets,
         taux: num("acm-taux") ?? 3.9, assurance: num("acm-assurance") ?? 0.34, apport: num("acm-apport") || 0, duree: parseInt($("acm-duree").value, 10) || 25 };
     };
@@ -3508,23 +3603,29 @@
     };
     const rect = (pg, x, y, w, h, opts) => pg.drawRectangle({ x, y: pg.getHeight() - (y + h), width: w, height: h, ...opts });
     const ajouterModele = async (n) => { const [pg] = await doc.copyPages(source, [n - 1]); doc.addPage(pg); return pg; };
-    // Une page de contenu : la page de chapitre du modèle, son titre effacé, un en-tête discret.
+    // La bande à motifs du bord gauche (x < 76 pt) : sur la page de chapitre,
+    // le cadre blanc du titre la coupe ; on en rembarque un morceau pris sur
+    // la page 2 du modèle (même image, même position) pour la rendre continue.
+    const bandeHaut = 390, bandeBas = 452, bandeDroite = 80;
+    const bande = await doc.embedPage(source.getPage(1), { left: 0, bottom: source.getPage(1).getHeight() - bandeBas, right: bandeDroite, top: source.getPage(1).getHeight() - bandeHaut });
+    // Une page de contenu : la page de chapitre du modèle, son titre effacé
+    // (sans toucher à la bande de gauche), un en-tête discret.
     const pageContenu = async (titre, titreOr) => {
       const pg = await ajouterModele(meta.separateur);
-      const b = meta.blanc; rect(pg, b[0], b[1], b[2] - b[0], b[3] - b[1], { color: blanc });
+      const b = meta.blanc; rect(pg, bandeDroite, b[1], b[2] - bandeDroite, b[3] - b[1], { color: blanc });
+      pg.drawPage(bande, { x: 0, y: pg.getHeight() - bandeBas });
       ecrire(pg, titre + " ", G, 62, 15, fB, noir); ecrire(pg, titreOr, G + largeur(titre + " ", fB, 15), 62, 15, fB, or);
       pg.drawLine({ start: { x: G, y: pg.getHeight() - 72 }, end: { x: D, y: pg.getHeight() - 72 }, thickness: 1, color: or });
       return pg;
     };
+    // La photo arrive déjà recadrée au format du cadre (decoderPhoto) : posée
+    // telle quelle, liseré or. (Les caches blancs d'autrefois débordaient sur
+    // la bande de gauche.)
     const imageCadree = (pg, im, x, y, w, h) => {
-      const k = Math.max(w / im.width, h / im.height), iw = im.width * k, ih = im.height * k;
-      const ix = x - (iw - w) / 2, iy = pg.getHeight() - (y + h) - (ih - h) / 2;
-      pg.drawImage(im, { x: ix, y: iy, width: iw, height: ih });
-      const ph = pg.getHeight();
-      if (iw > w) { rect(pg, ix, y, x - ix, h, { color: blanc }); rect(pg, x + w, y, ix + iw - (x + w), h, { color: blanc }); }
-      if (ih > h) { pg.drawRectangle({ x, y: iy, width: w, height: ph - (y + h) - iy, color: blanc }); pg.drawRectangle({ x, y: ph - y, width: w, height: iy + ih - (ph - y), color: blanc }); }
+      pg.drawImage(im, { x, y: pg.getHeight() - (y + h), width: w, height: h });
       rect(pg, x, y, w, h, { borderColor: or, borderWidth: 0.8 });
     };
+    const CW = 236, CH = 176; // cadre photo / carte des biens vendus et en concurrence
     const carte = async (pg, x, y, w, h, opts) => {
       const png = await dessinerCarte({ largeur: Math.round(w * 2), hauteur: Math.round(h * 2), centre: { lat: donnees.lat, lng: donnees.lng }, ...opts });
       const im = await doc.embedPng(Uint8Array.from(atob(png.split(",")[1]), (ch) => ch.charCodeAt(0)));
@@ -3532,13 +3633,15 @@
       rect(pg, x, y, w, h, { borderColor: or, borderWidth: 0.8 });
     };
     // Une photo (data URL ou octets relayés, WebP compris) passe par le décodeur
-    // du navigateur et ressort en JPEG ≤ 1200 px : pdf-lib n'accepte que JPEG et PNG.
+    // du navigateur et ressort en JPEG recadré au format du cadre (CW × CH) :
+    // pdf-lib n'accepte que JPEG et PNG, et ne masque rien autour.
     const decoderPhoto = async (source) => {
       try {
         const img = typeof source === "string"
           ? await new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ko(new Error("image")); i.src = source; })
           : await lireImage(source);
-        const k = Math.min(1, 1200 / Math.max(img.width, img.height)); const cv = document.createElement("canvas"); cv.width = Math.max(1, Math.round(img.width * k)); cv.height = Math.max(1, Math.round(img.height * k)); cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height); return cv.toDataURL("image/jpeg", 0.85);
+        const k = Math.min(1, 1200 / Math.max(img.width, img.height)); const cv = document.createElement("canvas"); cv.width = Math.max(1, Math.round(img.width * k)); cv.height = Math.max(1, Math.round(img.height * k)); cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+        return await recadrerImage(cv.toDataURL("image/jpeg", 0.92), CW, CH, 1200);
       } catch { return ""; }
     };
     // La photo d'un bien en concurrence, dans l'ordre : posée à la main (table
@@ -3546,10 +3649,10 @@
     // sur l'URL de l'annonce. Jamais a.photo relu de la saisie (tronqué à 3 000 caractères).
     let photosPosees = {}; try { photosPosees = (await api("/crm/parcours/" + p.id + "/acm/photos")).photos || {}; } catch { photosPosees = {}; }
     const frais = new Map([...(donnees.amepi || []).map((x) => ["amepi:" + x.id, x]), ...(donnees.annonces || []).map((x) => ["agence:" + x.id, x])]);
-    const livretDebug = { photos: 0, sansPhoto: 0, sources: [] };
-    const embarquerPhoto = async (a) => {
+    const livretDebug = { photos: 0, sansPhoto: 0, ventesPhotos: 0, sources: [] };
+    const embarquerPhoto = async (a, directe) => {
       const f = frais.get(a.id);
-      let source = photosPosees[a.id] || (f && f.photo && /^data:image\//.test(f.photo) ? f.photo : "");
+      let source = directe || photosPosees[a.id] || (f && f.photo && /^data:image\//.test(f.photo) ? f.photo : "");
       if (!source && f && f.image) a = { ...a, image: f.image };
       if (!source && a.image) { try { const r = await fetch(API + "/crm/parcours-image?u=" + encodeURIComponent(a.image), { headers: { Authorization: "Bearer " + account().session } }); if (r.ok) source = await r.blob(); } catch { source = ""; } }
       if (!source) return null;
@@ -3573,13 +3676,19 @@
     const ventes = acm.ventes || [];
     const m2 = ventes.filter((v) => v.surface && v.prix).map((v) => v.prix / v.surface).sort((a, b) => a - b);
     const mediane = m2.length ? Math.round(m2[Math.floor(m2.length / 2)]) : 0;
-    const CW = 236, CH = 176, XF = G + CW + 16;
+    const XF = G + CW + 16;
+    // Les photos des biens vendus : posées à la main ou vignette AMEPI au même endroit.
+    let photosVentes = {};
+    if (ventes.length) { try { photosVentes = (await api("/crm/parcours/" + p.id + "/acm/ventes/photos", { method: "POST", json: { ventes: ventes.map(({ id, lat, lng, type, surface }) => ({ id, lat, lng, type, surface })) } })).photos || {}; } catch { photosVentes = {}; } }
     for (let i = 0; i < ventes.length; i += 2) {
       const pg = await pageContenu("LES BIENS RÉCEMMENT", "VENDUS");
-      if (i === 0 && mediane) couper(ventes.length + " vente(s) comparable(s) retenue(s) · prix médian " + mediane.toLocaleString("fr-FR") + " €/m²" + (acm.surface ? " · soit " + fmtPrix(Math.round(mediane * acm.surface / 1000) * 1000) + " pour " + Math.round(acm.surface) + " m²" : ""), fR, 9.5, L).forEach((l, j) => ecrire(pg, l, G, 90 + j * 12, 9.5, fR, gris));
+      if (i === 0 && mediane) couper(pluriel(ventes.length, "vente comparable retenue", "ventes comparables retenues") + " · prix médian " + mediane.toLocaleString("fr-FR") + " €/m²" + (acm.surface ? " · soit " + fmtPrix(Math.round(mediane * acm.surface / 1000) * 1000) + " pour " + Math.round(acm.surface) + " m²" : ""), fR, 9.5, L).forEach((l, j) => ecrire(pg, l, G, 90 + j * 12, 9.5, fR, gris));
       for (let k = 0; k < 2 && i + k < ventes.length; k++) {
         const v = ventes[i + k], y0 = 118 + k * 330;
-        await carte(pg, G, y0, CW, CH, { lat: v.lat, lng: v.lng, zoom: 16, points: [{ lat: v.lat, lng: v.lng, couleur: "#BEB18A", rayon: 11 }] });
+        const ph = photosVentes[v.id];
+        const im = ph ? await embarquerPhoto({ id: v.id, image: ph.image || "" }, ph.photo || "") : null;
+        if (im) { livretDebug.ventesPhotos++; imageCadree(pg, im, G, y0, CW, CH); }
+        else await carte(pg, G, y0, CW, CH, { lat: v.lat, lng: v.lng, zoom: 16, points: [{ lat: v.lat, lng: v.lng, couleur: "#BEB18A", rayon: 11 }] });
         ecrire(pg, fmtPrix(v.prix), XF, y0 + 22, 18, fB, noir);
         ecrire(pg, "Vente du " + fmtDateAcm(v.date), XF, y0 + 40, 10, fS, gris);
         couper([v.adresse, v.ville].filter(Boolean).join(", ").toUpperCase(), fR, 9, D - XF).slice(0, 2).forEach((l, j) => ecrire(pg, l, XF, y0 + 56 + j * 12, 9, fR, noir));
@@ -3594,7 +3703,7 @@
     const dvfTous = (donnees.ventesDvf || []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
     if (dvfTous.length) {
       const pg = await pageContenu("TOUTES LES VENTES AUTOUR DU BIEN", "(DVF)");
-      couper(dvfTous.length + " vente(s) de " + typeLib.toLowerCase() + "s à moins de 1,5 km sur les 24 derniers mois — données notariales publiques (DVF, data.gouv.fr)", fR, 9, L).slice(0, 1).forEach((l) => ecrire(pg, l, G, 88, 9, fR, gris));
+      couper(pluriel(dvfTous.length, "vente de " + typeLib.toLowerCase(), "ventes de " + typeLib.toLowerCase() + "s") + " à moins de 1,5 km sur les 24 derniers mois — données notariales publiques (DVF, data.gouv.fr)", fR, 9, L).slice(0, 1).forEach((l) => ecrire(pg, l, G, 88, 9, fR, gris));
       await carte(pg, G, 98, L, 230, { lat: donnees.lat, lng: donnees.lng, zoom: 15, points: dvfTous.map((v) => ({ lat: v.lat, lng: v.lng, couleur: "#BEB18A", rayon: 6 })) });
       const cols = [["Date", G, 56], ["Adresse", G + 56, 138], ["Type", G + 194, 56], ["Surface", G + 250, 44], ["Prix", G + 294, 64], ["€/m²", G + 358, 44], ["Dist.", G + 402, 42]];
       rect(pg, G, 344, L, 18, { color: or });
@@ -3605,7 +3714,7 @@
         const cellules = [fmtDateAcm(v.date), (v.adresse || "").toUpperCase(), [v.type, v.pieces ? v.pieces + " p." : ""].filter(Boolean).join(" "), v.surface ? Math.round(v.surface) + " m²" : "", fmtPrix(v.prix), fmtM2(v).replace(" €/m²", ""), v.dist != null ? Math.round(v.dist) + " m" : ""];
         cellules.forEach((t, c) => { let txt = String(t); while (largeur(txt, fR, 8) > cols[c][2] - 5 && txt.length > 3) txt = txt.slice(0, -2) + "…"; ecrire(pg, txt, cols[c][1] + 3, y, 8, c === 4 ? fS : fR, noir); });
       });
-      if (dvfTous.length > 27) ecrire(pg, "… et " + (dvfTous.length - 27) + " autre(s) vente(s).", G, 376 + 27 * 14.5 + 4, 8.5, fR, gris);
+      if (dvfTous.length > 27) ecrire(pg, "… et " + pluriel(dvfTous.length - 27, "autre vente", "autres ventes") + ".", G, 376 + 27 * 14.5 + 4, 8.5, fR, gris);
     }
     // 2. Les biens en concurrence : 2 biens par page, photo + fiche.
     await ajouterModele(meta.sections.concurrence);

@@ -241,6 +241,10 @@ export default async function () {
     await page.setInputFiles('input[data-photo^="portail:"]', new URL("./fixtures/photo.webp", import.meta.url).pathname);
     await attendreToast(page, "Photo posée sur ce bien");
     ok((await page.getAttribute('img.vignette-conc[data-vignette^="portail:"]', "src") || "").startsWith("data:image/jpeg"), "la photo WebP posée sur le bien saisi à la main devient une vignette JPEG");
+    // Un bien VENDU reçoit lui aussi sa photo (HEIC) : elle remplacera la carte dans le livret.
+    await page.setInputFiles('input[data-photo-vente]', new URL("./fixtures/photo.heic", import.meta.url).pathname);
+    await attendreToast(page, "Photo posée sur ce bien");
+    ok((await page.locator('#acm-ventes img.vignette-conc').count()) >= 1 && (await page.locator('[data-vente]:checked').count()) >= 1, "la photo HEIC posée sur une vente devient une vignette et la vente est cochée");
     ok(await page.inputValue('[data-com-nb="0"]') === "1" && await page.inputValue('[data-com-basse="0"]') === "310000", "le livret reprend la commission (1 conseiller sur 310–330 k)");
     await page.fill('[data-com-nb="0"]', "3"); await page.fill('[data-com-basse="0"]', "300000"); await page.fill('[data-com-haute="0"]', "320000");
     // Des lignes s'ajoutent et se retirent depuis le livret.
@@ -270,6 +274,7 @@ export default async function () {
       return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength, debug: window.__dernierGuide.debug || null };
     });
     ok(livret.debug && livret.debug.photos >= 4 && livret.debug.sansPhoto === 0, "le livret embarque les photos des biens en concurrence (ALFA via la vignette de l'agent, Bien'ici via le relais, le bien saisi à la main via sa photo posée) (" + JSON.stringify(livret.debug) + ")");
+    ok(livret.debug && livret.debug.ventesPhotos >= 1, "le livret pose la photo du bien vendu à la place de sa carte (" + JSON.stringify(livret.debug) + ")");
     ok(livret.pages >= 13 && /Livret prix/.test(livret.titre) && /MOUNEYRES/.test(livret.titre), "le livret prix est assemblé : pages fixes, ventes retenues, toutes les ventes DVF, concurrence, commission, acheteurs, financement (" + JSON.stringify(livret) + ")");
     await garderGuide(page, livret.octets, "livret-prix-smoke.pdf");
     // Un co-propriétaire, créé depuis la fiche : il apparaît sur la fiche, dans le mail et dans la liste.

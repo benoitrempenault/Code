@@ -3598,6 +3598,27 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok((await callR("/crm/parcours/" + pxId + "/acm/photos/bienici:abc", { headers: authP, method: "PUT", body: { photo: "data:text/plain;base64,QUJD" } })).status === 400, "une photo qui n'est pas un JPEG est refusée");
     ok((await callR("/crm/parcours/" + pxId + "/acm/photos", { headers: authR })).status === 404, "les photos d'un parcours hors périmètre sont introuvables");
   }
+  // Photos des biens VENDUS : posée à la main d'abord, sinon la vignette du mandat
+  // AMEPI au même endroit (40 m, même type, surface à 15 % près).
+  {
+    // Un mandat AMEPI vendu, posé directement en base (le relevé AMEPI est testé plus loin et compte ses mandats).
+    const tV = Math.floor(Date.now() / 1000);
+    await db.run("INSERT INTO crm_amepi (agency_id, id, ref, agence, source, type, prix, ville, cp, pieces, surface, lat, lng, etat_id, statut, image, first_seen, last_seen) VALUES (?, 'v7001', 'V-7001', 'ALFA', '2', 'maison', 300000, 'Saint-Médard-en-Jalles', '33160', 5, 100, 44.9001, -0.7201, 4, 'vendu', '', ?, ?)", [agId, tV, tV]);
+    await db.run("INSERT INTO crm_amepi_photos (agency_id, id, photo, updated_at) VALUES (?, 'v7001', ?, ?)", [agId, pixel, tV]);
+    await callR("/crm/parcours/" + pxId + "/acm/photos/dvf:posee", { headers: authP, method: "PUT", body: { photo: pixel } });
+    const r = await callR("/crm/parcours/" + pxId + "/acm/ventes/photos", { headers: authP, method: "POST", body: { ventes: [
+      { id: "dvf:posee", lat: 44.95, lng: -0.75, type: "Maison", surface: 90 },
+      { id: "dvf:proche", lat: 44.90012, lng: -0.72005, type: "Maison", surface: 105 },
+      { id: "dvf:loin", lat: 44.901, lng: -0.7201, type: "Maison", surface: 105 },
+      { id: "dvf:autre-surface", lat: 44.9001, lng: -0.7201, type: "Maison", surface: 160 },
+      { id: "dvf:appart", lat: 44.9001, lng: -0.7201, type: "Appartement", surface: 100 }] } });
+    const ph = (r.json && r.json.photos) || {};
+    ok(r.status === 200 && ph["dvf:posee"] && ph["dvf:posee"].source === "posee" && ph["dvf:proche"] && ph["dvf:proche"].source === "amepi" && ph["dvf:proche"].photo === pixel
+       && !ph["dvf:loin"] && !ph["dvf:autre-surface"] && !ph["dvf:appart"],
+       "les photos des biens vendus : posée à la main d'abord, sinon la vignette AMEPI à moins de 40 m, même type, surface à 15 % près (" + JSON.stringify(Object.keys(ph)) + ")");
+    ok((await callR("/crm/parcours/" + pxId + "/acm/ventes/photos", { headers: authR, method: "POST", body: { ventes: [] } })).status === 404, "hors périmètre, les photos des ventes sont introuvables");
+    await db.run("DELETE FROM crm_amepi WHERE id = 'v7001'"); await db.run("DELETE FROM crm_amepi_photos WHERE id = 'v7001'");
+  }
   const tNow = Math.floor(Date.now() / 1000);
   const acmPut = await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { prix: 330000, basse: 320000, haute: 340000, commission: [{ nb: 3, basse: 300000, haute: 320000 }], ventes: [{ id: "dvf:1", prix: 315000, surface: 100, adresse: "1 rue\u0007Test" }], acheteurs_texte: "ok", profond: { a: { b: { c: { d: { e: { f: 1 } } } } } } } });
   const acmGet = (await callR("/crm/parcours/" + pxId + "/acm", { headers: authP })).json;

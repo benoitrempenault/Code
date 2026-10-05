@@ -734,6 +734,37 @@ tête. Pré-cochage sans sélection enregistrée : les 4 biens au prix le plus p
 versionnée) : le « 2 » des gestionnaires (colonne Saint-Aubin) était 1,5 pt trop bas et 4 pt
 trop à droite ; zone [414,440,454,496] redigée puis « 1 » (421,4 ; 438,7) et « 2 » (419,3 ;
 477,6) reposés en relief ; repère : insert_text à la ligne de base y donne un sommet à y − 33,5.
+**Retours de Benoît sur les documents (05/10)** — tout dans admin.js (assets `?v=44`) :
+- `recadrerImage(src, W, H)` (canvas, cover centré, JPEG) : les photos sont recadrées AVANT
+  l'embarquement ; plus de caches blancs (ils débordaient sur le bandeau de la page de garde du
+  R2, le pied de page, et la bande de gauche du livret). Utilisé par `image(…, couvrir)` du R2,
+  `decoderPhoto` (livret, format CW × CH = 236 × 176) et `imageCadree` (ne fait plus que poser +
+  liseré). `pluriel(n, un, des)` : plus de « (s) » dans les documents (livret, légende R2 p8).
+- Livret, pages de contenu : le blanc du titre commence à x = 80 (bande de gauche intacte) et un
+  morceau de la bande (page 2 du modèle, `embedPage` clip 0–80 × 390–452) est redessiné sous le
+  cadre blanc du titre que le modèle peint par-dessus la bande.
+- Photos des biens VENDUS : `POST /crm/parcours/:id/acm/ventes/photos {ventes:[{id,lat,lng,type,
+  surface}]}` → `{photos:{id:{photo|image, source: posee|amepi, distance}}}` : photo posée
+  (crm_parcours_photos, même clé que la concurrence) sinon vignette d'un mandat crm_amepi à ≤ 40 m,
+  même type, surface ± 15 % (tout statut, les vendus gardent leur vignette). Fenêtre du livret :
+  chaque vente a sa vignette + 📷 (`[data-photo-vente]`, `poserPhoto` partagé avec la concurrence)
+  ; `lire()` retire photo/image des ventes (nettoyerJson). Livret : la photo remplace la carte
+  (`livretDebug.ventesPhotos`). Test serveur (mandat v7001 posé en base puis supprimé) + smoke
+  (HEIC posée sur une vente).
+- Guide R2 : p6 points forts/objections à la ligne dans leur cadre (largeur 150, ≤ 6 lignes puis
+  resserrement ×0,9) ; p12 bloc agence réécrit depuis `p.agence` (Nos agences) + site
+  `reglages.agence.site` (défaut www.century21-kadima.fr — le modèle portait en dur le site C21
+  de Saint-Médard) ; texte du conseiller ajusté pour tenir jusqu'à y = 684 (`bio.bas`, taille
+  −0,5 par palier).
+- Guide R1 page RDV (page 11 du modèle) : « À l'agence située » effacé, liste à cocher (chaque
+  agence de Réglages → Nos agences avec adresse, « À domicile » = adresse du bien, « Autre : ___ »),
+  légende « Votre avis compte ! … » à gauche du QR, QR de l'agence du conseiller si elle a son
+  propre lien d'avis (`p.agence.pv && p.agence.avis`, `qrDataUrl`). ATTENTION : cette page a une
+  MediaBox décalée (y0 = 7,83) → pdf-lib pose tout 7,83 pt plus bas que la mesure pymupdf ;
+  `Y(y) = h − y + mediabox.y` corrige tout ce qui est écrit sur cette page (date et heure comprises, qui tombaient sous leur ligne).
+- Le « mot du directeur » (courrier avec photo du directeur, « J'ai chargé X de réaliser
+  l'estimation ») N'EST PAS produit par Studio (aucun texte de ce genre dans le dépôt) : à
+  signaler à Benoît, proposer de l'ajouter au parcours R1 si besoin.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

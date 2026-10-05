@@ -1022,6 +1022,45 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       [p.est.id, cid, ctx.agency.id, photo, now()]);
     return c.json({ ok: true });
   });
+  // Les photos des biens VENDUS retenus dans le livret : celles posées à la main
+  // (table dédiée, même clé que les biens en concurrence) et, à défaut, la
+  // vignette d'un mandat du fichier AMEPI au même endroit (à 40 m, même type,
+  // surface à 15 % près — les mandats vendus gardent leur vignette). Benoît :
+  // « la photo du bien sur mes ACM, pour coller au style de la maison et ne pas
+  // prendre l'objection "c'est pas comparable" ».
+  app.post("/crm/parcours/:id/acm/ventes/photos", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    const b = await c.req.json().catch(() => null);
+    const ventes = (b && Array.isArray(b.ventes) ? b.ventes : []).slice(0, 60)
+      .map((v) => ({ id: strip(v && v.id, 80), lat: Number(v && v.lat), lng: Number(v && v.lng), type: sansAccents(v && v.type), surface: Number(v && v.surface) || 0 }))
+      .filter((v) => v.id);
+    const photos = {};
+    for (const r of await db.all("SELECT conc_id, photo FROM crm_parcours_photos WHERE estimation_id = ? AND agency_id = ?", [p.est.id, ctx.agency.id]))
+      if (ventes.some((v) => v.id === r.conc_id)) photos[r.conc_id] = { photo: r.photo, source: "posee" };
+    const places = ventes.filter((v) => !photos[v.id] && Number.isFinite(v.lat) && Number.isFinite(v.lng) && v.lat && v.lng);
+    if (places.length) {
+      const lats = places.map((v) => v.lat), lngs = places.map((v) => v.lng);
+      const dLat = 60 / 111320, dLng = 60 / (111320 * Math.cos(lats[0] * Math.PI / 180));
+      const mandats = await db.all(
+        `SELECT a.id, a.type, a.surface, a.lat, a.lng, a.image, a.statut, ph.photo FROM crm_amepi a
+         LEFT JOIN crm_amepi_photos ph ON ph.agency_id = a.agency_id AND ph.id = a.id
+         WHERE a.agency_id = ? AND a.lat BETWEEN ? AND ? AND a.lng BETWEEN ? AND ? AND (ph.photo IS NOT NULL OR a.image <> '')`,
+        [ctx.agency.id, Math.min(...lats) - dLat, Math.max(...lats) + dLat, Math.min(...lngs) - dLng, Math.max(...lngs) + dLng]);
+      for (const v of places) {
+        let meilleur = null;
+        for (const m of mandats) {
+          if (v.type && sansAccents(m.type) && sansAccents(m.type) !== v.type) continue;
+          if (v.surface && m.surface && Math.abs(m.surface - v.surface) > 0.15 * v.surface) continue;
+          const d = distanceM(v.lat, v.lng, m.lat, m.lng);
+          if (d <= 40 && (!meilleur || d < meilleur.d)) meilleur = { d, m };
+        }
+        if (meilleur) photos[v.id] = { photo: meilleur.m.photo || "", image: meilleur.m.photo ? "" : meilleur.m.image, source: "amepi", distance: Math.round(meilleur.d) };
+      }
+    }
+    return c.json({ photos });
+  });
   // Les données comparables autour du bien : position, commune (code INSEE
   // pour les fichiers DVF, chargés par le navigateur), ventes de l'agence à
   // 2 km, nos annonces et les mandats de l'ALFA (même type, même secteur),
