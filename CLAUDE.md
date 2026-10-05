@@ -810,6 +810,11 @@ leur test refuse Georgia/Helvetica ; bilans.js remplace désormais 26 ou 32 px �
 public : administration/assets/img/logo-c21-kadima.png (extrait de assets/js/logo.js `full`), URL
 GitHub Pages posée en `logoUrl` de IDENTITE_KADIMA (Gmail bloque les data URL). Aperçu local :
 scratchpad/rendre-mails.mjs (Playwright).
+**Guide R2 p10 et p14 (05/10)** : mêmes retouches que le guide R1 — les deux scripts prennent la page en
+3e argument (`retoucher-guide-r1-passe3.py OUT FONT PAGE [SRC]` : page 10 du R2 = la colonne Saint-Aubin,
+`retoucher-guide-r1-transacassur.py SRC OUT PAGE` : page 14 du R2 = les partenaires). ATTENTION : passe3
+lisait guide-r1.pdf en dur avant l'ajout du 4e argument SRC → une première exécution a écrasé guide-r2.pdf
+par une copie du R1 (restaurée par `git checkout`) ; toujours vérifier le nombre de pages après (R1 25, R2 20).
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

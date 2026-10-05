@@ -3,12 +3,14 @@
 # 2 pt trop bas et 2 pt trop à droite par rapport au rythme des « 1 » ; on le
 # redessine dans le style de l'original (or décalé à 40 %, puis or), police Bugaki.
 import pymupdf, sys
-SRC = "administration/assets/guide-r1.pdf"
+SRC = sys.argv[4] if len(sys.argv) > 4 else "administration/assets/guide-r1.pdf"
 OUT = sys.argv[1] if len(sys.argv) > 1 else SRC
 FONT = sys.argv[2] if len(sys.argv) > 2 else "Bugaki.ttf"
+# Page (1-based) : 2 dans le guide R1 ; la même colonne existe en page 10 du guide R2.
+PAGE = int(sys.argv[3]) if len(sys.argv) > 3 else 2
 OR = (0xbe / 255, 0xaf / 255, 0x87 / 255)
 d = pymupdf.open(SRC)
-p = d[1]
+p = d[PAGE - 1]
 p.add_redact_annot(pymupdf.Rect(414, 440, 454, 496), fill=(1, 1, 1))
 p.apply_redactions(images=0, graphics=2, text=0)
 # Rythme des lignes : sommets des « 1 » à 366,3 puis 405,2 (pas 38,9) → le « 2 » à 444,1 ;
