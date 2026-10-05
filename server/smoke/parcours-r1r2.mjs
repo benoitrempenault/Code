@@ -19,7 +19,7 @@ async function garderGuide(page, taille, nom) {
 
 export default async function () {
   const admin = await creerAgence("Smoke Parcours", "smoke-parcours@test.fr");
-  await api("/crm/reglages", { headers: admin.auth, method: "PUT", body: { agence: { adresse: "20 rue François Mitterrand, Saint-Médard-en-Jalles", avis: "https://g.page/r/smoke/review" } } });
+  await api("/crm/reglages", { headers: admin.auth, method: "PUT", body: { agence: { adresse: "20 rue François Mitterrand, Saint-Médard-en-Jalles", avis: "https://g.page/r/smoke/review", signataire: "Benoît REMPENAULT", fonction: "Directeur d'agence", site: "www.century21-kadima.fr", mentions: "SAS Smoke au capital de 10 000 € - RCS Bordeaux 000 000 000" } } });
   const cs = await api("/crm/conseillers", { headers: admin.auth, method: "PUT", body: { prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@smoke.fr", photo: PIXEL } });
   await api("/crm/contacts/bulk", { headers: admin.auth, body: { rows: [{ civilite: "M. et Mme", nom: "MOUNEYRES", prenom: "Jean", email: "mouneyres@smoke.fr", telephone: "0600000002", adresse: "12 rue du Mandat Confiance", ville: "SAINT AUBIN DE MEDOC" }] } });
   return parcours("parcours-r1r2", {}, async ({ page, ok }) => {
@@ -124,6 +124,15 @@ export default async function () {
     ok(guide.pages === 14 && /MOUNEYRES/.test(guide.titre) && guide.octets > 100000,
       "le guide R1 fait 14 pages (13 communes + Teddy Besson) au nom du client (" + JSON.stringify(guide) + ")");
     await garderGuide(page, guide.octets, "guide-r1-smoke.pdf");
+    // Le mot du directeur : courrier d'accompagnement — conseiller du parcours, agence, site et directeur des réglages.
+    await page.click('[data-guide="mot"]');
+    await page.waitForSelector("#doc-retour", { timeout: 30000 });
+    const mot = await page.evaluate(async () => { const d = await window.PDFLib.PDFDocument.load(window.__dernierGuide.octets); return { pages: d.getPageCount(), titre: d.getTitle() || "", fichier: window.__dernierGuide.fichier, debug: window.__dernierGuide.debug }; });
+    ok(/Mot du directeur prêt/.test(await page.textContent("#modale-titre")) && mot.pages === 1 && /MOUNEYRES/.test(mot.titre) && mot.debug.conseiller === "Teddy BESSON" && mot.debug.site === "www.century21-kadima.fr" && mot.debug.signataire === "Benoît REMPENAULT",
+      "le mot du directeur nomme le conseiller du parcours, le site et le directeur des réglages (" + JSON.stringify(mot) + ")");
+    await garderGuide(page, (await page.evaluate(() => window.__dernierGuide.octets.byteLength)), "mot-du-directeur-smoke.pdf");
+    await page.click("#doc-retour");
+    await page.waitForSelector(".etapes", { timeout: 8000 });
     // Le guide R2 : points forts, objections, texte du conseiller, puis commune + commodités + ventes + cartes.
     await page.click('[data-guide="r2"]');
     await page.waitForSelector("#r2-generer", { timeout: 8000 });

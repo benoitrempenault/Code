@@ -734,7 +734,7 @@ tête. Pré-cochage sans sélection enregistrée : les 4 biens au prix le plus p
 versionnée) : le « 2 » des gestionnaires (colonne Saint-Aubin) était 1,5 pt trop bas et 4 pt
 trop à droite ; zone [414,440,454,496] redigée puis « 1 » (421,4 ; 438,7) et « 2 » (419,3 ;
 477,6) reposés en relief ; repère : insert_text à la ligne de base y donne un sommet à y − 33,5.
-**Retours de Benoît sur les documents (05/10)** — tout dans admin.js (assets `?v=44`) :
+**Retours de Benoît sur les documents (05/10)** — tout dans admin.js (assets `?v=44`, puis `?v=45` avec le mot du directeur) :
 - `recadrerImage(src, W, H)` (canvas, cover centré, JPEG) : les photos sont recadrées AVANT
   l'embarquement ; plus de caches blancs (ils débordaient sur le bandeau de la page de garde du
   R2, le pied de page, et la bande de gauche du livret). Utilisé par `image(…, couvrir)` du R2,
@@ -762,9 +762,20 @@ trop à droite ; zone [414,440,454,496] redigée puis « 1 » (421,4 ; 438,7) et
   propre lien d'avis (`p.agence.pv && p.agence.avis`, `qrDataUrl`). ATTENTION : cette page a une
   MediaBox décalée (y0 = 7,83) → pdf-lib pose tout 7,83 pt plus bas que la mesure pymupdf ;
   `Y(y) = h − y + mediabox.y` corrige tout ce qui est écrit sur cette page (date et heure comprises, qui tombaient sous leur ligne).
-- Le « mot du directeur » (courrier avec photo du directeur, « J'ai chargé X de réaliser
-  l'estimation ») N'EST PAS produit par Studio (aucun texte de ce genre dans le dépôt) : à
-  signaler à Benoît, proposer de l'ajouter au parcours R1 si besoin.
+- **Mot du directeur** (05/10, assets `?v=45`) : le courrier d'accompagnement que Benoît tirait
+  d'un autre outil (mauvais conseiller, site C21 de Saint-Médard en dur) existe maintenant dans
+  Studio : bouton « ✉️ Mot du directeur » à l'étape Guide R1 → `genererMotDirecteur(p)` (pdf-lib,
+  A4, Helvetica) : en-tête de l'agence du conseiller (`p.agence` = agencePour : nom, adresse,
+  téléphone, e-mail, **site**), photo du directeur (profil conseiller dont le nom = `signataire`,
+  `recadrerImage` 130 × 165), « VILLE, le JJ/MM/AAAA », appel (« Madame NOM, » ou « Madame,
+  Monsieur, » à plusieurs), « J'ai chargé Prénom NOM de réaliser l'estimation… » accordé au genre
+  du conseiller, signature « Votre directeur d'agence, » + signataire, mentions légales en pied.
+  Réglages → Nos agences a trois champs de plus : **site**, **directeur / directrice (signataire)**,
+  **fonction** (sanitizeAgences + agencePour les portent ; à défaut ceux de l'identité générale ;
+  site par défaut www.century21-kadima.fr). Le guide R2 p12 lit le même site. Smoke : le mot est
+  généré après le guide R1 (`window.__dernierGuide.debug` = conseiller/site/signataire) et gardé
+  dans captures/mot-du-directeur-smoke.pdf. Benoît a demandé d'ignorer sa remarque « page du
+  secteur ».
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

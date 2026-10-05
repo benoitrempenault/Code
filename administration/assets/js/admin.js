@@ -1293,12 +1293,15 @@
       '<label>Téléphone<input id="agc-tel" value="' + v("telephone") + '" /></label>' +
       '<label>E-mail<input id="agc-email" type="email" value="' + v("email") + '" /></label>' +
       '<label style="grid-column:1/-1;">Avis Google de cette agence (lien « laissez-nous un avis » ; vide = celui de l\'identité)<input id="agc-avis" value="' + v("avis") + '" placeholder="https://g.page/r/…/review" /></label>' +
+      '<label style="grid-column:1/-1;">Site internet de cette agence (guides, mot du directeur ; vide = celui de l\'identité)<input id="agc-site" value="' + v("site") + '" placeholder="www.century21-kadima.fr" /></label>' +
+      '<label>Directeur / directrice (signe le mot du directeur)<input id="agc-signataire" value="' + v("signataire") + '" placeholder="Benoît REMPENAULT" /></label>' +
+      '<label>Sa fonction<input id="agc-fonction" value="' + v("fonction") + '" placeholder="Directeur d\'agence" /></label>' +
       '<label style="grid-column:1/-1;">Mentions légales (vide = celles de l\'identité de l\'agence)<textarea id="agc-mentions" style="min-height:80px;">' + v("mentions") + "</textarea></label></div>",
       (a ? '<button class="btn btn-danger" id="agc-supprimer">Supprimer</button>' : "") +
       '<button class="btn" id="agc-annuler">Annuler</button><button class="btn btn-or" id="agc-save">Enregistrer</button>');
     $("agc-annuler").addEventListener("click", fermerModale);
     $("agc-save").addEventListener("click", async () => {
-      const maj = { cle: a ? a.cle : "", nom: $("agc-nom").value.trim(), adresse: $("agc-adresse").value.trim(), telephone: $("agc-tel").value.trim(), email: $("agc-email").value.trim(), avis: $("agc-avis").value.trim(), mentions: $("agc-mentions").value.trim() };
+      const maj = { cle: a ? a.cle : "", nom: $("agc-nom").value.trim(), adresse: $("agc-adresse").value.trim(), telephone: $("agc-tel").value.trim(), email: $("agc-email").value.trim(), avis: $("agc-avis").value.trim(), mentions: $("agc-mentions").value.trim(), site: $("agc-site").value.trim(), signataire: $("agc-signataire").value.trim(), fonction: $("agc-fonction").value.trim() };
       if (!maj.nom) { toast("Le nom de l'agence est requis", true); return; }
       const liste = a ? agences().map((x) => (x.cle === a.cle ? maj : x)) : agences().concat([maj]);
       if (await sauverReglages({ agences: liste }, "Agence enregistrée")) { fermerModale(); chargerConseillers(); }
@@ -2701,7 +2704,7 @@
       const actions = e.mail
         ? '<button class="btn btn-or" data-mail="' + e.cle + '">' + (f ? "✉️ Renvoyer" : "✉️ Préparer et envoyer") + "</button>"
         : (e.cle === "guide-r1"
-          ? '<button class="btn btn-or" data-guide="r1" title="Le guide de commercialisation, avec la page du conseiller et le prochain rendez-vous">🖨 Guide R1 personnalisé</button>'
+          ? '<button class="btn" data-guide="mot" title="Le courrier d\'accompagnement signé du directeur de l\'agence, qui présente le conseiller">✉️ Mot du directeur</button><button class="btn btn-or" data-guide="r1" title="Le guide de commercialisation, avec la page du conseiller et le prochain rendez-vous">🖨 Guide R1 personnalisé</button>'
           : e.cle === "guide-r2"
           ? '<button class="btn btn-or" data-guide="r2" title="Photo du bien, points forts, objections, environnement, ventes autour, page du conseiller">🖨 Guide R2 personnalisé</button>'
           : e.cle === "acm"
@@ -2762,6 +2765,12 @@
     document.querySelectorAll("[data-guide]").forEach((b) => b.addEventListener("click", async () => {
       if (b.dataset.guide === "r2") { ouvrirGuideR2(id, p); return; }
       if (b.dataset.guide === "acm") { ouvrirAcm(id, p); return; }
+      if (b.dataset.guide === "mot") {
+        b.disabled = true; const lib = b.textContent; b.textContent = "Préparation…";
+        try { const u = await genererMotDirecteur(p); documentPret(id, "Mot du directeur prêt", u, window.__dernierGuide && window.__dernierGuide.fichier); }
+        catch (e) { toast(e.message, true); } finally { b.disabled = false; b.textContent = lib; }
+        return;
+      }
       b.disabled = true; b.textContent = "Préparation…";
       try {
         const urlR1 = await genererGuideR1(p);
@@ -2905,6 +2914,81 @@
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
     window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf" }; // relu par les parcours navigateur
+    return url;
+  }
+  /* --------------------------- Mot du directeur --------------------------- */
+  // Le courrier d'accompagnement du R1 (le modèle que Benoît utilisait ailleurs
+  // nommait un autre conseiller et le site Century 21 de Saint-Médard) : en-tête
+  // de l'agence du conseiller (Réglages → Nos agences : adresse, téléphone,
+  // e-mail, site), photo et signature du directeur de cette agence (champs
+  // directeur / fonction, sinon le signataire de l'identité), le conseiller du
+  // parcours accordé au féminin si besoin, mentions légales en pied de page.
+  async function genererMotDirecteur(p) {
+    if (!window.PDFLib) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
+    const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
+    const cs = p.conseiller || {};
+    const base = (reglages && reglages.agence) || {};
+    const ag = p.agence || base;
+    const site = String(ag.site || base.site || "").replace(/^https?:\/\//, "").replace(/\/$/, "") || "www.century21-kadima.fr";
+    const signataire = (ag.signataire || base.signataire || "").trim();
+    const fonction = (ag.fonction || base.fonction || "Directeur d'agence").trim();
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([595.28, 841.89]);
+    const fR = await doc.embedFont(StandardFonts.Helvetica), fB = await doc.embedFont(StandardFonts.HelveticaBold);
+    const h = page.getHeight(), or = rgb(0.745, 0.686, 0.529), noir = rgb(0.1, 0.1, 0.1), gris = rgb(0.35, 0.35, 0.35);
+    const ecrire = (t, x, y, taille, f, c) => { if (t) page.drawText(String(t), { x, y: h - y, size: taille, font: f || fR, color: c || noir }); };
+    const droite = (t, xD, y, taille, f, c) => { if (t) ecrire(t, xD - (f || fR).widthOfTextAtSize(String(t), taille), y, taille, f, c); };
+    const couper = (texte, f, taille, largeur) => { const out = []; let l = ""; for (const mot of String(texte || "").split(/\s+/).filter(Boolean)) { const e = l ? l + " " + mot : mot; if (f.widthOfTextAtSize(e, taille) > largeur && l) { out.push(l); l = mot; } else l = e; } if (l) out.push(l); return out; };
+    // En-tête de l'agence.
+    const adr = String(ag.adresse || ""), virg = adr.lastIndexOf(",");
+    const l1 = virg > 0 ? adr.slice(0, virg).trim() : adr, l2 = virg > 0 ? adr.slice(virg + 1).trim() : "";
+    ecrire("CENTURY 21", 60, 62, 14, fB, or);
+    const nomAg = String(ag.nom || "CENTURY 21 Kadima").toUpperCase(); let tN = 14; while (tN > 9 && fR.widthOfTextAtSize(nomAg, tN) > 320) tN -= 0.5;
+    ecrire(nomAg, 60, 84, tN, fR, or);
+    let y = 110;
+    for (const t of [l1, l2.toUpperCase(), ag.telephone ? "Tel: " + ag.telephone : "", ag.email ? "Mail: " + ag.email : "", site]) if (t) { ecrire(t, 60, y, 11, fR); y += 21; }
+    // La photo du directeur : le profil conseiller du même nom, recadrée dans son cadre.
+    const cadre = [400, 40, 530, 205];
+    const cle = sansAccentsMin(signataire);
+    const dir = cle ? (conseillers || []).find((c) => sansAccentsMin([c.prenom, c.nom].join(" ")) === cle || sansAccentsMin([c.nom, c.prenom].join(" ")) === cle) : null;
+    if (dir && dir.photo_url) {
+      try {
+        const b = await (await fetch(dir.photo_url)).blob();
+        const dataUrl = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); });
+        const jpeg = await recadrerImage(dataUrl, cadre[2] - cadre[0], cadre[3] - cadre[1], 900);
+        const im = await doc.embedJpg(Uint8Array.from(atob(jpeg.split(",")[1]), (ch) => ch.charCodeAt(0)));
+        page.drawImage(im, { x: cadre[0], y: h - cadre[3], width: cadre[2] - cadre[0], height: cadre[3] - cadre[1] });
+      } catch { /* sans photo */ }
+    }
+    const ville = (l2 || "").replace(/^\d{5}\s*/, "").toUpperCase() || (p.ville || "").toUpperCase();
+    droite((ville ? ville + ", " : "") + "le " + new Date().toLocaleDateString("fr-FR"), 535, 232, 11, fB);
+    page.drawLine({ start: { x: 60, y: h - 262 }, end: { x: 535, y: h - 262 }, thickness: 0.8, color: or });
+    // Le corps : appel (« Madame CHAVEROUX, », « Madame, Monsieur, » à plusieurs), le conseiller du parcours.
+    const civ = civiliteCourte(p.civilite), longue = civiliteLongue(p.civilite);
+    const prop = (p.proprietaires || []).filter((o) => o.nom || o.prenom);
+    const appel = prop.length >= 2 || civ === "M. et Mme" || !longue ? "Madame, Monsieur," : longue + " " + (p.nom || "").toUpperCase() + ",";
+    const prenom = prenomPropre(cs.prenom), nomCs = (cs.nom || "").toUpperCase(), fem = cs.genre === "f";
+    const paras = [
+      appel,
+      "Je vous remercie d'avoir sollicité notre agence CENTURY 21 dans le cadre de votre projet immobilier.",
+      prenom || nomCs
+        ? "J'ai chargé " + [prenom, nomCs].filter(Boolean).join(" ") + " de réaliser l'estimation de votre bien. " + (prenom || nomCs) + " sera pour vous " + (fem ? "une interlocutrice disponible, professionnelle" : "un interlocuteur disponible, professionnel") + " et efficace."
+        : "Notre équipe réalisera l'estimation de votre bien et sera pour vous un interlocuteur disponible, professionnel et efficace.",
+      "J'attache une grande importance à la qualité de services fournis par notre agence à nos clients et me tiens personnellement à votre disposition pour toutes questions.",
+      "Bien cordialement,",
+    ];
+    y = 330;
+    for (const para of paras) { for (const l of couper(para, fR, 11, 430)) { ecrire(l, 80, y, 11, fR); y += 15; } y += 12; }
+    const ySig = Math.max(y + 60, 600);
+    ecrire("Votre " + fonction.charAt(0).toLowerCase() + fonction.slice(1) + ",", 330, ySig, 11, fR);
+    ecrire(signataire, 330, ySig + 16, 11, fR);
+    const mentions = String(ag.mentions || base.mentions || "").trim();
+    if (mentions) { let ym = 790; for (const l of couper(mentions, fR, 7, 475).slice(0, 4)) { ecrire(l, 60, ym, 7, fR, gris); ym += 9; } }
+    doc.setTitle("Mot du directeur — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
+    const octets = await doc.save();
+    const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
+    window.__dernierGuide = { url, octets, fichier: "mot-du-directeur-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf",
+      debug: { conseiller: [prenom, nomCs].filter(Boolean).join(" "), site, signataire, fonction, agence: ag.nom || "" } }; // relu par le smoke
     return url;
   }
   /* ------------------------------ Guide R2 --------------------------------- */
@@ -3136,7 +3220,7 @@
       { const ag = p.agence || (reglages && reglages.agence) || {};
         const adr = String(ag.adresse || ""), virg = adr.lastIndexOf(",");
         const l1 = virg > 0 ? adr.slice(0, virg).trim() : adr, l2 = virg > 0 ? adr.slice(virg + 1).trim().toUpperCase() : "";
-        const site = String((reglages && reglages.agence && reglages.agence.site) || "").replace(/^https?:\/\//, "").replace(/\/$/, "") || "www.century21-kadima.fr";
+        const site = String(ag.site || (reglages && reglages.agence && reglages.agence.site) || "").replace(/^https?:\/\//, "").replace(/\/$/, "") || "www.century21-kadima.fr";
         pg.drawRectangle({ x: 300, y: pg.getHeight() - 470, width: 250, height: 124, color: rgb(1, 1, 1) });
         [[l1, 363.7], [l2, 377.9], [ag.telephone ? "Tel. " + ag.telephone : "", 392.1], [ag.email || "", 449.2], [site, 463.4]].forEach(([t, y]) => ecrire(pg, t, s.port.x, y, s.port.taille, fR)); }
       ecrire(pg, cs.telephone ? "Port. " + cs.telephone : "", s.port.x, s.port.y, s.port.taille, fR);

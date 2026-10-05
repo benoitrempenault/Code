@@ -552,7 +552,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!p) return err(c, 404, "Fiche introuvable.");
     const ag = agencePour(await getReglages(db, ctx.agency), p.conseiller);
     return c.json({ ...p.est, ...p.px, id: p.est.id, emails: await emailsDe(ctx.agency.id, p.est), proprietaires: p.proprietaires,
-      agence: { pv: ag.pv || "", nom: ag.nom || "", adresse: ag.adresse || "", telephone: ag.telephone || "", email: ag.email || "", mentions: ag.mentions || "" },
+      agence: { pv: ag.pv || "", nom: ag.nom || "", adresse: ag.adresse || "", telephone: ag.telephone || "", email: ag.email || "", mentions: ag.mentions || "",
+        site: ag.site || "", signataire: ag.signataire || "", fonction: ag.fonction || "", avis: ag.avis || "" }, // site, directeur : mot du directeur, guide R2 ; avis : QR du guide R1
       conseiller: p.conseiller ? { ...p.conseiller, photo_url: p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "" } : null });
   });
 

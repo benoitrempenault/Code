@@ -3444,13 +3444,15 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(/Marine Zamora/.test(apM.html) && /Conseillère immobilier/.test(apM.html) && /06 11 22 33 44/.test(apM.html), "changer le signataire : nom, fonction par défaut au féminin et téléphone dans la signature");
   // Les agences du groupe : le conseiller rattaché à un point de vente écrit au nom de SON agence (nom, adresse, mentions).
   const rgA = await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agence: { mentions: "SAS Kadima — RCS Bordeaux 000 000 000" },
-    agences: [{ nom: "CENTURY 21 Kadima — Saint-Médard-en-Jalles" }, { nom: "CENTURY 21 Kadima — Bordeaux Caudéran", adresse: "5 avenue de Caudéran, 33200 Bordeaux", telephone: "05 56 00 00 00", mentions: "Carte pro CPI 3301 2026 000 000 002" }, { cle: "x", nom: "" }] } });
+    agences: [{ nom: "CENTURY 21 Kadima — Saint-Médard-en-Jalles" }, { nom: "CENTURY 21 Kadima — Bordeaux Caudéran", adresse: "5 avenue de Caudéran, 33200 Bordeaux", telephone: "05 56 00 00 00", mentions: "Carte pro CPI 3301 2026 000 000 002", site: "www.c21-cauderan.fr", signataire: "Tiéphaine DUVERGER", fonction: "Directrice d'agence" }, { cle: "x", nom: "" }] } });
   const agcs = rgA.json.reglages.agences;
   ok(rgA.status === 200 && agcs.length === 2 && agcs[0].cle === "century-21-kadima-saint-medard-en-jalles" && agcs[1].cle === "century-21-kadima-bordeaux-cauderan" && rgA.json.reglages.agence.mentions.startsWith("SAS Kadima"),
      "les agences se rangent avec une clé lisible, une agence sans nom est ignorée, les mentions générales sont gardées (" + JSON.stringify(agcs.map((a) => a.cle)) + ")");
   await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: marine.id, prenom: "Marine", nom: "Zamora", telephone: "06 11 22 33 44", agence: agcs[1].cle } });
   const csAg = (await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === marine.id);
   const ficheAg = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
+  ok(ficheAg.agence && ficheAg.agence.site === "www.c21-cauderan.fr" && ficheAg.agence.signataire === "Tiéphaine DUVERGER" && ficheAg.agence.fonction === "Directrice d'agence",
+     "l'agence du conseiller porte aussi son site, son directeur et sa fonction (mot du directeur, guide R2) : " + JSON.stringify(ficheAg.agence && { site: ficheAg.agence.site, signataire: ficheAg.agence.signataire }));
   const apAg = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
   ok(csAg.agence === agcs[1].cle && ficheAg.agence.pv === agcs[1].cle && ficheAg.agence.adresse === "5 avenue de Caudéran, 33200 Bordeaux" && ficheAg.agence.mentions.startsWith("Carte pro"),
      "le profil porte son agence et la fiche parcours renvoie l'identité de cette agence pour les guides");

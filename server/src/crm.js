@@ -941,7 +941,8 @@ export function sanitizeAgences(liste) {
     let n = 2; const base = cle;
     while (vues.has(cle)) cle = base + "-" + n++;
     vues.add(cle);
-    out.push({ cle, nom, adresse: strip(a.adresse, 300), telephone: strip(a.telephone, 40), email: strip(a.email, 160).toLowerCase(), avis: strip(a.avis, 300), mentions: strip(a.mentions, 1000) });
+    out.push({ cle, nom, adresse: strip(a.adresse, 300), telephone: strip(a.telephone, 40), email: strip(a.email, 160).toLowerCase(), avis: strip(a.avis, 300), mentions: strip(a.mentions, 1000),
+      site: strip(a.site, 160), signataire: strip(a.signataire, 120), fonction: strip(a.fonction, 80) }); // site, directeur et sa fonction : guides, mot du directeur
   }
   return out;
 }
@@ -954,7 +955,7 @@ export function agencePour(reglages, conseiller) {
   const pv = cle ? (reglages.agences || []).find((a) => a.cle === cle) : null;
   if (!pv) return base;
   const out = { ...base, pv: pv.cle };
-  for (const k of ["nom", "adresse", "telephone", "email", "avis", "mentions"]) if (pv[k]) out[k] = pv[k];
+  for (const k of ["nom", "adresse", "telephone", "email", "avis", "mentions", "site", "signataire", "fonction"]) if (pv[k]) out[k] = pv[k];
   return out;
 }
 export async function saveReglages(db, agency, userId, incoming) {
