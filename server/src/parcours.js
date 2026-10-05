@@ -82,12 +82,20 @@ export function documentsR2(typeBien) {
 // (« - item »), titres de bloc (ligne seule avant une liste), liens.
 export function texteEnHtml(texte) {
   const lien = (t) => esc(t).replace(/(https?:\/\/[^\s<]+)/g, (u) => `<a href="${u}" style="color:#1D1D1B;">${u}</a>`);
+  // Un lien seul sur sa ligne devient un bouton or : « Laisser un avis Google »
+  // pour une page d'avis (g.page, writereview), « Ouvrir le lien » sinon —
+  // plutôt que l'adresse brute https://g.page/r/… que Benoît trouvait laide.
+  const bouton = (u) => {
+    const avis = /g\.page\/|writereview|\/review\b|maps\.app\.goo\.gl/i.test(u);
+    return `<div style="text-align:center; margin:6px 0 20px;"><a href="${esc(u)}" style="display:inline-block; background:#BEAF87; color:#1D1D1B; font-size:14px; font-weight:bold; letter-spacing:0.5px; text-decoration:none; padding:13px 26px; border-radius:999px;">${avis ? "★ Laisser un avis Google" : "Ouvrir le lien"}</a></div>`;
+  };
   const out = [];
   for (const bloc of String(texte || "").split(/\n{2,}/)) {
     const lignes = bloc.split("\n").map((l) => l.trim()).filter(Boolean);
     if (!lignes.length) continue;
     let i = 0;
     while (i < lignes.length) {
+      if (/^https?:\/\/\S+$/.test(lignes[i])) { out.push(bouton(lignes[i++])); continue; }
       if (/^[-*•]\s+/.test(lignes[i])) {
         const items = [];
         while (i < lignes.length && /^[-*•]\s+/.test(lignes[i])) items.push(lignes[i++].replace(/^[-*•]\s+/, ""));
@@ -154,10 +162,16 @@ export function preparerMail(est, px, jalon, ag, modeles, proprietaires) {
   return { sujet: remplirModele(modele.sujet, vars), texte: remplirModele(modele.texte, vars), vars };
 }
 
-const EYEBROWS = { "avant-r1": "Votre rendez-vous d'estimation", "entre-r1-r2": "Votre estimation se prépare", "apres-r2": "Merci de votre confiance" };
+// Les sur-titres ne répètent plus le titre (« Merci de votre confiance » au-dessus
+// de « Merci pour votre confiance » : Benoît le lisait deux fois).
+const EYEBROWS = { "avant-r1": "Estimation de votre bien", "entre-r1-r2": "Votre estimation se prépare", "apres-r2": "Votre projet de vente" };
 export function composerMail({ sujet, texte }, jalon, ag, conseiller, photoUrl) {
+  // Un sujet en deux temps (« Merci pour votre accueil — remise de votre
+  // estimation le jeudi 20 avril à 10h ») devient un titre et un sous-titre.
+  const m = /^(.{6,}?)\s+[—–-]\s+(.{4,})$/.exec(String(sujet || "").trim());
+  const titre = m ? m[1] : sujet, sous = m ? m[2].charAt(0).toUpperCase() + m[2].slice(1) : "";
   return wrapEmail(ag, {
-    eyebrow: EYEBROWS[jalon] || "Votre projet de vente", headline: esc(sujet), bodyHtml: texteEnHtml(texte),
+    eyebrow: EYEBROWS[jalon] || "Votre projet de vente", headline: esc(titre), sousTitre: esc(sous), bodyHtml: texteEnHtml(texte),
     signatureName: "", signatureHtml: signatureHtml(conseiller, ag, photoUrl),
   });
 }

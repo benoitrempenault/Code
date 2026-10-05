@@ -895,6 +895,7 @@ export const KADIMA_AGENCY_ID = "ag_8csricwct9";
 const IDENTITE_KADIMA = {
   adresse: "20-22 rue François Mitterrand, 33160 Saint-Médard-en-Jalles", telephone: "05 56 57 77 77", email: "kadima@century21.fr",
   site: "www.century21-kadima.fr", signataire: "Benoît REMPENAULT", fonction: "Directeur d'agence",
+  logoUrl: "https://benoitrempenault.github.io/Code/administration/assets/img/logo-c21-kadima.png", // logo « 21 CENTURY 21 Kadima » (or sur fond sombre) en tête des e-mails
   instagram: "https://instagram.com/century_21_kadima", facebook: "https://www.facebook.com/century21.kadima",
   avis: "https://g.page/r/CUA5uMo-Z_RcEB0/review",
   mentions: "KADIMA TB, SAS au capital de 10 000 € - RCS Bordeaux 894 173 947 - SIRET 894 173 947 00017 - Carte professionnelle « Transaction sur immeubles et fonds de commerce » n° CPI 3301 2021 000 000 038 délivrée par la CCI de Bordeaux-Gironde - RC professionnelle Allianz IARD, 1 cours Michelet, CS 30051, 92076 Paris La Défense Cedex, police n° 41319158 - Garantie financière n° 16833320 - Non détention de fonds - Chaque agence est juridiquement et financièrement indépendante.",
@@ -1201,12 +1202,22 @@ export function salutation(c) {
 
 // Gabarit commun : carte blanche sur fond creme, bandeau sombre, filet dore —
 // CSS inline uniquement (compatibilite clients mail).
-export function wrapEmail(ag, { eyebrow, headline, bodyHtml, signatureName, signatureTitre, signatureHtml }) {
+export function wrapEmail(ag, { eyebrow, headline, sousTitre, bodyHtml, signatureName, signatureTitre, signatureHtml }) {
   const gold = "#BEAF87", dark = "#1D1D1B";
   const nom = ag.nom || "Votre agence";
+  // Le point de vente (« Saint-Médard-en-Jalles ») se lit sous le logo ; sans
+  // logo, « CENTURY 21 » en lettres espacées puis le reste du nom en dessous,
+  // plutôt qu'un seul bloc qui se cassait sur trois lignes.
+  const pointDeVente = nom.replace(/^century\s*21\s*/i, "").replace(/^kadima\s*/i, "").replace(/^[—–-]\s*/, "").trim();
   const logo = ag.logoUrl
-    ? `<img src="${esc(ag.logoUrl)}" alt="${esc(nom)}" style="max-height:52px; max-width:260px;">`
-    : `<div style="font-family:Georgia,'Times New Roman',serif; color:${gold}; font-size:19px; letter-spacing:3px;">${esc(nom.toUpperCase())}</div>`;
+    ? `<img src="${esc(ag.logoUrl)}" alt="${esc(nom)}" style="max-height:88px; max-width:260px;">` +
+      (pointDeVente && pointDeVente !== nom ? `<div style="font-family:Helvetica,Arial,sans-serif; color:${gold}; font-size:12px; letter-spacing:2px; text-transform:uppercase; margin-top:12px;">${esc(pointDeVente.toUpperCase())}</div>` : "")
+    : /^century\s*21/i.test(nom)
+      ? `<div style="font-family:Georgia,'Times New Roman',serif; color:${gold}; font-size:22px; letter-spacing:4px;">CENTURY 21</div>` +
+        (nom.replace(/^century\s*21\s*/i, "").trim() ? `<div style="font-family:Helvetica,Arial,sans-serif; color:${gold}; font-size:12px; letter-spacing:2px; text-transform:uppercase; margin-top:8px;">${esc(nom.replace(/^century\s*21\s*/i, "").replace(/^[—–-]\s*/, "").trim().toUpperCase())}</div>` : "")
+      : `<div style="font-family:Georgia,'Times New Roman',serif; color:${gold}; font-size:19px; letter-spacing:3px;">${esc(nom.toUpperCase())}</div>`;
+  // Un titre long (plus de 40 caractères) descend à 26 px.
+  const tailleTitre = String(headline || "").replace(/<[^>]+>/g, "").length > 40 ? 26 : 32;
   const contactLine = [ag.telephone, ag.email, ag.site].filter(Boolean).map(esc).join(" &nbsp;·&nbsp; ");
   return `<!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
@@ -1218,14 +1229,15 @@ export function wrapEmail(ag, { eyebrow, headline, bodyHtml, signatureName, sign
         <tr><td style="height:4px; background:${gold}; font-size:0; line-height:0;">&nbsp;</td></tr>
         <tr><td style="padding:42px 48px 8px;" align="center">
           <div style="font-family:Helvetica,Arial,sans-serif; color:${gold}; font-size:12px; letter-spacing:3px; text-transform:uppercase; font-weight:bold;">${eyebrow}</div>
-          <div style="font-family:Georgia,'Times New Roman',serif; color:${dark}; font-size:32px; line-height:1.25; margin-top:14px;">${headline}</div>
+          <div style="font-family:Georgia,'Times New Roman',serif; color:${dark}; font-size:${tailleTitre}px; line-height:1.25; margin-top:14px;">${headline}</div>
+          ${sousTitre ? `<div style="font-family:Georgia,'Times New Roman',serif; color:#6b6b67; font-size:17px; line-height:1.4; margin-top:10px;">${sousTitre}</div>` : ""}
           <div style="width:56px; height:2px; background:${gold}; margin:22px auto 0;"></div>
         </td></tr>
         <tr><td style="padding:24px 48px 8px; font-family:Georgia,'Times New Roman',serif; color:#3d3d3b; font-size:16px; line-height:1.7;">${bodyHtml}</td></tr>
         <tr><td style="padding:26px 48px 40px;" align="center">${signatureHtml || `
           <div style="font-family:Georgia,'Times New Roman',serif; font-style:italic; color:${dark}; font-size:19px;">${esc(signatureName)}</div>
           ${signatureTitre ? `<div style="font-family:Helvetica,Arial,sans-serif; color:#3d3d3b; font-size:13px; margin-top:4px;">${esc(signatureTitre)}</div>` : ""}
-          <div style="font-family:Helvetica,Arial,sans-serif; color:#8a8a86; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; margin-top:6px;">${esc(nom)}</div>`}
+          <div style="font-family:Helvetica,Arial,sans-serif; color:#8a8a86; font-size:11px; letter-spacing:1px; text-transform:uppercase; margin-top:6px;">${esc(nom)}</div>`}
         </td></tr>
         <tr><td align="center" style="background:${dark}; padding:20px 24px;">
           <div style="font-family:Helvetica,Arial,sans-serif; color:${gold}; font-size:12px; letter-spacing:1px;">${esc(nom)}</div>

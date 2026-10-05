@@ -349,7 +349,7 @@ export function enCalibri(html) {
   return String(html)
     .replace(/font-family:[^;"]+/g, "font-family:" + POLICE_BILANS)
     .replace(/font-size:16px; line-height:1\.7/g, "font-size:11pt; line-height:1.45")
-    .replace(/font-size:32px; line-height:1\.25/g, "font-size:20pt; line-height:1.25");
+    .replace(/font-size:(?:26|32)px; line-height:1\.25/g, "font-size:20pt; line-height:1.25") // 26 px = titre long (wrapEmail);
 }
 const mailBilans = (ag, o) => enCalibri(wrapEmail(ag, o));
 function corpsBilan(texte, d) {

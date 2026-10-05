@@ -2177,8 +2177,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   // Le signataire des réglages signe tout : e-mails (avec sa fonction) et SMS.
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agence: { nom: "CENTURY 21 Kadima", signataire: "Benoît REMPENAULT", fonction: "Directeur" } } });
   const apSig = (await callR("/crm/anniversaires/apercu?type=naissance", { headers: auth })).json;
-  ok(/Benoît REMPENAULT/.test(apSig.html) && /Directeur/.test(apSig.html) && !/votre conseiller/.test(apSig.html) && /CENTURY 21 KADIMA/.test(apSig.html),
-     "le vœu est signé du signataire des réglages, avec sa fonction, sous le nom de l'agence");
+  ok(/Benoît REMPENAULT/.test(apSig.html) && /Directeur/.test(apSig.html) && !/votre conseiller/.test(apSig.html) && /CENTURY 21/.test(apSig.html) && /KADIMA/.test(apSig.html),
+     "le vœu est signé du signataire des réglages, avec sa fonction, sous le nom de l'agence (en-tête « CENTURY 21 » puis « KADIMA »)");
   const regSigBrut = (await callR("/crm/reglages", { headers: auth })).json;
   const regSig = regSigBrut.reglages || regSigBrut;
   ok(CRM_TEST.signatureSms({ conseiller: "Marc DUPONT" }, regSig) === "Benoît REMPENAULT", "le SMS aussi est signé du signataire, même si la fiche a un conseiller");

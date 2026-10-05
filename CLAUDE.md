@@ -797,6 +797,17 @@ partenaire Transac'Assur (bandeau « Vente sécurisée », icône, nom, phrase) 
 `tools/guides/retoucher-guide-r1-transacassur.py` (rédaction 40–400 × 640–800). (3) Page 2 : le
 « 2 » de Saint-Aubin recentré (insert_text 417,7 ; 477,6 → boîte 419,3–443,0, centre 431,1 comme
 les « 3 » et « 1 », sommet 444,1) — passe3 relançable sur le PDF retouché. Assets `?v=47`.
+**E-mails du parcours (05/10)** : `wrapEmail` affiche le logo (`ag.logoUrl`, max-height 88) + le point de
+vente dessous (nom sans « CENTURY 21 Kadima »), ou sans logo « CENTURY 21 » espacé puis le reste du
+nom ; titre à 26 px au-delà de 40 caractères ; nouveau champ `sousTitre`. `composerMail` scinde un
+sujet « A — B » en titre A + sous-titre B ; sur-titres sans doublon (avant-r1 « Estimation de votre
+bien », apres-r2 « Votre projet de vente » — Benoît lisait deux fois « merci pour votre confiance »).
+`texteEnHtml` : un lien seul sur sa ligne devient un bouton or (« ★ Laisser un avis Google » si
+g.page/review/writereview, sinon « Ouvrir le lien »), police héritée (les bilans sont en Calibri et
+leur test refuse Georgia/Helvetica ; bilans.js remplace désormais 26 ou 32 px → 20 pt). Logo Kadima
+public : administration/assets/img/logo-c21-kadima.png (extrait de assets/js/logo.js `full`), URL
+GitHub Pages posée en `logoUrl` de IDENTITE_KADIMA (Gmail bloque les data URL). Aperçu local :
+scratchpad/rendre-mails.mjs (Playwright).
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique
