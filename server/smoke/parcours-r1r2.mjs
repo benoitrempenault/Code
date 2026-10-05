@@ -125,15 +125,6 @@ export default async function () {
       "le guide R1 fait 14 pages (13 communes + Teddy Besson) au nom du client (" + JSON.stringify({ ...guide, mot: undefined }) + ")");
     ok(guide.mot && guide.mot.conseiller === "Teddy BESSON" && guide.mot.signataire === "Benoît REMPENAULT", "la page 13 du guide R1 est le mot du directeur généré, au nom du conseiller du parcours (" + JSON.stringify(guide.mot) + ")");
     await garderGuide(page, guide.octets, "guide-r1-smoke.pdf");
-    // Le mot du directeur : courrier d'accompagnement — conseiller du parcours, agence, site et directeur des réglages.
-    await page.click('[data-guide="mot"]');
-    await page.waitForSelector("#doc-retour", { timeout: 30000 });
-    const mot = await page.evaluate(async () => { const d = await window.PDFLib.PDFDocument.load(window.__dernierGuide.octets); return { pages: d.getPageCount(), titre: d.getTitle() || "", fichier: window.__dernierGuide.fichier, debug: window.__dernierGuide.debug }; });
-    ok(/Mot du directeur prêt/.test(await page.textContent("#modale-titre")) && mot.pages === 1 && /MOUNEYRES/.test(mot.titre) && mot.debug.conseiller === "Teddy BESSON" && mot.debug.site === "www.century21-kadima.fr" && mot.debug.signataire === "Benoît REMPENAULT",
-      "le mot du directeur nomme le conseiller du parcours, le site et le directeur des réglages (" + JSON.stringify(mot) + ")");
-    await garderGuide(page, (await page.evaluate(() => window.__dernierGuide.octets.byteLength)), "mot-du-directeur-smoke.pdf");
-    await page.click("#doc-retour");
-    await page.waitForSelector(".etapes", { timeout: 8000 });
     // Le guide R2 : points forts, objections, texte du conseiller, puis commune + commodités + ventes + cartes.
     await page.click('[data-guide="r2"]');
     await page.waitForSelector("#r2-generer", { timeout: 8000 });

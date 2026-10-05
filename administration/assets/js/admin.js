@@ -2704,7 +2704,7 @@
       const actions = e.mail
         ? '<button class="btn btn-or" data-mail="' + e.cle + '">' + (f ? "✉️ Renvoyer" : "✉️ Préparer et envoyer") + "</button>"
         : (e.cle === "guide-r1"
-          ? '<button class="btn" data-guide="mot" title="Le courrier d\'accompagnement signé du directeur de l\'agence, qui présente le conseiller">✉️ Mot du directeur</button><button class="btn btn-or" data-guide="r1" title="Le guide de commercialisation, avec la page du conseiller et le prochain rendez-vous">🖨 Guide R1 personnalisé</button>'
+          ? '<button class="btn btn-or" data-guide="r1" title="Le guide de commercialisation, avec le mot du directeur, la page du conseiller et le prochain rendez-vous">🖨 Guide R1 personnalisé</button>'
           : e.cle === "guide-r2"
           ? '<button class="btn btn-or" data-guide="r2" title="Photo du bien, points forts, objections, environnement, ventes autour, page du conseiller">🖨 Guide R2 personnalisé</button>'
           : e.cle === "acm"

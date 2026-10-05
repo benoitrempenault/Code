@@ -790,8 +790,9 @@ détention de fonds). Ce qui est saisi prime ; un champ VIDÉ reprend le défaut
 ignore les chaînes vides de data.agence).
 **Guide R1 (05/10, suite)** : (1) la page 12 du modèle guide-r1.pdf est une IMAGE d'un ancien mot du
 directeur (nommait toujours Rémi Blanc, site C21 de Saint-Médard) → `genererGuideR1` la retire et
-insère à sa place une page dessinée par `dessinerMotDirecteur(doc, page, p, source)` (même courrier
-que le bouton « Mot du directeur », qui reste pour l'imprimer seul) ; `guide-r1.json.mot.page = 12` ;
+insère à sa place une page dessinée par `dessinerMotDirecteur(doc, page, p, source)` (le bouton « Mot du
+directeur » à part a été retiré le 05/10 à la demande de Benoît : le mot vit dans le guide ; `genererMotDirecteur`
+reste disponible dans le code) ; `guide-r1.json.mot.page = 12` ;
 `window.__dernierGuide.mot` = debug relu par le smoke (page 13 du guide généré). (2) Page 5 : le
 partenaire Transac'Assur (bandeau « Vente sécurisée », icône, nom, phrase) retiré par
 `tools/guides/retoucher-guide-r1-transacassur.py` (rédaction 40–400 × 640–800). (3) Page 2 : le
