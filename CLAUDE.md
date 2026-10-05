@@ -765,7 +765,10 @@ trop à droite ; zone [414,440,454,496] redigée puis « 1 » (421,4 ; 438,7) et
 - **Mot du directeur** (05/10, assets `?v=45`) : le courrier d'accompagnement que Benoît tirait
   d'un autre outil (mauvais conseiller, site C21 de Saint-Médard en dur) existe maintenant dans
   Studio : bouton « ✉️ Mot du directeur » à l'étape Guide R1 → `genererMotDirecteur(p)` (pdf-lib,
-  A4, Helvetica) : en-tête de l'agence du conseiller (`p.agence` = agencePour : nom, adresse,
+  A4, polices Barlow via fontkit ; `motCache` = guide-r1.pdf + emblème PNG lu dans ../assets/js/logo.js +
+  fontes ; logo « 21 CENTURY 21 Kadima » et bande à motifs = `embedPage` de la page 11 du guide R1
+  (clips 400–560 × 35–100 et 55–370 × 640–700 en coordonnées pymupdf, user y = 842,25 − y) ; emblème
+  « 21 » en filigrane opacité 0,08 ; assets `?v=46`) : en-tête de l'agence du conseiller (`p.agence` = agencePour : nom, adresse,
   téléphone, e-mail, **site**), photo du directeur (profil conseiller dont le nom = `signataire`,
   `recadrerImage` 130 × 165), « VILLE, le JJ/MM/AAAA », appel (« Madame NOM, » ou « Madame,
   Monsieur, » à plusieurs), « J'ai chargé Prénom NOM de réaliser l'estimation… » accordé au genre

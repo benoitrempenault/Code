@@ -2918,14 +2918,25 @@
   }
   /* --------------------------- Mot du directeur --------------------------- */
   // Le courrier d'accompagnement du R1 (le modèle que Benoît utilisait ailleurs
-  // nommait un autre conseiller et le site Century 21 de Saint-Médard) : en-tête
-  // de l'agence du conseiller (Réglages → Nos agences : adresse, téléphone,
-  // e-mail, site), photo et signature du directeur de cette agence (champs
-  // directeur / fonction, sinon le signataire de l'identité), le conseiller du
-  // parcours accordé au féminin si besoin, mentions légales en pied de page.
+  // nommait un autre conseiller et le site Century 21 de Saint-Médard) : logo
+  // Century 21 Kadima et bande à motifs repris du guide R1, polices Barlow,
+  // en-tête de l'agence du conseiller (Réglages → Nos agences : adresse,
+  // téléphone, e-mail, site), photo et signature du directeur de cette agence
+  // (champs directeur / fonction, sinon le signataire de l'identité), le
+  // conseiller du parcours accordé au féminin si besoin, emblème « 21 » en
+  // filigrane, mentions légales en pied de page.
+  let motCache = null;
   async function genererMotDirecteur(p) {
-    if (!window.PDFLib) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
-    const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
+    if (!window.PDFLib || !window.fontkit) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
+    const { PDFDocument, rgb } = window.PDFLib;
+    if (!motCache) {
+      const [pdfR1, embleme, ...fontes] = await Promise.all([
+        guideR1Cache ? Promise.resolve(guideR1Cache.pdf) : fetch("assets/guide-r1.pdf").then((r) => { if (!r.ok) throw new Error("Guide R1 introuvable."); return r.arrayBuffer(); }),
+        fetch("../assets/js/logo.js").then((r) => (r.ok ? r.text() : "")).then((t) => (/emblem:\s*"(data:image\/png;base64,[^"]+)"/.exec(t) || [])[1] || "").catch(() => ""),
+        ...["Barlow-Regular", "Barlow-Bold", "Barlow-Italic"].map((f) => fetch("assets/fonts/" + f + ".ttf").then((r) => r.arrayBuffer())),
+      ]);
+      motCache = { pdfR1, embleme, fontes };
+    }
     const cs = p.conseiller || {};
     const base = (reglages && reglages.agence) || {};
     const ag = p.agence || base;
@@ -2933,22 +2944,38 @@
     const signataire = (ag.signataire || base.signataire || "").trim();
     const fonction = (ag.fonction || base.fonction || "Directeur d'agence").trim();
     const doc = await PDFDocument.create();
+    doc.registerFontkit(window.fontkit);
+    const [fR, fB, fI] = await Promise.all(motCache.fontes.map((f) => doc.embedFont(f)));
     const page = doc.addPage([595.28, 841.89]);
-    const fR = await doc.embedFont(StandardFonts.Helvetica), fB = await doc.embedFont(StandardFonts.HelveticaBold);
-    const h = page.getHeight(), or = rgb(0.745, 0.686, 0.529), noir = rgb(0.1, 0.1, 0.1), gris = rgb(0.35, 0.35, 0.35);
+    const h = page.getHeight(), or = rgb(0.745, 0.686, 0.529), noir = rgb(0.13, 0.13, 0.13), gris = rgb(0.4, 0.4, 0.4);
     const ecrire = (t, x, y, taille, f, c) => { if (t) page.drawText(String(t), { x, y: h - y, size: taille, font: f || fR, color: c || noir }); };
     const droite = (t, xD, y, taille, f, c) => { if (t) ecrire(t, xD - (f || fR).widthOfTextAtSize(String(t), taille), y, taille, f, c); };
     const couper = (texte, f, taille, largeur) => { const out = []; let l = ""; for (const mot of String(texte || "").split(/\s+/).filter(Boolean)) { const e = l ? l + " " + mot : mot; if (f.widthOfTextAtSize(e, taille) > largeur && l) { out.push(l); l = mot; } else l = e; } if (l) out.push(l); return out; };
+    // Logo « 21 CENTURY 21 Kadima » et bande à motifs : repris tels quels de la
+    // page « prochain rendez-vous » du guide R1 (morceaux de page embarqués).
+    try {
+      const src = await PDFDocument.load(motCache.pdfR1);
+      const pg11 = src.getPage(10), H = pg11.getHeight();
+      const logo = await doc.embedPage(pg11, { left: 400, bottom: H - 100, right: 560, top: H - 35 });
+      page.drawPage(logo, { x: 385, y: h - 108, width: 160, height: 65 });
+      const motif = await doc.embedPage(pg11, { left: 55, bottom: H - 700, right: 370, top: H - 640 });
+      page.drawPage(motif, { x: 60, y: h - 372, width: 315, height: 60 });
+    } catch { /* sans décor */ }
+    if (motCache.embleme) {
+      try { const em = await doc.embedPng(Uint8Array.from(atob(motCache.embleme.split(",")[1]), (ch) => ch.charCodeAt(0)));
+        const w = 150, hh = w * em.height / em.width; page.drawImage(em, { x: 400, y: h - 300 - hh, width: w, height: hh, opacity: 0.08 }); } catch { /* sans filigrane */ }
+    }
     // En-tête de l'agence.
     const adr = String(ag.adresse || ""), virg = adr.lastIndexOf(",");
     const l1 = virg > 0 ? adr.slice(0, virg).trim() : adr, l2 = virg > 0 ? adr.slice(virg + 1).trim() : "";
-    ecrire("CENTURY 21", 60, 62, 14, fB, or);
-    const nomAg = String(ag.nom || "CENTURY 21 Kadima").toUpperCase(); let tN = 14; while (tN > 9 && fR.widthOfTextAtSize(nomAg, tN) > 320) tN -= 0.5;
-    ecrire(nomAg, 60, 84, tN, fR, or);
+    ecrire("CENTURY 21", 60, 66, 15, fB, or);
+    const nomAg = String(ag.nom || "CENTURY 21 Kadima").toUpperCase(); let tN = 13; while (tN > 9 && fR.widthOfTextAtSize(nomAg, tN) > 300) tN -= 0.5;
+    ecrire(nomAg, 60, 86, tN, fR, or);
     let y = 110;
-    for (const t of [l1, l2.toUpperCase(), ag.telephone ? "Tel: " + ag.telephone : "", ag.email ? "Mail: " + ag.email : "", site]) if (t) { ecrire(t, 60, y, 11, fR); y += 21; }
-    // La photo du directeur : le profil conseiller du même nom, recadrée dans son cadre.
-    const cadre = [400, 40, 530, 205];
+    for (const t of [l1, l2.toUpperCase(), ag.telephone ? "Tél. " + ag.telephone : "", ag.email ? "Mail : " + ag.email : ""]) if (t) { ecrire(t, 60, y, 10.5, fR); y += 17; }
+    ecrire(site, 60, y, 10.5, fB, or);
+    // La photo du directeur : le profil conseiller du même nom, recadrée dans son cadre, sous le logo.
+    const cadre = [415, 118, 535, 268];
     const cle = sansAccentsMin(signataire);
     const dir = cle ? (conseillers || []).find((c) => sansAccentsMin([c.prenom, c.nom].join(" ")) === cle || sansAccentsMin([c.nom, c.prenom].join(" ")) === cle) : null;
     if (dir && dir.photo_url) {
@@ -2958,11 +2985,11 @@
         const jpeg = await recadrerImage(dataUrl, cadre[2] - cadre[0], cadre[3] - cadre[1], 900);
         const im = await doc.embedJpg(Uint8Array.from(atob(jpeg.split(",")[1]), (ch) => ch.charCodeAt(0)));
         page.drawImage(im, { x: cadre[0], y: h - cadre[3], width: cadre[2] - cadre[0], height: cadre[3] - cadre[1] });
+        page.drawRectangle({ x: cadre[0], y: h - cadre[3], width: cadre[2] - cadre[0], height: cadre[3] - cadre[1], borderColor: or, borderWidth: 0.8 });
       } catch { /* sans photo */ }
     }
     const ville = (l2 || "").replace(/^\d{5}\s*/, "").toUpperCase() || (p.ville || "").toUpperCase();
-    droite((ville ? ville + ", " : "") + "le " + new Date().toLocaleDateString("fr-FR"), 535, 232, 11, fB);
-    page.drawLine({ start: { x: 60, y: h - 262 }, end: { x: 535, y: h - 262 }, thickness: 0.8, color: or });
+    droite((ville ? ville + ", " : "") + "le " + new Date().toLocaleDateString("fr-FR"), 535, 290, 11, fB);
     // Le corps : appel (« Madame CHAVEROUX, », « Madame, Monsieur, » à plusieurs), le conseiller du parcours.
     const civ = civiliteCourte(p.civilite), longue = civiliteLongue(p.civilite);
     const prop = (p.proprietaires || []).filter((o) => o.nom || o.prenom);
@@ -2977,13 +3004,14 @@
       "J'attache une grande importance à la qualité de services fournis par notre agence à nos clients et me tiens personnellement à votre disposition pour toutes questions.",
       "Bien cordialement,",
     ];
-    y = 330;
-    for (const para of paras) { for (const l of couper(para, fR, 11, 430)) { ecrire(l, 80, y, 11, fR); y += 15; } y += 12; }
-    const ySig = Math.max(y + 60, 600);
-    ecrire("Votre " + fonction.charAt(0).toLowerCase() + fonction.slice(1) + ",", 330, ySig, 11, fR);
-    ecrire(signataire, 330, ySig + 16, 11, fR);
+    y = 410;
+    for (const para of paras) { for (const l of couper(para, fR, 11.5, 420)) { ecrire(l, 85, y, 11.5, fR); y += 16.5; } y += 10; }
+    const ySig = Math.max(y + 56, 640);
+    ecrire("Votre " + fonction.charAt(0).toLowerCase() + fonction.slice(1) + ",", 330, ySig, 11, fI, gris);
+    ecrire(signataire, 330, ySig + 18, 12.5, fB);
+    page.drawLine({ start: { x: 60, y: h - 786 }, end: { x: 535, y: h - 786 }, thickness: 0.8, color: or });
     const mentions = String(ag.mentions || base.mentions || "").trim();
-    if (mentions) { let ym = 790; for (const l of couper(mentions, fR, 7, 475).slice(0, 4)) { ecrire(l, 60, ym, 7, fR, gris); ym += 9; } }
+    if (mentions) { let ym = 798; for (const l of couper(mentions, fR, 6.8, 475).slice(0, 4)) { ecrire(l, 60, ym, 6.8, fR, gris); ym += 8.6; } }
     doc.setTitle("Mot du directeur — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
