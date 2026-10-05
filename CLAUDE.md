@@ -826,6 +826,17 @@ piscines / terrains / salles de sport sans nom (douze piscines privées du lotis
 sport et loisirs à 70 m » autour du bien) et pose `libelle` (LIBELLES_OSM : « Aire de jeux », « Arrêt de
 bus »…) utilisé par admin.js quand le lieu n'a pas de nom. Cache crm_environnement : clé suffixée « |v2 »
 (les anciens relevés gardaient les piscines). Assets `?v=49`.
+**E-mails, pied de page sans liens (05/10)** : `sansLien()` dans wrapEmail glisse un `&zwnj;` dans le
+téléphone, l'e-mail, le site (écrit sans https:// ni /) et le code postal de l'adresse pour que Gmail et
+consorts ne les transforment plus en liens bleus. **Guide R2 p5** (prix au m² par année, page vectorielle) :
+`tools/guides/retoucher-guide-r2-p5.py` déplace l'étiquette « 3 446 € » (2023) à droite de son point
+(586 ; 299, Barlow-Regular 12) — elle était sur la courbe descendant de 2022. **Livret** : plus de ligne
+« Annonce de notre agence / Mandat confrère / Vu sur » sous les biens en concurrence ; « Prix baissé
+récemment » quand seul le fait est connu (Bien'ici `baisse` = 1). Soirée du 05/10 : GitHub Actions en
+panne majeure (incident GitHub) → déploiements API et Pages en file d'attente pendant plus d'une heure ;
+Benoît a revu plusieurs fois les mêmes défauts (le « 2 », Transac'Assur, piscines) déjà corrigés dans le
+dépôt mais pas encore servis. Toujours vérifier `/health` (commit) et la taille des PDF servis avant de
+dire « en ligne ».
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

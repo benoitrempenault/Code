@@ -4396,6 +4396,9 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   ok(mA.html.includes("https://exemple.test/bilans/#bilan=" + idA) && /Modifier et envoyer au vendeur/.test(mA.html), "bouton « Modifier et envoyer » qui ouvre CE bilan dans Studio Bilans");
   ok(/font-family:Calibri/.test(mA.html) && !/Georgia|Helvetica/.test(mA.html) && /font-size:11pt/.test(mA.html) && /font-size:20pt/.test(mA.html),
     "mails des bilans en Calibri 11 pt, titres compris");
+  { const pied = (await import("./src/crm.js")).wrapEmail({ nom: "CENTURY 21 Kadima", adresse: "20-22 rue François Mitterrand, 33160 Saint-Médard-en-Jalles", telephone: "05 56 57 77 77", email: "kadima@century21.fr", site: "https://century21-kadima.fr/" }, { eyebrow: "", headline: "", bodyHtml: "", signatureName: "" });
+    ok(/kadima&zwnj;@century21&zwnj;\.fr/.test(pied) && /century21-kadima&zwnj;\.fr/.test(pied) && !/https:\/\/century21-kadima/.test(pied) && /05&zwnj; 56&zwnj; 57/.test(pied) && /33&zwnj;160/.test(pied),
+       "le pied de page des e-mails casse la détection automatique des liens (téléphone, e-mail, site sans https://, adresse)"); }
   ok(/Georgia/.test((await import("./src/crm.js")).wrapEmail({ nom: "X" }, { eyebrow: "", headline: "", bodyHtml: "", signatureName: "" })), "les autres e-mails de Studio gardent leur gabarit (Georgia)");
   ok(mailsB.every((m) => m.lot), "tous les mails du lundi partent en un lot (une seule requête)");
   ok(mailsB.filter((m) => !["lucie@bilan-test.fr", "agence@bilan-test.fr"].includes(m.to[0])).length === 0, "le cron n'écrit JAMAIS à un vendeur");

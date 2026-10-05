@@ -1218,7 +1218,17 @@ export function wrapEmail(ag, { eyebrow, headline, sousTitre, bodyHtml, signatur
       : `<div style="font-family:Georgia,'Times New Roman',serif; color:${gold}; font-size:19px; letter-spacing:3px;">${esc(nom.toUpperCase())}</div>`;
   // Un titre long (plus de 40 caractères) descend à 26 px.
   const tailleTitre = String(headline || "").replace(/<[^>]+>/g, "").length > 40 ? 26 : 32;
-  const contactLine = [ag.telephone, ag.email, ag.site].filter(Boolean).map(esc).join(" &nbsp;·&nbsp; ");
+  // Pied de page sans liens automatiques : Gmail et consorts soulignent en bleu
+  // téléphone, e-mail, site et adresse (Benoît : « ça crée des liens en bas »).
+  // Un caractère invisible (zwnj) glissé dans chaque valeur casse la détection
+  // sans changer ce qui se lit ; le site s'écrit sans https:// ni / final.
+  const sansLien = (t) => esc(String(t || ""))
+    .replace(/@/, "&zwnj;@")                           // e-mail
+    .replace(/\b(\d{2})(\d{3})\b/g, "$1&zwnj;$2")      // code postal
+    .replace(/\b(\d{2}) (?=\d{2}\b)/g, "$1&zwnj; ")    // téléphone « 05 56 57 77 77 »
+    .replace(/\.(?=[a-z]{2,}$)/i, "&zwnj;.");           // site
+  const siteCourt = String(ag.site || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
+  const contactLine = [ag.telephone, ag.email, siteCourt].filter(Boolean).map(sansLien).join(" &nbsp;·&nbsp; ");
   return `<!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
 <body style="margin:0; padding:0; background:#F2EEE6;">
@@ -1241,7 +1251,7 @@ export function wrapEmail(ag, { eyebrow, headline, sousTitre, bodyHtml, signatur
         </td></tr>
         <tr><td align="center" style="background:${dark}; padding:20px 24px;">
           <div style="font-family:Helvetica,Arial,sans-serif; color:${gold}; font-size:12px; letter-spacing:1px;">${esc(nom)}</div>
-          ${ag.adresse ? `<div style="font-family:Helvetica,Arial,sans-serif; color:#b5b5b0; font-size:11px; margin-top:6px;">${esc(ag.adresse)}</div>` : ""}
+          ${ag.adresse ? `<div style="font-family:Helvetica,Arial,sans-serif; color:#b5b5b0; font-size:11px; margin-top:6px;">${sansLien(ag.adresse)}</div>` : ""}
           ${contactLine ? `<div style="font-family:Helvetica,Arial,sans-serif; color:#b5b5b0; font-size:11px; margin-top:4px;">${contactLine}</div>` : ""}
           ${ag.mentions ? `<div style="font-family:Helvetica,Arial,sans-serif; color:#8a8a86; font-size:10px; line-height:1.5; margin-top:10px;">${esc(ag.mentions)}</div>` : ""}
         </td></tr>
