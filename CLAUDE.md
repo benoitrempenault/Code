@@ -1124,7 +1124,11 @@ semaine et filtre conseiller affichés, compte rendu en toast). `runBilans` écr
 étape par étape dans `crm_bilans_auto` (debut → reseaux → bilans → fini | erreur) : un
 Worker coupé en route laisse l'étape atteinte ; GET /crm/bilans renvoie `auto` aux admins →
 ligne « préparation du … » et bandeau `#alerte-auto` (non terminée, erreurs Resend,
-conseillers sans e-mail).
+conseillers sans e-mail). **Calibri 11 (05/10)** : tous les e-mails de bilans.js (vendeur, conseiller,
+récapitulatif, rappel) passent par `mailBilans` = `enCalibri(wrapEmail(…))` : toute
+`font-family` → `POLICE_BILANS` (Calibri, Carlito, Arial), corps 11 pt, titre 20 pt ; les
+autres e-mails de Studio gardent le gabarit Georgia. Calibri n'existe que sous Windows /
+Outlook (iPhone, Mac, Android → Arial).
 **Réseaux (Facebook, Instagram)** : `server/src/meta.js`, API OFFICIELLE Meta (Graph,
 `META_GRAPH_BASE` défaut v23.0, surchargeable en test). Connexion admin `POST /crm/meta/jeton`
 {jeton, appId, appSecret} : jeton court échangé (`fb_exchange_token`) → `/me/accounts` →

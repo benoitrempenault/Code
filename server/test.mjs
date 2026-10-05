@@ -4346,6 +4346,7 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   const envA = await callB("/crm/bilans/" + bA.id + "/envoyer", { headers: authLucie, body: {} });
   ok(envA.status === 200 && mailsB.length === 1 && mailsB[0].to[0] === "fauret@vendeurs-test.fr" && /^Lucie Giusti Marcilhac </.test(mailsB[0].from) && mailsB[0].reply_to[0] === "lucie@bilan-test.fr",
     "envoyé au vendeur, au nom de Lucie, réponse vers sa boîte");
+  ok(/font-family:Calibri/.test(mailsB[0].html) && !/Georgia|Helvetica/.test(mailsB[0].html) && /font-size:11pt/.test(mailsB[0].html), "le bilan reçu par le vendeur est en Calibri 11 pt (signature du conseiller comprise)");
   ok((await callB("/crm/bilans/" + bA.id + "/envoyer", { headers: authLucie, body: {} })).status === 409, "pas de double envoi");
   ok((await callB("/crm/bilans/" + bA.id, { method: "PUT", headers: authLucie, body: { texte: "x" } })).status === 409, "un bilan envoyé n'est plus modifiable");
   ok((await db.get("SELECT COUNT(*) AS n FROM crm_envois WHERE agency_id = ? AND type = 'bilan-vendeur' AND statut = 'ok'", [agB])).n === 1, "envoi journalisé (bilan-vendeur)");
@@ -4371,6 +4372,9 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
     "le mail du conseiller porte le bilan complet : bloc interne + texte du vendeur");
   const idA = (await db.get("SELECT id FROM crm_bilans WHERE agency_id = ? AND ref = '100' AND semaine = '2026-09-28'", [agB])).id;
   ok(mA.html.includes("https://exemple.test/bilans/#bilan=" + idA) && /Modifier et envoyer au vendeur/.test(mA.html), "bouton « Modifier et envoyer » qui ouvre CE bilan dans Studio Bilans");
+  ok(/font-family:Calibri/.test(mA.html) && !/Georgia|Helvetica/.test(mA.html) && /font-size:11pt/.test(mA.html) && /font-size:20pt/.test(mA.html),
+    "mails des bilans en Calibri 11 pt, titres compris");
+  ok(/Georgia/.test((await import("./src/crm.js")).wrapEmail({ nom: "X" }, { eyebrow: "", headline: "", bodyHtml: "", signatureName: "" })), "les autres e-mails de Studio gardent leur gabarit (Georgia)");
   ok(mailsB.every((m) => m.lot), "tous les mails du lundi partent en un lot (une seule requête)");
   ok(mailsB.filter((m) => !["lucie@bilan-test.fr", "agence@bilan-test.fr"].includes(m.to[0])).length === 0, "le cron n'écrit JAMAIS à un vendeur");
   ok(mailsB.some((m) => m.to[0] === "agence@bilan-test.fr" && /Sans e-mail dans les profils conseillers.*BESSON/i.test(m.html)), "la boîte de l'agence voit les conseillers qui n'ont pas reçu leurs bilans");
