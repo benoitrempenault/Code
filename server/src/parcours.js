@@ -226,7 +226,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const rows = await db.all(
       `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre, COALESCE(d.direction, 0) AS direction, COALESCE(pv.pv, '') AS agence
        FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_direction d ON d.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id
-       WHERE cs.agency_id = ? ORDER BY cs.nom, cs.prenom`,
+       WHERE cs.agency_id = ? ORDER BY cs.nom COLLATE NOCASE, cs.prenom COLLATE NOCASE`, // ordre alphabétique sans tenir compte des majuscules (BUISSON passait avant Besson)
       [ctx.agency.id]);
     return c.json({ conseillers: rows.map((r) => ({ ...r, direction: !!r.direction, bio: r.bio || "", genre_pose: r.genre || "", genre: r.genre || genrePrenom(r.prenom), a_photo: !!r.a_photo, photo_url: r.a_photo ? photoUrl(c, r.id) : "" })) });
   });

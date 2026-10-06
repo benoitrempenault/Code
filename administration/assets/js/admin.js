@@ -2411,16 +2411,30 @@
     if (!profilsImportes) { profilsImportes = true; importerConseillers(false).then((r) => { if (r && (r.ajoutes || r.completes)) chargerConseillers(); }); }
     const zone = $("table-conseillers");
     if (!zone) return;
-    zone.innerHTML = conseillers.length
+    // Ordre alphabétique sans tenir compte des majuscules ni des accents
+    // (« BUISSON » passait avant « Besson »), et un filtre par agence.
+    const cle = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const tries = conseillers.slice().sort((a, b) => cle(a.nom).localeCompare(cle(b.nom)) || cle(a.prenom).localeCompare(cle(b.prenom)));
+    const filtre = filtreAgenceConseillers;
+    const visibles = filtre ? tries.filter((c) => (filtre === "-" ? !c.agence : c.agence === filtre)) : tries;
+    const menuAgences = agences().length
+      ? '<div class="barre" style="margin:0 0 10px;"><label>Agence <select id="filtre-agence-conseillers"><option value="">Toutes (' + conseillers.length + ')</option>' +
+        agences().map((a) => '<option value="' + escH(a.cle) + '"' + (filtre === a.cle ? " selected" : "") + ">" + escH(a.nom) + " (" + conseillers.filter((c) => c.agence === a.cle).length + ")</option>").join("") +
+        '<option value="-"' + (filtre === "-" ? " selected" : "") + ">Sans agence (" + conseillers.filter((c) => !c.agence).length + ")</option></select></label></div>"
+      : "";
+    zone.innerHTML = menuAgences + (visibles.length
       ? '<div class="tableau-cadre"><table><thead><tr><th></th><th>Conseiller</th><th>Fonction</th><th>Téléphone</th><th>E-mail</th><th></th></tr></thead><tbody>' +
-        conseillers.map((c) => '<tr class="cliquable" data-conseiller="' + c.id + '"><td>' +
+        visibles.map((c) => '<tr class="cliquable" data-conseiller="' + c.id + '"><td>' +
           (c.photo_url ? '<img class="avatar" src="' + escH(c.photo_url) + '" alt="" />' : '<span class="avatar"></span>') + "</td><td><strong>" +
           escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</strong>" + (c.actif ? "" : ' <span class="puce grise">inactif</span>') + (c.direction ? ' <span class="puce">direction</span>' : "") + "</td><td>" +
           escH([c.fonction, nomAgence(c.agence)].filter(Boolean).join(" · ")) + "</td><td>" + escH(c.telephone) + "</td><td>" + escH(c.email) + "</td><td>✏️</td></tr>").join("") +
         "</tbody></table></div>"
-      : '<div class="vide">Aucun conseiller — ajoutez le premier.</div>';
+      : '<div class="vide">' + (filtre ? "Aucun conseiller dans cette agence." : "Aucun conseiller — ajoutez le premier.") + "</div>");
     zone.querySelectorAll("tr[data-conseiller]").forEach((tr) => tr.addEventListener("click", () => ouvrirConseiller(tr.dataset.conseiller)));
+    const sel = $("filtre-agence-conseillers");
+    if (sel) sel.addEventListener("change", () => { filtreAgenceConseillers = sel.value; rendreConseillers(); });
   }
+  let filtreAgenceConseillers = ""; // "" = toutes, "-" = sans agence, sinon la clé de l'agence
   /* --------------------------- Lecture des photos -------------------------- */
   // Les photos arrivent dans tous les formats du téléphone ou du PC : JPEG, PNG,
   // WebP, GIF, BMP, AVIF… et surtout HEIC/HEIF (iPhone). Le navigateur lit ce

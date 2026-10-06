@@ -840,6 +840,9 @@ dire « en ligne ».
 **Livret, page « réactions des acheteurs » (06/10)** : incluse par défaut (`#acm-ach-inclure` coché tant que
 `acm.acheteurs_choix` n'est pas posé) ; décocher/cocher à la main pose `acheteurs_choix: true` dans l'acm,
 et le choix est alors respecté à la réouverture. Assets `?v=51`.
+**Réglages → Les conseillers (06/10)** : liste triée par nom puis prénom sans majuscules ni accents
+(`rendreConseillers`, et `ORDER BY … COLLATE NOCASE` côté serveur) ; filtre « Agence » au-dessus du
+tableau (`filtreAgenceConseillers` : toutes / une agence / sans agence, avec les effectifs). Assets `?v=52`.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique
