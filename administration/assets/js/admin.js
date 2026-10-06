@@ -3573,7 +3573,9 @@
       '<div class="grille-champs"><label>Taux (%)<input id="acm-taux" type="number" step="0.05" value="' + escH(acm.taux ?? 3.9) + '" /></label>' +
       '<label>Assurance (%)<input id="acm-assurance" type="number" step="0.01" value="' + escH(acm.assurance ?? 0.34) + '" /></label>' +
       '<label>Apport<input id="acm-apport" type="number" step="1000" value="' + escH(acm.apport ?? 0) + '" /></label>' +
-      '<label>Durée (ans)<select id="acm-duree">' + [15, 20, 25].map((d) => '<option' + ((acm.duree || 25) === d ? " selected" : "") + ">" + d + "</option>").join("") + "</select></label></div>" +
+      '<label>Durée (ans)<select id="acm-duree">' + [15, 20, 25].map((d) => '<option' + ((acm.duree || 25) === d ? " selected" : "") + ">" + d + "</option>").join("") + "</select></label>" +
+      "</div>" +
+      '<p class="petit">Le livret calcule le prêt sur le budget réel de l\'acquéreur : prix + 8 % de frais de notaire, moins l\'apport (les travaux sont propres à chacun : la colonne reste sans montant).</p>' +
       '<p class="petit" id="acm-etat"></p>';
     $("modale-pied").innerHTML = '<button class="btn" id="acm-retour">Retour</button><button class="btn" id="acm-save">Enregistrer</button><button class="btn btn-or" id="acm-generer">🖨 Générer le livret</button>';
     $("acm-retour").addEventListener("click", async () => { try { await sauver(); } catch { /* on revient quand même */ } document.querySelector(".modale").classList.remove("large"); ouvrirParcours(id); });
@@ -3957,33 +3959,54 @@
       });
       couper(acm.acheteurs_texte || "", fR, 10.5, L).slice(0, 36).forEach((l, j) => ecrire(pg, l, G, 275 + j * 15, 10.5, fR, noir));
     }
-    // 5. Les conditions de financement.
+    // 5. Les conditions de financement — sur le budget RÉEL de l'acquéreur :
+    // prix + frais de notaire (toujours à sa charge) + travaux éventuels, moins l'apport.
     await ajouterModele(meta.sections.financement);
     { const pg = await pageContenu("LES CONDITIONS DE", "FINANCEMENT");
-      const montant = Math.max(0, (prixRef || 0) - (acm.apport || 0)), taux = acm.taux ?? 3.9, ass = acm.assurance ?? 0.34, duree = acm.duree || 25;
+      const taux = acm.taux ?? 3.9, ass = acm.assurance ?? 0.34, duree = acm.duree || 25, apport = acm.apport || 0;
+      const FRAIS_PCT = 8; // frais de notaire dans l'ancien : toujours à la charge de l'acquéreur, 8 % partout
+      const budget = (v) => v * (1 + FRAIS_PCT / 100), emprunt = (v) => Math.max(0, budget(v) - apport);
+      const pct = (v) => v.toLocaleString("fr-FR");
+      const montant = emprunt(prixRef || 0), frais = (prixRef || 0) * FRAIS_PCT / 100;
       const mens = mensualite(montant, taux, duree), mAss = montant * ass / 100 / 12, total = mens * duree * 12 - montant, totalAss = mAss * duree * 12;
-      ecrire(pg, "Calcul des mensualités de votre prêt immobilier", G, 105, 12, fS, noir);
-      couper("Sur la base d'un prix de " + fmtPrix(prixRef) + (acm.apport ? ", apport de " + fmtPrix(acm.apport) : "") + ", taux " + taux.toLocaleString("fr-FR") + " % sur " + duree + " ans, assurance " + ass.toLocaleString("fr-FR") + " %", fR, 9.5, L).forEach((l, j) => ecrire(pg, l, G, 122 + j * 12, 9.5, fR, gris));
-      rect(pg, G, 160, L, 170, { borderColor: or, borderWidth: 1.2, color: blanc });
-      ecrireCentre(pg, "Votre mensualité sera de", G + L / 2, 190, 12, fR, noir);
-      ecrireCentre(pg, Math.round(mens + mAss).toLocaleString("fr-FR") + " €", G + L / 2, 232, 34, fB, or);
-      const lignes = [["Montant de votre prêt", fmtPrix(Math.round(montant))], ["Votre mensualité", Math.round(mens + mAss).toLocaleString("fr-FR") + " €/mois*"], ["Dont assurance", Math.round(mAss).toLocaleString("fr-FR") + " €/mois"], ["Coût total du crédit", fmtPrix(Math.round(total + totalAss))], ["Dont assurance", fmtPrix(Math.round(totalAss))]];
-      lignes.forEach(([a, b], j) => { ecrire(pg, a, G + 24, 262 + j * 13, 9.5, fR, gris); ecrireDroite(pg, b, D - 24, 262 + j * 13, 9.5, fS, noir); });
-      // Les trois niveaux de prix (fourchette basse, prix estimé, fourchette haute) × durées.
-      ecrire(pg, "Selon le prix et la durée (mensualités par mois, assurance comprise)", G, 370, 12, fS, noir);
+      ecrire(pg, "Calcul des mensualités du prêt de l'acquéreur", G, 105, 12, fS, noir);
+      let y = 122;
+      couper("Dans 100 % des cas, l'acquéreur règle les frais de notaire en plus du prix de vente, et finance ses éventuels travaux, propres à chaque projet. C'est ce budget global que sa banque examine.", fR, 9.5, L).forEach((l) => { ecrire(pg, l, G, y, 9.5, fR, gris); y += 12; });
+      // Le bandeau du budget : prix, frais, travaux (si saisis), total.
+      y += 10; ecrire(pg, "Ce que paie réellement l'acquéreur", G, y, 12, fS, noir); y += 10;
+      rect(pg, G, y, L, 58, { color: sable });
+      // Les travaux restent SANS montant : ils dépendent de chaque acquéreur.
+      const cols = [["Prix de vente", fmtPrix(prixRef), fR, noir], ["+ Frais de notaire (" + FRAIS_PCT + " %)", fmtPrix(Math.round(frais)), fR, noir], ["+ Travaux éventuels", "", fR, noir], ["= Budget total", fmtPrix(Math.round(budget(prixRef || 0))), fB, or]];
+      const cw = L / cols.length;
+      cols.forEach(([a, b, f, c], j) => { const cx = G + cw * j + cw / 2; ecrireCentre(pg, a, cx, y + 20, 8.5, fR, gris); ecrireCentre(pg, b, cx, y + 42, f === fB ? 13 : 12, f, c); });
+      y += 58;
+      ecrire(pg, (apport ? "Apport " + fmtPrix(apport) + "  →  montant emprunté " : "Sans apport : montant emprunté ") + fmtPrix(Math.round(montant)), G, y + 14, 9.5, fR, gris);
+      ecrire(pg, "Taux " + pct(taux) + " % sur " + duree + " ans, assurance " + pct(ass) + " %", G, y + 30, 9.5, fR, gris);
+      y += 40;
+      rect(pg, G, y, L, 160, { borderColor: or, borderWidth: 1.2, color: blanc });
+      ecrireCentre(pg, "La mensualité de l'acquéreur sera de", G + L / 2, y + 28, 12, fR, noir);
+      ecrireCentre(pg, Math.round(mens + mAss).toLocaleString("fr-FR") + " €", G + L / 2, y + 68, 34, fB, or);
+      const lignes = [["Montant du prêt (prix + frais de notaire" + (apport ? " − apport" : "") + ")", fmtPrix(Math.round(montant))], ["Mensualité", Math.round(mens + mAss).toLocaleString("fr-FR") + " €/mois*"], ["Dont assurance", Math.round(mAss).toLocaleString("fr-FR") + " €/mois"], ["Coût total du crédit", fmtPrix(Math.round(total + totalAss))], ["Dont assurance", fmtPrix(Math.round(totalAss))]];
+      lignes.forEach(([a, b], j) => { ecrire(pg, a, G + 24, y + 96 + j * 13, 9.5, fR, gris); ecrireDroite(pg, b, D - 24, y + 96 + j * 13, 9.5, fS, noir); });
+      y += 160 + 28;
+      // Les trois niveaux de prix (fourchette basse, prix estimé, fourchette haute) : budget acquéreur, mensualités par durée, coût.
+      ecrire(pg, "Selon le prix et la durée (mensualités par mois, assurance comprise)", G, y, 12, fS, noir); y += 8;
       const niveaux = [["Fourchette basse", acm.basse], ["Prix estimé", acm.prix], ["Fourchette haute", acm.haute]].filter(([, v]) => v);
       const lignesN = niveaux.length ? niveaux : [["Prix retenu", prixRef]];
-      const colX = [G, G + L * 0.30, G + L * 0.46, G + L * 0.62, G + L * 0.78], cx = (j) => colX[j] + L * (j === 4 ? 0.11 : 0.08);
-      rect(pg, G, 378, L, 22, { color: or });
-      ["Prix", "15 ans", "20 ans", "25 ans", "Coût sur " + duree + " ans"].forEach((t, j) => (j === 0 ? ecrire(pg, t, colX[j] + 8, 393, 10, fB, blanc) : ecrireCentre(pg, t, cx(j), 393, 9.5, fB, blanc)));
+      const colX = [G, G + L * 0.22, G + L * 0.44, G + L * 0.58, G + L * 0.72, G + L * 0.86], cx = (j) => colX[j] + L * (j === 1 ? 0.11 : 0.07);
+      rect(pg, G, y, L, 22, { color: or });
+      ["Prix", "Budget acquéreur", "15 ans", "20 ans", "25 ans", "Coût " + duree + " ans"].forEach((t, j) => (j === 0 ? ecrire(pg, t, colX[j] + 8, y + 15, 10, fB, blanc) : ecrireCentre(pg, t, cx(j), y + 15, 8.5, fB, blanc)));
       lignesN.forEach(([lib, v], j) => {
-        const y = 425 + j * 30, mt = Math.max(0, v - (acm.apport || 0)), mA = mt * ass / 100 / 12;
-        if (j % 2 === 0) rect(pg, G, y - 19, L, 30, { color: sable });
-        ecrire(pg, lib, colX[0] + 8, y - 6, 9, fR, gris); ecrire(pg, fmtPrix(v), colX[0] + 8, y + 6, 10.5, fS, noir);
-        [15, 20, 25].forEach((d, k) => ecrireCentre(pg, Math.round(mensualite(mt, taux, d) + mA).toLocaleString("fr-FR") + " €", cx(k + 1), y + 2, 10.5, fS, noir));
-        ecrireCentre(pg, fmtPrix(Math.round(mensualite(mt, taux, duree) * duree * 12 - mt + mA * duree * 12)), cx(4), y + 2, 10.5, fS, noir);
+        const yy = y + 47 + j * 30, mt = emprunt(v), mA = mt * ass / 100 / 12;
+        if (j % 2 === 0) rect(pg, G, yy - 19, L, 30, { color: sable });
+        ecrire(pg, lib, colX[0] + 8, yy - 6, 8, fR, gris); ecrire(pg, fmtPrix(v), colX[0] + 8, yy + 6, 10, fS, noir);
+        ecrireCentre(pg, fmtPrix(Math.round(budget(v))), cx(1), yy + 2, 10, fS, or);
+        [15, 20, 25].forEach((d, k) => ecrireCentre(pg, Math.round(mensualite(mt, taux, d) + mA).toLocaleString("fr-FR") + " €", cx(2 + k), yy + 2, 10, fS, noir));
+        ecrireCentre(pg, fmtPrix(Math.round(mensualite(mt, taux, duree) * duree * 12 - mt + mA * duree * 12)), cx(5), yy + 2, 10, fS, noir);
       });
-      couper("Simulation indicative, taux " + taux.toLocaleString("fr-FR") + " % et assurance " + ass.toLocaleString("fr-FR") + " % du capital, hors frais de dossier et de garantie ; les conditions dépendent du profil de l'emprunteur et de l'établissement prêteur.", fR, 8, L).forEach((l, j) => ecrire(pg, l, G, 445 + lignesN.length * 30 + j * 11, 8, fR, gris)); }
+      y += 47 + lignesN.length * 30 + 18;
+      couper("Simulation indicative, taux " + pct(taux) + " % et assurance " + pct(ass) + " % du capital, hors frais de dossier et de garantie ; les conditions dépendent du profil de l'emprunteur et de l'établissement prêteur. Frais de notaire estimés à " + FRAIS_PCT + " % du prix (bien ancien), montant exact fixé par le notaire ; travaux éventuels non compris.", fR, 8, L).forEach((l, j) => ecrire(pg, l, G, y + j * 11, 8, fR, gris));
+      livretDebug.financement = { fraisPct: FRAIS_PCT, apport, budget: Math.round(budget(prixRef || 0)), emprunt: Math.round(montant), mensualite: Math.round(mens + mAss) }; }
     doc.setTitle("Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));

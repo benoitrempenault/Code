@@ -872,6 +872,13 @@ p12) ne bougent pas ; R2 était déjà tout A4 centré. Vérification : pymupdf 
 **Livret prix : ordre d'impression (06/10)** : biens vendus et biens en concurrence triés du moins cher au
 plus cher (`parPrix`, un bien sans prix en dernier) — copies triées, l'ordre de saisie de l'ACM n'est pas
 touché ; `livretDebug.prixVentes/prixConcurrence` relus par le smoke. Les ventes DVF restent par date. Assets `?v=56`.
+**Livret, page « conditions de financement » (06/10)** : le prêt est calculé sur le budget RÉEL de
+l'acquéreur = prix × 1,08 (frais de notaire `FRAIS_PCT = 8`, fixes, pas de champ) − apport. Bandeau « Ce
+que paie réellement l'acquéreur » (prix / + frais 8 % / + travaux éventuels SANS montant — propres à
+chacun / = budget total), encadré « La mensualité de l'acquéreur sera de », tableau des trois niveaux
+avec colonne « Budget acquéreur ». Document destiné au VENDEUR : jamais « votre prêt / votre
+mensualité ». `livretDebug.financement {fraisPct, apport, budget, emprunt, mensualite}` relu par le
+smoke (340 000 € → 367 200 €, 2 022 €/mois à 3,9 % sur 25 ans). Assets `?v=57`.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

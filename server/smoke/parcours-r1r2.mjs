@@ -280,6 +280,8 @@ export default async function () {
     { const croissant = (l) => l.length >= 2 && l.every((x, i) => i === 0 || x >= l[i - 1]);
       ok(croissant(livret.debug.prixConcurrence) && croissant(livret.debug.prixVentes),
         "vendus et concurrence s'impriment du moins cher au plus cher (" + JSON.stringify({ ventes: livret.debug.prixVentes, concurrence: livret.debug.prixConcurrence }) + ")"); }
+    ok(livret.debug.financement && livret.debug.financement.fraisPct === 8 && livret.debug.financement.budget === 367200 && livret.debug.financement.emprunt === 367200 && livret.debug.financement.mensualite === 2022,
+      "le financement part du budget réel de l'acquéreur : prix + 8 % de frais de notaire (" + JSON.stringify(livret.debug.financement) + ")");
     await garderGuide(page, livret.octets, "livret-prix-smoke.pdf");
     // Un co-propriétaire, créé depuis la fiche : il apparaît sur la fiche, dans le mail et dans la liste.
     await page.click("#px-ajouter-prop");
