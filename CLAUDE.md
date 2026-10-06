@@ -857,6 +857,8 @@ l'import des profils (`importerConseillers` est admin). Un admin arrivant avec
 `?brique=parcours` atterrit sur l'onglet Parcours. Tests : réglages allégés / 403 maintenus
 sur réglages complets et contacts ; smoke `parcours-r1r2` : tuile, conseiller Rémi ouvre la
 brique (un seul onglet, pas d'écran « Accès réservé ») et crée un parcours. Assets `?v=53`.
+**Champs date/heure (06/10)** : picto natif passé en blanc (`::-webkit-calendar-picker-indicator`
+`filter: invert`, 20 px, doré au survol, `color-scheme: dark`) — il était noir sur fond sombre. Assets `?v=54`.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique
