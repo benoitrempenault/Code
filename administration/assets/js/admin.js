@@ -3806,7 +3806,7 @@
     // sur l'URL de l'annonce. Jamais a.photo relu de la saisie (tronqué à 3 000 caractères).
     let photosPosees = {}; try { photosPosees = (await api("/crm/parcours/" + p.id + "/acm/photos")).photos || {}; } catch { photosPosees = {}; }
     const frais = new Map([...(donnees.amepi || []).map((x) => ["amepi:" + x.id, x]), ...(donnees.annonces || []).map((x) => ["agence:" + x.id, x])]);
-    const livretDebug = { photos: 0, sansPhoto: 0, ventesPhotos: 0, sources: [] };
+    const livretDebug = { photos: 0, sansPhoto: 0, ventesPhotos: 0, sources: [], prixVentes: [], prixConcurrence: [] };
     const embarquerPhoto = async (a, directe) => {
       const f = frais.get(a.id);
       let source = directe || photosPosees[a.id] || (f && f.photo && /^data:image\//.test(f.photo) ? f.photo : "");
@@ -3830,7 +3830,10 @@
     await ajouterModele(2); await ajouterModele(3);
     // 1. Les biens récemment vendus : 2 ventes par page (carte + fiche), puis toutes les ventes DVF autour.
     await ajouterModele(meta.sections.vendus);
-    const ventes = acm.ventes || [];
+    // Vendus et concurrence s'impriment du moins cher au plus cher (un bien sans prix ferme la marche).
+    const parPrix = (a, b) => (Number(a.prix) || Infinity) - (Number(b.prix) || Infinity);
+    const ventes = (acm.ventes || []).slice().sort(parPrix);
+    livretDebug.prixVentes = ventes.map((v) => Number(v.prix) || 0);
     const m2 = ventes.filter((v) => v.surface && v.prix).map((v) => v.prix / v.surface).sort((a, b) => a - b);
     const mediane = m2.length ? Math.round(m2[Math.floor(m2.length / 2)]) : 0;
     const XF = G + CW + 16;
@@ -3875,7 +3878,8 @@
     }
     // 2. Les biens en concurrence : 2 biens par page, photo + fiche.
     await ajouterModele(meta.sections.concurrence);
-    const conc = acm.concurrence || [];
+    const conc = (acm.concurrence || []).slice().sort(parPrix);
+    livretDebug.prixConcurrence = conc.map((a) => Number(a.prix) || 0);
     for (let i = 0; i < conc.length; i += 2) {
       const pg = await pageContenu("LES BIENS EN", "CONCURRENCE");
       for (let k = 0; k < 2 && i + k < conc.length; k++) {

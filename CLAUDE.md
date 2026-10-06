@@ -869,6 +869,9 @@ Ordre R1 : 1 2 3 4 5 **8** 6 7 9 … 25 (« Validation du financement » Joris A
 s'occupe de tout ») ; R2 : … 14 **17** 15 16 18 19 20. Les métadonnées (rdv p11, mot p12, R2 p6-p9,
 p12) ne bougent pas ; R2 était déjà tout A4 centré. Vérification : pymupdf sur le modèle ET sur
 `server/smoke/captures/guide-r1-smoke.pdf` (ordre, boîtes, encre de la garde ~36 pt de marge). Assets `?v=55`.
+**Livret prix : ordre d'impression (06/10)** : biens vendus et biens en concurrence triés du moins cher au
+plus cher (`parPrix`, un bien sans prix en dernier) — copies triées, l'ordre de saisie de l'ACM n'est pas
+touché ; `livretDebug.prixVentes/prixConcurrence` relus par le smoke. Les ventes DVF restent par date. Assets `?v=56`.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

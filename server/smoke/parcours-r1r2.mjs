@@ -277,6 +277,9 @@ export default async function () {
     ok(livret.debug && livret.debug.photos >= 4 && livret.debug.sansPhoto === 0, "le livret embarque les photos des biens en concurrence (ALFA via la vignette de l'agent, Bien'ici via le relais, le bien saisi à la main via sa photo posée) (" + JSON.stringify(livret.debug) + ")");
     ok(livret.debug && livret.debug.ventesPhotos >= 1, "le livret pose la photo du bien vendu à la place de sa carte (" + JSON.stringify(livret.debug) + ")");
     ok(livret.pages >= 13 && /Livret prix/.test(livret.titre) && /MOUNEYRES/.test(livret.titre), "le livret prix est assemblé : pages fixes, ventes retenues, toutes les ventes DVF, concurrence, commission, acheteurs, financement (" + JSON.stringify(livret) + ")");
+    { const croissant = (l) => l.length >= 2 && l.every((x, i) => i === 0 || x >= l[i - 1]);
+      ok(croissant(livret.debug.prixConcurrence) && croissant(livret.debug.prixVentes),
+        "vendus et concurrence s'impriment du moins cher au plus cher (" + JSON.stringify({ ventes: livret.debug.prixVentes, concurrence: livret.debug.prixConcurrence }) + ")"); }
     await garderGuide(page, livret.octets, "livret-prix-smoke.pdf");
     // Un co-propriétaire, créé depuis la fiche : il apparaît sur la fiche, dans le mail et dans la liste.
     await page.click("#px-ajouter-prop");
