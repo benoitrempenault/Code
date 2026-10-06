@@ -1,5 +1,5 @@
 {
- "version": "2026-09-26b",
+ "version": "2026-10-06",
  "pages": 25,
  "communes": [
   1,
@@ -134,24 +134,26 @@
  ],
  "p1": {
   "page": 1,
-  "hauteur": 792,
-  "droite": 506,
+  "hauteur": 841.89,
+  "droite": 538.2,
   "nom": {
-   "y": 202,
-   "taille": 14.8
+   "y": 214.7,
+   "taille": 15.7
   },
   "adresse": {
-   "y": 218.5,
-   "taille": 11
+   "y": 232.3,
+   "taille": 11.7
   },
   "ville": {
-   "y": 233.5,
-   "taille": 11
+   "y": 248.2,
+   "taille": 11.7
   },
   "date": {
-   "y": 249.5,
-   "taille": 9.3
-  }
+   "y": 265.2,
+   "taille": 9.9
+  },
+  "gauche": 320,
+  "note": "page Letter du modèle recentrée en A4 (×1.063) le 06/10 — tools/guides/centrer-reordonner-guides.py"
  },
  "agences": [
   {
@@ -391,5 +393,6 @@
  "mot": {
   "page": 12,
   "note": "page du modèle = image d'un ancien mot du directeur ; remplacée par le courrier généré (dessinerMotDirecteur)"
- }
+ },
+ "ordre_note": "pages 6-8 du modèle réordonnées le 06/10 : Abgrall (ex-p8) suit « Kadima s'occupe de tout » (p5)"
 }

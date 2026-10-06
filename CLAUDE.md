@@ -859,6 +859,16 @@ sur réglages complets et contacts ; smoke `parcours-r1r2` : tuile, conseiller R
 brique (un seul onglet, pas d'écran « Accès réservé ») et crée un parcours. Assets `?v=53`.
 **Champs date/heure (06/10)** : picto natif passé en blanc (`::-webkit-calendar-picker-indicator`
 `filter: invert`, 20 px, doré au survol, `color-scheme: dark`) — il était noir sur fond sombre. Assets `?v=54`.
+**Guides R1/R2 : garde centrée, page Abgrall déplacée (06/10)** :
+`tools/guides/centrer-reordonner-guides.py r1|r2 SRC OUT` (pymupdf). R1 : les pages du modèle
+au format Letter US (612×792, dessin A4 réduit 559×792 calé à GAUCHE → décalé à l'impression :
+garde p1, ventes du quartier p9, formalités p10, mot p12) sont remplacées par des pages A4 au
+dessin centré (`show_pdf_page` ×1.063) ; `guide-r1.json` p1 mis à l'échelle (hauteur 841.89,
+droite 538.2, y ×1.063, tailles ×1.063, `gauche` 320 = limite du titre, lu par `genererGuideR1`).
+Ordre R1 : 1 2 3 4 5 **8** 6 7 9 … 25 (« Validation du financement » Joris Abgrall suit « Kadima
+s'occupe de tout ») ; R2 : … 14 **17** 15 16 18 19 20. Les métadonnées (rdv p11, mot p12, R2 p6-p9,
+p12) ne bougent pas ; R2 était déjà tout A4 centré. Vérification : pymupdf sur le modèle ET sur
+`server/smoke/captures/guide-r1-smoke.pdf` (ordre, boîtes, encre de la garde ~36 pt de marge). Assets `?v=55`.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

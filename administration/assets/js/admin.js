@@ -2932,7 +2932,7 @@
       const droite = (texte, spec) => {
         if (!texte) return;
         let taille = spec.taille;
-        while (taille > 8 && font.widthOfTextAtSize(texte, taille) > p1.droite - 300) taille -= 0.5;
+        while (taille > 8 && font.widthOfTextAtSize(texte, taille) > p1.droite - (p1.gauche || 300)) taille -= 0.5;
         page.drawText(texte, { x: p1.droite - font.widthOfTextAtSize(texte, taille), y: h - spec.y, size: taille, font, color: rgb(0, 0, 0) });
       };
       droite(nomsClient(p), p1.nom);
