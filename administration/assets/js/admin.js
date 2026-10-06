@@ -3550,7 +3550,7 @@
       '<div class="barre"><button class="btn" id="acm-com-ajouter" type="button">+ Ajouter une ligne</button></div>' +
       '<h3 style="margin:14px 0 4px;">4. Les réactions des acheteurs du moment</h3>' +
       '<p class="petit" id="acm-ach-resume"></p>' +
-      '<label class="case"><input type="checkbox" id="acm-ach-inclure"' + (acm.acheteurs_inclure ? " checked" : "") + " /> Inclure cette page dans le livret</label>" +
+      '<label class="case"><input type="checkbox" id="acm-ach-inclure"' + ((acm.acheteurs_choix ? acm.acheteurs_inclure : true) ? " checked" : "") + " /> Inclure cette page dans le livret</label>" +
       '<textarea id="acm-ach-texte" style="width:100%; min-height:70px; margin-top:6px;" placeholder="Retours de visites, remarques des acheteurs…">' + escH(acm.acheteurs_texte || "") + "</textarea>" +
       '<h3 style="margin:14px 0 4px;">5. Les conditions de financement</h3>' +
       '<div class="grille-champs"><label>Taux (%)<input id="acm-taux" type="number" step="0.05" value="' + escH(acm.taux ?? 3.9) + '" /></label>' +
@@ -3587,6 +3587,8 @@
     $("acm-conc").addEventListener("change", (ev) => { const inp = ev.target; if (inp.matches && inp.matches("[data-photo]")) poserPhoto(inp, inp.dataset.photo, candidatsConc, "data-conc"); });
     $("acm-ventes").addEventListener("change", (ev) => { const inp = ev.target; if (inp.matches && inp.matches("[data-photo-vente]")) poserPhoto(inp, inp.dataset.photoVente, candidatsVentes, "data-vente"); });
     for (const k of ["acm-prix", "acm-basse", "acm-haute"]) $(k).addEventListener("input", () => { $("acm-ach-resume").textContent = resumeAch(); });
+    // La page « réactions des acheteurs » est incluse par défaut ; décocher la case est un choix qui se garde.
+    $("acm-ach-inclure").addEventListener("change", () => { acm.acheteurs_choix = true; });
     $("acm-m-ajouter").addEventListener("click", () => {
       const num = (k) => { const v = parseFloat($(k).value); return Number.isFinite(v) ? v : null; };
       const m = { id: "portail:" + Date.now(), source: "portail", adresse: $("acm-m-adresse").value.trim(), prix: num("acm-m-prix"), surface: num("acm-m-surface"), pieces: num("acm-m-pieces"), terrain: num("acm-m-terrain"), portail: $("acm-m-portail").value.trim(), url: $("acm-m-url").value.trim(), type: donnees.type === "appartement" ? "Appartement" : "Maison" };

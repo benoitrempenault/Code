@@ -837,6 +837,9 @@ panne majeure (incident GitHub) → déploiements API et Pages en file d'attente
 Benoît a revu plusieurs fois les mêmes défauts (le « 2 », Transac'Assur, piscines) déjà corrigés dans le
 dépôt mais pas encore servis. Toujours vérifier `/health` (commit) et la taille des PDF servis avant de
 dire « en ligne ».
+**Livret, page « réactions des acheteurs » (06/10)** : incluse par défaut (`#acm-ach-inclure` coché tant que
+`acm.acheteurs_choix` n'est pas posé) ; décocher/cocher à la main pose `acheteurs_choix: true` dans l'acm,
+et le choix est alors respecté à la réouverture. Assets `?v=51`.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique
