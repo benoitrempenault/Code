@@ -843,6 +843,20 @@ et le choix est alors respecté à la réouverture. Assets `?v=51`.
 **Réglages → Les conseillers (06/10)** : liste triée par nom puis prénom sans majuscules ni accents
 (`rendreConseillers`, et `ORDER BY … COLLATE NOCASE` côté serveur) ; filtre « Agence » au-dessus du
 tableau (`filtreAgenceConseillers` : toutes / une agence / sans agence, avec les effectifs). Assets `?v=52`.
+**Brique « Parcours R1/R2 » pour tous les conseillers (06/10)** : tuile 🧭 sur l'accueil
+`mandat/index.html` → `../administration/?brique=parcours`. Toutes les routes du parcours
+(`/crm/parcours*`, `/crm/conseillers` GET, `/crm/contacts/recherche`, `/crm/parcours-image`)
+étaient déjà `membreCtx` avec périmètre par conseiller ; seuls `/crm/reglages` et
+`/crm/contacts` (chargés au démarrage de l'Administration) bloquaient un non-admin. Nouvelle
+route `GET /crm/reglages/parcours` (membre) → `{reglages: {agence, agences}}` sans modèles ni
+automatismes ni `smsPret`. Dans `demarrer()` (admin.js), un 403 sur `/crm/reglages` bascule
+en `modeConseiller` : réglages allégés, pas de contacts, seul l'onglet Parcours visible
+(`.onglet[hidden]`, liens Prospection/Estimation/Bilans compris), titre « Studio Parcours
+R1/R2 », `activerOnglet("parcours")`, `chargerParcours()` + `chargerConseillers()` SANS
+l'import des profils (`importerConseillers` est admin). Un admin arrivant avec
+`?brique=parcours` atterrit sur l'onglet Parcours. Tests : réglages allégés / 403 maintenus
+sur réglages complets et contacts ; smoke `parcours-r1r2` : tuile, conseiller Rémi ouvre la
+brique (un seul onglet, pas d'écran « Accès réservé ») et crée un parcours. Assets `?v=53`.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

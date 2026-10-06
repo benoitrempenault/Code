@@ -3489,6 +3489,16 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   // Périmètre : un conseiller ne voit que ses parcours (conseiller ou créateur) ; la direction voit tout.
   const remi = await callR("/agency/users", { headers: auth, method: "POST", body: { email: "remi@ach-test.fr", name: "Rémi Blanc" } });
   const authR = { Authorization: "Bearer " + (await callR("/auth/exchange", { body: { token: remi.json.invite_link.split("#token=")[1] } })).json.session };
+  // La brique Parcours R1/R2 pour tous : un conseiller lit l'identité de l'agence
+  // et les points de vente (réglages allégés), rien d'autre des réglages.
+  { const regR = await callR("/crm/reglages/parcours", { headers: authR });
+    ok(regR.status === 200 && regR.json.reglages && regR.json.reglages.agence && typeof regR.json.reglages.agence.adresse === "string"
+       && Array.isArray(regR.json.reglages.agences) && regR.json.reglages.agences.length >= 1
+       && !("modeles" in regR.json.reglages) && !("anniversaires" in regR.json.reglages) && !("amepi" in regR.json.reglages) && !("smsPret" in regR.json),
+       "un conseiller lit les réglages allégés du parcours (agence + points de vente, sans modèles ni automatismes)");
+    ok((await callR("/crm/reglages", { headers: authR })).status === 403 && (await callR("/crm/contacts", { headers: authR })).status === 403,
+       "les réglages complets et la base contacts restent réservés aux administrateurs");
+    ok((await callR("/crm/reglages/parcours", { headers: { Authorization: "Bearer nope" } })).status === 401, "sans session, les réglages du parcours sont refusés"); }
   const impD = await callR("/crm/conseillers/importer", { headers: auth, body: { directeurs: ["Admin"] } });
   const csDir = (await callR("/crm/conseillers", { headers: auth })).json.conseillers;
   const profilRemi = csDir.find((x) => x.email === "remi@ach-test.fr"), profilAdmin = csDir.find((x) => x.email === "ach-admin@ach-test.fr");

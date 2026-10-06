@@ -1,6 +1,6 @@
 /* Parcours « R1/R2 » : profil conseiller (photo), nouveau parcours, e-mail
    avant R1 pré-rempli au nom du conseiller, aperçu, envoi, étape cochée. */
-import { api, attendreToast, creerAgence, ouvrir, parcours } from "./lib.mjs";
+import { ajouterConseiller, api, attendreToast, creerAgence, ouvrir, parcours } from "./lib.mjs";
 
 const PIXEL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
 
@@ -300,5 +300,31 @@ export default async function () {
     await attendreToast(page, "Parcours effacé");
     await page.waitForFunction(() => /Aucun parcours/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
     ok(true, "le parcours effacé disparaît de la liste");
+
+    // La brique pour tous : un conseiller (non administrateur) ouvre la tuile
+    // « Parcours R1/R2 » de l'accueil et n'a que cet onglet ; il crée un parcours.
+    await ouvrir(page, "/mandat/", admin);
+    const tuile = await page.getAttribute('.tile:has-text("Parcours R1/R2")', "href");
+    ok(tuile === "../administration/?brique=parcours", "l'accueil Studio a sa tuile Parcours R1/R2 (" + tuile + ")");
+    const remi = await ajouterConseiller(admin, "remi@smoke.fr", "Rémi Blanc");
+    await ouvrir(page, "/administration/?brique=parcours", remi);
+    await page.waitForSelector("#app:not([hidden])", { timeout: 8000 });
+    const ongletsVisibles = await page.evaluate(() => [...document.querySelectorAll(".onglet")].filter((b) => !b.hidden).map((b) => b.textContent.trim()));
+    ok(ongletsVisibles.length === 1 && /Parcours R1\/R2/.test(ongletsVisibles[0]) && /Parcours R1\/R2/.test(await page.textContent("header h1"))
+       && await page.isVisible("#panneau-parcours") && !(await page.isVisible("#panneau-contacts")) && (await page.locator("#ecran-connexion:not([hidden])").count()) === 0,
+       "un conseiller n'a que l'onglet Parcours R1/R2, sans écran « Accès réservé » (" + ongletsVisibles.join(", ") + ")");
+    await page.click("#btn-nouveau-parcours");
+    await page.waitForSelector("#px-creer", { timeout: 6000 });
+    await page.fill("#px-q", "mouney");
+    await page.waitForSelector("#px-resultats [data-ct]", { timeout: 8000 });
+    await page.click("#px-resultats [data-ct]");
+    await page.fill("#px-cp", "33160"); await page.fill("#px-r1", "2026-05-04"); await page.fill("#px-r1h", "09:30");
+    await page.click("#px-creer");
+    await attendreToast(page, "Parcours créé");
+    await page.waitForSelector(".etapes", { timeout: 8000 });
+    await page.click("#modale-fermer");
+    await page.waitForSelector("#table-parcours tr[data-parcours]", { timeout: 8000 });
+    ok(/MOUNEYRES/.test(await page.textContent("#table-parcours")) && (await page.locator("#table-parcours tr[data-parcours]").count()) === 1,
+       "le conseiller crée un parcours depuis un contact de l'agence et le retrouve dans sa liste");
   });
 }

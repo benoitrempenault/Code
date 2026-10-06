@@ -1069,6 +1069,16 @@ export function createApp(env) {
     return c.json({ reglages: await CRM.getReglages(db, ctx.agency), smsPret: !!env.BREVO_API_KEY });
   });
 
+  // La brique Parcours R1/R2 est ouverte à tout conseiller de l'agence : il
+  // lui faut l'identité de l'agence et les points de vente (adresse du RDV,
+  // site, signataire, lien avis…) — rien d'autre des réglages (ni modèles,
+  // ni automatismes, ni clés).
+  app.get("/crm/reglages/parcours", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const r = await CRM.getReglages(db, ctx.agency);
+    return c.json({ reglages: { agence: r.agence, agences: r.agences } });
+  });
+
   // SMS d'essai (admin) : le vœu type « naissance » vers un numéro donné.
   app.post("/crm/anniversaires/test-sms", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;

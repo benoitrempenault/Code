@@ -65,6 +65,9 @@
   /* -------------------------------- État --------------------------------- */
   let contacts = [];
   let reglages = null;
+  // Mode « conseiller » : un compte non administrateur n'ouvre que la brique
+  // Parcours R1/R2 (réglages allégés, sans la base contacts ni les autres onglets).
+  let modeConseiller = false;
   let smsPret = false;   // la clé Brevo est posée sur le serveur
   let annonces = { annonces: [], events: [] };
   let contactEnCours = null;   // id du contact ouvert dans la modale
@@ -2408,7 +2411,7 @@
     try { conseillers = (await api("/crm/conseillers")).conseillers; } catch { conseillers = []; }
     // L'import des profils (photos du site, lent sur téléphone) se fait en tâche
     // de fond : le menu « Conseiller » n'attend pas, il se recharge ensuite.
-    if (!profilsImportes) { profilsImportes = true; importerConseillers(false).then((r) => { if (r && (r.ajoutes || r.completes)) chargerConseillers(); }); }
+    if (!profilsImportes && !modeConseiller) { profilsImportes = true; importerConseillers(false).then((r) => { if (r && (r.ajoutes || r.completes)) chargerConseillers(); }); }
     const zone = $("table-conseillers");
     if (!zone) return;
     // Ordre alphabétique sans tenir compte des majuscules ni des accents
@@ -4069,6 +4072,9 @@
       return;
     }
     $("who").textContent = (a.user && (a.user.name || a.user.email)) || "";
+    // ?brique=parcours : la tuile « Parcours R1/R2 » de l'accueil ouvre
+    // directement cet onglet (administrateur ou conseiller).
+    const brique = new URLSearchParams(location.search).get("brique") || "";
     try {
       const [r, c] = await Promise.all([api("/crm/reglages"), api("/crm/contacts")]);
       reglages = r.reglages;
@@ -4081,7 +4087,13 @@
         montrerQuiEstConnecte();
         return;
       }
+      // Pas administrateur : la brique Parcours R1/R2 reste ouverte à tout
+      // conseiller de l'agence (ses parcours, les e-mails et documents signés
+      // de lui). Les autres onglets restent réservés.
       if (e.status === 403) {
+        try { reglages = (await api("/crm/reglages/parcours")).reglages; modeConseiller = true; } catch { /* vraiment réservé : message ci-dessous */ }
+      }
+      if (e.status === 403 && !modeConseiller) {
         $("ecran-connexion").hidden = false;
         $("connexion-detail").textContent = "Ce compte n'est pas administrateur de l'agence. " +
           "Si l'Administration est ouverte à un autre de vos comptes, changez de compte ci-dessous ; " +
@@ -4091,11 +4103,24 @@
         montrerQuiEstConnecte();
         return;
       }
-      $("ecran-connexion").hidden = false;
-      $("connexion-detail").textContent = e.message;
+      if (!modeConseiller) {
+        $("ecran-connexion").hidden = false;
+        $("connexion-detail").textContent = e.message;
+        return;
+      }
+    }
+    if (modeConseiller) {
+      document.body.classList.add("mode-conseiller");
+      document.querySelectorAll(".onglet").forEach((b) => { b.hidden = b.dataset.onglet !== "parcours"; });
+      document.querySelector("header h1").innerHTML = "Studio <em>Parcours R1/R2</em>";
+      document.title = "Studio Brochure — Parcours R1/R2";
+      $("app").hidden = false;
+      activerOnglet("parcours");
+      chargerParcours(); chargerConseillers();
       return;
     }
     $("app").hidden = false;
+    if (brique === "parcours") activerOnglet("parcours");
     remplirFormulaires();
     rendreContacts();
     chargerUpcoming();
