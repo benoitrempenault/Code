@@ -1967,12 +1967,16 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const fauxBienici = (await import("node:http")).createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "application/json" });
     if (req.url.startsWith("/suggest.json")) return res.end(JSON.stringify([{ id: "z1", name: "Le Haillan", type: "city", insee_codes: ["33200"], postalCodes: ["33185"], zoneIds: ["-999"] }]));
-    res.end(JSON.stringify({ total: 2, realEstateAds: [
+    // Comme le vrai portail : seuls les biens du type demandé (filters.propertyType) sont renvoyés.
+    let typeDemande = ""; try { typeDemande = (JSON.parse(new URL(req.url, "http://x").searchParams.get("filters") || "{}").propertyType || [])[0] || ""; } catch { }
+    const tous = [
       { id: "orpi-1", reference: "R1", accountDisplayName: "ORPI Le Haillan", adType: "buy", propertyType: "house", price: 349000, surfaceArea: 95, landSurfaceArea: 322, roomsQuantity: 4, bedroomsQuantity: 3, city: "Le Haillan", postalCode: "33185", publicationDate: new Date(Date.now() - 12 * 86400000).toISOString(), priceHasDecreased: true, energyClassification: "C", blurInfo: { position: { lat: 44.8705, lon: -0.7125 } }, photos: [{ url_photo: "https://file.bienici.com/photo/orpi-1.jpg" }], district: { libelle: "Centre" } },
       { id: "loin-2", accountDisplayName: "X", adType: "buy", propertyType: "house", price: 900000, surfaceArea: 200, roomsQuantity: 7, city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString(), blurInfo: { position: { lat: 44.8705, lon: -0.7125 } }, photos: [] },
       // Programme neuf (constructeur) : Bien'ici annonce une fourchette price = [min, max] (Benoît voyait « NaN € »).
       { id: "neuf-3", accountDisplayName: "Maisons MCA", adType: "buy", propertyType: "house", newProperty: true, price: [328430, null], surfaceArea: 100, landSurfaceArea: 600, roomsQuantity: 4, city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString(), blurInfo: { position: { lat: 44.8705, lon: -0.7125 } }, photos: [] },
-    ] }));
+      { id: "terrain-4", accountDisplayName: "Terrains du Médoc", adType: "buy", propertyType: "terrain", price: 150000, landSurfaceArea: 800, city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString() },
+    ];
+    res.end(JSON.stringify({ total: tous.length, realEstateAds: tous.filter((a) => !typeDemande || a.propertyType === typeDemande) }));
   });
   await new Promise((r) => fauxBienici.listen(18786, r));
   // Fausse BAN : géocode « Vignes », ignore le reste — pour tester le
@@ -3680,6 +3684,24 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(portails.biens.length === 2 && orpi1 && orpi1.agence === "ORPI Le Haillan" && orpi1.baisse === 1 && orpi1.jours >= 11 && orpi1.terrain === 322 && /bienici\.com\/annonce\/vente\/le-haillan\/maison\/4pieces\/orpi-1/.test(orpi1.url) && orpi1.dist != null,
      "Bien'ici : les biens de la commune, même type, autour du prix (le bien à 900 000 € écarté), avec agence, baisse, ancienneté, distance et lien (" + JSON.stringify(portails.biens.map((b) => [b.id, b.dist])) + ")");
   ok(neuf3 && neuf3.prix === 328430 && neuf3.neuf === 1 && /^Neuf \(à partir de\)/.test(neuf3.titre), "un programme neuf annoncé en fourchette garde son prix d'appel et se dit « Neuf (à partir de) » (" + JSON.stringify(neuf3 && [neuf3.prix, neuf3.titre]) + ")");
+  // Un TERRAIN : les comparables ne sont plus que des terrains — ventes de l'agence typées
+  // « Maison » écartées, annonces et mandats ALFA de maisons écartés, Bien'ici interrogé en « terrain »,
+  // documents et e-mails adaptés (plan de bornage, pas de factures d'électricité).
+  { const pxT = await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "terrain" } });
+    const ficheT = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
+    const dnT = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
+    const portT = (await callR("/crm/parcours/" + pxId + "/acm/portails?prix=150000", { headers: authP })).json;
+    const apT = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
+    const apT2 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
+    ok(pxT.status === 200 && ficheT.type_bien === "terrain" && dnT.type === "terrain" && !dnT.ventes.some((v) => /Vignes/.test(v.adresse)) && !dnT.annonces.length && !dnT.amepi.length,
+       "un terrain ne se compare qu'à des terrains : la vente de maison, l'annonce et le mandat ALFA de maisons sont écartés (" + JSON.stringify({ ventes: dnT.ventes.length, annonces: dnT.annonces.length, amepi: dnT.amepi.length }) + ")");
+    ok(portT.biens.length === 1 && portT.biens[0].id === "bienici:terrain-4" && portT.biens[0].type === "Terrain" && /^Terrain · 800 m² de terrain$/.test(portT.biens[0].titre) && /\/terrain\/1pieces\/terrain-4/.test(portT.biens[0].url),
+       "Bien'ici est interrogé en « terrain » et le bien se présente comme un terrain (" + JSON.stringify(portT.biens.map((b) => [b.id, b.titre])) + ")");
+    ok(/plan de bornage/i.test(apT.texte) && !/électricité/.test(apT.texte) && /votre terrain/.test(apT2.texte) && /document d'arpentage/i.test(apT2.texte) && !/copropriété/.test(apT2.texte),
+       "les e-mails parlent du terrain et demandent plan de bornage et arpentage, pas les factures d'énergie ni la copropriété");
+    ok((await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "garage" } })).status === 200 && (await callR("/crm/parcours/" + pxId, { headers: authP })).json.type_bien === "maison",
+       "un type inconnu retombe sur « maison »");
+    await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } }); }
   await db.run("UPDATE crm_annonces SET image = '/photos/biens/relative-640.webp' WHERE id = 'maison-haillan-1'");
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { annonces: { siteUrl: "http://localhost:1" } } });
   const dnRel = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;

@@ -298,8 +298,31 @@ export default async function () {
     await page.click("#modale-ok");
     await page.waitForFunction(() => /4\/6/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
     ok(/\+1/.test(await page.textContent("#table-parcours")), "la liste montre l'avancement 4/6 et le second propriétaire");
-    // Effacer le parcours depuis la fiche.
+    // Un TERRAIN : la fiche passe en « terrain », et la sélection du livret ne propose
+    // plus que des terrains (DVF nus, Bien'ici en terrain), plus aucune maison.
     await page.click("#table-parcours tr[data-parcours]");
+    await page.waitForSelector("#px-effacer", { timeout: 8000 });
+    await page.click("#modale-corps details:first-of-type summary");
+    await page.selectOption("#px-type", "terrain");
+    await page.click("#px-maj");
+    await attendreToast(page, "Fiche enregistrée");
+    await page.waitForSelector('[data-guide="acm"]', { timeout: 8000 });
+    await page.click('[data-guide="acm"]');
+    await page.waitForSelector("#acm-generer", { timeout: 20000 });
+    const dbgT = await page.evaluate(() => window.__acmDebug);
+    const lignesT = await page.evaluate(() => [...document.querySelectorAll("#acm-ventes .ligne-conc")].map((l) => l.textContent));
+    const concT = await page.evaluate(() => [...document.querySelectorAll("[data-conc]")].map((c) => c.dataset.conc));
+    ok(dbgT.type === "terrain" && dbgT.ventesDvf >= 1 && lignesT.length >= 1 && lignesT.every((t) => /Terrain/.test(t) && /m² de terrain/.test(t) && !/Maison/.test(t))
+       && concT.includes("bienici:terrain-smoke-3") && !concT.some((c) => /orpi-smoke-1|human-smoke-2|amepi:9001/.test(c)),
+       "un terrain ne se compare qu'à des terrains : ventes DVF de terrains nus, Bien'ici en terrain, plus aucune maison (" + JSON.stringify({ type: dbgT.type, dvf: dbgT.dvf, ventesDvf: dbgT.ventesDvf, lignes: lignesT.length, conc: concT }) + ")");
+    ok(/Aucun acheteur en recherche/.test(await page.textContent("#acm-ach-resume")), "les acheteurs de maisons ne sont pas comptés pour un terrain");
+    await page.click("#acm-retour");
+    await page.waitForSelector(".etapes", { timeout: 8000 });
+    await page.click("#modale-corps details:first-of-type summary");
+    await page.selectOption("#px-type", "maison");
+    await page.click("#px-maj");
+    await attendreToast(page, "Fiche enregistrée");
+    // Effacer le parcours depuis la fiche.
     await page.waitForSelector("#px-effacer", { timeout: 8000 });
     await page.click("#px-effacer");
     await attendreToast(page, "Parcours effacé");

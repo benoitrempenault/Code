@@ -2600,7 +2600,7 @@
           return '<tr class="cliquable" data-parcours="' + p.id + '"><td><strong>' + escH([p.civilite, p.prenom, p.nom].filter(Boolean).join(" ")) + "</strong>" +
             (p.nb_proprietaires > 1 ? ' <span class="puce grise" title="Plusieurs propriétaires">+' + (p.nb_proprietaires - 1) + "</span>" : "") +
             (p.statut !== "en_cours" ? ' <span class="puce grise">' + escH(p.statut) + "</span>" : "") + "</td><td>" +
-            escH([p.adresse, p.ville].filter(Boolean).join(", ")) + ' <span class="puce grise">' + (p.type_bien === "appartement" ? "appt" : "maison") + "</span></td><td>" +
+            escH([p.adresse, p.ville].filter(Boolean).join(", ")) + ' <span class="puce grise">' + ({ appartement: "appt", terrain: "terrain" }[p.type_bien] || "maison") + "</span></td><td>" +
             escH([p.cs_prenom, p.cs_nom].filter(Boolean).join(" ") || p.conseiller || "—") + "</td><td>" + dateFrCourte(p.r1, p.r1_heure) + "</td><td>" + dateFrCourte(p.r2, p.r2_heure) + "</td><td>" +
             '<span class="parcours-avancement" title="' + ETAPES_PARCOURS.map((e) => (faites.has(e.cle) ? "✓ " : "· ") + e.titre).join("\n") + '">' +
             ETAPES_PARCOURS.map((e) => "<i" + (faites.has(e.cle) ? ' class="ok"' : "") + "></i>").join("") + "</span> " + faites.size + "/" + ETAPES_PARCOURS.length + "</td></tr>";
@@ -2623,7 +2623,7 @@
       '<label style="grid-column:1/-1;">Adresse du bien<input id="px-adresse" value="' + v("adresse") + '" placeholder="12 rue du Mandat Confiance" /></label>' +
       '<label>Code postal<input id="px-cp" value="' + v("cp") + '" /></label>' +
       '<label>Ville<input id="px-ville" value="' + v("ville") + '" /></label>' +
-      '<label>Type de bien<select id="px-type">' + [["maison", "Maison"], ["appartement", "Appartement"]].map(([k, l]) =>
+      '<label>Type de bien<select id="px-type">' + [["maison", "Maison"], ["appartement", "Appartement"], ["terrain", "Terrain"]].map(([k, l]) =>
         '<option value="' + k + '"' + (p && p.type_bien === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" +
       '<label>Surface habitable (m²)<input id="px-surface" type="number" step="1" value="' + escH(b.surface || "") + '" /></label>' +
       '<label>Terrain (m²)<input id="px-terrain" type="number" step="1" value="' + escH(b.terrain || "") + '" /></label>' +
@@ -3444,7 +3444,10 @@
       if (!cur || ligne.surface > cur.surface) { if (cur) ligne.terrain = Math.max(ligne.terrain, cur.terrain); parId.set(id, ligne); }
       else cur.terrain = Math.max(cur.terrain, ligne.terrain);
     }
-    return [...parId.values()].filter((v) => (v.type === "Maison" || v.type === "Appartement") && v.surface > 0);
+    // Un terrain nu : aucun local bâti dans la mutation, une surface de terrain —
+    // typé « Terrain », son €/m² se calcule sur le terrain (surface = terrain).
+    for (const v of parId.values()) if (!v.type && !v.surface && v.terrain > 0) { v.type = "Terrain"; v.surface = v.terrain; }
+    return [...parId.values()].filter((v) => (v.type === "Maison" || v.type === "Appartement" || v.type === "Terrain") && v.surface > 0);
   }
   async function chargerDvfCommune(code, dep) {
     if (dvfCacheAcm.has(code)) return dvfCacheAcm.get(code);
@@ -3474,7 +3477,7 @@
     document.querySelector(".modale").classList.add("large");
     let dvf = [];
     if (donnees.commune && donnees.commune.code) { try { dvf = await chargerDvfCommune(donnees.commune.code, donnees.commune.dep); } catch { dvf = []; } }
-    const typeDvf = donnees.type === "appartement" ? "Appartement" : "Maison";
+    const typeDvf = { appartement: "Appartement", terrain: "Terrain" }[donnees.type] || "Maison";
     const depuis = new Date(); depuis.setFullYear(depuis.getFullYear() - 2); // 24 derniers mois
     const ventesDvf = dvf.filter((v) => v.type === typeDvf && v.date >= depuis.toISOString().slice(0, 10))
       .map((v) => ({ ...v, source: "dvf", dist: Math.round(distM(donnees.lat, donnees.lng, v.lat, v.lng)) })).filter((v) => v.dist <= 1500).sort((a, b) => a.dist - b.dist).slice(0, 30);
@@ -3516,7 +3519,7 @@
       '<span class="bloc-vignette">' + ((v.photo || v.image) ? '<img class="vignette-conc" data-vignette="' + escH(v.id) + '" src="' + escH(v.photo || v.image) + '" alt="" loading="lazy" />' : '<span class="vignette-conc" data-vignette="' + escH(v.id) + '"></span>') +
       '<label class="btn" style="padding:1px 6px; font-size:11px;" title="Poser la photo du bien vendu (elle remplace la carte dans le livret)">📷<input type="file" accept="' + FORMATS_PHOTO + '" data-photo-vente="' + escH(v.id) + '" hidden /></label></span><span><strong>' +
       escH(fmtPrix(v.prix)) + "</strong> · " + escH(fmtDateAcm(v.date)) + " · " + escH(v.adresse || "") + (v.ville ? ", " + escH(v.ville) : "") + '<br /><span class="petit">' +
-      escH([v.type, v.pieces ? v.pieces + " pièces" : "", v.surface ? Math.round(v.surface) + " m²" : "", v.terrain ? "terrain " + Math.round(v.terrain) + " m²" : "", fmtM2(v), "à " + v.dist + " m", v.source === "agence" ? "vendu par l'agence" : "DVF"].filter(Boolean).join(" · ")) + "</span></span></label>";
+      escH([v.type, v.pieces ? v.pieces + " pièces" : "", v.surface ? Math.round(v.surface) + " m²" + (v.type === "Terrain" ? " de terrain" : "") : "", v.terrain && v.type !== "Terrain" ? "terrain " + Math.round(v.terrain) + " m²" : "", fmtM2(v), "à " + v.dist + " m", v.source === "agence" ? "vendu par l'agence" : "DVF"].filter(Boolean).join(" · ")) + "</span></span></label>";
     const ligneConc = (a, i) => '<label class="case ligne-conc"><input type="checkbox" data-conc="' + escH(a.id) + '"' + (cocheC(a, i) ? " checked" : "") + ' /> ' +
       '<span class="bloc-vignette">' + ((a.photo || a.image) ? '<img class="vignette-conc" data-vignette="' + escH(a.id) + '" src="' + escH(a.photo || a.image) + '" alt="" loading="lazy" />' : '<span class="vignette-conc" data-vignette="' + escH(a.id) + '"></span>') +
       '<label class="btn" style="padding:1px 6px; font-size:11px;" title="Poser ou remplacer la photo qui ira dans le livret">📷<input type="file" accept="' + FORMATS_PHOTO + '" data-photo="' + escH(a.id) + '" hidden /></label></span><span><strong>' +
@@ -3537,7 +3540,7 @@
     const resumeAch = () => {
       const prix = parseFloat($("acm-prix") && $("acm-prix").value), basse = parseFloat($("acm-basse") && $("acm-basse").value), haute = parseFloat($("acm-haute") && $("acm-haute").value);
       if (!ach.length) return "Aucun acheteur en recherche sur ce secteur dans Studio.";
-      return ach.length + " acheteur(s) en recherche d'" + (donnees.type === "appartement" ? "un appartement" : "une maison") + (p.ville ? " à " + p.ville : "") +
+      return ach.length + " acheteur(s) en recherche d'" + ({ appartement: "un appartement", terrain: "un terrain" }[donnees.type] || "une maison") + (p.ville ? " à " + p.ville : "") +
         (budgets.length ? " (budgets de " + fmtPrix(budgets[0]) + " à " + fmtPrix(budgets[budgets.length - 1]) + ")" : "") +
         (prix ? ". À " + fmtPrix(prix) + " : " + nbAu(prix) + " acheteur(s)" : "") + (basse ? " · fourchette basse " + fmtPrix(basse) + " : " + nbAu(basse) : "") + (haute ? " · fourchette haute " + fmtPrix(haute) + " : " + nbAu(haute) : "") + ".";
     };
@@ -3821,8 +3824,13 @@
     };
     const dateJour = new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
     const prixRef = acm.haute || acm.prix || acm.basse || 0;
-    const typeLib = donnees.type === "appartement" ? "Appartement" : "Maison";
-    const bienLib = [typeLib + (acm.surface ? " de " + Math.round(acm.surface) + " m²" : ""), acm.terrain ? "terrain de " + Math.round(acm.terrain) + " m²" : ""].filter(Boolean).join(" · ");
+    const typeLib = { appartement: "Appartement", terrain: "Terrain" }[donnees.type] || "Maison";
+    const estTerrain = donnees.type === "terrain";
+    const bienLib = estTerrain ? "Terrain de " + Math.round(acm.terrain || acm.surface || 0) + " m²"
+      : [typeLib + (acm.surface ? " de " + Math.round(acm.surface) + " m²" : ""), acm.terrain ? "terrain de " + Math.round(acm.terrain) + " m²" : ""].filter(Boolean).join(" · ");
+    // Les surfaces : « habitables » pour une maison ou un appartement, « de terrain » pour un terrain nu.
+    const surfaceLib = (x) => (x.surface ? Math.round(x.surface) + (estTerrain || x.type === "Terrain" ? " m² de terrain" : " m² habitables") : "");
+    const terrainLib = (x) => (x.terrain && !(estTerrain || x.type === "Terrain") ? Math.round(x.terrain) + " m² de terrain" : "");
     // Couverture + pages fixes.
     { const pg = await ajouterModele(1); const c = meta.couverture;
       ecrireCentre(pg, nomsClient(p), 297.75, c.client.y, c.client.taille, fS, noir);
@@ -3854,7 +3862,7 @@
         ecrire(pg, fmtPrix(v.prix), XF, y0 + 22, 18, fB, noir);
         ecrire(pg, "Vente du " + fmtDateAcm(v.date), XF, y0 + 40, 10, fS, gris);
         couper([v.adresse, v.ville].filter(Boolean).join(", ").toUpperCase(), fR, 9, D - XF).slice(0, 2).forEach((l, j) => ecrire(pg, l, XF, y0 + 56 + j * 12, 9, fR, noir));
-        const lignes = [[v.type || typeLib, v.pieces ? v.pieces + " pièces" : ""].filter(Boolean).join(" · "), v.surface ? Math.round(v.surface) + " m² habitables" : "", v.terrain ? Math.round(v.terrain) + " m² de terrain" : "", fmtM2(v) ? "soit " + fmtM2(v) : "", v.dist != null ? "à " + Math.round(v.dist) + " m du bien" : ""].filter(Boolean);
+        const lignes = [[v.type || typeLib, v.pieces ? v.pieces + " pièces" : ""].filter(Boolean).join(" · "), surfaceLib(v), terrainLib(v), fmtM2(v) ? "soit " + fmtM2(v) : "", v.dist != null ? "à " + Math.round(v.dist) + " m du bien" : ""].filter(Boolean);
         lignes.forEach((l, j) => ecrire(pg, l, XF, y0 + 92 + j * 15, 10, fS, noir));
         ecrire(pg, v.source === "agence" ? "Vendu par notre agence" : "Source : DVF (données notariales)", XF, y0 + 92 + lignes.length * 15, 9, fR, gris);
         rect(pg, G, y0 + CH + 14, L, 0.6, { color: sable });
@@ -3865,7 +3873,7 @@
     const dvfTous = (donnees.ventesDvf || []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
     if (dvfTous.length) {
       const pg = await pageContenu("TOUTES LES VENTES AUTOUR DU BIEN", "(DVF)");
-      couper(pluriel(dvfTous.length, "vente de " + typeLib.toLowerCase(), "ventes de " + typeLib.toLowerCase() + "s") + " à moins de 1,5 km sur les 24 derniers mois — données notariales publiques (DVF, data.gouv.fr)", fR, 9, L).slice(0, 1).forEach((l) => ecrire(pg, l, G, 88, 9, fR, gris));
+      couper(pluriel(dvfTous.length, "vente de " + typeLib.toLowerCase(), "ventes de " + typeLib.toLowerCase() + "s") + (estTerrain ? " (terrains nus)" : "") + " à moins de 1,5 km sur les 24 derniers mois — données notariales publiques (DVF, data.gouv.fr)", fR, 9, L).slice(0, 1).forEach((l) => ecrire(pg, l, G, 88, 9, fR, gris));
       await carte(pg, G, 98, L, 230, { lat: donnees.lat, lng: donnees.lng, zoom: 15, points: dvfTous.map((v) => ({ lat: v.lat, lng: v.lng, couleur: "#BEB18A", rayon: 6 })) });
       const cols = [["Date", G, 56], ["Adresse", G + 56, 138], ["Type", G + 194, 56], ["Surface", G + 250, 44], ["Prix", G + 294, 64], ["€/m²", G + 358, 44], ["Dist.", G + 402, 42]];
       rect(pg, G, 344, L, 18, { color: or });
@@ -3897,7 +3905,7 @@
         // (Bien'ici ne dit que « a baissé » : 1 → « Prix baissé de 1 € » était faux) ;
         // plus de ligne « Annonce de notre agence / Mandat confrère » (Benoît, 05/10).
         const typeLib2 = String(a.type || "").charAt(0).toUpperCase() + String(a.type || "").slice(1);
-        const lignes = [[typeLib2, a.pieces ? a.pieces + " pièces" : "", a.chambres ? a.chambres + " ch." : ""].filter(Boolean).join(" · "), a.surface ? Math.round(a.surface) + " m² habitables" : "", a.terrain ? Math.round(a.terrain) + " m² de terrain" : "", ...couper(a.adresse || [a.cp, a.ville].filter(Boolean).join(" "), fS, 10, D - XF).slice(0, 2), a.dist != null ? "à " + Math.round(a.dist) + " m du bien" : "", a.jours ? "En vente depuis " + a.jours + " jours" : "", a.baisse > 1000 ? "Prix baissé de " + fmtPrix(a.baisse) : a.baisse > 0 ? "Prix baissé récemment" : ""].filter(Boolean);
+        const lignes = [[typeLib2, a.pieces ? a.pieces + " pièces" : "", a.chambres ? a.chambres + " ch." : ""].filter(Boolean).join(" · "), surfaceLib(a) || (estTerrain && a.terrain ? Math.round(a.terrain) + " m² de terrain" : ""), terrainLib(a), ...couper(a.adresse || [a.cp, a.ville].filter(Boolean).join(" "), fS, 10, D - XF).slice(0, 2), a.dist != null ? "à " + Math.round(a.dist) + " m du bien" : "", a.jours ? "En vente depuis " + a.jours + " jours" : "", a.baisse > 1000 ? "Prix baissé de " + fmtPrix(a.baisse) : a.baisse > 0 ? "Prix baissé récemment" : ""].filter(Boolean);
         lignes.forEach((l, j) => ecrire(pg, l, XF, y0 + 92 + j * 15, 10, fS, noir));
         rect(pg, G, y0 + CH + 14, L, 0.6, { color: sable });
       }

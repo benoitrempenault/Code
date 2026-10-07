@@ -879,6 +879,20 @@ chacun / = budget total), encadré « La mensualité de l'acquéreur sera de »,
 avec colonne « Budget acquéreur ». Document destiné au VENDEUR : jamais « votre prêt / votre
 mensualité ». `livretDebug.financement {fraisPct, apport, budget, emprunt, mensualite}` relu par le
 smoke (340 000 € → 367 200 €, 2 022 €/mois à 3,9 % sur 25 ans). Assets `?v=57`.
+**Type de bien « terrain » et comparables par type (07/10)** : `type_bien` maison | appartement |
+**terrain** (`TYPES_BIEN`/`typeBien()` exportés de parcours.js, inconnu → maison ; sélecteur `#px-type`,
+puce de la liste). TOUS les comparables du livret suivent le type du bien : ventes de l'agence
+(`ventesAutour` filtrées — une vente sans type reste proposée sauf pour un terrain), nos annonces et
+mandats ALFA (déjà filtrés), Bien'ici (`BIENICI_TYPES` house|flat|terrain, libellé `BIENICI_LIB`, slug
+d'URL, biens d'un autre `propertyType` écartés par sûreté), acheteurs (types de recherche), ventes DVF
+côté navigateur (`parseDvfCsv` : une mutation SANS local bâti et AVEC surface de terrain = « Terrain »,
+`surface = terrain` pour le €/m² ; `typeDvf` par type). Livret : `estTerrain`, `surfaceLib`/`terrainLib`
+(« m² de terrain » au lieu de « m² habitables »), « ventes de terrains (terrains nus) ». Documents R1/R2
+terrain (plan de bornage, arpentage, certificat d'urbanisme, étude de sol G1, ERP), variable
+`type_bien` des mails = « terrain ». Faux Bien'ici (test.mjs ET smoke run.mjs) : respectent
+`filters.propertyType` et portent un terrain ; faux DVF du smoke : une maille sur quatre en terrain nu.
+Tests : terrain → ventes/annonces/ALFA de maisons écartés, Bien'ici en terrain, mails adaptés ; smoke :
+fiche passée en terrain → sélection 100 % terrains, acheteurs de maisons non comptés. Assets `?v=58`.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

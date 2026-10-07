@@ -56,7 +56,13 @@ export function civiliteNoms(civilite, nom, proprietaires) {
 }
 
 // Les pièces à préparer, selon le type de bien (à relire avant envoi).
+export const TYPES_BIEN = ["maison", "appartement", "terrain"];
+export const typeBien = (t) => (TYPES_BIEN.includes(String(t || "")) ? String(t) : "maison");
 export function documentsR1(typeBien) {
+  if (typeBien === "terrain") {
+    return ["Le titre de propriété", "Le plan de bornage ou le plan cadastral (si vous l'avez)", "La dernière taxe foncière recto/verso",
+      "Le certificat d'urbanisme ou les règles du PLU si vous les avez", "Les diagnostics ou études déjà réalisés (étude de sol, ERP)"].map((x) => "- " + x).join("\n");
+  }
   const l = ["Le titre de propriété", "Le plan de la maison / de l'appartement (si vous l'avez)",
     "La dernière taxe foncière recto/verso", "Les factures d'électricité / gaz", "Les diagnostics déjà réalisés"];
   if (typeBien === "appartement") l.push("Le dernier décompte de charges de copropriété");
@@ -64,6 +70,14 @@ export function documentsR1(typeBien) {
 }
 export function documentsR2(typeBien) {
   const appt = typeBien === "appartement";
+  if (typeBien === "terrain") {
+    return [
+      ["Identité des vendeurs", ["Cartes d'identité"]],
+      ["Documents relatifs au terrain", ["Titre de propriété complet", "Plan de bornage ou document d'arpentage (géomètre)", "Certificat d'urbanisme et règles du PLU", "Dernière taxe foncière"]],
+      ["Diagnostics et études (nous les engagerons dès le début de la commercialisation)", ["ERP (état des risques et pollutions)", "Étude de sol G1 (terrain constructible en zone argileuse)", "Termites selon la zone"]],
+      ["Documents pour la rédaction du futur compromis de vente", ["Servitudes, accès et raccordements connus", "Situation locative ou d'occupation du terrain"]],
+    ].map(([t, l]) => t + " :\n" + l.map((x) => "- " + x).join("\n")).join("\n\n");
+  }
   const blocs = [
     ["Identité des vendeurs", ["Cartes d'identité"]],
     ["Documents relatifs au bien", appt
@@ -154,8 +168,8 @@ export function preparerMail(est, px, jalon, ag, modeles, proprietaires) {
     civilite_nom: civiliteNoms(px.civilite, est.nom, proprietaires), prenom: px.prenom || "", nom: est.nom || "",
     date_r1: dateFr(est.r1, px.r1_heure), date_r2: dateFr(est.r2, px.r2_heure),
     adresse_bien: adresseBien, adresse: adresseBien, ville: est.ville || "",
-    type_bien: px.type_bien === "appartement" ? "appartement" : "maison",
-    documents_r1: documentsR1(px.type_bien), documents_r2: documentsR2(px.type_bien),
+    type_bien: typeBien(px.type_bien),
+    documents_r1: documentsR1(typeBien(px.type_bien)), documents_r2: documentsR2(typeBien(px.type_bien)),
     agence: ag.nom || "notre agence", agence_adresse: ag.adresse || "", lien_avis: ag.avis || AVIS_DEFAUT,
     conseiller: [px.conseiller_prenom, px.conseiller_nom].filter(Boolean).join(" ") || est.conseiller || "",
   };
@@ -194,7 +208,7 @@ export function sanitizeParcours(b) {
   return {
     civilite: ["M.", "Mme", "M. et Mme"].includes(String(b.civilite || "")) ? String(b.civilite) : strip(b.civilite, 20),
     prenom: strip(b.prenom, 80), cp: strip(b.cp, 10),
-    type_bien: String(b.type_bien || "") === "appartement" ? "appartement" : "maison",
+    type_bien: typeBien(b.type_bien), // maison | appartement | terrain
     r1_heure: /^\d{1,2}:\d{2}$/.test(String(b.r1_heure || "")) ? String(b.r1_heure) : "",
     r2_heure: /^\d{1,2}:\d{2}$/.test(String(b.r2_heure || "")) ? String(b.r2_heure) : "",
     conseiller_id: strip(b.conseiller_id, 40),
@@ -1102,14 +1116,17 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     try { pos = await positionDe(p); } catch (e) { return err(c, 502, e.message); }
     if (!pos) return err(c, 400, "Adresse du bien introuvable (vérifiez l'adresse, le code postal et la ville).");
     const { lat, lng } = pos;
-    const type = p.px.type_bien === "appartement" ? "appartement" : "maison";
+    const type = typeBien(p.px.type_bien);
     let erreurs = [];
     let com = await commune(p.px.cp, p.est.ville).catch((e) => { erreurs.push("commune : " + e.message); return null; });
     if (!com || !com.code) {
       // geo.api.gouv.fr muet : la BAN connaît aussi le code INSEE de l'adresse.
       try { const g = await geocoderBan(p.est.adresse, p.px.cp, p.est.ville); if (g && g.citycode) com = { code: g.citycode, nom: g.city || p.est.ville }; } catch (e) { erreurs.push("BAN : " + e.message); }
     }
-    const ventes = (await ventesAutour(ctx.agency.id, lat, lng, 2000)).slice(0, 40);
+    // Les ventes de l'agence : même type que le bien (une vente sans type connu
+    // reste proposée, sauf pour un terrain — ce sont presque toujours des maisons).
+    const ventes = (await ventesAutour(ctx.agency.id, lat, lng, 2000))
+      .filter((v) => (sansAccents(v.type) ? sansAccents(v.type) === type : type !== "terrain")).slice(0, 40);
     const villeN = sansAccents(p.est.ville);
     const siteAg = ((await getReglages(db, ctx.agency)).annonces.siteUrl || "").replace(/\/+$/, "");
     const absolue = (img) => (img && /^\//.test(img) && siteAg ? siteAg + img : img || "");
@@ -1144,7 +1161,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
     let pos; try { pos = await positionDe(p); } catch { pos = null; }
-    const type = p.px.type_bien === "appartement" ? "flat" : "house";
+    const type = BIENICI_TYPES[typeBien(p.px.type_bien)];
     const prix = Number(c.req.query("prix")) || 0;
     const com = await commune(p.px.cp, p.est.ville).catch(() => null);
     const cle = [sansAccents(p.est.ville), p.px.cp, type].join("|");
@@ -1158,6 +1175,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       .sort((a, b) => (a.dist ?? 1e9) - (b.dist ?? 1e9)).slice(0, 40);
     return c.json({ biens, erreur: "" });
   });
+  const BIENICI_TYPES = { maison: "house", appartement: "flat", terrain: "terrain" };
+  const BIENICI_LIB = { house: "Maison", flat: "Appartement", terrain: "Terrain" };
   async function bieniciCommune(ville, cp, codeInsee, type) {
     const suggest = (env.BIENICI_SUGGEST || "https://res.bienici.com/suggest.json") + "?q=" + encodeURIComponent(ville || cp || "");
     const ua = { "User-Agent": "Mozilla/5.0 (StudioKadima)", Accept: "application/json" };
@@ -1173,7 +1192,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!r.ok) throw new Error("Bien'ici répond " + r.status);
     const j = await r.json();
     const slug = (t) => sansAccents(t).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-    return (j.realEstateAds || []).map((a) => {
+    // Bien'ici ne renvoie que le type demandé ; par sûreté, un bien d'un autre type est écarté.
+    return (j.realEstateAds || []).filter((a) => !a.propertyType || a.propertyType === type).map((a) => {
       const pos = a.blurInfo && (a.blurInfo.position || a.blurInfo.centroid);
       const photo = a.photos && a.photos[0] ? (a.photos[0].url_photo || a.photos[0].url || "") : "";
       const pieces = a.roomsQuantity || 0;
@@ -1182,9 +1202,9 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       const neuf = !!a.newProperty || Array.isArray(a.price);
       const prix = Array.isArray(a.price) ? Number(a.price.find((v) => Number(v) > 0)) || 0 : Number(a.price) || 0;
       return { source: "bienici", id: "bienici:" + a.id, ref: String(a.reference || ""), agence: a.accountDisplayName || "", prix, neuf: neuf ? 1 : 0, surface: a.surfaceArea || 0, terrain: a.landSurfaceArea || 0,
-        pieces, chambres: a.bedroomsQuantity || 0, type: type === "flat" ? "Appartement" : "Maison", ville: a.city || "", cp: a.postalCode || "", quartier: a.district && a.district.libelle ? String(a.district.libelle).slice(0, 60) : "",
-        titre: [neuf ? "Neuf (à partir de)" : "", type === "flat" ? "Appartement" : "Maison", pieces ? pieces + " pièces" : "", a.surfaceArea ? Math.round(a.surfaceArea) + " m²" : ""].filter(Boolean).join(" · "),
-        image: photo, url: "https://www.bienici.com/annonce/" + (a.adType === "rent" ? "location" : "vente") + "/" + slug(a.city || ville) + "/" + (type === "flat" ? "appartement" : "maison") + "/" + (pieces || 1) + "pieces/" + encodeURIComponent(a.id),
+        pieces, chambres: a.bedroomsQuantity || 0, type: BIENICI_LIB[type] || "Maison", ville: a.city || "", cp: a.postalCode || "", quartier: a.district && a.district.libelle ? String(a.district.libelle).slice(0, 60) : "",
+        titre: [neuf ? "Neuf (à partir de)" : "", BIENICI_LIB[type] || "Maison", pieces ? pieces + " pièces" : "", a.surfaceArea ? Math.round(a.surfaceArea) + " m²" : (type === "terrain" && a.landSurfaceArea ? Math.round(a.landSurfaceArea) + " m² de terrain" : "")].filter(Boolean).join(" · "),
+        image: photo, url: "https://www.bienici.com/annonce/" + (a.adType === "rent" ? "location" : "vente") + "/" + slug(a.city || ville) + "/" + ({ flat: "appartement", terrain: "terrain" }[type] || "maison") + "/" + (pieces || 1) + "pieces/" + encodeURIComponent(a.id),
         lat: pos ? pos.lat : null, lng: pos ? pos.lon : null, jours: a.publicationDate ? Math.max(0, Math.round((Date.now() - Date.parse(a.publicationDate)) / 86400000)) : null, baisse: a.priceHasDecreased ? 1 : 0, dpe: a.energyClassification || "" };
     });
   }
@@ -1270,7 +1290,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const ag = (await getReglages(db, agency)).agence;
     const nb = (await db.get("SELECT COUNT(*) AS n FROM crm_parcours_avis WHERE estimation_id = ?", [est.id])).n;
     return c.json({ ferme: !!row.ferme, nb_avis: nb, agence: ag.nom || (agency && agency.name) || "",
-      bien: { adresse: est.adresse || "", cp: px.cp || "", ville: est.ville || "", type: px.type_bien === "appartement" ? "Appartement" : "Maison", surface: acm.surface || null, terrain: acm.terrain || null, chambres: acm.chambres || null, piece_vie: acm.piece_vie || null, points_forts: r2.points_forts || "", photo: r2.photo || "", conseiller: est.conseiller || "", client: est.nom || "" } });
+      bien: { adresse: est.adresse || "", cp: px.cp || "", ville: est.ville || "", type: { appartement: "Appartement", terrain: "Terrain" }[px.type_bien] || "Maison", surface: acm.surface || null, terrain: acm.terrain || null, chambres: acm.chambres || null, piece_vie: acm.piece_vie || null, points_forts: r2.points_forts || "", photo: r2.photo || "", conseiller: est.conseiller || "", client: est.nom || "" } });
   });
   app.post("/public/commission", async (c) => {
     const { row, est, resp } = await commissionPublique(c); if (!row) return resp;
