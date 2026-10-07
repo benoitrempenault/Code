@@ -2627,6 +2627,7 @@
         '<option value="' + k + '"' + (p && p.type_bien === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" +
       '<label>Surface habitable (m²)<input id="px-surface" type="number" step="1" value="' + escH(b.surface || "") + '" /></label>' +
       '<label>Terrain (m²)<input id="px-terrain" type="number" step="1" value="' + escH(b.terrain || "") + '" /></label>' +
+      '<label>Pièces<input id="px-pieces" type="number" step="1" min="0" value="' + escH(b.pieces || "") + '" /></label>' +
       '<label>Chambres<input id="px-chambres" type="number" step="1" min="0" value="' + escH(b.chambres || "") + '" /></label>' +
       '<label>Pièce de vie / séjour (m²)<input id="px-piece-vie" type="number" step="1" value="' + escH(b.piece_vie || "") + '" /></label>' +
       '<label>R1 — date<input id="px-r1" type="date" value="' + v("r1") + '" /></label>' +
@@ -2659,10 +2660,10 @@
   // Le bien (surface, terrain, chambres, pièce de vie) vit dans la saisie du
   // livret (acm) : la fiche, le livret, la commission et la page publique
   // lisent la même chose. Le PUT acm remplace tout → on relit avant d'écrire.
-  const lireBienFiche = () => { const n = (k) => { const v = parseFloat($(k).value); return Number.isFinite(v) ? v : null; }; return { surface: n("px-surface"), terrain: n("px-terrain"), chambres: n("px-chambres"), piece_vie: n("px-piece-vie") }; };
+  const lireBienFiche = () => { const n = (k) => { const v = parseFloat($(k).value); return Number.isFinite(v) ? v : null; }; return { surface: n("px-surface"), terrain: n("px-terrain"), pieces: n("px-pieces"), chambres: n("px-chambres"), piece_vie: n("px-piece-vie") }; };
   async function sauverBienFiche(id, bien) {
     const acm = (await api("/crm/parcours/" + id + "/acm")).acm || {};
-    if (["surface", "terrain", "chambres", "piece_vie"].every((k) => (acm[k] || null) === (bien[k] || null))) return;
+    if (["surface", "terrain", "pieces", "chambres", "piece_vie"].every((k) => (acm[k] || null) === (bien[k] || null))) return;
     await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: { ...acm, ...bien } });
   }
   // Nouveau parcours : on cherche D'ABORD la personne dans les contacts ; la
@@ -2770,7 +2771,7 @@
     brancherMenuConseillers("px-conseiller");
     // Le bien (surface, terrain, chambres, pièce de vie) s'enregistre dès qu'un
     // champ change : fermer la fiche sans « Enregistrer » ne perd plus rien.
-    for (const k of ["px-surface", "px-terrain", "px-chambres", "px-piece-vie"]) $(k).addEventListener("change", async () => {
+    for (const k of ["px-surface", "px-terrain", "px-pieces", "px-chambres", "px-piece-vie"]) $(k).addEventListener("change", async () => {
       try { await sauverBienFiche(id, lireBienFiche()); toast("Bien enregistré"); } catch (e) { toast(e.message, true); }
     });
     $("px-maj").addEventListener("click", async () => {
@@ -3511,10 +3512,21 @@
     // Sans sélection enregistrée : les 4 biens dont le prix est le plus proche du prix estimé
     // (fiche, sinon estimation) sont pré-cochés ; sans prix de référence, les 4 plus proches.
     const prixRefConc = acm.prix || acm.haute || acm.basse || 0;
+    // Appartement avec un nombre de pièces connu : les biens du même nombre de pièces
+    // passent devant (puis ±1, …) ; un bien sans pièces connues recule. Les autres
+    // critères (prix le plus proche pour la concurrence, ordre de la liste pour les
+    // ventes) départagent ensuite.
+    const piecesRef = donnees.type === "appartement" ? Number(acm.pieces) || 0 : 0;
+    const ecartPieces = (x) => (piecesRef ? (x.pieces ? Math.abs(Number(x.pieces) - piecesRef) : 9) : 0);
     const prechoixConc = new Set(prixRefConc
-      ? candidatsConc.map((a, i) => ({ a, i })).filter((x) => x.a.prix > 0).sort((x, y) => Math.abs(x.a.prix - prixRefConc) - Math.abs(y.a.prix - prixRefConc) || x.i - y.i).slice(0, 4).map((x) => x.a.id)
-      : candidatsConc.slice(0, 4).map((a) => a.id));
-    const cocheV = (v, i) => (acm.ventes ? dejaV.has(v.id) : i < 4), cocheC = (v) => (acm.concurrence ? dejaC.has(v.id) : prechoixConc.has(v.id));
+      ? candidatsConc.map((a, i) => ({ a, i })).filter((x) => x.a.prix > 0).sort((x, y) => ecartPieces(x.a) - ecartPieces(y.a) || Math.abs(x.a.prix - prixRefConc) - Math.abs(y.a.prix - prixRefConc) || x.i - y.i).slice(0, 4).map((x) => x.a.id)
+      : candidatsConc.map((a, i) => ({ a, i })).sort((x, y) => ecartPieces(x.a) - ecartPieces(y.a) || x.i - y.i).slice(0, 4).map((x) => x.a.id));
+    const prechoixVentes = new Set(candidatsVentes.map((v, i) => ({ v, i })).sort((x, y) => ecartPieces(x.v) - ecartPieces(y.v) || x.i - y.i).slice(0, 4).map((x) => x.v.id));
+    // Une sélection enregistrée qui ne correspond plus à aucun candidat (le type du
+    // bien a changé, par exemple) laisse place à la pré-sélection.
+    const dejaVUtile = !!acm.ventes && candidatsVentes.some((v) => dejaV.has(v.id));
+    const dejaCUtile = !!acm.concurrence && candidatsConc.some((a) => dejaC.has(a.id) && !/^portail:/.test(a.id));
+    const cocheV = (v) => (dejaVUtile ? dejaV.has(v.id) : prechoixVentes.has(v.id)), cocheC = (a) => (dejaCUtile ? dejaC.has(a.id) : dejaC.has(a.id) || prechoixConc.has(a.id));
     const ligneVente = (v, i) => '<label class="case ligne-conc"><input type="checkbox" data-vente="' + escH(v.id) + '"' + (cocheV(v, i) ? " checked" : "") + ' /> ' +
       '<span class="bloc-vignette">' + ((v.photo || v.image) ? '<img class="vignette-conc" data-vignette="' + escH(v.id) + '" src="' + escH(v.photo || v.image) + '" alt="" loading="lazy" />' : '<span class="vignette-conc" data-vignette="' + escH(v.id) + '"></span>') +
       '<label class="btn" style="padding:1px 6px; font-size:11px;" title="Poser la photo du bien vendu (elle remplace la carte dans le livret)">📷<input type="file" accept="' + FORMATS_PHOTO + '" data-photo-vente="' + escH(v.id) + '" hidden /></label></span><span><strong>' +
@@ -3551,13 +3563,14 @@
       '<div class="grille-champs"><label>Surface habitable (m²)<input id="acm-surface" type="number" step="1" value="' + escH(acm.surface || "") + '" /></label>' +
       '<label>Terrain (m²)<input id="acm-terrain" type="number" step="1" value="' + escH(acm.terrain || "") + '" /></label>' +
       '<label>Pièce de vie (m²)<input id="acm-piece-vie" type="number" step="1" value="' + escH(acm.piece_vie || "") + '" /></label>' +
+      '<label>Pièces<input id="acm-pieces" type="number" step="1" min="0" value="' + escH(acm.pieces || "") + '" /></label>' +
       '<label>Chambres<input id="acm-chambres" type="number" step="1" min="0" value="' + escH(acm.chambres || "") + '" /></label>' +
       '<label>Prix estimé par le conseiller (net vendeur)<input id="acm-prix" type="number" step="1000" value="' + escH(acm.prix || "") + '" /></label>' +
       '<label>Fourchette basse<input id="acm-basse" type="number" step="1000" value="' + escH(acm.basse || "") + '" /></label>' +
       '<label>Fourchette haute<input id="acm-haute" type="number" step="1000" value="' + escH(acm.haute || "") + '" /></label></div>' +
-      '<h3 style="margin:14px 0 4px;">1. Les biens récemment vendus <span class="petit">(' + candidatsVentes.length + ' à moins de 1,5 km — DVF 3 ans et ventes de l\'agence)</span></h3>' +
+      '<h3 style="margin:14px 0 4px;">1. Les biens récemment vendus <span class="petit">(' + candidatsVentes.length + ' à moins de 1,5 km — DVF 3 ans et ventes de l\'agence' + (piecesRef ? " ; pré-cochées : " + piecesRef + " pièces d'abord" : "") + ')</span></h3>' +
       '<div id="acm-ventes" class="liste-choix">' + (candidatsVentes.length ? candidatsVentes.map(ligneVente).join("") : '<p class="petit">Aucune vente comparable trouvée' + (dvf.length ? " à moins de 1,5 km sur 24 mois (" + dvf.length + " ventes DVF dans la commune)" : donnees.commune ? " (fichier DVF de la commune " + escH(donnees.commune.code) + " indisponible)" : " (commune introuvable : " + escH((donnees.erreurs || []).join(" ; ") || "geo.api.gouv.fr muet") + ")") + ".</p>") + "</div>" +
-      '<h3 style="margin:14px 0 4px;">2. Les biens en concurrence <span class="petit">(nos annonces, les mandats de l\'ALFA et Bien\'ici — même type, même commune, les plus proches d\'abord ; pré-cochés : les 4 prix les plus proches de l\'estimation' + (portails.erreur ? " ; Bien'ici indisponible : " + escH(portails.erreur) : "") + ")</span></h3>" +
+      '<h3 style="margin:14px 0 4px;">2. Les biens en concurrence <span class="petit">(nos annonces, les mandats de l\'ALFA et Bien\'ici — même type, même commune, les plus proches d\'abord ; pré-cochés : les 4 prix les plus proches de l\'estimation' + (piecesRef ? ", à " + piecesRef + " pièces d'abord" : "") + (portails.erreur ? " ; Bien'ici indisponible : " + escH(portails.erreur) : "") + ")</span></h3>" +
       '<div id="acm-conc" class="liste-choix haute">' + (candidatsConc.length ? candidatsConc.map(ligneConc).join("") : '<p class="petit">Aucun bien en vente comparable pour le moment.</p>') + "</div>" +
       '<details style="margin-top:6px;"><summary class="petit" style="cursor:pointer;">+ Ajouter un bien vu sur un portail (adresse retrouvée sur précisément.fr)</summary>' +
       '<div class="grille-champs" style="margin-top:6px;"><label style="grid-column:1/-1;">Adresse<input id="acm-m-adresse" placeholder="9 allée Lamartine, Le Taillan-Médoc" /></label>' +
@@ -3628,7 +3641,7 @@
       // Des lignes retouchées à la main ne sont plus écrasées par la commission à la réouverture.
       const auto = depuisCommission || [];
       const source = com.length === auto.length && com.every((l, i) => l.nb === auto[i].nb && l.basse === auto[i].basse && l.haute === auto[i].haute) ? acm.commission_source : "main";
-      return { ...acm, commission_source: source, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes).map(({ photo, image, ...reste }) => reste), concurrence: cochees("[data-conc]", candidatsConc).map(({ photo, ...reste }) => reste),
+      return { ...acm, commission_source: source, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), pieces: num("acm-pieces"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes).map(({ photo, image, ...reste }) => reste), concurrence: cochees("[data-conc]", candidatsConc).map(({ photo, ...reste }) => reste),
         commission: com, acheteurs_inclure: $("acm-ach-inclure").checked, acheteurs_texte: $("acm-ach-texte").value.trim(), acheteurs_n: ach.length, acheteurs_budgets: budgets,
         taux: num("acm-taux") ?? 3.9, assurance: num("acm-assurance") ?? 0.34, apport: num("acm-apport") || 0, duree: parseInt($("acm-duree").value, 10) || 25 };
     };

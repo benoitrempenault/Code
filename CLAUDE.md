@@ -893,6 +893,16 @@ terrain (plan de bornage, arpentage, certificat d'urbanisme, étude de sol G1, E
 `filters.propertyType` et portent un terrain ; faux DVF du smoke : une maille sur quatre en terrain nu.
 Tests : terrain → ventes/annonces/ALFA de maisons écartés, Bien'ici en terrain, mails adaptés ; smoke :
 fiche passée en terrain → sélection 100 % terrains, acheteurs de maisons non comptés. Assets `?v=58`.
+**Pré-sélection du livret affinée par pièces (07/10)** : champ « Pièces » sur la fiche (`#px-pieces`,
+`lireBienFiche`, `sauverBienFiche` compare aussi `pieces`) et dans l'ACM (`#acm-pieces`, `acm.pieces`,
+`completerAcm`/`completerBien` le relient au bien estimation). Pour un APPARTEMENT au nombre de pièces
+connu, `ecartPieces()` classe d'abord les candidats (ventes ET concurrence) par écart de pièces (inconnu
+= 9), puis par les critères d'avant (prix le plus proche pour la concurrence, ordre de la liste pour
+les ventes) ; `prechoixVentes` remplace le « 4 premiers ». Une sélection ENREGISTRÉE qui ne correspond
+plus à aucun candidat (changement de type) laisse place à la pré-sélection (`dejaVUtile`/`dejaCUtile`,
+les biens saisis à la main `portail:` restent cochés). Aide des deux listes : « N pièces d'abord ».
+Faux DVF du smoke : appartements 2/3/4 pièces une colonne sur deux ; faux Bien'ici : deux appartements.
+Smoke : fiche en appartement 3 pièces → tous les 3 pièces cochés avant les 2 et 4. Assets `?v=59`.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

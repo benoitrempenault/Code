@@ -1001,7 +1001,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   };
   const completerAcm = (acm, bien) => {
     const detail = lireDetailPieces(bien.piecesDetail);
-    const sources = { surface: bien.surface, terrain: bien.terrain, prix: bien.prixEnvisage, chambres: bien.chambres || detail.chambres, piece_vie: bien.pieceVie || detail.piece_vie };
+    const sources = { surface: bien.surface, terrain: bien.terrain, prix: bien.prixEnvisage, pieces: bien.pieces, chambres: bien.chambres || detail.chambres, piece_vie: bien.pieceVie || detail.piece_vie };
     const depuis = [];
     for (const [k, v] of Object.entries(sources)) if (vide(acm[k]) && !vide(v)) { acm[k] = Number(v); depuis.push(k); }
     return depuis;
@@ -1010,7 +1010,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const bien = await bienEstimationDe(estId);
     const maj = { ...bien };
     let change = false;
-    for (const [kb, ka] of [["surface", "surface"], ["terrain", "terrain"], ["chambres", "chambres"], ["pieceVie", "piece_vie"]]) {
+    for (const [kb, ka] of [["surface", "surface"], ["terrain", "terrain"], ["pieces", "pieces"], ["chambres", "chambres"], ["pieceVie", "piece_vie"]]) {
       if (vide(bien[kb]) && !vide(acm[ka])) { maj[kb] = Number(acm[ka]); change = true; }
     }
     if (!change) return;

@@ -298,6 +298,29 @@ export default async function () {
     await page.click("#modale-ok");
     await page.waitForFunction(() => /4\/6/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
     ok(/\+1/.test(await page.textContent("#table-parcours")), "la liste montre l'avancement 4/6 et le second propriétaire");
+    // Un APPARTEMENT de 3 pièces : la pré-sélection du livret coche d'abord les 3 pièces
+    // (ventes DVF et concurrence), les 2 et 4 pièces restent proposés mais décochés.
+    await page.click("#table-parcours tr[data-parcours]");
+    await page.waitForSelector("#px-effacer", { timeout: 8000 });
+    await page.click("#modale-corps details:first-of-type summary");
+    await page.selectOption("#px-type", "appartement");
+    await page.fill("#px-pieces", "3");
+    await page.click("#px-maj");
+    await attendreToast(page, "Fiche enregistrée");
+    await page.waitForSelector('[data-guide="acm"]', { timeout: 8000 });
+    await page.click('[data-guide="acm"]');
+    await page.waitForSelector("#acm-generer", { timeout: 20000 });
+    const cochesA = await page.evaluate(() => [...document.querySelectorAll("#acm-ventes .ligne-conc")].map((l) => ({ coche: l.querySelector("input").checked, texte: l.textContent })));
+    const concA = await page.evaluate(() => [...document.querySelectorAll("[data-conc]")].map((c) => ({ id: c.dataset.conc, coche: c.checked })));
+    const cochees = cochesA.filter((x) => x.coche), autres = cochesA.filter((x) => !x.coche);
+    const trois = cochesA.filter((x) => /3 pièces/.test(x.texte));
+    ok(await page.inputValue("#acm-pieces") === "3" && cochees.length === 4 && cochesA.every((x) => /Appartement/.test(x.texte)) && trois.length >= 1 && trois.every((x) => x.coche) && autres.every((x) => !/3 pièces/.test(x.texte)) && autres.some((x) => /2 pièces|4 pièces/.test(x.texte))
+       && concA.find((c) => c.id === "bienici:flat-smoke-3")?.coche && !concA.some((c) => /orpi-smoke-1|human-smoke-2|terrain-smoke-3/.test(c.id)),
+       "appartement 3 pièces : tous les 3 pièces sont pré-cochés avant les 2 et 4 pièces, l'appartement 3 pièces Bien'ici est coché (" + JSON.stringify({ pieces: await page.inputValue("#acm-pieces"), trois: trois.length, cochees: cochees.length, autres: autres.length, conc: concA.map((c) => c.id + (c.coche ? "✓" : "")) }) + ")");
+    ok(/3 pièces d'abord/.test(await page.textContent("#modale-corps")), "l'aide dit que les 3 pièces passent d'abord");
+    await page.click("#acm-retour");
+    await page.waitForSelector(".etapes", { timeout: 8000 });
+    await page.click("#modale-fermer");
     // Un TERRAIN : la fiche passe en « terrain », et la sélection du livret ne propose
     // plus que des terrains (DVF nus, Bien'ici en terrain), plus aucune maison.
     await page.click("#table-parcours tr[data-parcours]");

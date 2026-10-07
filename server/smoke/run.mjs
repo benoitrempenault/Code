@@ -92,6 +92,13 @@ const dvf = createServer((req, res) => {
     lignes.push(["2026-T" + t, "2026-0" + (1 + (t % 9)) + "-2" + (t % 8), "Vente", 120000 + (t % 9) * 5000, 50 + (t % 30), "CHEMIN DES SMOKES", "Saint-Medard-en-Jalles", "", "", "", 600 + (t % 6) * 40,
       (-0.92 + i * 0.0085 + 0.004).toFixed(5), (44.80 + j * 0.0075 + 0.0037).toFixed(5)].join(","));
   }
+  // Des appartements (2, 3 ou 4 pièces), une maille sur quatre, décalée des terrains.
+  let a = 0;
+  for (let i = 1; i < 40; i += 2) for (let j = 0; j < 28; j++) {
+    a++;
+    lignes.push(["2026-A" + a, "2026-0" + (1 + (a % 9)) + "-0" + (1 + (a % 9)), "Vente", 150000 + (a % 3) * 55000, 1 + (a % 20), "RUE DES SMOKES", "Saint-Medard-en-Jalles", "Appartement", 45 + (a % 3) * 18, 2 + (a % 3), 0,
+      (-0.92 + i * 0.0085 + 0.004).toFixed(5), (44.80 + j * 0.0075 + 0.0037).toFixed(5)].join(","));
+  }
   res.writeHead(200, { "Content-Type": "text/csv" }); res.end(lignes.join("\n") + "\n");
 }).listen(PORT_DVF);
 
@@ -105,6 +112,8 @@ const bienici = createServer((req, res) => {
   if (req.url.startsWith("/suggest.json")) return res.end(JSON.stringify([{ id: "z", name: "Saint-Médard-en-Jalles", type: "city", insee_codes: ["33449"], postalCodes: ["33160"], zoneIds: ["-110581"] }]));
   let typeDemande = ""; try { typeDemande = (JSON.parse(new URL(req.url, "http://x").searchParams.get("filters") || "{}").propertyType || [])[0] || ""; } catch { }
   const tous = [
+    { id: "flat-smoke-2", accountDisplayName: "Appart Smoke", adType: "buy", propertyType: "flat", price: 236000, surfaceArea: 48, roomsQuantity: 2, bedroomsQuantity: 1, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date().toISOString() },
+    { id: "flat-smoke-3", accountDisplayName: "Appart Smoke", adType: "buy", propertyType: "flat", price: 262000, surfaceArea: 66, roomsQuantity: 3, bedroomsQuantity: 2, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date().toISOString() },
     { id: "terrain-smoke-3", accountDisplayName: "Terrains Smoke", adType: "buy", propertyType: "terrain", price: 260000, landSurfaceArea: 750, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date().toISOString() },
     { id: "orpi-smoke-1", accountDisplayName: "ORPI Smoke", adType: "buy", propertyType: "house", price: 335000, surfaceArea: 98, landSurfaceArea: 410, roomsQuantity: 5, bedroomsQuantity: 3, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date(Date.now() - 20 * 86400000).toISOString(), priceHasDecreased: false, blurInfo: { position: { lat: 44.90, lon: -0.72 } }, photos: [{ url: "http://localhost:" + PORT_BIENICI + "/photo/orpi.jpg" }], district: { libelle: "Gajac" } },
     { id: "human-smoke-2", accountDisplayName: "HUMAN Immobilier", adType: "buy", propertyType: "house", price: 349900, surfaceArea: 95, landSurfaceArea: 322, roomsQuantity: 4, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date().toISOString(), priceHasDecreased: true, blurInfo: { position: { lat: 44.91, lon: -0.73 } }, photos: [{ url: "http://localhost:" + PORT_BIENICI + "/photo/human.jpg" }] },
