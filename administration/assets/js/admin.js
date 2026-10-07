@@ -2571,6 +2571,7 @@
     { cle: "entre-r1-r2", titre: "E-mail entre R1 et R2 (merci + confirmation de la restitution)", mail: true },
     { cle: "guide-r2", titre: "Guide R2 — imprimé pour la restitution", doc: "guide-r2" },
     { cle: "acm", titre: "Analyse comparative de marché — remise au R2", doc: "acm" },
+    { cle: "courrier-estimation", titre: "Courrier d'estimation — fourchette de prix, envoyé après le R2", doc: "courrier", mail: true, piece: true },
     { cle: "apres-r2", titre: "E-mail après le R2 (merci + avis Google)", mail: true },
   ];
   let parcours = [];
@@ -2719,7 +2720,9 @@
     const etapesHtml = '<div class="etapes">' + ETAPES_PARCOURS.map((e, i) => {
       const f = faites.get(e.cle);
       const quand = f ? "fait le " + new Date(f.le * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) + (f.par ? " par " + escH(f.par) : "") + (f.email ? " → " + escH(f.email) : "") : "";
-      const actions = e.mail
+      const actions = e.piece
+        ? '<button class="btn btn-or" data-guide="courrier" title="La fourchette d\'estimation et un mot personnel, sur le papier à en-tête de l\'agence, signés du conseiller ; imprimable ou envoyé par e-mail en pièce jointe">📨 Courrier d\'estimation' + (f ? " (renvoyer)" : "") + "</button>"
+        : e.mail
         ? '<button class="btn btn-or" data-mail="' + e.cle + '">' + (f ? "✉️ Renvoyer" : "✉️ Préparer et envoyer") + "</button>"
         : (e.cle === "guide-r1"
           ? '<button class="btn btn-or" data-guide="r1" title="Le guide de commercialisation, avec le mot du directeur, la page du conseiller et le prochain rendez-vous">🖨 Guide R1 personnalisé</button>'
@@ -2783,6 +2786,7 @@
     document.querySelectorAll("[data-guide]").forEach((b) => b.addEventListener("click", async () => {
       if (b.dataset.guide === "r2") { ouvrirGuideR2(id, p); return; }
       if (b.dataset.guide === "acm") { ouvrirAcm(id, p); return; }
+      if (b.dataset.guide === "courrier") { ouvrirCourrierEstimation(id, p); return; }
       if (b.dataset.guide === "mot") {
         b.disabled = true; const lib = b.textContent; b.textContent = "Préparation…";
         try { const u = await genererMotDirecteur(p); documentPret(id, "Mot du directeur prêt", u, window.__dernierGuide && window.__dernierGuide.fichier); }
@@ -2971,15 +2975,16 @@
   }
   // Dessine le courrier sur une page A4 d'un document pdf-lib (fontkit déjà
   // enregistré) ; `source` = le guide R1 déjà chargé, sinon il est relu du cache.
-  async function dessinerMotDirecteur(doc, page, p, source) {
+  // Le papier à en-tête commun aux courriers (mot du directeur, courrier
+  // d'estimation) : logo et bande à motifs repris du guide R1, filigrane,
+  // coordonnées de l'agence, photo de la personne qui signe, lieu et date.
+  // Rend les outils d'écriture (polices, couleurs, helpers) pour le corps.
+  async function enTeteCourrier(doc, page, p, source, photoDe) {
     const { PDFDocument, rgb } = window.PDFLib;
     await chargerMotCache();
-    const cs = p.conseiller || {};
     const base = (reglages && reglages.agence) || {};
     const ag = p.agence || base;
     const site = String(ag.site || base.site || "").replace(/^https?:\/\//, "").replace(/\/$/, "") || "www.century21-kadima.fr";
-    const signataire = (ag.signataire || base.signataire || "").trim();
-    const fonction = (ag.fonction || base.fonction || "Directeur d'agence").trim();
     const [fR, fB, fI] = await Promise.all(motCache.fontes.map((f) => doc.embedFont(f)));
     const h = page.getHeight(), or = rgb(0.745, 0.686, 0.529), noir = rgb(0.13, 0.13, 0.13), gris = rgb(0.4, 0.4, 0.4);
     const ecrire = (t, x, y, taille, f, c) => { if (t) page.drawText(String(t), { x, y: h - y, size: taille, font: f || fR, color: c || noir }); };
@@ -3008,22 +3013,39 @@
     let y = 110;
     for (const t of [l1, l2.toUpperCase(), ag.telephone ? "Tél. " + ag.telephone : "", ag.email ? "Mail : " + ag.email : ""]) if (t) { ecrire(t, 60, y, 10.5, fR); y += 17; }
     ecrire(site, 60, y, 10.5, fB, or);
-    // La photo du directeur : le profil conseiller du même nom, recadrée dans son cadre, sous le logo.
+    // La photo de la personne qui signe, recadrée dans son cadre, sous le logo.
     const cadre = [415, 118, 535, 268];
-    const cle = sansAccentsMin(signataire);
-    const dir = cle ? (conseillers || []).find((c) => sansAccentsMin([c.prenom, c.nom].join(" ")) === cle || sansAccentsMin([c.nom, c.prenom].join(" ")) === cle) : null;
-    if (dir && dir.photo_url) {
+    let photo = false;
+    if (photoDe && photoDe.photo_url) {
       try {
-        const b = await (await fetch(dir.photo_url)).blob();
+        const b = await (await fetch(photoDe.photo_url)).blob();
         const dataUrl = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); });
         const jpeg = await recadrerImage(dataUrl, cadre[2] - cadre[0], cadre[3] - cadre[1], 900);
         const im = await doc.embedJpg(Uint8Array.from(atob(jpeg.split(",")[1]), (ch) => ch.charCodeAt(0)));
         page.drawImage(im, { x: cadre[0], y: h - cadre[3], width: cadre[2] - cadre[0], height: cadre[3] - cadre[1] });
         page.drawRectangle({ x: cadre[0], y: h - cadre[3], width: cadre[2] - cadre[0], height: cadre[3] - cadre[1], borderColor: or, borderWidth: 0.8 });
+        photo = true;
       } catch { /* sans photo */ }
     }
     const ville = (l2 || "").replace(/^\d{5}\s*/, "").toUpperCase() || (p.ville || "").toUpperCase();
     droite((ville ? ville + ", " : "") + "le " + new Date().toLocaleDateString("fr-FR"), 535, 290, 11, fB);
+    // Le pied : filet doré et mentions légales de l'agence.
+    page.drawLine({ start: { x: 60, y: h - 786 }, end: { x: 535, y: h - 786 }, thickness: 0.8, color: or });
+    const mentions = String(ag.mentions || base.mentions || "").trim();
+    if (mentions) { let ym = 798; for (const l of couper(mentions, fR, 6.8, 475).slice(0, 4)) { ecrire(l, 60, ym, 6.8, fR, gris); ym += 8.6; } }
+    return { ecrire, droite, couper, fR, fB, fI, or, noir, gris, h, ag, base, site, page, photo };
+  }
+  async function dessinerMotDirecteur(doc, page, p, source) {
+    const cs = p.conseiller || {};
+    const base0 = (reglages && reglages.agence) || {};
+    const ag0 = p.agence || base0;
+    const signataire = (ag0.signataire || base0.signataire || "").trim();
+    const fonction = (ag0.fonction || base0.fonction || "Directeur d'agence").trim();
+    // La photo du directeur : le profil conseiller du même nom.
+    const cle = sansAccentsMin(signataire);
+    const dir = cle ? (conseillers || []).find((c) => sansAccentsMin([c.prenom, c.nom].join(" ")) === cle || sansAccentsMin([c.nom, c.prenom].join(" ")) === cle) : null;
+    const { ecrire, couper, fR, fB, fI, gris, site, ag } = await enTeteCourrier(doc, page, p, source, dir);
+    let y;
     // Le corps : appel (« Madame CHAVEROUX, », « Madame, Monsieur, » à plusieurs), le conseiller du parcours.
     const civ = civiliteCourte(p.civilite), longue = civiliteLongue(p.civilite);
     const prop = (p.proprietaires || []).filter((o) => o.nom || o.prenom);
@@ -3043,10 +3065,95 @@
     const ySig = Math.max(y + 56, 640);
     ecrire("Votre " + fonction.charAt(0).toLowerCase() + fonction.slice(1) + ",", 330, ySig, 11, fI, gris);
     ecrire(signataire, 330, ySig + 18, 12.5, fB);
-    page.drawLine({ start: { x: 60, y: h - 786 }, end: { x: 535, y: h - 786 }, thickness: 0.8, color: or });
-    const mentions = String(ag.mentions || base.mentions || "").trim();
-    if (mentions) { let ym = 798; for (const l of couper(mentions, fR, 6.8, 475).slice(0, 4)) { ecrire(l, 60, ym, 6.8, fR, gris); ym += 8.6; } }
     return { conseiller: [prenom, nomCs].filter(Boolean).join(" "), site, signataire, fonction, agence: ag.nom || "" };
+  }
+  /* ------------------------- Courrier d'estimation ------------------------- */
+  // Le courrier d'estimation, sur le papier à en-tête : la fourchette de prix
+  // mise en valeur, un mot libre du conseiller, et sa signature (photo, fonction,
+  // coordonnées). Il s'imprime ou part en pièce jointe de l'e-mail du jalon.
+  async function dessinerCourrierEstimation(doc, page, p, courrier) {
+    const cs = p.conseiller || {};
+    const { ecrire, couper, fR, fB, fI, or, gris, h, ag, page: pg, photo } = await enTeteCourrier(doc, page, p, null, cs);
+    const civ = civiliteCourte(p.civilite), longue = civiliteLongue(p.civilite);
+    const prop = (p.proprietaires || []).filter((o) => o.nom || o.prenom);
+    const appel = prop.length >= 2 || civ === "M. et Mme" || !longue ? "Madame, Monsieur," : longue + " " + (p.nom || "").toUpperCase() + ",";
+    const typeLib = { appartement: "appartement", terrain: "terrain" }[p.type_bien] || "maison";
+    const situe = typeLib === "maison" ? "située" : "situé";
+    const adresse = [p.adresse, [p.cp, p.ville].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+    const quandR2 = p.r2 ? " du " + dateFrCourte(p.r2) : "";
+    // Espace normale entre les milliers : Barlow n'a pas l'espace fine insécable de fr-FR.
+    const fmt = (v) => (Number(v) > 0 ? Math.round(Number(v)).toLocaleString("fr-FR").replace(/[\u202f\u00a0]/g, " ") + " €" : "");
+    const basse = fmt(courrier.basse), haute = fmt(courrier.haute);
+    let y = 405;
+    const para = (t, f, taille, pas, c) => { for (const l of couper(t, f || fR, taille || 11.5, 420)) { ecrire(l, 85, y, taille || 11.5, f || fR, c); y += pas || 16.5; } y += 8; };
+    para(appel);
+    para("Nous vous remercions de la confiance que vous nous accordez dans le cadre de votre projet immobilier. Suite à notre rendez-vous" + quandR2 + " et à l'analyse comparative du marché réalisée sur les biens vendus et en vente autour de chez vous, nous estimons la valeur de votre " + typeLib + (adresse ? " " + situe + " " + adresse : "") + " :");
+    // La fourchette, mise en valeur dans un cadre doré.
+    y += 2;
+    pg.drawRectangle({ x: 85, y: h - (y + 52), width: 425, height: 58, borderColor: or, borderWidth: 1.2, color: rgb255(0.98, 0.97, 0.94) });
+    const titreF = basse && haute ? "Fourchette d'estimation" : "Estimation";
+    const valF = basse && haute ? "entre " + basse + " et " + haute : (haute || basse);
+    ecrire(titreF, 85 + (425 - fR.widthOfTextAtSize(titreF, 9.5)) / 2, y + 12, 9.5, fR, gris);
+    ecrire(valF, 85 + (425 - fB.widthOfTextAtSize(valF, 19)) / 2, y + 38, 19, fB, or);
+    y += 74;
+    const libre = String(courrier.texte || "").trim();
+    if (libre) for (const bloc of libre.split(/\n\s*\n|\n/).map((t) => t.trim()).filter(Boolean)) para(bloc);
+    para("Cette estimation est établie au vu du marché actuel et des biens comparables ; elle ne constitue pas une expertise et pourra être ajustée avec vous au moment de la mise en vente.", fR, 10, 14.5, gris);
+    para("Nous restons à votre entière disposition pour en parler et vous accompagner dans votre projet.");
+    para("Bien cordialement,");
+    // Signature du conseiller : prénom NOM, fonction, coordonnées.
+    const prenom = prenomPropre(cs.prenom), nomCs = (cs.nom || "").toUpperCase();
+    const ySig = Math.min(Math.max(y + 10, 640), 720);
+    ecrire(prenom || nomCs ? [prenom, nomCs].filter(Boolean).join(" ") : (ag.nom || "L'équipe de l'agence"), 330, ySig, 12.5, fB);
+    ecrire(cs.fonction || "Conseiller immobilier", 330, ySig + 16, 10.5, fI, gris);
+    ecrire([cs.telephone, cs.email].filter(Boolean).join(" · "), 330, ySig + 31, 9.5, fR, gris);
+    return { conseiller: [prenom, nomCs].filter(Boolean).join(" "), basse, haute, libre: !!libre, photo, agence: ag.nom || "" };
+  }
+  const rgb255 = (r, g, b) => window.PDFLib.rgb(r, g, b);
+  async function genererCourrierEstimation(p, courrier) {
+    if (!window.PDFLib || !window.fontkit) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
+    const { PDFDocument } = window.PDFLib;
+    const doc = await PDFDocument.create();
+    doc.registerFontkit(window.fontkit);
+    const page = doc.addPage([595.28, 841.89]);
+    const debug = await dessinerCourrierEstimation(doc, page, p, courrier);
+    doc.setTitle("Courrier d'estimation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
+    const octets = await doc.save();
+    const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
+    const fichier = "courrier-estimation-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf";
+    window.__dernierGuide = { url, octets, fichier, debug }; // relu par le smoke
+    return { url, octets, fichier };
+  }
+  // La fenêtre du courrier : fourchette (pré-remplie depuis le livret) et mot
+  // libre, gardés avec la saisie du livret (acm.courrier) ; aperçu PDF ou envoi
+  // par e-mail (le PDF en pièce jointe, texte du jalon relu avant envoi).
+  async function ouvrirCourrierEstimation(id, p) {
+    let acm = {};
+    try { acm = (await api("/crm/parcours/" + id + "/acm")).acm || {}; } catch { acm = {}; }
+    const cr = acm.courrier && typeof acm.courrier === "object" ? acm.courrier : {};
+    const basse = cr.basse || acm.basse || "", haute = cr.haute || acm.haute || "";
+    ouvrirModale("📨 Courrier d'estimation",
+      '<p class="aide">La fourchette reprend celle du livret prix ; ajustez-la, ajoutez un mot personnel, puis imprimez le courrier ou envoyez-le par e-mail en pièce jointe, signé ' +
+      (p.conseiller ? "<strong>" + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + "</strong>" : "<strong>de l'agence</strong> (choisissez le conseiller sur la fiche)") + ".</p>" +
+      '<div class="grille-champs"><label>Fourchette basse (€)<input id="ce-basse" type="number" step="1000" value="' + escH(basse) + '" /></label>' +
+      '<label>Fourchette haute (€)<input id="ce-haute" type="number" step="1000" value="' + escH(haute) + '" /></label></div>' +
+      '<label style="display:block; margin-top:10px;">Votre mot (facultatif)<textarea id="ce-texte" style="width:100%; min-height:140px; margin-top:4px; font:14px/1.5 inherit;" placeholder="Ce qui justifie la fourchette, les atouts du bien, votre conseil sur le prix de présentation…">' + escH(cr.texte || "") + "</textarea></label>" +
+      '<p class="petit">Le courrier est écrit sur le papier à en-tête de l\'agence, avec la photo et les coordonnées du conseiller.</p>',
+      '<button class="btn" id="ce-retour">Retour</button><button class="btn" id="ce-apercu">🖨 Aperçu PDF</button><button class="btn btn-or" id="ce-envoyer">✉️ Envoyer par e-mail</button>');
+    const lire = () => ({ basse: parseFloat($("ce-basse").value) || 0, haute: parseFloat($("ce-haute").value) || 0, texte: $("ce-texte").value.trim() });
+    const sauver = async () => { const courrier = lire(); await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: { ...acm, courrier } }); acm.courrier = courrier; return courrier; };
+    const verifier = (c) => { if (!c.basse && !c.haute) throw new Error("Indiquez au moins une valeur de la fourchette."); if (c.basse && c.haute && c.basse > c.haute) throw new Error("La fourchette basse dépasse la fourchette haute."); };
+    $("ce-retour").addEventListener("click", () => ouvrirParcours(id));
+    $("ce-apercu").addEventListener("click", async () => {
+      const b = $("ce-apercu"); b.disabled = true; b.textContent = "Préparation…";
+      try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); documentPret(id, "Courrier d'estimation prêt", g.url, g.fichier); }
+      catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "🖨 Aperçu PDF"; }
+    });
+    $("ce-envoyer").addEventListener("click", async () => {
+      const b = $("ce-envoyer"); b.disabled = true; b.textContent = "Préparation…";
+      try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); preparerMailParcours(id, "courrier-estimation", p, null, { nom: g.fichier, octets: g.octets }); }
+      catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "✉️ Envoyer par e-mail"; }
+    });
   }
   // Le courrier seul, imprimable à part (bouton « Mot du directeur » du parcours).
   async function genererMotDirecteur(p) {
@@ -4051,13 +4158,14 @@
 
   // Le mail d'un jalon : sujet et texte pré-remplis, à relire ; aperçu du
   // rendu ; envoi à toutes les personnes de la fiche.
-  async function preparerMailParcours(id, jalon, p, relu) {
+  async function preparerMailParcours(id, jalon, p, relu, piece) {
     let a;
     try { a = await api("/crm/parcours/" + id + "/apercu?jalon=" + jalon); } catch (e) { toast(e.message, true); return; }
     // Retour de l'aperçu : le texte relu reste tel que le conseiller l'a laissé.
     if (relu) { a.sujet = relu.sujet; a.texte = relu.texte; }
     const etape = ETAPES_PARCOURS.find((e) => e.cle === jalon);
     ouvrirModale("✉️ " + (etape ? etape.titre : jalon),
+      (piece ? '<p class="petit" id="pm-piece">📎 Pièce jointe : <strong>' + escH(piece.nom) + "</strong> (" + Math.round(piece.octets.byteLength / 1024) + " Ko)</p>" : "") +
       '<p class="aide">Relisez et ajustez : ce texte partira tel quel à ' +
       (a.destinataires.length ? escH(a.destinataires.join(", ")) : "<strong>personne (pas d'e-mail sur la fiche)</strong>") + ", signé " +
       (p.conseiller ? "<strong>" + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + "</strong>" + escH([p.conseiller.telephone, p.conseiller.email].filter(Boolean).map((x) => " · " + x).join(""))
@@ -4076,13 +4184,15 @@
         const iframe = document.createElement("iframe"); iframe.className = "apercu-mail"; iframe.setAttribute("sandbox", ""); iframe.srcdoc = r.html;
         const corps = $("modale-corps"); corps.innerHTML = ""; corps.appendChild(iframe);
         $("modale-pied").innerHTML = '<button class="btn" id="pm-retour">← Revenir au texte</button>';
-        $("pm-retour").addEventListener("click", () => preparerMailParcours(id, jalon, p, relu));
+        $("pm-retour").addEventListener("click", () => preparerMailParcours(id, jalon, p, relu, piece));
       } catch (e) { toast(e.message, true); }
     });
     $("pm-envoyer").addEventListener("click", async () => {
       const btn = $("pm-envoyer"); btn.disabled = true; btn.textContent = "Envoi…";
       try {
-        const r = await api("/crm/parcours/" + id + "/envoyer", { json: { jalon, sujet: $("pm-sujet").value, texte: $("pm-texte").value } });
+        const corps = { jalon, sujet: $("pm-sujet").value, texte: $("pm-texte").value };
+        if (piece) { let b64 = ""; const u = new Uint8Array(piece.octets); for (let i = 0; i < u.length; i += 8192) b64 += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); corps.piece = { nom: piece.nom, contenu: btoa(b64) }; }
+        const r = await api("/crm/parcours/" + id + "/envoyer", { json: corps });
         toast(r.envoyes + " e-mail(s) envoyé(s)" + (r.erreurs ? " · " + r.erreurs + " erreur(s)" : ""), r.erreurs > 0);
         ouvrirParcours(id);
       } catch (e) { toast(e.message, true); btn.disabled = false; btn.textContent = "✉️ Envoyer"; }

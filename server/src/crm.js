@@ -1082,6 +1082,9 @@ export const MODELES = {
   "parcours-entre-r1-r2": { titre: "Parcours — entre le R1 et le R2 (confirmation de la restitution)", canal: "email",
     sujet: "Merci pour votre accueil — remise de votre estimation le {date_r2}",
     texte: "Bonjour {civilite_nom},\n\nTout d'abord, merci de votre accueil et de votre confiance lors de l'estimation de votre {type_bien}.\n\nJe vous confirme notre rendez-vous de {date_r2} pour la remise de votre estimation, à notre agence située {agence_adresse}.\n\nLors de ce rendez-vous, après avoir fait un point sur toutes les caractéristiques de votre bien, nous échangerons sur l'état du marché immobilier actuel et notre manière de travailler pour vous accompagner dans ce projet, aller chercher ensemble la valeur haute de l'estimation que nous vous proposerons et vous apporter le meilleur service.\n\nPour vous accompagner au mieux, nous aurons par la suite besoin des documents suivants. Ils nous permettront d'être réactifs dans la rédaction et la signature d'un compromis de vente ; cette liste vous permettra de commencer à rassembler toutes les pièces.\n{documents_r2}\n\nJe reste disponible et à votre écoute." },
+  "parcours-courrier-estimation": { titre: "Parcours — courrier d'estimation (fourchette de prix, en pièce jointe)", canal: "email",
+    sujet: "L'estimation de votre {type_bien}",
+    texte: "Bonjour {civilite_nom},\n\nSuite à notre rendez-vous du {date_r2}, veuillez trouver ci-joint le courrier d'estimation de votre {type_bien} {situe} {adresse_bien}.\n\nAu vu du marché actuel et des biens comparables que nous avons étudiés ensemble, nous estimons sa valeur entre {fourchette_basse} et {fourchette_haute}.\n\nJe reste à votre entière disposition pour en parler et pour avancer ensemble sur votre projet.\n\nCordialement," },
   "parcours-apres-r2": { titre: "Parcours — après le R2 (remerciement et avis)", canal: "email",
     sujet: "Merci pour votre confiance",
     texte: "Bonjour {civilite_nom},\n\nJe vous remercie de la confiance que vous nous avez manifestée en faisant appel à notre agence {agence} dans le cadre de l'estimation de votre {type_bien}.\n\nC'est avec grand plaisir que nous vous accompagnerons, avec l'ensemble de l'équipe, tout au long de ce processus et de votre projet dans son ensemble.\n\nComme vous le savez, ce travail est offert, mais notre plus belle rémunération restera à jamais la satisfaction de nos clients.\n\nSi vous avez été satisfaits du travail que nous avons réalisé dans le cadre de ces rendez-vous, je vous invite à nous laisser un avis sur notre page Google ; l'ensemble de l'équipe vous en remercie grandement.\n\nVoici le lien direct pour nous laisser un avis :\n{lien_avis}\n\nBien à vous," },
@@ -1380,7 +1383,7 @@ export function profilAchat(contact) {
 
 // Envoi HTML via Resend, au nom de l'agence (adresse du domaine verifie,
 // reponse dirigee vers la boite de l'agence). Dry run sans RESEND_API_KEY.
-export async function envoyerMailHtml(env, { to, subject, html, fromName, replyTo, bcc }) {
+export async function envoyerMailHtml(env, { to, subject, html, fromName, replyTo, bcc, attachments }) {
   if (!env.RESEND_API_KEY) return { ok: false, dryRun: true };
   const m = /<([^>]+)>/.exec(env.MAIL_FROM || "");
   const fromEmail = (m && m[1]) || "connexion@studiobrochure.fr";
@@ -1390,6 +1393,7 @@ export async function envoyerMailHtml(env, { to, subject, html, fromName, replyT
   };
   if (replyTo) corps.reply_to = [replyTo];
   if (bcc) corps.bcc = [bcc];
+  if (Array.isArray(attachments) && attachments.length) corps.attachments = attachments.map((a) => ({ filename: a.filename, content: a.content }));
   // RESEND_BASE : surchargeable en test (faux serveur local), comme
   // ANTHROPIC_BASE et GRAPH_BASE ailleurs dans le code.
   const res = await fetch((env.RESEND_BASE || "https://api.resend.com") + "/emails", {

@@ -903,6 +903,23 @@ plus à aucun candidat (changement de type) laisse place à la pré-sélection (
 les biens saisis à la main `portail:` restent cochés). Aide des deux listes : « N pièces d'abord ».
 Faux DVF du smoke : appartements 2/3/4 pièces une colonne sur deux ; faux Bien'ici : deux appartements.
 Smoke : fiche en appartement 3 pièces → tous les 3 pièces cochés avant les 2 et 4. Assets `?v=59`.
+**Courrier d'estimation (07/10)** : étape 6 `courrier-estimation` (ETAPES serveur + `ETAPES_PARCOURS`
+client, `doc: "courrier", mail: true, piece: true`), entre l'ACM et l'e-mail après R2 — 7 étapes.
+Fenêtre `ouvrirCourrierEstimation` : fourchette basse/haute pré-remplie depuis le livret (`acm.basse/haute`),
+mot libre ; gardés dans `acm.courrier {basse, haute, texte}` (PUT /acm). PDF `genererCourrierEstimation` →
+`dessinerCourrierEstimation` sur le papier à en-tête commun `enTeteCourrier(doc, page, p, source, photoDe)`
+(extrait du mot du directeur : logo + motif du guide R1 p11, filigrane, coordonnées de l'agence, photo de
+la personne qui signe, date, filet + mentions) ; cadre doré « Fourchette d'estimation », mot libre par
+paragraphes, réserve (« ne constitue pas une expertise »), signature du CONSEILLER (fonction, tél, mail).
+Montants sans espace fine (Barlow n'a pas U+202F). Envoi : jalon mail `courrier-estimation` (JALONS_MAIL,
+modèle `parcours-courrier-estimation` avec `{fourchette_basse}/{fourchette_haute}` lus par `fourchetteDe()`
+— acm.courrier sinon acm —, `{situe}` « située/situé »), `POST /envoyer` exige `piece {nom, contenu base64}`
+(≤ `PIECE_JOINTE_MAX` 4 M, nom nettoyé) → `envoyerMailHtml({attachments})` (Resend `attachments`
+[{filename, content}]). `preparerMailParcours(id, jalon, p, relu, piece)` affiche « 📎 Pièce jointe » et
+encode le PDF. Le PDF pèse ~1,1 Mo (morceaux du guide R1 embarqués). Tests : aperçu avec fourchette,
+priorité de acm.courrier, envoi sans PJ = 400, PJ reçue par le faux Resend, trop lourde = 400 ;
+bibliothèque = 18 modèles. Smoke : saisie, PDF (debug basse/haute/libre/conseiller/photo), réouverture,
+envoi avec PJ (`/__mails` attachments), captures `courrier-saisie.png`/`courrier-mail.png`. Assets `?v=60`.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

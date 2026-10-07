@@ -22,8 +22,10 @@ const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
 const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-export const ETAPES = ["avant-r1", "guide-r1", "entre-r1-r2", "guide-r2", "acm", "apres-r2"];
-const JALONS_MAIL = ["avant-r1", "entre-r1-r2", "apres-r2"];
+export const ETAPES = ["avant-r1", "guide-r1", "entre-r1-r2", "guide-r2", "acm", "courrier-estimation", "apres-r2"];
+// Les jalons qui partent par e-mail ; « courrier-estimation » part avec le courrier PDF en pièce jointe.
+const JALONS_MAIL = ["avant-r1", "entre-r1-r2", "courrier-estimation", "apres-r2"];
+const PIECE_JOINTE_MAX = 4000000; // base64 (~3 Mo de PDF : le papier à en-tête embarque des morceaux du guide R1)
 const PHOTO_MAX = 260000; // data URL ≤ ~200 Ko d'image
 
 // « jeudi 20 avril à 10h » / « lundi 27 mars à 12h30 »
@@ -159,7 +161,7 @@ export function signatureHtml(conseiller, ag, photoUrl) {
 // dans le modèle — le mail après R2 ne part jamais sans lien.
 export const AVIS_DEFAUT = "https://g.page/r/CUA5uMo-Z_RcEB0/review";
 // Variables + texte type (ou surcharge de l'agence) pour un jalon.
-export function preparerMail(est, px, jalon, ag, modeles, proprietaires) {
+export function preparerMail(est, px, jalon, ag, modeles, proprietaires, extra) {
   const cle = "parcours-" + jalon;
   const modele = surchargeModele({ modeles }, cle) || MODELES[cle];
   if (!modele) throw new Error("Jalon inconnu : " + jalon);
@@ -168,8 +170,10 @@ export function preparerMail(est, px, jalon, ag, modeles, proprietaires) {
     civilite_nom: civiliteNoms(px.civilite, est.nom, proprietaires), prenom: px.prenom || "", nom: est.nom || "",
     date_r1: dateFr(est.r1, px.r1_heure), date_r2: dateFr(est.r2, px.r2_heure),
     adresse_bien: adresseBien, adresse: adresseBien, ville: est.ville || "",
-    type_bien: typeBien(px.type_bien),
+    type_bien: typeBien(px.type_bien), situe: typeBien(px.type_bien) === "maison" ? "située" : "situé",
     documents_r1: documentsR1(typeBien(px.type_bien)), documents_r2: documentsR2(typeBien(px.type_bien)),
+    // Courrier d'estimation : la fourchette saisie dans le livret (acm.courrier), sinon celle de l'ACM.
+    fourchette_basse: extra && extra.fourchette_basse || "", fourchette_haute: extra && extra.fourchette_haute || "",
     agence: ag.nom || "notre agence", agence_adresse: ag.adresse || "", lien_avis: ag.avis || AVIS_DEFAUT,
     conseiller: [px.conseiller_prenom, px.conseiller_nom].filter(Boolean).join(" ") || est.conseiller || "",
   };
@@ -178,7 +182,7 @@ export function preparerMail(est, px, jalon, ag, modeles, proprietaires) {
 
 // Les sur-titres ne répètent plus le titre (« Merci de votre confiance » au-dessus
 // de « Merci pour votre confiance » : Benoît le lisait deux fois).
-const EYEBROWS = { "avant-r1": "Estimation de votre bien", "entre-r1-r2": "Votre estimation se prépare", "apres-r2": "Votre projet de vente" };
+const EYEBROWS = { "avant-r1": "Estimation de votre bien", "entre-r1-r2": "Votre estimation se prépare", "courrier-estimation": "Votre estimation", "apres-r2": "Votre projet de vente" };
 export function composerMail({ sujet, texte }, jalon, ag, conseiller, photoUrl) {
   // Un sujet en deux temps (« Merci pour votre accueil — remise de votre
   // estimation le jeudi 20 avril à 10h ») devient un titre et un sous-titre.
@@ -647,7 +651,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!p) return err(c, 404, "Fiche introuvable.");
     const reglages = await getReglages(db, ctx.agency);
     const ag = agencePour(reglages, p.conseiller);
-    const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles, p.proprietaires);
+    const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles, p.proprietaires, await fourchetteDe(p.est.id));
     // ?sujet=&texte= : le rendu du texte relu par le conseiller, avant envoi.
     const relu = { sujet: strip(c.req.query("sujet"), 200) || prep.sujet, texte: String(c.req.query("texte") || "").slice(0, 8000) || prep.texte };
     const html = composerMail(relu, jalon, ag, p.conseiller, p.conseiller && p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "");
@@ -666,7 +670,16 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!destinataires.length) return err(c, 400, "Aucune adresse e-mail sur cette fiche.");
     const reglages = await getReglages(db, ctx.agency);
     const ag = agencePour(reglages, p.conseiller);
-    const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles, p.proprietaires);
+    const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles, p.proprietaires, await fourchetteDe(p.est.id));
+    // Le courrier d'estimation part en pièce jointe (PDF assemblé dans le navigateur, base64).
+    let attachments = null;
+    if (jalon === "courrier-estimation") {
+      const pj = b.piece && typeof b.piece === "object" ? b.piece : null;
+      const contenu = pj ? String(pj.contenu || "") : "";
+      if (!contenu || !/^[A-Za-z0-9+/=]+$/.test(contenu)) return err(c, 400, "Le courrier d'estimation (PDF) manque.");
+      if (contenu.length > PIECE_JOINTE_MAX) return err(c, 400, "Le courrier est trop lourd pour partir en pièce jointe.");
+      attachments = [{ filename: (strip(pj.nom, 120) || "courrier-estimation.pdf").replace(/[^\w.-]+/g, "-"), content: contenu }];
+    }
     const sujet = strip(b.sujet, 200) || prep.sujet;
     const texte = String(b.texte || "").replace(/[\u0000-\u0008\u000b-\u001f]/g, "").slice(0, 8000) || prep.texte;
     const html = composerMail({ sujet, texte }, jalon, ag, p.conseiller, p.conseiller && p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "");
@@ -679,6 +692,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         fromName: [p.conseiller && p.conseiller.prenom, p.conseiller && p.conseiller.nom].filter(Boolean).join(" ") || ag.nom || ctx.agency.name,
         replyTo: (p.conseiller && p.conseiller.email) || ag.email || "",
         bcc: reglages.estimations.cci || "",
+        attachments,
       });
       await db.run(
         "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -987,6 +1001,14 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   // à la lecture, le livret prend ce qui lui manque (surface, terrain, prix
   // envisagé, chambres et pièce de vie — au besoin lus dans le détail des pièces) ;
   // à l'enregistrement, l'estimation reçoit ce qu'elle n'avait pas.
+  // La fourchette du courrier d'estimation : celle saisie pour le courrier, sinon celle du livret.
+  const fourchetteDe = async (estId) => {
+    const row = await db.get("SELECT data FROM crm_parcours_acm WHERE estimation_id = ?", [estId]);
+    let acm = {}; try { acm = row ? JSON.parse(row.data) || {} : {}; } catch { acm = {}; }
+    const cr = acm.courrier && typeof acm.courrier === "object" ? acm.courrier : {};
+    const fmt = (v) => (Number(v) > 0 ? Math.round(Number(v)).toLocaleString("fr-FR") + " €" : "");
+    return { fourchette_basse: fmt(cr.basse || acm.basse), fourchette_haute: fmt(cr.haute || acm.haute) };
+  };
   const bienEstimationDe = async (estId) => {
     const row = await db.get("SELECT data FROM crm_estimation_bien WHERE estimation_id = ?", [estId]);
     try { return row ? JSON.parse(row.data) || {} : {}; } catch { return {}; }

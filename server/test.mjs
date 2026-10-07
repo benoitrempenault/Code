@@ -2735,8 +2735,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   /* ---- Bibliothèque des messages : textes de l'agence -------------------- */
   console.log("— Bibliothèque des messages (surcharges de l'agence)");
   const modeles0 = (await callR("/crm/modeles", { headers: auth })).json.modeles;
-  ok(modeles0.length === 17 && modeles0.every((m) => m.texte && !m.personnalise),
-    "la bibliothèque liste les 17 messages avec leur texte d'origine (dont les deux vœux couple et les trois du parcours R1/R2)");
+  ok(modeles0.length === 18 && modeles0.every((m) => m.texte && !m.personnalise),
+    "la bibliothèque liste les 18 messages avec leur texte d'origine (dont les deux vœux couple et les quatre du parcours R1/R2)");
   ok((await callR("/crm/modeles", { headers: authP })).status === 200,
     "la bibliothèque se lit par tout membre (pour les envois individuels) — l'édition reste admin");
   // Surcharge du mail « veille du R1 » : le prochain envoi part avec CE texte.
@@ -3661,6 +3661,24 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(acmPut.status === 200 && acmGet.acm.prix === 330000 && acmGet.acm.commission[0].nb === 3 && acmGet.acm.ventes[0].adresse === "1 rueTest" && acmGet.acm.profond.a.b.c.d.e === null,
      "la saisie du livret prix se relit, nettoyée des caractères de contrôle et bornée en profondeur");
   ok((await callR("/crm/parcours/" + pxId + "/acm", { headers: authR })).status === 404, "le livret d'un parcours hors périmètre est introuvable");
+  // Le courrier d'estimation : jalon e-mail avec le PDF en pièce jointe ; la fourchette vient
+  // du livret (basse/haute), ou de celle saisie pour le courrier (acm.courrier).
+  { const apC = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=courrier-estimation", { headers: authP })).json;
+    ok(/entre 320 000 € et 340 000 €/.test(apC.texte) && /ci-joint le courrier d'estimation/.test(apC.texte) && /Votre estimation/.test(apC.html),
+       "l'e-mail du courrier d'estimation reprend la fourchette du livret (" + JSON.stringify(apC.sujet) + ")");
+    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { ...acmGet.acm, courrier: { basse: 325000, haute: 345000, texte: "Mot libre" } } });
+    const apC2 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=courrier-estimation", { headers: authP })).json;
+    ok(/entre 325 000 € et 345 000 €/.test(apC2.texte), "la fourchette saisie pour le courrier prime sur celle du livret");
+    const sansPj = await callR("/crm/parcours/" + pxId + "/envoyer", { headers: authP, body: { jalon: "courrier-estimation" } });
+    const pdfB64 = Buffer.from("%PDF-1.4 test").toString("base64");
+    const nbAvant = mailsRecus.length;
+    const avecPj = await callR("/crm/parcours/" + pxId + "/envoyer", { headers: authP, body: { jalon: "courrier-estimation", piece: { nom: "courrier estimation.pdf", contenu: pdfB64 } } });
+    const dernier = mailsRecus[mailsRecus.length - 1];
+    ok(sansPj.status === 400 && avecPj.status === 200 && mailsRecus.length > nbAvant && dernier.attachments && dernier.attachments[0].filename === "courrier-estimation.pdf" && dernier.attachments[0].content === pdfB64
+       && (await callR("/crm/parcours/" + pxId, { headers: authP })).json.journal.some((j) => j.etape === "courrier-estimation"),
+       "le courrier part en pièce jointe (nom nettoyé), jamais sans le PDF, et l'étape se coche (" + JSON.stringify({ sans: sansPj.status, avec: avecPj.status }) + ")");
+    ok((await callR("/crm/parcours/" + pxId + "/envoyer", { headers: authP, body: { jalon: "courrier-estimation", piece: { nom: "x.pdf", contenu: "A".repeat(4000001) } } })).status === 400, "une pièce jointe trop lourde est refusée");
+    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: acmGet.acm }); }
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } });
   const dn0 = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
   await db.run("INSERT OR REPLACE INTO crm_annonces (agency_id, id, url, titre, type, prix, ville, cp, pieces, surface, dpe, description, image, statut, price_history, first_seen, last_seen) VALUES (?, 'maison-haillan-1', 'https://site/maison-1', 'Maison 4 pièces', 'maison', 349000, 'Le Haillan', '33185', 4, 95, 'C', '', 'https://site/photos/m1.jpg', 'en_vente', '[{\"date\":\"2026-08-01\",\"prix\":359000},{\"date\":\"2026-09-01\",\"prix\":349000}]', ?, ?)", [agId, tNow - 40 * 86400, tNow]);

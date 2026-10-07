@@ -61,7 +61,7 @@ export default async function () {
     await page.click("#px-creer");
     await attendreToast(page, "Parcours créé");
     await page.waitForSelector(".etapes", { timeout: 8000 });
-    ok((await page.locator(".etape").count()) === 6 && await page.inputValue("#px-signe") === cs.json.id && (await page.textContent("#px-signe-detail")).includes("06 00 00 00 01"),
+    ok((await page.locator(".etape").count()) === 7 && await page.inputValue("#px-signe") === cs.json.id && (await page.textContent("#px-signe-detail")).includes("06 00 00 00 01"),
       "la fiche s'ouvre sur ses 6 étapes, « Signé par » Teddy BESSON avec son téléphone");
     // Le bien se corrige depuis la fiche et reste même si l'on ferme sans « Enregistrer ».
     await page.click("#modale-corps details:first-of-type summary");
@@ -283,6 +283,42 @@ export default async function () {
     ok(livret.debug.financement && livret.debug.financement.fraisPct === 8 && livret.debug.financement.budget === 367200 && livret.debug.financement.emprunt === 367200 && livret.debug.financement.mensualite === 2022,
       "le financement part du budget réel de l'acquéreur : prix + 8 % de frais de notaire (" + JSON.stringify(livret.debug.financement) + ")");
     await garderGuide(page, livret.octets, "livret-prix-smoke.pdf");
+    // Le courrier d'estimation : fourchette reprise du livret, mot libre, PDF sur papier
+    // à en-tête signé du conseiller, puis envoi par e-mail avec le PDF en pièce jointe.
+    await page.click('[data-guide="courrier"]');
+    await page.waitForSelector("#ce-apercu", { timeout: 8000 });
+    ok(await page.inputValue("#ce-basse") === "320000" && await page.inputValue("#ce-haute") === "340000", "le courrier reprend la fourchette du livret (320 000 – 340 000 €)");
+    await page.fill("#ce-haute", "345000");
+    await page.fill("#ce-texte", "Votre maison bénéficie d'un terrain rare dans le quartier.\nNous vous conseillons un prix de présentation à 345 000 €.");
+    try { await page.screenshot({ path: new URL("./captures/courrier-saisie.png", import.meta.url).pathname }); } catch { }
+    await page.click("#ce-apercu");
+    await page.waitForFunction(() => /Courrier d'estimation prêt/.test(document.getElementById("modale-titre")?.textContent || ""), null, { timeout: 20000 });
+    const courrier = await page.evaluate(async () => {
+      const { PDFDocument } = window.PDFLib; const doc = await PDFDocument.load(window.__dernierGuide.octets);
+      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength, debug: window.__dernierGuide.debug, fichier: window.__dernierGuide.fichier };
+    });
+    const sansFines = (t) => String(t || "").replace(/[\u202f\u00a0]/g, " ");
+    ok(courrier.pages === 1 && /Courrier d'estimation/.test(courrier.titre) && sansFines(courrier.debug.basse) === "320 000 €" && sansFines(courrier.debug.haute) === "345 000 €" && courrier.debug.libre && courrier.debug.conseiller === "Teddy BESSON" && courrier.fichier === "courrier-estimation-mouneyres.pdf",
+      "le courrier d'estimation est assemblé : une page, fourchette retouchée, mot libre, signé du conseiller (" + JSON.stringify({ pages: courrier.pages, titre: courrier.titre, fichier: courrier.fichier, ...courrier.debug }) + ")");
+    await garderGuide(page, courrier.octets, "courrier-estimation-smoke.pdf");
+    await page.click("#doc-retour");
+    await page.waitForSelector('[data-guide="courrier"]', { timeout: 8000 });
+    await page.click('[data-guide="courrier"]');
+    await page.waitForSelector("#ce-envoyer", { timeout: 8000 });
+    ok(await page.inputValue("#ce-haute") === "345000" && /terrain rare/.test(await page.inputValue("#ce-texte")), "la fourchette retouchée et le mot sont retrouvés à la réouverture");
+    await page.click("#ce-envoyer");
+    await page.waitForSelector("#pm-envoyer", { timeout: 20000 });
+    ok(/courrier-estimation-mouneyres\.pdf/.test(await page.textContent("#pm-piece")) && /entre 320 000 € et 345 000 €/.test(sansFines(await page.inputValue("#pm-texte"))),
+      "l'e-mail du courrier annonce la pièce jointe et reprend la fourchette dans le texte");
+    try { await page.screenshot({ path: new URL("./captures/courrier-mail.png", import.meta.url).pathname }); } catch { }
+    const nbMailsAvant = (await (await fetch("http://localhost:18795/__mails")).json()).length;
+    await page.click("#pm-envoyer");
+    await attendreToast(page, "e-mail\\(s\\) envoyé");
+    const mailsCr = await (await fetch("http://localhost:18795/__mails")).json();
+    const mailCr = mailsCr[mailsCr.length - 1];
+    ok(mailsCr.length === nbMailsAvant + 1 && mailCr.attachments && mailCr.attachments.length === 1 && mailCr.attachments[0].filename === "courrier-estimation-mouneyres.pdf" && /^JVBER/.test(mailCr.attachments[0].content) && /320 000 € et 345 000 €/.test(sansFines(mailCr.html)),
+      "l'e-mail part avec le courrier PDF en pièce jointe (" + JSON.stringify({ to: mailCr && mailCr.to, photo: courrier.debug.photo, pj: mailCr && mailCr.attachments && mailCr.attachments.map((a) => [a.filename, a.content.length]) }) + ")");
+    await page.waitForSelector(".etapes", { timeout: 8000 });
     // Un co-propriétaire, créé depuis la fiche : il apparaît sur la fiche, dans le mail et dans la liste.
     await page.click("#px-ajouter-prop");
     await page.waitForSelector("#pp-ajouter", { timeout: 8000 });
@@ -296,8 +332,8 @@ export default async function () {
     await page.click("#pm-annuler");
     await page.waitForSelector("#modale-ok", { timeout: 8000 });
     await page.click("#modale-ok");
-    await page.waitForFunction(() => /4\/6/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
-    ok(/\+1/.test(await page.textContent("#table-parcours")), "la liste montre l'avancement 4/6 et le second propriétaire");
+    await page.waitForFunction(() => /5\/7/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
+    ok(/\+1/.test(await page.textContent("#table-parcours")), "la liste montre l'avancement 5/7 et le second propriétaire");
     // Un APPARTEMENT de 3 pièces : la pré-sélection du livret coche d'abord les 3 pièces
     // (ventes DVF et concurrence), les 2 et 4 pièces restent proposés mais décochés.
     await page.click("#table-parcours tr[data-parcours]");
