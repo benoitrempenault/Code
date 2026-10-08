@@ -117,6 +117,20 @@ Elle se coche, se relance et remonte au tableau de bord et en réunion comme les
 (étiquette « ajoutée à la main », bouton ✕ pour la retirer) ; ajout et retrait sont
 consignés au journal. Le récapitulatif quotidien la compte aussi.
 
+### Saisie dans la fiche (focus conservé)
+
+Le rendu de la fiche (`renderDossier`) remplace tout le HTML de la vue. Deux pertes de
+saisie en découlaient (08/10) : un re-rendu différé (1,2 s après avoir quitté un champ)
+tombait pendant la frappe du champ suivant — le téléphone coupait après le premier
+chiffre — et le re-rendu immédiat au `change` d'un nom de notaire (remplissage depuis
+l'annuaire) survenait AU MILIEU du clic vers la case suivante (mousedown → blur → change →
+mouseup → focus) : la case visée était remplacée avant de recevoir le focus, le clic ne
+faisait rien. Désormais `renderDossier` note le champ actif (`data-path` ou id) et la
+position du curseur, et les remet après le rendu ; et tous les rendus déclenchés par
+`change` passent par `renderDossierApres()` (`setTimeout` 0) pour laisser le clic se
+terminer. Les cartes repliées restent telles que l'utilisateur les a ouvertes
+(`cartesOuvertes`).
+
 ### Effacer une date (téléphone)
 
 Le sélecteur de date natif des téléphones ne propose aucun moyen de revenir à vide :

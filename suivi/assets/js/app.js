@@ -1667,6 +1667,16 @@
     const d = det.data;
     const view = $("#view-dossier");
     const santeD = E.sante(d);
+    /* Le rendu remplace tout le HTML de la vue : le champ où l'on tape
+       perdait le focus (après le premier chiffre d'un téléphone, ou au clic
+       dans la case suivante quand un re-rendu différé tombait à ce moment-là)
+       et il fallait recliquer. On note le champ actif et son curseur pour les
+       remettre à l'identique une fois le nouveau HTML en place. */
+    const actif = document.activeElement;
+    const focusAvant = (actif && view.contains(actif) && (actif.dataset.path || actif.id)) ? {
+      path: actif.dataset.path || "", id: actif.dataset.path ? "" : actif.id,
+      debut: actif.selectionStart, fin: actif.selectionEnd
+    } : null;
 
     // Échéancier groupé par phase.
     const steps = E.compute(d);
@@ -2009,6 +2019,15 @@
       '<datalist id="dlSyndics">' + annuaire.filter((a) => a.type === "syndic" || a.type === "president").map((a) => '<option value="' + esc(a.nom) + '">' + esc(a.type === "president" ? "Président" : "Syndic") + "</option>").join("") + "</datalist>";
 
     replierCartes();
+    if (focusAvant) {
+      const el = focusAvant.path
+        ? view.querySelector('[data-path="' + focusAvant.path.replace(/"/g, '\\"') + '"]')
+        : view.querySelector("#" + CSS.escape(focusAvant.id));
+      if (el) {
+        try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+        try { if (typeof focusAvant.debut === "number") el.setSelectionRange(focusAvant.debut, focusAvant.fin); } catch (e) { /* select, date… */ }
+      }
+    }
     setSaveState(saveState === "dirty" || saveState === "saving" ? saveState : "");
   }
 
@@ -2156,17 +2175,17 @@
         const j = d.journal[Number(idx)];
         if (j && JOURNAL_MARQUES.some((m) => m.key === key)) {
           if (t.checked) j[key] = true; else delete j[key];
-          markDirty(); renderDossier();
+          markDirty(); renderDossierApres();
         }
         return;
       }
-      if (t.dataset.pathCheck) { setByPath(d, t.dataset.pathCheck, t.checked); markDirty(); renderDossier(); return; }
+      if (t.dataset.pathCheck) { setByPath(d, t.dataset.pathCheck, t.checked); markDirty(); renderDossierApres(); return; }
       // Ajout d'un équipement / d'un diagnostic absent du compromis.
-      if (t.dataset.addEquip !== undefined && t.value) { d.equipements[t.value] = true; markDirty(); renderDossier(); return; }
-      if (t.dataset.addDiag !== undefined && t.value) { d.diagnostics[t.value] = ""; markDirty(); renderDossier(); return; }
+      if (t.dataset.addEquip !== undefined && t.value) { d.equipements[t.value] = true; markDirty(); renderDossierApres(); return; }
+      if (t.dataset.addDiag !== undefined && t.value) { d.diagnostics[t.value] = ""; markDirty(); renderDossierApres(); return; }
       if (t.dataset.stepDone != null) {
         marquerEtape(d, t.dataset.stepDone, t.checked);
-        markDirty(); renderDossier(); return;
+        markDirty(); renderDossierApres(); return;
       }
       if (t.dataset.stepDue != null) {
         const id = t.dataset.stepDue;
@@ -2176,7 +2195,7 @@
         const duePath = STEP_DUE_DATE[id];
         if (duePath) { setByPath(d, duePath, t.value); d.etapes[id].due = ""; }
         else d.etapes[id].due = t.value;
-        markDirty(); renderDossier(); return;
+        markDirty(); renderDossierApres(); return;
       }
       // Date « fait le » d'une étape : modifiable, et répercutée sur la date
       // clé correspondante (envoi SRU, DIA, acte…) quand il y en a une.
@@ -2186,7 +2205,7 @@
         d.etapes[id].date = t.value;
         const datePath = STEP_DATE[id];
         if (datePath) setByPath(d, datePath, t.value);
-        markDirty(); renderDossier(); return;
+        markDirty(); renderDossierApres(); return;
       }
       // Auto-remplissage depuis l'annuaire quand un nom connu est saisi.
       if (t.dataset.path === "notaire_vendeur.nom" || t.dataset.path === "notaire_acquereur.nom") {
@@ -2196,7 +2215,7 @@
           ["ville", "telephone", "email"].forEach((k) => {
             if (!getByPath(d, key + "." + k) && e[k]) setByPath(d, key + "." + k, e[k]);
           });
-          markDirty(); renderDossier(); return;
+          markDirty(); renderDossierApres(); return;
         }
       }
       if (t.dataset.path === "syndic.nom") {
@@ -2205,19 +2224,19 @@
           if (!d.syndic.telephone && e.telephone) d.syndic.telephone = e.telephone;
           if (!d.syndic.email && e.email) d.syndic.email = e.email;
           if (!d.syndic.role) d.syndic.role = e.type === "president" ? "president" : "syndic";
-          markDirty(); renderDossier(); return;
+          markDirty(); renderDossierApres(); return;
         }
       }
       // Initiales de conseiller : rafraîchit l'indication « → Nom · e-mail ».
-      if (t.dataset.path === "conseiller_vendeur" || t.dataset.path === "conseiller_acquereur") { renderDossier(); return; }
+      if (t.dataset.path === "conseiller_vendeur" || t.dataset.path === "conseiller_acquereur") { renderDossierApres(); return; }
       // Dates d'entretien / de diagnostic : recalcule aussitôt la validité.
-      if (t.dataset.path && /^(diagnostics|entretiens)\./.test(t.dataset.path)) { markDirty(); renderDossier(); return; }
+      if (t.dataset.path && /^(diagnostics|entretiens)\./.test(t.dataset.path)) { markDirty(); renderDossierApres(); return; }
       // Date clé qui EST l'échéance d'une étape (signature prévue) : on efface
       // une éventuelle surcharge locale pour que l'étape suive la date clé.
       if (t.dataset.path && DUE_DATE_STEP[t.dataset.path]) {
         const stepId = DUE_DATE_STEP[t.dataset.path];
         if (d.etapes[stepId] && d.etapes[stepId].due) d.etapes[stepId].due = "";
-        markDirty(); renderDossier(); return;
+        markDirty(); renderDossierApres(); return;
       }
       // Une date clé renseignée coche l'étape liée et lui donne CETTE date
       // (saisir « DIA envoyée le 12/09 » dans les dates clés coche l'étape
@@ -2227,7 +2246,7 @@
         d.etapes[stepId] = d.etapes[stepId] || {};
         if (t.value) { d.etapes[stepId].done = true; d.etapes[stepId].date = t.value; }
         else if (d.etapes[stepId].done) { d.etapes[stepId].done = false; d.etapes[stepId].date = ""; }
-        markDirty(); renderDossier(); return;
+        markDirty(); renderDossierApres(); return;
       }
       // Champ quitté : l'échéancier peut en dépendre (montant du séquestre,
       // recours au prêt, type de bien…). Le rendu est différé, et cet
@@ -2385,6 +2404,13 @@
     if (focus) focus.focus();
   }
   const renderDossierSoon = debounce(() => { if ((location.hash || "").startsWith("#dossier/")) renderDossier(); }, 1200);
+  /* Rendu « juste après » : un champ quitté (nom du notaire, date, initiales)
+     déclenche un re-rendu, mais l'événement change survient AU MILIEU du clic
+     vers la case suivante (mousedown → blur → change → mouseup → focus). Un
+     rendu synchrone à ce moment-là remplace la case visée avant qu'elle ne
+     reçoive le focus : le clic ne fait rien, il faut recliquer. On laisse le
+     clic se terminer, puis on rend — et renderDossier remet le focus où il est. */
+  const renderDossierApres = () => setTimeout(() => { if ((location.hash || "").startsWith("#dossier/")) renderDossier(); }, 0);
 
   async function deleteCurrent() {
     const det = details[currentId];
