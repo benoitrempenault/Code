@@ -92,7 +92,7 @@ export default async function () {
     await page.click('[data-mail="avant-r1"]');
     await page.waitForSelector("#pm-texte", { timeout: 8000 });
     const texte = await page.inputValue("#pm-texte");
-    ok(/lundi 20 avril à 10h/.test(texte) && /Madame, Monsieur MOUNEYRES/.test(texte) && /titre de propriété/i.test(texte),
+    ok(/lundi 20 avril à 10h/.test(texte) && /madame, monsieur MOUNEYRES/.test(texte) && /titre de propriété/i.test(texte),
       "l'e-mail avant R1 est pré-rempli : date en toutes lettres, civilité, pièces à préparer");
     await page.fill("#pm-texte", texte.replace("belle journée", "excellente journée"));
     await page.click("#pm-apercu");
@@ -328,7 +328,7 @@ export default async function () {
     await page.waitForFunction(() => /DURAND/.test(document.getElementById("modale-corps")?.textContent || ""), null, { timeout: 8000 });
     await page.click('[data-mail="avant-r1"]');
     await page.waitForSelector("#pm-texte", { timeout: 8000 });
-    ok(/Madame, Monsieur MOUNEYRES, Madame DURAND/.test(await page.inputValue("#pm-texte")) && /sophie@smoke.fr/.test(await page.textContent("#modale-corps")), "le mail s'adresse aux deux propriétaires et part aux deux");
+    ok(/madame, monsieur MOUNEYRES, madame DURAND/.test(await page.inputValue("#pm-texte")) && /sophie@smoke.fr/.test(await page.textContent("#modale-corps")), "le mail s'adresse aux deux propriétaires et part aux deux");
     await page.click("#pm-annuler");
     await page.waitForSelector("#modale-ok", { timeout: 8000 });
     await page.click("#modale-ok");

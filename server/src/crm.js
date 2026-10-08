@@ -901,38 +901,6 @@ const IDENTITE_KADIMA = {
   mentions: "KADIMA TB, SAS au capital de 10 000 € - RCS Bordeaux 894 173 947 - SIRET 894 173 947 00017 - Carte professionnelle « Transaction sur immeubles et fonds de commerce » n° CPI 3301 2021 000 000 038 délivrée par la CCI de Bordeaux-Gironde - RC professionnelle Allianz IARD, 1 cours Michelet, CS 30051, 92076 Paris La Défense Cedex, police n° 41319158 - Garantie financière n° 16833320 - Non détention de fonds - Chaque agence est juridiquement et financièrement indépendante.",
 };
 export const estKadima = (agency) => !!agency && (agency.id === KADIMA_AGENCY_ID || /kadima/i.test(String(agency.name || "")));
-/* Les points de vente Kadima et LEUR société (mentions légales du site
-   century21-kadima.fr, relevées le 08/10/2026) : Saint-Médard ET Blanquefort
-   sont KADIMA - TB (l'identité générale, IDENTITE_KADIMA — « Blanquefort, ce
-   sera la même chose que Saint-Médard », Benoît) ; Saint-Aubin est KADIMA
-   GESTION ; Caudéran est la SAS ICI CAUDERAN. Un point de vente sans mentions
-   saisies reçoit celles de sa société ; un point de vente inconnu (ou
-   Blanquefort) retombe sur l'identité générale via agencePour(). */
-const MENTIONS_KADIMA_PV = {
-  cauderan: "SAS ICI CAUDERAN, SAS au capital de 7 500 € - RCS Bordeaux 535 306 880 - TVA FR01535306880 - Siège social : 53 avenue Louis-Barthou, 33200 Bordeaux - Carte professionnelle « Transaction sur immeubles et fonds de commerce » n° CPI 3301 2018 000 031 495 délivrée par la CCI de Bordeaux-Gironde - RC professionnelle Lloyd's Insurance Company S.A., 8-10 rue Lamennais, 75008 Paris, contrat n° SLEGI04254 (par l'intermédiaire de SEGAP) - Transaction exercée sans détention de fonds - Chaque agence est juridiquement et financièrement indépendante.",
-  "saint-aubin": "KADIMA GESTION, SAS au capital de 3 000 € - RCS Bordeaux 908 391 824 - TVA FR60908391824 - Siège social : 20 rue François Mitterrand, 33160 Saint-Médard-en-Jalles - Carte professionnelle n° CPI 3301 2022 000 000 016 délivrée par la CCI de Bordeaux - Garantie financière ALLIANZ IARD, 1 cours Michelet, CS 30051, 92076 Paris La Défense Cedex, 700 000 € (gestion) - Transaction exercée sans détention de fonds - RC professionnelle ALLIANZ IARD, police n° 41543943 - Chaque agence est juridiquement et financièrement indépendante.",
-};
-// La société d'un point de vente Kadima, reconnue à sa clé ou à son nom.
-function mentionsPvKadima(a) {
-  const t = sansAccentsMin((a.cle || "") + " " + (a.nom || ""));
-  if (/cauderan/.test(t)) return MENTIONS_KADIMA_PV.cauderan;
-  if (/saint-?aubin|gestion/.test(t)) return MENTIONS_KADIMA_PV["saint-aubin"];
-  return ""; // Saint-Médard, Blanquefort : KADIMA - TB = identité générale
-}
-// Les points de vente Kadima tels que le site les présente — proposés quand
-// aucune agence n'est encore enregistrée (l'import des conseillers les
-// crée aussi ; ici, ils existent dès le premier e-mail).
-const AGENCES_KADIMA = [
-  { cle: "saint-medard", nom: "CENTURY 21 Kadima Saint-Médard-en-Jalles", adresse: "20-22 rue François Mitterrand, 33160 Saint-Médard-en-Jalles", telephone: "05 56 57 77 77", email: "kadima@century21.fr" },
-  { cle: "cauderan", nom: "CENTURY 21 Kadima Bordeaux Caudéran", adresse: "53 avenue Louis-Barthou, 33200 Bordeaux", telephone: "05 56 02 39 55", email: "kadimacauderan@century21.fr" },
-  { cle: "saint-aubin", nom: "CENTURY 21 Kadima Saint-Aubin-de-Médoc", adresse: "18 bis route de Saint-Médard, 33160 Saint-Aubin-de-Médoc", telephone: "05 47 74 79 21", email: "gestion.kadima@century21.fr" },
-  { cle: "blanquefort", nom: "CENTURY 21 Kadima Blanquefort", adresse: "221 avenue du Général de Gaulle, 33290 Blanquefort", telephone: "05 56 57 77 77", email: "kadima@century21.fr" },
-];
-export function completerAgencesKadima(agency, agences) {
-  if (!estKadima(agency)) return agences;
-  const liste = agences.length ? agences : AGENCES_KADIMA.map((a) => ({ ...a }));
-  return liste.map((a) => (a && !String(a.mentions || "").trim() && mentionsPvKadima(a)) ? { ...a, mentions: mentionsPvKadima(a) } : a);
-}
 export function defaultReglages(agency) {
   const kadima = estKadima(agency) ? IDENTITE_KADIMA : {};
   return {
@@ -962,12 +930,12 @@ export function defaultReglages(agency) {
 export async function getReglages(db, agency) {
   const row = await db.get("SELECT data FROM crm_reglages WHERE agency_id = ?", [agency.id]);
   const def = defaultReglages(agency);
-  if (!row) return { ...def, agences: completerAgencesKadima(agency, def.agences) };
+  if (!row) return def;
   let data = {};
   try { data = JSON.parse(row.data); } catch { }
   return {
     agence: { ...def.agence, ...Object.fromEntries(Object.entries(data.agence || {}).filter(([, v]) => v !== "" && v != null)) }, // un champ vidé reprend sa valeur par défaut (identité Kadima)
-    agences: completerAgencesKadima(agency, Array.isArray(data.agences) ? data.agences : []),
+    agences: Array.isArray(data.agences) ? data.agences : [],
     anniversaires: { ...def.anniversaires, ...(data.anniversaires || {}) },
     annonces: { ...def.annonces, ...(data.annonces || {}) },
     acheteurs: { ...def.acheteurs, ...(data.acheteurs || {}) },
