@@ -931,6 +931,10 @@ générale ; Bcc = « Copie cachée de contrôle » des réglages, sinon l'agenc
 réponse va au conseiller. Le résumé du passage porte `repondre`/`copie`. Expéditeur affiché, texte
 et SMS inchangés. Tests : fiche suivie par un profil avec e-mail + point de vente, fiche sans
 conseiller, conseiller sans profil.
+**Retrait d'un conseiller (08/10)** : `DELETE /agency/users/:id` SUPPRIME les sessions (plus seulement
+`revoked = 1`) avant le compte — D1 vérifie les clés étrangères (`sessions.user_id → users`), Benoît avait
+« FOREIGN KEY constraint failed ». Le SQLite des tests (`createNodeDb`) passe `PRAGMA foreign_keys = ON` :
+toute écriture orpheline échoue désormais en test comme en prod.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

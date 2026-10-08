@@ -505,7 +505,9 @@ export function createApp(env) {
     if (id === ctx.user.id) return err(c, 400, "Vous ne pouvez pas retirer votre propre compte.");
     const u = await db.get("SELECT id FROM users WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);
     if (!u) return err(c, 404, "Conseiller introuvable dans votre agence.");
-    await db.run("UPDATE sessions SET revoked = 1 WHERE user_id = ?", [id]);
+    // Tout ce qui référence le compte part avec lui (clés étrangères D1 :
+    // des sessions seulement révoquées bloquaient la suppression — « FOREIGN KEY constraint failed »).
+    await db.run("DELETE FROM sessions WHERE user_id = ?", [id]);
     await db.run("DELETE FROM login_tokens WHERE user_id = ?", [id]);
     await db.run("DELETE FROM credentials WHERE user_id = ?", [id]);
     await db.run("DELETE FROM users WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);

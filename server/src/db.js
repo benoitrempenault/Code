@@ -35,6 +35,7 @@ export function wrapD1(d1) {
 export async function createNodeDb(path, schemaSql) {
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(path);
+  db.exec("PRAGMA foreign_keys = ON"); // comme D1 : les clés étrangères sont vérifiées (tests fidèles à la prod)
   if (schemaSql) db.exec(schemaSql);
   return {
     async get(sql, params = []) {

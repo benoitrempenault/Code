@@ -773,6 +773,14 @@ ok((await call("/agency/users", { headers: { Authorization: "Bearer " + u2sess }
 // retraits
 ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 400, "l'admin ne peut pas se retirer lui-même");
 ok((await call("/agency/users/" + addC.json.user.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 200, "l'admin retire un conseiller");
+// Un conseiller qui s'est déjà connecté (sessions, jetons) se retire aussi : D1 vérifie les clés
+// étrangères, des sessions seulement révoquées faisaient échouer la suppression (« FOREIGN KEY constraint failed »).
+{ const addT = await call("/agency/users", { headers: { Authorization: "Bearer " + s3 }, body: { email: "temporaire@azur-immo.fr", name: "Tempo" } });
+  const tSess = (await call("/auth/exchange", { body: { token: addT.json.invite_link.split("#token=")[1] } })).json.session;
+  await call("/auth/request-link", { body: { email: "temporaire@azur-immo.fr" } }); // un jeton de connexion en attente, en plus de la session
+  const retraitT = await call("/agency/users/" + addT.json.user.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
+  ok(retraitT.status === 200 && (await call("/me", { headers: { Authorization: "Bearer " + tSess } })).status === 401,
+     "un conseiller déjà connecté se retire : compte, sessions et jetons supprimés ensemble (" + retraitT.status + " " + JSON.stringify(retraitT.json) + ")"); }
 ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Authorization: "Bearer " + s2b } })).status === 404, "une autre agence ne peut pas retirer un conseiller (isolation)");
 // Ouvrir / fermer la page Administration à un conseiller : le rôle se commute.
 const u2Id = (await call("/agency/users", { headers: { Authorization: "Bearer " + s3 } })).json.users
