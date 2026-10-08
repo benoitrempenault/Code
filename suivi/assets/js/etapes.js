@@ -187,11 +187,15 @@
       return (exp && exp < cible) ? { key: x.key, label: x.label, exp } : null;
     }).filter(Boolean);
   }
-  /* Fenêtre d'alerte commune aux diagnostics et aux entretiens : la ligne
-     n'apparaît dans l'échéancier que 30 jours avant l'expiration (elle passe
-     en orange à 7 jours, en rouge une fois périmée). Inutile d'afficher toute
-     l'année une pièce qui est valide. Exception : tant que la date du dernier
-     entretien est inconnue, la pièce est à récupérer — la ligne reste. */
+  /* Fenêtre d'alerte des diagnostics : la ligne n'apparaît dans l'échéancier
+     que 30 jours avant l'expiration (elle passe en orange à 7 jours, en rouge
+     une fois périmée). Inutile d'afficher toute l'année une pièce qui est
+     valide. Les ENTRETIENS, eux, ont leur ligne dès que l'équipement est
+     déclaré au dossier (demande du 08/10) : la date saisie dans « Équipements
+     & entretiens » se retrouve aussitôt dans l'échéancier, avec son échéance
+     (valable un an / deux ans), et un ✕ sur la ligne retire l'équipement du
+     dossier s'il n'y est pas. Tant que la date est inconnue, la pièce est à
+     récupérer. Une fois l'acte signé, plus rien à réclamer. */
   const ALERTE_DIAG = 30;
   function premiereExpiration(d) {
     return diagsARefaire(d).map((x) => x.exp).sort()[0] || "";
@@ -199,11 +203,8 @@
   function echeanceEntretien(d, k) {
     return d.entretiens[k] ? addMonths(d.entretiens[k], ENTRETIENS[k]) : addDays(ssp(d), 15);
   }
-  function alerteEntretien(d, k) {
-    if (d.dates.signature_acte) return false;
-    if (!d.entretiens[k]) return true; // attestation manquante : à récupérer
-    const j = daysUntil(echeanceEntretien(d, k));
-    return j == null || j <= ALERTE_DIAG;
+  function alerteEntretien(d) {
+    return !d.dates.signature_acte;
   }
   /* ------------- Conditions suspensives hors prêt ------------------------
      Elles sont propres à chaque compromis (revente d'un bien de l'acquéreur,
@@ -483,29 +484,29 @@
       hint: "L'offre ne peut être acceptée qu'à partir du 11e jour après réception — demander copie de l'acceptation datée." },
 
 
-    { id: "ramonage", phase: "Entretiens & diagnostics",
+    { id: "ramonage", phase: "Entretiens & diagnostics", equip: "cheminee",
       cible: "conseiller_vendeur", modele: "Relance entretiens & diagnostics",
       label: (d) => d.entretiens.ramonage
         ? "Ramonage — certificat du " + fmtFr(d.entretiens.ramonage) + " (valable un an)"
         : "Certificat de ramonage à récupérer (cheminée / insert / poêle)",
       due: (d) => echeanceEntretien(d, "ramonage"),
-      applies: (d) => equip(d, "cheminee") && alerteEntretien(d, "ramonage"),
+      applies: (d) => equip(d, "cheminee") && alerteEntretien(d),
       hint: "Ramonage annuel obligatoire (deux fois par an dans certains départements) : le certificat doit être à jour à la signature." },
-    { id: "entretien_chaudiere", phase: "Entretiens & diagnostics",
+    { id: "entretien_chaudiere", phase: "Entretiens & diagnostics", equip: "chaudiere",
       cible: "conseiller_vendeur", modele: "Relance entretiens & diagnostics",
       label: (d) => d.entretiens.chaudiere
         ? "Entretien chaudière — attestation du " + fmtFr(d.entretiens.chaudiere) + " (valable un an)"
         : "Attestation d'entretien de la chaudière à récupérer",
       due: (d) => echeanceEntretien(d, "chaudiere"),
-      applies: (d) => equip(d, "chaudiere") && alerteEntretien(d, "chaudiere"),
+      applies: (d) => equip(d, "chaudiere") && alerteEntretien(d),
       hint: "Entretien annuel obligatoire (chaudières 4 à 400 kW)." },
-    { id: "entretien_clim", phase: "Entretiens & diagnostics",
+    { id: "entretien_clim", phase: "Entretiens & diagnostics", equip: "climatisation",
       cible: "conseiller_vendeur", modele: "Relance entretiens & diagnostics",
       label: (d) => d.entretiens.climatisation
         ? "Entretien climatisation / PAC — attestation du " + fmtFr(d.entretiens.climatisation) + " (valable deux ans)"
         : "Attestation d'entretien de la climatisation / PAC à récupérer",
       due: (d) => echeanceEntretien(d, "climatisation"),
-      applies: (d) => equip(d, "climatisation") && alerteEntretien(d, "climatisation"),
+      applies: (d) => equip(d, "climatisation") && alerteEntretien(d),
       hint: "Entretien obligatoire tous les deux ans (pompes à chaleur et climatisations)." },
     // Pas de ligne « tout va bien » : l'étape n'apparaît QUE s'il y a quelque
     // chose à refaire, 30 jours avant l'expiration (elle passe en orange à 7
@@ -616,7 +617,7 @@
         return {
           def: e, id: e.id, label: (typeof e.label === "function" ? e.label(d) : e.label),
           phase: e.phase, cible: e.cible, hint: (typeof e.hint === "function" ? e.hint(d) : e.hint), csIndex: e.csIndex,
-          ajoutee: !!e.ajoutee,
+          ajoutee: !!e.ajoutee, equip: e.equip || "",
           modele: e.modele, modeles: e.modeles || (e.modele ? [e.modele] : []),
           done: cond ? !!cond.levee : !!s.done, date: s.date || "", note: s.note || "", due,
           relance: s.relance || null, // dernière relance envoyée depuis cette étape

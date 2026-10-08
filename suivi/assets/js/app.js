@@ -1700,6 +1700,9 @@
           dateCtl +
           '<span class="delta ' + deltaCls + '">' + esc(deltaTxt) + "</span>" + mailBtn +
           (s.ajoutee ? '<button class="btn btn--sm btn--danger" data-step-rm="' + esc(s.id) + '" title="Retirer cette action ajoutée">✕</button>' : "") +
+          // Ligne d'entretien : ✕ retire l'équipement du dossier (il n'est pas
+          // au bien) — même geste que dans la carte « Équipements ».
+          (s.equip && !s.done ? '<button class="btn btn--sm btn--danger" data-rm-equip="' + esc(s.equip) + '" title="Cet équipement n\'est pas au bien : retirer la ligne">✕</button>' : "") +
           "</div>";
     };
     // Une note du journal marquée « financement » ou « conditions suspensives »
@@ -1974,8 +1977,8 @@
       "« Acte signé le » déclenche l'après-vente (appel &amp; crémaillère, avis, clôture) et reste lié à la case « Acte authentique signé » de l'échéancier.</p></div>" +
 
       '<div class="card"><h3>🔧 Équipements &amp; entretiens</h3>' + entretiensHtml(d) +
-      '<p class="hintline">Cochez les équipements présents : l\'échéancier réclame alors le justificatif et alerte à l\'approche de la péremption ' +
-      "(ramonage et chaudière : un an ; climatisation / PAC : deux ans).</p></div>" +
+      '<p class="hintline">Cochez les équipements présents : chacun a sa ligne dans l\'échéancier dès qu\'il est déclaré — la date saisie ici y fixe l\'échéance ' +
+      "(ramonage et chaudière : un an ; climatisation / PAC : deux ans), et le ✕ de la ligne le retire s'il n'est pas au bien.</p></div>" +
 
       '<div class="card"><h3>🧪 Diagnostics <span class="cnt">validité au jour de la signature</span></h3>' + diagsHtml(d) +
       '<p class="hintline">Saisissez la date de réalisation : la date de fin de validité et l\'alerte se calculent seules. ' +

@@ -1108,6 +1108,18 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   const aj2 = ajouts.find((a) => a.id === "aj_2");
   ok(aj2 && aj2.due === "2026-06-20" && aj2.label === "Rappeler le géomètre", "action libre ajoutée : intitulé et date choisis");
   ok(!ajouts.some((a) => a.id === "aj_3"), "action ajoutée déjà faite : hors récap");
+  // Entretiens : la ligne existe dès que l'équipement est déclaré, même avec
+  // une attestation valable encore des mois (échéance = dernier entretien +
+  // 12 / 24 mois) ; disparaît une fois l'acte signé.
+  const chaud = bien("Maison individuelle", { equipements: { chaudiere: true, climatisation: true }, entretiens: { chaudiere: "2026-05-20", climatisation: "" } });
+  const lignes = actionsFor(chaud, "2026-06-02");
+  const lc = lignes.find((a) => a.id === "entretien_chaudiere");
+  ok(lc && lc.due === "2027-05-20", "chaudière entretenue il y a deux semaines : ligne présente, échéance à un an");
+  const lk = lignes.find((a) => a.id === "entretien_clim");
+  ok(lk && lk.due === "2026-06-16", "climatisation sans date : attestation à récupérer (J+15 du compromis)");
+  ok(!lignes.some((a) => a.id === "ramonage"), "pas de cheminée déclarée : pas de ligne ramonage");
+  const signe = bien("Maison individuelle", { equipements: { chaudiere: true }, entretiens: { chaudiere: "2025-01-07" }, dates: { signature_acte: "2026-06-01" } });
+  ok(!actionsFor(signe, "2026-06-02").some((a) => a.id === "entretien_chaudiere"), "acte signé : plus rien à réclamer");
 }
 
 /* ---- Annuaire : retrouver le notaire du compromis dans la liste --------- */

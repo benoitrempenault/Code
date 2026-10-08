@@ -141,18 +141,16 @@ function diagExpirations(d) {
 function premiereExpiration(d) {
   return diagExpirations(d).filter((e) => e < (dateActe(d) || todayParis())).sort()[0] || "";
 }
-// Entretiens : même fenêtre d'alerte que les diagnostics (30 jours avant
-// l'expiration), sauf attestation manquante — elle reste à récupérer.
+// Entretiens : la ligne vit dès que l'équipement est déclaré (date saisie =
+// échéance calculée, date inconnue = attestation à récupérer) — miroir du
+// client ; plus rien à réclamer une fois l'acte signé.
 const ENTRETIENS_MOIS = { ramonage: 12, chaudiere: 12, climatisation: 24 };
 function echeanceEntretien(d, k) {
   const dernier = (d.entretiens || {})[k];
   return dernier ? addMonths(dernier, ENTRETIENS_MOIS[k]) : addDays(ssp(d), 15);
 }
-function alerteEntretien(d, k) {
-  if (dt(d, "signature_acte")) return false;
-  if (!(d.entretiens || {})[k]) return true;
-  const j = daysUntil(echeanceEntretien(d, k));
-  return j == null || j <= 30;
+function alerteEntretien(d) {
+  return !dt(d, "signature_acte");
 }
 
 // Terrain : aucun délai de rétractation (L271-1 CCH réservé à l'habitation).
