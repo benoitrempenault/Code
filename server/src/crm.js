@@ -1543,6 +1543,28 @@ export async function envoyerSmsBrevo(env, { to, content, sender }) {
   }
 }
 
+// Le profil du conseiller nommé sur une fiche (« BLANC Rémi », « Rémi Blanc »…) :
+// mots du nom comparés sans ordre, accents ni majuscules. Rend {email, agence}.
+const cleNomConseiller = (t) => sansAccentsMin(t).replace(/[^a-z\s-]/g, " ").split(/[\s-]+/).filter((m) => m && !/^(m|mme|mlle|mr)$/.test(m)).sort().join(" ");
+export async function profilConseillerPour(db, agencyId, brut) {
+  const cle = cleNomConseiller(brut);
+  if (!cle) return null;
+  const rows = await db.all(
+    `SELECT cs.prenom, cs.nom, cs.email, COALESCE(pv.pv, '') AS agence FROM crm_conseillers cs
+     LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id WHERE cs.agency_id = ? AND cs.actif = 1`, [agencyId]);
+  return rows.find((r) => cleNomConseiller(r.prenom + " " + r.nom) === cle) || null;
+}
+// À qui le client répond, et qui garde copie : le conseiller de la fiche quand
+// son profil a un e-mail (son agence en copie cachée), sinon l'agence du
+// conseiller, sinon l'identité générale. La copie cachée des réglages prime.
+export async function reponseAnniversaire(db, agency, reglages, contact) {
+  const profil = contact.conseiller ? await profilConseillerPour(db, agency.id, contact.conseiller) : null;
+  const ag = agencePour(reglages, profil);
+  const replyTo = (profil && profil.email) || ag.email || reglages.agence.email || "";
+  const bcc = reglages.anniversaires.cci || (profil && profil.email && ag.email && ag.email !== profil.email ? ag.email : "");
+  return { replyTo, bcc, conseiller: profil ? [profil.prenom, profil.nom].filter(Boolean).join(" ") : "", agence: ag.nom || "" };
+}
+
 export async function runAnniversaires(env, db, agency, reglages) {
   const isoDay = parisDate();
   const annee = parseInt(isoDay.slice(0, 4), 10);
@@ -1573,17 +1595,18 @@ export async function runAnniversaires(env, db, agency, reglages) {
         summary.skipped++; summary.details.push({ contact: label, type, status: "skip", reason: "déjà envoyé cette année" });
       } else {
         const { subject, html } = buildAnniversaireEmail(contact, type, reglages.agence, isoDay, reglages.modeles);
+        const rep = await reponseAnniversaire(db, agency, reglages, contact);
         const r = await envoyerMailHtml(env, {
           to: contact.email, subject, html,
           fromName: reglages.agence.nom || agency.name,
-          replyTo: reglages.agence.email || "",
-          bcc: reglages.anniversaires.cci || "",
+          replyTo: rep.replyTo,
+          bcc: rep.bcc,
         });
         const statut = r.ok ? "ok" : "erreur";
         await db.run(
           "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
           [agency.id, contact.id, label, contact.email, type, annee, statut, r.error || (r.dryRun ? "RESEND_API_KEY absent (dry run)" : ""), now()]);
-        if (r.ok) { summary.sent++; summary.details.push({ contact: label, type, status: "ok" }); }
+        if (r.ok) { summary.sent++; summary.details.push({ contact: label, type, status: "ok", repondre: rep.replyTo, copie: rep.bcc }); }
         else { summary.errors++; summary.details.push({ contact: label, type, status: "erreur", reason: r.error || "dry run" }); }
       }
     }

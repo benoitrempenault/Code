@@ -2332,13 +2332,24 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/anniversaires/test-sms", { headers: auth, body: { telephone: "0662125193" } })).status === 501,
     "sans clé Brevo sur le serveur, le test SMS explique quoi poser (501)");
   await callS("/crm/reglages", { headers: auth, method: "PUT",
-    body: { anniversaires: { enabled: true, smsEnabled: true, smsSignature: "Benoît Rempenault" } } });
+    body: { anniversaires: { enabled: true, smsEnabled: true, smsSignature: "Benoît Rempenault" }, agence: { email: "agence@ach-test.fr" },
+      agences: [{ nom: "Agence Test — Nord", email: "nord@ach-test.fr" }] } });
+  // Le conseiller de la fiche a un profil avec e-mail et un point de vente : le client lui répond, son agence garde copie.
+  const pvNord = (await callS("/crm/reglages", { headers: auth })).json.reglages.agences[0].cle;
+  await callS("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "Nathalie", nom: "FRICK", email: "nathalie@ach-test.fr", agence: pvNord } });
   await callS("/crm/contacts/bulk", { headers: auth, body: { rows: [
     { civilite: "M.", nom: "SMSA Tom", email: "smsa@ach-test.fr", telephone: "06 62 12 51 93", date_naissance: aujJJMM, conseiller: "BLANC Rémi" },
     { civilite: "Mme", nom: "SMSB Léa", telephone: "0755555555", date_naissance: aujJJMM },
     { civilite: "M.", nom: "SMSC Guy", email: "smsc@ach-test.fr", telephone: "0556001122", date_naissance: aujJJMM },
+    { civilite: "Mme", nom: "SMSE Zoé", email: "smse@ach-test.fr", date_naissance: aujJJMM, conseiller: "FRICK Nathalie" },
   ] } });
   const runSms = (await callS("/crm/anniversaires/run", { headers: auth, method: "POST" })).json.summary;
+  { const mZoe = mailsRecus.find((m) => (m.to || [])[0] === "smse@ach-test.fr"), mGuy = mailsRecus.find((m) => (m.to || [])[0] === "smsc@ach-test.fr"), mTom = mailsRecus.find((m) => (m.to || [])[0] === "smsa@ach-test.fr");
+    ok(mZoe && mZoe.reply_to[0] === "nathalie@ach-test.fr" && mZoe.bcc[0] === "nord@ach-test.fr",
+       "le vœu d'une fiche suivie par Nathalie FRICK : la réponse va au conseiller, son agence en copie cachée (" + JSON.stringify(mZoe && [mZoe.reply_to, mZoe.bcc]) + ")");
+    ok(mGuy && mGuy.reply_to[0] === "agence@ach-test.fr" && !mGuy.bcc && mTom && mTom.reply_to[0] === "agence@ach-test.fr",
+       "sans conseiller, ou conseiller sans profil (BLANC Rémi) : la réponse va à l'adresse de l'agence, sans copie");
+    ok(runSms.details.some((d) => /SMSE/.test(d.contact) && d.repondre === "nathalie@ach-test.fr" && d.copie === "nord@ach-test.fr"), "le compte rendu du passage dit à qui le client répondra"); }
   ok(runSms.sms === 2, "deux vœux partis par SMS (mobile requis, le fixe est écarté)");
   const smsTom = smsRecus.find((s) => s.recipient === "+33662125193");
   ok(smsTom && /Rémi/.test(smsTom.content) && /Joyeux anniversaire/.test(smsTom.content) && smsTom.sender.length <= 11,

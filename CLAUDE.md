@@ -923,6 +923,14 @@ envoi avec PJ (`/__mails` attachments), captures `courrier-saisie.png`/`courrier
 **Accueil Studio (07/10)** : ordre des tuiles de `mandat/index.html` : Fiche, Brochure, Suivi, Formation,
 Parcours R1/R2, Administration. Les **Permanences** n'ont plus de tuile : onglet-lien « 🗓️ Permanences »
 dans la barre de l'Administration (`administration/index.html`, après Bilans vendeurs ; caché en mode conseiller).
+**Vœux d'anniversaire : à qui le client répond (08/10)** : `reponseAnniversaire(db, agency, reglages, contact)`
+(crm.js) — `profilConseillerPour()` retrouve le profil du conseiller nommé sur la fiche (mots du nom
+comparés sans ordre/accents/casse, civilités ignorées ; `crm_conseillers` + `crm_conseillers_pv`) ;
+Reply-To = e-mail du profil, sinon e-mail de l'agence du conseiller (`agencePour`), sinon identité
+générale ; Bcc = « Copie cachée de contrôle » des réglages, sinon l'agence du conseiller quand la
+réponse va au conseiller. Le résumé du passage porte `repondre`/`copie`. Expéditeur affiché, texte
+et SMS inchangés. Tests : fiche suivie par un profil avec e-mail + point de vente, fiche sans
+conseiller, conseiller sans profil.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique
