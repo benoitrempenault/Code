@@ -39,17 +39,15 @@ export function dateFr(iso, heure) {
   return s;
 }
 
-// « Madame, Monsieur DUPONT » / « Madame DUPONT » / « Monsieur DUPONT » —
-// civilités avec leur majuscule (demande de Benoît du 08/10 : les mails de
-// confirmation s'ouvrent sur « Bonjour Madame, Monsieur DUPONT »).
+// « madame, monsieur DUPONT » / « madame DUPONT » / « monsieur DUPONT »
 export function civiliteNom(civilite, nom) {
   const c = String(civilite || "").toLowerCase();
-  const qui = /et|&|\//.test(c) ? "Madame, Monsieur" : /mme|madame|mlle/.test(c) ? "Madame" : /^m\b|monsieur|mr/.test(c) ? "Monsieur" : "Madame, Monsieur";
+  const qui = /et|&|\//.test(c) ? "madame, monsieur" : /mme|madame|mlle/.test(c) ? "madame" : /^m\b|monsieur|mr/.test(c) ? "monsieur" : "madame, monsieur";
   return [qui, String(nom || "").trim()].filter(Boolean).join(" ");
 }
 
-// Plusieurs propriétaires : « Madame DURAND, Monsieur MOUNEYRES », ou
-// « Madame, Monsieur MOUNEYRES » quand ils portent le même nom.
+// Plusieurs propriétaires : « madame DURAND, monsieur MOUNEYRES », ou
+// « madame, monsieur MOUNEYRES » quand ils portent le même nom.
 const sansAccentsBas = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 export function civiliteNoms(civilite, nom, proprietaires) {
   const liste = (proprietaires || []).filter((o) => o && (o.nom || o.prenom));
