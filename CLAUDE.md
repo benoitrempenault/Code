@@ -800,6 +800,24 @@ et Saint-Médard restent sans mentions propres → `agencePour` retombe sur l'id
 Des mentions saisies dans Réglages → Nos agences priment toujours. Civilités des mails du
 parcours avec majuscule (« Bonjour Madame, Monsieur DUPONT », `civiliteNom`). Les différences
 des guides R1/R2 par agence restent À FAIRE (Benoît doit les envoyer).
+**Guides par agence, 2e lot (08/10)** : (1) **page « Votre conseiller » composée** — le modèle R1
+n'a que 12 pages dessinées (Saint-Médard, `guide-r1.json.conseillers`) ; pour tout autre
+conseiller (Laurent DENAUD, l'équipe de Caudéran…) `dessinerPageConseiller` (admin.js) copie la
+première page conseiller du modèle, efface tout sauf le cadre et le titre, et compose : photo
+ronde (`imageRonde`, canvas → PNG), prénom / NOM (Barlow-Italic 23), mail, téléphone, fonction en
+or, agence, puis le texte personnel du profil (Réglages → Les conseillers → « Texte personnel »)
+ou une présentation type ; `__dernierGuide.pageConseiller`. (2) **Notes « Notre agence »**
+(R1 p3 = R2 p11, chiffres Bugaki figés par le graphiste) : `dessinerNotesAvis` efface les quatre
+chiffres et réécrit ceux de l'AGENCE DU CONSEILLER (Barlow-Bold 16,8, relief or) — champs
+`avisC21Note/avisC21Nb/avisGoogleNote/avisGoogleNb` par point de vente (Réglages → Nos agences) ;
+ordre `agencePour` : saisie du point de vente > relevé automatique (`reglages.avisAuto[cle]`,
+`server/src/avis.js` : Google Places New avec `GOOGLE_PLACES_KEY` + `googlePlaceId`, page
+century21.fr `urlC21` parsée par `parserC21` ; cron 6 h + `POST /crm/avis/rafraichir` admin ;
+`PLACES_BASE` en test) > identité (Saint-Médard : 9,5 / 1 610 / 4,9 / 864 du 26/09). Blanquefort
+hérite de Saint-Médard, Caudéran a ses chiffres dès qu'ils sont saisis ou relevés. (3) Caudéran :
+mot du directeur signé **Benjamin FAURE** par défaut (`completerAgencesKadima`), photo = son
+profil. (4) Réponse aux mails du parcours : `replyTo` = e-mail du profil du conseiller (sinon
+l'agence) — test « Répondre ». Assets admin `?v=61`.
 **Guide R1 (05/10, suite)** : (1) la page 12 du modèle guide-r1.pdf est une IMAGE d'un ancien mot du
 directeur (nommait toujours Rémi Blanc, site C21 de Saint-Médard) → `genererGuideR1` la retire et
 insère à sa place une page dessinée par `dessinerMotDirecteur(doc, page, p, source)` (le bouton « Mot du

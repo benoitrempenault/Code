@@ -8,6 +8,7 @@ import { runRecap } from "./src/recap.js";
 import { releverAbsencesOutlook } from "./src/releve.js";
 import { runCrmDaily, menageQuotidien } from "./src/crm.js";
 import { rappelsOffres } from "./src/offres-cron.js";
+import { rafraichirAvis } from "./src/avis.js";
 import { runBilans, rappelImport } from "./src/bilans.js";
 
 export default {
@@ -21,7 +22,7 @@ export default {
     // d'anniversaire, agence par agence. Inerte tant que l'agence n'a rien
     // activé dans ses réglages Administration.
     // Le ménage (corbeille > 30 j, sessions mortes, liens périmés) passe avant.
-    if (event.cron === "0 6 * * *") { ctx.waitUntil(menageQuotidien(db, env.FILES || null).then(() => runCrmDaily(env, db)).then(() => rappelsOffres(env, db))); return; }
+    if (event.cron === "0 6 * * *") { ctx.waitUntil(menageQuotidien(db, env.FILES || null).then(() => runCrmDaily(env, db)).then(() => rappelsOffres(env, db)).then(() => rafraichirAvis(env, db).catch(() => { }))); return; }
     // Lundi 5h UTC : brouillons des bilans vendeurs de la semaine écoulée
     // (budget de sous-requêtes à part de celui du cron de 6h). Inerte tant
     // que l'agence n'a pas activé les bilans dans ses réglages.
