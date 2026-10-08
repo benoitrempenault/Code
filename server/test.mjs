@@ -3623,6 +3623,10 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(supPx.status === 200 && (await callR("/crm/parcours/" + pxSup.id, { headers: authP })).status === 404 && !(await callR("/crm/estimations", { headers: authP })).json.estimations.some((e) => e.id === pxSup.id)
      && (await callR("/crm/contacts", { headers: auth })).json.contacts.some((x) => x.id === pxSup.contact_id),
      "effacé : plus de parcours ni de fiche estimation, le contact est gardé");
+  { const d1 = await callR("/crm/parcours", { headers: authP, body: { civilite: "Mme", prenom: "Dou", nom: "BLONNE", adresse: "3 rue du Double", cp: "33160", ville: "SAINT MEDARD", type_bien: "maison" } });
+    const d2 = await callR("/crm/parcours", { headers: authP, body: { civilite: "Mme", prenom: "Dou", nom: "BLONNE", adresse: "3 rue du Double", cp: "33160", ville: "SAINT MEDARD", type_bien: "maison" } });
+    ok(d1.status === 200 && d2.status === 200 && d2.json.id === d1.json.id && d2.json.doublon === true, "un double clic sur « Créer le parcours » ne crée qu'une fiche (la seconde demande rend la première)");
+    await callR("/crm/parcours/" + d1.json.id, { headers: authP, method: "DELETE" }); }
   const lp = (await callR("/crm/parcours", { headers: authP })).json.parcours.find((p) => p.id === pxId);
   ok(lp && lp.cs_nom === "BESSON" && lp.journal.length === 2, "la liste des parcours porte le conseiller et l'avancement (" + JSON.stringify(lp && { cs: lp.cs_nom, journal: lp.journal }) + ")");
   // Guide R2 : ce que le conseiller saisit (photo du bien, points forts, objections, son texte).

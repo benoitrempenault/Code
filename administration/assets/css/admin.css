@@ -77,18 +77,20 @@ input, select, textarea {
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
 input::placeholder { color: #6c6960; }
 /* Champs date / heure : le picto natif (calendrier, horloge) est dessiné en
-   noir par le navigateur et disparaissait sur le fond sombre. On le passe en
-   blanc, plus grand, en doré au survol, et tout le champ ouvre le sélecteur. */
-input[type="date"], input[type="time"], input[type="datetime-local"] { color-scheme: dark; cursor: pointer; }
+   noir par le navigateur et disparaissait sur le fond sombre. color-scheme:dark
+   le passe en blanc ; on le grossit dans une pastille dorée, bien visible, et
+   tout le champ ouvre le sélecteur. */
+input[type="date"], input[type="time"], input[type="datetime-local"] { color-scheme: dark; cursor: pointer; padding-right: 6px; }
 input[type="date"]::-webkit-calendar-picker-indicator,
 input[type="time"]::-webkit-calendar-picker-indicator,
 input[type="datetime-local"]::-webkit-calendar-picker-indicator {
-  filter: invert(1) brightness(1.4); opacity: .95; width: 20px; height: 20px; padding: 2px; margin-left: 6px;
-  border-radius: 6px; cursor: pointer;
+  width: 22px; height: 22px; padding: 4px; margin-left: 8px; box-sizing: content-box;
+  background-color: rgba(190, 177, 138, .22); border: 1px solid var(--accent); border-radius: 8px;
+  opacity: 1; cursor: pointer; transition: background-color .15s;
 }
 input[type="date"]::-webkit-calendar-picker-indicator:hover,
 input[type="time"]::-webkit-calendar-picker-indicator:hover,
-input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover { filter: invert(.75) sepia(1) saturate(4) hue-rotate(5deg); }
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover { background-color: rgba(190, 177, 138, .55); }
 
 .case { display: flex; align-items: center; gap: 7px; font-size: 14px; color: var(--text); cursor: pointer; }
 .case input { accent-color: var(--accent); width: 16px; height: 16px; }

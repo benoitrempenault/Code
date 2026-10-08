@@ -2704,12 +2704,13 @@
     $("px-q").addEventListener("input", () => { clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
     brancherMenuConseillers("px-conseiller");
     $("px-creer").addEventListener("click", async () => {
+      const btn = $("px-creer"); if (btn.disabled) return; btn.disabled = true; btn.textContent = "Création…"; // un double clic ne crée qu'une fiche
       try {
         const bien = lireBienFiche();
         const r = await api("/crm/parcours", { json: { ...lireFormulaireParcours(null), contact_id: contactId } });
         if (Object.values(bien).some((x) => x != null)) { try { await sauverBienFiche(r.id, bien); } catch (e) { toast("Le bien n'a pas été enregistré : " + e.message, true); } }
         toast(r.contact_cree ? "Parcours créé, et la fiche contact avec lui" : "Parcours créé"); await chargerParcours(); ouvrirParcours(r.id);
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toast(e.message, true); btn.disabled = false; btn.textContent = "Créer le parcours"; }
     });
   }
   async function ouvrirParcours(id) {

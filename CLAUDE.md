@@ -947,6 +947,10 @@ conseiller, conseiller sans profil.
 `revoked = 1`) avant le compte — D1 vérifie les clés étrangères (`sessions.user_id → users`), Benoît avait
 « FOREIGN KEY constraint failed ». Le SQLite des tests (`createNodeDb`) passe `PRAGMA foreign_keys = ON` :
 toute écriture orpheline échoue désormais en test comme en prod.
+**Double clic « Créer le parcours » (08/10)** : bouton désactivé pendant la création (`px-creer`), et côté
+serveur `POST /crm/parcours` rend la fiche créée il y a < 20 s pour la même adresse et le même contact
+ou nom (`doublon: true`) — un second bien du même client (autre adresse) reste une nouvelle fiche.
+Picto calendrier/horloge : pastille dorée bordée (`::-webkit-calendar-picker-indicator`, 22 px). Assets `?v=61`.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

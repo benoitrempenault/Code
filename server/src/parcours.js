@@ -530,6 +530,15 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
           [contactId, ctx.agency.id, ctx.user.id, ct.civilite, ct.prenom, ct.nom, ct.email, ct.telephone, ct.adresse, ct.cp, ct.ville, JSON.stringify(ct.types), ct.conseiller, now(), now()]);
       }
     }
+    // Double clic sur « Créer le parcours » : la même fiche (même adresse, et même
+    // contact ou même nom) créée il y a moins de 20 s est rendue telle quelle. Un
+    // second bien du même client (autre adresse) reste une nouvelle fiche.
+    const recent = await db.get(
+      `SELECT e.id FROM crm_estimations e JOIN crm_parcours p ON p.estimation_id = e.id
+       WHERE e.agency_id = ? AND e.created_at > ? AND e.adresse = ? COLLATE NOCASE AND ((? <> '' AND e.contact_id = ?) OR e.nom = ? COLLATE NOCASE)
+       ORDER BY e.created_at DESC LIMIT 1`,
+      [ctx.agency.id, now() - 20, v.adresse || "", contactId, contactId, v.nom]);
+    if (recent) return c.json({ ok: true, id: recent.id, contact_id: contactId, contact_cree: false, doublon: true });
     const id = randId("es");
     await db.run(
       `INSERT INTO crm_estimations (id, agency_id, contact_id, nom, email, telephone, adresse, ville,
