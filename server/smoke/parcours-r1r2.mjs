@@ -125,30 +125,6 @@ export default async function () {
       "le guide R1 fait 14 pages (13 communes + Teddy Besson) au nom du client (" + JSON.stringify({ ...guide, mot: undefined }) + ")");
     ok(guide.mot && guide.mot.conseiller === "Teddy BESSON" && guide.mot.signataire === "Benoît REMPENAULT", "la page 13 du guide R1 est le mot du directeur généré, au nom du conseiller du parcours (" + JSON.stringify(guide.mot) + ")");
     await garderGuide(page, guide.octets, "guide-r1-smoke.pdf");
-    // Un conseiller SANS page dessinée dans le modèle (Laurent Denaud, Caudéran) :
-    // la page « Votre conseiller » est composée depuis son profil (photo du site),
-    // et la page « Notre agence » porte les notes réglées pour l'agence.
-    await api("/crm/reglages", { headers: admin.auth, method: "PUT", body: { agence: { avisC21Note: "9,1", avisC21Nb: "203", avisGoogleNote: "4,6", avisGoogleNb: "97" } } });
-    const idDenaud = await page.evaluate(() => [...document.querySelectorAll("#px-signe option")].find((o) => /Denaud/i.test(o.textContent))?.value);
-    ok(!!idDenaud, "Laurent Denaud (équipe du site) est proposé comme signataire");
-    await page.selectOption("#px-signe", idDenaud);
-    await attendreToast(page, "signés du conseiller choisi");
-    await page.waitForFunction((id) => document.querySelector("#px-signe") && document.querySelector("#px-signe").value === id, idDenaud, { timeout: 8000 });
-    await page.click('[data-guide="r1"]');
-    await page.waitForSelector("#doc-retour", { timeout: 30000 });
-    await page.click("#doc-retour");
-    const guideD = await page.evaluate(async () => {
-      const doc = await window.PDFLib.PDFDocument.load(window.__dernierGuide.octets);
-      return { pages: doc.getPageCount(), pageConseiller: window.__dernierGuide.pageConseiller, avis: window.__dernierGuide.avis, mot: window.__dernierGuide.mot };
-    });
-    ok(guideD.pages === 14 && guideD.pageConseiller && guideD.pageConseiller.genere && guideD.pageConseiller.photo && /DENAUD/.test(guideD.pageConseiller.conseiller),
-      "sans page dédiée, le guide R1 compose la page « Votre conseiller » de Laurent DENAUD avec sa photo (" + JSON.stringify(guideD.pageConseiller) + ")");
-    ok(Array.isArray(guideD.avis) && guideD.avis.join("|") === "9,1 / 10|203 avis|4,6 / 5|97 avis", "la page « Notre agence » porte les notes réglées (" + JSON.stringify(guideD.avis) + ")");
-    ok(guideD.mot && /DENAUD/.test(guideD.mot.conseiller), "le mot du directeur nomme Laurent DENAUD");
-    await garderGuide(page, (await page.evaluate(() => window.__dernierGuide.octets.byteLength)), "guide-r1-denaud-smoke.pdf");
-    await page.selectOption("#px-signe", cs.json.id);
-    await attendreToast(page, "signés du conseiller choisi");
-    await page.waitForFunction((id) => document.querySelector("#px-signe") && document.querySelector("#px-signe").value === id, cs.json.id, { timeout: 8000 });
     // Le guide R2 : points forts, objections, texte du conseiller, puis commune + commodités + ventes + cartes.
     await page.click('[data-guide="r2"]');
     await page.waitForSelector("#r2-generer", { timeout: 8000 });
@@ -192,7 +168,6 @@ export default async function () {
     ok(guide2.pages === 20 && /Vendons ensemble/.test(guide2.titre) && /MOUNEYRES/.test(guide2.titre) && guide2.octets > 1000000,
       "le guide R2 fait 20 pages au nom du client, cartes et polices embarquées (" + JSON.stringify(guide2) + ")");
     await garderGuide(page, guide2.octets, "guide-r2-smoke.pdf");
-    ok((await page.evaluate(() => (window.__dernierGuide.avis || []).join("|"))) === "9,1 / 10|203 avis|4,6 / 5|97 avis", "le guide R2 porte les mêmes notes « Notre agence »");
     // La commission d'évaluation : le lien, un collègue qui vote depuis la page publique, le report dans le livret.
     await page.click("[data-commission]");
     await page.waitForSelector("#com-qr", { timeout: 10000 });

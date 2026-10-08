@@ -898,9 +898,6 @@ const IDENTITE_KADIMA = {
   logoUrl: "https://benoitrempenault.github.io/Code/administration/assets/img/logo-c21-kadima.png", // logo « 21 CENTURY 21 Kadima » (or sur fond sombre) en tête des e-mails
   instagram: "https://instagram.com/century_21_kadima", facebook: "https://www.facebook.com/century21.kadima",
   avis: "https://g.page/r/CUA5uMo-Z_RcEB0/review",
-  // Notes affichées page « Notre agence » des guides R1/R2 (relevées le 26/09/2026 ;
-  // rafraîchies par avis.js quand un identifiant Google / une page century21.fr sont réglés)
-  avisC21Note: "9,5", avisC21Nb: "1 610", avisGoogleNote: "4,9", avisGoogleNb: "864",
   mentions: "KADIMA TB, SAS au capital de 10 000 € - RCS Bordeaux 894 173 947 - SIRET 894 173 947 00017 - Carte professionnelle « Transaction sur immeubles et fonds de commerce » n° CPI 3301 2021 000 000 038 délivrée par la CCI de Bordeaux-Gironde - RC professionnelle Allianz IARD, 1 cours Michelet, CS 30051, 92076 Paris La Défense Cedex, police n° 41319158 - Garantie financière n° 16833320 - Non détention de fonds - Chaque agence est juridiquement et financièrement indépendante.",
 };
 export const estKadima = (agency) => !!agency && (agency.id === KADIMA_AGENCY_ID || /kadima/i.test(String(agency.name || "")));
@@ -927,24 +924,14 @@ function mentionsPvKadima(a) {
 // crée aussi ; ici, ils existent dès le premier e-mail).
 const AGENCES_KADIMA = [
   { cle: "saint-medard", nom: "CENTURY 21 Kadima Saint-Médard-en-Jalles", adresse: "20-22 rue François Mitterrand, 33160 Saint-Médard-en-Jalles", telephone: "05 56 57 77 77", email: "kadima@century21.fr" },
-  { cle: "cauderan", nom: "CENTURY 21 Kadima Bordeaux Caudéran", adresse: "53 avenue Louis-Barthou, 33200 Bordeaux", telephone: "05 56 02 39 55", email: "kadimacauderan@century21.fr", signataire: "Benjamin FAURE", fonction: "Directeur d'agence" },
+  { cle: "cauderan", nom: "CENTURY 21 Kadima Bordeaux Caudéran", adresse: "53 avenue Louis-Barthou, 33200 Bordeaux", telephone: "05 56 02 39 55", email: "kadimacauderan@century21.fr" },
   { cle: "saint-aubin", nom: "CENTURY 21 Kadima Saint-Aubin-de-Médoc", adresse: "18 bis route de Saint-Médard, 33160 Saint-Aubin-de-Médoc", telephone: "05 47 74 79 21", email: "gestion.kadima@century21.fr" },
   { cle: "blanquefort", nom: "CENTURY 21 Kadima Blanquefort", adresse: "221 avenue du Général de Gaulle, 33290 Blanquefort", telephone: "05 56 57 77 77", email: "kadima@century21.fr" },
 ];
 export function completerAgencesKadima(agency, agences) {
   if (!estKadima(agency)) return agences;
   const liste = agences.length ? agences : AGENCES_KADIMA.map((a) => ({ ...a }));
-  return liste.map((a) => {
-    if (!a) return a;
-    const out = { ...a };
-    if (!String(out.mentions || "").trim() && mentionsPvKadima(out)) out.mentions = mentionsPvKadima(out);
-    // Caudéran : le mot du directeur est signé de Benjamin FAURE (08/10) — sauf saisie.
-    if (/cauderan/.test(sansAccentsMin((out.cle || "") + " " + (out.nom || "")))) {
-      if (!String(out.signataire || "").trim()) out.signataire = "Benjamin FAURE";
-      if (!String(out.fonction || "").trim()) out.fonction = "Directeur d'agence";
-    }
-    return out;
-  });
+  return liste.map((a) => (a && !String(a.mentions || "").trim() && mentionsPvKadima(a)) ? { ...a, mentions: mentionsPvKadima(a) } : a);
 }
 export function defaultReglages(agency) {
   const kadima = estKadima(agency) ? IDENTITE_KADIMA : {};
@@ -953,8 +940,6 @@ export function defaultReglages(agency) {
       signataire: "", fonction: "", // qui signe les vœux et messages (ex. Benoît REMPENAULT, Directeur)
       instagram: "", facebook: "", avis: "", // réseaux et lien « laissez-nous un avis » (parcours R1/R2)
       mentions: "", // mentions légales (pied des e-mails), reprises par les agences qui n'en ont pas
-      avisC21Note: "", avisC21Nb: "", avisGoogleNote: "", avisGoogleNb: "", // notes « Notre agence » des guides
-      urlC21: "", googlePlaceId: "", // sources du relevé automatique des notes (avis.js)
       ...kadima },
     // Les points de vente du groupe : chaque conseiller est rattaché à l'un
     // d'eux, et ses e-mails/guides portent le nom, l'adresse, le téléphone,
@@ -977,7 +962,7 @@ export function defaultReglages(agency) {
 export async function getReglages(db, agency) {
   const row = await db.get("SELECT data FROM crm_reglages WHERE agency_id = ?", [agency.id]);
   const def = defaultReglages(agency);
-  if (!row) return { ...def, agences: completerAgencesKadima(agency, def.agences), avisAuto: {} };
+  if (!row) return { ...def, agences: completerAgencesKadima(agency, def.agences) };
   let data = {};
   try { data = JSON.parse(row.data); } catch { }
   return {
@@ -991,7 +976,6 @@ export async function getReglages(db, agency) {
     amepi: { ...def.amepi, ...(data.amepi || {}) },
     modeles: data.modeles && typeof data.modeles === "object" ? data.modeles : {},
     offres: { ...def.offres, ...(data.offres || {}) },
-    avisAuto: data.avisAuto && typeof data.avisAuto === "object" ? data.avisAuto : {}, // relevé automatique des notes (avis.js), par clé d'agence
   };
 }
 const slug = (t) => sansAccentsMin(t).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
@@ -1006,33 +990,21 @@ export function sanitizeAgences(liste) {
     while (vues.has(cle)) cle = base + "-" + n++;
     vues.add(cle);
     out.push({ cle, nom, adresse: strip(a.adresse, 300), telephone: strip(a.telephone, 40), email: strip(a.email, 160).toLowerCase(), avis: strip(a.avis, 300), mentions: strip(a.mentions, 1000),
-      site: strip(a.site, 160), signataire: strip(a.signataire, 120), fonction: strip(a.fonction, 80), // site, directeur et sa fonction : guides, mot du directeur
-      // Notes « Notre agence » (guides R1/R2) saisies à la main, et sources du relevé automatique
-      avisC21Note: strip(a.avisC21Note, 10), avisC21Nb: strip(a.avisC21Nb, 12), avisGoogleNote: strip(a.avisGoogleNote, 10), avisGoogleNb: strip(a.avisGoogleNb, 12),
-      urlC21: strip(a.urlC21, 300), googlePlaceId: strip(a.googlePlaceId, 120) });
+      site: strip(a.site, 160), signataire: strip(a.signataire, 120), fonction: strip(a.fonction, 80) }); // site, directeur et sa fonction : guides, mot du directeur
   }
   return out;
 }
 // L'identité qui habille un e-mail ou un guide : celle de l'agence du
 // conseiller quand il en a une (clé `agence` de son profil), complétée par
 // l'identité générale pour tout ce que le point de vente ne précise pas.
-export const AVIS_CHAMPS = ["avisC21Note", "avisC21Nb", "avisGoogleNote", "avisGoogleNb"];
 export function agencePour(reglages, conseiller) {
   const base = reglages.agence || {};
   const cle = conseiller && conseiller.agence;
   const pv = cle ? (reglages.agences || []).find((a) => a.cle === cle) : null;
-  const auto = reglages.avisAuto || {};
-  // Les notes d'avis : saisie du point de vente > relevé automatique du point
-  // de vente > relevé automatique de l'identité > identité (chiffres figés).
-  const notes = (p) => {
-    const out = {};
-    for (const k of AVIS_CHAMPS) out[k] = (p && p[k]) || (p && auto[p.cle] && auto[p.cle][k]) || (auto.agence && auto.agence[k]) || base[k] || "";
-    return out;
-  };
-  if (!pv) return { ...base, ...notes(null) };
+  if (!pv) return base;
   const out = { ...base, pv: pv.cle };
-  for (const k of ["nom", "adresse", "telephone", "email", "avis", "mentions", "site", "signataire", "fonction", "urlC21", "googlePlaceId"]) if (pv[k]) out[k] = pv[k];
-  return { ...out, ...notes(pv) };
+  for (const k of ["nom", "adresse", "telephone", "email", "avis", "mentions", "site", "signataire", "fonction"]) if (pv[k]) out[k] = pv[k];
+  return out;
 }
 export async function saveReglages(db, agency, userId, incoming) {
   const cur = await getReglages(db, agency);
@@ -1047,7 +1019,6 @@ export async function saveReglages(db, agency, userId, incoming) {
     amepi: { ...cur.amepi, ...(incoming.amepi || {}) },
     modeles: { ...cur.modeles, ...(incoming.modeles || {}) },
     offres: OFFRES.sanitizeReglagesOffres(incoming.offres && typeof incoming.offres === "object" ? incoming.offres : {}, cur.offres),
-    avisAuto: cur.avisAuto || {}, // jamais saisi ici : posé par avis.js
   };
   for (const k of Object.keys(next.agence)) next.agence[k] = strip(next.agence[k], k === "mentions" ? 1000 : 300);
   next.anniversaires.enabled = !!next.anniversaires.enabled;
