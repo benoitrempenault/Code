@@ -38,6 +38,8 @@ const app = createApp({
   BREVO_API_KEY: process.env.BREVO_API_KEY || "",
   BREVO_BASE: process.env.BREVO_BASE || "",
   DVF_BASE: process.env.DVF_BASE || "",
+  KADIMA_SITE_BASE: process.env.KADIMA_SITE_BASE || "", // avis par point de vente (faux site Kadima en smoke)
+  APP_API_BASE: process.env.APP_API_BASE || "", // origine publique de l'API (photos des conseillers) ; en smoke, l'URL de prod relayée par Playwright
   BAN_BASE: process.env.BAN_BASE || "",
   OVERPASS_BASE: process.env.OVERPASS_BASE || "", GEO_BASE: process.env.GEO_BASE || "", BIENICI_BASE: process.env.BIENICI_BASE || "", BIENICI_SUGGEST: process.env.BIENICI_SUGGEST || "",
   BATIMENTS_BASE: process.env.BATIMENTS_BASE || "",

@@ -939,6 +939,44 @@ toute écriture orpheline échoue désormais en test comme en prod.
 serveur `POST /crm/parcours` rend la fiche créée il y a < 20 s pour la même adresse et le même contact
 ou nom (`doublon: true`) — un second bien du même client (autre adresse) reste une nouvelle fiche.
 Picto calendrier/horloge : pastille dorée bordée (`::-webkit-calendar-picker-indicator`, 22 px). Assets `?v=61`.
+**Parcours par point de vente (08/10)** : tout ce qui part au client (mails, signature, pied de page,
+guides) suit l'AGENCE DU CONSEILLER (`crm_conseillers_pv` → `agencePour`). Règle de Benoît :
+**Blanquefort = Saint-Médard** (même société KADIMA - TB, mêmes mentions, même lien d'avis, mêmes
+chiffres d'avis) ; **Caudéran** = SAS ICI CAUDERAN ; Saint-Aubin = KADIMA GESTION. `MENTIONS_KADIMA_PV` +
+`completerAgencesKadima()` (crm.js, relevé du site century21-kadima.fr/mentions-legales le 08/10) :
+`getReglages` complète les mentions VIDES des points de vente reconnus (cauderan, saint-aubin/gestion)
+et propose les 4 points de vente (`AGENCES_KADIMA`) quand aucun n'est enregistré ; une saisie dans
+Réglages → Nos agences prime. Civilités des mails avec majuscule (`civiliteNom` : « Bonjour Madame,
+Monsieur DUPONT »).
+**Guides par point de vente, suite (08/10)** — Benoît a annulé l'autre discussion : tout est ici.
+- **Caudéran signé Benjamin FAURE** : `completerAgencesKadima` pose `signataire: "Benjamin FAURE"`,
+  `fonction: "Directeur d'agence"` sur le point de vente cauderan sans signataire → mot du directeur
+  (guide R1 p13) et courriers signés de lui, photo = son profil conseiller (importé du site). Saint-Médard
+  et Blanquefort restent signés de Benoît (identité générale).
+- **Page « Votre conseiller » générée (guide R1)** : le modèle n'a de page que pour 12 conseillers de
+  Saint-Médard ; sans page (`pageCs` absent), `genererGuideR1` insère `"generee"` dans `ordre` et dessine
+  `dessinerPageConseiller(doc, page, p)` : titre, photo ronde (`recadrerRond`, PNG), nom, mail, téléphone,
+  fonction, agence, puis les **avis clients du profil** (`crm_conseillers_avis`, champ `#cs-avis` de la
+  fiche conseiller, un avis par paragraphe, dernière ligne courte = signature ; sans avis : le 1er
+  paragraphe de la bio) en deux colonnes. `__dernierGuide.pageConseiller {source, conseiller, avis, photo}`.
+  `registerFontkit` dès la création du doc R1.
+- **Avis clients par point de vente, relevés sur le site Kadima** : `crm_avis_agences` ;
+  `releverAvisAgences(env, db, agency, reglages)` (crm.js) lit `KADIMA_SITE_BASE`/agences/<page>/ —
+  `pageAvisKadima` : saint-medard & **blanquefort → saint-medard-en-jalles**, cauderan, saint-aubin-de-medoc —
+  et `lireAvisPageKadima(html)` : JSON-LD `aggregateRating` (note + nb d'avis Google) et la phrase
+  « <strong>9,5/10</strong> en achat-vente (1 617 avis) … relevé du 8 octobre 2026 » (Century 21 /
+  Qualitelis). Cron de 6 h (`runCrmDaily`, agences Kadima — ou toute agence quand KADIMA_SITE_BASE est
+  surchargé en test), `POST /crm/avis-agences/relever` (admin), `GET /crm/avis-agences` (membre, relance en
+  fond si > 24 h, appelé au démarrage de l'admin). `GET /crm/parcours/:id` → `agence.avis_chiffres`
+  (`avisAgence` : point de vente du conseiller, sinon Saint-Médard). Navigateur : `redessinerAvisAgence`
+  blanchit et réécrit « 9,3 / 10 », « 572 avis », « 4,9 / 5 », « 425 avis » sur R1 p3 / R2 p11 (Barlow-Bold
+  or + ombre ; Bugaki du modèle = usage personnel, non embarquable ; `Y(y) = h − y + mediabox.y`).
+  « 98 % », « 3 532 projets », témoignages et logos restent ceux du modèle (différences par agence à venir).
+  Relevé réel du 08/10 : Saint-Médard 4,9/869 Google, 9,5/1 617 C21 ; Caudéran 4,9/425, 9,3/572 ;
+  Saint-Aubin 4,9/323 ; Blanquefort sans chiffres propres.
+- Smoke : faux site Kadima (18805), `APP_API_BASE` = URL de prod relayée (les photos des conseillers passent
+  la CSP), Laurent Denaud (Caudéran) → page générée avec 2 avis et photo, p3 aux chiffres de Caudéran.
+  Tests : lecture de page, relevé, fiche, droits ; avis du profil. Assets `?v=62`.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

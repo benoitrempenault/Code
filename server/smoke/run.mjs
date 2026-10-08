@@ -121,6 +121,16 @@ const bienici = createServer((req, res) => {
   res.end(JSON.stringify({ total: tous.length, realEstateAds: tous.filter((a) => !typeDemande || a.propertyType === typeDemande) }));
 }).listen(PORT_BIENICI);
 
+// 1 quinquies) Faux site century21-kadima.fr : pages d'agence avec les avis (guides, page « Notre agence »).
+const PORT_SITE_KADIMA = 18805;
+const PAGE_AVIS = (note, nb, c21, nbC21) => `<html><head><script type="application/ld+json">{"@type":"RealEstateAgent","aggregateRating":{"@type":"AggregateRating","ratingValue":${note},"reviewCount":${nb},"bestRating":5}}</script></head><body><p>Nos clients nous notent aussi via le réseau : <strong>${c21}/10</strong> en achat-vente (${nbC21} avis) et <strong>9,7/10</strong> en location-gestion — avis clients contrôlés Century 21 (Qualitelis), relevé du 8 octobre 2026 · <a href="https://x/avis">les consulter</a>.</p></body></html>`;
+createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  if (req.url.startsWith("/agences/cauderan/")) return res.end(PAGE_AVIS("4.9", 425, "9,3", "572"));
+  if (req.url.startsWith("/agences/saint-medard-en-jalles/")) return res.end(PAGE_AVIS("4.9", 869, "9,5", "1\u202f617"));
+  res.end("<html><body>rien</body></html>");
+}).listen(PORT_SITE_KADIMA);
+
 // 1 quater) Faux site Kadima (bilans vendeurs) : la route à clé des
 // statistiques par annonce, trois semaines, deux annonces en vente.
 const PORT_STATS = 18803;
@@ -175,7 +185,7 @@ const dbPath = join(tmpdir(), "studio-smoke-" + process.pid + ".sqlite");
 const apiProc = spawn(process.execPath, ["node.js"], {
   cwd: resolve(ICI, ".."), stdio: ["ignore", "pipe", "pipe"],
   env: { ...process.env, PORT: String(PORT_API), DB_PATH: dbPath, DEV_MODE: "1", ADMIN_KEY: "dev-admin",
-    APP_ORIGINS: "http://localhost:" + PORT_SITE, OFFRE_BASE: "http://localhost:" + PORT_SITE + "/offre", BAN_BASE: "http://localhost:" + PORT_BAN, DVF_BASE: "http://localhost:" + PORT_DVF, BIENICI_BASE: "http://localhost:" + PORT_BIENICI, BIENICI_SUGGEST: "http://localhost:" + PORT_BIENICI + "/suggest.json", BATIMENTS_BASE: "http://localhost:" + PORT_IGN,
+    APP_ORIGINS: "http://localhost:" + PORT_SITE, OFFRE_BASE: "http://localhost:" + PORT_SITE + "/offre", BAN_BASE: "http://localhost:" + PORT_BAN, KADIMA_SITE_BASE: "http://localhost:" + PORT_SITE_KADIMA, APP_API_BASE: "https://studio-brochure-api.studiobrochure.workers.dev", DVF_BASE: "http://localhost:" + PORT_DVF, BIENICI_BASE: "http://localhost:" + PORT_BIENICI, BIENICI_SUGGEST: "http://localhost:" + PORT_BIENICI + "/suggest.json", BATIMENTS_BASE: "http://localhost:" + PORT_IGN,
     RESEND_API_KEY: "re_smoke", RESEND_BASE: "http://localhost:" + PORT_RESEND, MAIL_FROM: "smoke@studio.test",
     OVERPASS_BASE: "http://localhost:" + PORT_OVERPASS, GEO_BASE: "http://localhost:" + PORT_GEO,
     SITE_STATS_BASE: "http://localhost:" + PORT_STATS, SITE_STATS_KEY: "cle-smoke", META_GRAPH_BASE: "http://localhost:" + PORT_META + "/v23.0" },

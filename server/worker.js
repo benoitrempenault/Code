@@ -54,6 +54,7 @@ export default {
       // Bilans vendeurs : statistiques par annonce du site de l'agence
       // (kadima-site, clé partagée = STUDIO_STATS_KEY côté site).
       SITE_STATS_BASE: env.SITE_STATS_BASE || "",
+      KADIMA_SITE_BASE: env.KADIMA_SITE_BASE || "", // avis clients par point de vente (pages d'agence du site Kadima) : surchargeable en test
       SITE_STATS_KEY: env.SITE_STATS_KEY || "",
       BILANS_BASE: env.BILANS_BASE || "",
       META_GRAPH_BASE: env.META_GRAPH_BASE || "", // Facebook / Instagram (bilans vendeurs) : surchargeable en test

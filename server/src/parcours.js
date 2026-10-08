@@ -16,7 +16,7 @@
    que le conseiller a déjà envoyé à la main.
    ========================================================================= */
 import { now, randId, randToken } from "./util.js";
-import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier } from "./crm.js";
+import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier , releverAvisAgences, avisAgence } from "./crm.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
@@ -39,15 +39,17 @@ export function dateFr(iso, heure) {
   return s;
 }
 
-// « madame, monsieur DUPONT » / « madame DUPONT » / « monsieur DUPONT »
+// « Madame, Monsieur DUPONT » / « Madame DUPONT » / « Monsieur DUPONT » —
+// civilités avec leur majuscule (demande de Benoît du 08/10 : les mails de
+// confirmation s'ouvrent sur « Bonjour Madame, Monsieur DUPONT »).
 export function civiliteNom(civilite, nom) {
   const c = String(civilite || "").toLowerCase();
-  const qui = /et|&|\//.test(c) ? "madame, monsieur" : /mme|madame|mlle/.test(c) ? "madame" : /^m\b|monsieur|mr/.test(c) ? "monsieur" : "madame, monsieur";
+  const qui = /et|&|\//.test(c) ? "Madame, Monsieur" : /mme|madame|mlle/.test(c) ? "Madame" : /^m\b|monsieur|mr/.test(c) ? "Monsieur" : "Madame, Monsieur";
   return [qui, String(nom || "").trim()].filter(Boolean).join(" ");
 }
 
-// Plusieurs propriétaires : « madame DURAND, monsieur MOUNEYRES », ou
-// « madame, monsieur MOUNEYRES » quand ils portent le même nom.
+// Plusieurs propriétaires : « Madame DURAND, Monsieur MOUNEYRES », ou
+// « Madame, Monsieur MOUNEYRES » quand ils portent le même nom.
 const sansAccentsBas = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 export function civiliteNoms(civilite, nom, proprietaires) {
   const liste = (proprietaires || []).filter((o) => o && (o.nom || o.prenom));
@@ -233,6 +235,9 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       "INSERT INTO crm_conseillers_extra (id, bio, genre, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET bio = excluded.bio, genre = excluded.genre, updated_at = excluded.updated_at",
       [id, bio, genre, now()]);
   };
+  const ecrireAvis = (id, avis) => db.run(
+    "INSERT INTO crm_conseillers_avis (id, avis, updated_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET avis = excluded.avis, updated_at = excluded.updated_at",
+    [id, String(avis || "").replace(/[\u0000-\u0008\u000b-\u001f]/g, "").slice(0, 4000), now()]);
   const ecrirePv = (id, pv) => db.run(
     "INSERT INTO crm_conseillers_pv (id, pv, updated_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET pv = excluded.pv, updated_at = excluded.updated_at",
     [id, strip(pv, 40), now()]);
@@ -242,8 +247,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   app.get("/crm/conseillers", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const rows = await db.all(
-      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre, COALESCE(d.direction, 0) AS direction, COALESCE(pv.pv, '') AS agence
-       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_direction d ON d.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id
+      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre, COALESCE(d.direction, 0) AS direction, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis
+       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_direction d ON d.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id
        WHERE cs.agency_id = ? ORDER BY cs.nom COLLATE NOCASE, cs.prenom COLLATE NOCASE`, // ordre alphabétique sans tenir compte des majuscules (BUISSON passait avant Besson)
       [ctx.agency.id]);
     return c.json({ conseillers: rows.map((r) => ({ ...r, direction: !!r.direction, bio: r.bio || "", genre_pose: r.genre || "", genre: r.genre || genrePrenom(r.prenom), a_photo: !!r.a_photo, photo_url: r.a_photo ? photoUrl(c, r.id) : "" })) });
@@ -266,6 +271,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(id, b);
       if (b.direction !== undefined) await ecrireDirection(id, b.direction === true || b.direction === 1);
       if (b.agence !== undefined) await ecrirePv(id, b.agence);
+      if (b.avis !== undefined) await ecrireAvis(id, b.avis);
       return c.json({ ok: true, id });
     }
     // Sans id : un profil qui existe déjà (même e-mail, ou même prénom + nom)
@@ -278,6 +284,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(deja.id, b);
       if (b.direction !== undefined) await ecrireDirection(deja.id, b.direction === true || b.direction === 1);
       if (b.agence !== undefined) await ecrirePv(deja.id, b.agence);
+      if (b.avis !== undefined) await ecrireAvis(deja.id, b.avis);
       return c.json({ ok: true, id: deja.id, existant: true });
     }
     const nb = await db.get("SELECT COUNT(*) AS n FROM crm_conseillers WHERE agency_id = ?", [ctx.agency.id]);
@@ -289,6 +296,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(nid, b);
     if (b.direction !== undefined) await ecrireDirection(nid, b.direction === true || b.direction === 1);
     if (b.agence !== undefined) await ecrirePv(nid, b.agence);
+    if (b.avis !== undefined) await ecrireAvis(nid, b.avis);
     return c.json({ ok: true, id: nid });
   });
   // Même personne : même e-mail, ou même prénom + nom sans accents ni casse
@@ -450,8 +458,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       { estimation_id: id, civilite: "", prenom: "", cp: "", type_bien: "maison", r1_heure: "", r2_heure: "", conseiller_id: "", journal: "[]" };
     let journal = []; try { journal = JSON.parse(px.journal || "[]"); } catch { }
     const conseiller = px.conseiller_id ? await db.get(
-      `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, (cs.photo <> '') AS a_photo, x.bio, x.genre, COALESCE(pv.pv, '') AS agence
-       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id WHERE cs.id = ? AND cs.agency_id = ?`, [px.conseiller_id, agencyId]) : null;
+      `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, (cs.photo <> '') AS a_photo, x.bio, x.genre, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis
+       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id WHERE cs.id = ? AND cs.agency_id = ?`, [px.conseiller_id, agencyId]) : null;
     if (conseiller) { conseiller.bio = conseiller.bio || ""; conseiller.genre = conseiller.genre || genrePrenom(conseiller.prenom); }
     const proprietaires = await proprietairesDe(agencyId, est);
     return { est, px: { ...px, journal, conseiller_prenom: conseiller ? conseiller.prenom : "", conseiller_nom: conseiller ? conseiller.nom : "" }, conseiller, proprietaires };
@@ -463,6 +471,23 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     return [...new Set([est.email, ...lies.map((r) => r.email)].map((e) => String(e || "").trim().toLowerCase()).filter(Boolean))];
   };
 
+  // Les avis clients par point de vente (page « Notre agence » des guides) :
+  // relevés sur le site Kadima chaque nuit ; ici à la demande (admin) ou si rien n'a été relevé depuis 24 h.
+  app.post("/crm/avis-agences/relever", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const faits = await releverAvisAgences(env, db, ctx.agency, await getReglages(db, ctx.agency));
+    return c.json({ ok: true, releves: faits });
+  });
+  app.get("/crm/avis-agences", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const rows = await db.all("SELECT * FROM crm_avis_agences WHERE agency_id = ?", [ctx.agency.id]);
+    const vieux = !rows.length || rows.every((r) => r.updated_at < now() - 86400);
+    if (vieux) {
+      const maj = releverAvisAgences(env, db, ctx.agency, await getReglages(db, ctx.agency)).catch(() => []);
+      try { c.executionCtx.waitUntil(maj); } catch { await maj; }
+    }
+    return c.json({ avis: rows });
+  });
   app.get("/crm/parcours", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const per = await perimetre(ctx);
@@ -598,7 +623,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const ag = agencePour(await getReglages(db, ctx.agency), p.conseiller);
     return c.json({ ...p.est, ...p.px, id: p.est.id, emails: await emailsDe(ctx.agency.id, p.est), proprietaires: p.proprietaires,
       agence: { pv: ag.pv || "", nom: ag.nom || "", adresse: ag.adresse || "", telephone: ag.telephone || "", email: ag.email || "", mentions: ag.mentions || "",
-        site: ag.site || "", signataire: ag.signataire || "", fonction: ag.fonction || "", avis: ag.avis || "" }, // site, directeur : mot du directeur, guide R2 ; avis : QR du guide R1
+        site: ag.site || "", signataire: ag.signataire || "", fonction: ag.fonction || "", avis: ag.avis || "",
+        avis_chiffres: await avisAgence(db, ctx.agency.id, ag.pv || "") }, // site, directeur : mot du directeur, guide R2 ; avis : QR du guide R1 ; avis_chiffres : page « Notre agence »
       conseiller: p.conseiller ? { ...p.conseiller, photo_url: p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "" } : null });
   });
 

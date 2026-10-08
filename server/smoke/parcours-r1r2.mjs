@@ -92,7 +92,7 @@ export default async function () {
     await page.click('[data-mail="avant-r1"]');
     await page.waitForSelector("#pm-texte", { timeout: 8000 });
     const texte = await page.inputValue("#pm-texte");
-    ok(/lundi 20 avril à 10h/.test(texte) && /madame, monsieur MOUNEYRES/.test(texte) && /titre de propriété/i.test(texte),
+    ok(/lundi 20 avril à 10h/.test(texte) && /Madame, Monsieur MOUNEYRES/.test(texte) && /titre de propriété/i.test(texte),
       "l'e-mail avant R1 est pré-rempli : date en toutes lettres, civilité, pièces à préparer");
     await page.fill("#pm-texte", texte.replace("belle journée", "excellente journée"));
     await page.click("#pm-apercu");
@@ -319,6 +319,33 @@ export default async function () {
     ok(mailsCr.length === nbMailsAvant + 1 && mailCr.attachments && mailCr.attachments.length === 1 && mailCr.attachments[0].filename === "courrier-estimation-mouneyres.pdf" && /^JVBER/.test(mailCr.attachments[0].content) && /320 000 € et 345 000 €/.test(sansFines(mailCr.html)),
       "l'e-mail part avec le courrier PDF en pièce jointe (" + JSON.stringify({ to: mailCr && mailCr.to, photo: courrier.debug.photo, pj: mailCr && mailCr.attachments && mailCr.attachments.map((a) => [a.filename, a.content.length]) }) + ")");
     await page.waitForSelector(".etapes", { timeout: 8000 });
+    // Un conseiller SANS page dans le modèle (Laurent Denaud, Caudéran) : la page « Votre
+    // conseiller » est générée depuis son profil (photo, coordonnées, avis clients saisis), le mot
+    // du directeur suit son agence, et la page « Notre agence » porte les avis relevés sur le site
+    // Kadima pour Caudéran (faux site : Google 4,9/5 · 425 avis, Century 21 9,3/10 · 572 avis).
+    const relAvis = await api("/crm/avis-agences/relever", { headers: admin.auth, body: {} });
+    ok(relAvis.status === 200 && relAvis.json.releves.some((r) => r.cle === "cauderan" && r.avis_google === 425), "les avis des points de vente sont relevés sur le (faux) site Kadima (" + JSON.stringify(relAvis.json) + ")");
+    const csTous = (await api("/crm/conseillers", { headers: admin.auth })).json.conseillers;
+    const denaud = csTous.find((x) => /denaud/i.test(x.nom));
+    ok(!!denaud && denaud.agence === "cauderan", "Laurent Denaud est importé du site avec son agence (Caudéran)");
+    await api("/crm/conseillers", { headers: admin.auth, method: "PUT", body: { id: denaud.id, prenom: denaud.prenom, nom: denaud.nom, avis: "Laurent a été parfait du début à la fin, disponible et de bon conseil.\nMartine. D\n\nUne estimation juste et un suivi impeccable jusqu'à la signature.\nPaul. R" } });
+    await page.selectOption("#px-signe", denaud.id);
+    await page.waitForFunction((id) => document.querySelector("#px-signe") && document.querySelector("#px-signe").value === id, denaud.id, { timeout: 8000 });
+    await page.click('[data-guide="r1"]');
+    await page.waitForFunction(() => /Guide R1 prêt/.test(document.getElementById("modale-titre")?.textContent || ""), null, { timeout: 30000 });
+    const gD = await page.evaluate(async () => { const { PDFDocument } = window.PDFLib; const doc = await PDFDocument.load(window.__dernierGuide.octets); return { pages: doc.getPageCount(), octets: window.__dernierGuide.octets.byteLength, pageConseiller: window.__dernierGuide.pageConseiller, avis: window.__dernierGuide.avisAgence, mot: window.__dernierGuide.mot }; });
+    const photoEtat = await page.evaluate(async (u) => { try { const r = await fetch(u); return r.status + " " + (r.headers.get("content-type") || ""); } catch (e) { return "erreur " + e.message; } }, denaud.photo_url);
+    ok(gD.pages === 14 && gD.pageConseiller && gD.pageConseiller.source === "generee" && gD.pageConseiller.avis === 2 && gD.pageConseiller.conseiller === "Laurent DENAUD",
+      "sans page dans le modèle, la page « Votre conseiller » est générée depuis le profil avec ses deux avis (" + JSON.stringify({ ...gD.pageConseiller, photoEtat, photo_url: denaud.photo_url }) + ")");
+    ok(gD.avis && gD.avis.cle === "cauderan" && gD.avis.note_google === "4,9" && gD.avis.avis_google === "425" && gD.avis.note_c21 === "9,3" && gD.avis.avis_c21 === "572",
+      "la page « Notre agence » porte les avis relevés pour Caudéran (" + JSON.stringify(gD.avis) + ")");
+    await garderGuide(page, gD.octets, "guide-r1-denaud-smoke.pdf");
+    await page.click("#doc-retour");
+    await page.waitForSelector("#px-signe", { timeout: 8000 });
+    await page.selectOption("#px-signe", cs.json.id);
+    await attendreToast(page, "signés du conseiller");
+    // La fiche se réaffiche avec le nouveau signataire (téléphone de Teddy) : on attend ce rendu avant de continuer.
+    await page.waitForFunction(() => /06 00 00 00 01/.test(document.getElementById("px-signe-detail")?.textContent || ""), null, { timeout: 8000 });
     // Un co-propriétaire, créé depuis la fiche : il apparaît sur la fiche, dans le mail et dans la liste.
     await page.click("#px-ajouter-prop");
     await page.waitForSelector("#pp-ajouter", { timeout: 8000 });
@@ -328,12 +355,12 @@ export default async function () {
     await page.waitForFunction(() => /DURAND/.test(document.getElementById("modale-corps")?.textContent || ""), null, { timeout: 8000 });
     await page.click('[data-mail="avant-r1"]');
     await page.waitForSelector("#pm-texte", { timeout: 8000 });
-    ok(/madame, monsieur MOUNEYRES, madame DURAND/.test(await page.inputValue("#pm-texte")) && /sophie@smoke.fr/.test(await page.textContent("#modale-corps")), "le mail s'adresse aux deux propriétaires et part aux deux");
+    ok(/Madame, Monsieur MOUNEYRES, Madame DURAND/.test(await page.inputValue("#pm-texte")) && /sophie@smoke.fr/.test(await page.textContent("#modale-corps")), "le mail s'adresse aux deux propriétaires et part aux deux");
     await page.click("#pm-annuler");
     await page.waitForSelector("#modale-ok", { timeout: 8000 });
     await page.click("#modale-ok");
     await page.waitForFunction(() => /5\/7/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
-    ok(/\+1/.test(await page.textContent("#table-parcours")), "la liste montre l'avancement 5/7 et le second propriétaire");
+    ok(/\+1/.test(await page.textContent("#table-parcours")), "la liste montre l'avancement 5/7 et le second propriétaire (" + (await page.textContent("#table-parcours")).replace(/\s+/g, " ").slice(0, 300) + ")");
     // Un APPARTEMENT de 3 pièces : la pré-sélection du livret coche d'abord les 3 pièces
     // (ventes DVF et concurrence), les 2 et 4 pièces restent proposés mais décochés.
     await page.click("#table-parcours tr[data-parcours]");

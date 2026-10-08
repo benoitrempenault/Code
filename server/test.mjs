@@ -1999,6 +1999,16 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     res.end(JSON.stringify({ total: tous.length, realEstateAds: tous.filter((a) => !typeDemande || a.propertyType === typeDemande) }));
   });
   await new Promise((r) => fauxBienici.listen(18786, r));
+  // Faux site century21-kadima.fr : une page par agence, avec les données structurées (avis Google)
+  // et la phrase des avis Century 21 (Qualitelis), telles que le vrai site les publie.
+  const PAGE_AVIS = (note, nb, c21, nbC21) => `<html><head><script type="application/ld+json">{"@type":"RealEstateAgent","aggregateRating":{"@type":"AggregateRating","ratingValue":${note},"reviewCount":${nb},"bestRating":5}}</script></head><body><p>Nos clients nous notent aussi via le réseau : <strong>${c21}/10</strong> en achat-vente (${nbC21} avis) et <strong>9,7/10</strong> en location-gestion — avis clients contrôlés Century 21 (Qualitelis), relevé du 8 octobre 2026 · <a href="https://x/avis">les consulter</a>.</p></body></html>`;
+  const fauxSiteKadima = (await import("node:http")).createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    if (req.url.startsWith("/agences/cauderan/")) return res.end(PAGE_AVIS("4.9", 425, "9,3", "572"));
+    if (req.url.startsWith("/agences/saint-medard-en-jalles/")) return res.end(PAGE_AVIS("4.9", 869, "9,5", "1\u202f617"));
+    res.end("<html><body>rien</body></html>");
+  });
+  await new Promise((r) => fauxSiteKadima.listen(18787, r));
   // Fausse BAN : géocode « Vignes », ignore le reste — pour tester le
   // géocodage AUTOMATIQUE des ventes (le serveur appelle la BAN lui-même).
   let fauxBanCsv = false; // le géocodage EN MASSE (CSV) n'est servi que quand un test l'allume
@@ -2055,7 +2065,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin",
     APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
     RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18791",
-    DVF_BASE: "http://localhost:18792", BIENICI_BASE: "http://localhost:18786", BIENICI_SUGGEST: "http://localhost:18786/suggest.json", BAN_BASE: "http://localhost:18793", BATIMENTS_BASE: "http://localhost:18799",
+    DVF_BASE: "http://localhost:18792", BIENICI_BASE: "http://localhost:18786", KADIMA_SITE_BASE: "http://localhost:18787", BIENICI_SUGGEST: "http://localhost:18786/suggest.json", BAN_BASE: "http://localhost:18793", BATIMENTS_BASE: "http://localhost:18799",
     MAIL_FROM: "Studio Brochure <connexion@studiobrochure.fr>",
 
   });
@@ -3443,7 +3453,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "la fiche relit civilité, prénom, type de bien, heures, conseiller (avec photo) et destinataires");
   ok((await callR("/crm/estimations", { headers: authP })).json.estimations.some((e) => e.id === pxId && e.conseiller === "Teddy BESSON"), "Studio Estimation voit la même fiche, au nom du conseiller");
   const ap1 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
-  ok(/lundi 20 avril à 10h/.test(ap1.texte) && /madame, monsieur MOUNEYRES/.test(ap1.texte) && /12 rue du Mandat Confiance, 33160 SAINT AUBIN DE MEDOC/.test(ap1.texte)
+  ok(/lundi 20 avril à 10h/.test(ap1.texte) && /Madame, Monsieur MOUNEYRES/.test(ap1.texte) && /12 rue du Mandat Confiance, 33160 SAINT AUBIN DE MEDOC/.test(ap1.texte)
      && /titre de propriété/i.test(ap1.texte) && !/copropriété/i.test(ap1.texte),
      "avant R1 : date en toutes lettres, civilité, adresse, pièces à préparer sans la copropriété (maison)");
   ok(/Teddy BESSON/.test(ap1.html) && /Conseiller immobilier/.test(ap1.html) && ap1.html.includes("/public/conseillers/" + teddy.json.id + "/photo") && /Instagram/.test(ap1.html) && /Nos avis clients/.test(ap1.html),
@@ -3515,12 +3525,51 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const apAg2 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
   ok(/François Mitterrand/.test(apAg2.texte) && /SAS Kadima/.test(apAg2.html) && /Saint-Médard-en-Jalles/.test(apAg2.html),
      "une agence sans adresse ni mentions reprend celles de l'identité générale");
+  // Les sociétés des points de vente Kadima (site century21-kadima.fr) : un
+  // conseiller de Caudéran écrit sous les mentions de la SAS ICI CAUDERAN, un
+  // conseiller de Blanquefort sous celles de KADIMA - TB (comme Saint-Médard),
+  // Saint-Aubin sous KADIMA GESTION — sans rien saisir. Des mentions saisies priment.
+  { const CRMK = await import("./src/crm.js");
+    const kad = { id: "ag_kadima_test", name: "CENTURY 21 Kadima" };
+    const agK = CRMK.completerAgencesKadima(kad, [{ cle: "cauderan", nom: "CENTURY 21 Kadima Bordeaux Caudéran" }, { cle: "blanquefort", nom: "CENTURY 21 Kadima Blanquefort" },
+      { cle: "saint-aubin", nom: "CENTURY 21 Kadima Saint-Aubin-de-Médoc" }, { cle: "century-21-kadima-bordeaux-cauderan", nom: "Caudéran", mentions: "Saisies à la main" }]);
+    ok(/535 306 880/.test(agK[0].mentions) && /SLEGI04254/.test(agK[0].mentions) && !agK[1].mentions && /908 391 824/.test(agK[2].mentions) && agK[3].mentions === "Saisies à la main",
+       "Caudéran → ICI CAUDERAN, Blanquefort → rien (identité générale = KADIMA - TB), Saint-Aubin → KADIMA GESTION, saisie manuelle conservée");
+    ok(agK.find((a) => a.cle === "cauderan").signataire === "Benjamin FAURE" && agK.find((a) => a.cle === "cauderan").fonction === "Directeur d'agence" && !agK.find((a) => a.cle === "blanquefort").signataire,
+       "Caudéran : mot du directeur et courriers signés Benjamin FAURE ; Blanquefort reste signé de l'identité générale");
+    // Avis clients par point de vente : lus sur les pages d'agence du site Kadima (JSON-LD + phrase Qualitelis).
+    const lu = CRMK.lireAvisPageKadima(PAGE_AVIS("4.9", 869, "9,5", "1\u202f617"));
+    ok(lu.note_google === 4.9 && lu.avis_google === 869 && lu.note_c21 === 9.5 && lu.avis_c21 === 1617 && /8 octobre 2026/.test(lu.releve_le),
+       "la page d'agence du site se lit : note et avis Google, note et avis Century 21 avec la date du relevé (" + JSON.stringify(lu) + ")");
+    ok(CRMK.pageAvisKadima({ cle: "blanquefort", nom: "CENTURY 21 Kadima Blanquefort" }) === "saint-medard-en-jalles" && CRMK.pageAvisKadima({ cle: "cauderan" }) === "cauderan" && CRMK.pageAvisKadima({ cle: "x", nom: "Agence Test" }) === "",
+       "Blanquefort lit la page de Saint-Médard (même agence), Caudéran la sienne, une agence inconnue rien");
+    const rel = await callR("/crm/avis-agences/relever", { headers: auth, body: {} });
+    const avisAg = (await callR("/crm/avis-agences", { headers: authP })).json.avis;
+    const ficheAv = (await callR("/crm/parcours/" + pxId, { headers: authP })).json.agence.avis_chiffres;
+    ok(rel.status === 200 && rel.json.releves.length >= 2 && avisAg.some((r) => /cauderan/.test(r.cle) && r.avis_google === 425 && r.note_c21 === 9.3 && r.avis_c21 === 572) && avisAg.some((r) => r.avis_google === 869)
+       && ficheAv && ficheAv.avis_google === 869 && ficheAv.note_c21 === 9.5,
+       "le relevé enregistre les chiffres de chaque point de vente et la fiche du parcours porte ceux de l'agence du conseiller, Saint-Médard par défaut (" + JSON.stringify({ rel: rel.json, fiche: ficheAv }) + ")");
+    ok((await callR("/crm/avis-agences/relever", { headers: authP, body: {} })).status === 403, "le relevé à la demande est réservé aux administrateurs");
+    const vide = CRMK.completerAgencesKadima(kad, []);
+    ok(vide.length === 4 && vide.map((a) => a.cle).join(",") === "saint-medard,cauderan,saint-aubin,blanquefort" && /535 306 880/.test(vide[1].mentions) && !vide[3].mentions,
+       "sans agence enregistrée, les quatre points de vente Kadima sont proposés avec leurs mentions");
+    ok(CRMK.completerAgencesKadima({ id: "ag_y", name: "Agence Dupont" }, []).length === 0, "une autre agence ne reçoit rien");
+    const bl = CRMK.agencePour({ agence: { nom: "CENTURY 21 Kadima", mentions: "KADIMA TB — RCS 894 173 947", avis: "https://g.page/kadima" }, agences: vide }, { agence: "blanquefort" });
+    const cd = CRMK.agencePour({ agence: { nom: "CENTURY 21 Kadima", mentions: "KADIMA TB — RCS 894 173 947", avis: "https://g.page/kadima" }, agences: vide }, { agence: "cauderan" });
+    ok(/894 173 947/.test(bl.mentions) && bl.nom === "CENTURY 21 Kadima Blanquefort" && /221 avenue du Général de Gaulle/.test(bl.adresse) && bl.avis === "https://g.page/kadima",
+       "un conseiller de Blanquefort : nom et adresse de Blanquefort, mentions et avis de Saint-Médard");
+    ok(/535 306 880/.test(cd.mentions) && /Louis-Barthou/.test(cd.adresse) && cd.telephone === "05 56 02 39 55", "un conseiller de Caudéran : mentions ICI CAUDERAN, adresse et téléphone de Caudéran"); }
   await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test", bio: "Texte gardé" } });
   ok((await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === teddy.json.id).bio === "Texte gardé"
      && (await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test" } })).status === 200
      && (await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === teddy.json.id).bio === "Texte gardé",
      "enregistrer le profil sans le champ texte ne l'efface pas");
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: teddy.json.id } });
+  await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", avis: "Un accompagnement parfait.\nMartine. D\n\nTrès réactif.\nPaul. R" } });
+  { const avisListe = (await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === teddy.json.id).avis;
+    const avisFiche = ((await callR("/crm/parcours/" + pxId, { headers: authP })).json.conseiller || {}).avis;
+    ok(/Martine\. D/.test(avisListe) && /Paul\. R/.test(avisFiche),
+       "les avis clients du profil (page « Votre conseiller » générée) se relisent dans la liste et sur la fiche du parcours (" + JSON.stringify({ avisListe, avisFiche }) + ")"); }
   // Périmètre : un conseiller ne voit que ses parcours (conseiller ou créateur) ; la direction voit tout.
   const remi = await callR("/agency/users", { headers: auth, method: "POST", body: { email: "remi@ach-test.fr", name: "Rémi Blanc" } });
   const authR = { Authorization: "Bearer " + (await callR("/auth/exchange", { body: { token: remi.json.invite_link.split("#token=")[1] } })).json.session };
@@ -3566,7 +3615,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "un co-propriétaire se crée et se lie, la fiche principale reste en tête");
   const ficheProp = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
   const apProp = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
-  ok(ficheProp.proprietaires.length === 2 && ficheProp.emails.includes("sophie.durand@exemple.fr") && /madame, monsieur MOUNEYRES, madame DURAND/.test(apProp.texte) && apProp.destinataires.length === 2,
+  ok(ficheProp.proprietaires.length === 2 && ficheProp.emails.includes("sophie.durand@exemple.fr") && /Madame, Monsieur MOUNEYRES, Madame DURAND/.test(apProp.texte) && apProp.destinataires.length === 2,
      "le mail s'adresse aux deux propriétaires et part aux deux adresses (" + JSON.stringify({ civ: apProp.texte.split("\n")[0] }) + ")");
   const prop2 = await callR("/crm/parcours/" + pxId + "/proprietaires", { headers: authP, body: { civilite: "Mme", prenom: "Sophie", nom: "durand" } });
   ok(prop2.status === 200 && !prop2.json.contact_cree && prop2.json.contact_id === prop1.json.contact_id && prop2.json.proprietaires.length === 2, "le même nom + prénom ne crée pas de doublon");
@@ -3578,7 +3627,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/parcours/" + pxId + "/proprietaires/" + ctPx.id, { headers: authP, method: "DELETE" })).status === 400, "la fiche principale ne se retire pas");
   for (const cid of [prop1.json.contact_id, propMemeNom.json.contact_id]) await callR("/crm/parcours/" + pxId + "/proprietaires/" + cid, { headers: authP, method: "DELETE" });
   const apSeul = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
-  ok((await callR("/crm/parcours/" + pxId, { headers: authP })).json.proprietaires.length === 1 && /madame, monsieur MOUNEYRES,\n/.test(apSeul.texte) && apSeul.destinataires.length === 1, "retirés, le mail redevient celui d'un seul foyer");
+  ok((await callR("/crm/parcours/" + pxId, { headers: authP })).json.proprietaires.length === 1 && /Madame, Monsieur MOUNEYRES,\n/.test(apSeul.texte) && apSeul.destinataires.length === 1, "retirés, le mail redevient celui d'un seul foyer");
   // Commission d'évaluation : lien public, avis des collègues, groupes et tiers comme Kadimestim, clôture.
   const comOuv = await callR("/crm/parcours/" + pxId + "/commission/ouvrir", { headers: authP, body: {} });
   const jeton = new URL(comOuv.json.lien, "http://x").searchParams.get("t");
@@ -4038,7 +4087,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/ilots/bulk", { headers: authP, body: { ilots: [] } })).status === 403,
     "l'import d'îlots est réservé aux administrateurs");
 
-  fauxResend.close(); fauxOverpass.close(); fauxGeo.close();
+  fauxResend.close(); fauxOverpass.close(); fauxGeo.close(); fauxSiteKadima.close();
   fauxDvf.close();
   fauxBan.close();
 }

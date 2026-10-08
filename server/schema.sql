@@ -1142,3 +1142,29 @@ CREATE TABLE IF NOT EXISTS crm_parcours_photos (
   updated_at    INTEGER NOT NULL,
   PRIMARY KEY (estimation_id, conc_id)
 );
+
+-- Avis clients d'un conseiller : page « Votre conseiller » du guide R1 générée
+-- depuis le profil quand le modèle n'a pas de page pour lui (un avis par
+-- paragraphe, dernière ligne = signature). Table à part : pas d'ALTER TABLE.
+CREATE TABLE IF NOT EXISTS crm_conseillers_avis (
+  id         TEXT PRIMARY KEY,               -- crm_conseillers.id
+  avis       TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL
+);
+
+-- Avis clients par point de vente, relevés sur les pages d'agence du site
+-- century21-kadima.fr (note et nombre d'avis Google des données structurées,
+-- note et nombre d'avis Century 21 / Qualitelis de la phrase du site) : page
+-- « Notre agence » des guides R1/R2, redessinée aux chiffres du jour.
+CREATE TABLE IF NOT EXISTS crm_avis_agences (
+  agency_id   TEXT NOT NULL REFERENCES agencies(id),
+  cle         TEXT NOT NULL,                 -- clé du point de vente (reglages.agences[].cle)
+  note_google REAL NOT NULL DEFAULT 0,
+  avis_google INTEGER NOT NULL DEFAULT 0,
+  note_c21    REAL NOT NULL DEFAULT 0,
+  avis_c21    INTEGER NOT NULL DEFAULT 0,
+  releve_le   TEXT NOT NULL DEFAULT '',      -- date annoncée par le site pour les avis C21
+  source      TEXT NOT NULL DEFAULT '',      -- URL de la page lue
+  updated_at  INTEGER NOT NULL,
+  PRIMARY KEY (agency_id, cle)
+);

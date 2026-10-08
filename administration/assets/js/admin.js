@@ -2537,7 +2537,8 @@
         '<option value="' + k + '"' + ((c && c.genre_pose) === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" +
       '<label class="case" style="align-self:end;"><input type="checkbox" id="cs-actif"' + (!c || c.actif ? " checked" : "") + " /> Actif</label>" +
       '<label class="case" style="align-self:end;" title="Sans cette case, le conseiller ne voit que ses propres parcours R1/R2"><input type="checkbox" id="cs-direction"' + (c && c.direction ? " checked" : "") + " /> Direction — voit tous les parcours</label>" +
-      '<label style="grid-column:1/-1;">Texte personnel (page « Votre conseiller » du guide R2 — un paragraphe par ligne vide)<textarea id="cs-bio" style="min-height:110px;">' + escH(c && c.bio || "") + "</textarea></label></div>",
+      '<label style="grid-column:1/-1;">Texte personnel (page « Votre conseiller » du guide R2 — un paragraphe par ligne vide)<textarea id="cs-bio" style="min-height:110px;">' + escH(c && c.bio || "") + "</textarea></label>" +
+      '<label style="grid-column:1/-1;">Avis clients (page « Votre conseiller » du guide R1 quand le modèle n\'a pas de page pour lui — un avis par paragraphe, dernière ligne = signature, ex. « Martine. D »)<textarea id="cs-avis" style="min-height:110px;" placeholder="Un immense merci à Laurent pour son accompagnement…\nMartine. D\n\nUne estimation juste et un suivi impeccable.\nPaul. R">' + escH(c && c.avis || "") + "</textarea></label></div>",
       (c ? '<button class="btn btn-danger" id="cs-supprimer">Supprimer</button>' : "") +
       '<button class="btn" id="cs-annuler">Annuler</button><button class="btn btn-or" id="cs-save">Enregistrer</button>');
     $("cs-annuler").addEventListener("click", fermerModale);
@@ -2552,6 +2553,7 @@
       // Le texte personnel saisi depuis un guide R2 ne doit pas être écrasé par
       // une fiche ouverte avant : il ne part que s'il a été modifié ici.
       if ($("cs-bio").value.trim() !== ((c && c.bio) || "").trim()) corps.bio = $("cs-bio").value.trim();
+      if ($("cs-avis").value.trim() !== ((c && c.avis) || "").trim()) corps.avis = $("cs-avis").value.trim();
       if (photo !== undefined) corps.photo = photo;
       try { await api("/crm/conseillers", { method: "PUT", json: corps }); toast("Conseiller enregistré"); fermerModale(); chargerConseillers(); }
       catch (e) { toast(e.message, true); }
@@ -2852,11 +2854,19 @@
     const cle = sansAccentsMin([cs.prenom, cs.nom].filter(Boolean).join(" "));
     const pageCs = meta.conseillers.find((c) => c.cle === cle) ||
       meta.conseillers.find((c) => cle && (cle.includes(c.cle) || c.cle.includes(cle)));
-    if (cs.nom && !pageCs) toast("Pas de page « votre conseiller » pour " + [cs.prenom, cs.nom].join(" ") + " dans le guide : il part sans", true);
-    const ordre = meta.communes.slice(0, meta.insertion - 1).concat(pageCs ? [pageCs.page] : [], meta.communes.slice(meta.insertion - 1));
+    // Sans page dans le modèle (Caudéran, Saint-Aubin, nouveaux conseillers…) : la page
+    // « Votre conseiller » est GÉNÉRÉE depuis le profil (photo, coordonnées, avis clients).
+    const ordre = meta.communes.slice(0, meta.insertion - 1).concat(pageCs ? [pageCs.page] : (cs.nom ? ["generee"] : []), meta.communes.slice(meta.insertion - 1));
     const doc = await PDFDocument.create();
-    const pages = await doc.copyPages(source, ordre.map((n) => n - 1));
-    pages.forEach((pg) => doc.addPage(pg));
+    if (window.fontkit) doc.registerFontkit(window.fontkit); // polices Barlow des pages générées (conseiller, avis, mot)
+    const copies = await doc.copyPages(source, ordre.filter((n) => typeof n === "number").map((n) => n - 1));
+    let kCopie = 0, pgGeneree = null;
+    for (const e of ordre) { if (e === "generee") pgGeneree = doc.addPage([595.28, 841.89]); else doc.addPage(copies[kCopie++]); }
+    let pageConseiller = pageCs ? { source: "modele" } : { source: cs.nom ? "generee" : "aucune" };
+    if (pgGeneree) { try { pageConseiller = { source: "generee", ...(await dessinerPageConseiller(doc, pgGeneree, p)) }; } catch (e) { pageConseiller.erreur = String(e.message || e); } }
+    // Page « Notre agence » : les chiffres des avis du jour, par point de vente (relevés sur le site Kadima).
+    let avisAgence = null;
+    { const i3 = ordre.indexOf(3); if (i3 >= 0 && p.agence && p.agence.avis_chiffres) { try { avisAgence = await redessinerAvisAgence(doc, doc.getPage(i3), p.agence.avis_chiffres); } catch (e) { avisAgence = { erreur: String(e.message || e) }; } } }
     // Le mot du directeur : la page du modèle (une image d'un ancien courrier,
     // qui nommait toujours le même conseiller) laisse place au courrier généré,
     // au bon conseiller, à la bonne agence, au bon site.
@@ -2949,7 +2959,7 @@
     doc.setTitle("Guide de commercialisation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", mot }; // relu par les parcours navigateur
+    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", mot, pageConseiller, avisAgence }; // relu par les parcours navigateur
     return url;
   }
   /* --------------------------- Mot du directeur --------------------------- */
@@ -3111,6 +3121,88 @@
     return { conseiller: [prenom, nomCs].filter(Boolean).join(" "), basse, haute, libre: !!libre, photo, agence: ag.nom || "" };
   }
   const rgb255 = (r, g, b) => window.PDFLib.rgb(r, g, b);
+  // Photo ronde (PNG transparent hors du disque), pour la page « Votre conseiller ».
+  async function recadrerRond(src, px = 480) {
+    const img = await new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ko(new Error("Image illisible.")); i.src = src; });
+    const cv = document.createElement("canvas"); cv.width = px; cv.height = px; const ctx = cv.getContext("2d");
+    ctx.beginPath(); ctx.arc(px / 2, px / 2, px / 2, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
+    const c = Math.min(img.width, img.height), sx = Math.round((img.width - c) / 2), sy = Math.round((img.height - c) / 2);
+    ctx.drawImage(img, sx, sy, c, c, 0, 0, px, px);
+    return cv.toDataURL("image/png");
+  }
+  // La page « Votre conseiller » du guide R1 quand le modèle n'en a pas pour ce
+  // conseiller : même composition que les pages du modèle — titre, photo ronde,
+  // nom, mail, téléphone, puis les avis clients du profil (deux colonnes).
+  async function dessinerPageConseiller(doc, page, p) {
+    const { rgb } = window.PDFLib;
+    await chargerMotCache();
+    const cs = p.conseiller || {};
+    const [fR, fB, fI] = await Promise.all(motCache.fontes.map((f) => doc.embedFont(f)));
+    const h = page.getHeight(), or = rgb(0.745, 0.686, 0.529), noir = rgb(0.13, 0.13, 0.13), gris = rgb(0.4, 0.4, 0.4);
+    const ecrire = (t, x, y, taille, f, c) => { if (t) page.drawText(String(t), { x, y: h - y, size: taille, font: f || fR, color: c || noir }); };
+    const centre = (t, cx, y, taille, f, c) => { if (t) ecrire(t, cx - (f || fR).widthOfTextAtSize(String(t), taille) / 2, y, taille, f, c); };
+    const couper = (texte, f, taille, largeur) => { const out = []; let l = ""; for (const mot of String(texte || "").split(/\s+/).filter(Boolean)) { const e = l ? l + " " + mot : mot; if (f.widthOfTextAtSize(e, taille) > largeur && l) { out.push(l); l = mot; } else l = e; } if (l) out.push(l); return out; };
+    ecrire("Votre", 38, 66, 36, fB, noir); ecrire("conseiller", 38, 104, 36, fB, or);
+    // Photo ronde sous le titre, à gauche ; nom et coordonnées à droite.
+    let photo = false;
+    if (cs.photo_url) {
+      try {
+        const b = await (await fetch(cs.photo_url)).blob();
+        const dataUrl = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); });
+        const png = await doc.embedPng(Uint8Array.from(atob((await recadrerRond(dataUrl)).split(",")[1]), (ch) => ch.charCodeAt(0)));
+        page.drawImage(png, { x: 103, y: h - 240, width: 118, height: 118 }); photo = true;
+      } catch { /* sans photo */ }
+    }
+    if (!photo) page.drawEllipse({ x: 162, y: h - 181, xScale: 59, yScale: 59, borderColor: or, borderWidth: 1 });
+    const prenom = prenomPropre(cs.prenom), nomCs = String(cs.nom || "").trim();
+    const nomComplet = [prenom, nomCs].filter(Boolean).join(" ");
+    let tN = 23; while (tN > 14 && fB.widthOfTextAtSize(nomComplet, tN) > 250) tN -= 1;
+    if (fB.widthOfTextAtSize(nomComplet, tN) > 250 || nomComplet.length > 24) { centre(prenom, 374, 150, tN, fB, noir); centre(nomCs, 374, 150 + tN + 4, tN, fB, noir); }
+    else centre(nomComplet, 374, 160, tN, fB, noir);
+    centre(cs.email ? "Mail : " + cs.email : "", 374, 213, 12, fR, noir);
+    centre(cs.telephone ? "Téléphone : " + cs.telephone : "", 374, 235, 12, fR, noir);
+    centre(cs.fonction || "", 374, 257, 11, fI, gris);
+    centre(p.agence && p.agence.nom ? p.agence.nom : "", 374, cs.fonction ? 273 : 257, 10.5, fR, gris);
+    // Les avis : un paragraphe par avis, dernière ligne courte = signature.
+    const blocs = String(cs.avis || "").split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean).slice(0, 6);
+    const avis = blocs.map((b) => { const l = b.split(/\n/).map((x) => x.trim()).filter(Boolean); const sig = l.length > 1 && l[l.length - 1].length <= 30 ? l.pop() : ""; return { texte: l.join(" "), signature: sig }; });
+    if (!avis.length && cs.bio) avis.push({ texte: String(cs.bio).split(/\n\s*\n/)[0].trim(), signature: "" });
+    const cols = [{ x: 46, w: 221, y: 300 }, { x: 302, w: 247, y: 288 }];
+    avis.forEach((a, i) => {
+      const col = cols[i % 2], lignes = couper(a.texte, fR, 10, col.w - 24), haut = 34 + lignes.length * 12.5 + (a.signature ? 18 : 10);
+      if (col.y + haut > 800) return;
+      page.drawRectangle({ x: col.x, y: h - (col.y + haut), width: col.w, height: haut, borderColor: or, borderWidth: 0.8, color: rgb(1, 1, 1) });
+      ecrire("\u201C", col.x + 10, col.y + 30, 28, fB, or);
+      lignes.forEach((l, j) => ecrire(l, col.x + 12, col.y + 34 + j * 12.5, 10, fR, noir));
+      if (a.signature) ecrire(a.signature, col.x + col.w - 12 - fI.widthOfTextAtSize(a.signature, 9.5), col.y + haut - 10, 9.5, fI, gris);
+      col.y += haut + 16;
+    });
+    return { conseiller: [prenom, nomCs.toUpperCase()].filter(Boolean).join(" "), avis: avis.length, photo };
+  }
+  // Page « Notre agence » des guides (R1 p3, R2 p11) : les notes et nombres
+  // d'avis redessinés aux chiffres relevés sur le site Kadima (par point de
+  // vente). Les zones du modèle sont blanchies, les chiffres réécrits en or.
+  async function redessinerAvisAgence(doc, page, ch) {
+    const { rgb } = window.PDFLib;
+    await chargerMotCache();
+    const fB = await doc.embedFont(motCache.fontes[1]);
+    const h = page.getHeight(), mb = page.getMediaBox(), or = rgb(0.745, 0.686, 0.529), blanc = rgb(1, 1, 1);
+    const Y = (y) => h - y + mb.y; // coordonnées mesurées depuis le haut de la page (cropbox)
+    const fmtN = (n) => Number(n).toLocaleString("fr-FR").replace(/[\u202f\u00a0]/g, " ");
+    const fmtNote = (n) => String(Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
+    const zone = (texte, x0, y0, x1, y1, taille) => {
+      page.drawRectangle({ x: x0 - 6, y: Y(y1) - 2, width: x1 - x0 + 12, height: y1 - y0 + 4, color: blanc });
+      const w = fB.widthOfTextAtSize(texte, taille); const cx = (x0 + x1) / 2;
+      page.drawText(texte, { x: cx - w / 2 + 1.2, y: Y(y1 - 5) - 1.2, size: taille, font: fB, color: or, opacity: 0.35 }); // ombre or, comme l'original
+      page.drawText(texte, { x: cx - w / 2, y: Y(y1 - 5), size: taille, font: fB, color: or });
+    };
+    const fait = {};
+    if (ch.note_c21 > 0) { zone(fmtNote(ch.note_c21) + " / 10", 126, 302, 200, 326, 16.8); fait.note_c21 = fmtNote(ch.note_c21); }
+    if (ch.avis_c21 > 0) { zone(fmtN(ch.avis_c21) + " avis", 112, 339, 212, 364, 16.8); fait.avis_c21 = fmtN(ch.avis_c21); }
+    if (ch.note_google > 0) { zone(fmtNote(ch.note_google) + " / 5", 400, 300, 464, 324, 16.8); fait.note_google = fmtNote(ch.note_google); }
+    if (ch.avis_google > 0) { zone(fmtN(ch.avis_google) + " avis", 392, 340, 482, 365, 16.8); fait.avis_google = fmtN(ch.avis_google); }
+    return { cle: ch.cle || "", ...fait };
+  }
   async function genererCourrierEstimation(p, courrier) {
     if (!window.PDFLib || !window.fontkit) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
     const { PDFDocument } = window.PDFLib;
@@ -3382,6 +3474,9 @@
     { const s = meta.p9, pg = page(s.page);
       ecrire(pg, (MOIS_FR[aujourdhui.getMonth()] + "  " + aujourdhui.getFullYear()).toUpperCase(), s.mois.x, s.mois.y, s.mois.taille, fR, rgb(0.145, 0.145, 0.149)); }
     // Page 12 : le conseiller.
+    // Page 11 « Notre agence » : les chiffres des avis du jour, par point de vente.
+    let avisAgenceR2 = null;
+    if (p.agence && p.agence.avis_chiffres) { try { avisAgenceR2 = await redessinerAvisAgence(doc, page(11), p.agence.avis_chiffres); } catch (e) { avisAgenceR2 = { erreur: String(e.message || e) }; } }
     { const s = meta.p12, pg = page(s.page), cs = r2.conseiller || p.conseiller || {};
       const f = cs.genre === "f";
       ecrire(pg, f ? "VOTRE CONSEILLÈRE :" : "VOTRE CONSEILLER :", s.titre.x, s.titre.y[0], s.titre.taille, fX);
@@ -3424,7 +3519,7 @@
     doc.setTitle("Vendons ensemble votre bien — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf" };
+    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", avisAgence: avisAgenceR2 };
     return url;
   }
   // La fenêtre du guide R2 : photo du bien, points forts, objections, texte
@@ -4276,6 +4371,7 @@
       $("app").hidden = false;
       activerOnglet("parcours");
       chargerParcours(); chargerConseillers();
+      api("/crm/avis-agences").catch(() => { /* site muet : les chiffres relevés restent */ });
       return;
     }
     $("app").hidden = false;
@@ -4292,6 +4388,7 @@
     chargerRappels();
     chargerOffres();
     chargerParcours(); chargerConseillers(); // indépendants : la liste des parcours n'attend plus les profils
+    api("/crm/avis-agences").catch(() => { /* avis par agence : relevé nocturne, rafraîchi ici s'il a plus de 24 h */ });
   }
 
   /* ---------------------------- Branchements ------------------------------- */
