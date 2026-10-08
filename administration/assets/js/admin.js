@@ -1299,12 +1299,20 @@
       '<label style="grid-column:1/-1;">Site internet de cette agence (guides, mot du directeur ; vide = celui de l\'identité)<input id="agc-site" value="' + v("site") + '" placeholder="www.century21-kadima.fr" /></label>' +
       '<label>Directeur / directrice (signe le mot du directeur)<input id="agc-signataire" value="' + v("signataire") + '" placeholder="Benoît REMPENAULT" /></label>' +
       '<label>Sa fonction<input id="agc-fonction" value="' + v("fonction") + '" placeholder="Directeur d\'agence" /></label>' +
-      '<label style="grid-column:1/-1;">Mentions légales (vide = celles de l\'identité de l\'agence)<textarea id="agc-mentions" style="min-height:80px;">' + v("mentions") + "</textarea></label></div>",
+      '<label style="grid-column:1/-1;">Mentions légales (vide = celles de l\'identité de l\'agence)<textarea id="agc-mentions" style="min-height:80px;">' + v("mentions") + "</textarea></label>" +
+      '<p class="petit" style="grid-column:1/-1; margin:6px 0 0;">Notes affichées page « Notre agence » des guides R1 et R2 pour les conseillers de cette agence. Vide = relevé automatique (chaque nuit, si une source est réglée ci-dessous), sinon les chiffres de l\'identité.</p>' +
+      '<label>Site Century 21 — note /10<input id="agc-c21-note" value="' + v("avisC21Note") + '" placeholder="9,5" /></label>' +
+      '<label>Site Century 21 — nombre d\'avis<input id="agc-c21-nb" value="' + v("avisC21Nb") + '" placeholder="1 610" /></label>' +
+      '<label>Google — note /5<input id="agc-g-note" value="' + v("avisGoogleNote") + '" placeholder="4,9" /></label>' +
+      '<label>Google — nombre d\'avis<input id="agc-g-nb" value="' + v("avisGoogleNb") + '" placeholder="864" /></label>' +
+      '<label style="grid-column:1/-1;">Page de l\'agence sur century21.fr (relevé automatique de la note Qualitelis)<input id="agc-url-c21" value="' + v("urlC21") + '" placeholder="https://www.century21.fr/agence/…" /></label>' +
+      '<label style="grid-column:1/-1;">Identifiant Google de l\'établissement (place id — relevé automatique de la note Google, clé GOOGLE_PLACES_KEY sur le serveur)<input id="agc-place" value="' + v("googlePlaceId") + '" placeholder="ChIJ…" /></label></div>',
       (a ? '<button class="btn btn-danger" id="agc-supprimer">Supprimer</button>' : "") +
       '<button class="btn" id="agc-annuler">Annuler</button><button class="btn btn-or" id="agc-save">Enregistrer</button>');
     $("agc-annuler").addEventListener("click", fermerModale);
     $("agc-save").addEventListener("click", async () => {
-      const maj = { cle: a ? a.cle : "", nom: $("agc-nom").value.trim(), adresse: $("agc-adresse").value.trim(), telephone: $("agc-tel").value.trim(), email: $("agc-email").value.trim(), avis: $("agc-avis").value.trim(), mentions: $("agc-mentions").value.trim(), site: $("agc-site").value.trim(), signataire: $("agc-signataire").value.trim(), fonction: $("agc-fonction").value.trim() };
+      const maj = { cle: a ? a.cle : "", nom: $("agc-nom").value.trim(), adresse: $("agc-adresse").value.trim(), telephone: $("agc-tel").value.trim(), email: $("agc-email").value.trim(), avis: $("agc-avis").value.trim(), mentions: $("agc-mentions").value.trim(), site: $("agc-site").value.trim(), signataire: $("agc-signataire").value.trim(), fonction: $("agc-fonction").value.trim(),
+        avisC21Note: $("agc-c21-note").value.trim(), avisC21Nb: $("agc-c21-nb").value.trim(), avisGoogleNote: $("agc-g-note").value.trim(), avisGoogleNb: $("agc-g-nb").value.trim(), urlC21: $("agc-url-c21").value.trim(), googlePlaceId: $("agc-place").value.trim() };
       if (!maj.nom) { toast("Le nom de l'agence est requis", true); return; }
       const liste = a ? agences().map((x) => (x.cle === a.cle ? maj : x)) : agences().concat([maj]);
       if (await sauverReglages({ agences: liste }, "Agence enregistrée")) { fermerModale(); chargerConseillers(); }
@@ -2850,13 +2858,35 @@
     const source = await PDFDocument.load(pdf);
     const cs = p.conseiller || {};
     const cle = sansAccentsMin([cs.prenom, cs.nom].filter(Boolean).join(" "));
-    const pageCs = meta.conseillers.find((c) => c.cle === cle) ||
+    let pageCs = meta.conseillers.find((c) => c.cle === cle) ||
       meta.conseillers.find((c) => cle && (cle.includes(c.cle) || c.cle.includes(cle)));
+    // Pas de page dessinée par le graphiste pour ce conseiller (le modèle n'en
+    // a que douze, celles de Saint-Médard) : on compose la page depuis son
+    // profil — cadre de la première page « Votre conseiller » du modèle vidé,
+    // photo ronde, nom, coordonnées, texte personnel (Réglages → Les conseillers).
+    let pageGeneree = false;
+    if (cs.nom && !pageCs && meta.conseillers.length && window.fontkit) { pageCs = { page: meta.conseillers[0].page }; pageGeneree = true; }
     if (cs.nom && !pageCs) toast("Pas de page « votre conseiller » pour " + [cs.prenom, cs.nom].join(" ") + " dans le guide : il part sans", true);
     const ordre = meta.communes.slice(0, meta.insertion - 1).concat(pageCs ? [pageCs.page] : [], meta.communes.slice(meta.insertion - 1));
     const doc = await PDFDocument.create();
     const pages = await doc.copyPages(source, ordre.map((n) => n - 1));
     pages.forEach((pg) => doc.addPage(pg));
+    if (window.fontkit) doc.registerFontkit(window.fontkit);
+    let pageConseiller = null, avis = null;
+    if (pageGeneree) {
+      try {
+        pageConseiller = await dessinerPageConseiller(doc, doc.getPage(ordre.indexOf(pageCs.page)), p);
+        toast("Page « Votre conseiller » composée depuis le profil de " + [cs.prenom, cs.nom].filter(Boolean).join(" ") + " (pas de page dédiée dans le modèle).");
+      } catch (e) { console.warn("page conseiller :", e); }
+    }
+    // Page 3 « Notre agence » : les notes d'avis de l'AGENCE DU CONSEILLER
+    // (Réglages → Nos agences, ou relevé automatique), à la place des chiffres
+    // figés du modèle.
+    { const idx3 = ordre.indexOf(3);
+      if (idx3 >= 0 && window.fontkit) {
+        try { await chargerMotCache(); const fBold = await doc.embedFont(motCache.fontes[1]); avis = dessinerNotesAvis(doc.getPage(idx3), p.agence || (reglages && reglages.agence) || {}, fBold); }
+        catch (e) { console.warn("notes d'avis :", e); }
+      } }
     // Le mot du directeur : la page du modèle (une image d'un ancien courrier,
     // qui nommait toujours le même conseiller) laisse place au courrier généré,
     // au bon conseiller, à la bonne agence, au bon site.
@@ -2949,8 +2979,96 @@
     doc.setTitle("Guide de commercialisation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", mot }; // relu par les parcours navigateur
+    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", mot, pageConseiller, avis }; // relu par les parcours navigateur
     return url;
+  }
+  /* Les notes d'avis de la page « Notre agence » (R1 p3, R2 p11) : les quatre
+     chiffres du modèle (« 9,5 / 10 », « 1 610 avis », « 4,9 / 5 », « 864 avis »,
+     Bugaki 16,8 pt en or avec une ombre or) sont effacés et réécrits avec les
+     notes de l'agence — Barlow-Bold, même corps, même relief. Les cadres, les
+     intitulés (« Site Century 21 Kadima », « Google ») et le « 98 % » restent. */
+  function dessinerNotesAvis(pg, ag, fB) {
+    const { rgb } = window.PDFLib;
+    const or = rgb(0.745, 0.686, 0.529), H = pg.getHeight();
+    const vals = { c21: ag.avisC21Note ? String(ag.avisC21Note).replace(".", ",") + " / 10" : "", c21nb: ag.avisC21Nb ? ag.avisC21Nb + " avis" : "",
+      g: ag.avisGoogleNote ? String(ag.avisGoogleNote).replace(".", ",") + " / 5" : "", gnb: ag.avisGoogleNb ? ag.avisGoogleNb + " avis" : "" };
+    // [x0, y0, x1, y1] (repère haut-gauche) de la zone effacée, centre et ligne de base du texte.
+    const zones = [[vals.c21, [108, 295, 216, 331], 162, 320.5], [vals.c21nb, [100, 333, 224, 369], 162, 358.5],
+      [vals.g, [382, 293, 492, 331], 431, 318.5], [vals.gnb, [376, 333, 498, 369], 437, 359]];
+    const ecrits = [];
+    for (const [t, z, cx, base] of zones) {
+      if (!t) continue;
+      pg.drawRectangle({ x: z[0], y: H - z[3], width: z[2] - z[0], height: z[3] - z[1], color: rgb(1, 1, 1) });
+      const w = fB.widthOfTextAtSize(t, 16.8), x = cx - w / 2;
+      pg.drawText(t, { x: x + 1.2, y: H - base - 1.2, size: 16.8, font: fB, color: or, opacity: 0.4 });
+      pg.drawText(t, { x, y: H - base, size: 16.8, font: fB, color: or });
+      ecrits.push(t);
+    }
+    return ecrits;
+  }
+  // Photo ronde (PNG transparent) pour la page « Votre conseiller » composée.
+  async function imageRonde(src, px = 480) {
+    const img = await new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ko(new Error("photo illisible")); i.src = src; });
+    const c = document.createElement("canvas"); c.width = c.height = px;
+    const g = c.getContext("2d");
+    g.beginPath(); g.arc(px / 2, px / 2, px / 2, 0, Math.PI * 2); g.closePath(); g.clip();
+    const k = Math.max(px / img.width, px / img.height), w = img.width * k, h = img.height * k;
+    g.drawImage(img, (px - w) / 2, (px - h) / 2, w, h);
+    return c.toDataURL("image/png");
+  }
+  /* Page « Votre conseiller » composée pour un conseiller sans page dessinée
+     dans le modèle (Laurent DENAUD, l'équipe de Caudéran…) : le cadre et le
+     titre de la page modèle restent, le reste est effacé puis réécrit —
+     photo ronde, prénom / nom, mail, téléphone, fonction, agence, et le texte
+     personnel du profil (à défaut, une présentation type). */
+  async function dessinerPageConseiller(doc, pg, p) {
+    const { rgb } = window.PDFLib;
+    await chargerMotCache();
+    const [fR, fB, fI] = await Promise.all(motCache.fontes.map((f) => doc.embedFont(f)));
+    const cs = p.conseiller || {}, ag = p.agence || (reglages && reglages.agence) || {};
+    const H = pg.getHeight(), or = rgb(0.745, 0.686, 0.529), noir = rgb(0.13, 0.13, 0.13), gris = rgb(0.35, 0.35, 0.35);
+    const blanc = (z) => pg.drawRectangle({ x: z[0], y: H - z[3], width: z[2] - z[0], height: z[3] - z[1], color: rgb(1, 1, 1) });
+    // La page du modèle est une seule image (cadre, titre, photo, icônes des
+    // avis) : on efface tout sous le titre, jusqu'au bord intérieur du cadre.
+    blanc([40, 110, 566, 272]); blanc([34, 255, 566, 812]);
+    const centre = (t, cx, y, taille, f, c) => { if (t) pg.drawText(String(t), { x: cx - f.widthOfTextAtSize(String(t), taille) / 2, y: H - y, size: taille, font: f, color: c || noir }); };
+    const couper = (texte, f, taille, largeur) => { const out = []; let l = ""; for (const mot of String(texte || "").split(/\s+/).filter(Boolean)) { const e = l ? l + " " + mot : mot; if (f.widthOfTextAtSize(e, taille) > largeur && l) { out.push(l); l = mot; } else l = e; } if (l) out.push(l); return out; };
+    let photo = false, erreurPhoto = "";
+    if (cs.photo_url || cs.photo) {
+      try {
+        let src = cs.photo || "";
+        // La photo en data URL par la route du guide R2 (elle l'embarque déjà
+        // pour le navigateur) ; à défaut, l'URL publique.
+        if (!src && p.id) { try { const r = await api("/crm/parcours/" + p.id + "/r2"); src = (r && r.conseiller && r.conseiller.id === cs.id && r.conseiller.photo) || ""; } catch { src = ""; } }
+        if (!src) {
+          const r = await fetch(cs.photo_url);
+          if (!r.ok) throw new Error("photo " + r.status);
+          const b = await r.blob();
+          src = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); });
+        }
+        const png = await doc.embedPng(Uint8Array.from(atob((await imageRonde(src)).split(",")[1]), (ch) => ch.charCodeAt(0)));
+        pg.drawImage(png, { x: 90, y: H - 257, width: 134, height: 134 });
+        photo = true;
+      } catch (e) { erreurPhoto = String(e && e.message || e); console.warn("photo du conseiller :", e); }
+    }
+    const prenom = prenomPropre(cs.prenom), nom = (cs.nom || "").toUpperCase(), fem = cs.genre === "f";
+    centre(prenom, 375, 152, 23, fI); centre(nom, 375, 180, 23, fI);
+    centre(cs.email ? "Mail : " + cs.email : "", 375, 213, 12, fR);
+    centre(cs.telephone ? "Téléphone : " + cs.telephone : "", 375, 235, 12, fR);
+    const fonction = cs.fonction || (fem ? "Conseillère immobilier" : "Conseiller immobilier");
+    centre(fonction.toUpperCase(), 300, 300, 11.5, fB, or);
+    const agence = [ag.nom || "CENTURY 21 Kadima", ag.adresse, ag.telephone ? "Tél. " + ag.telephone : ""].filter(Boolean).join(" — ");
+    centre(agence, 300, 318, 9.5, fR, gris);
+    const defaut = [prenom, nom].filter(Boolean).join(" ") + (fem ? " vous accompagne" : " vous accompagne") + " à chaque étape de votre projet immobilier : estimation de votre bien, mise en valeur et diffusion, visites, négociation et suivi jusqu'à la signature chez le notaire."
+      + "\n\nÀ votre écoute et disponible, " + (prenom || nom) + " est votre " + (fem ? "interlocutrice unique" : "interlocuteur unique") + " au sein de l'agence " + (ag.nom || "CENTURY 21 Kadima") + "."
+      + (cs.telephone || cs.email ? "\n\nVous pouvez " + (fem ? "la" : "le") + " joindre " + [cs.telephone ? "au " + cs.telephone : "", cs.email ? "par e-mail à " + cs.email : ""].filter(Boolean).join(" ou ") + "." : "");
+    const paras = String(cs.bio || "").replace(/\r/g, "").split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean);
+    let y = 362;
+    for (const para of (paras.length ? paras : defaut.split("\n\n"))) {
+      for (const l of couper(para, fR, 11.5, 470)) { if (y > 790) break; pg.drawText(l, { x: 62, y: H - y, size: 11.5, font: fR, color: noir }); y += 16.5; }
+      y += 9;
+    }
+    return { genere: true, photo, erreurPhoto, bio: paras.length > 0, conseiller: [prenom, nom].filter(Boolean).join(" ") };
   }
   /* --------------------------- Mot du directeur --------------------------- */
   // Le courrier d'accompagnement du R1 (le modèle que Benoît utilisait ailleurs
@@ -3381,6 +3499,9 @@
     // Page 9 : le mois.
     { const s = meta.p9, pg = page(s.page);
       ecrire(pg, (MOIS_FR[aujourdhui.getMonth()] + "  " + aujourdhui.getFullYear()).toUpperCase(), s.mois.x, s.mois.y, s.mois.taille, fR, rgb(0.145, 0.145, 0.149)); }
+    // Page 11 « Notre agence » : les notes d'avis de l'agence du conseiller.
+    let avisR2 = null;
+    try { avisR2 = dessinerNotesAvis(page(11), p.agence || (reglages && reglages.agence) || {}, fB); } catch (e) { console.warn("notes d'avis :", e); }
     // Page 12 : le conseiller.
     { const s = meta.p12, pg = page(s.page), cs = r2.conseiller || p.conseiller || {};
       const f = cs.genre === "f";
@@ -3424,7 +3545,7 @@
     doc.setTitle("Vendons ensemble votre bien — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf" };
+    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", avis: avisR2 };
     return url;
   }
   // La fenêtre du guide R2 : photo du bien, points forts, objections, texte

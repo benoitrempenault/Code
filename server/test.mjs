@@ -3463,6 +3463,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const dernierPx = mailsRecus[mailsRecus.length - 1] || {};
   ok(envPx.status === 200 && envPx.json.envoyes === 1 && mailsRecus.length > avantEnvoi && /excellente journée/.test(dernierPx.html || "") && /Teddy BESSON/.test(dernierPx.from || dernierPx.html || ""),
      "l'e-mail avant R1 part avec le texte relu, signé du conseiller (" + JSON.stringify(envPx.json) + ")");
+  ok(dernierPx.reply_to && dernierPx.reply_to[0] === "teddy@kadima.test", "quand le client clique sur « Répondre », la réponse va à la boîte du conseiller (" + JSON.stringify(dernierPx.reply_to) + ")");
   const pxApres = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
   ok(pxApres.journal.some((j) => j.etape === "avant-r1" && j.le > 0), "l'étape est cochée dans le journal du parcours");
   // Le titre de l'e-mail : la date passe en sous-titre, un sujet « A — B » aussi, le sur-titre ne répète pas le titre.
@@ -3533,7 +3534,53 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const cd = CRMK.agencePour({ agence: { nom: "CENTURY 21 Kadima", mentions: "KADIMA TB — RCS 894 173 947", avis: "https://g.page/kadima" }, agences: vide }, { agence: "cauderan" });
     ok(/894 173 947/.test(bl.mentions) && bl.nom === "CENTURY 21 Kadima Blanquefort" && /221 avenue du Général de Gaulle/.test(bl.adresse) && bl.avis === "https://g.page/kadima",
        "un conseiller de Blanquefort : nom et adresse de Blanquefort, mentions et avis de Saint-Médard");
-    ok(/535 306 880/.test(cd.mentions) && /Louis-Barthou/.test(cd.adresse) && cd.telephone === "05 56 02 39 55", "un conseiller de Caudéran : mentions ICI CAUDERAN, adresse et téléphone de Caudéran"); }
+    ok(/535 306 880/.test(cd.mentions) && /Louis-Barthou/.test(cd.adresse) && cd.telephone === "05 56 02 39 55", "un conseiller de Caudéran : mentions ICI CAUDERAN, adresse et téléphone de Caudéran");
+    ok(cd.signataire === "Benjamin FAURE" && cd.fonction === "Directeur d'agence" && bl.signataire !== "Benjamin FAURE",
+       "le mot du directeur de Caudéran est signé Benjamin FAURE ; Blanquefort garde le signataire de Saint-Médard");
+    // Notes « Notre agence » : saisie du point de vente > relevé automatique > identité.
+    const regN = { agence: { nom: "CENTURY 21 Kadima", avisC21Note: "9,5", avisC21Nb: "1 610", avisGoogleNote: "4,9", avisGoogleNb: "864" },
+      agences: [{ cle: "cauderan", nom: "Caudéran", avisGoogleNote: "4,7" }, { cle: "blanquefort", nom: "Blanquefort" }],
+      avisAuto: { cauderan: { avisGoogleNote: "4,6", avisGoogleNb: "312", avisC21Note: "9,2", avisC21Nb: "210" } } };
+    const nCd = CRMK.agencePour(regN, { agence: "cauderan" }), nBl = CRMK.agencePour(regN, { agence: "blanquefort" }), nBase = CRMK.agencePour(regN, null);
+    ok(nCd.avisGoogleNote === "4,7" && nCd.avisGoogleNb === "312" && nCd.avisC21Note === "9,2" && nCd.avisC21Nb === "210",
+       "Caudéran : la note Google saisie prime, le reste vient du relevé automatique");
+    ok(nBl.avisGoogleNote === "4,9" && nBl.avisC21Nb === "1 610" && nBase.avisGoogleNb === "864", "Blanquefort et l'identité : les chiffres de Saint-Médard");
+    const sA = CRMK.sanitizeAgences([{ nom: "Caudéran", avisC21Note: "9,4", avisGoogleNb: "1 020", urlC21: "https://www.century21.fr/agence/x", googlePlaceId: "ChIJabc" }])[0];
+    ok(sA.avisC21Note === "9,4" && sA.avisGoogleNb === "1 020" && sA.urlC21.startsWith("https://") && sA.googlePlaceId === "ChIJabc", "les notes et les sources du relevé se rangent avec l'agence"); }
+  // Relevé automatique des notes : Google Places (clé + place id) et la page century21.fr.
+  { const AV = await import("./src/avis.js");
+    const pc = AV.parserC21('<div class="note">9,5<span>/10</span></div> <p>Note calculée sur 1&nbsp;610 avis clients</p>');
+    ok(pc.note === "9,5" && pc.nb === "1 610", "la page century21.fr se lit : note sur 10 et nombre d'avis (" + JSON.stringify(pc) + ")");
+    ok(AV.parserC21("<p>Aucune note</p>").note === "" && AV.parserC21("<p>Aucune note</p>").nb === "", "page sans note → rien");
+    const fauxAvis = (await import("node:http")).createServer((req, res) => {
+      if (/^\/v1\/places\//.test(req.url)) { res.setHeader("content-type", "application/json"); res.end(req.headers["x-goog-api-key"] === "cle-test" ? JSON.stringify({ rating: 4.7, userRatingCount: 1234 }) : JSON.stringify({ error: "no key" })); return; }
+      if (/\/agence\/kadima-cauderan/.test(req.url)) { res.setHeader("content-type", "text/html"); res.end("<html><body><span>9,3</span> / 10 — <b>512 avis</b></body></html>"); return; }
+      res.statusCode = 404; res.end("nope");
+    });
+    await new Promise((r) => fauxAvis.listen(18809, r));
+    const rgAv = await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agences: agcs.map((a) => (a.cle === agcs[1].cle ? { ...a, googlePlaceId: "ChIJtest", urlC21: "http://localhost:18809/agence/kadima-cauderan" } : a)) } });
+    ok(rgAv.status === 200, "sources du relevé posées sur Caudéran");
+    const envAv = { GOOGLE_PLACES_KEY: "cle-test", PLACES_BASE: "http://localhost:18809" };
+    const resume = await AV.rafraichirAvis(envAv, db, { id: agId, name: "CENTURY 21 Kadima" });
+    const lu = resume.find((r) => r.cle === agcs[1].cle);
+    ok(lu && lu.lu.avisGoogleNote === "4,7" && lu.lu.avisGoogleNb === "1 234" && lu.lu.avisC21Note === "9,3" && lu.lu.avisC21Nb === "512" && !lu.erreurs.length,
+       "le relevé lit la note Google (Places) et la note Qualitelis (century21.fr) : " + JSON.stringify(lu));
+    const regApres = (await callR("/crm/reglages", { headers: auth })).json.reglages;
+    ok(regApres.avisAuto && regApres.avisAuto[agcs[1].cle] && regApres.avisAuto[agcs[1].cle].avisGoogleNb === "1 234" && regApres.agence.mentions.startsWith("SAS Kadima"),
+       "le relevé est gardé dans les réglages sans toucher au reste");
+    await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: marine.id, prenom: "Marine", nom: "Zamora", telephone: "06 11 22 33 44", agence: agcs[1].cle } });
+    await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: marine.id } });
+    const ficheAv = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
+    ok(ficheAv.agence.avisGoogleNote === "4,7" && ficheAv.agence.avisGoogleNb === "1 234" && ficheAv.agence.avisC21Note === "9,3", "la fiche du parcours (guides) porte les notes relevées de l'agence du conseiller");
+    const sansCle = await AV.rafraichirAvis({ PLACES_BASE: "http://localhost:18809" }, db, { id: agId, name: "CENTURY 21 Kadima" });
+    ok(sansCle.every((r) => !("avisGoogleNote" in r.lu)) && (await callR("/crm/reglages", { headers: auth })).json.reglages.avisAuto[agcs[1].cle].avisGoogleNote === "4,7",
+       "sans clé Google rien n'est relevé côté Google, et le relevé précédent reste");
+    ok((await callR("/crm/avis/rafraichir", { headers: authP, body: {} })).status === 403, "le relevé à la demande est réservé aux administrateurs");
+    const rfr = await callR("/crm/avis/rafraichir", { headers: auth, body: {} });
+    ok(rfr.status === 200 && rfr.json.ok && rfr.json.avisAuto[agcs[1].cle], "relevé à la demande (admin) → résumé + relevé en place");
+    await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: marine.id, prenom: "Marine", nom: "Zamora", telephone: "06 11 22 33 44", agence: agcs[0].cle } });
+    await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: teddy.json.id } });
+    fauxAvis.close(); }
   await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test", bio: "Texte gardé" } });
   ok((await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === teddy.json.id).bio === "Texte gardé"
      && (await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test" } })).status === 200
