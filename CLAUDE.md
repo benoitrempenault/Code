@@ -788,6 +788,18 @@ Facebook facebook.com/century21.kadima, avis g.page/r/CUA5uMo-Z_RcEB0/review, me
 894 173 947 ; CPI 3301 2021 000 000 038, RC Allianz police 41319158, garantie 16833320, non
 détention de fonds). Ce qui est saisi prime ; un champ VIDÉ reprend le défaut (getReglages
 ignore les chaînes vides de data.agence).
+**Parcours par point de vente (08/10)** : tout ce qui part au client (mails de confirmation,
+signature, pied de page, guides) suit l'AGENCE DU CONSEILLER (`crm_conseillers_pv` →
+`agencePour`). Règle de Benoît : **Blanquefort = Saint-Médard** (même société KADIMA - TB,
+mêmes mentions, même lien d'avis, même site) ; **Caudéran** a les siennes (SAS ICI CAUDERAN) ;
+Saint-Aubin = KADIMA GESTION. `MENTIONS_KADIMA_PV` + `completerAgencesKadima()` (crm.js, relevé
+du site century21-kadima.fr/mentions-legales le 08/10) : `getReglages` complète les mentions
+VIDES des points de vente Kadima reconnus à leur clé ou leur nom (cauderan, saint-aubin/gestion),
+et propose les 4 points de vente (`AGENCES_KADIMA`) quand aucun n'est enregistré ; Blanquefort
+et Saint-Médard restent sans mentions propres → `agencePour` retombe sur l'identité générale.
+Des mentions saisies dans Réglages → Nos agences priment toujours. Civilités des mails du
+parcours avec majuscule (« Bonjour Madame, Monsieur DUPONT », `civiliteNom`). Les différences
+des guides R1/R2 par agence restent À FAIRE (Benoît doit les envoyer).
 **Guide R1 (05/10, suite)** : (1) la page 12 du modèle guide-r1.pdf est une IMAGE d'un ancien mot du
 directeur (nommait toujours Rémi Blanc, site C21 de Saint-Médard) → `genererGuideR1` la retire et
 insère à sa place une page dessinée par `dessinerMotDirecteur(doc, page, p, source)` (le bouton « Mot du

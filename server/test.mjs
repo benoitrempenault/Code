@@ -3443,7 +3443,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "la fiche relit civilité, prénom, type de bien, heures, conseiller (avec photo) et destinataires");
   ok((await callR("/crm/estimations", { headers: authP })).json.estimations.some((e) => e.id === pxId && e.conseiller === "Teddy BESSON"), "Studio Estimation voit la même fiche, au nom du conseiller");
   const ap1 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
-  ok(/lundi 20 avril à 10h/.test(ap1.texte) && /madame, monsieur MOUNEYRES/.test(ap1.texte) && /12 rue du Mandat Confiance, 33160 SAINT AUBIN DE MEDOC/.test(ap1.texte)
+  ok(/lundi 20 avril à 10h/.test(ap1.texte) && /Madame, Monsieur MOUNEYRES/.test(ap1.texte) && /12 rue du Mandat Confiance, 33160 SAINT AUBIN DE MEDOC/.test(ap1.texte)
      && /titre de propriété/i.test(ap1.texte) && !/copropriété/i.test(ap1.texte),
      "avant R1 : date en toutes lettres, civilité, adresse, pièces à préparer sans la copropriété (maison)");
   ok(/Teddy BESSON/.test(ap1.html) && /Conseiller immobilier/.test(ap1.html) && ap1.html.includes("/public/conseillers/" + teddy.json.id + "/photo") && /Instagram/.test(ap1.html) && /Nos avis clients/.test(ap1.html),
@@ -3515,6 +3515,25 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const apAg2 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
   ok(/François Mitterrand/.test(apAg2.texte) && /SAS Kadima/.test(apAg2.html) && /Saint-Médard-en-Jalles/.test(apAg2.html),
      "une agence sans adresse ni mentions reprend celles de l'identité générale");
+  // Les sociétés des points de vente Kadima (site century21-kadima.fr) : un
+  // conseiller de Caudéran écrit sous les mentions de la SAS ICI CAUDERAN, un
+  // conseiller de Blanquefort sous celles de KADIMA - TB (comme Saint-Médard),
+  // Saint-Aubin sous KADIMA GESTION — sans rien saisir. Des mentions saisies priment.
+  { const CRMK = await import("./src/crm.js");
+    const kad = { id: "ag_kadima_test", name: "CENTURY 21 Kadima" };
+    const agK = CRMK.completerAgencesKadima(kad, [{ cle: "cauderan", nom: "CENTURY 21 Kadima Bordeaux Caudéran" }, { cle: "blanquefort", nom: "CENTURY 21 Kadima Blanquefort" },
+      { cle: "saint-aubin", nom: "CENTURY 21 Kadima Saint-Aubin-de-Médoc" }, { cle: "century-21-kadima-bordeaux-cauderan", nom: "Caudéran", mentions: "Saisies à la main" }]);
+    ok(/535 306 880/.test(agK[0].mentions) && /SLEGI04254/.test(agK[0].mentions) && !agK[1].mentions && /908 391 824/.test(agK[2].mentions) && agK[3].mentions === "Saisies à la main",
+       "Caudéran → ICI CAUDERAN, Blanquefort → rien (identité générale = KADIMA - TB), Saint-Aubin → KADIMA GESTION, saisie manuelle conservée");
+    const vide = CRMK.completerAgencesKadima(kad, []);
+    ok(vide.length === 4 && vide.map((a) => a.cle).join(",") === "saint-medard,cauderan,saint-aubin,blanquefort" && /535 306 880/.test(vide[1].mentions) && !vide[3].mentions,
+       "sans agence enregistrée, les quatre points de vente Kadima sont proposés avec leurs mentions");
+    ok(CRMK.completerAgencesKadima({ id: "ag_y", name: "Agence Dupont" }, []).length === 0, "une autre agence ne reçoit rien");
+    const bl = CRMK.agencePour({ agence: { nom: "CENTURY 21 Kadima", mentions: "KADIMA TB — RCS 894 173 947", avis: "https://g.page/kadima" }, agences: vide }, { agence: "blanquefort" });
+    const cd = CRMK.agencePour({ agence: { nom: "CENTURY 21 Kadima", mentions: "KADIMA TB — RCS 894 173 947", avis: "https://g.page/kadima" }, agences: vide }, { agence: "cauderan" });
+    ok(/894 173 947/.test(bl.mentions) && bl.nom === "CENTURY 21 Kadima Blanquefort" && /221 avenue du Général de Gaulle/.test(bl.adresse) && bl.avis === "https://g.page/kadima",
+       "un conseiller de Blanquefort : nom et adresse de Blanquefort, mentions et avis de Saint-Médard");
+    ok(/535 306 880/.test(cd.mentions) && /Louis-Barthou/.test(cd.adresse) && cd.telephone === "05 56 02 39 55", "un conseiller de Caudéran : mentions ICI CAUDERAN, adresse et téléphone de Caudéran"); }
   await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test", bio: "Texte gardé" } });
   ok((await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === teddy.json.id).bio === "Texte gardé"
      && (await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test" } })).status === 200
@@ -3566,7 +3585,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "un co-propriétaire se crée et se lie, la fiche principale reste en tête");
   const ficheProp = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
   const apProp = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
-  ok(ficheProp.proprietaires.length === 2 && ficheProp.emails.includes("sophie.durand@exemple.fr") && /madame, monsieur MOUNEYRES, madame DURAND/.test(apProp.texte) && apProp.destinataires.length === 2,
+  ok(ficheProp.proprietaires.length === 2 && ficheProp.emails.includes("sophie.durand@exemple.fr") && /Madame, Monsieur MOUNEYRES, Madame DURAND/.test(apProp.texte) && apProp.destinataires.length === 2,
      "le mail s'adresse aux deux propriétaires et part aux deux adresses (" + JSON.stringify({ civ: apProp.texte.split("\n")[0] }) + ")");
   const prop2 = await callR("/crm/parcours/" + pxId + "/proprietaires", { headers: authP, body: { civilite: "Mme", prenom: "Sophie", nom: "durand" } });
   ok(prop2.status === 200 && !prop2.json.contact_cree && prop2.json.contact_id === prop1.json.contact_id && prop2.json.proprietaires.length === 2, "le même nom + prénom ne crée pas de doublon");
@@ -3578,7 +3597,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/parcours/" + pxId + "/proprietaires/" + ctPx.id, { headers: authP, method: "DELETE" })).status === 400, "la fiche principale ne se retire pas");
   for (const cid of [prop1.json.contact_id, propMemeNom.json.contact_id]) await callR("/crm/parcours/" + pxId + "/proprietaires/" + cid, { headers: authP, method: "DELETE" });
   const apSeul = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
-  ok((await callR("/crm/parcours/" + pxId, { headers: authP })).json.proprietaires.length === 1 && /madame, monsieur MOUNEYRES,\n/.test(apSeul.texte) && apSeul.destinataires.length === 1, "retirés, le mail redevient celui d'un seul foyer");
+  ok((await callR("/crm/parcours/" + pxId, { headers: authP })).json.proprietaires.length === 1 && /Madame, Monsieur MOUNEYRES,\n/.test(apSeul.texte) && apSeul.destinataires.length === 1, "retirés, le mail redevient celui d'un seul foyer");
   // Commission d'évaluation : lien public, avis des collègues, groupes et tiers comme Kadimestim, clôture.
   const comOuv = await callR("/crm/parcours/" + pxId + "/commission/ouvrir", { headers: authP, body: {} });
   const jeton = new URL(comOuv.json.lien, "http://x").searchParams.get("t");
