@@ -2847,21 +2847,26 @@
     }
     return l.map((o) => [c(o.civilite), prenomPropre(o.prenom), maj(o)].filter(Boolean).join(" ")).join(" et ");
   }
-  let guideR1Cache = null;
+  // Variantes du guide R1 par agence : Caudéran a son propre PDF (page « Nos
+  // moyens de communication » sans SeLoger, Logic-Immo, biens de prestige ni
+  // TikTok — tools/guides/variante-cauderan.py) ; les autres partagent le commun.
+  const guideR1Cache = {}; // variante → { meta, pdf }
+  const varianteGuideR1 = (cs) => ((cs && cs.agence) === "cauderan" ? "cauderan" : "commun");
   const sansAccentsMin = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
   async function genererGuideR1(p) {
     if (!window.PDFLib) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
-    if (!guideR1Cache) {
+    const cs = p.conseiller || {};
+    const variante = varianteGuideR1(cs);
+    if (!guideR1Cache[variante]) {
       const [meta, pdf] = await Promise.all([
         fetch("assets/guide-r1.json").then((r) => r.json()),
-        fetch("assets/guide-r1.pdf").then((r) => { if (!r.ok) throw new Error("Guide introuvable."); return r.arrayBuffer(); }),
+        fetch("assets/guide-r1" + (variante === "cauderan" ? "-cauderan" : "") + ".pdf").then((r) => { if (!r.ok) throw new Error("Guide introuvable."); return r.arrayBuffer(); }),
       ]);
-      guideR1Cache = { meta, pdf };
+      guideR1Cache[variante] = { meta, pdf };
     }
-    const { meta, pdf } = guideR1Cache;
+    const { meta, pdf } = guideR1Cache[variante];
     const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
     const source = await PDFDocument.load(pdf);
-    const cs = p.conseiller || {};
     const cle = sansAccentsMin([cs.prenom, cs.nom].filter(Boolean).join(" "));
     const pageCs = meta.conseillers.find((c) => c.cle === cle) ||
       meta.conseillers.find((c) => cle && (cle.includes(c.cle) || c.cle.includes(cle)));
@@ -2877,7 +2882,7 @@
     if (pgGeneree) { try { pageConseiller = { source: "generee", ...(await dessinerPageConseiller(doc, pgGeneree, p)) }; } catch (e) { pageConseiller.erreur = String(e.message || e); } }
     // Page « Notre agence » : les chiffres des avis du jour, par point de vente (relevés sur le site Kadima).
     let avisAgence = null;
-    { const i3 = ordre.indexOf(3); if (i3 >= 0 && p.agence && p.agence.avis_chiffres) { try { avisAgence = await redessinerAvisAgence(doc, doc.getPage(i3), p.agence.avis_chiffres); } catch (e) { avisAgence = { erreur: String(e.message || e) }; } } }
+    { const i3 = ordre.indexOf(3); if (i3 >= 0 && p.agence && p.agence.avis_chiffres) { try { avisAgence = await redessinerAvisAgence(doc, doc.getPage(i3), p.agence.avis_chiffres, variante); } catch (e) { avisAgence = { erreur: String(e.message || e) }; } } }
     // Le mot du directeur : la page du modèle (une image d'un ancien courrier,
     // qui nommait toujours le même conseiller) laisse place au courrier généré,
     // au bon conseiller, à la bonne agence, au bon site.
@@ -2970,7 +2975,7 @@
     doc.setTitle("Guide de commercialisation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", mot, pageConseiller, avisAgence }; // relu par les parcours navigateur
+    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", mot, pageConseiller, avisAgence, variante }; // relu par les parcours navigateur
     return url;
   }
   /* --------------------------- Mot du directeur --------------------------- */
@@ -2987,7 +2992,7 @@
     if (motCache) return motCache;
     {
       const [pdfR1, embleme, ...fontes] = await Promise.all([
-        guideR1Cache ? Promise.resolve(guideR1Cache.pdf) : fetch("assets/guide-r1.pdf").then((r) => { if (!r.ok) throw new Error("Guide R1 introuvable."); return r.arrayBuffer(); }),
+        guideR1Cache.commun ? Promise.resolve(guideR1Cache.commun.pdf) : fetch("assets/guide-r1.pdf").then((r) => { if (!r.ok) throw new Error("Guide R1 introuvable."); return r.arrayBuffer(); }),
         fetch("../assets/js/logo.js").then((r) => (r.ok ? r.text() : "")).then((t) => (/emblem:\s*"(data:image\/png;base64,[^"]+)"/.exec(t) || [])[1] || "").catch(() => ""),
         ...["Barlow-Regular", "Barlow-Bold", "Barlow-Italic"].map((f) => fetch("assets/fonts/" + f + ".ttf").then((r) => r.arrayBuffer())),
       ]);
@@ -3197,7 +3202,14 @@
   // Page « Notre agence » des guides (R1 p3, R2 p11) : les notes et nombres
   // d'avis redessinés aux chiffres relevés sur le site Kadima (par point de
   // vente). Les zones du modèle sont blanchies, les chiffres réécrits en or.
-  async function redessinerAvisAgence(doc, page, ch) {
+  // Zones (x0, y0, x1, y1 depuis le haut, taille) des quatre chiffres sur la page
+  // « Notre agence » : celle du guide commun et celle de Caudéran (autre mise en page).
+  const ZONES_AVIS = {
+    commun: { note_c21: [126, 302, 200, 326, 16.8], avis_c21: [112, 339, 212, 364, 16.8], note_google: [400, 300, 464, 324, 16.8], avis_google: [392, 340, 482, 365, 16.8] },
+    cauderan: { note_c21: [106, 306, 188, 332, 18.8], avis_c21: [100, 335, 189, 361, 18.8], note_google: [388, 300, 454, 326, 18.8], avis_google: [380, 332, 471, 358, 18.8] },
+  };
+  async function redessinerAvisAgence(doc, page, ch, variante) {
+    const z = ZONES_AVIS[variante] || ZONES_AVIS.commun;
     const { rgb } = window.PDFLib;
     await chargerMotCache();
     const fB = await doc.embedFont(motCache.fontes[1]);
@@ -3212,11 +3224,11 @@
       page.drawText(texte, { x: cx - w / 2, y: Y(y1 - 5), size: taille, font: fB, color: or });
     };
     const fait = {};
-    if (ch.note_c21 > 0) { zone(fmtNote(ch.note_c21) + " / 10", 126, 302, 200, 326, 16.8); fait.note_c21 = fmtNote(ch.note_c21); }
-    if (ch.avis_c21 > 0) { zone(fmtN(ch.avis_c21) + " avis", 112, 339, 212, 364, 16.8); fait.avis_c21 = fmtN(ch.avis_c21); }
-    if (ch.note_google > 0) { zone(fmtNote(ch.note_google) + " / 5", 400, 300, 464, 324, 16.8); fait.note_google = fmtNote(ch.note_google); }
-    if (ch.avis_google > 0) { zone(fmtN(ch.avis_google) + " avis", 392, 340, 482, 365, 16.8); fait.avis_google = fmtN(ch.avis_google); }
-    return { cle: ch.cle || "", ...fait };
+    if (ch.note_c21 > 0) { zone(fmtNote(ch.note_c21) + " / 10", ...z.note_c21); fait.note_c21 = fmtNote(ch.note_c21); }
+    if (ch.avis_c21 > 0) { zone(fmtN(ch.avis_c21) + " avis", ...z.avis_c21); fait.avis_c21 = fmtN(ch.avis_c21); }
+    if (ch.note_google > 0) { zone(fmtNote(ch.note_google) + " / 5", ...z.note_google); fait.note_google = fmtNote(ch.note_google); }
+    if (ch.avis_google > 0) { zone(fmtN(ch.avis_google) + " avis", ...z.avis_google); fait.avis_google = fmtN(ch.avis_google); }
+    return { cle: ch.cle || "", variante: variante || "commun", ...fait };
   }
   async function genererCourrierEstimation(p, courrier) {
     if (!window.PDFLib || !window.fontkit) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");

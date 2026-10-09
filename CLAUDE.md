@@ -1000,6 +1000,17 @@ estimés / agences / conseillers, fiche contact & SMS, « Signé par », en-têt
 d'estimation, page « Votre conseiller », R2 p12 (Tel./Port.), préparation des mails. Les `href="tel:"`
 gardent la valeur brute. Les fiches déjà en base s'affichent formatées même si elles ont été saisies
 collées ; elles se réenregistrent formatées à la prochaine modification.
+
+**Guide R1 de Caudéran (09/10)** : `administration/assets/guide-r1-cauderan.pdf`, produit par
+`tools/guides/variante-cauderan.py` à partir du guide commun : page 3 « Notre agence » = celle du guide
+Caudéran de Benoît (`tools/guides/cauderan-notre-agence.pdf` : depuis 1993, 3 153 projets, photo d'équipe,
+témoignages, partenaires + partenariat local) ; page « Nos moyens de communication » (p7 du PDF, p8 du
+guide) recomposée par clips : sans SeLoger ni Logic-Immo, sans « Biens de prestige » (Lux Résidence, Belles
+Demeures), réseaux sans TikTok. admin.js : `varianteGuideR1(cs)` → "cauderan" si `cs.agence === "cauderan"`,
+cache `guideR1Cache[variante]`, `ZONES_AVIS.cauderan` (chiffres d'avis à 18,8 pt aux emplacements de cette
+page) passé à `redessinerAvisAgence(doc, page, ch, variante)`. `__dernierGuide.variante`. Le R2 reste
+commun pour l'instant (variante en préparation, autres modifs à venir). Ne jamais mélanger les pages
+Saint-Médard et Caudéran : chaque agence a son PDF.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique
