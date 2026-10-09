@@ -33,6 +33,11 @@ export default async function () {
     const puceDirection = await page.evaluate(() => [...document.querySelectorAll("#table-conseillers tr")].filter((tr) => /Rempenault|Faure|Duverger|Delbecq/.test(tr.textContent) && /direction/.test(tr.textContent)).length);
     ok(tableCs.includes("BESSON") && nbPhotos >= 25 && tableCs.includes("Zamora") && tableCs.includes("smoke-parcours@test.fr") && (tableCs.match(/Besson/gi) || []).length === 2 && puceDirection === 4,
       "Réglages : Teddy sans doublon, l'équipe du site importée avec ses photos, la direction repérée (" + JSON.stringify({ nbPhotos, puceDirection }) + ")");
+    // Le bouton « Relever les avis du site » relit toutes les pages conseiller du (faux) site tout de suite.
+    await page.click("#btn-relever-avis");
+    await page.waitForFunction(() => /Avis du site relevés : \d+ avis sur \d+ conseiller/.test(document.getElementById("toast")?.textContent || ""), null, { timeout: 30000 });
+    const toastAvis = await page.evaluate(() => { const t = document.getElementById("toast"); const x = t.textContent; t.textContent = ""; return x; });
+    ok(/ [1-9]\d* avis sur [1-9]\d* conseiller/.test(toastAvis), "Réglages : le bouton relève les avis de tous les conseillers et dit combien (" + toastAvis.trim() + ")");
 
     await page.click('[data-onglet="parcours"]');
     await page.click("#btn-nouveau-parcours");

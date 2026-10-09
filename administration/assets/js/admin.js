@@ -2428,11 +2428,13 @@
     const tries = conseillers.slice().sort((a, b) => cle(a.nom).localeCompare(cle(b.nom)) || cle(a.prenom).localeCompare(cle(b.prenom)));
     const filtre = filtreAgenceConseillers;
     const visibles = filtre ? tries.filter((c) => (filtre === "-" ? !c.agence : c.agence === filtre)) : tries;
-    const menuAgences = agences().length
-      ? '<div class="barre" style="margin:0 0 10px;"><label>Agence <select id="filtre-agence-conseillers"><option value="">Toutes (' + conseillers.length + ')</option>' +
+    // Les avis du site sont relevés la nuit (15 profils) et au démarrage s'ils ont plus
+    // de 24 h ; le bouton les relève tout de suite, tous (Benoît vient d'en ajouter).
+    const menuAgences = '<div class="barre" style="margin:0 0 10px; align-items:center;">' + (agences().length
+      ? '<label>Agence <select id="filtre-agence-conseillers"><option value="">Toutes (' + conseillers.length + ')</option>' +
         agences().map((a) => '<option value="' + escH(a.cle) + '"' + (filtre === a.cle ? " selected" : "") + ">" + escH(a.nom) + " (" + conseillers.filter((c) => c.agence === a.cle).length + ")</option>").join("") +
-        '<option value="-"' + (filtre === "-" ? " selected" : "") + ">Sans agence (" + conseillers.filter((c) => !c.agence).length + ")</option></select></label></div>"
-      : "";
+        '<option value="-"' + (filtre === "-" ? " selected" : "") + ">Sans agence (" + conseillers.filter((c) => !c.agence).length + ")</option></select></label>"
+      : "") + '<button class="btn" id="btn-relever-avis" style="margin-left:auto;" title="Relit la page de chaque conseiller sur century21-kadima.fr et reprend ses avis clients">🔄 Relever les avis du site</button></div>';
     zone.innerHTML = menuAgences + (visibles.length
       ? '<div class="tableau-cadre"><table><thead><tr><th></th><th>Conseiller</th><th>Fonction</th><th>Téléphone</th><th>E-mail</th><th></th></tr></thead><tbody>' +
         visibles.map((c) => '<tr class="cliquable" data-conseiller="' + c.id + '"><td>' +
@@ -2444,6 +2446,16 @@
     zone.querySelectorAll("tr[data-conseiller]").forEach((tr) => tr.addEventListener("click", () => ouvrirConseiller(tr.dataset.conseiller)));
     const sel = $("filtre-agence-conseillers");
     if (sel) sel.addEventListener("change", () => { filtreAgenceConseillers = sel.value; rendreConseillers(); });
+    const bR = $("btn-relever-avis");
+    if (bR) bR.addEventListener("click", async () => {
+      bR.disabled = true; bR.textContent = "Relevé en cours…";
+      try {
+        const r = await api("/crm/avis-conseillers/relever", { json: {} });
+        const rel = r.releves || [], avec = rel.filter((x) => x.avis > 0);
+        await chargerConseillers();
+        toast("Avis du site relevés : " + avec.reduce((n, x) => n + x.avis, 0) + " avis sur " + avec.length + " conseiller" + (avec.length > 1 ? "s" : "") + " (" + rel.length + " profils relus).");
+      } catch (e) { toast("Relevé impossible : " + e.message, true); bR.disabled = false; bR.textContent = "🔄 Relever les avis du site"; }
+    });
   }
   let filtreAgenceConseillers = ""; // "" = toutes, "-" = sans agence, sinon la clé de l'agence
   /* --------------------------- Lecture des photos -------------------------- */

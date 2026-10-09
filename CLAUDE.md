@@ -985,7 +985,9 @@ août 2026</footer>`). `lireEquipeKadima(html)` (/equipe/ : cartes `carte-consei
 agency, max)` : profils actifs rapprochés des cartes par les mots du nom (sans ordre/accents), page lue,
 table `crm_conseillers_avis_site` (JSON). Cron de 6 h : 15 profils par nuit (les moins frais d'abord,
 budget de sous-requêtes) ; `GET /crm/avis-conseillers` (membre, relève tout en fond si un profil a plus de
-24 h — appelé au démarrage de l'admin) ; `POST /crm/avis-conseillers/relever` (admin, tout). Les profils
+24 h — appelé au démarrage de l'admin) ; `POST /crm/avis-conseillers/relever` (admin, tout). Bouton « 🔄 Relever les avis du
+site » (Réglages → Les conseillers, `btn-relever-avis`, 09/10) : appelle cette route puis recharge les profils et
+annonce « N avis sur K conseillers » — à cliquer quand Benoît vient d'ajouter des avis sur le site. Les profils
 (`GET /crm/conseillers`, fiche du parcours) portent `avis_site` (+ `avis_site_le`). Page « Votre conseiller »
 générée : avis du site d'abord (signature « Auteur · date »), puis le champ « en complément » du profil,
 sans doublon (60 premiers caractères), 6 au plus. La fiche conseiller affiche les avis relevés. Faux site
