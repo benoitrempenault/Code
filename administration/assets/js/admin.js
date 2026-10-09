@@ -2851,12 +2851,12 @@
   // moyens de communication » sans SeLoger, Logic-Immo, biens de prestige ni
   // TikTok — tools/guides/variante-cauderan.py) ; les autres partagent le commun.
   const guideR1Cache = {}; // variante → { meta, pdf }
-  const varianteGuideR1 = (cs) => ((cs && cs.agence) === "cauderan" ? "cauderan" : "commun");
+  const varianteGuide = (cs) => ((cs && cs.agence) === "cauderan" ? "cauderan" : "commun"); // R1 et R2
   const sansAccentsMin = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
   async function genererGuideR1(p) {
     if (!window.PDFLib) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
     const cs = p.conseiller || {};
-    const variante = varianteGuideR1(cs);
+    const variante = varianteGuide(cs);
     if (!guideR1Cache[variante]) {
       const [meta, pdf] = await Promise.all([
         fetch("assets/guide-r1.json").then((r) => r.json()),
@@ -3297,7 +3297,7 @@
   // + tableau des commodités ; page 8 carte des ventes de l'agence à 1 km ;
   // page 9 mois courant ; page 12 conseiller (photo, nom, texte). Les polices
   // Barlow sont embarquées (fontkit) pour rester dans la maquette.
-  let guideR2Cache = null;
+  const guideR2Cache = {}; // variante → { meta, pdf, fontes } (guide-r2.pdf ou guide-r2-cauderan.pdf)
   const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
   // Un fichier photo (tout format, HEIC compris) ou une image déjà lue → JPEG ≤ largeur px, poids borné.
   // Toujours sous `max` (taille de la data URL) : la qualité baisse d'abord,
@@ -3371,13 +3371,14 @@
   const fmtDist = (m) => (m >= 1000 ? (m / 1000).toFixed(1).replace(".", ",") + " km" : m + " m");
   async function genererGuideR2(p, r2, envr) {
     if (!window.PDFLib || !window.fontkit) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
-    if (!guideR2Cache) {
+    const variante = varianteGuide(p.conseiller);
+    if (!guideR2Cache[variante]) {
       const meta = await fetch("assets/guide-r2.json").then((r) => r.json());
-      const [pdf, ...fontes] = await Promise.all([fetch("assets/guide-r2.pdf").then((r) => { if (!r.ok) throw new Error("Guide R2 introuvable."); return r.arrayBuffer(); }),
+      const [pdf, ...fontes] = await Promise.all([fetch("assets/guide-r2" + (variante === "cauderan" ? "-cauderan" : "") + ".pdf").then((r) => { if (!r.ok) throw new Error("Guide R2 introuvable."); return r.arrayBuffer(); }),
         ...["regular", "bold", "extrabold", "italic"].map((k) => fetch(meta.fonts[k]).then((r) => r.arrayBuffer()))]);
-      guideR2Cache = { meta, pdf, fontes };
+      guideR2Cache[variante] = { meta, pdf, fontes };
     }
-    const { meta, pdf, fontes } = guideR2Cache;
+    const { meta, pdf, fontes } = guideR2Cache[variante];
     const { PDFDocument, rgb } = window.PDFLib;
     const doc = await PDFDocument.load(pdf);
     doc.registerFontkit(window.fontkit);
@@ -3503,7 +3504,7 @@
     // Page 12 : le conseiller.
     // Page 11 « Notre agence » : les chiffres des avis du jour, par point de vente.
     let avisAgenceR2 = null;
-    if (p.agence && p.agence.avis_chiffres) { try { avisAgenceR2 = await redessinerAvisAgence(doc, page(11), p.agence.avis_chiffres); } catch (e) { avisAgenceR2 = { erreur: String(e.message || e) }; } }
+    if (p.agence && p.agence.avis_chiffres) { try { avisAgenceR2 = await redessinerAvisAgence(doc, page(11), p.agence.avis_chiffres, variante); } catch (e) { avisAgenceR2 = { erreur: String(e.message || e) }; } }
     { const s = meta.p12, pg = page(s.page), cs = r2.conseiller || p.conseiller || {};
       const f = cs.genre === "f";
       ecrire(pg, f ? "VOTRE CONSEILLÈRE :" : "VOTRE CONSEILLER :", s.titre.x, s.titre.y[0], s.titre.taille, fX);
@@ -3546,7 +3547,7 @@
     doc.setTitle("Vendons ensemble votre bien — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", avisAgence: avisAgenceR2 };
+    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", avisAgence: avisAgenceR2, variante };
     return url;
   }
   // La fenêtre du guide R2 : photo du bien, points forts, objections, texte

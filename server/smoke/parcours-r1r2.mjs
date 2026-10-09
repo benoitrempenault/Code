@@ -347,6 +347,16 @@ export default async function () {
     await garderGuide(page, gD.octets, "guide-r1-denaud-smoke.pdf");
     await page.click("#doc-retour");
     await page.waitForSelector("#px-signe", { timeout: 8000 });
+    // Le R2 du même conseiller de Caudéran : la variante Caudéran aussi (p11 « Notre agence », p16 « Moyens de communication »).
+    await page.click('[data-guide="r2"]');
+    await page.waitForSelector("#r2-generer", { timeout: 8000 });
+    await page.click("#r2-generer");
+    await page.waitForSelector("#doc-retour", { timeout: 90000 });
+    const g2D = await page.evaluate(() => ({ variante: window.__dernierGuide.variante, avis: window.__dernierGuide.avisAgence, fichier: window.__dernierGuide.fichier }));
+    ok(/^guide-r2-/.test(g2D.fichier) && g2D.variante === "cauderan" && g2D.avis && g2D.avis.variante === "cauderan" && g2D.avis.avis_google === "425",
+      "conseiller de Caudéran : guide R2 de Caudéran, avis de Caudéran réécrits sur sa page « Notre agence » (" + JSON.stringify(g2D) + ")");
+    await page.click("#doc-retour");
+    await page.waitForSelector("#px-signe", { timeout: 8000 });
     await page.selectOption("#px-signe", cs.json.id);
     await attendreToast(page, "signés du conseiller");
     // La fiche se réaffiche avec le nouveau signataire (téléphone de Teddy) : on attend ce rendu avant de continuer.

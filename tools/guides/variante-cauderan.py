@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Variante Caudéran du guide R1 (Benoît, 09/10) : à partir de
-administration/assets/guide-r1.pdf, produit guide-r1-cauderan.pdf où la page
-« Nos moyens de communication » (p7 du PDF source, p8 du guide généré) ne
-montre plus SeLoger, Logic-Immo, la section « Biens de prestige » (Lux
-Résidence, Belles Demeures) ni TikTok. Les autres pages sont identiques ;
+"""Variantes Caudéran des guides R1 et R2 (Benoît, 09/10) : à partir de
+administration/assets/guide-r1.pdf (resp. guide-r2.pdf), produit
+guide-r1-cauderan.pdf (resp. guide-r2-cauderan.pdf) où la page « Nos moyens
+de communication » (p7 du R1 / p16 du R2) ne montre plus SeLoger, Logic-Immo,
+la section « Biens de prestige » (Lux Résidence, Belles Demeures) ni TikTok.
+Les autres pages sont identiques ;
 La page 3 (« Notre agence ») est celle du guide Caudéran fourni par Benoît
 (tools/guides/cauderan-notre-agence.pdf : ancienneté depuis 1993, 3 153
 projets, avis et témoignages de Caudéran, partenaires et partenariat local).
@@ -14,16 +15,15 @@ import pathlib, sys
 import pymupdf
 
 RACINE = pathlib.Path(__file__).resolve().parents[2] / "administration" / "assets"
-SRC = RACINE / "guide-r1.pdf"
-DST = RACINE / "guide-r1-cauderan.pdf"
-P_COM = 6  # index de la page « Nos moyens de communication »
-P_AGENCE = 2  # index de la page « Notre agence »
 NOTRE_AGENCE = pathlib.Path(__file__).resolve().parent / "cauderan-notre-agence.pdf"
+# guide → (index de la page « Notre agence », index de la page « Nos moyens de
+# communication ») ; les deux pages ont la même mise en page dans R1 et R2.
+GUIDES = {"guide-r1": (2, 6), "guide-r2": (10, 15)}
 
 def R(x0, y0, x1, y1):
     return pymupdf.Rect(x0, y0, x1, y1)
 
-def page_communication(doc, src):
+def page_communication(doc, src, P_COM):
     """Recompose la page à partir de morceaux (clips) de l'originale."""
     pg = doc[P_COM]
     w, h = pg.rect.width, pg.rect.height
@@ -56,15 +56,20 @@ def page_communication(doc, src):
     copie(R(304, 690, 346, 727), 298, yr)         # Facebook
     copie(R(398, 692, 504, 726), 424, yr)         # YouTube
 
-def main():
+def variante(nom, P_AGENCE, P_COM):
+    SRC, DST = RACINE / (nom + ".pdf"), RACINE / (nom + "-cauderan.pdf")
     src = pymupdf.open(SRC)
     doc = pymupdf.open(SRC)
-    page_communication(doc, src)
+    page_communication(doc, src, P_COM)
     # Page « Notre agence » : celle de Caudéran, à la place de celle de Saint-Médard.
     doc.delete_page(P_AGENCE)
     doc.insert_pdf(pymupdf.open(NOTRE_AGENCE), from_page=0, to_page=0, start_at=P_AGENCE)
     doc.save(DST, garbage=4, deflate=True)
     print("écrit", DST, doc.page_count, "pages")
+
+def main():
+    for nom, (P_AGENCE, P_COM) in GUIDES.items():
+        variante(nom, P_AGENCE, P_COM)
 
 if __name__ == "__main__":
     sys.exit(main())

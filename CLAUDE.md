@@ -1008,9 +1008,11 @@ témoignages, partenaires + partenariat local) ; page « Nos moyens de communica
 guide) recomposée par clips : sans SeLoger ni Logic-Immo, sans « Biens de prestige » (Lux Résidence, Belles
 Demeures), réseaux sans TikTok. admin.js : `varianteGuideR1(cs)` → "cauderan" si `cs.agence === "cauderan"`,
 cache `guideR1Cache[variante]`, `ZONES_AVIS.cauderan` (chiffres d'avis à 18,8 pt aux emplacements de cette
-page) passé à `redessinerAvisAgence(doc, page, ch, variante)`. `__dernierGuide.variante`. Le R2 reste
-commun pour l'instant (variante en préparation, autres modifs à venir). Ne jamais mélanger les pages
-Saint-Médard et Caudéran : chaque agence a son PDF.
+page) passé à `redessinerAvisAgence(doc, page, ch, variante)`. `__dernierGuide.variante`. Même chose pour
+le R2 : `guide-r2-cauderan.pdf` (p11 « Notre agence » = page Caudéran, p16 « Moyens de communication »
+recomposée), `varianteGuide(cs)` commune aux deux générateurs, `guideR2Cache[variante]`. Le script
+`variante-cauderan.py` produit les deux PDF d'un coup (GUIDES = {guide-r1: (2, 6), guide-r2: (10, 15)}).
+Ne jamais mélanger les pages Saint-Médard et Caudéran : chaque agence a son PDF.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique
