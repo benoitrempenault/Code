@@ -3693,7 +3693,13 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   { const d1 = await callR("/crm/parcours", { headers: authP, body: { civilite: "Mme", prenom: "Dou", nom: "BLONNE", adresse: "3 rue du Double", cp: "33160", ville: "SAINT MEDARD", type_bien: "maison" } });
     const d2 = await callR("/crm/parcours", { headers: authP, body: { civilite: "Mme", prenom: "Dou", nom: "BLONNE", adresse: "3 rue du Double", cp: "33160", ville: "SAINT MEDARD", type_bien: "maison" } });
     ok(d1.status === 200 && d2.status === 200 && d2.json.id === d1.json.id && d2.json.doublon === true, "un double clic sur « Créer le parcours » ne crée qu'une fiche (la seconde demande rend la première)");
-    await callR("/crm/parcours/" + d1.json.id, { headers: authP, method: "DELETE" }); }
+    await callR("/crm/parcours/" + d1.json.id, { headers: authP, method: "DELETE" });
+    // Deux demandes SIMULTANÉES (deux onglets, réseau qui bégaie) : au plus une fiche.
+    const corps = { civilite: "M.", prenom: "Si", nom: "MULTANE", adresse: "5 rue du Double", cp: "33160", ville: "SAINT MEDARD", type_bien: "maison" };
+    const [s1, s2] = await Promise.all([callR("/crm/parcours", { headers: authP, body: corps }), callR("/crm/parcours", { headers: authP, body: corps })]);
+    const fichesSim = (await callR("/crm/parcours", { headers: authP })).json.parcours.filter((x) => x.nom === "MULTANE");
+    ok(s1.status === 200 && s2.status === 200 && fichesSim.length === 1 && s1.json.id === s2.json.id, "deux demandes simultanées de création ne font qu'une fiche (" + fichesSim.length + " fiche, ids " + (s1.json.id === s2.json.id ? "identiques" : "différents") + ")");
+    for (const f of fichesSim) await callR("/crm/parcours/" + f.id, { headers: authP, method: "DELETE" }); }
   const lp = (await callR("/crm/parcours", { headers: authP })).json.parcours.find((p) => p.id === pxId);
   ok(lp && lp.cs_nom === "BESSON" && lp.journal.length === 2, "la liste des parcours porte le conseiller et l'avancement (" + JSON.stringify(lp && { cs: lp.cs_nom, journal: lp.journal }) + ")");
   // Guide R2 : ce que le conseiller saisit (photo du bien, points forts, objections, son texte).
