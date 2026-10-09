@@ -29,6 +29,8 @@ export default async function () {
     // L'import des profils du site (photos) se fait en tâche de fond : on l'attend ici.
     await page.waitForFunction(() => document.querySelectorAll("#table-conseillers img.avatar").length >= 25, null, { timeout: 60000 });
     const tableCs = await page.textContent("#table-conseillers");
+    const ordreTable = await page.evaluate(() => [...document.querySelectorAll("#table-conseillers tr[data-conseiller] strong")].map((e) => e.textContent.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()));
+    ok(ordreTable.length > 20 && ordreTable.every((t, i) => !i || ordreTable[i - 1].localeCompare(t) <= 0), "Réglages : les conseillers sont classés par ordre alphabétique (prénom puis nom) : " + ordreTable.slice(0, 4).join(" < ") + " …");
     const nbPhotos = await page.locator("#table-conseillers img.avatar").count();
     const puceDirection = await page.evaluate(() => [...document.querySelectorAll("#table-conseillers tr")].filter((tr) => /Rempenault|Faure|Duverger|Delbecq/.test(tr.textContent) && /direction/.test(tr.textContent)).length);
     ok(tableCs.includes("BESSON") && nbPhotos >= 25 && tableCs.includes("Zamora") && tableCs.includes("smoke-parcours@test.fr") && (tableCs.match(/Besson/gi) || []).length === 2 && puceDirection === 4,
@@ -82,6 +84,8 @@ export default async function () {
     await page.fill("#px-chambres", "4"); await page.keyboard.press("Tab");
     await attendreToast(page, "Bien enregistré");
     // Changer le signataire depuis la fiche : menu déroulant, enregistré aussitôt.
+    const ordreSigne = await page.evaluate(() => [...document.querySelectorAll("#px-signe option")].slice(1).map((o) => o.textContent.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()));
+    ok(ordreSigne.length > 5 && ordreSigne.every((t, i) => !i || ordreSigne[i - 1].localeCompare(t) <= 0), "le menu « Signé par » classe les conseillers par ordre alphabétique (prénom puis nom) : " + ordreSigne.slice(0, 4).join(" < ") + " …");
     const idZamora = await page.evaluate(() => [...document.querySelectorAll("#px-signe option")].find((o) => /Zamora/.test(o.textContent))?.value);
     await page.selectOption("#px-signe", idZamora);
     await attendreToast(page, "signés du conseiller choisi");

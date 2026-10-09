@@ -2384,6 +2384,11 @@
   // Profils qui signent documents et e-mails du parcours R1/R2 : photo
   // réduite dans le navigateur (240 px, JPEG) avant d'être envoyée.
   let conseillers = [];
+  // Partout (Réglages, menus « Conseiller » et « Signé par » du parcours), les
+  // conseillers sont classés par ordre alphabétique tels qu'ils s'affichent :
+  // prénom puis nom, sans tenir compte des majuscules ni des accents.
+  const cleTri = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const trierConseillers = (liste) => (liste || []).slice().sort((a, b) => cleTri(a.prenom).localeCompare(cleTri(b.prenom)) || cleTri(a.nom).localeCompare(cleTri(b.nom)));
   // Les profils suivent les accès : à chaque ouverture, les comptes de
   // l'agence (+ les conseillers du guide R1, + l'annuaire) qui n'ont pas
   // encore de profil en reçoivent un. Rien n'est écrasé.
@@ -2416,16 +2421,14 @@
     } catch (e) { if (annoncer) toast(e.message, true); return null; }
   }
   async function chargerConseillers() {
-    try { conseillers = (await api("/crm/conseillers")).conseillers; } catch { conseillers = []; }
+    try { conseillers = trierConseillers((await api("/crm/conseillers")).conseillers); } catch { conseillers = []; }
     // L'import des profils (photos du site, lent sur téléphone) se fait en tâche
     // de fond : le menu « Conseiller » n'attend pas, il se recharge ensuite.
     if (!profilsImportes && !modeConseiller) { profilsImportes = true; importerConseillers(false).then((r) => { if (r && (r.ajoutes || r.completes)) chargerConseillers(); }); }
     const zone = $("table-conseillers");
     if (!zone) return;
-    // Ordre alphabétique sans tenir compte des majuscules ni des accents
-    // (« BUISSON » passait avant « Besson »), et un filtre par agence.
-    const cle = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-    const tries = conseillers.slice().sort((a, b) => cle(a.nom).localeCompare(cle(b.nom)) || cle(a.prenom).localeCompare(cle(b.prenom)));
+    // Ordre alphabétique (prénom puis nom, comme affiché) et un filtre par agence.
+    const tries = trierConseillers(conseillers);
     const filtre = filtreAgenceConseillers;
     const visibles = filtre ? tries.filter((c) => (filtre === "-" ? !c.agence : c.agence === filtre)) : tries;
     // Les avis du site sont relevés la nuit (15 profils) et au démarrage s'ils ont plus
@@ -2669,7 +2672,7 @@
   function brancherMenuConseillers(selId) {
     const sel = $(selId); if (!sel) return;
     const remplir = () => { const v = sel.value; sel.innerHTML = '<option value="">— conseiller —</option>' + conseillers.filter((c) => c.actif || c.id === v).map((c) => '<option value="' + c.id + '"' + (c.id === v ? " selected" : "") + ">" + escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</option>").join(""); };
-    const verifier = async () => { if (sel.options.length > 1) return; try { conseillers = (await api("/crm/conseillers")).conseillers; } catch { /* rien */ } remplir(); };
+    const verifier = async () => { if (sel.options.length > 1) return; try { conseillers = trierConseillers((await api("/crm/conseillers")).conseillers); } catch { /* rien */ } remplir(); };
     sel.addEventListener("focus", verifier); sel.addEventListener("touchstart", verifier, { passive: true });
     if (sel.options.length <= 1) verifier();
   }
