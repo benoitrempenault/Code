@@ -49,6 +49,14 @@
   }
 
   const escH = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  // Téléphone affiché « 06 06 06 06 06 » partout (même règle que le serveur).
+  const fmtTel = (t) => {
+    const brut = String(t ?? "").trim();
+    let n = brut.replace(/[\s.\-()\u00a0\u202f]/g, "");
+    if (/^(\+33|0033)[1-9]\d{8}$/.test(n)) n = "0" + n.replace(/^(\+33|0033)/, "");
+    else if (/^[1-9]\d{8}$/.test(n)) n = "0" + n;
+    return /^0[1-9]\d{8}$/.test(n) ? n.replace(/(\d{2})(?=\d)/g, "$1 ") : brut;
+  };
   const TYPES = {
     acquereur: "Acquéreur", vendeur: "Vendeur", estime: "Estimé",
     bailleur: "Bailleur", locataire: "Locataire", prospect: "Prospect",
@@ -180,7 +188,7 @@
       visibles.map((c) => '<tr class="cliquable" data-contact="' + c.id + '">' +
         '<td><input type="checkbox" class="coche-contact" value="' + c.id + '" /></td>' +
         "<td><strong>" + escH(c.nom) + "</strong> " + escH(c.prenom) + (c.opt_out ? ' <span class="puce grise">opt-out</span>' : "") + "</td>" +
-        "<td>" + escH(c.email) + "</td><td>" + escH(c.telephone) + "</td><td>" + escH(c.ville) + "</td>" +
+        "<td>" + escH(c.email) + "</td><td>" + escH(fmtTel(c.telephone)) + "</td><td>" + escH(c.ville) + "</td>" +
         "<td>" + fmtDateFr(c.date_naissance) + "</td><td>" + fmtDateFr(c.date_achat) + "</td>" +
         "<td>" + (c.types || []).map((t) => '<span class="puce">' + escH(TYPES[t] || t) + "</span>").join("") + "</td>" +
         "<td>" + escH(c.conseiller) + "</td></tr>").join("") +
@@ -242,7 +250,7 @@
       ["M.", "Mme", "M. et Mme"].map((v) => "<option" + ((c && c.civilite) === v ? " selected" : "") + ">" + v + "</option>").join("") +
       "</select></label>" +
       CHAMP("Prénom", "c-prenom", c && c.prenom) + CHAMP("Nom", "c-nom", c && c.nom) +
-      CHAMP("E-mail", "c-email", c && c.email) + CHAMP("Téléphone", "c-tel", c && c.telephone) +
+      CHAMP("E-mail", "c-email", c && c.email) + CHAMP("Téléphone", "c-tel", fmtTel(c && c.telephone)) +
       CHAMP("Adresse", "c-adresse", c && c.adresse) + CHAMP("Code postal", "c-cp", c && c.cp) +
       CHAMP("Ville", "c-ville", c && c.ville) +
       CHAMP("Date de naissance", "c-naissance", fmtDateFr(c && c.date_naissance), "JJ/MM/AAAA ou JJ/MM") +
@@ -337,7 +345,7 @@
     const duCanal = modelesEnvoi.filter((m) => (canal === "sms" ? m.canal === "sms" : m.canal !== "sms"));
     ouvrirModale((canal === "sms" ? "💬 SMS à " : "✉️ Mail à ") + ((c.prenom + " " + c.nom).trim() || "ce contact"),
       '<p class="petit" style="margin-top:0;">' + (canal === "sms"
-        ? "Vers " + escH(c.telephone) + " — expéditeur : l'agence (Brevo)."
+        ? "Vers " + escH(fmtTel(c.telephone)) + " — expéditeur : l'agence (Brevo)."
         : "Vers " + escH(c.email) + " — au gabarit de l'agence, réponse vers la boîte de l'agence.") + "</p>" +
       '<div class="grille-champs"><label>Partir d\'un message de la bibliothèque' +
       '<select id="env-modele"><option value="">— message libre —</option>' +
@@ -457,7 +465,7 @@
         $("fu-liste").innerHTML = autres.length ? autres.map((x) =>
           '<label class="case" style="width:100%; padding:3px 0;"><input type="checkbox" class="fu-ct" value="' + escH(x.id) + '"' + (choisis.has(x.id) ? " checked" : "") + " /> " +
           "<strong>" + escH(x.nom) + "</strong> " + escH(x.prenom) + (x.civilite ? " (" + escH(x.civilite) + ")" : "") +
-          ' <span class="puce grise">' + escH([x.email, x.telephone, x.ville].filter(Boolean).join(" · ") || "sans coordonnées") + "</span></label>").join("")
+          ' <span class="puce grise">' + escH([x.email, fmtTel(x.telephone), x.ville].filter(Boolean).join(" · ") || "sans coordonnées") + "</span></label>").join("")
           : '<p class="petit">Aucune autre fiche ne correspond.</p>';
       } catch (e) { toast(e.message, true); }
     };
@@ -500,7 +508,7 @@
           g.fiches.map((f) => "<tr>" +
             '<td><input type="radio" name="dbl-garder-' + gi + '" value="' + escH(f.id) + '"' + (f.id === defaut ? " checked" : "") + " /></td>" +
             '<td><strong>' + escH(f.nom) + "</strong> " + escH(f.prenom) + (f.civilite ? " (" + escH(f.civilite) + ")" : "") + "</td>" +
-            "<td>" + escH(f.email) + "</td><td>" + escH(f.telephone) + "</td>" +
+            "<td>" + escH(f.email) + "</td><td>" + escH(fmtTel(f.telephone)) + "</td>" +
             "<td>" + escH([f.ville, f.adresse].filter(Boolean).join(" · ")) + "</td>" +
             "<td>" + fmtDateFr(f.date_naissance) + "</td>" +
             "<td>" + (f.types || []).map((t) => '<span class="puce">' + escH(TYPES[t] || t) + "</span>").join("") + "</td></tr>").join("") +
@@ -575,7 +583,7 @@
         rappels.map((r) => '<tr class="cliquable" data-contact="' + escH(r.contact_id) + '">' +
           "<td>" + (r.retard ? '<span class="puce" style="background:#fbe9e7; color:#c62828;">en retard · ' + fmtDateFr(r.rappel_le) + "</span>" : fmtDateFr(r.rappel_le)) + "</td>" +
           "<td><strong>" + (escH(r.contact) || escH(r.adresse) || "—") + "</strong></td>" +
-          "<td>" + escH(r.telephone) + "</td>" +
+          "<td>" + escH(fmtTel(r.telephone)) + "</td>" +
           "<td>" + (SUIVI_TYPES[r.type] || r.type) + " · " + escH(r.commentaire) + "</td>" +
           "<td>" + escH(r.conseiller) + "</td>" +
           '<td><button class="btn" style="padding:3px 10px; font-size:12px;" data-rappel-fait="' + escH(r.id) + '">✓ Fait</button></td></tr>').join("") +
@@ -1179,7 +1187,7 @@
     $("annonces-site").value = reglages.annonces.siteUrl || "";
     $("ag-nom").value = reglages.agence.nom || "";
     $("ag-adresse").value = reglages.agence.adresse || "";
-    $("ag-tel").value = reglages.agence.telephone || "";
+    $("ag-tel").value = fmtTel(reglages.agence.telephone);
     $("ag-email").value = reglages.agence.email || "";
     $("ag-site").value = reglages.agence.site || "";
     $("ag-logo").value = reglages.agence.logoUrl || "";
@@ -1281,7 +1289,7 @@
     zone.innerHTML = liste.length
       ? '<div class="tableau-cadre"><table><thead><tr><th>Agence</th><th>Adresse</th><th>Téléphone</th><th>E-mail</th><th>Mentions légales</th><th></th></tr></thead><tbody>' +
         liste.map((a) => '<tr class="cliquable" data-agence="' + escH(a.cle) + '"><td><strong>' + escH(a.nom) + "</strong></td><td>" + escH(a.adresse || "—") + "</td><td>" +
-          escH(a.telephone || "—") + "</td><td>" + escH(a.email || "—") + "</td><td>" + (a.mentions ? "✓" : '<span class="petit">celles de l\'identité</span>') + "</td><td>✏️</td></tr>").join("") +
+          escH(fmtTel(a.telephone) || "—") + "</td><td>" + escH(a.email || "—") + "</td><td>" + (a.mentions ? "✓" : '<span class="petit">celles de l\'identité</span>') + "</td><td>✏️</td></tr>").join("") +
         "</tbody></table></div>"
       : '<div class="vide">Aucune agence — ajoutez la première (ou elles se créent depuis le guide R1 au prochain chargement).</div>';
     zone.querySelectorAll("tr[data-agence]").forEach((tr) => tr.addEventListener("click", () => ouvrirAgence(tr.dataset.agence)));
@@ -1293,7 +1301,7 @@
       '<div class="grille-champs">' +
       '<label style="grid-column:1/-1;">Nom<input id="agc-nom" value="' + v("nom") + '" placeholder="CENTURY 21 Kadima — Bordeaux Caudéran" /></label>' +
       '<label style="grid-column:1/-1;">Adresse<input id="agc-adresse" value="' + v("adresse") + '" placeholder="12 rue …, 33200 Bordeaux" /></label>' +
-      '<label>Téléphone<input id="agc-tel" value="' + v("telephone") + '" /></label>' +
+      '<label>Téléphone<input id="agc-tel" value="' + escH(fmtTel(a && a.telephone)) + '" /></label>' +
       '<label>E-mail<input id="agc-email" type="email" value="' + v("email") + '" /></label>' +
       '<label style="grid-column:1/-1;">Avis Google de cette agence (lien « laissez-nous un avis » ; vide = celui de l\'identité)<input id="agc-avis" value="' + v("avis") + '" placeholder="https://g.page/r/…/review" /></label>' +
       '<label style="grid-column:1/-1;">Site internet de cette agence (guides, mot du directeur ; vide = celui de l\'identité)<input id="agc-site" value="' + v("site") + '" placeholder="www.century21-kadima.fr" /></label>' +
@@ -1806,7 +1814,7 @@
       "p.mentions{font-size:12.5px; text-align:justify;}" +
       "@media print{body{margin:10mm auto;}}</style></head><body>" +
       '<div class="tete"><b>' + escH(nomAg.toUpperCase()) + "</b><br>" +
-      escH([ag.adresse, ag.telephone, ag.email].filter(Boolean).join(" · ")) + "</div>" +
+      escH([ag.adresse, fmtTel(ag.telephone), ag.email].filter(Boolean).join(" · ")) + "</div>" +
       "<h1>Bon de visite</h1><div class=\"filet\"></div>" +
       '<div class="cadre"><span class="lbl">Visiteur</span><br><strong>' + escH(visiteur) + "</strong></div>" +
       '<div class="cadre"><span class="lbl">Bien visité</span><br><strong>' + escH(v.bien) + "</strong><br>" +
@@ -1954,7 +1962,7 @@
       '<label>Propriétaire<input id="ee-nom" value="' + escH(x.nom) + '" /></label>' +
       '<div class="grille-champs">' +
       '<label>E-mail<input id="ee-email" type="email" value="' + escH(x.email) + '" /></label>' +
-      '<label>Téléphone<input id="ee-tel" value="' + escH(x.telephone) + '" /></label>' +
+      '<label>Téléphone<input id="ee-tel" value="' + escH(fmtTel(x.telephone)) + '" /></label>' +
       "</div>" +
       '<label>Adresse du bien<input id="ee-adresse" value="' + escH(x.adresse) + '" /></label>' +
       '<label>Ville<input id="ee-ville" value="' + escH(x.ville) + '" /></label>' +
@@ -2113,7 +2121,7 @@
       '<h3 style="margin:14px 0 6px; font-size:15px;">Le(s) vendeur(s)</h3><p class="petit">Ils recevront l\'offre signée par e-mail pour l\'accepter ou la refuser (code SMS / e-mail).</p>' +
       vendeurs.map((v, i) => '<div class="grille-champs" style="margin-top:6px;">' +
         '<label>Nom<input class="of-v-nom" value="' + escH(v.nom || "") + '" /></label><label>Prénom<input class="of-v-prenom" value="' + escH(v.prenom || "") + '" /></label>' +
-        '<label>E-mail<input class="of-v-email" type="email" value="' + escH(v.email || "") + '" /></label><label>Mobile<input class="of-v-tel" type="tel" value="' + escH(v.telephone || "") + '" /></label></div>').join(""),
+        '<label>E-mail<input class="of-v-email" type="email" value="' + escH(v.email || "") + '" /></label><label>Mobile<input class="of-v-tel" type="tel" value="' + escH(fmtTel(v.telephone)) + '" /></label></div>').join(""),
       '<button class="btn" id="btn-annuler-offre">Annuler</button><button class="btn btn-or" id="btn-save-offre">' + (o ? "Enregistrer" : "Créer l'offre") + "</button>");
     if (!o) {
       rendreListeContacts();
@@ -2182,7 +2190,7 @@
     const ligneSig = (s) => '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:6px 0; border-bottom:1px solid var(--line);">' +
       "<strong>" + escH(s.libelle) + "</strong>" +
       (s.email ? '<span class="puce grise">' + escH(s.email) + "</span>" : '<span class="puce rouge">sans e-mail</span>') +
-      (s.telephone ? '<span class="puce grise">' + escH(s.telephone) + "</span>" : "") +
+      (s.telephone ? '<span class="puce grise">' + escH(fmtTel(s.telephone)) + "</span>" : "") +
       (s.role === "offrant" ? (s.identiteComplete ? '<span class="puce verte">état civil ✓</span>' : '<span class="puce grise">état civil incomplet</span>') : "") +
       (s.signeAt ? '<span class="puce verte">' + (s.role === "vendeur" ? ({ accepte: "a accepté", refuse: "a refusé", contre: "contre-proposition" }[s.decision] || "a répondu") : "signé") + " le " + fmtTs(s.signeAt) + "</span>"
         : (s.lienActif ? '<span class="puce">lien actif</span>' : "")) +
@@ -2430,7 +2438,7 @@
         visibles.map((c) => '<tr class="cliquable" data-conseiller="' + c.id + '"><td>' +
           (c.photo_url ? '<img class="avatar" src="' + escH(c.photo_url) + '" alt="" />' : '<span class="avatar"></span>') + "</td><td><strong>" +
           escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</strong>" + (c.actif ? "" : ' <span class="puce grise">inactif</span>') + (c.direction ? ' <span class="puce">direction</span>' : "") + "</td><td>" +
-          escH([c.fonction, nomAgence(c.agence)].filter(Boolean).join(" · ")) + "</td><td>" + escH(c.telephone) + "</td><td>" + escH(c.email) + "</td><td>✏️</td></tr>").join("") +
+          escH([c.fonction, nomAgence(c.agence)].filter(Boolean).join(" · ")) + "</td><td>" + escH(fmtTel(c.telephone)) + "</td><td>" + escH(c.email) + "</td><td>✏️</td></tr>").join("") +
         "</tbody></table></div>"
       : '<div class="vide">' + (filtre ? "Aucun conseiller dans cette agence." : "Aucun conseiller — ajoutez le premier.") + "</div>");
     zone.querySelectorAll("tr[data-conseiller]").forEach((tr) => tr.addEventListener("click", () => ouvrirConseiller(tr.dataset.conseiller)));
@@ -2529,7 +2537,7 @@
       '<label>Prénom<input id="cs-prenom" value="' + escH(c && c.prenom || "") + '" /></label>' +
       '<label>Nom<input id="cs-nom" value="' + escH(c && c.nom || "") + '" /></label>' +
       '<label>Fonction<input id="cs-fonction" value="' + escH(c && c.fonction || "") + '" placeholder="Conseiller immobilier" /></label>' +
-      '<label>Téléphone<input id="cs-tel" value="' + escH(c && c.telephone || "") + '" /></label>' +
+      '<label>Téléphone<input id="cs-tel" value="' + escH(fmtTel(c && c.telephone)) + '" /></label>' +
       '<label>E-mail<input id="cs-email" type="email" value="' + escH(c && c.email || "") + '" /></label>' +
       '<label>Agence (ses e-mails et guides en portent le nom, l\'adresse et les mentions légales)<select id="cs-agence"><option value="">— identité générale —</option>' +
       agences().map((a) => '<option value="' + escH(a.cle) + '"' + ((c && c.agence) === a.cle ? " selected" : "") + ">" + escH(a.nom) + "</option>").join("") + "</select></label>" +
@@ -2624,7 +2632,7 @@
       '<label>Prénom<input id="px-prenom" value="' + v("prenom") + '" /></label>' +
       '<label>Nom<input id="px-nom" value="' + v("nom") + '" /></label>' +
       '<label>E-mail<input id="px-email" type="email" value="' + v("email") + '" /></label>' +
-      '<label>Téléphone<input id="px-tel" value="' + v("telephone") + '" /></label>' +
+      '<label>Téléphone<input id="px-tel" value="' + escH(fmtTel(p && p.telephone)) + '" /></label>' +
       '<label>Conseiller (signe les e-mails)<select id="px-conseiller">' + csOptions + "</select></label>" +
       '<label style="grid-column:1/-1;">Adresse du bien<input id="px-adresse" value="' + v("adresse") + '" placeholder="12 rue du Mandat Confiance" /></label>' +
       '<label>Code postal<input id="px-cp" value="' + v("cp") + '" /></label>' +
@@ -2693,13 +2701,13 @@
         zone.innerHTML = (r.contacts || []).length
           ? r.contacts.map((x) => '<button type="button" class="btn" data-ct="' + escH(x.id) + '" style="display:block; width:100%; text-align:left; margin:3px 0; padding:6px 10px;"><strong>' +
             escH(x.nom) + "</strong> " + escH(x.prenom) + (x.civilite ? " (" + escH(x.civilite) + ")" : "") +
-            ' <span class="puce grise">' + escH([x.email, x.telephone, [x.adresse, x.ville].filter(Boolean).join(" ")].filter(Boolean).join(" · ") || "sans coordonnées") + "</span></button>").join("")
+            ' <span class="puce grise">' + escH([x.email, fmtTel(x.telephone), [x.adresse, x.ville].filter(Boolean).join(" ")].filter(Boolean).join(" · ") || "sans coordonnées") + "</span></button>").join("")
           : '<p class="petit">Aucun contact ne correspond — remplissez la fiche ci-dessous, le contact sera créé.</p>';
         zone.querySelectorAll("[data-ct]").forEach((b) => b.addEventListener("click", () => {
           const x = r.contacts.find((y) => y.id === b.dataset.ct); if (!x) return;
           contactId = x.id;
           if (["M.", "Mme", "M. et Mme"].includes(x.civilite)) $("px-civilite").value = x.civilite;
-          $("px-prenom").value = x.prenom || ""; $("px-nom").value = x.nom || ""; $("px-email").value = x.email || ""; $("px-tel").value = x.telephone || "";
+          $("px-prenom").value = x.prenom || ""; $("px-nom").value = x.nom || ""; $("px-email").value = x.email || ""; $("px-tel").value = fmtTel(x.telephone);
           $("px-adresse").value = x.adresse || ""; $("px-ville").value = x.ville || "";
           $("px-choisi").innerHTML = "Contact choisi : <strong>" + escH([x.prenom, x.nom].filter(Boolean).join(" ")) + "</strong> — la fiche ci-dessous est pré-remplie, complétez le bien et les rendez-vous.";
           zone.querySelectorAll("[data-ct]").forEach((o) => o.classList.toggle("btn-or", o === b));
@@ -2744,7 +2752,7 @@
     const cs = p.conseiller;
     const csDetail = cs
       ? (cs.photo_url ? '<img class="avatar" src="' + escH(cs.photo_url) + '" alt="" /> ' : "") +
-        escH([cs.fonction, cs.telephone, cs.email].filter(Boolean).join(" · ") || "ni téléphone ni e-mail sur son profil (Réglages → Les conseillers)") +
+        escH([cs.fonction, fmtTel(cs.telephone), cs.email].filter(Boolean).join(" · ") || "ni téléphone ni e-mail sur son profil (Réglages → Les conseillers)") +
         (p.agence && p.agence.pv ? ' <span class="puce grise">' + escH(p.agence.nom) + "</span>" : "")
       : '<span style="color:#e07a5f;">aucun conseiller choisi — les e-mails seraient signés de l\'agence</span>';
     const csLigne = '<select id="px-signe" style="max-width:260px; vertical-align:middle;"><option value="">— choisir le conseiller —</option>' +
@@ -3025,7 +3033,7 @@
     const nomAg = String(ag.nom || "CENTURY 21 Kadima").toUpperCase(); let tN = 13; while (tN > 9 && fR.widthOfTextAtSize(nomAg, tN) > 300) tN -= 0.5;
     ecrire(nomAg, 60, 86, tN, fR, or);
     let y = 110;
-    for (const t of [l1, l2.toUpperCase(), ag.telephone ? "Tél. " + ag.telephone : "", ag.email ? "Mail : " + ag.email : ""]) if (t) { ecrire(t, 60, y, 10.5, fR); y += 17; }
+    for (const t of [l1, l2.toUpperCase(), ag.telephone ? "Tél. " + fmtTel(ag.telephone) : "", ag.email ? "Mail : " + ag.email : ""]) if (t) { ecrire(t, 60, y, 10.5, fR); y += 17; }
     ecrire(site, 60, y, 10.5, fB, or);
     // La photo de la personne qui signe, recadrée dans son cadre, sous le logo.
     const cadre = [415, 118, 535, 268];
@@ -3120,7 +3128,7 @@
     const ySig = Math.min(Math.max(y + 10, 640), 720);
     ecrire(prenom || nomCs ? [prenom, nomCs].filter(Boolean).join(" ") : (ag.nom || "L'équipe de l'agence"), 330, ySig, 12.5, fB);
     ecrire(cs.fonction || "Conseiller immobilier", 330, ySig + 16, 10.5, fI, gris);
-    ecrire([cs.telephone, cs.email].filter(Boolean).join(" · "), 330, ySig + 31, 9.5, fR, gris);
+    ecrire([fmtTel(cs.telephone), cs.email].filter(Boolean).join(" · "), 330, ySig + 31, 9.5, fR, gris);
     return { conseiller: [prenom, nomCs].filter(Boolean).join(" "), basse, haute, libre: !!libre, photo, agence: ag.nom || "" };
   }
   const rgb255 = (r, g, b) => window.PDFLib.rgb(r, g, b);
@@ -3163,7 +3171,7 @@
     if (fB.widthOfTextAtSize(nomComplet, tN) > 250 || nomComplet.length > 24) { centre(prenom, 374, 150, tN, fB, noir); centre(nomCs, 374, 150 + tN + 4, tN, fB, noir); }
     else centre(nomComplet, 374, 160, tN, fB, noir);
     centre(cs.email ? "Mail : " + cs.email : "", 374, 213, 12, fR, noir);
-    centre(cs.telephone ? "Téléphone : " + cs.telephone : "", 374, 235, 12, fR, noir);
+    centre(cs.telephone ? "Téléphone : " + fmtTel(cs.telephone) : "", 374, 235, 12, fR, noir);
     centre(cs.fonction || "", 374, 257, 11, fI, gris);
     centre(p.agence && p.agence.nom ? p.agence.nom : "", 374, cs.fonction ? 273 : 257, 10.5, fR, gris);
     // Les avis : d'abord ceux relevés sur la page du conseiller sur le site Kadima
@@ -3504,8 +3512,8 @@
         const l1 = virg > 0 ? adr.slice(0, virg).trim() : adr, l2 = virg > 0 ? adr.slice(virg + 1).trim().toUpperCase() : "";
         const site = String(ag.site || (reglages && reglages.agence && reglages.agence.site) || "").replace(/^https?:\/\//, "").replace(/\/$/, "") || "www.century21-kadima.fr";
         pg.drawRectangle({ x: 300, y: pg.getHeight() - 470, width: 250, height: 124, color: rgb(1, 1, 1) });
-        [[l1, 363.7], [l2, 377.9], [ag.telephone ? "Tel. " + ag.telephone : "", 392.1], [ag.email || "", 449.2], [site, 463.4]].forEach(([t, y]) => ecrire(pg, t, s.port.x, y, s.port.taille, fR)); }
-      ecrire(pg, cs.telephone ? "Port. " + cs.telephone : "", s.port.x, s.port.y, s.port.taille, fR);
+        [[l1, 363.7], [l2, 377.9], [ag.telephone ? "Tel. " + fmtTel(ag.telephone) : "", 392.1], [ag.email || "", 449.2], [site, 463.4]].forEach(([t, y]) => ecrire(pg, t, s.port.x, y, s.port.taille, fR)); }
+      ecrire(pg, cs.telephone ? "Port. " + fmtTel(cs.telephone) : "", s.port.x, s.port.y, s.port.taille, fR);
       ecrire(pg, cs.email || "", s.email.x, s.email.y, s.email.taille, fR);
       // Le texte du conseiller tient dans son cadre (jusqu'à 684 pt) : la taille
       // descend par paliers avant de couper — plus de lignes sous le pavé gris.
@@ -3616,7 +3624,7 @@
           : '<p class="petit">Personne ne correspond : remplissez la fiche ci-dessous.</p>';
         zone.querySelectorAll("[data-pp]").forEach((b) => b.addEventListener("click", () => {
           const x = r.contacts.find((c) => c.id === b.dataset.pp); contactId = x.id;
-          $("pp-civilite").value = x.civilite === "M." ? "M." : "Mme"; $("pp-prenom").value = x.prenom || ""; $("pp-nom").value = x.nom || ""; $("pp-email").value = x.email || ""; $("pp-tel").value = x.telephone || "";
+          $("pp-civilite").value = x.civilite === "M." ? "M." : "Mme"; $("pp-prenom").value = x.prenom || ""; $("pp-nom").value = x.nom || ""; $("pp-email").value = x.email || ""; $("pp-tel").value = fmtTel(x.telephone);
           $("pp-choisi").textContent = "Fiche choisie : " + [x.prenom, x.nom].filter(Boolean).join(" ");
         }));
       } catch (e) { zone.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; }
@@ -4271,7 +4279,7 @@
       (piece ? '<p class="petit" id="pm-piece">📎 Pièce jointe : <strong>' + escH(piece.nom) + "</strong> (" + Math.round(piece.octets.byteLength / 1024) + " Ko)</p>" : "") +
       '<p class="aide">Relisez et ajustez : ce texte partira tel quel à ' +
       (a.destinataires.length ? escH(a.destinataires.join(", ")) : "<strong>personne (pas d'e-mail sur la fiche)</strong>") + ", signé " +
-      (p.conseiller ? "<strong>" + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + "</strong>" + escH([p.conseiller.telephone, p.conseiller.email].filter(Boolean).map((x) => " · " + x).join(""))
+      (p.conseiller ? "<strong>" + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + "</strong>" + escH([fmtTel(p.conseiller.telephone), p.conseiller.email].filter(Boolean).map((x) => " · " + x).join(""))
         : "<strong>de l'agence</strong> (choisissez le conseiller sur la fiche)") + ".</p>" +
       '<div class="grille-champs"><label style="grid-column:1/-1;">Objet<input id="pm-sujet" value="' + escH(a.sujet) + '" /></label></div>' +
       '<textarea id="pm-texte" style="width:100%; min-height:320px; margin-top:10px; font:14px/1.5 inherit;">' + escH(a.texte) + "</textarea>" +
@@ -4486,7 +4494,7 @@
     if (!telephone) { toast("Saisissez un numéro de mobile (06 ou 07).", true); return; }
     try {
       await api("/crm/anniversaires/test-sms", { json: { telephone } });
-      toast("SMS d'essai envoyé à " + telephone);
+      toast("SMS d'essai envoyé à " + fmtTel(telephone));
     } catch (e) { toast(e.message, true); }
   });
   $("btn-apercu-naissance").addEventListener("click", () => apercuMail("naissance"));

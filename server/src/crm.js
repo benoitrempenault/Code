@@ -69,6 +69,17 @@ function yearsSince(stored, isoDay) {
 
 /* ------------------------------- Contacts -------------------------------- */
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
+// Téléphone affiché « 06 06 06 06 06 » partout (Benoît) : un numéro français
+// (10 chiffres, +33, 0033, ou 9 chiffres sans le 0 que mange Excel) est
+// regroupé par deux ; tout autre format (étranger, extension) reste tel quel.
+export function formatTelephone(t) {
+  const brut = String(t ?? "").replace(/[\u0000-\u001f<>]/g, "").trim();
+  let n = brut.replace(/[\s.\-()\u00a0\u202f]/g, "");
+  if (/^(\+33|0033)[1-9]\d{8}$/.test(n)) n = "0" + n.replace(/^(\+33|0033)/, "");
+  else if (/^[1-9]\d{8}$/.test(n)) n = "0" + n;
+  if (/^0[1-9]\d{8}$/.test(n)) return n.replace(/(\d{2})(?=\d)/g, "$1 ");
+  return brut;
+}
 
 // Typologies depuis un libelle d'extraction : les logiciels ecrivent
 // « Acheteur », « ACHAT », « Vente », « Acquéreur / Vendeur », « Estimation »...
@@ -135,8 +146,7 @@ export function sanitizeContact(b) {
     const d = dispatchAdresse(b.adresse);
     if (d) b = { ...b, adresse: d.adresse, cp: d.cp, ville: d.ville };
   }
-  let telephone = strip(b.telephone, 40);
-  if (/^[1-9]\d{8}$/.test(telephone)) telephone = "0" + telephone; // Excel mange le 0 initial
+  const telephone = formatTelephone(strip(b.telephone, 40)); // « 06 06 06 06 06 » ; remet le 0 initial que mange Excel
   return {
     civilite: strip(b.civilite, 20),
     prenom: strip(b.prenom, 80),
@@ -1112,7 +1122,7 @@ export function sanitizeAgences(liste) {
     let n = 2; const base = cle;
     while (vues.has(cle)) cle = base + "-" + n++;
     vues.add(cle);
-    out.push({ cle, nom, adresse: strip(a.adresse, 300), telephone: strip(a.telephone, 40), email: strip(a.email, 160).toLowerCase(), avis: strip(a.avis, 300), mentions: strip(a.mentions, 1000),
+    out.push({ cle, nom, adresse: strip(a.adresse, 300), telephone: formatTelephone(strip(a.telephone, 40)), email: strip(a.email, 160).toLowerCase(), avis: strip(a.avis, 300), mentions: strip(a.mentions, 1000),
       site: strip(a.site, 160), signataire: strip(a.signataire, 120), fonction: strip(a.fonction, 80) }); // site, directeur et sa fonction : guides, mot du directeur
   }
   return out;
@@ -1144,6 +1154,7 @@ export async function saveReglages(db, agency, userId, incoming) {
     offres: OFFRES.sanitizeReglagesOffres(incoming.offres && typeof incoming.offres === "object" ? incoming.offres : {}, cur.offres),
   };
   for (const k of Object.keys(next.agence)) next.agence[k] = strip(next.agence[k], k === "mentions" ? 1000 : 300);
+  next.agence.telephone = formatTelephone(next.agence.telephone);
   next.anniversaires.enabled = !!next.anniversaires.enabled;
   next.anniversaires.naissance = !!next.anniversaires.naissance;
   next.anniversaires.achat = !!next.anniversaires.achat;
@@ -1386,7 +1397,7 @@ export function wrapEmail(ag, { eyebrow, headline, sousTitre, bodyHtml, signatur
     .replace(/\b(\d{2}) (?=\d{2}\b)/g, "$1&zwnj; ")    // téléphone « 05 56 57 77 77 »
     .replace(/\.(?=[a-z]{2,}$)/i, "&zwnj;.");           // site
   const siteCourt = String(ag.site || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
-  const contactLine = [ag.telephone, ag.email, siteCourt].filter(Boolean).map(sansLien).join(" &nbsp;·&nbsp; ");
+  const contactLine = [formatTelephone(ag.telephone), ag.email, siteCourt].filter(Boolean).map(sansLien).join(" &nbsp;·&nbsp; ");
   return `<!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
 <body style="margin:0; padding:0; background:#F2EEE6;">
@@ -2375,7 +2386,7 @@ export function sanitizeEstimation(b) {
     contact_id: strip(b.contact_id, 40),
     nom: strip(b.nom, 120),
     email: strip(b.email, 160).toLowerCase(),
-    telephone: strip(b.telephone, 40),
+    telephone: formatTelephone(strip(b.telephone, 40)),
     adresse, ville: strip(b.ville, 80),
     lat: coord(b.lat, 90), lng: coord(b.lng, 180),
     r1: isoOuVide(b.r1), r2: isoOuVide(b.r2),

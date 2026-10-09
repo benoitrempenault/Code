@@ -990,6 +990,16 @@ budget de sous-requêtes) ; `GET /crm/avis-conseillers` (membre, relève tout en
 générée : avis du site d'abord (signature « Auteur · date »), puis le champ « en complément » du profil,
 sans doublon (60 premiers caractères), 6 au plus. La fiche conseiller affiche les avis relevés. Faux site
 des tests/smoke : /equipe/ + pages conseiller. `__dernierGuide.pageConseiller.avisSite`.
+
+**Téléphones « 06 06 06 06 06 » partout (09/10)** : `formatTelephone(t)` (crm.js, exporté) : 10 chiffres,
++33/0033, ou 9 chiffres sans le 0 (Excel) → groupes de deux ; étranger / avec extension → inchangé.
+Appliqué À L'ENREGISTREMENT (sanitizeContact, sanitizeEstimation, sanitizeConseiller, importer/annuaire,
+sanitizeAgences, identité de l'agence, `PUT /annuaire`) et À L'AFFICHAGE des mails (signatureHtml, pied de
+wrapEmail). Côté admin, `fmtTel()` (même règle) sur tous les affichages et champs : tables contacts /
+estimés / agences / conseillers, fiche contact & SMS, « Signé par », en-tête des courriers, courrier
+d'estimation, page « Votre conseiller », R2 p12 (Tel./Port.), préparation des mails. Les `href="tel:"`
+gardent la valeur brute. Les fiches déjà en base s'affichent formatées même si elles ont été saisies
+collées ; elles se réenregistrent formatées à la prochaine modification.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

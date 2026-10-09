@@ -16,7 +16,7 @@
    que le conseiller a déjà envoyé à la main.
    ========================================================================= */
 import { now, randId, randToken } from "./util.js";
-import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier , releverAvisAgences, avisAgence, releverAvisConseillers, jsonAvisSite } from "./crm.js";
+import { formatTelephone, MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier , releverAvisAgences, avisAgence, releverAvisConseillers, jsonAvisSite } from "./crm.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
@@ -142,7 +142,7 @@ export function signatureHtml(conseiller, ag, photoUrl) {
   const c = conseiller || {};
   const nomComplet = [c.prenom, c.nom].filter(Boolean).join(" ") || ag.signataire || ag.nom || "";
   const fonctionDefaut = c.prenom || c.nom ? (c.genre === "f" ? "Conseillère immobilier" : "Conseiller immobilier") : ag.fonction || "";
-  const lignes = [c.fonction || fonctionDefaut, c.telephone, c.email].filter(Boolean);
+  const lignes = [c.fonction || fonctionDefaut, formatTelephone(c.telephone), c.email].filter(Boolean);
   const reseaux = [
     ag.instagram ? `<a href="${esc(ag.instagram)}" style="color:#BEAF87; text-decoration:none;">Instagram</a>` : "",
     ag.facebook ? `<a href="${esc(ag.facebook)}" style="color:#BEAF87; text-decoration:none;">Facebook</a>` : "",
@@ -206,7 +206,7 @@ export function sanitizeConseiller(b) {
   if (photo.length > PHOTO_MAX) throw new Error("Photo trop lourde (200 Ko maximum après réduction).");
   return {
     user_id: strip(b.user_id, 40), prenom: strip(b.prenom, 60), nom: strip(b.nom, 60), fonction: strip(b.fonction, 80),
-    telephone: strip(b.telephone, 40), email: strip(b.email, 160).toLowerCase(), photo, actif: b.actif === false || b.actif === 0 ? 0 : 1,
+    telephone: formatTelephone(strip(b.telephone, 40)), email: strip(b.email, 160).toLowerCase(), photo, actif: b.actif === false || b.actif === 0 ? 0 : 1,
   };
 }
 
@@ -364,7 +364,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const candidats = [
       ...fournis.map((f) => ({ prenom: f.prenom, nom: f.nom, fonction: f.fonction, telephone: f.telephone, email: f.email, photo: f.photo, agence: f.agence })),
       ...users.map((u) => ({ ...couper(u.name || String(u.email || "").split("@")[0].replace(/[._-]+/g, " ")), email: u.email, user_id: u.id })),
-      ...annuaire.map((a) => ({ ...couper(a.nom), telephone: a.telephone, email: a.email })),
+      ...annuaire.map((a) => ({ ...couper(a.nom), telephone: formatTelephone(a.telephone), email: a.email })),
     ];
     let ajoutes = 0, completes = 0;
     const fusions = await fusionnerDoublons(ctx.agency.id);

@@ -63,6 +63,7 @@ export default async function () {
     await page.waitForSelector(".etapes", { timeout: 8000 });
     ok((await page.locator(".etape").count()) === 7 && await page.inputValue("#px-signe") === cs.json.id && (await page.textContent("#px-signe-detail")).includes("06 00 00 00 01"),
       "la fiche s'ouvre sur ses 6 étapes, « Signé par » Teddy BESSON avec son téléphone");
+    ok((await page.inputValue("#px-tel")) === "06 00 00 00 02", "le téléphone du vendeur (saisi 0600000002) s'affiche « 06 00 00 00 02 » (" + await page.inputValue("#px-tel") + ")");
     // Le bien se corrige depuis la fiche et reste même si l'on ferme sans « Enregistrer ».
     await page.click("#modale-corps details:first-of-type summary");
     await page.fill("#px-chambres", "5"); await page.keyboard.press("Tab");

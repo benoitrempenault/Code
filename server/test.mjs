@@ -390,6 +390,16 @@ console.log("— Annuaire partagé (conseillers, notaires, syndics)");
 const an1 = await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { type: "conseiller", nom: "Sophie Martin", initiales: "SM", email: "sm@azur-immo.fr" } });
 ok(an1.status === 200 && an1.json.id.startsWith("an_"), "conseiller ajouté (initiales SM)");
 const an2 = await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { type: "notaire", nom: "Me NAUTIACQ", ville: "Saint-Médard-en-Jalles", telephone: "05 56 00 00 00", email: "office@nautiacq.fr" } });
+{ // Téléphones affichés « 06 06 06 06 06 » partout (Benoît, 09/10)
+  const { formatTelephone } = await import("./src/crm.js");
+  const cas = [["0606060606", "06 06 06 06 06"], ["+33606060606", "06 06 06 06 06"], ["0033 6 06 06 06 06", "06 06 06 06 06"], ["606060606", "06 06 06 06 06"], ["05.56.57.77.77", "05 56 57 77 77"], ["06 06 06 06 06", "06 06 06 06 06"], ["+41 22 123 45 67", "+41 22 123 45 67"], ["", ""]];
+  ok(cas.every(([a, b]) => formatTelephone(a) === b), "formatTelephone : 10 chiffres, +33, 0033, 9 chiffres (Excel) → groupes de 2 ; étranger inchangé");
+  const an3 = await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { type: "notaire", nom: "Me FORMAT", telephone: "0556112233" } });
+  const lus = (await call("/annuaire", { headers: { Authorization: "Bearer " + s3 } })).json;
+  const fmt = (lus.annuaire || []).find((e) => e.nom === "Me FORMAT");
+  ok(an3.status === 200 && fmt && fmt.telephone === "05 56 11 22 33", "annuaire : le numéro est enregistré avec les espaces (" + (fmt && fmt.telephone) + ")");
+  await call("/annuaire/" + an3.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
+}
 ok(an2.status === 200, "notaire ajouté");
 const an2b = await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { type: "notaire", nom: "Me NAUTIACQ", email: "b.nautiacq@notaires.fr" } });
 ok(an2b.status === 200 && an2b.json.updated === true && an2b.json.id === an2.json.id, "même (type, nom) → mise à jour, pas de doublon");
@@ -2192,7 +2202,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const apres = (await callR("/crm/contacts", { headers: auth })).json.contacts.filter((c) => c.nom === "LEROY");
   const mr = apres.find((c) => c.civilite === "M."), mme = apres.find((c) => c.civilite === "Mme");
   ok(mr && mme && mr.prenom === "Jean" && mme.prenom === "Marie" &&
-    mme.telephone === "0611223344" && mme.date_achat === "2019-06-10" && mme.email === "",
+    mme.telephone === "06 11 22 33 44" && mme.date_achat === "2019-06-10" && mme.email === "",
     "Monsieur et Madame ont chacun leur fiche (prénoms répartis, coordonnées reprises)");
   const pjLeroy = (await callR("/crm/projets", { headers: auth })).json.projets.find((p) => p.budgetMax === 300000);
   ok(pjLeroy && pjLeroy.contacts.length === 2, "Madame a rejoint le projet du couple");
@@ -2318,7 +2328,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const apresNettoyage = (await callR("/crm/contacts", { headers: auth })).json.contacts;
   ok(!apresNettoyage.some((x) => !x.nom && !x.prenom && !x.email && !x.telephone), "les fiches vides ont disparu");
   const anne = apresNettoyage.filter((x) => x.nom === "DOUBLE");
-  ok(anne.length === 1 && anne[0].telephone === "0611111111" && anne[0].ville === "Saint-Médard",
+  ok(anne.length === 1 && anne[0].telephone === "06 11 11 11 11" && anne[0].ville === "Saint-Médard",
     "les doublons ont fusionné : la fiche la plus ancienne absorbe les champs manquants");
   ok(apresNettoyage.filter((x) => x.nom === "HOMONYME").length === 2,
     "les homonymes ambigus (téléphones différents) ne sont pas touchés");
