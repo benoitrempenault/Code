@@ -1168,3 +1168,14 @@ CREATE TABLE IF NOT EXISTS crm_avis_agences (
   updated_at  INTEGER NOT NULL,
   PRIMARY KEY (agency_id, cle)
 );
+
+-- Avis clients d'un conseiller relevés sur SA page du site century21-kadima.fr
+-- (/conseillers/<slug>/ : blockquotes « Ils recommandent … ») : la page
+-- « Votre conseiller » générée les prend d'abord, les avis saisis à la main
+-- (crm_conseillers_avis) ne servent qu'en complément. JSON [{texte, auteur, source, date, note}].
+CREATE TABLE IF NOT EXISTS crm_conseillers_avis_site (
+  id         TEXT PRIMARY KEY,               -- crm_conseillers.id
+  slug       TEXT NOT NULL DEFAULT '',       -- page du site
+  avis       TEXT NOT NULL DEFAULT '[]',
+  updated_at INTEGER NOT NULL
+);

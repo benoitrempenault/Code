@@ -2538,7 +2538,10 @@
       '<label class="case" style="align-self:end;"><input type="checkbox" id="cs-actif"' + (!c || c.actif ? " checked" : "") + " /> Actif</label>" +
       '<label class="case" style="align-self:end;" title="Sans cette case, le conseiller ne voit que ses propres parcours R1/R2"><input type="checkbox" id="cs-direction"' + (c && c.direction ? " checked" : "") + " /> Direction — voit tous les parcours</label>" +
       '<label style="grid-column:1/-1;">Texte personnel (page « Votre conseiller » du guide R2 — un paragraphe par ligne vide)<textarea id="cs-bio" style="min-height:110px;">' + escH(c && c.bio || "") + "</textarea></label>" +
-      '<label style="grid-column:1/-1;">Avis clients (page « Votre conseiller » du guide R1 quand le modèle n\'a pas de page pour lui — un avis par paragraphe, dernière ligne = signature, ex. « Martine. D »)<textarea id="cs-avis" style="min-height:110px;" placeholder="Un immense merci à Laurent pour son accompagnement…\nMartine. D\n\nUne estimation juste et un suivi impeccable.\nPaul. R">' + escH(c && c.avis || "") + "</textarea></label></div>",
+      (c && Array.isArray(c.avis_site) && c.avis_site.length
+        ? '<p class="petit" style="grid-column:1/-1;">Avis relevés sur sa page du site century21-kadima.fr (' + c.avis_site.length + (c.avis_site_le ? ", relevés le " + new Date(c.avis_site_le * 1000).toLocaleDateString("fr-FR") : "") + ') — ils ouvrent sa page « Votre conseiller » du guide R1 : ' + escH(c.avis_site.slice(0, 3).map((a) => "« " + a.texte.slice(0, 70) + (a.texte.length > 70 ? "…" : "") + " » " + (a.auteur || "")).join(" · ")) + "</p>"
+        : '<p class="petit" style="grid-column:1/-1;">Aucun avis relevé sur sa page du site century21-kadima.fr pour l\'instant (relevé chaque nuit).</p>') +
+      '<label style="grid-column:1/-1;">Avis clients en complément du site (page « Votre conseiller » du guide R1 — un avis par paragraphe, dernière ligne = signature, ex. « Martine. D »)<textarea id="cs-avis" style="min-height:110px;" placeholder="Un immense merci à Laurent pour son accompagnement…\nMartine. D\n\nUne estimation juste et un suivi impeccable.\nPaul. R">' + escH(c && c.avis || "") + "</textarea></label></div>",
       (c ? '<button class="btn btn-danger" id="cs-supprimer">Supprimer</button>' : "") +
       '<button class="btn" id="cs-annuler">Annuler</button><button class="btn btn-or" id="cs-save">Enregistrer</button>');
     $("cs-annuler").addEventListener("click", fermerModale);
@@ -3163,9 +3166,13 @@
     centre(cs.telephone ? "Téléphone : " + cs.telephone : "", 374, 235, 12, fR, noir);
     centre(cs.fonction || "", 374, 257, 11, fI, gris);
     centre(p.agence && p.agence.nom ? p.agence.nom : "", 374, cs.fonction ? 273 : 257, 10.5, fR, gris);
-    // Les avis : un paragraphe par avis, dernière ligne courte = signature.
-    const blocs = String(cs.avis || "").split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean).slice(0, 6);
-    const avis = blocs.map((b) => { const l = b.split(/\n/).map((x) => x.trim()).filter(Boolean); const sig = l.length > 1 && l[l.length - 1].length <= 30 ? l.pop() : ""; return { texte: l.join(" "), signature: sig }; });
+    // Les avis : d'abord ceux relevés sur la page du conseiller sur le site Kadima
+    // (Benoît les y dépose déjà), puis ceux saisis dans le profil en complément
+    // (un paragraphe par avis, dernière ligne courte = signature). Six au plus.
+    const avis = (Array.isArray(cs.avis_site) ? cs.avis_site : []).filter((a) => a && a.texte).map((a) => ({ texte: a.texte, signature: [a.auteur, a.date].filter(Boolean).join(" · "), site: true }));
+    const blocs = String(cs.avis || "").split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean);
+    for (const b of blocs) { const l = b.split(/\n/).map((x) => x.trim()).filter(Boolean); const sig = l.length > 1 && l[l.length - 1].length <= 30 ? l.pop() : ""; const texte = l.join(" "); if (!avis.some((a) => a.texte.slice(0, 60) === texte.slice(0, 60))) avis.push({ texte, signature: sig }); }
+    avis.splice(6);
     if (!avis.length && cs.bio) avis.push({ texte: String(cs.bio).split(/\n\s*\n/)[0].trim(), signature: "" });
     const cols = [{ x: 46, w: 221, y: 300 }, { x: 302, w: 247, y: 288 }];
     avis.forEach((a, i) => {
@@ -3177,7 +3184,7 @@
       if (a.signature) ecrire(a.signature, col.x + col.w - 12 - fI.widthOfTextAtSize(a.signature, 9.5), col.y + haut - 10, 9.5, fI, gris);
       col.y += haut + 16;
     });
-    return { conseiller: [prenom, nomCs.toUpperCase()].filter(Boolean).join(" "), avis: avis.length, photo };
+    return { conseiller: [prenom, nomCs.toUpperCase()].filter(Boolean).join(" "), avis: avis.length, avisSite: avis.filter((a) => a.site).length, photo };
   }
   // Page « Notre agence » des guides (R1 p3, R2 p11) : les notes et nombres
   // d'avis redessinés aux chiffres relevés sur le site Kadima (par point de
@@ -4372,6 +4379,7 @@
       activerOnglet("parcours");
       chargerParcours(); chargerConseillers();
       api("/crm/avis-agences").catch(() => { /* site muet : les chiffres relevés restent */ });
+      api("/crm/avis-conseillers").catch(() => { /* idem pour les avis par conseiller */ });
       return;
     }
     $("app").hidden = false;
@@ -4389,6 +4397,7 @@
     chargerOffres();
     chargerParcours(); chargerConseillers(); // indépendants : la liste des parcours n'attend plus les profils
     api("/crm/avis-agences").catch(() => { /* avis par agence : relevé nocturne, rafraîchi ici s'il a plus de 24 h */ });
+    api("/crm/avis-conseillers").catch(() => { /* avis par conseiller (pages du site) : idem */ });
   }
 
   /* ---------------------------- Branchements ------------------------------- */

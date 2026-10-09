@@ -977,6 +977,19 @@ Monsieur DUPONT »).
 - Smoke : faux site Kadima (18805), `APP_API_BASE` = URL de prod relayée (les photos des conseillers passent
   la CSP), Laurent Denaud (Caudéran) → page générée avec 2 avis et photo, p3 aux chiffres de Caudéran.
   Tests : lecture de page, relevé, fiche, droits ; avis du profil. Assets `?v=62`.
+**Avis par conseiller relevés sur le site (09/10)** : Benoît dépose déjà les avis sur la page de chaque
+conseiller de century21-kadima.fr (`/conseillers/<slug>/`, section « Ils recommandent … »,
+`<blockquote class="avis">` : étoiles, `<p class="avis-texte">« … »</p>`, `<footer>Simon F · Google ·
+août 2026</footer>`). `lireEquipeKadima(html)` (/equipe/ : cartes `carte-conseiller` → {slug, nom}),
+`lireAvisConseillerKadima(html)` → [{texte, auteur, source, date, note}], `releverAvisConseillers(env, db,
+agency, max)` : profils actifs rapprochés des cartes par les mots du nom (sans ordre/accents), page lue,
+table `crm_conseillers_avis_site` (JSON). Cron de 6 h : 15 profils par nuit (les moins frais d'abord,
+budget de sous-requêtes) ; `GET /crm/avis-conseillers` (membre, relève tout en fond si un profil a plus de
+24 h — appelé au démarrage de l'admin) ; `POST /crm/avis-conseillers/relever` (admin, tout). Les profils
+(`GET /crm/conseillers`, fiche du parcours) portent `avis_site` (+ `avis_site_le`). Page « Votre conseiller »
+générée : avis du site d'abord (signature « Auteur · date »), puis le champ « en complément » du profil,
+sans doublon (60 premiers caractères), 6 au plus. La fiche conseiller affiche les avis relevés. Faux site
+des tests/smoke : /equipe/ + pages conseiller. `__dernierGuide.pageConseiller.avisSite`.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
 9ef9b4a:administration/assets/guide-r2.pdf`), jamais sur un PDF déjà retouché. Le graphique

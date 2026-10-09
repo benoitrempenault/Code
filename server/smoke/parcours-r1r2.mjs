@@ -328,15 +328,18 @@ export default async function () {
     const csTous = (await api("/crm/conseillers", { headers: admin.auth })).json.conseillers;
     const denaud = csTous.find((x) => /denaud/i.test(x.nom));
     ok(!!denaud && denaud.agence === "cauderan", "Laurent Denaud est importé du site avec son agence (Caudéran)");
-    await api("/crm/conseillers", { headers: admin.auth, method: "PUT", body: { id: denaud.id, prenom: denaud.prenom, nom: denaud.nom, avis: "Laurent a été parfait du début à la fin, disponible et de bon conseil.\nMartine. D\n\nUne estimation juste et un suivi impeccable jusqu'à la signature.\nPaul. R" } });
+    // Ses avis viennent de sa page sur le site (relevé) ; un avis saisi en complément s'ajoute sans doublon.
+    const relCs = await api("/crm/avis-conseillers/relever", { headers: admin.auth, body: {} });
+    ok(relCs.status === 200 && relCs.json.releves.some((r) => r.id === denaud.id && r.avis === 2), "les avis de la page de Laurent Denaud sur le (faux) site sont relevés (" + JSON.stringify(relCs.json.releves) + ")");
+    await api("/crm/conseillers", { headers: admin.auth, method: "PUT", body: { id: denaud.id, prenom: denaud.prenom, nom: denaud.nom, avis: "Laurent a été parfait du début à la fin, disponible et de bon conseil.\nMartine. D\n\nUn conseiller à l'écoute, merci.\nJulie M" } });
     await page.selectOption("#px-signe", denaud.id);
     await page.waitForFunction((id) => document.querySelector("#px-signe") && document.querySelector("#px-signe").value === id, denaud.id, { timeout: 8000 });
     await page.click('[data-guide="r1"]');
     await page.waitForFunction(() => /Guide R1 prêt/.test(document.getElementById("modale-titre")?.textContent || ""), null, { timeout: 30000 });
     const gD = await page.evaluate(async () => { const { PDFDocument } = window.PDFLib; const doc = await PDFDocument.load(window.__dernierGuide.octets); return { pages: doc.getPageCount(), octets: window.__dernierGuide.octets.byteLength, pageConseiller: window.__dernierGuide.pageConseiller, avis: window.__dernierGuide.avisAgence, mot: window.__dernierGuide.mot }; });
     const photoEtat = await page.evaluate(async (u) => { try { const r = await fetch(u); return r.status + " " + (r.headers.get("content-type") || ""); } catch (e) { return "erreur " + e.message; } }, denaud.photo_url);
-    ok(gD.pages === 14 && gD.pageConseiller && gD.pageConseiller.source === "generee" && gD.pageConseiller.avis === 2 && gD.pageConseiller.conseiller === "Laurent DENAUD",
-      "sans page dans le modèle, la page « Votre conseiller » est générée depuis le profil avec ses deux avis (" + JSON.stringify({ ...gD.pageConseiller, photoEtat, photo_url: denaud.photo_url }) + ")");
+    ok(gD.pages === 14 && gD.pageConseiller && gD.pageConseiller.source === "generee" && gD.pageConseiller.avisSite === 2 && gD.pageConseiller.avis === 3 && gD.pageConseiller.conseiller === "Laurent DENAUD",
+      "sans page dans le modèle, la page « Votre conseiller » est générée depuis le profil : ses deux avis du site, plus le complément saisi, sans le doublon (" + JSON.stringify({ ...gD.pageConseiller, photoEtat, photo_url: denaud.photo_url }) + ")");
     ok(gD.avis && gD.avis.cle === "cauderan" && gD.avis.note_google === "4,9" && gD.avis.avis_google === "425" && gD.avis.note_c21 === "9,3" && gD.avis.avis_c21 === "572",
       "la page « Notre agence » porte les avis relevés pour Caudéran (" + JSON.stringify(gD.avis) + ")");
     await garderGuide(page, gD.octets, "guide-r1-denaud-smoke.pdf");
@@ -359,8 +362,8 @@ export default async function () {
     await page.click("#pm-annuler");
     await page.waitForSelector("#modale-ok", { timeout: 8000 });
     await page.click("#modale-ok");
-    await page.waitForFunction(() => /5\/7/.test(document.getElementById("table-parcours")?.textContent || ""), null, { timeout: 8000 });
-    ok(/\+1/.test(await page.textContent("#table-parcours")), "la liste montre l'avancement 5/7 et le second propriétaire (" + (await page.textContent("#table-parcours")).replace(/\s+/g, " ").slice(0, 300) + ")");
+    await page.waitForFunction(() => { const t = document.getElementById("table-parcours")?.textContent || ""; return /5\/7/.test(t) && /\+1/.test(t); }, null, { timeout: 8000 });
+    ok(true, "la liste montre l'avancement 5/7 et le second propriétaire");
     // Un APPARTEMENT de 3 pièces : la pré-sélection du livret coche d'abord les 3 pièces
     // (ventes DVF et concurrence), les 2 et 4 pièces restent proposés mais décochés.
     await page.click("#table-parcours tr[data-parcours]");

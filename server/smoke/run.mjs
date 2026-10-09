@@ -128,6 +128,9 @@ createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   if (req.url.startsWith("/agences/cauderan/")) return res.end(PAGE_AVIS("4.9", 425, "9,3", "572"));
   if (req.url.startsWith("/agences/saint-medard-en-jalles/")) return res.end(PAGE_AVIS("4.9", 869, "9,5", "1\u202f617"));
+  if (req.url.startsWith("/equipe/")) return res.end('<html><body><a class="carte-conseiller" href="/conseillers/denaud-laurent/"><img src="x"><h2>Laurent Denaud</h2></a><a class="carte-conseiller" href="/conseillers/besson-teddy/"><h2>Teddy Besson</h2></a></body></html>');
+  if (req.url.startsWith("/conseillers/denaud-laurent/")) return res.end('<html><body><div class="grille-avis"><blockquote class="avis"><p class="avis-etoiles">★★★★★</p><p class="avis-texte">« Laurent a été parfait du début à la fin, disponible et de bon conseil. »</p><footer>Martine D · <span>Google</span> · septembre 2026</footer></blockquote><blockquote class="avis"><p class="avis-etoiles">★★★★★</p><p class="avis-texte">« Une estimation juste et un suivi impeccable jusqu\'à la signature. »</p><footer>Paul R · <span>Google</span> · août 2026</footer></blockquote></div></body></html>');
+  if (req.url.startsWith("/conseillers/")) return res.end("<html><body>Aucun avis</body></html>");
   res.end("<html><body>rien</body></html>");
 }).listen(PORT_SITE_KADIMA);
 

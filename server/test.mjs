@@ -2006,6 +2006,10 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     if (req.url.startsWith("/agences/cauderan/")) return res.end(PAGE_AVIS("4.9", 425, "9,3", "572"));
     if (req.url.startsWith("/agences/saint-medard-en-jalles/")) return res.end(PAGE_AVIS("4.9", 869, "9,5", "1\u202f617"));
+    // L'équipe et la page d'un conseiller, avec ses avis (comme le vrai site).
+    if (req.url.startsWith("/equipe/")) return res.end('<html><body><a class="carte-conseiller" href="/conseillers/besson-teddy/"><img src="x"><h2>Teddy Besson</h2></a><a class="carte-conseiller" href="/conseillers/zamora-marine/"><h2>Marine Zamora</h2></a></body></html>');
+    if (req.url.startsWith("/conseillers/besson-teddy/")) return res.end('<html><body><h2 class="section-titre">Ils recommandent <em>Teddy</em></h2><div class="grille-avis"><blockquote class="avis"><p class="avis-etoiles" aria-label="5 sur 5">★★★★★</p><p class="avis-texte">« Nous remercions Teddy pour son professionnalisme &amp; sa persévérance. »</p><footer>Simon F · <span>Google</span> · août 2026</footer></blockquote><blockquote class="avis"><p class="avis-etoiles">★★★★☆</p><p class="avis-texte">« Disponible et réactif. »</p><footer>Carole B · <span>Google</span> · juillet 2026</footer></blockquote></div></body></html>');
+    if (req.url.startsWith("/conseillers/zamora-marine/")) return res.end("<html><body>Aucun avis</body></html>");
     res.end("<html><body>rien</body></html>");
   });
   await new Promise((r) => fauxSiteKadima.listen(18787, r));
@@ -3550,6 +3554,18 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
        && ficheAv && ficheAv.avis_google === 869 && ficheAv.note_c21 === 9.5,
        "le relevé enregistre les chiffres de chaque point de vente et la fiche du parcours porte ceux de l'agence du conseiller, Saint-Médard par défaut (" + JSON.stringify({ rel: rel.json, fiche: ficheAv }) + ")");
     ok((await callR("/crm/avis-agences/relever", { headers: authP, body: {} })).status === 403, "le relevé à la demande est réservé aux administrateurs");
+    // Avis par conseiller : l'équipe du site rapprochée des profils, la page de chacun lue.
+    const eq = CRMK.lireEquipeKadima('<a class="carte-conseiller" href="/conseillers/giusti-marcilhac-lucie/"><img src="x"><h2>Lucie Giusti Marcilhac</h2></a>');
+    ok(eq.length === 1 && eq[0].slug === "giusti-marcilhac-lucie" && eq[0].nom === "Lucie Giusti Marcilhac", "la liste de l'équipe du site se lit (slug + nom)");
+    const relC = await callR("/crm/avis-conseillers/relever", { headers: auth, body: {} });
+    const teddyAv = (await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === teddy.json.id);
+    const ficheCs = (await callR("/crm/parcours/" + pxId, { headers: authP })).json.conseiller;
+    ok(relC.status === 200 && relC.json.releves.some((r) => r.id === teddy.json.id && r.slug === "besson-teddy" && r.avis === 2)
+       && teddyAv.avis_site.length === 2 && teddyAv.avis_site[0].texte === "Nous remercions Teddy pour son professionnalisme & sa persévérance." && teddyAv.avis_site[0].auteur === "Simon F" && teddyAv.avis_site[0].source === "Google" && teddyAv.avis_site[0].date === "août 2026" && teddyAv.avis_site[0].note === 5 && teddyAv.avis_site[1].note === 4
+       && ficheCs && Array.isArray(ficheCs.avis_site),
+       "les avis de la page du conseiller sur le site sont relevés (texte sans guillemets, auteur, source, date, étoiles) et suivent le profil jusqu'à la fiche du parcours (" + JSON.stringify({ rel: relC.json, teddy: teddyAv && teddyAv.avis_site }) + ")");
+    ok((await callR("/crm/avis-conseillers", { headers: authP })).json.conseillers.find((x) => x.id === teddy.json.id).avis.length === 2 && (await callR("/crm/avis-conseillers/relever", { headers: authP, body: {} })).status === 403,
+       "un conseiller lit les avis relevés ; le relevé à la demande reste réservé aux administrateurs");
     const vide = CRMK.completerAgencesKadima(kad, []);
     ok(vide.length === 4 && vide.map((a) => a.cle).join(",") === "saint-medard,cauderan,saint-aubin,blanquefort" && /535 306 880/.test(vide[1].mentions) && !vide[3].mentions,
        "sans agence enregistrée, les quatre points de vente Kadima sont proposés avec leurs mentions");

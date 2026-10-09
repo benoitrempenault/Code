@@ -16,7 +16,7 @@
    que le conseiller a déjà envoyé à la main.
    ========================================================================= */
 import { now, randId, randToken } from "./util.js";
-import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier , releverAvisAgences, avisAgence } from "./crm.js";
+import { MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier , releverAvisAgences, avisAgence, releverAvisConseillers, jsonAvisSite } from "./crm.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
@@ -247,11 +247,11 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   app.get("/crm/conseillers", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const rows = await db.all(
-      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre, COALESCE(d.direction, 0) AS direction, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis
-       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_direction d ON d.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id
+      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre, COALESCE(d.direction, 0) AS direction, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis, COALESCE(avs.avis, '[]') AS avis_site_json, COALESCE(avs.updated_at, 0) AS avis_site_le
+       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_direction d ON d.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id LEFT JOIN crm_conseillers_avis_site avs ON avs.id = cs.id
        WHERE cs.agency_id = ? ORDER BY cs.nom COLLATE NOCASE, cs.prenom COLLATE NOCASE`, // ordre alphabétique sans tenir compte des majuscules (BUISSON passait avant Besson)
       [ctx.agency.id]);
-    return c.json({ conseillers: rows.map((r) => ({ ...r, direction: !!r.direction, bio: r.bio || "", genre_pose: r.genre || "", genre: r.genre || genrePrenom(r.prenom), a_photo: !!r.a_photo, photo_url: r.a_photo ? photoUrl(c, r.id) : "" })) });
+    return c.json({ conseillers: rows.map(({ avis_site_json, ...r }) => ({ ...r, direction: !!r.direction, bio: r.bio || "", genre_pose: r.genre || "", genre: r.genre || genrePrenom(r.prenom), a_photo: !!r.a_photo, photo_url: r.a_photo ? photoUrl(c, r.id) : "", avis_site: jsonAvisSite(avis_site_json) })) });
   });
   app.put("/crm/conseillers", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
@@ -458,9 +458,9 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       { estimation_id: id, civilite: "", prenom: "", cp: "", type_bien: "maison", r1_heure: "", r2_heure: "", conseiller_id: "", journal: "[]" };
     let journal = []; try { journal = JSON.parse(px.journal || "[]"); } catch { }
     const conseiller = px.conseiller_id ? await db.get(
-      `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, (cs.photo <> '') AS a_photo, x.bio, x.genre, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis
-       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id WHERE cs.id = ? AND cs.agency_id = ?`, [px.conseiller_id, agencyId]) : null;
-    if (conseiller) { conseiller.bio = conseiller.bio || ""; conseiller.genre = conseiller.genre || genrePrenom(conseiller.prenom); }
+      `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, (cs.photo <> '') AS a_photo, x.bio, x.genre, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis, COALESCE(avs.avis, '[]') AS avis_site_json
+       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id LEFT JOIN crm_conseillers_avis_site avs ON avs.id = cs.id WHERE cs.id = ? AND cs.agency_id = ?`, [px.conseiller_id, agencyId]) : null;
+    if (conseiller) { conseiller.bio = conseiller.bio || ""; conseiller.genre = conseiller.genre || genrePrenom(conseiller.prenom); conseiller.avis_site = jsonAvisSite(conseiller.avis_site_json); delete conseiller.avis_site_json; }
     const proprietaires = await proprietairesDe(agencyId, est);
     return { est, px: { ...px, journal, conseiller_prenom: conseiller ? conseiller.prenom : "", conseiller_nom: conseiller ? conseiller.nom : "" }, conseiller, proprietaires };
   };
@@ -477,6 +477,21 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const faits = await releverAvisAgences(env, db, ctx.agency, await getReglages(db, ctx.agency));
     return c.json({ ok: true, releves: faits });
+  });
+  // Les avis par conseiller, relevés sur sa page du site Kadima : relevé complet à la
+  // demande (admin), ou en fond si le plus ancien relevé a plus de 24 h (membre).
+  app.post("/crm/avis-conseillers/relever", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json({ ok: true, releves: await releverAvisConseillers(env, db, ctx.agency, 60) });
+  });
+  app.get("/crm/avis-conseillers", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const rows = await db.all("SELECT cs.id, COALESCE(avs.slug, '') AS slug, COALESCE(avs.avis, '[]') AS avis, COALESCE(avs.updated_at, 0) AS updated_at FROM crm_conseillers cs LEFT JOIN crm_conseillers_avis_site avs ON avs.id = cs.id WHERE cs.agency_id = ? AND cs.actif = 1", [ctx.agency.id]);
+    if (rows.some((r) => r.updated_at < now() - 86400)) {
+      const maj = releverAvisConseillers(env, db, ctx.agency, 60).catch(() => []);
+      try { c.executionCtx.waitUntil(maj); } catch { await maj; }
+    }
+    return c.json({ conseillers: rows.map((r) => ({ id: r.id, slug: r.slug, avis: jsonAvisSite(r.avis), updated_at: r.updated_at })) });
   });
   app.get("/crm/avis-agences", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;

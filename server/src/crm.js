@@ -979,6 +979,63 @@ export async function releverAvisAgences(env, db, agency, reglages) {
   }
   return faits;
 }
+/* ----------------------- Avis clients par conseiller -----------------------
+   Le site Kadima publie, sur la page de chaque conseiller, les derniers avis
+   qui le citent (« Ils recommandent Teddy ») : <blockquote class="avis"> avec
+   les étoiles, le texte entre guillemets et un pied « Simon F · Google · août
+   2026 ». Benoît les y dépose déjà : Studio les relit (pas de double saisie). */
+const decoderHtml = (t) => String(t || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;|&apos;/g, "'").replace(/&nbsp;/g, " ").replace(/&#(\d+);/g, (m, n) => String.fromCharCode(Number(n)));
+const sansBalises = (t) => decoderHtml(String(t || "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+// La liste de l'équipe (/equipe/) : [{slug, nom}] depuis les cartes <a class="carte-conseiller" href="/conseillers/<slug>/"><h2>Nom</h2>.
+export function lireEquipeKadima(html) {
+  const out = [];
+  for (const m of String(html || "").matchAll(/<a[^>]*class="[^"]*carte-conseiller[^"]*"[^>]*href="\/conseillers\/([^/"]+)\/"[\s\S]*?<h2>([^<]+)<\/h2>/g)) out.push({ slug: m[1], nom: sansBalises(m[2]) });
+  return out;
+}
+// Les avis d'une page conseiller : [{texte, auteur, source, date, note}], les plus récents d'abord (ordre du site).
+export function lireAvisConseillerKadima(html) {
+  const out = [];
+  for (const m of String(html || "").matchAll(/<blockquote class="avis">([\s\S]*?)<\/blockquote>/g)) {
+    const b = m[1];
+    const texte = sansBalises((/<p class="avis-texte">([\s\S]*?)<\/p>/.exec(b) || [])[1]).replace(/^«\s*/, "").replace(/\s*»$/, "").trim();
+    const pied = sansBalises((/<footer>([\s\S]*?)<\/footer>/.exec(b) || [])[1]).split(/\s·\s/).map((x) => x.trim());
+    const etoiles = ((/<p class="avis-etoiles"[^>]*>([^<]*)<\/p>/.exec(b) || [])[1] || "").split("★").length - 1;
+    if (texte) out.push({ texte: texte.slice(0, 1200), auteur: pied[0] || "", source: pied[1] || "", date: pied[2] || "", note: etoiles || 0 });
+  }
+  return out.slice(0, 12);
+}
+const cleNomSite = (t) => sansAccentsMin(t).replace(/[^a-z\s-]/g, " ").split(/[\s-]+/).filter(Boolean).sort().join(" ");
+// Relevé : l'équipe du site rapprochée des profils (mots du nom, sans ordre),
+// puis la page de chaque conseiller rapproché. `max` pages par passage
+// (budget de sous-requêtes du cron) ; les profils les moins frais d'abord.
+export async function releverAvisConseillers(env, db, agency, max = 40) {
+  if (!estKadima(agency) && !env.KADIMA_SITE_BASE) return [];
+  const base = String(env.KADIMA_SITE_BASE || KADIMA_SITE).replace(/\/+$/, "");
+  const entetes = { headers: { "User-Agent": "StudioKadima/1.0" }, signal: AbortSignal.timeout(15000) };
+  let equipe = [];
+  try { const r = await fetch(base + "/equipe/", entetes); if (r.ok) equipe = lireEquipeKadima(await r.text()); } catch { return []; }
+  if (!equipe.length) return [];
+  const profils = await db.all(
+    `SELECT cs.id, cs.prenom, cs.nom, COALESCE(av.updated_at, 0) AS releve FROM crm_conseillers cs LEFT JOIN crm_conseillers_avis_site av ON av.id = cs.id
+     WHERE cs.agency_id = ? AND cs.actif = 1 ORDER BY releve ASC`, [agency.id]);
+  const faits = [];
+  for (const p of profils.slice(0, max)) {
+    const cle = cleNomSite(p.prenom + " " + p.nom);
+    const carte = equipe.find((e) => cleNomSite(e.nom) === cle);
+    if (!carte) continue;
+    try {
+      const r = await fetch(base + "/conseillers/" + carte.slug + "/", entetes);
+      if (!r.ok) continue;
+      const avis = lireAvisConseillerKadima(await r.text());
+      await db.run(
+        "INSERT INTO crm_conseillers_avis_site (id, slug, avis, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET slug = excluded.slug, avis = excluded.avis, updated_at = excluded.updated_at",
+        [p.id, carte.slug, JSON.stringify(avis), now()]);
+      faits.push({ id: p.id, slug: carte.slug, avis: avis.length });
+    } catch { /* page muette : le relevé précédent reste */ }
+  }
+  return faits;
+}
+export const jsonAvisSite = (t) => { try { const v = JSON.parse(t || "[]"); return Array.isArray(v) ? v : []; } catch { return []; } };
 // Les chiffres d'un point de vente (sinon ceux de Saint-Médard / identité générale).
 export async function avisAgence(db, agencyId, cle) {
   const rows = await db.all("SELECT * FROM crm_avis_agences WHERE agency_id = ?", [agencyId]);
@@ -3053,6 +3110,7 @@ export async function runCrmDaily(env, db) {
         catch (e) { r.annoncesError = e.message; }
       }
       try { const av = await releverAvisAgences(env, db, agency, reglages); if (av.length) r.avis = av.length; } catch (e) { r.avisError = e.message; }
+      try { const ac = await releverAvisConseillers(env, db, agency, 15); if (ac.length) r.avisConseillers = ac.length; } catch (e) { r.avisConseillersError = e.message; }
       if (reglages.anniversaires.enabled) {
         r.anniversaires = await runAnniversaires(env, db, agency, reglages);
       }
