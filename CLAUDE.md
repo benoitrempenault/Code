@@ -1001,17 +1001,20 @@ d'estimation, page « Votre conseiller », R2 p12 (Tel./Port.), préparation des
 gardent la valeur brute. Les fiches déjà en base s'affichent formatées même si elles ont été saisies
 collées ; elles se réenregistrent formatées à la prochaine modification.
 
-**Guide R1 de Caudéran (09/10)** : `administration/assets/guide-r1-cauderan.pdf`, produit par
-`tools/guides/variante-cauderan.py` à partir du guide commun : page 3 « Notre agence » = celle du guide
-Caudéran de Benoît (`tools/guides/cauderan-notre-agence.pdf` : depuis 1993, 3 153 projets, photo d'équipe,
-témoignages, partenaires + partenariat local) ; page « Nos moyens de communication » (p7 du PDF, p8 du
-guide) recomposée par clips : sans SeLoger ni Logic-Immo, sans « Biens de prestige » (Lux Résidence, Belles
-Demeures), réseaux sans TikTok. admin.js : `varianteGuideR1(cs)` → "cauderan" si `cs.agence === "cauderan"`,
+**Guides R1 et R2 de Caudéran (09/10)** : `administration/assets/guide-r1-cauderan.pdf` et
+`guide-r2-cauderan.pdf`, produits par `tools/guides/variante-cauderan.py` à partir des guides communs, avec
+les pages fournies par Benoît (sources dans tools/guides/) : page « Notre agence » (R1 p3 / R2 p11) =
+`cauderan-notre-agence.pdf` (depuis 1993, 3 153 projets, photo d'équipe, témoignages, partenaires +
+partenariat local) ; page « Nos moyens de communication » (R1 p7 / R2 p16) = `cauderan-communication.pdf`
+(portails Century 21, bien'ici, Horizon Caudéran, avendrealouer, leboncoin — sans SeLoger ni Logic-Immo ni
+biens de prestige —, « Une vitrine unique », Amanda, réseaux TikTok/Instagram/Facebook/YouTube) ; R2 p5
+prix au m² = `cauderan-prix-m2.pdf` (titre/source) + courbe VECTORIELLE redessinée par le script
+(`DONNEES_PRIX`, 2017→2026, 2026 = 4 432 €/m², Barlow). Une nouvelle année : ajouter le point dans
+`DONNEES_PRIX` et relancer le script. admin.js : `varianteGuideR1(cs)` → "cauderan" si `cs.agence === "cauderan"`,
 cache `guideR1Cache[variante]`, `ZONES_AVIS.cauderan` (chiffres d'avis à 18,8 pt aux emplacements de cette
-page) passé à `redessinerAvisAgence(doc, page, ch, variante)`. `__dernierGuide.variante`. Même chose pour
-le R2 : `guide-r2-cauderan.pdf` (p11 « Notre agence » = page Caudéran, p16 « Moyens de communication »
-recomposée), `varianteGuide(cs)` commune aux deux générateurs, `guideR2Cache[variante]`. Le script
-`variante-cauderan.py` produit les deux PDF d'un coup (GUIDES = {guide-r1: (2, 6), guide-r2: (10, 15)}).
+page) passé à `redessinerAvisAgence(doc, page, ch, variante)`. `__dernierGuide.variante`. R2 : `varianteGuide(cs)`
+commune aux deux générateurs, `guideR2Cache[variante]`. Le script produit les deux PDF d'un coup
+(GUIDES = {guide-r1: (2, 6, None), guide-r2: (10, 15, 4)} : indices Notre agence, communication, prix).
 Ne jamais mélanger les pages Saint-Médard et Caudéran : chaque agence a son PDF.
 **Guide R2 p3, colonne 2026 (30/09)** : `tools/guides/retoucher-guide-r2-p3.py SRC [OUT]`
 (pymupdf + Pillow + numpy, Barlow-Bold du dépôt) — À LANCER SUR LE PDF D'ORIGINE (`git show
