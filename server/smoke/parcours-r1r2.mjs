@@ -421,6 +421,19 @@ export default async function () {
         "R1 de Stéphanie Dreyfus : variante Caudéran, page « Votre conseiller » générée avec sa photo, mot du directeur signé Benjamin FAURE, avis de Caudéran (" + JSON.stringify({ variante: g1S.variante, page: g1S.pageConseiller, mot: g1S.mot && g1S.mot.signataire }) + ")");
       await garderGuide(page, g1S.octets, "guide-r1-dreyfus-smoke.pdf");
       await page.click("#doc-retour");
+      await page.waitForSelector("#px-signe", { timeout: 8000 });
+      // Son e-mail avant R1 : signature « Stéphanie DREYFUS, Conseillère immobilier », agence et pied de Caudéran.
+      await page.click('[data-mail="avant-r1"]');
+      await page.waitForSelector("#pm-texte", { timeout: 8000 });
+      await page.click("#pm-apercu");
+      await page.waitForSelector("iframe.apercu-mail", { timeout: 8000 });
+      const htmlS = await page.evaluate(() => document.querySelector("iframe.apercu-mail")?.getAttribute("srcdoc") || "");
+      ok(/Stéphanie Dreyfus/i.test(htmlS) && /Conseillère immobilier/.test(htmlS) && /Bordeaux Caudéran/i.test(htmlS) && /53 avenue Louis-Barthou/.test(htmlS) && /05&zwnj; 56&zwnj; 02&zwnj; 39&zwnj; 55|05 56 02 39 55/.test(htmlS.replace(/&zwnj;/g, "")) && /carre=1/.test(htmlS),
+        "e-mail avant R1 de Stéphanie : signature au féminin, agence et pied de Caudéran, photo carrée (" + JSON.stringify({ nom: /Stéphanie Dreyfus/i.test(htmlS), fonction: /Conseillère immobilier/.test(htmlS), agence: /Bordeaux Caudéran/i.test(htmlS), adresse: /53 avenue Louis-Barthou/.test(htmlS), carre: /carre=1/.test(htmlS) }) + ")");
+      try { const fs = await import("node:fs/promises"); await fs.writeFile(new URL("./captures/mail-avant-r1-dreyfus.html", import.meta.url), htmlS); } catch (e) { console.log("capture du mail impossible : " + e.message); }
+      await page.click("#pm-retour");
+      await page.waitForSelector("#pm-annuler", { timeout: 6000 });
+      await page.click("#pm-annuler");
       await page.waitForSelector("#px-signe", { timeout: 8000 }); }
     await page.selectOption("#px-signe", cs.json.id);
     await attendreToast(page, "signés du conseiller");
