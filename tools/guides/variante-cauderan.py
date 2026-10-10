@@ -10,7 +10,10 @@ guide-r1-cauderan.pdf (resp. guide-r2-cauderan.pdf) où :
   avendrealouer, leboncoin (sans SeLoger ni Logic-Immo), « Une vitrine
   unique », Amanda, réseaux TikTok / Instagram / Facebook / YouTube ;
 - la page des prix au m² (p5 du R2) porte la courbe de Caudéran, redessinée
-  en vectoriel avec l'année 2026 (4 432 €/m²).
+  en vectoriel avec l'année 2026 (4 432 €/m²) ;
+- la page « Plan de commercialisation » (p13 du R1 / p20 du R2) est celle de
+  son guide R2 (publication sans SeLoger, Logic-Immo, Lux Résidence ni Belles
+  Demeures ; Horizon Caudéran ; conciergerie Selectra + Papernest).
 Les autres pages sont identiques.
 
 Usage : python3 tools/guides/variante-cauderan.py
@@ -23,9 +26,11 @@ ICI = pathlib.Path(__file__).resolve().parent
 NOTRE_AGENCE = ICI / "cauderan-notre-agence.pdf"      # page 3 du guide R1 Caudéran de Benoît
 COMMUNICATION = ICI / "cauderan-communication.pdf"    # page 11 de son guide R2 (portails + Horizon Caudéran, vitrine, Amanda, réseaux avec TikTok)
 PRIX_M2 = ICI / "cauderan-prix-m2.pdf"                # page 2 de son guide R2 (graphique 2017-2025 en image)
+PLAN = ICI / "cauderan-plan-commercialisation.pdf"    # page 14 de son guide R2 (publication sans SeLoger, Logic-Immo, Lux Résidence, Belles Demeures)
 # guide → (index de la page « Notre agence », index de la page « Nos moyens de
-# communication », index de la page des prix au m² ou None).
-GUIDES = {"guide-r1": (2, 6, None), "guide-r2": (10, 15, 4)}
+# communication », index de la page des prix au m² ou None, index du plan de
+# commercialisation).
+GUIDES = {"guide-r1": (2, 6, None, 12), "guide-r2": (10, 15, 4, 19)}
 
 def R(x0, y0, x1, y1):
     return pymupdf.Rect(x0, y0, x1, y1)
@@ -78,18 +83,19 @@ def remplacer(doc, index, fichier):
     doc.delete_page(index)
     doc.insert_pdf(pymupdf.open(fichier), from_page=0, to_page=0, start_at=index)
 
-def variante(nom, P_AGENCE, P_COM, P_PRIX):
+def variante(nom, P_AGENCE, P_COM, P_PRIX, P_PLAN):
     SRC, DST = RACINE / (nom + ".pdf"), RACINE / (nom + "-cauderan.pdf")
     doc = pymupdf.open(SRC)
     remplacer(doc, P_AGENCE, NOTRE_AGENCE)   # « Notre agence » de Caudéran
     remplacer(doc, P_COM, COMMUNICATION)     # « Nos moyens de communication » de Caudéran
+    remplacer(doc, P_PLAN, PLAN)             # « Plan de commercialisation » de Caudéran
     if P_PRIX is not None: page_prix(doc, P_PRIX)
     doc.save(DST, garbage=4, deflate=True)
     print("écrit", DST, doc.page_count, "pages")
 
 def main():
-    for nom, (P_AGENCE, P_COM, P_PRIX) in GUIDES.items():
-        variante(nom, P_AGENCE, P_COM, P_PRIX)
+    for nom, (P_AGENCE, P_COM, P_PRIX, P_PLAN) in GUIDES.items():
+        variante(nom, P_AGENCE, P_COM, P_PRIX, P_PLAN)
 
 if __name__ == "__main__":
     sys.exit(main())

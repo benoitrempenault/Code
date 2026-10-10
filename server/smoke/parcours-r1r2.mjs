@@ -65,11 +65,13 @@ export default async function () {
     await page.fill("#px-r1h", "10:00");
     await page.fill("#px-r2", "2026-04-27");
     await page.fill("#px-r2h", "12:30");
-    await page.click("#px-creer");
+    await page.dblclick("#px-creer"); // double clic : une seule fiche doit naître
     await attendreToast(page, "Parcours créé");
     await page.waitForSelector(".etapes", { timeout: 8000 });
     ok((await page.locator(".etape").count()) === 7 && await page.inputValue("#px-signe") === cs.json.id && (await page.textContent("#px-signe-detail")).includes("06 00 00 00 01"),
       "la fiche s'ouvre sur ses 6 étapes, « Signé par » Teddy BESSON avec son téléphone");
+    { const fiches = (await api("/crm/parcours", { headers: admin.auth })).json.parcours.filter((x) => /MOUNEYRES/i.test(x.nom));
+      ok(fiches.length === 1, "un double clic sur « Créer le parcours » n'a créé qu'une fiche (" + fiches.length + ")"); }
     ok((await page.inputValue("#px-tel")) === "06 00 00 00 02", "le téléphone du vendeur (saisi 0600000002) s'affiche « 06 00 00 00 02 » (" + await page.inputValue("#px-tel") + ")");
     // Le bien se corrige depuis la fiche et reste même si l'on ferme sans « Enregistrer ».
     await page.click("#modale-corps details:first-of-type summary");
@@ -173,8 +175,10 @@ export default async function () {
     await page.waitForFunction(() => document.querySelectorAll(".etape.faite").length === 3, null, { timeout: 8000 });
     const guide2 = await page.evaluate(async () => {
       const doc = await window.PDFLib.PDFDocument.load(window.__dernierGuide.octets);
-      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength, debug: window.__dernierGuide.debug || null };
+      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength, debug: window.__dernierGuide.debug || null, mot: window.__dernierGuide.mot };
     });
+    ok(guide2.mot && guide2.mot.modele === "r2" && guide2.mot.signataire === "Benoît REMPENAULT" && guide2.mot.conseiller === "Teddy BESSON" && guide2.mot.photo === true,
+      "la page 19 du guide R2 est le mot du directeur généré : texte du R2, signé Benoît REMPENAULT avec sa photo, Teddy nommé (" + JSON.stringify(guide2.mot) + ")");
     ok(guide2.pages === 20 && /Vendons ensemble/.test(guide2.titre) && /MOUNEYRES/.test(guide2.titre) && guide2.octets > 1000000,
       "le guide R2 fait 20 pages au nom du client, cartes et polices embarquées (" + JSON.stringify(guide2) + ")");
     await garderGuide(page, guide2.octets, "guide-r2-smoke.pdf");
@@ -342,14 +346,24 @@ export default async function () {
     const relCs = await api("/crm/avis-conseillers/relever", { headers: admin.auth, body: {} });
     ok(relCs.status === 200 && relCs.json.releves.some((r) => r.id === denaud.id && r.avis === 2), "les avis de la page de Laurent Denaud sur le (faux) site sont relevés (" + JSON.stringify(relCs.json.releves) + ")");
     await api("/crm/conseillers", { headers: admin.auth, method: "PUT", body: { id: denaud.id, prenom: denaud.prenom, nom: denaud.nom, avis: "Laurent a été parfait du début à la fin, disponible et de bon conseil.\nMartine. D\n\nUn conseiller à l'écoute, merci.\nJulie M" } });
-    await page.selectOption("#px-signe", denaud.id);
-    await page.waitForFunction((id) => document.querySelector("#px-signe") && document.querySelector("#px-signe").value === id, denaud.id, { timeout: 8000 });
+    // Comme en production (agence Kadima), Caudéran a son directeur : Benjamin FAURE signe les mots du directeur (R1 et R2).
+    { const rg = (await api("/crm/reglages", { headers: admin.auth })).json.reglages;
+      await api("/crm/reglages", { headers: admin.auth, method: "PUT", body: { agences: (rg.agences || []).map((a) => (a.cle === "cauderan" ? { ...a, signataire: "Benjamin FAURE", fonction: "Directeur d'agence" } : a)) } }); }
+    // Le changement de signataire re-rend la fiche (photo et coordonnées de Denaud dans
+    // « Signé par ») ; si un rendu concurrent a repris l'ancien, on re-choisit.
+    for (let essai = 0; essai < 3; essai++) {
+      await page.selectOption("#px-signe", denaud.id);
+      const pris = await page.waitForFunction((id) => document.querySelector("#px-signe")?.value === id && (document.getElementById("px-signe-detail")?.innerHTML || "").includes(id), denaud.id, { timeout: 8000 }).then(() => true).catch(() => false);
+      if (pris) break;
+    }
+    await page.waitForTimeout(400);
     await page.click('[data-guide="r1"]');
     await page.waitForFunction(() => /Guide R1 prêt/.test(document.getElementById("modale-titre")?.textContent || ""), null, { timeout: 30000 });
     const gD = await page.evaluate(async () => { const { PDFDocument } = window.PDFLib; const doc = await PDFDocument.load(window.__dernierGuide.octets); return { pages: doc.getPageCount(), octets: window.__dernierGuide.octets.byteLength, pageConseiller: window.__dernierGuide.pageConseiller, avis: window.__dernierGuide.avisAgence, mot: window.__dernierGuide.mot, variante: window.__dernierGuide.variante }; });
     const photoEtat = await page.evaluate(async (u) => { try { const r = await fetch(u); return r.status + " " + (r.headers.get("content-type") || ""); } catch (e) { return "erreur " + e.message; } }, denaud.photo_url);
     ok(gD.pages === 14 && gD.pageConseiller && gD.pageConseiller.source === "generee" && gD.pageConseiller.avisSite === 2 && gD.pageConseiller.avis === 3 && gD.pageConseiller.conseiller === "Laurent DENAUD",
       "sans page dans le modèle, la page « Votre conseiller » est générée depuis le profil : ses deux avis du site, plus le complément saisi, sans le doublon (" + JSON.stringify({ ...gD.pageConseiller, photoEtat, photo_url: denaud.photo_url }) + ")");
+    ok(gD.mot && gD.mot.signataire === "Benjamin FAURE" && gD.mot.photo === true, "R1 de Caudéran : le mot du directeur est signé Benjamin FAURE, avec sa photo (" + JSON.stringify(gD.mot) + ")");
     ok(gD.variante === "cauderan" && gD.avis && gD.avis.variante === "cauderan", "conseiller de Caudéran : guide R1 de Caudéran (page 3 et page 8 propres à l'agence, zones d'avis de cette page) (" + gD.variante + ")");
     ok(gD.avis && gD.avis.cle === "cauderan" && gD.avis.note_google === "4,9" && gD.avis.avis_google === "425" && gD.avis.note_c21 === "9,3" && gD.avis.avis_c21 === "572",
       "la page « Notre agence » porte les avis relevés pour Caudéran (" + JSON.stringify(gD.avis) + ")");
@@ -361,7 +375,10 @@ export default async function () {
     await page.waitForSelector("#r2-generer", { timeout: 8000 });
     await page.click("#r2-generer");
     await page.waitForSelector("#doc-retour", { timeout: 90000 });
-    const g2D = await page.evaluate(() => ({ variante: window.__dernierGuide.variante, avis: window.__dernierGuide.avisAgence, fichier: window.__dernierGuide.fichier }));
+    const g2D = await page.evaluate(() => ({ variante: window.__dernierGuide.variante, avis: window.__dernierGuide.avisAgence, fichier: window.__dernierGuide.fichier, mot: window.__dernierGuide.mot, octets: window.__dernierGuide.octets.byteLength }));
+    ok(g2D.mot && g2D.mot.signataire === "Benjamin FAURE" && g2D.mot.fonction === "Directeur d'agence" && g2D.mot.photo === true && g2D.mot.conseiller === "Laurent DENAUD",
+      "R2 de Caudéran : le mot du directeur est signé Benjamin FAURE, avec sa photo, Laurent Denaud nommé (" + JSON.stringify(g2D.mot) + ")");
+    await garderGuide(page, g2D.octets, "guide-r2-denaud-smoke.pdf");
     ok(/^guide-r2-/.test(g2D.fichier) && g2D.variante === "cauderan" && g2D.avis && g2D.avis.variante === "cauderan" && g2D.avis.avis_google === "425",
       "conseiller de Caudéran : guide R2 de Caudéran, avis de Caudéran réécrits sur sa page « Notre agence » (" + JSON.stringify(g2D) + ")");
     await page.click("#doc-retour");

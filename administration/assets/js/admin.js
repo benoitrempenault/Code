@@ -3078,7 +3078,9 @@
     if (mentions) { let ym = 798; for (const l of couper(mentions, fR, 6.8, 475).slice(0, 4)) { ecrire(l, 60, ym, 6.8, fR, gris); ym += 8.6; } }
     return { ecrire, droite, couper, fR, fB, fI, or, noir, gris, h, ag, base, site, page, photo };
   }
-  async function dessinerMotDirecteur(doc, page, p, source) {
+  // `modele` : "r1" (le courrier d'accueil du guide R1) ou "r2" (celui qui
+  // clôt le guide R2 : « vous venez de prendre connaissance à travers ce dossier… »).
+  async function dessinerMotDirecteur(doc, page, p, source, modele) {
     const cs = p.conseiller || {};
     const base0 = (reglages && reglages.agence) || {};
     const ag0 = p.agence || base0;
@@ -3094,7 +3096,14 @@
     const prop = (p.proprietaires || []).filter((o) => o.nom || o.prenom);
     const appel = prop.length >= 2 || civ === "M. et Mme" || !longue ? "Madame, Monsieur," : longue + " " + (p.nom || "").toUpperCase() + ",";
     const prenom = prenomPropre(cs.prenom), nomCs = (cs.nom || "").toUpperCase(), fem = cs.genre === "f";
-    const paras = [
+    const paras = modele === "r2" ? [
+      appel,
+      "Vous venez de prendre connaissance, à travers ce dossier réalisé à votre attention, de l'engagement de notre agence et de son équipe pour mener à bien votre projet immobilier.",
+      "Nous serions fiers et honorés de vous accompagner" + (prenom || nomCs ? ", aux côtés de " + [prenom, nomCs].filter(Boolean).join(" ") + "." : "."),
+      "J'attache une grande importance à la qualité de services fournis par notre agence à nos clients et me tiens personnellement à votre disposition pour toutes questions.",
+      "Nous restons à votre disposition pour toute information complémentaire que vous souhaiteriez.",
+      "Bien cordialement,",
+    ] : [
       appel,
       "Je vous remercie d'avoir sollicité notre agence CENTURY 21 dans le cadre de votre projet immobilier.",
       prenom || nomCs
@@ -3108,7 +3117,7 @@
     const ySig = Math.max(y + 56, 640);
     ecrire("Votre " + fonction.charAt(0).toLowerCase() + fonction.slice(1) + ",", 330, ySig, 11, fI, gris);
     ecrire(signataire, 330, ySig + 18, 12.5, fB);
-    return { conseiller: [prenom, nomCs].filter(Boolean).join(" "), site, signataire, fonction, agence: ag.nom || "" };
+    return { conseiller: [prenom, nomCs].filter(Boolean).join(" "), site, signataire, fonction, agence: ag.nom || "", photo: !!dir && !!dir.photo_url, modele: modele || "r1" };
   }
   /* ------------------------- Courrier d'estimation ------------------------- */
   // Le courrier d'estimation, sur le papier à en-tête : la fourchette de prix
@@ -3517,6 +3526,14 @@
     // Page 9 : le mois.
     { const s = meta.p9, pg = page(s.page);
       ecrire(pg, (MOIS_FR[aujourdhui.getMonth()] + "  " + aujourdhui.getFullYear()).toUpperCase(), s.mois.x, s.mois.y, s.mois.taille, fR, rgb(0.145, 0.145, 0.149)); }
+    // Page 19 : le mot du directeur. Le modèle porte une image d'un ancien courrier
+    // (Saint-Médard, Benoît) ; elle laisse place au courrier généré : en-tête, signataire
+    // et photo de l'agence du parcours (Caudéran → Benjamin FAURE), conseiller nommé.
+    let motR2 = null;
+    if (window.fontkit) {
+      try { doc.removePage(18); const pgMot = doc.insertPage(18, [595.28, 841.89]); motR2 = await dessinerMotDirecteur(doc, pgMot, p, null, "r2"); }
+      catch (e) { console.warn("mot du directeur R2 :", e); motR2 = { erreur: String(e.message || e) }; }
+    }
     // Page 12 : le conseiller.
     // Page 11 « Notre agence » : les chiffres des avis du jour, par point de vente.
     let avisAgenceR2 = null;
@@ -3563,7 +3580,7 @@
     doc.setTitle("Vendons ensemble votre bien — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", avisAgence: avisAgenceR2, variante };
+    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", avisAgence: avisAgenceR2, variante, mot: motR2 };
     return url;
   }
   // La fenêtre du guide R2 : photo du bien, points forts, objections, texte

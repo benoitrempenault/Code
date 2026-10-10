@@ -1014,8 +1014,13 @@ partenariat local) ; page « Nos moyens de communication » (R1 p7 / R2 p16) = `
 (portails Century 21, bien'ici, Horizon Caudéran, avendrealouer, leboncoin — sans SeLoger ni Logic-Immo ni
 biens de prestige —, « Une vitrine unique », Amanda, réseaux TikTok/Instagram/Facebook/YouTube) ; R2 p5
 prix au m² = `cauderan-prix-m2.pdf` (titre/source) + courbe VECTORIELLE redessinée par le script
-(`DONNEES_PRIX`, 2017→2026, 2026 = 4 432 €/m², Barlow). Une nouvelle année : ajouter le point dans
-`DONNEES_PRIX` et relancer le script. admin.js : `varianteGuideR1(cs)` → "cauderan" si `cs.agence === "cauderan"`,
+(`DONNEES_PRIX`, 2017→2026, 2026 = 4 432 €/m², Barlow) ; page « Plan de commercialisation » (R1 p13 / R2
+p20) = `cauderan-plan-commercialisation.pdf` (sans SeLoger, Logic-Immo, Lux Résidence, Belles Demeures ;
+Horizon Caudéran ; Selectra + Papernest). Une nouvelle année : ajouter le point dans
+`DONNEES_PRIX` et relancer le script. **Mot du directeur du R2** (p19, 10/10) : l'image fixe de l'ancien
+courrier laisse place au courrier GÉNÉRÉ (`dessinerMotDirecteur(doc, page, p, null, "r2")`, texte propre
+au R2) : signataire + photo de l'agence du parcours (Caudéran → Benjamin FAURE via
+`completerAgencesKadima`), conseiller nommé ; `__dernierGuide.mot` sur le R2 aussi. admin.js : `varianteGuideR1(cs)` → "cauderan" si `cs.agence === "cauderan"`,
 cache `guideR1Cache[variante]`, `ZONES_AVIS.cauderan` (chiffres d'avis à 18,8 pt aux emplacements de cette
 page) passé à `redessinerAvisAgence(doc, page, ch, variante)`. `__dernierGuide.variante`. R2 : `varianteGuide(cs)`
 commune aux deux générateurs, `guideR2Cache[variante]`. Le script produit les deux PDF d'un coup
