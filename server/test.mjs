@@ -3842,8 +3842,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
        "un terrain ne se compare qu'à des terrains : la vente de maison, l'annonce et le mandat ALFA de maisons sont écartés (" + JSON.stringify({ ventes: dnT.ventes.length, annonces: dnT.annonces.length, amepi: dnT.amepi.length }) + ")");
     ok(portT.biens.length === 1 && portT.biens[0].id === "bienici:terrain-4" && portT.biens[0].type === "Terrain" && /^Terrain · 800 m² de terrain$/.test(portT.biens[0].titre) && /\/terrain\/1pieces\/terrain-4/.test(portT.biens[0].url),
        "Bien'ici est interrogé en « terrain » et le bien se présente comme un terrain (" + JSON.stringify(portT.biens.map((b) => [b.id, b.titre])) + ")");
-    ok(/plan de bornage/i.test(apT.texte) && !/électricité/.test(apT.texte) && /votre terrain/.test(apT2.texte) && /document d'arpentage/i.test(apT2.texte) && !/copropriété/.test(apT2.texte),
-       "les e-mails parlent du terrain et demandent plan de bornage et arpentage, pas les factures d'énergie ni la copropriété");
+    ok(/plan de bornage/i.test(apT.texte) && !/certificat d'urbanisme/i.test(apT.texte) && !/électricité/.test(apT.texte) && /votre terrain/.test(apT2.texte) && /document d'arpentage/i.test(apT2.texte) && !/copropriété/.test(apT2.texte),
+       "les e-mails parlent du terrain et demandent plan de bornage et arpentage, sans certificat d'urbanisme, ni factures d'énergie, ni copropriété");
     ok((await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "garage" } })).status === 200 && (await callR("/crm/parcours/" + pxId, { headers: authP })).json.type_bien === "maison",
        "un type inconnu retombe sur « maison »");
     await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } }); }

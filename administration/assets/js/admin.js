@@ -2655,11 +2655,11 @@
       '<label>Ville<input id="px-ville" value="' + v("ville") + '" /></label>' +
       '<label>Type de bien<select id="px-type">' + [["maison", "Maison"], ["appartement", "Appartement"], ["terrain", "Terrain"]].map(([k, l]) =>
         '<option value="' + k + '"' + (p && p.type_bien === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" +
-      '<label>Surface habitable (m²)<input id="px-surface" type="number" step="1" value="' + escH(b.surface || "") + '" /></label>' +
+      '<label class="px-bati">Surface habitable (m²)<input id="px-surface" type="number" step="1" value="' + escH(b.surface || "") + '" /></label>' +
       '<label>Terrain (m²)<input id="px-terrain" type="number" step="1" value="' + escH(b.terrain || "") + '" /></label>' +
-      '<label>Pièces<input id="px-pieces" type="number" step="1" min="0" value="' + escH(b.pieces || "") + '" /></label>' +
-      '<label>Chambres<input id="px-chambres" type="number" step="1" min="0" value="' + escH(b.chambres || "") + '" /></label>' +
-      '<label>Pièce de vie / séjour (m²)<input id="px-piece-vie" type="number" step="1" value="' + escH(b.piece_vie || "") + '" /></label>' +
+      '<label class="px-bati">Pièces<input id="px-pieces" type="number" step="1" min="0" value="' + escH(b.pieces || "") + '" /></label>' +
+      '<label class="px-bati">Chambres<input id="px-chambres" type="number" step="1" min="0" value="' + escH(b.chambres || "") + '" /></label>' +
+      '<label class="px-bati">Pièce de vie / séjour (m²)<input id="px-piece-vie" type="number" step="1" value="' + escH(b.piece_vie || "") + '" /></label>' +
       '<label>R1 — date<input id="px-r1" type="date" value="' + v("r1") + '" /></label>' +
       '<label>R1 — heure<input id="px-r1h" type="time" value="' + v("r1_heure") + '" /></label>' +
       '<label>R2 — date<input id="px-r2" type="date" value="' + v("r2") + '" /></label>' +
@@ -2670,6 +2670,13 @@
   }
   // Menu « Conseiller » ouvert avant que la liste soit arrivée (téléphone) :
   // on la recharge au premier focus et on complète les options.
+  // Un terrain n'a ni surface habitable, ni pièces, ni chambres, ni pièce de vie :
+  // ces champs disparaissent dès que le type est « Terrain » (Benoît, 10/10).
+  function brancherTypeBien() {
+    const sel = $("px-type"); if (!sel) return;
+    const maj = () => document.querySelectorAll("label.px-bati").forEach((l) => { l.style.display = sel.value === "terrain" ? "none" : ""; });
+    sel.addEventListener("change", maj); maj();
+  }
   function brancherMenuConseillers(selId) {
     const sel = $(selId); if (!sel) return;
     const remplir = () => { const v = sel.value; sel.innerHTML = '<option value="">— conseiller —</option>' + conseillers.filter((c) => c.actif || c.id === v).map((c) => '<option value="' + c.id + '"' + (c.id === v ? " selected" : "") + ">" + escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</option>").join(""); };
@@ -2731,7 +2738,7 @@
       } catch (e) { toast(e.message, true); }
     };
     $("px-q").addEventListener("input", () => { clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
-    brancherMenuConseillers("px-conseiller");
+    brancherMenuConseillers("px-conseiller"); brancherTypeBien();
     $("px-creer").addEventListener("click", async () => {
       const btn = $("px-creer"); if (btn.disabled) return; btn.disabled = true; btn.textContent = "Création…"; // un double clic ne crée qu'une fiche
       try {
@@ -2746,7 +2753,7 @@
     let p;
     try { p = await api("/crm/parcours/" + id); p.bien = (await api("/crm/parcours/" + id + "/acm")).acm || {}; } catch (e) { toast(e.message, true); return; }
     const faites = new Map(p.journal.map((j) => [j.etape, j]));
-    const bienManque = ["surface", "chambres", "piece_vie"].filter((k) => !p.bien[k]);
+    const bienManque = (p.type_bien === "terrain" ? ["terrain"] : ["surface", "chambres", "piece_vie"]).filter((k) => !p.bien[k]);
     const etapesHtml = '<div class="etapes">' + ETAPES_PARCOURS.map((e, i) => {
       const f = faites.get(e.cle);
       const quand = f ? "fait le " + new Date(f.le * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) + (f.par ? " par " + escH(f.par) : "") + (f.email ? " → " + escH(f.email) : "") : "";
@@ -2777,7 +2784,7 @@
     ouvrirModale("🧭 " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
       '<details><summary style="cursor:pointer;">Fiche client et rendez-vous — ' + escH([p.adresse, p.ville].filter(Boolean).join(", ")) +
       " · R1 " + dateFrCourte(p.r1, p.r1_heure) + " · R2 " + dateFrCourte(p.r2, p.r2_heure) +
-      (bienManque.length ? ' <span class="puce" style="background:#e07a5f; color:#fff;" title="Ces informations passent dans la commission d\'évaluation et le livret prix">à renseigner : ' + escH(bienManque.map((k) => ({ surface: "surface", chambres: "chambres", piece_vie: "pièce de vie" })[k]).join(", ")) + "</span>" : "") + "</summary>" +
+      (bienManque.length ? ' <span class="puce" style="background:#e07a5f; color:#fff;" title="Ces informations passent dans la commission d\'évaluation et le livret prix">à renseigner : ' + escH(bienManque.map((k) => ({ surface: "surface", chambres: "chambres", piece_vie: "pièce de vie", terrain: "surface du terrain" })[k]).join(", ")) + "</span>" : "") + "</summary>" +
       '<div style="margin-top:10px;">' + formulaireParcours(p) + '<div class="barre" style="margin-top:8px;"><button class="btn btn-or" id="px-maj">Enregistrer la fiche</button></div></div></details>' +
       '<p style="margin:12px 0 0;"><strong>Signé par :</strong> ' + csLigne + "</p>" +
       '<p style="margin:10px 0 0;"><strong>Propriétaires :</strong> ' + (p.proprietaires || []).map((o) => '<span class="puce grise" style="margin:2px 4px 2px 0;">' +
@@ -2801,7 +2808,7 @@
       try { await api("/crm/parcours/" + id, { method: "PUT", json: { conseiller_id: $("px-signe").value } }); toast("Les e-mails partiront signés du conseiller choisi"); await chargerParcours(); ouvrirParcours(id); }
       catch (e) { toast(e.message, true); }
     });
-    brancherMenuConseillers("px-conseiller");
+    brancherMenuConseillers("px-conseiller"); brancherTypeBien();
     // Le bien (surface, terrain, chambres, pièce de vie) s'enregistre dès qu'un
     // champ change : fermer la fiche sans « Enregistrer » ne perd plus rien.
     for (const k of ["px-surface", "px-terrain", "px-pieces", "px-chambres", "px-piece-vie"]) $(k).addEventListener("change", async () => {

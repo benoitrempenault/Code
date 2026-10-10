@@ -431,8 +431,11 @@ export default async function () {
     await page.waitForSelector("#px-effacer", { timeout: 8000 });
     await page.click("#modale-corps details:first-of-type summary");
     await page.selectOption("#px-type", "terrain");
+    const cachesT = await page.evaluate(() => ["px-surface", "px-pieces", "px-chambres", "px-piece-vie"].map((k) => getComputedStyle(document.getElementById(k).closest("label")).display === "none"));
+    ok(cachesT.every(Boolean) && await page.isVisible("#px-terrain"), "type « Terrain » : surface habitable, pièces, chambres et pièce de vie disparaissent, le terrain reste (" + JSON.stringify(cachesT) + ")");
     await page.click("#px-maj");
     await attendreToast(page, "Fiche enregistrée");
+    ok(!/à renseigner : surface/.test(await page.textContent("#modale-corps")), "fiche terrain : plus de rappel « à renseigner : surface, chambres, pièce de vie »");
     await page.waitForSelector('[data-guide="acm"]', { timeout: 8000 });
     await page.click('[data-guide="acm"]');
     await page.waitForSelector("#acm-generer", { timeout: 20000 });
@@ -447,6 +450,7 @@ export default async function () {
     await page.waitForSelector(".etapes", { timeout: 8000 });
     await page.click("#modale-corps details:first-of-type summary");
     await page.selectOption("#px-type", "maison");
+    ok(await page.isVisible("#px-surface") && await page.isVisible("#px-chambres"), "retour en « Maison » : les champs du bâti réapparaissent");
     await page.click("#px-maj");
     await attendreToast(page, "Fiche enregistrée");
     // Effacer le parcours depuis la fiche.

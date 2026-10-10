@@ -1020,7 +1020,11 @@ Horizon Caudéran ; Selectra + Papernest). Une nouvelle année : ajouter le poin
 `DONNEES_PRIX` et relancer le script. **Mot du directeur du R2** (p19, 10/10) : l'image fixe de l'ancien
 courrier laisse place au courrier GÉNÉRÉ (`dessinerMotDirecteur(doc, page, p, null, "r2")`, texte propre
 au R2) : signataire + photo de l'agence du parcours (Caudéran → Benjamin FAURE via
-`completerAgencesKadima`), conseiller nommé ; `__dernierGuide.mot` sur le R2 aussi. admin.js : `varianteGuideR1(cs)` → "cauderan" si `cs.agence === "cauderan"`,
+`completerAgencesKadima`), conseiller nommé ; `__dernierGuide.mot` sur le R2 aussi.
+**Terrain (10/10)** : dans la fiche parcours, les champs surface habitable / pièces / chambres / pièce de vie
+(`label.px-bati`) sont masqués dès que le type est « Terrain » (`brancherTypeBien`), le rappel « à renseigner »
+ne réclame que la surface du terrain ; le mail avant R1 d'un terrain ne demande plus le certificat
+d'urbanisme (`documentsR1`). admin.js : `varianteGuideR1(cs)` → "cauderan" si `cs.agence === "cauderan"`,
 cache `guideR1Cache[variante]`, `ZONES_AVIS.cauderan` (chiffres d'avis à 18,8 pt aux emplacements de cette
 page) passé à `redessinerAvisAgence(doc, page, ch, variante)`. `__dernierGuide.variante`. R2 : `varianteGuide(cs)`
 commune aux deux générateurs, `guideR2Cache[variante]`. Le script produit les deux PDF d'un coup

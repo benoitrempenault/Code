@@ -64,8 +64,9 @@ export const TYPES_BIEN = ["maison", "appartement", "terrain"];
 export const typeBien = (t) => (TYPES_BIEN.includes(String(t || "")) ? String(t) : "maison");
 export function documentsR1(typeBien) {
   if (typeBien === "terrain") {
+    // Sans « certificat d'urbanisme / règles du PLU » : le vendeur ne l'a pas (Benoît, 10/10).
     return ["Le titre de propriété", "Le plan de bornage ou le plan cadastral (si vous l'avez)", "La dernière taxe foncière recto/verso",
-      "Le certificat d'urbanisme ou les règles du PLU si vous les avez", "Les diagnostics ou études déjà réalisés (étude de sol, ERP)"].map((x) => "- " + x).join("\n");
+      "Les diagnostics ou études déjà réalisés (étude de sol, ERP)"].map((x) => "- " + x).join("\n");
   }
   const l = ["Le titre de propriété", "Le plan de la maison / de l'appartement (si vous l'avez)",
     "La dernière taxe foncière recto/verso", "Les factures d'électricité / gaz", "Les diagnostics déjà réalisés"];
