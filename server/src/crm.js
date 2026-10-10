@@ -913,7 +913,10 @@ export function defaultReglages(agency) {
     // d'eux, et ses e-mails/guides portent le nom, l'adresse, le téléphone,
     // l'e-mail et les mentions légales de SON agence (à défaut, ceux d'`agence`).
     agences: [], // [{cle, nom, adresse, telephone, email, mentions}]
-    anniversaires: { enabled: false, naissance: true, achat: true, cci: "", smsEnabled: false, smsSignature: "", canal: "les-deux" },
+    // repondreA : la boîte qui reçoit les réponses des clients aux vœux (vide =
+    // le conseiller de la fiche, sinon son agence). Kadima : Benoît (10/10).
+    anniversaires: { enabled: false, naissance: true, achat: true, cci: "", smsEnabled: false, smsSignature: "", canal: "les-deux",
+      repondreA: estKadima(agency) ? "benoit.rempenault@century21.fr" : "" },
     annonces: { autoSync: false, siteUrl: "" },
     acheteurs: { enabled: false, cci: "" },
     estimations: { enabled: false, cci: "" },
@@ -993,6 +996,7 @@ export async function saveReglages(db, agency, userId, incoming) {
   next.anniversaires.naissance = !!next.anniversaires.naissance;
   next.anniversaires.achat = !!next.anniversaires.achat;
   next.anniversaires.cci = strip(next.anniversaires.cci, 160);
+  next.anniversaires.repondreA = strip(next.anniversaires.repondreA, 160).toLowerCase();
   next.annonces.autoSync = !!next.annonces.autoSync;
   next.annonces.siteUrl = strip(next.annonces.siteUrl, 200).replace(/\/$/, "");
   next.acheteurs.enabled = !!next.acheteurs.enabled;
@@ -1560,8 +1564,11 @@ export async function profilConseillerPour(db, agencyId, brut) {
 export async function reponseAnniversaire(db, agency, reglages, contact) {
   const profil = contact.conseiller ? await profilConseillerPour(db, agency.id, contact.conseiller) : null;
   const ag = agencePour(reglages, profil);
-  const replyTo = (profil && profil.email) || ag.email || reglages.agence.email || "";
-  const bcc = reglages.anniversaires.cci || (profil && profil.email && ag.email && ag.email !== profil.email ? ag.email : "");
+  // Une boîte de réponse réglée (Réglages → Anniversaires → « Les réponses
+  // arrivent sur ») prime sur tout : Benoît veut recevoir les réponses lui-même.
+  const fixe = String(reglages.anniversaires.repondreA || "").trim();
+  const replyTo = fixe || (profil && profil.email) || ag.email || reglages.agence.email || "";
+  const bcc = reglages.anniversaires.cci || (!fixe && profil && profil.email && ag.email && ag.email !== profil.email ? ag.email : "");
   return { replyTo, bcc, conseiller: profil ? [profil.prenom, profil.nom].filter(Boolean).join(" ") : "", agence: ag.nom || "" };
 }
 

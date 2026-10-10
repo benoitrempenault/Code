@@ -2370,6 +2370,17 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok(mGuy && mGuy.reply_to[0] === "agence@ach-test.fr" && !mGuy.bcc && mTom && mTom.reply_to[0] === "agence@ach-test.fr",
        "sans conseiller, ou conseiller sans profil (BLANC Rémi) : la réponse va à l'adresse de l'agence, sans copie");
     ok(runSms.details.some((d) => /SMSE/.test(d.contact) && d.repondre === "nathalie@ach-test.fr" && d.copie === "nord@ach-test.fr"), "le compte rendu du passage dit à qui le client répondra"); }
+  // Une boîte de réponse réglée (Benoît veut recevoir lui-même les réponses) prime sur le conseiller et l'agence.
+  { await callS("/crm/reglages", { headers: auth, method: "PUT", body: { anniversaires: { repondreA: "Benoit.Rempenault@century21.fr" } } });
+    await callS("/crm/contacts/bulk", { headers: auth, body: { rows: [{ civilite: "Mme", nom: "SMSF Ana", email: "smsf@ach-test.fr", date_naissance: aujJJMM, conseiller: "FRICK Nathalie" }] } });
+    const runFixe = (await callS("/crm/anniversaires/run", { headers: auth, method: "POST" })).json.summary;
+    const mAna = mailsRecus.find((m) => (m.to || [])[0] === "smsf@ach-test.fr");
+    ok(mAna && mAna.reply_to[0] === "benoit.rempenault@century21.fr" && !mAna.bcc, "la réponse au vœu va à la boîte réglée, même si la fiche a un conseiller avec e-mail (" + JSON.stringify(mAna && [mAna.reply_to, mAna.bcc]) + ")");
+    ok(runFixe.details.some((d) => /SMSF/.test(d.contact) && d.repondre === "benoit.rempenault@century21.fr"), "le compte rendu le dit aussi");
+    await callS("/crm/reglages", { headers: auth, method: "PUT", body: { anniversaires: { repondreA: "" } } });
+    ok((await callS("/crm/reglages", { headers: auth })).json.reglages.anniversaires.repondreA === "", "vidée, la boîte de réponse revient à la règle conseiller / agence");
+    const kad = CRM_TEST.defaultReglages({ id: "ag_k", name: "CENTURY 21 Kadima" }).anniversaires, autreK = CRM_TEST.defaultReglages({ id: "ag_y", name: "Agence Dupont" }).anniversaires;
+    ok(kad.repondreA === "benoit.rempenault@century21.fr" && autreK.repondreA === "", "chez Kadima, les réponses aux vœux vont à Benoît par défaut ; ailleurs, rien n'est réglé"); }
   ok(runSms.sms === 2, "deux vœux partis par SMS (mobile requis, le fixe est écarté)");
   const smsTom = smsRecus.find((s) => s.recipient === "+33662125193");
   ok(smsTom && /Rémi/.test(smsTom.content) && /Joyeux anniversaire/.test(smsTom.content) && smsTom.sender.length <= 11,

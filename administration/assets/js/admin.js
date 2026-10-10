@@ -1160,6 +1160,7 @@
     $("anniv-naissance").checked = reglages.anniversaires.naissance !== false;
     $("anniv-achat").checked = reglages.anniversaires.achat !== false;
     $("anniv-cci").value = reglages.anniversaires.cci || "";
+    if ($("anniv-repondre")) $("anniv-repondre").value = reglages.anniversaires.repondreA || "";
     $("anniv-sms").checked = !!reglages.anniversaires.smsEnabled;
     $("anniv-sms").disabled = !smsPret;
     $("anniv-canal").value = reglages.anniversaires.canal || "les-deux";
@@ -4369,6 +4370,7 @@
       naissance: $("anniv-naissance").checked,
       achat: $("anniv-achat").checked,
       cci: $("anniv-cci").value.trim(),
+      repondreA: $("anniv-repondre") ? $("anniv-repondre").value.trim() : "",
       smsEnabled: $("anniv-sms").checked,
       smsSignature: $("anniv-sms-signature").value.trim(),
       canal: $("anniv-canal").value,
