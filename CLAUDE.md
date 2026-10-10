@@ -1075,8 +1075,9 @@ d'équipe reprises en plus grand depuis le site (720×900 : Teddy, Nathalie, Ade
 Lucille, Amélie, Stéphanie) ; au démarrage, un profil dont la photo est plus petite (< 80 % de la largeur
 d'équipe) ou d'autres proportions reprend la photo d'équipe. Cadre PORTRAIT (R2 p12, courriers) : fenêtre
 ≥ 70 % de la largeur (zoomer plus rendait flou) ; carré : ≥ 45 %. Fichiers du guide chargés via `asset()`
-(?v du script). Le site a aussi Alice Perez, Audrey Gouley, Rachel Preux, Stéphanie Dreyfus (pas dans
-`equipe`).
+(?v du script). Ajoutés à `equipe` (10/10) : Audrey Gouley (saint-medard), Rachel Preux (saint-aubin, assistante
+gestion locative), Stéphanie Dreyfus (cauderan), Alice Perez (blanquefort) — agences lues dans les sections de
+/equipe/ du site, photos 900 px, visages détectés ; importés au prochain chargement de l'admin.
 **Livret prix (10/10)** : ventes et biens en concurrence classés par écart de pièces (même nombre, ±1,
 pièces inconnues = 1,5, ±2…) puis distance ; `piecesRef` pour maison et appartement ; les 4 premiers
 pré-cochés ; puce « T3 » sur les biens du même nombre de pièces, « pièces ? » sinon. **Légende de la carte
