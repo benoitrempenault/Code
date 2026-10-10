@@ -2451,10 +2451,26 @@
   let photosCarreesFaites = false;
   async function completerPhotosCarrees() {
     if (photosCarreesFaites || modeConseiller) return; photosCarreesFaites = true;
+    const equipe = (await metaR1()).equipe || [];
     for (const c of conseillers.filter((x) => x.a_photo && x.photo_url && (!x.a_photo_carre || (x.photo_carre_le || 0) < CARRE_VERSION)).slice(0, 60)) {
       try {
         const b = await (await fetch(c.photo_url)).blob();
-        const dataUrl = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); });
+        let dataUrl = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); });
+        // Une photo de profil qui n'a plus les proportions de sa photo d'équipe (vieille
+        // vignette carrée, réduction d'autrefois) : la photo d'équipe la remplace, avec son
+        // repère de visage — sur le profil aussi, pour les guides et les courriers.
+        const e = equipe.find((x) => x.visage && x.taille && memeNom(x.prenom + " " + x.nom, [c.prenom, c.nom].filter(Boolean).join(" ")));
+        if (e) {
+          const img = await chargerSrc(dataUrl).catch(() => null);
+          if (img && Math.abs(img.width / img.height - e.taille[0] / e.taille[1]) / (e.taille[0] / e.taille[1]) >= 0.03) {
+            const fb = await (await fetch(e.photo)).blob();
+            dataUrl = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(fb); });
+            const carre = await photoCarree(dataUrl, 320, c);
+            await api("/crm/conseillers", { method: "PUT", json: { id: c.id, prenom: c.prenom, nom: c.nom, fonction: c.fonction, telephone: c.telephone, email: c.email, actif: c.actif, photo: dataUrl, photo_carre: carre } });
+            c.photo_carre_le = Math.floor(Date.now() / 1000);
+            continue;
+          }
+        }
         await api("/crm/conseillers/" + encodeURIComponent(c.id) + "/photo-carree", { method: "PUT", json: { photo_carre: await photoCarree(dataUrl, 320, c) } });
         c.photo_carre_le = Math.floor(Date.now() / 1000);
         c.a_photo_carre = true;
@@ -3307,7 +3323,7 @@
     return cv.toDataURL("image/jpeg", 0.85);
   }
   // Les carrés calculés avant cette date (cadrage sans visage) sont refaits au démarrage.
-  const CARRE_VERSION = 1791627800; // 10/10/2026 10:23 UTC : cadrage sur le visage
+  const CARRE_VERSION = 1791628700; // 10/10/2026 10:38 UTC : cadrage sur le visage, photo d'équipe reprise si besoin
   // La page « Votre conseiller » du guide R1 quand le modèle n'en a pas pour ce
   // conseiller : même composition que les pages du modèle — titre, photo ronde,
   // nom, mail, téléphone, puis les avis clients du profil (deux colonnes).
