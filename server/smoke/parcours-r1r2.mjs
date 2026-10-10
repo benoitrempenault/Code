@@ -412,6 +412,15 @@ export default async function () {
         "R2 de Stéphanie Dreyfus : variante Caudéran, mot du directeur signé Benjamin FAURE et Stéphanie nommée, avis de Caudéran (" + JSON.stringify({ variante: g2S.variante, mot: g2S.mot, avis: g2S.avis }) + ")");
       await garderGuide(page, g2S.octets, "guide-r2-dreyfus-smoke.pdf");
       await page.click("#doc-retour");
+      await page.waitForSelector("#px-signe", { timeout: 8000 });
+      // Son R1 aussi : variante Caudéran, page « Votre conseiller » générée, mot du directeur signé Benjamin Faure.
+      await page.click('[data-guide="r1"]');
+      await page.waitForFunction(() => /Guide R1 prêt/.test(document.getElementById("modale-titre")?.textContent || ""), null, { timeout: 30000 });
+      const g1S = await page.evaluate(() => ({ variante: window.__dernierGuide.variante, mot: window.__dernierGuide.mot, pageConseiller: window.__dernierGuide.pageConseiller, avis: window.__dernierGuide.avisAgence, octets: window.__dernierGuide.octets.byteLength }));
+      ok(g1S.variante === "cauderan" && g1S.mot && g1S.mot.signataire === "Benjamin FAURE" && g1S.mot.conseiller === "Stéphanie DREYFUS" && g1S.pageConseiller && g1S.pageConseiller.source === "generee" && g1S.pageConseiller.photo === true && g1S.avis && g1S.avis.cle === "cauderan",
+        "R1 de Stéphanie Dreyfus : variante Caudéran, page « Votre conseiller » générée avec sa photo, mot du directeur signé Benjamin FAURE, avis de Caudéran (" + JSON.stringify({ variante: g1S.variante, page: g1S.pageConseiller, mot: g1S.mot && g1S.mot.signataire }) + ")");
+      await garderGuide(page, g1S.octets, "guide-r1-dreyfus-smoke.pdf");
+      await page.click("#doc-retour");
       await page.waitForSelector("#px-signe", { timeout: 8000 }); }
     await page.selectOption("#px-signe", cs.json.id);
     await attendreToast(page, "signés du conseiller");
