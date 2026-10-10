@@ -3328,7 +3328,7 @@
     return cv.toDataURL("image/jpeg", 0.85);
   }
   // Les carrés calculés avant cette date (cadrage sans visage) sont refaits au démarrage.
-  const CARRE_VERSION = 1791628700; // 10/10/2026 10:38 UTC : cadrage sur le visage, photo d'équipe reprise si besoin
+  const CARRE_VERSION = 1791651253; // 10/10/2026 : visages re-détectés (boîte la plus sûre, pas la plus grande)
   // La page « Votre conseiller » du guide R1 quand le modèle n'en a pas pour ce
   // conseiller : même composition que les pages du modèle — titre, photo ronde,
   // nom, mail, téléphone, puis les avis clients du profil (deux colonnes).
