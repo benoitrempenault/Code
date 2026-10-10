@@ -394,6 +394,25 @@ export default async function () {
       "conseiller de Caudéran : guide R2 de Caudéran, avis de Caudéran réécrits sur sa page « Notre agence » (" + JSON.stringify(g2D) + ")");
     await page.click("#doc-retour");
     await page.waitForSelector("#px-signe", { timeout: 8000 });
+    // Stéphanie Dreyfus (importée de l'équipe, Caudéran, sans page sur le faux site) : son R2 est celui de Caudéran.
+    { const dreyfus = (await api("/crm/conseillers", { headers: admin.auth })).json.conseillers.find((x) => /dreyfus/i.test(x.nom));
+      ok(!!dreyfus && dreyfus.agence === "cauderan" && dreyfus.a_photo, "Stéphanie Dreyfus est importée de l'équipe, rattachée à Caudéran, avec sa photo (" + JSON.stringify(dreyfus && { agence: dreyfus.agence, photo: dreyfus.a_photo }) + ")");
+      for (let essai = 0; essai < 3; essai++) {
+        await page.selectOption("#px-signe", dreyfus.id);
+        const pris = await page.waitForFunction((id) => document.querySelector("#px-signe")?.value === id && (document.getElementById("px-signe-detail")?.innerHTML || "").includes(id), dreyfus.id, { timeout: 8000 }).then(() => true).catch(() => false);
+        if (pris) break;
+      }
+      await page.waitForTimeout(400);
+      await page.click('[data-guide="r2"]');
+      await page.waitForSelector("#r2-generer", { timeout: 8000 });
+      await page.click("#r2-generer");
+      await page.waitForSelector("#doc-retour", { timeout: 90000 });
+      const g2S = await page.evaluate(() => ({ variante: window.__dernierGuide.variante, avis: window.__dernierGuide.avisAgence, mot: window.__dernierGuide.mot, octets: window.__dernierGuide.octets.byteLength }));
+      ok(g2S.variante === "cauderan" && g2S.mot && g2S.mot.signataire === "Benjamin FAURE" && g2S.mot.conseiller === "Stéphanie DREYFUS" && g2S.avis && g2S.avis.cle === "cauderan",
+        "R2 de Stéphanie Dreyfus : variante Caudéran, mot du directeur signé Benjamin FAURE et Stéphanie nommée, avis de Caudéran (" + JSON.stringify({ variante: g2S.variante, mot: g2S.mot, avis: g2S.avis }) + ")");
+      await garderGuide(page, g2S.octets, "guide-r2-dreyfus-smoke.pdf");
+      await page.click("#doc-retour");
+      await page.waitForSelector("#px-signe", { timeout: 8000 }); }
     await page.selectOption("#px-signe", cs.json.id);
     await attendreToast(page, "signés du conseiller");
     // La fiche se réaffiche avec le nouveau signataire (téléphone de Teddy) : on attend ce rendu avant de continuer.
