@@ -1063,7 +1063,13 @@ fois avec YuNet/OpenCV, tools : scratch) + `taille` [w, h] de la photo ; `visage
 dimensions, sinon null) ; `cadrageVisage(img, W, H, visage)` : fenêtre = 3 × largeur du visage (≥ 45 % de la
 photo), visage à 42 % (carré) / 36 % (portrait) de la hauteur, ≥ 12 % de marge au-dessus du visage. Utilisé par
 `recadrerRond(src, px, cs)`, `photoCarree(src, px, cs)`, `recadrerImage(…, visage, cs)` (en-tête courriers,
-R2 p12). `CARRE_VERSION` : les carrés d'e-mail plus vieux sont recalculés au démarrage (`photo_carre_le`).
+R2 p12). `CARRE_VERSION` : les carrés d'e-mail plus vieux sont recalculés au démarrage (`photo_carre_le`). Le repère
+du visage s'applique si la photo du profil a les PROPORTIONS du fichier d'équipe (à 3 %), pas forcément les
+mêmes pixels (`memeNom` : mots du nom sans ordre). La signature d'e-mail versionne l'image
+(`?carre=1&v=<photo_carre_le>`, exposé par lireParcoursDe) pour casser le cache d'un jour. **Avis des anciennes
+pages du modèle** : `guide-r1.json → conseillers[].avis` [{texte, signature}] (extraits du PDF, 62 avis ; le
+faux avis « Pauline M » dupliqué sur chaque page retiré sauf chez Adélaïde) ; `avisModeleDe(cs)` les ajoute
+après ceux du site et du profil, jusqu'à six (`pageConseiller.avisModele`).
 **Livret prix (10/10)** : ventes et biens en concurrence classés par écart de pièces (même nombre, ±1,
 pièces inconnues = 1,5, ±2…) puis distance ; `piecesRef` pour maison et appartement ; les 4 premiers
 pré-cochés ; puce « T3 » sur les biens du même nombre de pièces, « pièces ? » sinon. **Légende de la carte

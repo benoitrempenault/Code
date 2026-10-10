@@ -150,7 +150,7 @@ export function signatureHtml(conseiller, ag, photoUrl) {
     `<a href="${esc(ag.avis || AVIS_DEFAUT)}" style="color:#BEAF87; text-decoration:none;">Nos avis clients</a>`,
   ].filter(Boolean);
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;"><tr>
-    ${photoUrl ? `<td style="padding-right:18px;"><img src="${esc(photoUrl + (photoUrl.includes("?") ? "&" : "?") + "carre=1")}" alt="" width="84" height="84" style="width:84px; height:84px; border-radius:50%; object-fit:cover; display:block;"></td>` : ""}
+    ${photoUrl ? `<td style="padding-right:18px;"><img src="${esc(photoUrl + (photoUrl.includes("?") ? "&" : "?") + "carre=1&v=" + (Number(c.photo_carre_le) || 0))}" alt="" width="84" height="84" style="width:84px; height:84px; border-radius:50%; object-fit:cover; display:block;"></td>` : ""}
     <td style="text-align:left;">
       <div style="font-family:Georgia,'Times New Roman',serif; color:#1D1D1B; font-size:19px;">${esc(nomComplet)}</div>
       ${lignes.map((l) => `<div style="font-family:Helvetica,Arial,sans-serif; color:#3d3d3b; font-size:13px; margin-top:3px;">${esc(l)}</div>`).join("")}
@@ -490,8 +490,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       { estimation_id: id, civilite: "", prenom: "", cp: "", type_bien: "maison", r1_heure: "", r2_heure: "", conseiller_id: "", journal: "[]" };
     let journal = []; try { journal = JSON.parse(px.journal || "[]"); } catch { }
     const conseiller = px.conseiller_id ? await db.get(
-      `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, (cs.photo <> '') AS a_photo, x.bio, x.genre, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis, COALESCE(avs.avis, '[]') AS avis_site_json, COALESCE(ts.texte, '') AS bio_site
-       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id LEFT JOIN crm_conseillers_avis_site avs ON avs.id = cs.id LEFT JOIN crm_conseillers_texte_site ts ON ts.id = cs.id WHERE cs.id = ? AND cs.agency_id = ?`, [px.conseiller_id, agencyId]) : null;
+      `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, (cs.photo <> '') AS a_photo, x.bio, x.genre, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis, COALESCE(avs.avis, '[]') AS avis_site_json, COALESCE(ts.texte, '') AS bio_site, COALESCE(pc.updated_at, 0) AS photo_carre_le
+       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id LEFT JOIN crm_conseillers_avis_site avs ON avs.id = cs.id LEFT JOIN crm_conseillers_texte_site ts ON ts.id = cs.id LEFT JOIN crm_conseillers_photo_carre pc ON pc.id = cs.id WHERE cs.id = ? AND cs.agency_id = ?`, [px.conseiller_id, agencyId]) : null;
     if (conseiller) { conseiller.bio = conseiller.bio || ""; conseiller.genre = conseiller.genre || genrePrenom(conseiller.prenom); conseiller.avis_site = jsonAvisSite(conseiller.avis_site_json); delete conseiller.avis_site_json; }
     const proprietaires = await proprietairesDe(agencyId, est);
     return { est, px: { ...px, journal, conseiller_prenom: conseiller ? conseiller.prenom : "", conseiller_nom: conseiller ? conseiller.nom : "" }, conseiller, proprietaires };

@@ -3420,7 +3420,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test", photo: pixel, photo_carre: pixel } });
     ok((await lire()).a_photo_carre === true, "photo + carré envoyés ensemble depuis la fiche conseiller");
     const { signatureHtml } = await import("./src/parcours.js");
-    ok(/photo\?carre=1"/.test(signatureHtml({ prenom: "Teddy", nom: "BESSON" }, { nom: "Kadima" }, "https://api.test/public/conseillers/x/photo")), "la signature d'e-mail prend la photo carrée (?carre=1)");
+    ok(/photo\?carre=1&amp;v=7"/.test(signatureHtml({ prenom: "Teddy", nom: "BESSON", photo_carre_le: 7 }, { nom: "Kadima" }, "https://api.test/public/conseillers/x/photo")), "la signature d'e-mail prend la photo carrée (?carre=1), versionnée par sa date (pas de cache périmé)");
   }
   ok(teddy.status === 200 && teddy.json.id, "profil conseiller créé avec sa photo");
   const listeCs = (await callR("/crm/conseillers", { headers: authP })).json.conseillers;

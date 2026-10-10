@@ -3269,14 +3269,25 @@
   }
   // Le visage d'un conseiller : celui relevé sur sa photo d'équipe (même nom, mêmes
   // dimensions de photo — une photo remplacée depuis ne le reprend pas).
-  let visagesEquipe = null;
+  let metaR1Promesse = null;
+  const metaR1 = () => (metaR1Promesse ||= fetch("assets/guide-r1.json").then((r) => r.json()).catch(() => ({})));
+  const memeNom = (a, b) => { const ka = sansAccentsMin(a), kb = sansAccentsMin(b); return ka && (ka === kb || ka.split(" ").sort().join(" ") === kb.split(" ").sort().join(" ")); };
   async function visageDe(cs, img) {
     if (!cs) return null;
-    if (!visagesEquipe) { try { visagesEquipe = ((await fetch("assets/guide-r1.json").then((r) => r.json())).equipe || []).filter((e) => e.visage); } catch { visagesEquipe = []; } }
-    const cle = sansAccentsMin([cs.prenom, cs.nom].filter(Boolean).join(" "));
-    const e = visagesEquipe.find((x) => sansAccentsMin(x.prenom + " " + x.nom) === cle || sansAccentsMin(x.nom + " " + x.prenom) === cle);
+    const equipe = ((await metaR1()).equipe || []).filter((e) => e.visage);
+    const cle = [cs.prenom, cs.nom].filter(Boolean).join(" ");
+    const e = equipe.find((x) => memeNom(x.prenom + " " + x.nom, cle));
     if (!e || !img || !e.taille) return e ? e.visage : null;
-    return img.width === e.taille[0] && img.height === e.taille[1] ? e.visage : null;
+    // Même photo (à une réduction près) : mêmes proportions à 3 % ; une autre photo n'a pas ce repère.
+    const r1 = img.width / img.height, r2 = e.taille[0] / e.taille[1];
+    return Math.abs(r1 - r2) / r2 < 0.03 ? e.visage : null;
+  }
+  // Les avis des anciennes pages du modèle (guide-r1.json → conseillers[].avis) :
+  // repris quand le site et le profil n'en donnent pas assez.
+  async function avisModeleDe(cs) {
+    if (!cs) return [];
+    const c = ((await metaR1()).conseillers || []).find((x) => memeNom(x.prenom + " " + x.nom, [cs.prenom, cs.nom].filter(Boolean).join(" ")));
+    return c && Array.isArray(c.avis) ? c.avis : [];
   }
   const chargerSrc = (src) => new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ko(new Error("Image illisible.")); i.src = src; });
   async function recadrerRond(src, px = 480, cs) {
@@ -3296,7 +3307,7 @@
     return cv.toDataURL("image/jpeg", 0.85);
   }
   // Les carrés calculés avant cette date (cadrage sans visage) sont refaits au démarrage.
-  const CARRE_VERSION = 1791620000;
+  const CARRE_VERSION = 1791627800; // 10/10/2026 10:23 UTC : cadrage sur le visage
   // La page « Votre conseiller » du guide R1 quand le modèle n'en a pas pour ce
   // conseiller : même composition que les pages du modèle — titre, photo ronde,
   // nom, mail, téléphone, puis les avis clients du profil (deux colonnes).
@@ -3357,6 +3368,8 @@
     const avis = (Array.isArray(cs.avis_site) ? cs.avis_site : []).filter((a) => a && a.texte).map((a) => ({ texte: a.texte, signature: [a.auteur, a.date].filter(Boolean).join(" · "), site: true }));
     const blocs = String(cs.avis || "").split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean);
     for (const b of blocs) { const l = b.split(/\n/).map((x) => x.trim()).filter(Boolean); const sig = l.length > 1 && l[l.length - 1].length <= 30 ? l.pop() : ""; const texte = l.join(" "); if (!avis.some((a) => a.texte.slice(0, 60) === texte.slice(0, 60))) avis.push({ texte, signature: sig, site: false }); }
+    // Puis les avis de l'ancienne page du modèle (les plus anciens), jusqu'à six en tout.
+    for (const a of await avisModeleDe(cs)) { if (avis.length >= 6) break; if (a && a.texte && !avis.some((x) => x.texte.slice(0, 60) === a.texte.slice(0, 60))) avis.push({ texte: a.texte, signature: a.signature || "", site: false, modele: true }); }
     avis.splice(6);
     let poses = 0;
     if (avis.length) {
@@ -3374,7 +3387,7 @@
         col.y += haut + ECART; poses++;
       }
     }
-    return { conseiller: [prenom, nomCs.toUpperCase()].filter(Boolean).join(" "), avis: poses, avisSite: avis.filter((a) => a.site).length, photo, description: description.length ? (cs.bio ? "profil" : "site") : "aucune" };
+    return { conseiller: [prenom, nomCs.toUpperCase()].filter(Boolean).join(" "), avis: poses, avisSite: avis.filter((a) => a.site).length, avisModele: avis.filter((a) => a.modele).length, photo, description: description.length ? (cs.bio ? "profil" : "site") : "aucune" };
   }
   // Page « Notre agence » des guides (R1 p3, R2 p11) : les notes et nombres
   // d'avis redessinés aux chiffres relevés sur le site Kadima (par point de
