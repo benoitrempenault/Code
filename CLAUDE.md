@@ -1069,7 +1069,14 @@ mêmes pixels (`memeNom` : mots du nom sans ordre). La signature d'e-mail versio
 (`?carre=1&v=<photo_carre_le>`, exposé par lireParcoursDe) pour casser le cache d'un jour. **Avis des anciennes
 pages du modèle** : `guide-r1.json → conseillers[].avis` [{texte, signature}] (extraits du PDF, 62 avis ; le
 faux avis « Pauline M » dupliqué sur chaque page retiré sauf chez Adélaïde) ; `avisModeleDe(cs)` les ajoute
-après ceux du site et du profil, jusqu'à six (`pageConseiller.avisModele`).
+après ceux du site et du profil, jusqu'à six (`pageConseiller.avisModele`). Visages : boîte YuNet la plus SÛRE
+parmi les plausibles (6–45 % de la largeur), pas la plus grande (le logo « 21 » du mur trompait). Huit photos
+d'équipe reprises en plus grand depuis le site (720×900 : Teddy, Nathalie, Adeline, Vincent, Laurence A.,
+Lucille, Amélie, Stéphanie) ; au démarrage, un profil dont la photo est plus petite (< 80 % de la largeur
+d'équipe) ou d'autres proportions reprend la photo d'équipe. Cadre PORTRAIT (R2 p12, courriers) : fenêtre
+≥ 70 % de la largeur (zoomer plus rendait flou) ; carré : ≥ 45 %. Fichiers du guide chargés via `asset()`
+(?v du script). Le site a aussi Alice Perez, Audrey Gouley, Rachel Preux, Stéphanie Dreyfus (pas dans
+`equipe`).
 **Livret prix (10/10)** : ventes et biens en concurrence classés par écart de pièces (même nombre, ±1,
 pièces inconnues = 1,5, ±2…) puis distance ; `piecesRef` pour maison et appartement ; les 4 premiers
 pré-cochés ; puce « T3 » sur les biens du même nombre de pièces, « pièces ? » sinon. **Légende de la carte

@@ -2467,7 +2467,8 @@
         const e = equipe.find((x) => x.visage && x.taille && memeNom(x.prenom + " " + x.nom, [c.prenom, c.nom].filter(Boolean).join(" ")));
         if (e) {
           const img = await chargerSrc(dataUrl).catch(() => null);
-          if (img && Math.abs(img.width / img.height - e.taille[0] / e.taille[1]) / (e.taille[0] / e.taille[1]) >= 0.03) {
+          // … ou nettement plus petite que la photo d'équipe (une plus grande a été relevée sur le site).
+          if (img && (Math.abs(img.width / img.height - e.taille[0] / e.taille[1]) / (e.taille[0] / e.taille[1]) >= 0.03 || img.width < e.taille[0] * 0.8)) {
             const fb = await (await fetch(e.photo)).blob();
             dataUrl = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(fb); });
             const carre = await photoCarree(dataUrl, 320, c);
@@ -3276,7 +3277,9 @@
     const r = W / H, iw = img.width, ih = img.height;
     if (visage && visage.length === 4) {
       const fw = visage[2] * iw, cx = (visage[0] + visage[2] / 2) * iw, cy = (visage[1] + visage[3] / 2) * ih;
-      let sw = Math.min(Math.max(fw * 3, 0.45 * Math.min(iw, ih)), iw), sh = sw / r;
+      // Un cadre portrait (page 12 du R2, courriers) zoome moins (au moins 70 % de la largeur
+      // de la photo) : agrandir un petit visage rendrait la photo floue ; un carré zoome à 45 %.
+      let sw = Math.min(Math.max(fw * 3, (r < 1 ? 0.7 : 0.45) * Math.min(iw, ih)), iw), sh = sw / r;
       if (sh > ih) { sh = ih; sw = sh * r; }
       // Le haut du visage garde au moins 12 % de marge (cheveux) : jamais de tête coupée.
       const hautVisage = visage[1] * ih;
@@ -3328,7 +3331,7 @@
     return cv.toDataURL("image/jpeg", 0.85);
   }
   // Les carrés calculés avant cette date (cadrage sans visage) sont refaits au démarrage.
-  const CARRE_VERSION = 1791651253; // 10/10/2026 : visages re-détectés (boîte la plus sûre, pas la plus grande)
+  const CARRE_VERSION = 1791657869; // 10/10/2026 : photos d'équipe plus grandes reprises du site
   // La page « Votre conseiller » du guide R1 quand le modèle n'en a pas pour ce
   // conseiller : même composition que les pages du modèle — titre, photo ronde,
   // nom, mail, téléphone, puis les avis clients du profil (deux colonnes).
