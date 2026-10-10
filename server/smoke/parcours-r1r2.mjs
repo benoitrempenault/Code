@@ -1,6 +1,6 @@
 /* Parcours « R1/R2 » : profil conseiller (photo), nouveau parcours, e-mail
    avant R1 pré-rempli au nom du conseiller, aperçu, envoi, étape cochée. */
-import { ajouterConseiller, api, attendreToast, creerAgence, ouvrir, parcours } from "./lib.mjs";
+import { API, ajouterConseiller, api, attendreToast, creerAgence, ouvrir, parcours } from "./lib.mjs";
 
 const PIXEL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
 
@@ -35,6 +35,11 @@ export default async function () {
     const puceDirection = await page.evaluate(() => [...document.querySelectorAll("#table-conseillers tr")].filter((tr) => /Rempenault|Faure|Duverger|Delbecq/.test(tr.textContent) && /direction/.test(tr.textContent)).length);
     ok(tableCs.includes("BESSON") && nbPhotos >= 25 && tableCs.includes("Zamora") && tableCs.includes("smoke-parcours@test.fr") && (tableCs.match(/Besson/gi) || []).length === 2 && puceDirection === 4,
       "Réglages : Teddy sans doublon, l'équipe du site importée avec ses photos, la direction repérée (" + JSON.stringify({ nbPhotos, puceDirection }) + ")");
+    // Au démarrage, l'admin calcule la photo carrée (signatures d'e-mail) des profils qui n'en ont pas.
+    { let carre = false;
+      for (let i = 0; i < 40 && !carre; i++) { await page.waitForTimeout(1500); carre = ((await api("/crm/conseillers", { headers: admin.auth })).json.conseillers.find((x) => x.id === cs.json.id) || {}).a_photo_carre === true; }
+      const rCarre = await fetch(API + "/public/conseillers/" + cs.json.id + "/photo?carre=1");
+      ok(carre && rCarre.status === 200 && /image\/jpeg/.test(rCarre.headers.get("content-type") || ""), "la photo carrée de Teddy (signatures d'e-mail) est calculée au démarrage et servie en ?carre=1 (" + rCarre.status + " " + rCarre.headers.get("content-type") + ")"); }
     // Le bouton « Relever les avis du site » relit toutes les pages conseiller du (faux) site tout de suite.
     await page.click("#btn-relever-avis");
     await page.waitForFunction(() => /Avis du site relevés : \d+ avis sur \d+ conseiller/.test(document.getElementById("toast")?.textContent || ""), null, { timeout: 30000 });
@@ -361,6 +366,7 @@ export default async function () {
     await page.waitForFunction(() => /Guide R1 prêt/.test(document.getElementById("modale-titre")?.textContent || ""), null, { timeout: 30000 });
     const gD = await page.evaluate(async () => { const { PDFDocument } = window.PDFLib; const doc = await PDFDocument.load(window.__dernierGuide.octets); return { pages: doc.getPageCount(), octets: window.__dernierGuide.octets.byteLength, pageConseiller: window.__dernierGuide.pageConseiller, avis: window.__dernierGuide.avisAgence, mot: window.__dernierGuide.mot, variante: window.__dernierGuide.variante }; });
     const photoEtat = await page.evaluate(async (u) => { try { const r = await fetch(u); return r.status + " " + (r.headers.get("content-type") || ""); } catch (e) { return "erreur " + e.message; } }, denaud.photo_url);
+    ok(gD.pageConseiller && gD.pageConseiller.description === "site", "la page « Votre conseiller » générée porte sa description relevée sur le site (" + (gD.pageConseiller && gD.pageConseiller.description) + ")");
     ok(gD.pages === 14 && gD.pageConseiller && gD.pageConseiller.source === "generee" && gD.pageConseiller.avisSite === 2 && gD.pageConseiller.avis === 3 && gD.pageConseiller.conseiller === "Laurent DENAUD",
       "sans page dans le modèle, la page « Votre conseiller » est générée depuis le profil : ses deux avis du site, plus le complément saisi, sans le doublon (" + JSON.stringify({ ...gD.pageConseiller, photoEtat, photo_url: denaud.photo_url }) + ")");
     ok(gD.mot && gD.mot.signataire === "Benjamin FAURE" && gD.mot.photo === true, "R1 de Caudéran : le mot du directeur est signé Benjamin FAURE, avec sa photo (" + JSON.stringify(gD.mot) + ")");

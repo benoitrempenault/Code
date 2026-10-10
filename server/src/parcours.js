@@ -79,7 +79,7 @@ export function documentsR2(typeBien) {
     return [
       ["Identité des vendeurs", ["Cartes d'identité"]],
       ["Documents relatifs au terrain", ["Titre de propriété complet", "Plan de bornage ou document d'arpentage (géomètre)", "Certificat d'urbanisme et règles du PLU", "Dernière taxe foncière"]],
-      ["Diagnostics et études (nous les engagerons dès le début de la commercialisation)", ["ERP (état des risques et pollutions)", "Étude de sol G1 (terrain constructible en zone argileuse)", "Termites selon la zone"]],
+      ["Diagnostics et études (nous les engagerons dès le début de la commercialisation)", ["ERP (état des risques et pollutions)", "Étude de sol G1 (terrain constructible en zone argileuse)", "Termites"]],
       ["Documents pour la rédaction du futur compromis de vente", ["Servitudes, accès et raccordements connus", "Situation locative ou d'occupation du terrain"]],
     ].map(([t, l]) => t + " :\n" + l.map((x) => "- " + x).join("\n")).join("\n\n");
   }
@@ -150,7 +150,7 @@ export function signatureHtml(conseiller, ag, photoUrl) {
     `<a href="${esc(ag.avis || AVIS_DEFAUT)}" style="color:#BEAF87; text-decoration:none;">Nos avis clients</a>`,
   ].filter(Boolean);
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;"><tr>
-    ${photoUrl ? `<td style="padding-right:18px;"><img src="${esc(photoUrl)}" alt="" width="84" height="84" style="width:84px; height:84px; border-radius:50%; object-fit:cover; display:block;"></td>` : ""}
+    ${photoUrl ? `<td style="padding-right:18px;"><img src="${esc(photoUrl + (photoUrl.includes("?") ? "&" : "?") + "carre=1")}" alt="" width="84" height="84" style="width:84px; height:84px; border-radius:50%; object-fit:cover; display:block;"></td>` : ""}
     <td style="text-align:left;">
       <div style="font-family:Georgia,'Times New Roman',serif; color:#1D1D1B; font-size:19px;">${esc(nomComplet)}</div>
       ${lignes.map((l) => `<div style="font-family:Helvetica,Arial,sans-serif; color:#3d3d3b; font-size:13px; margin-top:3px;">${esc(l)}</div>`).join("")}
@@ -201,10 +201,14 @@ export function composerMail({ sujet, texte }, jalon, ag, conseiller, photoUrl) 
   });
 }
 
-export function sanitizeConseiller(b) {
-  const photo = String(b.photo || "");
+export function photoValide(photo) {
+  photo = String(photo || "");
   if (photo && !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(photo)) throw new Error("Photo attendue en JPEG, PNG ou WebP.");
   if (photo.length > PHOTO_MAX) throw new Error("Photo trop lourde (200 Ko maximum après réduction).");
+  return photo;
+}
+export function sanitizeConseiller(b) {
+  const photo = photoValide(b.photo);
   return {
     user_id: strip(b.user_id, 40), prenom: strip(b.prenom, 60), nom: strip(b.nom, 60), fonction: strip(b.fonction, 80),
     telephone: formatTelephone(strip(b.telephone, 40)), email: strip(b.email, 160).toLowerCase(), photo, actif: b.actif === false || b.actif === 0 ? 0 : 1,
@@ -228,6 +232,17 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   /* ------------------------------ Conseillers ------------------------------ */
   // Texte personnel et genre (conseiller / conseillère) du profil : le genre
   // se devine du prénom, mais se pose à la main quand le prénom est ambigu.
+  // La photo carrée (signatures d'e-mail) : posée par l'admin avec la photo ;
+  // "" l'efface. Une photo changée sans carré fourni efface le carré périmé.
+  const ecrirePhotoCarre = async (id, photo) => {
+    if (!photo) { await db.run("DELETE FROM crm_conseillers_photo_carre WHERE id = ?", [id]); return; }
+    await db.run("INSERT INTO crm_conseillers_photo_carre (id, photo, updated_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET photo = excluded.photo, updated_at = excluded.updated_at", [id, photo, now()]);
+  };
+  const majPhotoCarre = async (id, b) => {
+    if (b.photo_carre !== undefined) await ecrirePhotoCarre(id, photoValide(b.photo_carre));
+    else if (b.photo !== undefined) await ecrirePhotoCarre(id, "");
+  };
+
   const ecrireExtra = async (id, b) => {
     const cur = (await db.get("SELECT bio, genre FROM crm_conseillers_extra WHERE id = ?", [id])) || { bio: "", genre: "" };
     const bio = b.bio === undefined ? cur.bio : String(b.bio || "").replace(/[\u0000-\u0008\u000b-\u001f]/g, "").slice(0, 2000);
@@ -248,11 +263,11 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   app.get("/crm/conseillers", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const rows = await db.all(
-      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre, COALESCE(d.direction, 0) AS direction, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis, COALESCE(avs.avis, '[]') AS avis_site_json, COALESCE(avs.updated_at, 0) AS avis_site_le
-       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_direction d ON d.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id LEFT JOIN crm_conseillers_avis_site avs ON avs.id = cs.id
+      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre, COALESCE(d.direction, 0) AS direction, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis, COALESCE(avs.avis, '[]') AS avis_site_json, COALESCE(ts.texte, '') AS bio_site, COALESCE(avs.updated_at, 0) AS avis_site_le, COALESCE(pc.photo <> '', 0) AS a_photo_carre
+       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_direction d ON d.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id LEFT JOIN crm_conseillers_avis_site avs ON avs.id = cs.id LEFT JOIN crm_conseillers_texte_site ts ON ts.id = cs.id LEFT JOIN crm_conseillers_photo_carre pc ON pc.id = cs.id
        WHERE cs.agency_id = ? ORDER BY cs.nom COLLATE NOCASE, cs.prenom COLLATE NOCASE`, // ordre alphabétique sans tenir compte des majuscules (BUISSON passait avant Besson)
       [ctx.agency.id]);
-    return c.json({ conseillers: rows.map(({ avis_site_json, ...r }) => ({ ...r, direction: !!r.direction, bio: r.bio || "", genre_pose: r.genre || "", genre: r.genre || genrePrenom(r.prenom), a_photo: !!r.a_photo, photo_url: r.a_photo ? photoUrl(c, r.id) : "", avis_site: jsonAvisSite(avis_site_json) })) });
+    return c.json({ conseillers: rows.map(({ avis_site_json, ...r }) => ({ ...r, direction: !!r.direction, bio: r.bio || "", genre_pose: r.genre || "", genre: r.genre || genrePrenom(r.prenom), a_photo: !!r.a_photo, a_photo_carre: !!r.a_photo_carre, photo_url: r.a_photo ? photoUrl(c, r.id) : "", avis_site: jsonAvisSite(avis_site_json) })) });
   });
   app.put("/crm/conseillers", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
@@ -270,6 +285,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         "UPDATE crm_conseillers SET user_id = ?, prenom = ?, nom = ?, fonction = ?, telephone = ?, email = ?, photo = ?, actif = ?, updated_at = ? WHERE id = ?",
         [v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, photo, v.actif, now(), id]);
       if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(id, b);
+      try { await majPhotoCarre(id, b); } catch (e) { return err(c, 400, e.message); }
       if (b.direction !== undefined) await ecrireDirection(id, b.direction === true || b.direction === 1);
       if (b.agence !== undefined) await ecrirePv(id, b.agence);
       if (b.avis !== undefined) await ecrireAvis(id, b.avis);
@@ -283,6 +299,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         "UPDATE crm_conseillers SET user_id = COALESCE(NULLIF(?, ''), user_id), fonction = COALESCE(NULLIF(?, ''), fonction), telephone = COALESCE(NULLIF(?, ''), telephone), email = COALESCE(NULLIF(?, ''), email), photo = COALESCE(NULLIF(?, ''), photo), actif = ?, updated_at = ? WHERE id = ?",
         [v.user_id, v.fonction, v.telephone, v.email, v.photo, v.actif, now(), deja.id]);
       if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(deja.id, b);
+      try { await majPhotoCarre(deja.id, b); } catch (e) { return err(c, 400, e.message); }
       if (b.direction !== undefined) await ecrireDirection(deja.id, b.direction === true || b.direction === 1);
       if (b.agence !== undefined) await ecrirePv(deja.id, b.agence);
       if (b.avis !== undefined) await ecrireAvis(deja.id, b.avis);
@@ -295,6 +312,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       "INSERT INTO crm_conseillers (id, agency_id, user_id, prenom, nom, fonction, telephone, email, photo, actif, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [nid, ctx.agency.id, v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, v.photo, v.actif, now(), now()]);
     if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(nid, b);
+    try { await majPhotoCarre(nid, b); } catch (e) { return err(c, 400, e.message); }
     if (b.direction !== undefined) await ecrireDirection(nid, b.direction === true || b.direction === 1);
     if (b.agence !== undefined) await ecrirePv(nid, b.agence);
     if (b.avis !== undefined) await ecrireAvis(nid, b.avis);
@@ -378,6 +396,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         const cur = await db.get("SELECT user_id, telephone, email, fonction, photo FROM crm_conseillers WHERE id = ?", [deja.id]);
         // La photo ne se remplace que si celle en place est une petite vignette (< 40 Ko) et la nouvelle nettement plus grande.
         const photoMieux = v.photo && v.photo.length > cur.photo.length * 2 && cur.photo.length < 40000;
+        if (photoMieux && cand.photo_carre) { try { await ecrirePhotoCarre(deja.id, photoValide(cand.photo_carre)); } catch { /* carré refusé : l'original suffit */ } }
         const maj = { user_id: cur.user_id || v.user_id, telephone: cur.telephone || v.telephone, email: cur.email || v.email, fonction: cur.fonction || v.fonction, photo: photoMieux ? v.photo : (cur.photo || v.photo) };
         let touche = false;
         if (["user_id", "telephone", "email", "fonction", "photo"].some((k) => maj[k] !== cur[k])) {
@@ -395,6 +414,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         "INSERT INTO crm_conseillers (id, agency_id, user_id, prenom, nom, fonction, telephone, email, photo, actif, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
         [nid, ctx.agency.id, v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, v.photo, now(), now()]);
       if (cand.agence) await ecrirePv(nid, cand.agence);
+      if (cand.photo_carre) { try { await ecrirePhotoCarre(nid, photoValide(cand.photo_carre)); } catch { /* idem */ } }
       ajoutes++;
     }
     // La direction (prénoms fournis par l'Administration) voit tous les
@@ -417,8 +437,19 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   });
   // La photo, publique (elle s'affiche dans les e-mails des clients) — rien
   // d'autre que l'image ; un id inconnu répond 404.
+  // La photo carrée seule (calculée au démarrage de l'admin pour les profils qui n'en ont pas).
+  app.put("/crm/conseillers/:id/photo-carree", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = await c.req.json().catch(() => ({}));
+    const cur = await db.get("SELECT id FROM crm_conseillers WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!cur) return err(c, 404, "Conseiller introuvable.");
+    try { await ecrirePhotoCarre(cur.id, photoValide(b.photo_carre)); } catch (e) { return err(c, 400, e.message); }
+    return c.json({ ok: true });
+  });
   app.get("/public/conseillers/:id/photo", async (c) => {
-    const r = await db.get("SELECT photo FROM crm_conseillers WHERE id = ?", [c.req.param("id")]);
+    // ?carre=1 : la version carrée (visage cadré) si elle existe, sinon l'originale.
+    const carre = c.req.query("carre") ? await db.get("SELECT photo FROM crm_conseillers_photo_carre WHERE id = ? AND photo <> ''", [c.req.param("id")]) : null;
+    const r = carre || await db.get("SELECT photo FROM crm_conseillers WHERE id = ?", [c.req.param("id")]);
     const m = r && /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(r.photo);
     if (!m) return c.text("Pas de photo.", 404);
     const bin = Uint8Array.from(atob(m[2]), (ch) => ch.charCodeAt(0));
@@ -459,8 +490,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       { estimation_id: id, civilite: "", prenom: "", cp: "", type_bien: "maison", r1_heure: "", r2_heure: "", conseiller_id: "", journal: "[]" };
     let journal = []; try { journal = JSON.parse(px.journal || "[]"); } catch { }
     const conseiller = px.conseiller_id ? await db.get(
-      `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, (cs.photo <> '') AS a_photo, x.bio, x.genre, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis, COALESCE(avs.avis, '[]') AS avis_site_json
-       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id LEFT JOIN crm_conseillers_avis_site avs ON avs.id = cs.id WHERE cs.id = ? AND cs.agency_id = ?`, [px.conseiller_id, agencyId]) : null;
+      `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, (cs.photo <> '') AS a_photo, x.bio, x.genre, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis, COALESCE(avs.avis, '[]') AS avis_site_json, COALESCE(ts.texte, '') AS bio_site
+       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id LEFT JOIN crm_conseillers_avis_site avs ON avs.id = cs.id LEFT JOIN crm_conseillers_texte_site ts ON ts.id = cs.id WHERE cs.id = ? AND cs.agency_id = ?`, [px.conseiller_id, agencyId]) : null;
     if (conseiller) { conseiller.bio = conseiller.bio || ""; conseiller.genre = conseiller.genre || genrePrenom(conseiller.prenom); conseiller.avis_site = jsonAvisSite(conseiller.avis_site_json); delete conseiller.avis_site_json; }
     const proprietaires = await proprietairesDe(agencyId, est);
     return { est, px: { ...px, journal, conseiller_prenom: conseiller ? conseiller.prenom : "", conseiller_nom: conseiller ? conseiller.nom : "" }, conseiller, proprietaires };

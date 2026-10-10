@@ -1024,7 +1024,19 @@ au R2) : signataire + photo de l'agence du parcours (Caudéran → Benjamin FAUR
 **Terrain (10/10)** : dans la fiche parcours, les champs surface habitable / pièces / chambres / pièce de vie
 (`label.px-bati`) sont masqués dès que le type est « Terrain » (`brancherTypeBien`), le rappel « à renseigner »
 ne réclame que la surface du terrain ; le mail avant R1 d'un terrain ne demande plus le certificat
-d'urbanisme (`documentsR1`). admin.js : `varianteGuideR1(cs)` → "cauderan" si `cs.agence === "cauderan"`,
+d'urbanisme (`documentsR1`).
+**Description du conseiller (10/10)** : relevée avec les avis sur sa page du site (`<article class="detail-texte">`,
+`lireTexteConseillerKadima`, table `crm_conseillers_texte_site`), exposée `bio_site` (GET conseillers, fiche du
+parcours). Page « Votre conseiller » générée (R1) : texte personnel du profil sinon `bio_site`, en italique sous les
+coordonnées, avis en dessous (`pageConseiller.description` = profil | site | aucune) ; R2 p12 : texte du R2, sinon
+profil, sinon site. Les 32 conseillers du site ont une description.
+**Photos cadrées sur le visage (10/10)** : `cadrageVisage(img, W, H)` (centré en largeur, ancré au QUART supérieur
+du débord en hauteur) dans `recadrerRond`, `recadrerImage(…, visage=true)` (en-tête des courriers, R2 p12) ;
+`reduirePhoto` garde les proportions (900 px). Signatures d'e-mail : les messageries ignorent object-fit → photo
+CARRÉE à part (`photoCarree`, 320 px, table `crm_conseillers_photo_carre`, `?carre=1` sur
+/public/conseillers/:id/photo, `signatureHtml` l'utilise). Posée avec la photo (fiche, import) ; `PUT
+/crm/conseillers/:id/photo-carree` ; `completerPhotosCarrees()` au chargement de l'admin pour les profils sans
+carré (`a_photo_carre`). Une photo changée sans carré efface le carré. CSS `.avatar` object-position 50% 25%. admin.js : `varianteGuideR1(cs)` → "cauderan" si `cs.agence === "cauderan"`,
 cache `guideR1Cache[variante]`, `ZONES_AVIS.cauderan` (chiffres d'avis à 18,8 pt aux emplacements de cette
 page) passé à `redessinerAvisAgence(doc, page, ch, variante)`. `__dernierGuide.variante`. R2 : `varianteGuide(cs)`
 commune aux deux générateurs, `guideR2Cache[variante]`. Le script produit les deux PDF d'un coup

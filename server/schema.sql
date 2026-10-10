@@ -1179,3 +1179,21 @@ CREATE TABLE IF NOT EXISTS crm_conseillers_avis_site (
   avis       TEXT NOT NULL DEFAULT '[]',
   updated_at INTEGER NOT NULL
 );
+
+-- Texte de présentation d'un conseiller relevé sur SA page du site
+-- (<article class="detail-texte">, un paragraphe par <p>) : sert à la page
+-- « Votre conseiller » des guides quand le texte personnel du profil est vide.
+CREATE TABLE IF NOT EXISTS crm_conseillers_texte_site (
+  id         TEXT PRIMARY KEY,               -- crm_conseillers.id
+  texte      TEXT NOT NULL DEFAULT '',       -- paragraphes séparés par une ligne vide
+  updated_at INTEGER NOT NULL
+);
+
+-- Photo CARRÉE d'un conseiller (320 px, visage cadré : centré, ancré au quart
+-- supérieur), calculée côté admin ; sert aux signatures d'e-mail (les
+-- messageries ignorent object-fit). /public/conseillers/:id/photo?carre=1.
+CREATE TABLE IF NOT EXISTS crm_conseillers_photo_carre (
+  id         TEXT PRIMARY KEY,               -- crm_conseillers.id
+  photo      TEXT NOT NULL DEFAULT '',       -- data URL JPEG
+  updated_at INTEGER NOT NULL
+);

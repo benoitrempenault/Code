@@ -1014,6 +1014,13 @@ export function lireAvisConseillerKadima(html) {
   }
   return out.slice(0, 12);
 }
+// Le texte de présentation de la page (« Votre projet immobilier mérite… ») :
+// les <p> de <article class="detail-texte">, un paragraphe par ligne vide.
+export function lireTexteConseillerKadima(html) {
+  const art = (/<article class="detail-texte">([\s\S]*?)<\/article>/.exec(String(html || "")) || [])[1] || "";
+  const paras = [...art.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/g)].map((m) => sansBalises(m[1]).replace(/\s+/g, " ").trim()).filter(Boolean);
+  return paras.join("\n\n").slice(0, 2000);
+}
 const cleNomSite = (t) => sansAccentsMin(t).replace(/[^a-z\s-]/g, " ").split(/[\s-]+/).filter(Boolean).sort().join(" ");
 // Relevé : l'équipe du site rapprochée des profils (mots du nom, sans ordre),
 // puis la page de chaque conseiller rapproché. `max` pages par passage
@@ -1036,11 +1043,15 @@ export async function releverAvisConseillers(env, db, agency, max = 40) {
     try {
       const r = await fetch(base + "/conseillers/" + carte.slug + "/", entetes);
       if (!r.ok) continue;
-      const avis = lireAvisConseillerKadima(await r.text());
+      const html = await r.text();
+      const avis = lireAvisConseillerKadima(html), texte = lireTexteConseillerKadima(html);
       await db.run(
         "INSERT INTO crm_conseillers_avis_site (id, slug, avis, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET slug = excluded.slug, avis = excluded.avis, updated_at = excluded.updated_at",
         [p.id, carte.slug, JSON.stringify(avis), now()]);
-      faits.push({ id: p.id, slug: carte.slug, avis: avis.length });
+      await db.run(
+        "INSERT INTO crm_conseillers_texte_site (id, texte, updated_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET texte = excluded.texte, updated_at = excluded.updated_at",
+        [p.id, texte, now()]);
+      faits.push({ id: p.id, slug: carte.slug, avis: avis.length, texte: texte.length > 0 });
     } catch { /* page muette : le relevé précédent reste */ }
   }
   return faits;

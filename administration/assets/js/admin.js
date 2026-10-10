@@ -2408,7 +2408,8 @@
       for (const m of meta.equipe || []) {
         let photo = "";
         try { const b = await fetch(m.photo).then((r) => (r.ok ? r.blob() : null)); if (b) photo = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); }); } catch { /* sans photo */ }
-        profils.push({ prenom: m.prenom, nom: m.nom, fonction: m.fonction || "", agence: m.agence || "", photo });
+        const photo_carre = photo ? await photoCarree(photo).catch(() => "") : "";
+        profils.push({ prenom: m.prenom, nom: m.nom, fonction: m.fonction || "", agence: m.agence || "", photo, photo_carre });
       }
       // Les points de vente du groupe se créent une fois, depuis le guide ; le reste se complète dans Réglages.
       if (reglages && !agences().length && Array.isArray(meta.agences) && meta.agences.length) {
@@ -2421,8 +2422,23 @@
       return r;
     } catch (e) { if (annoncer) toast(e.message, true); return null; }
   }
+  // Les profils qui ont une photo mais pas encore sa version carrée (signatures
+  // d'e-mail) : calculée ici, en fond, une fois par session d'admin.
+  let photosCarreesFaites = false;
+  async function completerPhotosCarrees() {
+    if (photosCarreesFaites || modeConseiller) return; photosCarreesFaites = true;
+    for (const c of conseillers.filter((x) => x.a_photo && !x.a_photo_carre && x.photo_url).slice(0, 60)) {
+      try {
+        const b = await (await fetch(c.photo_url)).blob();
+        const dataUrl = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); });
+        await api("/crm/conseillers/" + encodeURIComponent(c.id) + "/photo-carree", { method: "PUT", json: { photo_carre: await photoCarree(dataUrl) } });
+        c.a_photo_carre = true;
+      } catch { /* au prochain démarrage */ }
+    }
+  }
   async function chargerConseillers() {
     try { conseillers = trierConseillers((await api("/crm/conseillers")).conseillers); } catch { conseillers = []; }
+    completerPhotosCarrees();
     // L'import des profils (photos du site, lent sur téléphone) se fait en tâche
     // de fond : le menu « Conseiller » n'attend pas, il se recharge ensuite.
     if (!profilsImportes && !modeConseiller) { profilsImportes = true; importerConseillers(false).then((r) => { if (r && (r.ajoutes || r.completes)) chargerConseillers(); }); }
@@ -2532,13 +2548,13 @@
   }
   async function reduirePhoto(fichier) {
     const img = await lireImage(fichier);
-    // Carré recadré au centre, assez grand pour la page « Votre conseiller »
-    // du guide R2 (214 × 284 pt) : 720 px, et au plus ~200 Ko côté serveur.
-    const min = Math.min(img.width, img.height);
-    const rendre = (taille, qualite) => { const cv = document.createElement("canvas"); cv.width = taille; cv.height = taille; cv.getContext("2d").drawImage(img, (img.width - min) / 2, (img.height - min) / 2, min, min, 0, 0, taille, taille); return cv.toDataURL("image/jpeg", qualite); };
-    let photo = rendre(Math.min(720, min), 0.86);
-    if (photo.length > 250000) photo = rendre(Math.min(640, min), 0.78);
-    if (photo.length > 250000) photo = rendre(Math.min(520, min), 0.72);
+    // La photo garde ses proportions (chaque page la recadre à son cadre, visage
+    // en haut) : 900 px de grand côté au plus, et ~200 Ko côté serveur.
+    const max = Math.max(img.width, img.height);
+    const rendre = (taille, qualite) => { const k = Math.min(1, taille / max), cv = document.createElement("canvas"); cv.width = Math.max(1, Math.round(img.width * k)); cv.height = Math.max(1, Math.round(img.height * k)); cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height); return cv.toDataURL("image/jpeg", qualite); };
+    let photo = rendre(900, 0.86);
+    if (photo.length > 250000) photo = rendre(720, 0.78);
+    if (photo.length > 250000) photo = rendre(560, 0.72);
     return photo;
   }
   function ouvrirConseiller(id) {
@@ -2561,7 +2577,8 @@
         '<option value="' + k + '"' + ((c && c.genre_pose) === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label>" +
       '<label class="case" style="align-self:end;"><input type="checkbox" id="cs-actif"' + (!c || c.actif ? " checked" : "") + " /> Actif</label>" +
       '<label class="case" style="align-self:end;" title="Sans cette case, le conseiller ne voit que ses propres parcours R1/R2"><input type="checkbox" id="cs-direction"' + (c && c.direction ? " checked" : "") + " /> Direction — voit tous les parcours</label>" +
-      '<label style="grid-column:1/-1;">Texte personnel (page « Votre conseiller » du guide R2 — un paragraphe par ligne vide)<textarea id="cs-bio" style="min-height:110px;">' + escH(c && c.bio || "") + "</textarea></label>" +
+      '<label style="grid-column:1/-1;">Texte personnel (page « Votre conseiller » des guides — un paragraphe par ligne vide ; vide = le texte de sa page sur le site)<textarea id="cs-bio" style="min-height:110px;" placeholder="' + escH(c && c.bio_site || "") + '">' + escH(c && c.bio || "") + "</textarea></label>" +
+      (c && c.bio_site && !(c.bio || "").trim() ? '<div class="petit" style="grid-column:1/-1;">Sur le site : ' + escH(c.bio_site.split(/\n\s*\n/)[0]).slice(0, 160) + "…</div>" : "") +
       (c && Array.isArray(c.avis_site) && c.avis_site.length
         ? '<p class="petit" style="grid-column:1/-1;">Avis relevés sur sa page du site century21-kadima.fr (' + c.avis_site.length + (c.avis_site_le ? ", relevés le " + new Date(c.avis_site_le * 1000).toLocaleDateString("fr-FR") : "") + ') — ils ouvrent sa page « Votre conseiller » du guide R1 : ' + escH(c.avis_site.slice(0, 3).map((a) => "« " + a.texte.slice(0, 70) + (a.texte.length > 70 ? "…" : "") + " » " + (a.auteur || "")).join(" · ")) + "</p>"
         : '<p class="petit" style="grid-column:1/-1;">Aucun avis relevé sur sa page du site century21-kadima.fr pour l\'instant (relevé chaque nuit).</p>') +
@@ -2581,7 +2598,7 @@
       // une fiche ouverte avant : il ne part que s'il a été modifié ici.
       if ($("cs-bio").value.trim() !== ((c && c.bio) || "").trim()) corps.bio = $("cs-bio").value.trim();
       if ($("cs-avis").value.trim() !== ((c && c.avis) || "").trim()) corps.avis = $("cs-avis").value.trim();
-      if (photo !== undefined) corps.photo = photo;
+      if (photo !== undefined) { corps.photo = photo; corps.photo_carre = photo ? await photoCarree(photo).catch(() => "") : ""; }
       try { await api("/crm/conseillers", { method: "PUT", json: corps }); toast("Conseiller enregistré"); fermerModale(); chargerConseillers(); }
       catch (e) { toast(e.message, true); }
     });
@@ -3070,7 +3087,7 @@
       try {
         const b = await (await fetch(photoDe.photo_url)).blob();
         const dataUrl = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); });
-        const jpeg = await recadrerImage(dataUrl, cadre[2] - cadre[0], cadre[3] - cadre[1], 900);
+        const jpeg = await recadrerImage(dataUrl, cadre[2] - cadre[0], cadre[3] - cadre[1], 900, true);
         const im = await doc.embedJpg(Uint8Array.from(atob(jpeg.split(",")[1]), (ch) => ch.charCodeAt(0)));
         page.drawImage(im, { x: cadre[0], y: h - cadre[3], width: cadre[2] - cadre[0], height: cadre[3] - cadre[1] });
         page.drawRectangle({ x: cadre[0], y: h - cadre[3], width: cadre[2] - cadre[0], height: cadre[3] - cadre[1], borderColor: or, borderWidth: 0.8 });
@@ -3170,13 +3187,31 @@
   }
   const rgb255 = (r, g, b) => window.PDFLib.rgb(r, g, b);
   // Photo ronde (PNG transparent hors du disque), pour la page « Votre conseiller ».
+  // Le cadrage d'un portrait dans un cadre W × H : centré en largeur ; en hauteur,
+  // le visage est dans le haut de la photo, la fenêtre s'ancre au quart supérieur
+  // du débord (pas au milieu, qui coupait les têtes — Benoît, 10/10).
+  function cadrageVisage(img, W, H) {
+    const r = W / H; let sw = img.width, sh = img.height, sx = 0, sy = 0;
+    if (sw / sh > r) { sw = Math.max(1, Math.round(sh * r)); sx = Math.round((img.width - sw) / 2); }
+    else { sh = Math.max(1, Math.round(sw / r)); sy = Math.round((img.height - sh) * 0.25); }
+    return { sx, sy, sw, sh };
+  }
+  const chargerSrc = (src) => new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ko(new Error("Image illisible.")); i.src = src; });
   async function recadrerRond(src, px = 480) {
-    const img = await new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ko(new Error("Image illisible.")); i.src = src; });
+    const img = await chargerSrc(src);
     const cv = document.createElement("canvas"); cv.width = px; cv.height = px; const ctx = cv.getContext("2d");
     ctx.beginPath(); ctx.arc(px / 2, px / 2, px / 2, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
-    const c = Math.min(img.width, img.height), sx = Math.round((img.width - c) / 2), sy = Math.round((img.height - c) / 2);
-    ctx.drawImage(img, sx, sy, c, c, 0, 0, px, px);
+    const { sx, sy, sw, sh } = cadrageVisage(img, px, px);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, px, px);
     return cv.toDataURL("image/png");
+  }
+  // La photo carrée des signatures d'e-mail (les messageries ignorent object-fit).
+  async function photoCarree(src, px = 320) {
+    const img = await chargerSrc(src);
+    const cv = document.createElement("canvas"); cv.width = px; cv.height = px;
+    const { sx, sy, sw, sh } = cadrageVisage(img, px, px);
+    cv.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, px, px);
+    return cv.toDataURL("image/jpeg", 0.85);
   }
   // La page « Votre conseiller » du guide R1 quand le modèle n'en a pas pour ce
   // conseiller : même composition que les pages du modèle — titre, photo ronde,
@@ -3218,8 +3253,15 @@
     const blocs = String(cs.avis || "").split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean);
     for (const b of blocs) { const l = b.split(/\n/).map((x) => x.trim()).filter(Boolean); const sig = l.length > 1 && l[l.length - 1].length <= 30 ? l.pop() : ""; const texte = l.join(" "); if (!avis.some((a) => a.texte.slice(0, 60) === texte.slice(0, 60))) avis.push({ texte, signature: sig }); }
     avis.splice(6);
-    if (!avis.length && cs.bio) avis.push({ texte: String(cs.bio).split(/\n\s*\n/)[0].trim(), signature: "" });
-    const cols = [{ x: 46, w: 221, y: 300 }, { x: 302, w: 247, y: 288 }];
+    // Sa description : le texte personnel du profil, sinon celui de sa page sur le
+    // site (relevé avec les avis). En italique sous les coordonnées, les avis en dessous.
+    const description = String(cs.bio || cs.bio_site || "").replace(/\r/g, "").split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean);
+    let yDesc = 300;
+    { let taille = 10.5, pas = 13.5, bl = description.map((t) => couper(t, fI, taille, 500));
+      while (taille > 8.5 && bl.reduce((n, b) => n + b.length * pas + 6, 0) > 170) { taille -= 0.5; pas -= 0.6; bl = description.map((t) => couper(t, fI, taille, 500)); }
+      for (const b of bl) { for (const l of b) { ecrire(l, 46, yDesc, taille, fI, noir); yDesc += pas; } yDesc += 6; }
+      if (description.length) yDesc += 8; }
+    const cols = [{ x: 46, w: 221, y: yDesc }, { x: 302, w: 247, y: yDesc - 12 }];
     avis.forEach((a, i) => {
       const col = cols[i % 2], lignes = couper(a.texte, fR, 10, col.w - 24), haut = 34 + lignes.length * 12.5 + (a.signature ? 18 : 10);
       if (col.y + haut > 800) return;
@@ -3229,7 +3271,7 @@
       if (a.signature) ecrire(a.signature, col.x + col.w - 12 - fI.widthOfTextAtSize(a.signature, 9.5), col.y + haut - 10, 9.5, fI, gris);
       col.y += haut + 16;
     });
-    return { conseiller: [prenom, nomCs.toUpperCase()].filter(Boolean).join(" "), avis: avis.length, avisSite: avis.filter((a) => a.site).length, photo };
+    return { conseiller: [prenom, nomCs.toUpperCase()].filter(Boolean).join(" "), avis: avis.length, avisSite: avis.filter((a) => a.site).length, photo, description: description.length ? (cs.bio ? "profil" : "site") : "aucune" };
   }
   // Page « Notre agence » des guides (R1 p3, R2 p11) : les notes et nombres
   // d'avis redessinés aux chiffres relevés sur le site Kadima (par point de
@@ -3352,10 +3394,10 @@
   // object-fit: cover — et la rend en JPEG : le PDF la pose alors dans son
   // cadre sans rien masquer autour (les caches blancs débordaient sur les
   // bandeaux et textes des modèles).
-  async function recadrerImage(src, W, H, maxPx = 1600) {
-    const img = await new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ko(new Error("Image illisible.")); i.src = src; });
+  async function recadrerImage(src, W, H, maxPx = 1600, visage = false) {
+    const img = await chargerSrc(src);
     const r = W / H; let sw = img.width, sh = img.height, sx = 0, sy = 0;
-    if (sw / sh > r) { sw = Math.max(1, Math.round(sh * r)); sx = Math.round((img.width - sw) / 2); } else { sh = Math.max(1, Math.round(sw / r)); sy = Math.round((img.height - sh) / 2); }
+    if (sw / sh > r) { sw = Math.max(1, Math.round(sh * r)); sx = Math.round((img.width - sw) / 2); } else { sh = Math.max(1, Math.round(sw / r)); sy = Math.round((img.height - sh) * (visage ? 0.25 : 0.5)); }
     const k = Math.min(1, maxPx / Math.max(sw, sh)), cv = document.createElement("canvas");
     cv.width = Math.max(1, Math.round(sw * k)); cv.height = Math.max(1, Math.round(sh * k));
     cv.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
@@ -3432,14 +3474,14 @@
       }
       return lignes;
     };
-    const image = async (pg, dataUrl, rect, couvrir) => {
+    const image = async (pg, dataUrl, rect, couvrir, visage) => {
       if (!dataUrl) { pg.drawRectangle({ x: rect[0], y: pg.getHeight() - rect[3], width: rect[2] - rect[0], height: rect[3] - rect[1], color: rgb(1, 1, 1) }); return; }
       const W = rect[2] - rect[0], H = rect[3] - rect[1];
       if (couvrir) {
         // Recadrage centré AVANT l'embarquement : l'image remplit exactement le
         // cadre sans déformation. (Les caches blancs d'autrefois débordaient sur
         // le bandeau de la page de garde et le pied de page.)
-        const jpeg = await recadrerImage(dataUrl, W, H);
+        const jpeg = await recadrerImage(dataUrl, W, H, 1600, !!visage);
         const im = await doc.embedJpg(Uint8Array.from(atob(jpeg.split(",")[1]), (ch) => ch.charCodeAt(0)));
         pg.drawImage(im, { x: rect[0], y: pg.getHeight() - rect[3], width: W, height: H });
       } else {
@@ -3552,7 +3594,7 @@
       ecrire(pg, "A VOTRE ECOUTE", s.titre.x, s.titre.y[2], s.titre.taille, fX, couleurs.or);
       let photoCs = cs.photo || "";
       if (!photoCs && cs.photo_url) { try { const r = await fetch(cs.photo_url); const b = await r.blob(); photoCs = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(b); }); } catch { photoCs = ""; } }
-      await image(pg, photoCs, s.photo, true);
+      await image(pg, photoCs, s.photo, true, true); // portrait du conseiller : visage cadré
       ecrire(pg, cs.prenom || "", s.prenom.x, s.prenom.y, s.prenom.taille, fR);
       ecrire(pg, (cs.nom || "").toUpperCase(), s.nom.x, s.nom.y, s.nom.taille, fR);
       ecrire(pg, f ? "VOTRE CONSEILLÈRE :" : "VOTRE CONSEILLER :", s.role.x, s.role.y, s.role.taille, fR, couleurs.or);
@@ -3570,7 +3612,7 @@
       ecrire(pg, cs.email || "", s.email.x, s.email.y, s.email.taille, fR);
       // Le texte du conseiller tient dans son cadre (jusqu'à 684 pt) : la taille
       // descend par paliers avant de couper — plus de lignes sous le pavé gris.
-      const paras = String(r2.bio != null ? r2.bio : cs.bio || "").replace(/\r/g, "").split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean);
+      const paras = String((r2.bio != null && r2.bio !== "" ? r2.bio : cs.bio) || cs.bio_site || "").replace(/\r/g, "").split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean); // texte du R2, sinon du profil, sinon de sa page sur le site
       const basBio = s.bio.bas || 684;
       let taille = s.bio.taille, pas = s.bio.pas, blocs = [];
       const hauteur = (b) => b.reduce((h, l) => h + l.length * pas, 0) + Math.max(0, b.length - 1) * pas * 0.6;

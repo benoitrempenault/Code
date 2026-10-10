@@ -266,7 +266,7 @@ s { color: var(--muted); }
 .etape.faite .num { background: #4ECDC4; color: #0b2b28; }
 .etape .titre { flex: 1; }
 .etape .quand { font-size: 12px; opacity: .75; }
-.avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: var(--line); display: inline-block; vertical-align: middle; }
+.avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; object-position: 50% 25%; background: var(--line); display: inline-block; vertical-align: middle; }
 .parcours-avancement { display: inline-flex; gap: 3px; }
 .parcours-avancement i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); display: inline-block; }
 .parcours-avancement i.ok { background: #4ECDC4; }

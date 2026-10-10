@@ -2018,7 +2018,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     if (req.url.startsWith("/agences/saint-medard-en-jalles/")) return res.end(PAGE_AVIS("4.9", 869, "9,5", "1\u202f617"));
     // L'équipe et la page d'un conseiller, avec ses avis (comme le vrai site).
     if (req.url.startsWith("/equipe/")) return res.end('<html><body><a class="carte-conseiller" href="/conseillers/besson-teddy/"><img src="x"><h2>Teddy Besson</h2></a><a class="carte-conseiller" href="/conseillers/zamora-marine/"><h2>Marine Zamora</h2></a></body></html>');
-    if (req.url.startsWith("/conseillers/besson-teddy/")) return res.end('<html><body><h2 class="section-titre">Ils recommandent <em>Teddy</em></h2><div class="grille-avis"><blockquote class="avis"><p class="avis-etoiles" aria-label="5 sur 5">★★★★★</p><p class="avis-texte">« Nous remercions Teddy pour son professionnalisme &amp; sa persévérance. »</p><footer>Simon F · <span>Google</span> · août 2026</footer></blockquote><blockquote class="avis"><p class="avis-etoiles">★★★★☆</p><p class="avis-texte">« Disponible et réactif. »</p><footer>Carole B · <span>Google</span> · juillet 2026</footer></blockquote></div></body></html>');
+    if (req.url.startsWith("/conseillers/besson-teddy/")) return res.end('<html><body><article class="detail-texte"><p> Votre projet immobilier mérite une expertise locale.</p><p>Né à Bordeaux, je connais <strong>parfaitement</strong> le marché.</p></article><h2 class="section-titre">Ils recommandent <em>Teddy</em></h2><div class="grille-avis"><blockquote class="avis"><p class="avis-etoiles" aria-label="5 sur 5">★★★★★</p><p class="avis-texte">« Nous remercions Teddy pour son professionnalisme &amp; sa persévérance. »</p><footer>Simon F · <span>Google</span> · août 2026</footer></blockquote><blockquote class="avis"><p class="avis-etoiles">★★★★☆</p><p class="avis-texte">« Disponible et réactif. »</p><footer>Carole B · <span>Google</span> · juillet 2026</footer></blockquote></div></body></html>');
     if (req.url.startsWith("/conseillers/zamora-marine/")) return res.end("<html><body>Aucun avis</body></html>");
     res.end("<html><body>rien</body></html>");
   });
@@ -3405,6 +3405,23 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const pixel = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
   ok((await callR("/crm/conseillers", { headers: authP, method: "PUT", body: { prenom: "Teddy", nom: "BESSON" } })).status === 403, "seul un administrateur crée un profil conseiller");
   const teddy = await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test", photo: pixel } });
+  { // Photo carrée (signatures d'e-mail) : posée avec la photo, servie en ?carre=1, effacée quand la photo change sans carré.
+    const lire = async () => (await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === teddy.json.id);
+    ok((await lire()).a_photo_carre === false, "photo carrée : absente tant que l'admin ne l'a pas calculée");
+    const sansCarre = await appR.fetch(new Request("http://api.test/public/conseillers/" + teddy.json.id + "/photo?carre=1"));
+    ok(sansCarre.status === 200, "?carre=1 sans carré : la photo d'origine est servie (" + sansCarre.status + ")");
+    const pc = await callR("/crm/conseillers/" + teddy.json.id + "/photo-carree", { headers: auth, method: "PUT", body: { photo_carre: pixel } });
+    ok(pc.status === 200 && (await lire()).a_photo_carre === true, "la photo carrée se pose à part (démarrage de l'admin) et le profil la signale");
+    const avecCarre = await appR.fetch(new Request("http://api.test/public/conseillers/" + teddy.json.id + "/photo?carre=1"));
+    ok(avecCarre.status === 200 && /image\/jpeg/.test(avecCarre.headers.get("content-type") || ""), "?carre=1 sert la version carrée");
+    ok((await callR("/crm/conseillers/" + teddy.json.id + "/photo-carree", { headers: auth, method: "PUT", body: { photo_carre: "data:text/html;base64,PGI+" } })).status === 400, "photo carrée : seuls JPEG/PNG/WebP sont acceptés");
+    await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test", photo: pixel } });
+    ok((await lire()).a_photo_carre === false, "une photo changée sans carré fourni efface le carré périmé");
+    await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test", photo: pixel, photo_carre: pixel } });
+    ok((await lire()).a_photo_carre === true, "photo + carré envoyés ensemble depuis la fiche conseiller");
+    const { signatureHtml } = await import("./src/parcours.js");
+    ok(/photo\?carre=1"/.test(signatureHtml({ prenom: "Teddy", nom: "BESSON" }, { nom: "Kadima" }, "https://api.test/public/conseillers/x/photo")), "la signature d'e-mail prend la photo carrée (?carre=1)");
+  }
   ok(teddy.status === 200 && teddy.json.id, "profil conseiller créé avec sa photo");
   const listeCs = (await callR("/crm/conseillers", { headers: authP })).json.conseillers;
   const csT = listeCs.find((x) => x.id === teddy.json.id);
@@ -3583,8 +3600,9 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const ficheCs = (await callR("/crm/parcours/" + pxId, { headers: authP })).json.conseiller;
     ok(relC.status === 200 && relC.json.releves.some((r) => r.id === teddy.json.id && r.slug === "besson-teddy" && r.avis === 2)
        && teddyAv.avis_site.length === 2 && teddyAv.avis_site[0].texte === "Nous remercions Teddy pour son professionnalisme & sa persévérance." && teddyAv.avis_site[0].auteur === "Simon F" && teddyAv.avis_site[0].source === "Google" && teddyAv.avis_site[0].date === "août 2026" && teddyAv.avis_site[0].note === 5 && teddyAv.avis_site[1].note === 4
-       && ficheCs && Array.isArray(ficheCs.avis_site),
-       "les avis de la page du conseiller sur le site sont relevés (texte sans guillemets, auteur, source, date, étoiles) et suivent le profil jusqu'à la fiche du parcours (" + JSON.stringify({ rel: relC.json, teddy: teddyAv && teddyAv.avis_site }) + ")");
+       && ficheCs && Array.isArray(ficheCs.avis_site)
+       && teddyAv.bio_site === "Votre projet immobilier mérite une expertise locale.\n\nNé à Bordeaux, je connais parfaitement le marché." && typeof ficheCs.bio_site === "string" && (ficheCs.id !== teddy.json.id || ficheCs.bio_site === teddyAv.bio_site),
+       "les avis et le texte de présentation de la page du conseiller sur le site sont relevés (texte sans guillemets, auteur, source, date, étoiles) et suivent le profil jusqu'à la fiche du parcours (" + JSON.stringify({ rel: relC.json, teddy: teddyAv && teddyAv.avis_site, bio: teddyAv && teddyAv.bio_site, fiche: ficheCs && { id: ficheCs.id, bio_site: ficheCs.bio_site } }) + ")");
     ok((await callR("/crm/avis-conseillers", { headers: authP })).json.conseillers.find((x) => x.id === teddy.json.id).avis.length === 2 && (await callR("/crm/avis-conseillers/relever", { headers: authP, body: {} })).status === 403,
        "un conseiller lit les avis relevés ; le relevé à la demande reste réservé aux administrateurs");
     const vide = CRMK.completerAgencesKadima(kad, []);
