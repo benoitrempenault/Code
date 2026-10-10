@@ -1197,3 +1197,16 @@ CREATE TABLE IF NOT EXISTS crm_conseillers_photo_carre (
   photo      TEXT NOT NULL DEFAULT '',       -- data URL JPEG
   updated_at INTEGER NOT NULL
 );
+
+-- Point de vente d'un objet importé (contact, vente, fiche estimation…) :
+-- Caudéran d'un côté, Saint-Médard / Blanquefort (et le reste) de l'autre.
+-- Posé à l'import (choix de l'agence dans la fenêtre d'import) ; sans ligne
+-- ici, l'objet compte pour Saint-Médard (tout l'historique importé avant).
+-- Les guides d'un conseiller ne montrent que les objets de son groupe.
+CREATE TABLE IF NOT EXISTS crm_pv_objets (
+  objet_id   TEXT PRIMARY KEY,               -- id de l'objet (ct_…, vt_…, es_…)
+  agency_id  TEXT NOT NULL,
+  pv         TEXT NOT NULL,                  -- clé de l'agence (reglages.agences[].cle)
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_pv_objets_ag ON crm_pv_objets(agency_id, pv);

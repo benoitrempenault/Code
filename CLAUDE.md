@@ -1036,7 +1036,21 @@ du débord en hauteur) dans `recadrerRond`, `recadrerImage(…, visage=true)` (e
 CARRÉE à part (`photoCarree`, 320 px, table `crm_conseillers_photo_carre`, `?carre=1` sur
 /public/conseillers/:id/photo, `signatureHtml` l'utilise). Posée avec la photo (fiche, import) ; `PUT
 /crm/conseillers/:id/photo-carree` ; `completerPhotosCarrees()` au chargement de l'admin pour les profils sans
-carré (`a_photo_carre`). Une photo changée sans carré efface le carré. CSS `.avatar` object-position 50% 25%. admin.js : `varianteGuideR1(cs)` → "cauderan" si `cs.agence === "cauderan"`,
+carré (`a_photo_carre`). Une photo changée sans carré efface le carré. CSS `.avatar` object-position 50% 25%.
+**Caudéran d'un côté, Saint-Médard / Blanquefort de l'autre (10/10)** : table `crm_pv_objets` (objet_id →
+pv = clé d'agence des Réglages) posée À L'IMPORT : fenêtre d'import de l'admin (select `preset-pv`,
+`devinerPvFichier()` : colonnes Agence / Code agence, 2997 = Caudéran dans CenturyNet, sinon Saint-Médard) →
+`pv` envoyé à `/crm/contacts/bulk` (étiquette sur chaque fiche touchée, `result.ids`), `/crm/acquereurs/remplacer`
+(ne remplace que le groupe de l'agence), `/crm/contacts/retyper-absents` (idem) ; Studio Prospection (select
+`ventes-pv`, `devinerPvVentes`) → `/crm/ventes/bulk` (`bulkUpsertVentes(db, ag, rows, pv)` étiquette toutes les
+ventes du fichier). Deux groupes (`groupePv(pv)`) : « cauderan » (pv contenant cauderan) et « commun » (tout le
+reste, y compris SANS étiquette = l'historique Saint-Médard). `filtrePv(groupe, idExpr)` /
+`filtrePvProjet(groupe, idExpr)` (crm.js) ; parcours.js `groupeDe(ctx, p)` = groupe de l'agence du conseiller
+signataire, appliqué à `ventesAutour` (ventes importées + dossiers Suivi), `estimationsAutour` (contacts estimés,
+fiches estimation via contact_id), les estimés en attente, les acheteurs de l'ACM (crm_recherches par contact,
+crm_projets par leurs contacts). Réponses : `perimetre` (environnement, acm/donnees). Les fichiers Caudéran de
+Benoît (esti_caud = extraction « biens » estimés, acq_cau = « acquéreurs », not_caud = ventes, à importer en
+choisissant Caudéran). admin.js : `varianteGuideR1(cs)` → "cauderan" si `cs.agence === "cauderan"`,
 cache `guideR1Cache[variante]`, `ZONES_AVIS.cauderan` (chiffres d'avis à 18,8 pt aux emplacements de cette
 page) passé à `redessinerAvisAgence(doc, page, ch, variante)`. `__dernierGuide.variante`. R2 : `varianteGuide(cs)`
 commune aux deux générateurs, `guideR2Cache[variante]`. Le script produit les deux PDF d'un coup

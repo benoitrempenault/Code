@@ -3826,6 +3826,56 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: acmGet.acm }); }
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } });
   const dn0 = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
+  { // Caudéran d'un côté, Saint-Médard / Blanquefort de l'autre (Benoît, 10/10) : les
+    // ventes, estimés et acquéreurs importés portent l'agence du fichier, et les guides
+    // d'un conseiller ne montrent que les données de son groupe.
+    const agId = (await db.get("SELECT agency_id FROM crm_estimations WHERE id = ?", [pxId])).agency_id;
+    const rg = (await callR("/crm/reglages", { headers: auth })).json.reglages;
+    const pvCau = (rg.agences.find((a) => /cauderan/.test(a.cle)) || {}).cle;
+    ok(!!pvCau, "l'agence Caudéran est dans les réglages (" + rg.agences.map((a) => a.cle).join(", ") + ")");
+    const dnAvant = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
+    const vCau = await callR("/crm/ventes/bulk", { headers: auth, body: { pv: pvCau, rows: [{ adresse: "9 impasse des Vignes", ville: "Le Haillan", date_acte: "2025-09-01", prix: 400000, type: "maison", surface: 100 }] } });
+    const idVCau = (await db.get("SELECT id FROM crm_ventes WHERE agency_id = ? AND adresse = '9 impasse des Vignes' AND date_acte = '2025-09-01'", [agId])).id;
+    await db.run("INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES (?, ?, 44.9025, -0.6800, 'x', 1, '9 impasse des Vignes Le Haillan', 1)", [idVCau, agId]);
+    const cCau = await callR("/crm/contacts/bulk", { headers: auth, body: { pv: pvCau, rows: [
+      { nom: "ESTIMECAU", prenom: "Zoé", adresse: "13 impasse des Vignes", cp: "33185", ville: "Le Haillan", types: "estime" },
+      { nom: "ACHCAU", prenom: "Léo", email: "achcau@exemple.fr", types: "acquereur" }] } });
+    const estCau = await db.get("SELECT id FROM crm_contacts WHERE agency_id = ? AND nom = 'ESTIMECAU'", [agId]);
+    const achCau = await db.get("SELECT id FROM crm_contacts WHERE agency_id = ? AND nom = 'ACHCAU'", [agId]);
+    await db.run("INSERT OR REPLACE INTO crm_geo (contact_id, agency_id, lat, lng, label, score, adresse, updated_at) VALUES (?, ?, 44.9026, -0.6801, 'x', 1, '13 impasse des Vignes 33185 Le Haillan', 1)", [estCau.id, agId]);
+    await db.run("INSERT OR REPLACE INTO crm_recherches (contact_id, agency_id, actif, budget_min, budget_max, types, villes, pieces_min, surface_min, notes, user_id, created_at, updated_at) VALUES (?, ?, 1, 300000, 450000, '[\"maison\"]', '[]', NULL, NULL, '', '', 1, 1)", [achCau.id, agId]);
+    const tags = (await db.get("SELECT COUNT(*) AS n FROM crm_pv_objets WHERE agency_id = ? AND pv = ? AND objet_id IN (?, ?, ?)", [agId, pvCau, idVCau, estCau.id, achCau.id])).n;
+    ok(vCau.status === 200 && vCau.json.pv === pvCau && cCau.status === 200 && cCau.json.pv && cCau.json.pv.poses === 2 && tags === 3,
+       "ventes et fiches importées pour Caudéran portent son étiquette (" + JSON.stringify({ v: vCau.json, c: cCau.json.pv, tags, tagV: await db.get("SELECT pv FROM crm_pv_objets WHERE objet_id = ?", [idVCau]), cleV: await db.get("SELECT cle FROM crm_ventes WHERE id = ?", [idVCau]) }) + ")");
+    // Le conseiller actuel (Saint-Médard) : rien de Caudéran sur sa carte ni dans ses acheteurs.
+    const envC = (await callR("/crm/parcours/" + pxId + "/environnement", { headers: authP })).json;
+    const dnC = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
+    ok(envC.perimetre === "commun" && !envC.ventes.some((v) => v.id === "vt:" + idVCau) && envC.ventes.some((v) => v.date === "2025-06-01")
+       && !envC.estimations.some((e) => e.id === "ct:" + estCau.id) && envC.estimations.some((e) => e.id === "ct:" + estPres.id)
+       && dnC.perimetre === "commun" && dnC.acheteurs.length === dnAvant.acheteurs.length,
+       "un conseiller de Saint-Médard ne voit ni la vente, ni l'estimé, ni l'acheteur de Caudéran — et garde les siens (" + JSON.stringify({ perimetre: envC.perimetre, v: envC.ventes.map((v) => v.id), e: envC.estimations.map((e) => e.id), estCau: estCau.id, a: dnC.acheteurs.length, avant: dnAvant.acheteurs.length }) + ")");
+    // Un conseiller de Caudéran : seulement Caudéran.
+    const csCau = await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "Laure", nom: "CAUDÉRAN", email: "laure.cauderan@kadima.test", agence: pvCau } });
+    await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: csCau.json.id } });
+    const envK = (await callR("/crm/parcours/" + pxId + "/environnement", { headers: authP })).json;
+    const dnK = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
+    ok(envK.perimetre === "cauderan" && envK.ventes.length === 1 && envK.ventes[0].id === "vt:" + idVCau
+       && envK.estimations.length === 1 && envK.estimations[0].id === "ct:" + estCau.id
+       && dnK.perimetre === "cauderan" && dnK.acheteurs.length === 1 && dnK.acheteurs[0].budget_max === 450000,
+       "un conseiller de Caudéran ne voit que la vente, l'estimé et l'acheteur de Caudéran (" + JSON.stringify({ v: envK.ventes.map((v) => v.id), e: envK.estimations.map((e) => e.id), a: dnK.acheteurs }) + ")");
+    // Remplacer la base acquéreurs de Caudéran ne touche pas celle de Saint-Médard.
+    const achCommunAvant = (await db.get("SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND types LIKE '%acquereur%' AND NOT EXISTS (SELECT 1 FROM crm_pv_objets o WHERE o.objet_id = crm_contacts.id AND o.pv LIKE '%cauderan%')", [agId])).n;
+    const rempl = await callR("/crm/acquereurs/remplacer", { headers: auth, body: { pv: pvCau } });
+    const achCommunApres = (await db.get("SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ? AND types LIKE '%acquereur%' AND NOT EXISTS (SELECT 1 FROM crm_pv_objets o WHERE o.objet_id = crm_contacts.id AND o.pv LIKE '%cauderan%')", [agId])).n;
+    ok(rempl.status === 200 && rempl.json.supprimes === 1 && achCommunApres === achCommunAvant && !(await db.get("SELECT id FROM crm_contacts WHERE id = ?", [achCau.id])),
+       "remplacer la base acquéreurs de Caudéran retire seulement ses fiches (" + JSON.stringify({ rempl: rempl.json, avant: achCommunAvant, apres: achCommunApres }) + ")");
+    // Les estimés absents d'un nouveau fichier Caudéran : seuls ceux de Caudéran passent en prospect.
+    const ret = await callR("/crm/contacts/retyper-absents", { headers: auth, body: { type: "estime", en: "prospect", avant: Math.floor(Date.now() / 1000) + 30, pv: pvCau } });
+    const typesEstCau = (await db.get("SELECT types FROM crm_contacts WHERE id = ?", [estCau.id])).types, typesEstPres = (await db.get("SELECT types FROM crm_contacts WHERE id = ?", [estPres.id])).types;
+    ok(ret.status === 200 && ret.json.retypes === 1 && /prospect/.test(typesEstCau) && /estime/.test(typesEstPres),
+       "retyper les estimés absents du fichier de Caudéran ne touche pas ceux de Saint-Médard (" + JSON.stringify({ ret: ret.json, cau: typesEstCau, pres: typesEstPres }) + ")");
+    await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { conseiller_id: pxFiche.conseiller_id || "" } });
+  }
   await db.run("INSERT OR REPLACE INTO crm_annonces (agency_id, id, url, titre, type, prix, ville, cp, pieces, surface, dpe, description, image, statut, price_history, first_seen, last_seen) VALUES (?, 'maison-haillan-1', 'https://site/maison-1', 'Maison 4 pièces', 'maison', 349000, 'Le Haillan', '33185', 4, 95, 'C', '', 'https://site/photos/m1.jpg', 'en_vente', '[{\"date\":\"2026-08-01\",\"prix\":359000},{\"date\":\"2026-09-01\",\"prix\":349000}]', ?, ?)", [agId, tNow - 40 * 86400, tNow]);
   await db.run("INSERT OR REPLACE INTO crm_amepi (agency_id, id, ref, agence, source, type, prix, ancien_prix, ville, cp, pieces, chambres, surface, terrain, lat, lng, etat_id, statut, image, url, maj, first_seen, last_seen) VALUES (?, 'am-1', 'REF1', 'Orpi Le Haillan', '2', 'maison', 329000, 339000, 'Le Haillan', '33185', 4, 3, 87, 137, 44.8705, -0.7125, 1, 'en_vente', 'https://amanda/photos/am1.jpg', 'https://amanda/am-1', '', ?, ?), (?, 'am-2', 'REF2', 'X', '2', 'appartement', 200000, NULL, 'Le Haillan', '33185', 2, 1, 45, 0, 44.8705, -0.7125, 1, 'en_vente', '', '', '', ?, ?)", [agId, tNow - 10 * 86400, tNow, agId, tNow, tNow]);
   await db.run("INSERT OR REPLACE INTO crm_recherches (contact_id, agency_id, actif, budget_min, budget_max, types, villes, pieces_min, surface_min, notes, user_id, created_at, updated_at) VALUES ('ct_ach1', ?, 1, 250000, 340000, '[\"maison\"]', '[\"Le Haillan\"]', 4, 80, '', '', 1, 1), ('ct_ach2', ?, 1, 0, 200000, '[\"appartement\"]', '[]', 0, 0, '', '', 1, 1), ('ct_ach3', ?, 0, 0, 900000, '[]', '[]', 0, 0, '', '', 1, 1)", [agId, agId, agId]);

@@ -211,10 +211,11 @@ export async function restaurerAcquereursEnProspects(db, agencyId, max = 60) {
 // Après l'import d'un fichier « biens » (estimés) : les fiches typées `type`
 // que l'import n'a pas touchées (updated_at antérieur au début de l'import)
 // perdent ce type et deviennent prospect. Par paquets.
-export async function retyperAbsents(db, agencyId, type, en, avant, max = 300) {
+export async function retyperAbsents(db, agencyId, type, en, avant, max = 300, pv = "") {
   if (!["estime", "vendeur", "acquereur", "bailleur", "locataire"].includes(type) || !/^[a-z]+$/.test(en)) return { retypes: 0, restants: 0 };
+  const cond = pv ? ` AND ${filtrePv(groupePv(pv), "id")}` : ""; // seulement les fiches du groupe de l'agence importée
   const rows = await db.all(
-    "SELECT id, types FROM crm_contacts WHERE agency_id = ? AND types LIKE ? AND updated_at < ? LIMIT ?",
+    `SELECT id, types FROM crm_contacts WHERE agency_id = ? AND types LIKE ? AND updated_at < ?${cond} LIMIT ?`,
     [agencyId, '%"' + type + '"%', Number(avant) || 0, Math.max(1, max) + 1]);
   const lot = rows.slice(0, max);
   for (const r of lot) {
@@ -360,7 +361,7 @@ export async function bulkUpsertContacts(db, agencyId, userId, rows, source = "i
   }
   await ecrire();
 
-  return { created, updated, skipped, total: count };
+  return { created, updated, skipped, total: count, ids: finales.map((x) => x.id) };
 }
 
 /* --------------------------- Nettoyage de la base ------------------------- */
@@ -557,14 +558,19 @@ export async function menageQuotidien(db, files = null) {
 // seulement « acquereur » partent à la corbeille (30 jours), celles qui ont
 // d'autres typologies perdent juste le type. Par paquets de `max` fiches :
 // l'Administration rappelle tant que `restants` > 0.
-export async function remplacerAcquereurs(db, agencyId, userId, max = 150) {
-  const projets = await db.get("SELECT COUNT(*) AS n FROM crm_projets WHERE agency_id = ? AND kind = 'achat'", [agencyId]);
+export async function remplacerAcquereurs(db, agencyId, userId, max = 150, pv = "") {
+  // Avec une agence (pv) : seule la base de SON groupe est remplacée — Caudéran
+  // ne touche pas Saint-Médard, et inversement.
+  const g = pv ? groupePv(pv) : "";
+  const condProjet = g ? ` AND ${filtrePvProjet(g, "id")}` : "";
+  const projets = await db.get(`SELECT COUNT(*) AS n FROM crm_projets WHERE agency_id = ? AND kind = 'achat'${condProjet}`, [agencyId]);
   if (projets && projets.n) {
-    await db.run("DELETE FROM crm_projet_contacts WHERE agency_id = ? AND projet_id IN (SELECT id FROM crm_projets WHERE agency_id = ? AND kind = 'achat')", [agencyId, agencyId]);
-    await db.run("DELETE FROM crm_projet_criteres WHERE agency_id = ? AND projet_id IN (SELECT id FROM crm_projets WHERE agency_id = ? AND kind = 'achat')", [agencyId, agencyId]);
-    await db.run("DELETE FROM crm_projets WHERE agency_id = ? AND kind = 'achat'", [agencyId]);
+    await db.run(`DELETE FROM crm_projet_criteres WHERE agency_id = ? AND projet_id IN (SELECT id FROM crm_projets WHERE agency_id = ? AND kind = 'achat'${condProjet})`, [agencyId, agencyId]);
+    await db.run(`DELETE FROM crm_projets WHERE agency_id = ? AND kind = 'achat'${condProjet}`, [agencyId]);
+    await db.run("DELETE FROM crm_projet_contacts WHERE agency_id = ? AND projet_id NOT IN (SELECT id FROM crm_projets WHERE agency_id = ?)", [agencyId, agencyId]);
   }
-  const rows = await db.all("SELECT id, types FROM crm_contacts WHERE agency_id = ? AND types LIKE '%acquereur%' LIMIT ?", [agencyId, Math.max(1, max) + 1]);
+  const condContact = g ? ` AND ${filtrePv(g, "id")}` : "";
+  const rows = await db.all(`SELECT id, types FROM crm_contacts WHERE agency_id = ? AND types LIKE '%acquereur%'${condContact} LIMIT ?`, [agencyId, Math.max(1, max) + 1]);
   const lot = rows.slice(0, max);
   const purs = [], mixtes = [];
   for (const r of lot) {
@@ -2818,6 +2824,31 @@ export function sanitizeIlot(b) {
 // et envoie des lignes déjà mappées ; ici on nettoie, on dédoublonne (clé
 // adresse + date d'acte) et on insère en masse (multi-lignes, valeurs inline
 // — mêmes plafonds D1 que l'import de contacts).
+/* ------------------ Point de vente des objets importés -------------------- */
+// Deux groupes pour les guides : « cauderan » et « commun » (Saint-Médard,
+// Blanquefort, Saint-Aubin, et tout ce qui n'a pas d'étiquette).
+export const groupePv = (pv) => (/cauderan/.test(sansAccentsMin(pv || "")) ? "cauderan" : "commun");
+// Fragment SQL : l'objet `idExpr` appartient au groupe.
+export const filtrePv = (groupe, idExpr) => groupe === "cauderan"
+  ? `EXISTS (SELECT 1 FROM crm_pv_objets o WHERE o.objet_id = ${idExpr} AND o.pv LIKE '%cauderan%')`
+  : `NOT EXISTS (SELECT 1 FROM crm_pv_objets o WHERE o.objet_id = ${idExpr} AND o.pv LIKE '%cauderan%')`;
+// Un projet d'achat appartient au groupe par ses contacts.
+export const filtrePvProjet = (groupe, idExpr) => `${groupe === "cauderan" ? "" : "NOT "}EXISTS (SELECT 1 FROM crm_projet_contacts pc JOIN crm_pv_objets o ON o.objet_id = pc.contact_id WHERE pc.projet_id = ${idExpr} AND o.pv LIKE '%cauderan%')`;
+export const pvValide = (pv, reglages) => {
+  const cle = strip(pv, 40).toLowerCase();
+  return cle && (reglages.agences || []).some((a) => a.cle === cle) ? cle : "";
+};
+export async function poserPv(db, agencyId, ids, pv) {
+  const propres = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))];
+  if (!pv || !propres.length) return 0;
+  const t = now();
+  for (let i = 0; i < propres.length; i += 200) {
+    const lot = propres.slice(i, i + 200);
+    await db.run(`INSERT INTO crm_pv_objets (objet_id, agency_id, pv, updated_at) VALUES ${lot.map((id) => `(${sqlText(id)},${sqlText(agencyId)},${sqlText(pv)},${t})`).join(",")} ON CONFLICT(objet_id) DO UPDATE SET pv = excluded.pv, updated_at = excluded.updated_at`, []);
+  }
+  return propres.length;
+}
+
 export function sanitizeVente(v) {
   const adresse = strip(v.adresse, 200);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(v.date_acte || "")) ? String(v.date_acte) : "";
@@ -2833,7 +2864,7 @@ export function sanitizeVente(v) {
   };
 }
 
-export async function bulkUpsertVentes(db, agencyId, rows) {
+export async function bulkUpsertVentes(db, agencyId, rows, pv = "") {
   const propres = [];
   const vues = new Set();
   let invalides = 0, doublons = 0;
@@ -2862,6 +2893,15 @@ export async function bulkUpsertVentes(db, agencyId, rows) {
     if (n >= INSERT_MAX_LIGNES || sql.length > INSERT_MAX_OCTETS) await poser();
   }
   await poser();
+  // L'agence du fichier : étiquette posée sur toutes les ventes du fichier (nouvelles ou déjà connues).
+  if (pv && propres.length) {
+    const ids = [];
+    for (let i = 0; i < propres.length; i += 200) {
+      const cles = propres.slice(i, i + 200).map((v) => sqlText(v.cle)).join(",");
+      ids.push(...(await db.all(`SELECT id FROM crm_ventes WHERE agency_id = ? AND cle IN (${cles})`, [agencyId])).map((r) => r.id));
+    }
+    await poserPv(db, agencyId, ids, pv);
+  }
   return { recues: (Array.isArray(rows) ? rows : []).length, ajoutees: total, dejaConnues: doublons + propres.length - nouvelles.length, invalides };
 }
 

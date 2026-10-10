@@ -332,6 +332,7 @@
     $("zone-dessin").hidden = !donnees.estAdmin;
     $("btn-geocoder").hidden = !donnees.estAdmin;
     $("btn-import-ventes").hidden = !donnees.estAdmin;
+    if (donnees.estAdmin) chargerAgencesPv();
     rendreIlots();
     rendrePoints();
     rendreVentes();
@@ -994,6 +995,26 @@
     const iso = /^(\d{4}-\d{2}-\d{2})/.exec(String(v));
     return iso ? iso[1] : "";
   }
+  // L'agence concernée par le fichier de ventes (Caudéran / Saint-Médard…) :
+  // étiquette posée sur chaque vente, les guides de chaque agence ne montrent
+  // que les siennes. Devinée d'après « Code Agence Rentré par » (2997 = Caudéran).
+  let agencesPv = [];
+  async function chargerAgencesPv() {
+    const sel = $("ventes-pv"); if (!sel || sel.options.length) return;
+    try { agencesPv = ((await api("/crm/reglages/parcours")).reglages || {}).agences || []; } catch { agencesPv = []; }
+    if (!agencesPv.length) return;
+    const med = (agencesPv.find((a) => /medard/.test(a.cle)) || agencesPv[0]).cle;
+    sel.innerHTML = agencesPv.map((a) => '<option value="' + a.cle + '"' + (a.cle === med ? " selected" : "") + ">" + a.nom.replace(/</g, "&lt;") + "</option>").join("") + '<option value="">— sans distinction —</option>';
+    sel.hidden = false;
+  }
+  function devinerPvVentes(entetes, lignes) {
+    const cau = (agencesPv.find((a) => /cauderan/.test(a.cle)) || {}).cle;
+    if (!cau) return "";
+    const cols = entetes.map((h, i) => (/code agence|agence reco/i.test(h) ? i : -1)).filter((i) => i >= 0);
+    let total = 0, indices = 0;
+    for (const l of lignes.slice(1, 400)) for (const i of cols) { const v = String(l[i] || "").trim(); if (!v || v === "None") continue; total++; if (v === "2997" || /caud[ée]ran/i.test(v)) indices++; }
+    return total && indices * 2 >= total ? cau : "";
+  }
   async function importerVentes(fichier) {
     const btn = $("btn-import-ventes");
     btn.disabled = true;
@@ -1004,6 +1025,9 @@
       const lignes = XLSX.utils.sheet_to_json(feuille, { header: 1, raw: true, defval: "" });
       if (lignes.length < 2) throw new Error("Le fichier semble vide.");
       const entetes = lignes[0].map((h) => String(h || "").trim());
+      const devine = devinerPvVentes(entetes, lignes);
+      if (devine && $("ventes-pv")) $("ventes-pv").value = devine;
+      const pv = $("ventes-pv") ? $("ventes-pv").value : "";
       const col = {};
       for (const [nom, motif] of Object.entries(COLONNES_VENTES)) {
         col[nom] = entetes.findIndex((h) => motif.test(h));
@@ -1035,10 +1059,11 @@
       let ajoutees = 0, dejaConnues = 0;
       for (let i = 0; i < rows.length; i += 300) {
         btn.textContent = "📥 Import… " + Math.min(i + 300, rows.length) + " / " + rows.length;
-        const r = await api("/crm/ventes/bulk", { json: { rows: rows.slice(i, i + 300) } });
+        const r = await api("/crm/ventes/bulk", { json: { rows: rows.slice(i, i + 300), pv } });
         ajoutees += r.ajoutees; dejaConnues += r.dejaConnues;
       }
-      toast(rows.length + " vente(s) lue(s) : " + ajoutees + " ajoutée(s)" +
+      const nomPv = pv ? ((agencesPv.find((a) => a.cle === pv) || {}).nom || pv) : "";
+      toast(rows.length + " vente(s) lue(s)" + (nomPv ? " pour " + nomPv : "") + " : " + ajoutees + " ajoutée(s)" +
         (dejaConnues ? ", " + dejaConnues + " déjà connue(s)" : "") +
         (ecartees ? ", " + ecartees + " écartée(s)" : "") + ". Géocodage en cours…");
       btn.disabled = false;

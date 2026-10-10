@@ -779,7 +779,7 @@
         const iMandat = colonneC21("date début mandat");
         const avecMandat = importData.lignes.filter((l) => String(l[iMandat] || "").trim()).length;
         const typologie = avecMandat * 2 >= importData.lignes.length ? "vendeur" : "estime";
-        $("etape-mappage").innerHTML =
+        $("etape-mappage").innerHTML = blocPv() +
           '<p class="aide" style="margin-top:14px;">Extraction Century 21 reconnue : <strong>biens &amp; propriétaires</strong>. ' +
           "Chaque ligne devient (ou complète) la fiche du propriétaire — nom, e-mail, adresse du bien, conseiller — avec le bien en note. " +
           "Re-déposez ce fichier à chaque mise à jour : les fiches fusionnent sans doublon.</p>" +
@@ -795,11 +795,11 @@
         return;
       }
       if (importData.preset === "acquereurs") {
-        $("etape-mappage").innerHTML =
+        $("etape-mappage").innerHTML = blocPv() +
           '<p class="aide" style="margin-top:14px;">Extraction Century 21 reconnue : <strong>acquéreurs</strong>. ' +
           "Chaque ligne devient une fiche typée Acquéreur — coordonnées, conseiller, et en note : " +
           "qualification A/B/C, budget, critères et secteurs — et un projet d'achat. Les refus d'e-mail (opt-in décoché) sont respectés.</p>" +
-          '<label class="case" style="margin-top:8px;"><input type="checkbox" id="preset-remplacer" checked /> Remplacer toute la base acquéreurs : ' +
+          '<label class="case" style="margin-top:8px;"><input type="checkbox" id="preset-remplacer" checked /> Remplacer la base acquéreurs de cette agence : ' +
           "les projets d'achat sont effacés et les fiches typées seulement Acquéreur partent à la corbeille (30 jours) avant l'import ; " +
           "les fiches qui ont d'autres typologies perdent juste le type Acquéreur. Décochez pour simplement fusionner.</label>";
         $("btn-go-import").hidden = false; $("btn-concordance").hidden = false;
@@ -807,7 +807,7 @@
       }
       if (importData.preset === "contacts") {
         const archives = importData.lignes.filter((l) => String(l[colonneC21("archive")] || "") === "True").length;
-        $("etape-mappage").innerHTML =
+        $("etape-mappage").innerHTML = blocPv() +
           '<p class="aide" style="margin-top:14px;">Extraction Century 21 reconnue : <strong>contacts</strong> (' + importData.lignes.length + " lignes" + (archives ? ", dont " + archives + " archivée(s) laissée(s) de côté" : "") + "). " +
           "Chaque ligne devient (ou complète) une fiche : civilité, prénom, nom, e-mail, téléphone, adresse recomposée (n°, type et nom de voie), " +
           "code postal, ville, date de naissance, typologies lues dans « Profils du contact », notes et dernier contact. " +
@@ -815,7 +815,7 @@
         $("btn-go-import").hidden = false; $("btn-concordance").hidden = false;
         return;
       }
-      $("etape-mappage").innerHTML = '<p class="aide" style="margin-top:14px;">Associez chaque colonne :</p>' +
+      $("etape-mappage").innerHTML = blocPv() + '<p class="aide" style="margin-top:14px;">Associez chaque colonne :</p>' +
         entetes.map((h, i) => {
           const exemple = importData.lignes.slice(0, 3).map((l) => l[i]).filter((v) => String(v).trim()).join(" · ");
           const devine = devinerChamp(h);
@@ -834,6 +834,29 @@
   // Les exports du logiciel C21 ont des en-têtes stables : on les reconnaît,
   // plus de mappage à la main — l'admin re-dépose le même fichier à chaque
   // mise à jour et tout fusionne (par e-mail, sinon nom + prénom).
+  // L'agence concernée par le fichier (Caudéran d'un côté, Saint-Médard /
+  // Blanquefort de l'autre) : étiquette posée sur chaque fiche importée, les
+  // guides d'un conseiller ne montrent que les données de son groupe. Devinée
+  // d'après les colonnes « Agence » / « Code agence » (2997 = Caudéran dans
+  // CenturyNet), modifiable avant l'import.
+  function devinerPvFichier() {
+    const liste = agences();
+    if (!liste.length) return "";
+    const cau = (liste.find((a) => /cauderan/.test(a.cle)) || {}).cle || "";
+    const med = (liste.find((a) => /medard/.test(a.cle)) || {}).cle || liste[0].cle;
+    const cols = importData.entetes.map((h, i) => (/^agence$|code agence|agence reco/i.test(h) ? i : -1)).filter((i) => i >= 0);
+    let indicesCau = 0, total = 0;
+    for (const l of importData.lignes.slice(0, 400)) for (const i of cols) { const v = String(l[i] || "").trim(); if (!v || v === "None") continue; total++; if (/caud[ée]ran/i.test(v) || v === "2997") indicesCau++; }
+    return cau && total && indicesCau * 2 >= total ? cau : med;
+  }
+  function blocPv() {
+    const liste = agences();
+    if (!liste.length) return "";
+    const choix = devinerPvFichier();
+    return '<div class="grille-champs" style="margin-top:14px;"><label>Agence concernée par ce fichier (les guides de chaque agence ne montrent que ses données)<select id="preset-pv">' +
+      liste.map((a) => '<option value="' + escH(a.cle) + '"' + (a.cle === choix ? " selected" : "") + ">" + escH(a.nom) + "</option>").join("") +
+      '<option value=""' + (choix ? "" : " selected") + ">— sans distinction —</option></select></label></div>";
+  }
   function detecterExtractionC21(entetes) {
     const a = entetes.map((h) => h.toLowerCase());
     if (a.includes("vendeur / bailleur") && a.includes("adresse du bien")) return "biens";
@@ -1021,8 +1044,9 @@
       });
     }
     const btn = $("btn-go-import");
+    const pv = $("preset-pv") ? $("preset-pv").value : "";
     const remplacer = importData.preset === "acquereurs" && $("preset-remplacer") && $("preset-remplacer").checked;
-    if (remplacer && !confirm("Remplacer toute la base acquéreurs ? Les projets d'achat sont effacés et les fiches typées seulement Acquéreur partent à la corbeille (restaurables 30 jours), puis le fichier est importé.")) return;
+    if (remplacer && !confirm("Remplacer la base acquéreurs" + (pv ? " de l'agence " + ((agences().find((a) => a.cle === pv) || {}).nom || pv) : " (toutes agences)") + " ? Les projets d'achat sont effacés et les fiches typées seulement Acquéreur partent à la corbeille (restaurables 30 jours), puis le fichier est importé.")) return;
     btn.disabled = true;
     // Envoi par lots : garde chaque appel leger pour le serveur, et permet
     // une vraie progression sur les grosses extractions.
@@ -1035,7 +1059,7 @@
       if (remplacer) {
         remplaces = { supprimes: 0, retypes: 0, projets: 0 };
         for (let tour = 0; tour < 200; tour++) {
-          const r = await api("/crm/acquereurs/remplacer", { json: {} });
+          const r = await api("/crm/acquereurs/remplacer", { json: { pv } });
           remplaces.supprimes += r.supprimes; remplaces.retypes += r.retypes; remplaces.projets += r.projets;
           btn.textContent = "Base acquéreurs retirée… " + (remplaces.supprimes + remplaces.retypes) + " fiche(s), " + (r.restants || 0) + " restante(s)";
           if (!r.restants) break;
@@ -1043,7 +1067,7 @@
       }
       for (let i = 0; i < rows.length; i += LOT) {
         btn.textContent = "Import… " + Math.min(i + LOT, rows.length) + " / " + rows.length;
-        const r = await api("/crm/contacts/bulk", { json: { rows: rows.slice(i, i + LOT), source: "import" } });
+        const r = await api("/crm/contacts/bulk", { json: { rows: rows.slice(i, i + LOT), source: "import", pv } });
         total.created += r.created; total.updated += r.updated; total.skipped += r.skipped;
       }
       // Import acquéreurs : dans la foulée, les critères deviennent des
@@ -1061,7 +1085,7 @@
       let retypes = 0;
       if (retyper) {
         for (let tour = 0; tour < 200; tour++) {
-          const r = await api("/crm/contacts/retyper-absents", { json: { type: "estime", en: "prospect", avant: debutImport } });
+          const r = await api("/crm/contacts/retyper-absents", { json: { type: "estime", en: "prospect", avant: debutImport, pv } });
           retypes += r.retypes; btn.textContent = "Estimés absents du fichier → Prospect… " + retypes;
           if (!r.restants || !r.retypes) break;
         }

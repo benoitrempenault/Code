@@ -16,7 +16,7 @@
    que le conseiller a déjà envoyé à la main.
    ========================================================================= */
 import { now, randId, randToken } from "./util.js";
-import { formatTelephone, MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier , releverAvisAgences, avisAgence, releverAvisConseillers, jsonAvisSite } from "./crm.js";
+import { formatTelephone, groupePv, filtrePv, filtrePvProjet, MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier , releverAvisAgences, avisAgence, releverAvisConseillers, jsonAvisSite } from "./crm.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
@@ -1006,47 +1006,50 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         "INSERT INTO crm_environnement (cle, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(cle) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
         [cle, JSON.stringify(data), now()]);
     }
-    const ventes = await ventesAutour(ctx.agency.id, lat, lng, 1000);
-    const estimations = await estimationsAutour(ctx.agency.id, lat, lng, 1000, p.est.id, p.proprietaires.map((x) => x.id));
+    const groupe = await groupeDe(ctx, p);
+    const ventes = await ventesAutour(ctx.agency.id, lat, lng, 1000, groupe);
+    const estimations = await estimationsAutour(ctx.agency.id, lat, lng, 1000, p.est.id, p.proprietaires.map((x) => x.id), groupe);
     // Les estimés de la commune pas encore positionnés : le navigateur peut les faire géocoder (route ci-dessous).
     const attenteEst = await db.get(
       `SELECT COUNT(*) AS n FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
-       WHERE c.agency_id = ? AND c.adresse <> '' AND c.types LIKE '%estime%' AND (c.cp = ? OR c.ville = ? COLLATE NOCASE)
+       WHERE c.agency_id = ? AND c.adresse <> '' AND c.types LIKE '%estime%' AND (c.cp = ? OR c.ville = ? COLLATE NOCASE) AND ${filtrePv(groupe, "c.id")}
          AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0))`, [ctx.agency.id, p.px.cp || "-", p.est.ville || "-"]);
-    return c.json({ lat, lng, commune: data.commune, commodites: data.commodites, erreur: data.erreur || "", ventes: ventes.slice(0, 80), estimations, estimationsEnAttente: (attenteEst && attenteEst.n) || 0, categories: CATEGORIES.map(([cle, libelle]) => ({ cle, libelle })) });
+    return c.json({ lat, lng, perimetre: groupe, commune: data.commune, commodites: data.commodites, erreur: data.erreur || "", ventes: ventes.slice(0, 80), estimations, estimationsEnAttente: (attenteEst && attenteEst.n) || 0, categories: CATEGORIES.map(([cle, libelle]) => ({ cle, libelle })) });
   });
   // Les ventes de l'agence autour d'un point : ventes importées + dossiers
   // Les biens déjà estimés par l'agence autour du bien (carte du guide R2) :
   // contacts typés « estime » géocodés (import CenturyNet, Studio Estimation)
   // et fiches estimation positionnées, sauf celle du parcours. Dédoublonnés
   // par position, les plus proches d'abord.
-  async function estimationsAutour(agencyId, lat, lng, rayon, exclureId, contactsExclus = []) {
+  // Le groupe d'agences du parcours (Caudéran / commun), d'après l'agence du conseiller signataire.
+  const groupeDe = async (ctx, p) => groupePv(agencePour(await getReglages(db, ctx.agency), p.conseiller).pv);
+  async function estimationsAutour(agencyId, lat, lng, rayon, exclureId, contactsExclus = [], groupe = "commun") {
     const dLat = rayon / 111320, dLng = rayon / (111320 * Math.cos(lat * Math.PI / 180));
     const boite = (t) => `${t}.lat BETWEEN ${lat - dLat} AND ${lat + dLat} AND ${t}.lng BETWEEN ${lng - dLng} AND ${lng + dLng}`;
     const vus = new Set(), liste = [];
     const poser = (x) => { const k = x.lat.toFixed(4) + "," + x.lng.toFixed(4); if (vus.has(k) || x.dist > rayon) return; vus.add(k); liste.push(x); };
     for (const r of await db.all(
       `SELECT c.id, c.adresse, c.ville, g.lat, g.lng FROM crm_contacts c JOIN crm_geo g ON g.contact_id = c.id
-       WHERE c.agency_id = ? AND c.types LIKE '%estime%' AND ${boite("g")}`, [agencyId]))
+       WHERE c.agency_id = ? AND c.types LIKE '%estime%' AND ${boite("g")} AND ${filtrePv(groupe, "c.id")}`, [agencyId]))
       if (!contactsExclus.includes(r.id)) poser({ id: "ct:" + r.id, adresse: adresseDossier(r.adresse, r.ville), lat: r.lat, lng: r.lng, dist: distanceM(lat, lng, r.lat, r.lng) });
     for (const r of await db.all(
       `SELECT e.id, e.adresse, e.ville, e.lat, e.lng, e.statut FROM crm_estimations e
-       WHERE e.agency_id = ? AND e.id <> ? AND NOT (e.lat = 0 AND e.lng = 0) AND ${boite("e")}`, [agencyId, exclureId || ""]))
+       WHERE e.agency_id = ? AND e.id <> ? AND NOT (e.lat = 0 AND e.lng = 0) AND ${boite("e")} AND ${filtrePv(groupe, "CASE WHEN e.contact_id <> '' THEN e.contact_id ELSE e.id END")}`, [agencyId, exclureId || ""]))
       poser({ id: "es:" + r.id, adresse: adresseDossier(r.adresse, r.ville), statut: r.statut, lat: r.lat, lng: r.lng, dist: distanceM(lat, lng, r.lat, r.lng) });
     return liste.sort((a, b) => a.dist - b.dist).slice(0, 60);
   }
   // vendus du Suivi, à `rayon` mètres, les plus proches d'abord.
-  async function ventesAutour(agencyId, lat, lng, rayon) {
+  async function ventesAutour(agencyId, lat, lng, rayon, groupe = "commun") {
     const dLat = rayon / 111320, dLng = rayon / (111320 * Math.cos(lat * Math.PI / 180));
     const boite = `g.lat BETWEEN ${lat - dLat} AND ${lat + dLat} AND g.lng BETWEEN ${lng - dLng} AND ${lng + dLng}`;
     const ventes = [];
     for (const r of await db.all(
-      `SELECT v.id, v.adresse, v.ville, v.date_acte, v.prix, v.type, v.surface, g.lat, g.lng FROM crm_ventes v JOIN crm_geo g ON g.contact_id = v.id WHERE v.agency_id = ? AND ${boite}`, [agencyId])) {
+      `SELECT v.id, v.adresse, v.ville, v.date_acte, v.prix, v.type, v.surface, g.lat, g.lng FROM crm_ventes v JOIN crm_geo g ON g.contact_id = v.id WHERE v.agency_id = ? AND ${boite} AND ${filtrePv(groupe, "v.id")}`, [agencyId])) {
       const dist = distanceM(lat, lng, r.lat, r.lng);
       if (dist <= rayon) ventes.push({ id: "vt:" + r.id, adresse: adresseDossier(r.adresse, r.ville), date: r.date_acte, prix: r.prix, type: r.type, surface: r.surface, lat: r.lat, lng: r.lng, dist });
     }
     for (const r of await db.all(
-      `SELECT d.id, d.adresse, d.statut, d.data, g.lat, g.lng FROM dossiers d JOIN crm_geo g ON g.contact_id = d.id WHERE d.agency_id = ? AND d.statut <> 'annule' AND ${boite}`, [agencyId])) {
+      `SELECT d.id, d.adresse, d.statut, d.data, g.lat, g.lng FROM dossiers d JOIN crm_geo g ON g.contact_id = d.id WHERE d.agency_id = ? AND d.statut <> 'annule' AND ${boite} AND ${filtrePv(groupe, "d.id")}`, [agencyId])) {
       let data2; try { data2 = JSON.parse(r.data); } catch { data2 = {}; }
       if (!dossierVendu(r.statut, data2)) continue;
       const dist = distanceM(lat, lng, r.lat, r.lng);
@@ -1229,7 +1232,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     }
     // Les ventes de l'agence : même type que le bien (une vente sans type connu
     // reste proposée, sauf pour un terrain — ce sont presque toujours des maisons).
-    const ventes = (await ventesAutour(ctx.agency.id, lat, lng, 2000))
+    const groupe = await groupeDe(ctx, p);
+    const ventes = (await ventesAutour(ctx.agency.id, lat, lng, 2000, groupe))
       .filter((v) => (sansAccents(v.type) ? sansAccents(v.type) === type : type !== "terrain")).slice(0, 40);
     const villeN = sansAccents(p.est.ville);
     const siteAg = ((await getReglages(db, ctx.agency)).annonces.siteUrl || "").replace(/\/+$/, "");
@@ -1252,9 +1256,9 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     // Les acheteurs en recherche : fiches contact (crm_recherches) + projets d'achat, filtrés par type et commune.
     const acheteurs = [];
     const garder = (r) => { const t = jsonArrLocal(r.types).map(sansAccents), v = jsonArrLocal(r.villes).map(sansAccents); return (!t.length || t.includes(type)) && (!v.length || v.includes(villeN)); };
-    for (const r of await db.all("SELECT budget_min, budget_max, types, villes, pieces_min, surface_min FROM crm_recherches WHERE agency_id = ? AND actif = 1", [ctx.agency.id])) if (garder(r)) acheteurs.push({ budget_min: r.budget_min, budget_max: r.budget_max, pieces_min: r.pieces_min, surface_min: r.surface_min });
-    for (const r of await db.all("SELECT budget_min, budget_max, types, villes, pieces_min FROM crm_projets WHERE agency_id = ? AND kind = 'achat' AND statut = 'actif'", [ctx.agency.id])) if (garder(r)) acheteurs.push({ budget_min: r.budget_min, budget_max: r.budget_max, pieces_min: r.pieces_min, surface_min: null });
-    return c.json({ lat, lng, type, commune: com && com.code ? { code: com.code, nom: com.nom, dep: String(p.px.cp || com.code || "").slice(0, 2) } : null, erreurs, ventes, annonces, amepi, acheteurs: acheteurs.slice(0, 300) });
+    for (const r of await db.all(`SELECT budget_min, budget_max, types, villes, pieces_min, surface_min FROM crm_recherches WHERE agency_id = ? AND actif = 1 AND ${filtrePv(groupe, "contact_id")}`, [ctx.agency.id])) if (garder(r)) acheteurs.push({ budget_min: r.budget_min, budget_max: r.budget_max, pieces_min: r.pieces_min, surface_min: r.surface_min });
+    for (const r of await db.all(`SELECT budget_min, budget_max, types, villes, pieces_min FROM crm_projets WHERE agency_id = ? AND kind = 'achat' AND statut = 'actif' AND ${filtrePvProjet(groupe, "crm_projets.id")}`, [ctx.agency.id])) if (garder(r)) acheteurs.push({ budget_min: r.budget_min, budget_max: r.budget_max, pieces_min: r.pieces_min, surface_min: null });
+    return c.json({ lat, lng, type, perimetre: groupe, commune: com && com.code ? { code: com.code, nom: com.nom, dep: String(p.px.cp || com.code || "").slice(0, 2) } : null, erreurs, ventes, annonces, amepi, acheteurs: acheteurs.slice(0, 300) });
   });
   // Bien'ici (portail) : les biens en vente sur la commune, même type, autour du
   // prix — photo, prix, surface, terrain, pièces, position approchée (125 m),

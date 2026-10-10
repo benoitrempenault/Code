@@ -986,7 +986,8 @@ export function createApp(env) {
     const b = await c.req.json().catch(() => ({}));
     const avant = Number(b && b.avant) || 0;
     if (!avant || avant > now() + 60 || avant < now() - 86400) return err(c, 400, "Repère temporel de l'import invalide (moins d'un jour).");
-    return c.json(await CRM.retyperAbsents(db, ctx.agency.id, String(b.type || ""), String(b.en || "prospect"), avant, 300));
+    const pv = CRM.pvValide(b.pv, await CRM.getReglages(db, ctx.agency));
+    return c.json(await CRM.retyperAbsents(db, ctx.agency.id, String(b.type || ""), String(b.en || "prospect"), avant, 300, pv));
   });
   // Suppression en masse (sélection dans la liste) : 200 fiches par appel,
   // en cascade comme la suppression unitaire.
@@ -1061,6 +1062,10 @@ export function createApp(env) {
     if (b.rows.length > CRM_BULK_MAX) return err(c, 400, `Import limité à ${CRM_BULK_MAX} lignes à la fois.`);
     const source = ["import", "studio-suivi"].includes(String(b.source)) ? String(b.source) : "import";
     const result = await CRM.bulkUpsertContacts(db, ctx.agency.id, ctx.user.id, b.rows, source);
+    // L'agence du fichier (Caudéran / Saint-Médard…) : étiquette sur chaque fiche touchée.
+    const pv = CRM.pvValide(b.pv, await CRM.getReglages(db, ctx.agency));
+    if (pv) result.pv = { cle: pv, poses: await CRM.poserPv(db, ctx.agency.id, result.ids, pv) };
+    delete result.ids;
     return c.json(result);
   });
 
@@ -1216,7 +1221,9 @@ export function createApp(env) {
   // ailleurs). 150 fiches par appel, l'Administration boucle.
   app.post("/crm/acquereurs/remplacer", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
-    return c.json(await CRM.remplacerAcquereurs(db, ctx.agency.id, ctx.user.id, 150));
+    const b = await c.req.json().catch(() => ({}));
+    const pv = CRM.pvValide(b && b.pv, await CRM.getReglages(db, ctx.agency));
+    return c.json(await CRM.remplacerAcquereurs(db, ctx.agency.id, ctx.user.id, 150, pv));
   });
   app.post("/crm/projets/auto", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
@@ -1693,7 +1700,8 @@ export function createApp(env) {
     const b = await c.req.json().catch(() => null);
     const rows = (b && Array.isArray(b.rows) ? b.rows : []).slice(0, VENTES_BULK_MAX);
     if (!rows.length) return err(c, 400, "Aucune vente à importer.");
-    return c.json(await CRM.bulkUpsertVentes(db, ctx.agency.id, rows));
+    const pv = CRM.pvValide(b.pv, await CRM.getReglages(db, ctx.agency));
+    return c.json({ ...(await CRM.bulkUpsertVentes(db, ctx.agency.id, rows, pv)), pv });
   });
 
   app.get("/crm/geo/attente", async (c) => {
