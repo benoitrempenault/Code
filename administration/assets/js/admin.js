@@ -49,6 +49,11 @@
   }
 
   const escH = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  // Les fichiers du guide (JSON de mise en page, PDF des modèles) suivent la version
+  // du script (?v=N dans index.html) : sans ça, le navigateur ou le CDN gardait
+  // l'ancien guide-r1.json après une mise à jour (Benoît, 10/10).
+  const VERSION_ASSETS = (() => { try { const sc = document.currentScript || document.querySelector('script[src*="admin.js"]'); return new URL(sc.getAttribute("src"), location.href).search || ""; } catch { return ""; } })();
+  const asset = (chemin) => chemin + VERSION_ASSETS;
   // Téléphone affiché « 06 06 06 06 06 » partout (même règle que le serveur).
   const fmtTel = (t) => {
     const brut = String(t ?? "").trim();
@@ -2425,7 +2430,7 @@
   async function importerConseillers(annoncer) {
     let profils = [];
     try {
-      const meta = await fetch("assets/guide-r1.json").then((r) => r.json());
+      const meta = await fetch(asset("assets/guide-r1.json")).then((r) => r.json());
       profils = (meta.conseillers || []).map((c) => ({ prenom: c.prenom, nom: c.nom, email: c.email, telephone: c.telephone }));
       // L'équipe du site century21-kadima.fr : photo, fonction et agence de
       // chacun (les photos sont dans assets/conseillers, réduites à 240 px).
@@ -2957,8 +2962,8 @@
     const variante = varianteGuide(cs);
     if (!guideR1Cache[variante]) {
       const [meta, pdf] = await Promise.all([
-        fetch("assets/guide-r1.json").then((r) => r.json()),
-        fetch("assets/guide-r1" + (variante === "cauderan" ? "-cauderan" : "") + ".pdf").then((r) => { if (!r.ok) throw new Error("Guide introuvable."); return r.arrayBuffer(); }),
+        fetch(asset("assets/guide-r1.json")).then((r) => r.json()),
+        fetch(asset("assets/guide-r1" + (variante === "cauderan" ? "-cauderan" : "") + ".pdf")).then((r) => { if (!r.ok) throw new Error("Guide introuvable."); return r.arrayBuffer(); }),
       ]);
       guideR1Cache[variante] = { meta, pdf };
     }
@@ -3090,7 +3095,7 @@
     if (motCache) return motCache;
     {
       const [pdfR1, embleme, ...fontes] = await Promise.all([
-        guideR1Cache.commun ? Promise.resolve(guideR1Cache.commun.pdf) : fetch("assets/guide-r1.pdf").then((r) => { if (!r.ok) throw new Error("Guide R1 introuvable."); return r.arrayBuffer(); }),
+        guideR1Cache.commun ? Promise.resolve(guideR1Cache.commun.pdf) : fetch(asset("assets/guide-r1.pdf")).then((r) => { if (!r.ok) throw new Error("Guide R1 introuvable."); return r.arrayBuffer(); }),
         fetch("../assets/js/logo.js").then((r) => (r.ok ? r.text() : "")).then((t) => (/emblem:\s*"(data:image\/png;base64,[^"]+)"/.exec(t) || [])[1] || "").catch(() => ""),
         ...["Barlow-Regular", "Barlow-Bold", "Barlow-Italic"].map((f) => fetch("assets/fonts/" + f + ".ttf").then((r) => r.arrayBuffer())),
       ]);
@@ -3286,7 +3291,7 @@
   // Le visage d'un conseiller : celui relevé sur sa photo d'équipe (même nom, mêmes
   // dimensions de photo — une photo remplacée depuis ne le reprend pas).
   let metaR1Promesse = null;
-  const metaR1 = () => (metaR1Promesse ||= fetch("assets/guide-r1.json").then((r) => r.json()).catch(() => ({})));
+  const metaR1 = () => (metaR1Promesse ||= fetch(asset("assets/guide-r1.json")).then((r) => r.json()).catch(() => ({})));
   const memeNom = (a, b) => { const ka = sansAccentsMin(a), kb = sansAccentsMin(b); return ka && (ka === kb || ka.split(" ").sort().join(" ") === kb.split(" ").sort().join(" ")); };
   async function visageDe(cs, img) {
     if (!cs) return null;
@@ -3581,8 +3586,8 @@
     if (!window.PDFLib || !window.fontkit) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
     const variante = varianteGuide(p.conseiller);
     if (!guideR2Cache[variante]) {
-      const meta = await fetch("assets/guide-r2.json").then((r) => r.json());
-      const [pdf, ...fontes] = await Promise.all([fetch("assets/guide-r2" + (variante === "cauderan" ? "-cauderan" : "") + ".pdf").then((r) => { if (!r.ok) throw new Error("Guide R2 introuvable."); return r.arrayBuffer(); }),
+      const meta = await fetch(asset("assets/guide-r2.json")).then((r) => r.json());
+      const [pdf, ...fontes] = await Promise.all([fetch(asset("assets/guide-r2" + (variante === "cauderan" ? "-cauderan" : "") + ".pdf")).then((r) => { if (!r.ok) throw new Error("Guide R2 introuvable."); return r.arrayBuffer(); }),
         ...["regular", "bold", "extrabold", "italic"].map((k) => fetch(meta.fonts[k]).then((r) => r.arrayBuffer()))]);
       guideR2Cache[variante] = { meta, pdf, fontes };
     }
