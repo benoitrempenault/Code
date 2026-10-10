@@ -263,11 +263,11 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   app.get("/crm/conseillers", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const rows = await db.all(
-      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre, COALESCE(d.direction, 0) AS direction, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis, COALESCE(avs.avis, '[]') AS avis_site_json, COALESCE(ts.texte, '') AS bio_site, COALESCE(avs.updated_at, 0) AS avis_site_le, COALESCE(pc.photo <> '', 0) AS a_photo_carre
+      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre, COALESCE(d.direction, 0) AS direction, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis, COALESCE(avs.avis, '[]') AS avis_site_json, COALESCE(ts.texte, '') AS bio_site, COALESCE(avs.updated_at, 0) AS avis_site_le, COALESCE(pc.photo <> '', 0) AS a_photo_carre, COALESCE(pc.updated_at, 0) AS photo_carre_le
        FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_direction d ON d.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id LEFT JOIN crm_conseillers_avis_site avs ON avs.id = cs.id LEFT JOIN crm_conseillers_texte_site ts ON ts.id = cs.id LEFT JOIN crm_conseillers_photo_carre pc ON pc.id = cs.id
        WHERE cs.agency_id = ? ORDER BY cs.nom COLLATE NOCASE, cs.prenom COLLATE NOCASE`, // ordre alphabétique sans tenir compte des majuscules (BUISSON passait avant Besson)
       [ctx.agency.id]);
-    return c.json({ conseillers: rows.map(({ avis_site_json, ...r }) => ({ ...r, direction: !!r.direction, bio: r.bio || "", genre_pose: r.genre || "", genre: r.genre || genrePrenom(r.prenom), a_photo: !!r.a_photo, a_photo_carre: !!r.a_photo_carre, photo_url: r.a_photo ? photoUrl(c, r.id) : "", avis_site: jsonAvisSite(avis_site_json) })) });
+    return c.json({ conseillers: rows.map(({ avis_site_json, ...r }) => ({ ...r, direction: !!r.direction, bio: r.bio || "", genre_pose: r.genre || "", genre: r.genre || genrePrenom(r.prenom), a_photo: !!r.a_photo, a_photo_carre: !!r.a_photo_carre, photo_carre_le: r.photo_carre_le || 0, photo_url: r.a_photo ? photoUrl(c, r.id) : "", avis_site: jsonAvisSite(avis_site_json) })) });
   });
   app.put("/crm/conseillers", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
@@ -1014,7 +1014,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       `SELECT COUNT(*) AS n FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
        WHERE c.agency_id = ? AND c.adresse <> '' AND c.types LIKE '%estime%' AND (c.cp = ? OR c.ville = ? COLLATE NOCASE) AND ${filtrePv(groupe, "c.id")}
          AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0))`, [ctx.agency.id, p.px.cp || "-", p.est.ville || "-"]);
-    return c.json({ lat, lng, perimetre: groupe, commune: data.commune, commodites: data.commodites, erreur: data.erreur || "", ventes: ventes.slice(0, 80), estimations, estimationsEnAttente: (attenteEst && attenteEst.n) || 0, categories: CATEGORIES.map(([cle, libelle]) => ({ cle, libelle })) });
+    // La carte dessine 80 ventes et 60 estimés au plus ; la légende dit les vrais totaux (ventesTotal, estimationsTotal).
+    return c.json({ lat, lng, perimetre: groupe, commune: data.commune, commodites: data.commodites, erreur: data.erreur || "", ventes: ventes.slice(0, 80), ventesTotal: ventes.length, estimations: estimations.slice(0, 60), estimationsTotal: estimations.length, estimationsEnAttente: (attenteEst && attenteEst.n) || 0, categories: CATEGORIES.map(([cle, libelle]) => ({ cle, libelle })) });
   });
   // Les ventes de l'agence autour d'un point : ventes importées + dossiers
   // Les biens déjà estimés par l'agence autour du bien (carte du guide R2) :
@@ -1036,7 +1037,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       `SELECT e.id, e.adresse, e.ville, e.lat, e.lng, e.statut FROM crm_estimations e
        WHERE e.agency_id = ? AND e.id <> ? AND NOT (e.lat = 0 AND e.lng = 0) AND ${boite("e")} AND ${filtrePv(groupe, "CASE WHEN e.contact_id <> '' THEN e.contact_id ELSE e.id END")}`, [agencyId, exclureId || ""]))
       poser({ id: "es:" + r.id, adresse: adresseDossier(r.adresse, r.ville), statut: r.statut, lat: r.lat, lng: r.lng, dist: distanceM(lat, lng, r.lat, r.lng) });
-    return liste.sort((a, b) => a.dist - b.dist).slice(0, 60);
+    return liste.sort((a, b) => a.dist - b.dist);
   }
   // vendus du Suivi, à `rayon` mètres, les plus proches d'abord.
   async function ventesAutour(agencyId, lat, lng, rayon, groupe = "commun") {

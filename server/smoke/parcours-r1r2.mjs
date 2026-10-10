@@ -136,8 +136,10 @@ export default async function () {
     const guide = await page.evaluate(async () => {
       const octets = window.__dernierGuide.octets;
       const doc = await window.PDFLib.PDFDocument.load(octets);
-      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: octets.byteLength, mot: window.__dernierGuide.mot };
+      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: octets.byteLength, mot: window.__dernierGuide.mot, pageConseiller: window.__dernierGuide.pageConseiller };
     });
+    ok(guide.pageConseiller && guide.pageConseiller.source === "generee" && guide.pageConseiller.description === "site" && guide.pageConseiller.avisSite === 1 && guide.pageConseiller.photo === true,
+      "la page « Votre conseiller » de Teddy est générée comme pour tout le monde : photo, description et avis du site (" + JSON.stringify(guide.pageConseiller) + ")");
     ok(guide.pages === 14 && /MOUNEYRES/.test(guide.titre) && guide.octets > 100000,
       "le guide R1 fait 14 pages (13 communes + Teddy Besson) au nom du client (" + JSON.stringify({ ...guide, mot: undefined }) + ")");
     ok(guide.mot && guide.mot.conseiller === "Teddy BESSON" && guide.mot.signataire === "Benoît REMPENAULT", "la page 13 du guide R1 est le mot du directeur généré, au nom du conseiller du parcours (" + JSON.stringify(guide.mot) + ")");
@@ -172,7 +174,8 @@ export default async function () {
     ok(heic.w === 1200 && heic.h === 900 && heic.px[0] > 200 && heic.px[1] > 170 && heic.px[2] < 110, "la photo HEIC du bien est décodée (1200 × 900, jaune au quart) : " + JSON.stringify(heic));
     await page.fill("#r2-forts", "Le box\nLa disposition des pièces");
     await page.fill("#r2-objections", "La route passante");
-    await page.fill("#r2-bio", "Après 12 ans dans la grande distribution, j'ai rejoint Century 21 Kadima.\n\nJe suis déterminé à vous fournir un service personnalisé.");
+    // Un texte long (celui d'Adélaïde sur le site, 4 paragraphes) : jamais plus petit que 9,5 pt, jamais coupé au milieu d'une phrase.
+    await page.fill("#r2-bio", "21 ans d'expérience en relation client, dont plus de 3 ans dans la transaction immobilière chez Century 21 Kadima. Un parcours construit en logistique puis en fintech, deux secteurs où la rigueur et l'anticipation ne sont pas négociables, et que j'applique aujourd'hui à chacun de vos projets.\n\nJ'exerce sur Saint-Médard-en-Jalles et le secteur ouest de la Bordeaux Métropole, où je réside à Saint-Aubin-de-Médoc. Un ancrage local que je complète par une pratique personnelle : j'investis dans l'immobilier depuis mes 23 ans.\n\nMon approche : une méthode qui repose sur l'écoute, une information vérifiée, un calendrier tenu, une négociation menée avec rigueur.\n\nPour un projet d'achat, de vente ou d'investissement, appelez-moi directement.");
     await page.click("#r2-generer");
     await page.waitForSelector("#doc-retour", { timeout: 90000 });
     ok(/Guide R2 prêt/.test(await page.textContent("#modale-titre")), "après le guide R2 : écran « prêt » avec retour au parcours");
@@ -180,8 +183,10 @@ export default async function () {
     await page.waitForFunction(() => document.querySelectorAll(".etape.faite").length === 3, null, { timeout: 8000 });
     const guide2 = await page.evaluate(async () => {
       const doc = await window.PDFLib.PDFDocument.load(window.__dernierGuide.octets);
-      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength, debug: window.__dernierGuide.debug || null, mot: window.__dernierGuide.mot };
+      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength, debug: window.__dernierGuide.debug || null, mot: window.__dernierGuide.mot, bio: window.__dernierGuide.bio };
     });
+    ok(guide2.bio && guide2.bio.taille >= 9.5 && guide2.bio.paragraphes >= 2 && guide2.bio.paragraphes + guide2.bio.omis === 4,
+      "R2 p12 : le texte de présentation reste lisible (≥ 9,5 pt) et n'est jamais coupé : des paragraphes entiers sont gardés, les derniers retirés s'il le faut (" + JSON.stringify(guide2.bio) + ")");
     ok(guide2.mot && guide2.mot.modele === "r2" && guide2.mot.signataire === "Benoît REMPENAULT" && guide2.mot.conseiller === "Teddy BESSON" && guide2.mot.photo === true,
       "la page 19 du guide R2 est le mot du directeur généré : texte du R2, signé Benoît REMPENAULT avec sa photo, Teddy nommé (" + JSON.stringify(guide2.mot) + ")");
     ok(guide2.pages === 20 && /Vendons ensemble/.test(guide2.titre) && /MOUNEYRES/.test(guide2.titre) && guide2.octets > 1000000,
@@ -427,7 +432,7 @@ export default async function () {
     ok(await page.inputValue("#acm-pieces") === "3" && cochees.length === 4 && cochesA.every((x) => /Appartement/.test(x.texte)) && trois.length >= 1 && trois.every((x) => x.coche) && autres.every((x) => !/3 pièces/.test(x.texte)) && autres.some((x) => /2 pièces|4 pièces/.test(x.texte))
        && concA.find((c) => c.id === "bienici:flat-smoke-3")?.coche && !concA.some((c) => /orpi-smoke-1|human-smoke-2|terrain-smoke-3/.test(c.id)),
        "appartement 3 pièces : tous les 3 pièces sont pré-cochés avant les 2 et 4 pièces, l'appartement 3 pièces Bien'ici est coché (" + JSON.stringify({ pieces: await page.inputValue("#acm-pieces"), trois: trois.length, cochees: cochees.length, autres: autres.length, conc: concA.map((c) => c.id + (c.coche ? "✓" : "")) }) + ")");
-    ok(/3 pièces d'abord/.test(await page.textContent("#modale-corps")), "l'aide dit que les 3 pièces passent d'abord");
+    ok(/T3 d'abord/.test(await page.textContent("#modale-corps")), "les titres des listes disent que les 3 pièces passent d'abord, puis les plus proches");
     await page.click("#acm-retour");
     await page.waitForSelector(".etapes", { timeout: 8000 });
     await page.click("#modale-fermer");

@@ -3758,6 +3758,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "les piscines privées des voisins sont écartées, l'aire de jeux sans nom garde son libellé, la population de la commune est lue (" + JSON.stringify(envr.json.commodites.filter((x) => x.cat === "loisir").map((x) => x.nom || x.libelle)) + ")");
   ok(envr.json.ventes.some((v) => v.date === "2025-06-01" && v.dist > 100 && v.dist < 1000) && !envr.json.ventes.some((v) => /Lointaine/.test(v.adresse)) && envr.json.ventes.every((v) => v.dist <= 1000),
      "les ventes de l'agence à moins d'un kilomètre sont retenues, la lointaine non (" + envr.json.ventes.length + ")");
+  ok(envr.json.ventesTotal === envr.json.ventes.length && envr.json.estimationsTotal === envr.json.estimations.length && envr.json.ventesTotal >= 1,
+     "la légende reçoit les vrais totaux (ventesTotal, estimationsTotal), pas la liste plafonnée (" + envr.json.ventesTotal + " / " + envr.json.estimationsTotal + ")");
   ok((await db.get("SELECT lat FROM crm_estimations WHERE id = ?", [pxId])).lat > 44, "la position géocodée est gardée sur la fiche");
   ok((await db.get("SELECT COUNT(*) AS n FROM crm_environnement")).n === 1, "commune et commodités sont mises en cache");
   // Livret prix : la saisie se garde (nettoyée), les données comparables se relèvent, les photos ne se relaient que si elles sont connues.

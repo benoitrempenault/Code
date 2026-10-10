@@ -1050,7 +1050,26 @@ signataire, appliqué à `ventesAutour` (ventes importées + dossiers Suivi), `e
 fiches estimation via contact_id), les estimés en attente, les acheteurs de l'ACM (crm_recherches par contact,
 crm_projets par leurs contacts). Réponses : `perimetre` (environnement, acm/donnees). Les fichiers Caudéran de
 Benoît (esti_caud = extraction « biens » estimés, acq_cau = « acquéreurs », not_caud = ventes, à importer en
-choisissant Caudéran). admin.js : `varianteGuideR1(cs)` → "cauderan" si `cs.agence === "cauderan"`,
+choisissant Caudéran).
+**Page « Votre conseiller » du R1 pour TOUS (10/10)** : générée pour chaque conseiller (les pages figées de
+`meta.conseillers` ne servent plus ; `pageCs = null`) : titre, photo ronde cerclée d'or, identité sur un filet
+(nom, fonction, Mail / Tél. / Agence), description dans un encart beige à liseré or, « Ils recommandent … » en
+deux colonnes égales remplies en masonry (colonne la moins haute). **Textes de présentation** :
+`ajusterParagraphes(paras, couper, font, largeur, hauteurMax, tailleMax, tailleMin, interligne)` — réduit
+jusqu'à 9,5 pt puis retire des paragraphes ENTIERS (jamais de coupe au milieu d'une phrase) ; R2 p12
+(`__dernierGuide.bio` = {taille, lignes, paragraphes, omis}) et page R1 (hauteur 230).
+**Cadrage sur le VISAGE (10/10)** : `guide-r1.json` → `equipe[].visage` = [x, y, w, h] relatifs (détectés une
+fois avec YuNet/OpenCV, tools : scratch) + `taille` [w, h] de la photo ; `visageDe(cs, img)` (même nom, mêmes
+dimensions, sinon null) ; `cadrageVisage(img, W, H, visage)` : fenêtre = 3 × largeur du visage (≥ 45 % de la
+photo), visage à 42 % (carré) / 36 % (portrait) de la hauteur, ≥ 12 % de marge au-dessus du visage. Utilisé par
+`recadrerRond(src, px, cs)`, `photoCarree(src, px, cs)`, `recadrerImage(…, visage, cs)` (en-tête courriers,
+R2 p12). `CARRE_VERSION` : les carrés d'e-mail plus vieux sont recalculés au démarrage (`photo_carre_le`).
+**Livret prix (10/10)** : ventes et biens en concurrence classés par écart de pièces (même nombre, ±1,
+pièces inconnues = 1,5, ±2…) puis distance ; `piecesRef` pour maison et appartement ; les 4 premiers
+pré-cochés ; puce « T3 » sur les biens du même nombre de pièces, « pièces ? » sinon. **Légende de la carte
+R2** : `ventesTotal` / `estimationsTotal` (la liste reste plafonnée à 80 / 60 pour le dessin). **Code postal**
+du parcours : `completerCodePostal()` (BAN) au choix d'un contact et au changement d'adresse / ville quand il
+est vide ; le contact pré-remplit aussi `px-cp`. admin.js : `varianteGuideR1(cs)` → "cauderan" si `cs.agence === "cauderan"`,
 cache `guideR1Cache[variante]`, `ZONES_AVIS.cauderan` (chiffres d'avis à 18,8 pt aux emplacements de cette
 page) passé à `redessinerAvisAgence(doc, page, ch, variante)`. `__dernierGuide.variante`. R2 : `varianteGuide(cs)`
 commune aux deux générateurs, `guideR2Cache[variante]`. Le script produit les deux PDF d'un coup

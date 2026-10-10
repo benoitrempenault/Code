@@ -191,203 +191,493 @@
    "nom": "Rempenault",
    "fonction": "Directeur",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/benoit-rempenault.jpg"
+   "photo": "assets/conseillers/benoit-rempenault.jpg",
+   "visage": [
+    0.43,
+    0.378,
+    0.163,
+    0.164
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Tiéphaine",
    "nom": "Duverger",
    "fonction": "Directeur",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/tiephaine-duverger.jpg"
+   "photo": "assets/conseillers/tiephaine-duverger.jpg",
+   "visage": [
+    0.37,
+    0.128,
+    0.26,
+    0.268
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Stéphanie",
    "nom": "Cabrera",
    "fonction": "Assistante juridique",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/stephanie-cabrera.jpg"
+   "photo": "assets/conseillers/stephanie-cabrera.jpg",
+   "visage": [
+    0.414,
+    0.399,
+    0.147,
+    0.11
+   ],
+   "taille": [
+    360,
+    640
+   ]
   },
   {
    "prenom": "Gaby",
    "nom": "Hivert",
    "fonction": "",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/gaby-hivert.jpg"
+   "photo": "assets/conseillers/gaby-hivert.jpg",
+   "visage": [
+    0.4,
+    0.335,
+    0.161,
+    0.166
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Nathalie",
    "nom": "Frick",
    "fonction": "",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/nathalie-frick.jpg"
+   "photo": "assets/conseillers/nathalie-frick.jpg",
+   "visage": [
+    0.271,
+    0.285,
+    0.203,
+    0.175
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Teddy",
    "nom": "Besson",
    "fonction": "",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/teddy-besson.jpg"
+   "photo": "assets/conseillers/teddy-besson.jpg",
+   "visage": [
+    0.003,
+    0.329,
+    0.263,
+    0.267
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Laurence",
    "nom": "Bougault",
    "fonction": "",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/laurence-bougault.jpg"
+   "photo": "assets/conseillers/laurence-bougault.jpg",
+   "visage": [
+    0.429,
+    0.4,
+    0.17,
+    0.155
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Emma",
    "nom": "Geoffrion",
    "fonction": "",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/emma-geoffrion.jpg"
+   "photo": "assets/conseillers/emma-geoffrion.jpg",
+   "visage": [
+    0.094,
+    0.212,
+    0.257,
+    0.234
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Rémi",
    "nom": "Blanc",
    "fonction": "",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/remi-blanc.jpg"
+   "photo": "assets/conseillers/remi-blanc.jpg",
+   "visage": [
+    0.438,
+    0.371,
+    0.161,
+    0.169
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Lucie",
    "nom": "Giusti Marcilhac",
    "fonction": "",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/lucie-giusti-marcilhac.jpg"
+   "photo": "assets/conseillers/lucie-giusti-marcilhac.jpg",
+   "visage": [
+    0.401,
+    0.359,
+    0.18,
+    0.17
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Adeline",
    "nom": "Lebon",
    "fonction": "",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/adeline-lebon.jpg"
+   "photo": "assets/conseillers/adeline-lebon.jpg",
+   "visage": [
+    0.424,
+    0.387,
+    0.14,
+    0.145
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Vincent",
    "nom": "Leroux",
    "fonction": "",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/vincent-leroux.jpg"
+   "photo": "assets/conseillers/vincent-leroux.jpg",
+   "visage": [
+    0.409,
+    0.35,
+    0.143,
+    0.136
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Adélaïde",
    "nom": "Rempenault",
    "fonction": "",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/adelaide-rempenault.jpg"
+   "photo": "assets/conseillers/adelaide-rempenault.jpg",
+   "visage": [
+    0.038,
+    0.225,
+    0.292,
+    0.252
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Laurence",
    "nom": "Ariztoy",
    "fonction": "",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/laurence-ariztoy.jpg"
+   "photo": "assets/conseillers/laurence-ariztoy.jpg",
+   "visage": [
+    0.382,
+    0.389,
+    0.155,
+    0.147
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Marine",
    "nom": "Zamora",
    "fonction": "",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/marine-zamora.jpg"
+   "photo": "assets/conseillers/marine-zamora.jpg",
+   "visage": [
+    0.423,
+    0.333,
+    0.165,
+    0.177
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Léa",
    "nom": "Vasseur",
    "fonction": "Assistante Transaction",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/lea-vasseur.jpg"
+   "photo": "assets/conseillers/lea-vasseur.jpg",
+   "visage": [
+    0.414,
+    0.358,
+    0.158,
+    0.159
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Nicolas",
    "nom": "Fauchon",
    "fonction": "",
    "agence": "saint-medard",
-   "photo": "assets/conseillers/nicolas-fauchon.jpg"
+   "photo": "assets/conseillers/nicolas-fauchon.jpg",
+   "visage": [
+    0.008,
+    0.391,
+    0.264,
+    0.346
+   ],
+   "taille": [
+    500,
+    500
+   ]
   },
   {
    "prenom": "Benjamin",
    "nom": "Faure",
    "fonction": "Directeur Century 21",
    "agence": "cauderan",
-   "photo": "assets/conseillers/benjamin-faure.jpg"
+   "photo": "assets/conseillers/benjamin-faure.jpg",
+   "visage": [
+    0.39,
+    0.063,
+    0.186,
+    0.262
+   ],
+   "taille": [
+    640,
+    640
+   ]
   },
   {
    "prenom": "Nathan",
    "nom": "Delbecq",
    "fonction": "",
    "agence": "cauderan",
-   "photo": "assets/conseillers/nathan-delbecq.jpg"
+   "photo": "assets/conseillers/nathan-delbecq.jpg",
+   "visage": [
+    0.38,
+    0.083,
+    0.214,
+    0.283
+   ],
+   "taille": [
+    640,
+    640
+   ]
   },
   {
    "prenom": "Cyrielle",
    "nom": "Collegno",
    "fonction": "Assistante Transaction",
    "agence": "cauderan",
-   "photo": "assets/conseillers/cyrielle-collegno.jpg"
+   "photo": "assets/conseillers/cyrielle-collegno.jpg",
+   "visage": [
+    0.359,
+    0.326,
+    0.275,
+    0.29
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Maxime",
    "nom": "Buisson",
    "fonction": "",
    "agence": "cauderan",
-   "photo": "assets/conseillers/maxime-buisson.jpg"
+   "photo": "assets/conseillers/maxime-buisson.jpg",
+   "visage": [
+    0.383,
+    0.156,
+    0.282,
+    0.258
+   ],
+   "taille": [
+    333,
+    500
+   ]
   },
   {
    "prenom": "Laurent",
    "nom": "Denaud",
    "fonction": "",
    "agence": "cauderan",
-   "photo": "assets/conseillers/laurent-denaud.jpg"
+   "photo": "assets/conseillers/laurent-denaud.jpg",
+   "visage": [
+    0.372,
+    0.069,
+    0.287,
+    0.312
+   ],
+   "taille": [
+    360,
+    500
+   ]
   },
   {
    "prenom": "Florian",
    "nom": "Guerrero",
    "fonction": "",
    "agence": "cauderan",
-   "photo": "assets/conseillers/florian-guerrero.jpg"
+   "photo": "assets/conseillers/florian-guerrero.jpg",
+   "visage": [
+    0.327,
+    0.145,
+    0.283,
+    0.263
+   ],
+   "taille": [
+    333,
+    500
+   ]
   },
   {
    "prenom": "Laura",
    "nom": "Guiheneuf",
    "fonction": "",
    "agence": "cauderan",
-   "photo": "assets/conseillers/laura-guiheneuf.jpg"
+   "photo": "assets/conseillers/laura-guiheneuf.jpg",
+   "visage": [
+    0.46,
+    0.098,
+    0.193,
+    0.251
+   ],
+   "taille": [
+    640,
+    640
+   ]
   },
   {
    "prenom": "Lucille",
    "nom": "Coutard",
    "fonction": "Directrice",
    "agence": "saint-aubin",
-   "photo": "assets/conseillers/lucille-coutard.jpg"
+   "photo": "assets/conseillers/lucille-coutard.jpg",
+   "visage": [
+    0.422,
+    0.264,
+    0.223,
+    0.239
+   ],
+   "taille": [
+    480,
+    640
+   ]
   },
   {
    "prenom": "Fiona",
    "nom": "Leroux",
    "fonction": "Conseillère",
    "agence": "saint-aubin",
-   "photo": "assets/conseillers/fiona-leroux.jpg"
+   "photo": "assets/conseillers/fiona-leroux.jpg",
+   "visage": [
+    0.336,
+    0.151,
+    0.319,
+    0.333
+   ],
+   "taille": [
+    378,
+    500
+   ]
   },
   {
    "prenom": "Emilie",
    "nom": "Besson",
    "fonction": "Conseillère",
    "agence": "saint-aubin",
-   "photo": "assets/conseillers/emilie-besson.jpg"
+   "photo": "assets/conseillers/emilie-besson.jpg",
+   "visage": [
+    0.376,
+    0.207,
+    0.366,
+    0.393
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Célia",
    "nom": "Kunika",
    "fonction": "Gestionnaire",
    "agence": "saint-aubin",
-   "photo": "assets/conseillers/celia-kunika.jpg"
+   "photo": "assets/conseillers/celia-kunika.jpg",
+   "visage": [
+    0.326,
+    0.197,
+    0.313,
+    0.317
+   ],
+   "taille": [
+    375,
+    500
+   ]
   },
   {
    "prenom": "Amélie",
    "nom": "Schiltz",
    "fonction": "Gestionnaire",
    "agence": "saint-aubin",
-   "photo": "assets/conseillers/amelie-schiltz.jpg"
+   "photo": "assets/conseillers/amelie-schiltz.jpg",
+   "visage": [
+    0.409,
+    0.225,
+    0.224,
+    0.284
+   ],
+   "taille": [
+    557,
+    640
+   ]
   }
  ],
  "mot": {
