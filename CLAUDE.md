@@ -1584,6 +1584,12 @@ publique mais **neutre** — ni marque Century 21 ni mention ABR IMMO, l'agence 
 (requires Settings → Pages → Source = GitHub Actions). It deliberately excludes the client
 documents (`*.pdf`, `*.docx`) present in the repo root — **do not publish those**.
 
+**Pousser sur `claude/property-brochure-generator-645oap` = mettre en production.** C'est
+la branche par défaut : `deploy-server.yml` redéploie le Worker (et le schéma D1) à chaque
+push touchant `server/**`, `pages.yml` republie le site à chaque push. **Règle de Benoît
+(29/09/2026) : toute modification passe par une branche séparée et une pull request vers
+cette branche** — jamais de push direct dessus. Le déploiement se fait à la fusion de la PR.
+
 ## Security
 
 - **Untrusted input = imported `.json` / library brochures.** All text is rendered through
