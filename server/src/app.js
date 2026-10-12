@@ -70,7 +70,9 @@ export function createApp(env) {
   // Base des liens de connexion : pointe sur le DOSSIER de l'app compte
   // (ex. https://studiobrochure.fr/app). Chaque agence peut avoir la sienne
   // (app_base) — à défaut, APP_BASE du serveur, puis la première origine.
-  const appBase = (agency) => String((agency && agency.app_base) || env.APP_BASE || origins[0] || "").replace(/\/$/, "");
+  // APP_BASE_KADIMA (Worker) prime sur l'app_base en base de l'agence Kadima : la bascule de
+  // domaine (studio.century21-kadima.fr) se fait sans toucher à la base de données.
+  const appBase = (agency) => String((agency && agency.id === (env.KADIMA_AGENCY_ID || "ag_8csricwct9") && env.APP_BASE_KADIMA) || (agency && agency.app_base) || env.APP_BASE || origins[0] || "").replace(/\/$/, "");
 
   const aiModels = String(env.AI_MODELS || DEFAULT_AI_MODELS).split(",").map((s) => s.trim()).filter(Boolean);
   const aiRatePerMin = parseInt(env.AI_RATE_PER_MIN, 10) || DEFAULT_AI_RATE_PER_MIN;
@@ -285,6 +287,9 @@ export function createApp(env) {
     // Réponse identique que le compte existe ou non (pas de fuite d'annuaire).
     const generic = { ok: true, message: "Si un compte existe pour cette adresse, un lien de connexion vient d'être envoyé." };
     if (!user) return c.json(generic);
+    // Un conseiller « inactif » dans l'Équipe (départ) n'entre plus : même réponse, rien ne part.
+    const profil = await db.get("SELECT actif FROM crm_conseillers WHERE agency_id = ? AND lower(email) = ? ORDER BY updated_at DESC LIMIT 1", [user.agency_id, email]);
+    if (profil && !profil.actif) return c.json(generic);
     const burst = await db.get(
       "SELECT COUNT(*) AS n FROM login_tokens WHERE user_id = ? AND created_at > ?",
       [user.id, now() - 600]
@@ -540,31 +545,35 @@ export function createApp(env) {
     return c.json({ users: rows, seats: ctx.agency.seats, used: rows.length });
   });
 
+  // Créer un compte dans une agence (sièges, unicité) et lui envoyer son lien
+  // d'accès (7 jours). Partagé : « Mon compte », l'Équipe de l'Administration
+  // et l'import des conseillers. Lève { status, message } en cas de refus.
+  const lienBienvenue = (user) => issueLoginLink({ id: user.id, email: user.email, agency_id: user.agency_id }, 7 * 86400, {
+    subject: "Votre accès Studio est prêt",
+    intro: "Votre agence vient de vous ouvrir un accès à Studio. Cliquez pour vous connecter (lien valable 7 jours) — un code vous sera demandé sur un nouvel appareil :"
+  });
+  async function creerCompteAgence(agency, emailBrut, nameBrut) {
+    const email = String(emailBrut || "").trim().toLowerCase();
+    const name = String(nameBrut || "").trim().slice(0, 120);
+    const refus = (status, message) => { const e = new Error(message); e.status = status; return e; };
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw refus(400, "E-mail invalide.");
+    if (await db.get("SELECT id FROM users WHERE email = ?", [email])) throw refus(409, "Cet e-mail a déjà un compte.");
+    const count = await db.get("SELECT COUNT(*) AS n FROM users WHERE agency_id = ?", [agency.id]);
+    if ((count?.n || 0) >= agency.seats) throw refus(409, "Tous les sièges sont occupés (" + agency.seats + ") — retirez un conseiller ou contactez Studio Brochure pour en ajouter.");
+    const user = { id: randId("us"), email, name, agency_id: agency.id, role: "member" };
+    await db.run("INSERT INTO users (id, agency_id, email, name, role, created_at) VALUES (?, ?, ?, ?, 'member', ?)", [user.id, agency.id, email, name, now()]);
+    const { link } = await lienBienvenue(user);
+    return { user, invite_link: link };
+  }
   app.post("/agency/users", async (c) => {
     const ctx = await sessionFrom(c);
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
     if (!isAgencyAdmin(ctx)) return err(c, 403, "Réservé à l'administrateur de l'agence.");
     if (!agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif — réactivez-le pour ajouter des conseillers.");
     const b = await c.req.json().catch(() => ({}));
-    const email = String(b.email || "").trim().toLowerCase();
-    const name = String(b.name || "").trim().slice(0, 120);
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(c, 400, "E-mail invalide.");
-    if (await db.get("SELECT id FROM users WHERE email = ?", [email])) return err(c, 409, "Cet e-mail a déjà un compte.");
-    const count = await db.get("SELECT COUNT(*) AS n FROM users WHERE agency_id = ?", [ctx.agency.id]);
-    if ((count?.n || 0) >= ctx.agency.seats) {
-      return err(c, 409, "Tous les sièges sont occupés (" + ctx.agency.seats + ") — retirez un conseiller ou contactez Studio Brochure pour en ajouter.");
-    }
-    const user = { id: randId("us"), email, name };
-    await db.run(
-      "INSERT INTO users (id, agency_id, email, name, role, created_at) VALUES (?, ?, ?, ?, 'member', ?)",
-      [user.id, ctx.agency.id, user.email, user.name, now()]
-    );
-    // Envoie tout de suite au conseiller son lien d'accès (valable 7 jours).
-    const { link } = await issueLoginLink({ id: user.id, email: user.email, agency_id: ctx.agency.id }, 7 * 86400, {
-      subject: "Votre accès Studio Brochure est prêt",
-      intro: "Votre agence vient de vous ouvrir un accès à Studio Brochure. Cliquez pour vous connecter (lien valable 7 jours) :"
-    });
-    return c.json({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: "member" }, invite_link: link });
+    let r;
+    try { r = await creerCompteAgence(ctx.agency, b.email, b.name); } catch (e) { return err(c, e.status || 500, e.message); }
+    return c.json({ ok: true, user: { id: r.user.id, email: r.user.email, name: r.user.name, role: "member" }, invite_link: r.invite_link });
   });
 
   // Ouvrir (ou fermer) la page Administration à un conseiller : son rôle passe
@@ -3900,7 +3909,7 @@ export function createApp(env) {
   // offres-routes.js — elles partagent les gardes de session de ce fichier.
   monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAgencyAdmin, filesReady, DOSSIERS_MAX });
   // Parcours R1/R2 (envoi de documents) + profils conseillers : parcours.js.
-  monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, apiBase: env.APP_API_BASE || "" });
+  monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, apiBase: env.APP_API_BASE || "", creerCompte: creerCompteAgence, lienBienvenue });
   monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAgencyAdmin, apiBase: env.APP_API_BASE || "" });
   monterRoutesPortails(app, { db, env, err, crmCtx, agencyOpen });
   monterRoutesMeta(app, { db, env, err, crmCtx, urlsAnnonces: () => urlsAnnonces(env) });

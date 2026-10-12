@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/admin.css?v=81" />
+  <link rel="stylesheet" href="assets/css/admin.css?v=82" />
 </head>
 <body>
 
@@ -334,12 +334,15 @@
       <div id="table-agences"></div>
     </div>
         <div class="carte">
-      <h2>Les conseillers</h2>
-      <p class="aide">Chaque conseiller signe ses documents et ses e-mails du parcours R1/R2 avec sa photo,
-        sa fonction, son téléphone et son e-mail. La photo est réduite ici avant l'envoi (200 Ko au plus).</p>
+      <h2>L'équipe</h2>
+      <p class="aide">Une ligne par personne : son profil (photo, fonction, téléphone, e-mail — il signe ses documents
+        et ses e-mails du parcours R1/R2) et son accès à Studio. Trois cases : <strong>Actif</strong> (entre et apparaît ;
+        décoché = parti, sessions fermées), <strong>Direction</strong> (voit tous les parcours), <strong>Administration</strong>
+        (cette page). Chacun entre avec son e-mail : un lien de connexion, puis un code SMS sur un nouvel appareil.</p>
       <div class="barre"><button class="btn btn-or" id="btn-nouveau-conseiller">+ Ajouter un conseiller</button>
-        <button class="btn" id="btn-importer-conseillers" title="Crée un profil pour chaque compte Studio de l'agence, chaque conseiller du guide R1 et de l'annuaire qui n'en a pas encore">⟳ Importer les conseillers (accès créés)</button></div>
-      <p class="petit">Les conseillers qui ont un accès Studio reçoivent automatiquement leur profil ; complétez photo, fonction et téléphone.</p>
+        <button class="btn" id="btn-importer-conseillers" title="Crée un profil pour chaque conseiller du site, chaque compte Studio et chaque conseiller de l'annuaire qui n'en a pas encore — et le compte de connexion des adresses century21.fr">⟳ Importer depuis le site</button>
+        <button class="btn" id="btn-journal-connexions" hidden>📜 Journal des connexions</button></div>
+      <p class="petit">L'import depuis le site crée aussi le compte de connexion des conseillers qui ont une adresse century21.fr ; les autres se créent avec « ➕ Créer l'accès ».</p>
       <div id="table-conseillers"></div>
     </div>
 <div class="carte">
@@ -472,7 +475,7 @@
 <script src="assets/js/vendor/fontkit.umd.min.js"></script>
 <script src="assets/js/vendor/qrcode.min.js"></script>
 <script src="assets/js/zip.js"></script>
-<script src="assets/js/admin.js?v=81"></script>
+<script src="assets/js/admin.js?v=82"></script>
 <script src="../assets/js/compte-bandeau.js"></script>
 </body>
 </html>

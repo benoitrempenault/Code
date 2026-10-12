@@ -1291,6 +1291,20 @@ leroymerlin.fr refuse les robots) : logo officiel Leroy Merlin (SVG Wikimedia) +
 en Montserrat Regular, le E en trois barres vert / jaune / orange. Assets `?v=81` (les PDF des guides sont
 chargés via `asset()`, donc le ?v du script suffit).
 
+**Accès, choix 2 — une seule liste « L'équipe » (12/10, soir)** : Administration → Réglages → « L'équipe »
+(ex-« Les conseillers ») : pour l'administrateur, colonne « Accès » par profil = cases **Actif** (crm_conseillers.actif ;
+décoché → sessions révoquées, liens supprimés, `/auth/request-link` répond générique sans rien envoyer),
+**Direction** (crm_conseillers_direction), **Administration** (users.role, jamais son propre rôle), + état du compte
+(appareils connectés 7 j, mobile masqué) et « ✉ Lien » (bienvenue 7 j) ou « ➕ Créer l'accès ». Serveur (parcours.js,
+crmCtx) : `GET /crm/equipe` → `{ comptes: { [csId]: { id, email, name, role, mobile, mobile_verifie, appareils, vu_le } },
+sansProfil: [comptes sans profil], seats, used }` (lien par user_id puis par e-mail), `PUT /crm/equipe/:id`
+`{ actif?, direction?, administration? }`, `POST /crm/equipe/:id/compte` `{ email? }` (→ `creerCompteAgence`
+factorisé dans app.js, passé en option `creerCompte` ; lie user_id), `POST /crm/equipe/:id/lien` (`lienBienvenue`),
+`POST /crm/equipe/profil` `{ user_id }` (profil pour un compte orphelin). `POST /crm/conseillers/importer` crée aussi
+le compte des profils actifs `@century21.fr` sans compte (`comptes`, `sansSiege` ; `comptes: false` pour s'en passer).
+« Mon compte » n'a plus « Mes conseillers » (carte → lien vers l'Administration). Journal : bouton
+« 📜 Journal des connexions » (modale, `GET /agency/connexions`). Assets `?v=82`, compte.js `?v=9`.
+
 **Accès, choix 3 et 4 — lien e-mail + code SMS, appareils, journal (12/10, soir)** : plus de mot de
 passe (`/auth/password-login`, `/auth/set-password`, `/agency/users/:id/password` → **410**). Tables
 `sessions_appareils` (token_hash, nom déduit de l'UA « iPhone · Safari », ua, ip, verifie, canal,

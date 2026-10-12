@@ -30,7 +30,12 @@ crons = ["0 5 * * 1,5", "30 3 * * *", "0 6 * * *"]
 
 [vars]
 # century21-kadima.fr : l'espace public de l'offre d'achat (offre/) y sera posé (CORS).
-APP_ORIGINS = "https://benoitrempenault.github.io,https://studiobrochure.fr,https://century21-kadima.fr,https://www.century21-kadima.fr"
+APP_ORIGINS = "https://benoitrempenault.github.io,https://studio.century21-kadima.fr,https://studiobrochure.fr,https://century21-kadima.fr,https://www.century21-kadima.fr"
+# Domaine propre des apps Kadima (choix 5 du 12/10) : une fois le DNS posé (CNAME studio →
+# benoitrempenault.github.io) et le fichier CNAME publié, poser APP_BASE_KADIMA et basculer
+# SUIVI_BASE / OFFRE_BASE / BILANS_BASE sur https://studio.century21-kadima.fr/… (les anciennes
+# adresses github.io redirigent d'elles-mêmes vers le domaine).
+# APP_BASE_KADIMA = "https://studio.century21-kadima.fr/mandat-pro"
 SUIVI_BASE = "https://benoitrempenault.github.io/Code/suivi"  # liens des récaps
 OFFRE_BASE = "https://benoitrempenault.github.io/Code/offre"  # espace public de l'offre d'achat (liens magiques) — passer à https://century21-kadima.fr/offre une fois le dossier posé sur le site
 SITE_STATS_BASE = "https://api.century21-kadima.fr"  # bilans vendeurs : stats par annonce du site (secret SITE_STATS_KEY = STUDIO_STATS_KEY côté Render)

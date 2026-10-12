@@ -150,24 +150,15 @@
     <p class="hint" style="margin-top:8px">Une session s'éteint d'elle-même après 7 jours sans activité, et au plus tard 90 jours après l'ouverture.</p>
   </div>
 
-  <!-- Gestion des conseillers (admin de l'agence uniquement) -->
+  <!-- L'équipe se gère dans l'Administration (admin de l'agence uniquement) -->
   <div class="card" id="cardTeam" hidden>
-    <h2>Mes conseillers</h2>
-    <p class="hint" id="teamSeats"></p>
-    <div id="teamList" style="margin:6px 0 4px"></div>
-    <label>Ajouter un conseiller — e-mail
-      <input type="email" id="teamEmail" placeholder="prenom.nom@century21.fr" autocomplete="off" />
-    </label>
-    <label>Nom (facultatif)
-      <input type="text" id="teamName" placeholder="Prénom Nom" autocomplete="off" />
-    </label>
-    <button class="btn btn--primary btn--full" id="btnAddConseiller" type="button">Ajouter et envoyer l'accès</button>
-    <p class="msg" id="teamMsg" role="status" aria-live="polite"></p>
-    <p class="hint" style="margin-top:8px">Le conseiller reçoit aussitôt un e-mail avec son lien de connexion.
-      Le nombre de conseillers est limité au nombre de sièges de votre abonnement.</p>
+    <h2>L'équipe</h2>
+    <p class="hint">Conseillers, accès, cases Actif / Direction / Administration et journal des connexions :
+      tout se gère dans l'Administration, rubrique Réglages → L'équipe.</p>
+    <a class="btn btn--primary btn--full" href="../administration/">Ouvrir l'Administration →</a>
   </div>
 
   <script src="assets/js/config.js?v=3"></script>
-  <script src="assets/js/compte.js?v=8"></script>
+  <script src="assets/js/compte.js?v=9"></script>
 </body>
 </html>

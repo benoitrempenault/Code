@@ -46,6 +46,7 @@ export default {
       ANTHROPIC_BASE: env.ANTHROPIC_BASE || "",
       APP_ORIGINS: env.APP_ORIGINS || "",
       APP_BASE: env.APP_BASE || "",
+      APP_BASE_KADIMA: env.APP_BASE_KADIMA || "", // domaine propre des apps Kadima (choix 5)
       RESEND_API_KEY: env.RESEND_API_KEY || "",
       BREVO_API_KEY: env.BREVO_API_KEY || "", // SMS transactionnels (vœux d'anniversaire)
       // Fichier des mandats AMEPI (Amanda) : identifiants du compte de l'agence

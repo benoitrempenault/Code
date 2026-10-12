@@ -2554,6 +2554,45 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     await db.run("DELETE FROM login_tokens WHERE user_id = ?", [cpt.json.user.id]);
     ok((await callS("/agency/users/" + cpt.json.user.id, { headers: auth, method: "DELETE" })).status === 200, "le compte de test est retiré (siège libéré)");
     await db.run("DELETE FROM crm_conseillers WHERE agency_id = ? AND email = 'code2fa@ach-test.fr'", [agId]); }
+  /* ---- L'équipe : une seule liste (12/10) ---------------------------------- */
+  console.log("— L'équipe : profils + comptes réunis, cases Actif / Direction / Administration, création d'accès, import");
+  { await call("/admin/agencies/" + agId, { headers: admin, body: { seats: 40 } });
+    const eq0 = (await callR("/crm/equipe", { headers: auth })).json;
+    ok(eq0 && eq0.comptes && Array.isArray(eq0.sansProfil) && eq0.seats === 40, "GET /crm/equipe : comptes par profil, comptes sans profil, sièges");
+    const paul = (await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "Paul", nom: "ÉQUIPE", email: "paul.equipe@century21.fr", telephone: "06 11 22 33 44" } })).json;
+    const cr = await callR("/crm/equipe/" + paul.id + "/compte", { headers: auth, body: {} });
+    ok(cr.status === 200 && cr.json.user.email === "paul.equipe@century21.fr" && /#token=/.test(cr.json.invite_link), "« Créer l'accès » crée le compte et envoie le lien de bienvenue (" + JSON.stringify(cr.json.error || "") + ")");
+    const eq1 = (await callR("/crm/equipe", { headers: auth })).json;
+    ok(eq1.comptes[paul.id] && eq1.comptes[paul.id].role === "member" && eq1.comptes[paul.id].appareils === 0, "le compte apparaît sous le profil de Paul");
+    ok((await callR("/crm/equipe/" + paul.id + "/compte", { headers: auth, body: {} })).status === 409, "deux fois : refusé (déjà un compte)");
+    const adm = await callR("/crm/equipe/" + paul.id, { headers: auth, method: "PUT", body: { administration: true, direction: true } });
+    ok(adm.status === 200 && adm.json.administration === true && adm.json.direction === true && (await db.get("SELECT role FROM users WHERE id = ?", [cr.json.user.id])).role === "admin", "Administration + Direction cochées : le compte devient admin, le profil direction");
+    const exP = await callR("/auth/exchange", { body: { token: cr.json.invite_link.split("#token=")[1] } });
+    ok(exP.status === 200 && (await callR("/me", { headers: { Authorization: "Bearer " + exP.json.session } })).status === 200, "Paul entre avec son lien de bienvenue (pas de mobile vérifié côté Brevo ici : lien seul)");
+    const inac = await callR("/crm/equipe/" + paul.id, { headers: auth, method: "PUT", body: { actif: false } });
+    ok(inac.status === 200 && inac.json.actif === false && (await callR("/me", { headers: { Authorization: "Bearer " + exP.json.session } })).status === 401, "Inactif : sa session tombe");
+    const lienInactif = await callR("/auth/request-link", { body: { email: "paul.equipe@century21.fr" } });
+    ok(lienInactif.status === 200 && !lienInactif.json.dev_link, "inactif : la demande de lien répond pareil, mais rien ne part");
+    ok((await callR("/crm/equipe/" + paul.id + "/lien", { headers: auth, body: {} })).status === 400, "renvoyer le lien à un inactif : refusé");
+    await callR("/crm/equipe/" + paul.id, { headers: auth, method: "PUT", body: { actif: true, administration: false } });
+    const renv = await callR("/crm/equipe/" + paul.id + "/lien", { headers: auth, body: {} });
+    ok(renv.status === 200 && renv.json.email === "paul.equipe@century21.fr" && /#token=/.test(renv.json.invite_link) && (await db.get("SELECT role FROM users WHERE id = ?", [cr.json.user.id])).role === "member", "actif à nouveau, Administration décochée : lien de bienvenue renvoyé");
+    const moi = (await callR("/me", { headers: auth })).json.user;
+    const csMoi = await db.get("SELECT id FROM crm_conseillers WHERE agency_id = ? AND lower(email) = ?", [agId, String(moi.email).toLowerCase()]);
+    if (csMoi) ok((await callR("/crm/equipe/" + csMoi.id, { headers: auth, method: "PUT", body: { administration: false } })).status === 400, "on ne retire pas sa propre Administration");
+    const imp = await callR("/crm/conseillers/importer", { headers: auth, body: { profils: [{ prenom: "Léa", nom: "IMPORTÉE", email: "lea.importee@century21.fr" }, { prenom: "Marc", nom: "EXTERNE", email: "marc@autre-domaine.fr" }] } });
+    ok(imp.status === 200 && imp.json.comptes >= 1 && !!(await db.get("SELECT id FROM users WHERE email = 'lea.importee@century21.fr'")) && !(await db.get("SELECT id FROM users WHERE email = 'marc@autre-domaine.fr'")),
+      "l'import crée le compte century21.fr tout seul, pas les autres domaines (" + JSON.stringify({ comptes: imp.json.comptes, sansSiege: imp.json.sansSiege }) + ")");
+    const orphelin = await callR("/agency/users", { headers: auth, body: { email: "sans.profil@century21.fr", name: "Sans Profil" } });
+    ok((await callR("/crm/equipe", { headers: auth })).json.sansProfil.some((u) => u.email === "sans.profil@century21.fr"), "un compte sans profil conseiller est listé à part");
+    const pr = await callR("/crm/equipe/profil", { headers: auth, body: { user_id: orphelin.json.user.id } });
+    ok(pr.status === 200 && (await db.get("SELECT prenom, user_id FROM crm_conseillers WHERE id = ?", [pr.json.id])).prenom === "Sans" && !(await callR("/crm/equipe", { headers: auth })).json.sansProfil.some((u) => u.email === "sans.profil@century21.fr"), "« Créer le profil » le rattache à la liste");
+    ok((await callR("/crm/equipe", { headers: { Authorization: "Bearer " + exP.json.session } })).status === 401, "l'équipe est réservée aux administrateurs (session tombée ici : 401)");
+    for (const e of ["paul.equipe@century21.fr", "lea.importee@century21.fr", "sans.profil@century21.fr"]) {
+      const u = await db.get("SELECT id FROM users WHERE email = ?", [e]); if (u) await callR("/agency/users/" + u.id, { headers: auth, method: "DELETE" });
+      await db.run("DELETE FROM crm_conseillers WHERE agency_id = ? AND lower(email) = ?", [agId, e]);
+    }
+    await db.run("DELETE FROM crm_conseillers WHERE agency_id = ? AND email = 'marc@autre-domaine.fr'", [agId]); }
   ok(runSms.sms === 2, "deux vœux partis par SMS (mobile requis, le fixe est écarté)");
   const smsTom = smsRecus.find((s) => s.recipient === "+33662125193");
   ok(smsTom && /Rémi/.test(smsTom.content) && /Joyeux anniversaire/.test(smsTom.content) && smsTom.sender.length <= 11,

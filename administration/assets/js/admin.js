@@ -2502,15 +2502,69 @@
         agences().map((a) => '<option value="' + escH(a.cle) + '"' + (filtre === a.cle ? " selected" : "") + ">" + escH(a.nom) + " (" + conseillers.filter((c) => c.agence === a.cle).length + ")</option>").join("") +
         '<option value="-"' + (filtre === "-" ? " selected" : "") + ">Sans agence (" + conseillers.filter((c) => !c.agence).length + ")</option></select></label>"
       : "") + '<button class="btn" id="btn-relever-avis" style="margin-left:auto;" title="Relit la page de chaque conseiller sur century21-kadima.fr et reprend ses avis clients">🔄 Relever les avis du site</button></div>';
+    // L'équipe (12/10) : pour l'administrateur, le compte de chaque conseiller et ses trois
+    // cases — Actif, Direction, Administration — dans la même liste que les profils.
+    let equipe = null;
+    if (!modeConseiller) { try { equipe = await api("/crm/equipe"); } catch { equipe = null; } }
+    const petit = 'style="padding:4px 10px;font-size:12px;"';
+    const cellAcces = (c) => {
+      if (!equipe) return "";
+      const k = equipe.comptes[c.id];
+      const kase = (cle, coche, libelle, titre, off) => '<label class="case" style="display:inline-flex;margin-right:10px;white-space:nowrap;font-size:13px;" title="' + escH(titre) + '"><input type="checkbox" data-eq="' + cle + '" data-cs="' + c.id + '"' + (coche ? " checked" : "") + (off ? " disabled" : "") + " /> " + libelle + "</label>";
+      return '<div data-stop="1" style="white-space:nowrap;">' +
+        kase("actif", c.actif, "Actif", "Entre dans Studio et apparaît dans les listes. Décoché = parti : ses sessions sont fermées, plus aucun lien ne lui part.") +
+        kase("direction", c.direction, "Direction", "Voit tous les parcours R1/R2 de l'agence.") +
+        kase("administration", k && k.role === "admin", "Administration", k ? "Ouvre la page Administration (contacts, imports, réglages)." : "Créez d'abord l'accès de ce conseiller.", !k) +
+        '<div class="petit" style="margin-top:4px;">' + (k
+          ? (k.appareils ? k.appareils + " appareil" + (k.appareils > 1 ? "s" : "") + " connecté" + (k.appareils > 1 ? "s" : "") : "jamais connecté") + (k.mobile ? " · 📱 " + escH(k.mobile) + (k.mobile_verifie ? "" : " (à vérifier)") : " · sans mobile, lien seul") +
+            ' <button class="btn" data-lien="' + c.id + '" ' + petit + ' title="Lui renvoyer un lien de connexion (valable 7 jours)">✉ Lien</button>'
+          : '<button class="btn btn-or" data-creer="' + c.id + '" ' + petit + ' title="Créer son compte Studio et lui envoyer son lien de connexion">➕ Créer l\'accès</button>') + "</div></div>";
+    };
+    const sansProfil = equipe && equipe.sansProfil.length
+      ? '<p class="petit" style="margin-top:10px;">Comptes sans profil conseiller : ' + equipe.sansProfil.map((u) => escH((u.name ? u.name + " · " : "") + u.email) + (u.role === "admin" ? " (admin)" : "") +
+          ' <button class="btn" data-profil="' + escH(u.id) + '" ' + petit + '>Créer le profil</button>').join(" — ") + "</p>"
+      : "";
+    const sieges = equipe ? '<p class="petit" style="margin:6px 0 0;">' + equipe.used + " / " + equipe.seats + " sièges utilisés.</p>" : "";
     zone.innerHTML = menuAgences + (visibles.length
-      ? '<div class="tableau-cadre"><table><thead><tr><th></th><th>Conseiller</th><th>Fonction</th><th>Téléphone</th><th>E-mail</th><th></th></tr></thead><tbody>' +
+      ? '<div class="tableau-cadre"><table><thead><tr><th></th><th>Conseiller</th><th>Fonction</th><th>Téléphone</th><th>E-mail</th>' + (equipe ? "<th>Accès</th>" : "") + '<th></th></tr></thead><tbody>' +
         visibles.map((c) => '<tr class="cliquable" data-conseiller="' + c.id + '"><td>' +
           (c.photo_url ? '<img class="avatar" src="' + escH(c.photo_url) + '" alt="" />' : '<span class="avatar"></span>') + "</td><td><strong>" +
           escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</strong>" + (c.actif ? "" : ' <span class="puce grise">inactif</span>') + (c.direction ? ' <span class="puce">direction</span>' : "") + "</td><td>" +
-          escH([c.fonction, nomAgence(c.agence)].filter(Boolean).join(" · ")) + "</td><td>" + escH(fmtTel(c.telephone)) + "</td><td>" + escH(c.email) + "</td><td>✏️</td></tr>").join("") +
-        "</tbody></table></div>"
-      : '<div class="vide">' + (filtre ? "Aucun conseiller dans cette agence." : "Aucun conseiller — ajoutez le premier.") + "</div>");
-    zone.querySelectorAll("tr[data-conseiller]").forEach((tr) => tr.addEventListener("click", () => ouvrirConseiller(tr.dataset.conseiller)));
+          escH([c.fonction, nomAgence(c.agence)].filter(Boolean).join(" · ")) + "</td><td>" + escH(fmtTel(c.telephone)) + "</td><td>" + escH(c.email) + "</td>" + (equipe ? "<td>" + cellAcces(c) + "</td>" : "") + "<td>✏️</td></tr>").join("") +
+        "</tbody></table></div>" + sieges + sansProfil
+      : '<div class="vide">' + (filtre ? "Aucun conseiller dans cette agence." : "Aucun conseiller — ajoutez le premier.") + "</div>" + sansProfil);
+    zone.querySelectorAll("tr[data-conseiller]").forEach((tr) => tr.addEventListener("click", (e) => { if (e.target.closest("[data-stop]")) return; ouvrirConseiller(tr.dataset.conseiller); }));
+    zone.querySelectorAll("input[data-eq]").forEach((cb) => cb.addEventListener("change", async () => {
+      const corps = {}; corps[cb.dataset.eq] = cb.checked;
+      const cs = conseillers.find((x) => x.id === cb.dataset.cs);
+      try {
+        const r = await api("/crm/equipe/" + cb.dataset.cs, { method: "PUT", json: corps });
+        if (cs) { cs.actif = r.actif ? 1 : 0; cs.direction = r.direction; }
+        toast((cs ? [cs.prenom, cs.nom].filter(Boolean).join(" ") + " : " : "") + { actif: r.actif ? "actif" : "inactif (sessions fermées)", direction: r.direction ? "direction" : "plus direction", administration: r.administration ? "accès à l'Administration" : "plus d'Administration" }[cb.dataset.eq] + ".");
+        chargerConseillers();
+      } catch (e) { cb.checked = !cb.checked; toast(e.message, true); }
+    }));
+    zone.querySelectorAll("button[data-creer]").forEach((b) => b.addEventListener("click", async () => {
+      const cs = conseillers.find((x) => x.id === b.dataset.creer);
+      let email = (cs && cs.email) || "";
+      if (!email) { email = (window.prompt("E-mail du conseiller (son adresse century21.fr) :", "") || "").trim(); if (!email) return; }
+      b.disabled = true;
+      try { const r = await api("/crm/equipe/" + b.dataset.creer + "/compte", { json: { email } }); toast("Accès créé : lien de connexion envoyé à " + r.user.email + "."); chargerConseillers(); }
+      catch (e) { b.disabled = false; toast(e.message, true); }
+    }));
+    zone.querySelectorAll("button[data-lien]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { const r = await api("/crm/equipe/" + b.dataset.lien + "/lien", { json: {} }); toast("Lien de connexion renvoyé à " + r.email + " (valable 7 jours)."); }
+      catch (e) { toast(e.message, true); }
+      b.disabled = false;
+    }));
+    zone.querySelectorAll("button[data-profil]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { await api("/crm/equipe/profil", { json: { user_id: b.dataset.profil } }); toast("Profil créé — complétez photo, fonction et téléphone."); chargerConseillers(); }
+      catch (e) { b.disabled = false; toast(e.message, true); }
+    }));
+    const bJ = $("btn-journal-connexions");
+    if (bJ) { bJ.hidden = !equipe; bJ.onclick = ouvrirJournalConnexions; }
     const sel = $("filtre-agence-conseillers");
     if (sel) sel.addEventListener("change", () => { filtreAgenceConseillers = sel.value; rendreConseillers(); });
     const bR = $("btn-relever-avis");
@@ -2525,6 +2579,20 @@
     });
   }
   let filtreAgenceConseillers = ""; // "" = toutes, "-" = sans agence, sinon la clé de l'agence
+  // Le journal des connexions de l'agence (administrateur) : qui, quand, sur quel appareil.
+  async function ouvrirJournalConnexions() {
+    let rows = [];
+    try { rows = (await api("/agency/connexions")).connexions || []; } catch (e) { toast(e.message, true); return; }
+    const quand = (ts) => { try { return new Date(ts * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }); } catch { return ""; } };
+    const libelle = { connexion: "Connexion", "code-envoye": "Code envoyé", "code-ko": "Code refusé", deconnexion: "Déconnexion", revocation: "Tous appareils fermés", "appareil-ferme": "Appareil fermé" };
+    ouvrirModale("📜 Journal des connexions",
+      '<p class="aide">Les 300 derniers événements : connexions (lien e-mail, puis code sur un nouvel appareil), codes refusés, déconnexions et appareils fermés à distance. Un e-mail prévient chaque personne à chaque nouvelle connexion.</p>' +
+      (rows.length ? '<div class="tableau-cadre"><table><thead><tr><th>Quand</th><th>Qui</th><th>Quoi</th><th>Détail</th><th>IP</th></tr></thead><tbody>' +
+        rows.map((r) => "<tr><td>" + escH(quand(r.created_at)) + "</td><td>" + escH(r.nom || r.email || r.user_id) + "</td><td>" + escH(libelle[r.type] || r.type) + "</td><td>" + escH(r.detail || "") + "</td><td class=\"petit\">" + escH(r.ip || "") + "</td></tr>").join("") +
+        "</tbody></table></div>" : '<div class="vide">Aucune connexion enregistrée pour l\'instant.</div>'),
+      '<button class="btn btn-or" id="jc-fermer">Fermer</button>');
+    $("jc-fermer").addEventListener("click", fermerModale);
+  }
   /* --------------------------- Lecture des photos -------------------------- */
   // Les photos arrivent dans tous les formats du téléphone ou du PC : JPEG, PNG,
   // WebP, GIF, BMP, AVIF… et surtout HEIC/HEIF (iPhone). Le navigateur lit ce

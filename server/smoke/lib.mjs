@@ -37,6 +37,9 @@ export async function api(path, opts = {}) {
 export async function creerAgence(nom, email, prenom = "Benoit") {
   const cr = await api("/admin/agencies", { headers: { "X-Admin-Key": ADMIN_KEY }, body: { name: nom, email, user_name: prenom } });
   if (cr.status !== 200) throw new Error("création d'agence impossible : " + JSON.stringify(cr.json));
+  // Des sièges en nombre : l'import des conseillers crée désormais les comptes
+  // century21.fr des profils (12/10), le smoke en ajoute ensuite à la main.
+  await api("/admin/agencies/" + cr.json.agency.id, { headers: { "X-Admin-Key": ADMIN_KEY }, body: { seats: 80 } });
   const ex = await api("/auth/exchange", { body: { token: cr.json.welcome_link.split("#token=")[1] } });
   const compte = { session: ex.json.session, user: ex.json.user, agency: ex.json.agency };
   compte.auth = { Authorization: "Bearer " + compte.session };

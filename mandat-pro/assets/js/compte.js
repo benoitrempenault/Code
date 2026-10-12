@@ -101,134 +101,7 @@
     show("cardMe");
     meUserId = d.user.id;
     chargerAppareils();
-    if (d.user.role === "admin") { $("#cardTeam").hidden = false; loadTeam(); }
-  }
-
-  /* --------------------- Conseillers (admin d'agence) ------------------- */
-  async function loadTeam() {
-    const a = getAccount();
-    if (!a || !a.session) return;
-    const r = await api("/agency/users", { auth: a.session }).catch(function () { return { status: 0 }; });
-    if (r.status !== 200 || !r.data) {
-      // On garde la carte visible avec un message (ne pas la faire disparaître).
-      $("#teamSeats").textContent = "";
-      $("#teamMsg").className = "msg is-error";
-      $("#teamMsg").textContent = (r.status === 404)
-        ? "Gestion des conseillers indisponible — le serveur doit être mis à jour (wrangler deploy)."
-        : "Liste des conseillers momentanément indisponible — réessayez.";
-      return;
-    }
-    $("#teamMsg").textContent = "";
-    renderTeam(r.data);
-  }
-  function renderTeam(d) {
-    $("#teamSeats").textContent = d.used + " / " + d.seats + " sièges utilisés";
-    const list = $("#teamList");
-    list.textContent = "";
-    (d.users || []).forEach(function (u) {
-      const row = document.createElement("div");
-      row.className = "row";
-      const left = document.createElement("span");
-      left.textContent = (u.name ? u.name + " · " : "") + u.email + (u.role === "admin" ? "  (admin)" : "");
-      row.appendChild(left);
-      if (u.id === meUserId) {
-        const me = document.createElement("b"); me.textContent = "vous"; row.appendChild(me);
-      } else {
-        const wrap = document.createElement("span");
-        wrap.style.display = "flex"; wrap.style.gap = "6px";
-        const mb = document.createElement("button");
-        mb.className = "btn"; mb.type = "button"; mb.textContent = "Mobile";
-        mb.style.padding = "5px 12px"; mb.style.fontSize = "12.5px";
-        mb.title = "Poser ou changer le mobile qui reçoit le code de connexion de ce conseiller (téléphone changé)";
-        mb.addEventListener("click", function () { setConseillerMobile(u); });
-        wrap.appendChild(mb);
-        const adm = document.createElement("button");
-        adm.className = "btn"; adm.type = "button";
-        adm.textContent = u.role === "admin" ? "Fermer l'Administration" : "Ouvrir l'Administration";
-        adm.style.padding = "5px 12px"; adm.style.fontSize = "12.5px";
-        adm.title = u.role === "admin"
-          ? "Repasser ce compte en accès conseiller (la page Administration lui sera fermée)"
-          : "Donner à ce compte l'accès à la page Administration (contacts, anniversaires, acheteurs, estimations, réglages)";
-        adm.addEventListener("click", function () { toggleAdministration(u); });
-        wrap.appendChild(adm);
-        const dx = document.createElement("button");
-        dx.className = "btn"; dx.type = "button"; dx.textContent = "Déconnecter";
-        dx.style.padding = "5px 12px"; dx.style.fontSize = "12.5px";
-        dx.title = "Fermer toutes les sessions de ce conseiller (tablette perdue, poste partagé) — son compte reste";
-        dx.addEventListener("click", function () { deconnecterConseiller(u); });
-        wrap.appendChild(dx);
-        const b = document.createElement("button");
-        b.className = "btn"; b.type = "button"; b.textContent = "Retirer";
-        b.style.padding = "5px 12px"; b.style.fontSize = "12.5px";
-        b.addEventListener("click", function () { removeConseiller(u); });
-        wrap.appendChild(b);
-        row.appendChild(wrap);
-      }
-      list.appendChild(row);
-    });
-  }
-  async function addConseiller() {
-    const email = ($("#teamEmail").value || "").trim();
-    const name = ($("#teamName").value || "").trim();
-    const msg = $("#teamMsg");
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { msg.className = "msg is-error"; msg.textContent = "Adresse e-mail invalide."; return; }
-    const a = getAccount();
-    const btn = $("#btnAddConseiller"); btn.disabled = true;
-    msg.className = "msg"; msg.textContent = "Ajout en cours…";
-    const r = await api("/agency/users", { auth: a.session, body: { email: email, name: name } }).catch(function () { return { status: 0 }; });
-    btn.disabled = false;
-    if (r.status === 200) {
-      msg.className = "msg is-ok"; msg.textContent = "Conseiller ajouté — un lien de connexion vient de lui être envoyé.";
-      $("#teamEmail").value = ""; $("#teamName").value = "";
-      loadTeam();
-    } else {
-      msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Impossible d'ajouter ce conseiller.";
-    }
-  }
-  async function setConseillerMobile(u) {
-    const a = getAccount();
-    if (!a || !a.session) return;
-    const mobile = window.prompt("Mobile de " + (u.name || u.email) + " pour le code de connexion (06 ou 07) — vide pour retirer :", "");
-    if (mobile === null) return;
-    const r = await api("/agency/users/" + u.id + "/mobile", { method: "PUT", auth: a.session, body: { mobile: mobile.trim() } }).catch(function () { return { status: 0 }; });
-    $("#teamMsg").className = r.status === 200 ? "msg is-ok" : "msg is-error";
-    $("#teamMsg").textContent = r.status === 200 ? (mobile.trim() ? "Mobile enregistré — il sera vérifié par le prochain code." : "Mobile retiré.") : ((r.data && r.data.error) || "Enregistrement impossible — réessayez.");
-  }
-  async function toggleAdministration(u) {
-    const versAdmin = u.role !== "admin";
-    if (!window.confirm(versAdmin
-      ? "Ouvrir la page Administration à " + (u.name || u.email) + " ? Ce compte aura accès aux contacts, envois automatiques et réglages de l'agence."
-      : "Fermer la page Administration à " + (u.name || u.email) + " ? Ce compte gardera ses accès conseiller (Suivi, Prospection, Estimation).")) return;
-    const a = getAccount();
-    const msg = $("#teamMsg");
-    const r = await api("/agency/users/" + u.id + "/role", { method: "PUT", auth: a.session, body: { role: versAdmin ? "admin" : "member" } }).catch(function () { return { status: 0 }; });
-    if (r.status === 200) {
-      msg.className = "msg is-ok";
-      msg.textContent = versAdmin
-        ? "Administration ouverte à " + (u.name || u.email) + " — accès immédiat, sans reconnexion."
-        : "Administration fermée à " + (u.name || u.email) + ".";
-      loadTeam();
-    } else { msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Changement de rôle impossible."; }
-  }
-
-  // Toutes les sessions du conseiller sont révoquées ; il se reconnecte par
-  // e-mail ou mot de passe. Rien d'autre ne change.
-  async function deconnecterConseiller(u) {
-    if (!window.confirm("Déconnecter " + (u.name || u.email) + " de tous ses appareils ? Il pourra se reconnecter aussitôt.")) return;
-    const a = getAccount();
-    const msg = $("#teamMsg");
-    const r = await api("/agency/users/" + u.id + "/deconnecter", { method: "POST", auth: a.session, body: {} }).catch(function () { return { status: 0 }; });
-    if (r.status === 200) { msg.className = "msg is-ok"; msg.textContent = (u.name || u.email) + " : " + (r.data.revoquees || 0) + " session(s) fermée(s)."; }
-    else { msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Déconnexion impossible."; }
-  }
-
-  async function removeConseiller(u) {
-    if (!window.confirm("Retirer " + (u.name || u.email) + " ? Son accès sera coupé immédiatement.")) return;
-    const a = getAccount();
-    const msg = $("#teamMsg");
-    const r = await api("/agency/users/" + u.id, { method: "DELETE", auth: a.session }).catch(function () { return { status: 0 }; });
-    if (r.status === 200) { msg.className = "msg is-ok"; msg.textContent = "Conseiller retiré."; loadTeam(); }
-    else { msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Retrait impossible."; }
+    if (d.user.role === "admin") $("#cardTeam").hidden = false;
   }
 
   async function handleToken(token) {
@@ -437,9 +310,6 @@
       $("#loginMsg").textContent = "Déconnecté sur tous vos appareils — saisissez votre e-mail pour rouvrir une session.";
     });
     if ($("#btnSwitch")) $("#btnSwitch").addEventListener("click", deconnecter);
-    $("#btnAddConseiller").addEventListener("click", addConseiller);
-    $("#teamName").addEventListener("keydown", function (e) { if (e.key === "Enter") addConseiller(); });
-    $("#teamEmail").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); $("#teamName").focus(); } });
   }
 
   let pendingToken = null;

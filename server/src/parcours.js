@@ -226,7 +226,7 @@ export function sanitizeParcours(b) {
   };
 }
 
-export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, apiBase }) {
+export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, apiBase, creerCompte, lienBienvenue }) {
   const photoUrl = (c, id) => (c ? `${(apiBase || new URL(c.req.url).origin).replace(/\/+$/, "")}/public/conseillers/${encodeURIComponent(id)}/photo` : "");
 
   /* ------------------------------ Conseillers ------------------------------ */
@@ -428,7 +428,118 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         await ecrireDirection(cs.id, true); direction++;
       }
     }
-    return c.json({ ok: true, ajoutes, completes, direction, fusions });
+    // Les comptes de connexion : un par conseiller actif avec une adresse
+    // century21.fr qui n'en a pas encore (sièges permettant).
+    let comptes = 0, sansSiege = 0;
+    if (b.comptes !== false && creerCompte) {
+      const aCreer = await db.all(
+        `SELECT cs.id, cs.prenom, cs.nom, cs.email FROM crm_conseillers cs
+         WHERE cs.agency_id = ? AND cs.actif = 1 AND lower(cs.email) LIKE '%@century21.fr'
+           AND NOT EXISTS (SELECT 1 FROM users u WHERE u.agency_id = cs.agency_id AND (u.id = cs.user_id OR lower(u.email) = lower(cs.email)))`, [ctx.agency.id]);
+      for (const cs of aCreer) {
+        try {
+          const r = await creerCompte(ctx.agency, cs.email, [cs.prenom, cs.nom].filter(Boolean).join(" "));
+          await db.run("UPDATE crm_conseillers SET user_id = ?, updated_at = ? WHERE id = ?", [r.user.id, now(), cs.id]);
+          comptes++;
+        } catch (e) { if (e.status === 409 && /sièges/.test(e.message)) { sansSiege = aCreer.length - comptes; break; } }
+      }
+    }
+    return c.json({ ok: true, ajoutes, completes, direction, fusions, comptes, sansSiege });
+  });
+  /* ---------------- L'équipe : une seule liste (12/10/2026) ----------------
+     Profils conseillers + comptes de connexion, réunis par e-mail (ou par le
+     lien user_id). Trois cases par personne : Actif (entre et apparaît),
+     Direction (voit tous les parcours), Administration (rôle admin du compte).
+     L'import des conseillers crée les comptes century21.fr tout seul.         */
+  const masquerMobile = (m) => { const n = /^\+33(\d{9})$/.test(m || "") ? "0" + m.slice(3) : String(m || ""); return n.length >= 4 ? n.slice(0, 2) + " ** ** ** " + n.slice(-2) : n; };
+  async function comptesDe(agency) {
+    const users = await db.all("SELECT u.id, u.email, u.name, u.role, u.created_at, COALESCE(m.mobile, '') AS mobile, COALESCE(m.verifie_le, 0) AS verifie_le FROM users u LEFT JOIN users_mobile m ON m.user_id = u.id WHERE u.agency_id = ? AND u.email NOT LIKE '%.interne'", [agency.id]);
+    const vivantes = await db.all("SELECT user_id, COUNT(*) AS n, MAX(last_seen) AS vu FROM sessions WHERE revoked = 0 AND last_seen > ? GROUP BY user_id", [now() - 7 * 86400]);
+    const parUser = new Map(vivantes.map((v) => [v.user_id, v]));
+    const vue = (u) => ({ id: u.id, email: u.email, name: u.name, role: u.role, mobile: u.mobile ? masquerMobile(u.mobile) : "", mobile_verifie: u.verifie_le > 0, appareils: (parUser.get(u.id) || {}).n || 0, vu_le: (parUser.get(u.id) || {}).vu || 0 });
+    return { users, vue };
+  }
+  async function equipeDe(ctx) {
+    const profils = await db.all(
+      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.email, cs.actif, COALESCE(d.direction, 0) AS direction
+       FROM crm_conseillers cs LEFT JOIN crm_conseillers_direction d ON d.id = cs.id WHERE cs.agency_id = ?`, [ctx.agency.id]);
+    const { users, vue } = await comptesDe(ctx.agency);
+    const parId = new Map(users.map((u) => [u.id, u])), parEmail = new Map(users.map((u) => [String(u.email).toLowerCase(), u]));
+    const comptes = {}, lies = new Set();
+    for (const p of profils) {
+      const u = (p.user_id && parId.get(p.user_id)) || (p.email && parEmail.get(String(p.email).toLowerCase())) || null;
+      if (u) { comptes[p.id] = vue(u); lies.add(u.id); }
+    }
+    return { comptes, sansProfil: users.filter((u) => !lies.has(u.id)).map(vue), seats: ctx.agency.seats, used: users.length };
+  }
+  app.get("/crm/equipe", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    return c.json(await equipeDe(ctx));
+  });
+  // Les trois cases d'une personne : actif / direction / administration.
+  app.put("/crm/equipe/:id", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const id = c.req.param("id");
+    const cs = await db.get("SELECT id, user_id, email, actif FROM crm_conseillers WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);
+    if (!cs) return err(c, 404, "Conseiller introuvable.");
+    const b = (await c.req.json().catch(() => null)) || {};
+    const compte = (cs.user_id && await db.get("SELECT id, role FROM users WHERE id = ? AND agency_id = ?", [cs.user_id, ctx.agency.id]))
+      || (cs.email && await db.get("SELECT id, role FROM users WHERE lower(email) = ? AND agency_id = ?", [String(cs.email).toLowerCase(), ctx.agency.id])) || null;
+    if (b.actif !== undefined) {
+      const actif = b.actif === true || b.actif === 1 ? 1 : 0;
+      await db.run("UPDATE crm_conseillers SET actif = ?, updated_at = ? WHERE id = ?", [actif, now(), id]);
+      // Inactif = parti : ses sessions tombent, ses liens aussi ; le lien e-mail lui est refusé (request-link).
+      if (!actif && compte) { await db.run("UPDATE sessions SET revoked = 1 WHERE user_id = ? AND revoked = 0", [compte.id]); await db.run("DELETE FROM login_tokens WHERE user_id = ?", [compte.id]); }
+    }
+    if (b.direction !== undefined) await ecrireDirection(id, b.direction === true || b.direction === 1);
+    if (b.administration !== undefined) {
+      if (!compte) return err(c, 400, "Créez d'abord l'accès de ce conseiller (bouton « Créer l'accès »).");
+      if (compte.id === ctx.user.id) return err(c, 400, "Vous ne pouvez pas changer votre propre rôle.");
+      await db.run("UPDATE users SET role = ? WHERE id = ?", [b.administration === true || b.administration === 1 ? "admin" : "member", compte.id]);
+    }
+    const r = await db.get("SELECT cs.actif, COALESCE(d.direction, 0) AS direction FROM crm_conseillers cs LEFT JOIN crm_conseillers_direction d ON d.id = cs.id WHERE cs.id = ?", [id]);
+    const u = compte ? await db.get("SELECT role FROM users WHERE id = ?", [compte.id]) : null;
+    return c.json({ ok: true, actif: !!r.actif, direction: !!r.direction, administration: !!(u && u.role === "admin"), compte: !!compte });
+  });
+  // Créer l'accès d'un conseiller (compte + lien de bienvenue) et le lier au profil.
+  app.post("/crm/equipe/:id/compte", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const cs = await db.get("SELECT id, user_id, email, prenom, nom FROM crm_conseillers WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!cs) return err(c, 404, "Conseiller introuvable.");
+    const b = (await c.req.json().catch(() => null)) || {};
+    const email = String(b.email || cs.email || "").trim().toLowerCase();
+    if (!email) return err(c, 400, "Indiquez l'e-mail du conseiller (son adresse century21.fr).");
+    let r;
+    try { r = await creerCompte(ctx.agency, email, [cs.prenom, cs.nom].filter(Boolean).join(" ")); } catch (e) { return err(c, e.status || 500, e.message); }
+    await db.run("UPDATE crm_conseillers SET user_id = ?, email = ?, updated_at = ? WHERE id = ?", [r.user.id, email, now(), cs.id]);
+    return c.json({ ok: true, user: { id: r.user.id, email: r.user.email, role: "member" }, invite_link: r.invite_link });
+  });
+  // Renvoyer le lien de bienvenue (7 jours) au compte d'un conseiller.
+  app.post("/crm/equipe/:id/lien", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const cs = await db.get("SELECT id, user_id, email, actif FROM crm_conseillers WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!cs) return err(c, 404, "Conseiller introuvable.");
+    if (!cs.actif) return err(c, 400, "Ce conseiller est inactif : cochez « Actif » avant de lui renvoyer un lien.");
+    const u = (cs.user_id && await db.get("SELECT * FROM users WHERE id = ? AND agency_id = ?", [cs.user_id, ctx.agency.id]))
+      || (cs.email && await db.get("SELECT * FROM users WHERE lower(email) = ? AND agency_id = ?", [String(cs.email).toLowerCase(), ctx.agency.id]));
+    if (!u) return err(c, 400, "Ce conseiller n'a pas encore d'accès.");
+    const { link } = await lienBienvenue(u);
+    return c.json({ ok: true, email: u.email, invite_link: env.DEV_MODE ? link : undefined });
+  });
+  // Un compte sans profil conseiller (ancien compte) : créer son profil.
+  app.post("/crm/equipe/profil", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const b = (await c.req.json().catch(() => null)) || {};
+    const u = await db.get("SELECT id, email, name FROM users WHERE id = ? AND agency_id = ?", [strip(b.user_id, 40), ctx.agency.id]);
+    if (!u) return err(c, 404, "Compte introuvable.");
+    const parts = String(u.name || String(u.email).split("@")[0].replace(/[._-]+/g, " ")).trim().split(/\s+/).filter(Boolean);
+    const v = sanitizeConseiller({ prenom: parts[0] || "", nom: parts.slice(1).join(" "), email: u.email, user_id: u.id, actif: 1 });
+    const deja = await profilExistant(ctx.agency.id, v);
+    if (deja) { await db.run("UPDATE crm_conseillers SET user_id = ?, updated_at = ? WHERE id = ?", [u.id, now(), deja.id]); return c.json({ ok: true, id: deja.id, existant: true }); }
+    const nid = randId("cs");
+    await db.run("INSERT INTO crm_conseillers (id, agency_id, user_id, prenom, nom, fonction, telephone, email, photo, actif, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '', '', ?, '', 1, ?, ?)",
+      [nid, ctx.agency.id, u.id, v.prenom, v.nom, u.email, now(), now()]);
+    return c.json({ ok: true, id: nid });
   });
   app.delete("/crm/conseillers/:id", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
