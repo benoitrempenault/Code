@@ -4870,6 +4870,18 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
     (?, 'leboncoin', '8282', '2026-09-29', 'releve', 5216, 16, 162, 0), (?, 'leboncoin', '8282', '2026-10-04', 'releve', 5300, 18, 165, 0)`, [agP, agP]);
   const semL1 = await P.statsPortailsSemaine(db, agP, "2026-09-28");
   ok(semL1["8282"].leboncoin.vues === 84 && semL1["8282"].leboncoin.contacts === 2 && semL1["8282"].leboncoin.base === "semaine", "sans relevé antérieur : écart depuis le premier relevé de la semaine (" + JSON.stringify(semL1["8282"]) + ")");
+  // Changement de compte Leboncoin le 05/10 : les compteurs repartent plus bas.
+  // Avant : « 0 consultation, 0 contact » sur TOUS les bilans (écart négatif ramené à 0).
+  await db.run("DELETE FROM crm_portail_stats WHERE agency_id = ? AND portail = 'leboncoin'", [agP]);
+  await db.run(`INSERT INTO crm_portail_stats (agency_id, portail, ref, jour, nature, vues, contacts, favoris, updated_at) VALUES
+    (?, 'leboncoin', '8282', '2026-10-04', 'releve', 5216, 16, 162, 0), (?, 'leboncoin', '8282', '2026-10-05', 'releve', 300, 3, 10, 0),
+    (?, 'leboncoin', '8282', '2026-10-11', 'releve', 380, 5, 12, 0), (?, 'leboncoin', '7510', '2026-10-04', 'releve', 900, 4, 20, 0),
+    (?, 'leboncoin', '7510', '2026-10-05', 'releve', 40, 0, 1, 0)`, [agP, agP, agP, agP, agP]);
+  const semRaz = await P.statsPortailsSemaine(db, agP, "2026-10-05");
+  ok(semRaz["8282"].leboncoin.vues === 80 && semRaz["8282"].leboncoin.contacts === 2 && semRaz["8282"].leboncoin.favoris === 2,
+    "compteur reparti de zéro (changement de compte) : la semaine se compte depuis la première lecture du nouveau compte (" + JSON.stringify(semRaz["8282"].leboncoin) + ")");
+  ok(semRaz["7510"].leboncoin.vues === null && semRaz["7510"].leboncoin.contacts === null,
+    "remise à zéro sans lecture suivante : semaine inconnue, jamais un faux « 0 consultation »");
   // Le passage de l'agent : visible même sans relevé ; silence au-delà de 36 h.
   ok((await call("/crm/portails/passage", { headers: { "X-Agent-Key": "ak_faux" }, body: { resultat: "termine" } })).status === 401, "passage : clé exigée");
   ok((await call("/crm/portails/passage", { headers: hA, body: { resultat: "deja-fait", message: "a\u0000b" } })).json.ok, "passage « relevé déjà fait » accepté");

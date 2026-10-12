@@ -23,15 +23,20 @@ export default async function () {
     await ouvrir(page, "/prospection/", membre);
     await page.waitForFunction(() => Array.from(document.querySelectorAll("button")).some((b) => b.textContent.includes("👤")), null, { timeout: 8000 });
     ok(await page.locator('a[href="../administration/"]').count() === 0, "un simple conseiller ne voit pas le bouton Administration");
+    // Depuis le 06/10 (95c4ec8), un conseiller non admin n'est plus bloqué :
+    // l'Administration s'ouvre en « Studio Parcours R1/R2 », seul l'onglet
+    // Parcours visible, et le bandeau dit qui est connecté.
     await ouvrir(page, "/administration/", membre);
-    await page.waitForSelector("#ecran-connexion:not([hidden])", { timeout: 8000 });
-    ok((await page.textContent(".connexion-carte h2")) === "Accès réservé", "compte non-admin : écran « Accès réservé »");
-    await page.waitForSelector("#connexion-qui:not([hidden])", { timeout: 4000 });
-    ok((await page.textContent("#connexion-qui")).includes("Camille CONSEILLER"), "l'écran dit QUI est connecté");
-    ok(!(await page.locator("#btn-changer-compte").isHidden()), "…et propose de changer de compte");
-    await page.click("#btn-changer-compte");
+    await page.waitForFunction(() => document.body.classList.contains("mode-conseiller"), null, { timeout: 8000 });
+    ok(/Parcours R1\/R2/.test(await page.textContent("header h1")) && await page.locator(".onglet:not([hidden])").count() === 1,
+      "compte non-admin : l'Administration s'ouvre sur le seul Parcours R1/R2");
+    await page.waitForSelector("#compte-bandeau button, header button:has-text('👤')", { timeout: 6000 });
+    ok((await page.textContent("body")).includes("Camille CONSEILLER"), "le bandeau dit QUI est connecté");
+    await page.click("text=👤");
+    await page.waitForSelector("[data-deconnexion]", { timeout: 4000 });
+    await page.click("[data-deconnexion]");
     await page.waitForURL(/compte\.html/, { timeout: 8000 });
-    ok(await page.evaluate(() => !localStorage.getItem("studio-mandatpro-account")), "changer de compte depuis l'écran bloqué déconnecte vraiment");
+    ok(await page.evaluate(() => !localStorage.getItem("studio-mandatpro-account")), "changer de compte depuis le mode conseiller déconnecte vraiment");
 
     // Le bandeau dans les autres apps, avec l'administrateur reconnecté.
     const admin2 = await reconnecter(admin);
