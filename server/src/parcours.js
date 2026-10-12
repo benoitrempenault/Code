@@ -265,7 +265,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const rows = await db.all(
       `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre, COALESCE(d.direction, 0) AS direction, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis, COALESCE(avs.avis, '[]') AS avis_site_json, COALESCE(ts.texte, '') AS bio_site, COALESCE(avs.updated_at, 0) AS avis_site_le, COALESCE(pc.photo <> '', 0) AS a_photo_carre, COALESCE(pc.updated_at, 0) AS photo_carre_le
        FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_direction d ON d.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id LEFT JOIN crm_conseillers_avis_site avs ON avs.id = cs.id LEFT JOIN crm_conseillers_texte_site ts ON ts.id = cs.id LEFT JOIN crm_conseillers_photo_carre pc ON pc.id = cs.id
-       WHERE cs.agency_id = ? ORDER BY cs.nom COLLATE NOCASE, cs.prenom COLLATE NOCASE`, // ordre alphabétique sans tenir compte des majuscules (BUISSON passait avant Besson)
+       WHERE cs.agency_id = ? AND lower(cs.email) NOT LIKE '%.interne' ORDER BY cs.nom COLLATE NOCASE, cs.prenom COLLATE NOCASE`, // ordre alphabétique sans tenir compte des majuscules (BUISSON passait avant Besson)
       [ctx.agency.id]);
     return c.json({ conseillers: rows.map(({ avis_site_json, ...r }) => ({ ...r, direction: !!r.direction, bio: r.bio || "", genre_pose: r.genre || "", genre: r.genre || genrePrenom(r.prenom), a_photo: !!r.a_photo, a_photo_carre: !!r.a_photo_carre, photo_carre_le: r.photo_carre_le || 0, photo_url: r.a_photo ? photoUrl(c, r.id) : "", avis_site: jsonAvisSite(avis_site_json) })) });
   });
@@ -374,7 +374,9 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const b = (await c.req.json().catch(() => null)) || {};
     const fournis = Array.isArray(b.profils) ? b.profils.slice(0, 100) : [];
-    const users = await db.all("SELECT id, name, email FROM users WHERE agency_id = ? ORDER BY created_at ASC", [ctx.agency.id]);
+    const users = await db.all("SELECT id, name, email FROM users WHERE agency_id = ? AND email NOT LIKE '%.interne' ORDER BY created_at ASC", [ctx.agency.id]);
+    // L'ancien compte partagé (porte fermée le 12/10) n'est pas une personne : son profil disparaît.
+    await db.run("DELETE FROM crm_conseillers WHERE agency_id = ? AND lower(email) LIKE '%.interne'", [ctx.agency.id]);
     const annuaire = await db.all("SELECT nom, telephone, email FROM annuaire WHERE agency_id = ? AND type = 'conseiller' ORDER BY nom", [ctx.agency.id]);
     const couper = (nomComplet) => {
       const parts = strip(nomComplet, 120).split(/\s+/).filter(Boolean);

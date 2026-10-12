@@ -2510,12 +2510,12 @@
     const cellAcces = (c) => {
       if (!equipe) return "";
       const k = equipe.comptes[c.id];
-      const kase = (cle, coche, libelle, titre, off) => '<label class="case" style="display:inline-flex;margin-right:10px;white-space:nowrap;font-size:13px;" title="' + escH(titre) + '"><input type="checkbox" data-eq="' + cle + '" data-cs="' + c.id + '"' + (coche ? " checked" : "") + (off ? " disabled" : "") + " /> " + libelle + "</label>";
-      return '<div data-stop="1" style="white-space:nowrap;">' +
+      const kase = (cle, coche, libelle, titre, off) => '<label class="case" style="display:inline-flex;margin:0 10px 2px 0;white-space:nowrap;font-size:13px;" title="' + escH(titre) + '"><input type="checkbox" data-eq="' + cle + '" data-cs="' + c.id + '"' + (coche ? " checked" : "") + (off ? " disabled" : "") + " /> " + libelle + "</label>";
+      return '<div data-stop="1" style="min-width:230px;">' +
         kase("actif", c.actif, "Actif", "Entre dans Studio et apparaît dans les listes. Décoché = parti : ses sessions sont fermées, plus aucun lien ne lui part.") +
         kase("direction", c.direction, "Direction", "Voit tous les parcours R1/R2 de l'agence.") +
         kase("administration", k && k.role === "admin", "Administration", k ? "Ouvre la page Administration (contacts, imports, réglages)." : "Créez d'abord l'accès de ce conseiller.", !k) +
-        '<div class="petit" style="margin-top:4px;">' + (k
+        '<div class="petit" style="margin-top:4px; display:flex; flex-wrap:wrap; gap:4px 6px; align-items:center;">' + (k
           ? (k.appareils ? k.appareils + " appareil" + (k.appareils > 1 ? "s" : "") + " connecté" + (k.appareils > 1 ? "s" : "") : "jamais connecté") + (k.mobile ? " · 📱 " + escH(k.mobile) + (k.mobile_verifie ? "" : " (à vérifier)") : " · sans mobile, lien seul") +
             ' <button class="btn" data-lien="' + c.id + '" ' + petit + ' title="Lui renvoyer un lien de connexion (valable 7 jours)">✉ Lien</button>' +
             ' <button class="btn" data-mobile="' + c.id + '" data-user="' + escH(k.id) + '" ' + petit + ' title="Poser ou changer le mobile qui reçoit son code de connexion">📱 Mobile</button>' +

@@ -2580,7 +2580,9 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const moi = (await callR("/me", { headers: auth })).json.user;
     const csMoi = await db.get("SELECT id FROM crm_conseillers WHERE agency_id = ? AND lower(email) = ?", [agId, String(moi.email).toLowerCase()]);
     if (csMoi) ok((await callR("/crm/equipe/" + csMoi.id, { headers: auth, method: "PUT", body: { administration: false } })).status === 400, "on ne retire pas sa propre Administration");
+    await db.run("INSERT INTO crm_conseillers (id, agency_id, user_id, prenom, nom, fonction, telephone, email, photo, actif, created_at, updated_at) VALUES ('cs_interne_t', ?, '', 'Collaborateurs', 'Kadima', '', '', 'collaborateurs@kadima.interne', '', 1, 1, 1)", [agId]);
     const imp = await callR("/crm/conseillers/importer", { headers: auth, body: { profils: [{ prenom: "Léa", nom: "IMPORTÉE", email: "lea.importee@century21.fr" }, { prenom: "Marc", nom: "EXTERNE", email: "marc@autre-domaine.fr" }] } });
+    ok(!(await db.get("SELECT id FROM crm_conseillers WHERE id = 'cs_interne_t'")) && !(await callR("/crm/conseillers", { headers: auth })).json.conseillers.some((x) => /\.interne$/.test(x.email)), "l'ancien profil « Collaborateurs Kadima » (.interne) disparaît à l'import et n'est jamais listé");
     ok(imp.status === 200 && imp.json.comptes >= 1 && !!(await db.get("SELECT id FROM users WHERE email = 'lea.importee@century21.fr'")) && !(await db.get("SELECT id FROM users WHERE email = 'marc@autre-domaine.fr'")),
       "l'import crée le compte century21.fr tout seul, pas les autres domaines (" + JSON.stringify({ comptes: imp.json.comptes, sansSiege: imp.json.sansSiege }) + ")");
     const orphelin = await callR("/agency/users", { headers: auth, body: { email: "sans.profil@century21.fr", name: "Sans Profil" } });
