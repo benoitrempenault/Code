@@ -368,12 +368,18 @@
     $("#loginMsg").textContent = "Vous y êtes — cliquez sur « Ouvrir ma session ».";
     return true;
   }
-  function init() {
+  async function init() {
     if (!API) { show("cardOff"); return; }
     stashRetour();
     wire();
     // le lien peut arriver alors que la page est déjà ouverte (pas de rechargement)
     window.addEventListener("hashchange", consumeHashToken);
+    // Raccourci d'écran d'accueil ou favori posé sur un vieux lien (#token=…) :
+    // si une session valide existe déjà ici, on l'ouvre sans rejouer le lien.
+    if (/[#&]token=/.test(location.hash || "") && (getAccount() || {}).session) {
+      const r0 = await api("/me", { auth: getAccount().session }).catch(function () { return { status: 0 }; });
+      if (r0.status === 200) { try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { } if (goRetour()) return; await paintMe(); return; }
+    }
     if (consumeHashToken()) return;
     // Un code est attendu sur cet appareil (page rechargée pendant la saisie).
     const att = attenteLue();
@@ -387,13 +393,16 @@
     }
     // Arrivée depuis le bandeau « Se déconnecter » d'une autre app : la
     // session est déjà effacée, on accueille le collaborateur suivant.
+    // (le bandeau a déjà effacé la session ; si un favori garde « ?deconnecte=1 »
+    // dans son adresse, on ne déconnecte PAS une session valide à chaque ouverture).
     if (new URLSearchParams(location.search).get("deconnecte")) {
-      clearAccount();
-      show("cardLogin");
-      $("#loginMsg").className = "msg is-ok";
-      $("#loginMsg").textContent = "Vous êtes déconnecté — saisissez l'e-mail du compte à ouvrir.";
       try { history.replaceState(null, "", location.pathname); } catch (e) { }
-      return;
+      if (!(getAccount() || {}).session) {
+        show("cardLogin");
+        $("#loginMsg").className = "msg is-ok";
+        $("#loginMsg").textContent = "Vous êtes déconnecté — saisissez l'e-mail du compte à ouvrir.";
+        return;
+      }
     }
     paintMe();
   }
