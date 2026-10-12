@@ -988,7 +988,7 @@ export const KADIMA_AGENCY_ID = "ag_8csricwct9";
 const IDENTITE_KADIMA = {
   adresse: "20-22 rue François Mitterrand, 33160 Saint-Médard-en-Jalles", telephone: "05 56 57 77 77", email: "kadima@century21.fr",
   site: "www.century21-kadima.fr", signataire: "Benoît REMPENAULT", fonction: "Directeur d'agence",
-  logoUrl: "https://benoitrempenault.github.io/Code/administration/assets/img/logo-c21-kadima.png", // logo « 21 CENTURY 21 Kadima » (or sur fond sombre) en tête des e-mails
+  logoUrl: "https://studio.century21-kadima.fr/administration/assets/img/logo-c21-kadima.png", // logo « 21 CENTURY 21 Kadima » (or sur fond sombre) en tête des e-mails
   instagram: "https://instagram.com/century_21_kadima", facebook: "https://www.facebook.com/century21.kadima",
   avis: "https://g.page/r/CUA5uMo-Z_RcEB0/review",
   mentions: "KADIMA TB, SAS au capital de 10 000 € - RCS Bordeaux 894 173 947 - SIRET 894 173 947 00017 - Carte professionnelle « Transaction sur immeubles et fonds de commerce » n° CPI 3301 2021 000 000 038 délivrée par la CCI de Bordeaux-Gironde - RC professionnelle Allianz IARD, 1 cours Michelet, CS 30051, 92076 Paris La Défense Cedex, police n° 41319158 - Garantie financière n° 16833320 - Non détention de fonds - Chaque agence est juridiquement et financièrement indépendante.",

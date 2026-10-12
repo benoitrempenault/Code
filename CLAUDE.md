@@ -1291,6 +1291,14 @@ leroymerlin.fr refuse les robots) : logo officiel Leroy Merlin (SVG Wikimedia) +
 en Montserrat Regular, le E en trois barres vert / jaune / orange. Assets `?v=81` (les PDF des guides sont
 chargés via `asset()`, donc le ?v du script suffit).
 
+**Accès, choix 5 — domaine studio.century21-kadima.fr (12/10, soir)** : DNS OVH `studio CNAME benoitrempenault.github.io.`
+(posé par Benoît), `CNAME` à la racine du dépôt ET copié dans `_site/` par pages.yml, **Custom domain** saisi dans
+Settings → Pages (déploiement Actions : le fichier CNAME seul ne suffit pas ; l'API Pages est refusée depuis la
+session). Certificat GitHub délivré en ~1 min ; `benoitrempenault.github.io/Code/…` → 301 vers le domaine. Worker :
+`APP_BASE_KADIMA` (prime sur `agencies.app_base` de Kadima dans `appBase()`), `SUIVI_BASE` / `OFFRE_BASE` /
+`BILANS_BASE` sur le domaine, `APP_ORIGINS` garde github.io (redirections) ; `IDENTITE_KADIMA.logoUrl` idem. Les
+sessions vivent dans localStorage PAR ORIGINE : chacun se reconnecte une fois sur le nouveau domaine.
+
 **Accès, choix 2 — une seule liste « L'équipe » (12/10, soir)** : Administration → Réglages → « L'équipe »
 (ex-« Les conseillers ») : pour l'administrateur, colonne « Accès » par profil = cases **Actif** (crm_conseillers.actif ;
 décoché → sessions révoquées, liens supprimés, `/auth/request-link` répond générique sans rien envoyer),

@@ -35,11 +35,11 @@ APP_ORIGINS = "https://benoitrempenault.github.io,https://studio.century21-kadim
 # benoitrempenault.github.io) et le fichier CNAME publié, poser APP_BASE_KADIMA et basculer
 # SUIVI_BASE / OFFRE_BASE / BILANS_BASE sur https://studio.century21-kadima.fr/… (les anciennes
 # adresses github.io redirigent d'elles-mêmes vers le domaine).
-# APP_BASE_KADIMA = "https://studio.century21-kadima.fr/mandat-pro"
-SUIVI_BASE = "https://benoitrempenault.github.io/Code/suivi"  # liens des récaps
-OFFRE_BASE = "https://benoitrempenault.github.io/Code/offre"  # espace public de l'offre d'achat (liens magiques) — passer à https://century21-kadima.fr/offre une fois le dossier posé sur le site
+APP_BASE_KADIMA = "https://studio.century21-kadima.fr/mandat-pro"  # domaine propre posé le 12/10 (DNS OVH + Custom domain GitHub)
+SUIVI_BASE = "https://studio.century21-kadima.fr/suivi"  # liens des récaps
+OFFRE_BASE = "https://studio.century21-kadima.fr/offre"  # espace public de l'offre d'achat (liens magiques) — passer à https://century21-kadima.fr/offre une fois le dossier posé sur le site
 SITE_STATS_BASE = "https://api.century21-kadima.fr"  # bilans vendeurs : stats par annonce du site (secret SITE_STATS_KEY = STUDIO_STATS_KEY côté Render)
-BILANS_BASE = "https://benoitrempenault.github.io/Code/bilans/"  # Studio Bilans : lien des e-mails « bilans à relire » aux conseillers
+BILANS_BASE = "https://studio.century21-kadima.fr/bilans/"  # Studio Bilans : lien des e-mails « bilans à relire » aux conseillers
 RECAP_AUTO = ""  # passer à "1" (puis redéployer) pour activer l'envoi lundi/vendredi
 APP_BASE = "https://studiobrochure.fr/app"  # dossier de l'app compte par défaut (clients) ; Kadima a son app_base en base
 MAIL_FROM = "Studio Brochure <connexion@studiobrochure.fr>"  # expéditeur Resend
