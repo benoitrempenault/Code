@@ -194,7 +194,7 @@ export function createApp(env) {
   }
   async function mailNouvelleConnexion(user, agency, nom, ip) {
     try {
-      const ag = await db.get("SELECT app_base FROM agencies WHERE id = ?", [agency.id]);
+      const ag = await db.get("SELECT id, app_base FROM agencies WHERE id = ?", [agency.id]);
       await CRM.envoyerMailHtml(env, {
         to: user.email, fromName: "Studio", subject: "Nouvelle connexion sur votre compte Studio",
         text: `Bonjour${user.name ? " " + user.name : ""},\n\nUne session vient d'être ouverte sur votre compte Studio : ${nom}, le ${dateParis(now())}${ip ? " (adresse IP " + ip + ")" : ""}.\n\nSi c'est vous, tout va bien. Sinon, ouvrez « Mon compte », rubrique « Mes appareils », et fermez cet appareil — ou cliquez sur « Déconnecter tous mes appareils » :\n${appBase(ag)}/compte.html\n\nStudio`,
@@ -240,7 +240,7 @@ export function createApp(env) {
       "INSERT INTO login_tokens (token_hash, user_id, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)",
       [await sha256hex(token), user.id, now() + ttl, now()]
     );
-    const ag = await db.get("SELECT app_base FROM agencies WHERE id = ?", [user.agency_id]);
+    const ag = await db.get("SELECT id, app_base FROM agencies WHERE id = ?", [user.agency_id]);
     const r = safeRetour(retour);
     const link = appBase(ag) + "/compte.html" + (r ? "?retour=" + encodeURIComponent(r) : "") + "#token=" + token;
     if (CRM.fournisseurMail(env)) {
@@ -390,7 +390,7 @@ export function createApp(env) {
   // sont refusées (sessionFrom) puis révoquées par le ménage quotidien.
   app.post("/auth/kadima", async (c) => {
     const agencyId = env.KADIMA_AGENCY_ID || "ag_8csricwct9";
-    const agency = await db.get("SELECT app_base FROM agencies WHERE id = ?", [agencyId]);
+    const agency = await db.get("SELECT id, app_base FROM agencies WHERE id = ?", [agencyId]);
     return c.json({
       error: "La porte collaborateurs est fermée : connectez-vous avec votre propre adresse e-mail sur la page « Mon compte » (un lien de connexion vous est envoyé).",
       ferme: true, compte: appBase(agency) + "/compte.html",
