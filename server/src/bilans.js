@@ -585,7 +585,7 @@ export async function prevenirConseillers(env, db, agency, reglages, semaine, { 
       html: mailBilans(reglages.agence, { eyebrow: "Bilans vendeurs", headline: esc(titre), bodyHtml: vieux + manque + liste + lien, signatureName: "Studio" }) });
   }
   const r = await envoyerMailsLot(env, mails);
-  return { envoyes: r.envoyes || 0, mails: mails.length, bilans: rows.length, conseillers: parCons.size - sansAdresse.length, sansAdresse, erreurs: r.erreurs || (r.dryRun ? ["Envoi de mails non configuré (RESEND_API_KEY)."] : []) };
+  return { envoyes: r.envoyes || 0, mails: mails.length, bilans: rows.length, conseillers: parCons.size - sansAdresse.length, sansAdresse, erreurs: r.erreurs || (r.dryRun ? ["Envoi de mails non configuré sur le serveur."] : []) };
 }
 
 /* ------------------------ Rappel du vendredi (import) --------------------- */
@@ -765,7 +765,7 @@ export function monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAge
     const m = mailBilanConseiller({ ...b, sujet: strip(q.sujet, 200) || b.sujet, texte: nettoyerTexte(q.texte) || b.texte }, (ctx.user.name || "").split(" ")[0], env.BILANS_BASE, { exportJours: await ageExport(db, ctx.agency.id) });
     const html = mailBilans(reglages.agence, { eyebrow: "Bilan vendeur à relire (test)", headline: esc(m.subject), bodyHtml: m.html, signatureName: "Studio" });
     const r = await envoyerMailHtml(env, { to, subject: "[Test] " + m.subject, html, fromName: reglages.agence.nom || ctx.agency.name });
-    if (!r.ok) return err(c, 502, "Envoi impossible : " + (r.error || "RESEND_API_KEY absent"));
+    if (!r.ok) return err(c, 502, "Envoi impossible : " + (r.error || "envoi non configuré"));
     return c.json({ ok: true, email: to });
   });
   app.post("/crm/bilans/:id/envoyer", async (c) => {
@@ -788,8 +788,8 @@ export function monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAge
     await db.run(
       "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [ctx.agency.id, b.id, "Réf. " + b.ref, email, "bilan-vendeur", new Date().getUTCFullYear(), r.ok ? "ok" : "erreur",
-        r.error || (r.dryRun ? "RESEND_API_KEY absent (dry run)" : ""), now()]);
-    if (!r.ok) return err(c, 502, "Envoi impossible : " + (r.error || "RESEND_API_KEY absent"));
+        r.error || (r.dryRun ? "envoi non configuré (dry run)" : ""), now()]);
+    if (!r.ok) return err(c, 502, "Envoi impossible : " + (r.error || "envoi non configuré"));
     await db.run("UPDATE crm_bilans SET statut = 'envoye', sujet = ?, texte = ?, email = ?, envoye_at = ?, envoye_par = ?, updated_at = ? WHERE id = ?",
       [sujet, texte, email, now(), ctx.user.name || ctx.user.email || "", now(), b.id]);
     return c.json({ ok: true, email });

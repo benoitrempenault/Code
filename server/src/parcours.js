@@ -779,7 +779,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       await db.run(
         "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [ctx.agency.id, p.est.id, label, adresse, type, new Date().getUTCFullYear(), r.ok ? "ok" : "erreur",
-          r.error || (r.dryRun ? "RESEND_API_KEY absent (dry run)" : ""), now()]);
+          r.error || (r.dryRun ? "envoi non configuré (dry run)" : ""), now()]);
       if (r.ok) envoyes++; else { erreurs++; derniereErreur = r.error || "dry run"; }
     }
     if (envoyes) {

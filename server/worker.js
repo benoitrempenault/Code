@@ -50,6 +50,8 @@ export default {
       BREVO_API_KEY: env.BREVO_API_KEY || "", // SMS transactionnels (vœux d'anniversaire)
       // Fichier des mandats AMEPI (Amanda) : identifiants du compte de l'agence
       MAIL_FROM: env.MAIL_FROM || "",
+      MAIL_VIA: env.MAIL_VIA || "", // "brevo" : tous les e-mails partent par Brevo (sinon Resend)
+      MAIL_FROM_BREVO: env.MAIL_FROM_BREVO || "", // expéditeur vérifié chez Brevo
       OFFRE_BASE: env.OFFRE_BASE || "", // page publique de l'offre d'achat (dossier offre/)
       // Bilans vendeurs : statistiques par annonce du site de l'agence
       // (kadima-site, clé partagée = STUDIO_STATS_KEY côté site).

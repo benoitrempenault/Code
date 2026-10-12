@@ -2354,10 +2354,12 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
 
   /* ---- Anniversaires par SMS (Brevo) ------------------------------------- */
   console.log("— Administration : vœux par SMS (Brevo)");
-  const smsRecus = [];
+  const smsRecus = [], mailsBrevo = [];
   const fauxBrevo = (await import("node:http")).createServer(async (req, res) => {
     const chunks = []; for await (const ch of req) chunks.push(ch);
-    smsRecus.push(JSON.parse(Buffer.concat(chunks).toString()));
+    const corps = JSON.parse(Buffer.concat(chunks).toString());
+    if (/\/v3\/smtp\/email/.test(req.url)) { mailsBrevo.push({ ...corps, apiKey: req.headers["api-key"] }); res.writeHead(201, { "Content-Type": "application/json" }); res.end(JSON.stringify({ messageId: "<mail_test@brevo>" })); return; }
+    smsRecus.push(corps);
     res.writeHead(201, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ reference: "sms_test" }));
   });
@@ -2411,6 +2413,52 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok((await callS("/crm/reglages", { headers: auth })).json.reglages.anniversaires.repondreA === "", "vidée, la boîte de réponse revient à la règle conseiller / agence");
     const kad = CRM_TEST.defaultReglages({ id: "ag_k", name: "CENTURY 21 Kadima" }).anniversaires, autreK = CRM_TEST.defaultReglages({ id: "ag_y", name: "Agence Dupont" }).anniversaires;
     ok(kad.repondreA === "benoit.rempenault@century21.fr" && autreK.repondreA === "", "chez Kadima, les réponses aux vœux vont à Benoît par défaut ; ailleurs, rien n'est réglé"); }
+  // Chez Kadima, la boîte de réponse vidée retombe quand même sur Benoît.
+  { const kadima = { id: "ag_kad_test", name: "CENTURY 21 Kadima" };
+    const regK = CRM_TEST.defaultReglages(kadima); regK.anniversaires.repondreA = "";
+    const rep = await CRM_TEST.reponseAnniversaire(db, kadima, regK, { conseiller: "" });
+    ok(rep.replyTo === "benoit.rempenault@century21.fr", "Kadima : réglage vidé → les réponses aux vœux vont quand même à Benoît");
+    const regA = CRM_TEST.defaultReglages({ id: "ag_a", name: "Agence Dupont" }); regA.agence.email = "dupont@ex.fr";
+    ok((await CRM_TEST.reponseAnniversaire(db, { id: "ag_a", name: "Agence Dupont" }, regA, { conseiller: "" })).replyTo === "dupont@ex.fr", "ailleurs : l'agence"); }
+
+  /* ---- E-mails par Brevo (MAIL_VIA = "brevo") ----------------------------- */
+  console.log("— E-mails par Brevo (MAIL_VIA = brevo) : vœux, lots, lien de connexion");
+  const envB = { RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18791", BREVO_API_KEY: "brevo-test", BREVO_BASE: "http://localhost:18797",
+    MAIL_VIA: "brevo", MAIL_FROM: "Studio Brochure <connexion@studiobrochure.fr>", MAIL_FROM_BREVO: "CENTURY 21 Kadima <contact@century21-kadima.fr>" };
+  ok(CRM_TEST.fournisseurMail(envB) === "brevo" && CRM_TEST.fournisseurMail({ ...envB, MAIL_VIA: "" }) === "resend"
+    && CRM_TEST.fournisseurMail({ ...envB, BREVO_API_KEY: "" }) === "" && CRM_TEST.fournisseurMail({}) === "", "le fournisseur suit MAIL_VIA et les clés posées");
+  ok((await CRM_TEST.envoyerMailHtml({ ...envB, BREVO_API_KEY: "" }, { to: "x@y.fr", subject: "s", html: "<p>h</p>" })).dryRun === true, "MAIL_VIA=brevo sans clé Brevo : dry run, rien ne part par Resend");
+  { const avantResend = mailsRecus.length;
+    const r1 = await CRM_TEST.envoyerMailHtml(envB, { to: "client@ex.fr", subject: "Bonjour", html: "<p>Coucou</p>", fromName: "Agence Test — Nord", replyTo: "nord@ach-test.fr", bcc: "copie@ach-test.fr", attachments: [{ filename: "rdv.ics", content: "QkVHSU4=" }] });
+    const m1 = mailsBrevo[mailsBrevo.length - 1];
+    ok(r1.ok && m1 && m1.apiKey === "brevo-test" && m1.sender.email === "contact@century21-kadima.fr" && m1.sender.name === "Agence Test — Nord",
+      "un e-mail part par Brevo, expéditeur vérifié MAIL_FROM_BREVO, nom affiché = celui de l'agence (" + JSON.stringify(m1 && m1.sender) + ")");
+    ok(m1 && m1.to[0].email === "client@ex.fr" && m1.replyTo.email === "nord@ach-test.fr" && m1.bcc[0].email === "copie@ach-test.fr" && m1.htmlContent === "<p>Coucou</p>"
+      && m1.attachment[0].name === "rdv.ics" && m1.attachment[0].content === "QkVHSU4=", "destinataire, réponse, copie cachée, HTML et pièce jointe au format Brevo");
+    ok(mailsRecus.length === avantResend, "rien n'est passé par Resend");
+    const lot = await CRM_TEST.envoyerMailsLot(envB, [{ to: "a@ex.fr", subject: "A", html: "<p>a</p>", fromName: "Agence Test", replyTo: "nord@ach-test.fr" }, { to: "b@ex.fr", subject: "B", html: "<p>b</p>", fromName: "Agence Test" }]);
+    const m2 = mailsBrevo[mailsBrevo.length - 1];
+    ok(lot.envoyes === 2 && !lot.erreurs.length && m2.messageVersions.length === 2 && m2.messageVersions[1].to[0].email === "b@ex.fr" && m2.messageVersions[1].subject === "B" && m2.messageVersions[1].htmlContent === "<p>b</p>"
+      && m2.messageVersions[0].replyTo.email === "nord@ach-test.fr" && !m2.messageVersions[1].replyTo && m2.sender.email === "contact@century21-kadima.fr",
+      "un lot part en UN appel Brevo (messageVersions : un destinataire, sujet, HTML et réponse par message)");
+    const avantB = mailsBrevo.length, r3 = await CRM_TEST.envoyerMailHtml({ ...envB, MAIL_VIA: "" }, { to: "c@ex.fr", subject: "C", html: "<p>c</p>" });
+    ok(r3.ok && mailsBrevo.length === avantB && mailsRecus[mailsRecus.length - 1].to[0] === "c@ex.fr" && /connexion@studiobrochure\.fr/.test(mailsRecus[mailsRecus.length - 1].from), "sans MAIL_VIA, Resend comme avant"); }
+  // De bout en bout : les vœux et le lien de connexion passent par Brevo, avec la boîte de réponse réglée.
+  { const appB = createApp({ db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", ...envB });
+    const callB = async (path, opts = {}) => { const res = await appB.fetch(new Request("http://api.test" + path, { method: opts.method || (opts.body ? "POST" : "GET"), headers: { "Content-Type": "application/json", ...(opts.headers || {}) }, body: opts.body ? JSON.stringify(opts.body) : undefined })); return { status: res.status, json: await res.json().catch(() => null) }; };
+    await callB("/crm/reglages", { headers: auth, method: "PUT", body: { anniversaires: { repondreA: "benoit.rempenault@century21.fr" } } });
+    await callB("/crm/contacts/bulk", { headers: auth, body: { rows: [{ civilite: "M.", nom: "BREVO Max", email: "brevomax@ach-test.fr", date_naissance: aujJJMM, conseiller: "FRICK Nathalie" }] } });
+    const avantResend = mailsRecus.length;
+    const runB = (await callB("/crm/anniversaires/run", { headers: auth, method: "POST" })).json.summary;
+    const vMax = mailsBrevo.find((m) => m.to && m.to[0].email === "brevomax@ach-test.fr");
+    ok(runB.sent >= 1 && vMax && vMax.replyTo.email === "benoit.rempenault@century21.fr" && /anniversaire/i.test(vMax.subject) && vMax.sender.email === "contact@century21-kadima.fr",
+      "le vœu part par Brevo, la réponse arrive chez Benoît (" + JSON.stringify(vMax && [vMax.sender, vMax.replyTo]) + ")");
+    ok(mailsRecus.length === avantResend, "aucun vœu par Resend");
+    const lienB = await callB("/auth/request-link", { body: { email: "claire@azur-immo.fr" } });
+    const mLien = mailsBrevo[mailsBrevo.length - 1];
+    ok(lienB.status === 200 && mLien && mLien.to[0].email === "claire@azur-immo.fr" && /compte\.html.*#token=/.test(mLien.textContent || "") && /Studio Brochure/.test(mLien.sender.name),
+      "le lien de connexion part aussi par Brevo (texte avec le lien, au nom de Studio Brochure) — " + JSON.stringify([lienB.status, lienB.json, mLien && { to: mLien.to, sender: mLien.sender, texte: (mLien.textContent || "").slice(0, 80) }]));
+    await callB("/crm/reglages", { headers: auth, method: "PUT", body: { anniversaires: { repondreA: "" } } }); }
   ok(runSms.sms === 2, "deux vœux partis par SMS (mobile requis, le fixe est écarté)");
   const smsTom = smsRecus.find((s) => s.recipient === "+33662125193");
   ok(smsTom && /Rémi/.test(smsTom.content) && /Joyeux anniversaire/.test(smsTom.content) && smsTom.sender.length <= 11,

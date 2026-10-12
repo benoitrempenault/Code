@@ -1244,6 +1244,21 @@ mobiles 06/07 → +33, anti-doublon type « …-sms » dans crm_envois, signé d
 conseiller de la fiche sinon de `anniversaires.smsSignature`, expéditeur ≤11 alphanum ;
 réglages + test dans l'onglet Anniversaires, grisés tant que la clé n'est pas posée).
 
+**E-mails par Brevo (12/10)** : Resend gratuit = 100 e-mails / jour (quota atteint le lundi 12/10 : vœux
++ bilans du lundi). `MAIL_VIA = "brevo"` (wrangler.toml [vars]) fait partir TOUS les e-mails par Brevo
+(`POST /v3/smtp/email`, clé `BREVO_API_KEY` déjà posée pour les SMS ; compte Brevo de l'agence = plan
+Marketing Standard payant, ~37 600 e-mails / mois) : vœux, relances, estimés, bilans, offres, parcours,
+envois manuels, récaps Suivi (`recap.js` → `envoyerMailHtml`) et liens de connexion (`issueLoginLink` →
+`envoyerMailHtml`, nom « Studio Brochure »). Expéditeur = `MAIL_FROM_BREVO` (« CENTURY 21 Kadima
+<contact@century21-kadima.fr> », expéditeur vérifié chez Brevo — studiobrochure.fr ne l'est PAS), le nom
+affiché reste `fromName` (l'agence / le point de vente). `fournisseurMail(env)` → "brevo" | "resend" | ""
+(dry run) ; `envoyerMailHtml` accepte `text`, `to` liste, pièces jointes (`attachment[{name, content}]`
+côté Brevo) ; `envoyerMailsLot` = `messageVersions` (500 par appel, un destinataire / sujet / HTML /
+replyTo par version). `BREVO_BASE` en test (faux serveur 18797, `mailsBrevo`). Retirer `MAIL_VIA` →
+Resend comme avant. **Réponses aux vœux** : chez Kadima (`estKadima`), même avec « Les réponses
+arrivent sur » vidé dans les réglages, `reponseAnniversaire` renvoie benoit.rempenault@century21.fr
+(Benoît veut toutes les réponses) ; ailleurs, règle conseiller / agence inchangée.
+
 **Point sécurité (12/10)** : (1) SheetJS embarqué passé de 0.18.5 à **0.20.3** (CVE-2023-30533 pollution
 de prototype par xlsx piégé, CVE-2024-22363 ReDoS) — la 0.20 n'existe plus sur npm, fichier pris sur
 `cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js` ; mêmes appels (`XLSX.read` array/raw,

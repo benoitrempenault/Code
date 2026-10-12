@@ -1568,22 +1568,38 @@ export function profilAchat(contact) {
   return t.includes("vendeur") && !t.includes("acquereur") ? "vendeur" : "acquereur";
 }
 
-// Envoi HTML via Resend, au nom de l'agence (adresse du domaine verifie,
-// reponse dirigee vers la boite de l'agence). Dry run sans RESEND_API_KEY.
-export async function envoyerMailHtml(env, { to, subject, html, fromName, replyTo, bcc, attachments }) {
-  if (!env.RESEND_API_KEY) return { ok: false, dryRun: true };
-  const m = /<([^>]+)>/.exec(env.MAIL_FROM || "");
-  const fromEmail = (m && m[1]) || "connexion@studiobrochure.fr";
-  const corps = {
-    from: `${(fromName || "Studio Brochure").replace(/["<>]/g, "")} <${fromEmail}>`,
-    to: [to], subject, html,
-  };
-  if (replyTo) corps.reply_to = [replyTo];
-  if (bcc) corps.bcc = [bcc];
-  if (Array.isArray(attachments) && attachments.length) corps.attachments = attachments.map((a) => ({ filename: a.filename, content: a.content }));
-  // RESEND_BASE : surchargeable en test (faux serveur local), comme
-  // ANTHROPIC_BASE et GRAPH_BASE ailleurs dans le code.
-  const res = await fetch((env.RESEND_BASE || "https://api.resend.com") + "/emails", {
+// --- E-mails sortants : Resend (défaut) ou Brevo (MAIL_VIA = "brevo") -------
+// Brevo est le fournisseur de l'agence (déjà utilisé pour les SMS) : son
+// quota mensuel remplace les 100 e-mails par jour de l'offre gratuite Resend.
+// L'adresse d'expédition vient de MAIL_FROM_BREVO (expéditeur vérifié chez
+// Brevo ; à défaut MAIL_FROM), le nom affiché reste celui de l'agence.
+export function fournisseurMail(env) {
+  if (String(env.MAIL_VIA || "").toLowerCase() === "brevo") return env.BREVO_API_KEY ? "brevo" : "";
+  return env.RESEND_API_KEY ? "resend" : "";
+}
+export const MAIL_NON_CONFIGURE = "Envoi d'e-mails non configuré sur le serveur (RESEND_API_KEY ou MAIL_VIA=brevo + BREVO_API_KEY).";
+function expediteur(env, fromName) {
+  const src = (fournisseurMail(env) === "brevo" && env.MAIL_FROM_BREVO) || env.MAIL_FROM || "";
+  const m = /^\s*(?:"?([^"<]*?)"?\s*)?<([^>]+)>\s*$/.exec(src);
+  const email = (m && m[2]) || (src.includes("@") ? src.trim() : "connexion@studiobrochure.fr");
+  const nomDefaut = (m && m[1] && m[1].trim()) || "Studio Brochure";
+  return { email, name: String(fromName || nomDefaut).replace(/["<>]/g, "").trim() || nomDefaut };
+}
+const listeAdresses = (v) => (Array.isArray(v) ? v : [v]).map((x) => String(x || "").trim()).filter(Boolean);
+async function posterBrevo(env, corps) {
+  const res = await fetch((env.BREVO_BASE || "https://api.brevo.com") + "/v3/smtp/email", {
+    method: "POST",
+    headers: { "api-key": env.BREVO_API_KEY, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(corps),
+  }).catch(() => null);
+  if (!res || !res.ok) {
+    const detail = res ? await res.text().catch(() => "") : "injoignable";
+    return { ok: false, error: `Brevo ${res ? res.status : ""} ${detail}`.trim().slice(0, 300) };
+  }
+  return { ok: true };
+}
+async function posterResend(env, chemin, corps) {
+  const res = await fetch((env.RESEND_BASE || "https://api.resend.com") + chemin, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.RESEND_API_KEY },
     body: JSON.stringify(corps),
@@ -1595,26 +1611,65 @@ export async function envoyerMailHtml(env, { to, subject, html, fromName, replyT
   return { ok: true };
 }
 
-// Plusieurs e-mails en UNE requête (Resend /emails/batch, 100 max par appel) :
-// un seul appel sortant, au lieu d'un par message (plafond de sous-requêtes).
+// Un e-mail (HTML et/ou texte), au nom de l'agence, réponse dirigée vers sa
+// boîte. `to` : une adresse ou une liste. Dry run sans fournisseur configuré.
+export async function envoyerMailHtml(env, { to, subject, html, text, fromName, replyTo, bcc, attachments }) {
+  const via = fournisseurMail(env);
+  if (!via) return { ok: false, dryRun: true };
+  const from = expediteur(env, fromName);
+  const dest = listeAdresses(to);
+  if (!dest.length) return { ok: false, error: "Aucun destinataire." };
+  const pieces = Array.isArray(attachments) ? attachments.filter((a) => a && a.filename && a.content) : [];
+  if (via === "brevo") {
+    const corps = { sender: from, to: dest.map((email) => ({ email })), subject };
+    if (html) corps.htmlContent = html;
+    if (text) corps.textContent = text;
+    if (!html && !text) corps.textContent = " ";
+    if (replyTo) corps.replyTo = { email: replyTo };
+    if (bcc) corps.bcc = listeAdresses(bcc).map((email) => ({ email }));
+    if (pieces.length) corps.attachment = pieces.map((a) => ({ name: a.filename, content: a.content }));
+    return posterBrevo(env, corps);
+  }
+  const corps = { from: `${from.name} <${from.email}>`, to: dest, subject };
+  if (html) corps.html = html;
+  if (text) corps.text = text;
+  if (replyTo) corps.reply_to = [replyTo];
+  if (bcc) corps.bcc = listeAdresses(bcc);
+  if (pieces.length) corps.attachments = pieces.map((a) => ({ filename: a.filename, content: a.content }));
+  return posterResend(env, "/emails", corps);
+}
+
+// Plusieurs e-mails en UNE requête (Resend /emails/batch : 100 par appel ;
+// Brevo messageVersions : 500 par appel) : un seul appel sortant au lieu
+// d'un par message (plafond de sous-requêtes du Worker).
 export async function envoyerMailsLot(env, mails) {
-  if (!env.RESEND_API_KEY) return { envoyes: 0, dryRun: true };
-  const m = /<([^>]+)>/.exec(env.MAIL_FROM || "");
-  const fromEmail = (m && m[1]) || "connexion@studiobrochure.fr";
+  const via = fournisseurMail(env);
+  if (!via) return { envoyes: 0, dryRun: true };
   let envoyes = 0; const erreurs = [];
-  for (let i = 0; i < mails.length; i += 100) {
-    const lot = mails.slice(i, i + 100).map((x) => {
-      const o = { from: `${(x.fromName || "Studio Brochure").replace(/["<>]/g, "")} <${fromEmail}>`, to: [x.to], subject: x.subject, html: x.html };
-      if (x.replyTo) o.reply_to = [x.replyTo];
-      return o;
-    });
-    const res = await fetch((env.RESEND_BASE || "https://api.resend.com") + "/emails/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.RESEND_API_KEY },
-      body: JSON.stringify(lot),
-    }).catch(() => null);
-    if (res && res.ok) envoyes += lot.length;
-    else erreurs.push(`Resend ${res ? res.status : "injoignable"} ${res ? (await res.text().catch(() => "")).slice(0, 200) : ""}`.trim());
+  const taille = via === "brevo" ? 500 : 100;
+  for (let i = 0; i < mails.length; i += taille) {
+    const lot = mails.slice(i, i + taille);
+    let r;
+    if (via === "brevo") {
+      const premier = expediteur(env, lot[0].fromName);
+      const corps = {
+        sender: premier, subject: lot[0].subject, htmlContent: lot[0].html || " ",
+        messageVersions: lot.map((x) => {
+          const v = { to: [{ email: x.to }], subject: x.subject, htmlContent: x.html };
+          if (x.replyTo) v.replyTo = { email: x.replyTo };
+          return v;
+        }),
+      };
+      r = await posterBrevo(env, corps);
+    } else {
+      r = await posterResend(env, "/emails/batch", lot.map((x) => {
+        const from = expediteur(env, x.fromName);
+        const o = { from: `${from.name} <${from.email}>`, to: [x.to], subject: x.subject, html: x.html };
+        if (x.replyTo) o.reply_to = [x.replyTo];
+        return o;
+      }));
+    }
+    if (r.ok) envoyes += lot.length; else erreurs.push(r.error);
   }
   return { envoyes, erreurs };
 }
@@ -1749,7 +1804,9 @@ export async function reponseAnniversaire(db, agency, reglages, contact) {
   const ag = agencePour(reglages, profil);
   // Une boîte de réponse réglée (Réglages → Anniversaires → « Les réponses
   // arrivent sur ») prime sur tout : Benoît veut recevoir les réponses lui-même.
-  const fixe = String(reglages.anniversaires.repondreA || "").trim();
+  // Chez Kadima, même vidée dans les réglages, la boîte de réponse reste
+  // celle de Benoît : il veut toutes les réponses aux vœux, sans exception.
+  const fixe = String(reglages.anniversaires.repondreA || "").trim() || (estKadima(agency) ? "benoit.rempenault@century21.fr" : "");
   const replyTo = fixe || (profil && profil.email) || ag.email || reglages.agence.email || "";
   const bcc = reglages.anniversaires.cci || (!fixe && profil && profil.email && ag.email && ag.email !== profil.email ? ag.email : "");
   return { replyTo, bcc, conseiller: profil ? [profil.prenom, profil.nom].filter(Boolean).join(" ") : "", agence: ag.nom || "" };
@@ -1795,7 +1852,7 @@ export async function runAnniversaires(env, db, agency, reglages) {
         const statut = r.ok ? "ok" : "erreur";
         await db.run(
           "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [agency.id, contact.id, label, contact.email, type, annee, statut, r.error || (r.dryRun ? "RESEND_API_KEY absent (dry run)" : ""), now()]);
+          [agency.id, contact.id, label, contact.email, type, annee, statut, r.error || (r.dryRun ? "envoi non configuré (dry run)" : ""), now()]);
         if (r.ok) { summary.sent++; summary.details.push({ contact: label, type, status: "ok", repondre: rep.replyTo, copie: rep.bcc }); }
         else { summary.errors++; summary.details.push({ contact: label, type, status: "erreur", reason: r.error || "dry run" }); }
       }
@@ -2327,7 +2384,7 @@ export async function runRelances(env, db, agency, reglages) {
           contact_id: contact.id, contact: label, email: contact.email,
           annonce_id: b.annonce.id, titre: b.annonce.titre, kind: b.kind,
           prix: b.annonce.prix, statut,
-          erreur: res.error || (res.dryRun ? "RESEND_API_KEY absent (dry run)" : ""),
+          erreur: res.error || (res.dryRun ? "envoi non configuré (dry run)" : ""),
         });
         if (res.ok) dejaSet.add(contact.id + "|" + b.annonce.id + "|" + b.kind);
       }
@@ -2610,7 +2667,7 @@ export async function runEstimations(env, db, agency, reglages) {
         await db.run(
           "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
           [agency.id, est.id, label, adresse, type, annee, r.ok ? "ok" : "erreur",
-            r.error || (r.dryRun ? "RESEND_API_KEY absent (dry run)" : ""), now()]);
+            r.error || (r.dryRun ? "envoi non configuré (dry run)" : ""), now()]);
         if (r.ok) { summary.sent++; summary.details.push({ estimation: label, type, email: adresse, status: "ok" }); }
         else { summary.errors++; summary.details.push({ estimation: label, type, email: adresse, status: "erreur", reason: r.error || "dry run" }); }
       }

@@ -37,7 +37,11 @@ SITE_STATS_BASE = "https://api.century21-kadima.fr"  # bilans vendeurs : stats p
 BILANS_BASE = "https://benoitrempenault.github.io/Code/bilans/"  # Studio Bilans : lien des e-mails « bilans à relire » aux conseillers
 RECAP_AUTO = ""  # passer à "1" (puis redéployer) pour activer l'envoi lundi/vendredi
 APP_BASE = "https://studiobrochure.fr/app"  # dossier de l'app compte par défaut (clients) ; Kadima a son app_base en base
-MAIL_FROM = "Studio Brochure <connexion@studiobrochure.fr>"
+MAIL_FROM = "Studio Brochure <connexion@studiobrochure.fr>"  # expéditeur Resend
+# Tous les e-mails partent par Brevo (plan payant de l'agence, même clé que les SMS) : l'offre
+# gratuite Resend plafonne à 100 par jour. Retirer MAIL_VIA (ou "") pour revenir à Resend.
+MAIL_VIA = "brevo"
+MAIL_FROM_BREVO = "CENTURY 21 Kadima <contact@century21-kadima.fr>"  # expéditeur vérifié chez Brevo
 # Garde-fous du proxy IA (surchargeables sans redéployer le code) :
 GLOBAL_MONTHLY_CAP_EUR = "500"  # kill-switch : plafond de dépense IA mensuel TOUS comptes confondus (filet anti-facture)
 # AI_MODELS = "claude-opus-4-8,claude-sonnet-4-5,claude-haiku-4-5"  # liste blanche (défaut dans le code)

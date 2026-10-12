@@ -44,6 +44,8 @@ const app = createApp({
   OVERPASS_BASE: process.env.OVERPASS_BASE || "", GEO_BASE: process.env.GEO_BASE || "", BIENICI_BASE: process.env.BIENICI_BASE || "", BIENICI_SUGGEST: process.env.BIENICI_SUGGEST || "",
   BATIMENTS_BASE: process.env.BATIMENTS_BASE || "",
   MAIL_FROM: process.env.MAIL_FROM || "",
+  MAIL_VIA: process.env.MAIL_VIA || "",
+  MAIL_FROM_BREVO: process.env.MAIL_FROM_BREVO || "",
   OFFRE_BASE: process.env.OFFRE_BASE || "",
   SITE_STATS_BASE: process.env.SITE_STATS_BASE || "",
   SITE_STATS_KEY: process.env.SITE_STATS_KEY || "",

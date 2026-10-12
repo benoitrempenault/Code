@@ -11,6 +11,7 @@
    ========================================================================= */
 import { actionsFor, todayParis, fmtFr } from "./etapes.js";
 import { now } from "./util.js";
+import { fournisseurMail, envoyerMailHtml } from "./crm.js";
 
 const STALE_JOURS = 15;
 
@@ -91,23 +92,14 @@ export function buildRecapFrom(env, dossiers) {
 // Outlook les affiche comme une vraie invitation, acceptable en un clic,
 // sans attendre le rafraîchissement d'un flux abonné.
 export async function envoyerMail(env, to, sujet, texte, pieces) {
-  if (!env.RESEND_API_KEY || !to.length) return false;
-  const corps = {
-    from: env.MAIL_FROM || "Studio Suivi <connexion@studiobrochure.fr>",
-    to, subject: sujet, text: texte
-  };
-  if (pieces && pieces.length) {
-    corps.attachments = pieces.map((p) => ({
-      filename: p.filename,
-      content: btoa(String.fromCharCode(...new TextEncoder().encode(p.content)))
-    }));
-  }
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.RESEND_API_KEY },
-    body: JSON.stringify(corps)
-  }).catch(() => null);
-  return !!(res && res.ok);
+  const dest = (Array.isArray(to) ? to : [to]).filter(Boolean);
+  if (!fournisseurMail(env) || !dest.length) return false;
+  const attachments = (pieces || []).map((p) => ({
+    filename: p.filename,
+    content: btoa(String.fromCharCode(...new TextEncoder().encode(p.content)))
+  }));
+  const r = await envoyerMailHtml(env, { to: dest, subject: sujet, text: texte, fromName: "Studio Suivi", attachments });
+  return !!r.ok;
 }
 
 // Charge les dossiers ouverts d'une agence (data parsé) + l'annuaire des

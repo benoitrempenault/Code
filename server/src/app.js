@@ -168,18 +168,13 @@ export function createApp(env) {
     const ag = await db.get("SELECT app_base FROM agencies WHERE id = ?", [user.agency_id]);
     const r = safeRetour(retour);
     const link = appBase(ag) + "/compte.html" + (r ? "?retour=" + encodeURIComponent(r) : "") + "#token=" + token;
-    if (env.RESEND_API_KEY) {
+    if (CRM.fournisseurMail(env)) {
       const intro = (mail && mail.intro) || "Voici votre lien de connexion (valable 15 minutes) :";
-      await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.RESEND_API_KEY },
-        body: JSON.stringify({
-          from: env.MAIL_FROM || "Studio Brochure <connexion@studiobrochure.fr>",
-          to: [user.email],
-          subject: (mail && mail.subject) || "Votre lien de connexion Studio Brochure",
-          text: "Bonjour,\n\n" + intro + "\n" + link +
-            "\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n\nStudio Brochure"
-        })
+      await CRM.envoyerMailHtml(env, {
+        to: user.email, fromName: "Studio Brochure",
+        subject: (mail && mail.subject) || "Votre lien de connexion Studio Brochure",
+        text: "Bonjour,\n\n" + intro + "\n" + link +
+          "\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n\nStudio Brochure"
       }).catch(() => { });
     }
     return { token, link };
@@ -1174,7 +1169,7 @@ export function createApp(env) {
       to, subject: "[TEST] " + subject, html,
       fromName: reglages.agence.nom || ctx.agency.name, replyTo: reglages.agence.email || "",
     });
-    if (!r.ok) return err(c, 500, r.dryRun ? "Envoi d'e-mails non configuré sur le serveur (RESEND_API_KEY)." : (r.error || "Échec de l'envoi."));
+    if (!r.ok) return err(c, 500, r.dryRun ? CRM.MAIL_NON_CONFIGURE : (r.error || "Échec de l'envoi."));
     return c.json({ ok: true });
   });
 
@@ -2349,7 +2344,7 @@ export function createApp(env) {
       });
       if (res.ok) mails++; else erreurs++;
       for (const a of annonces) {
-        journal.push({ contact, a, statut: res.ok ? "ok" : "erreur", erreur: res.error || (res.dryRun ? "RESEND_API_KEY absent (dry run)" : "") });
+        journal.push({ contact, a, statut: res.ok ? "ok" : "erreur", erreur: res.error || (res.dryRun ? "envoi non configuré (dry run)" : "") });
       }
     }
     for (const j of journal) {
