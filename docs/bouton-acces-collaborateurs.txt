@@ -1,0 +1,25 @@
+BOUTON « ACCÈS COLLABORATEURS » — site century21-kadima.fr
+(à transmettre à l'intégrateur du site)
+
+Depuis le 12 octobre 2026, la porte à code partagé est fermée. Le bouton doit
+devenir un simple lien vers l'accueil des outils Studio, sans code, sans
+laissez-passer, sans « #acces= ».
+
+Libellé du bouton :      Accès collaborateurs
+Adresse (href) :         https://studio.century21-kadima.fr/mandat/
+Ouverture :              même onglet (pas de target="_blank")
+Suivi/attribut :         rel="noopener" si vous laissez target="_blank"
+
+HTML :
+<a class="btn" href="https://studio.century21-kadima.fr/mandat/">Accès collaborateurs</a>
+
+À retirer côté site :
+- le formulaire de code d'accès (page /admin/studio) et son appel à l'API des
+  codes (studio-codes) ;
+- la redirection vers benoitrempenault.github.io/Code/... avec « #acces=… » ;
+- toute mention « code collaborateur » dans les textes du site.
+
+Comportement attendu : un collaborateur déjà connecté sur son appareil arrive
+directement sur ses outils ; sinon la page de connexion Studio s'ouvre
+(e-mail → lien → code SMS), une fois par appareil, puis l'appareil est reconnu
+90 jours.
