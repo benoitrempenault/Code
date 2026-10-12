@@ -295,6 +295,15 @@ export function createApp(env) {
       );
       user = await db.get("SELECT * FROM users WHERE id = ?", [uid]);
     }
+    // Usage unique : un laissez-passer déjà présenté ne rouvre pas de session
+    // (anti-rejeu jusqu'à son expiration). Consommation atomique dans
+    // login_tokens, comme un lien magique ; les jetons expirés sont balayés.
+    await db.run("DELETE FROM login_tokens WHERE expires_at < ?", [now() - 86400]);
+    const consomme = await db.run(
+      "INSERT OR IGNORE INTO login_tokens (token_hash, user_id, expires_at, used, created_at) VALUES (?, ?, ?, 1, ?)",
+      [await sha256hex(pass), user.id, Number(payload.exp) || now(), now()]
+    );
+    if (changesOf(consomme) !== 1) return err(c, 401, "Laissez-passer déjà utilisé — repassez par l'accès collaborateur.");
     // Accès partagé multi-postes : plafond d'appareils élevé (sinon les postes
     // de l'agence se déconnecteraient mutuellement au-delà de 3).
     const bearer = await openSession(user, 100);
@@ -330,19 +339,25 @@ export function createApp(env) {
   /* ---------------- Connexion par e-mail + mot de passe ------------------ */
   // En complément du lien magique. Le mot de passe se définit une fois
   // connecté (page « Mon compte »), ou est posé par l'admin de l'agence.
-  const PW_MIN = 8, PW_MAX = 200, PW_TRIES_PER_MIN = 5;
+  const PW_MIN = 8, PW_MAX = 200, PW_TRIES_PER_MIN = 5, PW_TRIES_PER_IP_MIN = 20;
   app.post("/auth/password-login", async (c) => {
     const b = await c.req.json().catch(() => ({}));
     const email = String(b.email || "").trim().toLowerCase();
     const password = String(b.password || "");
     const generic = () => err(c, 401, "E-mail ou mot de passe incorrect.");
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || !password) return generic();
-    // Anti-force brute : 5 essais par minute et par adresse (réussi ou non).
-    const scope = "pw:" + (await sha256hex(email)).slice(0, 16);
+    // Anti-force brute : 5 essais par minute et par adresse (réussi ou non),
+    // et 20 par minute et par IP (sinon une même machine testerait 5 mots de
+    // passe par minute sur CHAQUE adresse connue).
     const minute = Math.floor(now() / 60);
-    await db.run("INSERT OR IGNORE INTO ai_rate (scope, minute, n) VALUES (?, ?, 0)", [scope, minute]);
-    const rl = await db.run("UPDATE ai_rate SET n = n + 1 WHERE scope = ? AND minute = ? AND n < ?", [scope, minute, PW_TRIES_PER_MIN]);
-    if (changesOf(rl) !== 1) return err(c, 429, "Trop d'essais — patientez une minute.");
+    const ip = c.req.header("CF-Connecting-IP") || String(c.req.header("x-forwarded-for") || "").split(",")[0].trim() || "";
+    const portes = [["pw:" + (await sha256hex(email)).slice(0, 16), PW_TRIES_PER_MIN]];
+    if (ip) portes.push(["pwip:" + (await sha256hex(ip)).slice(0, 16), PW_TRIES_PER_IP_MIN]); // Cloudflare pose toujours l'IP ; vide = tests locaux
+    for (const [scope, max] of portes) {
+      await db.run("INSERT OR IGNORE INTO ai_rate (scope, minute, n) VALUES (?, ?, 0)", [scope, minute]);
+      const rl = await db.run("UPDATE ai_rate SET n = n + 1 WHERE scope = ? AND minute = ? AND n < ?", [scope, minute, max]);
+      if (changesOf(rl) !== 1) return err(c, 429, "Trop d'essais — patientez une minute.");
+    }
     const user = await db.get("SELECT * FROM users WHERE email = ?", [email]);
     if (!user) return generic();
     const cred = await db.get("SELECT password_hash FROM credentials WHERE user_id = ?", [user.id]);

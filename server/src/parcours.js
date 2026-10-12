@@ -15,7 +15,7 @@
    séquence automatique (runEstimations) ne renvoie donc jamais un e-mail
    que le conseiller a déjà envoyé à la main.
    ========================================================================= */
-import { now, randId, randToken } from "./util.js";
+import { now, randId, randToken, safeEqual } from "./util.js";
 import { formatTelephone, groupePv, filtrePv, filtrePvProjet, MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier , releverAvisAgences, avisAgence, releverAvisConseillers, jsonAvisSite } from "./crm.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -922,23 +922,34 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   }
   // Diagnostic : quel relais Overpass répond depuis le serveur (sans session,
   // résultat gardé 10 min pour ne pas solliciter les relais).
-  let diagOverpass = { le: 0, resultat: null };
+  // Les diagnostics déclenchent des appels sortants : /diag/overpass reste
+  // public mais ne lance qu'UN relevé par 10 min (les appels simultanés
+  // partagent la même promesse) ; /diag/livret, dont les paramètres
+  // contournent le cache, exige la clé d'administration (ou DEV_MODE).
+  const diagAutorise = (c) => !!env.DEV_MODE || (!!env.ADMIN_KEY && safeEqual(String(c.req.header("X-Admin-Key") || ""), env.ADMIN_KEY));
+  let diagOverpass = { le: 0, resultat: null, enCours: null };
   app.get("/diag/overpass", async (c) => {
     if (diagOverpass.resultat && diagOverpass.le > now() - 600) return c.json(diagOverpass.resultat);
-    const relais = [...new Set([(env.OVERPASS_BASE || RELAIS_OVERPASS[0]).replace(/\/+$/, ""), ...RELAIS_OVERPASS])];
-    const resultat = [];
-    for (const base of relais) {
-      const t0 = Date.now();
-      try { const l = await commoditesVia(base, 44.8969, -0.7169); resultat.push({ relais: base, ok: true, commodites: l.length, ms: Date.now() - t0 }); }
-      catch (e) { resultat.push({ relais: base, ok: false, erreur: String(e.message || e).slice(0, 160), ms: Date.now() - t0 }); }
+    if (!diagOverpass.enCours) {
+      diagOverpass.enCours = (async () => {
+        const relais = [...new Set([(env.OVERPASS_BASE || RELAIS_OVERPASS[0]).replace(/\/+$/, ""), ...RELAIS_OVERPASS])];
+        const resultat = [];
+        for (const base of relais) {
+          const t0 = Date.now();
+          try { const l = await commoditesVia(base, 44.8969, -0.7169); resultat.push({ relais: base, ok: true, commodites: l.length, ms: Date.now() - t0 }); }
+          catch (e) { resultat.push({ relais: base, ok: false, erreur: String(e.message || e).slice(0, 160), ms: Date.now() - t0 }); }
+        }
+        diagOverpass = { le: now(), resultat: { relais: resultat }, enCours: null };
+        return diagOverpass.resultat;
+      })();
     }
-    diagOverpass = { le: now(), resultat: { relais: resultat } };
-    return c.json(diagOverpass.resultat);
+    return c.json(await diagOverpass.enCours);
   });
-  // Diagnostic du livret prix (sans session, 10 min de cache) : la commune, les
-  // millésimes DVF joignables depuis le serveur, une photo de portail.
+  // Diagnostic du livret prix (clé d'administration, 10 min de cache) : la
+  // commune, les millésimes DVF joignables depuis le serveur, une photo de portail.
   let diagLivret = { le: 0, cle: "", resultat: null };
   app.get("/diag/livret", async (c) => {
+    if (!diagAutorise(c)) return err(c, 401, "Clé d'administration requise (X-Admin-Key).");
     const cp = String(c.req.query("cp") || "33160").slice(0, 5), ville = String(c.req.query("ville") || "Saint-Médard-en-Jalles").slice(0, 60);
     const cle = cp + "|" + ville;
     if (diagLivret.resultat && diagLivret.cle === cle && diagLivret.le > now() - 600) return c.json(diagLivret.resultat);

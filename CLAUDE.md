@@ -550,7 +550,7 @@ Noms en page 1 (26/09) : `civiliteCourte`/`civiliteLongue` normalisent « Madame
 Adélaïde REMPENAULT » (MM./Mmes si même civilité), noms différents → « M. Jean
 MOUNEYRES et Mme Sophie DURAND » ; R2 = même ordre en toutes lettres. Commodités :
 un cache crm_environnement sans commodité est ignoré (relevé refait) ;
-`GET /diag/overpass` (sans session, 10 min de cache) dit quel relais répond.
+`GET /diag/overpass` (sans session, 10 min de cache, UN relevé à la fois) dit quel relais répond.
 **Livret prix — ACM (26/09)** : modèle `administration/assets/livret-prix.pdf` (8 pages :
 couverture, 5 facteurs, données, puis 5 pages de chapitre au titre centré) +
 `livret-prix.json` (séparateur 4, rect `blanc` qui efface le titre pour faire une
@@ -604,7 +604,7 @@ acm.concurrence, prioritaire sur le relais) ; DVF 24 mois, tableau à colonnes
 fixes ; financement : tableau 3 niveaux (basse / prix estimé / haute) × 15/20/25
 ans + coût sur la durée. Commune de repli : `geocoderBan` renvoie `citycode` ;
 `/acm/donnees` l'utilise si geo.api.gouv.fr est muet et renvoie `erreurs`.
-`GET /diag/livret?cp=&ville=` (public, 10 min) : commune, BAN, millésimes DVF
+`GET /diag/livret?cp=&ville=` (en-tête `X-Admin-Key` ou DEV_MODE, 10 min) : commune, BAN, millésimes DVF
 (2026 → 404 tant que le millésime n'existe pas), photo Bien'ici, photo AMEPI.
 **Vignettes AMEPI par l'agent (26/09)** : les images des mandats sont sur
 amepistorageprod.blob.core.windows.net → 403 sans session. Table
@@ -1243,6 +1243,24 @@ personne encore sans projet d'achat, jamais d'écrasement) ; **vœux par SMS Bre
 mobiles 06/07 → +33, anti-doublon type « …-sms » dans crm_envois, signé du PRÉNOM du
 conseiller de la fiche sinon de `anniversaires.smsSignature`, expéditeur ≤11 alphanum ;
 réglages + test dans l'onglet Anniversaires, grisés tant que la clé n'est pas posée).
+
+**Point sécurité (12/10)** : (1) SheetJS embarqué passé de 0.18.5 à **0.20.3** (CVE-2023-30533 pollution
+de prototype par xlsx piégé, CVE-2024-22363 ReDoS) — la 0.20 n'existe plus sur npm, fichier pris sur
+`cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js` ; mêmes appels (`XLSX.read` array/raw,
+`sheet_to_json` header:1), vérifié sur les trois fichiers Caudéran. (2) `/diag/livret` exige `X-Admin-Key`
+(ou DEV_MODE) : ses paramètres contournaient le cache et chaque appel ouvrait DVF × 4 (20 s), BAN, géo,
+photo ; `/diag/overpass` reste public mais partage une seule promesse (`diagOverpass.enCours`) : 100 appels
+simultanés = un relevé. (3) `/auth/kadima` à usage unique : le laissez-passer (sha256 du `pass` entier)
+est consommé par `INSERT OR IGNORE` dans `login_tokens` (used = 1, expires_at = exp) → rejoué = 401
+« déjà utilisé » ; les `login_tokens` expirés depuis plus d'un jour sont balayés au passage. Le site
+fabrique un laissez-passer par clic (exp en secondes) : deux clics dans la MÊME seconde donneraient le
+même pass, le second serait refusé — le collaborateur reclique. (4) `/auth/password-login` : en plus des
+5 essais / min / adresse, **20 essais / min / IP** (`CF-Connecting-IP`, sinon premier `x-forwarded-for` ;
+IP vide = tests locaux, pas de porte IP) — scope `pwip:` dans `ai_rate`. Tests : rejeu SSO, 401 diag
+sans clé / mauvaise clé, force brute par IP sur 21 adresses + autre IP libre. Reste ouvert (structurel,
+décisions de Benoît) : session dans `localStorage` sur benoitrempenault.github.io (origine partagée
+avec toutes ses GitHub Pages → vrai correctif = domaine propre, `app_base`), compte partagé
+« Collaborateurs Kadima » (choix A fermer / B brider, voir 30/09), passkeys pour les admins.
 
 **`offre/` + onglet « 📝 Offres » de l'Administration — Studio Offre**, la prise d'offre
 d'achat (interne Kadima, 19/09/2026). Serveur : `server/src/offres.js` (validation, pièces

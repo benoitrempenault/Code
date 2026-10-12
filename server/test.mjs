@@ -291,6 +291,12 @@ if (msDansMinute > 56000) await new Promise((r) => setTimeout(r, 60500 - msDansM
 let pwLast = null;
 for (let i = 0; i < 6; i++) pwLast = await call("/auth/password-login", { body: { email: "claire@azur-immo.fr", password: "mauvais-" + i } });
 ok(pwLast.status === 429, "force brute bloquée (5 essais / minute)");
+// Et par IP : 20 essais par minute toutes adresses confondues (une même
+// machine ne balaie pas l'annuaire à 5 essais par adresse).
+let pwIp = null;
+for (let i = 0; i < 21; i++) pwIp = await call("/auth/password-login", { headers: { "CF-Connecting-IP": "203.0.113.7" }, body: { email: "cible-" + i + "@azur-immo.fr", password: "Essai" + i } });
+ok(pwIp.status === 429, "force brute distribuée sur les adresses bloquée par IP (20 / minute)");
+ok((await call("/auth/password-login", { headers: { "CF-Connecting-IP": "203.0.113.8" }, body: { email: "cible-0@azur-immo.fr", password: "Essai0" } })).status === 401, "une autre IP n'est pas bloquée");
 await db.run("DELETE FROM ai_rate WHERE scope LIKE 'pw:%'", []);
 // L'admin pose le mot de passe d'un conseiller de SON agence.
 const teamUser = await db.get("SELECT id FROM users WHERE email = 'u2@azur-immo.fr'");
@@ -4252,10 +4258,25 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
   const forged = vrai.slice(0, -1) + (vrai.endsWith("0") ? "1" : "0");
   ok((await callK("/auth/kadima", { body: { pass: forged } })).status === 401, "signature altérée → 401");
 
-  // Accès partagé multi-postes : pas d'éviction au 3e appareil.
-  const first = (await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS + 120) } })).json.session;
-  for (let i = 0; i < 5; i++) await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS + 120) } });
+  // Anti-rejeu : un laissez-passer déjà présenté (celui de « good ») ne
+  // rouvre pas de session, même valide et non expiré.
+  const rejeu = await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS + 120) } });
+  ok(rejeu.status === 401 && /déjà utilisé/.test(rejeu.json.error || ""), "laissez-passer rejoué → 401 (usage unique)");
+  ok((await callK("/me", { headers: { Authorization: "Bearer " + good.json.session } })).status === 200, "la 1re session du laissez-passer reste valable");
+
+  // Accès partagé multi-postes : pas d'éviction au 3e appareil (un
+  // laissez-passer distinct par poste, comme le site en fabrique un par clic).
+  const first = (await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS + 121) } })).json.session;
+  for (let i = 0; i < 5; i++) await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS + 130 + i) } });
   ok((await callK("/me", { headers: { Authorization: "Bearer " + first } })).status === 200, "1er poste encore connecté après 6 connexions (plafond relevé)");
+
+  // Diagnostics : /diag/livret exige la clé d'administration (appels sortants
+  // coûteux, cache contournable par les paramètres) ; /diag/overpass reste public.
+  const appProd = createApp({ db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014" });
+  const diagSans = await appProd.fetch(new Request("http://api.test/diag/livret?cp=33000&ville=Bordeaux"));
+  ok(diagSans.status === 401, "/diag/livret sans clé d'administration → 401");
+  const diagMauvaise = await appProd.fetch(new Request("http://api.test/diag/livret", { headers: { "X-Admin-Key": "pas-la-bonne" } }));
+  ok(diagMauvaise.status === 401, "/diag/livret avec une mauvaise clé → 401");
 
   // Repli propre quand le secret n'est pas configuré.
   const appNo = createApp({ db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: true });
