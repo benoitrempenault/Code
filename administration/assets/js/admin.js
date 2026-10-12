@@ -2527,7 +2527,7 @@
       ? '<p class="petit" style="margin-top:10px;">Comptes sans profil conseiller : ' + equipe.sansProfil.map((u) => escH((u.name ? u.name + " · " : "") + u.email) + (u.role === "admin" ? " (admin)" : "") +
           ' <button class="btn" data-profil="' + escH(u.id) + '" ' + petit + '>Créer le profil</button>').join(" — ") + "</p>"
       : "";
-    const sieges = equipe ? '<p class="petit" style="margin:6px 0 0;">' + equipe.used + " / " + equipe.seats + " sièges utilisés.</p>" : "";
+    const sieges = equipe ? '<p class="petit" style="margin:6px 0 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">' + equipe.used + " / " + equipe.seats + ' sièges utilisés. <button class="btn" id="btn-mode-emploi" ' + petit + ' title="Envoie par e-mail, à chaque compte actif de l\'équipe, le mode d\'emploi « se connecter à Studio » (PDF joint), au nom de l\'agence, réponses vers vous">📨 Envoyer le mode d\'emploi à l\'équipe</button></p>' : "";
     zone.innerHTML = menuAgences + (visibles.length
       ? '<div class="tableau-cadre"><table><thead><tr><th></th><th>Conseiller</th><th>Fonction</th><th>Téléphone</th><th>E-mail</th>' + (equipe ? "<th>Accès</th>" : "") + '<th></th></tr></thead><tbody>' +
         visibles.map((c) => '<tr class="cliquable" data-conseiller="' + c.id + '"><td>' +
@@ -2555,6 +2555,16 @@
       try { const r = await api("/crm/equipe/" + b.dataset.creer + "/compte", { json: { email } }); toast("Accès créé : lien de connexion envoyé à " + r.user.email + "."); chargerConseillers(); }
       catch (e) { b.disabled = false; toast(e.message, true); }
     }));
+    const btnME = zone.querySelector("#btn-mode-emploi");
+    if (btnME) btnME.addEventListener("click", async () => {
+      if (!confirm("Envoyer le mode d'emploi « se connecter à Studio » (PDF) par e-mail à tous les comptes actifs de l'équipe, au nom de l'agence ? Vous en recevez une copie et les réponses vous arrivent.")) return;
+      btnME.disabled = true;
+      try {
+        const r = await api("/crm/equipe/mode-emploi", { json: {} });
+        toast(r.dryRun ? "Aucun service d'e-mail configuré : rien n'est parti." : "Mode d'emploi envoyé à " + r.destinataires + " personne" + (r.destinataires > 1 ? "s" : "") + (r.piece_jointe ? " (PDF joint)." : " (lien vers le PDF, pièce jointe indisponible)."), !!r.dryRun);
+      } catch (e) { toast(e.message, true); }
+      btnME.disabled = false;
+    });
     zone.querySelectorAll("button[data-lien]").forEach((b) => b.addEventListener("click", async () => {
       b.disabled = true;
       try { const r = await api("/crm/equipe/" + b.dataset.lien + "/lien", { json: {} }); toast("Lien de connexion renvoyé à " + r.email + " (valable 7 jours)."); }

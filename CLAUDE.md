@@ -1392,6 +1392,14 @@ sur la page, et sur la page du lien un bouton « Je n'ai plus cette page — ouv
 pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une app isolée n'a pas le
 localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
 
+**Mode d'emploi envoyé à l'équipe (12/10, nuit)** : `POST /crm/equipe/mode-emploi` (admin) — comptes des
+conseillers actifs + comptes sans profil, en copie cachée, l'admin en destinataire et en reply-to, au nom de
+l'agence (`wrapEmail`), PDF `administration/assets/mode-emploi-connexion.pdf` (copie du rendu de
+`docs/connexion-conseillers.html`, à REGÉNÉRER quand le doc change) joint si Studio le sert (fetch sur
+l'origine d'`appBase`, passé à `monterRoutesParcours`), sinon lien seul (`piece_jointe:false`). Bouton
+« 📨 Envoyer le mode d'emploi à l'équipe » à côté des sièges (admin.js ?v=85), confirm() avant. Je n'ai
+aucune boîte century21.fr ni la liste des comptes : c'est Benoît qui clique.
+
 **Accès, choix 1 — porte collaborateurs FERMÉE (12/10, soir)** : plus de compte partagé « Collaborateurs
 Kadima ». `POST /auth/kadima` répond toujours **410** `{ ferme: true, compte: <app_base>/compte.html }` (le
 site century21-kadima.fr renvoie encore vers `#acces=`) ; `sessionFrom` refuse toute session d'un compte

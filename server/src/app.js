@@ -3991,7 +3991,7 @@ export function createApp(env) {
   // offres-routes.js — elles partagent les gardes de session de ce fichier.
   monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAgencyAdmin, filesReady, DOSSIERS_MAX });
   // Parcours R1/R2 (envoi de documents) + profils conseillers : parcours.js.
-  monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, apiBase: env.APP_API_BASE || "", creerCompte: creerCompteAgence, lienBienvenue });
+  monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, apiBase: env.APP_API_BASE || "", creerCompte: creerCompteAgence, lienBienvenue, appBase });
   monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAgencyAdmin, apiBase: env.APP_API_BASE || "" });
   monterRoutesPortails(app, { db, env, err, crmCtx, agencyOpen });
   monterRoutesMeta(app, { db, env, err, crmCtx, urlsAnnonces: () => urlsAnnonces(env) });

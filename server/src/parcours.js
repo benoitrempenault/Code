@@ -226,7 +226,7 @@ export function sanitizeParcours(b) {
   };
 }
 
-export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, apiBase, creerCompte, lienBienvenue }) {
+export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, apiBase, creerCompte, lienBienvenue, appBase }) {
   const photoUrl = (c, id) => (c ? `${(apiBase || new URL(c.req.url).origin).replace(/\/+$/, "")}/public/conseillers/${encodeURIComponent(id)}/photo` : "");
 
   /* ------------------------------ Conseillers ------------------------------ */
@@ -527,6 +527,60 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!u) return err(c, 400, "Ce conseiller n'a pas encore d'accès.");
     const { link } = await lienBienvenue(u);
     return c.json({ ok: true, email: u.email, invite_link: env.DEV_MODE ? link : undefined });
+  });
+  // Le mode d'emploi « se connecter » (PDF publié avec Studio) envoyé à toute
+  // l'équipe : chaque compte actif de l'agence, en copie cachée, au nom de
+  // l'agence, réponses vers l'administrateur qui clique. Le PDF est joint
+  // quand Studio le sert (sinon le lien seul, et on le dit).
+  app.post("/crm/equipe/mode-emploi", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const eq = await equipeDe(ctx);
+    const actifs = await db.all("SELECT id FROM crm_conseillers WHERE agency_id = ? AND actif = 1", [ctx.agency.id]);
+    const adresses = new Set();
+    for (const cs of actifs) { const k = eq.comptes[cs.id]; if (k && k.email) adresses.add(String(k.email).toLowerCase()); }
+    for (const u of eq.sansProfil) if (u.email) adresses.add(String(u.email).toLowerCase());
+    const moi = String(ctx.user.email || "").toLowerCase();
+    adresses.delete(moi);
+    const bcc = [...adresses].filter((e) => /^[^@\s]+@[^@\s]+$/.test(e) && !/\.interne$/.test(e));
+    if (!bcc.length && !moi) return err(c, 400, "Aucun compte actif à qui envoyer.");
+    const origine = (() => { try { return new URL((typeof appBase === "function" ? appBase(ctx.agency) : "") || "https://studio.century21-kadima.fr/mandat-pro").origin; } catch (e) { return "https://studio.century21-kadima.fr"; } })();
+    const urlPdf = origine + "/administration/assets/mode-emploi-connexion.pdf";
+    let piece = null;
+    try {
+      const r = await fetch(urlPdf, { signal: AbortSignal.timeout(8000) });
+      if (r.ok && /pdf/i.test(r.headers.get("content-type") || "")) {
+        const octets = new Uint8Array(await r.arrayBuffer());
+        if (octets.length && octets.length < 2_000_000) {
+          let bin = ""; for (let i = 0; i < octets.length; i += 0x8000) bin += String.fromCharCode.apply(null, octets.subarray(i, i + 0x8000));
+          piece = { filename: "Studio-Kadima-se-connecter.pdf", content: btoa(bin) };
+        }
+      }
+    } catch (e) { piece = null; }
+    const reglagesEq = await getReglages(db, ctx.agency).catch(() => ({}));
+    const ag = { ...agencePour(reglagesEq, null) }; if (!ag.nom) ag.nom = ctx.agency.name || "CENTURY 21 Kadima";
+    const site = "https://century21-kadima.fr", outils = origine + "/mandat/";
+    const corps =
+      "<p>Bonjour à tous,</p>" +
+      "<p>Voici le mode d'emploi (une page" + (piece ? ", en pièce jointe" : "") + ") pour entrer dans Studio avec son e-mail century21.fr&nbsp;: plus de code à saisir ni de mot de passe.</p>" +
+      "<ul style=\"padding-left:18px;\">" +
+      "<li><b>Pour entrer</b> : le bouton <b>Accès collaborateurs</b>, tout en bas du site <a href=\"" + site + "\">century21-kadima.fr</a> (ou directement <a href=\"" + outils + "\">" + outils.replace(/^https?:\/\//, "") + "</a>).</li>" +
+      "<li><b>Première fois sur un appareil</b> : votre e-mail → lien reçu par e-mail → code par SMS. Ensuite l'appareil reste connecté 90 jours.</li>" +
+      "<li><b>Raccourci sur l'écran d'accueil (iPhone)</b> : depuis Safari, Partager → Sur l'écran d'accueil, et <b>décochez « Ouvrir en tant qu'app web »</b>. Sinon le raccourci redemande la connexion à chaque fois.</li>" +
+      "</ul>" +
+      "<p>Le mode d'emploi est aussi là : <a href=\"" + urlPdf + "\">" + urlPdf.replace(/^https?:\/\//, "") + "</a>.</p>" +
+      "<p>Une question ? Répondez à ce message.</p>";
+    const html = wrapEmail(ag, { eyebrow: "Studio Kadima", headline: "Se connecter à Studio", bodyHtml: corps, signatureName: ctx.user.name || "", signatureTitre: "" });
+    const texte = "Bonjour à tous,\n\nVoici le mode d'emploi pour entrer dans Studio avec son e-mail century21.fr : plus de code ni de mot de passe.\n\n" +
+      "- Pour entrer : le bouton « Accès collaborateurs », tout en bas du site " + site + " (ou " + outils + ").\n" +
+      "- Première fois sur un appareil : votre e-mail, puis le lien reçu par e-mail, puis le code par SMS. Ensuite l'appareil reste connecté 90 jours.\n" +
+      "- Raccourci iPhone : depuis Safari, Partager → Sur l'écran d'accueil, et décochez « Ouvrir en tant qu'app web ».\n\n" +
+      "Le mode d'emploi (PDF) : " + urlPdf + "\n\nUne question ? Répondez à ce message.\n";
+    const r = await envoyerMailHtml(env, {
+      to: moi || bcc[0], bcc: moi ? bcc : bcc.slice(1), subject: "Studio Kadima — se connecter (mode d'emploi)",
+      html, text: texte, fromName: ag.nom, replyTo: moi || undefined, attachments: piece ? [piece] : [],
+    });
+    if (!r.ok && !r.dryRun) return err(c, 502, r.error || "Envoi impossible.");
+    return c.json({ ok: true, envoyes: r.dryRun ? 0 : bcc.length + (moi ? 1 : 0), destinataires: bcc.length + (moi ? 1 : 0), piece_jointe: !!piece, dryRun: !!r.dryRun, url: urlPdf });
   });
   // Un compte sans profil conseiller (ancien compte) : créer son profil.
   app.post("/crm/equipe/profil", async (c) => {

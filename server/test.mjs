@@ -2651,6 +2651,16 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const pr = await callR("/crm/equipe/profil", { headers: auth, body: { user_id: orphelin.json.user.id } });
     ok(pr.status === 200 && (await db.get("SELECT prenom, user_id FROM crm_conseillers WHERE id = ?", [pr.json.id])).prenom === "Sans" && !(await callR("/crm/equipe", { headers: auth })).json.sansProfil.some((u) => u.email === "sans.profil@century21.fr"), "« Créer le profil » le rattache à la liste");
     ok((await callR("/crm/equipe", { headers: { Authorization: "Bearer " + exP.json.session } })).status === 401, "l'équipe est réservée aux administrateurs (session tombée ici : 401)");
+    // Le mode d'emploi « se connecter » envoyé à toute l'équipe : comptes actifs en copie cachée, l'admin en destinataire, réponses vers lui.
+    const avantME = mailsRecus.length;
+    const me = await callR("/crm/equipe/mode-emploi", { headers: auth, body: {} });
+    const mME = mailsRecus[mailsRecus.length - 1] || {};
+    const moiME = (await callR("/me", { headers: auth })).json.user.email.toLowerCase();
+    ok(me.status === 200 && me.json.ok && mailsRecus.length === avantME + 1 && /mode d'emploi/i.test(mME.subject || "") && mME.to[0] === moiME && Array.isArray(mME.bcc)
+      && mME.bcc.includes("paul.equipe@century21.fr") && mME.bcc.includes("lea.importee@century21.fr") && mME.bcc.includes("sans.profil@century21.fr") && !mME.bcc.includes(moiME)
+      && (mME.reply_to || [])[0] === moiME && /mode-emploi-connexion\.pdf/.test(mME.html || "") && /app web/.test(mME.text || "") && me.json.destinataires === mME.bcc.length + 1,
+      "le mode d'emploi part à toute l'équipe en copie cachée, réponses vers l'administrateur (" + JSON.stringify({ status: me.status, piece: me.json.piece_jointe, n: me.json.destinataires }) + ")");
+    ok((await callR("/crm/equipe/mode-emploi", { headers: { Authorization: "Bearer " + exP.json.session }, body: {} })).status === 401, "l'envoi du mode d'emploi est réservé aux administrateurs");
     // Retirer un conseiller depuis l'Équipe : profil + compte (sessions, appareils), jamais soi-même.
     const retP = await callR("/crm/conseillers/" + paul.id, { headers: auth, method: "DELETE" });
     ok(retP.status === 200 && retP.json.compte === true && !(await db.get("SELECT id FROM users WHERE email = 'paul.equipe@century21.fr'")) && !(await db.get("SELECT id FROM crm_conseillers WHERE id = ?", [paul.id]))
