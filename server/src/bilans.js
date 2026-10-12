@@ -19,7 +19,7 @@
    conseillers ; l'envoi est toujours un geste du conseiller.
    ========================================================================= */
 import { now, randId } from "./util.js";
-import { wrapEmail, envoyerMailHtml, envoyerMailsLot, getReglages } from "./crm.js";
+import { wrapEmail, envoyerMailHtml, envoyerMailsLotAuto, getReglages } from "./crm.js";
 import { texteEnHtml, signatureHtml } from "./parcours.js";
 import { PORTAILS, statsPortailsSemaine, nouvellesAgent } from "./portails.js";
 import { releverMeta, statsReseauxSemaine } from "./meta.js";
@@ -584,8 +584,8 @@ export async function prevenirConseillers(env, db, agency, reglages, semaine, { 
     mails.push({ to: reglages.agence.email, subject: titre, fromName,
       html: mailBilans(reglages.agence, { eyebrow: "Bilans vendeurs", headline: esc(titre), bodyHtml: vieux + manque + liste + lien, signatureName: "Studio" }) });
   }
-  const r = await envoyerMailsLot(env, mails);
-  return { envoyes: r.envoyes || 0, mails: mails.length, bilans: rows.length, conseillers: parCons.size - sansAdresse.length, sansAdresse, erreurs: r.erreurs || (r.dryRun ? ["Envoi de mails non configuré sur le serveur."] : []) };
+  const r = await envoyerMailsLotAuto(env, db, agency, reglages, mails);
+  return { envoyes: r.envoyes || 0, reportes: r.reportes || 0, mails: mails.length, bilans: rows.length, conseillers: parCons.size - sansAdresse.length, sansAdresse, erreurs: r.erreurs || (r.dryRun ? ["Envoi de mails non configuré sur le serveur."] : []) };
 }
 
 /* ------------------------ Rappel du vendredi (import) --------------------- */

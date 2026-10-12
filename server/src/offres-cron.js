@@ -8,7 +8,7 @@
    Module à part pour ne pas créer de cycle crm.js ↔ offres.js.
    ========================================================================= */
 import * as O from "./offres.js";
-import { envoyerMailHtml, wrapEmail, texteEnParagraphes, getReglages } from "./crm.js";
+import { envoyerMailAuto, wrapEmail, texteEnParagraphes, getReglages } from "./crm.js";
 import { now, randToken, sha256hex } from "./util.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -26,10 +26,11 @@ export async function nouveauLien(env, db, s) {
   return lienPublic(env, jeton);
 }
 export const bouton = (href, libelle) => `<p style="text-align:center; margin:26px 0;"><a href="${esc(href)}" style="background:#1D1D1B; color:#BEAF87; padding:14px 26px; border-radius:10px; text-decoration:none; font-family:Helvetica,Arial,sans-serif; font-weight:bold;">${esc(libelle)}</a></p>`;
-export async function mailAgence(env, agency, ag, to, sujet, headline, bodyHtml, signature) {
+export async function mailAgence(env, db, agency, reglages, to, sujet, headline, bodyHtml, signature) {
   if (!to) return { ok: false, error: "pas d'adresse" };
+  const ag = reglages.agence || {};
   const html = wrapEmail(ag, { eyebrow: ag.nom || agency.name || "Votre agence", headline: esc(headline), bodyHtml, signatureName: signature || (ag.nom || agency.name) });
-  return envoyerMailHtml(env, { to, subject: sujet, html, fromName: ag.nom || agency.name, replyTo: ag.email || "" });
+  return envoyerMailAuto(env, db, agency, reglages, { to, subject: sujet, html, fromName: ag.nom || agency.name, replyTo: ag.email || "" });
 }
 const bienDe = (o) => [o.bien.adresse, o.bien.ville].filter(Boolean).join(", ");
 
@@ -57,7 +58,7 @@ export async function rappelsOffres(env, db) {
               if (passees.length >= RELANCES_MAX) continue;
               if (passees.length && passees[0].created_at > now() - RELANCE_ECART_JOURS * 86400) continue;
               const lien = await nouveauLien(env, db, s);
-              const r = await mailAgence(env, agency, ag, s.email, `Votre offre d'achat vous attend — ${bienDe(o)}`, "Votre offre d'achat vous attend",
+              const r = await mailAgence(env, db, agency, reglages, s.email, `Votre offre d'achat vous attend — ${bienDe(o)}`, "Votre offre d'achat vous attend",
                 texteEnParagraphes(`Bonjour ${s.prenom || ""},\n\nVotre offre d'achat pour le bien situé ${bienDe(o)} (${O.euros(o.prix)}) n'est pas encore signée. Elle est valable jusqu'au ${O.dateLongue(o.conditions.validite)} inclus : passé cette date, elle tombe.\n\nDepuis le lien ci-dessous (il remplace le précédent), vous pouvez la vérifier, déposer vos pièces et la signer en quelques minutes. Votre conseiller ${o.conseiller || ""} reste à votre disposition.`) +
                 bouton(lien, "Reprendre mon offre d'achat"),
                 o.conseiller ? `${o.conseiller}, votre conseiller` : "");
@@ -73,7 +74,7 @@ export async function rappelsOffres(env, db) {
             const u = o.conseiller_id ? await db.get("SELECT email, name FROM users WHERE id = ?", [o.conseiller_id]) : null;
             const to = (u && u.email) || ag.email || "";
             const etat = O.STATUTS_LIBELLES[o.statut] || o.statut;
-            const r = await mailAgence(env, agency, ag, to, `Offre ${o.numero} : expire demain`, "Une offre expire demain",
+            const r = await mailAgence(env, db, agency, reglages, to, `Offre ${o.numero} : expire demain`, "Une offre expire demain",
               texteEnParagraphes(`L'offre ${o.numero} — ${bienDe(o)}, ${O.euros(o.prix)} — est valable jusqu'au ${O.dateLongue(o.conditions.validite)} inclus et n'a pas de réponse (état : ${etat.toLowerCase()}).\n\nSans acceptation du vendeur d'ici là, elle sera caduque demain soir et l'acquéreur devra en signer une nouvelle. Retrouvez-la dans Studio Administration, onglet Offres.`));
             await O.journal(db, agency.id, o.id, "alerte-expiration", `Conseiller prévenu (${to || "aucune adresse"})${r.ok ? "" : " — e-mail non parti"}`, "système");
             bilan.alertes++;

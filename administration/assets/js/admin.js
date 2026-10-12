@@ -3223,19 +3223,27 @@
     const quandR2 = p.r2 ? " du " + dateFrCourte(p.r2) : "";
     // Espace normale entre les milliers : Barlow n'a pas l'espace fine insécable de fr-FR.
     const fmt = (v) => (Number(v) > 0 ? Math.round(Number(v)).toLocaleString("fr-FR").replace(/[\u202f\u00a0]/g, " ") + " €" : "");
-    const basse = fmt(courrier.basse), haute = fmt(courrier.haute);
+    const basse = fmt(courrier.basse), haute = fmt(courrier.haute), net = fmt(courrier.net);
     let y = 405;
     const para = (t, f, taille, pas, c) => { for (const l of couper(t, f || fR, taille || 11.5, 420)) { ecrire(l, 85, y, taille || 11.5, f || fR, c); y += pas || 16.5; } y += 8; };
     para(appel);
     para("Nous vous remercions de la confiance que vous nous accordez dans le cadre de votre projet immobilier. Suite à notre rendez-vous" + quandR2 + " et à l'analyse comparative du marché réalisée sur les biens vendus et en vente autour de chez vous, nous estimons la valeur de votre " + typeLib + (adresse ? " " + situe + " " + adresse : "") + " :");
     // La fourchette, mise en valeur dans un cadre doré.
     y += 2;
-    pg.drawRectangle({ x: 85, y: h - (y + 52), width: 425, height: 58, borderColor: or, borderWidth: 1.2, color: rgb255(0.98, 0.97, 0.94) });
+    // Avec le net vendeur conseillé, le cadre gagne une ligne.
+    const hCadre = net ? 82 : 58;
+    pg.drawRectangle({ x: 85, y: h - (y + hCadre - 6), width: 425, height: hCadre, borderColor: or, borderWidth: 1.2, color: rgb255(0.98, 0.97, 0.94) });
     const titreF = basse && haute ? "Fourchette d'estimation" : "Estimation";
     const valF = basse && haute ? "entre " + basse + " et " + haute : (haute || basse);
     ecrire(titreF, 85 + (425 - fR.widthOfTextAtSize(titreF, 9.5)) / 2, y + 12, 9.5, fR, gris);
     ecrire(valF, 85 + (425 - fB.widthOfTextAtSize(valF, 19)) / 2, y + 38, 19, fB, or);
-    y += 74;
+    if (net) {
+      const lNet = "Prix net vendeur conseillé : ", wNet = fR.widthOfTextAtSize(lNet, 10.5) + fB.widthOfTextAtSize(net, 11.5);
+      const xNet = 85 + (425 - wNet) / 2;
+      ecrire(lNet, xNet, y + 62, 10.5, fR, gris);
+      ecrire(net, xNet + fR.widthOfTextAtSize(lNet, 10.5), y + 62, 11.5, fB);
+    }
+    y += hCadre + 16;
     const libre = String(courrier.texte || "").trim();
     if (libre) for (const bloc of libre.split(/\n\s*\n|\n/).map((t) => t.trim()).filter(Boolean)) para(bloc);
     para("Cette estimation est établie au vu du marché actuel et des biens comparables ; elle ne constitue pas une expertise et pourra être ajustée avec vous au moment de la mise en vente.", fR, 10, 14.5, gris);
@@ -3247,9 +3255,19 @@
     ecrire(prenom || nomCs ? [prenom, nomCs].filter(Boolean).join(" ") : (ag.nom || "L'équipe de l'agence"), 330, ySig, 12.5, fB);
     ecrire(cs.fonction || "Conseiller immobilier", 330, ySig + 16, 10.5, fI, gris);
     ecrire([fmtTel(cs.telephone), cs.email].filter(Boolean).join(" · "), 330, ySig + 31, 9.5, fR, gris);
-    return { conseiller: [prenom, nomCs].filter(Boolean).join(" "), basse, haute, libre: !!libre, photo, agence: ag.nom || "" };
+    return { conseiller: [prenom, nomCs].filter(Boolean).join(" "), basse, haute, net, libre: !!libre, photo, agence: ag.nom || "" };
   }
   const rgb255 = (r, g, b) => window.PDFLib.rgb(r, g, b);
+  // Imprimer un PDF (URL blob) sans quitter la page : cadre invisible + boîte
+  // d'impression du navigateur ; à défaut, le document s'ouvre dans un onglet.
+  function imprimerPdf(url) {
+    const ancien = document.getElementById("impression-pdf"); if (ancien) ancien.remove();
+    const f = document.createElement("iframe"); f.id = "impression-pdf";
+    f.style.cssText = "position:fixed; right:0; bottom:0; width:0; height:0; border:0; visibility:hidden;";
+    f.addEventListener("load", () => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { window.open(url, "_blank", "noopener"); } });
+    f.src = url;
+    document.body.appendChild(f);
+  }
   // Photo ronde (PNG transparent hors du disque), pour la page « Votre conseiller ».
   // Un texte de présentation dans une zone : on réduit la taille jusqu'à `tailleMin`
   // (jamais plus petit), puis on retire les derniers paragraphes entiers tant que ça
@@ -3465,23 +3483,29 @@
     let acm = {};
     try { acm = (await api("/crm/parcours/" + id + "/acm")).acm || {}; } catch { acm = {}; }
     const cr = acm.courrier && typeof acm.courrier === "object" ? acm.courrier : {};
-    const basse = cr.basse || acm.basse || "", haute = cr.haute || acm.haute || "";
+    const basse = cr.basse || acm.basse || "", haute = cr.haute || acm.haute || "", net = cr.net || acm.prix || "";
     ouvrirModale("📨 Courrier d'estimation",
-      '<p class="aide">La fourchette reprend celle du livret prix ; ajustez-la, ajoutez un mot personnel, puis imprimez le courrier ou envoyez-le par e-mail en pièce jointe, signé ' +
+      '<p class="aide">La fourchette et le prix net vendeur reprennent ceux du livret prix ; ajustez-les, ajoutez un mot personnel, puis imprimez le courrier ou envoyez-le par e-mail en pièce jointe (l\'envoi se confirme en deux temps), signé ' +
       (p.conseiller ? "<strong>" + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + "</strong>" : "<strong>de l'agence</strong> (choisissez le conseiller sur la fiche)") + ".</p>" +
       '<div class="grille-champs"><label>Fourchette basse (€)<input id="ce-basse" type="number" step="1000" value="' + escH(basse) + '" /></label>' +
-      '<label>Fourchette haute (€)<input id="ce-haute" type="number" step="1000" value="' + escH(haute) + '" /></label></div>' +
+      '<label>Fourchette haute (€)<input id="ce-haute" type="number" step="1000" value="' + escH(haute) + '" /></label>' +
+      '<label>Prix net vendeur conseillé (€)<input id="ce-net" type="number" step="1000" value="' + escH(net) + '" /></label></div>' +
       '<label style="display:block; margin-top:10px;">Votre mot (facultatif)<textarea id="ce-texte" style="width:100%; min-height:140px; margin-top:4px; font:14px/1.5 inherit;" placeholder="Ce qui justifie la fourchette, les atouts du bien, votre conseil sur le prix de présentation…">' + escH(cr.texte || "") + "</textarea></label>" +
       '<p class="petit">Le courrier est écrit sur le papier à en-tête de l\'agence, avec la photo et les coordonnées du conseiller.</p>',
-      '<button class="btn" id="ce-retour">Retour</button><button class="btn" id="ce-apercu">🖨 Aperçu PDF</button><button class="btn btn-or" id="ce-envoyer">✉️ Envoyer par e-mail</button>');
-    const lire = () => ({ basse: parseFloat($("ce-basse").value) || 0, haute: parseFloat($("ce-haute").value) || 0, texte: $("ce-texte").value.trim() });
+      '<button class="btn" id="ce-retour">Retour</button><button class="btn" id="ce-apercu">📄 Aperçu PDF</button><button class="btn" id="ce-imprimer">🖨 Imprimer</button><button class="btn btn-or" id="ce-envoyer">✉️ Envoyer par e-mail</button>');
+    const lire = () => ({ basse: parseFloat($("ce-basse").value) || 0, haute: parseFloat($("ce-haute").value) || 0, net: parseFloat($("ce-net").value) || 0, texte: $("ce-texte").value.trim() });
     const sauver = async () => { const courrier = lire(); await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: { ...acm, courrier } }); acm.courrier = courrier; return courrier; };
     const verifier = (c) => { if (!c.basse && !c.haute) throw new Error("Indiquez au moins une valeur de la fourchette."); if (c.basse && c.haute && c.basse > c.haute) throw new Error("La fourchette basse dépasse la fourchette haute."); };
     $("ce-retour").addEventListener("click", () => ouvrirParcours(id));
     $("ce-apercu").addEventListener("click", async () => {
       const b = $("ce-apercu"); b.disabled = true; b.textContent = "Préparation…";
       try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); documentPret(id, "Courrier d'estimation prêt", g.url, g.fichier); }
-      catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "🖨 Aperçu PDF"; }
+      catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "📄 Aperçu PDF"; }
+    });
+    $("ce-imprimer").addEventListener("click", async () => {
+      const b = $("ce-imprimer"); b.disabled = true; b.textContent = "Préparation…";
+      try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); imprimerPdf(g.url); documentPret(id, "Courrier d'estimation prêt", g.url, g.fichier, "La boîte d'impression s'ouvre. Si elle n'apparaît pas, ouvrez le document et imprimez-le depuis là."); }
+      catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "🖨 Imprimer"; }
     });
     $("ce-envoyer").addEventListener("click", async () => {
       const b = $("ce-envoyer"); b.disabled = true; b.textContent = "Préparation…";
@@ -4494,10 +4518,12 @@
       '<p class="aide">Le document est prêt. Ouvrez-le dans un nouvel onglet pour le lire ou l\'imprimer, ou enregistrez-le ; la fiche du parcours vous attend derrière.</p>' +
       (note ? '<p class="petit" id="doc-note" style="white-space:pre-wrap;">' + escH(note) + "</p>" : "") +
       '<div class="barre"><a class="btn btn-or" id="doc-ouvrir" href="' + escH(url) + '" target="_blank" rel="noopener">📄 Ouvrir le document</a>' +
-      '<a class="btn" id="doc-enregistrer" href="' + escH(url) + '" download="' + escH(fichier || "document.pdf") + '">⬇ Enregistrer</a></div>',
+      '<a class="btn" id="doc-enregistrer" href="' + escH(url) + '" download="' + escH(fichier || "document.pdf") + '">⬇ Enregistrer</a>' +
+      '<button class="btn" id="doc-imprimer" type="button">🖨 Imprimer</button></div>',
       '<button class="btn btn-or" id="doc-retour">← Retour au parcours</button>');
     document.querySelector(".modale").classList.remove("large");
     $("doc-retour").addEventListener("click", () => ouvrirParcours(id));
+    $("doc-imprimer").addEventListener("click", () => imprimerPdf(url));
   }
 
   // Le mail d'un jalon : sujet et texte pré-remplis, à relire ; aperçu du
@@ -4531,8 +4557,8 @@
         $("pm-retour").addEventListener("click", () => preparerMailParcours(id, jalon, p, relu, piece));
       } catch (e) { toast(e.message, true); }
     });
-    $("pm-envoyer").addEventListener("click", async () => {
-      const btn = $("pm-envoyer"); btn.disabled = true; btn.textContent = "Envoi…";
+    const envoyer = async (btn) => {
+      btn.disabled = true; btn.textContent = "Envoi…";
       try {
         const corps = { jalon, sujet: $("pm-sujet").value, texte: $("pm-texte").value };
         if (piece) { let b64 = ""; const u = new Uint8Array(piece.octets); for (let i = 0; i < u.length; i += 8192) b64 += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); corps.piece = { nom: piece.nom, contenu: btoa(b64) }; }
@@ -4540,6 +4566,18 @@
         toast(r.envoyes + " e-mail(s) envoyé(s)" + (r.erreurs ? " · " + r.erreurs + " erreur(s)" : ""), r.erreurs > 0);
         ouvrirParcours(id);
       } catch (e) { toast(e.message, true); btn.disabled = false; btn.textContent = "✉️ Envoyer"; }
+    };
+    $("pm-envoyer").addEventListener("click", () => {
+      // Le courrier d'estimation engage l'agence sur un prix : l'envoi se
+      // confirme en deux temps (Benoît, 12/10).
+      if (jalon === "courrier-estimation") {
+        $("modale-pied").innerHTML = '<span class="petit" id="pm-confirme">Le courrier d\'estimation (PDF joint) va partir à <strong>' + escH(a.destinataires.join(", ")) + "</strong>. Vous confirmez l'envoi ?</span>" +
+          '<button class="btn" id="pm-non">Non, je relis</button><button class="btn btn-or" id="pm-oui">✅ Oui, envoyer</button>';
+        $("pm-non").addEventListener("click", () => preparerMailParcours(id, jalon, p, { sujet: $("pm-sujet").value, texte: $("pm-texte").value }, piece));
+        $("pm-oui").addEventListener("click", () => envoyer($("pm-oui")));
+        return;
+      }
+      envoyer($("pm-envoyer"));
     });
   }
 

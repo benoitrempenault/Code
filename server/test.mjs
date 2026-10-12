@@ -1956,7 +1956,10 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const mailsRecus = [];
   const fauxResend = (await import("node:http")).createServer(async (req, res) => {
     const chunks = []; for await (const c of req) chunks.push(c);
-    mailsRecus.push(JSON.parse(Buffer.concat(chunks).toString()));
+    const corps = JSON.parse(Buffer.concat(chunks).toString());
+    // Un destinataire « refus@… » : le fournisseur refuse (quota, adresse…).
+    if (!Array.isArray(corps) && /^refus@/.test((corps.to || [])[0] || "")) { res.writeHead(422, { "Content-Type": "application/json" }); res.end(JSON.stringify({ message: "Daily quota exceeded" })); return; }
+    mailsRecus.push(corps);
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ id: "email_test" }));
   });
@@ -2459,6 +2462,47 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok(lienB.status === 200 && mLien && mLien.to[0].email === "claire@azur-immo.fr" && /compte\.html.*#token=/.test(mLien.textContent || "") && /Studio Brochure/.test(mLien.sender.name),
       "le lien de connexion part aussi par Brevo (texte avec le lien, au nom de Studio Brochure) — " + JSON.stringify([lienB.status, lienB.json, mLien && { to: mLien.to, sender: mLien.sender, texte: (mLien.textContent || "").slice(0, 80) }]));
     await callB("/crm/reglages", { headers: auth, method: "PUT", body: { anniversaires: { repondreA: "" } } }); }
+  /* ---- Garde-fous : plafond des e-mails automatiques + alerte -------------- */
+  console.log("— Garde-fous : plafond du jour des e-mails automatiques, alerte à Benoît / l'agence");
+  { const jourG = CRM_TEST.parisDate();
+    await db.run("DELETE FROM crm_quotas WHERE agency_id = ? AND (cle = 'auto-mail' OR cle LIKE 'alerte-%')", [agId]);
+    await db.run("INSERT OR REPLACE INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES (?, '', ?, 'auto-mail', ?)", [agId, jourG, CRM_TEST.QUOTAS["auto-mail"]]);
+    await callS("/crm/contacts/bulk", { headers: auth, body: { rows: [{ civilite: "M.", nom: "PLAFOND Luc", email: "plafond@ach-test.fr", date_naissance: aujJJMM }] } });
+    const avantG = mailsRecus.length;
+    const runG = (await callS("/crm/anniversaires/run", { headers: auth, method: "POST" })).json.summary;
+    const apresG = mailsRecus.slice(avantG);
+    const alerteG = apresG.find((m) => /Plafond du jour/.test(m.subject));
+    ok((runG.reportes || 0) >= 1 && !apresG.some((m) => (m.to || [])[0] === "plafond@ach-test.fr"), "plafond du jour atteint : le vœu est reporté, rien ne part (" + JSON.stringify({ reportes: runG.reportes, sent: runG.sent, errors: runG.errors }) + ")");
+    ok(alerteG && alerteG.to[0] === "agence@ach-test.fr" && /300/.test(alerteG.subject) && /journalisés/.test(alerteG.html), "une alerte part à la boîte de l'agence — " + JSON.stringify(alerteG && [alerteG.to, alerteG.subject]));
+    const journalG = await db.get("SELECT statut, erreur FROM crm_envois WHERE agency_id = ? AND email = 'plafond@ach-test.fr' ORDER BY id DESC LIMIT 1", [agId]);
+    ok(journalG && journalG.statut === "reporte" && /Plafond du jour/.test(journalG.erreur), "le journal des envois dit « reporté, plafond du jour »");
+    const avantG2 = mailsRecus.length;
+    await callS("/crm/anniversaires/run", { headers: auth, method: "POST" });
+    ok(!mailsRecus.slice(avantG2).some((m) => /Plafond du jour/.test(m.subject)), "l'alerte ne part qu'une fois par jour");
+    ok(CRM_TEST.adresseAlerte({ id: "ag_x", name: "CENTURY 21 Kadima" }, { agence: { email: "x@y.fr" } }) === "benoit.rempenault@century21.fr"
+      && CRM_TEST.adresseAlerte({ id: "ag_y", name: "Agence Dupont" }, { agence: { email: "dupont@ex.fr" }, anniversaires: {} }) === "dupont@ex.fr", "chez Kadima l'alerte va à Benoît, ailleurs à la boîte de l'agence");
+    // Les envois manuels et liens de connexion ne sont pas comptés dans ce plafond.
+    const avantM = mailsRecus.length;
+    const lienM = await callS("/auth/request-link", { body: { email: "claire@azur-immo.fr" } });
+    ok(lienM.status === 200 && mailsRecus.length === avantM + 1, "plafond atteint : un lien de connexion part quand même");
+    await db.run("DELETE FROM crm_quotas WHERE agency_id = ? AND (cle = 'auto-mail' OR cle LIKE 'alerte-%')", [agId]);
+    // Refus du fournisseur : le vœu est en erreur, une alerte (une seule) part.
+    await callS("/crm/contacts/bulk", { headers: auth, body: { rows: [{ civilite: "Mme", nom: "REFUS Eva", email: "refus@ach-test.fr", date_naissance: aujJJMM }] } });
+    const avantR = mailsRecus.length;
+    const runR = (await callS("/crm/anniversaires/run", { headers: auth, method: "POST" })).json.summary;
+    const alerteR = mailsRecus.slice(avantR).filter((m) => /refusé par le fournisseur/.test(m.subject));
+    ok(runR.errors >= 1 && alerteR.length === 1 && alerteR[0].to[0] === "agence@ach-test.fr" && /Daily quota exceeded/.test(alerteR[0].html), "un refus du fournisseur (422) déclenche l'alerte, avec le détail (" + JSON.stringify({ errors: runR.errors, alertes: alerteR.length }) + ")");
+    const avantR2 = mailsRecus.length;
+    await callS("/crm/anniversaires/run", { headers: auth, method: "POST" });
+    ok(!mailsRecus.slice(avantR2).some((m) => /refusé par le fournisseur/.test(m.subject)), "pas de seconde alerte fournisseur le même jour");
+    await db.run("DELETE FROM crm_quotas WHERE agency_id = ? AND cle LIKE 'alerte-%'", [agId]);
+    // Un lot (bilans du lundi…) : seuls ceux qui tiennent dans le plafond partent.
+    await db.run("INSERT OR REPLACE INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES (?, '', ?, 'auto-mail', ?)", [agId, jourG, CRM_TEST.QUOTAS["auto-mail"] - 2]);
+    const envS = { RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18791", MAIL_FROM: "Studio <connexion@studiobrochure.fr>" };
+    const regS = (await callS("/crm/reglages", { headers: auth })).json.reglages;
+    const lotG = await CRM_TEST.envoyerMailsLotAuto(envS, db, { id: agId, name: "Agence Test" }, regS, [1, 2, 3, 4].map((i) => ({ to: "lot" + i + "@ex.fr", subject: "L" + i, html: "<p>l</p>" })));
+    ok(lotG.envoyes === 2 && lotG.reportes === 2 && lotG.erreurs.some((e) => /2 e-mail\(s\) non envoyé/.test(e)), "un lot de 4 avec 2 places restantes : 2 partent, 2 reportés (" + JSON.stringify(lotG) + ")");
+    await db.run("DELETE FROM crm_quotas WHERE agency_id = ? AND (cle = 'auto-mail' OR cle LIKE 'alerte-%')", [agId]); }
   ok(runSms.sms === 2, "deux vœux partis par SMS (mobile requis, le fixe est écarté)");
   const smsTom = smsRecus.find((s) => s.recipient === "+33662125193");
   ok(smsTom && /Rémi/.test(smsTom.content) && /Joyeux anniversaire/.test(smsTom.content) && smsTom.sender.length <= 11,
@@ -3569,6 +3613,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const dernierPx = mailsRecus[mailsRecus.length - 1] || {};
   ok(envPx.status === 200 && envPx.json.envoyes === 1 && mailsRecus.length > avantEnvoi && /excellente journée/.test(dernierPx.html || "") && /Teddy BESSON/.test(dernierPx.from || dernierPx.html || ""),
      "l'e-mail avant R1 part avec le texte relu, signé du conseiller (" + JSON.stringify(envPx.json) + ")");
+  ok(dernierPx.reply_to && dernierPx.reply_to[0] === meP.email && envPx.json.repondreA === meP.email,
+     "le client répond à CELUI qui a envoyé l'e-mail (le compte connecté), pas à l'agence — " + JSON.stringify([dernierPx.reply_to, meP.email]));
   const pxApres = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
   ok(pxApres.journal.some((j) => j.etape === "avant-r1" && j.le > 0), "l'étape est cochée dans le journal du parcours");
   // Le titre de l'e-mail : la date passe en sous-titre, un sujet « A — B » aussi, le sur-titre ne répète pas le titre.
@@ -3870,6 +3916,12 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { ...acmGet.acm, courrier: { basse: 325000, haute: 345000, texte: "Mot libre" } } });
     const apC2 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=courrier-estimation", { headers: authP })).json;
     ok(/entre 325 000 € et 345 000 €/.test(apC2.texte), "la fourchette saisie pour le courrier prime sur celle du livret");
+    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { ...acmGet.acm, courrier: { basse: 325000, haute: 345000, net: 335000, texte: "Mot libre" } } });
+    const apC3 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=courrier-estimation", { headers: authP })).json;
+    ok(/Le prix net vendeur que nous vous conseillons est de 335 000 €\./.test(apC3.texte), "le net vendeur saisi pour le courrier entre dans l'e-mail (" + JSON.stringify((apC3.texte.match(/net vendeur[^.]*\./) || [])[0]) + ")");
+    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { ...acmGet.acm, courrier: { basse: 325000, haute: 345000, texte: "Mot libre" } } });
+    const apC4 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=courrier-estimation", { headers: authP })).json;
+    ok(!/net vendeur que nous vous conseillons est de \./.test(apC4.texte) && !/  /.test(apC4.texte.replace(/\n/g, "")), "sans net vendeur, la phrase disparaît proprement");
     const sansPj = await callR("/crm/parcours/" + pxId + "/envoyer", { headers: authP, body: { jalon: "courrier-estimation" } });
     const pdfB64 = Buffer.from("%PDF-1.4 test").toString("base64");
     const nbAvant = mailsRecus.length;

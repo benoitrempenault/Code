@@ -1259,6 +1259,29 @@ Resend comme avant. **Réponses aux vœux** : chez Kadima (`estKadima`), même a
 arrivent sur » vidé dans les réglages, `reponseAnniversaire` renvoie benoit.rempenault@century21.fr
 (Benoît veut toutes les réponses) ; ailleurs, règle conseiller / agence inchangée.
 
+**Garde-fous des e-mails automatiques (12/10)** : `QUOTAS["auto-mail"] = 300` par agence et par jour, tous
+automatismes confondus — vœux (`runAnniversaires`), relances acquéreurs (`runRelances`, « reportes »),
+relances d'estimés (`runEstimations`), bilans du lundi (`prevenirConseillers` → `envoyerMailsLotAuto`,
+un e-mail PAR MANDAT, Benoît y tient), rappels d'offres (`offres-cron.mailAgence(env, db, agency,
+reglages, …)`). `envoyerMailAuto(env, db, agency, reglages, mail)` consomme le plafond, envoie, et sur
+refus du fournisseur alerte ; au-delà du plafond → `{ reporte: true }`, journal `statut = 'reporte'`
+(« Plafond du jour atteint … — reporté »). `reserverQuota(db, agencyId, cle, nb)` pour les lots.
+**Alerte** `alerterEnvois` : UN e-mail par jour et par motif (`alerte-plafond`, `alerte-fournisseur`,
+via crm_quotas) à `adresseAlerte(agency, reglages)` = Benoît chez Kadima (`estKadima`), sinon
+`anniversaires.repondreA` puis `agence.email`. Liens de connexion, codes d'offre, envois manuels :
+hors plafond. Faux Resend des tests : un destinataire `refus@…` → 422.
+**Réponses aux e-mails du parcours (12/10)** : `/crm/parcours/:id/envoyer` met `replyTo` = la boîte du
+COMPTE CONNECTÉ qui envoie (`ctx.user.email`, sauf adresse `.interne` du compte partagé), sinon le
+conseiller du parcours, sinon l'agence ; la réponse rend `repondreA`. Relances automatiques d'estimés
+(`runEstimations`) : réponse au conseiller de l'estimation (profil avec e-mail), sinon l'agence.
+**Courrier d'estimation (12/10, toutes agences)** : champ « Prix net vendeur conseillé » (`ce-net`,
+pré-rempli de `acm.prix`, gardé dans `acm.courrier.net`), ligne « Prix net vendeur conseillé : X € » dans
+le cadre doré du PDF (82 pt au lieu de 58), variables `{net_vendeur}` / `{phrase_net_vendeur}` du modèle
+« Parcours — courrier d'estimation » (`fourchetteDe`). Bouton « 🖨 Imprimer » (modale du courrier et
+`documentPret`) → `imprimerPdf(url)` (iframe invisible + `print()`, repli : nouvel onglet). Envoi par
+e-mail en DEUX temps : « Envoyer » → pied « va partir à <destinataires>… Vous confirmez ? » avec « Non,
+je relis » / « ✅ Oui, envoyer » (`pm-confirme`, `pm-non`, `pm-oui`) ; smoke adapté.
+
 **Point sécurité (12/10)** : (1) SheetJS embarqué passé de 0.18.5 à **0.20.3** (CVE-2023-30533 pollution
 de prototype par xlsx piégé, CVE-2024-22363 ReDoS) — la 0.20 n'existe plus sur npm, fichier pris sur
 `cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js` ; mêmes appels (`XLSX.read` array/raw,

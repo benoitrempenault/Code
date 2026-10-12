@@ -451,6 +451,7 @@ export const QUOTAS = {
   "envoi-sms": 50,     // SMS manuels par conseiller et par jour
   "envois": 500,       // mails + SMS manuels par agence et par jour
   "prospects": 200,    // prospects créés par conseiller et par jour
+  "auto-mail": 300,    // e-mails AUTOMATIQUES (vœux, relances, estimés, bilans, rappels d'offres) par agence et par jour
 };
 // Consomme une unité du plafond `cle` : renvoie { ok, n, max } — ok:false
 // quand le plafond du jour est atteint (rien n'est compté dans ce cas).
@@ -466,6 +467,77 @@ export async function consommerQuota(db, agencyId, userId, cle, max = QUOTAS[cle
      ON CONFLICT(agency_id, user_id, jour, cle) DO UPDATE SET n = n + 1`,
     [agencyId, userId || "", jour, cle]);
   return { ok: true, n: n + 1, max };
+}
+
+// Réserve d'un coup `nb` unités du plafond : rend le nombre accordé (0 → rien).
+export async function reserverQuota(db, agencyId, cle, nb, max = QUOTAS[cle]) {
+  const jour = parisDate();
+  const cur = await db.get("SELECT n FROM crm_quotas WHERE agency_id = ? AND user_id = '' AND jour = ? AND cle = ?", [agencyId, jour, cle]);
+  const n = cur ? Number(cur.n) : 0;
+  const accorde = Math.max(0, Math.min(nb | 0, max - n));
+  if (accorde > 0) await db.run(
+    `INSERT INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES (?, '', ?, ?, ?)
+     ON CONFLICT(agency_id, user_id, jour, cle) DO UPDATE SET n = n + excluded.n`,
+    [agencyId, jour, cle, accorde]);
+  return accorde;
+}
+
+// --- E-mails automatiques : plafond du jour + alerte ------------------------
+// Les automatismes (vœux, relances acquéreurs, relances d'estimés, bilans du
+// lundi, rappels d'offres) passent par ici : 300 e-mails par agence et par
+// jour, tous confondus. Au-delà, l'envoi est REPORTÉ (non envoyé, journalisé
+// « plafond du jour atteint ») et Benoît (ou la boîte de l'agence) reçoit UN
+// e-mail d'alerte dans la journée ; même alerte, une fois par jour, quand le
+// fournisseur (Brevo / Resend) refuse un envoi. Les liens de connexion, codes
+// d'offre et envois manuels ne comptent pas dans ce plafond.
+export const PLAFOND_ATTEINT = "Plafond du jour atteint (" + QUOTAS["auto-mail"] + " e-mails automatiques) — reporté";
+export function adresseAlerte(agency, reglages) {
+  if (estKadima(agency)) return "benoit.rempenault@century21.fr";
+  return String((reglages.anniversaires && reglages.anniversaires.repondreA) || (reglages.agence && reglages.agence.email) || "").trim();
+}
+export async function alerterEnvois(env, db, agency, reglages, cle, sujet, lignes) {
+  const to = adresseAlerte(agency, reglages);
+  if (!to) return { ok: false, error: "pas d'adresse d'alerte" };
+  const q = await consommerQuota(db, agency.id, "", "alerte-" + cle, 1);
+  if (!q.ok) return { ok: false, deja: true };
+  const ag = reglages.agence || {};
+  const html = wrapEmail(ag, {
+    eyebrow: "Studio — envois automatiques", headline: esc(sujet),
+    bodyHtml: texteEnParagraphes((Array.isArray(lignes) ? lignes : [lignes]).filter(Boolean).join("\n\n")),
+    signatureName: "Studio",
+  });
+  const r = await envoyerMailHtml(env, { to, subject: "[Studio] " + sujet, html, fromName: ag.nom || agency.name });
+  return { ...r, to };
+}
+async function alerterFournisseur(env, db, agency, reglages, erreur) {
+  return alerterEnvois(env, db, agency, reglages, "fournisseur", "Un e-mail automatique a été refusé par le fournisseur",
+    ["Le fournisseur d'e-mails a refusé un envoi automatique ce matin :", erreur || "(sans détail)",
+     "Les envois suivants peuvent être touchés jusqu'à ce que la cause soit levée (quota du fournisseur, expéditeur, clé). Le journal des envois de l'Administration (onglet Anniversaires) liste chaque refus."]);
+}
+async function alerterPlafond(env, db, agency, reglages) {
+  return alerterEnvois(env, db, agency, reglages, "plafond", "Plafond du jour atteint : " + QUOTAS["auto-mail"] + " e-mails automatiques",
+    ["Le plafond de " + QUOTAS["auto-mail"] + " e-mails automatiques par jour est atteint pour l'agence. Les envois restants du jour (vœux, relances, estimés, bilans, rappels d'offres) ne sont PAS partis : ils sont journalisés « " + PLAFOND_ATTEINT + " » dans l'Administration (onglet Anniversaires, journal des envois).",
+     "Ce plafond protège d'un envoi en masse par erreur (import mal lu, bug). Si c'est un volume normal, dites-le : il se relève dans le code (QUOTAS.auto-mail)."]);
+}
+// Un e-mail automatique : plafond, envoi, alerte. Rend { ok, reporte?, error?, dryRun? }.
+export async function envoyerMailAuto(env, db, agency, reglages, mail) {
+  if (!fournisseurMail(env)) return { ok: false, dryRun: true };
+  const q = await consommerQuota(db, agency.id, "", "auto-mail");
+  if (!q.ok) { await alerterPlafond(env, db, agency, reglages); return { ok: false, reporte: true, error: PLAFOND_ATTEINT }; }
+  const r = await envoyerMailHtml(env, mail);
+  if (!r.ok && !r.dryRun) await alerterFournisseur(env, db, agency, reglages, r.error);
+  return r;
+}
+// Un lot d'e-mails automatiques : seuls ceux qui tiennent dans le plafond partent.
+export async function envoyerMailsLotAuto(env, db, agency, reglages, mails) {
+  if (!fournisseurMail(env)) return { envoyes: 0, dryRun: true, reportes: 0 };
+  const accorde = await reserverQuota(db, agency.id, "auto-mail", mails.length);
+  const reportes = mails.length - accorde;
+  if (reportes > 0) await alerterPlafond(env, db, agency, reglages);
+  const r = accorde > 0 ? await envoyerMailsLot(env, mails.slice(0, accorde)) : { envoyes: 0, erreurs: [] };
+  if (r.erreurs && r.erreurs.length) await alerterFournisseur(env, db, agency, reglages, r.erreurs[0]);
+  if (reportes > 0) r.erreurs = [...(r.erreurs || []), PLAFOND_ATTEINT + " : " + reportes + " e-mail(s) non envoyé(s)"];
+  return { ...r, reportes };
 }
 
 // --- Corbeille ---------------------------------------------------------------
@@ -1271,7 +1343,7 @@ export const MODELES = {
     texte: "Bonjour {civilite_nom},\n\nTout d'abord, merci de votre accueil et de votre confiance lors de l'estimation de votre {type_bien}.\n\nJe vous confirme notre rendez-vous de {date_r2} pour la remise de votre estimation, à notre agence située {agence_adresse}.\n\nLors de ce rendez-vous, après avoir fait un point sur toutes les caractéristiques de votre bien, nous échangerons sur l'état du marché immobilier actuel et notre manière de travailler pour vous accompagner dans ce projet, aller chercher ensemble la valeur haute de l'estimation que nous vous proposerons et vous apporter le meilleur service.\n\nPour vous accompagner au mieux, nous aurons par la suite besoin des documents suivants. Ils nous permettront d'être réactifs dans la rédaction et la signature d'un compromis de vente ; cette liste vous permettra de commencer à rassembler toutes les pièces.\n{documents_r2}\n\nJe reste disponible et à votre écoute." },
   "parcours-courrier-estimation": { titre: "Parcours — courrier d'estimation (fourchette de prix, en pièce jointe)", canal: "email",
     sujet: "L'estimation de votre {type_bien}",
-    texte: "Bonjour {civilite_nom},\n\nSuite à notre rendez-vous du {date_r2}, veuillez trouver ci-joint le courrier d'estimation de votre {type_bien} {situe} {adresse_bien}.\n\nAu vu du marché actuel et des biens comparables que nous avons étudiés ensemble, nous estimons sa valeur entre {fourchette_basse} et {fourchette_haute}.\n\nJe reste à votre entière disposition pour en parler et pour avancer ensemble sur votre projet.\n\nCordialement," },
+    texte: "Bonjour {civilite_nom},\n\nSuite à notre rendez-vous du {date_r2}, veuillez trouver ci-joint le courrier d'estimation de votre {type_bien} {situe} {adresse_bien}.\n\nAu vu du marché actuel et des biens comparables que nous avons étudiés ensemble, nous estimons sa valeur entre {fourchette_basse} et {fourchette_haute}. {phrase_net_vendeur}\n\nJe reste à votre entière disposition pour en parler et pour avancer ensemble sur votre projet.\n\nCordialement," },
   "parcours-apres-r2": { titre: "Parcours — après le R2 (remerciement et avis)", canal: "email",
     sujet: "Merci pour votre confiance",
     texte: "Bonjour {civilite_nom},\n\nJe vous remercie de la confiance que vous nous avez manifestée en faisant appel à notre agence {agence} dans le cadre de l'estimation de votre {type_bien}.\n\nC'est avec grand plaisir que nous vous accompagnerons, avec l'ensemble de l'équipe, tout au long de ce processus et de votre projet dans son ensemble.\n\nComme vous le savez, ce travail est offert, mais notre plus belle rémunération restera à jamais la satisfaction de nos clients.\n\nSi vous avez été satisfaits du travail que nous avons réalisé dans le cadre de ces rendez-vous, je vous invite à nous laisser un avis sur notre page Google ; l'ensemble de l'équipe vous en remercie grandement.\n\nVoici le lien direct pour nous laisser un avis :\n{lien_avis}\n\nBien à vous," },
@@ -1843,17 +1915,18 @@ export async function runAnniversaires(env, db, agency, reglages) {
       } else {
         const { subject, html } = buildAnniversaireEmail(contact, type, reglages.agence, isoDay, reglages.modeles);
         const rep = await reponseAnniversaire(db, agency, reglages, contact);
-        const r = await envoyerMailHtml(env, {
+        const r = await envoyerMailAuto(env, db, agency, reglages, {
           to: contact.email, subject, html,
           fromName: reglages.agence.nom || agency.name,
           replyTo: rep.replyTo,
           bcc: rep.bcc,
         });
-        const statut = r.ok ? "ok" : "erreur";
+        const statut = r.ok ? "ok" : r.reporte ? "reporte" : "erreur";
         await db.run(
           "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
           [agency.id, contact.id, label, contact.email, type, annee, statut, r.error || (r.dryRun ? "envoi non configuré (dry run)" : ""), now()]);
         if (r.ok) { summary.sent++; summary.details.push({ contact: label, type, status: "ok", repondre: rep.replyTo, copie: rep.bcc }); }
+        else if (r.reporte) { summary.reportes = (summary.reportes || 0) + 1; summary.details.push({ contact: label, type, status: "reporte", reason: r.error }); }
         else { summary.errors++; summary.details.push({ contact: label, type, status: "erreur", reason: r.error || "dry run" }); }
       }
     }
@@ -2371,12 +2444,13 @@ export async function runRelances(env, db, agency, reglages) {
         (y.annonce.first_seen || 0) - (x.annonce.first_seen || 0));
       const lot = aEnvoyer.slice(0, RELANCE_MAX_BIENS);
       const { subject, html } = buildRelanceEmail(contact, lot, reglages.agence);
-      const res = await envoyerMailHtml(env, {
+      const res = await envoyerMailAuto(env, db, agency, reglages, {
         to: contact.email, subject, html,
         fromName: reglages.agence.nom || agency.name,
         replyTo: reglages.agence.email || "",
         bcc: reglages.acheteurs.cci || "",
       });
+      if (res.reporte) { summary.reportes++; continue; } // plafond du jour : rien n'est journalisé, le stock repart demain
       const statut = res.ok ? "ok" : "erreur";
       const label = `${contact.prenom || ""} ${contact.nom || ""}`.trim();
       for (const b of lot) {
@@ -2658,17 +2732,20 @@ export async function runEstimations(env, db, agency, reglages) {
           [agency.id, est.id, type, adresse]);
         if (deja) { summary.skipped++; continue; }
         const { subject, html } = buildEstimationEmail(est, jalon, reglages.agence, reglages.modeles);
-        const r = await envoyerMailHtml(env, {
+        // Le client répond au conseiller de l'estimation (profil avec e-mail), sinon à l'agence.
+        const profil = est.conseiller ? await profilConseillerPour(db, agency.id, est.conseiller) : null;
+        const r = await envoyerMailAuto(env, db, agency, reglages, {
           to: adresse, subject, html,
           fromName: reglages.agence.nom || agency.name,
-          replyTo: reglages.agence.email || "",
+          replyTo: (profil && profil.email) || reglages.agence.email || "",
           bcc: reglages.estimations.cci || "",
         });
         await db.run(
           "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [agency.id, est.id, label, adresse, type, annee, r.ok ? "ok" : "erreur",
+          [agency.id, est.id, label, adresse, type, annee, r.ok ? "ok" : r.reporte ? "reporte" : "erreur",
             r.error || (r.dryRun ? "envoi non configuré (dry run)" : ""), now()]);
-        if (r.ok) { summary.sent++; summary.details.push({ estimation: label, type, email: adresse, status: "ok" }); }
+        if (r.ok) { summary.sent++; summary.details.push({ estimation: label, type, email: adresse, status: "ok", repondre: (profil && profil.email) || reglages.agence.email || "" }); }
+        else if (r.reporte) { summary.reportes = (summary.reportes || 0) + 1; summary.details.push({ estimation: label, type, email: adresse, status: "reporte", reason: r.error }); }
         else { summary.errors++; summary.details.push({ estimation: label, type, email: adresse, status: "erreur", reason: r.error || "dry run" }); }
       }
     }

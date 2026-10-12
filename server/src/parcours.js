@@ -177,6 +177,7 @@ export function preparerMail(est, px, jalon, ag, modeles, proprietaires, extra) 
     documents_r1: documentsR1(typeBien(px.type_bien)), documents_r2: documentsR2(typeBien(px.type_bien)),
     // Courrier d'estimation : la fourchette saisie dans le livret (acm.courrier), sinon celle de l'ACM.
     fourchette_basse: extra && extra.fourchette_basse || "", fourchette_haute: extra && extra.fourchette_haute || "",
+    net_vendeur: extra && extra.net_vendeur || "", phrase_net_vendeur: extra && extra.phrase_net_vendeur || "",
     agence: ag.nom || "notre agence", agence_adresse: ag.adresse || "", lien_avis: ag.avis || AVIS_DEFAUT,
     conseiller: [px.conseiller_prenom, px.conseiller_nom].filter(Boolean).join(" ") || est.conseiller || "",
   };
@@ -768,11 +769,15 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const type = "estimation-" + jalon;
     const label = [p.px.prenom, p.est.nom].filter(Boolean).join(" ") || p.est.adresse;
     let envoyes = 0, erreurs = 0, derniereErreur = "";
+    // Le client répond à CELUI QUI A ENVOYÉ (le compte connecté, quand c'est
+    // une vraie boîte), sinon au conseiller du parcours, sinon à l'agence.
+    const boiteExpediteur = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ctx.user.email || "") && !/\.interne$/i.test(ctx.user.email) ? ctx.user.email : "";
+    const repondreA = boiteExpediteur || (p.conseiller && p.conseiller.email) || ag.email || "";
     for (const adresse of destinataires) {
       const r = await envoyerMailHtml(env, {
         to: adresse, subject: sujet, html,
         fromName: [p.conseiller && p.conseiller.prenom, p.conseiller && p.conseiller.nom].filter(Boolean).join(" ") || ag.nom || ctx.agency.name,
-        replyTo: (p.conseiller && p.conseiller.email) || ag.email || "",
+        replyTo: repondreA,
         bcc: reglages.estimations.cci || "",
         attachments,
       });
@@ -791,7 +796,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         [p.est.id, ctx.agency.id, p.px.civilite, p.px.prenom, p.px.cp, p.px.type_bien, p.px.r1_heure, p.px.r2_heure, p.px.conseiller_id, JSON.stringify(journal), now()]);
     }
     if (!envoyes) return err(c, 502, "Envoi impossible : " + derniereErreur);
-    return c.json({ ok: true, envoyes, erreurs, destinataires });
+    return c.json({ ok: true, envoyes, erreurs, destinataires, repondreA });
   });
 
   /* ----------------------------- Guide R2 ---------------------------------- */
@@ -1104,7 +1109,10 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     let acm = {}; try { acm = row ? JSON.parse(row.data) || {} : {}; } catch { acm = {}; }
     const cr = acm.courrier && typeof acm.courrier === "object" ? acm.courrier : {};
     const fmt = (v) => (Number(v) > 0 ? Math.round(Number(v)).toLocaleString("fr-FR") + " €" : "");
-    return { fourchette_basse: fmt(cr.basse || acm.basse), fourchette_haute: fmt(cr.haute || acm.haute) };
+    // Net vendeur : celui saisi pour le courrier, sinon le prix conseillé du livret (acm.prix).
+    const net = fmt(cr.net || acm.prix);
+    return { fourchette_basse: fmt(cr.basse || acm.basse), fourchette_haute: fmt(cr.haute || acm.haute), net_vendeur: net,
+      phrase_net_vendeur: net ? "Le prix net vendeur que nous vous conseillons est de " + net + "." : "" };
   };
   const bienEstimationDe = async (estId) => {
     const row = await db.get("SELECT data FROM crm_estimation_bien WHERE estimation_id = ?", [estId]);
