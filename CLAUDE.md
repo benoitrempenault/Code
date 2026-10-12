@@ -1283,6 +1283,14 @@ Bouton « 🖨 Imprimer » (modale du courrier et
 e-mail en DEUX temps : « Envoyer » → pied « va partir à <destinataires>… Vous confirmez ? » avec « Non,
 je relis » / « ✅ Oui, envoyer » (`pm-confirme`, `pm-non`, `pm-oui`) ; smoke adapté.
 
+**Leroy Merlin Rénovation sur la page partenaires (12/10)** : logo posé sur un 5e rang centré (cadre
+212–384 × 624–674) de la page « Des partenaires de confiance » des QUATRE guides (R1 p5, R2 p14, commun
+et Caudéran) par `tools/guides/ajouter-partenaire.py`. Le logo (`tools/guides/leroy-merlin-renovation.png`)
+est RECONSTITUÉ en haute définition d'après la signature e-mail du partenaire (aucun fichier public n'existe,
+leroymerlin.fr refuse les robots) : logo officiel Leroy Merlin (SVG Wikimedia) + barre verte + « RENOVATION »
+en Montserrat Regular, le E en trois barres vert / jaune / orange. Assets `?v=81` (les PDF des guides sont
+chargés via `asset()`, donc le ?v du script suffit).
+
 **Point sécurité (12/10)** : (1) SheetJS embarqué passé de 0.18.5 à **0.20.3** (CVE-2023-30533 pollution
 de prototype par xlsx piégé, CVE-2024-22363 ReDoS) — la 0.20 n'existe plus sur npm, fichier pris sur
 `cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js` ; mêmes appels (`XLSX.read` array/raw,
