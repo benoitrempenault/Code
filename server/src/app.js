@@ -301,8 +301,35 @@ export function createApp(env) {
     );
     if ((recent?.n || 0) >= MAX_LINKS_PER_HOUR) return err(c, 429, "Trop de demandes — réessayez dans une heure.");
     const { token, link } = await issueLoginLink(user, LINK_TTL, null, body.retour);
-    if (env.DEV_MODE) return c.json({ ...generic, dev_token: token, dev_link: link });
-    return c.json(generic);
+    // Jeton d'attente : la page qui a demandé le lien le garde et interroge
+    // /auth/attente ; quand le lien est cliqué ailleurs, c'est elle qui se connecte.
+    const attente = randToken(32);
+    await db.run("INSERT INTO login_attentes (attente_hash, token_hash, user_id, etat, dernier_poll, created_at) VALUES (?, ?, ?, 'attente', 0, ?)",
+      [await sha256hex(attente), await sha256hex(token), user.id, now()]);
+    if (env.DEV_MODE) return c.json({ ...generic, attente, dev_token: token, dev_link: link });
+    return c.json({ ...generic, attente });
+  });
+
+  // La page qui attend : « lien cliqué ? » toutes les quelques secondes. Dès
+  // que le lien a été cliqué (où que ce soit), sa session s'ouvre ICI — avec
+  // le code SMS si le compte a un mobile — comme si le lien y avait été ouvert.
+  app.post("/auth/attente", async (c) => {
+    const b = await c.req.json().catch(() => ({}));
+    const a = String(b.attente || "").trim();
+    if (!a || a.length < 20 || a.length > 80) return err(c, 400, "Jeton d'attente manquant.");
+    const row = await db.get("SELECT * FROM login_attentes WHERE attente_hash = ?", [await sha256hex(a)]);
+    // Inconnu ou expiré : même réponse qu'une attente en cours (pas de devinette).
+    if (!row || row.created_at < now() - LINK_TTL - 60) return c.json({ etat: row ? "expiree" : "attente" });
+    await db.run("UPDATE login_attentes SET dernier_poll = ? WHERE attente_hash = ?", [now(), row.attente_hash]);
+    if (row.etat === "attente") return c.json({ etat: "attente" });
+    if (row.etat === "consommee") return c.json({ etat: "consommee" });
+    const user = await db.get("SELECT * FROM users WHERE id = ?", [row.user_id]);
+    if (!user) return err(c, 401, "Compte introuvable.");
+    const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [user.agency_id]);
+    if (!agency || agency.status === "suspended") return err(c, 403, "Abonnement suspendu — contactez Studio Brochure.");
+    await db.run("UPDATE login_attentes SET etat = 'consommee' WHERE attente_hash = ?", [row.attente_hash]);
+    const rep = await ouvrirSessionEtRepondre(c, user, agency);
+    return c.json({ etat: "prete", ...rep });
   });
 
   app.post("/auth/exchange", async (c) => {
@@ -320,6 +347,20 @@ export function createApp(env) {
     if (!user) return err(c, 401, "Compte introuvable.");
     const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [user.agency_id]);
     if (!agency || agency.status === "suspended") return err(c, 403, "Abonnement suspendu — contactez Studio Brochure.");
+    // Une page attend ce lien (elle a interrogé /auth/attente il y a moins d'une
+    // minute) : c'est ELLE qui se connecte — ici, on confirme seulement. Sinon
+    // (lien ouvert sans page en attente), la session s'ouvre ici, comme avant.
+    const att = await db.get("SELECT attente_hash, dernier_poll FROM login_attentes WHERE token_hash = ? AND etat = 'attente'", [hash]);
+    if (att && att.dernier_poll > now() - ATTENTE_VIVANTE) {
+      await db.run("UPDATE login_attentes SET etat = 'confirmee' WHERE attente_hash = ?", [att.attente_hash]);
+      return c.json({ ok: true, attente: true, message: "Connexion confirmée : retournez dans Studio, sur la page où vous avez saisi votre e-mail — elle se connecte toute seule. Vous pouvez fermer celle-ci." });
+    }
+    return c.json(await ouvrirSessionEtRepondre(c, user, agency));
+  });
+  const ATTENTE_VIVANTE = 60; // s : une page qui n'a pas interrogé depuis n'attend plus
+  // Ouvrir la session de l'appareil qui fait la requête, avec le second facteur
+  // s'il y a lieu ; renvoie le corps de réponse (session, user, agency, verification).
+  async function ouvrirSessionEtRepondre(c, user, agency) {
     const bearer = await openSession(user, 0, c);
     const hashS = await sha256hex(bearer), nom = nomAppareil(c.req.header("User-Agent")), ip = ipDe(c);
     // Second facteur : un code sur le mobile du compte (SMS Brevo), repli e-mail.
@@ -328,15 +369,15 @@ export function createApp(env) {
       await db.run("UPDATE sessions_appareils SET verifie = 0 WHERE token_hash = ?", [hashS]);
       let r = await envoyerCode(c, user, agency, hashS, "sms", mob.mobile);
       if (!r.ok) r = await envoyerCode(c, user, agency, hashS, "email", "");
-      return c.json(reponseSession(bearer, user, agency, { verification: {
+      return reponseSession(bearer, user, agency, { verification: {
         requis: true, canal: r.canal, mobile: masquerMobile(mob.mobile), email: masquerEmail(user.email), expireDans: CODE_MINUTES * 60,
         ...(r.dev_code ? { dev_code: r.dev_code } : {}),
-      } }));
+      } });
     }
     await journal(agency.id, user.id, "connexion", "lien e-mail · " + nom, ip);
     await mailNouvelleConnexion(user, agency, nom, ip);
-    return c.json(reponseSession(bearer, user, agency, { verification: { requis: false } }));
-  });
+    return reponseSession(bearer, user, agency, { verification: { requis: false } });
+  }
 
   // Le code de connexion : renvoi (SMS, ou e-mail à la demande / en repli).
   app.post("/auth/code/envoyer", async (c) => {

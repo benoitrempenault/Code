@@ -1248,3 +1248,15 @@ CREATE TABLE IF NOT EXISTS connexions_journal (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_connexions_journal_ag ON connexions_journal(agency_id, created_at);
+
+-- Attente de connexion (12/10) : la page où l'on a tapé son e-mail attend que le
+-- lien soit cliqué — où qu'il s'ouvre (mini-navigateur de l'app mail, autre
+-- onglet) — et ouvre alors SA session (code SMS compris) sans rien copier.
+CREATE TABLE IF NOT EXISTS login_attentes (
+  attente_hash TEXT PRIMARY KEY,              -- sha256(jeton d'attente, connu de la page qui attend)
+  token_hash   TEXT NOT NULL,                 -- login_tokens.token_hash du lien envoyé
+  user_id      TEXT NOT NULL,
+  etat         TEXT NOT NULL DEFAULT 'attente', -- attente | confirmee (lien cliqué) | consommee (session ouverte)
+  dernier_poll INTEGER NOT NULL DEFAULT 0,
+  created_at   INTEGER NOT NULL
+);

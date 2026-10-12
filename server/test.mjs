@@ -288,6 +288,23 @@ const pwTeam = { json: { session: await sessionPar("u2@azur-immo.fr") } };
 ok(!!pwTeam.json.session && (await call("/me", { headers: { Authorization: "Bearer " + pwTeam.json.session } })).status === 200, "un conseiller sans mobile entre par le lien seul (pas de code)");
 await db.run("DELETE FROM login_tokens", []);
 
+console.log("— Attente de connexion : la page qui a demandé le lien se connecte quand le lien est cliqué ailleurs");
+{ const rl = await call("/auth/request-link", { body: { email: "claire@azur-immo.fr" } });
+  ok(rl.status === 200 && rl.json.attente && rl.json.attente.length >= 20, "la demande de lien rend un jeton d'attente");
+  ok((await call("/auth/attente", { body: { attente: rl.json.attente } })).json.etat === "attente", "tant que le lien n'est pas cliqué : « attente »");
+  const ex = await call("/auth/exchange", { body: { token: rl.json.dev_token } });
+  ok(ex.status === 200 && ex.json.attente === true && !ex.json.session && /retournez dans Studio/.test(ex.json.message), "le lien cliqué ailleurs (mini-navigateur de l'app mail) confirme sans ouvrir de session là-bas");
+  const UA_I = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+  const pr = await call("/auth/attente", { body: { attente: rl.json.attente }, headers: { "User-Agent": UA_I } });
+  ok(pr.json.etat === "prete" && pr.json.session && pr.json.user.email === "claire@azur-immo.fr" && (await call("/me", { headers: { Authorization: "Bearer " + pr.json.session } })).status === 200, "la page en attente reçoit SA session");
+  ok((await db.get("SELECT nom FROM sessions_appareils WHERE token_hash = ?", [await sha256hex(pr.json.session)])).nom === "iPhone · Safari", "l'appareil enregistré est celui de la page qui attendait");
+  ok((await call("/auth/attente", { body: { attente: rl.json.attente } })).json.etat === "consommee", "une seconde interrogation ne rouvre rien");
+  const rl2 = await call("/auth/request-link", { body: { email: "claire@azur-immo.fr" } });
+  const ex2 = await call("/auth/exchange", { body: { token: rl2.json.dev_token } });
+  ok(ex2.status === 200 && ex2.json.session && !ex2.json.attente, "sans page en attente (aucune interrogation), le lien ouvre la session là où il est cliqué, comme avant");
+  ok((await call("/auth/attente", { body: { attente: "x".repeat(30) } })).json.etat === "attente", "jeton inconnu : réponse neutre");
+  await db.run("DELETE FROM login_tokens", []); }
+
 console.log("— Dossiers de vente (app Suivi)");
 const dosData = {
   _app: "studio-suivi", version: 1,

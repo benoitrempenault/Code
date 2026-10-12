@@ -1211,12 +1211,35 @@
       btn.disabled = false;
       if (res.ok) {
         msg.style.color = "var(--ok)";
-        msg.textContent = data.message || "Lien envoyé — ouvrez l'e-mail, vous reviendrez ici automatiquement.";
+        msg.textContent = (data.message || "Lien envoyé.") + " Cliquez le lien dans l'e-mail : cette page se connecte toute seule, même si le lien s'ouvre dans l'application mail.";
         if (data.dev_link) { const a = document.createElement("a"); a.href = data.dev_link; a.textContent = " (lien dev)"; msg.appendChild(a); }
+        if (data.attente) attendreLien(data.attente);
       } else {
         msg.style.color = "var(--bad)";
         msg.textContent = data.error || "Envoi impossible (" + res.status + ").";
       }
+    }
+    // Cette page attend que le lien soit cliqué (où que ce soit) : elle se connecte
+    // alors ici ; si un code SMS est demandé, « Mon compte » le prend et revient.
+    async function attendreLien(attente) {
+      const depuis = Date.now();
+      const tour = async () => {
+        let r = null;
+        try { r = await fetch(API + "/auth/attente", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ attente }) }).then((x) => x.json()); } catch (e) { r = null; }
+        if (r && r.etat === "prete" && r.session) {
+          if (r.verification && r.verification.requis) {
+            try { sessionStorage.setItem("studio-compte-attente", JSON.stringify({ session: r.session, user: r.user, agency: r.agency, verification: r.verification })); } catch (e) { }
+            location.href = "../mandat-pro/compte.html?retour=../permanence/";
+            return;
+          }
+          try { localStorage.setItem("studio-mandatpro-account", JSON.stringify({ session: r.session, user: r.user, agency: r.agency })); } catch (e) { }
+          location.reload();
+          return;
+        }
+        if (r && (r.etat === "consommee" || r.etat === "expiree")) return;
+        if (Date.now() - depuis < 16 * 60 * 1000) setTimeout(tour, 3000);
+      };
+      setTimeout(tour, 2000);
     }
     btn.addEventListener("click", login);
     $("#gateEmail").addEventListener("keydown", (e) => { if (e.key === "Enter" && !btn.disabled) login(); });

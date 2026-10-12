@@ -107,17 +107,17 @@
   async function handleToken(token) {
     const r = await api("/auth/exchange", { body: { token: token } }).catch(function () { return { status: 0 }; });
     try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { }
+    if (r.status === 200 && r.data && r.data.attente) {
+      // Une autre page (celle où l'e-mail a été saisi) attend ce lien : c'est elle qui se connecte.
+      show("cardLogin");
+      $("#btnConfirm").hidden = true;
+      $("#loginMsg").className = "msg is-ok";
+      $("#loginMsg").textContent = r.data.message || "Connexion confirmée : retournez dans Studio sur la page où vous avez saisi votre e-mail, elle se connecte toute seule. Vous pouvez fermer celle-ci.";
+      return;
+    }
     if (r.status === 200 && r.data && r.data.session) {
-      // Nouvel appareil : un code (SMS, ou e-mail) avant d'utiliser la session.
-      if (r.data.verification && r.data.verification.requis) {
-        const att = { session: r.data.session, user: r.data.user, agency: r.data.agency, verification: r.data.verification };
-        try { sessionStorage.setItem(SS_ATTENTE, JSON.stringify(att)); } catch (e) { }
-        showCode(att);
-        return;
-      }
-      setAccount({ session: r.data.session, user: r.data.user, agency: r.data.agency });
-      if (goRetour()) return; // venu d'une autre app (ex. Suivi) : on y retourne
-      await paintMe();
+      arreterAttente();
+      await terminerConnexion(r.data);
     } else {
       // Re-clic sur un vieux lien : si une session valide existe déjà sur cet
       // appareil, on montre le compte plutôt qu'une erreur.
@@ -130,6 +130,44 @@
       $("#loginMsg").className = "msg is-error";
       $("#loginMsg").textContent = (r.data && r.data.error) || "Lien invalide ou expiré — redemandez un lien.";
     }
+  }
+
+  /* ------------- La page attend que le lien soit cliqué (ailleurs) -------------
+     Sur téléphone, le lien de l'e-mail s'ouvre souvent dans le mini-navigateur de
+     l'application mail : la session y serait perdue. Alors c'est CETTE page qui
+     attend (jeton d'attente) et se connecte dès que le lien est cliqué, où que
+     ce soit — avec le code SMS ici s'il y a lieu.                               */
+  const SS_LIEN = "studio-compte-lien-attente", ATTENTE_MAX_MS = 16 * 60 * 1000;
+  let attenteTimer = null;
+  function demarrerAttente(a) {
+    try { sessionStorage.setItem(SS_LIEN, JSON.stringify({ attente: a, depuis: Date.now() })); } catch (e) { }
+    reprendreAttente();
+  }
+  function arreterAttente() { if (attenteTimer) { clearTimeout(attenteTimer); attenteTimer = null; } try { sessionStorage.removeItem(SS_LIEN); } catch (e) { } }
+  function reprendreAttente() {
+    let l = null; try { l = JSON.parse(sessionStorage.getItem(SS_LIEN) || "null"); } catch (e) { }
+    if (!l || !l.attente || Date.now() - (l.depuis || 0) > ATTENTE_MAX_MS) { arreterAttente(); return false; }
+    const tour = async function () {
+      const r = await api("/auth/attente", { body: { attente: l.attente } }).catch(function () { return { status: 0 }; });
+      if (r.status === 200 && r.data && r.data.etat === "prete") { arreterAttente(); await terminerConnexion(r.data); return; }
+      if (r.status === 200 && r.data && (r.data.etat === "consommee" || r.data.etat === "expiree")) { arreterAttente(); return; }
+      if (Date.now() - l.depuis > ATTENTE_MAX_MS) { arreterAttente(); return; }
+      attenteTimer = setTimeout(tour, 3000);
+    };
+    attenteTimer = setTimeout(tour, 2000);
+    return true;
+  }
+  // Session reçue (lien ouvert ici, ou page en attente) : code si besoin, sinon connecté.
+  async function terminerConnexion(d) {
+    if (d.verification && d.verification.requis) {
+      const att = { session: d.session, user: d.user, agency: d.agency, verification: d.verification };
+      try { sessionStorage.setItem(SS_ATTENTE, JSON.stringify(att)); } catch (e) { }
+      showCode(att);
+      return;
+    }
+    setAccount({ session: d.session, user: d.user, agency: d.agency });
+    if (goRetour()) return;
+    await paintMe();
   }
 
   /* --------------- Code de connexion sur un nouvel appareil --------------- */
@@ -264,7 +302,8 @@
       this.disabled = false;
       if (r.status === 200 && r.data) {
         msg.className = "msg is-ok";
-        msg.textContent = r.data.message || "Lien envoyé — consultez votre boîte mail.";
+        msg.textContent = (r.data.message || "Lien envoyé — consultez votre boîte mail.") + " Cliquez le lien dans l'e-mail : cette page se connecte toute seule, même si le lien s'ouvre dans l'application mail.";
+        if (r.data.attente) demarrerAttente(r.data.attente);
         if (r.data.dev_link) { // mode développement : lien affiché directement
           msg.innerHTML += ' <a href="' + esc(r.data.dev_link) + '" style="color:#c2a36b">(lien dev)</a>';
         }
@@ -290,6 +329,7 @@
       if (t) await handleToken(t);
     });
     async function deconnecter() {
+      arreterAttente();
       const a = getAccount();
       if (a && a.session) { await api("/auth/logout", { method: "POST", auth: a.session, body: {} }).catch(function () { }); }
       clearAccount();
@@ -338,6 +378,13 @@
     // Un code est attendu sur cet appareil (page rechargée pendant la saisie).
     const att = attenteLue();
     if (att && att.session && !(getAccount() || {}).session) { showCode(att); return; }
+    // Un lien a été demandé depuis cette page (rechargée) : on continue d'attendre.
+    if (!(getAccount() || {}).session && reprendreAttente()) {
+      show("cardLogin");
+      $("#loginMsg").className = "msg is-ok";
+      $("#loginMsg").textContent = "Lien envoyé — cliquez-le dans l'e-mail : cette page se connecte toute seule.";
+      return;
+    }
     // Arrivée depuis le bandeau « Se déconnecter » d'une autre app : la
     // session est déjà effacée, on accueille le collaborateur suivant.
     if (new URLSearchParams(location.search).get("deconnecte")) {

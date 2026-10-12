@@ -1291,6 +1291,19 @@ leroymerlin.fr refuse les robots) : logo officiel Leroy Merlin (SVG Wikimedia) +
 en Montserrat Regular, le E en trois barres vert / jaune / orange. Assets `?v=81` (les PDF des guides sont
 chargés via `asset()`, donc le ?v du script suffit).
 
+**Attente de connexion (12/10, nuit)** : sur téléphone, le lien de l'e-mail s'ouvre dans le mini-navigateur de
+l'app mail (Gmail, Outlook) → session rangée au mauvais endroit (Adélaïde : « ça redemande tout »). Désormais la
+page qui a demandé le lien ATTEND : `/auth/request-link` rend `attente` (jeton 32 o, table `login_attentes`
+attente_hash → token_hash, user_id, etat attente|confirmee|consommee, dernier_poll) ; la page interroge
+`POST /auth/attente { attente }` toutes les 3 s (16 min max, sessionStorage `studio-compte-lien-attente`,
+repris au rechargement). `/auth/exchange` : si une attente de ce lien a interrogé il y a < 60 s
+(`ATTENTE_VIVANTE`) → `etat = confirmee` et réponse `{ ok, attente: true, message }` SANS session (la page du
+mini-navigateur dit « retournez dans Studio ») ; sinon flux classique. Le poll suivant → `etat: "prete"` +
+`ouvrirSessionEtRepondre(c, user, agency)` (session + appareil de LA PAGE QUI ATTEND, code SMS compris),
+puis `consommee`. Jeton inconnu → `{ etat: "attente" }` (pas de devinette). Suivi / Permanence (`app.js?v=3`)
+attendent aussi : code requis → sessionStorage `studio-compte-attente` + redirection vers Mon compte (?retour).
+compte.js ?v=10 (`demarrerAttente` / `reprendreAttente` / `terminerConnexion`). Tests : 1 273.
+
 **Retirer un conseiller (12/10, soir)** : `DELETE /crm/conseillers/:id` efface le profil et ses tables satellites
 (extra, direction, pv, avis, avis_site, texte_site, photo_carre) ET le compte lié (sessions, appareils, liens,
 credentials, users_mobile, users) sauf `?compte=0` ; 400 sur son propre compte. Admin : bouton « 🗑 Retirer » dans
