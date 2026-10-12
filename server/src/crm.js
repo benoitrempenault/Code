@@ -615,6 +615,9 @@ export async function menageQuotidien(db, files = null) {
   try { r.offresPurgees = await OFFRES.purgerOffres(db, files); } catch (e) { r.purgeErreur = e.message; }
   r.corbeille = changesOf(await db.run("DELETE FROM crm_corbeille WHERE created_at < ? OR (restored_at > 0 AND restored_at < ?)",
     [t - CORBEILLE_JOURS * 86400, t - 7 * 86400]));
+  // Comptes partagés « .interne » (porte collaborateurs fermée le 12/10) : sessions et liens révoqués.
+  r.partages = changesOf(await db.run("UPDATE sessions SET revoked = 1 WHERE revoked = 0 AND user_id IN (SELECT id FROM users WHERE email LIKE '%.interne')"));
+  await db.run("DELETE FROM login_tokens WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%.interne')");
   r.sessions = changesOf(await db.run("DELETE FROM sessions WHERE revoked = 1 OR last_seen < ?", [t - 90 * 86400]));
   r.liens = changesOf(await db.run("DELETE FROM login_tokens WHERE expires_at < ?", [t - 86400]));
   r.quotas = changesOf(await db.run("DELETE FROM crm_quotas WHERE jour < ?", [parisDate(new Date((t - 92 * 86400) * 1000))]));

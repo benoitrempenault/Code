@@ -53,16 +53,11 @@
   // l'erreur (code "session", sso) pour que l'app propose la bonne
   // reconnexion : la porte collaborateurs du site Kadima, ou « Mon compte ».
   function sessionPerdue() {
-    let sso = false;
-    try {
-      const a = JSON.parse(localStorage.getItem("studio-mandatpro-account") || "null");
-      sso = !!(a && (a.sso || /@kadima\.interne$/i.test((a.user && a.user.email) || "")));
-      localStorage.removeItem("studio-mandatpro-account");
-    } catch (e) { /* stockage indisponible */ }
-    const e = new Error(sso
-      ? "Session expirée — repassez par l'accès collaborateurs du site Kadima."
-      : "Session expirée — reconnectez-vous sur la page « Mon compte ».");
-    e.code = "session"; e.sso = sso;
+    // La porte collaborateurs est fermée (12/10/2026) : une seule reconnexion,
+    // « Mon compte » avec son propre e-mail.
+    try { localStorage.removeItem("studio-mandatpro-account"); } catch (e) { /* stockage indisponible */ }
+    const e = new Error("Session expirée — reconnectez-vous sur la page « Mon compte » avec votre e-mail.");
+    e.code = "session"; e.sso = false;
     return e;
   }
 
@@ -407,7 +402,6 @@
   // une phrase sans issue : le bouton mène à la porte collaborateurs du site
   // Kadima (compte SSO) ou à « Mon compte » avec retour sur cette page.
   const COMPTE_URL = "../mandat-pro/compte.html";
-  const PORTE_KADIMA = "https://century21-kadima.fr/admin/studio";
   function escHtml(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return "&#" + c.charCodeAt(0) + ";"; });
   }
@@ -416,9 +410,8 @@
     el.className = "ai-status is-error";
     const msg = (err && err.message) || "Erreur";
     if (!err || err.code !== "session") { el.textContent = msg; return; }
-    const href = err.sso ? PORTE_KADIMA : COMPTE_URL + "?retour=" + encodeURIComponent(location.href);
-    el.innerHTML = escHtml(msg) + ' <a class="btn btn--sm" href="' + escHtml(href) + '">' +
-      (err.sso ? "Accès collaborateurs" : "Se reconnecter") + "</a>";
+    const href = COMPTE_URL + "?retour=" + encodeURIComponent(location.href);
+    el.innerHTML = escHtml(msg) + ' <a class="btn btn--sm" href="' + escHtml(href) + '">Se reconnecter</a>';
   }
 
   window.BrochureAI = { generate, captionPhotos, extractDiagnostics, extractSurfaces, generateCityIntro, generateAdText, extractNotes, structureFiche, showError };

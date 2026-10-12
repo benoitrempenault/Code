@@ -37,6 +37,8 @@ import { reparerReponseFiche } from "./fiche.js";
 // prolonge sans fin). Et 90 jours en tout : passé ce cap on se reconnecte,
 // même actif — un jeton volé ne vit pas éternellement.
 const SESSION_TTL = 7 * 24 * 3600;
+// Adresses des anciens comptes partagés (« collaborateurs@kadima.interne ») : plus aucune session.
+const COMPTE_PARTAGE = /@[^@\s]+\.interne$/i;
 const SESSION_MAX_AGE = 90 * 24 * 3600;
 // Appareils simultanés. Un conseiller en cumule vite plus de trois : PC du
 // bureau, portable, téléphone (Safari ET l'app posée sur l'écran d'accueil
@@ -126,6 +128,7 @@ export function createApp(env) {
     if (s.created_at < now() - SESSION_MAX_AGE) return null;
     const user = await db.get("SELECT * FROM users WHERE id = ?", [s.user_id]);
     if (!user) return null;
+    if (COMPTE_PARTAGE.test(user.email || "")) return null; // compte partagé fermé (12/10)
     const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [user.agency_id]);
     if (!agency) return null;
     if (now() - s.last_seen > 60) {
@@ -256,57 +259,18 @@ export function createApp(env) {
      KADIMA_SSO_SECRET). On ouvre alors une session sur le compte AGENCE
      partagé de Kadima : le collaborateur a l'IA sans e-mail ni mot de passe.
      Un seul secret, une seule agence, sessions à plafond d'appareils élevé.  */
+  // PORTE FERMÉE (12/10/2026, choix de Benoît) : le compte partagé « Collaborateurs
+  // Kadima » n'existe plus — chaque collaborateur entre avec son propre compte
+  // (lien magique sur son e-mail). Le site renvoie encore ici : on répond 410
+  // avec le chemin de la page « Mon compte », et les sessions du compte partagé
+  // sont refusées (sessionFrom) puis révoquées par le ménage quotidien.
   app.post("/auth/kadima", async (c) => {
-    const secret = env.KADIMA_SSO_SECRET;
-    if (!secret) return err(c, 501, "Accès collaborateur non configuré côté serveur.");
-    const b = await c.req.json().catch(() => ({}));
-    const pass = String(b.pass || "");
-    const dot = pass.indexOf(".");
-    if (dot < 1) return err(c, 401, "Laissez-passer invalide.");
-    const payloadB64 = pass.slice(0, dot), sig = pass.slice(dot + 1);
-    // Signature d'abord (temps constant), puis expiration.
-    const expected = await hmacHex(secret, payloadB64);
-    if (!safeEqual(sig, expected)) return err(c, 401, "Laissez-passer invalide.");
-    let payload;
-    try { payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/"))); }
-    catch (e) { return err(c, 401, "Laissez-passer illisible."); }
-    if (!payload || (payload.exp || 0) < now()) return err(c, 401, "Laissez-passer expiré — repassez par l'accès collaborateur.");
-
-    // L'agence visée est fixée par la configuration du serveur (jamais par le
-    // jeton) : un laissez-passer ne peut ouvrir QUE l'agence Kadima.
     const agencyId = env.KADIMA_AGENCY_ID || "ag_8csricwct9";
-    const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [agencyId]);
-    if (!agency) return err(c, 500, "Agence collaborateur introuvable (KADIMA_AGENCY_ID).");
-    if (agency.status === "suspended" || !agencyOpen(agency)) return err(c, 402, "Abonnement de l'agence inactif.");
-
-    // Compte « agence » partagé (créé une seule fois), rôle simple membre.
-    const email = String(env.KADIMA_COLLAB_EMAIL || "collaborateurs@kadima.interne").toLowerCase();
-    let user = await db.get("SELECT * FROM users WHERE email = ?", [email]);
-    if (!user) {
-      const uid = randId("us");
-      await db.run(
-        "INSERT INTO users (id, agency_id, email, name, role, created_at) VALUES (?, ?, ?, ?, 'member', ?)",
-        [uid, agencyId, email, "Collaborateurs Kadima", now()]
-      );
-      user = await db.get("SELECT * FROM users WHERE id = ?", [uid]);
-    }
-    // Usage unique : un laissez-passer déjà présenté ne rouvre pas de session
-    // (anti-rejeu jusqu'à son expiration). Consommation atomique dans
-    // login_tokens, comme un lien magique ; les jetons expirés sont balayés.
-    await db.run("DELETE FROM login_tokens WHERE expires_at < ?", [now() - 86400]);
-    const consomme = await db.run(
-      "INSERT OR IGNORE INTO login_tokens (token_hash, user_id, expires_at, used, created_at) VALUES (?, ?, ?, 1, ?)",
-      [await sha256hex(pass), user.id, Number(payload.exp) || now(), now()]
-    );
-    if (changesOf(consomme) !== 1) return err(c, 401, "Laissez-passer déjà utilisé — repassez par l'accès collaborateur.");
-    // Accès partagé multi-postes : plafond d'appareils élevé (sinon les postes
-    // de l'agence se déconnecteraient mutuellement au-delà de 3).
-    const bearer = await openSession(user, 100);
+    const agency = await db.get("SELECT app_base FROM agencies WHERE id = ?", [agencyId]);
     return c.json({
-      ok: true, session: bearer,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
-      agency: { id: agency.id, name: agency.name, status: agency.status, plan: agency.plan }
-    });
+      error: "La porte collaborateurs est fermée : connectez-vous avec votre propre adresse e-mail sur la page « Mon compte » (un lien de connexion vous est envoyé).",
+      ferme: true, compte: appBase(agency) + "/compte.html",
+    }, 410);
   });
 
   // Ouvre une session pour un utilisateur (limite d'appareils : révoque la

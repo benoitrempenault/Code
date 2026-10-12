@@ -46,9 +46,15 @@
         try {
           localStorage.setItem(LS_ACCOUNT, JSON.stringify({ session: d.session, user: d.user, agency: d.agency, sso: true }));
         } catch (e) { /* stockage refusé : la rédaction IA redemandera l'accès */ }
+        return;
       }
-      // En cas d'échec on ne bloque rien : l'utilisateur garde la connexion
-      // e-mail/mot de passe en secours (message habituel « Mon compte »).
+      // Porte fermée (12/10/2026) : chacun entre avec son propre compte. On
+      // emmène la personne sur « Mon compte », qui explique et revient ici.
+      if (d && d.ferme) {
+        try { localStorage.removeItem(LS_ACCOUNT); } catch (e) { /* sans effet */ }
+        location.replace("../mandat-pro/compte.html?porte=fermee&retour=" + encodeURIComponent(location.href));
+      }
+      // Autre échec : on ne bloque rien, la connexion par e-mail reste là.
     }).catch(function () { /* réseau : idem, repli silencieux */ });
   }
 

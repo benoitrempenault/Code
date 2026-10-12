@@ -1291,6 +1291,17 @@ leroymerlin.fr refuse les robots) : logo officiel Leroy Merlin (SVG Wikimedia) +
 en Montserrat Regular, le E en trois barres vert / jaune / orange. Assets `?v=81` (les PDF des guides sont
 chargés via `asset()`, donc le ?v du script suffit).
 
+**Accès, choix 1 — porte collaborateurs FERMÉE (12/10, soir)** : plus de compte partagé « Collaborateurs
+Kadima ». `POST /auth/kadima` répond toujours **410** `{ ferme: true, compte: <app_base>/compte.html }` (le
+site century21-kadima.fr renvoie encore vers `#acces=`) ; `sessionFrom` refuse toute session d'un compte
+`@….interne` (`COMPTE_PARTAGE`) ; `menageQuotidien` révoque leurs sessions et liens (`r.partages`).
+Client : `mandat/assets/js/acces.js` (?v=3) sur `ferme` → `../mandat-pro/compte.html?porte=fermee&retour=…` ;
+`compte.js` (?v=7) affiche le message « porte fermée, saisissez votre e-mail » ; `ai.js` (?v=15 fiche, ?v=6
+brochure) : plus de branche SSO, bouton « Se reconnecter » vers Mon compte. Chaque collaborateur a son
+compte (lien magique sur son e-mail). Tests : 410, aucun compte .interne créé, session partagée → 401,
+ménage. Suite du plan accès (Benoît, 21 h) : 2 liste Équipe unique, 3 lien magique + code SMS, 4 appareils /
+e-mail nouvelle connexion / journal, 5 domaine studio.century21-kadima.fr.
+
 **Point sécurité (12/10)** : (1) SheetJS embarqué passé de 0.18.5 à **0.20.3** (CVE-2023-30533 pollution
 de prototype par xlsx piégé, CVE-2024-22363 ReDoS) — la 0.20 n'existe plus sur npm, fichier pris sur
 `cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js` ; mêmes appels (`XLSX.read` array/raw,

@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { createNodeDb } from "./src/db.js";
 import { createApp } from "./src/app.js";
-import { hmacHex } from "./src/util.js";
+import { hmacHex, sha256hex } from "./src/util.js";
 import * as CRM_TEST from "./src/crm.js";
 
 let passed = 0, failed = 0;
@@ -4308,15 +4308,15 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
 // ======================================================================
 //  Accès collaborateur Kadima (SSO /auth/kadima)
 // ======================================================================
-console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadima)");
+console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte partagé");
 {
   const SSO_SECRET = "secret-sso-kadima-test";
   const agK = await call("/admin/agencies", { headers: admin, body: { name: "CENTURY 21 Kadima", email: "sso-kadima@kadima.fr", status: "active" } });
+  const agId = agK.json.agency.id;
   const appK = createApp({
     db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin",
-    ANTHROPIC_API_KEY: "sk-ant-fake-server-key", ANTHROPIC_BASE: "http://localhost:18789",
     APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
-    KADIMA_SSO_SECRET: SSO_SECRET, KADIMA_AGENCY_ID: agK.json.agency.id,
+    KADIMA_SSO_SECRET: SSO_SECRET, KADIMA_AGENCY_ID: agId,
   });
   const callK = async (p, o = {}) => {
     const res = await appK.fetch(new Request("http://api.test" + p, {
@@ -4326,8 +4326,6 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
     }));
     return { status: res.status, json: await res.json().catch(() => null) };
   };
-  // Laissez-passer fabriqué comme le serveur Render (Node crypto → doit
-  // correspondre à hmacHex WebCrypto côté serveur IA).
   const cryptoMod = await import("node:crypto");
   const mkPass = (secret, agId, exp) => {
     const payload = Buffer.from(JSON.stringify({ ag: agId, exp })).toString("base64url");
@@ -4335,47 +4333,19 @@ console.log("— Accès collaborateur Kadima (SSO depuis le site century21-kadim
     return payload + "." + sig;
   };
   const nowS = Math.floor(Date.now() / 1000);
-  const agId = agK.json.agency.id;
-
-  const good = await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS + 120) } });
-  ok(good.status === 200 && !!good.json.session, "laissez-passer valide → session ouverte");
-  ok(good.json.agency && good.json.agency.name.includes("Kadima"), "session liée à l'agence Kadima");
-
-  const ia = await callK("/v1/messages", { headers: { Authorization: "Bearer " + good.json.session }, body: { model: "claude-sonnet-5", max_tokens: 50, messages: [{ role: "user", content: "salut" }] } });
-  ok(ia.status === 200, "la session collaborateur débloque la rédaction IA");
-
-  ok((await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS - 10) } })).status === 401, "laissez-passer expiré → 401");
-  ok((await callK("/auth/kadima", { body: { pass: mkPass("mauvais-secret", agId, nowS + 120) } })).status === 401, "mauvais secret → 401");
-  // Le dernier caractère hexa est REMPLACÉ par un autre (jamais le même :
-  // « + "0" » retombait sur la vraie signature une fois sur 16 — test flaky).
-  const vrai = mkPass(SSO_SECRET, agId, nowS + 120);
-  const forged = vrai.slice(0, -1) + (vrai.endsWith("0") ? "1" : "0");
-  ok((await callK("/auth/kadima", { body: { pass: forged } })).status === 401, "signature altérée → 401");
-
-  // Anti-rejeu : un laissez-passer déjà présenté (celui de « good ») ne
-  // rouvre pas de session, même valide et non expiré.
-  const rejeu = await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS + 120) } });
-  ok(rejeu.status === 401 && /déjà utilisé/.test(rejeu.json.error || ""), "laissez-passer rejoué → 401 (usage unique)");
-  ok((await callK("/me", { headers: { Authorization: "Bearer " + good.json.session } })).status === 200, "la 1re session du laissez-passer reste valable");
-
-  // Accès partagé multi-postes : pas d'éviction au 3e appareil (un
-  // laissez-passer distinct par poste, comme le site en fabrique un par clic).
-  const first = (await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS + 121) } })).json.session;
-  for (let i = 0; i < 5; i++) await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS + 130 + i) } });
-  ok((await callK("/me", { headers: { Authorization: "Bearer " + first } })).status === 200, "1er poste encore connecté après 6 connexions (plafond relevé)");
-
-  // Diagnostics : /diag/livret exige la clé d'administration (appels sortants
-  // coûteux, cache contournable par les paramètres) ; /diag/overpass reste public.
-  const appProd = createApp({ db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014" });
-  const diagSans = await appProd.fetch(new Request("http://api.test/diag/livret?cp=33000&ville=Bordeaux"));
-  ok(diagSans.status === 401, "/diag/livret sans clé d'administration → 401");
-  const diagMauvaise = await appProd.fetch(new Request("http://api.test/diag/livret", { headers: { "X-Admin-Key": "pas-la-bonne" } }));
-  ok(diagMauvaise.status === 401, "/diag/livret avec une mauvaise clé → 401");
-
-  // Repli propre quand le secret n'est pas configuré.
-  const appNo = createApp({ db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: true });
-  const noSecret = await appNo.fetch(new Request("http://api.test/auth/kadima", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pass: "x.y" }) }));
-  ok(noSecret.status === 501, "secret non configuré → 501 (le client retombe sur la connexion e-mail)");
+  // Même un laissez-passer valide ne rouvre plus rien : 410 + chemin de « Mon compte ».
+  const porte = await callK("/auth/kadima", { body: { pass: mkPass(SSO_SECRET, agId, nowS + 120) } });
+  ok(porte.status === 410 && porte.json.ferme === true && /compte\.html$/.test(porte.json.compte) && /propre adresse e-mail/.test(porte.json.error),
+    "la porte collaborateurs répond 410 « fermée » avec le chemin de Mon compte (" + JSON.stringify(porte.json) + ")");
+  ok((await db.get("SELECT COUNT(*) AS n FROM users WHERE email LIKE '%.interne' AND agency_id = ?", [agId])).n === 0, "aucun compte partagé n'est créé");
+  // Un ancien compte partagé qui aurait encore une session : refusée, puis révoquée par le ménage.
+  await db.run("INSERT INTO users (id, agency_id, email, name, role, created_at) VALUES ('us_collab_test', ?, 'collaborateurs@kadima.interne', 'Collaborateurs Kadima', 'member', ?)", [agId, nowS]);
+  const jetonCollab = "jeton-collab-" + nowS;
+  await db.run("INSERT INTO sessions (token_hash, user_id, created_at, last_seen, revoked) VALUES (?, 'us_collab_test', ?, ?, 0)", [await sha256hex(jetonCollab), nowS, nowS]);
+  ok((await callK("/me", { headers: { Authorization: "Bearer " + jetonCollab } })).status === 401, "une session du compte partagé est refusée (401)");
+  await CRM_TEST.menageQuotidien(db);
+  ok((await db.get("SELECT COUNT(*) AS n FROM sessions WHERE user_id = 'us_collab_test' AND revoked = 0")).n === 0, "le ménage quotidien révoque (et balaie) les sessions des comptes partagés");
+  await db.run("DELETE FROM sessions WHERE user_id = 'us_collab_test'"); await db.run("DELETE FROM users WHERE id = 'us_collab_test'");
 }
 
 

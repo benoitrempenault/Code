@@ -71,7 +71,15 @@
 
   async function paintMe() {
     const a = getAccount();
-    if (!a || !a.session) { show("cardLogin"); return; }
+    if (!a || !a.session) {
+      show("cardLogin");
+      // Venu de l'ancienne porte collaborateurs du site (fermée le 12/10/2026).
+      if (new URLSearchParams(location.search).get("porte") === "fermee") {
+        $("#loginMsg").className = "msg is-error";
+        $("#loginMsg").textContent = "La porte « Accès collaborateurs » du site est fermée : chacun se connecte avec sa propre adresse e-mail. Saisissez-la ci-dessous, un lien de connexion vous est envoyé.";
+      }
+      return;
+    }
     const r = await api("/me", { auth: a.session }).catch(function () { return { status: 0 }; });
     if (r.status === 401) { clearAccount(); show("cardLogin"); $("#loginMsg").className = "msg is-error"; $("#loginMsg").textContent = "Session expirée — reconnectez-vous."; return; }
     if (r.status !== 200 || !r.data) { show("cardLogin"); $("#loginMsg").className = "msg is-error"; $("#loginMsg").textContent = "Serveur injoignable — réessayez."; return; }
