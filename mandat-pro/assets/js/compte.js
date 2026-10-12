@@ -107,6 +107,31 @@
   async function handleToken(token) {
     const r = await api("/auth/exchange", { body: { token: token } }).catch(function () { return { status: 0 }; });
     try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { }
+    if (r.status === 200 && r.data && r.data.aConfirmer) {
+      // Une page attend ce lien sur un AUTRE appareil : est-ce bien la vôtre ?
+      // (Quelqu'un qui aurait demandé un lien avec votre e-mail ne doit pas
+      // récupérer votre session parce que vous avez cliqué.)
+      show("cardLogin");
+      $("#btnConfirm").hidden = true;
+      const quand = r.data.demande_le ? new Date(r.data.demande_le * 1000).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "";
+      const msg = $("#loginMsg");
+      msg.className = "msg";
+      msg.innerHTML = "Une connexion est en attente sur un autre appareil : <b>" + esc(r.data.appareil || "appareil inconnu") + "</b>" + (quand ? " (lien demandé à " + esc(quand) + ")" : "") + ". Est-ce vous ?" +
+        '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
+        '<button type="button" class="btn btn--primary" id="btnAttOui">Oui, connecter cet appareil-là</button>' +
+        '<button type="button" class="btn" id="btnAttIci">Non — ouvrir ma session ici</button></div>';
+      $("#btnAttOui").addEventListener("click", async function () {
+        const r2 = await api("/auth/exchange", { body: { token: token, confirmer: true } }).catch(function () { return { status: 0 }; });
+        msg.className = r2.status === 200 ? "msg is-ok" : "msg is-error";
+        msg.textContent = (r2.data && (r2.data.message || r2.data.error)) || "Serveur injoignable — réessayez.";
+      });
+      $("#btnAttIci").addEventListener("click", async function () {
+        const r2 = await api("/auth/exchange", { body: { token: token, ici: true } }).catch(function () { return { status: 0 }; });
+        if (r2.status === 200 && r2.data && r2.data.session) { arreterAttente(); await terminerConnexion(r2.data); return; }
+        msg.className = "msg is-error"; msg.textContent = (r2.data && r2.data.error) || "Serveur injoignable — réessayez.";
+      });
+      return;
+    }
     if (r.status === 200 && r.data && r.data.attente) {
       // Une autre page (celle où l'e-mail a été saisi) attend ce lien : c'est elle qui se connecte.
       show("cardLogin");
@@ -150,6 +175,12 @@
     const tour = async function () {
       const r = await api("/auth/attente", { body: { attente: l.attente } }).catch(function () { return { status: 0 }; });
       if (r.status === 200 && r.data && r.data.etat === "prete") { arreterAttente(); await terminerConnexion(r.data); return; }
+      if (r.status === 200 && r.data && r.data.etat === "refusee") {
+        arreterAttente();
+        $("#loginMsg").className = "msg is-error";
+        $("#loginMsg").textContent = "Le lien a été ouvert sur un autre appareil, qui s'est connecté à votre place. Si ce n'était pas vous, prévenez l'administrateur ; sinon redemandez un lien ici.";
+        return;
+      }
       if (r.status === 200 && r.data && (r.data.etat === "consommee" || r.data.etat === "expiree")) { arreterAttente(); return; }
       if (Date.now() - l.depuis > ATTENTE_MAX_MS) { arreterAttente(); return; }
       attenteTimer = setTimeout(tour, 3000);

@@ -1260,3 +1260,11 @@ CREATE TABLE IF NOT EXISTS login_attentes (
   dernier_poll INTEGER NOT NULL DEFAULT 0,
   created_at   INTEGER NOT NULL
 );
+-- L'appareil qui attend (12/10) : montré sur la page du lien quand il est
+-- ouvert ailleurs (« une connexion est en attente sur Windows · Chrome — c'est vous ? »).
+CREATE TABLE IF NOT EXISTS login_attentes_appareil (
+  attente_hash TEXT PRIMARY KEY,
+  nom          TEXT NOT NULL DEFAULT '',
+  ip           TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL
+);

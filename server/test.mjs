@@ -303,7 +303,36 @@ console.log("— Attente de connexion : la page qui a demandé le lien se connec
   const ex2 = await call("/auth/exchange", { body: { token: rl2.json.dev_token } });
   ok(ex2.status === 200 && ex2.json.session && !ex2.json.attente, "sans page en attente (aucune interrogation), le lien ouvre la session là où il est cliqué, comme avant");
   ok((await call("/auth/attente", { body: { attente: "x".repeat(30) } })).json.etat === "attente", "jeton inconnu : réponse neutre");
-  await db.run("DELETE FROM login_tokens", []); }
+  await db.run("DELETE FROM login_tokens", []);
+  // L'appareil qui clique n'est pas celui qui attend (autre IP) : « c'est vous ? » avant tout,
+  // sans consommer le lien ; « oui » confirme, « ici » ouvre la session sur l'appareil du clic.
+  const ipA = { "CF-Connecting-IP": "203.0.113.10", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128.0 Safari/537.36" }, ipB = { "CF-Connecting-IP": "203.0.113.99" };
+  const rl3 = await call("/auth/request-link", { headers: ipA, body: { email: "claire@azur-immo.fr" } });
+  await call("/auth/attente", { headers: ipA, body: { attente: rl3.json.attente } });
+  const q = await call("/auth/exchange", { headers: ipB, body: { token: rl3.json.dev_token } });
+  ok(q.status === 200 && q.json.aConfirmer === true && q.json.appareil === "Windows · Chrome" && !q.json.session, "lien cliqué depuis une autre IP : question « c'est vous ? » avec l'appareil qui attend (" + JSON.stringify(q.json.message) + ")");
+  ok((await call("/auth/attente", { headers: ipA, body: { attente: rl3.json.attente } })).json.etat === "attente", "tant qu'on n'a pas répondu, la page attend encore et le lien n'est pas consommé");
+  const oui = await call("/auth/exchange", { headers: ipB, body: { token: rl3.json.dev_token, confirmer: true } });
+  ok(oui.status === 200 && oui.json.attente === true && !oui.json.aConfirmer, "« oui, c'est moi » confirme");
+  ok((await call("/auth/attente", { headers: ipA, body: { attente: rl3.json.attente } })).json.etat === "prete", "… et la page qui attendait reçoit sa session");
+  const rl4 = await call("/auth/request-link", { headers: ipA, body: { email: "claire@azur-immo.fr" } });
+  await call("/auth/attente", { headers: ipA, body: { attente: rl4.json.attente } });
+  const ici = await call("/auth/exchange", { headers: ipB, body: { token: rl4.json.dev_token, ici: true } });
+  ok(ici.status === 200 && ici.json.session && !ici.json.attente, "« non, ouvrir ici » : la session s'ouvre sur l'appareil du clic");
+  ok((await call("/auth/attente", { headers: ipA, body: { attente: rl4.json.attente } })).json.etat === "refusee", "… et la page qui attendait est prévenue (refusée)");
+  // Même IP (même téléphone, lien ouvert dans l'app mail) : pas de question, confirmation directe.
+  const rl5 = await call("/auth/request-link", { headers: ipA, body: { email: "claire@azur-immo.fr" } });
+  await call("/auth/attente", { headers: ipA, body: { attente: rl5.json.attente } });
+  const meme = await call("/auth/exchange", { headers: ipA, body: { token: rl5.json.dev_token } });
+  ok(meme.json.attente === true && !meme.json.aConfirmer, "même appareil (même IP) : confirmation directe, sans question");
+  await db.run("DELETE FROM login_tokens", []);
+  // Limites par IP : 20 demandes de lien par 10 min, 120 interrogations par minute, 30 échanges par minute.
+  const ipL = { "CF-Connecting-IP": "203.0.113.200" };
+  let dernierL = null; for (let i = 0; i < 21; i++) dernierL = await call("/auth/request-link", { headers: ipL, body: { email: "inconnu-" + i + "@nulle-part.fr" } });
+  ok(dernierL.status === 429, "21 demandes de lien depuis une IP en 10 min → 429");
+  let dernierE = null; for (let i = 0; i < 31; i++) dernierE = await call("/auth/exchange", { headers: ipL, body: { token: "faux-" + i } });
+  ok(dernierE.status === 429, "31 échanges de lien depuis une IP en 1 min → 429");
+  await db.run("DELETE FROM ai_rate WHERE scope LIKE 'ip:%'", []); }
 
 console.log("— Dossiers de vente (app Suivi)");
 const dosData = {

@@ -279,7 +279,21 @@ export function createApp(env) {
   });
 
   /* --------------------------- Authentification ------------------------- */
+  // Limite par adresse IP sur les routes publiques (compteurs ai_rate, fenêtre en
+  // minutes). IP vide (tests locaux) = pas de limite ; Cloudflare la pose toujours.
+  async function limiteIp(c, cle, max, fenetreMin = 1) {
+    const ip = c.req.header("CF-Connecting-IP") || String(c.req.header("x-forwarded-for") || "").split(",")[0].trim() || "";
+    if (!ip) return true;
+    const scope = "ip:" + cle + ":" + (await sha256hex(ip)).slice(0, 16);
+    const fenetre = Math.floor(now() / (60 * fenetreMin));
+    await db.run("INSERT OR IGNORE INTO ai_rate (scope, minute, n) VALUES (?, ?, 0)", [scope, fenetre]);
+    const r = await db.run("UPDATE ai_rate SET n = n + 1 WHERE scope = ? AND minute = ? AND n < ?", [scope, fenetre, max]);
+    return changesOf(r) === 1;
+  }
+  const TROP = (c) => err(c, 429, "Trop de demandes depuis votre connexion — patientez quelques minutes.");
+
   app.post("/auth/request-link", async (c) => {
+    if (!(await limiteIp(c, "lien", 20, 10))) return TROP(c);
     const body = await c.req.json().catch(() => ({}));
     const email = String(body.email || "").trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(c, 400, "Adresse e-mail invalide.");
@@ -304,8 +318,11 @@ export function createApp(env) {
     // Jeton d'attente : la page qui a demandé le lien le garde et interroge
     // /auth/attente ; quand le lien est cliqué ailleurs, c'est elle qui se connecte.
     const attente = randToken(32);
+    const attenteHash = await sha256hex(attente);
     await db.run("INSERT INTO login_attentes (attente_hash, token_hash, user_id, etat, dernier_poll, created_at) VALUES (?, ?, ?, 'attente', 0, ?)",
-      [await sha256hex(attente), await sha256hex(token), user.id, now()]);
+      [attenteHash, await sha256hex(token), user.id, now()]);
+    await db.run("INSERT INTO login_attentes_appareil (attente_hash, nom, ip, created_at) VALUES (?, ?, ?, ?)",
+      [attenteHash, nomAppareil(c.req.header("User-Agent")), ipDe(c), now()]);
     if (env.DEV_MODE) return c.json({ ...generic, attente, dev_token: token, dev_link: link });
     return c.json({ ...generic, attente });
   });
@@ -314,6 +331,7 @@ export function createApp(env) {
   // que le lien a été cliqué (où que ce soit), sa session s'ouvre ICI — avec
   // le code SMS si le compte a un mobile — comme si le lien y avait été ouvert.
   app.post("/auth/attente", async (c) => {
+    if (!(await limiteIp(c, "attente", 120, 1))) return TROP(c);
     const b = await c.req.json().catch(() => ({}));
     const a = String(b.attente || "").trim();
     if (!a || a.length < 20 || a.length > 80) return err(c, 400, "Jeton d'attente manquant.");
@@ -322,7 +340,7 @@ export function createApp(env) {
     if (!row || row.created_at < now() - LINK_TTL - 60) return c.json({ etat: row ? "expiree" : "attente" });
     await db.run("UPDATE login_attentes SET dernier_poll = ? WHERE attente_hash = ?", [now(), row.attente_hash]);
     if (row.etat === "attente") return c.json({ etat: "attente" });
-    if (row.etat === "consommee") return c.json({ etat: "consommee" });
+    if (row.etat === "consommee" || row.etat === "refusee") return c.json({ etat: row.etat });
     const user = await db.get("SELECT * FROM users WHERE id = ?", [row.user_id]);
     if (!user) return err(c, 401, "Compte introuvable.");
     const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [user.agency_id]);
@@ -333,12 +351,27 @@ export function createApp(env) {
   });
 
   app.post("/auth/exchange", async (c) => {
+    if (!(await limiteIp(c, "exchange", 30, 1))) return TROP(c);
     const body = await c.req.json().catch(() => ({}));
     const token = String(body.token || "").trim();
     if (!token) return err(c, 400, "Jeton manquant.");
     const hash = await sha256hex(token);
     const row = await db.get("SELECT * FROM login_tokens WHERE token_hash = ?", [hash]);
     if (!row || row.used || row.expires_at < now()) return err(c, 401, "Lien invalide ou expiré — redemandez un lien de connexion.");
+    // Une page attend ce lien (elle a interrogé /auth/attente il y a moins d'une
+    // minute) : c'est ELLE qui se connecte — ici, on confirme seulement. Si
+    // l'appareil qui clique n'est pas celui qui attend (autre IP), on demande
+    // d'abord « c'est vous ? » (sans consommer le lien) : quelqu'un qui aurait
+    // demandé un lien avec VOTRE e-mail ne récupère pas votre session parce
+    // que vous avez cliqué. « ici » = ouvrir la session sur cet appareil-ci.
+    const att = await db.get(
+      `SELECT a.attente_hash, a.dernier_poll, a.created_at, COALESCE(p.nom, '') AS nom, COALESCE(p.ip, '') AS ip
+       FROM login_attentes a LEFT JOIN login_attentes_appareil p ON p.attente_hash = a.attente_hash WHERE a.token_hash = ? AND a.etat = 'attente'`, [hash]);
+    const attenteVivante = !!(att && att.dernier_poll > now() - ATTENTE_VIVANTE);
+    if (attenteVivante && !body.ici && att.ip !== ipDe(c) && !body.confirmer) {
+      return c.json({ ok: true, attente: true, aConfirmer: true, appareil: att.nom || "un autre appareil", demande_le: att.created_at,
+        message: "Une connexion est en attente sur un autre appareil : " + (att.nom || "appareil inconnu") + ". Est-ce vous ?" });
+    }
     // Consommation atomique : garantit qu'un même lien ne crée pas deux sessions
     // si deux requêtes arrivent en même temps (scanner + clic, double-onglet).
     const claim = await db.run("UPDATE login_tokens SET used = 1 WHERE token_hash = ? AND used = 0", [hash]);
@@ -347,14 +380,11 @@ export function createApp(env) {
     if (!user) return err(c, 401, "Compte introuvable.");
     const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [user.agency_id]);
     if (!agency || agency.status === "suspended") return err(c, 403, "Abonnement suspendu — contactez Studio Brochure.");
-    // Une page attend ce lien (elle a interrogé /auth/attente il y a moins d'une
-    // minute) : c'est ELLE qui se connecte — ici, on confirme seulement. Sinon
-    // (lien ouvert sans page en attente), la session s'ouvre ici, comme avant.
-    const att = await db.get("SELECT attente_hash, dernier_poll FROM login_attentes WHERE token_hash = ? AND etat = 'attente'", [hash]);
-    if (att && att.dernier_poll > now() - ATTENTE_VIVANTE) {
+    if (attenteVivante && !body.ici) {
       await db.run("UPDATE login_attentes SET etat = 'confirmee' WHERE attente_hash = ?", [att.attente_hash]);
       return c.json({ ok: true, attente: true, message: "Connexion confirmée : retournez dans Studio, sur la page où vous avez saisi votre e-mail — elle se connecte toute seule. Vous pouvez fermer celle-ci." });
     }
+    if (att && body.ici) await db.run("UPDATE login_attentes SET etat = 'refusee' WHERE attente_hash = ?", [att.attente_hash]);
     return c.json(await ouvrirSessionEtRepondre(c, user, agency));
   });
   const ATTENTE_VIVANTE = 60; // s : une page qui n'a pas interrogé depuis n'attend plus
@@ -395,6 +425,7 @@ export function createApp(env) {
     return c.json({ ok: true, canal: r.canal, mobile: mob ? masquerMobile(mob.mobile) : "", email: masquerEmail(ctx.user.email), expireDans: CODE_MINUTES * 60, ...(r.dev_code ? { dev_code: r.dev_code } : {}) });
   });
   app.post("/auth/code/verifier", async (c) => {
+    if (!(await limiteIp(c, "code", 30, 1))) return TROP(c);
     const ctx = await sessionFrom(c, { nonVerifie: true });
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
     const ap = await db.get("SELECT * FROM sessions_appareils WHERE token_hash = ?", [ctx.hash]);

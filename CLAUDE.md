@@ -1291,6 +1291,22 @@ leroymerlin.fr refuse les robots) : logo officiel Leroy Merlin (SVG Wikimedia) +
 en Montserrat Regular, le E en trois barres vert / jaune / orange. Assets `?v=81` (les PDF des guides sont
 chargés via `asset()`, donc le ?v du script suffit).
 
+**Garde de connexion partout (12/10, nuit)** : `assets/js/garde.js` (?v=1), chargé tôt sur `mandat/index.html`,
+`fiche.html`, `brochure.html`, `formation.html` : sans compte dans localStorage → `html.garde-fermee` (tout le body
+masqué) + carte « Studio Kadima — Se connecter » vers `../mandat-pro/compte.html?retour=<chemin>` ; avec compte →
+`GET /me`, 401 → compte effacé + garde. Les autres apps (administration, suivi, permanence, prospection, estimation,
+bilans) ont déjà leur `ecran-connexion` / gate. Public par conception : offre/ (jeton), rdv/ (slug), commission.html
+(jeton), pro/, site/, site-mandat/, index.html, legal/. formation.html : API ajoutée à sa CSP connect-src.
+**Attente de connexion : confirmation inter-appareils + limites IP (12/10, nuit)** : risque = quelqu'un demande un
+lien avec l'e-mail d'un collègue, attend ; le collègue clique → la session partirait à l'attaquant (compte sans
+mobile). Parade : `login_attentes_appareil` (nom, ip de la page qui attend) ; dans `/auth/exchange`, si une attente
+est vivante et que l'IP du clic ≠ IP de l'attente → `{ aConfirmer: true, appareil, demande_le }` SANS consommer le
+lien ; `{ confirmer: true }` → confirmee ; `{ ici: true }` → session sur l'appareil du clic, attente `refusee`
+(la page qui attendait affiche l'alerte). Même IP (lien ouvert dans l'app mail du même téléphone) → confirmation
+directe. compte.js ?v=12 (`btnAttOui` / `btnAttIci`). `limiteIp(c, cle, max, fenetreMin)` (ai_rate, scope
+`ip:<cle>:<sha>`, IP vide = tests) : request-link 20 / 10 min, exchange 30 / min, attente 120 / min, code/verifier
+30 / min → 429 « Trop de demandes depuis votre connexion ». Tests : 1 282.
+
 **Site century21-kadima.fr (dépôt kadima-site, 12/10 nuit)** : bouton « Accès collaborateurs » du pied de page
 (`scripts/build.js`) pointe désormais sur https://studio.century21-kadima.fr/mandat/ (Benoît : « retire pas le bouton ») ; `server/server.js` : `/admin/studio` (GET/POST) redirige vers
 `STUDIO_URL` = https://studio.century21-kadima.fr/mandat/, `/api/studio-codes/*` → 410 ; laissez-passer
