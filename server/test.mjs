@@ -2588,7 +2588,12 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const pr = await callR("/crm/equipe/profil", { headers: auth, body: { user_id: orphelin.json.user.id } });
     ok(pr.status === 200 && (await db.get("SELECT prenom, user_id FROM crm_conseillers WHERE id = ?", [pr.json.id])).prenom === "Sans" && !(await callR("/crm/equipe", { headers: auth })).json.sansProfil.some((u) => u.email === "sans.profil@century21.fr"), "« Créer le profil » le rattache à la liste");
     ok((await callR("/crm/equipe", { headers: { Authorization: "Bearer " + exP.json.session } })).status === 401, "l'équipe est réservée aux administrateurs (session tombée ici : 401)");
-    for (const e of ["paul.equipe@century21.fr", "lea.importee@century21.fr", "sans.profil@century21.fr"]) {
+    // Retirer un conseiller depuis l'Équipe : profil + compte (sessions, appareils), jamais soi-même.
+    const retP = await callR("/crm/conseillers/" + paul.id, { headers: auth, method: "DELETE" });
+    ok(retP.status === 200 && retP.json.compte === true && !(await db.get("SELECT id FROM users WHERE email = 'paul.equipe@century21.fr'")) && !(await db.get("SELECT id FROM crm_conseillers WHERE id = ?", [paul.id]))
+      && (await db.get("SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?", [cr.json.user.id])).n === 0, "« Retirer » efface le profil ET le compte de Paul (sessions comprises)");
+    if (csMoi) ok((await callR("/crm/conseillers/" + csMoi.id, { headers: auth, method: "DELETE" })).status === 400, "on ne se retire pas soi-même");
+    for (const e of ["lea.importee@century21.fr", "sans.profil@century21.fr"]) {
       const u = await db.get("SELECT id FROM users WHERE email = ?", [e]); if (u) await callR("/agency/users/" + u.id, { headers: auth, method: "DELETE" });
       await db.run("DELETE FROM crm_conseillers WHERE agency_id = ? AND lower(email) = ?", [agId, e]);
     }
@@ -3661,7 +3666,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const doublon = await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "teddy", nom: "besson", fonction: "Négociateur" } });
   ok(doublon.status === 200 && doublon.json.id === teddy.json.id && doublon.json.existant, "créer « teddy besson » sans id complète le profil existant au lieu de le doubler");
   await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test" } });
-  for (const x of csImp) if (x.id !== teddy.json.id && x.nom !== "Zamora") await callR("/crm/conseillers/" + x.id, { headers: auth, method: "DELETE" });
+  for (const x of csImp) if (x.id !== teddy.json.id && x.nom !== "Zamora") await callR("/crm/conseillers/" + x.id + "?compte=0", { headers: auth, method: "DELETE" }); // profils seuls : les comptes (Carto…) servent encore
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { agence: { adresse: "20 rue François Mitterrand, Saint-Médard-en-Jalles", instagram: "https://instagram.com/century_21_kadima", facebook: "https://www.facebook.com/century21.kadima", avis: "https://g.page/r/CUA5uMo-Z_RcEB0/review" } } });
   // La fiche du parcours : client, bien, conseiller, R1 et R2 avec leurs heures.
   const pxCree = await callR("/crm/parcours", { headers: authP, body: {

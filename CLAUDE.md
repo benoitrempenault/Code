@@ -1291,6 +1291,12 @@ leroymerlin.fr refuse les robots) : logo officiel Leroy Merlin (SVG Wikimedia) +
 en Montserrat Regular, le E en trois barres vert / jaune / orange. Assets `?v=81` (les PDF des guides sont
 chargés via `asset()`, donc le ?v du script suffit).
 
+**Retirer un conseiller (12/10, soir)** : `DELETE /crm/conseillers/:id` efface le profil et ses tables satellites
+(extra, direction, pv, avis, avis_site, texte_site, photo_carre) ET le compte lié (sessions, appareils, liens,
+credentials, users_mobile, users) sauf `?compte=0` ; 400 sur son propre compte. Admin : bouton « 🗑 Retirer » dans
+la colonne Accès de L'équipe et « Supprimer » de la fiche → `retirerConseiller(c)` (confirmation : fiches,
+parcours et dossiers restent). Assets `?v=83`.
+
 **Accès, choix 5 — domaine studio.century21-kadima.fr (12/10, soir)** : DNS OVH `studio CNAME benoitrempenault.github.io.`
 (posé par Benoît), `CNAME` à la racine du dépôt ET copié dans `_site/` par pages.yml, **Custom domain** saisi dans
 Settings → Pages (déploiement Actions : le fichier CNAME seul ne suffit pas ; l'API Pages est refusée depuis la

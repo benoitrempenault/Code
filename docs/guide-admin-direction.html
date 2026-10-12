@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Studio — Mode d'emploi administrateur et direction</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    width: 210mm; min-height: 297mm; padding: 11mm 16mm;
+    font-family: "Segoe UI", system-ui, sans-serif; color: #1c1813;
+    background: #faf7f2; font-size: 9.8pt; line-height: 1.42;
+  }
+  .head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #b7a06b; padding-bottom: 4mm; margin-bottom: 5mm; }
+  h1 { font-family: Georgia, serif; font-weight: 500; font-size: 18pt; }
+  h1 em { font-style: normal; color: #9a7b3f; }
+  .tag { font-size: 8.5pt; letter-spacing: .18em; text-transform: uppercase; color: #8b8578; }
+  .intro { background: #f1e9da; border-radius: 4mm; padding: 3mm 4mm; margin-bottom: 4mm; font-size: 9.5pt; }
+  h2 { font-family: Georgia, serif; font-size: 13pt; color: #9a7b3f; margin: 4mm 0 2mm; }
+  .step { display: flex; gap: 4mm; margin-bottom: 2mm; }
+  .num {
+    flex: 0 0 auto; width: 7mm; height: 7mm; border-radius: 50%;
+    background: #b7a06b; color: #fff; font-weight: 700; font-size: 10.5pt;
+    display: flex; align-items: center; justify-content: center; margin-top: .5mm;
+  }
+  .url {
+    display: inline-block; background: #1c1813; color: #f0e7d8; border-radius: 2mm;
+    padding: 1mm 3mm; font-family: Consolas, monospace; font-size: 9pt; margin: 1mm 0;
+  }
+  b { font-weight: 600; }
+  .astuce { border-left: 3px solid #b7a06b; padding: 1.5mm 0 1.5mm 4mm; color: #55503f; font-size: 9.5pt; margin: 2mm 0; }
+  .foot { margin-top: 5mm; border-top: 1px solid #d8cfc0; padding-top: 4mm; font-size: 9pt; color: #8b8578; }
+  ul { margin: 1mm 0 0 5mm; }
+  li { margin-bottom: 1mm; }
+  body { min-height: 0; font-size: 9.2pt; padding: 8mm 13mm; } h2 { margin: 3mm 0 1.5mm; break-after: avoid; page-break-after: avoid; } ul, .step, .astuce { break-inside: avoid; page-break-inside: avoid; } .intro { margin-bottom: 3mm; }
+</style>
+</head>
+<body>
+
+<div class="head"><h1>Studio Kadima — <em>administrateur &amp; direction</em></h1><span class="tag">Mode d'emploi · octobre 2026</span></div>
+<div class="intro">Depuis le 12 octobre : plus de compte partagé ni de mot de passe. Chaque personne entre avec son e-mail (lien puis code SMS sur un nouvel appareil), et toute l'équipe se gère dans un seul endroit : <b>Administration → Réglages → L'équipe</b>, sur <span class="url">studio.century21-kadima.fr/administration/</span></div>
+
+<h2>Les deux rôles</h2>
+<ul>
+  <li><b>Direction</b> (case « Direction » sur le profil) : voit <b>tous les parcours R1/R2</b> de l'agence, pas seulement les siens. Rien d'autre ne change.</li>
+  <li><b>Administration</b> (case « Administration ») : ouvre la page Administration — contacts, imports, anniversaires, acheteurs, estimations, offres, bilans, réglages, et l'équipe. À réserver à quelques personnes.</li>
+</ul>
+
+<h2>L'équipe : une ligne par personne</h2>
+<p>Chaque ligne montre le profil (photo, fonction, téléphone, e-mail) et, dans la colonne <b>Accès</b>, l'état du compte avec trois cases :</p>
+<ul>
+  <li><b>Actif</b> : la personne entre dans Studio et apparaît dans les listes. <b>Décochez-la au départ d'un collaborateur</b> : ses sessions sont fermées immédiatement et plus aucun lien de connexion ne lui part.</li>
+  <li><b>Direction</b> et <b>Administration</b> : voir ci-dessus. Vous ne pouvez pas retirer votre propre case Administration.</li>
+</ul>
+<p>Sous les cases : « 2 appareils connectés · 📱 06 ** ** ** 21 » dit si la personne s'est connectée et sur quel mobile part son code, avec les boutons <b>✉ Lien</b>, <b>📱 Mobile</b>, <b>⏏ Déconnecter</b> et <b>🗑 Retirer</b>.</p>
+<div class="step"><div class="num">1</div><div><b>➕ Créer l'accès</b> : crée le compte de la personne et lui envoie son lien de bienvenue (valable 7 jours). Il faut un e-mail sur son profil.</div></div>
+<div class="step"><div class="num">2</div><div><b>✉ Lien</b> : lui renvoie un lien de connexion (lien perdu, nouvel appareil, boîte mal reçue).</div></div>
+<div class="step"><div class="num">3</div><div><b>🗑 Retirer</b> : départ définitif. Le profil disparaît des listes et des guides, le compte et ses sessions sont supprimés. Ses fiches, parcours et dossiers restent dans l'agence. Pour un départ temporaire, préférez décocher <b>Actif</b>.</div></div>
+<div class="step"><div class="num">4</div><div><b>⟳ Importer depuis le site</b> : reprend les conseillers de century21-kadima.fr (photo, fonction, téléphone) et <b>crée tout seul le compte</b> de ceux qui ont une adresse century21.fr. Les autres domaines se créent avec « Créer l'accès ».</div></div>
+<div class="astuce">La ligne « 25 / 30 sièges utilisés » sous la liste : quand il n'y a plus de siège, la création s'arrête. Les sièges se relèvent dans la console Studio (<span class="url">studio.century21-kadima.fr/admin.html</span>, clé ADMIN_KEY), ligne CENTURY 21 Kadima.</div>
+
+<h2>Le code SMS et le mobile</h2>
+<ul>
+  <li>Le code part sur le mobile du profil conseiller (téléphone en 06/07). Sans mobile, le lien e-mail suffit.</li>
+  <li>Téléphone changé : la personne saisit son nouveau numéro sur Mon compte → Mon mobile, ou vous le posez pour elle avec le bouton <b>📱 Mobile</b> de sa ligne ; il est vérifié par le prochain code.</li>
+  <li>Code non reçu : la personne clique <b>Recevoir le code par e-mail</b> sur l'écran du code.</li>
+</ul>
+
+<h2>Surveiller</h2>
+<ul>
+  <li><b>📜 Journal des connexions</b> (bouton au-dessus de la liste) : qui s'est connecté, quand, depuis quel appareil et quelle adresse IP ; codes refusés ; appareils fermés.</li>
+  <li>Chaque personne reçoit un e-mail « Nouvelle connexion sur votre compte Studio » à chaque ouverture de session, avec le lien pour fermer un appareil inconnu.</li>
+  <li>Vous recevez un e-mail si les envois automatiques (vœux, relances, bilans) atteignent le plafond du jour ou sont refusés par Brevo.</li>
+</ul>
+
+<h2>Cas pratiques</h2>
+<ul>
+  <li><b>Nouveau conseiller</b> : ajoutez-le sur le site century21-kadima.fr, puis « Importer depuis le site » ; sinon « + Ajouter un conseiller » avec son e-mail, puis « Créer l'accès ». Envoyez-lui le mode d'emploi « se connecter ».</li>
+  <li><b>Départ</b> : décochez Actif le jour même, puis « Retirer » quand le dossier est clos.</li>
+  <li><b>Téléphone perdu</b> : bouton <b>⏏ Déconnecter</b> de sa ligne (toutes ses sessions tombent, le compte reste), puis <b>📱 Mobile</b> si le numéro change ; la personne se reconnecte avec un nouveau lien et un code.</li>
+  <li><b>Donner la direction à quelqu'un</b> : cochez Direction ; effet immédiat, sans reconnexion.</li>
+</ul>
+<div class="foot">Adresses : Administration <b>studio.century21-kadima.fr/administration/</b> · Mon compte <b>studio.century21-kadima.fr/mandat-pro/compte.html</b> · console Studio <b>studio.century21-kadima.fr/admin.html</b> (clé ADMIN_KEY, à garder dans votre gestionnaire de mots de passe).</div>
+</body>
+</html>

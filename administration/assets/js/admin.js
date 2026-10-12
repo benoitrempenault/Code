@@ -2517,8 +2517,11 @@
         kase("administration", k && k.role === "admin", "Administration", k ? "Ouvre la page Administration (contacts, imports, réglages)." : "Créez d'abord l'accès de ce conseiller.", !k) +
         '<div class="petit" style="margin-top:4px;">' + (k
           ? (k.appareils ? k.appareils + " appareil" + (k.appareils > 1 ? "s" : "") + " connecté" + (k.appareils > 1 ? "s" : "") : "jamais connecté") + (k.mobile ? " · 📱 " + escH(k.mobile) + (k.mobile_verifie ? "" : " (à vérifier)") : " · sans mobile, lien seul") +
-            ' <button class="btn" data-lien="' + c.id + '" ' + petit + ' title="Lui renvoyer un lien de connexion (valable 7 jours)">✉ Lien</button>'
-          : '<button class="btn btn-or" data-creer="' + c.id + '" ' + petit + ' title="Créer son compte Studio et lui envoyer son lien de connexion">➕ Créer l\'accès</button>') + "</div></div>";
+            ' <button class="btn" data-lien="' + c.id + '" ' + petit + ' title="Lui renvoyer un lien de connexion (valable 7 jours)">✉ Lien</button>' +
+            ' <button class="btn" data-mobile="' + c.id + '" data-user="' + escH(k.id) + '" ' + petit + ' title="Poser ou changer le mobile qui reçoit son code de connexion">📱 Mobile</button>' +
+            ' <button class="btn" data-deco="' + c.id + '" data-user="' + escH(k.id) + '" ' + petit + ' title="Fermer toutes ses sessions (téléphone perdu, poste partagé) — son compte reste">⏏ Déconnecter</button>'
+          : '<button class="btn btn-or" data-creer="' + c.id + '" ' + petit + ' title="Créer son compte Studio et lui envoyer son lien de connexion">➕ Créer l\'accès</button>') +
+        ' <button class="btn btn-danger" data-retirer="' + c.id + '" ' + petit + ' title="Retirer ce conseiller : profil et accès Studio (départ)">🗑 Retirer</button></div></div>';
     };
     const sansProfil = equipe && equipe.sansProfil.length
       ? '<p class="petit" style="margin-top:10px;">Comptes sans profil conseiller : ' + equipe.sansProfil.map((u) => escH((u.name ? u.name + " · " : "") + u.email) + (u.role === "admin" ? " (admin)" : "") +
@@ -2557,6 +2560,23 @@
       try { const r = await api("/crm/equipe/" + b.dataset.lien + "/lien", { json: {} }); toast("Lien de connexion renvoyé à " + r.email + " (valable 7 jours)."); }
       catch (e) { toast(e.message, true); }
       b.disabled = false;
+    }));
+    zone.querySelectorAll("button[data-mobile]").forEach((b) => b.addEventListener("click", async () => {
+      const cs = conseillers.find((x) => x.id === b.dataset.mobile);
+      const mobile = window.prompt("Mobile de " + (cs ? [cs.prenom, cs.nom].filter(Boolean).join(" ") : "ce conseiller") + " pour le code de connexion (06 ou 07) — vide pour retirer :", "");
+      if (mobile === null) return;
+      try { await api("/agency/users/" + b.dataset.user + "/mobile", { method: "PUT", json: { mobile: mobile.trim() } }); toast(mobile.trim() ? "Mobile enregistré — vérifié par le prochain code." : "Mobile retiré : le lien e-mail suffira."); chargerConseillers(); }
+      catch (e) { toast(e.message, true); }
+    }));
+    zone.querySelectorAll("button[data-deco]").forEach((b) => b.addEventListener("click", async () => {
+      const cs = conseillers.find((x) => x.id === b.dataset.deco);
+      if (!confirm("Fermer toutes les sessions de " + (cs ? [cs.prenom, cs.nom].filter(Boolean).join(" ") : "ce conseiller") + " ? Son compte reste, il se reconnectera par e-mail (et code).")) return;
+      try { const r = await api("/agency/users/" + b.dataset.user + "/deconnecter", { json: {} }); toast((r.revoquees || 0) + " session(s) fermée(s)."); chargerConseillers(); }
+      catch (e) { toast(e.message, true); }
+    }));
+    zone.querySelectorAll("button[data-retirer]").forEach((b) => b.addEventListener("click", async () => {
+      const cs = conseillers.find((x) => x.id === b.dataset.retirer);
+      if (cs && await retirerConseiller(cs)) chargerConseillers();
     }));
     zone.querySelectorAll("button[data-profil]").forEach((b) => b.addEventListener("click", async () => {
       b.disabled = true;
@@ -2718,11 +2738,14 @@
       catch (e) { toast(e.message, true); }
     });
     const sup = $("cs-supprimer");
-    if (sup) sup.addEventListener("click", async () => {
-      if (!confirm("Supprimer ce profil conseiller ?")) return;
-      try { await api("/crm/conseillers/" + c.id, { method: "DELETE" }); toast("Profil supprimé"); fermerModale(); chargerConseillers(); }
-      catch (e) { toast(e.message, true); }
-    });
+    if (sup) sup.addEventListener("click", async () => { if (await retirerConseiller(c)) { fermerModale(); chargerConseillers(); } });
+  }
+  // Retirer un conseiller (départ) : profil + accès Studio, après confirmation.
+  async function retirerConseiller(c) {
+    const nom = [c.prenom, c.nom].filter(Boolean).join(" ") || "ce conseiller";
+    if (!confirm("Retirer " + nom + " ?\n\nSon profil disparaît des listes et des guides, et son accès Studio est fermé (compte, sessions, appareils). Ses fiches, parcours et dossiers restent dans l'agence.")) return false;
+    try { const r = await api("/crm/conseillers/" + c.id, { method: "DELETE" }); toast(nom + " retiré" + (r.compte ? ", accès fermé" : "") + "."); return true; }
+    catch (e) { toast(e.message, true); return false; }
   }
 
   /* ---------------------------- Parcours R1/R2 ----------------------------- */

@@ -541,10 +541,29 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       [nid, ctx.agency.id, u.id, v.prenom, v.nom, u.email, now(), now()]);
     return c.json({ ok: true, id: nid });
   });
+  // Retirer un conseiller (départ) : son profil et tout ce qui s'y rattache, et —
+  // sauf `?compte=0` — son compte Studio (sessions, liens, appareils). Jamais
+  // son propre compte. Ses fiches, parcours et journaux restent (mémoire de l'agence).
   app.delete("/crm/conseillers/:id", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
-    await db.run("DELETE FROM crm_conseillers WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
-    return c.json({ ok: true });
+    const id = c.req.param("id");
+    const cs = await db.get("SELECT id, user_id, email, prenom, nom FROM crm_conseillers WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);
+    if (!cs) return err(c, 404, "Conseiller introuvable.");
+    const avecCompte = c.req.query("compte") !== "0";
+    const compte = avecCompte ? ((cs.user_id && await db.get("SELECT id FROM users WHERE id = ? AND agency_id = ?", [cs.user_id, ctx.agency.id]))
+      || (cs.email && await db.get("SELECT id FROM users WHERE lower(email) = ? AND agency_id = ?", [String(cs.email).toLowerCase(), ctx.agency.id])) || null) : null;
+    if (compte && compte.id === ctx.user.id) return err(c, 400, "Vous ne pouvez pas retirer votre propre compte.");
+    for (const t of ["crm_conseillers_extra", "crm_conseillers_direction", "crm_conseillers_pv", "crm_conseillers_avis", "crm_conseillers_avis_site", "crm_conseillers_texte_site", "crm_conseillers_photo_carre"]) {
+      await db.run(`DELETE FROM ${t} WHERE id = ?`, [id]);
+    }
+    await db.run("DELETE FROM crm_conseillers WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);
+    let compteRetire = false;
+    if (compte) {
+      for (const t of ["sessions_appareils", "sessions", "login_tokens", "credentials", "users_mobile"]) await db.run(`DELETE FROM ${t} WHERE user_id = ?`, [compte.id]);
+      await db.run("DELETE FROM users WHERE id = ? AND agency_id = ?", [compte.id, ctx.agency.id]);
+      compteRetire = true;
+    }
+    return c.json({ ok: true, compte: compteRetire });
   });
   // La photo, publique (elle s'affiche dans les e-mails des clients) — rien
   // d'autre que l'image ; un id inconnu répond 404.
