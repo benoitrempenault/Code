@@ -1291,8 +1291,8 @@ leroymerlin.fr refuse les robots) : logo officiel Leroy Merlin (SVG Wikimedia) +
 en Montserrat Regular, le E en trois barres vert / jaune / orange. Assets `?v=81` (les PDF des guides sont
 chargés via `asset()`, donc le ?v du script suffit).
 
-**Site century21-kadima.fr (dépôt kadima-site, 12/10 nuit)** : bouton « Accès collaborateurs » retiré du pied de
-page (`scripts/build.js`) ; `server/server.js` : `/admin/studio` (GET/POST) redirige vers
+**Site century21-kadima.fr (dépôt kadima-site, 12/10 nuit)** : bouton « Accès collaborateurs » du pied de page
+(`scripts/build.js`) pointe désormais sur https://studio.century21-kadima.fr/mandat/ (Benoît : « retire pas le bouton ») ; `server/server.js` : `/admin/studio` (GET/POST) redirige vers
 `STUDIO_URL` = https://studio.century21-kadima.fr/mandat/, `/api/studio-codes/*` → 410 ; laissez-passer
 `#acces=` et codes collaborateurs supprimés. Déploiement Render à chaque push sur main. Modes d'emploi :
 `docs/connexion-conseillers.html` (1 page, conseillers) et `docs/guide-admin-direction.html` (admin / direction),
