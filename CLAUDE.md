@@ -1459,7 +1459,12 @@ conseillers sans e-mail). **Calibri 11 (05/10)** : tous les e-mails de bilans.js
 récapitulatif, rappel) passent par `mailBilans` = `enCalibri(wrapEmail(…))` : toute
 `font-family` → `POLICE_BILANS` (Calibri, Carlito, Arial), corps 11 pt, titre 20 pt ; les
 autres e-mails de Studio gardent le gabarit Georgia. Calibri n'existe que sous Windows /
-Outlook (iPhone, Mac, Android → Arial).
+Outlook (iPhone, Mac, Android → Arial). **Compteur reparti de zéro (12/10)** : le 05/10 Benoît a changé de compte
+Leboncoin ; les compteurs cumulés du nouveau compte étaient plus bas que le relevé du 04/10
+(ancien compte) → écart négatif ramené à 0 → « Leboncoin : 0 consultation, 0 contact » sur
+TOUS les bilans du 12/10. `statsPortailsSemaine` (mode cumul) : une baisse d'un compteur =
+remise à zéro → l'écart part de la première lecture d'après la baisse ; sans lecture suivante,
+la valeur est `null` (le portail sort du bilan), jamais un faux 0.
 **Réseaux (Facebook, Instagram)** : `server/src/meta.js`, API OFFICIELLE Meta (Graph,
 `META_GRAPH_BASE` défaut v23.0, surchargeable en test). Connexion admin `POST /crm/meta/jeton`
 {jeton, appId, appSecret} : jeton court échangé (`fb_exchange_token`) → `/me/accounts` →

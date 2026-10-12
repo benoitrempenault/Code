@@ -481,7 +481,18 @@ export async function statsPortailsSemaine(db, agencyId, semaine) {
       // le premier relevé de la semaine sert de point de départ.
       const precedent = rel.filter((x) => x.jour < semaine).pop() || (dans.length > 1 ? dans[0] : null);
       if (mode === "cumul" && precedent) {
-        const d = (c) => (dernier[c] != null && precedent[c] != null ? Math.max(0, dernier[c] - precedent[c]) : null);
+        // Un compteur cumulé ne baisse jamais : s'il baisse, il est REPARTI de
+        // zéro (changement de compte sur le portail, annonce republiée). L'écart
+        // se compte alors depuis la première lecture d'après la remise à zéro ;
+        // sans lecture suivante, la semaine est inconnue (null) — jamais un faux 0.
+        const suite = [precedent, ...dans.filter((x) => x !== precedent)];
+        const d = (c) => {
+          const v = suite.filter((x) => x[c] != null);
+          if (v.length < 2 || v[v.length - 1] !== dernier) return null;
+          let base = 0;
+          for (let i = 1; i < v.length; i++) if (v[i][c] < v[i - 1][c]) base = i;
+          return base === v.length - 1 ? null : dernier[c] - v[base][c];
+        };
         s = { vues: d("vues"), contacts: d("contacts"), favoris: d("favoris"), base: "semaine" };
       } else {
         s = { vues: dernier.vues, contacts: dernier.contacts, favoris: dernier.favoris, base: mode === "cumul" ? "cumul" : "periode" };
