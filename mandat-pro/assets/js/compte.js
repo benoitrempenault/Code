@@ -52,7 +52,7 @@
   }
 
   function show(card) {
-    ["cardOff", "cardLogin", "cardMe"].forEach(function (id) { $("#" + id).hidden = id !== card; });
+    ["cardOff", "cardLogin", "cardCode", "cardMe"].forEach(function (id) { $("#" + id).hidden = id !== card; });
     $("#cardTeam").hidden = true; // géré à part (affiché sous le profil pour les admins)
   }
 
@@ -100,6 +100,7 @@
     $("#btnGoTools").href = d.agency.id === "ag_8csricwct9" ? "../mandat/" : "index.html";
     show("cardMe");
     meUserId = d.user.id;
+    chargerAppareils();
     if (d.user.role === "admin") { $("#cardTeam").hidden = false; loadTeam(); }
   }
 
@@ -135,12 +136,12 @@
       } else {
         const wrap = document.createElement("span");
         wrap.style.display = "flex"; wrap.style.gap = "6px";
-        const pw = document.createElement("button");
-        pw.className = "btn"; pw.type = "button"; pw.textContent = "Mot de passe";
-        pw.style.padding = "5px 12px"; pw.style.fontSize = "12.5px";
-        pw.title = "Définir ou réinitialiser le mot de passe de ce conseiller";
-        pw.addEventListener("click", function () { setConseillerPassword(u); });
-        wrap.appendChild(pw);
+        const mb = document.createElement("button");
+        mb.className = "btn"; mb.type = "button"; mb.textContent = "Mobile";
+        mb.style.padding = "5px 12px"; mb.style.fontSize = "12.5px";
+        mb.title = "Poser ou changer le mobile qui reçoit le code de connexion de ce conseiller (téléphone changé)";
+        mb.addEventListener("click", function () { setConseillerMobile(u); });
+        wrap.appendChild(mb);
         const adm = document.createElement("button");
         adm.className = "btn"; adm.type = "button";
         adm.textContent = u.role === "admin" ? "Fermer l'Administration" : "Ouvrir l'Administration";
@@ -184,19 +185,15 @@
       msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Impossible d'ajouter ce conseiller.";
     }
   }
-  async function setConseillerPassword(u) {
-    const pwd = window.prompt("Nouveau mot de passe pour " + (u.name || u.email) + " (8 caractères minimum) :", "");
-    if (pwd == null) return;
-    const msg = $("#teamMsg");
-    if (pwd.length < 8) { msg.className = "msg is-error"; msg.textContent = "Mot de passe trop court (8 caractères minimum)."; return; }
+  async function setConseillerMobile(u) {
     const a = getAccount();
-    const r = await api("/agency/users/" + u.id + "/password", { auth: a.session, body: { password: pwd } }).catch(function () { return { status: 0 }; });
-    if (r.status === 200) { msg.className = "msg is-ok"; msg.textContent = "Mot de passe défini pour " + (u.name || u.email) + " — communiquez-le-lui de vive voix."; }
-    else { msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Impossible de définir ce mot de passe."; }
+    if (!a || !a.session) return;
+    const mobile = window.prompt("Mobile de " + (u.name || u.email) + " pour le code de connexion (06 ou 07) — vide pour retirer :", "");
+    if (mobile === null) return;
+    const r = await api("/agency/users/" + u.id + "/mobile", { method: "PUT", auth: a.session, body: { mobile: mobile.trim() } }).catch(function () { return { status: 0 }; });
+    $("#teamMsg").className = r.status === 200 ? "msg is-ok" : "msg is-error";
+    $("#teamMsg").textContent = r.status === 200 ? (mobile.trim() ? "Mobile enregistré — il sera vérifié par le prochain code." : "Mobile retiré.") : ((r.data && r.data.error) || "Enregistrement impossible — réessayez.");
   }
-
-  // Ouvrir ou fermer la page Administration : le rôle passe admin/member.
-  // Effet immédiat — le serveur relit le rôle à chaque requête.
   async function toggleAdministration(u) {
     const versAdmin = u.role !== "admin";
     if (!window.confirm(versAdmin
@@ -238,6 +235,13 @@
     const r = await api("/auth/exchange", { body: { token: token } }).catch(function () { return { status: 0 }; });
     try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { }
     if (r.status === 200 && r.data && r.data.session) {
+      // Nouvel appareil : un code (SMS, ou e-mail) avant d'utiliser la session.
+      if (r.data.verification && r.data.verification.requis) {
+        const att = { session: r.data.session, user: r.data.user, agency: r.data.agency, verification: r.data.verification };
+        try { sessionStorage.setItem(SS_ATTENTE, JSON.stringify(att)); } catch (e) { }
+        showCode(att);
+        return;
+      }
       setAccount({ session: r.data.session, user: r.data.user, agency: r.data.agency });
       if (goRetour()) return; // venu d'une autre app (ex. Suivi) : on y retourne
       await paintMe();
@@ -255,7 +259,125 @@
     }
   }
 
+  /* --------------- Code de connexion sur un nouvel appareil --------------- */
+  const SS_ATTENTE = "studio-compte-attente";
+  function attenteLue() { try { return JSON.parse(sessionStorage.getItem(SS_ATTENTE) || "null"); } catch (e) { return null; } }
+  function attenteVidee() { try { sessionStorage.removeItem(SS_ATTENTE); } catch (e) { } }
+  function texteEnvoi(v) {
+    if (!v) return "Un code vient de vous être envoyé.";
+    return v.canal === "email"
+      ? "Un code vient de vous être envoyé par e-mail à " + (v.email || "votre adresse") + "."
+      : "Un code vient de vous être envoyé par SMS au " + (v.mobile || "votre mobile") + ".";
+  }
+  function showCode(att) {
+    show("cardCode");
+    $("#codeHint").textContent = texteEnvoi(att.verification);
+    $("#codeInput").value = "";
+    const msg = $("#codeMsg"); msg.className = "msg"; msg.textContent = "";
+    if (att.verification && att.verification.dev_code) { // mode développement : le code est dans la réponse
+      msg.textContent = "(mode dev : code " + att.verification.dev_code + ")";
+      $("#codeInput").value = att.verification.dev_code;
+    }
+    setTimeout(function () { try { $("#codeInput").focus(); } catch (e) { } }, 50);
+  }
+  async function validerCode() {
+    const att = attenteLue();
+    if (!att || !att.session) { show("cardLogin"); return; }
+    const code = ($("#codeInput").value || "").replace(/\D/g, "");
+    const msg = $("#codeMsg");
+    if (code.length !== 6) { msg.className = "msg is-error"; msg.textContent = "Le code a 6 chiffres."; return; }
+    $("#btnCodeOk").disabled = true;
+    msg.className = "msg"; msg.textContent = "Vérification…";
+    const r = await api("/auth/code/verifier", { auth: att.session, body: { code: code } }).catch(function () { return { status: 0 }; });
+    $("#btnCodeOk").disabled = false;
+    if (r.status === 200 && r.data && r.data.ok) {
+      attenteVidee();
+      setAccount({ session: att.session, user: r.data.user || att.user, agency: r.data.agency || att.agency });
+      if (goRetour()) return;
+      await paintMe();
+      return;
+    }
+    if (r.status === 401 && r.data && /Session invalide/.test(r.data.error || "")) { attenteVidee(); show("cardLogin"); $("#loginMsg").className = "msg is-error"; $("#loginMsg").textContent = "Session expirée — redemandez un lien."; return; }
+    msg.className = "msg is-error";
+    msg.textContent = (r.data && r.data.error) || "Serveur injoignable — réessayez.";
+  }
+  async function renvoyerCode(canal) {
+    const att = attenteLue();
+    if (!att || !att.session) { show("cardLogin"); return; }
+    const msg = $("#codeMsg"); msg.className = "msg"; msg.textContent = "Envoi…";
+    const r = await api("/auth/code/envoyer", { auth: att.session, body: canal ? { canal: canal } : {} }).catch(function () { return { status: 0 }; });
+    if (r.status === 200 && r.data && r.data.ok) {
+      att.verification = Object.assign({}, att.verification, r.data);
+      try { sessionStorage.setItem(SS_ATTENTE, JSON.stringify(att)); } catch (e) { }
+      $("#codeHint").textContent = texteEnvoi(att.verification);
+      msg.className = "msg is-ok"; msg.textContent = "Nouveau code envoyé.";
+      if (r.data.dev_code) { msg.textContent += " (mode dev : " + r.data.dev_code + ")"; $("#codeInput").value = r.data.dev_code; }
+    } else {
+      msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Serveur injoignable — réessayez.";
+    }
+  }
+  async function annulerCode() {
+    const att = attenteLue();
+    if (att && att.session) { await api("/auth/logout", { method: "POST", auth: att.session, body: {} }).catch(function () { }); }
+    attenteVidee();
+    show("cardLogin");
+    $("#loginMsg").className = "msg"; $("#loginMsg").textContent = "";
+  }
+
+  /* ------------------------------ Mes appareils ---------------------------- */
+  const quandFr = function (ts) { try { return new Date(ts * 1000).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" }); } catch (e) { return ""; } };
+  async function chargerAppareils() {
+    const a = getAccount();
+    if (!a || !a.session) return;
+    const r = await api("/me/appareils", { auth: a.session }).catch(function () { return { status: 0 }; });
+    const list = $("#appareilsList"); list.textContent = "";
+    if (r.status !== 200 || !r.data) { $("#appareilsMsg").className = "msg is-error"; $("#appareilsMsg").textContent = "Liste indisponible — réessayez."; return; }
+    $("#appareilsMsg").textContent = "";
+    (r.data.appareils || []).forEach(function (ap) {
+      const row = document.createElement("div"); row.className = "row";
+      const left = document.createElement("span");
+      left.textContent = ap.nom + (ap.courant ? " — cet appareil" : "") + " · ouvert le " + quandFr(ap.ouvert_le) + (ap.ip ? " · " + ap.ip : "");
+      row.appendChild(left);
+      if (ap.courant) { const b = document.createElement("b"); b.textContent = "vous"; row.appendChild(b); }
+      else {
+        const btn = document.createElement("button"); btn.className = "btn"; btn.type = "button"; btn.textContent = "Fermer";
+        btn.style.padding = "5px 12px"; btn.style.fontSize = "12.5px"; btn.title = "Fermer la session sur cet appareil";
+        btn.addEventListener("click", async function () {
+          btn.disabled = true;
+          await api("/me/appareils/" + encodeURIComponent(ap.id), { method: "DELETE", auth: a.session }).catch(function () { });
+          chargerAppareils();
+        });
+        row.appendChild(btn);
+      }
+      list.appendChild(row);
+    });
+    const m = r.data.mobile;
+    $("#mobileHint").textContent = m
+      ? "Code SMS envoyé au " + m.numero + (m.verifie ? " (vérifié)" : " (sera vérifié par le prochain code)") + " sur chaque nouvel appareil. Pour changer de numéro, saisissez-le ci-dessous ; vide = plus de code, le lien e-mail suffit."
+      : "Aucun mobile : la connexion se fait par le lien e-mail seul. Saisissez votre mobile pour recevoir un code SMS sur chaque nouvel appareil.";
+  }
+  async function enregistrerMobile() {
+    const a = getAccount();
+    if (!a || !a.session) return;
+    const mobile = ($("#mobileInput").value || "").trim();
+    const msg = $("#mobileMsg");
+    if (mobile && !/^(\+33|0033|0)[67]/.test(mobile.replace(/[\s.\-()]/g, ""))) { msg.className = "msg is-error"; msg.textContent = "Numéro de mobile français attendu (06 ou 07)."; return; }
+    if (!mobile && !window.confirm("Sans mobile, plus de code : le lien e-mail suffira sur un nouvel appareil. Continuer ?")) return;
+    $("#btnMobile").disabled = true;
+    const r = await api("/me/mobile", { method: "PUT", auth: a.session, body: { mobile: mobile } }).catch(function () { return { status: 0 }; });
+    $("#btnMobile").disabled = false;
+    if (r.status === 200) { msg.className = "msg is-ok"; msg.textContent = mobile ? "Mobile enregistré ✓ — il sera vérifié par le prochain code." : "Mobile retiré."; $("#mobileInput").value = ""; chargerAppareils(); }
+    else { msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Enregistrement impossible — réessayez."; }
+  }
+
   function wire() {
+    $("#btnCodeOk").addEventListener("click", validerCode);
+    $("#codeInput").addEventListener("keydown", function (e) { if (e.key === "Enter") validerCode(); });
+    $("#btnCodeRenvoyer").addEventListener("click", function () { renvoyerCode(""); });
+    $("#btnCodeEmail").addEventListener("click", function () { renvoyerCode("email"); });
+    $("#btnCodeAnnuler").addEventListener("click", annulerCode);
+    $("#btnMobile").addEventListener("click", enregistrerMobile);
+    $("#mobileInput").addEventListener("keydown", function (e) { if (e.key === "Enter") enregistrerMobile(); });
     $("#btnSend").addEventListener("click", async function () {
       const email = ($("#email").value || "").trim();
       const msg = $("#loginMsg");
@@ -278,53 +400,8 @@
         msg.textContent = (r.data && r.data.error) || "Serveur injoignable — réessayez.";
       }
     });
-    $("#email").addEventListener("keydown", function (e) {
-      if (e.key !== "Enter") return;
-      if ($("#pw").value) $("#btnPwLogin").click(); else $("#pw").focus();
-    });
+    $("#email").addEventListener("keydown", function (e) { if (e.key === "Enter") $("#btnSend").click(); });
 
-    // Connexion par mot de passe (la session obtenue est identique à celle
-    // du lien magique — et le ?retour=… fonctionne pareil).
-    $("#btnPwLogin").addEventListener("click", async function () {
-      const email = ($("#email").value || "").trim();
-      const pwd = $("#pw").value || "";
-      const msg = $("#loginMsg");
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { msg.className = "msg is-error"; msg.textContent = "Adresse e-mail invalide."; return; }
-      if (!pwd) { msg.className = "msg is-error"; msg.textContent = "Saisissez votre mot de passe (ou demandez un lien ci-dessous)."; return; }
-      this.disabled = true;
-      msg.className = "msg"; msg.textContent = "Connexion…";
-      const r = await api("/auth/password-login", { body: { email: email, password: pwd } }).catch(function () { return { status: 0 }; });
-      this.disabled = false;
-      if (r.status === 200 && r.data && r.data.session) {
-        setAccount({ session: r.data.session, user: r.data.user, agency: r.data.agency });
-        $("#pw").value = "";
-        if (goRetour()) return;
-        await paintMe();
-      } else {
-        msg.className = "msg is-error";
-        msg.textContent = (r.data && r.data.error) || "Serveur injoignable — réessayez.";
-      }
-    });
-    $("#pw").addEventListener("keydown", function (e) { if (e.key === "Enter") $("#btnPwLogin").click(); });
-
-    // Définir / changer SON mot de passe (connecté).
-    $("#btnSetPw").addEventListener("click", async function () {
-      const p1 = $("#pwNew").value || "", p2 = $("#pwNew2").value || "";
-      const msg = $("#pwMsg");
-      if (p1.length < 8) { msg.className = "msg is-error"; msg.textContent = "8 caractères minimum."; return; }
-      if (p1 !== p2) { msg.className = "msg is-error"; msg.textContent = "Les deux saisies ne correspondent pas."; return; }
-      const a = getAccount();
-      if (!a || !a.session) return;
-      this.disabled = true;
-      const r = await api("/auth/set-password", { auth: a.session, body: { password: p1 } }).catch(function () { return { status: 0 }; });
-      this.disabled = false;
-      if (r.status === 200) {
-        $("#pwNew").value = ""; $("#pwNew2").value = "";
-        msg.className = "msg is-ok"; msg.textContent = "Mot de passe enregistré ✓ — vous pouvez maintenant vous connecter avec.";
-      } else {
-        msg.className = "msg is-error"; msg.textContent = (r.data && r.data.error) || "Enregistrement impossible — réessayez.";
-      }
-    });
     // iPhone : l'app « écran d'accueil » a sa propre session — le lien cliqué
     // s'ouvre dans Safari, donc on accepte aussi le lien collé directement ici.
     $("#linkPaste").addEventListener("input", function () {
@@ -388,6 +465,9 @@
     // le lien peut arriver alors que la page est déjà ouverte (pas de rechargement)
     window.addEventListener("hashchange", consumeHashToken);
     if (consumeHashToken()) return;
+    // Un code est attendu sur cet appareil (page rechargée pendant la saisie).
+    const att = attenteLue();
+    if (att && att.session && !(getAccount() || {}).session) { showCode(att); return; }
     // Arrivée depuis le bandeau « Se déconnecter » d'une autre app : la
     // session est déjà effacée, on accueille le collaborateur suivant.
     if (new URLSearchParams(location.search).get("deconnecte")) {

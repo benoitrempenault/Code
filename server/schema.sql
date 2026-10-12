@@ -1210,3 +1210,41 @@ CREATE TABLE IF NOT EXISTS crm_pv_objets (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_crm_pv_objets_ag ON crm_pv_objets(agency_id, pv);
+
+-- Appareils (12/10/2026) : le contexte de chaque session (nom déduit du navigateur,
+-- IP) et le second facteur : un code SMS (Brevo) ou e-mail à valider sur chaque
+-- nouvel appareil quand le compte a un mobile. verifie = 0 → session inutilisable
+-- tant que le code n'est pas validé.
+CREATE TABLE IF NOT EXISTS sessions_appareils (
+  token_hash  TEXT PRIMARY KEY,               -- sessions.token_hash
+  user_id     TEXT NOT NULL,
+  nom         TEXT NOT NULL DEFAULT '',       -- « Windows · Chrome », « iPhone · Safari »
+  ua          TEXT NOT NULL DEFAULT '',
+  ip          TEXT NOT NULL DEFAULT '',
+  verifie     INTEGER NOT NULL DEFAULT 1,
+  canal       TEXT NOT NULL DEFAULT '',       -- sms | email (dernier code envoyé)
+  code_hash   TEXT NOT NULL DEFAULT '',
+  code_expire INTEGER NOT NULL DEFAULT 0,
+  code_essais INTEGER NOT NULL DEFAULT 0,
+  code_envois INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_appareils_user ON sessions_appareils(user_id);
+-- Mobile du compte pour le code de connexion (+33…) ; vide = pas de second facteur.
+CREATE TABLE IF NOT EXISTS users_mobile (
+  user_id    TEXT PRIMARY KEY,
+  mobile     TEXT NOT NULL DEFAULT '',
+  verifie_le INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
+-- Journal des connexions (lu par l'administrateur de l'agence).
+CREATE TABLE IF NOT EXISTS connexions_journal (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  agency_id  TEXT NOT NULL,
+  user_id    TEXT NOT NULL,
+  type       TEXT NOT NULL,                   -- connexion | code-envoye | code-ok | code-ko | deconnexion | revocation | appareil-ferme
+  detail     TEXT NOT NULL DEFAULT '',
+  ip         TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_connexions_journal_ag ON connexions_journal(agency_id, created_at);

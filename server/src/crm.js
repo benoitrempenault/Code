@@ -620,6 +620,8 @@ export async function menageQuotidien(db, files = null) {
   await db.run("DELETE FROM login_tokens WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%.interne')");
   r.sessions = changesOf(await db.run("DELETE FROM sessions WHERE revoked = 1 OR last_seen < ?", [t - 90 * 86400]));
   r.liens = changesOf(await db.run("DELETE FROM login_tokens WHERE expires_at < ?", [t - 86400]));
+  await db.run("DELETE FROM sessions_appareils WHERE token_hash NOT IN (SELECT token_hash FROM sessions)");
+  r.journal = changesOf(await db.run("DELETE FROM connexions_journal WHERE created_at < ?", [t - 180 * 86400]));
   r.quotas = changesOf(await db.run("DELETE FROM crm_quotas WHERE jour < ?", [parisDate(new Date((t - 92 * 86400) * 1000))]));
   return r;
 }

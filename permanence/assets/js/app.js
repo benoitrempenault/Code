@@ -1191,35 +1191,35 @@
 
   /* ------------------------------- Connexion ------------------------------ */
   function wireGateLogin() {
+    // Plus de mot de passe (12/10/2026) : un lien de connexion par e-mail, puis
+    // un code SMS sur un nouvel appareil — le tout se passe sur « Mon compte »,
+    // qui ramène ici (?retour=).
     const msg = $("#gateMsg"), btn = $("#gateLogin");
     async function login() {
       const email = ($("#gateEmail").value || "").trim();
-      const password = $("#gatePass").value || "";
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { msg.style.color = "var(--bad)"; msg.textContent = "Adresse e-mail invalide."; return; }
-      if (!password) { msg.style.color = "var(--bad)"; msg.textContent = "Saisissez votre mot de passe."; return; }
       btn.disabled = true;
-      msg.style.color = "var(--muted)"; msg.textContent = "Connexion…";
+      msg.style.color = "var(--muted)"; msg.textContent = "Envoi du lien…";
       let res, data;
       try {
-        res = await fetch(API + "/auth/password-login", {
+        res = await fetch(API + "/auth/request-link", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password })
+          body: JSON.stringify({ email, retour: "../permanence/" })
         });
         data = await res.json().catch(() => ({}));
       } catch (e) { btn.disabled = false; msg.style.color = "var(--bad)"; msg.textContent = "Serveur injoignable — réessayez."; return; }
       btn.disabled = false;
-      if (res.ok && data.session) {
-        try { localStorage.setItem("studio-mandatpro-account", JSON.stringify({ session: data.session, user: data.user, agency: data.agency })); } catch (e) { }
-        location.reload();
+      if (res.ok) {
+        msg.style.color = "var(--ok)";
+        msg.textContent = data.message || "Lien envoyé — ouvrez l'e-mail, vous reviendrez ici automatiquement.";
+        if (data.dev_link) { const a = document.createElement("a"); a.href = data.dev_link; a.textContent = " (lien dev)"; msg.appendChild(a); }
       } else {
         msg.style.color = "var(--bad)";
-        msg.textContent = data.error || "Connexion impossible (" + res.status + ").";
+        msg.textContent = data.error || "Envoi impossible (" + res.status + ").";
       }
     }
     btn.addEventListener("click", login);
-    // Entrée passe par le même chemin que le clic : pas de double envoi
-    // pendant qu'une connexion est déjà en cours (bouton désactivé).
-    [$("#gateEmail"), $("#gatePass")].forEach((el) => el.addEventListener("keydown", (e) => { if (e.key === "Enter" && !btn.disabled) login(); }));
+    $("#gateEmail").addEventListener("keydown", (e) => { if (e.key === "Enter" && !btn.disabled) login(); });
   }
   function afficherGate() {
     $("#app").hidden = true;

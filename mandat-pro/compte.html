@@ -75,22 +75,16 @@
     <div class="foot"><a class="back" href="index.html">⌂ Retour à l'accueil</a></div>
   </div>
 
-  <!-- Connexion -->
+  <!-- Connexion : lien e-mail, puis code sur chaque nouvel appareil (12/10/2026) -->
   <div class="card" id="cardLogin" hidden>
     <h2>Connexion</h2>
-    <p class="hint">Avec votre mot de passe si vous en avez défini un — sinon, recevez un lien de
-      connexion par e-mail (valable 15 minutes).</p>
+    <p class="hint">Saisissez votre adresse e-mail : vous recevez un lien de connexion (valable 15 minutes).
+      Sur un nouvel appareil, un code vous est ensuite envoyé par SMS. L'appareil est reconnu 90 jours.</p>
     <button class="btn btn--primary btn--full" id="btnConfirm" type="button" hidden>Ouvrir ma session</button>
     <label>Adresse e-mail
-      <input type="email" id="email" placeholder="vous@votre-agence.fr" autocomplete="email" />
+      <input type="email" id="email" placeholder="prenom.nom@century21.fr" autocomplete="email" />
     </label>
-    <label>Mot de passe
-      <input type="password" id="pw" autocomplete="current-password" />
-    </label>
-    <button class="btn btn--primary btn--full" id="btnPwLogin" type="button">Se connecter</button>
-    <p class="hint" style="margin-top:12px">Pas (encore) de mot de passe ? Recevez un lien de connexion —
-      vous pourrez ensuite définir votre mot de passe ci-dessous, une fois connecté.</p>
-    <button class="btn btn--full" id="btnSend" type="button">Recevoir mon lien de connexion</button>
+    <button class="btn btn--primary btn--full" id="btnSend" type="button">Recevoir mon lien de connexion</button>
     <p class="msg" id="loginMsg" role="status" aria-live="polite"></p>
     <p class="hint" style="margin-top:8px">📱 Depuis l'app de l'écran d'accueil, le lien de l'e-mail s'ouvre
       dans Safari au lieu d'ici. Dans ce cas : restez appuyé sur le lien dans l'e-mail → <b>Copier</b>,
@@ -98,6 +92,23 @@
     <input type="text" id="linkPaste" placeholder="Ou collez ici le lien de connexion reçu" autocomplete="off"
       style="width:100%;margin-top:8px;padding:11px 13px;border-radius:10px;border:1px solid var(--line);background:var(--panel-2);color:var(--text);font:inherit" />
     <div class="foot"><a class="back" href="index.html">⌂ Retour à l'accueil</a></div>
+  </div>
+
+  <!-- Code de connexion (nouvel appareil) -->
+  <div class="card" id="cardCode" hidden>
+    <h2>Code de connexion</h2>
+    <p class="hint" id="codeHint">Un code vient de vous être envoyé.</p>
+    <label>Code reçu (6 chiffres)
+      <input type="text" id="codeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123 456" />
+    </label>
+    <button class="btn btn--primary btn--full" id="btnCodeOk" type="button">Valider le code</button>
+    <p class="msg" id="codeMsg" role="status" aria-live="polite"></p>
+    <div class="foot" style="flex-wrap:wrap;gap:8px">
+      <button class="btn" id="btnCodeRenvoyer" type="button">Renvoyer le code</button>
+      <button class="btn" id="btnCodeEmail" type="button">Recevoir le code par e-mail</button>
+      <button class="btn" id="btnCodeAnnuler" type="button">Annuler</button>
+    </div>
+    <p class="hint" style="margin-top:8px">Pas de réseau mobile ? Demandez le code par e-mail. Le code est valable 10 minutes.</p>
   </div>
 
   <!-- Profil connecté -->
@@ -110,23 +121,26 @@
     <div class="row"><span>Usage raisonnable</span><b id="meQuota"></b></div>
     <div class="quota"><div id="meBar" style="width:0%"></div></div>
     <p class="hint" style="margin-top:12px">Sur cet appareil, la rédaction IA passe par votre
-      abonnement — aucune clé API à configurer. Valable sur 2 appareils par utilisateur.</p>
+      abonnement — aucune clé API à configurer. Jusqu'à 8 appareils par compte.</p>
     <a class="btn btn--primary btn--full" id="btnGoTools" href="index.html" style="margin-top:14px">Ouvrir mes outils →</a>
     <!-- Poste ou tablette partagés : rendre la main au collaborateur suivant
          doit se voir tout de suite, sans chercher en bas de page. -->
     <button class="btn btn--full" id="btnSwitch" type="button" style="margin-top:8px">Changer de compte (se déconnecter)</button>
     <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:14px">
-      <h2 style="font-size:16.5px">Mon mot de passe</h2>
-      <p class="hint">Définissez (ou changez) votre mot de passe pour vous connecter directement,
-        sans attendre le lien e-mail — dans Studio Suivi comme ici.</p>
-      <label>Nouveau mot de passe (8 caractères minimum)
-        <input type="password" id="pwNew" autocomplete="new-password" />
+      <h2 style="font-size:16.5px">Mes appareils</h2>
+      <p class="hint">Chaque appareil où votre session est ouverte. Fermez ceux que vous ne reconnaissez pas :
+        un e-mail vous prévient à chaque nouvelle connexion.</p>
+      <div id="appareilsList" style="margin:6px 0 4px"></div>
+      <p class="msg" id="appareilsMsg" role="status" aria-live="polite"></p>
+    </div>
+    <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:14px">
+      <h2 style="font-size:16.5px">Mon mobile (code de connexion)</h2>
+      <p class="hint" id="mobileHint">Sur chaque nouvel appareil, un code vous est envoyé par SMS à ce numéro.</p>
+      <label>Numéro de mobile
+        <input type="tel" id="mobileInput" placeholder="06 12 34 56 78" autocomplete="tel" />
       </label>
-      <label>Confirmez-le
-        <input type="password" id="pwNew2" autocomplete="new-password" />
-      </label>
-      <button class="btn btn--full" id="btnSetPw" type="button">Enregistrer mon mot de passe</button>
-      <p class="msg" id="pwMsg" role="status" aria-live="polite"></p>
+      <button class="btn btn--full" id="btnMobile" type="button">Enregistrer mon mobile</button>
+      <p class="msg" id="mobileMsg" role="status" aria-live="polite"></p>
     </div>
     <div class="foot">
       <a class="back" href="index.html">⌂ Retour à l'accueil</a>
@@ -153,39 +167,7 @@
       Le nombre de conseillers est limité au nombre de sièges de votre abonnement.</p>
   </div>
 
-  <!-- Codes d'accès collaborateurs du site century21-kadima.fr -->
-  <div class="card" id="cardKadimaCode">
-    <h2>Accès collaborateurs — site Kadima</h2>
-    <p class="hint">Les codes demandés par le bouton « Accès collaborateurs » du site century21-kadima.fr pour entrer au Studio. Un code par personne : révocable individuellement, avec date d'expiration automatique, et envoyable par e-mail.</p>
-
-    <div id="kadimaVerrou">
-      <label>Mot de passe agence
-        <input type="password" id="kadimaMdp" autocomplete="off" />
-      </label>
-      <button class="btn btn--primary btn--full" id="btnKadimaDeverrouiller" type="button">Gérer les codes</button>
-    </div>
-
-    <div id="kadimaDeverrouille" hidden>
-      <div id="kadimaListe" style="margin:10px 0 4px"></div>
-      <label>Nom du collaborateur
-        <input type="text" id="kadimaLibelle" placeholder="ex. Adeline Lebon" autocomplete="off" />
-      </label>
-      <label>Son e-mail (pour lui envoyer le code)
-        <input type="email" id="kadimaEmail" placeholder="prenom.nom@century21.fr" autocomplete="off" />
-      </label>
-      <label>Code personnalisé (laisser vide pour un code généré)
-        <input type="text" id="kadimaNouveauCode" placeholder="généré automatiquement" autocomplete="off" />
-      </label>
-      <label>Validité (jours)
-        <input type="text" id="kadimaJours" value="90" inputmode="numeric" autocomplete="off" />
-      </label>
-      <button class="btn btn--primary btn--full" id="btnKadimaCreer" type="button">Créer le code</button>
-    </div>
-    <p class="msg" id="kadimaCodeMsg" role="status" aria-live="polite"></p>
-  </div>
-
   <script src="assets/js/config.js?v=3"></script>
-  <script src="assets/js/compte.js?v=7"></script>
-  <script src="assets/js/kadima-code.js?v=2"></script>
+  <script src="assets/js/compte.js?v=8"></script>
 </body>
 </html>

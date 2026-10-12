@@ -1291,6 +1291,30 @@ leroymerlin.fr refuse les robots) : logo officiel Leroy Merlin (SVG Wikimedia) +
 en Montserrat Regular, le E en trois barres vert / jaune / orange. Assets `?v=81` (les PDF des guides sont
 chargés via `asset()`, donc le ?v du script suffit).
 
+**Accès, choix 3 et 4 — lien e-mail + code SMS, appareils, journal (12/10, soir)** : plus de mot de
+passe (`/auth/password-login`, `/auth/set-password`, `/agency/users/:id/password` → **410**). Tables
+`sessions_appareils` (token_hash, nom déduit de l'UA « iPhone · Safari », ua, ip, verifie, canal,
+code_hash/expire/essais/envois), `users_mobile` (mobile +33…, verifie_le ; vide = volontairement sans
+code), `connexions_journal` (agency_id, user_id, type connexion | code-envoye | code-ok | code-ko |
+deconnexion | revocation | appareil-ferme, detail, ip). `openSession(user, cap, c)` écrit l'appareil.
+`/auth/exchange` : `mobileDe(user)` = users_mobile sinon le téléphone mobile du profil conseiller
+(même e-mail, actif) ; si mobile ET `BREVO_API_KEY` → appareil `verifie = 0`, code 6 chiffres par
+SMS (`envoyerSmsBrevo`, expéditeur de l'agence), repli e-mail si le SMS ne part pas ; réponse
+`verification: { requis, canal, mobile masqué, email masqué, expireDans, dev_code (DEV_MODE) }`.
+`sessionFrom(c, { nonVerifie })` refuse une session non vérifiée (401) sauf pour `/auth/code/envoyer`
+(renvoi, `{ canal: "email" }` à la demande, 5 envois max) et `/auth/code/verifier` (10 min, 5 essais,
+puis 429 ; espaces tolérés ; valide le mobile du profil → users_mobile). Chaque connexion confirmée :
+journal + e-mail « Nouvelle connexion sur votre compte Studio » (`mailNouvelleConnexion`, appareil,
+IP d'ouverture, lien Mon compte ; faux Resend des tests : rangé dans `mailsConnexion`, pas `mailsRecus`).
+Routes : `GET /me/appareils` (sessions vivantes + `courant`, mobile), `DELETE /me/appareils/:hash`,
+`PUT /me/mobile` (06/07 sinon 400 ; vide = plus de code), `PUT /agency/users/:id/mobile` (admin),
+`GET /agency/connexions` (admin, 300 derniers). Client `mandat-pro/compte.html` + `compte.js` (?v=8) :
+carte `cardCode` (code, renvoyer, par e-mail, annuler ; attente en sessionStorage
+`studio-compte-attente` ; dev_code pré-rempli), « Mes appareils » (fermer à distance), « Mon mobile » ;
+carte des codes collaborateurs du site et `kadima-code.js` retirés. Suivi et Permanence (`app.js?v=2`) :
+l'écran d'accueil demande le lien e-mail (`/auth/request-link` avec `retour`). Smoke `compte` sans Brevo →
+pas de code.
+
 **Accès, choix 1 — porte collaborateurs FERMÉE (12/10, soir)** : plus de compte partagé « Collaborateurs
 Kadima ». `POST /auth/kadima` répond toujours **410** `{ ferme: true, compte: <app_base>/compte.html }` (le
 site century21-kadima.fr renvoie encore vers `#acces=`) ; `sessionFrom` refuse toute session d'un compte

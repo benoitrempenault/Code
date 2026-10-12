@@ -273,39 +273,20 @@ const lr3 = await call("/auth/request-link", { body: { email: "claire@azur-immo.
 ok(lr3.status === 200 && !lr3.json.dev_link.includes("retour"), "retour « //hôte » ignoré (pas de redirection ouverte)");
 await db.run("DELETE FROM login_tokens", []);
 
-console.log("— Connexion par mot de passe");
-ok((await call("/auth/set-password", { headers: { Authorization: "Bearer " + s3 }, body: { password: "court" } })).status === 400, "mot de passe trop court refusé");
-ok((await call("/auth/set-password", { body: { password: "MonMotDePasse21!" } })).status === 401, "définir un mot de passe sans session : refusé");
-ok((await call("/auth/set-password", { headers: { Authorization: "Bearer " + s3 }, body: { password: "MonMotDePasse21!" } })).status === 200, "l'utilisateur définit son mot de passe");
-const pwBad = await call("/auth/password-login", { body: { email: "claire@azur-immo.fr", password: "mauvais-mdp" } });
-ok(pwBad.status === 401 && /incorrect/.test(pwBad.json.error), "mauvais mot de passe → 401 générique");
-const pwOk = await call("/auth/password-login", { body: { email: "claire@azur-immo.fr", password: "MonMotDePasse21!" } });
-ok(pwOk.status === 200 && pwOk.json.session && pwOk.json.user.email === "claire@azur-immo.fr", "bon mot de passe → session ouverte");
-ok((await call("/me", { headers: { Authorization: "Bearer " + pwOk.json.session } })).status === 200, "la session mot de passe fonctionne comme les autres");
-ok((await call("/auth/password-login", { body: { email: "inconnu@nulle-part.fr", password: "PeuImporte123" } })).status === 401, "e-mail inconnu → même 401 générique (pas de fuite)");
-// Le compteur anti-force-brute est remis à zéro à chaque minute pleine : si
-// les 6 essais chevauchent un changement de minute, le test échoue à tort
-// (vu en CI à 17:19:00 pile). Trop près du bord → on attend la minute suivante.
-const msDansMinute = Date.now() % 60000;
-if (msDansMinute > 56000) await new Promise((r) => setTimeout(r, 60500 - msDansMinute));
-let pwLast = null;
-for (let i = 0; i < 6; i++) pwLast = await call("/auth/password-login", { body: { email: "claire@azur-immo.fr", password: "mauvais-" + i } });
-ok(pwLast.status === 429, "force brute bloquée (5 essais / minute)");
-// Et par IP : 20 essais par minute toutes adresses confondues (une même
-// machine ne balaie pas l'annuaire à 5 essais par adresse).
-let pwIp = null;
-for (let i = 0; i < 21; i++) pwIp = await call("/auth/password-login", { headers: { "CF-Connecting-IP": "203.0.113.7" }, body: { email: "cible-" + i + "@azur-immo.fr", password: "Essai" + i } });
-ok(pwIp.status === 429, "force brute distribuée sur les adresses bloquée par IP (20 / minute)");
-ok((await call("/auth/password-login", { headers: { "CF-Connecting-IP": "203.0.113.8" }, body: { email: "cible-0@azur-immo.fr", password: "Essai0" } })).status === 401, "une autre IP n'est pas bloquée");
-await db.run("DELETE FROM ai_rate WHERE scope LIKE 'pw:%'", []);
-// L'admin pose le mot de passe d'un conseiller de SON agence.
+console.log("— Mot de passe retiré (12/10) : lien e-mail seul, puis code sur chaque nouvel appareil");
 const teamUser = await db.get("SELECT id FROM users WHERE email = 'u2@azur-immo.fr'");
-ok((await call("/agency/users/" + teamUser.id + "/password", { headers: { Authorization: "Bearer " + s3 }, body: { password: "MdpConseiller1" } })).status === 200, "l'admin définit le mot de passe d'un conseiller");
-const pwTeam = await call("/auth/password-login", { body: { email: "u2@azur-immo.fr", password: "MdpConseiller1" } });
-ok(pwTeam.status === 200 && pwTeam.json.session, "le conseiller se connecte avec ce mot de passe");
-ok((await call("/agency/users/" + teamUser.id + "/password", { headers: { Authorization: "Bearer " + pwTeam.json.session }, body: { password: "TentativeMembre1" } })).status === 403, "un membre non-admin ne peut pas poser de mot de passe");
-ok((await call("/agency/users/" + teamUser.id + "/password", { headers: { Authorization: "Bearer " + s2b }, body: { password: "AutreAgence123" } })).status === 404, "une autre agence ne peut pas poser de mot de passe (isolation)");
-await db.run("DELETE FROM ai_rate WHERE scope LIKE 'pw:%'", []);
+for (const [p, h] of [["/auth/password-login", {}], ["/auth/set-password", { Authorization: "Bearer " + s3 }], ["/agency/users/" + teamUser.id + "/password", { Authorization: "Bearer " + s3 }]]) {
+  const r = await call(p, { headers: h, body: { email: "claire@azur-immo.fr", password: "MonMotDePasse21!" } });
+  ok(r.status === 410 && /lien envoyé sur votre e-mail/.test(r.json.error), p + " → 410, le mot de passe n'existe plus");
+}
+// Ouvrir une session de test pour un compte (DEV_MODE : le lien est dans la réponse).
+const sessionPar = async (email) => {
+  const t = (await call("/auth/request-link", { body: { email } })).json.dev_token;
+  return (await call("/auth/exchange", { body: { token: t } })).json.session;
+};
+const pwTeam = { json: { session: await sessionPar("u2@azur-immo.fr") } };
+ok(!!pwTeam.json.session && (await call("/me", { headers: { Authorization: "Bearer " + pwTeam.json.session } })).status === 200, "un conseiller sans mobile entre par le lien seul (pas de code)");
+await db.run("DELETE FROM login_tokens", []);
 
 console.log("— Dossiers de vente (app Suivi)");
 const dosData = {
@@ -485,7 +466,7 @@ ok(rLG && /LUC \/ DOSSIER/.test(rLG.texte) && !/SOPHIE \/ DOSSIER/.test(rLG.text
 const rAdmin = recap2.json.recaps.find((r) => r.to[0] === "claire@azur-immo.fr");
 ok(rAdmin && /RECAP \/ TEST/.test(rAdmin.texte) && !/SOPHIE \/ DOSSIER/.test(rAdmin.texte), "l'admin reçoit les dossiers non attribués, pas ceux des conseillers");
 // L'aperçu à la demande suit la même règle.
-const apSM = await call("/recap/apercu", { method: "POST", headers: { Authorization: "Bearer " + (await call("/auth/password-login", { body: { email: "u2@azur-immo.fr", password: "MdpConseiller1" } })).json.session }, body: {} });
+const apSM = await call("/recap/apercu", { method: "POST", headers: { Authorization: "Bearer " + (await sessionPar("u2@azur-immo.fr")) }, body: {} });
 ok(apSM.status === 200 && apSM.json.vide === false && /SOPHIE \/ DOSSIER/.test(apSM.json.texte || "") && !/LUC/.test(apSM.json.texte || ""), "aperçu : Sophie ne voit que ses dossiers");
 await call("/dossiers/" + dosSM.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
 await call("/dossiers/" + dosLG.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
@@ -1953,13 +1934,15 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
 {
   console.log("— Administration : brique Acheteurs");
   // Faux Resend : enregistre chaque e-mail reçu et répond ok.
-  const mailsRecus = [];
+  const mailsRecus = [], mailsConnexion = [];
   const fauxResend = (await import("node:http")).createServer(async (req, res) => {
     const chunks = []; for await (const c of req) chunks.push(c);
     const corps = JSON.parse(Buffer.concat(chunks).toString());
     // Un destinataire « refus@… » : le fournisseur refuse (quota, adresse…).
     if (!Array.isArray(corps) && /^refus@/.test((corps.to || [])[0] || "")) { res.writeHead(422, { "Content-Type": "application/json" }); res.end(JSON.stringify({ message: "Daily quota exceeded" })); return; }
-    mailsRecus.push(corps);
+    // Les alertes « nouvelle connexion » (12/10) partent à chaque session ouverte :
+    // rangées à part pour ne pas fausser les comptages des autres tests.
+    if (!Array.isArray(corps) && /Nouvelle connexion/.test(corps.subject || "")) mailsConnexion.push(corps); else mailsRecus.push(corps);
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ id: "email_test" }));
   });
@@ -2503,6 +2486,74 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const lotG = await CRM_TEST.envoyerMailsLotAuto(envS, db, { id: agId, name: "Agence Test" }, regS, [1, 2, 3, 4].map((i) => ({ to: "lot" + i + "@ex.fr", subject: "L" + i, html: "<p>l</p>" })));
     ok(lotG.envoyes === 2 && lotG.reportes === 2 && lotG.erreurs.some((e) => /2 e-mail\(s\) non envoyé/.test(e)), "un lot de 4 avec 2 places restantes : 2 partent, 2 reportés (" + JSON.stringify(lotG) + ")");
     await db.run("DELETE FROM crm_quotas WHERE agency_id = ? AND (cle = 'auto-mail' OR cle LIKE 'alerte-%')", [agId]); }
+  /* ---- Connexion : code SMS sur chaque nouvel appareil, appareils, journal (12/10) ---- */
+  console.log("— Connexion : code SMS sur chaque nouvel appareil, Mes appareils, journal");
+  { const cpt = await callS("/agency/users", { headers: auth, body: { email: "code2fa@ach-test.fr", name: "Chloé CODE" } });
+    ok(cpt.status === 200, "compte créé pour Chloé (" + JSON.stringify(cpt.json && cpt.json.error) + ")");
+    await callS("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "Chloé", nom: "CODE", email: "code2fa@ach-test.fr", telephone: "06 12 34 56 78" } });
+    const UA_IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+    const UA_PC = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36";
+    const lienPour = async (email) => (await callS("/auth/request-link", { body: { email } })).json.dev_token;
+    const smsAvant = smsRecus.length, mailsAvant = mailsConnexion.length;
+    const ex = await callS("/auth/exchange", { body: { token: await lienPour("code2fa@ach-test.fr") }, headers: { "User-Agent": UA_IPHONE, "CF-Connecting-IP": "203.0.113.42" } });
+    ok(ex.status === 200 && ex.json.session && ex.json.verification && ex.json.verification.requis === true && ex.json.verification.canal === "sms" && ex.json.verification.mobile === "06 ** ** ** 78",
+      "le lien ouvre une session EN ATTENTE d'un code SMS, mobile masqué (" + JSON.stringify(ex.json.verification) + ")");
+    const sms = smsRecus[smsRecus.length - 1];
+    ok(smsRecus.length === smsAvant + 1 && sms.recipient === "+33612345678" && /^\d{6} est votre code de connexion Studio/.test(sms.content), "le code à 6 chiffres part par SMS Brevo au mobile du profil conseiller");
+    const code = sms.content.slice(0, 6), authC = { Authorization: "Bearer " + ex.json.session };
+    ok(ex.json.verification.dev_code === code, "en DEV_MODE le code est aussi dans la réponse (smokes)");
+    ok((await callS("/me", { headers: authC })).status === 401, "tant que le code n'est pas validé, la session ne sert à rien (401)");
+    const faux = String((parseInt(code, 10) + 1) % 1000000).padStart(6, "0");
+    const ko = await callS("/auth/code/verifier", { headers: authC, body: { code: faux } });
+    ok(ko.status === 401 && /essai/.test(ko.json.error), "mauvais code : refusé, essais comptés (" + ko.json.error + ")");
+    const okc = await callS("/auth/code/verifier", { headers: authC, body: { code: code.slice(0, 3) + " " + code.slice(3) } });
+    ok(okc.status === 200 && okc.json.ok && okc.json.verifie === true && okc.json.user.email === "code2fa@ach-test.fr", "bon code (espaces tolérés) → appareil vérifié");
+    ok((await callS("/me", { headers: authC })).status === 200, "la session est maintenant utilisable");
+    const alerte = mailsConnexion.slice(mailsAvant).find((m) => m.to[0] === "code2fa@ach-test.fr");
+    ok(alerte && alerte.to[0] === "code2fa@ach-test.fr" && /iPhone · Safari/.test(alerte.text) && /203\.0\.113\.42/.test(alerte.text) && /compte\.html/.test(alerte.text),
+      "un e-mail « nouvelle connexion » décrit l'appareil et l'IP, et renvoie vers Mes appareils");
+    const mobV = await db.get("SELECT mobile, verifie_le FROM users_mobile WHERE user_id = ?", [cpt.json.user.id]);
+    ok(mobV && mobV.mobile === "+33612345678" && mobV.verifie_le > 0, "le mobile du profil devient le mobile vérifié du compte");
+    const aps = (await callS("/me/appareils", { headers: authC })).json;
+    ok(aps.appareils.length === 1 && aps.appareils[0].courant === true && aps.appareils[0].nom === "iPhone · Safari" && aps.mobile.numero === "06 ** ** ** 78" && aps.mobile.verifie === true,
+      "Mes appareils : l'iPhone courant et le mobile vérifié (" + JSON.stringify(aps) + ")");
+    // Second appareil : nouveau code ; renvoi par e-mail à la demande ; fermeture à distance.
+    const ex2 = await callS("/auth/exchange", { body: { token: await lienPour("code2fa@ach-test.fr") }, headers: { "User-Agent": UA_PC } });
+    const auth2 = { Authorization: "Bearer " + ex2.json.session };
+    const mailsAvant2 = mailsRecus.length;
+    const renvoi = await callS("/auth/code/envoyer", { headers: auth2, body: { canal: "email" } });
+    const mailCode = mailsRecus[mailsRecus.length - 1];
+    ok(renvoi.status === 200 && renvoi.json.canal === "email" && mailsRecus.length === mailsAvant2 + 1 && /code de connexion Studio : \d{6}/.test(mailCode.subject) && mailCode.to[0] === "code2fa@ach-test.fr",
+      "le code peut être renvoyé par e-mail (" + JSON.stringify(renvoi.json) + ")");
+    const code2 = (mailCode.subject.match(/(\d{6})/) || [])[1];
+    ok((await callS("/auth/code/verifier", { headers: auth2, body: { code: code2 } })).status === 200, "le code e-mail valide le second appareil");
+    const aps2 = (await callS("/me/appareils", { headers: authC })).json.appareils;
+    const pc = aps2.find((a) => a.nom === "Windows · Chrome");
+    ok(aps2.length === 2 && pc && !pc.courant, "deux appareils listés depuis l'iPhone (" + JSON.stringify(aps2.map((a) => a.nom)) + ")");
+    ok((await callS("/me/appareils/" + pc.id, { headers: authC, method: "DELETE" })).status === 200 && (await callS("/me", { headers: auth2 })).status === 401, "fermer le PC depuis l'iPhone : sa session est révoquée");
+    // Cinq mauvais codes → redemander un code.
+    const ex3 = await callS("/auth/exchange", { body: { token: await lienPour("code2fa@ach-test.fr") } });
+    const auth3 = { Authorization: "Bearer " + ex3.json.session };
+    let dernier = null; for (let i = 0; i < 6; i++) dernier = await callS("/auth/code/verifier", { headers: auth3, body: { code: "111111" } });
+    ok(dernier.status === 429 || (dernier.status === 200 && ex3.json.verification.dev_code === "111111"), "cinq mauvais codes → 429, il faut un nouveau code");
+    // Journal de l'agence (admin seulement).
+    const jr = (await callS("/agency/connexions", { headers: auth })).json.connexions;
+    ok(jr.some((j) => j.type === "connexion" && j.email === "code2fa@ach-test.fr" && /code sms/.test(j.detail) && j.ip === "203.0.113.42") && jr.some((j) => j.type === "code-ko") && jr.some((j) => j.type === "appareil-ferme"),
+      "le journal de l'agence trace connexions (appareil, IP), codes refusés et appareils fermés");
+    ok((await callS("/agency/connexions", { headers: authC })).status === 403, "le journal est réservé à l'administrateur");
+    // Mobile retiré sur Mon compte : plus de code (lien seul) ; mobile posé par l'admin : code sur le nouveau numéro.
+    await db.run("DELETE FROM login_tokens WHERE user_id = ?", [cpt.json.user.id]);
+    ok((await callS("/me/mobile", { headers: authC, method: "PUT", body: { mobile: "" } })).status === 200, "Chloé retire son mobile");
+    const ex4 = await callS("/auth/exchange", { body: { token: await lienPour("code2fa@ach-test.fr") } });
+    ok(ex4.status === 200 && ex4.json.verification.requis === false && (await callS("/me", { headers: { Authorization: "Bearer " + ex4.json.session } })).status === 200, "sans mobile : le lien suffit");
+    ok((await callS("/me/mobile", { headers: authC, method: "PUT", body: { mobile: "05 56 00 00 00" } })).status === 400, "un fixe est refusé comme mobile");
+    ok((await callS("/agency/users/" + cpt.json.user.id + "/mobile", { headers: auth, method: "PUT", body: { mobile: "07 00 00 00 00" } })).status === 200, "l'admin pose un nouveau mobile (téléphone changé)");
+    const smsAvant5 = smsRecus.length;
+    const ex5 = await callS("/auth/exchange", { body: { token: await lienPour("code2fa@ach-test.fr") } });
+    ok(ex5.json.verification.requis === true && smsRecus.length === smsAvant5 + 1 && smsRecus[smsRecus.length - 1].recipient === "+33700000000", "le code part sur le nouveau numéro");
+    await db.run("DELETE FROM login_tokens WHERE user_id = ?", [cpt.json.user.id]);
+    ok((await callS("/agency/users/" + cpt.json.user.id, { headers: auth, method: "DELETE" })).status === 200, "le compte de test est retiré (siège libéré)");
+    await db.run("DELETE FROM crm_conseillers WHERE agency_id = ? AND email = 'code2fa@ach-test.fr'", [agId]); }
   ok(runSms.sms === 2, "deux vœux partis par SMS (mobile requis, le fixe est écarté)");
   const smsTom = smsRecus.find((s) => s.recipient === "+33662125193");
   ok(smsTom && /Rémi/.test(smsTom.content) && /Joyeux anniversaire/.test(smsTom.content) && smsTom.sender.length <= 11,

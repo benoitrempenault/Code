@@ -18,7 +18,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { changesOf } from "./db.js";
 import { promptFor } from "./prompts.js";
-import { now, monthKey, randId, randToken, sha256hex, hmacHex, safeEqual, costMicros, hashPassword, verifyPassword } from "./util.js";
+import { now, monthKey, randId, randToken, sha256hex, hmacHex, safeEqual, costMicros } from "./util.js";
 import { runRecap, buildRecap, envoyerMail } from "./recap.js";
 import * as CRM from "./crm.js";
 import * as AMEPI from "./amepi.js";
@@ -117,7 +117,7 @@ export function createApp(env) {
   const isoJour = (ts) => new Date(ts * 1000).toISOString().slice(0, 10);
 
   /* ------------------------------ Session ------------------------------- */
-  async function sessionFrom(c) {
+  async function sessionFrom(c, opts = {}) {
     const h = c.req.header("Authorization") || "";
     const m = /^Bearer\s+(.+)$/.exec(h);
     if (!m) return null;
@@ -126,6 +126,10 @@ export function createApp(env) {
     if (!s) return null;
     if (s.last_seen < now() - SESSION_TTL) return null;
     if (s.created_at < now() - SESSION_MAX_AGE) return null;
+    // Nouvel appareil en attente de son code (SMS / e-mail) : la session ne
+    // sert à rien tant que le code n'est pas validé — sauf pour le valider.
+    const ap = await db.get("SELECT verifie FROM sessions_appareils WHERE token_hash = ?", [hash]);
+    if (ap && !ap.verifie && !opts.nonVerifie) return null;
     const user = await db.get("SELECT * FROM users WHERE id = ?", [s.user_id]);
     if (!user) return null;
     if (COMPTE_PARTAGE.test(user.email || "")) return null; // compte partagé fermé (12/10)
@@ -134,8 +138,74 @@ export function createApp(env) {
     if (now() - s.last_seen > 60) {
       await db.run("UPDATE sessions SET last_seen = ? WHERE token_hash = ?", [now(), hash]);
     }
-    return { session: s, user, agency };
+    return { session: s, user, agency, hash, verifie: !ap || !!ap.verifie };
   }
+
+  /* ------------- Appareils, code de connexion, journal (12/10/2026) --------
+     Une session = un appareil. À l'ouverture (lien e-mail), si le compte a un
+     mobile (renseigné sur « Mon compte », sinon celui de son profil conseiller),
+     un code à 6 chiffres part par SMS (Brevo) — repli e-mail si le SMS ne part
+     pas ou à la demande. L'appareil est reconnu ensuite 90 jours (durée de la
+     session). Plus de mot de passe. Chaque ouverture confirmée envoie un e-mail
+     « nouvelle connexion » et s'inscrit au journal de l'agence.             */
+  const CODE_MINUTES = 10, CODE_ESSAIS_MAX = 5, CODE_ENVOIS_MAX = 5;
+  const ipDe = (c) => c.req.header("CF-Connecting-IP") || String(c.req.header("x-forwarded-for") || "").split(",")[0].trim() || "";
+  function nomAppareil(ua) {
+    ua = String(ua || "");
+    const os = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android" : /Windows/.test(ua) ? "Windows"
+      : /Mac OS X|Macintosh/.test(ua) ? "Mac" : /CrOS/.test(ua) ? "Chromebook" : /Linux/.test(ua) ? "Linux" : "Appareil";
+    const nav = /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "";
+    return nav ? os + " · " + nav : os;
+  }
+  const masquerMobile = (m) => { const n = /^\+33(\d{9})$/.test(m || "") ? "0" + m.slice(3) : String(m || ""); return n.length >= 4 ? n.slice(0, 2) + " ** ** ** " + n.slice(-2) : n; };
+  const masquerEmail = (e) => String(e || "").replace(/^(.)[^@]*(@.*)$/, "$1***$2");
+  const dateParis = (ts) => new Date(ts * 1000).toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "long", timeStyle: "short" });
+  async function journal(agencyId, userId, type, detail, ip) {
+    await db.run("INSERT INTO connexions_journal (agency_id, user_id, type, detail, ip, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [agencyId, userId, type, String(detail || "").slice(0, 200), String(ip || "").slice(0, 60), now()]);
+  }
+  // Le mobile du compte : celui posé sur « Mon compte » (vide = volontairement
+  // sans second facteur), sinon celui de son profil conseiller (même e-mail).
+  async function mobileDe(user) {
+    const um = await db.get("SELECT mobile, verifie_le FROM users_mobile WHERE user_id = ?", [user.id]);
+    if (um) return um.mobile ? { mobile: um.mobile, verifie: um.verifie_le > 0, source: "compte" } : null;
+    const cs = await db.get("SELECT telephone FROM crm_conseillers WHERE agency_id = ? AND lower(email) = ? AND actif = 1 ORDER BY updated_at DESC LIMIT 1", [user.agency_id, String(user.email || "").toLowerCase()]);
+    const m = cs ? CRM.mobileFrance(cs.telephone) : null;
+    return m ? { mobile: m, verifie: false, source: "profil" } : null;
+  }
+  async function envoyerCode(c, user, agency, hash, canal, mobile) {
+    const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
+    await db.run("UPDATE sessions_appareils SET code_hash = ?, code_expire = ?, code_essais = 0, code_envois = code_envois + 1, canal = ? WHERE token_hash = ?",
+      [await sha256hex(code), now() + CODE_MINUTES * 60, canal, hash]);
+    let r;
+    if (canal === "sms") {
+      const reglages = await CRM.getReglages(db, agency);
+      r = await CRM.envoyerSmsBrevo(env, { to: mobile, content: `${code} est votre code de connexion Studio. Valable ${CODE_MINUTES} minutes. Ne le communiquez à personne.`, sender: CRM.smsExpediteur(reglages.agence, agency) });
+    } else {
+      r = await CRM.envoyerMailHtml(env, {
+        to: user.email, fromName: "Studio", subject: "Votre code de connexion Studio : " + code,
+        text: `Bonjour,\n\nVotre code de connexion est ${code}. Il est valable ${CODE_MINUTES} minutes et ne sert qu'à l'appareil qui vient de demander l'accès.\n\nSi vous n'êtes pas à l'origine de cette demande, ne le saisissez nulle part.\n\nStudio`,
+      });
+    }
+    await journal(agency.id, user.id, "code-envoye", canal + (r.ok ? "" : " — non parti : " + (r.error || "dry run")), ipDe(c));
+    return { ok: !!r.ok, canal, error: r.error || "", dev_code: env.DEV_MODE ? code : undefined };
+  }
+  async function mailNouvelleConnexion(user, agency, nom, ip) {
+    try {
+      const ag = await db.get("SELECT app_base FROM agencies WHERE id = ?", [agency.id]);
+      await CRM.envoyerMailHtml(env, {
+        to: user.email, fromName: "Studio", subject: "Nouvelle connexion sur votre compte Studio",
+        text: `Bonjour${user.name ? " " + user.name : ""},\n\nUne session vient d'être ouverte sur votre compte Studio : ${nom}, le ${dateParis(now())}${ip ? " (adresse IP " + ip + ")" : ""}.\n\nSi c'est vous, tout va bien. Sinon, ouvrez « Mon compte », rubrique « Mes appareils », et fermez cet appareil — ou cliquez sur « Déconnecter tous mes appareils » :\n${appBase(ag)}/compte.html\n\nStudio`,
+      });
+    } catch (e) { /* l'e-mail d'alerte n'empêche jamais la connexion */ }
+  }
+  // Retour d'une connexion confirmée : la session est utilisable.
+  const reponseSession = (bearer, user, agency, extra) => ({
+    ok: true, session: bearer,
+    user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    agency: { id: agency.id, name: agency.name, status: agency.status, plan: agency.plan },
+    ...(extra || {}),
+  });
 
   function agencyOpen(agency) {
     if (agency.status === "active") return true;
@@ -245,12 +315,61 @@ export function createApp(env) {
     if (!user) return err(c, 401, "Compte introuvable.");
     const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [user.agency_id]);
     if (!agency || agency.status === "suspended") return err(c, 403, "Abonnement suspendu — contactez Studio Brochure.");
-    const bearer = await openSession(user);
-    return c.json({
-      ok: true, session: bearer,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
-      agency: { id: agency.id, name: agency.name, status: agency.status, plan: agency.plan }
-    });
+    const bearer = await openSession(user, 0, c);
+    const hashS = await sha256hex(bearer), nom = nomAppareil(c.req.header("User-Agent")), ip = ipDe(c);
+    // Second facteur : un code sur le mobile du compte (SMS Brevo), repli e-mail.
+    const mob = await mobileDe(user);
+    if (mob && env.BREVO_API_KEY) {
+      await db.run("UPDATE sessions_appareils SET verifie = 0 WHERE token_hash = ?", [hashS]);
+      let r = await envoyerCode(c, user, agency, hashS, "sms", mob.mobile);
+      if (!r.ok) r = await envoyerCode(c, user, agency, hashS, "email", "");
+      return c.json(reponseSession(bearer, user, agency, { verification: {
+        requis: true, canal: r.canal, mobile: masquerMobile(mob.mobile), email: masquerEmail(user.email), expireDans: CODE_MINUTES * 60,
+        ...(r.dev_code ? { dev_code: r.dev_code } : {}),
+      } }));
+    }
+    await journal(agency.id, user.id, "connexion", "lien e-mail · " + nom, ip);
+    await mailNouvelleConnexion(user, agency, nom, ip);
+    return c.json(reponseSession(bearer, user, agency, { verification: { requis: false } }));
+  });
+
+  // Le code de connexion : renvoi (SMS, ou e-mail à la demande / en repli).
+  app.post("/auth/code/envoyer", async (c) => {
+    const ctx = await sessionFrom(c, { nonVerifie: true });
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const ap = await db.get("SELECT * FROM sessions_appareils WHERE token_hash = ?", [ctx.hash]);
+    if (!ap || ap.verifie) return c.json({ ok: true, deja: true });
+    if (ap.code_envois >= CODE_ENVOIS_MAX) return err(c, 429, "Trop de codes demandés pour cet appareil — redemandez un lien de connexion.");
+    const b = await c.req.json().catch(() => ({}));
+    const mob = await mobileDe(ctx.user);
+    const canal = b.canal === "email" || !mob || !env.BREVO_API_KEY ? "email" : "sms";
+    let r = await envoyerCode(c, ctx.user, ctx.agency, ctx.hash, canal, mob ? mob.mobile : "");
+    if (!r.ok && canal === "sms") r = await envoyerCode(c, ctx.user, ctx.agency, ctx.hash, "email", "");
+    if (!r.ok) return err(c, 502, "Le code n'a pas pu partir — " + (r.error || "envoi non configuré") + ".");
+    return c.json({ ok: true, canal: r.canal, mobile: mob ? masquerMobile(mob.mobile) : "", email: masquerEmail(ctx.user.email), expireDans: CODE_MINUTES * 60, ...(r.dev_code ? { dev_code: r.dev_code } : {}) });
+  });
+  app.post("/auth/code/verifier", async (c) => {
+    const ctx = await sessionFrom(c, { nonVerifie: true });
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const ap = await db.get("SELECT * FROM sessions_appareils WHERE token_hash = ?", [ctx.hash]);
+    if (!ap || ap.verifie) return c.json(reponseSession(undefined, ctx.user, ctx.agency, { deja: true }));
+    if (!ap.code_hash || ap.code_expire < now()) return err(c, 401, "Code expiré — demandez-en un nouveau.");
+    if (ap.code_essais >= CODE_ESSAIS_MAX) return err(c, 429, "Trop d'essais — demandez un nouveau code.");
+    const b = await c.req.json().catch(() => ({}));
+    const code = String(b.code || "").replace(/\D/g, "");
+    if (!code || !safeEqual(await sha256hex(code), ap.code_hash)) {
+      await db.run("UPDATE sessions_appareils SET code_essais = code_essais + 1 WHERE token_hash = ?", [ctx.hash]);
+      await journal(ctx.agency.id, ctx.user.id, "code-ko", ap.canal, ipDe(c));
+      return err(c, 401, "Code incorrect" + (CODE_ESSAIS_MAX - ap.code_essais - 1 > 0 ? " — il vous reste " + (CODE_ESSAIS_MAX - ap.code_essais - 1) + " essai(s)." : " — demandez un nouveau code."));
+    }
+    await db.run("UPDATE sessions_appareils SET verifie = 1, code_hash = '', code_expire = 0 WHERE token_hash = ?", [ctx.hash]);
+    if (ap.canal === "sms") {
+      const mob = await mobileDe(ctx.user);
+      if (mob) await db.run("INSERT INTO users_mobile (user_id, mobile, verifie_le, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET mobile = excluded.mobile, verifie_le = excluded.verifie_le, updated_at = excluded.updated_at", [ctx.user.id, mob.mobile, now(), now()]);
+    }
+    await journal(ctx.agency.id, ctx.user.id, "connexion", "lien e-mail + code " + ap.canal + " · " + ap.nom, ap.ip || ipDe(c));
+    await mailNouvelleConnexion(ctx.user, ctx.agency, ap.nom, ap.ip || ipDe(c));
+    return c.json(reponseSession(undefined, ctx.user, ctx.agency, { verifie: true }));
   });
 
   /* -------- Accès collaborateur (SSO depuis le site century21-kadima) -----
@@ -275,7 +394,7 @@ export function createApp(env) {
 
   // Ouvre une session pour un utilisateur (limite d'appareils : révoque la
   // plus ancienne au-delà du plafond). Partagé lien magique / mot de passe.
-  async function openSession(user, cap) {
+  async function openSession(user, cap, c) {
     // cap : plafond d'appareils simultanés. Par défaut MAX_SESSIONS (comptes
     // personnels) ; relevé pour l'accès collaborateur partagé, où un même
     // utilisateur « agence » ouvre une session par poste de l'agence.
@@ -288,86 +407,31 @@ export function createApp(env) {
       await db.run("UPDATE sessions SET revoked = 1 WHERE token_hash = ?", [s.token_hash]);
     }
     const bearer = randToken(32);
+    const hash = await sha256hex(bearer);
     await db.run(
       "INSERT INTO sessions (token_hash, user_id, created_at, last_seen, revoked) VALUES (?, ?, ?, ?, 0)",
-      [await sha256hex(bearer), user.id, now(), now()]
+      [hash, user.id, now(), now()]
     );
+    const ua = c ? String(c.req.header("User-Agent") || "").slice(0, 300) : "";
+    await db.run("INSERT INTO sessions_appareils (token_hash, user_id, nom, ua, ip, verifie, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)",
+      [hash, user.id, nomAppareil(ua), ua, c ? ipDe(c) : "", now()]);
     return bearer;
   }
 
-  /* ---------------- Connexion par e-mail + mot de passe ------------------ */
-  // En complément du lien magique. Le mot de passe se définit une fois
-  // connecté (page « Mon compte »), ou est posé par l'admin de l'agence.
-  const PW_MIN = 8, PW_MAX = 200, PW_TRIES_PER_MIN = 5, PW_TRIES_PER_IP_MIN = 20;
-  app.post("/auth/password-login", async (c) => {
-    const b = await c.req.json().catch(() => ({}));
-    const email = String(b.email || "").trim().toLowerCase();
-    const password = String(b.password || "");
-    const generic = () => err(c, 401, "E-mail ou mot de passe incorrect.");
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || !password) return generic();
-    // Anti-force brute : 5 essais par minute et par adresse (réussi ou non),
-    // et 20 par minute et par IP (sinon une même machine testerait 5 mots de
-    // passe par minute sur CHAQUE adresse connue).
-    const minute = Math.floor(now() / 60);
-    const ip = c.req.header("CF-Connecting-IP") || String(c.req.header("x-forwarded-for") || "").split(",")[0].trim() || "";
-    const portes = [["pw:" + (await sha256hex(email)).slice(0, 16), PW_TRIES_PER_MIN]];
-    if (ip) portes.push(["pwip:" + (await sha256hex(ip)).slice(0, 16), PW_TRIES_PER_IP_MIN]); // Cloudflare pose toujours l'IP ; vide = tests locaux
-    for (const [scope, max] of portes) {
-      await db.run("INSERT OR IGNORE INTO ai_rate (scope, minute, n) VALUES (?, ?, 0)", [scope, minute]);
-      const rl = await db.run("UPDATE ai_rate SET n = n + 1 WHERE scope = ? AND minute = ? AND n < ?", [scope, minute, max]);
-      if (changesOf(rl) !== 1) return err(c, 429, "Trop d'essais — patientez une minute.");
-    }
-    const user = await db.get("SELECT * FROM users WHERE email = ?", [email]);
-    if (!user) return generic();
-    const cred = await db.get("SELECT password_hash FROM credentials WHERE user_id = ?", [user.id]);
-    if (!cred || !(await verifyPassword(password, cred.password_hash))) return generic();
-    const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [user.agency_id]);
-    if (!agency || agency.status === "suspended") return err(c, 403, "Abonnement suspendu — contactez Studio Brochure.");
-    const bearer = await openSession(user);
-    return c.json({
-      ok: true, session: bearer,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
-      agency: { id: agency.id, name: agency.name, status: agency.status, plan: agency.plan }
-    });
-  });
-
-  // Définir / changer SON mot de passe (session requise).
-  app.post("/auth/set-password", async (c) => {
-    const ctx = await sessionFrom(c);
-    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
-    const b = await c.req.json().catch(() => ({}));
-    const password = String(b.password || "");
-    if (password.length < PW_MIN) return err(c, 400, "Mot de passe trop court (" + PW_MIN + " caractères minimum).");
-    if (password.length > PW_MAX) return err(c, 400, "Mot de passe trop long.");
-    await db.run(
-      "INSERT OR REPLACE INTO credentials (user_id, password_hash, updated_at) VALUES (?, ?, ?)",
-      [ctx.user.id, await hashPassword(password), now()]
-    );
-    return c.json({ ok: true });
-  });
-
-  // L'admin de l'agence pose/réinitialise le mot de passe d'un conseiller.
-  app.post("/agency/users/:id/password", async (c) => {
-    const ctx = await sessionFrom(c);
-    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
-    if (!isAgencyAdmin(ctx)) return err(c, 403, "Réservé à l'administrateur de l'agence.");
-    const target = await db.get("SELECT id FROM users WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
-    if (!target) return err(c, 404, "Conseiller introuvable dans votre agence.");
-    const b = await c.req.json().catch(() => ({}));
-    const password = String(b.password || "");
-    if (password.length < PW_MIN) return err(c, 400, "Mot de passe trop court (" + PW_MIN + " caractères minimum).");
-    if (password.length > PW_MAX) return err(c, 400, "Mot de passe trop long.");
-    await db.run(
-      "INSERT OR REPLACE INTO credentials (user_id, password_hash, updated_at) VALUES (?, ?, ?)",
-      [target.id, await hashPassword(password), now()]
-    );
-    return c.json({ ok: true });
-  });
+  /* ---------------- Mot de passe : retiré le 12/10/2026 -------------------
+     Une seule façon d'entrer : le lien e-mail, puis un code sur chaque nouvel
+     appareil. Les anciennes routes répondent 410 pour les vieux clients.     */
+  const PLUS_DE_MDP = "Le mot de passe n'existe plus : connectez-vous avec le lien envoyé sur votre e-mail (un code vous est ensuite demandé sur chaque nouvel appareil).";
+  app.post("/auth/password-login", (c) => err(c, 410, PLUS_DE_MDP));
+  app.post("/auth/set-password", (c) => err(c, 410, PLUS_DE_MDP));
+  app.post("/agency/users/:id/password", (c) => err(c, 410, PLUS_DE_MDP));
 
   app.post("/auth/logout", async (c) => {
+    const ctx = await sessionFrom(c, { nonVerifie: true });
     const h = c.req.header("Authorization") || "";
     const m = /^Bearer\s+(.+)$/.exec(h);
     if (m) await db.run("UPDATE sessions SET revoked = 1 WHERE token_hash = ?", [await sha256hex(m[1].trim())]);
+    if (ctx) await journal(ctx.agency.id, ctx.user.id, "deconnexion", "", ipDe(c));
     return c.json({ ok: true });
   });
 
@@ -377,7 +441,71 @@ export function createApp(env) {
     const ctx = await sessionFrom(c);
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
     const r = await db.run("UPDATE sessions SET revoked = 1 WHERE user_id = ? AND revoked = 0", [ctx.user.id]);
+    await journal(ctx.agency.id, ctx.user.id, "revocation", "tous mes appareils (" + changesOf(r) + ")", ipDe(c));
     return c.json({ ok: true, revoquees: changesOf(r) });
+  });
+
+  // Mes appareils : chaque session vivante du compte, celle-ci marquée.
+  app.get("/me/appareils", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const rows = await db.all(
+      `SELECT s.token_hash, s.created_at, s.last_seen, COALESCE(a.nom, '') AS nom, COALESCE(a.ip, '') AS ip, COALESCE(a.verifie, 1) AS verifie
+       FROM sessions s LEFT JOIN sessions_appareils a ON a.token_hash = s.token_hash
+       WHERE s.user_id = ? AND s.revoked = 0 AND s.last_seen > ? AND s.created_at > ? ORDER BY s.last_seen DESC`,
+      [ctx.user.id, now() - SESSION_TTL, now() - SESSION_MAX_AGE]);
+    const mob = await mobileDe(ctx.user);
+    return c.json({
+      appareils: rows.map((r) => ({ id: r.token_hash, nom: r.nom || "Appareil", ip: r.ip, ouvert_le: r.created_at, vu_le: r.last_seen, courant: r.token_hash === ctx.hash, verifie: !!r.verifie })),
+      mobile: mob ? { numero: masquerMobile(mob.mobile), verifie: mob.verifie, source: mob.source } : null,
+    });
+  });
+  app.delete("/me/appareils/:id", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const id = String(c.req.param("id") || "");
+    const r = await db.run("UPDATE sessions SET revoked = 1 WHERE token_hash = ? AND user_id = ? AND revoked = 0", [id, ctx.user.id]);
+    if (changesOf(r) !== 1) return err(c, 404, "Appareil introuvable (ou déjà fermé).");
+    const ap = await db.get("SELECT nom FROM sessions_appareils WHERE token_hash = ?", [id]);
+    await journal(ctx.agency.id, ctx.user.id, "appareil-ferme", (ap && ap.nom) || "", ipDe(c));
+    return c.json({ ok: true, courant: id === ctx.hash });
+  });
+  // Mon mobile pour le code de connexion (vide = plus de code) : il sera
+  // vérifié par le premier code reçu sur le prochain appareil.
+  app.put("/me/mobile", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    const b = await c.req.json().catch(() => ({}));
+    const brut = String(b.mobile || "").trim();
+    const mobile = brut ? CRM.mobileFrance(brut) : "";
+    if (brut && !mobile) return err(c, 400, "Numéro de mobile français attendu (06 ou 07).");
+    await db.run("INSERT INTO users_mobile (user_id, mobile, verifie_le, updated_at) VALUES (?, ?, 0, ?) ON CONFLICT(user_id) DO UPDATE SET mobile = excluded.mobile, verifie_le = 0, updated_at = excluded.updated_at", [ctx.user.id, mobile, now()]);
+    return c.json({ ok: true, mobile: mobile ? { numero: masquerMobile(mobile), verifie: false, source: "compte" } : null });
+  });
+  // L'admin pose ou retire le mobile d'un conseiller (téléphone changé).
+  app.put("/agency/users/:id/mobile", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!isAgencyAdmin(ctx)) return err(c, 403, "Réservé à l'administrateur de l'agence.");
+    const u = await db.get("SELECT id FROM users WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!u) return err(c, 404, "Conseiller introuvable dans votre agence.");
+    const b = await c.req.json().catch(() => ({}));
+    const brut = String(b.mobile || "").trim();
+    const mobile = brut ? CRM.mobileFrance(brut) : "";
+    if (brut && !mobile) return err(c, 400, "Numéro de mobile français attendu (06 ou 07).");
+    if (!brut && b.mobile === undefined) await db.run("DELETE FROM users_mobile WHERE user_id = ?", [u.id]); // retour au mobile du profil
+    else await db.run("INSERT INTO users_mobile (user_id, mobile, verifie_le, updated_at) VALUES (?, ?, 0, ?) ON CONFLICT(user_id) DO UPDATE SET mobile = excluded.mobile, verifie_le = 0, updated_at = excluded.updated_at", [u.id, mobile, now()]);
+    return c.json({ ok: true });
+  });
+  // Journal des connexions de l'agence (admin) : les 300 derniers événements.
+  app.get("/agency/connexions", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!isAgencyAdmin(ctx)) return err(c, 403, "Réservé à l'administrateur de l'agence.");
+    const rows = await db.all(
+      `SELECT j.id, j.user_id, j.type, j.detail, j.ip, j.created_at, COALESCE(u.name, '') AS nom, COALESCE(u.email, '') AS email
+       FROM connexions_journal j LEFT JOIN users u ON u.id = j.user_id WHERE j.agency_id = ? ORDER BY j.id DESC LIMIT 300`, [ctx.agency.id]);
+    return c.json({ connexions: rows });
   });
 
   app.get("/me", async (c) => {
