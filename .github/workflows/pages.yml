@@ -57,6 +57,9 @@ jobs:
           cp suivi/index.html suivi/favicon.svg _site/suivi/
           cp -r suivi/assets/* _site/suivi/assets/
           # Studio Permanence (tour de permanence des points de vente, interne Kadima) sous /permanence/
+          # Domaine propre (12/10) : le CNAME accompagne le site publié (le réglage
+          # « Custom domain » du dépôt reste la référence pour un déploiement Actions).
+          cp CNAME _site/
           mkdir -p _site/permanence/assets
           cp permanence/index.html permanence/favicon.svg _site/permanence/
           cp -r permanence/assets/* _site/permanence/assets/
