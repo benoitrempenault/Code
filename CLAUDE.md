@@ -1291,6 +1291,13 @@ leroymerlin.fr refuse les robots) : logo officiel Leroy Merlin (SVG Wikimedia) +
 en Montserrat Regular, le E en trois barres vert / jaune / orange. Assets `?v=81` (les PDF des guides sont
 chargés via `asset()`, donc le ?v du script suffit).
 
+**Site century21-kadima.fr (dépôt kadima-site, 12/10 nuit)** : bouton « Accès collaborateurs » retiré du pied de
+page (`scripts/build.js`) ; `server/server.js` : `/admin/studio` (GET/POST) redirige vers
+`STUDIO_URL` = https://studio.century21-kadima.fr/mandat/, `/api/studio-codes/*` → 410 ; laissez-passer
+`#acces=` et codes collaborateurs supprimés. Déploiement Render à chaque push sur main. Modes d'emploi :
+`docs/connexion-conseillers.html` (1 page, conseillers) et `docs/guide-admin-direction.html` (admin / direction),
+PDF rendus par headless_shell `--print-to-pdf` (body `min-height: 0` sinon toujours 2 pages).
+
 **Attente de connexion (12/10, nuit)** : sur téléphone, le lien de l'e-mail s'ouvre dans le mini-navigateur de
 l'app mail (Gmail, Outlook) → session rangée au mauvais endroit (Adélaïde : « ça redemande tout »). Désormais la
 page qui a demandé le lien ATTEND : `/auth/request-link` rend `attente` (jeton 32 o, table `login_attentes`
