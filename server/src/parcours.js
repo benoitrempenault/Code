@@ -177,7 +177,6 @@ export function preparerMail(est, px, jalon, ag, modeles, proprietaires, extra) 
     documents_r1: documentsR1(typeBien(px.type_bien)), documents_r2: documentsR2(typeBien(px.type_bien)),
     // Courrier d'estimation : la fourchette saisie dans le livret (acm.courrier), sinon celle de l'ACM.
     fourchette_basse: extra && extra.fourchette_basse || "", fourchette_haute: extra && extra.fourchette_haute || "",
-    net_vendeur: extra && extra.net_vendeur || "", phrase_net_vendeur: extra && extra.phrase_net_vendeur || "",
     agence: ag.nom || "notre agence", agence_adresse: ag.adresse || "", lien_avis: ag.avis || AVIS_DEFAUT,
     conseiller: [px.conseiller_prenom, px.conseiller_nom].filter(Boolean).join(" ") || est.conseiller || "",
   };
@@ -1109,10 +1108,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     let acm = {}; try { acm = row ? JSON.parse(row.data) || {} : {}; } catch { acm = {}; }
     const cr = acm.courrier && typeof acm.courrier === "object" ? acm.courrier : {};
     const fmt = (v) => (Number(v) > 0 ? Math.round(Number(v)).toLocaleString("fr-FR") + " €" : "");
-    // Net vendeur : celui saisi pour le courrier, sinon le prix conseillé du livret (acm.prix).
-    const net = fmt(cr.net || acm.prix);
-    return { fourchette_basse: fmt(cr.basse || acm.basse), fourchette_haute: fmt(cr.haute || acm.haute), net_vendeur: net,
-      phrase_net_vendeur: net ? "Le prix net vendeur que nous vous conseillons est de " + net + "." : "" };
+    return { fourchette_basse: fmt(cr.basse || acm.basse), fourchette_haute: fmt(cr.haute || acm.haute) };
   };
   const bienEstimationDe = async (estId) => {
     const row = await db.get("SELECT data FROM crm_estimation_bien WHERE estimation_id = ?", [estId]);

@@ -1274,10 +1274,11 @@ hors plafond. Faux Resend des tests : un destinataire `refus@…` → 422.
 COMPTE CONNECTÉ qui envoie (`ctx.user.email`, sauf adresse `.interne` du compte partagé), sinon le
 conseiller du parcours, sinon l'agence ; la réponse rend `repondreA`. Relances automatiques d'estimés
 (`runEstimations`) : réponse au conseiller de l'estimation (profil avec e-mail), sinon l'agence.
-**Courrier d'estimation (12/10, toutes agences)** : champ « Prix net vendeur conseillé » (`ce-net`,
-pré-rempli de `acm.prix`, gardé dans `acm.courrier.net`), ligne « Prix net vendeur conseillé : X € » dans
-le cadre doré du PDF (82 pt au lieu de 58), variables `{net_vendeur}` / `{phrase_net_vendeur}` du modèle
-« Parcours — courrier d'estimation » (`fourchetteDe`). Bouton « 🖨 Imprimer » (modale du courrier et
+**Courrier d'estimation (12/10, toutes agences)** : la fourchette est suivie de « net vendeur » — dans le
+cadre doré du PDF (« entre X et Y » 19 pt puis « net vendeur » 11 pt gris sur la même ligne, debug
+`mention`) et dans le modèle « Parcours — courrier d'estimation » (« …entre {fourchette_basse} et
+{fourchette_haute} net vendeur. »). PAS de champ ni de prix « net vendeur conseillé » (Benoît l'a refusé).
+Bouton « 🖨 Imprimer » (modale du courrier et
 `documentPret`) → `imprimerPdf(url)` (iframe invisible + `print()`, repli : nouvel onglet). Envoi par
 e-mail en DEUX temps : « Envoyer » → pied « va partir à <destinataires>… Vous confirmez ? » avec « Non,
 je relis » / « ✅ Oui, envoyer » (`pm-confirme`, `pm-non`, `pm-oui`) ; smoke adapté.

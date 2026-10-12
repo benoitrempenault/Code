@@ -3223,27 +3223,23 @@
     const quandR2 = p.r2 ? " du " + dateFrCourte(p.r2) : "";
     // Espace normale entre les milliers : Barlow n'a pas l'espace fine insécable de fr-FR.
     const fmt = (v) => (Number(v) > 0 ? Math.round(Number(v)).toLocaleString("fr-FR").replace(/[\u202f\u00a0]/g, " ") + " €" : "");
-    const basse = fmt(courrier.basse), haute = fmt(courrier.haute), net = fmt(courrier.net);
+    const basse = fmt(courrier.basse), haute = fmt(courrier.haute);
     let y = 405;
     const para = (t, f, taille, pas, c) => { for (const l of couper(t, f || fR, taille || 11.5, 420)) { ecrire(l, 85, y, taille || 11.5, f || fR, c); y += pas || 16.5; } y += 8; };
     para(appel);
     para("Nous vous remercions de la confiance que vous nous accordez dans le cadre de votre projet immobilier. Suite à notre rendez-vous" + quandR2 + " et à l'analyse comparative du marché réalisée sur les biens vendus et en vente autour de chez vous, nous estimons la valeur de votre " + typeLib + (adresse ? " " + situe + " " + adresse : "") + " :");
     // La fourchette, mise en valeur dans un cadre doré.
     y += 2;
-    // Avec le net vendeur conseillé, le cadre gagne une ligne.
-    const hCadre = net ? 82 : 58;
-    pg.drawRectangle({ x: 85, y: h - (y + hCadre - 6), width: 425, height: hCadre, borderColor: or, borderWidth: 1.2, color: rgb255(0.98, 0.97, 0.94) });
+    pg.drawRectangle({ x: 85, y: h - (y + 52), width: 425, height: 58, borderColor: or, borderWidth: 1.2, color: rgb255(0.98, 0.97, 0.94) });
     const titreF = basse && haute ? "Fourchette d'estimation" : "Estimation";
     const valF = basse && haute ? "entre " + basse + " et " + haute : (haute || basse);
+    // Les montants sont suivis de « net vendeur » (Benoît, 12/10), plus petit, sur la même ligne.
+    const mention = " net vendeur", wVal = fB.widthOfTextAtSize(valF, 19), wMention = fR.widthOfTextAtSize(mention, 11);
+    const xVal = 85 + (425 - wVal - wMention) / 2;
     ecrire(titreF, 85 + (425 - fR.widthOfTextAtSize(titreF, 9.5)) / 2, y + 12, 9.5, fR, gris);
-    ecrire(valF, 85 + (425 - fB.widthOfTextAtSize(valF, 19)) / 2, y + 38, 19, fB, or);
-    if (net) {
-      const lNet = "Prix net vendeur conseillé : ", wNet = fR.widthOfTextAtSize(lNet, 10.5) + fB.widthOfTextAtSize(net, 11.5);
-      const xNet = 85 + (425 - wNet) / 2;
-      ecrire(lNet, xNet, y + 62, 10.5, fR, gris);
-      ecrire(net, xNet + fR.widthOfTextAtSize(lNet, 10.5), y + 62, 11.5, fB);
-    }
-    y += hCadre + 16;
+    ecrire(valF, xVal, y + 38, 19, fB, or);
+    ecrire(mention, xVal + wVal, y + 38, 11, fR, gris);
+    y += 74;
     const libre = String(courrier.texte || "").trim();
     if (libre) for (const bloc of libre.split(/\n\s*\n|\n/).map((t) => t.trim()).filter(Boolean)) para(bloc);
     para("Cette estimation est établie au vu du marché actuel et des biens comparables ; elle ne constitue pas une expertise et pourra être ajustée avec vous au moment de la mise en vente.", fR, 10, 14.5, gris);
@@ -3255,7 +3251,7 @@
     ecrire(prenom || nomCs ? [prenom, nomCs].filter(Boolean).join(" ") : (ag.nom || "L'équipe de l'agence"), 330, ySig, 12.5, fB);
     ecrire(cs.fonction || "Conseiller immobilier", 330, ySig + 16, 10.5, fI, gris);
     ecrire([fmtTel(cs.telephone), cs.email].filter(Boolean).join(" · "), 330, ySig + 31, 9.5, fR, gris);
-    return { conseiller: [prenom, nomCs].filter(Boolean).join(" "), basse, haute, net, libre: !!libre, photo, agence: ag.nom || "" };
+    return { conseiller: [prenom, nomCs].filter(Boolean).join(" "), basse, haute, mention: mention.trim(), libre: !!libre, photo, agence: ag.nom || "" };
   }
   const rgb255 = (r, g, b) => window.PDFLib.rgb(r, g, b);
   // Imprimer un PDF (URL blob) sans quitter la page : cadre invisible + boîte
@@ -3483,17 +3479,16 @@
     let acm = {};
     try { acm = (await api("/crm/parcours/" + id + "/acm")).acm || {}; } catch { acm = {}; }
     const cr = acm.courrier && typeof acm.courrier === "object" ? acm.courrier : {};
-    const basse = cr.basse || acm.basse || "", haute = cr.haute || acm.haute || "", net = cr.net || acm.prix || "";
+    const basse = cr.basse || acm.basse || "", haute = cr.haute || acm.haute || "";
     ouvrirModale("📨 Courrier d'estimation",
-      '<p class="aide">La fourchette et le prix net vendeur reprennent ceux du livret prix ; ajustez-les, ajoutez un mot personnel, puis imprimez le courrier ou envoyez-le par e-mail en pièce jointe (l\'envoi se confirme en deux temps), signé ' +
+      '<p class="aide">La fourchette (net vendeur) reprend celle du livret prix ; ajustez-la, ajoutez un mot personnel, puis imprimez le courrier ou envoyez-le par e-mail en pièce jointe (l\'envoi se confirme en deux temps), signé ' +
       (p.conseiller ? "<strong>" + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + "</strong>" : "<strong>de l'agence</strong> (choisissez le conseiller sur la fiche)") + ".</p>" +
       '<div class="grille-champs"><label>Fourchette basse (€)<input id="ce-basse" type="number" step="1000" value="' + escH(basse) + '" /></label>' +
-      '<label>Fourchette haute (€)<input id="ce-haute" type="number" step="1000" value="' + escH(haute) + '" /></label>' +
-      '<label>Prix net vendeur conseillé (€)<input id="ce-net" type="number" step="1000" value="' + escH(net) + '" /></label></div>' +
+      '<label>Fourchette haute (€)<input id="ce-haute" type="number" step="1000" value="' + escH(haute) + '" /></label></div>' +
       '<label style="display:block; margin-top:10px;">Votre mot (facultatif)<textarea id="ce-texte" style="width:100%; min-height:140px; margin-top:4px; font:14px/1.5 inherit;" placeholder="Ce qui justifie la fourchette, les atouts du bien, votre conseil sur le prix de présentation…">' + escH(cr.texte || "") + "</textarea></label>" +
       '<p class="petit">Le courrier est écrit sur le papier à en-tête de l\'agence, avec la photo et les coordonnées du conseiller.</p>',
       '<button class="btn" id="ce-retour">Retour</button><button class="btn" id="ce-apercu">📄 Aperçu PDF</button><button class="btn" id="ce-imprimer">🖨 Imprimer</button><button class="btn btn-or" id="ce-envoyer">✉️ Envoyer par e-mail</button>');
-    const lire = () => ({ basse: parseFloat($("ce-basse").value) || 0, haute: parseFloat($("ce-haute").value) || 0, net: parseFloat($("ce-net").value) || 0, texte: $("ce-texte").value.trim() });
+    const lire = () => ({ basse: parseFloat($("ce-basse").value) || 0, haute: parseFloat($("ce-haute").value) || 0, texte: $("ce-texte").value.trim() });
     const sauver = async () => { const courrier = lire(); await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: { ...acm, courrier } }); acm.courrier = courrier; return courrier; };
     const verifier = (c) => { if (!c.basse && !c.haute) throw new Error("Indiquez au moins une valeur de la fourchette."); if (c.basse && c.haute && c.basse > c.haute) throw new Error("La fourchette basse dépasse la fourchette haute."); };
     $("ce-retour").addEventListener("click", () => ouvrirParcours(id));

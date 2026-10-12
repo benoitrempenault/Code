@@ -313,8 +313,6 @@ export default async function () {
     await page.waitForSelector("#ce-apercu", { timeout: 8000 });
     ok(await page.inputValue("#ce-basse") === "320000" && await page.inputValue("#ce-haute") === "340000", "le courrier reprend la fourchette du livret (320 000 – 340 000 €)");
     await page.fill("#ce-haute", "345000");
-    ok(await page.inputValue("#ce-net") === "330000", "le prix net vendeur conseillé reprend celui du livret (330 000 €) — " + JSON.stringify(await page.inputValue("#ce-net")));
-    await page.fill("#ce-net", "335000");
     await page.fill("#ce-texte", "Votre maison bénéficie d'un terrain rare dans le quartier.\nNous vous conseillons un prix de présentation à 345 000 €.");
     try { await page.screenshot({ path: new URL("./captures/courrier-saisie.png", import.meta.url).pathname }); } catch { }
     await page.click("#ce-apercu");
@@ -324,7 +322,7 @@ export default async function () {
       return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength, debug: window.__dernierGuide.debug, fichier: window.__dernierGuide.fichier };
     });
     const sansFines = (t) => String(t || "").replace(/[\u202f\u00a0]/g, " ");
-    ok(courrier.pages === 1 && /Courrier d'estimation/.test(courrier.titre) && sansFines(courrier.debug.basse) === "320 000 €" && sansFines(courrier.debug.haute) === "345 000 €" && sansFines(courrier.debug.net) === "335 000 €" && courrier.debug.libre && courrier.debug.conseiller === "Teddy BESSON" && courrier.fichier === "courrier-estimation-mouneyres.pdf",
+    ok(courrier.pages === 1 && /Courrier d'estimation/.test(courrier.titre) && sansFines(courrier.debug.basse) === "320 000 €" && sansFines(courrier.debug.haute) === "345 000 €" && courrier.debug.mention === "net vendeur" && courrier.debug.libre && courrier.debug.conseiller === "Teddy BESSON" && courrier.fichier === "courrier-estimation-mouneyres.pdf",
       "le courrier d'estimation est assemblé : une page, fourchette retouchée, mot libre, signé du conseiller (" + JSON.stringify({ pages: courrier.pages, titre: courrier.titre, fichier: courrier.fichier, ...courrier.debug }) + ")");
     await garderGuide(page, courrier.octets, "courrier-estimation-smoke.pdf");
     await page.click("#doc-retour");
@@ -334,8 +332,8 @@ export default async function () {
     ok(await page.inputValue("#ce-haute") === "345000" && /terrain rare/.test(await page.inputValue("#ce-texte")), "la fourchette retouchée et le mot sont retrouvés à la réouverture");
     await page.click("#ce-envoyer");
     await page.waitForSelector("#pm-envoyer", { timeout: 20000 });
-    ok(/courrier-estimation-mouneyres\.pdf/.test(await page.textContent("#pm-piece")) && /entre 320 000 € et 345 000 €/.test(sansFines(await page.inputValue("#pm-texte"))) && /net vendeur que nous vous conseillons est de 335 000 €/.test(sansFines(await page.inputValue("#pm-texte"))),
-      "l'e-mail du courrier annonce la pièce jointe et reprend la fourchette et le net vendeur dans le texte");
+    ok(/courrier-estimation-mouneyres\.pdf/.test(await page.textContent("#pm-piece")) && /entre 320 000 € et 345 000 €/.test(sansFines(await page.inputValue("#pm-texte"))) && /345 000 € net vendeur/.test(sansFines(await page.inputValue("#pm-texte"))),
+      "l'e-mail du courrier annonce la pièce jointe et reprend la fourchette, suivie de « net vendeur »");
     try { await page.screenshot({ path: new URL("./captures/courrier-mail.png", import.meta.url).pathname }); } catch { }
     const nbMailsAvant = (await (await fetch("http://localhost:18795/__mails")).json()).length;
     // Double validation : le premier clic demande confirmation, rien ne part.
