@@ -1379,6 +1379,19 @@ carte des codes collaborateurs du site et `kadima-code.js` retirés. Suivi et Pe
 l'écran d'accueil demande le lien e-mail (`/auth/request-link` avec `retour`). Smoke `compte` sans Brevo →
 pas de code.
 
+**Attente du lien sur iPhone « écran d'accueil » (12/10, nuit)** : une app ajoutée à l'écran d'accueil est
+mise en PAUSE pendant la lecture de l'e-mail et parfois relancée à blanc (sessionStorage perdu). Serveur :
+une attente compte comme « vivante » dès que `dernier_poll > 0` (quel que soit son âge) ; `/auth/exchange`
+la passe alors en `confirmee` SANS consommer le jeton et répond `{attente:true, ici_possible:true}` ;
+c'est `/auth/attente` qui réclame le jeton au réveil de la page (`UPDATE login_tokens … used=0` atomique,
+sinon `refusee`) ; `{ici:true}` consomme le jeton ici et clôt les attentes. Client `compte.js` (?v=13) :
+`studio-compte-lien-attente` et `studio-compte-attente` en **localStorage** avec expiration (16 min / 30 min,
+`lireLocal/ecrireLocal/effacerLocal`, repli sessionStorage), `visibilitychange` → tour immédiat au retour
+sur la page, et sur la page du lien un bouton « Je n'ai plus cette page — ouvrir ma session ici »
+(`ici_possible`). Côté site (kadima-site, commit 754eb24) : `manifest.webmanifest` `display: "browser"`
+pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une app isolée n'a pas le
+localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
+
 **Accès, choix 1 — porte collaborateurs FERMÉE (12/10, soir)** : plus de compte partagé « Collaborateurs
 Kadima ». `POST /auth/kadima` répond toujours **410** `{ ferme: true, compte: <app_base>/compte.html }` (le
 site century21-kadima.fr renvoie encore vers `#acces=`) ; `sessionFrom` refuse toute session d'un compte

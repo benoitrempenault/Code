@@ -341,6 +341,10 @@ export function createApp(env) {
     await db.run("UPDATE login_attentes SET dernier_poll = ? WHERE attente_hash = ?", [now(), row.attente_hash]);
     if (row.etat === "attente") return c.json({ etat: "attente" });
     if (row.etat === "consommee" || row.etat === "refusee") return c.json({ etat: row.etat });
+    // Lien cliqué : c'est maintenant que la page qui attend consomme le lien
+    // (atomique) — s'il a servi entre-temps (« ouvrir ici »), elle est prévenue.
+    const claim = await db.run("UPDATE login_tokens SET used = 1 WHERE token_hash = ? AND used = 0 AND expires_at > ?", [row.token_hash, now()]);
+    if (changesOf(claim) !== 1) { await db.run("UPDATE login_attentes SET etat = 'refusee' WHERE attente_hash = ?", [row.attente_hash]); return c.json({ etat: "refusee" }); }
     const user = await db.get("SELECT * FROM users WHERE id = ?", [row.user_id]);
     if (!user) return err(c, 401, "Compte introuvable.");
     const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [user.agency_id]);
@@ -367,10 +371,20 @@ export function createApp(env) {
     const att = await db.get(
       `SELECT a.attente_hash, a.dernier_poll, a.created_at, COALESCE(p.nom, '') AS nom, COALESCE(p.ip, '') AS ip
        FROM login_attentes a LEFT JOIN login_attentes_appareil p ON p.attente_hash = a.attente_hash WHERE a.token_hash = ? AND a.etat = 'attente'`, [hash]);
-    const attenteVivante = !!(att && att.dernier_poll > now() - ATTENTE_VIVANTE);
+    // Une page attend si elle a interrogé au moins une fois (sur iPhone, une page
+    // mise en pause pendant qu'on lit l'e-mail n'interroge plus : elle compte
+    // quand même, et reprend dès qu'on revient dessus).
+    const attenteVivante = !!(att && att.dernier_poll > 0);
     if (attenteVivante && !body.ici && att.ip !== ipDe(c) && !body.confirmer) {
       return c.json({ ok: true, attente: true, aConfirmer: true, appareil: att.nom || "un autre appareil", demande_le: att.created_at,
         message: "Une connexion est en attente sur un autre appareil : " + (att.nom || "appareil inconnu") + ". Est-ce vous ?" });
+    }
+    if (attenteVivante && !body.ici) {
+      // Confirmé SANS consommer le lien : c'est la page qui attend qui le
+      // consomme en ouvrant sa session — ou cette page-ci, si l'autre a été
+      // fermée (« ouvrir ma session ici »).
+      await db.run("UPDATE login_attentes SET etat = 'confirmee' WHERE attente_hash = ?", [att.attente_hash]);
+      return c.json({ ok: true, attente: true, ici_possible: true, message: "Connexion confirmée : retournez dans Studio, sur la page où vous avez saisi votre e-mail — elle se connecte toute seule. Si vous l'avez fermée, ouvrez votre session ici." });
     }
     // Consommation atomique : garantit qu'un même lien ne crée pas deux sessions
     // si deux requêtes arrivent en même temps (scanner + clic, double-onglet).
@@ -380,14 +394,10 @@ export function createApp(env) {
     if (!user) return err(c, 401, "Compte introuvable.");
     const agency = await db.get("SELECT * FROM agencies WHERE id = ?", [user.agency_id]);
     if (!agency || agency.status === "suspended") return err(c, 403, "Abonnement suspendu — contactez Studio Brochure.");
-    if (attenteVivante && !body.ici) {
-      await db.run("UPDATE login_attentes SET etat = 'confirmee' WHERE attente_hash = ?", [att.attente_hash]);
-      return c.json({ ok: true, attente: true, message: "Connexion confirmée : retournez dans Studio, sur la page où vous avez saisi votre e-mail — elle se connecte toute seule. Vous pouvez fermer celle-ci." });
-    }
-    if (att && body.ici) await db.run("UPDATE login_attentes SET etat = 'refusee' WHERE attente_hash = ?", [att.attente_hash]);
+    // Session ouverte ici : toute attente de ce lien (en cours ou confirmée) est close.
+    await db.run("UPDATE login_attentes SET etat = 'refusee' WHERE token_hash = ? AND etat IN ('attente', 'confirmee')", [hash]);
     return c.json(await ouvrirSessionEtRepondre(c, user, agency));
   });
-  const ATTENTE_VIVANTE = 60; // s : une page qui n'a pas interrogé depuis n'attend plus
   // Ouvrir la session de l'appareil qui fait la requête, avec le second facteur
   // s'il y a lieu ; renvoie le corps de réponse (session, user, agency, verification).
   async function ouvrirSessionEtRepondre(c, user, agency) {

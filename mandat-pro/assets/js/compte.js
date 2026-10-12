@@ -136,8 +136,23 @@
       // Une autre page (celle où l'e-mail a été saisi) attend ce lien : c'est elle qui se connecte.
       show("cardLogin");
       $("#btnConfirm").hidden = true;
-      $("#loginMsg").className = "msg is-ok";
-      $("#loginMsg").textContent = r.data.message || "Connexion confirmée : retournez dans Studio sur la page où vous avez saisi votre e-mail, elle se connecte toute seule. Vous pouvez fermer celle-ci.";
+      const msg = $("#loginMsg");
+      msg.className = "msg is-ok";
+      msg.textContent = r.data.message || "Connexion confirmée : retournez dans Studio sur la page où vous avez saisi votre e-mail, elle se connecte toute seule. Vous pouvez fermer celle-ci.";
+      if (r.data.ici_possible) {
+        // La page qui attendait a peut-être été fermée (app d'écran d'accueil
+        // relancée à blanc) : on peut ouvrir la session ici, en secours.
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "btn"; b.style.marginTop = "10px"; b.textContent = "Je n'ai plus cette page — ouvrir ma session ici";
+        b.addEventListener("click", async function () {
+          b.disabled = true;
+          const r2 = await api("/auth/exchange", { body: { token: token, ici: true } }).catch(function () { return { status: 0 }; });
+          if (r2.status === 200 && r2.data && r2.data.session) { arreterAttente(); await terminerConnexion(r2.data); return; }
+          b.disabled = false;
+          msg.className = "msg is-error"; msg.textContent = (r2.data && r2.data.error) || "Lien déjà utilisé ou expiré — redemandez un lien.";
+        });
+        msg.appendChild(b);
+      }
       return;
     }
     if (r.status === 200 && r.data && r.data.session) {
@@ -162,18 +177,34 @@
      l'application mail : la session y serait perdue. Alors c'est CETTE page qui
      attend (jeton d'attente) et se connecte dès que le lien est cliqué, où que
      ce soit — avec le code SMS ici s'il y a lieu.                               */
+  // Stockage LOCAL (pas de session) : une app « écran d'accueil » d'iPhone met la
+  // page en pause pendant qu'on lit l'e-mail, et la relance parfois à blanc —
+  // l'attente doit survivre à ça (elle expire d'elle-même au bout de 16 min).
   const SS_LIEN = "studio-compte-lien-attente", ATTENTE_MAX_MS = 16 * 60 * 1000;
-  let attenteTimer = null;
+  function lireLocal(cle, maxMs) {
+    let v = null;
+    try { v = JSON.parse(localStorage.getItem(cle) || "null"); } catch (e) { }
+    if (!v) { try { v = JSON.parse(sessionStorage.getItem(cle) || "null"); } catch (e) { } }
+    if (v && maxMs && Date.now() - (v.depuis || 0) > maxMs) { effacerLocal(cle); return null; }
+    return v;
+  }
+  function ecrireLocal(cle, v) { v.depuis = v.depuis || Date.now(); try { localStorage.setItem(cle, JSON.stringify(v)); } catch (e) { try { sessionStorage.setItem(cle, JSON.stringify(v)); } catch (e2) { } } }
+  function effacerLocal(cle) { try { localStorage.removeItem(cle); } catch (e) { } try { sessionStorage.removeItem(cle); } catch (e) { } }
+  let attenteTimer = null, attenteTour = null;
   function demarrerAttente(a) {
-    try { sessionStorage.setItem(SS_LIEN, JSON.stringify({ attente: a, depuis: Date.now() })); } catch (e) { }
+    if (attenteTimer) { clearTimeout(attenteTimer); attenteTimer = null; }
+    ecrireLocal(SS_LIEN, { attente: a, depuis: Date.now() });
     reprendreAttente();
   }
-  function arreterAttente() { if (attenteTimer) { clearTimeout(attenteTimer); attenteTimer = null; } try { sessionStorage.removeItem(SS_LIEN); } catch (e) { } }
+  function arreterAttente() { if (attenteTimer) { clearTimeout(attenteTimer); attenteTimer = null; } attenteTour = null; effacerLocal(SS_LIEN); }
   function reprendreAttente() {
-    let l = null; try { l = JSON.parse(sessionStorage.getItem(SS_LIEN) || "null"); } catch (e) { }
-    if (!l || !l.attente || Date.now() - (l.depuis || 0) > ATTENTE_MAX_MS) { arreterAttente(); return false; }
+    const l = lireLocal(SS_LIEN, ATTENTE_MAX_MS);
+    if (!l || !l.attente) { arreterAttente(); return false; }
     const tour = async function () {
+      if (attenteTour !== tour) return;
+      attenteTimer = null;
       const r = await api("/auth/attente", { body: { attente: l.attente } }).catch(function () { return { status: 0 }; });
+      if (attenteTour !== tour) return;
       if (r.status === 200 && r.data && r.data.etat === "prete") { arreterAttente(); await terminerConnexion(r.data); return; }
       if (r.status === 200 && r.data && r.data.etat === "refusee") {
         arreterAttente();
@@ -185,14 +216,22 @@
       if (Date.now() - l.depuis > ATTENTE_MAX_MS) { arreterAttente(); return; }
       attenteTimer = setTimeout(tour, 3000);
     };
+    attenteTour = tour;
     attenteTimer = setTimeout(tour, 2000);
     return true;
   }
+  // Retour sur la page (app d'écran d'accueil reprise après l'e-mail) : on
+  // interroge tout de suite au lieu d'attendre le prochain tour.
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState !== "visible" || !attenteTour) return;
+    if (attenteTimer) clearTimeout(attenteTimer);
+    attenteTimer = setTimeout(attenteTour, 50);
+  });
   // Session reçue (lien ouvert ici, ou page en attente) : code si besoin, sinon connecté.
   async function terminerConnexion(d) {
     if (d.verification && d.verification.requis) {
       const att = { session: d.session, user: d.user, agency: d.agency, verification: d.verification };
-      try { sessionStorage.setItem(SS_ATTENTE, JSON.stringify(att)); } catch (e) { }
+      ecrireLocal(SS_ATTENTE, att);
       showCode(att);
       return;
     }
@@ -202,9 +241,9 @@
   }
 
   /* --------------- Code de connexion sur un nouvel appareil --------------- */
-  const SS_ATTENTE = "studio-compte-attente";
-  function attenteLue() { try { return JSON.parse(sessionStorage.getItem(SS_ATTENTE) || "null"); } catch (e) { return null; } }
-  function attenteVidee() { try { sessionStorage.removeItem(SS_ATTENTE); } catch (e) { } }
+  const SS_ATTENTE = "studio-compte-attente", CODE_MAX_MS = 30 * 60 * 1000;
+  function attenteLue() { return lireLocal(SS_ATTENTE, CODE_MAX_MS); }
+  function attenteVidee() { effacerLocal(SS_ATTENTE); }
   function texteEnvoi(v) {
     if (!v) return "Un code vient de vous être envoyé.";
     return v.canal === "email"
@@ -250,7 +289,7 @@
     const r = await api("/auth/code/envoyer", { auth: att.session, body: canal ? { canal: canal } : {} }).catch(function () { return { status: 0 }; });
     if (r.status === 200 && r.data && r.data.ok) {
       att.verification = Object.assign({}, att.verification, r.data);
-      try { sessionStorage.setItem(SS_ATTENTE, JSON.stringify(att)); } catch (e) { }
+      ecrireLocal(SS_ATTENTE, att);
       $("#codeHint").textContent = texteEnvoi(att.verification);
       msg.className = "msg is-ok"; msg.textContent = "Nouveau code envoyé.";
       if (r.data.dev_code) { msg.textContent += " (mode dev : " + r.data.dev_code + ")"; $("#codeInput").value = r.data.dev_code; }

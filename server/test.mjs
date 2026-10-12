@@ -302,6 +302,21 @@ console.log("— Attente de connexion : la page qui a demandé le lien se connec
   const rl2 = await call("/auth/request-link", { body: { email: "claire@azur-immo.fr" } });
   const ex2 = await call("/auth/exchange", { body: { token: rl2.json.dev_token } });
   ok(ex2.status === 200 && ex2.json.session && !ex2.json.attente, "sans page en attente (aucune interrogation), le lien ouvre la session là où il est cliqué, comme avant");
+  // Page en pause (iPhone dans l'app Mail) : elle a interrogé une fois il y a longtemps — elle compte quand même.
+  const rl2b = await call("/auth/request-link", { body: { email: "claire@azur-immo.fr" } });
+  await call("/auth/attente", { body: { attente: rl2b.json.attente } });
+  await db.run("UPDATE login_attentes SET dernier_poll = ? WHERE attente_hash = ?", [Math.floor(Date.now() / 1000) - 600, await sha256hex(rl2b.json.attente)]);
+  const ex2b = await call("/auth/exchange", { body: { token: rl2b.json.dev_token } });
+  ok(ex2b.json.attente === true && ex2b.json.ici_possible === true && !ex2b.json.session, "une page en pause depuis 10 min compte encore : confirmée, « ouvrir ici » proposé");
+  ok((await call("/auth/attente", { body: { attente: rl2b.json.attente } })).json.etat === "prete", "… et au réveil, la page reçoit sa session");
+  ok((await call("/auth/exchange", { body: { token: rl2b.json.dev_token, ici: true } })).status === 401, "le lien, consommé par la page qui attendait, ne sert plus « ici »");
+  // Page fermée : après la confirmation, « ouvrir ici » consomme le lien et prévient l'attente.
+  const rl2c = await call("/auth/request-link", { body: { email: "claire@azur-immo.fr" } });
+  await call("/auth/attente", { body: { attente: rl2c.json.attente } });
+  ok((await call("/auth/exchange", { body: { token: rl2c.json.dev_token } })).json.ici_possible === true, "confirmé sans consommer le lien");
+  const iciC = await call("/auth/exchange", { body: { token: rl2c.json.dev_token, ici: true } });
+  ok(iciC.status === 200 && iciC.json.session && (await call("/auth/attente", { body: { attente: rl2c.json.attente } })).json.etat === "refusee", "« ouvrir ici » après confirmation : session ici, la page qui attendait est prévenue");
+  await db.run("DELETE FROM login_tokens", []);
   ok((await call("/auth/attente", { body: { attente: "x".repeat(30) } })).json.etat === "attente", "jeton inconnu : réponse neutre");
   await db.run("DELETE FROM login_tokens", []);
   // L'appareil qui clique n'est pas celui qui attend (autre IP) : « c'est vous ? » avant tout,
