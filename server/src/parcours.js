@@ -169,6 +169,18 @@ export function preparerMail(est, px, jalon, ag, modeles, proprietaires, extra) 
   const modele = surchargeModele({ modeles }, cle) || MODELES[cle];
   if (!modele) throw new Error("Jalon inconnu : " + jalon);
   const adresseBien = [est.adresse, [px.cp, est.ville].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  // Le lieu du R2 (Benoît, 13/10) : l'agence choisie dans le mail, ou le
+  // domicile du client ; par défaut l'agence du conseiller. Un texte type
+  // réécrit par l'agence qui dit encore « à notre agence située
+  // {agence_adresse} » suit aussi le choix.
+  const lieu = extra && extra.lieu_r2 ? extra.lieu_r2 : null;
+  const agLieu = lieu && lieu.agence ? lieu.agence : ag;
+  const lieuR2 = lieu && lieu.cle === "domicile"
+    ? "à votre domicile" + (adresseBien ? ", " + adresseBien : "")
+    : lieu && lieu.agence && libelleAgence(lieu.agence)
+      ? "à notre agence " + libelleAgence(lieu.agence) + (lieu.agence.adresse ? ", située " + lieu.agence.adresse : "")
+      : "à notre agence située " + (agLieu.adresse || "");
+  const texteModele = String(modele.texte || "").replace(/à notre agence située \{agence_adresse\}/g, "{lieu_r2}");
   const vars = {
     civilite_nom: civiliteNoms(px.civilite, est.nom, proprietaires), prenom: px.prenom || "", nom: est.nom || "",
     date_r1: dateFr(est.r1, px.r1_heure), date_r2: dateFr(est.r2, px.r2_heure),
@@ -177,10 +189,28 @@ export function preparerMail(est, px, jalon, ag, modeles, proprietaires, extra) 
     documents_r1: documentsR1(typeBien(px.type_bien)), documents_r2: documentsR2(typeBien(px.type_bien)),
     // Courrier d'estimation : la fourchette saisie dans le livret (acm.courrier), sinon celle de l'ACM.
     fourchette_basse: extra && extra.fourchette_basse || "", fourchette_haute: extra && extra.fourchette_haute || "",
-    agence: ag.nom || "notre agence", agence_adresse: ag.adresse || "", lien_avis: ag.avis || AVIS_DEFAUT,
+    agence: ag.nom || "notre agence", agence_adresse: agLieu.adresse || "", lieu_r2: lieuR2, lien_avis: ag.avis || AVIS_DEFAUT,
     conseiller: [px.conseiller_prenom, px.conseiller_nom].filter(Boolean).join(" ") || est.conseiller || "",
   };
-  return { sujet: remplirModele(modele.sujet, vars), texte: remplirModele(modele.texte, vars), vars };
+  return { sujet: remplirModele(modele.sujet, vars), texte: remplirModele(texteModele, vars), vars };
+}
+// « CENTURY 21 Kadima Bordeaux Caudéran » → « Bordeaux Caudéran » (le nom du point de vente seul).
+export function libelleAgence(a) {
+  return String((a && a.nom) || "").replace(/^century\s*21\s*/i, "").replace(/^kadima\s*/i, "").replace(/^[—–-]\s*/, "").trim();
+}
+// Les lieux possibles du R2 pour une agence : ses points de vente, puis le
+// domicile du client. `cle` demandé → le lieu, sinon null (défaut : l'agence du conseiller).
+export function lieuxR2(reglages, ag) {
+  const pvs = (reglages.agences || []).filter((a) => a && a.cle && a.nom);
+  const lieux = pvs.length ? pvs.map((a) => ({ cle: a.cle, libelle: libelleAgence(a) || a.nom })) : [{ cle: "agence", libelle: "À notre agence" }];
+  lieux.push({ cle: "domicile", libelle: "Au domicile du client" });
+  const defaut = (ag && ag.pv && pvs.some((a) => a.cle === ag.pv)) ? ag.pv : lieux[0].cle;
+  return { lieux, defaut, pour: (cle) => {
+    cle = String(cle || "");
+    if (cle === "domicile") return { cle, agence: null };
+    // L'agence choisie avec les repli de l'identité générale (adresse absente du point de vente…).
+    return pvs.some((x) => x.cle === cle) ? { cle, agence: agencePour(reglages, { agence: cle }) } : null;
+  } };
 }
 
 // Les sur-titres ne répètent plus le titre (« Merci de votre confiance » au-dessus
@@ -919,11 +949,14 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!p) return err(c, 404, "Fiche introuvable.");
     const reglages = await getReglages(db, ctx.agency);
     const ag = agencePour(reglages, p.conseiller);
-    const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles, p.proprietaires, await fourchetteDe(p.est.id));
+    const lr2 = lieuxR2(reglages, ag);
+    const lieu = jalon === "entre-r1-r2" ? lr2.pour(c.req.query("lieu")) : null;
+    const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles, p.proprietaires, { ...(await fourchetteDe(p.est.id)), lieu_r2: lieu });
     // ?sujet=&texte= : le rendu du texte relu par le conseiller, avant envoi.
     const relu = { sujet: strip(c.req.query("sujet"), 200) || prep.sujet, texte: String(c.req.query("texte") || "").slice(0, 8000) || prep.texte };
     const html = composerMail(relu, jalon, ag, p.conseiller, p.conseiller && p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "");
-    return c.json({ jalon, sujet: prep.sujet, texte: prep.texte, html, destinataires: await emailsDe(ctx.agency.id, p.est) });
+    return c.json({ jalon, sujet: prep.sujet, texte: prep.texte, html, destinataires: await emailsDe(ctx.agency.id, p.est),
+      ...(jalon === "entre-r1-r2" ? { lieux: lr2.lieux, lieu: lieu ? lieu.cle : lr2.defaut } : {}) });
   });
 
   // Envoi d'un jalon, avec le texte relu par le conseiller.
@@ -938,7 +971,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!destinataires.length) return err(c, 400, "Aucune adresse e-mail sur cette fiche.");
     const reglages = await getReglages(db, ctx.agency);
     const ag = agencePour(reglages, p.conseiller);
-    const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles, p.proprietaires, await fourchetteDe(p.est.id));
+    const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles, p.proprietaires, { ...(await fourchetteDe(p.est.id)), lieu_r2: jalon === "entre-r1-r2" ? lieuxR2(reglages, ag).pour(b.lieu) : null });
     // Le courrier d'estimation part en pièce jointe (PDF assemblé dans le navigateur, base64).
     let attachments = null;
     if (jalon === "courrier-estimation") {

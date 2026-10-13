@@ -1392,6 +1392,17 @@ sur la page, et sur la page du lien un bouton « Je n'ai plus cette page — ouv
 pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une app isolée n'a pas le
 localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
 
+**Lieu du R2 dans le mail entre R1 et R2 (13/10)** : `{lieu_r2}` dans le modèle `parcours-entre-r1-r2`
+(« à notre agence Bordeaux Caudéran, située … » / « à votre domicile, <adresse du bien> » / défaut « à notre
+agence située {agence_adresse} » = agence du conseiller). `lieuxR2(reglages, ag)` (parcours.js) : points de
+vente de `reglages.agences` (libellé = nom sans « CENTURY 21 Kadima ») + `domicile` ; `apercu?lieu=` répond
+`lieux` + `lieu` pour ce seul jalon, `envoyer` accepte `lieu`. Un texte type réécrit qui dit encore « à notre
+agence située {agence_adresse} » suit aussi le choix (remplacé par {lieu_r2} au rendu), et `{agence_adresse}`
+devient celle de l'agence choisie. Client (admin.js ?v=86) : boutons radio « Lieu du R2 » dans la modale du
+mail ; changer de lieu REMPLACE le texte (toast). **COVAL retiré** des 4 guides (R1 p5, R2 p14) par
+`tools/guides/retirer-coval.py` (delete_image + rang Chausson / Cuisines Références / Plein Jour recentré sur
+les colonnes 137 / 297 / 463).
+
 **Mode d'emploi envoyé à l'équipe (12/10, nuit)** : `POST /crm/equipe/mode-emploi` (admin) — comptes des
 conseillers actifs + comptes sans profil, en copie cachée, l'admin en destinataire et en reply-to, au nom de
 l'agence (`wrapEmail`), PDF `administration/assets/mode-emploi-connexion.pdf` (copie du rendu de

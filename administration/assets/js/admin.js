@@ -4626,7 +4626,10 @@
   // rendu ; envoi à toutes les personnes de la fiche.
   async function preparerMailParcours(id, jalon, p, relu, piece) {
     let a;
-    try { a = await api("/crm/parcours/" + id + "/apercu?jalon=" + jalon); } catch (e) { toast(e.message, true); return; }
+    // Le lieu du R2 (mail entre R1 et R2) : l'agence choisie ou le domicile du client, gardé d'un aller-retour à l'autre.
+    let lieu = relu && relu.lieu ? relu.lieu : "";
+    try { a = await api("/crm/parcours/" + id + "/apercu?jalon=" + jalon + (lieu ? "&lieu=" + encodeURIComponent(lieu) : "")); } catch (e) { toast(e.message, true); return; }
+    if (a.lieux && a.lieu) lieu = a.lieu;
     // Retour de l'aperçu : le texte relu reste tel que le conseiller l'a laissé.
     if (relu) { a.sujet = relu.sujet; a.texte = relu.texte; }
     const etape = ETAPES_PARCOURS.find((e) => e.cle === jalon);
@@ -4636,15 +4639,27 @@
       (a.destinataires.length ? escH(a.destinataires.join(", ")) : "<strong>personne (pas d'e-mail sur la fiche)</strong>") + ", signé " +
       (p.conseiller ? "<strong>" + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + "</strong>" + escH([fmtTel(p.conseiller.telephone), p.conseiller.email].filter(Boolean).map((x) => " · " + x).join(""))
         : "<strong>de l'agence</strong> (choisissez le conseiller sur la fiche)") + ".</p>" +
+      (a.lieux ? '<div class="barre" id="pm-lieux" style="margin:0 0 8px; align-items:center; flex-wrap:wrap; gap:4px 12px;"><strong>Lieu du R2 :</strong> ' +
+        a.lieux.map((l) => '<label class="case" style="display:inline-flex; align-items:center; gap:4px; white-space:nowrap;"><input type="radio" name="pm-lieu" value="' + escH(l.cle) + '"' + (l.cle === lieu ? " checked" : "") + " /> " + escH(l.libelle) + "</label>").join("") + "</div>" : "") +
       '<div class="grille-champs"><label style="grid-column:1/-1;">Objet<input id="pm-sujet" value="' + escH(a.sujet) + '" /></label></div>' +
       '<textarea id="pm-texte" style="width:100%; min-height:320px; margin-top:10px; font:14px/1.5 inherit;">' + escH(a.texte) + "</textarea>" +
       '<p class="petit">Le texte type se modifie pour toute l\'agence dans Réglages → Bibliothèque des messages (« Parcours — … »).</p>',
       '<button class="btn" id="pm-annuler">Retour</button><button class="btn" id="pm-apercu">👁 Aperçu</button>' +
       '<button class="btn btn-or" id="pm-envoyer"' + (a.destinataires.length ? "" : " disabled") + ">✉️ Envoyer</button>");
     $("pm-annuler").addEventListener("click", () => ouvrirParcours(id));
+    // Changer de lieu réécrit le texte type (le texte relu à la main est remplacé : on le dit).
+    document.querySelectorAll('input[name="pm-lieu"]').forEach((r) => r.addEventListener("change", async () => {
+      if (!r.checked) return;
+      try {
+        const n = await api("/crm/parcours/" + id + "/apercu?jalon=" + jalon + "&lieu=" + encodeURIComponent(r.value));
+        lieu = n.lieu || r.value;
+        $("pm-sujet").value = n.sujet; $("pm-texte").value = n.texte;
+        toast("Texte mis à jour pour « " + (a.lieux.find((l) => l.cle === lieu) || {}).libelle + " »");
+      } catch (e) { toast(e.message, true); }
+    }));
     $("pm-apercu").addEventListener("click", async () => {
       // Le rendu avec le texte relu : on demande au serveur un aperçu à blanc.
-      const relu = { sujet: $("pm-sujet").value, texte: $("pm-texte").value };
+      const relu = { sujet: $("pm-sujet").value, texte: $("pm-texte").value, lieu };
       try {
         const r = await api("/crm/parcours/" + id + "/apercu?jalon=" + jalon + "&sujet=" + encodeURIComponent(relu.sujet) + "&texte=" + encodeURIComponent(relu.texte));
         const iframe = document.createElement("iframe"); iframe.className = "apercu-mail"; iframe.setAttribute("sandbox", ""); iframe.srcdoc = r.html;
@@ -4656,7 +4671,7 @@
     const envoyer = async (btn) => {
       btn.disabled = true; btn.textContent = "Envoi…";
       try {
-        const corps = { jalon, sujet: $("pm-sujet").value, texte: $("pm-texte").value };
+        const corps = { jalon, sujet: $("pm-sujet").value, texte: $("pm-texte").value, lieu: lieu || undefined };
         if (piece) { let b64 = ""; const u = new Uint8Array(piece.octets); for (let i = 0; i < u.length; i += 8192) b64 += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); corps.piece = { nom: piece.nom, contenu: btoa(b64) }; }
         const r = await api("/crm/parcours/" + id + "/envoyer", { json: corps });
         toast(r.envoyes + " e-mail(s) envoyé(s)" + (r.erreurs ? " · " + r.erreurs + " erreur(s)" : ""), r.erreurs > 0);
@@ -4669,7 +4684,7 @@
       if (jalon === "courrier-estimation") {
         $("modale-pied").innerHTML = '<span class="petit" id="pm-confirme">Le courrier d\'estimation (PDF joint) va partir à <strong>' + escH(a.destinataires.join(", ")) + "</strong>. Vous confirmez l'envoi ?</span>" +
           '<button class="btn" id="pm-non">Non, je relis</button><button class="btn btn-or" id="pm-oui">✅ Oui, envoyer</button>';
-        $("pm-non").addEventListener("click", () => preparerMailParcours(id, jalon, p, { sujet: $("pm-sujet").value, texte: $("pm-texte").value }, piece));
+        $("pm-non").addEventListener("click", () => preparerMailParcours(id, jalon, p, { sujet: $("pm-sujet").value, texte: $("pm-texte").value, lieu }, piece));
         $("pm-oui").addEventListener("click", () => envoyer($("pm-oui")));
         return;
       }

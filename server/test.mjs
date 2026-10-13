@@ -3835,6 +3835,18 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const apAg2 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
   ok(/François Mitterrand/.test(apAg2.texte) && /SAS Kadima/.test(apAg2.html) && /Saint-Médard-en-Jalles/.test(apAg2.html),
      "une agence sans adresse ni mentions reprend celles de l'identité générale");
+  // Le lieu du R2 se choisit dans le mail (Benoît, 13/10) : chaque point de vente, ou le domicile du client.
+  ok(Array.isArray(apAg2.lieux) && apAg2.lieux.length === agcs.length + 1 && apAg2.lieu === agcs[0].cle && apAg2.lieux[apAg2.lieux.length - 1].cle === "domicile" && apAg2.lieux.every((l) => l.libelle),
+     "le mail entre R1 et R2 propose les points de vente puis le domicile, l'agence du conseiller cochée (" + JSON.stringify(apAg2.lieux) + ")");
+  const apLieu = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2&lieu=" + encodeURIComponent(agcs[1].cle), { headers: authP })).json;
+  ok(apLieu.lieu === agcs[1].cle && /5 avenue de Caudéran/.test(apLieu.texte) && !/François Mitterrand/.test(apLieu.texte) && /à notre agence [^,]+, située 5 avenue de Caudéran/.test(apLieu.texte),
+     "lieu = une autre agence : le mail donne rendez-vous là-bas, avec son nom et son adresse");
+  const apDom = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2&lieu=domicile", { headers: authP })).json;
+  ok(apDom.lieu === "domicile" && /à votre domicile, [^\n]*33160/.test(apDom.texte) && !/notre agence/.test(apDom.texte) && !/François Mitterrand/.test(apDom.texte),
+     "lieu = domicile : « à votre domicile, » suivi de l'adresse du bien, plus d'adresse d'agence");
+  const apInc = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2&lieu=nulle-part", { headers: authP })).json;
+  ok(apInc.lieu === agcs[0].cle && /François Mitterrand/.test(apInc.texte) && !("lieux" in (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json),
+     "un lieu inconnu retombe sur l'agence du conseiller ; les autres jalons n'ont pas de lieu");
   // Les sociétés des points de vente Kadima (site century21-kadima.fr) : un
   // conseiller de Caudéran écrit sous les mentions de la SAS ICI CAUDERAN, un
   // conseiller de Blanquefort sous celles de KADIMA - TB (comme Saint-Médard),
