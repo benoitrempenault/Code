@@ -47,6 +47,13 @@ export default async function () {
     ok(/ [1-9]\d* avis sur [1-9]\d* conseiller/.test(toastAvis), "Réglages : le bouton relève les avis de tous les conseillers et dit combien (" + toastAvis.trim() + ")");
 
     await page.click('[data-onglet="parcours"]');
+    // Le mémo des nouveautés (14/10) s'ouvre à l'arrivée sur le Parcours ; « J'ai compris » le range pour ce compte.
+    await page.waitForSelector("#nv-compris", { timeout: 8000 });
+    ok(/le lieu du R2/.test(await page.textContent("#modale-titre")) && /Au domicile du client/.test(await page.textContent("#modale-corps")), "le mémo « Nouveau : le lieu du R2 » s'ouvre à la première ouverture du Parcours");
+    await page.click("#nv-compris");
+    await page.waitForSelector("#voile", { state: "hidden", timeout: 4000 });
+    await page.click('[data-onglet="contacts"]'); await page.click('[data-onglet="parcours"]'); await page.waitForTimeout(300);
+    ok(await page.evaluate(() => document.getElementById("voile").hidden && Object.keys(localStorage).some((k) => k.startsWith("studio-nouveautes-vues:") && /lieu-r2/.test(localStorage.getItem(k)))), "après « J'ai compris », le mémo ne revient plus (retenu pour ce compte)");
     await page.click("#btn-nouveau-parcours");
     await page.waitForSelector("#px-creer", { timeout: 6000 });
     await page.fill("#px-q", "mouney");
@@ -534,6 +541,12 @@ export default async function () {
     ok(ongletsVisibles.length === 1 && /Parcours R1\/R2/.test(ongletsVisibles[0]) && /Parcours R1\/R2/.test(await page.textContent("header h1"))
        && await page.isVisible("#panneau-parcours") && !(await page.isVisible("#panneau-contacts")) && (await page.locator("#ecran-connexion:not([hidden])").count()) === 0,
        "un conseiller n'a que l'onglet Parcours R1/R2, sans écran « Accès réservé » (" + ongletsVisibles.join(", ") + ")");
+    // Le mémo des nouveautés est par compte : Rémi le voit aussi ; « Plus tard » le referme sans le retenir.
+    await page.waitForSelector("#nv-plus-tard", { timeout: 8000 });
+    await page.click("#nv-plus-tard");
+    await page.waitForSelector("#voile", { state: "hidden", timeout: 4000 });
+    ok(/\/administration\/\?brique=parcours$/.test(page.url()) && (await page.locator("#btn-nouveau-parcours").count()) === 1, "refermer un mémo ouvert au chargement ne quitte pas la page (pas d'entrée d'historique sans geste)");
+    ok(!(await page.evaluate(() => { const a = JSON.parse(localStorage.getItem("studio-mandatpro-account") || "{}"); return localStorage.getItem("studio-nouveautes-vues:" + ((a.user || {}).id || "?")); })), "le mémo est par compte : le conseiller le voit à son tour, « Plus tard » ne le range pas");
     await page.click("#btn-nouveau-parcours");
     await page.waitForSelector("#px-creer", { timeout: 6000 });
     await page.fill("#px-q", "mouney");

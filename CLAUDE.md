@@ -1392,6 +1392,16 @@ sur la page, et sur la page du lien un bouton « Je n'ai plus cette page — ouv
 pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une app isolée n'a pas le
 localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
 
+**Mémo des nouveautés (14/10)** : `NOUVEAUTES` dans admin.js (?v=87) — `{ id, depuis, jours, titre, html }` ;
+`montrerNouveautes()` à chaque `activerOnglet("parcours")` (admin et mode conseiller), une fois par chargement,
+tant que `depuis ≤ aujourd'hui < depuis + jours`, sauf « J'ai compris » (localStorage
+`studio-nouveautes-vues:<user.id>` = date) ; « Plus tard » / croix referment seulement. Jamais par-dessus
+une fenêtre ouverte. Pour une prochaine nouveauté : ajouter une entrée. **Piège Chrome** : une entrée
+d'historique posée sans geste de l'utilisateur (modale ouverte au chargement) est sautée par le bouton
+précédent → `history.back()` sortait de la page ; `ouvrirModale` ne fait `pushState` qu'après
+`navigator.userActivation.hasBeenActive`. Smoke parcours-r1r2 : clique « J'ai compris » (admin) puis
+« Plus tard » (Rémi).
+
 **Lieu du R2 dans le mail entre R1 et R2 (13/10)** : `{lieu_r2}` dans le modèle `parcours-entre-r1-r2`
 (« à notre agence Bordeaux Caudéran, située … » / « à votre domicile, <adresse du bien> » / défaut « à notre
 agence située {agence_adresse} » = agence du conseiller). `lieuxR2(reglages, ag)` (parcours.js) : points de

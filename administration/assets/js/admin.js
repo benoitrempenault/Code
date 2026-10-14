@@ -150,7 +150,12 @@
     $("modale-titre").textContent = titre;
     $("modale-corps").innerHTML = corpsHtml;
     $("modale-pied").innerHTML = piedHtml || "";
-    if ($("voile").hidden && !(history.state && history.state.modale)) { try { history.pushState({ modale: true }, ""); } catch { /* sans historique */ } }
+    // Une entrée d'historique posée SANS geste de l'utilisateur (fenêtre ouverte
+    // toute seule au chargement, comme le mémo des nouveautés) est ignorée par
+    // le « précédent » de Chrome : history.back() sortirait alors de la page.
+    // On ne la pose qu'après un premier clic.
+    const geste = !navigator.userActivation || navigator.userActivation.hasBeenActive;
+    if (geste && $("voile").hidden && !(history.state && history.state.modale)) { try { history.pushState({ modale: true }, ""); } catch { /* sans historique */ } }
     $("voile").hidden = false;
     $("modale-corps").scrollTop = 0;
   }
@@ -4692,10 +4697,50 @@
     });
   }
 
+  /* ------------------------------ Nouveautés ------------------------------- */
+  // Un mémo à l'ouverture du Parcours R1/R2 : il revient à chaque ouverture
+  // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
+  // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
+  const NOUVEAUTES = [
+    { id: "lieu-r2", depuis: "2026-10-14", jours: 7, titre: "Nouveau : le lieu du R2 dans le mail entre R1 et R2",
+      html: '<p class="aide" style="max-width:none;">Quand vous préparez le mail <strong>entre R1 et R2</strong> (merci + confirmation de la restitution), une ligne <strong>Lieu du R2</strong> apparaît au-dessus de l\'objet :</p>' +
+        '<div class="barre" style="margin:0 0 14px; align-items:center; flex-wrap:wrap; gap:4px 12px; pointer-events:none;"><strong>Lieu du R2 :</strong>' +
+        ['Saint-Médard-en-Jalles', 'Bordeaux Caudéran', 'Saint-Aubin-de-Médoc', 'Blanquefort', 'Au domicile du client'].map((l, i) =>
+          '<label class="case" style="display:inline-flex; align-items:center; gap:4px; white-space:nowrap;"><input type="radio" tabindex="-1"' + (i === 0 ? " checked" : "") + " /> " + l + "</label>").join("") + "</div>" +
+        '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Votre agence est cochée d'office.</strong> Le texte donne rendez-vous « à notre agence située … » avec son adresse.</li>" +
+        "<li><strong>Un clic sur un autre lieu réécrit le texte</strong> : « à notre agence Bordeaux Caudéran, située 53 avenue Louis-Barthou… », ou « à votre domicile, » suivi de l'adresse du bien.</li>" +
+        "<li><strong>Choisissez le lieu avant vos retouches</strong> : changer de lieu remplace le texte (un petit message le rappelle).</li>" +
+        "</ul>" },
+  ];
+  const cleNouveautes = () => "studio-nouveautes-vues:" + (((account() || {}).user || {}).id || "anonyme");
+  function nouveautesVues() { try { return JSON.parse(localStorage.getItem(cleNouveautes()) || "{}") || {}; } catch (e) { return {}; } }
+  function nouveauteComprise(id) { const v = nouveautesVues(); v[id] = new Date().toISOString().slice(0, 10); try { localStorage.setItem(cleNouveautes(), JSON.stringify(v)); } catch (e) { } }
+  const nouveautesMontrees = new Set();
+  function montrerNouveautes() {
+    if (!$("voile").hidden) return; // une fenêtre est déjà ouverte : on ne passe pas devant
+    const vues = nouveautesVues(), auj = new Date();
+    const n = NOUVEAUTES.find((x) => {
+      if (vues[x.id] || nouveautesMontrees.has(x.id)) return false;
+      const fin = new Date(x.depuis + "T00:00:00"); fin.setDate(fin.getDate() + (x.jours || 7));
+      return auj >= new Date(x.depuis + "T00:00:00") && auj < fin;
+    });
+    if (!n) return;
+    nouveautesMontrees.add(n.id);
+    const jour = new Date(n.depuis + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+    ouvrirModale("✨ " + n.titre,
+      '<p class="petit" style="margin:0 0 12px;"><span class="puce">Nouveauté du ' + escH(jour) + "</span></p>" + n.html,
+      '<button class="btn" id="nv-plus-tard" title="Ce mémo reviendra à la prochaine ouverture du Parcours">Plus tard</button>' +
+      '<button class="btn btn-or" id="nv-compris">✅ J\'ai compris</button>');
+    $("nv-plus-tard").addEventListener("click", fermerModale);
+    $("nv-compris").addEventListener("click", () => { nouveauteComprise(n.id); fermerModale(); });
+  }
+
   /* ------------------------------ Navigation ------------------------------- */
   function activerOnglet(nom) {
     document.querySelectorAll(".onglet").forEach((b) => b.classList.toggle("actif", b.dataset.onglet === nom));
     document.querySelectorAll(".panneau").forEach((p) => p.classList.toggle("actif", p.id === "panneau-" + nom));
+    if (nom === "parcours") setTimeout(montrerNouveautes, 50);
   }
 
   /* ------------------------------ Démarrage -------------------------------- */
