@@ -1,0 +1,145 @@
+# Apps brochure — `/`, `pro/`, `mandat/`, `mandat-pro/`
+
+> Journal technique détaillé, déplacé tel quel depuis `CLAUDE.md` le 14/10/2026.
+> Les entrées sont datées et s'empilent : en cas de contradiction, l'entrée la plus récente
+> et le code font foi (ex. « no backend » plus bas est dépassé : il existe un serveur, `server/`).
+> Les règles transverses vivent dans `CLAUDE.md`.
+
+**Studio Brochure** — a dependency-free, static web app that generates elegant, print- and
+email-ready real-estate presentation brochures for buyers. The user fills in property
+details (or pastes raw notes and lets Claude write the copy), uploads photos, and exports a
+PDF (via print) or a self-contained HTML file. Built for Century 21 Kadima but generic.
+
+No build step, no framework, no backend. Plain HTML/CSS/vanilla JS, runnable from any static
+host (GitHub Pages) or a local `python3 -m http.server`.
+
+**Both apps now use a step-by-step wizard UI** (8 steps: type de bien and adresse required,
+diagnostics/photos/plans/surfaces skippable, fiche prestation, génération). Step 7 accepts
+pasted notes or a **photo/scan of handwritten notes** transcribed by `BrochureAI.extractNotes`
+(vision); step 8 generates the brochure plus a **texte publicitaire** via
+`BrochureAI.generateAdText` (factual, portal-style; stored in `state.adText`). The wizard logic
+lives in `assets/js/wizard.js` (Kadima flavour: settings overlay for agency/palette/API key,
+all steps unlocked since the app predates the wizard) and `pro/assets/js/wizard.js` (white-label
+flavour: first-run agency setup with logo upload, steps unlock as you advance). Voice dictation
+was removed (fiches are written at a desk, not on the phone).
+
+**`pro/` — the white-label brochure variant** (UI branded « Studio Brochure », formerly
+« Studio Immo » — all four apps now share the « Studio Brochure » brand; directory names and
+storage keys keep their historical names), lives alongside without touching
+the original app. Same engine (forked copies of `app.js`/`ai.js`/`geo.js`/`library.js` under
+`pro/assets/`), but **agency branding configured by the user** (logo/name/contacts in a settings
+overlay, persisted under `studio-pro-agency`, re-applied to every fiche; no Century 21 assets
+anywhere in `pro/`), and separate storage keys (`studio-pro-v1`, `studio-pro-aikey`, IndexedDB
+`studio-pro`). Deployed at `/pro/` by the same Pages workflow, with the marketing site at
+`/site/`. When changing the engine or wizard in one app, mirror the change in the other if it
+should ship there too.
+
+**`mandat/`** — a third variant (UI branded « Studio Brochure », formerly « Studio Mandat » ;
+do not modify `/` or `pro/` when working on it):
+a hub with a home page (`mandat/index.html`, two tiles) linking a **fiche prestation app**
+(`mandat/fiche.html` + `mandat/assets/js/fiche.js`: voice dictation via Web Speech, photo-of-notes
+transcription, AI structuring via `BrochureAI.structureFiche`, live A4 preview, **Word export**
+as an HTML `.doc` blob, print) and the **brochure** (`mandat/brochure.html`, a Kadima-flavoured
+fork). The fiche's « Injecter dans la brochure » button writes `studio-mandat-handoff` to
+localStorage; the brochure wizard consumes it on load (fills type/address/notes, lands on
+step 2). Storage: `studio-mandat-v1` (brochure state) and `studio-mandat-fiche`; the API key
+(`studio-brochure-aikey`) and the OneDrive library folder are deliberately shared with the
+original app. Deployed at `/mandat/`. **Session « compte »** : `mandat/assets/js/acces.js` (SSO
+depuis la porte collaborateurs du site Kadima, `#acces=` → `/auth/kadima`) VALIDE un jeton déjà
+stocké par `GET /me` avant de renoncer à l'échange (un jeton mort — 7 jours sans usage,
+révocation — bloquait toute reconnexion) et pose `sso: true` dans `studio-mandatpro-account` ;
+sur un 401 en mode session, `ai.js` purge ce jeton et lève une erreur `code: "session"`, que
+`BrochureAI.showError(el, err)` affiche avec un bouton vers la porte collaborateurs (SSO) ou
+`compte.html?retour=` — tous les puits d'erreur IA (fiche, wizard, app) passent par lui. Le
+fork `mandat-pro/ai.js` a le même `showError` sans aucune référence Kadima.
+**Surfaces de la fiche prestations** : dans « Caractéristiques », la ligne « Surfaces : » ne
+porte que les TOTAUX (habitable, totale, terrain, parcelle) ; chaque pièce garde sa surface
+sur SA ligne d'« Intérieur » (« Chambre n°1 : 11,69 m², une fenêtre »). Le prompt
+`structure_fiche` et son schéma le disent, et `server/src/fiche.js` (`repartirSurfaces`,
+`reparerReponseFiche`) le GARANTIT : le proxy `/v1/messages` répare la réponse du modèle
+pour cette tâche (pièces égarées dans « Surfaces » remises sur leur ligne, totaux
+conservés, jamais de doublon, entrée non mutée, réponse illisible rendue telle quelle).
+Tests dans test.mjs (fausse réponse `FICHE_MAL_RANGEE`) ; `server/eval-fiche.mjs` interroge le
+VRAI modèle sur des dictées de référence pour détecter une dérive du prompt ou du modèle.
+
+**`mandat-pro/`** — the white-label commercial variant of `mandat/` (UI branded « Studio
+Brochure » ; the one the
+sales site `site-mandat/` links to). Same hub + fiche + brochure trio, but **the agency is
+configured once at the accueil** (`mandat-pro/index.html`): a first-run overlay (logo upload
+resized to PNG 640px, name required, conseiller/adresse/tél/e-mail, brochure palette, API key)
+writes `studio-mandatpro-agency` (`{agency, palette}` — same shape `pro/` uses) and
+`studio-mandatpro-aikey`; a « ⚙ Paramètres de l'agence » button (or `?setup=1`) reopens it.
+The fiche (`fiche.html`/`fiche.js`) reads that key for the logo shown in the A4 preview and
+embedded in the Word export (`logo-agence.png` MHT part; agency name shown when no logo), and
+redirects to `index.html?setup=1` when unconfigured. The brochure (`brochure.html`) is the
+`pro/` white-label engine (forked `app.js`/`wizard.js` with keys `studio-mandatpro-v1`/`-step`,
+IndexedDB `studio-mandatpro`) plus the ⌂ Accueil link and handoff consumption
+(`studio-mandatpro-handoff`); its ⚙ « Mon agence » overlay edits the same agency key. `ai.js`
+is the `mandat/` fork (it has `structureFiche`). Deployed at `/mandat-pro/`.
+
+## Architecture du moteur brochure (app d'origine `/`)
+
+- `index.html` — single-page shell: left **editor** panel (form), right **preview** (live A4).
+- `assets/css/app.css` — editor/UI chrome (dark theme). Screen-only.
+- `assets/css/brochure.css` — the brochure itself: A4 pages, editorial layout, DPE/GES energy
+  ladders, and the `@media print` rules. **Shared by preview, print, and HTML export** — this
+  is the single source of truth for how a brochure looks.
+- `assets/js/app.js` — everything: the `state` object, generic form binding
+  (`data-bind` / `data-bind-list` / `data-bind-kv`), photo upload+resize, `buildBrochure()`
+  page renderers, zoom, localStorage persistence, and JSON/HTML/print/mailto export.
+- `assets/js/ai.js` — `window.BrochureAI.*`: all AI calls go through the Studio Brochure server
+  (`/v1/messages` proxy). **Business prompts live server-side** (`server/src/prompts.js`): the
+  client sends a task id (`body.task` + optional `body.task_arg`) and the server injects the
+  system prompt AND the `output_config` JSON schema before relaying to Anthropic. Two auth
+  modes: connected account (Bearer session) with quota/usage, or personal key relayed via the
+  `X-User-Key` header (the client's `sk-ant-` key is forwarded to Anthropic, no quota consumed).
+  Default editorial/OCR model `claude-opus-4-8`, standard tasks `claude-sonnet-5` (see `MODELS`).
+  The user's API key lives only in `localStorage` (`studio-brochure-aikey`) and is never put in
+  the exported `.json`. When adding an AI feature: add the prompt+schema to
+  `server/src/prompts.js` and send only `task`/`task_arg` from the client — never embed prompt
+  text in client JS (copy-protection), and mirror client changes in all four `ai.js` forks.
+  **Watch the schema size**: `output_config` is compiled into a decoding grammar, and the API
+  rejects one that is too large (« The compiled grammar is too large »). Keep schemas around
+  20-25 properties. `extract_compromis` (~85 fields) is the exception: it returns
+  `output_config: null`, its JSON contract being rendered into the system prompt by
+  `skeleton(COMPROMIS_SCHEMA)` — the schema stays the single source of truth — and
+  `suivi/assets/js/ai.js` parses the answer leniently (```json fence, surrounding prose,
+  trailing comma). A server test guards both the exception and the size of the other schemas.
+- `assets/js/heic.js` — `window.SBHeic`: iPhone **HEIC/HEIF photo support**. `toJpeg(file)` tries
+  native decode first (Safari reads HEIC), then falls back to the vendored WASM decoder
+  (`assets/js/vendor/libheif-bundle.js`, ~1.4 MB, wasm embedded, loaded lazily on the first HEIC).
+  Wired into `resizeImage` (app.js) and `fileToResizedDataUrl` (wizard.js/fiche.js) in all four
+  apps — new photo entry points should funnel through those, not read files directly.
+- `assets/js/library.js` — `window.BrochureLibrary`: a **brochure library backed by a local
+  OneDrive-synced folder** (File System Access API). The user picks a folder once; the app
+  lists/opens/saves/deletes `.json` brochures in it, and the OneDrive desktop client syncs them
+  to the cloud and other devices. The chosen directory handle is persisted in **IndexedDB**
+  (`studio-brochure` DB, `handles` store) so it survives reloads; read/write permission is
+  re-requested on the first user gesture. Chrome/Edge desktop only — elsewhere the app falls
+  back to the `.json` Import/Save buttons. The library UI (topbar `▤ Bibliothèque` → modal with
+  search-by-name) is wired in `app.js` (`wireLibrary`), which tracks `currentFileName` so
+  re-saving an opened brochure (e.g. to change the price) overwrites the same file.
+  Both the topbar **Sauvegarder** button and the library's **Enregistrer** button funnel
+  through `saveCurrentToFolder()`: on Chrome/Edge they prompt for a brochure name (`prompt`,
+  sanitized by `safeName` — spaces/accents/hyphens kept, Windows-illegal chars stripped) and
+  write `<name>.json` into the chosen folder; `Sauvegarder` triggers the one-time folder pick
+  if none is set yet, and falls back to a plain `.json` download (`downloadJson`) on other
+  browsers. Note: browsers cannot pre-set an absolute path — the user navigates to the target
+  folder (e.g. `KADIMA-TB\…\BROCHURE`) once and it is remembered via IndexedDB + picker `id`.
+  **The library also has a « ☁ Brochures du compte » mode** (default when a session is
+  connected; toggle `#libToggle` switches back to the OneDrive folder on desktop): brochures
+  are stored server-side (metadata in the D1 `brochures` table, full JSON — photos included —
+  in the R2 bucket `studio-brochure-files`, binding `FILES`, routes `/brochures`), shared by
+  the whole agency and available on phones. Saving to the folder also silently pushes a copy
+  to the account (`pushCurrentToCloud`); on phones (no File System Access), the topbar
+  **Sauvegarder** saves to the account when connected. Fiches prestation have the same
+  two-mode library (D1 `fiches` table, no R2 — text only).
+
+### Key conventions
+- The brochure is re-rendered from `state` on every change; `buildBrochure()` returns an HTML
+  string of `.page` sections. To add a section, write a `pageX()` function and add it to the
+  array in `buildBrochure()`.
+- Photos are resized client-side (`resizeImage`, long edge ≤ 1800px, JPEG) and stored as data
+  URLs inside `state` (so they survive JSON export and embed in HTML export).
+- Project state persists to `localStorage` key `studio-brochure-v2`; durable saves are the
+  `.json` export.
