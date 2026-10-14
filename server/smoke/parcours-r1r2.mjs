@@ -454,6 +454,8 @@ export default async function () {
         if (pris) break;
       }
       await page.waitForTimeout(400);
+      ok((await page.locator(".etape").count()) === 7 && !/Démarche à suivre/.test(await page.textContent(".etapes")) && (await page.locator('[data-guide="demarche"]').count()) === 0,
+        "conseiller de Caudéran : pas de point 8 « Démarche à suivre » (7 étapes, pas de bouton)");
       await page.click('[data-guide="r2"]');
       await page.waitForSelector("#r2-generer", { timeout: 8000 });
       await page.click("#r2-generer");

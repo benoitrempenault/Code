@@ -1409,6 +1409,8 @@ sans agence → Léa Vasseur ; Caudéran → Cyrielle Collegno — un conseiller
 alphabétique, corrigé 14/10), sinon le conseiller ; `telephone_agence` = tél. de l'agence sous le sien dans
 `signatureHtml` (« Agence : 05 … ») ; `apercu` renvoie `signataire`, `fromName` = elle.
 Pour un nouveau conseiller de Saint-Médard : rien à faire, sa page vient de son profil (photo, mail, tél).
+**Périmètre** : `etapesPour(p)` (admin.js) retire le point 8 quand le conseiller de la fiche est de Caudéran
+(`varianteGuide` = cauderan) — liste (x/7) et fiche ; Saint-Médard, Blanquefort et sans agence l'ont.
 
 **RÈGLE (Benoît, 14/10) : après chaque « ok pousse » qui change quelque chose pour les conseillers, ajouter
 l'entrée `NOUVEAUTES` correspondante (admin.js) et la pousser dans la foulée, sans redemander.** Toutes les

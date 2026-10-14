@@ -2776,6 +2776,12 @@
     // mandat, signé de l'assistante transaction — ici en attendant sa place dans un parcours mandat.
     { cle: "demarche", titre: "Démarche à suivre — guide envoyé après la signature du mandat (signé de l'assistante transaction)", doc: "demarche", mail: true, piece: true },
   ];
+  // Le point 8 n'existe que pour Saint-Médard et Blanquefort (le guide est le leur) :
+  // un parcours d'un conseiller de Caudéran n'a que 7 étapes (Benoît, 14/10 — « on verra plus tard »).
+  const etapesPour = (p) => {
+    const cs = (p && p.conseiller) || conseillers.find((c) => c.id === (p && p.conseiller_id)) || null;
+    return varianteGuide(cs) === "cauderan" ? ETAPES_PARCOURS.filter((e) => e.cle !== "demarche") : ETAPES_PARCOURS;
+  };
   let parcours = [];
   const dateFrCourte = (iso, heure) => {
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
@@ -2799,14 +2805,15 @@
     zone.innerHTML = lignes.length
       ? '<div class="tableau-cadre"><table><thead><tr><th>Client</th><th>Bien</th><th>Conseiller</th><th>R1</th><th>R2</th><th>Avancement</th></tr></thead><tbody>' +
         lignes.map((p) => {
-          const faites = new Set(p.journal.map((j) => j.etape));
+          const etapesP = etapesPour(p);
+          const faites = new Set(p.journal.map((j) => j.etape).filter((k) => etapesP.some((e) => e.cle === k)));
           return '<tr class="cliquable" data-parcours="' + p.id + '"><td><strong>' + escH([p.civilite, p.prenom, p.nom].filter(Boolean).join(" ")) + "</strong>" +
             (p.nb_proprietaires > 1 ? ' <span class="puce grise" title="Plusieurs propriétaires">+' + (p.nb_proprietaires - 1) + "</span>" : "") +
             (p.statut !== "en_cours" ? ' <span class="puce grise">' + escH(p.statut) + "</span>" : "") + "</td><td>" +
             escH([p.adresse, p.ville].filter(Boolean).join(", ")) + ' <span class="puce grise">' + ({ appartement: "appt", terrain: "terrain" }[p.type_bien] || "maison") + "</span></td><td>" +
             escH([p.cs_prenom, p.cs_nom].filter(Boolean).join(" ") || p.conseiller || "—") + "</td><td>" + dateFrCourte(p.r1, p.r1_heure) + "</td><td>" + dateFrCourte(p.r2, p.r2_heure) + "</td><td>" +
-            '<span class="parcours-avancement" title="' + ETAPES_PARCOURS.map((e) => (faites.has(e.cle) ? "✓ " : "· ") + e.titre).join("\n") + '">' +
-            ETAPES_PARCOURS.map((e) => "<i" + (faites.has(e.cle) ? ' class="ok"' : "") + "></i>").join("") + "</span> " + faites.size + "/" + ETAPES_PARCOURS.length + "</td></tr>";
+            '<span class="parcours-avancement" title="' + etapesP.map((e) => (faites.has(e.cle) ? "✓ " : "· ") + e.titre).join("\n") + '">' +
+            etapesP.map((e) => "<i" + (faites.has(e.cle) ? ' class="ok"' : "") + "></i>").join("") + "</span> " + faites.size + "/" + etapesP.length + "</td></tr>";
         }).join("") + "</tbody></table></div>"
       : '<div class="vide">Aucun parcours en cours — « + Nouveau parcours » pour commencer.</div>';
     zone.querySelectorAll("tr[data-parcours]").forEach((tr) => tr.addEventListener("click", () => ouvrirParcours(tr.dataset.parcours)));
@@ -2944,7 +2951,7 @@
     try { p = await api("/crm/parcours/" + id); p.bien = (await api("/crm/parcours/" + id + "/acm")).acm || {}; } catch (e) { toast(e.message, true); return; }
     const faites = new Map(p.journal.map((j) => [j.etape, j]));
     const bienManque = (p.type_bien === "terrain" ? ["terrain"] : ["surface", "chambres", "piece_vie"]).filter((k) => !p.bien[k]);
-    const etapesHtml = '<div class="etapes">' + ETAPES_PARCOURS.map((e, i) => {
+    const etapesHtml = '<div class="etapes">' + etapesPour(p).map((e, i) => {
       const f = faites.get(e.cle);
       const quand = f ? "fait le " + new Date(f.le * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) + (f.par ? " par " + escH(f.par) : "") + (f.email ? " → " + escH(f.email) : "") : "";
       const actions = e.cle === "demarche"
@@ -4784,7 +4791,7 @@
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
     { id: "demarche", depuis: "2026-10-14", jours: 7, titre: "Nouveau : le point 8 « Démarche à suivre », envoyé depuis la fiche",
-      html: '<p class="aide" style="max-width:none;">Après la signature du mandat, le guide <strong>« Démarche à suivre »</strong> part depuis Studio : sur la fiche du parcours, point 8, bouton <strong>📘 Démarche à suivre</strong>.</p>' +
+      html: '<p class="aide" style="max-width:none;">Après la signature du mandat, le guide <strong>« Démarche à suivre »</strong> part depuis Studio : sur la fiche du parcours, point 8, bouton <strong>📘 Démarche à suivre</strong>. Pour les conseillers de <strong>Saint-Médard et Blanquefort</strong> (Caudéran plus tard).</p>' +
         '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
         "<li><strong>Studio assemble le guide à votre page</strong> : votre photo, votre mail, votre téléphone, sur le modèle maison / appartement ou sur le modèle terrain selon la fiche. Plus de fichier à chercher.</li>" +
         "<li><strong>L'e-mail est prêt et signé de l'assistante transaction</strong> (Léa Vasseur à Saint-Médard), le guide en pièce jointe. Vous relisez, vous envoyez.</li>" +
