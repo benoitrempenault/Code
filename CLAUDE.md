@@ -1392,6 +1392,13 @@ sur la page, et sur la page du lien un bouton « Je n'ai plus cette page — ouv
 pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une app isolée n'a pas le
 localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
 
+**Bilans — « en vente depuis 20 000 jours » (14/10)** : l'export des mandats met **01/01/1970** (ou son numéro
+Excel 25569) dans « Date début mandat » quand elle est vide → ancienneté ≈ 20 700 jours dans l'alerte
+« ancien » et « en vente depuis 680 mois » dans le texte vendeur. `dateMandat()` (bilans.js) refuse une
+date < 2000 ou future à l'import (`sanitizeMandat`), et `calculerBilan` plafonne l'ancienneté à 15 ans
+(au-delà → null) pour les dates déjà en base. Les mandats importés AVANT ce garde-fou gardent 1970-01-01 en
+base jusqu'au prochain import : le plafond les neutralise.
+
 **Point 8 du parcours — « Démarche à suivre » (14/10)** : le guide Canva de Tiéphaine (SharePoint
 kadimastmedard › General › MODELES › TRANSACTION › Démarche à suivre › Mandants biens|terrains › <prénom>)
 n'a QU'UNE page qui change par conseiller (p3 : prénom / nom en Playfair Display Bold Italic 23,1 pt, mail et

@@ -72,6 +72,16 @@ export function dateIso(v) {
   }
   return "";
 }
+// Une date de mandat « vide » dans l'export sort parfois en 01/01/1970 (ou en
+// 25569, son numéro Excel) : « en vente depuis 20 000 jours » dans un bilan
+// (Benoît, 14/10). Avant 2000 ou après demain, la date est inconnue.
+export function dateMandat(v) {
+  const d = dateIso(v);
+  if (!d) return "";
+  const t = Date.parse(d + "T00:00:00Z");
+  if (!Number.isFinite(t) || d < "2000-01-01" || t > Date.now() + 2 * 86400000) return "";
+  return d;
+}
 export function lundiDe(iso) {
   const d = new Date(iso + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
@@ -102,7 +112,7 @@ export function sanitizeMandat(b) {
   return {
     ref: strip(b.ref, 40), mandat: strip(b.mandat, 40), vendeur: strip(b.vendeur, 200), email,
     conseiller: strip(b.conseiller, 120), ville: strip(b.ville, 120), adresse: strip(b.adresse, 200),
-    debut: dateIso(b.debut), avenant: dateIso(b.avenant), prix, prix_initial: initial,
+    debut: dateMandat(b.debut), avenant: dateMandat(b.avenant), prix, prix_initial: initial,
   };
 }
 // Une délégation d'un confrère n'est pas un vendeur : pas de bilan.
@@ -170,7 +180,9 @@ export function calculerBilan({ mandat, annonce, pairs, amepi, events, semaine, 
     nouveaux: ev.filter((e) => e.kind === "nouvelle" && ids.has(e.annonce_id)).length,
   };
 
-  const anciennete = mandat.debut ? Math.max(0, Math.round((Date.parse(aujourdhui + "T00:00:00Z") - Date.parse(mandat.debut + "T00:00:00Z")) / 86400000)) : null;
+  // Ancienneté en jours — jamais au-delà de 15 ans : une date fantaisiste déjà en base (01/01/1970) ne vaut rien.
+  const ancienneteBrute = mandat.debut ? Math.round((Date.parse(aujourdhui + "T00:00:00Z") - Date.parse(mandat.debut + "T00:00:00Z")) / 86400000) : null;
+  const anciennete = ancienneteBrute != null && Number.isFinite(ancienneteBrute) && ancienneteBrute >= 0 && ancienneteBrute <= 15 * 365 ? ancienneteBrute : null;
   const baisseMandat = mandat.prix_initial && prix && prix < mandat.prix_initial ? 1 - prix / mandat.prix_initial : 0;
 
   // Alertes pour le conseiller (jamais envoyées telles quelles).

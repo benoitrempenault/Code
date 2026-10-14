@@ -4785,12 +4785,19 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   ok(B.normVille("SAINT MEDARD EN JALLES") === B.normVille("Saint-Médard-en-Jalles") && B.normVille("St Aubin de Médoc") === B.normVille("SAINT AUBIN DE MEDOC"), "communes comparées sans casse, accents ni tirets");
   ok(B.semaineCouverte("2026-09-28") === "2026-09-21" && B.semaineCouverte("2026-10-01") === "2026-09-21", "la semaine couverte est la dernière semaine complète");
   ok(B.emailBidon("kadima@century21.fr") && B.emailBidon("pasdemail@pasmail.com") && !B.emailBidon("jean.dupont@gmail.com") && B.sanitizeMandat({ ref: "1", email: "pasdemail@pasmail.com" }).email === "", "adresses de remplissage ou de l'agence : traitées comme « sans e-mail »");
+  ok(B.sanitizeMandat({ ref: "1", debut: "01/01/1970" }).debut === "" && B.sanitizeMandat({ ref: "1", debut: 25569 }).debut === "" && B.sanitizeMandat({ ref: "1", debut: "31/12/1999" }).debut === ""
+     && B.sanitizeMandat({ ref: "1", debut: "14/10/2025" }).debut === "2025-10-14" && B.sanitizeMandat({ ref: "1", debut: 45914 }).debut === "2025-09-14" && B.sanitizeMandat({ ref: "1", debut: "01/01/2031" }).debut === "",
+     "une date de mandat « vide » (01/01/1970, numéro Excel 25569), d'avant 2000 ou future est inconnue — plus de « en vente depuis 20 000 jours »");
   {
     const base = { mandat: { ref: "X", debut: "2026-09-01", prix: 280000 }, pairs: [], events: [], semaine: "2026-09-21", lundis: ["2026-09-21"], aujourdhui: "2026-09-28" };
     const comps = [1, 2, 3, 4, 5, 6].map((i) => ({ id: "c" + i, type: "maison", statut: "en_vente", ville: "Saint-Médard-en-Jalles", prix: 520000 + i * 1000, surface: 150 + i, agence: "Agence " + i }));
     const grande = B.calculerBilan({ ...base, annonce: { ref: "X", type: "Maison", ville: "Saint-Médard-en-Jalles", prix: 280000, surface: 157, pieces: 7, semaines: {} }, amepi: comps });
     ok(grande.prix.atypique && grande.prix.ecart === null && grande.alertes.some((a) => a.code === "prix-atypique") && !/m² en valeur médiane/.test(B.texteBilan(grande, {})) && !grande.recommandation,
       "écart de −46 % au m² : bien atypique, rien au vendeur, pas de recommandation de prix (vu sur la réf. 8090 réelle)");
+    // Une date 01/01/1970 déjà en base (import d'avant le garde-fou) : ni « en vente depuis 20 000 jours », ni « depuis 680 mois ».
+    const fantome = B.calculerBilan({ ...base, mandat: { ref: "X", debut: "1970-01-01", prix: 280000 }, annonce: { ref: "X", type: "Maison", ville: "Saint-Médard-en-Jalles", prix: 280000, surface: 157, pieces: 7, semaines: {} }, amepi: comps });
+    ok(fantome.mandat.anciennete === null && !fantome.alertes.some((a) => a.code === "ancien") && !/en vente depuis/.test(B.texteBilan(fantome, {})),
+      "une date de mandat fantaisiste en base ne donne aucune ancienneté (" + JSON.stringify(fantome.mandat) + ")");
     const terrain = B.calculerBilan({ ...base, annonce: { ref: "X", type: "Terrain", ville: "Saint-Médard-en-Jalles", prix: 200000, surface: null, semaines: {} }, amepi: comps.map((c) => ({ ...c, type: "terrain" })) });
     ok(terrain.prix.ecart === null && terrain.alertes.some((a) => /Terrain/.test(a.texte)), "terrain : pas de position de prix");
     const siteSeul = B.calculerBilan({ ...base, annonce: { ref: "X", type: "Maison", ville: "Y", prix: 1, surface: 100, semaines: { "2026-09-21": { vues: 50, visites: 0, brochures: 0 } } }, pairs: [{ ref: "Z", type: "Maison", semaines: { "2026-09-21": { vues: 5 } } }], amepi: [] });
