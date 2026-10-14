@@ -80,8 +80,8 @@ export default async function () {
     await page.dblclick("#px-creer"); // double clic : une seule fiche doit naître
     await attendreToast(page, "Parcours créé");
     await page.waitForSelector(".etapes", { timeout: 8000 });
-    ok((await page.locator(".etape").count()) === 7 && await page.inputValue("#px-signe") === cs.json.id && (await page.textContent("#px-signe-detail")).includes("06 00 00 00 01"),
-      "la fiche s'ouvre sur ses 6 étapes, « Signé par » Teddy BESSON avec son téléphone");
+    ok((await page.locator(".etape").count()) === 8 && await page.inputValue("#px-signe") === cs.json.id && (await page.textContent("#px-signe-detail")).includes("06 00 00 00 01"),
+      "la fiche s'ouvre sur ses 8 étapes, « Signé par » Teddy BESSON avec son téléphone");
     { const fiches = (await api("/crm/parcours", { headers: admin.auth })).json.parcours.filter((x) => /MOUNEYRES/i.test(x.nom));
       ok(fiches.length === 1, "un double clic sur « Créer le parcours » n'a créé qu'une fiche (" + fiches.length + ")"); }
     ok((await page.inputValue("#px-tel")) === "06 00 00 00 02", "le téléphone du vendeur (saisi 0600000002) s'affiche « 06 00 00 00 02 » (" + await page.inputValue("#px-tel") + ")");
@@ -360,6 +360,39 @@ export default async function () {
     ok(mailsCr.length === nbMailsAvant + 1 && mailCr.attachments && mailCr.attachments.length === 1 && mailCr.attachments[0].filename === "courrier-estimation-mouneyres.pdf" && /^JVBER/.test(mailCr.attachments[0].content) && /320 000 € et 345 000 €/.test(sansFines(mailCr.html)),
       "l'e-mail part avec le courrier PDF en pièce jointe (" + JSON.stringify({ to: mailCr && mailCr.to, photo: courrier.debug.photo, pj: mailCr && mailCr.attachments && mailCr.attachments.map((a) => [a.filename, a.content.length]) }) + ")");
     await page.waitForSelector(".etapes", { timeout: 8000 });
+    // Point 8 : la « démarche à suivre » — le guide Canva à la page de Teddy (photo ovale en noir
+    // et blanc, nom, mail, téléphone), envoyé en pièce jointe, signé de Léa (assistante transaction).
+    await api("/crm/conseillers", { headers: admin.auth, method: "PUT", body: { prenom: "Léa", nom: "Vasseur", fonction: "Assistante Transaction", telephone: "05 56 57 77 77", email: "lea.vasseur@smoke.fr" } });
+    ok((await page.locator(".etape").count()) === 8 && /Démarche à suivre/.test(await page.textContent(".etapes")), "la fiche a son point 8 « Démarche à suivre »");
+    await page.click('[data-guide="demarche"]');
+    await page.waitForSelector("#pm-envoyer", { timeout: 30000 });
+    const dms = await page.evaluate(async () => {
+      const { PDFDocument } = window.PDFLib; const doc = await PDFDocument.load(window.__dernierGuide.octets);
+      return { pages: doc.getPageCount(), titre: doc.getTitle() || "", octets: window.__dernierGuide.octets.byteLength, debug: window.__dernierGuide.debug, fichier: window.__dernierGuide.fichier };
+    });
+    ok(dms.pages === 15 && dms.debug.variante === "biens" && dms.debug.photo && dms.debug.prenom === "Teddy" && dms.debug.nom === "Besson" && dms.debug.email === "teddy@smoke.fr" && dms.fichier === "demarche-a-suivre-besson.pdf",
+      "le guide « démarche à suivre » est assemblé à la page de Teddy : 15 pages, photo, nom, mail, téléphone (" + JSON.stringify({ pages: dms.pages, fichier: dms.fichier, ...dms.debug }) + ")");
+    await garderGuide(page, dms.octets, "demarche-a-suivre-smoke.pdf");
+    ok(/demarche-a-suivre-besson\.pdf/.test(await page.textContent("#pm-piece")) && /ouvrir le PDF/.test(await page.textContent("#pm-piece")) && /Léa Vasseur/.test(await page.textContent("#modale-corps .aide")) && /Assistante Transaction/.test(await page.textContent("#modale-corps .aide"))
+      && /Merci d'avoir choisi Century 21 Kadima/.test(await page.inputValue("#pm-texte")),
+      "l'e-mail de la démarche annonce la pièce jointe et sera signé de Léa Vasseur, assistante transaction");
+    try { await page.screenshot({ path: new URL("./captures/demarche-mail.png", import.meta.url).pathname }); } catch { }
+    await page.click("#pm-apercu");
+    await page.waitForSelector("iframe.apercu-mail", { timeout: 15000 });
+    await page.waitForTimeout(800);
+    try { await page.screenshot({ path: new URL("./captures/demarche-apercu.png", import.meta.url).pathname }); } catch { }
+    await page.click("#pm-retour");
+    await page.waitForSelector("#pm-envoyer", { timeout: 15000 });
+    const nbMailsAvantD = (await (await fetch("http://localhost:18795/__mails")).json()).length;
+    await page.click("#pm-envoyer");
+    await attendreToast(page, "e-mail\\(s\\) envoyé");
+    const mailsD = await (await fetch("http://localhost:18795/__mails")).json();
+    const mailD = mailsD[mailsD.length - 1];
+    ok(mailsD.length === nbMailsAvantD + 1 && mailD.attachments && mailD.attachments[0].filename === "demarche-a-suivre-besson.pdf" && /^JVBER/.test(mailD.attachments[0].content) && /Léa Vasseur/.test(mailD.from) && /Léa Vasseur/.test(mailD.html) && /Assistante Transaction/.test(mailD.html),
+      "la démarche part avec le guide PDF en pièce jointe, signée de Léa Vasseur (" + JSON.stringify({ from: mailD && mailD.from, pj: mailD && mailD.attachments && mailD.attachments.map((a) => [a.filename, a.content.length]) }) + ")");
+    try { const fs = await import("node:fs/promises"); await fs.writeFile(new URL("./captures/demarche-mail.html", import.meta.url).pathname, mailD.html || ""); } catch { }
+    await page.waitForSelector(".etapes", { timeout: 8000 });
+    ok(/✓/.test(await page.textContent(".etape:nth-child(8) .num")), "le point 8 est coché après l'envoi");
     // Un conseiller SANS page dans le modèle (Laurent Denaud, Caudéran) : la page « Votre
     // conseiller » est générée depuis son profil (photo, coordonnées, avis clients saisis), le mot
     // du directeur suit son agence, et la page « Notre agence » porte les avis relevés sur le site
@@ -469,8 +502,8 @@ export default async function () {
     await page.click("#pm-annuler");
     await page.waitForSelector("#modale-ok", { timeout: 8000 });
     await page.click("#modale-ok");
-    await page.waitForFunction(() => { const t = document.getElementById("table-parcours")?.textContent || ""; return /5\/7/.test(t) && /\+1/.test(t); }, null, { timeout: 8000 });
-    ok(true, "la liste montre l'avancement 5/7 et le second propriétaire");
+    await page.waitForFunction(() => { const t = document.getElementById("table-parcours")?.textContent || ""; return /6\/8/.test(t) && /\+1/.test(t); }, null, { timeout: 8000 });
+    ok(true, "la liste montre l'avancement 6/8 et le second propriétaire");
     // Un APPARTEMENT de 3 pièces : la pré-sélection du livret coche d'abord les 3 pièces
     // (ventes DVF et concurrence), les 2 et 4 pièces restent proposés mais décochés.
     await page.click("#table-parcours tr[data-parcours]");

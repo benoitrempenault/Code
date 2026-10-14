@@ -2772,6 +2772,9 @@
     { cle: "acm", titre: "Analyse comparative de marché — remise au R2", doc: "acm" },
     { cle: "courrier-estimation", titre: "Courrier d'estimation — fourchette de prix, envoyé après le R2", doc: "courrier", mail: true, piece: true },
     { cle: "apres-r2", titre: "E-mail après le R2 (merci + avis Google)", mail: true },
+    // Point 8 (Benoît, 14/10) : le guide « démarche à suivre » envoyé après la signature du
+    // mandat, signé de l'assistante transaction — ici en attendant sa place dans un parcours mandat.
+    { cle: "demarche", titre: "Démarche à suivre — guide envoyé après la signature du mandat (signé de l'assistante transaction)", doc: "demarche", mail: true, piece: true },
   ];
   let parcours = [];
   const dateFrCourte = (iso, heure) => {
@@ -2944,7 +2947,9 @@
     const etapesHtml = '<div class="etapes">' + ETAPES_PARCOURS.map((e, i) => {
       const f = faites.get(e.cle);
       const quand = f ? "fait le " + new Date(f.le * 1000).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) + (f.par ? " par " + escH(f.par) : "") + (f.email ? " → " + escH(f.email) : "") : "";
-      const actions = e.piece
+      const actions = e.cle === "demarche"
+        ? '<button class="btn btn-or" data-guide="demarche" title="Le guide « démarche à suivre » (maison / appartement ou terrain) à la page du conseiller de la fiche, envoyé par e-mail en pièce jointe, signé de l\'assistante transaction">📘 Démarche à suivre' + (f ? " (renvoyer)" : "") + "</button>"
+        : e.piece
         ? '<button class="btn btn-or" data-guide="courrier" title="La fourchette d\'estimation et un mot personnel, sur le papier à en-tête de l\'agence, signés du conseiller ; imprimable ou envoyé par e-mail en pièce jointe">📨 Courrier d\'estimation' + (f ? " (renvoyer)" : "") + "</button>"
         : e.mail
         ? '<button class="btn btn-or" data-mail="' + e.cle + '">' + (f ? "✉️ Renvoyer" : "✉️ Préparer et envoyer") + "</button>"
@@ -3011,6 +3016,13 @@
       if (b.dataset.guide === "r2") { ouvrirGuideR2(id, p); return; }
       if (b.dataset.guide === "acm") { ouvrirAcm(id, p); return; }
       if (b.dataset.guide === "courrier") { ouvrirCourrierEstimation(id, p); return; }
+      if (b.dataset.guide === "demarche") {
+        if (!p.conseiller) { toast("Choisissez d'abord le conseiller de la fiche : le guide porte sa page.", true); return; }
+        b.disabled = true; const lib = b.textContent; b.textContent = "Préparation…";
+        try { const g = await genererDemarche(p); preparerMailParcours(id, "demarche", p, null, { nom: g.fichier, octets: g.octets, url: g.url }); }
+        catch (e) { toast(e.message, true); b.disabled = false; b.textContent = lib; }
+        return;
+      }
       if (b.dataset.guide === "mot") {
         b.disabled = true; const lib = b.textContent; b.textContent = "Préparation…";
         try { const u = await genererMotDirecteur(p); documentPret(id, "Mot du directeur prêt", u, window.__dernierGuide && window.__dernierGuide.fichier); }
@@ -3563,6 +3575,74 @@
     if (ch.note_google > 0) { zone(fmtNote(ch.note_google) + " / 5", ...z.note_google); fait.note_google = fmtNote(ch.note_google); }
     if (ch.avis_google > 0) { zone(fmtN(ch.avis_google) + " avis", ...z.avis_google); fait.avis_google = fmtN(ch.avis_google); }
     return { cle: ch.cle || "", variante: variante || "commun", ...fait };
+  }
+  // Le guide « Démarche à suivre » (Canva, Tiéphaine — assets/demarche-biens.pdf
+  // pour maison / appartement, demarche-terrains.pdf pour un terrain) : la page
+  // « Votre conseiller » est réécrite au conseiller de la fiche (nom en Playfair,
+  // mail et téléphone en Barlow, photo ovale en noir et blanc comme le modèle).
+  const demarcheCache = {};
+  async function recadrerOvale(src, w, h, cs) {
+    const img = await chargerSrc(src);
+    const cv = document.createElement("canvas"); cv.width = w; cv.height = h; const ctx = cv.getContext("2d");
+    ctx.beginPath(); ctx.ellipse(w / 2, h / 2, w / 2, h / 2, 0, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
+    try { ctx.filter = "grayscale(1)"; } catch (e) { /* vieux navigateur : couleur */ }
+    const { sx, sy, sw, sh } = cadrageVisage(img, w, h, await visageDe(cs, img));
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+    return cv.toDataURL("image/png");
+  }
+  async function genererDemarche(p) {
+    if (!window.PDFLib || !window.fontkit) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
+    const cs = p.conseiller || {};
+    const variante = p.type_bien === "terrain" ? "terrains" : "biens";
+    if (!demarcheCache.meta) demarcheCache.meta = await fetch(asset("assets/demarche.json")).then((r) => r.json());
+    const m = demarcheCache.meta[variante];
+    if (!m) throw new Error("Pas de modèle « démarche à suivre » pour ce type de bien.");
+    if (!demarcheCache[variante]) {
+      const r = await fetch(asset("assets/" + m.fichier));
+      if (!r.ok) throw new Error(variante === "terrains" ? "Le modèle « démarche à suivre » pour un terrain n'est pas encore déposé dans Studio." : "Modèle « démarche à suivre » introuvable.");
+      demarcheCache[variante] = await r.arrayBuffer();
+    }
+    if (!demarcheCache.fontes) {
+      demarcheCache.fontes = await Promise.all(["PlayfairDisplay-BoldItalic", "Barlow-Regular"].map((f) => fetch(asset("assets/fonts/" + f + ".ttf")).then((r) => { if (!r.ok) throw new Error("Police " + f + " introuvable."); return r.arrayBuffer(); })));
+    }
+    const { PDFDocument, rgb } = window.PDFLib;
+    const doc = await PDFDocument.load(demarcheCache[variante]);
+    doc.registerFontkit(window.fontkit);
+    const [fNom, fTexte] = await Promise.all(demarcheCache.fontes.map((f) => doc.embedFont(f, { subset: true })));
+    const page = doc.getPage(m.page - 1);
+    const h = page.getHeight(), mb = page.getMediaBox(), Y = (y) => h - y + (mb.y || 0);
+    const c255 = (t) => rgb(t[0] / 255, t[1] / 255, t[2] / 255);
+    const fond = c255(m.fond);
+    // On efface le conseiller du modèle : textes puis ovale de la photo.
+    for (const r of m.efface) page.drawRectangle({ x: r[0], y: Y(r[3]), width: r[2] - r[0], height: r[3] - r[1], color: fond });
+    const ph = m.photo;
+    page.drawRectangle({ x: ph[0] - 2, y: Y(ph[3] + 2), width: ph[2] - ph[0] + 4, height: ph[3] - ph[1] + 4, color: fond });
+    let photo = false;
+    if (cs.photo_url) {
+      try {
+        const b = await (await fetch(cs.photo_url)).blob();
+        const dataUrl = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); });
+        const w = ph[2] - ph[0], hh = ph[3] - ph[1];
+        const png = await doc.embedPng(Uint8Array.from(atob((await recadrerOvale(dataUrl, Math.round(w * 4), Math.round(hh * 4), cs)).split(",")[1]), (ch) => ch.charCodeAt(0)));
+        page.drawImage(png, { x: ph[0], y: Y(ph[3]), width: w, height: hh }); photo = true;
+      } catch (e) { /* sans photo : l'ovale reste vide */ }
+    }
+    const centrer = (texte, y, f, taille, couleur) => { if (!texte) return; const larg = f.widthOfTextAtSize(texte, taille); page.drawText(texte, { x: m.centre - larg / 2, y: Y(y), size: taille, font: f, color: couleur }); };
+    const prenom = String(cs.prenom || "").trim(), nom = String(cs.nom || "").trim();
+    // Prénom sur la première ligne, nom sur la seconde (« Benoît » / « Rempenault ») ; un nom composé reste sur sa ligne.
+    const nomPropre = nom.toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (x, a, b) => a + b.toUpperCase());
+    centrer(prenom, m.nom.y[0], fNom, m.nom.taille, c255(m.nom.couleur));
+    centrer(nomPropre, m.nom.y[1], fNom, m.nom.taille, c255(m.nom.couleur));
+    const noir = rgb(0, 0, 0);
+    if (cs.email) centrer("Mail : " + cs.email, m.mail.y, fTexte, m.texte.taille, noir);
+    if (cs.telephone) centrer("Téléphone : " + fmtTel(cs.telephone), m.tel.y, fTexte, m.texte.taille, noir);
+    doc.setTitle("Démarche à suivre — " + [prenom, nomPropre].filter(Boolean).join(" "));
+    const octets = await doc.save();
+    const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
+    const fichier = "demarche-a-suivre-" + sansAccentsMin(nom || "conseiller").replace(/\s+/g, "-") + ".pdf";
+    const debug = { variante, page: m.page, photo, prenom, nom: nomPropre, email: cs.email || "", telephone: cs.telephone ? fmtTel(cs.telephone) : "" };
+    window.__dernierGuide = { url, octets, fichier, debug }; // relu par le smoke
+    return { url, octets, fichier, debug };
   }
   async function genererCourrierEstimation(p, courrier) {
     if (!window.PDFLib || !window.fontkit) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
@@ -4639,10 +4719,11 @@
     if (relu) { a.sujet = relu.sujet; a.texte = relu.texte; }
     const etape = ETAPES_PARCOURS.find((e) => e.cle === jalon);
     ouvrirModale("✉️ " + (etape ? etape.titre : jalon),
-      (piece ? '<p class="petit" id="pm-piece">📎 Pièce jointe : <strong>' + escH(piece.nom) + "</strong> (" + Math.round(piece.octets.byteLength / 1024) + " Ko)</p>" : "") +
+      (piece ? '<p class="petit" id="pm-piece">📎 Pièce jointe : <strong>' + escH(piece.nom) + "</strong> (" + Math.round(piece.octets.byteLength / 1024) + " Ko)" + (piece.url ? ' — <a href="' + escH(piece.url) + '" target="_blank" rel="noopener">👁 ouvrir le PDF</a>' : "") + "</p>" : "") +
       '<p class="aide">Relisez et ajustez : ce texte partira tel quel à ' +
       (a.destinataires.length ? escH(a.destinataires.join(", ")) : "<strong>personne (pas d'e-mail sur la fiche)</strong>") + ", signé " +
-      (p.conseiller ? "<strong>" + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + "</strong>" + escH([fmtTel(p.conseiller.telephone), p.conseiller.email].filter(Boolean).map((x) => " · " + x).join(""))
+      (a.signataire ? "<strong>" + escH([a.signataire.prenom, a.signataire.nom].filter(Boolean).join(" ")) + "</strong>" + escH([a.signataire.fonction, fmtTel(a.signataire.telephone), a.signataire.email].filter(Boolean).map((x) => " · " + x).join(""))
+        : p.conseiller ? "<strong>" + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + "</strong>" + escH([fmtTel(p.conseiller.telephone), p.conseiller.email].filter(Boolean).map((x) => " · " + x).join(""))
         : "<strong>de l'agence</strong> (choisissez le conseiller sur la fiche)") + ".</p>" +
       (a.lieux ? '<div class="barre" id="pm-lieux" style="margin:0 0 8px; align-items:center; flex-wrap:wrap; gap:4px 12px;"><strong>Lieu du R2 :</strong> ' +
         a.lieux.map((l) => '<label class="case" style="display:inline-flex; align-items:center; gap:4px; white-space:nowrap;"><input type="radio" name="pm-lieu" value="' + escH(l.cle) + '"' + (l.cle === lieu ? " checked" : "") + " /> " + escH(l.libelle) + "</label>").join("") + "</div>" : "") +

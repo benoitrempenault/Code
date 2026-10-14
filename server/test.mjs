@@ -3067,8 +3067,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   /* ---- Bibliothèque des messages : textes de l'agence -------------------- */
   console.log("— Bibliothèque des messages (surcharges de l'agence)");
   const modeles0 = (await callR("/crm/modeles", { headers: auth })).json.modeles;
-  ok(modeles0.length === 18 && modeles0.every((m) => m.texte && !m.personnalise),
-    "la bibliothèque liste les 18 messages avec leur texte d'origine (dont les deux vœux couple et les quatre du parcours R1/R2)");
+  ok(modeles0.length === 19 && modeles0.every((m) => m.texte && !m.personnalise),
+    "la bibliothèque liste les 19 messages avec leur texte d'origine (dont les deux vœux couple et les cinq du parcours R1/R2, démarche comprise)");
   ok((await callR("/crm/modeles", { headers: authP })).status === 200,
     "la bibliothèque se lit par tout membre (pour les envois individuels) — l'édition reste admin");
   // Surcharge du mail « veille du R1 » : le prochain envoi part avec CE texte.
@@ -4104,8 +4104,25 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok(sansPj.status === 400 && avecPj.status === 200 && mailsRecus.length > nbAvant && dernier.attachments && dernier.attachments[0].filename === "courrier-estimation.pdf" && dernier.attachments[0].content === pdfB64
        && (await callR("/crm/parcours/" + pxId, { headers: authP })).json.journal.some((j) => j.etape === "courrier-estimation"),
        "le courrier part en pièce jointe (nom nettoyé), jamais sans le PDF, et l'étape se coche (" + JSON.stringify({ sans: sansPj.status, avec: avecPj.status }) + ")");
-    ok((await callR("/crm/parcours/" + pxId + "/envoyer", { headers: authP, body: { jalon: "courrier-estimation", piece: { nom: "x.pdf", contenu: "A".repeat(4000001) } } })).status === 400, "une pièce jointe trop lourde est refusée");
+    ok((await callR("/crm/parcours/" + pxId + "/envoyer", { headers: authP, body: { jalon: "courrier-estimation", piece: { nom: "x.pdf", contenu: "A".repeat(8000001) } } })).status === 400, "une pièce jointe trop lourde est refusée");
     await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: acmGet.acm }); }
+  // Point 8 : la « démarche à suivre » (guide PDF assemblé dans le navigateur) part signée de
+  // l'assistante transaction du point de vente — pas du conseiller (Benoît, 14/10).
+  { const lea = await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "Léa", nom: "VASSEUR", fonction: "Assistante Transaction", telephone: "05 56 57 77 77", email: "lea.vasseur@kadima.test" } });
+    const apD = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=demarche", { headers: authP })).json;
+    ok(lea.status === 200 && apD.signataire && apD.signataire.nom === "VASSEUR" && /Léa VASSEUR/.test(apD.html) && /Assistante Transaction/.test(apD.html) && /lea\.vasseur@kadima\.test/.test(apD.html)
+       && /Merci d'avoir choisi Century 21 Kadima/.test(apD.texte) && /guide explicatif/.test(apD.texte) && /Bien cordialement,$/.test(apD.texte.trim()) && /Bienvenue parmi nous/.test(apD.html) && /démarche à suivre/.test(apD.sujet),
+       "la démarche à suivre est signée de l'assistante transaction, avec le texte de Benoît (" + JSON.stringify({ signataire: apD.signataire, sujet: apD.sujet }) + ")");
+    const sansPjD = await callR("/crm/parcours/" + pxId + "/envoyer", { headers: authP, body: { jalon: "demarche" } });
+    const pdfD = Buffer.from("%PDF-1.4 demarche").toString("base64");
+    const nbAvantD = mailsRecus.length;
+    const avecPjD = await callR("/crm/parcours/" + pxId + "/envoyer", { headers: authP, body: { jalon: "demarche", piece: { nom: "demarche-a-suivre-test.pdf", contenu: pdfD } } });
+    const dernierD = mailsRecus[mailsRecus.length - 1];
+    ok(sansPjD.status === 400 && /démarche à suivre/.test(sansPjD.json.error) && avecPjD.status === 200 && mailsRecus.length > nbAvantD && dernierD.attachments && dernierD.attachments[0].filename === "demarche-a-suivre-test.pdf"
+       && /Léa VASSEUR/.test(dernierD.from) && /Léa VASSEUR/.test(dernierD.html) && (await callR("/crm/parcours/" + pxId, { headers: authP })).json.journal.some((j) => j.etape === "demarche"),
+       "la démarche part avec le guide en pièce jointe, au nom de l'assistante, et le point 8 se coche (" + JSON.stringify({ sans: sansPjD.status, avec: avecPjD.status, from: dernierD.from }) + ")");
+    ok((await callR("/crm/parcours/" + pxId + "/etape", { headers: authP, body: { etape: "demarche", defaire: true } })).status === 200, "le point 8 se décoche comme les autres");
+    await callR("/crm/conseillers/" + lea.json.id + "?compte=0", { headers: auth, method: "DELETE" }); }
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } });
   const dn0 = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
   { // Caudéran d'un côté, Saint-Médard / Blanquefort de l'autre (Benoît, 10/10) : les

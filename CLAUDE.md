@@ -1392,6 +1392,22 @@ sur la page, et sur la page du lien un bouton « Je n'ai plus cette page — ouv
 pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une app isolée n'a pas le
 localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
 
+**Point 8 du parcours — « Démarche à suivre » (14/10)** : le guide Canva de Tiéphaine (SharePoint
+kadimastmedard › General › MODELES › TRANSACTION › Démarche à suivre › Mandants biens|terrains › <prénom>)
+n'a QU'UNE page qui change par conseiller (p3 : prénom / nom en Playfair Display Bold Italic 23,1 pt, mail et
+téléphone en Barlow 12,1 pt centrés sur x = 366, photo ovale 91-206 × 129-270 en noir et blanc). Studio le
+génère : `administration/assets/demarche-biens.pdf` (allégé par `tools/guides/alleger-demarche.py`, PNG →
+JPEG : 3,2 → 1,7 Mo), `demarche-terrains.pdf` (à déposer — la version terrain est un AUTRE document de 16 p.,
+même page 3 à vérifier), mesures dans `assets/demarche.json`, police `assets/fonts/PlayfairDisplay-BoldItalic.ttf`
+(Google Fonts). `genererDemarche(p)` (admin.js ?v=88 : efface la zone, `recadrerOvale` grayscale, Y() corrige la
+MediaBox y0 = 7,83) → `preparerMailParcours(id, "demarche", p, null, piece)` (lien « ouvrir le PDF »).
+Serveur : jalon `demarche` dans ETAPES / JALONS_MAIL / JALONS_PIECE (pièce obligatoire, `PIECE_JOINTE_MAX`
+8 000 000 base64), modèle `parcours-demarche` (texte de Benoît, « Bien cordialement, » puis la signature),
+EYEBROW « Bienvenue parmi nous », **signataire = `signataireDemarche`** : profil actif dont la fonction contient
+« assistant » et « transaction », du point de vente du conseiller (Léa Vasseur à Saint-Médard, Cyrielle
+Collegno à Caudéran), sinon sans pv, sinon le conseiller ; `apercu` renvoie `signataire`, `fromName` = elle.
+Pour un nouveau conseiller de Saint-Médard : rien à faire, sa page vient de son profil (photo, mail, tél).
+
 **Mémo des nouveautés (14/10)** : `NOUVEAUTES` dans admin.js (?v=87) — `{ id, depuis, jours, titre, html }` ;
 `montrerNouveautes()` à chaque `activerOnglet("parcours")` (admin et mode conseiller), une fois par chargement,
 tant que `depuis ≤ aujourd'hui < depuis + jours`, sauf « J'ai compris » (localStorage

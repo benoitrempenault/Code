@@ -22,10 +22,12 @@ const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
 const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-export const ETAPES = ["avant-r1", "guide-r1", "entre-r1-r2", "guide-r2", "acm", "courrier-estimation", "apres-r2"];
+export const ETAPES = ["avant-r1", "guide-r1", "entre-r1-r2", "guide-r2", "acm", "courrier-estimation", "apres-r2", "demarche"];
 // Les jalons qui partent par e-mail ; « courrier-estimation » part avec le courrier PDF en pièce jointe.
-const JALONS_MAIL = ["avant-r1", "entre-r1-r2", "courrier-estimation", "apres-r2"];
-const PIECE_JOINTE_MAX = 4000000; // base64 (~3 Mo de PDF : le papier à en-tête embarque des morceaux du guide R1)
+const JALONS_MAIL = ["avant-r1", "entre-r1-r2", "courrier-estimation", "apres-r2", "demarche"];
+// Les jalons qui partent avec une pièce jointe assemblée dans le navigateur.
+const JALONS_PIECE = ["courrier-estimation", "demarche"];
+const PIECE_JOINTE_MAX = 8000000; // base64 (~6 Mo de PDF : courrier à en-tête, guide « démarche à suivre » allégé)
 const PHOTO_MAX = 260000; // data URL ≤ ~200 Ko d'image
 
 // « jeudi 20 avril à 10h » / « lundi 27 mars à 12h30 »
@@ -215,7 +217,7 @@ export function lieuxR2(reglages, ag) {
 
 // Les sur-titres ne répètent plus le titre (« Merci de votre confiance » au-dessus
 // de « Merci pour votre confiance » : Benoît le lisait deux fois).
-const EYEBROWS = { "avant-r1": "Estimation de votre bien", "entre-r1-r2": "Votre estimation se prépare", "courrier-estimation": "Votre estimation", "apres-r2": "Votre projet de vente" };
+const EYEBROWS = { "avant-r1": "Estimation de votre bien", "entre-r1-r2": "Votre estimation se prépare", "courrier-estimation": "Votre estimation", "apres-r2": "Votre projet de vente", demarche: "Bienvenue parmi nous" };
 export function composerMail({ sujet, texte }, jalon, ag, conseiller, photoUrl) {
   // Un sujet en deux temps (« Merci pour votre accueil — remise de votre
   // estimation le jeudi 20 avril à 10h ») devient un titre et un sous-titre.
@@ -712,6 +714,19 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const proprietaires = await proprietairesDe(agencyId, est);
     return { est, px: { ...px, journal, conseiller_prenom: conseiller ? conseiller.prenom : "", conseiller_nom: conseiller ? conseiller.nom : "" }, conseiller, proprietaires };
   };
+  // Le mail « démarche à suivre » (point 8, Benoît 14/10) est signé de
+  // l'assistante transaction du point de vente du conseiller (Léa Vasseur à
+  // Saint-Médard), à défaut de l'agence, à défaut du conseiller lui-même.
+  const signataireDemarche = async (agencyId, conseiller) => {
+    const rows = await db.all(
+      `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, (cs.photo <> '') AS a_photo, x.genre, COALESCE(pv.pv, '') AS agence, COALESCE(pc.updated_at, 0) AS photo_carre_le
+       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_photo_carre pc ON pc.id = cs.id
+       WHERE cs.agency_id = ? AND cs.actif = 1 AND lower(cs.fonction) LIKE '%assistant%' AND lower(cs.fonction) LIKE '%transaction%' ORDER BY cs.nom, cs.prenom`, [agencyId]);
+    const pv = conseiller && conseiller.agence || "";
+    const a = rows.find((r) => pv && r.agence === pv) || rows.find((r) => !r.agence) || rows[0] || null;
+    if (a) { a.genre = a.genre || genrePrenom(a.prenom); a.fonction = a.fonction || "Assistante transaction"; }
+    return a || conseiller || null;
+  };
   const emailsDe = async (agencyId, est) => {
     const lies = await db.all(
       `SELECT c.email FROM crm_estimation_contacts ec JOIN crm_contacts c ON c.id = ec.contact_id
@@ -954,9 +969,11 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles, p.proprietaires, { ...(await fourchetteDe(p.est.id)), lieu_r2: lieu });
     // ?sujet=&texte= : le rendu du texte relu par le conseiller, avant envoi.
     const relu = { sujet: strip(c.req.query("sujet"), 200) || prep.sujet, texte: String(c.req.query("texte") || "").slice(0, 8000) || prep.texte };
-    const html = composerMail(relu, jalon, ag, p.conseiller, p.conseiller && p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "");
+    const signe = jalon === "demarche" ? await signataireDemarche(ctx.agency.id, p.conseiller) : p.conseiller;
+    const html = composerMail(relu, jalon, ag, signe, signe && signe.a_photo ? photoUrl(c, signe.id) : "");
     return c.json({ jalon, sujet: prep.sujet, texte: prep.texte, html, destinataires: await emailsDe(ctx.agency.id, p.est),
-      ...(jalon === "entre-r1-r2" ? { lieux: lr2.lieux, lieu: lieu ? lieu.cle : lr2.defaut } : {}) });
+      ...(jalon === "entre-r1-r2" ? { lieux: lr2.lieux, lieu: lieu ? lieu.cle : lr2.defaut } : {}),
+      ...(jalon === "demarche" ? { signataire: signe ? { id: signe.id, prenom: signe.prenom, nom: signe.nom, fonction: signe.fonction || "", email: signe.email || "", telephone: signe.telephone || "" } : null } : {}) });
   });
 
   // Envoi d'un jalon, avec le texte relu par le conseiller.
@@ -974,16 +991,18 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles, p.proprietaires, { ...(await fourchetteDe(p.est.id)), lieu_r2: jalon === "entre-r1-r2" ? lieuxR2(reglages, ag).pour(b.lieu) : null });
     // Le courrier d'estimation part en pièce jointe (PDF assemblé dans le navigateur, base64).
     let attachments = null;
-    if (jalon === "courrier-estimation") {
+    if (JALONS_PIECE.includes(jalon)) {
       const pj = b.piece && typeof b.piece === "object" ? b.piece : null;
       const contenu = pj ? String(pj.contenu || "") : "";
-      if (!contenu || !/^[A-Za-z0-9+/=]+$/.test(contenu)) return err(c, 400, "Le courrier d'estimation (PDF) manque.");
-      if (contenu.length > PIECE_JOINTE_MAX) return err(c, 400, "Le courrier est trop lourd pour partir en pièce jointe.");
-      attachments = [{ filename: (strip(pj.nom, 120) || "courrier-estimation.pdf").replace(/[^\w.-]+/g, "-"), content: contenu }];
+      const quoi = jalon === "demarche" ? "Le guide « démarche à suivre » (PDF)" : "Le courrier d'estimation (PDF)";
+      if (!contenu || !/^[A-Za-z0-9+/=]+$/.test(contenu)) return err(c, 400, quoi + " manque.");
+      if (contenu.length > PIECE_JOINTE_MAX) return err(c, 400, quoi + " est trop lourd pour partir en pièce jointe.");
+      attachments = [{ filename: (strip(pj.nom, 120) || (jalon === "demarche" ? "demarche-a-suivre.pdf" : "courrier-estimation.pdf")).replace(/[^\w.-]+/g, "-"), content: contenu }];
     }
     const sujet = strip(b.sujet, 200) || prep.sujet;
     const texte = String(b.texte || "").replace(/[\u0000-\u0008\u000b-\u001f]/g, "").slice(0, 8000) || prep.texte;
-    const html = composerMail({ sujet, texte }, jalon, ag, p.conseiller, p.conseiller && p.conseiller.a_photo ? photoUrl(c, p.conseiller.id) : "");
+    const signe = jalon === "demarche" ? await signataireDemarche(ctx.agency.id, p.conseiller) : p.conseiller;
+    const html = composerMail({ sujet, texte }, jalon, ag, signe, signe && signe.a_photo ? photoUrl(c, signe.id) : "");
     const type = "estimation-" + jalon;
     const label = [p.px.prenom, p.est.nom].filter(Boolean).join(" ") || p.est.adresse;
     let envoyes = 0, erreurs = 0, derniereErreur = "";
@@ -994,7 +1013,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     for (const adresse of destinataires) {
       const r = await envoyerMailHtml(env, {
         to: adresse, subject: sujet, html,
-        fromName: [p.conseiller && p.conseiller.prenom, p.conseiller && p.conseiller.nom].filter(Boolean).join(" ") || ag.nom || ctx.agency.name,
+        fromName: [signe && signe.prenom, signe && signe.nom].filter(Boolean).join(" ") || ag.nom || ctx.agency.name,
         replyTo: repondreA,
         bcc: reglages.estimations.cci || "",
         attachments,

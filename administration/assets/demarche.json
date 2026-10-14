@@ -1,0 +1,9 @@
+{
+  "_": "Guide « Démarche à suivre » (Canva, Tiéphaine) : la page du conseiller est réécrite dans le navigateur (admin.js genererDemarche). Mesures pymupdf (origine en haut, MediaBox y0 = 7,83 pt corrigé par Y()). fond = couleur de la page ; photo = cadre de l'ovale ; les textes sont centrés sur x.",
+  "biens": { "fichier": "demarche-biens.pdf", "page": 3, "fond": [249, 246, 242], "photo": [91, 129, 206, 270],
+    "efface": [[245, 128, 500, 254]], "centre": 366, "nom": { "y": [164, 187], "taille": 23.1, "couleur": [37, 37, 38] },
+    "mail": { "y": 222.5 }, "tel": { "y": 245.5 }, "texte": { "taille": 12.1 } },
+  "terrains": { "fichier": "demarche-terrains.pdf", "page": 3, "fond": [249, 246, 242], "photo": [91, 129, 206, 270],
+    "efface": [[245, 128, 500, 254]], "centre": 366, "nom": { "y": [164, 187], "taille": 23.1, "couleur": [37, 37, 38] },
+    "mail": { "y": 222.5 }, "tel": { "y": 245.5 }, "texte": { "taille": 12.1 } }
+}
