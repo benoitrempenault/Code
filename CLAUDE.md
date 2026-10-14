@@ -1392,6 +1392,14 @@ sur la page, et sur la page du lien un bouton « Je n'ai plus cette page — ouv
 pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une app isolée n'a pas le
 localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
 
+**Livret prix — « la même maison vendue 3-4 fois » (14/10)** : vrai dans DVF — un lotissement vend des maisons
+identiques sous la MÊME adresse (3 rue de Poupay, 33449 : six maisons de 104 m², parcelles KN0249-0256, six
+dates). `regrouperVentesIdentiques` (admin.js, à la lecture des millésimes) : même adresse + type + surface
+arrondie et à ≤ 150 m → une ligne, la plus récente, `ventes_identiques = n` (mention « n ventes identiques à
+cette adresse (lotissement) — la plus récente »). Les grilles de la fausse DVF (mailles ~670 m) ne se
+regroupent pas ; la fausse DVF pose un lotissement « 3 RUE DE POUPAY » à 300 m du bien du smoke (position
+relue de la fausse BAN, `positionsBan`). `__acmDebug.identiques` liste les regroupements.
+
 **Bilans — « en vente depuis 20 000 jours » (14/10)** : l'export des mandats met **01/01/1970** (ou son numéro
 Excel 25569) dans « Date début mandat » quand elle est vide → ancienneté ≈ 20 700 jours dans l'alerte
 « ancien » et « en vente depuis 680 mois » dans le texte vendeur. `dateMandat()` (bilans.js) refuse une

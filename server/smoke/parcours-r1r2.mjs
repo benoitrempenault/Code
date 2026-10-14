@@ -257,6 +257,12 @@ export default async function () {
     const portailsRep = await api("/crm/parcours/" + pxListe[0].id + "/acm/portails", { headers: admin.auth });
     ok((await page.locator('[data-conc^="bienici:"]').count()) === 2 && /ORPI Smoke/.test(await page.textContent("#acm-conc")), "les biens Bien'ici de la commune sont proposés avec leur agence (" + JSON.stringify(portailsRep.json).slice(0, 300) + ")");
     ok(await page.inputValue("#acm-prix") === "325000" && await page.inputValue("#acm-haute") === "345000", "le livret reprend le prix de raison et d'ambition retouchés (" + await page.inputValue("#acm-prix") + " / " + await page.inputValue("#acm-haute") + ")");
+    // Le lotissement « 3 rue de Poupay » : trois ventes identiques → une ligne, la plus récente, comptée.
+    const poupay = await page.evaluate(() => [...document.querySelectorAll("#acm-ventes .ligne-conc")].map((l) => l.textContent.replace(/\s+/g, " ")).filter((t) => /RUE DE POUPAY/i.test(t)));
+    const dbgP = await page.evaluate(() => window.__acmDebug.identiques);
+    ok(poupay.length === 1 && /3 ventes identiques/.test(poupay[0]) && /305 000/.test(poupay[0].replace(/[\u202f\u00a0]/g, " ")) && dbgP.length === 1 && dbgP[0].n === 3 && dbgP[0].date === "2026-09-07",
+      "un lotissement (3 ventes identiques à la même adresse) ne fait qu'une ligne dans le livret, la plus récente (" + JSON.stringify({ lignes: poupay.length, identiques: dbgP }) + ")");
+    try { await page.evaluate(() => { const l = [...document.querySelectorAll("#acm-ventes .ligne-conc")].find((x) => /POUPAY/i.test(x.textContent)); if (l) l.scrollIntoView({ block: "center" }); }); await page.screenshot({ path: new URL("./captures/livret-lotissement.png", import.meta.url).pathname }); } catch { }
     // Contrôle visuel : la liste des biens en concurrence au format téléphone.
     { const vp = page.viewportSize(); await page.setViewportSize({ width: 390, height: 844 });
       await page.evaluate(() => document.getElementById("acm-conc").scrollIntoView());

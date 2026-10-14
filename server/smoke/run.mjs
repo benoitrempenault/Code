@@ -21,12 +21,14 @@ const choisis = process.argv.slice(2).length ? process.argv.slice(2) : PARCOURS;
 
 // 1) Fausse BAN pour le serveur (géocodage direct) : toute adresse trouve une
 //    position plausible autour de Saint-Médard, déterministe.
+const positionsBan = new Map(); // q → [lon, lat], relu par la fausse DVF (lotissement près du bien)
 const ban = createServer((req, res) => {
   const q = decodeURIComponent(new URL(req.url, "http://x").searchParams.get("q") || "");
   let h = 0; for (const c of q) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const coordinates = [-0.78 + ((h >> 10) % 1000) / 9000, 44.86 + (h % 1000) / 12000];
+  positionsBan.set(q, coordinates);
   res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ features: [{ properties: { label: q, score: 0.8 },
-    geometry: { coordinates: [-0.78 + ((h >> 10) % 1000) / 9000, 44.86 + (h % 1000) / 12000] } }] }));
+  res.end(JSON.stringify({ features: [{ properties: { label: q, score: 0.8 }, geometry: { coordinates } }] }));
 }).listen(PORT_BAN);
 
 // 1 bis) Faux IGN (emprises des bâtiments) : deux maisons près du centre de
@@ -85,6 +87,12 @@ const dvf = createServer((req, res) => {
     lignes.push(["2026-" + n, "2026-0" + (1 + (n % 9)) + "-1" + (n % 9), "Vente", 280000 + (n % 7) * 15000, 1 + (n % 40), "ALLEE DES SMOKES", "Saint-Medard-en-Jalles", "Maison", 85 + (n % 6) * 12, 4 + (n % 3), 400 + (n % 5) * 60,
       (-0.92 + i * 0.0085).toFixed(5), (44.80 + j * 0.0075).toFixed(5)].join(","));
   }
+  // Un lotissement (vu au 3 rue de Poupay, Saint-Médard) : trois maisons identiques de 104 m² sous la
+  // même adresse, à 300 m du bien du parcours — le livret n'en montre qu'une, la plus récente.
+  { const ref = [...positionsBan.entries()].reverse().find(([q]) => /Mandat Confiance/i.test(q));
+    const [lon, lat] = ref ? ref[1] : [-0.78, 44.86];
+    [["P1", "2026-02-20", 344972], ["P2", "2026-06-26", 315959], ["P3", "2026-09-07", 305000]].forEach(([k, d, prix], i) =>
+      lignes.push(["2026-" + k, d, "Vente", prix, 3, "RUE DE POUPAY", "Saint-Medard-en-Jalles", "Maison", 104, 5, 300 + i * 10, (lon + 0.0030 + i * 0.0004).toFixed(5), (lat + 0.0012 + i * 0.0003).toFixed(5)].join(","))); }
   // Des terrains nus (aucun local bâti, une surface de terrain), une maille sur quatre de la grille.
   let t = 0;
   for (let i = 0; i < 40; i += 2) for (let j = 0; j < 28; j += 2) {

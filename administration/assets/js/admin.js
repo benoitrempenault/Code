@@ -4123,8 +4123,27 @@
         ventes.push(...parseDvfCsv(await r.text())); trouvees++;
       } catch { /* millésime absent */ }
     }
-    dvfCacheAcm.set(code, ventes);
-    return ventes;
+    const groupees = regrouperVentesIdentiques(ventes);
+    dvfCacheAcm.set(code, groupees);
+    return groupees;
+  }
+  // Un lotissement vend six maisons identiques sous la MÊME adresse (3 rue de Poupay,
+  // Saint-Médard : six parcelles, six dates) : dans le livret, on croyait la même maison
+  // vendue six fois (Benoît, 14/10). Même adresse, même type, même surface, à moins de
+  // 150 m : une seule ligne, la vente la plus récente, avec le nombre de ventes.
+  function regrouperVentesIdentiques(ventes) {
+    const tri = ventes.slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+    const gardees = [], parCle = new Map();
+    for (const v of tri) {
+      const cle = v.adresse && v.surface ? [String(v.adresse).toLowerCase().replace(/\s+/g, " ").trim(), v.type, Math.round(v.surface)].join("|") : "";
+      const proches = cle ? (parCle.get(cle) || []) : [];
+      const meme = proches.find((g) => distM(g.lat, g.lng, v.lat, v.lng) <= 150);
+      if (meme) { meme.ventes_identiques = (meme.ventes_identiques || 1) + 1; continue; }
+      const g = { ...v, ventes_identiques: 1 };
+      gardees.push(g);
+      if (cle) { proches.push(g); parCle.set(cle, proches); }
+    }
+    return gardees;
   }
   const distM = (a, b, c, d) => { const R = 6371000, r = Math.PI / 180, x = (d - b) * r * Math.cos((a + c) / 2 * r), y = (c - a) * r; return Math.sqrt(x * x + y * y) * R; };
   const fmtM2 = (v) => (v && v.surface && v.prix ? Math.round(v.prix / v.surface).toLocaleString("fr-FR") + " €/m²" : "");
@@ -4155,7 +4174,8 @@
     // Les ventes à choisir : même nombre de pièces d'abord, puis les plus proches, puis les plus récentes (celles de l'agence à égalité).
     const candidatsVentes = [...ventesAgence, ...ventesDvf].sort((a, b) => ecartPieces(a) - ecartPieces(b) || (a.dist ?? 1e9) - (b.dist ?? 1e9) || String(b.date || "").localeCompare(String(a.date || "")) || (a.source === "agence" ? -1 : 1));
     donnees.ventesDvf = ventesDvf; // toutes les ventes DVF autour : page dédiée du livret
-    window.__acmDebug = { dvf: dvf.length, ventesDvf: ventesDvf.length, commune: donnees.commune, lat: donnees.lat, lng: donnees.lng, type: donnees.type }; // relu par le smoke
+    window.__acmDebug = { dvf: dvf.length, ventesDvf: ventesDvf.length, commune: donnees.commune, lat: donnees.lat, lng: donnees.lng, type: donnees.type,
+      identiques: dvf.filter((v) => v.ventes_identiques > 1).map((v) => ({ adresse: v.adresse, n: v.ventes_identiques, date: v.date, prix: v.prix })) }; // relu par le smoke
     // Les biens vus sur les portails (leboncoin, SeLoger…), saisis à la main avec
     // l'adresse retrouvée (précisément.fr) : gardés dans la saisie du livret.
     const manuels = (acm.concurrence || []).filter((c) => c.source === "portail");
@@ -4194,7 +4214,7 @@
       '<span class="bloc-vignette">' + ((v.photo || v.image) ? '<img class="vignette-conc" data-vignette="' + escH(v.id) + '" src="' + escH(v.photo || v.image) + '" alt="" loading="lazy" />' : '<span class="vignette-conc" data-vignette="' + escH(v.id) + '"></span>') +
       '<label class="btn" style="padding:1px 6px; font-size:11px;" title="Poser la photo du bien vendu (elle remplace la carte dans le livret)">📷<input type="file" accept="' + FORMATS_PHOTO + '" data-photo-vente="' + escH(v.id) + '" hidden /></label></span><span><strong>' +
       escH(fmtPrix(v.prix)) + "</strong>" + puceP(v) + " · " + escH(fmtDateAcm(v.date)) + " · " + escH(v.adresse || "") + (v.ville ? ", " + escH(v.ville) : "") + '<br /><span class="petit">' +
-      escH([v.type, v.pieces ? v.pieces + " pièces" : "", v.surface ? Math.round(v.surface) + " m²" + (v.type === "Terrain" ? " de terrain" : "") : "", v.terrain && v.type !== "Terrain" ? "terrain " + Math.round(v.terrain) + " m²" : "", fmtM2(v), "à " + v.dist + " m", v.source === "agence" ? "vendu par l'agence" : "DVF"].filter(Boolean).join(" · ")) + "</span></span></label>";
+      escH([v.type, v.pieces ? v.pieces + " pièces" : "", v.surface ? Math.round(v.surface) + " m²" + (v.type === "Terrain" ? " de terrain" : "") : "", v.terrain && v.type !== "Terrain" ? "terrain " + Math.round(v.terrain) + " m²" : "", fmtM2(v), "à " + v.dist + " m", v.ventes_identiques > 1 ? v.ventes_identiques + " ventes identiques à cette adresse (lotissement) — la plus récente" : "", v.source === "agence" ? "vendu par l'agence" : "DVF"].filter(Boolean).join(" · ")) + "</span></span></label>";
     const ligneConc = (a, i) => '<label class="case ligne-conc"><input type="checkbox" data-conc="' + escH(a.id) + '"' + (cocheC(a, i) ? " checked" : "") + ' /> ' +
       '<span class="bloc-vignette">' + ((a.photo || a.image) ? '<img class="vignette-conc" data-vignette="' + escH(a.id) + '" src="' + escH(a.photo || a.image) + '" alt="" loading="lazy" />' : '<span class="vignette-conc" data-vignette="' + escH(a.id) + '"></span>') +
       '<label class="btn" style="padding:1px 6px; font-size:11px;" title="Poser ou remplacer la photo qui ira dans le livret">📷<input type="file" accept="' + FORMATS_PHOTO + '" data-photo="' + escH(a.id) + '" hidden /></label></span><span><strong>' +
