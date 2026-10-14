@@ -49,7 +49,7 @@ export default async function () {
     await page.click('[data-onglet="parcours"]');
     // Le mémo des nouveautés (14/10) s'ouvre à l'arrivée sur le Parcours ; « J'ai compris » le range pour ce compte.
     await page.waitForSelector("#nv-compris", { timeout: 8000 });
-    ok(/le lieu du R2/.test(await page.textContent("#modale-titre")) && /Au domicile du client/.test(await page.textContent("#modale-corps")), "le mémo « Nouveau : le lieu du R2 » s'ouvre à la première ouverture du Parcours");
+    ok(/nouveautés|le lieu du R2/.test(await page.textContent("#modale-titre")) && /Au domicile du client/.test(await page.textContent("#modale-corps")) && /Démarche à suivre/.test(await page.textContent("#modale-corps")), "le mémo des nouveautés (lieu du R2, démarche à suivre) s'ouvre à la première ouverture du Parcours");
     await page.click("#nv-compris");
     await page.waitForSelector("#voile", { state: "hidden", timeout: 4000 });
     await page.click('[data-onglet="contacts"]'); await page.click('[data-onglet="parcours"]'); await page.waitForTimeout(300);

@@ -1408,6 +1408,11 @@ EYEBROW « Bienvenue parmi nous », **signataire = `signataireDemarche`** : prof
 Collegno à Caudéran), sinon sans pv, sinon le conseiller ; `apercu` renvoie `signataire`, `fromName` = elle.
 Pour un nouveau conseiller de Saint-Médard : rien à faire, sa page vient de son profil (photo, mail, tél).
 
+**RÈGLE (Benoît, 14/10) : après chaque « ok pousse » qui change quelque chose pour les conseillers, ajouter
+l'entrée `NOUVEAUTES` correspondante (admin.js) et la pousser dans la foulée, sans redemander.** Toutes les
+nouveautés en cours s'affichent dans UNE fenêtre (un seul « J'ai compris » les range toutes) ; le smoke
+vérifie seulement la présence du mémo (titre « le lieu du R2 » ou « nouveautés »).
+
 **Mémo des nouveautés (14/10)** : `NOUVEAUTES` dans admin.js (?v=87) — `{ id, depuis, jours, titre, html }` ;
 `montrerNouveautes()` à chaque `activerOnglet("parcours")` (admin et mode conseiller), une fois par chargement,
 tant que `depuis ≤ aujourd'hui < depuis + jours`, sauf « J'ai compris » (localStorage

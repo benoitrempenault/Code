@@ -4783,6 +4783,13 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "demarche", depuis: "2026-10-14", jours: 7, titre: "Nouveau : le point 8 « Démarche à suivre », envoyé depuis la fiche",
+      html: '<p class="aide" style="max-width:none;">Après la signature du mandat, le guide <strong>« Démarche à suivre »</strong> part depuis Studio : sur la fiche du parcours, point 8, bouton <strong>📘 Démarche à suivre</strong>.</p>' +
+        '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Studio assemble le guide à votre page</strong> : votre photo, votre mail, votre téléphone, sur le modèle maison / appartement ou sur le modèle terrain selon la fiche. Plus de fichier à chercher.</li>" +
+        "<li><strong>L'e-mail est prêt et signé de l'assistante transaction</strong> (Léa Vasseur à Saint-Médard), le guide en pièce jointe. Vous relisez, vous envoyez.</li>" +
+        "<li><strong>Vérifiez votre profil</strong> : photo, mail et téléphone à jour (Réglages → Les conseillers), c'est ce qui s'imprime sur votre page.</li>" +
+        "</ul>" },
     { id: "lieu-r2", depuis: "2026-10-14", jours: 7, titre: "Nouveau : le lieu du R2 dans le mail entre R1 et R2",
       html: '<p class="aide" style="max-width:none;">Quand vous préparez le mail <strong>entre R1 et R2</strong> (merci + confirmation de la restitution), une ligne <strong>Lieu du R2</strong> apparaît au-dessus de l\'objet :</p>' +
         '<div class="barre" style="margin:0 0 14px; align-items:center; flex-wrap:wrap; gap:4px 12px; pointer-events:none;"><strong>Lieu du R2 :</strong>' +
@@ -4801,20 +4808,22 @@
   function montrerNouveautes() {
     if (!$("voile").hidden) return; // une fenêtre est déjà ouverte : on ne passe pas devant
     const vues = nouveautesVues(), auj = new Date();
-    const n = NOUVEAUTES.find((x) => {
+    // Toutes les nouveautés en cours dans UNE fenêtre (un seul « J'ai compris »).
+    const liste = NOUVEAUTES.filter((x) => {
       if (vues[x.id] || nouveautesMontrees.has(x.id)) return false;
       const fin = new Date(x.depuis + "T00:00:00"); fin.setDate(fin.getDate() + (x.jours || 7));
       return auj >= new Date(x.depuis + "T00:00:00") && auj < fin;
     });
-    if (!n) return;
-    nouveautesMontrees.add(n.id);
-    const jour = new Date(n.depuis + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
-    ouvrirModale("✨ " + n.titre,
-      '<p class="petit" style="margin:0 0 12px;"><span class="puce">Nouveauté du ' + escH(jour) + "</span></p>" + n.html,
+    if (!liste.length) return;
+    liste.forEach((n) => nouveautesMontrees.add(n.id));
+    const jour = (n) => new Date(n.depuis + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+    ouvrirModale(liste.length === 1 ? "✨ " + liste[0].titre : "✨ " + liste.length + " nouveautés dans le Parcours R1/R2",
+      liste.map((n, i) => '<p class="petit" style="margin:' + (i ? "18px" : "0") + ' 0 8px;"><span class="puce">Nouveauté du ' + escH(jour(n)) + "</span></p>" +
+        (liste.length > 1 ? "<h3 style=\"margin:0 0 8px; font-size:15px;\">" + escH(n.titre) + "</h3>" : "") + n.html).join('<hr style="border:0; border-top:1px solid var(--line); margin:16px 0 0;">'),
       '<button class="btn" id="nv-plus-tard" title="Ce mémo reviendra à la prochaine ouverture du Parcours">Plus tard</button>' +
       '<button class="btn btn-or" id="nv-compris">✅ J\'ai compris</button>');
     $("nv-plus-tard").addEventListener("click", fermerModale);
-    $("nv-compris").addEventListener("click", () => { nouveauteComprise(n.id); fermerModale(); });
+    $("nv-compris").addEventListener("click", () => { liste.forEach((n) => nouveauteComprise(n.id)); fermerModale(); });
   }
 
   /* ------------------------------ Navigation ------------------------------- */
