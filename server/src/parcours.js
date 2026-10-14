@@ -145,7 +145,9 @@ export function signatureHtml(conseiller, ag, photoUrl) {
   const c = conseiller || {};
   const nomComplet = [c.prenom, c.nom].filter(Boolean).join(" ") || ag.signataire || ag.nom || "";
   const fonctionDefaut = c.prenom || c.nom ? (c.genre === "f" ? "Conseillère immobilier" : "Conseiller immobilier") : ag.fonction || "";
-  const lignes = [c.fonction || fonctionDefaut, formatTelephone(c.telephone), c.email].filter(Boolean);
+  // `telephone_agence` (assistante transaction, Benoît 14/10) : la ligne de l'agence sous le sien.
+  const telAg = c.telephone_agence && formatTelephone(c.telephone_agence) !== formatTelephone(c.telephone) ? "Agence : " + formatTelephone(c.telephone_agence) : "";
+  const lignes = [c.fonction || fonctionDefaut, formatTelephone(c.telephone), telAg, c.email].filter(Boolean);
   const reseaux = [
     ag.instagram ? `<a href="${esc(ag.instagram)}" style="color:#BEAF87; text-decoration:none;">Instagram</a>` : "",
     ag.facebook ? `<a href="${esc(ag.facebook)}" style="color:#BEAF87; text-decoration:none;">Facebook</a>` : "",
@@ -717,14 +719,16 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   // Le mail « démarche à suivre » (point 8, Benoît 14/10) est signé de
   // l'assistante transaction du point de vente du conseiller (Léa Vasseur à
   // Saint-Médard), à défaut de l'agence, à défaut du conseiller lui-même.
-  const signataireDemarche = async (agencyId, conseiller) => {
+  const signataireDemarche = async (agencyId, conseiller, ag) => {
     const rows = await db.all(
       `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, (cs.photo <> '') AS a_photo, x.genre, COALESCE(pv.pv, '') AS agence, COALESCE(pc.updated_at, 0) AS photo_carre_le
        FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_photo_carre pc ON pc.id = cs.id
        WHERE cs.agency_id = ? AND cs.actif = 1 AND lower(cs.fonction) LIKE '%assistant%' AND lower(cs.fonction) LIKE '%transaction%' ORDER BY cs.nom, cs.prenom`, [agencyId]);
+    // Même point de vente d'abord, puis même GROUPE (Benoît, 14/10 : Saint-Médard,
+    // Blanquefort et sans agence = Léa ; Caudéran = Cyrielle), sinon n'importe laquelle.
     const pv = conseiller && conseiller.agence || "";
-    const a = rows.find((r) => pv && r.agence === pv) || rows.find((r) => !r.agence) || rows[0] || null;
-    if (a) { a.genre = a.genre || genrePrenom(a.prenom); a.fonction = a.fonction || "Assistante transaction"; }
+    const a = rows.find((r) => pv && r.agence === pv) || rows.find((r) => groupePv(r.agence) === groupePv(pv)) || rows[0] || null;
+    if (a) { a.genre = a.genre || genrePrenom(a.prenom); a.fonction = a.fonction || "Assistante transaction"; a.telephone_agence = (ag && ag.telephone) || ""; }
     return a || conseiller || null;
   };
   const emailsDe = async (agencyId, est) => {
@@ -969,7 +973,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const prep = preparerMail(p.est, p.px, jalon, ag, reglages.modeles, p.proprietaires, { ...(await fourchetteDe(p.est.id)), lieu_r2: lieu });
     // ?sujet=&texte= : le rendu du texte relu par le conseiller, avant envoi.
     const relu = { sujet: strip(c.req.query("sujet"), 200) || prep.sujet, texte: String(c.req.query("texte") || "").slice(0, 8000) || prep.texte };
-    const signe = jalon === "demarche" ? await signataireDemarche(ctx.agency.id, p.conseiller) : p.conseiller;
+    const signe = jalon === "demarche" ? await signataireDemarche(ctx.agency.id, p.conseiller, ag) : p.conseiller;
     const html = composerMail(relu, jalon, ag, signe, signe && signe.a_photo ? photoUrl(c, signe.id) : "");
     return c.json({ jalon, sujet: prep.sujet, texte: prep.texte, html, destinataires: await emailsDe(ctx.agency.id, p.est),
       ...(jalon === "entre-r1-r2" ? { lieux: lr2.lieux, lieu: lieu ? lieu.cle : lr2.defaut } : {}),
@@ -1001,7 +1005,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     }
     const sujet = strip(b.sujet, 200) || prep.sujet;
     const texte = String(b.texte || "").replace(/[\u0000-\u0008\u000b-\u001f]/g, "").slice(0, 8000) || prep.texte;
-    const signe = jalon === "demarche" ? await signataireDemarche(ctx.agency.id, p.conseiller) : p.conseiller;
+    const signe = jalon === "demarche" ? await signataireDemarche(ctx.agency.id, p.conseiller, ag) : p.conseiller;
     const html = composerMail({ sujet, texte }, jalon, ag, signe, signe && signe.a_photo ? photoUrl(c, signe.id) : "");
     const type = "estimation-" + jalon;
     const label = [p.px.prenom, p.est.nom].filter(Boolean).join(" ") || p.est.adresse;

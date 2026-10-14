@@ -4122,6 +4122,20 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
        && /Léa VASSEUR/.test(dernierD.from) && /Léa VASSEUR/.test(dernierD.html) && (await callR("/crm/parcours/" + pxId, { headers: authP })).json.journal.some((j) => j.etape === "demarche"),
        "la démarche part avec le guide en pièce jointe, au nom de l'assistante, et le point 8 se coche (" + JSON.stringify({ sans: sansPjD.status, avec: avecPjD.status, from: dernierD.from }) + ")");
     ok((await callR("/crm/parcours/" + pxId + "/etape", { headers: authP, body: { etape: "demarche", defaire: true } })).status === 200, "le point 8 se décoche comme les autres");
+    // Deux assistantes : Cyrielle à Caudéran, Léa sans agence (= Saint-Médard / Blanquefort). Le conseiller de
+    // Saint-Médard (ou sans agence) a Léa, celui de Caudéran a Cyrielle — jamais l'ordre alphabétique.
+    const cyr = await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "Cyrielle", nom: "COLLEGNO", fonction: "Assistante Transaction", email: "cyrielle@kadima.test", agence: agcs[1].cle } });
+    const csPx = (await callR("/crm/parcours/" + pxId, { headers: authP })).json.conseiller_id;
+    const csAvant = (await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === csPx);
+    const apSM = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=demarche", { headers: authP })).json;
+    await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: csPx, prenom: csAvant.prenom, nom: csAvant.nom, agence: agcs[1].cle } });
+    const apCa = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=demarche", { headers: authP })).json;
+    await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: csPx, prenom: csAvant.prenom, nom: csAvant.nom, agence: "blanquefort" } });
+    const apBl = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=demarche", { headers: authP })).json;
+    await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: csPx, prenom: csAvant.prenom, nom: csAvant.nom, agence: csAvant.agence || "" } });
+    ok(cyr.status === 200 && apSM.signataire.nom === "VASSEUR" && apCa.signataire.nom === "COLLEGNO" && apBl.signataire.nom === "VASSEUR" && /Agence : 05 56 00 00 00/.test(apCa.html),
+       "l'assistante suit le point de vente : Saint-Médard et Blanquefort → Léa, Caudéran → Cyrielle, le téléphone de l'agence sous sa signature (" + JSON.stringify({ avant: csAvant.agence, sm: apSM.signataire.nom, cauderan: apCa.signataire.nom, blanquefort: apBl.signataire.nom }) + ")");
+    await callR("/crm/conseillers/" + cyr.json.id + "?compte=0", { headers: auth, method: "DELETE" });
     await callR("/crm/conseillers/" + lea.json.id + "?compte=0", { headers: auth, method: "DELETE" }); }
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } });
   const dn0 = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;

@@ -1404,8 +1404,10 @@ MediaBox y0 = 7,83) → `preparerMailParcours(id, "demarche", p, null, piece)` (
 Serveur : jalon `demarche` dans ETAPES / JALONS_MAIL / JALONS_PIECE (pièce obligatoire, `PIECE_JOINTE_MAX`
 8 000 000 base64), modèle `parcours-demarche` (texte de Benoît, « Bien cordialement, » puis la signature),
 EYEBROW « Bienvenue parmi nous », **signataire = `signataireDemarche`** : profil actif dont la fonction contient
-« assistant » et « transaction », du point de vente du conseiller (Léa Vasseur à Saint-Médard, Cyrielle
-Collegno à Caudéran), sinon sans pv, sinon le conseiller ; `apercu` renvoie `signataire`, `fromName` = elle.
+« assistant » et « transaction », même pv d'abord, puis même GROUPE `groupePv` (Saint-Médard, Blanquefort et
+sans agence → Léa Vasseur ; Caudéran → Cyrielle Collegno — un conseiller SANS pv tombait sur Cyrielle par ordre
+alphabétique, corrigé 14/10), sinon le conseiller ; `telephone_agence` = tél. de l'agence sous le sien dans
+`signatureHtml` (« Agence : 05 … ») ; `apercu` renvoie `signataire`, `fromName` = elle.
 Pour un nouveau conseiller de Saint-Médard : rien à faire, sa page vient de son profil (photo, mail, tél).
 
 **RÈGLE (Benoît, 14/10) : après chaque « ok pousse » qui change quelque chose pour les conseillers, ajouter
