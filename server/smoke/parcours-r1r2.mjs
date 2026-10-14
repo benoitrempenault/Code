@@ -362,7 +362,7 @@ export default async function () {
     await page.waitForSelector(".etapes", { timeout: 8000 });
     // Point 8 : la « démarche à suivre » — le guide Canva à la page de Teddy (photo ovale en noir
     // et blanc, nom, mail, téléphone), envoyé en pièce jointe, signé de Léa (assistante transaction).
-    await api("/crm/conseillers", { headers: admin.auth, method: "PUT", body: { prenom: "Léa", nom: "Vasseur", fonction: "Assistante Transaction", telephone: "05 56 57 77 77", email: "lea.vasseur@smoke.fr" } });
+    const leaCs = await api("/crm/conseillers", { headers: admin.auth, method: "PUT", body: { prenom: "Léa", nom: "Vasseur", fonction: "Assistante Transaction", telephone: "05 56 57 77 77", email: "lea.vasseur@smoke.fr", photo: PIXEL } });
     ok((await page.locator(".etape").count()) === 8 && /Démarche à suivre/.test(await page.textContent(".etapes")), "la fiche a son point 8 « Démarche à suivre »");
     await page.click('[data-guide="demarche"]');
     await page.waitForSelector("#pm-envoyer", { timeout: 30000 });
@@ -388,8 +388,9 @@ export default async function () {
     await attendreToast(page, "e-mail\\(s\\) envoyé");
     const mailsD = await (await fetch("http://localhost:18795/__mails")).json();
     const mailD = mailsD[mailsD.length - 1];
-    ok(mailsD.length === nbMailsAvantD + 1 && mailD.attachments && mailD.attachments[0].filename === "demarche-a-suivre-besson.pdf" && /^JVBER/.test(mailD.attachments[0].content) && /Léa Vasseur/.test(mailD.from) && /Léa Vasseur/.test(mailD.html) && /Assistante Transaction/.test(mailD.html),
-      "la démarche part avec le guide PDF en pièce jointe, signée de Léa Vasseur (" + JSON.stringify({ from: mailD && mailD.from, pj: mailD && mailD.attachments && mailD.attachments.map((a) => [a.filename, a.content.length]) }) + ")");
+    ok(mailsD.length === nbMailsAvantD + 1 && mailD.attachments && mailD.attachments[0].filename === "demarche-a-suivre-besson.pdf" && /^JVBER/.test(mailD.attachments[0].content) && /Léa Vasseur/.test(mailD.from) && /Léa Vasseur/.test(mailD.html) && /Assistante Transaction/.test(mailD.html)
+      && mailD.html.includes("/public/conseillers/" + leaCs.json.id + "/photo"),
+      "la démarche part avec le guide PDF en pièce jointe, signée de Léa Vasseur avec sa photo (" + JSON.stringify({ from: mailD && mailD.from, photo: mailD && mailD.html.includes("/public/conseillers/" + leaCs.json.id + "/photo"), pj: mailD && mailD.attachments && mailD.attachments.map((a) => [a.filename, a.content.length]) }) + ")");
     try { const fs = await import("node:fs/promises"); await fs.writeFile(new URL("./captures/demarche-mail.html", import.meta.url).pathname, mailD.html || ""); } catch { }
     await page.waitForSelector(".etapes", { timeout: 8000 });
     ok(/✓/.test(await page.textContent(".etape:nth-child(8) .num")), "le point 8 est coché après l'envoi");
@@ -549,6 +550,14 @@ export default async function () {
        "un terrain ne se compare qu'à des terrains : ventes DVF de terrains nus, Bien'ici en terrain, plus aucune maison (" + JSON.stringify({ type: dbgT.type, dvf: dbgT.dvf, ventesDvf: dbgT.ventesDvf, lignes: lignesT.length, conc: concT }) + ")");
     ok(/Aucun acheteur en recherche/.test(await page.textContent("#acm-ach-resume")), "les acheteurs de maisons ne sont pas comptés pour un terrain");
     await page.click("#acm-retour");
+    await page.waitForSelector(".etapes", { timeout: 8000 });
+    // La démarche à suivre d'un terrain : l'autre guide (16 pages, planning géomètre), même page du conseiller.
+    await page.click('[data-guide="demarche"]');
+    await page.waitForSelector("#pm-envoyer", { timeout: 30000 });
+    const dmsT = await page.evaluate(async () => { const { PDFDocument } = window.PDFLib; const doc = await PDFDocument.load(window.__dernierGuide.octets); return { pages: doc.getPageCount(), debug: window.__dernierGuide.debug }; });
+    ok(dmsT.pages === 16 && dmsT.debug.variante === "terrains" && dmsT.debug.photo && dmsT.debug.nom === "Besson" && /vente de votre terrain/.test(await page.inputValue("#pm-sujet")),
+      "pour un terrain, c'est le guide « terrains » (16 pages) à la page de Teddy, et l'objet parle du terrain (" + JSON.stringify({ pages: dmsT.pages, ...dmsT.debug }) + ")");
+    await page.click("#pm-annuler");
     await page.waitForSelector(".etapes", { timeout: 8000 });
     await page.click("#modale-corps details:first-of-type summary");
     await page.selectOption("#px-type", "maison");

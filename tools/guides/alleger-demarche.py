@@ -23,6 +23,9 @@ for page in d:
             if "A" in im.mode and im.getchannel("A").getextrema()[0] < 255:
                 continue  # transparence réelle : on ne touche pas
         im = im.convert("RGB")
+        # Les photos plein cadre d'un export Canva (1 500-2 000 px) : 1 100 px suffisent en A4.
+        if max(im.size) > 1100:
+            k = 1100 / max(im.size); im = im.resize((round(im.width * k), round(im.height * k)), Image.LANCZOS)
         out = io.BytesIO(); im.save(out, "JPEG", quality=85, optimize=True, progressive=False)
         if len(out.getvalue()) < avant * 0.8:
             page.replace_image(xref, stream=out.getvalue())

@@ -1397,8 +1397,8 @@ kadimastmedard › General › MODELES › TRANSACTION › Démarche à suivre �
 n'a QU'UNE page qui change par conseiller (p3 : prénom / nom en Playfair Display Bold Italic 23,1 pt, mail et
 téléphone en Barlow 12,1 pt centrés sur x = 366, photo ovale 91-206 × 129-270 en noir et blanc). Studio le
 génère : `administration/assets/demarche-biens.pdf` (allégé par `tools/guides/alleger-demarche.py`, PNG →
-JPEG : 3,2 → 1,7 Mo), `demarche-terrains.pdf` (à déposer — la version terrain est un AUTRE document de 16 p.,
-même page 3 à vérifier), mesures dans `assets/demarche.json`, police `assets/fonts/PlayfairDisplay-BoldItalic.ttf`
+JPEG : 3,2 → 1,7 Mo), `demarche-terrains.pdf` (autre document de 16 p. avec le planning géomètre en p4 paysage, même
+page 3 ; 7,4 → 2,2 Mo, photos > 1 100 px réduites), mesures dans `assets/demarche.json`, police `assets/fonts/PlayfairDisplay-BoldItalic.ttf`
 (Google Fonts). `genererDemarche(p)` (admin.js ?v=88 : efface la zone, `recadrerOvale` grayscale, Y() corrige la
 MediaBox y0 = 7,83) → `preparerMailParcours(id, "demarche", p, null, piece)` (lien « ouvrir le PDF »).
 Serveur : jalon `demarche` dans ETAPES / JALONS_MAIL / JALONS_PIECE (pièce obligatoire, `PIECE_JOINTE_MAX`
