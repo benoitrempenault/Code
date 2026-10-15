@@ -31,6 +31,14 @@ export default async function () {
     const broch = await page.evaluate(() => ({ adresse: document.querySelector('[data-bind="agency.address"]').value, tel: document.querySelector('[data-bind="agency.phone"]').value, mail: document.querySelector('[data-bind="agency.email"]').value, nom: document.querySelector('[data-bind="agency.name"]').value, agent: document.querySelector('[data-bind="agency.agent"]').value }));
     ok(broch.adresse === "53 avenue Louis-Barthou, 33200 Bordeaux" && broch.tel === "05 56 02 39 55" && broch.mail === "kadimacauderan@century21.fr" && /Caudéran/.test(broch.nom) && broch.agent === "Camille CONSEILLER",
       "brochure d'une conseillère de Caudéran : coordonnées de Caudéran et son nom en signature (" + JSON.stringify(broch) + ")");
+    try {
+      await page.click("#btnSettings"); await page.waitForTimeout(500);
+      await page.screenshot({ path: new URL("./captures/brochure-cauderan-reglages.png", import.meta.url).pathname });
+      await page.evaluate(() => { const b = document.querySelector("#btnSettings"); if (b) b.click(); });
+      await page.evaluate(() => { const el = [...document.querySelectorAll("*")].find((x) => /53 avenue Louis-Barthou/.test(x.textContent || "") && x.children.length === 0); if (el) el.scrollIntoView({ block: "center" }); });
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: new URL("./captures/brochure-cauderan-apercu.png", import.meta.url).pathname });
+    } catch { }
     await ouvrir(page, "/prospection/", membre);
     await page.waitForFunction(() => Array.from(document.querySelectorAll("button")).some((b) => b.textContent.includes("👤")), null, { timeout: 8000 });
     ok(await page.locator('a[href="../administration/"]').count() === 0, "un simple conseiller ne voit pas le bouton Administration");
