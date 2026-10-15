@@ -1392,6 +1392,8 @@ sur la page, et sur la page du lien un bouton « Je n'ai plus cette page — ouv
 pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une app isolée n'a pas le
 localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
 
+**Mémo 15/10** : entrée `livret-brochure-15-10` (lotissement + coordonnées de brochure) — admin.js ?v=92.
+
 **Brochures — coordonnées du point de vente (15/10)** : `/me` renvoie `profil` (conseiller actif lié au compte
 par `user_id` ou e-mail : prenom, nom, fonction, telephone, email, agence = pv) et `point_de_vente`
 (`agencePour(reglages, profil)` : cle, nom, adresse, telephone, email — le siège quand pas de pv). Brochure

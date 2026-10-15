@@ -4810,6 +4810,11 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "livret-brochure-15-10", depuis: "2026-10-15", jours: 7, titre: "Nouveau : livret prix et brochures",
+      html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Livret prix — biens vendus</strong> : un lotissement qui a vendu plusieurs maisons identiques à la même adresse ne fait plus qu'une ligne, la vente la plus récente, avec le nombre de ventes. Plus de « même maison vendue 4 fois ».</li>" +
+        "<li><strong>Brochures — coordonnées de l'agence</strong> : elles suivent votre point de vente. Un conseiller de Caudéran a l'adresse, le téléphone et l'e-mail de Caudéran ; Saint-Médard et Blanquefort gardent le siège. Votre nom se met en signature. Ce que vous retouchez à la main reste.</li>" +
+        "</ul>" },
     { id: "demarche", depuis: "2026-10-14", jours: 7, titre: "Nouveau : le point 8 « Démarche à suivre », envoyé depuis la fiche",
       html: '<p class="aide" style="max-width:none;">Après la signature du mandat, le guide <strong>« Démarche à suivre »</strong> part depuis Studio : sur la fiche du parcours, point 8, bouton <strong>📘 Démarche à suivre</strong>. Pour les conseillers de <strong>Saint-Médard et Blanquefort</strong> (Caudéran plus tard).</p>' +
         '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
