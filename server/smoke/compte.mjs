@@ -1,7 +1,7 @@
 /* Parcours « compte » (tablette) : bandeau de compte, déconnexion et
    changement de compte, écran « Accès réservé » d'un non-admin, bandeau
    présent dans chaque app. */
-import { ajouterConseiller, creerAgence, ouvrir, parcours, reconnecter } from "./lib.mjs";
+import { ajouterConseiller, api, creerAgence, ouvrir, parcours, reconnecter } from "./lib.mjs";
 
 export default async function () {
   const admin = await creerAgence("Smoke Compte", "smoke-compte@test.fr");
@@ -20,6 +20,17 @@ export default async function () {
     ok((await page.textContent("#loginMsg")).includes("déconnecté"), "la page compte accueille le collaborateur suivant");
     ok(await page.locator("#btnLogoutAll").count() === 1, "la page compte porte « Déconnecter tous mes appareils »");
 
+    // Brochure : les coordonnées de l'agence suivent le point de vente du conseiller
+    // connecté (Benoît, 15/10) — Camille, rattachée à Caudéran, a Caudéran.
+    const adminB = await reconnecter(admin); // la session de l'admin a été fermée plus haut (changement de compte)
+    await api("/crm/reglages", { headers: adminB.auth, method: "PUT", body: { agences: [{ nom: "CENTURY 21 Kadima — Saint-Médard-en-Jalles", adresse: "20 rue François Mitterrand, 33160 Saint-Médard-en-Jalles", telephone: "05 56 57 77 77" }, { nom: "CENTURY 21 Kadima — Bordeaux Caudéran", adresse: "53 avenue Louis-Barthou, 33200 Bordeaux", telephone: "05 56 02 39 55", email: "kadimacauderan@century21.fr" }] } });
+    const agSm = (await api("/crm/reglages", { headers: adminB.auth })).json.reglages.agences;
+    await api("/crm/conseillers", { headers: adminB.auth, method: "PUT", body: { prenom: "Camille", nom: "CONSEILLER", email: "camille@smoke.fr", telephone: "06 12 34 56 78", agence: agSm[1].cle } });
+    await ouvrir(page, "/mandat/brochure.html", membre);
+    await page.waitForFunction(() => (document.querySelector('[data-bind="agency.address"]') || {}).value === "53 avenue Louis-Barthou, 33200 Bordeaux", null, { timeout: 10000 }).catch(() => {});
+    const broch = await page.evaluate(() => ({ adresse: document.querySelector('[data-bind="agency.address"]').value, tel: document.querySelector('[data-bind="agency.phone"]').value, mail: document.querySelector('[data-bind="agency.email"]').value, nom: document.querySelector('[data-bind="agency.name"]').value, agent: document.querySelector('[data-bind="agency.agent"]').value }));
+    ok(broch.adresse === "53 avenue Louis-Barthou, 33200 Bordeaux" && broch.tel === "05 56 02 39 55" && broch.mail === "kadimacauderan@century21.fr" && /Caudéran/.test(broch.nom) && broch.agent === "Camille CONSEILLER",
+      "brochure d'une conseillère de Caudéran : coordonnées de Caudéran et son nom en signature (" + JSON.stringify(broch) + ")");
     await ouvrir(page, "/prospection/", membre);
     await page.waitForFunction(() => Array.from(document.querySelectorAll("button")).some((b) => b.textContent.includes("👤")), null, { timeout: 8000 });
     ok(await page.locator('a[href="../administration/"]').count() === 0, "un simple conseiller ne voit pas le bouton Administration");
@@ -32,6 +43,8 @@ export default async function () {
       "compte non-admin : l'Administration s'ouvre sur le seul Parcours R1/R2");
     await page.waitForSelector("#compte-bandeau button, header button:has-text('👤')", { timeout: 6000 });
     ok((await page.textContent("body")).includes("Camille CONSEILLER"), "le bandeau dit QUI est connecté");
+    // Le mémo des nouveautés (Parcours) s'ouvre devant : « Plus tard » le range pour cette fois.
+    if (await page.locator("#nv-plus-tard").count()) { await page.click("#nv-plus-tard"); await page.waitForSelector("#voile", { state: "hidden", timeout: 4000 }); }
     await page.click("text=👤");
     await page.waitForSelector("[data-deconnexion]", { timeout: 4000 });
     await page.click("[data-deconnexion]");

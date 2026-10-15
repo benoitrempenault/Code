@@ -603,13 +603,29 @@ export function createApp(env) {
       "SELECT COUNT(*) AS n, COALESCE(SUM(cost_micros),0) AS cost FROM usage WHERE agency_id = ? AND month = ?",
       [ctx.agency.id, month]
     );
+    // Le profil conseiller du compte et SON point de vente (Réglages → Nos agences) :
+    // les brochures d'un conseiller de Caudéran portent les coordonnées de Caudéran
+    // (Benoît, 15/10), celles d'un conseiller de Saint-Médard / Blanquefort le siège.
+    let profil = null, pointDeVente = null;
+    try {
+      const email = String(ctx.user.email || "").toLowerCase();
+      const cs = await db.get(
+        `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, COALESCE(pv.pv, '') AS agence
+         FROM crm_conseillers cs LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id
+         WHERE cs.agency_id = ? AND cs.actif = 1 AND (cs.user_id = ? OR lower(cs.email) = ?)
+         ORDER BY CASE WHEN cs.user_id = ? THEN 0 ELSE 1 END, cs.updated_at DESC LIMIT 1`, [ctx.agency.id, ctx.user.id, email, ctx.user.id]);
+      if (cs) profil = { id: cs.id, prenom: cs.prenom, nom: cs.nom, fonction: cs.fonction || "", telephone: cs.telephone || "", email: cs.email || "", agence: cs.agence || "" };
+      const ag = CRM.agencePour(await CRM.getReglages(db, ctx.agency), cs || null);
+      if (ag && (ag.nom || ag.adresse || ag.telephone || ag.email)) pointDeVente = { cle: ag.pv || "", nom: ag.nom || "", adresse: ag.adresse || "", telephone: ag.telephone || "", email: ag.email || "" };
+    } catch (e) { profil = profil || null; pointDeVente = pointDeVente || null; }
     return c.json({
       user: { id: ctx.user.id, email: ctx.user.email, name: ctx.user.name, role: ctx.user.role },
       agency: {
         id: ctx.agency.id, name: ctx.agency.name, status: ctx.agency.status, plan: ctx.agency.plan,
         seats: ctx.agency.seats, trial_ends_at: ctx.agency.trial_ends_at, open: agencyOpen(ctx.agency)
       },
-      usage: { month, requests: u?.n || 0, cost_eur: Math.round((u?.cost || 0) / 1e4) / 100, quota_eur: ctx.agency.quota_eur }
+      usage: { month, requests: u?.n || 0, cost_eur: Math.round((u?.cost || 0) / 1e4) / 100, quota_eur: ctx.agency.quota_eur },
+      profil, point_de_vente: pointDeVente,
     });
   });
 

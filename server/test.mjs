@@ -3823,6 +3823,18 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "les agences se rangent avec une clé lisible, une agence sans nom est ignorée, les mentions générales sont gardées (" + JSON.stringify(agcs.map((a) => a.cle)) + ")");
   await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: marine.id, prenom: "Marine", nom: "Zamora", telephone: "06 11 22 33 44", agence: agcs[1].cle } });
   const csAg = (await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === marine.id);
+  // /me donne le profil conseiller du compte et SON point de vente (coordonnées des brochures, Benoît 15/10).
+  { const moiEmail = (await callR("/me", { headers: auth })).json.user.email;
+    const moiCs = await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "Benoît", nom: "ADMIN", email: moiEmail, telephone: "06 99 99 99 99", agence: agcs[1].cle } });
+    const meCa = (await callR("/me", { headers: auth })).json;
+    await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: moiCs.json.id, prenom: "Benoît", nom: "ADMIN", email: moiEmail, agence: agcs[0].cle } });
+    const meSm = (await callR("/me", { headers: auth })).json;
+    ok(moiCs.status === 200 && meCa.profil && meCa.profil.id === moiCs.json.id && meCa.profil.agence === agcs[1].cle && meCa.point_de_vente && meCa.point_de_vente.cle === agcs[1].cle
+       && meCa.point_de_vente.adresse === "5 avenue de Caudéran, 33200 Bordeaux" && meCa.point_de_vente.telephone === "05 56 00 00 00" && /Caudéran/.test(meCa.point_de_vente.nom)
+       && meSm.point_de_vente && meSm.point_de_vente.cle === agcs[0].cle && /François Mitterrand/.test(meSm.point_de_vente.adresse),
+       "/me porte le profil du compte et les coordonnées de son point de vente : Caudéran pour un conseiller de Caudéran, le siège sinon (" + JSON.stringify({ ca: meCa.point_de_vente, sm: meSm.point_de_vente }) + ")");
+    await callR("/crm/conseillers/" + moiCs.json.id + "?compte=0", { headers: auth, method: "DELETE" });
+    ok(!(await callR("/me", { headers: auth })).json.profil, "sans profil conseiller, /me n'invente rien (profil null)"); }
   const ficheAg = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
   ok(ficheAg.agence && ficheAg.agence.site === "www.c21-cauderan.fr" && ficheAg.agence.signataire === "Tiéphaine DUVERGER" && ficheAg.agence.fonction === "Directrice d'agence",
      "l'agence du conseiller porte aussi son site, son directeur et sa fonction (mot du directeur, guide R2) : " + JSON.stringify(ficheAg.agence && { site: ficheAg.agence.site, signataire: ficheAg.agence.signataire }));

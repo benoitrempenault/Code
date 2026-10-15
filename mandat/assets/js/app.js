@@ -1814,6 +1814,29 @@
     wireAddressAutocomplete();
     render();
     applyZoom();
+    appliquerPointDeVente();
+  }
+
+  // Les coordonnées de l'agence suivent le point de vente du conseiller connecté
+  // (Réglages → Nos agences, via /me) : un conseiller de Caudéran a Caudéran, un
+  // conseiller de Saint-Médard ou Blanquefort le siège (Benoît, 15/10). Posées
+  // quand le point de vente change ; ensuite, ce que le conseiller retouche reste.
+  async function appliquerPointDeVente() {
+    if (!cloudOn()) return;
+    let d; try { d = await cloudApi("/me"); } catch (e) { return; }
+    const pv = d && d.point_de_vente;
+    if (!pv || !(pv.adresse || pv.telephone || pv.email)) return;
+    const cle = pv.cle || "siege", a = state.agency;
+    let change = false;
+    if (a.pv !== cle) {
+      if (pv.nom) a.name = pv.nom;
+      if (pv.adresse) a.address = pv.adresse;
+      if (pv.telephone) a.phone = pv.telephone;
+      if (pv.email) a.email = pv.email;
+      a.pv = cle; change = true;
+    }
+    if (!a.agent && d.profil && (d.profil.prenom || d.profil.nom)) { a.agent = [d.profil.prenom, d.profil.nom].filter(Boolean).join(" "); change = true; }
+    if (change) { hydrateForm(); render(); save(); }
   }
 
   /* ------------- API pour l'interface pas-à-pas (wizard.js) ------------- */

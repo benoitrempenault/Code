@@ -1392,6 +1392,14 @@ sur la page, et sur la page du lien un bouton « Je n'ai plus cette page — ouv
 pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une app isolée n'a pas le
 localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
 
+**Brochures — coordonnées du point de vente (15/10)** : `/me` renvoie `profil` (conseiller actif lié au compte
+par `user_id` ou e-mail : prenom, nom, fonction, telephone, email, agence = pv) et `point_de_vente`
+(`agencePour(reglages, profil)` : cle, nom, adresse, telephone, email — le siège quand pas de pv). Brochure
+(`mandat/assets/js/app.js` ?v=15, `appliquerPointDeVente()` à l'init) : quand `state.agency.pv` ≠ la clé
+reçue, nom / adresse / téléphone / e-mail de l'agence sont remplacés par ceux du point de vente (Caudéran →
+Caudéran), puis mémorisés ; les retouches manuelles restent tant que le point de vente ne change pas ;
+`agency.agent` prend « Prénom Nom » du profil s'il est vide.
+
 **Livret prix — « la même maison vendue 3-4 fois » (14/10)** : vrai dans DVF — un lotissement vend des maisons
 identiques sous la MÊME adresse (3 rue de Poupay, 33449 : six maisons de 104 m², parcelles KN0249-0256, six
 dates). `regrouperVentesIdentiques` (admin.js, à la lecture des millésimes) : même adresse + type + surface
