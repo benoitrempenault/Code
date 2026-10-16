@@ -1392,6 +1392,14 @@ sur la page, et sur la page du lien un bouton « Je n'ai plus cette page — ouv
 pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une app isolée n'a pas le
 localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
 
+**Livret prix — ordre des listes et « en vente depuis 20 743 jours » (16/10)** : Bien'ici renvoie parfois une
+`publicationDate` à l'epoch → `joursEnVente()` (parcours.js) rend null hors [0 ; 3 650] jours ou avant 2000 ;
+le client borne aussi à la lecture. Ordre des ventes ET de la concurrence : `score` = écart de pièces × 100
+(toujours premier) + distance / 100 m (plafond 3 km) + écart de surface relatif × 10 (inconnue = 35 % ;
+terrain → surface de terrain) + ancienneté / 3 mois (ventes seulement) ; `__acmDebug.ordreVentes`,
+`surfaceRef`, `piecesRef`. **DVF 2026** : pas encore publié sur geo-dvf (latest = 2021-2025, 404 sur 2026) ;
+le client tente l'année courante puis descend, rien à changer quand 2026 sortira. Mémo `livret-ordre-16-10`.
+
 **Mémo 15/10** : entrée `livret-brochure-15-10` (lotissement + coordonnées de brochure) — admin.js ?v=92.
 
 **Brochures — coordonnées du point de vente (15/10)** : `/me` renvoie `profil` (conseiller actif lié au compte

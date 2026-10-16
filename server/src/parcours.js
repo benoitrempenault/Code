@@ -1571,8 +1571,17 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         pieces, chambres: a.bedroomsQuantity || 0, type: BIENICI_LIB[type] || "Maison", ville: a.city || "", cp: a.postalCode || "", quartier: a.district && a.district.libelle ? String(a.district.libelle).slice(0, 60) : "",
         titre: [neuf ? "Neuf (à partir de)" : "", BIENICI_LIB[type] || "Maison", pieces ? pieces + " pièces" : "", a.surfaceArea ? Math.round(a.surfaceArea) + " m²" : (type === "terrain" && a.landSurfaceArea ? Math.round(a.landSurfaceArea) + " m² de terrain" : "")].filter(Boolean).join(" · "),
         image: photo, url: "https://www.bienici.com/annonce/" + (a.adType === "rent" ? "location" : "vente") + "/" + slug(a.city || ville) + "/" + ({ flat: "appartement", terrain: "terrain" }[type] || "maison") + "/" + (pieces || 1) + "pieces/" + encodeURIComponent(a.id),
-        lat: pos ? pos.lat : null, lng: pos ? pos.lon : null, jours: a.publicationDate ? Math.max(0, Math.round((Date.now() - Date.parse(a.publicationDate)) / 86400000)) : null, baisse: a.priceHasDecreased ? 1 : 0, dpe: a.energyClassification || "" };
+        lat: pos ? pos.lat : null, lng: pos ? pos.lon : null, jours: joursEnVente(a.publicationDate), baisse: a.priceHasDecreased ? 1 : 0, dpe: a.energyClassification || "" };
     });
+  }
+  // « En vente depuis N jours » d'une annonce Bien'ici : une date absente, à l'epoch
+  // (1970 → 20 743 jours, vu dans un livret le 16/10) ou future ne vaut rien ; au-delà
+  // de 10 ans non plus.
+  function joursEnVente(date) {
+    const t = Date.parse(String(date || ""));
+    if (!Number.isFinite(t) || t < Date.UTC(2000, 0, 1)) return null;
+    const j = Math.round((Date.now() - t) / 86400000);
+    return j >= 0 && j <= 3650 ? j : null;
   }
   /* ------------------- Commission d'évaluation (Kadimestim) ------------------ */
   // Comme dans Kadimestim : les collègues reçoivent un lien, donnent une

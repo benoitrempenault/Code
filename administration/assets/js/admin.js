@@ -4171,10 +4171,20 @@
     // estime un T2, même tout proche (Benoît, 10/10).
     const piecesRef = donnees.type !== "terrain" ? (Number(acm.pieces) || Number(p.bien && p.bien.pieces) || 0) : 0;
     const ecartPieces = (x) => (piecesRef ? (Number(x.pieces) > 0 ? Math.abs(Number(x.pieces) - piecesRef) : 1.5) : 0);
-    // Les ventes à choisir : même nombre de pièces d'abord, puis les plus proches, puis les plus récentes (celles de l'agence à égalité).
-    const candidatsVentes = [...ventesAgence, ...ventesDvf].sort((a, b) => ecartPieces(a) - ecartPieces(b) || (a.dist ?? 1e9) - (b.dist ?? 1e9) || String(b.date || "").localeCompare(String(a.date || "")) || (a.source === "agence" ? -1 : 1));
+    // L'ordre des listes (Benoît, 16/10) : le nombre de pièces d'abord (un cran = 100 pts,
+    // rien ne le rattrape), puis un score qui mêle la distance (1 pt / 100 m), l'écart de
+    // surface avec le bien estimé (1 pt / 10 %, inconnue = 35 %) et, pour les ventes,
+    // l'ancienneté (1 pt / 3 mois : les plus récentes d'abord). Un terrain se compare par
+    // sa surface de terrain.
+    const surfaceRef = donnees.type === "terrain" ? (Number(acm.terrain) || Number(p.bien && p.bien.terrain) || 0) : (Number(acm.surface) || Number(p.bien && p.bien.surface) || 0);
+    const ecartSurface = (x) => { const sx = donnees.type === "terrain" ? Number(x.terrain || x.surface) : Number(x.surface); return surfaceRef > 0 && sx > 0 ? Math.abs(sx - surfaceRef) / surfaceRef : 0.35; };
+    const ageMois = (x) => { const t = Date.parse(String(x.date || "").slice(0, 10) + "T00:00:00Z"); return Number.isFinite(t) ? Math.max(0, (Date.now() - t) / (30.44 * 86400000)) : 24; };
+    const scoreVente = (v) => ecartPieces(v) * 100 + Math.min(v.dist ?? 1500, 3000) / 100 + ecartSurface(v) * 10 + ageMois(v) / 3;
+    const candidatsVentes = [...ventesAgence, ...ventesDvf].map((v) => ({ ...v, score: Math.round(scoreVente(v) * 100) / 100 }))
+      .sort((a, b) => a.score - b.score || (a.source === "agence" ? -1 : 1));
     donnees.ventesDvf = ventesDvf; // toutes les ventes DVF autour : page dédiée du livret
-    window.__acmDebug = { dvf: dvf.length, ventesDvf: ventesDvf.length, commune: donnees.commune, lat: donnees.lat, lng: donnees.lng, type: donnees.type,
+    window.__acmDebug = { dvf: dvf.length, ventesDvf: ventesDvf.length, commune: donnees.commune, lat: donnees.lat, lng: donnees.lng, type: donnees.type, surfaceRef, piecesRef,
+      ordreVentes: candidatsVentes.slice(0, 8).map((v) => ({ id: v.id, pieces: v.pieces, dist: v.dist, surface: v.surface, date: v.date, score: v.score })),
       identiques: dvf.filter((v) => v.ventes_identiques > 1).map((v) => ({ adresse: v.adresse, n: v.ventes_identiques, date: v.date, prix: v.prix })) }; // relu par le smoke
     // Les biens vus sur les portails (leboncoin, SeLoger…), saisis à la main avec
     // l'adresse retrouvée (précisément.fr) : gardés dans la saisie du livret.
@@ -4195,7 +4205,9 @@
     const distanceDe = (a) => { if (Number.isFinite(a.dist) && a.dist !== null) return a.dist; if (a.lat && a.lng && donnees.lat && donnees.lng) { const r = Math.PI / 180, dLat = (a.lat - donnees.lat) * r, dLng = (a.lng - donnees.lng) * r, h = Math.sin(dLat / 2) ** 2 + Math.cos(donnees.lat * r) * Math.cos(a.lat * r) * Math.sin(dLng / 2) ** 2; return 2 * 6371000 * Math.asin(Math.sqrt(h)); } return null; };
     const rang = (a) => { const d = distanceDe(a); return d !== null ? d : (memeCommune(a) ? 1e6 : 2e6); };
     const candidatsConc = [...manuels, ...[...(donnees.annonces || []).map((a) => ({ ...a, id: "agence:" + a.id })), ...(donnees.amepi || []).map((a) => ({ ...a, id: "amepi:" + a.id })), ...(portails.biens || [])]
-      .map((a) => ({ ...a, dist: distanceDe(a) })).sort((a, b) => ecartPieces(a) - ecartPieces(b) || rang(a) - rang(b))]
+      .map((a) => ({ ...a, dist: distanceDe(a), jours: Number.isFinite(a.jours) && a.jours >= 0 && a.jours <= 3650 ? a.jours : null }))
+      .map((a) => ({ ...a, score: Math.round((ecartPieces(a) * 100 + Math.min(rang(a), 3000) / 100 + ecartSurface(a) * 10) * 100) / 100 }))
+      .sort((a, b) => a.score - b.score)]
       .map((a) => (photosPosees.has(a.id) ? { ...a, photo: photosPosees.get(a.id) } : a));
     const dejaV = new Set((acm.ventes || []).map((v) => v.id)), dejaC = new Set((acm.concurrence || []).map((v) => v.id));
     // Sans sélection enregistrée : les 4 premiers de chaque liste (même nombre de
@@ -4251,9 +4263,9 @@
       '<label>Prix estimé par le conseiller (net vendeur)<input id="acm-prix" type="number" step="1000" value="' + escH(acm.prix || "") + '" /></label>' +
       '<label>Fourchette basse<input id="acm-basse" type="number" step="1000" value="' + escH(acm.basse || "") + '" /></label>' +
       '<label>Fourchette haute<input id="acm-haute" type="number" step="1000" value="' + escH(acm.haute || "") + '" /></label></div>' +
-      '<h3 style="margin:14px 0 4px;">1. Les biens récemment vendus <span class="petit">(' + candidatsVentes.length + ' à moins de 1,5 km — DVF 3 ans et ventes de l\'agence' + (piecesRef ? " ; même nombre de pièces d'abord (T" + piecesRef + " d'abord, puis ±1…), puis les plus proches ; les 4 premières sont pré-cochées" : " ; les plus proches d'abord ; les 4 premières sont pré-cochées") + ')</span></h3>' +
+      '<h3 style="margin:14px 0 4px;">1. Les biens récemment vendus <span class="petit">(' + candidatsVentes.length + ' à moins de 1,5 km — DVF 3 ans et ventes de l\'agence' + (piecesRef ? " ; même nombre de pièces d'abord (T" + piecesRef + " d'abord, puis ±1…), puis les plus proches, de surface voisine et les plus récentes ; les 4 premières sont pré-cochées" : " ; les plus proches, de surface voisine et les plus récentes d'abord ; les 4 premières sont pré-cochées") + ')</span></h3>' +
       '<div id="acm-ventes" class="liste-choix">' + (candidatsVentes.length ? aideTri + candidatsVentes.map(ligneVente).join("") : '<p class="petit">Aucune vente comparable trouvée' + (dvf.length ? " à moins de 1,5 km sur 24 mois (" + dvf.length + " ventes DVF dans la commune)" : donnees.commune ? " (fichier DVF de la commune " + escH(donnees.commune.code) + " indisponible)" : " (commune introuvable : " + escH((donnees.erreurs || []).join(" ; ") || "geo.api.gouv.fr muet") + ")") + ".</p>") + "</div>" +
-      '<h3 style="margin:14px 0 4px;">2. Les biens en concurrence <span class="petit">(nos annonces, les mandats de l\'ALFA et Bien\'ici — même type, même commune' + (piecesRef ? " ; même nombre de pièces d'abord (T" + piecesRef + " d'abord, puis ±1…), puis les plus proches" : ", les plus proches d'abord") + " ; les 4 premiers avec un prix sont pré-cochés" + (portails.erreur ? " ; Bien'ici indisponible : " + escH(portails.erreur) : "") + ")</span></h3>" +
+      '<h3 style="margin:14px 0 4px;">2. Les biens en concurrence <span class="petit">(nos annonces, les mandats de l\'ALFA et Bien\'ici — même type, même commune' + (piecesRef ? " ; même nombre de pièces d'abord (T" + piecesRef + " d'abord, puis ±1…), puis les plus proches et de surface voisine" : ", les plus proches et de surface voisine d'abord") + " ; les 4 premiers avec un prix sont pré-cochés" + (portails.erreur ? " ; Bien'ici indisponible : " + escH(portails.erreur) : "") + ")</span></h3>" +
       '<div id="acm-conc" class="liste-choix haute">' + (candidatsConc.length ? aideTri + candidatsConc.map(ligneConc).join("") : '<p class="petit">Aucun bien en vente comparable pour le moment.</p>') + "</div>" +
       '<details style="margin-top:6px;"><summary class="petit" style="cursor:pointer;">+ Ajouter un bien vu sur un portail (adresse retrouvée sur précisément.fr)</summary>' +
       '<div class="grille-champs" style="margin-top:6px;"><label style="grid-column:1/-1;">Adresse<input id="acm-m-adresse" placeholder="9 allée Lamartine, Le Taillan-Médoc" /></label>' +
@@ -4810,6 +4822,11 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "livret-ordre-16-10", depuis: "2026-10-16", jours: 7, titre: "Nouveau : l'ordre des biens dans le livret prix",
+      html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Biens vendus et biens en concurrence</strong> : le même nombre de pièces d'abord, puis les plus proches du bien, de surface voisine et, pour les vendus, les plus récents. Les 4 premiers sont pré-cochés, vous gardez la main.</li>" +
+        "<li>Les « en vente depuis 20 000 jours » (annonce sans date de publication) ont disparu.</li>" +
+        "</ul>" },
     { id: "livret-brochure-15-10", depuis: "2026-10-15", jours: 7, titre: "Nouveau : livret prix et brochures",
       html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
         "<li><strong>Livret prix — biens vendus</strong> : un lotissement qui a vendu plusieurs maisons identiques à la même adresse ne fait plus qu'une ligne, la vente la plus récente, avec le nombre de ventes. Plus de « même maison vendue 4 fois ».</li>" +

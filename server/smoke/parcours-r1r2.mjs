@@ -257,6 +257,13 @@ export default async function () {
     const portailsRep = await api("/crm/parcours/" + pxListe[0].id + "/acm/portails", { headers: admin.auth });
     ok((await page.locator('[data-conc^="bienici:"]').count()) === 2 && /ORPI Smoke/.test(await page.textContent("#acm-conc")), "les biens Bien'ici de la commune sont proposés avec leur agence (" + JSON.stringify(portailsRep.json).slice(0, 300) + ")");
     ok(await page.inputValue("#acm-prix") === "325000" && await page.inputValue("#acm-haute") === "345000", "le livret reprend le prix de raison et d'ambition retouchés (" + await page.inputValue("#acm-prix") + " / " + await page.inputValue("#acm-haute") + ")");
+    // Une annonce Bien'ici « publiée en 1970 » (date à l'epoch) : plus de « en vente depuis 20 743 j ».
+    const txtListes = await page.evaluate(() => document.getElementById("acm-conc").textContent + " " + document.getElementById("acm-ventes").textContent);
+    ok(!/depuis \d{4,} j/.test(txtListes) && !/depuis 20\s?\d{3}/.test(txtListes), "aucune annonce « en vente depuis 20 000 jours » (date de publication absente ou à l'epoch)");
+    // L'ordre des ventes : pièces d'abord, puis un score distance + surface + récence (le score croît le long de la liste).
+    const { ordreVentes: ordreV, piecesRef: pRef } = await page.evaluate(() => ({ ordreVentes: window.__acmDebug.ordreVentes, piecesRef: window.__acmDebug.piecesRef }));
+    ok(ordreV.length >= 4 && ordreV.every((v, i) => i === 0 || v.score >= ordreV[i - 1].score) && (!pRef || ordreV.every((v, i) => i === 0 || !Number(v.pieces) || !Number(ordreV[i - 1].pieces) || Math.abs(Number(v.pieces) - pRef) >= Math.abs(Number(ordreV[i - 1].pieces) - pRef))),
+      "les ventes sont classées par pièces, puis distance + surface + récence (" + JSON.stringify(ordreV.slice(0, 4)) + ")");
     // Le lotissement « 3 rue de Poupay » : trois ventes identiques → une ligne, la plus récente, comptée.
     const poupay = await page.evaluate(() => [...document.querySelectorAll("#acm-ventes .ligne-conc")].map((l) => l.textContent.replace(/\s+/g, " ")).filter((t) => /RUE DE POUPAY/i.test(t)));
     const dbgP = await page.evaluate(() => window.__acmDebug.identiques);
