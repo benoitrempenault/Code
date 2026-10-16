@@ -4242,13 +4242,30 @@
     let comIdx = commission.length;
     const ligneCom = (l, i) => '<div class="grille-champs ligne-com" style="margin:2px 0; grid-template-columns: 1fr 1fr 1fr auto; align-items:end;"><label>Conseillers<input type="number" min="0" data-com-nb="' + i + '" value="' + escH(l.nb) + '" /></label><label>De<input type="number" step="1000" data-com-basse="' + i + '" value="' + escH(l.basse) + '" /></label><label>À<input type="number" step="1000" data-com-haute="' + i + '" value="' + escH(l.haute) + '" /></label><button type="button" class="btn" data-com-suppr="' + i + '" title="Retirer cette ligne" style="padding:6px 10px;">✕</button></div>';
     const ach = donnees.acheteurs || [];
-    const budgets = ach.map((a) => a.budget_max).filter((b) => b > 0).sort((a, b) => a - b);
+    // Les acheteurs comptés dans le livret : ceux dont le budget est dans une FENÊTRE
+    // autour de l'estimation (Adélaïde, 16/10 : 310-350 k€ estimés → budgets de 300 à
+    // 400 k€), proposée depuis la fourchette (basse − 3 %, haute + 15 %, arrondis aux
+    // 10 000 €) et retouchable. Les budgets fantaisistes (< 10 000 €) sont ignorés.
+    const dix = (v) => Math.round(v / 10000) * 10000;
+    const fenetreAuto = () => {
+      const prix = parseFloat($("acm-prix") && $("acm-prix").value) || 0, basse = parseFloat($("acm-basse") && $("acm-basse").value) || prix, haute = parseFloat($("acm-haute") && $("acm-haute").value) || prix;
+      return basse && haute ? { min: dix(basse * 0.97), max: dix(haute * 1.15) } : { min: 0, max: 0 };
+    };
+    const fenetre = () => {
+      const min = parseFloat($("acm-ach-min") && $("acm-ach-min").value) || 0, max = parseFloat($("acm-ach-max") && $("acm-ach-max").value) || 0;
+      return { min, max };
+    };
+    const tousBudgets = ach.map((a) => a.budget_max).filter((b) => b >= 10000).sort((a, b) => a - b);
+    let budgets = tousBudgets.slice();
+    const recalculerBudgets = () => { const f = fenetre(); budgets = tousBudgets.filter((b) => (!f.min || b >= f.min) && (!f.max || b <= f.max)); return budgets; };
     const nbAu = (prix) => (prix ? budgets.filter((b) => b >= prix).length : null);
     const resumeAch = () => {
       const prix = parseFloat($("acm-prix") && $("acm-prix").value), basse = parseFloat($("acm-basse") && $("acm-basse").value), haute = parseFloat($("acm-haute") && $("acm-haute").value);
       if (!ach.length) return "Aucun acheteur en recherche sur ce secteur dans Studio.";
-      return ach.length + " acheteur(s) en recherche d'" + ({ appartement: "un appartement", terrain: "un terrain" }[donnees.type] || "une maison") + (p.ville ? " à " + p.ville : "") +
-        (budgets.length ? " (budgets de " + fmtPrix(budgets[0]) + " à " + fmtPrix(budgets[budgets.length - 1]) + ")" : "") +
+      recalculerBudgets(); const f = fenetre();
+      return budgets.length + " acheteur(s) en recherche d'" + ({ appartement: "un appartement", terrain: "un terrain" }[donnees.type] || "une maison") + (p.ville ? " à " + p.ville : "") +
+        (f.min || f.max ? " avec un budget " + (f.min && f.max ? "entre " + fmtPrix(f.min) + " et " + fmtPrix(f.max) : f.min ? "d'au moins " + fmtPrix(f.min) : "jusqu'à " + fmtPrix(f.max)) + " (sur " + tousBudgets.length + " en recherche)" : "") +
+        (budgets.length ? " · budgets de " + fmtPrix(budgets[0]) + " à " + fmtPrix(budgets[budgets.length - 1]) : "") +
         (prix ? ". À " + fmtPrix(prix) + " : " + nbAu(prix) + " acheteur(s)" : "") + (basse ? " · fourchette basse " + fmtPrix(basse) + " : " + nbAu(basse) : "") + (haute ? " · fourchette haute " + fmtPrix(haute) + " : " + nbAu(haute) : "") + ".";
     };
     $("modale-corps").innerHTML =
@@ -4277,6 +4294,9 @@
       '<div id="acm-com-lignes">' + commission.map(ligneCom).join("") + "</div>" +
       '<div class="barre"><button class="btn" id="acm-com-ajouter" type="button">+ Ajouter une ligne</button></div>' +
       '<h3 style="margin:14px 0 4px;">4. Les réactions des acheteurs du moment</h3>' +
+      '<div class="grille-champs" style="grid-template-columns: 1fr 1fr auto; align-items:end;"><label>Budget des acheteurs comptés, de<input id="acm-ach-min" type="number" step="10000" value="' + escH(acm.acheteurs_budget_choix ? (acm.acheteurs_min || "") : "") + '" /></label>' +
+      '<label>à<input id="acm-ach-max" type="number" step="10000" value="' + escH(acm.acheteurs_budget_choix ? (acm.acheteurs_max || "") : "") + '" /></label>' +
+      '<button class="btn" id="acm-ach-auto" type="button" title="Fourchette basse − 3 %, fourchette haute + 15 %, arrondis aux 10 000 €">↺ Depuis la fourchette</button></div>' +
       '<p class="petit" id="acm-ach-resume"></p>' +
       '<label class="case"><input type="checkbox" id="acm-ach-inclure"' + ((acm.acheteurs_choix ? acm.acheteurs_inclure : true) ? " checked" : "") + " /> Inclure cette page dans le livret</label>" +
       '<textarea id="acm-ach-texte" style="width:100%; min-height:70px; margin-top:6px;" placeholder="Retours de visites, remarques des acheteurs…">' + escH(acm.acheteurs_texte || "") + "</textarea>" +
@@ -4298,7 +4318,13 @@
     $("acm-commission").addEventListener("click", () => { document.querySelector(".modale").classList.remove("large"); ouvrirCommission(id, p); });
     $("acm-com-ajouter").addEventListener("click", () => { $("acm-com-lignes").insertAdjacentHTML("beforeend", ligneCom({ nb: "", basse: "", haute: "" }, comIdx++)); const der = $("acm-com-lignes").lastElementChild.querySelector("input"); if (der) der.focus(); });
     $("acm-com-lignes").addEventListener("click", (e) => { const b = e.target.closest("[data-com-suppr]"); if (b) b.closest(".ligne-com").remove(); });
+    // La fenêtre de budget : proposée depuis la fourchette tant que le conseiller ne l'a pas retouchée.
+    let budgetChoisi = !!acm.acheteurs_budget_choix;
+    const poserFenetreAuto = () => { const f = fenetreAuto(); $("acm-ach-min").value = f.min || ""; $("acm-ach-max").value = f.max || ""; };
+    if (!budgetChoisi) poserFenetreAuto();
     $("acm-ach-resume").textContent = resumeAch();
+    for (const k of ["acm-ach-min", "acm-ach-max"]) $(k).addEventListener("input", () => { budgetChoisi = true; $("acm-ach-resume").textContent = resumeAch(); });
+    $("acm-ach-auto").addEventListener("click", () => { budgetChoisi = false; poserFenetreAuto(); $("acm-ach-resume").textContent = resumeAch(); });
     // Poser une photo sur un bien (en concurrence ou vendu) : rangée à part
     // (table dédiée), jamais dans la saisie du livret : 900 px, poids borné.
     const poserPhoto = async (inp, cle, liste, selCase) => {
@@ -4316,7 +4342,7 @@
     };
     $("acm-conc").addEventListener("change", (ev) => { const inp = ev.target; if (inp.matches && inp.matches("[data-photo]")) poserPhoto(inp, inp.dataset.photo, candidatsConc, "data-conc"); });
     $("acm-ventes").addEventListener("change", (ev) => { const inp = ev.target; if (inp.matches && inp.matches("[data-photo-vente]")) poserPhoto(inp, inp.dataset.photoVente, candidatsVentes, "data-vente"); });
-    for (const k of ["acm-prix", "acm-basse", "acm-haute"]) $(k).addEventListener("input", () => { $("acm-ach-resume").textContent = resumeAch(); });
+    for (const k of ["acm-prix", "acm-basse", "acm-haute"]) $(k).addEventListener("input", () => { if (!budgetChoisi) poserFenetreAuto(); $("acm-ach-resume").textContent = resumeAch(); });
     // La page « réactions des acheteurs » est incluse par défaut ; décocher la case est un choix qui se garde.
     $("acm-ach-inclure").addEventListener("change", () => { acm.acheteurs_choix = true; });
     $("acm-m-ajouter").addEventListener("click", () => {
@@ -4337,7 +4363,8 @@
       const auto = depuisCommission || [];
       const source = com.length === auto.length && com.every((l, i) => l.nb === auto[i].nb && l.basse === auto[i].basse && l.haute === auto[i].haute) ? acm.commission_source : "main";
       return { ...acm, commission_source: source, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), pieces: num("acm-pieces"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes).map(({ photo, image, ...reste }) => reste), concurrence: cochees("[data-conc]", candidatsConc).map(({ photo, ...reste }) => reste),
-        commission: com, acheteurs_inclure: $("acm-ach-inclure").checked, acheteurs_texte: $("acm-ach-texte").value.trim(), acheteurs_n: ach.length, acheteurs_budgets: budgets,
+        commission: com, acheteurs_inclure: $("acm-ach-inclure").checked, acheteurs_texte: $("acm-ach-texte").value.trim(), acheteurs_n: recalculerBudgets().length, acheteurs_budgets: budgets, acheteurs_total: tousBudgets.length,
+        acheteurs_min: fenetre().min || 0, acheteurs_max: fenetre().max || 0, acheteurs_budget_choix: budgetChoisi,
         taux: num("acm-taux") ?? 3.9, assurance: num("acm-assurance") ?? 0.34, apport: num("acm-apport") || 0, duree: parseInt($("acm-duree").value, 10) || 25 };
     };
     const sauver = async () => { const d = lire(); await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: d }); return d; };
@@ -4661,7 +4688,8 @@
       await ajouterModele(meta.sections.acheteurs);
       const pg = await pageContenu("LES RÉACTIONS DES ACHETEURS DU", "MOMENT");
       const n = acm.acheteurs_n || 0, b = (acm.acheteurs_budgets || []).slice().sort((x, y) => x - y);
-      const intro = couper(n + " acheteur(s) en recherche active d'" + (donnees.type === "appartement" ? "un appartement" : "une maison") + (p.ville ? " à " + p.ville : "") + " dans notre fichier", fS, 11, L);
+      const fen = acm.acheteurs_min && acm.acheteurs_max ? ", avec un budget entre " + fmtPrix(acm.acheteurs_min) + " et " + fmtPrix(acm.acheteurs_max) : acm.acheteurs_min ? ", avec un budget d'au moins " + fmtPrix(acm.acheteurs_min) : acm.acheteurs_max ? ", avec un budget jusqu'à " + fmtPrix(acm.acheteurs_max) : "";
+      const intro = couper(n + " acheteur(s) en recherche active d'" + (donnees.type === "appartement" ? "un appartement" : "une maison") + (p.ville ? " à " + p.ville : "") + " dans notre fichier" + fen, fS, 11, L);
       intro.forEach((l, j) => ecrire(pg, l, G, 105 + j * 14, 11, fS, noir));
       if (b.length) ecrire(pg, "Budgets : de " + fmtPrix(b[0]) + " à " + fmtPrix(b[b.length - 1]) + " · médiane " + fmtPrix(b[Math.floor(b.length / 2)]), G, 108 + intro.length * 14, 10, fR, gris);
       const niveaux = [["Fourchette basse", acm.basse], ["Prix estimé", acm.prix], ["Fourchette haute", acm.haute]].filter(([, v]) => v);
@@ -4822,8 +4850,9 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
-    { id: "livret-ordre-16-10", depuis: "2026-10-16", jours: 7, titre: "Nouveau : l'ordre des biens dans le livret prix",
+    { id: "livret-ordre-16-10", depuis: "2026-10-16", jours: 7, titre: "Nouveau : l'ordre des biens et le filtre de budget dans le livret prix",
       html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Les réactions des acheteurs du moment</strong> : seuls les acheteurs dont le budget est dans une fenêtre autour de l'estimation sont comptés (fourchette basse − 3 %, haute + 15 %, arrondis : 310-350 k€ → budgets de 300 à 400 k€). La fenêtre se retouche dans le livret, bouton « ↺ Depuis la fourchette » pour revenir au calcul.</li>" +
         "<li><strong>Biens vendus et biens en concurrence</strong> : le même nombre de pièces d'abord, puis les plus proches du bien, de surface voisine et, pour les vendus, les plus récents. Les 4 premiers sont pré-cochés, vous gardez la main.</li>" +
         "<li>Les « en vente depuis 20 000 jours » (annonce sans date de publication) ont disparu.</li>" +
         "</ul>" },

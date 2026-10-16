@@ -303,11 +303,19 @@ export default async function () {
     // La ligne ajoutée reste quand on quitte et rouvre le livret (enregistrement automatique).
     await page.click("#acm-retour");
     await page.waitForSelector(".etapes", { timeout: 8000 });
+    // Trois acheteurs de maisons dans Studio (budgets 250, 330 et 600 k€) : la fenêtre 310-390 k€ n'en compte qu'un.
+    await api("/crm/contacts/bulk", { headers: admin.auth, body: { rows: [250000, 330000, 600000].map((b) => ({ civilite: "M.", nom: "ACHETEUR" + b, prenom: "Test", email: "acheteur" + b + "@smoke.fr", telephone: "0600000" + String(b).slice(0, 3) })) } });
+    const ctsAch = (await api("/crm/contacts", { headers: admin.auth })).json.contacts.filter((c) => /^acheteur\d+@smoke\.fr$/.test(c.email || ""));
+    for (const c of ctsAch) await api("/crm/projets", { headers: admin.auth, method: "PUT", body: { kind: "achat", contactIds: [c.id], budgetMax: Number(c.email.replace(/\D/g, "")), types: ["maison"] } });
     await page.click('[data-guide="acm"]');
     await page.waitForSelector("#acm-generer", { timeout: 20000 });
     ok((await page.locator(".ligne-com").count()) === nbLignesAvant + 1 && await page.inputValue('[data-com-nb="1"]') === "2" && await page.inputValue('[data-com-basse="1"]') === "330000" && await page.inputValue('[data-com-nb="0"]') === "3",
       "les lignes de commission retouchées sont retrouvées à la réouverture (" + (await page.locator(".ligne-com").count()) + " lignes)");
     ok(/acheteur/.test(await page.textContent("#acm-ach-resume")), "la fenêtre montre le résumé des acheteurs par niveau de prix");
+    // Le filtre de budget (Adélaïde, 16/10) : proposé depuis la fourchette (320 000 − 3 % → 310 000 ; 340 000 + 15 % → 390 000), retouchable.
+    const fenAch = await page.evaluate(() => ({ min: document.getElementById("acm-ach-min").value, max: document.getElementById("acm-ach-max").value, resume: document.getElementById("acm-ach-resume").textContent }));
+    ok(fenAch.min === "310000" && fenAch.max === "390000" && /^1 acheteur\(s\)/.test(fenAch.resume) && /budget entre 310 000 € et 390 000 €/.test(fenAch.resume.replace(/[\u202f\u00a0]/g, " ")) && /\(sur 3 en recherche\)/.test(fenAch.resume),
+      "les acheteurs comptés sont ceux dont le budget est dans la fenêtre proposée depuis la fourchette (" + JSON.stringify(fenAch) + ")");
     await page.check("#acm-ach-inclure"); await page.fill("#acm-ach-texte", "Les visiteurs apprécient le jardin, réserves sur la route.");
     await page.click("#acm-generer");
     await page.waitForSelector("#doc-retour", { timeout: 90000 });

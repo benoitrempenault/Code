@@ -1392,6 +1392,13 @@ sur la page, et sur la page du lien un bouton « Je n'ai plus cette page — ouv
 pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une app isolée n'a pas le
 localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
 
+**Livret prix — filtre de budget des acheteurs (Adélaïde, 16/10)** : champs `acm-ach-min` / `acm-ach-max` +
+« ↺ Depuis la fourchette » (`fenetreAuto` = arrondi 10 k€ de basse × 0,97 et haute × 1,15 ; 310-350 k€ →
+300-400 k€) ; proposée tant que `acheteurs_budget_choix` est faux, suit alors basse/haute ; les budgets
+< 10 000 € sont ignorés ; sauvés `acheteurs_min/max/total/budget_choix`, `acheteurs_n` et `acheteurs_budgets`
+= filtrés ; la page PDF dit « …dans notre fichier, avec un budget entre X et Y ». Smoke : 3 acheteurs (250 /
+330 / 600 k€) → « 1 acheteur(s) … (sur 3 en recherche) ».
+
 **Livret prix — ordre des listes et « en vente depuis 20 743 jours » (16/10)** : Bien'ici renvoie parfois une
 `publicationDate` à l'epoch → `joursEnVente()` (parcours.js) rend null hors [0 ; 3 650] jours ou avant 2000 ;
 le client borne aussi à la lecture. Ordre des ventes ET de la concurrence : `score` = écart de pièces × 100
