@@ -1392,6 +1392,12 @@ sur la page, et sur la page du lien un bouton « Je n'ai plus cette page — ouv
 pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une app isolée n'a pas le
 localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
 
+**Livret prix — financement (17/10)** : taux par défaut **4 %** (était 3,9 ; `acm.taux ?? 4` aux 3 endroits — un
+livret déjà enregistré garde son taux sauvé) ; « Revenus nets du foyer nécessaires (endettement 35 %) » =
+`revenus(m)` = mensualité assurance comprise ÷ 0,35 arrondie à 10 € — ligne dans l'encadré (hauteur 173) et
+colonne « Revenus N ans » dans le tableau (7 colonnes, `colX` 0/.18/.34/.45/.56/.67/.84), note HCSF en bas ;
+`livretDebug.financement.{taux, revenus}` (smoke : 367 200 € à 4 % sur 25 ans → 2 042 €/mois, 5 840 €).
+
 **Livret prix — filtre de budget des acheteurs (Adélaïde, 16/10)** : champs `acm-ach-min` / `acm-ach-max` +
 « ↺ Depuis la fourchette » (`fenetreAuto` = arrondi 10 k€ de basse × 0,97 et haute × 1,15 ; 310-350 k€ →
 300-400 k€) ; proposée tant que `acheteurs_budget_choix` est faux, suit alors basse/haute ; les budgets

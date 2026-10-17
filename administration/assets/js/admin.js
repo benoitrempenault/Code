@@ -4301,7 +4301,7 @@
       '<label class="case"><input type="checkbox" id="acm-ach-inclure"' + ((acm.acheteurs_choix ? acm.acheteurs_inclure : true) ? " checked" : "") + " /> Inclure cette page dans le livret</label>" +
       '<textarea id="acm-ach-texte" style="width:100%; min-height:70px; margin-top:6px;" placeholder="Retours de visites, remarques des acheteurs…">' + escH(acm.acheteurs_texte || "") + "</textarea>" +
       '<h3 style="margin:14px 0 4px;">5. Les conditions de financement</h3>' +
-      '<div class="grille-champs"><label>Taux (%)<input id="acm-taux" type="number" step="0.05" value="' + escH(acm.taux ?? 3.9) + '" /></label>' +
+      '<div class="grille-champs"><label>Taux (%)<input id="acm-taux" type="number" step="0.05" value="' + escH(acm.taux ?? 4) + '" /></label>' +
       '<label>Assurance (%)<input id="acm-assurance" type="number" step="0.01" value="' + escH(acm.assurance ?? 0.34) + '" /></label>' +
       '<label>Apport<input id="acm-apport" type="number" step="1000" value="' + escH(acm.apport ?? 0) + '" /></label>' +
       '<label>Durée (ans)<select id="acm-duree">' + [15, 20, 25].map((d) => '<option' + ((acm.duree || 25) === d ? " selected" : "") + ">" + d + "</option>").join("") + "</select></label>" +
@@ -4365,7 +4365,7 @@
       return { ...acm, commission_source: source, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), pieces: num("acm-pieces"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes).map(({ photo, image, ...reste }) => reste), concurrence: cochees("[data-conc]", candidatsConc).map(({ photo, ...reste }) => reste),
         commission: com, acheteurs_inclure: $("acm-ach-inclure").checked, acheteurs_texte: $("acm-ach-texte").value.trim(), acheteurs_n: recalculerBudgets().length, acheteurs_budgets: budgets, acheteurs_total: tousBudgets.length,
         acheteurs_min: fenetre().min || 0, acheteurs_max: fenetre().max || 0, acheteurs_budget_choix: budgetChoisi,
-        taux: num("acm-taux") ?? 3.9, assurance: num("acm-assurance") ?? 0.34, apport: num("acm-apport") || 0, duree: parseInt($("acm-duree").value, 10) || 25 };
+        taux: num("acm-taux") ?? 4, assurance: num("acm-assurance") ?? 0.34, apport: num("acm-apport") || 0, duree: parseInt($("acm-duree").value, 10) || 25 };
     };
     const sauver = async () => { const d = lire(); await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: d }); return d; };
     $("acm-save").addEventListener("click", async () => { try { await sauver(); toast("Livret prix : saisie enregistrée"); } catch (e) { toast(e.message, true); } });
@@ -4707,7 +4707,11 @@
     // prix + frais de notaire (toujours à sa charge) + travaux éventuels, moins l'apport.
     await ajouterModele(meta.sections.financement);
     { const pg = await pageContenu("LES CONDITIONS DE", "FINANCEMENT");
-      const taux = acm.taux ?? 3.9, ass = acm.assurance ?? 0.34, duree = acm.duree || 25, apport = acm.apport || 0;
+      const taux = acm.taux ?? 4, ass = acm.assurance ?? 0.34, duree = acm.duree || 25, apport = acm.apport || 0;
+      // Revenus nets mensuels du foyer nécessaires : mensualité (assurance comprise) ÷ 35 % — le
+      // taux d'endettement maximal (HCSF), avant autres crédits en cours (Benoît, 17/10).
+      const ENDETTEMENT = 0.35;
+      const revenus = (m) => Math.round(m / ENDETTEMENT / 10) * 10;
       const FRAIS_PCT = 8; // frais de notaire dans l'ancien : toujours à la charge de l'acquéreur, 8 % partout
       const budget = (v) => v * (1 + FRAIS_PCT / 100), emprunt = (v) => Math.max(0, budget(v) - apport);
       const pct = (v) => v.toLocaleString("fr-FR");
@@ -4727,19 +4731,19 @@
       ecrire(pg, (apport ? "Apport " + fmtPrix(apport) + "  →  montant emprunté " : "Sans apport : montant emprunté ") + fmtPrix(Math.round(montant)), G, y + 14, 9.5, fR, gris);
       ecrire(pg, "Taux " + pct(taux) + " % sur " + duree + " ans, assurance " + pct(ass) + " %", G, y + 30, 9.5, fR, gris);
       y += 40;
-      rect(pg, G, y, L, 160, { borderColor: or, borderWidth: 1.2, color: blanc });
+      rect(pg, G, y, L, 173, { borderColor: or, borderWidth: 1.2, color: blanc });
       ecrireCentre(pg, "La mensualité de l'acquéreur sera de", G + L / 2, y + 28, 12, fR, noir);
       ecrireCentre(pg, Math.round(mens + mAss).toLocaleString("fr-FR") + " €", G + L / 2, y + 68, 34, fB, or);
-      const lignes = [["Montant du prêt (prix + frais de notaire" + (apport ? " − apport" : "") + ")", fmtPrix(Math.round(montant))], ["Mensualité", Math.round(mens + mAss).toLocaleString("fr-FR") + " €/mois*"], ["Dont assurance", Math.round(mAss).toLocaleString("fr-FR") + " €/mois"], ["Coût total du crédit", fmtPrix(Math.round(total + totalAss))], ["Dont assurance", fmtPrix(Math.round(totalAss))]];
+      const lignes = [["Montant du prêt (prix + frais de notaire" + (apport ? " − apport" : "") + ")", fmtPrix(Math.round(montant))], ["Mensualité", Math.round(mens + mAss).toLocaleString("fr-FR") + " €/mois*"], ["Dont assurance", Math.round(mAss).toLocaleString("fr-FR") + " €/mois"], ["Coût total du crédit", fmtPrix(Math.round(total + totalAss))], ["Dont assurance", fmtPrix(Math.round(totalAss))], ["Revenus nets du foyer nécessaires (endettement 35 %)", "≈ " + revenus(mens + mAss).toLocaleString("fr-FR") + " €/mois"]];
       lignes.forEach(([a, b], j) => { ecrire(pg, a, G + 24, y + 96 + j * 13, 9.5, fR, gris); ecrireDroite(pg, b, D - 24, y + 96 + j * 13, 9.5, fS, noir); });
-      y += 160 + 28;
+      y += 173 + 28;
       // Les trois niveaux de prix (fourchette basse, prix estimé, fourchette haute) : budget acquéreur, mensualités par durée, coût.
       ecrire(pg, "Selon le prix et la durée (mensualités par mois, assurance comprise)", G, y, 12, fS, noir); y += 8;
       const niveaux = [["Fourchette basse", acm.basse], ["Prix estimé", acm.prix], ["Fourchette haute", acm.haute]].filter(([, v]) => v);
       const lignesN = niveaux.length ? niveaux : [["Prix retenu", prixRef]];
-      const colX = [G, G + L * 0.22, G + L * 0.44, G + L * 0.58, G + L * 0.72, G + L * 0.86], cx = (j) => colX[j] + L * (j === 1 ? 0.11 : 0.07);
+      const colX = [G, G + L * 0.18, G + L * 0.34, G + L * 0.45, G + L * 0.56, G + L * 0.67, G + L * 0.84], cx = (j) => colX[j] + L * (j === 1 ? 0.08 : j === 5 ? 0.085 : j === 6 ? 0.08 : 0.055);
       rect(pg, G, y, L, 22, { color: or });
-      ["Prix", "Budget acquéreur", "15 ans", "20 ans", "25 ans", "Coût " + duree + " ans"].forEach((t, j) => (j === 0 ? ecrire(pg, t, colX[j] + 8, y + 15, 10, fB, blanc) : ecrireCentre(pg, t, cx(j), y + 15, 8.5, fB, blanc)));
+      ["Prix", "Budget acquéreur", "15 ans", "20 ans", "25 ans", "Coût " + duree + " ans", "Revenus " + duree + " ans"].forEach((t, j) => (j === 0 ? ecrire(pg, t, colX[j] + 8, y + 15, 10, fB, blanc) : ecrireCentre(pg, t, cx(j), y + 15, 8.5, fB, blanc)));
       lignesN.forEach(([lib, v], j) => {
         const yy = y + 47 + j * 30, mt = emprunt(v), mA = mt * ass / 100 / 12;
         if (j % 2 === 0) rect(pg, G, yy - 19, L, 30, { color: sable });
@@ -4747,10 +4751,11 @@
         ecrireCentre(pg, fmtPrix(Math.round(budget(v))), cx(1), yy + 2, 10, fS, or);
         [15, 20, 25].forEach((d, k) => ecrireCentre(pg, Math.round(mensualite(mt, taux, d) + mA).toLocaleString("fr-FR") + " €", cx(2 + k), yy + 2, 10, fS, noir));
         ecrireCentre(pg, fmtPrix(Math.round(mensualite(mt, taux, duree) * duree * 12 - mt + mA * duree * 12)), cx(5), yy + 2, 10, fS, noir);
+        ecrireCentre(pg, "≈ " + revenus(mensualite(mt, taux, duree) + mA).toLocaleString("fr-FR") + " €", cx(6), yy + 2, 10, fS, or);
       });
       y += 47 + lignesN.length * 30 + 18;
-      couper("Simulation indicative, taux " + pct(taux) + " % et assurance " + pct(ass) + " % du capital, hors frais de dossier et de garantie ; les conditions dépendent du profil de l'emprunteur et de l'établissement prêteur. Frais de notaire estimés à " + FRAIS_PCT + " % du prix (bien ancien), montant exact fixé par le notaire ; travaux éventuels non compris.", fR, 8, L).forEach((l, j) => ecrire(pg, l, G, y + j * 11, 8, fR, gris));
-      livretDebug.financement = { fraisPct: FRAIS_PCT, apport, budget: Math.round(budget(prixRef || 0)), emprunt: Math.round(montant), mensualite: Math.round(mens + mAss) }; }
+      couper("Revenus nécessaires : mensualité (assurance comprise) rapportée au taux d'endettement maximal de 35 % recommandé par le Haut Conseil de stabilité financière — revenus nets mensuels du foyer, avant autres crédits en cours. Simulation indicative, taux " + pct(taux) + " % et assurance " + pct(ass) + " % du capital, hors frais de dossier et de garantie ; les conditions dépendent du profil de l'emprunteur et de l'établissement prêteur. Frais de notaire estimés à " + FRAIS_PCT + " % du prix (bien ancien), montant exact fixé par le notaire ; travaux éventuels non compris.", fR, 8, L).forEach((l, j) => ecrire(pg, l, G, y + j * 11, 8, fR, gris));
+      livretDebug.financement = { fraisPct: FRAIS_PCT, apport, budget: Math.round(budget(prixRef || 0)), emprunt: Math.round(montant), mensualite: Math.round(mens + mAss), taux, revenus: revenus(mens + mAss) }; }
     doc.setTitle("Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
@@ -4855,6 +4860,7 @@
         "<li><strong>Les réactions des acheteurs du moment</strong> : seuls les acheteurs dont le budget est dans une fenêtre autour de l'estimation sont comptés (fourchette basse − 3 %, haute + 15 %, arrondis : 310-350 k€ → budgets de 300 à 400 k€). La fenêtre se retouche dans le livret, bouton « ↺ Depuis la fourchette » pour revenir au calcul.</li>" +
         "<li><strong>Biens vendus et biens en concurrence</strong> : le même nombre de pièces d'abord, puis les plus proches du bien, de surface voisine et, pour les vendus, les plus récents. Les 4 premiers sont pré-cochés, vous gardez la main.</li>" +
         "<li>Les « en vente depuis 20 000 jours » (annonce sans date de publication) ont disparu.</li>" +
+        "<li><strong>Page financement</strong> : les revenus nets du foyer nécessaires (mensualité ÷ 35 % d'endettement) dans l'encadré et dans le tableau ; le taux de simulation par défaut passe à 4 % (les livrets déjà enregistrés gardent leur taux, modifiable dans « Taux »).</li>" +
         "</ul>" },
     { id: "livret-brochure-15-10", depuis: "2026-10-15", jours: 7, titre: "Nouveau : livret prix et brochures",
       html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
