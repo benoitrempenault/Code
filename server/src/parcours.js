@@ -16,7 +16,7 @@
    que le conseiller a déjà envoyé à la main.
    ========================================================================= */
 import { now, randId, randToken, safeEqual } from "./util.js";
-import { formatTelephone, groupePv, filtrePv, filtrePvProjet, MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier , releverAvisAgences, avisAgence, releverAvisConseillers, jsonAvisSite } from "./crm.js";
+import { runRappelsApresR2, formatTelephone, groupePv, filtrePv, filtrePvProjet, MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier , releverAvisAgences, avisAgence, releverAvisConseillers, jsonAvisSite } from "./crm.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
@@ -297,11 +297,11 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   app.get("/crm/conseillers", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const rows = await db.all(
-      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre, COALESCE(d.direction, 0) AS direction, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis, COALESCE(avs.avis, '[]') AS avis_site_json, COALESCE(ts.texte, '') AS bio_site, COALESCE(avs.updated_at, 0) AS avis_site_le, COALESCE(pc.photo <> '', 0) AS a_photo_carre, COALESCE(pc.updated_at, 0) AS photo_carre_le
-       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_direction d ON d.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id LEFT JOIN crm_conseillers_avis_site avs ON avs.id = cs.id LEFT JOIN crm_conseillers_texte_site ts ON ts.id = cs.id LEFT JOIN crm_conseillers_photo_carre pc ON pc.id = cs.id
+      `SELECT cs.id, cs.user_id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, cs.actif, (cs.photo <> '') AS a_photo, cs.updated_at, x.bio, x.genre, COALESCE(d.direction, 0) AS direction, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis, COALESCE(avs.avis, '[]') AS avis_site_json, COALESCE(ts.texte, '') AS bio_site, COALESCE(avs.updated_at, 0) AS avis_site_le, COALESCE(pc.photo <> '', 0) AS a_photo_carre, COALESCE(pc.updated_at, 0) AS photo_carre_le, COALESCE(rp.rappel_apres_r2, 0) AS rappel_apres_r2
+       FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_direction d ON d.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id LEFT JOIN crm_conseillers_avis_site avs ON avs.id = cs.id LEFT JOIN crm_conseillers_texte_site ts ON ts.id = cs.id LEFT JOIN crm_conseillers_photo_carre pc ON pc.id = cs.id LEFT JOIN crm_conseillers_rappels rp ON rp.id = cs.id
        WHERE cs.agency_id = ? AND lower(cs.email) NOT LIKE '%.interne' ORDER BY cs.nom COLLATE NOCASE, cs.prenom COLLATE NOCASE`, // ordre alphabétique sans tenir compte des majuscules (BUISSON passait avant Besson)
       [ctx.agency.id]);
-    return c.json({ conseillers: rows.map(({ avis_site_json, ...r }) => ({ ...r, direction: !!r.direction, bio: r.bio || "", genre_pose: r.genre || "", genre: r.genre || genrePrenom(r.prenom), a_photo: !!r.a_photo, a_photo_carre: !!r.a_photo_carre, photo_carre_le: r.photo_carre_le || 0, photo_url: r.a_photo ? photoUrl(c, r.id) : "", avis_site: jsonAvisSite(avis_site_json) })) });
+    return c.json({ conseillers: rows.map(({ avis_site_json, ...r }) => ({ ...r, direction: !!r.direction, rappel_apres_r2: !!r.rappel_apres_r2, bio: r.bio || "", genre_pose: r.genre || "", genre: r.genre || genrePrenom(r.prenom), a_photo: !!r.a_photo, a_photo_carre: !!r.a_photo_carre, photo_carre_le: r.photo_carre_le || 0, photo_url: r.a_photo ? photoUrl(c, r.id) : "", avis_site: jsonAvisSite(avis_site_json) })) });
   });
   app.put("/crm/conseillers", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
@@ -390,7 +390,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
         if (!bio && a.bio) bio = a.bio; if (!genre && a.genre) genre = a.genre; if (a.direction) direction = 1; if (!pv && a.pv) pv = a.pv;
         if (/[^\x00-\x7f]/.test(a.prenom + a.nom) && !/[^\x00-\x7f]/.test(prenom + nom)) { prenom = a.prenom; nom = a.nom; }
         await db.run("UPDATE crm_parcours SET conseiller_id = ? WHERE conseiller_id = ?", [garde.id, a.id]);
-        for (const t of ["crm_conseillers_extra", "crm_conseillers_direction", "crm_conseillers_pv", "crm_conseillers"]) await db.run(`DELETE FROM ${t} WHERE id = ?`, [a.id]);
+        for (const t of ["crm_conseillers_extra", "crm_conseillers_direction", "crm_conseillers_pv", "crm_conseillers_rappels", "crm_conseillers"]) await db.run(`DELETE FROM ${t} WHERE id = ?`, [a.id]);
         fusions++;
       }
       await db.run("UPDATE crm_conseillers SET prenom = ?, nom = ?, user_id = ?, fonction = ?, telephone = ?, email = ?, photo = ?, updated_at = ? WHERE id = ?",
@@ -528,14 +528,24 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       if (!actif && compte) { await db.run("UPDATE sessions SET revoked = 1 WHERE user_id = ? AND revoked = 0", [compte.id]); await db.run("DELETE FROM login_tokens WHERE user_id = ?", [compte.id]); }
     }
     if (b.direction !== undefined) await ecrireDirection(id, b.direction === true || b.direction === 1);
+    // Rappel J+1 après R2 (19/10) : le lendemain d'un R2, s'il n'a pas envoyé le point 7, il reçoit un e-mail.
+    if (b.rappel_apres_r2 !== undefined) await db.run(
+      "INSERT INTO crm_conseillers_rappels (id, rappel_apres_r2, updated_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET rappel_apres_r2 = excluded.rappel_apres_r2, updated_at = excluded.updated_at",
+      [id, b.rappel_apres_r2 === true || b.rappel_apres_r2 === 1 ? 1 : 0, now()]);
     if (b.administration !== undefined) {
       if (!compte) return err(c, 400, "Créez d'abord l'accès de ce conseiller (bouton « Créer l'accès »).");
       if (compte.id === ctx.user.id) return err(c, 400, "Vous ne pouvez pas changer votre propre rôle.");
       await db.run("UPDATE users SET role = ? WHERE id = ?", [b.administration === true || b.administration === 1 ? "admin" : "member", compte.id]);
     }
-    const r = await db.get("SELECT cs.actif, COALESCE(d.direction, 0) AS direction FROM crm_conseillers cs LEFT JOIN crm_conseillers_direction d ON d.id = cs.id WHERE cs.id = ?", [id]);
+    const r = await db.get("SELECT cs.actif, COALESCE(d.direction, 0) AS direction, COALESCE(rp.rappel_apres_r2, 0) AS rappel_apres_r2 FROM crm_conseillers cs LEFT JOIN crm_conseillers_direction d ON d.id = cs.id LEFT JOIN crm_conseillers_rappels rp ON rp.id = cs.id WHERE cs.id = ?", [id]);
     const u = compte ? await db.get("SELECT role FROM users WHERE id = ?", [compte.id]) : null;
-    return c.json({ ok: true, actif: !!r.actif, direction: !!r.direction, administration: !!(u && u.role === "admin"), compte: !!compte });
+    return c.json({ ok: true, actif: !!r.actif, direction: !!r.direction, administration: !!(u && u.role === "admin"), rappel_apres_r2: !!r.rappel_apres_r2, compte: !!compte });
+  });
+  // Passage du jour à la demande : les rappels « lendemain du R2 » aux conseillers cochés (le cron du matin fait pareil).
+  app.post("/crm/parcours-rappels/run", async (c) => {
+    const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
+    const reglages = await getReglages(db, ctx.agency);
+    return c.json({ summary: await runRappelsApresR2(env, db, ctx.agency, reglages) });
   });
   // Créer l'accès d'un conseiller (compte + lien de bienvenue) et le lier au profil.
   app.post("/crm/equipe/:id/compte", async (c) => {
@@ -643,7 +653,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const compte = avecCompte ? ((cs.user_id && await db.get("SELECT id FROM users WHERE id = ? AND agency_id = ?", [cs.user_id, ctx.agency.id]))
       || (cs.email && await db.get("SELECT id FROM users WHERE lower(email) = ? AND agency_id = ?", [String(cs.email).toLowerCase(), ctx.agency.id])) || null) : null;
     if (compte && compte.id === ctx.user.id) return err(c, 400, "Vous ne pouvez pas retirer votre propre compte.");
-    for (const t of ["crm_conseillers_extra", "crm_conseillers_direction", "crm_conseillers_pv", "crm_conseillers_avis", "crm_conseillers_avis_site", "crm_conseillers_texte_site", "crm_conseillers_photo_carre"]) {
+    for (const t of ["crm_conseillers_extra", "crm_conseillers_direction", "crm_conseillers_pv", "crm_conseillers_rappels", "crm_conseillers_avis", "crm_conseillers_avis_site", "crm_conseillers_texte_site", "crm_conseillers_photo_carre"]) {
       await db.run(`DELETE FROM ${t} WHERE id = ?`, [id]);
     }
     await db.run("DELETE FROM crm_conseillers WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);

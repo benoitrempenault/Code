@@ -2519,6 +2519,7 @@
       return '<div data-stop="1" style="min-width:230px;">' +
         kase("actif", c.actif, "Actif", "Entre dans Studio et apparaît dans les listes. Décoché = parti : ses sessions sont fermées, plus aucun lien ne lui part.") +
         kase("direction", c.direction, "Direction", "Voit tous les parcours R1/R2 de l'agence.") +
+        kase("rappel_apres_r2", c.rappel_apres_r2, "Rappel J+1 R2", "Le lendemain d'un R2, s'il n'a pas envoyé le point 7 (e-mail après le R2), il reçoit un e-mail de rappel le matin (une fois par fiche).", !c.email) +
         kase("administration", k && k.role === "admin", "Administration", k ? "Ouvre la page Administration (contacts, imports, réglages)." : "Créez d'abord l'accès de ce conseiller.", !k) +
         '<div class="petit" style="margin-top:4px; display:flex; flex-wrap:wrap; gap:4px 6px; align-items:center;">' + (k
           ? (k.appareils ? k.appareils + " appareil" + (k.appareils > 1 ? "s" : "") + " connecté" + (k.appareils > 1 ? "s" : "") : "jamais connecté") + (k.mobile ? " · 📱 " + escH(k.mobile) + (k.mobile_verifie ? "" : " (à vérifier)") : " · sans mobile, lien seul") +
@@ -2548,7 +2549,7 @@
       try {
         const r = await api("/crm/equipe/" + cb.dataset.cs, { method: "PUT", json: corps });
         if (cs) { cs.actif = r.actif ? 1 : 0; cs.direction = r.direction; }
-        toast((cs ? [cs.prenom, cs.nom].filter(Boolean).join(" ") + " : " : "") + { actif: r.actif ? "actif" : "inactif (sessions fermées)", direction: r.direction ? "direction" : "plus direction", administration: r.administration ? "accès à l'Administration" : "plus d'Administration" }[cb.dataset.eq] + ".");
+        toast((cs ? [cs.prenom, cs.nom].filter(Boolean).join(" ") + " : " : "") + { actif: r.actif ? "actif" : "inactif (sessions fermées)", direction: r.direction ? "direction" : "plus direction", administration: r.administration ? "accès à l'Administration" : "plus d'Administration", rappel_apres_r2: r.rappel_apres_r2 ? "rappel le lendemain du R2 activé" : "plus de rappel après R2" }[cb.dataset.eq] + ".");
         chargerConseillers();
       } catch (e) { cb.checked = !cb.checked; toast(e.message, true); }
     }));
@@ -2794,6 +2795,9 @@
     const note = $("parcours-perimetre");
     if (note) note.textContent = parcoursTous ? "" : "Vous voyez vos parcours (ceux dont vous êtes le conseiller, ou que vous avez créés) ; la direction les voit tous.";
     rendreParcours();
+    // ?brique=parcours&fiche=<id> (e-mail de rappel « lendemain du R2 ») : la fiche s'ouvre d'elle-même, une fois.
+    const ficheDemandee = new URLSearchParams(location.search).get("fiche") || "";
+    if (ficheDemandee && !chargerParcours.ouverte) { chargerParcours.ouverte = true; if (parcours.some((p) => p.id === ficheDemandee)) ouvrirParcours(ficheDemandee); }
   }
   function rendreParcours() {
     const zone = $("table-parcours");
@@ -4855,6 +4859,8 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "rappel-apres-r2-19-10", depuis: "2026-10-19", jours: 7, titre: "Nouveau : un rappel le lendemain du R2",
+      html: '<p class="aide" style="max-width:none;">Le matin qui suit un R2, si le <strong>point 7 (e-mail après le R2)</strong> n\'est pas encore parti, vous recevez un e-mail de rappel avec le lien direct vers la fiche. Il part une seule fois par fiche, et pas si l\'e-mail est déjà envoyé (ou le point coché). Ce rappel est activé conseiller par conseiller par la direction.</p>' },
     { id: "livret-ordre-16-10", depuis: "2026-10-16", jours: 7, titre: "Nouveau : l'ordre des biens et le filtre de budget dans le livret prix",
       html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
         "<li><strong>Les réactions des acheteurs du moment</strong> : seuls les acheteurs dont le budget est dans une fenêtre autour de l'estimation sont comptés (fourchette basse − 3 %, haute + 15 %, arrondis : 310-350 k€ → budgets de 300 à 400 k€). La fenêtre se retouche dans le livret, bouton « ↺ Depuis la fourchette » pour revenir au calcul.</li>" +

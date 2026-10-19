@@ -1392,6 +1392,18 @@ sur la page, et sur la page du lien un bouton « Je n'ai plus cette page — ouv
 pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une app isolée n'a pas le
 localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
 
+**Rappel J+1 après R2 au conseiller (19/10)** : table `crm_conseillers_rappels (id, rappel_apres_r2)`,
+cochée par l'admin dans L'équipe → Accès (« Rappel J+1 R2 », `PUT /crm/equipe/:id {rappel_apres_r2}`,
+relue dans `GET /crm/conseillers`). `runRappelsApresR2(env, db, agency, reglages)` (crm.js, appelé par
+`runCrmDaily` SANS condition sur `estimations.enabled`) : parcours `en_cours` dont `r2 = hier` et dont le
+conseiller est coché → e-mail au conseiller (wrapEmail de son agence, lien
+`/administration/?brique=parcours&fiche=<id>` qui ouvre la fiche d'elle-même, `chargerParcours.ouverte`).
+Jamais si le journal porte `apres-r2`, si `crm_envois` a un `estimation-apres-r2` ok pour la fiche, ni deux
+fois (type `rappel-apres-r2`, e-mail du conseiller). À la demande : `POST /crm/parcours-rappels/run` (admin).
+Brochure (mandat + mandat-pro) : le bouton « Enregistrer dans la bibliothèque » de la barre du haut a
+disparu, on enregistre depuis ▤ Bibliothèque → « Enregistrer la brochure actuelle » ; `btnFinishSave` clique
+`#libSave` ; sans dossier ni compte, `libSaveCurrent` télécharge le .json.
+
 **Impression brochure / fiche blanche (19/10)** : « ça tourne dans le vide » = pages blanches à l'impression
 quand la fenêtre fait ≤ 900 px CSS (fenêtre réduite, zoom Windows 125-150 %) : `is-editor-open` est posé au
 chargement et la règle `@media (max-width: 900px)` de app.css (`.workspace.is-editor-open .preview {

@@ -4253,6 +4253,50 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "le relais d'images ne sert que les photos connues des annonces et mandats");
   await db.run("DELETE FROM crm_annonces WHERE id = 'maison-haillan-1'"); await db.run("DELETE FROM crm_amepi WHERE id IN ('am-1', 'am-2')"); await db.run("DELETE FROM crm_recherches WHERE contact_id IN ('ct_ach1', 'ct_ach2', 'ct_ach3')");
 
+  /* ---- Rappel au conseiller le lendemain du R2 (19/10) ------------------- */
+  console.log("— Rappel J+1 après R2 : coché par conseiller, une fois par fiche, jamais si le point 7 est parti");
+  { const hierR2 = decalerJour(aujE, -1);
+    const lireTeddy = async () => (await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === teddy.json.id);
+    // Le test des avis (plus haut) a réécrit Teddy sans e-mail : on le lui rend, le rappel part à SON adresse.
+    await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test" } });
+    ok((await lireTeddy()).rappel_apres_r2 === false, "par défaut, un conseiller n'a pas le rappel du lendemain du R2");
+    const nouveauPx = (nom, extra = {}) => callR("/crm/parcours", { headers: authP, body: { civilite: "Mme", prenom: "Anne", nom, email: nom.toLowerCase() + "@exemple.fr",
+      adresse: "5 rue du Lendemain", ville: "Le Haillan", type_bien: "maison", conseiller_id: teddy.json.id, r1: decalerJour(aujE, -8), r1_heure: "10:00", r2: hierR2, r2_heure: "14:30", ...extra } });
+    const pxR = await nouveauPx("RAPPEL");
+    ok(pxR.status === 200 && pxR.json.id, "fiche parcours dont le R2 était hier");
+    ok([401, 403].includes((await callR("/crm/parcours-rappels/run", { headers: authP, method: "POST", body: {} })).status), "le passage à la demande est réservé aux administrateurs");
+    const avantR = mailsRecus.length;
+    const run0 = (await callR("/crm/parcours-rappels/run", { headers: auth, method: "POST", body: {} })).json.summary;
+    ok(run0.sent === 0 && mailsRecus.length === avantR, "conseiller non coché : rien ne part (" + JSON.stringify(run0) + ")");
+    const coche = await callR("/crm/equipe/" + teddy.json.id, { headers: auth, method: "PUT", body: { rappel_apres_r2: true } });
+    ok(coche.status === 200 && coche.json.rappel_apres_r2 === true && (await lireTeddy()).rappel_apres_r2 === true, "la case « Rappel J+1 R2 » se coche et se relit dans la liste des conseillers");
+    const run1 = (await callR("/crm/parcours-rappels/run", { headers: auth, method: "POST", body: {} })).json.summary;
+    const mR = mailsRecus[mailsRecus.length - 1] || {};
+    ok(run1.sent === 1 && mailsRecus.length === avantR + 1 && mR.to[0] === "teddy@kadima.test" && /^Rappel : l'e-mail après le R2 de Mme Anne RAPPEL \(point 7\)$/.test(mR.subject || ""),
+      "le lendemain du R2, Teddy reçoit le rappel du point 7 (" + JSON.stringify({ run1, sujet: mR.subject }) + ")");
+    ok(/Bonjour Teddy/.test(mR.html || "") && /a eu lieu hier à 14h30/.test(mR.html || "") && /5 rue du Lendemain, Le Haillan/.test(mR.html || "") && String(mR.html || "").includes("/administration/?brique=parcours&amp;fiche=" + pxR.json.id),
+      "le rappel nomme le conseiller, le client, l'heure du R2 et porte le lien direct vers la fiche");
+    const run2 = (await callR("/crm/parcours-rappels/run", { headers: auth, method: "POST", body: {} })).json.summary;
+    ok(run2.sent === 0 && mailsRecus.length === avantR + 1 && (await db.get("SELECT COUNT(*) AS n FROM crm_envois WHERE contact_id = ? AND type = 'rappel-apres-r2' AND email = 'teddy@kadima.test' AND statut = 'ok'", [pxR.json.id])).n === 1,
+      "second passage : pas de doublon, un seul envoi journalisé");
+    // Point 7 coché à la main sur la fiche → pas de rappel.
+    const pxC = await nouveauPx("FAIT");
+    ok((await callR("/crm/parcours/" + pxC.json.id + "/etape", { headers: authP, body: { etape: "apres-r2" } })).status === 200, "le point 7 se coche sur la seconde fiche");
+    const run3 = (await callR("/crm/parcours-rappels/run", { headers: auth, method: "POST", body: {} })).json.summary;
+    ok(run3.sent === 0 && run3.details.some((d) => d.reason === "point 7 déjà fait"), "point 7 coché : pas de rappel (" + JSON.stringify(run3.details) + ")");
+    // E-mail après R2 déjà parti (à la main ou par la séquence automatique) → pas de rappel.
+    const pxE = await nouveauPx("ENVOYE");
+    await db.run("INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, 'Mme Anne ENVOYE', 'envoye@exemple.fr', 'estimation-apres-r2', 2026, 'ok', '', ?)", [agId, pxE.json.id, Math.floor(Date.now() / 1000)]);
+    const run4 = (await callR("/crm/parcours-rappels/run", { headers: auth, method: "POST", body: {} })).json.summary;
+    ok(run4.sent === 0 && run4.details.some((d) => d.reason === "e-mail après R2 déjà parti"), "e-mail après R2 déjà envoyé : pas de rappel");
+    // Décoché : plus rien, même pour une nouvelle fiche.
+    const decoche = await callR("/crm/equipe/" + teddy.json.id, { headers: auth, method: "PUT", body: { rappel_apres_r2: false } });
+    const pxD = await nouveauPx("DECOCHE");
+    const run5 = (await callR("/crm/parcours-rappels/run", { headers: auth, method: "POST", body: {} })).json.summary;
+    ok(decoche.json.rappel_apres_r2 === false && (await lireTeddy()).rappel_apres_r2 === false && run5.sent === 0 && mailsRecus.length === avantR + 1, "case décochée : plus aucun rappel");
+    for (const px of [pxR, pxC, pxE, pxD]) { await db.run("DELETE FROM crm_parcours WHERE estimation_id = ?", [px.json.id]); await db.run("DELETE FROM crm_estimations WHERE id = ?", [px.json.id]); }
+  }
+
   console.log("— AMEPI : connexion, relevé du fichier des mandats, rapprochement");
   // Le réglage par défaut ne garde que « mon ALFA » (2) ; ce bloc teste les trois sources.
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { sources: ["1", "2", "3"] } } });

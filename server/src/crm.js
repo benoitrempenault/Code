@@ -2765,6 +2765,68 @@ export async function runEstimations(env, db, agency, reglages) {
   return summary;
 }
 
+/* ---------- Rappel au conseiller : le lendemain du R2, le point 7 ---------- */
+// Benoît (19/10) : le matin qui suit un R2, le conseiller de la fiche reçoit
+// « pensez à envoyer l'e-mail après le R2 (point 7) » — seulement s'il est
+// coché pour ce rappel (L'équipe → Accès), si le point 7 n'est pas déjà parti
+// (journal du parcours, ou crm_envois « estimation-apres-r2 » : envoi à la
+// main ou séquence automatique) et une seule fois par fiche (crm_envois, type
+// « rappel-apres-r2 », adresse du conseiller). Indépendant du réglage
+// « e-mails automatiques aux propriétaires » : c'est un rappel interne.
+export function origineStudio(env, agency) {
+  const base = String((estKadima(agency) && env && env.APP_BASE_KADIMA) || (agency && agency.app_base) || (env && env.APP_BASE) || "https://studio.century21-kadima.fr/mandat-pro");
+  try { return new URL(base).origin; } catch { return "https://studio.century21-kadima.fr"; }
+}
+export async function runRappelsApresR2(env, db, agency, reglages) {
+  const isoDay = parisDate();
+  const annee = parseInt(isoDay.slice(0, 4), 10);
+  const hier = decalerJour(isoDay, -1);
+  const rows = await db.all(
+    `SELECT e.id, e.nom, e.adresse, e.ville, e.r2, p.civilite, p.prenom, p.r2_heure, p.journal,
+            cs.prenom AS cs_prenom, cs.nom AS cs_nom, cs.email AS cs_email, COALESCE(pv.pv, '') AS cs_agence
+     FROM crm_estimations e JOIN crm_parcours p ON p.estimation_id = e.id
+     JOIN crm_conseillers cs ON cs.id = p.conseiller_id AND cs.actif = 1
+     JOIN crm_conseillers_rappels rp ON rp.id = cs.id AND rp.rappel_apres_r2 = 1
+     LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id
+     WHERE e.agency_id = ? AND e.statut = 'en_cours' AND e.r2 = ?`, [agency.id, hier]);
+  const summary = { date: isoDay, sent: 0, skipped: 0, errors: 0, details: [] };
+  const origine = origineStudio(env, agency);
+  for (const r of rows) {
+    const label = r.nom || r.adresse;
+    const email = String(r.cs_email || "").trim().toLowerCase();
+    let journal = []; try { journal = JSON.parse(r.journal || "[]"); } catch { journal = []; }
+    const passer = (reason) => { summary.skipped++; summary.details.push({ estimation: label, status: "skip", reason }); };
+    if (!email) { passer("conseiller sans e-mail"); continue; }
+    if ((Array.isArray(journal) ? journal : []).some((j) => j && j.etape === "apres-r2")) { passer("point 7 déjà fait"); continue; }
+    if (await db.get("SELECT id FROM crm_envois WHERE agency_id = ? AND contact_id = ? AND type = 'estimation-apres-r2' AND statut = 'ok'", [agency.id, r.id])) { passer("e-mail après R2 déjà parti"); continue; }
+    if (await db.get("SELECT id FROM crm_envois WHERE agency_id = ? AND contact_id = ? AND type = 'rappel-apres-r2' AND email = ? AND statut = 'ok'", [agency.id, r.id, email])) { summary.skipped++; continue; }
+    const ag = agencePour(reglages, { agence: r.cs_agence });
+    const client = [r.civilite, r.prenom, r.nom].filter(Boolean).join(" ");
+    const bien = [r.adresse, r.ville].filter(Boolean).join(", ");
+    const heure = /^(\d{1,2}):(\d{2})$/.test(r.r2_heure || "") ? " à " + r.r2_heure.replace(/^(\d{1,2}):(\d{2})$/, (m, h, mn) => +h + "h" + (mn === "00" ? "" : mn)) : "";
+    const lien = origine + "/administration/?brique=parcours&fiche=" + encodeURIComponent(r.id);
+    const bodyHtml =
+      `<p>Bonjour ${esc(r.cs_prenom || "")},</p>` +
+      `<p>Le rendez-vous de restitution (R2) de <strong>${esc(client)}</strong> — ${esc(bien)} — a eu lieu hier${esc(heure)}.</p>` +
+      `<p>Pensez à envoyer le <strong>point 7 : l'e-mail après le R2</strong> (remerciement et avis Google), depuis la fiche du parcours :<br>` +
+      `<a href="${esc(lien)}" style="color:#1D1D1B; font-weight:bold;">Ouvrir la fiche de ${esc(client)}</a></p>` +
+      `<p style="color:#666; font-size:13px;">Ce rappel part une seule fois par fiche, et ne part pas quand l'e-mail après le R2 est déjà envoyé.</p>`;
+    const html = wrapEmail(ag, { eyebrow: "Parcours R1/R2", headline: "Le R2 de " + client + " a eu lieu hier", bodyHtml, signatureName: "Studio — " + (ag.nom || agency.name) });
+    const res = await envoyerMailAuto(env, db, agency, reglages, {
+      to: email, subject: "Rappel : l'e-mail après le R2 de " + client + " (point 7)", html,
+      fromName: ag.nom || agency.name, replyTo: ag.email || reglages.agence.email || "",
+    });
+    await db.run(
+      "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [agency.id, r.id, label, email, "rappel-apres-r2", annee, res.ok ? "ok" : res.reporte ? "reporte" : "erreur",
+        res.error || (res.dryRun ? "envoi non configuré (dry run)" : ""), now()]);
+    if (res.ok) { summary.sent++; summary.details.push({ estimation: label, email, status: "ok" }); }
+    else if (res.reporte) { summary.reportes = (summary.reportes || 0) + 1; summary.details.push({ estimation: label, email, status: "reporte", reason: res.error }); }
+    else { summary.errors++; summary.details.push({ estimation: label, email, status: "erreur", reason: res.error || "dry run" }); }
+  }
+  return summary;
+}
+
 /* ------------------ Reprise des estimés importés (fichier) ---------------- */
 // Le fichier « estimés » C21 a rempli des fiches CONTACT (types estime, notes
 // « Bien estimé : adresse, ville (450 000 €) · réf X »). Ce rattrapage cree
@@ -3337,6 +3399,9 @@ export async function runCrmDaily(env, db) {
         try { r.estimations = await runEstimations(env, db, agency, reglages); }
         catch (e) { r.estimationsError = e.message; }
       }
+      // Rappel interne au conseiller le lendemain du R2 (coché par conseiller).
+      try { const rr = await runRappelsApresR2(env, db, agency, reglages); if (rr.sent || rr.errors) r.rappelsR2 = rr; }
+      catch (e) { r.rappelsR2Error = e.message; }
       // Le fichier des mandats AMEPI est déposé par l'agent de l'agence (importerAmepi), jamais relevé d'ici.
       // Les ventes du Suivi rejoignent la carte toutes seules, un lot par nuit.
       // 12 max : chaque adresse peut coûter 2 appels (BAN + IGN) et le cron

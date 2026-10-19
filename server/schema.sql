@@ -1268,3 +1268,13 @@ CREATE TABLE IF NOT EXISTS login_attentes_appareil (
   ip           TEXT NOT NULL DEFAULT '',
   created_at   INTEGER NOT NULL
 );
+
+-- Rappel au conseiller le lendemain du R2 (19/10) : coché par l'administrateur,
+-- conseiller par conseiller (L'équipe → Accès → « Rappel J+1 après R2 »). Le
+-- matin qui suit un R2, si le point 7 (e-mail après le R2) n'est pas parti,
+-- le conseiller reçoit un e-mail de rappel — une seule fois par fiche.
+CREATE TABLE IF NOT EXISTS crm_conseillers_rappels (
+  id              TEXT PRIMARY KEY,            -- crm_conseillers.id
+  rappel_apres_r2 INTEGER NOT NULL DEFAULT 0,
+  updated_at      INTEGER NOT NULL
+);
