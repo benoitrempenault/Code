@@ -31,6 +31,18 @@ export default async function () {
     const broch = await page.evaluate(() => ({ adresse: document.querySelector('[data-bind="agency.address"]').value, tel: document.querySelector('[data-bind="agency.phone"]').value, mail: document.querySelector('[data-bind="agency.email"]').value, nom: document.querySelector('[data-bind="agency.name"]').value, agent: document.querySelector('[data-bind="agency.agent"]').value }));
     ok(broch.adresse === "53 avenue Louis-Barthou, 33200 Bordeaux" && broch.tel === "05 56 02 39 55" && broch.mail === "kadimacauderan@century21.fr" && /Caudéran/.test(broch.nom) && broch.agent === "Camille CONSEILLER",
       "brochure d'une conseillère de Caudéran : coordonnées de Caudéran et son nom en signature (" + JSON.stringify(broch) + ")");
+    // Impression (19/10) : en fenêtre étroite ou avec le zoom Windows, les règles « téléphone »
+    // s'appliquaient aussi à la feuille A4 (794 px) et masquaient l'aperçu → pages blanches.
+    // Le rendu « print » de la brochure et de la fiche doit porter du texte.
+    { const pdfTexte = async (nom) => { const fs = await import("node:fs/promises"); const chemin = new URL("./captures/" + nom, import.meta.url).pathname; await page.emulateMedia({ media: "print" }); await page.pdf({ path: chemin, preferCSSPageSize: true }); await page.emulateMedia({ media: "screen" }); const { PDFDocument } = await import("pdf-lib").catch(() => ({})); void PDFDocument; const octets = await fs.readFile(chemin); return { octets: octets.length, pages: (octets.toString("latin1").match(/\/Type\s*\/Page[^s]/g) || []).length }; };
+      await page.waitForTimeout(1200);
+      const impB = await pdfTexte("print-brochure.pdf");
+      await ouvrir(page, "/mandat/fiche.html", membre);
+      await page.waitForTimeout(1200);
+      const impF = await pdfTexte("print-fiche.pdf");
+      ok(impB.pages >= 1 && impB.octets > 20000 && impF.pages >= 1 && impF.octets > 20000, "l'impression de la brochure et de la fiche prestations rend des pages pleines, même en fenêtre étroite (" + JSON.stringify({ brochure: impB, fiche: impF }) + ")");
+      await ouvrir(page, "/mandat/brochure.html", membre);
+      await page.waitForTimeout(1200); }
     try {
       await page.click("#btnSettings"); await page.waitForTimeout(500);
       await page.screenshot({ path: new URL("./captures/brochure-cauderan-reglages.png", import.meta.url).pathname });

@@ -212,7 +212,7 @@ ul.sources em { color: var(--ui-muted); font-style: normal; }
 .brochure { display: flex; flex-direction: column; align-items: center; gap: 22px; }
 
 /* ------------------------------ Responsive ------------------------------ */
-@media (max-width: 900px) {
+@media screen and (max-width: 900px) {
   .workspace { grid-template-columns: 1fr; grid-template-rows: 1fr; }
   .editor { display: none; }
   .workspace.is-editor-open .editor { display: block; position: fixed; inset: 55px 0 0 0; z-index: 20; }

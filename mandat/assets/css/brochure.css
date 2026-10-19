@@ -274,7 +274,9 @@
   html, body { background: #fff; height: auto; }
   .topbar, .editor, .preview__zoombar, .toast { display: none !important; }
   .workspace { display: block; height: auto; }
-  .preview { overflow: visible; background: #fff; }
+  /* Fenêtre étroite ou zoom Windows élevé : la saisie était « ouverte » (is-editor-open) et
+     l'aperçu masqué — à l'impression aussi, d'où des pages blanches (19/10/2026). */
+  .workspace.is-editor-open .preview, .preview { display: block !important; overflow: visible; background: #fff; }
   .preview__scroll { overflow: visible; padding: 0; display: block; }
   .brochure { display: block; gap: 0; }
   .page {

@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&family=Cormorant+Garamond:wght@400;500;600&family=Montserrat:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/app.css?v=9" />
+  <link rel="stylesheet" href="assets/css/app.css?v=10" />
   <style>
     /* Aperçu du document fiche prestation (page A4 claire) */
     .fdoc-scroll { overflow-y: auto; background: #35353a; padding: 26px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; }
@@ -58,7 +58,7 @@
       .fdoc__pageno { display: block; position: absolute; right: 12mm; font-size: 8.5pt; color: #9a968c; }
     }
     /* ---------- Téléphone : la saisie d'abord, l'aperçu réduit dessous ---------- */
-    @media (max-width: 900px) {
+    @media screen and (max-width: 900px) {
       .topbar { position: static; flex-wrap: wrap; gap: 8px 10px; padding: 8px 10px; }
       .topbar__brand > div { display: block; }
       .topbar__actions { display: flex; flex: 1 1 100%; min-width: 0; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }

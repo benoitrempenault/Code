@@ -1392,6 +1392,14 @@ sur la page, et sur la page du lien un bouton « Je n'ai plus cette page — ouv
 pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une app isolée n'a pas le
 localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
 
+**Impression brochure / fiche blanche (19/10)** : « ça tourne dans le vide » = pages blanches à l'impression
+quand la fenêtre fait ≤ 900 px CSS (fenêtre réduite, zoom Windows 125-150 %) : `is-editor-open` est posé au
+chargement et la règle `@media (max-width: 900px)` de app.css (`.workspace.is-editor-open .preview {
+display:none }`) s'appliquait AUSSI au média print (feuille A4 = 794 px). Toutes les règles « téléphone »
+sont désormais `@media screen and (max-width: 900px)` (app.css ?v=10, fiche.html), et le bloc print de
+brochure.css (?v=7) force `.preview { display:block !important }`. Smoke compte : `page.pdf()` de la
+brochure et de la fiche en viewport étroit → fichiers > 20 Ko (avant : PDF vide de 1 Ko).
+
 **Livret prix — financement (17/10)** : taux par défaut **4 %** (était 3,9 ; `acm.taux ?? 4` aux 3 endroits — un
 livret déjà enregistré garde son taux sauvé) ; « Revenus nets du foyer nécessaires (endettement 35 %) » =
 `revenus(m)` = mensualité assurance comprise ÷ 0,35 arrondie à 10 € — ligne dans l'encadré (hauteur 173) et
