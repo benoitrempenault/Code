@@ -105,7 +105,7 @@
     });
     // Boutons de fin de parcours → actions de la barre du haut.
     $("#btnFinishPrint").addEventListener("click", function () { $("#btnPrint").click(); });
-    $("#btnFinishSave").addEventListener("click", function () { $("#btnExportJson").click(); });
+    $("#btnFinishSave").addEventListener("click", function () { ($("#btnExportJson") || $("#libSave")).click(); });
     $("#btnFinishHtml").addEventListener("click", function () { $("#btnExportHtml").click(); });
     $("#btnFinishMail").addEventListener("click", function () { $("#btnMail").click(); });
   }

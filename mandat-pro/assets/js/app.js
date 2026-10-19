@@ -1750,7 +1750,7 @@
 
   async function libSaveCurrent() {
     if (libCloudMode) { await cloudSaveCurrent(true); return; }
-    if (!Lib || !Lib.isSupported()) { toast("Sur ce navigateur, utilisez « Sauvegarder » (.json).", true); return; }
+    if (!Lib || !Lib.isSupported()) { downloadJson(); return; } // ni dossier ni compte : le projet se télécharge (.json)
     if (!Lib.folderName()) {
       try { await Lib.chooseFolder(); await libRefresh(); }
       catch (e) { return; } // sélection annulée
@@ -1791,7 +1791,8 @@
     $("#btnNew").addEventListener("click", doNew);
     $("#btnImport").addEventListener("click", function () { $("#fileImport").click(); });
     $("#fileImport").addEventListener("change", function (e) { if (e.target.files[0]) doImportJson(e.target.files[0]); e.target.value = ""; });
-    $("#btnExportJson").addEventListener("click", doExportJson);
+    // Le bouton de la barre du haut a disparu (19/10) : on enregistre depuis ▤ Bibliothèque.
+    if ($("#btnExportJson")) $("#btnExportJson").addEventListener("click", doExportJson);
     $("#btnExportHtml").addEventListener("click", doExportHtml);
     $("#btnMail").addEventListener("click", doMail);
     // Dernière vérification de la mise en page juste avant l'impression
