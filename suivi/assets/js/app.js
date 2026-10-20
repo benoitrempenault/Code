@@ -701,6 +701,19 @@
           await api("/modeles", { method: "PUT", json: env2 });
         }
       }
+      // Courriers au vendeur : le financement ne s'écrit que s'il y a un prêt
+      // (« {{ligne_financement}} », « {{financement_etat}} »), et la rétractation
+      // « a expiré le » donne le dernier jour du délai, pas le premier jour purgé.
+      // Remplacements ciblés : un modèle retouché garde le reste de son texte.
+      for (const m of modeles) {
+        if (!m || typeof m.corps !== "string") continue;
+        const avant = m.corps;
+        m.corps = m.corps
+          .replace(/- financement des acquéreurs \(condition suspensive au \{\{echeance_pret\}\}\),\n/g, "{{ligne_financement}}")
+          .replace(/a expiré le \{\{fin_retractation\}\}/g, "a expiré le {{expiration_retractation}}")
+          .replace(/- Financement des acquéreurs : en cours, condition suspensive au \{\{echeance_pret\}\}/g, "- Financement des acquéreurs : {{financement_etat}}");
+        if (m.corps !== avant) await api("/modeles", { method: "PUT", json: m });
+      }
     } catch (e) { /* la migration réessaiera au prochain chargement */ }
   }
 
@@ -2895,7 +2908,20 @@
     const depotDefaut = fin.date_limite_depot || E.addDays(d.date_compromis, 10);
     const condPret = (d.conditions_suspensives || []).find((c) => /pr[êe]t|financement/i.test(c.titre || ""));
     const echPretDefaut = fin.date_limite_obtention || (condPret && condPret.echeance) || E.addDays(d.date_compromis, 60);
+    // Achat comptant (« Recours à un prêt : non ») : aucune date de prêt ne se
+    // calcule, et les phrases qui en parlent disparaissent des courriers —
+    // le vendeur lisait « financement des acquéreurs (condition suspensive au
+    // 06/12/2026) » sur une vente sans prêt.
+    const sansPret = fin.recours_pret === "non";
+    const terrain = E.estTerrain(d);
     return {
+      __sansPret: sansPret, __optionnels: ["ligne_financement"],
+      // Dernier jour du délai de rétractation (J+10 à compter du lendemain de
+      // la présentation, prorogé au jour ouvrable) : « a expiré le … ».
+      expiration_retractation: terrain ? "" : E.fmtFr(E.addDays(E.finRetract(d), -1)),
+      // Lignes de calendrier qui ne s'écrivent que s'il y a un prêt.
+      ligne_financement: sansPret ? "" : "- financement des acquéreurs (condition suspensive au " + E.fmtFr(echPretDefaut) + "),\n",
+      financement_etat: sansPret ? "achat comptant, sans condition suspensive de prêt" : "en cours, condition suspensive au " + E.fmtFr(echPretDefaut),
       reference: d.reference, adresse_bien: adresseComplete(d.bien), ville: d.bien.ville,
       prix: d.prix.prix_vente,
       // Le compromis écrit souvent une phrase entière dans « honoraires » :
@@ -2920,9 +2946,9 @@
       date_compromis: E.fmtFr(d.date_compromis), date_butoir: E.fmtFr(d.date_butoir),
       // Même calcul que l'étape de l'échéancier : lendemain de la présentation
       // + 10 jours, prorogé au jour ouvrable si le délai expire un week-end.
-      fin_retractation: E.estTerrain(d) ? "" : E.fmtFr(E.finRetract(d)),
+      fin_retractation: terrain ? "" : E.fmtFr(E.finRetract(d)),
       sequestre_montant: d.sequestre.montant, sequestre_depositaire: d.sequestre.depositaire,
-      date_limite_depot: E.fmtFr(depotDefaut), echeance_pret: E.fmtFr(echPretDefaut),
+      date_limite_depot: sansPret ? "" : E.fmtFr(depotDefaut), echeance_pret: sansPret ? "" : E.fmtFr(echPretDefaut),
       signature_prevue: dateHeure(d.dates.signature_prevue, d.dates.signature_heure),
       signature_acte: E.fmtFr(d.dates.signature_acte),
       signature_lieu_vendeur: d.dates.signature_lieu_vendeur || "",
@@ -2965,10 +2991,21 @@
     return v || a || "";
   }
   function fill(tpl, fields) {
-    return String(tpl || "").replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (m, k) => {
+    // Un champ « optionnel » vide s'efface simplement (la ligne de financement
+    // d'une vente sans prêt) ; tout autre champ vide se signale « [x ?] ».
+    const optionnels = fields.__optionnels || [];
+    const txt = String(tpl || "").replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (m, k) => {
       const v = fields[k.toLowerCase()];
+      if ((v == null || v === "") && optionnels.includes(k.toLowerCase())) return "";
       return (v == null || v === "") ? "[" + k + " ?]" : v;
     });
+    // Vente sans prêt : une ligne qui ne parle que du prêt (échéance, dépôt
+    // de la demande) n'a rien à dire — elle saute, même dans un modèle
+    // retouché à la main qui garde {{echeance_pret}}.
+    if (fields.__sansPret) {
+      return txt.split("\n").filter((l) => !/\[(echeance_pret|date_limite_depot) \?\]/.test(l)).join("\n");
+    }
+    return txt;
   }
 
   let mailCtx = null; // { dossierId, modeleName, stepId }

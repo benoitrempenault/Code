@@ -714,12 +714,12 @@
     {
       name: "Point d'étape vendeur", cible: "vendeur",
       sujet: "Votre vente {{adresse_bien}} — Point d'étape",
-      corps: "Bonjour,\n\nComme convenu, voici un point d'étape sur votre vente ({{reference}}, compromis signé le {{date_compromis}}) :\n\n- Délai de rétractation : purgé le {{fin_retractation}}\n- Dépôt de garantie : {{sequestre_montant}}\n- Financement des acquéreurs : en cours, condition suspensive au {{echeance_pret}}\n- Signature prévue : {{signature_prevue}} (butoir : {{date_butoir}})\n- Lieu de signature : {{signature_lieu}}\n\n[Complétez / ajustez selon le dossier]\n\nNous suivons chaque étape auprès des notaires et des acquéreurs, et revenons vers vous dès la prochaine avancée.\n\nBien cordialement,\n{{signature}}"
+      corps: "Bonjour,\n\nComme convenu, voici un point d'étape sur votre vente ({{reference}}, compromis signé le {{date_compromis}}) :\n\n- Délai de rétractation : purgé le {{fin_retractation}}\n- Dépôt de garantie : {{sequestre_montant}}\n- Financement des acquéreurs : {{financement_etat}}\n- Signature prévue : {{signature_prevue}} (butoir : {{date_butoir}})\n- Lieu de signature : {{signature_lieu}}\n\n[Complétez / ajustez selon le dossier]\n\nNous suivons chaque étape auprès des notaires et des acquéreurs, et revenons vers vous dès la prochaine avancée.\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Information vendeur — rétractation purgée", cible: "vendeur",
       sujet: "Votre vente {{adresse_bien}} — Le délai de rétractation est purgé ✔",
-      corps: "Bonjour,\n\nBonne nouvelle : le délai légal de rétractation de 10 jours de vos acquéreurs a expiré le {{fin_retractation}} sans qu'ils ne se soient rétractés. Votre vente ({{reference}}, compromis du {{date_compromis}}) franchit donc une étape importante.\n\nLa suite du calendrier :\n- purge du droit de préemption de la mairie (environ 2 mois),\n- financement des acquéreurs (condition suspensive au {{echeance_pret}}),\n- signature de l'acte authentique (butoir : {{date_butoir}}).\n\nNous suivons chaque étape auprès des notaires et des acquéreurs, et revenons vers vous à chaque avancée.\n\nBien cordialement,\n{{signature}}"
+      corps: "Bonjour,\n\nBonne nouvelle : le délai légal de rétractation de 10 jours de vos acquéreurs a expiré le {{expiration_retractation}} sans qu'ils ne se soient rétractés. Votre vente ({{reference}}, compromis du {{date_compromis}}) franchit donc une étape importante.\n\nLa suite du calendrier :\n- purge du droit de préemption de la mairie (environ 2 mois),\n{{ligne_financement}}- signature de l'acte authentique (butoir : {{date_butoir}}).\n\nNous suivons chaque étape auprès des notaires et des acquéreurs, et revenons vers vous à chaque avancée.\n\nBien cordialement,\n{{signature}}"
     },
     {
       name: "Appel & crémaillère", cible: "conseillers",
