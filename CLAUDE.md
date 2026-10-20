@@ -1393,8 +1393,8 @@ pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une ap
 localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
 
 **Brique « 📅 Évènements » (20/10)** : `server/src/evenements.js` (`monterRoutesEvenements`), onglet
-« 📅 Évènements » de l'Administration, tuile 📅 sur l'accueil Studio (`../administration/?brique=evenements`),
-ouverte à TOUS les conseillers (mode conseiller : onglets Parcours + Évènements). Tables `crm_evenements`
+« 📅 Évènements » de l'Administration,
+**en phase de test (20/10) réservée à l'Administration** : pas de tuile sur l'accueil, mode conseiller = Parcours seul (`briquesConseiller` dans `demarrer()`), pas d'entrée NOUVEAUTES — à ouvrir aux conseillers quand Benoît l'aura validée (les routes serveur sont déjà `membreCtx`). Tables `crm_evenements`
 (titre, lieu, description, date du premier créneau, mode unique|nommes|tranches, `agences` JSON = clés des
 points de vente visés, [] = tous ; statut ouvert|ferme|annule ; `user_id` = créateur, qui reçoit la copie de
 chaque réponse), `crm_evenement_creneaux` (libellé, date, debut, fin — un évènement est TOUJOURS une liste de
