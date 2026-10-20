@@ -131,6 +131,20 @@ position du curseur, et les remet après le rendu ; et tous les rendus déclench
 terminer. Les cartes repliées restent telles que l'utilisateur les a ouvertes
 (`cartesOuvertes`).
 
+### Courriers au vendeur sans prêt
+
+Quand « Recours à un prêt » vaut **non** (achat comptant), `mergeFields` ne calcule
+aucune date de prêt : `{{echeance_pret}}` et `{{date_limite_depot}}` sont vides, et
+`fill()` **supprime toute ligne** du courrier qui ne contenait que ces champs — un
+modèle retouché à la main qui garde `{{echeance_pret}}` ne montre donc plus « financement
+des acquéreurs (condition suspensive au …) » sur une vente sans prêt (20/10). Les modèles
+par défaut passent par deux champs : `{{ligne_financement}}` (la ligne « - financement des
+acquéreurs (condition suspensive au …), » avec son retour à la ligne, vide sans prêt) dans
+« Information vendeur — rétractation purgée », et `{{financement_etat}}` (« en cours,
+condition suspensive au … » ou « achat comptant, sans condition suspensive de prêt ») dans
+« Point d'étape vendeur ». La migration au chargement remplace ces lignes par les champs
+dans les modèles enregistrés, par remplacement ciblé (le reste du texte retouché est gardé).
+
 ### Effacer une date (téléphone)
 
 Le sélecteur de date natif des téléphones ne propose aucun moyen de revenir à vide :
@@ -340,7 +354,7 @@ annuaire, mêmes comptes) mais chaque dossier appartient à une agence :
 | Notification SRU | J+2 après compromis | Le délai de rétractation (art. L271-1 CCH, 10 jours) ne court qu'à réception de la notification **complète** (annexes incluses). **Terrain : aucune** (pas de rétractation hors habitation) — les trois lignes SRU disparaissent, le panneau se pose à J+3 |
 | Envoi du dossier aux notaires | J+3 | pratique agence |
 | Retour AR SRU | J+8 | pratique |
-| Fin de rétractation | 10 jours à compter du **lendemain** de la présentation (le délai couvre J+1 à J+10) ; un délai expirant un samedi, un dimanche ou un jour férié est **prorogé au premier jour ouvrable** (641-642 CPC, fériés français calculés, fêtes mobiles comprises) — la date affichée est le premier jour purgé | L271-1 CCH |
+| Fin de rétractation | 10 jours à compter du **lendemain** de la présentation (le délai couvre J+1 à J+10) ; un délai expirant un samedi, un dimanche ou un jour férié est **prorogé au premier jour ouvrable** (641-642 CPC, fériés français calculés, fêtes mobiles comprises) — la date affichée est le premier jour purgé | L271-1 CCH. **Lecture** : J = date de première présentation de la LRAR / AR24 (« Présentation AR SRU » des Dates clés ; sans elle, compromis + 14 jours) ; les dix jours vont de J+1 à J+10 ; le délai **expire J+10 à minuit** (`{{expiration_retractation}}`, « a expiré le ») ; l'étape et `{{fin_retractation}}` donnent **J+11, premier jour purgé** (« purgé depuis le »). Exemple : présentée vendredi 9 octobre → du 10 au 19 octobre, expiration lundi 19 à minuit, purge mardi 20. Si J+10 tombe un samedi, dimanche ou férié, l'expiration glisse au jour ouvrable suivant et la purge au lendemain |
 | RIB du dépositaire envoyé à l'acquéreur | J+5 | sans RIB, pas de virement possible — l'e-mail joint le relevé de l'étude et met en garde contre la fraude au faux RIB |
 | Séquestre reçu | délai du compromis, sinon J+12 | versement usuel 5-10 % sous 8-10 jours ; les deux lignes disparaissent quand le compromis ne prévoit pas de dépôt |
 | DIA envoyée | **envoi du dossier aux notaires + 7 jours** (envoi estimé à J+3 si la date n'est pas renseignée) | **la** relance qui fait gagner un mois : plus tôt le notaire envoie la DIA, plus tôt les deux mois de la mairie courent ; demander une renonciation expresse si possible. S'applique à tous les dossiers, l'échéance étant recalculée à chaque affichage |
