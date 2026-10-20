@@ -4859,6 +4859,8 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "evenements-20-10", depuis: "2026-10-20", jours: 10, titre: "Nouveau : les évènements de l'agence",
+      html: '<p class="aide" style="max-width:none;">Marché de Noël, stand Leroy Merlin, soirée clients… tout se passe dans l\'onglet <strong>📅 Évènements</strong> (tuile sur l\'accueil Studio, lien dans l\'e-mail d\'annonce). Pour chaque évènement, répondez <strong>« Je participe »</strong> — sur un ou plusieurs créneaux quand il y en a — ou <strong>« Je ne participe pas »</strong>. Une inscription arrive dans votre agenda par e-mail (invitation à accepter) ; vous changez de créneau ou vous désinscrivez quand vous voulez, l\'agenda suit.</p>' },
     { id: "rappel-apres-r2-19-10", depuis: "2026-10-19", jours: 7, titre: "Nouveau : un rappel le lendemain du R2",
       html: '<p class="aide" style="max-width:none;">Le matin qui suit un R2, si le <strong>point 7 (e-mail après le R2)</strong> n\'est pas encore parti, vous recevez un e-mail de rappel avec le lien direct vers la fiche. Il part une seule fois par fiche, et pas si l\'e-mail est déjà envoyé (ou le point coché). Ce rappel est activé conseiller par conseiller par la direction.</p>' },
     { id: "livret-ordre-16-10", depuis: "2026-10-16", jours: 7, titre: "Nouveau : l'ordre des biens et le filtre de budget dans le livret prix",
@@ -5247,19 +5249,15 @@
       }
     }
     if (modeConseiller) {
-      // Phase de test de la brique Évènements (20/10) : réservée à l'Administration pour
-      // l'instant. Pour l'ouvrir aux conseillers : ajouter "evenements" à la liste ci-dessous,
-      // remettre la tuile sur mandat/index.html et l'entrée NOUVEAUTES.
-      const briquesConseiller = ["parcours"];
+      // Le conseiller a deux briques : ses parcours R1/R2 et les évènements de l'agence.
       document.body.classList.add("mode-conseiller");
-      document.querySelectorAll(".onglet").forEach((b) => { b.hidden = !briquesConseiller.includes(b.dataset.onglet); });
-      const evenementsDabord = brique === "evenements" && briquesConseiller.includes("evenements");
+      document.querySelectorAll(".onglet").forEach((b) => { b.hidden = !["parcours", "evenements"].includes(b.dataset.onglet); });
+      const evenementsDabord = brique === "evenements";
       document.querySelector("header h1").innerHTML = evenementsDabord ? "Studio <em>Évènements</em>" : "Studio <em>Parcours R1/R2</em>";
       document.title = evenementsDabord ? "Studio Brochure — Évènements" : "Studio Brochure — Parcours R1/R2";
       $("app").hidden = false;
       activerOnglet(evenementsDabord ? "evenements" : "parcours");
-      chargerParcours(); chargerConseillers();
-      if (briquesConseiller.includes("evenements")) chargerEvenements();
+      chargerParcours(); chargerConseillers(); chargerEvenements();
       api("/crm/avis-agences").catch(() => { /* site muet : les chiffres relevés restent */ });
       api("/crm/avis-conseillers").catch(() => { /* idem pour les avis par conseiller */ });
       return;
