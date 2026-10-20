@@ -1420,7 +1420,7 @@ agences à la création quand ça compte. Client : `admin.js` (section Évèneme
 réponse à cases, création avec 3 modes et aperçu des tranches, modification en liste de créneaux, « Qui
 vient », annonce/relance, annulation), `?brique=evenements&evenement=<id>` ouvre la fenêtre de réponse
 (lien des e-mails). Tests : bloc « Évènements » de test.mjs (créneaux, inscriptions, .ics, périmètre, droits).
-Assets `?v=99`.
+Assets `?v=100` (le 99 avait servi à la phase admin seule du matin : sans nouveau numéro, un navigateur gardait la version sans onglet conseiller).
 
 **Rappel J+1 après R2 au conseiller (19/10)** : table `crm_conseillers_rappels (id, rappel_apres_r2)`,
 cochée par l'admin dans L'équipe → Accès (« Rappel J+1 R2 », `PUT /crm/equipe/:id {rappel_apres_r2}`,
