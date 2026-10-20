@@ -1278,3 +1278,59 @@ CREATE TABLE IF NOT EXISTS crm_conseillers_rappels (
   rappel_apres_r2 INTEGER NOT NULL DEFAULT 0,
   updated_at      INTEGER NOT NULL
 );
+
+-- Évènements de l'agence (20/10) : marché de Noël, stand Leroy Merlin, soirée
+-- clients… Un évènement = des CRÉNEAUX (un seul, plusieurs nommés — « Début »,
+-- « Fin » —, ou des tranches de N heures découpées à la création), ouvert aux
+-- conseillers d'un ou plusieurs points de vente (liste vide = toute l'agence).
+-- Chaque conseiller répond : il participe (sur un ou plusieurs créneaux) ou ne
+-- participe pas ; l'inscription part dans son agenda par une invitation .ics.
+CREATE TABLE IF NOT EXISTS crm_evenements (
+  id              TEXT PRIMARY KEY,            -- ev_…
+  agency_id       TEXT NOT NULL,
+  titre           TEXT NOT NULL,
+  description     TEXT NOT NULL DEFAULT '',
+  lieu            TEXT NOT NULL DEFAULT '',
+  date            TEXT NOT NULL,               -- premier jour (AAAA-MM-JJ), repris du premier créneau
+  mode            TEXT NOT NULL DEFAULT 'unique', -- unique | nommes | tranches
+  agences         TEXT NOT NULL DEFAULT '[]',  -- JSON : clés des points de vente visés ([] = tous)
+  statut          TEXT NOT NULL DEFAULT 'ouvert', -- ouvert | ferme | annule
+  annonce_at      INTEGER NOT NULL DEFAULT 0,  -- dernière annonce à l'équipe
+  user_id         TEXT NOT NULL DEFAULT '',    -- compte qui a créé l'évènement (reçoit la copie des réponses)
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_evenements_agence ON crm_evenements (agency_id, date);
+
+CREATE TABLE IF NOT EXISTS crm_evenement_creneaux (
+  id              TEXT PRIMARY KEY,            -- cr_…
+  evenement_id    TEXT NOT NULL,
+  agency_id       TEXT NOT NULL,
+  ordre           INTEGER NOT NULL DEFAULT 0,
+  libelle         TEXT NOT NULL DEFAULT '',    -- « Début », « Fin », « 14h-16h »… (vide = horaire seul)
+  date            TEXT NOT NULL,               -- AAAA-MM-JJ
+  debut           TEXT NOT NULL,               -- HH:MM
+  fin             TEXT NOT NULL,               -- HH:MM
+  created_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_evenement_creneaux_ev ON crm_evenement_creneaux (evenement_id, ordre);
+
+-- Une réponse par compte et par évènement : « participe » (créneaux cochés,
+-- JSON des ids) ou « absent ». `sequence` numérote les invitations .ics
+-- envoyées (une mise à jour ou une annulation porte le numéro suivant).
+CREATE TABLE IF NOT EXISTS crm_evenement_reponses (
+  id              TEXT PRIMARY KEY,            -- rp_…
+  evenement_id    TEXT NOT NULL,
+  agency_id       TEXT NOT NULL,
+  user_id         TEXT NOT NULL,
+  conseiller_id   TEXT NOT NULL DEFAULT '',    -- profil crm_conseillers lié au compte (si trouvé)
+  nom             TEXT NOT NULL DEFAULT '',
+  email           TEXT NOT NULL DEFAULT '',
+  reponse         TEXT NOT NULL,               -- participe | absent
+  creneaux        TEXT NOT NULL DEFAULT '[]',  -- JSON : ids des créneaux choisis
+  commentaire     TEXT NOT NULL DEFAULT '',
+  sequence        INTEGER NOT NULL DEFAULT 0,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_evenement_reponses_unique ON crm_evenement_reponses (evenement_id, user_id);

@@ -4297,6 +4297,132 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     for (const px of [pxR, pxC, pxE, pxD]) { await db.run("DELETE FROM crm_parcours WHERE estimation_id = ?", [px.json.id]); await db.run("DELETE FROM crm_estimations WHERE id = ?", [px.json.id]); }
   }
 
+  /* ---- Évènements de l'agence (20/10) --------------------------------------- */
+  console.log("— Évènements : créneaux, inscriptions multi-créneaux, refus, désistement, invitations .ics, périmètre par point de vente");
+  { const dec = (b64) => Buffer.from(b64, "base64").toString("utf8");
+    const dernierMail = () => mailsRecus[mailsRecus.length - 1] || {};
+    const mailsVers = (adresse) => mailsRecus.filter((m) => (m.to || []).includes(adresse));
+    const regE = (await callR("/crm/reglages", { headers: auth })).json.reglages;
+    const clePv = regE.agences[0].cle, cleAutre = regE.agences[1].cle;
+    const dansUnMois = decalerJour(aujE, 30);
+    // Droits : seul un administrateur crée ; sans session, rien.
+    ok((await callR("/crm/evenements", { headers: authR, method: "POST", body: { titre: "X", date: dansUnMois, debut: "09:00", fin: "10:00" } })).status === 403, "un conseiller ne crée pas d'évènement");
+    ok((await callR("/crm/evenements", { headers: { Authorization: "Bearer nope" } })).status === 401, "sans session, la liste des évènements est refusée");
+    // Validation.
+    ok((await callR("/crm/evenements", { headers: auth, body: { date: dansUnMois, debut: "09:00", fin: "10:00" } })).status === 400, "sans titre : refusé");
+    ok((await callR("/crm/evenements", { headers: auth, body: { titre: "Inversé", date: dansUnMois, debut: "11:00", fin: "10:00" } })).status === 400, "fin avant début : refusé");
+    ok((await callR("/crm/evenements", { headers: auth, body: { titre: "Tranches", mode: "tranches", tranches: { date: dansUnMois, debut: "09:00", fin: "18:00", duree: 5 } } })).status === 400, "une tranche de 5 minutes : refusée");
+    // Créneau unique + annonce à l'équipe à la création.
+    const avantA = mailsRecus.length;
+    const evU = await callR("/crm/evenements", { headers: auth, body: { titre: "Soirée clients", lieu: "Agence de Saint-Médard", description: "Cocktail avec nos clients de l'année.\n\nTenue correcte exigée.", date: dansUnMois, debut: "18:30", fin: "21:00", annoncer: true } });
+    ok(evU.status === 200 && evU.json.id && evU.json.evenement.mode === "unique" && evU.json.evenement.creneaux.length === 1 && evU.json.evenement.creneaux[0].debut === "18:30" && evU.json.evenement.date === dansUnMois,
+       "évènement à créneau unique créé (" + JSON.stringify(evU.json.evenement && evU.json.evenement.creneaux) + ")");
+    const mA = dernierMail();
+    ok(mailsRecus.length === avantA + 1 && evU.json.annonce && evU.json.annonce.ok && mA.to[0] === "ach-admin@ach-test.fr" && (mA.bcc || []).includes("remi@ach-test.fr") && /^Nouvel évènement : Soirée clients — /.test(mA.subject) && /Je réponds/.test(mA.html) && String(mA.html).includes("/administration/?brique=evenements&amp;evenement=" + evU.json.id) && /Tenue correcte/.test(mA.html),
+       "l'annonce part à l'équipe en copie cachée (l'admin en destinataire), avec le lien direct vers l'évènement (" + JSON.stringify({ to: mA.to, bcc: (mA.bcc || []).length, sujet: mA.subject }) + ")");
+    ok(evU.json.evenement.annonce_at > 0, "la date d'annonce est mémorisée");
+    // Tranches de 2 h de 9 h à 18 h : la dernière s'arrête à 18 h.
+    const evT = await callR("/crm/evenements", { headers: auth, body: { titre: "Stand Leroy Merlin", lieu: "Leroy Merlin Mérignac", mode: "tranches", tranches: { date: dansUnMois, debut: "09:00", fin: "18:00", duree: 120 } } });
+    const crT = evT.json.evenement.creneaux;
+    ok(evT.status === 200 && crT.length === 5 && crT[0].debut === "09:00" && crT[0].fin === "11:00" && crT[4].debut === "17:00" && crT[4].fin === "18:00" && evT.json.evenement.mode === "tranches",
+       "9h-18h par tranches de 2 h → 5 créneaux, le dernier 17h-18h (" + crT.map((c) => c.debut + "-" + c.fin).join(", ") + ")");
+    ok(mailsRecus.length === avantA + 1 && !evT.json.annonce, "sans « annoncer », aucun e-mail ne part à la création");
+    // Créneaux nommés (« Début » / « Fin ») sur deux jours.
+    const evN = await callR("/crm/evenements", { headers: auth, body: { titre: "Marché de Noël", lieu: "Place de la République", mode: "nommes", date: dansUnMois, agences: [clePv],
+      creneaux: [{ libelle: "Début", debut: "14:00", fin: "17:00" }, { libelle: "Fin", debut: "17:00", fin: "20:00" }, { libelle: "Dimanche matin", date: decalerJour(dansUnMois, 1), debut: "09:00", fin: "13:00" }] } });
+    const crN = evN.json.evenement.creneaux;
+    ok(evN.status === 200 && crN.length === 3 && crN[0].libelle === "Début" && crN[0].date === dansUnMois && crN[2].date === decalerJour(dansUnMois, 1) && evN.json.evenement.agences[0] === clePv,
+       "créneaux nommés : « Début », « Fin » sur le jour de l'évènement, un troisième le lendemain ; point de vente visé mémorisé");
+    // Le conseiller (sans point de vente) voit les trois, sans réponse pour l'instant ; il ne voit pas la liste des sans-réponse.
+    const lR = await callR("/crm/evenements", { headers: authR });
+    const ids = (lR.json.evenements || []).map((e) => e.id);
+    ok(lR.status === 200 && !lR.json.admin && [evU.json.id, evT.json.id, evN.json.id].every((id) => ids.includes(id)) && lR.json.evenements.every((e) => e.ma_reponse === null && !("sans_reponse" in e)) && lR.json.moi && lR.json.moi.nom === "Rémi Blanc",
+       "Rémi voit les trois évènements à venir, sans réponse, sans la liste des sans-réponse (" + JSON.stringify(lR.json.moi) + ")");
+    // Inscription sur DEUX tranches : une invitation .ics par créneau, copie à l'administrateur (créateur).
+    const avantI = mailsRecus.length;
+    const rep1 = await callR("/crm/evenements/" + evT.json.id + "/reponse", { headers: authR, body: { reponse: "participe", creneaux: [crT[1].id, crT[2].id], commentaire: "Je peux rester plus tard si besoin" } });
+    const mI = mailsVers("remi@ach-test.fr").pop() || {}, mC = mailsVers("ach-admin@ach-test.fr").pop() || {};
+    const ics1 = (mI.attachments || []).map((a) => dec(a.content));
+    ok(rep1.status === 200 && rep1.json.evenement.ma_reponse.reponse === "participe" && rep1.json.evenement.ma_reponse.creneaux.length === 2 && rep1.json.evenement.nb_participants === 1 && rep1.json.mail.ok && rep1.json.copie.ok && mailsRecus.length === avantI + 2,
+       "Rémi s'inscrit sur deux tranches : confirmation + copie à l'administrateur (" + JSON.stringify({ mail: rep1.json.mail, copie: rep1.json.copie }) + ")");
+    ok(/^Inscription confirmée : Stand Leroy Merlin — /.test(mI.subject) && /Bonjour Rémi/.test(mI.html) && /11h-13h/.test(mI.html) && /13h-15h/.test(mI.html) && (mI.attachments || []).length === 2 && ics1.every((t) => /METHOD:REQUEST/.test(t) && /DTSTART;TZID=Europe\/Paris:\d{8}T110000|DTSTART;TZID=Europe\/Paris:\d{8}T130000/.test(t) && /ATTENDEE;CN=Rémi Blanc;.*mailto:remi@ach-test\.fr/.test(t) && /SUMMARY:Stand Leroy Merlin/.test(t) && /LOCATION:Leroy Merlin Mérignac/.test(t) && /SEQUENCE:0/.test(t) && /ORGANIZER;CN=/.test(t)),
+       "l'e-mail porte une invitation .ics par créneau (METHOD:REQUEST, heures de Paris, Rémi participant, lieu) — " + JSON.stringify({ pj: (mI.attachments || []).map((a) => a.filename) }));
+    ok(/^Inscription : Rémi Blanc — Stand Leroy Merlin \(/.test(mC.subject) && /11h-13h/.test(mC.html) && /Je peux rester plus tard/.test(mC.html) && mC.reply_to && mC.reply_to[0] === "remi@ach-test.fr",
+       "la copie à l'administrateur nomme Rémi, ses créneaux et son commentaire, réponse vers lui (" + mC.subject + ")");
+    // Les créneaux portent les noms des inscrits (visibles de tous) ; l'admin voit Rémi dans les participants et plus dans les sans-réponse.
+    const vA = (await callR("/crm/evenements/" + evT.json.id, { headers: auth })).json.evenement;
+    const vR = (await callR("/crm/evenements/" + evT.json.id, { headers: authR })).json.evenement;
+    ok(vA.participants.length === 1 && vA.participants[0].nom === "Rémi Blanc" && vA.participants[0].creneaux.length === 2 && !vA.sans_reponse.some((x) => x.nom === "Rémi Blanc") && vA.sans_reponse.length >= 1 && vA.nb_attendus >= 2,
+       "vue administrateur : Rémi participant sur deux créneaux, retiré des sans-réponse (" + JSON.stringify({ sansReponse: vA.sans_reponse.map((x) => x.nom), attendus: vA.nb_attendus }) + ")");
+    ok(vR.creneaux[1].participants.some((p) => p.nom === "Rémi Blanc") && vR.creneaux[0].participants.length === 0 && vR.participants.some((p) => p.moi), "vue conseiller : les noms par créneau, sa propre réponse marquée");
+    // Il garde la 2e tranche et lâche la 3e : invitation renvoyée (séquence 1) + annulation du créneau quitté.
+    const rep2 = await callR("/crm/evenements/" + evT.json.id + "/reponse", { headers: authR, body: { reponse: "participe", creneaux: [crT[1].id] } });
+    const mI2 = mailsVers("remi@ach-test.fr").pop() || {};
+    const ics2 = (mI2.attachments || []).map((a) => dec(a.content));
+    ok(rep2.status === 200 && rep2.json.evenement.ma_reponse.creneaux.length === 1 && (mI2.attachments || []).length === 2 && ics2.some((t) => /METHOD:REQUEST/.test(t) && /SEQUENCE:1/.test(t) && /T110000/.test(t)) && ics2.some((t) => /METHOD:CANCEL/.test(t) && /STATUS:CANCELLED/.test(t) && /T130000/.test(t) && /SUMMARY:ANNULÉ — Stand Leroy Merlin/.test(t)) && /ne tenez plus ces créneaux/.test(mI2.html),
+       "changement de créneaux : invitation mise à jour pour le créneau gardé, annulation pour celui qu'il quitte (même UID, séquence suivante)");
+    { const uidAvant = /UID:([^\r\n]+)/.exec(ics1[0] || "")[1], uidApres = /UID:([^\r\n]+)/.exec(ics2.find((t) => /T110000/.test(t)) || "");
+      ok(uidApres && uidApres[1] === uidAvant, "l'UID du créneau 11h-13h ne change pas d'un envoi à l'autre (l'agenda met à jour au lieu de doubler)"); }
+    // Modification par l'admin : un créneau tenu ne se supprime pas ; déplacé, ses inscrits reçoivent l'invitation mise à jour.
+    const supp = await callR("/crm/evenements/" + evT.json.id, { headers: auth, method: "PUT", body: { creneaux: crT.filter((c) => c.id !== crT[1].id) } });
+    ok(supp.status === 409 && /inscrit/.test(supp.json.error), "supprimer un créneau qui a un inscrit : refusé (" + (supp.json && supp.json.error) + ")");
+    const avantM = mailsRecus.length;
+    const dep = await callR("/crm/evenements/" + evT.json.id, { headers: auth, method: "PUT", body: { creneaux: crT.map((c) => (c.id === crT[1].id ? { ...c, debut: "11:30", fin: "13:30" } : c)) } });
+    const mM = mailsVers("remi@ach-test.fr").pop() || {};
+    const icsM = (mM.attachments || []).map((a) => dec(a.content));
+    ok(dep.status === 200 && dep.json.invitations_renvoyees === 1 && dep.json.evenement.creneaux.find((c) => c.id === crT[1].id).debut === "11:30" && mailsRecus.length === avantM + 1 && /^Modifié : Stand Leroy Merlin/.test(mM.subject) && icsM.length === 1 && /SEQUENCE:2/.test(icsM[0]) && /T113000/.test(icsM[0]),
+       "créneau déplacé à 11h30 : Rémi reçoit l'invitation mise à jour (séquence 2) — " + JSON.stringify({ renvoyees: dep.json.invitations_renvoyees, sujet: mM.subject }));
+    // Un créneau sans inscrit se supprime ; un nouveau s'ajoute.
+    const ajout = await callR("/crm/evenements/" + evT.json.id, { headers: auth, method: "PUT", body: { titre: "Stand Leroy Merlin", creneaux: [...crT.filter((c) => c.id !== crT[4].id).map((c) => (c.id === crT[1].id ? { ...c, debut: "11:30", fin: "13:30" } : c)), { libelle: "Rangement", date: dansUnMois, debut: "18:00", fin: "19:00" }] } });
+    ok(ajout.status === 200 && ajout.json.evenement.creneaux.length === 5 && ajout.json.evenement.creneaux.some((c) => c.libelle === "Rangement") && !ajout.json.evenement.creneaux.some((c) => c.id === crT[4].id), "un créneau vide se retire, un créneau s'ajoute");
+    // « Je ne participe pas » : noté, l'ancien créneau annulé dans l'agenda, compté dans les absents.
+    const rep3 = await callR("/crm/evenements/" + evT.json.id + "/reponse", { headers: authR, body: { reponse: "absent" } });
+    const mI3 = mailsVers("remi@ach-test.fr").pop() || {}, mC3 = mailsVers("ach-admin@ach-test.fr").pop() || {};
+    ok(rep3.status === 200 && rep3.json.evenement.ma_reponse.reponse === "absent" && rep3.json.evenement.nb_participants === 0 && rep3.json.evenement.nb_absents === 1 && /^Bien noté : Stand Leroy Merlin/.test(mI3.subject) && (mI3.attachments || []).length === 1 && /METHOD:CANCEL/.test(dec(mI3.attachments[0].content)) && /^Ne participe pas : Rémi Blanc/.test(mC3.subject),
+       "« Je ne participe pas » : confirmation avec l'annulation du créneau tenu, copie à l'administrateur");
+    // Désinscription complète : retour à « sans réponse ».
+    await callR("/crm/evenements/" + evT.json.id + "/reponse", { headers: authR, body: { reponse: "participe", creneaux: [crT[0].id] } });
+    const avantD = mailsRecus.length;
+    const des = await callR("/crm/evenements/" + evT.json.id + "/reponse", { headers: authR, method: "DELETE" });
+    const mD = mailsVers("remi@ach-test.fr").pop() || {};
+    ok(des.status === 200 && des.json.evenement.ma_reponse === null && des.json.evenement.nb_participants === 0 && mailsRecus.length === avantD + 2 && /^Désinscription : Stand Leroy Merlin/.test(mD.subject) && /METHOD:CANCEL/.test(dec(mD.attachments[0].content)),
+       "désinscription : la réponse disparaît, le créneau est annulé dans l'agenda, copie à l'administrateur");
+    ok((await callR("/crm/evenements/" + evT.json.id, { headers: auth })).json.evenement.sans_reponse.some((x) => x.nom === "Rémi Blanc"), "Rémi est de retour dans les sans-réponse");
+    // Un créneau d'un AUTRE évènement ne compte pas ; participer sans créneau sur un multi-créneaux : refusé.
+    ok((await callR("/crm/evenements/" + evT.json.id + "/reponse", { headers: authR, body: { reponse: "participe", creneaux: [crN[0].id] } })).status === 400, "un créneau étranger à l'évènement est ignoré → aucun créneau → refusé");
+    ok((await callR("/crm/evenements/" + evU.json.id + "/reponse", { headers: authR, body: { reponse: "participe", creneaux: [evU.json.evenement.creneaux[0].id] } })).status === 200, "sur un créneau unique, l'inscription passe");
+    // Relance : seuls les sans-réponse ; Rémi (inscrit à la soirée) n'y est plus.
+    const rel = await callR("/crm/evenements/" + evU.json.id + "/annoncer", { headers: auth, body: { relance: true } });
+    const mRel = dernierMail();
+    ok(rel.status === 200 && rel.json.ok && /^Rappel : Soirée clients/.test(mRel.subject) && !(mRel.bcc || []).includes("remi@ach-test.fr") && !(mRel.to || []).includes("remi@ach-test.fr") && rel.json.envoyes >= 1,
+       "la relance n'écrit qu'aux sans-réponse (" + JSON.stringify({ envoyes: rel.json.envoyes, bcc: (mRel.bcc || []).length }) + ")");
+    // Périmètre par point de vente : le marché de Noël vise un seul point de vente.
+    await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: profilRemi.id, prenom: "Rémi", nom: "Blanc", email: "remi@ach-test.fr", agence: cleAutre } });
+    const lR2 = (await callR("/crm/evenements", { headers: authR })).json;
+    ok(lR2.moi.agence === cleAutre && !lR2.evenements.some((e) => e.id === evN.json.id) && lR2.evenements.some((e) => e.id === evT.json.id) && (await callR("/crm/evenements/" + evN.json.id + "/reponse", { headers: authR, body: { reponse: "participe", creneaux: [crN[0].id] } })).status === 404,
+       "un conseiller d'un autre point de vente ne voit pas l'évènement réservé, et ne peut pas y répondre");
+    await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: profilRemi.id, prenom: "Rémi", nom: "Blanc", email: "remi@ach-test.fr", agence: clePv } });
+    const repN = await callR("/crm/evenements/" + evN.json.id + "/reponse", { headers: authR, body: { reponse: "participe", creneaux: [crN[0].id, crN[2].id] } });
+    ok(repN.status === 200 && repN.json.evenement.ma_reponse.creneaux.length === 2, "du bon point de vente, il s'inscrit sur « Début » et « Dimanche matin »");
+    ok((await callR("/crm/evenements/" + evN.json.id, { headers: auth })).json.evenement.sans_reponse.every((x) => !x.agence || x.agence === clePv), "les sans-réponse d'un évènement réservé ne listent que ce point de vente");
+    await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: profilRemi.id, prenom: "Rémi", nom: "Blanc", email: "remi@ach-test.fr", agence: "" } });
+    // Inscriptions closes, puis annulation : annulations .ics aux inscrits, l'évènement reste dans l'historique.
+    ok((await callR("/crm/evenements/" + evN.json.id, { headers: auth, method: "PUT", body: { statut: "ferme" } })).json.evenement.statut === "ferme" && (await callR("/crm/evenements/" + evN.json.id + "/reponse", { headers: authR, body: { reponse: "absent" } })).status === 409, "inscriptions closes : plus de réponse possible");
+    const avantAn = mailsRecus.length;
+    const an = await callR("/crm/evenements/" + evN.json.id + "/annuler", { headers: auth, body: {} });
+    const mAn = mailsVers("remi@ach-test.fr").pop() || {};
+    ok(an.status === 200 && an.json.annulations === 1 && mailsRecus.length === avantAn + 1 && /^Annulé : Marché de Noël/.test(mAn.subject) && (mAn.attachments || []).length === 2 && mAn.attachments.every((a) => /METHOD:CANCEL/.test(dec(a.content))),
+       "annulation : Rémi reçoit l'annulation de ses deux créneaux en une fois");
+    const lDef = (await callR("/crm/evenements", { headers: authR })).json.evenements, lTous = (await callR("/crm/evenements?tous=1", { headers: authR })).json.evenements;
+    ok(!lDef.some((e) => e.id === evN.json.id) && lTous.some((e) => e.id === evN.json.id && e.statut === "annule"), "un évènement annulé sort de la liste courante et reste dans l'historique");
+    ok((await callR("/crm/evenements/" + evN.json.id + "/annoncer", { headers: auth, body: {} })).status === 409, "pas d'annonce pour un évènement annulé");
+    // Suppression : refusée tant que des réponses existent (hors annulé), acceptée pour un évènement vide.
+    ok((await callR("/crm/evenements/" + evU.json.id, { headers: auth, method: "DELETE" })).status === 409, "supprimer un évènement qui a des réponses : refusé (annuler plutôt)");
+    ok((await callR("/crm/evenements/" + evN.json.id, { headers: auth, method: "DELETE" })).status === 200 && (await callR("/crm/evenements/" + evN.json.id, { headers: auth })).status === 404, "un évènement annulé se supprime");
+    ok((await callR("/crm/evenements/" + evT.json.id, { headers: auth, method: "DELETE" })).status === 200, "un évènement sans réponse se supprime");
+    for (const id of [evU.json.id]) { await db.run("DELETE FROM crm_evenement_reponses WHERE evenement_id = ?", [id]); await db.run("DELETE FROM crm_evenement_creneaux WHERE evenement_id = ?", [id]); await db.run("DELETE FROM crm_evenements WHERE id = ?", [id]); }
+  }
+
   console.log("— AMEPI : connexion, relevé du fichier des mandats, rapprochement");
   // Le réglage par défaut ne garde que « mon ALFA » (2) ; ce bloc teste les trois sources.
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { amepi: { sources: ["1", "2", "3"] } } });

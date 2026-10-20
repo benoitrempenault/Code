@@ -1662,7 +1662,7 @@ export function fournisseurMail(env) {
   return env.RESEND_API_KEY ? "resend" : "";
 }
 export const MAIL_NON_CONFIGURE = "Envoi d'e-mails non configuré sur le serveur (RESEND_API_KEY ou MAIL_VIA=brevo + BREVO_API_KEY).";
-function expediteur(env, fromName) {
+export function expediteur(env, fromName) {
   const src = (fournisseurMail(env) === "brevo" && env.MAIL_FROM_BREVO) || env.MAIL_FROM || "";
   const m = /^\s*(?:"?([^"<]*?)"?\s*)?<([^>]+)>\s*$/.exec(src);
   const email = (m && m[2]) || (src.includes("@") ? src.trim() : "connexion@studiobrochure.fr");

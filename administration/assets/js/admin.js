@@ -4859,6 +4859,8 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "evenements-20-10", depuis: "2026-10-20", jours: 10, titre: "Nouveau : les évènements de l'agence",
+      html: '<p class="aide" style="max-width:none;">Marché de Noël, stand Leroy Merlin, soirée clients… tout se passe dans l\'onglet <strong>📅 Évènements</strong> (tuile sur l\'accueil Studio, lien dans l\'e-mail d\'annonce). Pour chaque évènement, répondez <strong>« Je participe »</strong> — sur un ou plusieurs créneaux quand il y en a — ou <strong>« Je ne participe pas »</strong>. Une inscription arrive dans votre agenda par e-mail (invitation à accepter) ; vous changez de créneau ou vous désinscrivez quand vous voulez, l\'agenda suit.</p>' },
     { id: "rappel-apres-r2-19-10", depuis: "2026-10-19", jours: 7, titre: "Nouveau : un rappel le lendemain du R2",
       html: '<p class="aide" style="max-width:none;">Le matin qui suit un R2, si le <strong>point 7 (e-mail après le R2)</strong> n\'est pas encore parti, vous recevez un e-mail de rappel avec le lien direct vers la fiche. Il part une seule fois par fiche, et pas si l\'e-mail est déjà envoyé (ou le point coché). Ce rappel est activé conseiller par conseiller par la direction.</p>' },
     { id: "livret-ordre-16-10", depuis: "2026-10-16", jours: 7, titre: "Nouveau : l'ordre des biens et le filtre de budget dans le livret prix",
@@ -4916,11 +4918,272 @@
     $("nv-compris").addEventListener("click", () => { liste.forEach((n) => nouveauteComprise(n.id)); fermerModale(); });
   }
 
+  /* ------------------------------ Évènements ------------------------------ */
+  // Marché de Noël, stand Leroy Merlin, soirée clients : l'administrateur crée
+  // l'évènement (créneau unique, créneaux nommés ou tranches de N heures,
+  // points de vente visés), chaque conseiller répond — participe sur un ou
+  // plusieurs créneaux, ou ne participe pas. L'inscription part dans l'agenda
+  // par l'invitation .ics jointe à l'e-mail (serveur). Ouvert à tous les
+  // conseillers (mode conseiller, ?brique=evenements).
+  let evenements = [], evenementsAdmin = false, evenementsMoi = null;
+  const JOURS_FR = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+  // « samedi 12 décembre » (+ année si elle n'est pas celle en cours)
+  const dateLongue = (iso) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ""));
+    if (!m) return "";
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    return JOURS_FR[d.getDay()] + " " + (+m[3]) + " " + MOIS_FR[+m[2] - 1] + (+m[1] !== new Date().getFullYear() ? " " + m[1] : "");
+  };
+  const heureFr = (h) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(h || "")); return m ? +m[1] + "h" + (m[2] === "00" ? "" : m[2]) : ""; };
+  const libelleCreneau = (cr, sansDate) => {
+    const horaire = heureFr(cr.debut) + "-" + heureFr(cr.fin);
+    const quand = sansDate ? horaire : dateLongue(cr.date) + ", " + horaire;
+    return cr.libelle ? cr.libelle + " (" + quand + ")" : quand;
+  };
+  const nomAgenceCourt = (cle) => { const a = agences().find((x) => x.cle === cle); return a ? a.nom.replace(/^century\s*21\s*kadima\s*/i, "").replace(/^[—–-]\s*/, "").trim() : cle; };
+  const evenementPasse = (ev) => { const fin = (ev.creneaux || []).map((c) => c.date).sort().pop() || ev.date; return fin < new Date().toISOString().slice(0, 10); };
+
+  async function chargerEvenements() {
+    const zone = $("liste-evenements");
+    if (!zone) return;
+    const tous = $("evenements-tous").checked;
+    try {
+      const r = await api("/crm/evenements" + (tous ? "?tous=1" : ""));
+      evenements = r.evenements || []; evenementsAdmin = !!r.admin; evenementsMoi = r.moi || null;
+    } catch (e) { zone.innerHTML = '<div class="vide">' + escH(e.message) + "</div>"; return; }
+    $("btn-nouvel-evenement").hidden = !evenementsAdmin;
+    rendreEvenements();
+    // ?brique=evenements&evenement=<id> (e-mail d'annonce) : l'évènement s'ouvre de lui-même, une fois.
+    const demande = new URLSearchParams(location.search).get("evenement") || "";
+    if (demande && !chargerEvenements.ouvert) {
+      chargerEvenements.ouvert = true;
+      const ev = evenements.find((e) => e.id === demande);
+      if (ev) { if (ev.statut === "ouvert") ouvrirReponseEvenement(ev); else if (evenementsAdmin) ouvrirDetailEvenement(ev); }
+      else if (!tous) { $("evenements-tous").checked = true; chargerEvenements.ouvert = false; chargerEvenements(); }
+    }
+  }
+  function rendreEvenements() {
+    const zone = $("liste-evenements");
+    if (!zone) return;
+    if (!evenements.length) { zone.innerHTML = '<div class="vide">' + (evenementsAdmin ? "Aucun évènement à venir — « + Nouvel évènement » pour en créer un." : "Aucun évènement à venir pour le moment.") + "</div>"; return; }
+    zone.innerHTML = evenements.map((ev) => {
+      const mine = ev.ma_reponse;
+      const ouvert = ev.statut === "ouvert" && !evenementPasse(ev);
+      const dates = [...new Set(ev.creneaux.map((c) => c.date))].sort();
+      const quand = dates.length === 1 ? dateLongue(dates[0]) : "du " + dateLongue(dates[0]) + " au " + dateLongue(dates[dates.length - 1]);
+      const horaire = ev.creneaux.length === 1 ? " · " + heureFr(ev.creneaux[0].debut) + "-" + heureFr(ev.creneaux[0].fin) : " · " + ev.creneaux.length + " créneaux";
+      const puces = (ev.statut === "annule" ? '<span class="puce rouge">annulé</span>' : ev.statut === "ferme" ? '<span class="puce grise">inscriptions closes</span>' : evenementPasse(ev) ? '<span class="puce grise">passé</span>' : "") +
+        (ev.agences.length ? ev.agences.map((k) => '<span class="puce grise">' + escH(nomAgenceCourt(k)) + "</span>").join(" ") : "");
+      let reponse;
+      if (!mine) reponse = ouvert ? '<span class="ev-sans">Vous n\'avez pas encore répondu.</span>' : "";
+      else if (mine.reponse === "participe") reponse = '<span class="ev-oui">✅ Vous participez</span> — ' + escH(ev.creneaux.filter((c) => mine.creneaux.includes(c.id)).map((c) => libelleCreneau(c, dates.length === 1)).join(" · "));
+      else reponse = '<span class="ev-non">✖ Vous ne participez pas</span>';
+      const boutons = ouvert
+        ? (mine && mine.reponse === "participe"
+          ? '<button class="btn" data-ev-repondre="' + ev.id + '">✏️ Modifier mes créneaux</button><button class="btn" data-ev-absent="' + ev.id + '">✖ Je ne participe plus</button>'
+          : '<button class="btn btn-or" data-ev-repondre="' + ev.id + '">✅ Je participe</button>' + (mine ? "" : '<button class="btn" data-ev-absent="' + ev.id + '">✖ Je ne participe pas</button>'))
+        : "";
+      const admin = evenementsAdmin
+        ? '<div class="ev-admin"><span class="petit">' + ev.nb_participants + " participant" + (ev.nb_participants > 1 ? "s" : "") + " · " + ev.nb_absents + " ne participe" + (ev.nb_absents > 1 ? "nt" : "") + " pas · " + (ev.sans_reponse || []).length + " sans réponse" +
+          (ev.annonce_at ? " · annoncé le " + dateFrCourte(new Date(ev.annonce_at * 1000).toISOString().slice(0, 10)) : " · pas encore annoncé") + "</span>" +
+          '<div class="barre">' +
+          '<button class="btn" data-ev-detail="' + ev.id + '">👥 Qui vient</button>' +
+          (ev.statut !== "annule" ? '<button class="btn" data-ev-modifier="' + ev.id + '">✏️ Modifier</button>' +
+            '<button class="btn" data-ev-annoncer="' + ev.id + '">📣 ' + (ev.annonce_at ? "Relancer les sans-réponse" : "Annoncer à l'équipe") + "</button>" +
+            '<button class="btn btn-danger" data-ev-annuler="' + ev.id + '">🚫 Annuler l\'évènement</button>' : "") +
+          (ev.statut === "annule" || (!ev.nb_participants && !ev.nb_absents) ? '<button class="btn btn-danger" data-ev-supprimer="' + ev.id + '">🗑 Supprimer</button>' : "") +
+          "</div></div>"
+        : "";
+      return '<div class="ev-carte' + (ev.statut !== "ouvert" || evenementPasse(ev) ? " ev-inactif" : "") + '">' +
+        '<div class="ev-tete"><div><h3>' + escH(ev.titre) + "</h3><div class=\"ev-quand\">" + escH(quand) + escH(horaire) + (ev.lieu ? " · 📍 " + escH(ev.lieu) : "") + "</div></div><div class=\"ev-puces\">" + puces + "</div></div>" +
+        (ev.description ? '<p class="ev-desc">' + escH(ev.description).replace(/\n/g, "<br>") + "</p>" : "") +
+        (ev.creneaux.length > 1 ? '<ul class="ev-creneaux">' + ev.creneaux.map((c) => "<li>" + escH(libelleCreneau(c, dates.length === 1)) + (c.participants.length ? ' <span class="petit">— ' + escH(c.participants.map((p) => p.nom).join(", ")) + "</span>" : "") + "</li>").join("") + "</ul>"
+          : (ev.creneaux[0] && ev.creneaux[0].participants.length ? '<p class="petit">Inscrits : ' + escH(ev.creneaux[0].participants.map((p) => p.nom).join(", ")) + "</p>" : "")) +
+        '<div class="ev-reponse">' + reponse + "</div>" +
+        (boutons ? '<div class="barre">' + boutons + "</div>" : "") + admin + "</div>";
+    }).join("");
+    const evDe = (b, k) => evenements.find((e) => e.id === b.dataset[k]);
+    zone.querySelectorAll("[data-ev-repondre]").forEach((b) => b.addEventListener("click", () => ouvrirReponseEvenement(evDe(b, "evRepondre"))));
+    zone.querySelectorAll("[data-ev-absent]").forEach((b) => b.addEventListener("click", () => repondreEvenement(evDe(b, "evAbsent"), { reponse: "absent" })));
+    zone.querySelectorAll("[data-ev-detail]").forEach((b) => b.addEventListener("click", () => ouvrirDetailEvenement(evDe(b, "evDetail"))));
+    zone.querySelectorAll("[data-ev-modifier]").forEach((b) => b.addEventListener("click", () => ouvrirEvenementForm(evDe(b, "evModifier"))));
+    zone.querySelectorAll("[data-ev-annoncer]").forEach((b) => b.addEventListener("click", () => annoncerEvenement(evDe(b, "evAnnoncer"))));
+    zone.querySelectorAll("[data-ev-annuler]").forEach((b) => b.addEventListener("click", () => annulerEvenement(evDe(b, "evAnnuler"))));
+    zone.querySelectorAll("[data-ev-supprimer]").forEach((b) => b.addEventListener("click", () => supprimerEvenement(evDe(b, "evSupprimer"))));
+  }
+  // La réponse d'un conseiller : ses créneaux (cases) ou « je ne participe pas ».
+  function ouvrirReponseEvenement(ev) {
+    const mine = ev.ma_reponse;
+    const dates = [...new Set(ev.creneaux.map((c) => c.date))];
+    const multi = ev.creneaux.length > 1;
+    ouvrirModale("📅 " + ev.titre,
+      '<p class="aide" style="max-width:none;">' + escH(dateLongue(ev.date)) + (ev.lieu ? " · 📍 " + escH(ev.lieu) : "") + "</p>" +
+      (ev.description ? '<p class="aide" style="max-width:none;">' + escH(ev.description).replace(/\n/g, "<br>") + "</p>" : "") +
+      (multi
+        ? '<p><strong>Mes créneaux</strong> <span class="petit">(un ou plusieurs)</span></p><div class="ev-choix">' + ev.creneaux.map((c) =>
+          '<label class="case"><input type="checkbox" class="ev-cr" value="' + c.id + '"' + (mine && mine.creneaux.includes(c.id) ? " checked" : "") + " /> " + escH(libelleCreneau(c, dates.length === 1)) +
+          (c.participants.length ? ' <span class="petit">— ' + escH(c.participants.filter((p) => !(evenementsMoi && p.conseiller_id && p.conseiller_id === evenementsMoi.conseiller_id)).map((p) => p.nom).join(", ") || "vous") + "</span>" : "") + "</label>").join("") + "</div>"
+        : '<p><strong>' + escH(libelleCreneau(ev.creneaux[0])) + "</strong></p>") +
+      '<label style="display:block; margin-top:12px;">Un mot pour l\'organisateur (facultatif)<input id="ev-commentaire" value="' + escH(mine && mine.commentaire || "") + '" placeholder="Je peux arriver un peu plus tôt…" /></label>',
+      '<button class="btn" id="ev-rep-absent">✖ Je ne participe pas</button><button class="btn" id="ev-rep-annuler">Annuler</button><button class="btn btn-or" id="ev-rep-ok">✅ Je participe</button>');
+    $("ev-rep-annuler").addEventListener("click", fermerModale);
+    $("ev-rep-absent").addEventListener("click", () => repondreEvenement(ev, { reponse: "absent", commentaire: $("ev-commentaire").value.trim() }, true));
+    $("ev-rep-ok").addEventListener("click", () => {
+      const creneaux = multi ? [...document.querySelectorAll(".ev-cr:checked")].map((x) => x.value) : [ev.creneaux[0].id];
+      if (!creneaux.length) { toast("Cochez au moins un créneau", true); return; }
+      repondreEvenement(ev, { reponse: "participe", creneaux, commentaire: $("ev-commentaire").value.trim() }, true);
+    });
+  }
+  async function repondreEvenement(ev, corps, depuisModale) {
+    const boutons = depuisModale ? ["ev-rep-ok", "ev-rep-absent"].map($).filter(Boolean) : [];
+    boutons.forEach((b) => { b.disabled = true; });
+    try {
+      const r = await api("/crm/evenements/" + ev.id + "/reponse", { method: "POST", json: corps });
+      if (depuisModale) fermerModale();
+      toast(corps.reponse === "participe"
+        ? (r.mail && r.mail.ok ? "Inscription enregistrée — l'invitation est dans votre boîte mail" : "Inscription enregistrée")
+        : "C'est noté : vous ne participez pas");
+      chargerEvenements();
+    } catch (e) { toast(e.message, true); boutons.forEach((b) => { b.disabled = false; }); }
+  }
+  // Détail (administrateur) : qui vient sur quel créneau, qui a dit non, qui n'a pas répondu.
+  async function ouvrirDetailEvenement(ev) {
+    let d = ev;
+    try { d = (await api("/crm/evenements/" + ev.id)).evenement; } catch (e) { toast(e.message, true); return; }
+    const dates = [...new Set(d.creneaux.map((c) => c.date))];
+    const mailto = (liste) => { const m = liste.map((x) => x.email).filter(Boolean); return m.length ? ' <a class="petit" href="mailto:' + escH(m.join(",")) + '">✉️ leur écrire</a>' : ""; };
+    ouvrirModale("👥 " + d.titre,
+      '<p class="aide" style="max-width:none;">' + escH(dateLongue(d.date)) + (d.lieu ? " · 📍 " + escH(d.lieu) : "") + "</p>" +
+      "<p><strong>Par créneau</strong></p><ul class=\"ev-creneaux\">" + d.creneaux.map((c) => "<li>" + escH(libelleCreneau(c, dates.length === 1)) + " : " +
+        (c.participants.length ? "<strong>" + escH(c.participants.map((p) => p.nom).join(", ")) + "</strong>" : '<span class="petit">personne</span>') + "</li>").join("") + "</ul>" +
+      "<p><strong>Participent</strong> (" + (d.participants || []).length + ")</p>" +
+      ((d.participants || []).length ? "<ul class=\"ev-creneaux\">" + d.participants.map((p) => "<li>" + escH(p.nom) + ' <span class="petit">— ' + escH(d.creneaux.filter((c) => p.creneaux.includes(c.id)).map((c) => c.libelle || heureFr(c.debut) + "-" + heureFr(c.fin)).join(", ")) + (p.commentaire ? " · « " + escH(p.commentaire) + " »" : "") + "</span></li>").join("") + "</ul>" : '<p class="petit">Personne pour l\'instant.</p>') +
+      "<p><strong>Ne participent pas</strong> (" + (d.absents || []).length + ")</p>" +
+      ((d.absents || []).length ? "<ul class=\"ev-creneaux\">" + d.absents.map((p) => "<li>" + escH(p.nom) + (p.commentaire ? ' <span class="petit">— « ' + escH(p.commentaire) + " »</span>" : "") + "</li>").join("") + "</ul>" : '<p class="petit">Personne.</p>') +
+      "<p><strong>Sans réponse</strong> (" + (d.sans_reponse || []).length + ")" + mailto(d.sans_reponse || []) + "</p>" +
+      ((d.sans_reponse || []).length ? '<p class="petit">' + escH(d.sans_reponse.map((p) => p.nom + (p.agence ? " (" + nomAgenceCourt(p.agence) + ")" : "")).join(", ")) + "</p>" : '<p class="petit">Tout le monde a répondu.</p>'),
+      '<button class="btn" id="ev-detail-fermer">Fermer</button>' + (d.statut !== "annule" && (d.sans_reponse || []).length ? '<button class="btn btn-or" id="ev-detail-relancer">📣 Relancer les sans-réponse</button>' : ""));
+    $("ev-detail-fermer").addEventListener("click", fermerModale);
+    const rel = $("ev-detail-relancer");
+    if (rel) rel.addEventListener("click", () => { fermerModale(); annoncerEvenement(d); });
+  }
+  // Création / modification (administrateur). À la création : créneau unique,
+  // créneaux nommés (« Début », « Fin »…) ou tranches de N heures. À la
+  // modification : la liste des créneaux telle quelle (horaires retouchables,
+  // ajout, retrait d'un créneau vide).
+  function ouvrirEvenementForm(ev) {
+    const v = (k) => escH(ev && ev[k] || "");
+    const dateDefaut = ev ? ev.date : "";
+    const agencesHtml = agences().length ? '<div class="ev-choix" id="ev-agences">' + agences().map((a) =>
+      '<label class="case"><input type="checkbox" class="ev-ag" value="' + escH(a.cle) + '"' + (ev && ev.agences.includes(a.cle) ? " checked" : "") + " /> " + escH(nomAgenceCourt(a.cle)) + "</label>").join("") + '</div><p class="petit">Rien de coché = toute l\'agence.</p>' : "";
+    const modeInitial = ev ? "liste" : "unique";
+    ouvrirModale(ev ? "✏️ " + ev.titre : "+ Nouvel évènement",
+      '<div class="grille-champs">' +
+      '<label style="grid-column:1/-1;">Titre<input id="ev-titre" value="' + v("titre") + '" placeholder="Marché de Noël de Saint-Médard" /></label>' +
+      '<label style="grid-column:1/-1;">Lieu<input id="ev-lieu" value="' + v("lieu") + '" placeholder="Place de la République" /></label>' +
+      '<label style="grid-column:1/-1;">Description (ce que les conseillers liront)<textarea id="ev-desc" style="min-height:80px;">' + v("description") + "</textarea></label>" +
+      "</div>" +
+      "<p style=\"margin-top:12px;\"><strong>Points de vente concernés</strong></p>" + agencesHtml +
+      "<p style=\"margin-top:12px;\"><strong>Horaires</strong></p>" +
+      (ev ? "" : '<div class="barre ev-modes">' +
+        '<label class="case"><input type="radio" name="ev-mode" value="unique" checked /> Un seul créneau</label>' +
+        '<label class="case"><input type="radio" name="ev-mode" value="nommes" /> Plusieurs créneaux au choix (Début, Fin…)</label>' +
+        '<label class="case"><input type="radio" name="ev-mode" value="tranches" /> Tranches de N heures</label></div>') +
+      '<div id="ev-zone-unique"><div class="grille-champs">' +
+      '<label>Date<input id="ev-u-date" type="date" value="' + escH(dateDefaut) + '" /></label><label>Début<input id="ev-u-debut" type="time" value="14:00" /></label><label>Fin<input id="ev-u-fin" type="time" value="17:00" /></label></div></div>' +
+      '<div id="ev-zone-tranches" hidden><div class="grille-champs">' +
+      '<label>Date<input id="ev-t-date" type="date" /></label><label>Début<input id="ev-t-debut" type="time" value="09:00" /></label><label>Fin<input id="ev-t-fin" type="time" value="18:00" /></label>' +
+      '<label>Durée d\'une tranche<select id="ev-t-duree">' + [[60, "1 h"], [90, "1 h 30"], [120, "2 h"], [180, "3 h"], [240, "4 h"]].map(([m, l]) => '<option value="' + m + '"' + (m === 120 ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label></div>" +
+      '<p class="petit" id="ev-t-apercu"></p></div>' +
+      '<div id="ev-zone-liste" hidden><p class="petit">Chaque créneau : un libellé (facultatif — « Début », « Fin », « Montage »…), sa date, ses heures.</p><div id="ev-lignes"></div>' +
+      '<button class="btn" id="ev-ajouter-ligne" type="button">+ Ajouter un créneau</button></div>' +
+      (ev ? "" : '<label class="case" style="margin-top:14px;"><input type="checkbox" id="ev-annoncer" checked /> Prévenir l\'équipe par e-mail dès la création (chacun reçoit le lien pour répondre)</label>'),
+      '<button class="btn" id="ev-annuler">Annuler</button><button class="btn btn-or" id="ev-save">' + (ev ? "Enregistrer" : "Créer l'évènement") + "</button>");
+    const lignes = $("ev-lignes");
+    const ajouterLigne = (cr) => {
+      const div = document.createElement("div");
+      div.className = "grille-champs ev-ligne"; div.dataset.id = (cr && cr.id) || "";
+      div.innerHTML = '<label>Libellé<input class="ev-l-libelle" value="' + escH(cr && cr.libelle || "") + '" placeholder="Début" /></label>' +
+        '<label>Date<input class="ev-l-date" type="date" value="' + escH((cr && cr.date) || $("ev-u-date").value || dateDefaut) + '" /></label>' +
+        '<label>Début<input class="ev-l-debut" type="time" value="' + escH(cr && cr.debut || "") + '" /></label>' +
+        '<label>Fin<input class="ev-l-fin" type="time" value="' + escH(cr && cr.fin || "") + '" /><button class="btn btn-danger mini ev-l-suppr" type="button" title="Retirer ce créneau">✕</button></label>';
+      div.querySelector(".ev-l-suppr").addEventListener("click", () => {
+        if (cr && cr.participants && cr.participants.length) { toast("Ce créneau a des inscrits : il ne peut pas être retiré", true); return; }
+        div.remove();
+      });
+      lignes.appendChild(div);
+    };
+    const montrerMode = (m) => { $("ev-zone-unique").hidden = m !== "unique"; $("ev-zone-tranches").hidden = m !== "tranches"; $("ev-zone-liste").hidden = m !== "nommes" && m !== "liste"; };
+    if (ev) { montrerMode("liste"); ev.creneaux.forEach(ajouterLigne); }
+    else {
+      document.querySelectorAll('input[name="ev-mode"]').forEach((r) => r.addEventListener("change", () => {
+        montrerMode(r.value);
+        if (r.value === "nommes" && !lignes.children.length) { ajouterLigne({ libelle: "Début", debut: $("ev-u-debut").value, fin: "" }); ajouterLigne({ libelle: "Fin", debut: "", fin: $("ev-u-fin").value }); }
+        if (r.value === "tranches" && !$("ev-t-date").value) $("ev-t-date").value = $("ev-u-date").value;
+      }));
+    }
+    $("ev-ajouter-ligne").addEventListener("click", () => ajouterLigne(null));
+    // Aperçu des tranches.
+    const apercuTranches = () => {
+      const [d0, f0] = [$("ev-t-debut").value, $("ev-t-fin").value].map((h) => { const m = /^(\d{1,2}):(\d{2})$/.exec(h); return m ? +m[1] * 60 + +m[2] : -1; });
+      const pas = +$("ev-t-duree").value;
+      const out = [];
+      if (d0 >= 0 && f0 > d0) for (let t = d0; t < f0 && out.length < 60; t += pas) out.push(heureFr(String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0")) + "-" + heureFr(String(Math.floor(Math.min(t + pas, f0) / 60)).padStart(2, "0") + ":" + String(Math.min(t + pas, f0) % 60).padStart(2, "0")));
+      $("ev-t-apercu").textContent = out.length ? out.length + " tranche" + (out.length > 1 ? "s" : "") + " : " + out.join(", ") : "";
+    };
+    ["ev-t-debut", "ev-t-fin", "ev-t-duree"].forEach((id) => $(id).addEventListener("change", apercuTranches));
+    apercuTranches();
+    $("ev-annuler").addEventListener("click", fermerModale);
+    $("ev-save").addEventListener("click", async () => {
+      const mode = ev ? "liste" : (document.querySelector('input[name="ev-mode"]:checked') || {}).value || "unique";
+      const corps = { titre: $("ev-titre").value.trim(), lieu: $("ev-lieu").value.trim(), description: $("ev-desc").value.trim(), agences: [...document.querySelectorAll(".ev-ag:checked")].map((x) => x.value) };
+      if (!corps.titre) { toast("Un titre est requis", true); return; }
+      if (mode === "unique") { corps.mode = "unique"; corps.date = $("ev-u-date").value; corps.debut = $("ev-u-debut").value; corps.fin = $("ev-u-fin").value; if (!corps.date) { toast("La date est requise", true); return; } }
+      else if (mode === "tranches") { corps.mode = "tranches"; corps.tranches = { date: $("ev-t-date").value, debut: $("ev-t-debut").value, fin: $("ev-t-fin").value, duree: +$("ev-t-duree").value }; if (!corps.tranches.date) { toast("La date est requise", true); return; } }
+      else {
+        corps.mode = ev ? undefined : "nommes";
+        corps.creneaux = [...lignes.querySelectorAll(".ev-ligne")].map((l) => ({ id: l.dataset.id || "", libelle: l.querySelector(".ev-l-libelle").value.trim(), date: l.querySelector(".ev-l-date").value, debut: l.querySelector(".ev-l-debut").value, fin: l.querySelector(".ev-l-fin").value }));
+        if (!corps.creneaux.length) { toast("Ajoutez au moins un créneau", true); return; }
+        if (corps.creneaux.some((c) => !c.date || !c.debut || !c.fin)) { toast("Chaque créneau a besoin d'une date, d'un début et d'une fin", true); return; }
+      }
+      if (!ev) corps.annoncer = $("ev-annoncer").checked;
+      $("ev-save").disabled = true;
+      try {
+        const r = ev ? await api("/crm/evenements/" + ev.id, { method: "PUT", json: corps }) : await api("/crm/evenements", { method: "POST", json: corps });
+        fermerModale();
+        if (ev) toast(r.invitations_renvoyees ? "Évènement modifié — " + r.invitations_renvoyees + " invitation(s) mise(s) à jour" : "Évènement modifié");
+        else toast(r.annonce ? (r.annonce.ok || r.annonce.dryRun ? "Évènement créé et annoncé à " + r.annonce.envoyes + " conseiller(s)" : "Évènement créé — annonce non envoyée : " + (r.annonce.error || "")) : "Évènement créé");
+        chargerEvenements();
+      } catch (e) { toast(e.message, true); $("ev-save").disabled = false; }
+    });
+  }
+  async function annoncerEvenement(ev) {
+    const relance = !!ev.annonce_at;
+    if (!confirm(relance ? "Relancer par e-mail les conseillers qui n'ont pas répondu à « " + ev.titre + " » ?" : "Annoncer « " + ev.titre + " » par e-mail à l'équipe ?")) return;
+    try {
+      const r = await api("/crm/evenements/" + ev.id + "/annoncer", { method: "POST", json: { relance } });
+      toast(r.ok ? (relance ? "Relance envoyée à " + r.envoyes + " conseiller(s)" : "Annonce envoyée à " + r.envoyes + " conseiller(s)") : (r.error || "Rien n'est parti"), !r.ok);
+      chargerEvenements();
+    } catch (e) { toast(e.message, true); }
+  }
+  async function annulerEvenement(ev) {
+    if (!confirm("Annuler « " + ev.titre + " » ? Les inscrits reçoivent l'annulation dans leur agenda.")) return;
+    try { const r = await api("/crm/evenements/" + ev.id + "/annuler", { method: "POST", json: {} }); toast("Évènement annulé — " + (r.annulations || 0) + " inscrit(s) prévenu(s)"); chargerEvenements(); }
+    catch (e) { toast(e.message, true); }
+  }
+  async function supprimerEvenement(ev) {
+    if (!confirm("Supprimer définitivement « " + ev.titre + " » ?")) return;
+    try { await api("/crm/evenements/" + ev.id, { method: "DELETE" }); toast("Évènement supprimé"); chargerEvenements(); }
+    catch (e) { toast(e.message, true); }
+  }
+  $("btn-nouvel-evenement").addEventListener("click", () => ouvrirEvenementForm(null));
+  $("evenements-tous").addEventListener("change", chargerEvenements);
+
   /* ------------------------------ Navigation ------------------------------- */
   function activerOnglet(nom) {
     document.querySelectorAll(".onglet").forEach((b) => b.classList.toggle("actif", b.dataset.onglet === nom));
     document.querySelectorAll(".panneau").forEach((p) => p.classList.toggle("actif", p.id === "panneau-" + nom));
-    if (nom === "parcours") setTimeout(montrerNouveautes, 50);
+    if (nom === "parcours" || nom === "evenements") setTimeout(montrerNouveautes, 50);
   }
 
   /* ------------------------------ Démarrage -------------------------------- */
@@ -4986,19 +5249,21 @@
       }
     }
     if (modeConseiller) {
+      // Le conseiller a deux briques : ses parcours R1/R2 et les évènements de l'agence.
       document.body.classList.add("mode-conseiller");
-      document.querySelectorAll(".onglet").forEach((b) => { b.hidden = b.dataset.onglet !== "parcours"; });
-      document.querySelector("header h1").innerHTML = "Studio <em>Parcours R1/R2</em>";
-      document.title = "Studio Brochure — Parcours R1/R2";
+      document.querySelectorAll(".onglet").forEach((b) => { b.hidden = !["parcours", "evenements"].includes(b.dataset.onglet); });
+      const evenementsDabord = brique === "evenements";
+      document.querySelector("header h1").innerHTML = evenementsDabord ? "Studio <em>Évènements</em>" : "Studio <em>Parcours R1/R2</em>";
+      document.title = evenementsDabord ? "Studio Brochure — Évènements" : "Studio Brochure — Parcours R1/R2";
       $("app").hidden = false;
-      activerOnglet("parcours");
-      chargerParcours(); chargerConseillers();
+      activerOnglet(evenementsDabord ? "evenements" : "parcours");
+      chargerParcours(); chargerConseillers(); chargerEvenements();
       api("/crm/avis-agences").catch(() => { /* site muet : les chiffres relevés restent */ });
       api("/crm/avis-conseillers").catch(() => { /* idem pour les avis par conseiller */ });
       return;
     }
     $("app").hidden = false;
-    if (brique === "parcours") activerOnglet("parcours");
+    if (brique === "parcours" || brique === "evenements") activerOnglet(brique);
     remplirFormulaires();
     rendreContacts();
     chargerUpcoming();
@@ -5011,6 +5276,7 @@
     chargerRappels();
     chargerOffres();
     chargerParcours(); chargerConseillers(); // indépendants : la liste des parcours n'attend plus les profils
+    chargerEvenements();
     api("/crm/avis-agences").catch(() => { /* avis par agence : relevé nocturne, rafraîchi ici s'il a plus de 24 h */ });
     api("/crm/avis-conseillers").catch(() => { /* avis par conseiller (pages du site) : idem */ });
   }

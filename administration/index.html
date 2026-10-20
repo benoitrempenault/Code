@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/admin.css?v=98" />
+  <link rel="stylesheet" href="assets/css/admin.css?v=99" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="../mandat/assets/img/icone-180.png" />
 </head>
@@ -46,6 +46,7 @@
     <button class="onglet" data-onglet="anniversaires">🎂 Anniversaires</button>
     <button class="onglet" data-onglet="acheteurs">🤝 Acheteurs</button>
     <button class="onglet" data-onglet="parcours">🧭 Parcours R1/R2</button>
+    <button class="onglet" data-onglet="evenements">📅 Évènements</button>
     <button class="onglet" data-onglet="estimations">📐 Estimations</button>
     <button class="onglet" data-onglet="offres">📝 Offres</button>
     <button class="onglet" data-onglet="annonces">🏠 Annonces</button>
@@ -405,6 +406,21 @@
     </div>
   </section>
 
+  <!-- ============================ ÉVÈNEMENTS =========================== -->
+  <section id="panneau-evenements" class="panneau">
+    <div class="carte">
+      <h2>Évènements de l'agence</h2>
+      <p class="aide">Marché de Noël, stand Leroy Merlin, soirée clients… Répondez à chaque évènement :
+        <strong>je participe</strong> (sur un ou plusieurs créneaux) ou <strong>je ne participe pas</strong>.
+        Une inscription arrive dans votre agenda par e-mail ; vous pouvez changer de créneau ou vous désinscrire à tout moment.</p>
+      <div class="barre">
+        <button class="btn btn-or" id="btn-nouvel-evenement" hidden>+ Nouvel évènement</button>
+        <label class="case"><input type="checkbox" id="evenements-tous" /> Voir aussi les évènements passés et annulés</label>
+      </div>
+      <div id="liste-evenements"><div class="vide">Chargement…</div></div>
+    </div>
+  </section>
+
   <!-- ============================ ESTIMATIONS ========================== -->
   <section id="panneau-estimations" class="panneau">
     <div class="carte">
@@ -477,7 +493,7 @@
 <script src="assets/js/vendor/fontkit.umd.min.js"></script>
 <script src="assets/js/vendor/qrcode.min.js"></script>
 <script src="assets/js/zip.js"></script>
-<script src="assets/js/admin.js?v=98"></script>
+<script src="assets/js/admin.js?v=99"></script>
 <script src="../assets/js/compte-bandeau.js"></script>
 </body>
 </html>

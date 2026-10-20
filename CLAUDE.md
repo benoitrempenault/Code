@@ -1392,6 +1392,35 @@ sur la page, et sur la page du lien un bouton « Je n'ai plus cette page — ouv
 pour que le raccourci du SITE ouvre Safari (session Studio partagée) — une app isolée n'a pas le
 localStorage de Safari, d'où « Se connecter » via « Accès collaborateurs ».
 
+**Brique « 📅 Évènements » (20/10)** : `server/src/evenements.js` (`monterRoutesEvenements`), onglet
+« 📅 Évènements » de l'Administration, tuile 📅 sur l'accueil Studio (`../administration/?brique=evenements`),
+ouverte à TOUS les conseillers (mode conseiller : onglets Parcours + Évènements). Tables `crm_evenements`
+(titre, lieu, description, date du premier créneau, mode unique|nommes|tranches, `agences` JSON = clés des
+points de vente visés, [] = tous ; statut ouvert|ferme|annule ; `user_id` = créateur, qui reçoit la copie de
+chaque réponse), `crm_evenement_creneaux` (libellé, date, debut, fin — un évènement est TOUJOURS une liste de
+créneaux ; « tranches » = découpage par `decouperTranches` à la création, la dernière tranche s'arrête à
+l'heure de fin), `crm_evenement_reponses` (une par compte et par évènement : participe + ids des créneaux,
+ou absent ; `sequence` = numéro d'invitation .ics). Routes membre : `GET /crm/evenements[?tous=1]` (les
+évènements à venir dont le point de vente du conseiller est visé — sans pv = tout —, `ma_reponse`, noms des
+inscrits par créneau ; l'admin reçoit aussi `participants`, `absents`, `sans_reponse`, `nb_attendus`),
+`GET /:id`, `POST /:id/reponse {reponse participe|absent, creneaux[], commentaire}`, `DELETE /:id/reponse`
+(désinscription). Admin : `POST /crm/evenements` (`{titre, lieu, description, agences[], mode, date, debut,
+fin | creneaux[{libelle,date,debut,fin}] | tranches{date,debut,fin,duree}, annoncer}`), `PUT /:id` (créneaux
+avec id = mis à jour, sans id = ajoutés, absents = retirés — 409 si un créneau retiré a des inscrits ; un
+créneau déplacé renvoie l'invitation mise à jour), `POST /:id/annoncer {relance}` (e-mail à l'équipe en Bcc,
+admin en destinataire/reply-to ; relance = sans-réponse seulement), `POST /:id/annuler` (annulations .ics aux
+inscrits), `DELETE /:id` (sans réponse ou annulé). **Agenda** : `icsCreneau` — un .ics PAR créneau et PAR
+personne (UID stable `<ev>-<user>-<cr>@studio-kadima`, METHOD:REQUEST, ATTENDEE = le conseiller,
+ORGANIZER = l'expéditeur Brevo), joint à l'e-mail de confirmation (`envoyerMailHtml attachments`) ; un
+créneau quitté, une désinscription, une annulation joignent le CANCEL du même UID à la séquence suivante.
+Les e-mails partent via `envoyerMailHtml` (gestes de l'utilisateur : hors plafond auto-mail). Les
+« attendus » = TOUS les profils actifs des points de vente visés (gestion locative comprise) : viser les
+agences à la création quand ça compte. Client : `admin.js` (section Évènements : cartes, fenêtre de
+réponse à cases, création avec 3 modes et aperçu des tranches, modification en liste de créneaux, « Qui
+vient », annonce/relance, annulation), `?brique=evenements&evenement=<id>` ouvre la fenêtre de réponse
+(lien des e-mails). Tests : bloc « Évènements » de test.mjs (créneaux, inscriptions, .ics, périmètre, droits).
+Assets `?v=99`.
+
 **Rappel J+1 après R2 au conseiller (19/10)** : table `crm_conseillers_rappels (id, rappel_apres_r2)`,
 cochée par l'admin dans L'équipe → Accès (« Rappel J+1 R2 », `PUT /crm/equipe/:id {rappel_apres_r2}`,
 relue dans `GET /crm/conseillers`). `runRappelsApresR2(env, db, agency, reglages)` (crm.js, appelé par

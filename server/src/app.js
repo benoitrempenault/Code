@@ -27,6 +27,7 @@ import * as GRAPH from "./graph.js";
 import { monterRoutesOffres } from "./offres-routes.js";
 import { monterRoutesParcours } from "./parcours.js";
 import { monterRoutesBilans } from "./bilans.js";
+import { monterRoutesEvenements } from "./evenements.js";
 import { monterRoutesPortails } from "./portails.js";
 import { monterRoutesMeta } from "./meta.js";
 import { urlsAnnonces } from "./bilans.js";
@@ -4009,6 +4010,8 @@ export function createApp(env) {
   // Parcours R1/R2 (envoi de documents) + profils conseillers : parcours.js.
   monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, apiBase: env.APP_API_BASE || "", creerCompte: creerCompteAgence, lienBienvenue, appBase });
   monterRoutesBilans(app, { db, env, err, membreCtx, crmCtx, isAgencyAdmin, apiBase: env.APP_API_BASE || "" });
+  // Évènements de l'agence (inscriptions des conseillers, invitations .ics) : evenements.js.
+  monterRoutesEvenements(app, { db, env, err, membreCtx, crmCtx, isAgencyAdmin });
   monterRoutesPortails(app, { db, env, err, crmCtx, agencyOpen });
   monterRoutesMeta(app, { db, env, err, crmCtx, urlsAnnonces: () => urlsAnnonces(env) });
 
