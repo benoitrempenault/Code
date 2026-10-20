@@ -1334,3 +1334,11 @@ CREATE TABLE IF NOT EXISTS crm_evenement_reponses (
   updated_at      INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_evenement_reponses_unique ON crm_evenement_reponses (evenement_id, user_id);
+
+-- Date de fin d'un créneau quand elle n'est pas le jour du début (20/10, demande de
+-- Benoît : un évènement sur plusieurs jours — séminaire, week-end — tient dans UN
+-- créneau). Table satellite : pas d'ALTER TABLE ; absente = même jour.
+CREATE TABLE IF NOT EXISTS crm_evenement_creneaux_fin (
+  id              TEXT PRIMARY KEY,            -- crm_evenement_creneaux.id
+  date_fin        TEXT NOT NULL                -- AAAA-MM-JJ, > date du créneau
+);

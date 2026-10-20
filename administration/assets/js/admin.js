@@ -4935,13 +4935,15 @@
     return JOURS_FR[d.getDay()] + " " + (+m[3]) + " " + MOIS_FR[+m[2] - 1] + (+m[1] !== new Date().getFullYear() ? " " + m[1] : "");
   };
   const heureFr = (h) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(h || "")); return m ? +m[1] + "h" + (m[2] === "00" ? "" : m[2]) : ""; };
+  const surPlusieursJours = (cr) => !!cr.date_fin && cr.date_fin !== cr.date;
   const libelleCreneau = (cr, sansDate) => {
-    const horaire = heureFr(cr.debut) + "-" + heureFr(cr.fin);
-    const quand = sansDate ? horaire : dateLongue(cr.date) + ", " + horaire;
+    let quand;
+    if (surPlusieursJours(cr)) quand = "du " + dateLongue(cr.date) + " " + heureFr(cr.debut) + " au " + dateLongue(cr.date_fin) + " " + heureFr(cr.fin);
+    else { const horaire = heureFr(cr.debut) + "-" + heureFr(cr.fin); quand = sansDate ? horaire : dateLongue(cr.date) + ", " + horaire; }
     return cr.libelle ? cr.libelle + " (" + quand + ")" : quand;
   };
   const nomAgenceCourt = (cle) => { const a = agences().find((x) => x.cle === cle); return a ? a.nom.replace(/^century\s*21\s*kadima\s*/i, "").replace(/^[—–-]\s*/, "").trim() : cle; };
-  const evenementPasse = (ev) => { const fin = (ev.creneaux || []).map((c) => c.date).sort().pop() || ev.date; return fin < new Date().toISOString().slice(0, 10); };
+  const evenementPasse = (ev) => { const fin = (ev.creneaux || []).map((c) => c.date_fin || c.date).sort().pop() || ev.date; return fin < new Date().toISOString().slice(0, 10); };
 
   async function chargerEvenements() {
     const zone = $("liste-evenements");
@@ -4969,9 +4971,9 @@
     zone.innerHTML = evenements.map((ev) => {
       const mine = ev.ma_reponse;
       const ouvert = ev.statut === "ouvert" && !evenementPasse(ev);
-      const dates = [...new Set(ev.creneaux.map((c) => c.date))].sort();
+      const dates = [...new Set(ev.creneaux.flatMap((c) => [c.date, c.date_fin || c.date]))].sort();
       const quand = dates.length === 1 ? dateLongue(dates[0]) : "du " + dateLongue(dates[0]) + " au " + dateLongue(dates[dates.length - 1]);
-      const horaire = ev.creneaux.length === 1 ? " · " + heureFr(ev.creneaux[0].debut) + "-" + heureFr(ev.creneaux[0].fin) : " · " + ev.creneaux.length + " créneaux";
+      const horaire = ev.creneaux.length === 1 ? (surPlusieursJours(ev.creneaux[0]) ? " · " + heureFr(ev.creneaux[0].debut) + " → " + heureFr(ev.creneaux[0].fin) : " · " + heureFr(ev.creneaux[0].debut) + "-" + heureFr(ev.creneaux[0].fin)) : " · " + ev.creneaux.length + " créneaux";
       const puces = (ev.statut === "annule" ? '<span class="puce rouge">annulé</span>' : ev.statut === "ferme" ? '<span class="puce grise">inscriptions closes</span>' : evenementPasse(ev) ? '<span class="puce grise">passé</span>' : "") +
         (ev.agences.length ? ev.agences.map((k) => '<span class="puce grise">' + escH(nomAgenceCourt(k)) + "</span>").join(" ") : "");
       let reponse;
@@ -5090,12 +5092,13 @@
         '<label class="case"><input type="radio" name="ev-mode" value="nommes" /> Plusieurs créneaux au choix (Début, Fin…)</label>' +
         '<label class="case"><input type="radio" name="ev-mode" value="tranches" /> Tranches de N heures</label></div>') +
       '<div id="ev-zone-unique"><div class="grille-champs">' +
-      '<label>Date<input id="ev-u-date" type="date" value="' + escH(dateDefaut) + '" /></label><label>Début<input id="ev-u-debut" type="time" value="14:00" /></label><label>Fin<input id="ev-u-fin" type="time" value="17:00" /></label></div></div>' +
+      '<label>Date<input id="ev-u-date" type="date" value="' + escH(dateDefaut) + '" /></label><label>Début<input id="ev-u-debut" type="time" value="14:00" /></label>' +
+      '<label>Fin<input id="ev-u-fin" type="time" value="17:00" /></label><label>Date de fin <span class="petit">(si différente)</span><input id="ev-u-date-fin" type="date" /></label></div></div>' +
       '<div id="ev-zone-tranches" hidden><div class="grille-champs">' +
       '<label>Date<input id="ev-t-date" type="date" /></label><label>Début<input id="ev-t-debut" type="time" value="09:00" /></label><label>Fin<input id="ev-t-fin" type="time" value="18:00" /></label>' +
       '<label>Durée d\'une tranche<select id="ev-t-duree">' + [[60, "1 h"], [90, "1 h 30"], [120, "2 h"], [180, "3 h"], [240, "4 h"]].map(([m, l]) => '<option value="' + m + '"' + (m === 120 ? " selected" : "") + ">" + l + "</option>").join("") + "</select></label></div>" +
       '<p class="petit" id="ev-t-apercu"></p></div>' +
-      '<div id="ev-zone-liste" hidden><p class="petit">Chaque créneau : un libellé (facultatif — « Début », « Fin », « Montage »…), sa date, ses heures.</p><div id="ev-lignes"></div>' +
+      '<div id="ev-zone-liste" hidden><p class="petit">Chaque créneau : un libellé (facultatif — « Début », « Fin », « Montage »…), sa date, ses heures — et une date de fin s\'il court sur plusieurs jours.</p><div id="ev-lignes"></div>' +
       '<button class="btn" id="ev-ajouter-ligne" type="button">+ Ajouter un créneau</button></div>' +
       (ev ? "" : '<label class="case" style="margin-top:14px;"><input type="checkbox" id="ev-annoncer" checked /> Prévenir l\'équipe par e-mail dès la création (chacun reçoit le lien pour répondre)</label>'),
       '<button class="btn" id="ev-annuler">Annuler</button><button class="btn btn-or" id="ev-save">' + (ev ? "Enregistrer" : "Créer l'évènement") + "</button>");
@@ -5106,7 +5109,8 @@
       div.innerHTML = '<label>Libellé<input class="ev-l-libelle" value="' + escH(cr && cr.libelle || "") + '" placeholder="Début" /></label>' +
         '<label>Date<input class="ev-l-date" type="date" value="' + escH((cr && cr.date) || $("ev-u-date").value || dateDefaut) + '" /></label>' +
         '<label>Début<input class="ev-l-debut" type="time" value="' + escH(cr && cr.debut || "") + '" /></label>' +
-        '<label>Fin<input class="ev-l-fin" type="time" value="' + escH(cr && cr.fin || "") + '" /><button class="btn btn-danger mini ev-l-suppr" type="button" title="Retirer ce créneau">✕</button></label>';
+        '<label>Fin<input class="ev-l-fin" type="time" value="' + escH(cr && cr.fin || "") + '" /></label>' +
+        '<label>Date de fin <span class="petit">(si différente)</span><input class="ev-l-date-fin" type="date" value="' + escH(cr && cr.date_fin && cr.date_fin !== cr.date ? cr.date_fin : "") + '" /><button class="btn btn-danger mini ev-l-suppr" type="button" title="Retirer ce créneau">✕</button></label>';
       div.querySelector(".ev-l-suppr").addEventListener("click", () => {
         if (cr && cr.participants && cr.participants.length) { toast("Ce créneau a des inscrits : il ne peut pas être retiré", true); return; }
         div.remove();
@@ -5138,11 +5142,12 @@
       const mode = ev ? "liste" : (document.querySelector('input[name="ev-mode"]:checked') || {}).value || "unique";
       const corps = { titre: $("ev-titre").value.trim(), lieu: $("ev-lieu").value.trim(), description: $("ev-desc").value.trim(), agences: [...document.querySelectorAll(".ev-ag:checked")].map((x) => x.value) };
       if (!corps.titre) { toast("Un titre est requis", true); return; }
-      if (mode === "unique") { corps.mode = "unique"; corps.date = $("ev-u-date").value; corps.debut = $("ev-u-debut").value; corps.fin = $("ev-u-fin").value; if (!corps.date) { toast("La date est requise", true); return; } }
+      if (mode === "unique") { corps.mode = "unique"; corps.date = $("ev-u-date").value; corps.date_fin = $("ev-u-date-fin").value; corps.debut = $("ev-u-debut").value; corps.fin = $("ev-u-fin").value; if (!corps.date) { toast("La date est requise", true); return; } if (corps.date_fin && corps.date_fin < corps.date) { toast("La date de fin doit suivre la date de début", true); return; } }
       else if (mode === "tranches") { corps.mode = "tranches"; corps.tranches = { date: $("ev-t-date").value, debut: $("ev-t-debut").value, fin: $("ev-t-fin").value, duree: +$("ev-t-duree").value }; if (!corps.tranches.date) { toast("La date est requise", true); return; } }
       else {
         corps.mode = ev ? undefined : "nommes";
-        corps.creneaux = [...lignes.querySelectorAll(".ev-ligne")].map((l) => ({ id: l.dataset.id || "", libelle: l.querySelector(".ev-l-libelle").value.trim(), date: l.querySelector(".ev-l-date").value, debut: l.querySelector(".ev-l-debut").value, fin: l.querySelector(".ev-l-fin").value }));
+        corps.creneaux = [...lignes.querySelectorAll(".ev-ligne")].map((l) => ({ id: l.dataset.id || "", libelle: l.querySelector(".ev-l-libelle").value.trim(), date: l.querySelector(".ev-l-date").value, date_fin: l.querySelector(".ev-l-date-fin").value, debut: l.querySelector(".ev-l-debut").value, fin: l.querySelector(".ev-l-fin").value }));
+        if (corps.creneaux.some((c) => c.date_fin && c.date_fin < c.date)) { toast("Une date de fin précède sa date de début", true); return; }
         if (!corps.creneaux.length) { toast("Ajoutez au moins un créneau", true); return; }
         if (corps.creneaux.some((c) => !c.date || !c.debut || !c.fin)) { toast("Chaque créneau a besoin d'une date, d'un début et d'une fin", true); return; }
       }

@@ -4420,6 +4420,29 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok((await callR("/crm/evenements/" + evU.json.id, { headers: auth, method: "DELETE" })).status === 409, "supprimer un évènement qui a des réponses : refusé (annuler plutôt)");
     ok((await callR("/crm/evenements/" + evN.json.id, { headers: auth, method: "DELETE" })).status === 200 && (await callR("/crm/evenements/" + evN.json.id, { headers: auth })).status === 404, "un évènement annulé se supprime");
     ok((await callR("/crm/evenements/" + evT.json.id, { headers: auth, method: "DELETE" })).status === 200, "un évènement sans réponse se supprime");
+    // Créneau sur PLUSIEURS JOURS (20/10) : date de fin différente, libellé « du … au … », DTEND au bon jour,
+    // heure de fin libre (18h → 16h), encore « à venir » tant qu'il n'est pas fini.
+    { const j1 = decalerJour(aujE, 40), j3 = decalerJour(aujE, 42);
+      ok((await callR("/crm/evenements", { headers: auth, body: { titre: "Séminaire", date: j3, date_fin: j1, debut: "18:00", fin: "16:00" } })).status === 400, "une date de fin avant la date de début : refusée");
+      ok((await callR("/crm/evenements", { headers: auth, body: { titre: "Séminaire", date: j1, date_fin: j1, debut: "18:00", fin: "16:00" } })).status === 400, "même jour, fin avant début : toujours refusé");
+      const evS = await callR("/crm/evenements", { headers: auth, body: { titre: "Séminaire d'équipe", lieu: "Arcachon", date: j1, date_fin: j3, debut: "18:00", fin: "16:00" } });
+      const crS = evS.json.evenement.creneaux[0];
+      ok(evS.status === 200 && crS.date === j1 && crS.date_fin === j3 && crS.debut === "18:00" && crS.fin === "16:00" && evS.json.evenement.date === j1,
+         "un séminaire du vendredi 18h au dimanche 16h tient dans un créneau (" + JSON.stringify({ date: crS.date, date_fin: crS.date_fin }) + ")");
+      const repS = await callR("/crm/evenements/" + evS.json.id + "/reponse", { headers: authR, body: { reponse: "participe", creneaux: [crS.id] } });
+      const mS = mailsVers("remi@ach-test.fr").pop() || {}; const icsS = dec(((mS.attachments || [])[0] || {}).content || "");
+      ok(repS.status === 200 && new RegExp("DTSTART;TZID=Europe/Paris:" + j1.replace(/-/g, "") + "T180000").test(icsS) && new RegExp("DTEND;TZID=Europe/Paris:" + j3.replace(/-/g, "") + "T160000").test(icsS) && /du [a-zé]+ \d+ [a-zéû]+ 18h au [a-zé]+ \d+ [a-zéû]+ 16h/.test(mS.html || ""),
+         "l'invitation .ics finit le bon jour et l'e-mail dit « du … 18h au … 16h »");
+      // Modification : retirer la date de fin → même jour ; invitation mise à jour.
+      const avantS = mailsRecus.length;
+      const majS = await callR("/crm/evenements/" + evS.json.id, { headers: auth, method: "PUT", body: { creneaux: [{ id: crS.id, date: j1, debut: "18:00", fin: "20:00" }] } });
+      const crS2 = majS.json.evenement.creneaux[0];
+      ok(majS.status === 200 && crS2.date_fin === j1 && majS.json.invitations_renvoyees === 1 && mailsRecus.length === avantS + 1, "sans date de fin, le créneau revient sur un seul jour et l'inscrit reçoit la mise à jour");
+      ok((await db.get("SELECT COUNT(*) AS n FROM crm_evenement_creneaux_fin WHERE id = ?", [crS.id])).n === 0, "la table satellite est vidée quand la fin revient au jour du début");
+      // Un évènement commencé hier mais qui finit demain reste « à venir ».
+      const evW = await callR("/crm/evenements", { headers: auth, body: { titre: "Week-end en cours", date: decalerJour(aujE, -1), date_fin: decalerJour(aujE, 1), debut: "18:00", fin: "16:00" } });
+      ok(evW.status === 200 && (await callR("/crm/evenements", { headers: authR })).json.evenements.some((e) => e.id === evW.json.id), "un évènement sur plusieurs jours déjà commencé reste listé jusqu'à sa fin");
+      for (const id of [evS.json.id, evW.json.id]) { await db.run("DELETE FROM crm_evenement_reponses WHERE evenement_id = ?", [id]); await db.run("DELETE FROM crm_evenement_creneaux_fin WHERE id IN (SELECT id FROM crm_evenement_creneaux WHERE evenement_id = ?)", [id]); await db.run("DELETE FROM crm_evenement_creneaux WHERE evenement_id = ?", [id]); await db.run("DELETE FROM crm_evenements WHERE id = ?", [id]); } }
     for (const id of [evU.json.id]) { await db.run("DELETE FROM crm_evenement_reponses WHERE evenement_id = ?", [id]); await db.run("DELETE FROM crm_evenement_creneaux WHERE evenement_id = ?", [id]); await db.run("DELETE FROM crm_evenements WHERE id = ?", [id]); }
   }
 

@@ -1421,6 +1421,14 @@ réponse à cases, création avec 3 modes et aperçu des tranches, modification 
 vient », annonce/relance, annulation), `?brique=evenements&evenement=<id>` ouvre la fenêtre de réponse
 (lien des e-mails). Tests : bloc « Évènements » de test.mjs (créneaux, inscriptions, .ics, périmètre, droits).
 Assets `?v=100` (le 99 avait servi à la phase admin seule du matin : sans nouveau numéro, un navigateur gardait la version sans onglet conseiller).
+**Créneau sur plusieurs jours (20/10, 16 h)** : table satellite `crm_evenement_creneaux_fin (id, date_fin)` — pas
+d'ALTER TABLE —, lue par `lireCreneaux` (`COALESCE(f.date_fin, c.date) AS date_fin`, toujours renvoyé), écrite par
+`ecrireDateFin` seulement quand la fin ≠ jour du début. `sanitizeCreneaux` accepte `date_fin` (vide ou égal = même
+jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; mode unique : `b.date_fin`. `libelleCreneau` :
+« du vendredi 5 décembre 18h au dimanche 7 décembre 16h » ; `icsCreneau` DTEND sur `date_fin`. La liste « à venir »
+garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
+différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
+« 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
 
 **Rappel J+1 après R2 au conseiller (19/10)** : table `crm_conseillers_rappels (id, rappel_apres_r2)`,
 cochée par l'admin dans L'équipe → Accès (« Rappel J+1 R2 », `PUT /crm/equipe/:id {rappel_apres_r2}`,

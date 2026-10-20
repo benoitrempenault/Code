@@ -32,10 +32,13 @@ const hhmm = (min) => String(Math.floor(min / 60)).padStart(2, "0") + ":" + Stri
 export const heureFr = (h) => { const m = RE_HEURE.exec(String(h || "")); return m ? +m[1] + "h" + (m[2] === "00" ? "" : m[2]) : ""; };
 const jsonListe = (s) => { try { const v = JSON.parse(s || "[]"); return Array.isArray(v) ? v.map(String) : []; } catch { return []; } };
 
-// Libellé d'un créneau : « Début (samedi 12 décembre, 14h-17h) » ou « samedi 12 décembre, 14h-17h ».
+// Libellé d'un créneau : « Début (samedi 12 décembre, 14h-17h) » ou « samedi 12 décembre, 14h-17h » ;
+// sur plusieurs jours : « du vendredi 5 décembre 18h au dimanche 7 décembre 16h ».
+export const surPlusieursJours = (cr) => !!cr.date_fin && cr.date_fin !== cr.date;
 export function libelleCreneau(cr, { sansDate } = {}) {
-  const horaire = heureFr(cr.debut) + "-" + heureFr(cr.fin);
-  const quand = sansDate ? horaire : dateFr(cr.date) + ", " + horaire;
+  let quand;
+  if (surPlusieursJours(cr)) quand = "du " + dateFr(cr.date) + " " + heureFr(cr.debut) + " au " + dateFr(cr.date_fin) + " " + heureFr(cr.fin);
+  else { const horaire = heureFr(cr.debut) + "-" + heureFr(cr.fin); quand = sansDate ? horaire : dateFr(cr.date) + ", " + horaire; }
   return cr.libelle ? cr.libelle + " (" + quand + ")" : quand;
 }
 
@@ -50,7 +53,7 @@ export function decouperTranches({ date, debut, fin, duree }) {
   const out = [];
   for (let t = d0; t < f0; t += pas) {
     const f = Math.min(t + pas, f0);
-    out.push({ libelle: "", date, debut: hhmm(t), fin: hhmm(f) });
+    out.push({ libelle: "", date, date_fin: date, debut: hhmm(t), fin: hhmm(f) });
     if (out.length > CRENEAUX_MAX) throw new Error("Trop de tranches (" + CRENEAUX_MAX + " au plus).");
   }
   return out;
@@ -65,10 +68,13 @@ export function sanitizeCreneaux(liste, dateDefaut) {
     if (!c || typeof c !== "object") throw new Error("Créneau illisible.");
     const date = RE_DATE.test(String(c.date || "")) ? String(c.date) : (RE_DATE.test(String(dateDefaut || "")) ? String(dateDefaut) : "");
     const debut = minutes(c.debut), fin = minutes(c.fin);
+    // Date de fin facultative : vide ou égale = même jour ; postérieure = créneau sur plusieurs jours.
+    const dateFin = RE_DATE.test(String(c.date_fin || "")) && String(c.date_fin) !== date ? String(c.date_fin) : date;
     if (!date) throw new Error("Créneau " + (i + 1) + " : date manquante.");
     if (debut < 0 || fin < 0) throw new Error("Créneau " + (i + 1) + " : heures de début et de fin requises (HH:MM).");
-    if (fin <= debut) throw new Error("Créneau " + (i + 1) + " : l'heure de fin doit suivre l'heure de début.");
-    return { id: strip(c.id, 40), libelle: strip(c.libelle, 60), date, debut: hhmm(debut), fin: hhmm(fin) };
+    if (dateFin < date) throw new Error("Créneau " + (i + 1) + " : la date de fin doit suivre la date de début.");
+    if (dateFin === date && fin <= debut) throw new Error("Créneau " + (i + 1) + " : l'heure de fin doit suivre l'heure de début.");
+    return { id: strip(c.id, 40), libelle: strip(c.libelle, 60), date, date_fin: dateFin, debut: hhmm(debut), fin: hhmm(fin) };
   });
 }
 
@@ -97,7 +103,7 @@ export function icsCreneau({ uid, sequence, methode, creneau, titre, lieu, descr
     "SEQUENCE:" + (sequence || 0),
     "STATUS:" + (annule ? "CANCELLED" : "CONFIRMED"),
     "DTSTART;TZID=Europe/Paris:" + dt(creneau.date, creneau.debut),
-    "DTEND;TZID=Europe/Paris:" + dt(creneau.date, creneau.fin),
+    "DTEND;TZID=Europe/Paris:" + dt(creneau.date_fin || creneau.date, creneau.fin),
     "SUMMARY:" + echap((annule ? "ANNULÉ — " : "") + titre + (creneau.libelle ? " — " + creneau.libelle : "")),
     "LOCATION:" + echap(lieu || ""),
     "DESCRIPTION:" + echap(description || "")];
@@ -114,7 +120,12 @@ const uidDe = (evId, userId, crId) => [evId, userId, crId].map((x) => String(x).
 
 /* -------------------------------- Routes --------------------------------- */
 export function monterRoutesEvenements(app, { db, env, err, membreCtx, crmCtx, isAgencyAdmin }) {
-  const lireCreneaux = (evId) => db.all("SELECT id, ordre, libelle, date, debut, fin FROM crm_evenement_creneaux WHERE evenement_id = ? ORDER BY date, debut, ordre", [evId]);
+  const lireCreneaux = (evId) => db.all("SELECT c.id, c.ordre, c.libelle, c.date, COALESCE(f.date_fin, c.date) AS date_fin, c.debut, c.fin FROM crm_evenement_creneaux c LEFT JOIN crm_evenement_creneaux_fin f ON f.id = c.id WHERE c.evenement_id = ? ORDER BY c.date, c.debut, c.ordre", [evId]);
+  // La date de fin ne vit dans la table satellite que si elle diffère du jour du début.
+  const ecrireDateFin = async (id, cr) => {
+    if (cr.date_fin && cr.date_fin !== cr.date) await db.run("INSERT INTO crm_evenement_creneaux_fin (id, date_fin) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET date_fin = excluded.date_fin", [id, cr.date_fin]);
+    else await db.run("DELETE FROM crm_evenement_creneaux_fin WHERE id = ?", [id]);
+  };
   const lireReponses = (evId) => db.all("SELECT id, user_id, conseiller_id, nom, email, reponse, creneaux, commentaire, sequence, updated_at FROM crm_evenement_reponses WHERE evenement_id = ? ORDER BY nom COLLATE NOCASE", [evId]);
   const lireEvenement = (agencyId, id) => db.get("SELECT * FROM crm_evenements WHERE id = ? AND agency_id = ?", [id, agencyId]);
 
@@ -180,7 +191,8 @@ export function monterRoutesEvenements(app, { db, env, err, membreCtx, crmCtx, i
     const tous = c.req.query("tous") === "1";
     const hier = parisDate(new Date(Date.now() - 36 * 3600 * 1000));
     const rows = await db.all(
-      "SELECT * FROM crm_evenements WHERE agency_id = ? " + (tous ? "" : "AND date >= ? AND statut <> 'annule' ") + "ORDER BY date, created_at",
+      // « À venir » = un créneau qui n'est pas encore fini (date de fin comprise : un week-end commencé reste affiché).
+      "SELECT * FROM crm_evenements e WHERE e.agency_id = ? " + (tous ? "" : "AND e.statut <> 'annule' AND EXISTS (SELECT 1 FROM crm_evenement_creneaux c LEFT JOIN crm_evenement_creneaux_fin f ON f.id = c.id WHERE c.evenement_id = e.id AND COALESCE(f.date_fin, c.date) >= ?) ") + "ORDER BY e.date, e.created_at",
       tous ? [ctx.agency.id] : [ctx.agency.id, hier]);
     const evenements = [];
     for (const ev of rows) if (concerne(ev, moi)) evenements.push(await vueEvenement(ctx, ev, moi));
@@ -202,7 +214,7 @@ export function monterRoutesEvenements(app, { db, env, err, membreCtx, crmCtx, i
     if (mode === "tranches") return { mode, creneaux: decouperTranches(b.tranches || {}) };
     if (mode === "nommes") return { mode, creneaux: sanitizeCreneaux(b.creneaux, b.date) };
     // unique : un seul créneau, décrit soit par creneaux[0], soit par date/debut/fin
-    const un = Array.isArray(b.creneaux) && b.creneaux.length ? [b.creneaux[0]] : [{ date: b.date, debut: b.debut, fin: b.fin }];
+    const un = Array.isArray(b.creneaux) && b.creneaux.length ? [b.creneaux[0]] : [{ date: b.date, date_fin: b.date_fin, debut: b.debut, fin: b.fin }];
     return { mode, creneaux: sanitizeCreneaux(un, b.date).map((cr) => ({ ...cr, libelle: "" })) };
   };
   const agencesDepuisCorps = (b, reglages) => {
@@ -212,8 +224,12 @@ export function monterRoutesEvenements(app, { db, env, err, membreCtx, crmCtx, i
   };
   const insererCreneaux = async (ev, creneaux) => {
     let i = 0;
-    for (const cr of creneaux) await db.run("INSERT INTO crm_evenement_creneaux (id, evenement_id, agency_id, ordre, libelle, date, debut, fin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [randId("cr"), ev.id, ev.agency_id, i++, cr.libelle, cr.date, cr.debut, cr.fin, now()]);
+    for (const cr of creneaux) {
+      const id = randId("cr");
+      await db.run("INSERT INTO crm_evenement_creneaux (id, evenement_id, agency_id, ordre, libelle, date, debut, fin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [id, ev.id, ev.agency_id, i++, cr.libelle, cr.date, cr.debut, cr.fin, now()]);
+      await ecrireDateFin(id, cr);
+    }
   };
 
   app.post("/crm/evenements", async (c) => {
@@ -266,16 +282,19 @@ export function monterRoutesEvenements(app, { db, env, err, membreCtx, crmCtx, i
       const inscritsDe = (crId) => reponses.filter((r) => r.reponse === "participe" && jsonListe(r.creneaux).includes(crId));
       const gardes = new Set(plan.creneaux.map((x) => x.id).filter(Boolean));
       for (const a of anciens) if (!gardes.has(a.id) && inscritsDe(a.id).length) return err(c, 409, "Le créneau « " + libelleCreneau(a) + " » a " + inscritsDe(a.id).length + " inscrit(s) : il ne peut pas être supprimé.");
-      for (const a of anciens) if (!gardes.has(a.id)) await db.run("DELETE FROM crm_evenement_creneaux WHERE id = ?", [a.id]);
+      for (const a of anciens) if (!gardes.has(a.id)) { await db.run("DELETE FROM crm_evenement_creneaux WHERE id = ?", [a.id]); await db.run("DELETE FROM crm_evenement_creneaux_fin WHERE id = ?", [a.id]); }
       let i = 0;
       for (const cr of plan.creneaux) {
         const ancien = cr.id ? anciens.find((a) => a.id === cr.id) : null;
         if (ancien) {
           await db.run("UPDATE crm_evenement_creneaux SET ordre = ?, libelle = ?, date = ?, debut = ?, fin = ? WHERE id = ?", [i++, cr.libelle, cr.date, cr.debut, cr.fin, ancien.id]);
-          if (ancien.date !== cr.date || ancien.debut !== cr.debut || ancien.fin !== cr.fin) misAJour.push({ creneau: { ...cr, id: ancien.id }, inscrits: inscritsDe(ancien.id) });
+          await ecrireDateFin(ancien.id, cr);
+          if (ancien.date !== cr.date || ancien.date_fin !== cr.date_fin || ancien.debut !== cr.debut || ancien.fin !== cr.fin) misAJour.push({ creneau: { ...cr, id: ancien.id }, inscrits: inscritsDe(ancien.id) });
         } else {
+          const id = randId("cr");
           await db.run("INSERT INTO crm_evenement_creneaux (id, evenement_id, agency_id, ordre, libelle, date, debut, fin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [randId("cr"), ev.id, ev.agency_id, i++, cr.libelle, cr.date, cr.debut, cr.fin, now()]);
+            [id, ev.id, ev.agency_id, i++, cr.libelle, cr.date, cr.debut, cr.fin, now()]);
+          await ecrireDateFin(id, cr);
         }
       }
       mode = plan.mode;
@@ -333,6 +352,7 @@ export function monterRoutesEvenements(app, { db, env, err, membreCtx, crmCtx, i
     const n = (await db.get("SELECT COUNT(*) AS n FROM crm_evenement_reponses WHERE evenement_id = ?", [ev.id])).n;
     if (n && ev.statut !== "annule") return err(c, 409, "Des conseillers ont répondu : annulez l'évènement plutôt que de le supprimer.");
     await db.run("DELETE FROM crm_evenement_reponses WHERE evenement_id = ?", [ev.id]);
+    await db.run("DELETE FROM crm_evenement_creneaux_fin WHERE id IN (SELECT id FROM crm_evenement_creneaux WHERE evenement_id = ?)", [ev.id]);
     await db.run("DELETE FROM crm_evenement_creneaux WHERE evenement_id = ?", [ev.id]);
     await db.run("DELETE FROM crm_evenements WHERE id = ?", [ev.id]);
     return c.json({ ok: true });
