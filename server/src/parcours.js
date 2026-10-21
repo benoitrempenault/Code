@@ -1116,22 +1116,46 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!r.ok) throw new Error("géocodage : la BAN répond " + r.status);
     const f = ((await r.json()).features || [])[0];
     if (!f || !f.geometry || (f.properties && f.properties.score < 0.4)) return null;
-    return { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], label: (f.properties && f.properties.label) || q, citycode: (f.properties && f.properties.citycode) || "", city: (f.properties && f.properties.city) || "" };
+    return { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], label: (f.properties && f.properties.label) || q, citycode: (f.properties && f.properties.citycode) || "", city: (f.properties && f.properties.city) || "",
+      context: (f.properties && f.properties.context) || "" }; // « 33, Gironde, Nouvelle-Aquitaine »
   }
-  async function commune(cp, ville) {
-    const base = (env.GEO_BASE || "https://geo.api.gouv.fr").replace(/\/+$/, "");
-    const url = base + "/communes?fields=nom,code,population,surface,departement,region&format=json&" +
-      (cp ? "codePostal=" + encodeURIComponent(cp) : "nom=" + encodeURIComponent(ville || ""));
-    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!r.ok) return null;
-    const liste = await r.json();
-    if (!Array.isArray(liste) || !liste.length) return null;
-    const norm = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
-    const c = liste.find((x) => norm(x.nom) === norm(ville)) || liste[0];
+  // La fiche de la commune (nom, population, département, région) — geo.api.gouv.fr,
+  // deux essais ; s'il reste muet, la BAN donne le code INSEE (puis la fiche par
+  // son code), et à défaut le département et la région viennent de son contexte.
+  // Benoît (21/10) : un livret sortait avec DÉPARTEMENT / RÉGION / POPULATION vides.
+  const REGION_SUD_OUEST = "Nouvelle-Aquitaine"; // les départements de la table DEPARTEMENTS sont tous en Nouvelle-Aquitaine
+  const formeCommune = (c, cp) => {
+    const dep = String(cp || c.code || "").slice(0, 2);
+    const depNom = (c.departement && c.departement.nom) || (DEPARTEMENTS[dep] ? DEPARTEMENTS[dep].charAt(0) + DEPARTEMENTS[dep].slice(1).toLowerCase() : "");
     return { nom: c.nom, code: c.code, population: c.population || 0, surface: c.surface || 0,
       densite: c.surface ? Math.round((c.population || 0) / (c.surface / 100)) : 0,
-      departement: (c.departement && c.departement.nom) || DEPARTEMENTS[String(cp || "").slice(0, 2)] || "", region: (c.region && c.region.nom) || "" };
+      departement: depNom, region: (c.region && c.region.nom) || (DEPARTEMENTS[dep] ? REGION_SUD_OUEST : "") };
+  };
+  async function lireGeo(url) {
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    return r.json();
   }
+  async function commune(cp, ville, adresse = "") {
+    const base = (env.GEO_BASE || "https://geo.api.gouv.fr").replace(/\/+$/, "");
+    const champs = "fields=nom,code,population,surface,departement,region&format=json";
+    const norm = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
+    let liste = null;
+    for (let essai = 0; essai < 2 && !(Array.isArray(liste) && liste.length); essai++) {
+      try { liste = await lireGeo(base + "/communes?" + champs + "&" + (cp ? "codePostal=" + encodeURIComponent(cp) : "nom=" + encodeURIComponent(ville || ""))); } catch { liste = null; }
+    }
+    if (Array.isArray(liste) && liste.length) return formeCommune(liste.find((x) => norm(x.nom) === norm(ville)) || liste[0], cp);
+    let g = null;
+    try { g = await geocoderBan(adresse, cp, ville); } catch { g = null; }
+    if (!g || !g.citycode) return null;
+    let c = null;
+    try { c = await lireGeo(base + "/communes/" + encodeURIComponent(g.citycode) + "?" + champs); } catch { c = null; }
+    if (c && c.code) return formeCommune(c, cp);
+    const ctx = String(g.context || "").split(",").map((t) => t.trim());
+    const forme = formeCommune({ nom: g.city || ville || "", code: g.citycode }, cp);
+    return { ...forme, departement: ctx[1] || forme.departement, region: ctx[2] || forme.region, incomplete: true };
+  }
+  const communeComplete = (c) => !!(c && c.code && c.population && c.departement && c.region);
   // Plusieurs relais Overpass : le premier qui répond avec des éléments gagne.
   // Le 30/09, depuis Cloudflare, lz4, kumi, private.coffee et overpass-api.de
   // expiraient tous les quatre (15 s chacun : plus de commodités dans le guide
@@ -1265,8 +1289,17 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (cache && cache.updated_at > now() - 30 * 86400) { try { data = JSON.parse(cache.data); } catch { data = null; } }
     // Un cache sans commodité (relevé raté autrefois) ne vaut rien : on refait.
     if (data && !(data.commodites || []).length) data = null;
+    // Un cache dont la commune est vide ou incomplète (geo.api.gouv.fr muet ce
+    // jour-là) : on la recherche à nouveau, sans refaire les commodités.
+    if (data && !communeComplete(data.commune)) {
+      const com = await commune(p.px.cp, p.est.ville, p.est.adresse).catch(() => null);
+      if (com && (communeComplete(com) || !data.commune)) {
+        data.commune = com;
+        if (communeComplete(com)) await db.run("UPDATE crm_environnement SET data = ? WHERE cle = ?", [JSON.stringify(data), cle]);
+      }
+    }
     if (!data) {
-      const [com, liste] = await Promise.all([commune(p.px.cp, p.est.ville).catch(() => null), commodites(lat, lng).catch((e) => ({ erreur: e.message }))]);
+      const [com, liste] = await Promise.all([commune(p.px.cp, p.est.ville, p.est.adresse).catch(() => null), commodites(lat, lng).catch((e) => ({ erreur: e.message }))]);
       data = { commune: com, commodites: Array.isArray(liste) ? liste : [], erreur: liste && liste.erreur ? liste.erreur : "" };
       // Une réponse vide n'est pas gardée : le prochain guide retentera.
       if (!data.erreur && data.commodites.length) await db.run(
@@ -1493,7 +1526,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const { lat, lng } = pos;
     const type = typeBien(p.px.type_bien);
     let erreurs = [];
-    let com = await commune(p.px.cp, p.est.ville).catch((e) => { erreurs.push("commune : " + e.message); return null; });
+    let com = await commune(p.px.cp, p.est.ville, p.est.adresse).catch((e) => { erreurs.push("commune : " + e.message); return null; });
     if (!com || !com.code) {
       // geo.api.gouv.fr muet : la BAN connaît aussi le code INSEE de l'adresse.
       try { const g = await geocoderBan(p.est.adresse, p.px.cp, p.est.ville); if (g && g.citycode) com = { code: g.citycode, nom: g.city || p.est.ville }; } catch (e) { erreurs.push("BAN : " + e.message); }
@@ -1539,7 +1572,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     let pos; try { pos = await positionDe(p); } catch { pos = null; }
     const type = BIENICI_TYPES[typeBien(p.px.type_bien)];
     const prix = Number(c.req.query("prix")) || 0;
-    const com = await commune(p.px.cp, p.est.ville).catch(() => null);
+    const com = await commune(p.px.cp, p.est.ville, p.est.adresse).catch(() => null);
     const cle = [sansAccents(p.est.ville), p.px.cp, type].join("|");
     let liste = cacheBienici.get(cle);
     if (!liste || liste.le < now() - 3 * 3600) {

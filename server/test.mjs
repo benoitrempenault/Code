@@ -2099,7 +2099,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const q = decodeURIComponent(new URL(req.url, "http://x").searchParams.get("q") || "");
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(/Vignes/.test(q)
-      ? { features: [{ properties: { label: "7 Impasse des Vignes 33185 Le Haillan", score: 0.93 }, geometry: { coordinates: [-0.68, 44.9012] } }] }
+      ? { features: [{ properties: { label: "7 Impasse des Vignes 33185 Le Haillan", score: 0.93, citycode: "33200", city: "Le Haillan", context: "33, Gironde, Nouvelle-Aquitaine" }, geometry: { coordinates: [-0.68, 44.9012] } }] }
       : { features: [] }));
   });
   await new Promise((r) => fauxBan.listen(18793, r));
@@ -2122,9 +2122,15 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ] }));
   });
   await new Promise((r) => fauxOverpass.listen(18784, r));
+  const communeHaillan = { nom: "Le Haillan", code: "33200", population: 11900, surface: 926, departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } };
+  let geoMuet = false; // geo.api.gouv.fr en panne : 503 sur toutes les requêtes
   const fauxGeo = (await import("node:http")).createServer((req, res) => {
+    if (geoMuet) { res.writeHead(503); res.end("down"); return; }
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify([{ nom: "Le Haillan", code: "33200", population: 11900, surface: 926, departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } }]));
+    // La fiche d'une commune par son code INSEE (secours après la BAN) ; un CP inconnu → liste vide.
+    if (/^\/communes\/33200\b/.test(req.url)) { res.end(JSON.stringify(communeHaillan)); return; }
+    if (/codePostal=33999/.test(req.url)) { res.end("[]"); return; }
+    res.end(JSON.stringify([communeHaillan]));
   });
   await new Promise((r) => fauxGeo.listen(18785, r));
   const appR = createApp({
@@ -4054,6 +4060,29 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      "la légende reçoit les vrais totaux (ventesTotal, estimationsTotal), pas la liste plafonnée (" + envr.json.ventesTotal + " / " + envr.json.estimationsTotal + ")");
   ok((await db.get("SELECT lat FROM crm_estimations WHERE id = ?", [pxId])).lat > 44, "la position géocodée est gardée sur la fiche");
   ok((await db.get("SELECT COUNT(*) AS n FROM crm_environnement")).n === 1, "commune et commodités sont mises en cache");
+  // Un cache dont la commune est restée vide (geo.api.gouv.fr muet ce jour-là) : la commune est recherchée à nouveau et complétée (Benoît, 21/10 : département, région, population vides sur un livret).
+  { const cacheEnv = await db.get("SELECT cle, data FROM crm_environnement");
+    const vide = JSON.parse(cacheEnv.data); vide.commune = null;
+    await db.run("UPDATE crm_environnement SET data = ? WHERE cle = ?", [JSON.stringify(vide), cacheEnv.cle]);
+    const envV = (await callR("/crm/parcours/" + pxId + "/environnement", { headers: authP })).json;
+    ok(envV.commune && envV.commune.population === 11900 && envV.commune.departement === "Gironde" && envV.commune.region === "Nouvelle-Aquitaine" && JSON.parse((await db.get("SELECT data FROM crm_environnement WHERE cle = ?", [cacheEnv.cle])).data).commune.population === 11900,
+       "un cache à commune vide est complété au passage suivant, et le cache corrigé (" + JSON.stringify(envV.commune) + ")");
+    // geo.api.gouv.fr muet sur le CP : le code INSEE de la BAN mène à la fiche de la commune.
+    await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { cp: "33999" } });
+    vide.commune = null; await db.run("UPDATE crm_environnement SET data = ? WHERE cle = ?", [JSON.stringify(vide), cacheEnv.cle]);
+    const envB = (await callR("/crm/parcours/" + pxId + "/environnement", { headers: authP })).json;
+    ok(envB.commune && envB.commune.code === "33200" && envB.commune.population === 11900 && envB.commune.region === "Nouvelle-Aquitaine", "CP inconnu de geo.api.gouv.fr : la commune est retrouvée par le code INSEE de la BAN (" + JSON.stringify(envB.commune) + ")");
+    // geo.api.gouv.fr en panne : département et région viennent du contexte BAN, la population reste à relire plus tard (cache non figé).
+    geoMuet = true; vide.commune = null; await db.run("UPDATE crm_environnement SET data = ? WHERE cle = ?", [JSON.stringify(vide), cacheEnv.cle]);
+    const envM = (await callR("/crm/parcours/" + pxId + "/environnement", { headers: authP })).json;
+    const cacheM = JSON.parse((await db.get("SELECT data FROM crm_environnement WHERE cle = ?", [cacheEnv.cle])).data);
+    ok(envM.commune && envM.commune.nom === "Le Haillan" && envM.commune.departement === "Gironde" && envM.commune.region === "Nouvelle-Aquitaine" && !envM.commune.population && cacheM.commune === null,
+       "geo.api.gouv.fr en panne : département et région viennent de la BAN, et le cache ne fige pas cette commune incomplète (" + JSON.stringify(envM.commune) + ")");
+    geoMuet = false;
+    const envR = (await callR("/crm/parcours/" + pxId + "/environnement", { headers: authP })).json;
+    ok(envR.commune && envR.commune.population === 11900, "service revenu : la commune est complète au passage suivant");
+    await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { cp: "33160" } });
+    await db.run("UPDATE crm_environnement SET data = ? WHERE cle = ?", [cacheEnv.data, cacheEnv.cle]); }
   // Livret prix : la saisie se garde (nettoyée), les données comparables se relèvent, les photos ne se relaient que si elles sont connues.
   // Le livret se pré-remplit depuis le bien de la fiche estimation (Studio Estimation), et la complète en retour.
   await db.run("INSERT OR REPLACE INTO crm_estimation_bien (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?)",

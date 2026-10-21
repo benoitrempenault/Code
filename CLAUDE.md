@@ -1429,6 +1429,14 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**Commune du guide R2 vide (21/10)** : DÉPARTEMENT / RÉGION / POPULATION vides sur un livret = le cache
+`crm_environnement` (30 j) avait gardé `commune: null` le jour où geo.api.gouv.fr n'a pas répondu (le secours
+BAN ne donnait que nom + code INSEE). `commune(cp, ville, adresse)` (parcours.js) : deux essais geo, puis
+code INSEE de la BAN → `/communes/<code>`, puis département/région depuis le `context` BAN
+(`incomplete: true`, jamais mis en cache) ; `communeComplete(c)`. `/environnement` complète un cache dont
+la commune est vide ou incomplète sans refaire les commodités. Faux geo des tests : `geoMuet`, CP 33999
+inconnu, fiche `/communes/33200` ; faux BAN avec citycode/city/context.
+
 **Livret prix — un seul jeu de prix (21/10)** : les trois cadres de la page commission sont la SAISIE
 (`prixTiers` : repli = `acm.basse`, raison = `acm.prix`, ambition = `acm.haute` ; les `tiers_ajustes` de la
 commission ne servent que de repli), sans sous-fourchette ni ligne « Prix estimé par votre conseiller » en dessous
