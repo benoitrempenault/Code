@@ -4600,7 +4600,7 @@
     if (ventes.length) { try { photosVentes = (await api("/crm/parcours/" + p.id + "/acm/ventes/photos", { method: "POST", json: { ventes: ventes.map(({ id, lat, lng, type, surface }) => ({ id, lat, lng, type, surface })) } })).photos || {}; } catch { photosVentes = {}; } }
     for (let i = 0; i < ventes.length; i += 2) {
       const pg = await pageContenu("LES BIENS RÉCEMMENT", "VENDUS");
-      if (i === 0 && mediane) couper(pluriel(ventes.length, "vente comparable retenue", "ventes comparables retenues") + " · prix médian " + mediane.toLocaleString("fr-FR") + " €/m²" + (acm.surface ? " · soit " + fmtPrix(Math.round(mediane * acm.surface / 1000) * 1000) + " pour " + Math.round(acm.surface) + " m²" : ""), fR, 9.5, L).forEach((l, j) => ecrire(pg, l, G, 90 + j * 12, 9.5, fR, gris));
+      // Plus de ligne « N ventes comparables retenues · prix médian … » en tête (Benoît, 21/10) : les fiches parlent d'elles-mêmes.
       for (let k = 0; k < 2 && i + k < ventes.length; k++) {
         const v = ventes[i + k], y0 = 118 + k * 330;
         const ph = photosVentes[v.id];
