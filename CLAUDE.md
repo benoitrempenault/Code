@@ -1431,8 +1431,8 @@ différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
 **Livret prix — un seul jeu de prix (21/10)** : les trois cadres de la page commission sont la SAISIE
 (`prixTiers` : repli = `acm.basse`, raison = `acm.prix`, ambition = `acm.haute` ; les `tiers_ajustes` de la
-commission ne servent que de repli), sans sous-fourchette ; la ligne « Prix estimé par votre conseiller »
-ne donne que le prix. `lire()` réaligne `tiers_ajustes[k].montant` sur la saisie. Le financement part du
+commission ne servent que de repli), sans sous-fourchette ni ligne « Prix estimé par votre conseiller » en dessous
+(retirée le 21/10). `lire()` réaligne `tiers_ajustes[k].montant` sur la saisie. Le financement part du
 PRIX ESTIMÉ (`prixRef = acm.prix || acm.haute || acm.basse`, était haute d'abord) : smoke 330 000 → budget
 356 400, mensualité 1 982 €, revenus 5 660 €. Les contrôles du mémo des nouveautés dans le smoke ne citent
 plus d'entrée datée (elles expirent au bout de 7 jours).

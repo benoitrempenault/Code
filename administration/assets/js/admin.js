@@ -4697,8 +4697,7 @@
         });
         yF += 84;
       }
-      // Sous les cadres : le prix estimé seul (c'est le prix de raison), sans rappel de fourchette.
-      if (acm.prix) ecrireCentre(pg, "Prix estimé par votre conseiller : " + fmtPrix(acm.prix), G + L / 2, yF + 12, 11, fS, noir);
+      // Rien sous les cadres : le prix de raison EST le prix estimé (Benoît, 21/10 : plus de ligne « Prix estimé par votre conseiller »).
       ecrireCentre(pg, "CENTURY 21 Kadima", G + L / 2, 760, 14, fB, or); }
     // 4. Les réactions des acheteurs du moment (facultatif) : combien cherchent à ce prix.
     if (acm.acheteurs_inclure) {
@@ -4874,7 +4873,7 @@
   const NOUVEAUTES = [
     { id: "livret-prix-21-10", depuis: "2026-10-21", jours: 7, titre: "Livret prix : un seul jeu de prix",
       html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
-        "<li><strong>Les trois cadres</strong> de la page commission sont vos prix : prix de repli = fourchette basse, prix de raison = prix estimé, prix d'ambition = fourchette haute. Plus de sous-fourchette sous chaque cadre, et la ligne « Prix estimé par votre conseiller » ne donne que le prix de raison.</li>" +
+        "<li><strong>Les trois cadres</strong> de la page commission sont vos prix : prix de repli = fourchette basse, prix de raison = prix estimé, prix d'ambition = fourchette haute. Plus de sous-fourchette sous chaque cadre, ni de ligne « Prix estimé par votre conseiller » en dessous.</li>" +
         "<li><strong>Financement</strong> : ce que paie réellement l'acquéreur (prix + frais de notaire, mensualité, revenus nécessaires) se calcule sur le <strong>prix estimé</strong>, plus sur la fourchette haute.</li>" +
         "<li>« Générer le livret » enregistre la saisie avant d'assembler le PDF (prix compris).</li>" +
         "</ul>" },
