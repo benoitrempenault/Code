@@ -49,11 +49,12 @@ export default async function () {
     await page.click('[data-onglet="parcours"]');
     // Le mémo des nouveautés (14/10) s'ouvre à l'arrivée sur le Parcours ; « J'ai compris » le range pour ce compte.
     await page.waitForSelector("#nv-compris", { timeout: 8000 });
-    ok(/nouveautés|le lieu du R2/.test(await page.textContent("#modale-titre")) && /Au domicile du client/.test(await page.textContent("#modale-corps")) && /Démarche à suivre/.test(await page.textContent("#modale-corps")), "le mémo des nouveautés (lieu du R2, démarche à suivre) s'ouvre à la première ouverture du Parcours");
+    // Les entrées tournent (7 jours chacune) : on vérifie le mécanisme, pas un texte daté.
+    ok(/nouveau/i.test(await page.textContent("#modale-titre")) && /Nouveauté du \d{1,2}/.test(await page.textContent("#modale-corps")) && (await page.textContent("#modale-corps")).length > 80, "le mémo des nouveautés s'ouvre à la première ouverture du Parcours (" + (await page.textContent("#modale-titre")).trim() + ")");
     await page.click("#nv-compris");
     await page.waitForSelector("#voile", { state: "hidden", timeout: 4000 });
     await page.click('[data-onglet="contacts"]'); await page.click('[data-onglet="parcours"]'); await page.waitForTimeout(300);
-    ok(await page.evaluate(() => document.getElementById("voile").hidden && Object.keys(localStorage).some((k) => k.startsWith("studio-nouveautes-vues:") && /lieu-r2/.test(localStorage.getItem(k)))), "après « J'ai compris », le mémo ne revient plus (retenu pour ce compte)");
+    ok(await page.evaluate(() => document.getElementById("voile").hidden && Object.keys(localStorage).some((k) => k.startsWith("studio-nouveautes-vues:") && /"[a-z0-9-]+"/.test(localStorage.getItem(k)))), "après « J'ai compris », le mémo ne revient plus (retenu pour ce compte)");
     await page.click("#btn-nouveau-parcours");
     await page.waitForSelector("#px-creer", { timeout: 6000 });
     await page.fill("#px-q", "mouney");
@@ -332,8 +333,8 @@ export default async function () {
     { const croissant = (l) => l.length >= 2 && l.every((x, i) => i === 0 || x >= l[i - 1]);
       ok(croissant(livret.debug.prixConcurrence) && croissant(livret.debug.prixVentes),
         "vendus et concurrence s'impriment du moins cher au plus cher (" + JSON.stringify({ ventes: livret.debug.prixVentes, concurrence: livret.debug.prixConcurrence }) + ")"); }
-    ok(livret.debug.financement && livret.debug.financement.fraisPct === 8 && livret.debug.financement.budget === 367200 && livret.debug.financement.emprunt === 367200 && livret.debug.financement.mensualite === 2042 && livret.debug.financement.taux === 4 && livret.debug.financement.revenus === 5840,
-      "le financement part du budget réel de l'acquéreur : prix + 8 % de frais de notaire, taux 4 % par défaut, revenus nécessaires = mensualité ÷ 35 % (" + JSON.stringify(livret.debug.financement) + ")");
+    ok(livret.debug.financement && livret.debug.financement.fraisPct === 8 && livret.debug.financement.budget === 356400 && livret.debug.financement.emprunt === 356400 && livret.debug.financement.mensualite === 1982 && livret.debug.financement.taux === 4 && livret.debug.financement.revenus === 5660,
+      "le financement part du PRIX ESTIMÉ (330 000) + 8 % de frais de notaire, taux 4 % par défaut, revenus nécessaires = mensualité ÷ 35 % (" + JSON.stringify(livret.debug.financement) + ")");
     await garderGuide(page, livret.octets, "livret-prix-smoke.pdf");
     // Le courrier d'estimation : fourchette reprise du livret, mot libre, PDF sur papier
     // à en-tête signé du conseiller, puis envoi par e-mail avec le PDF en pièce jointe.

@@ -4366,10 +4366,18 @@
       // Des lignes retouchées à la main ne sont plus écrasées par la commission à la réouverture.
       const auto = depuisCommission || [];
       const source = com.length === auto.length && com.every((l, i) => l.nb === auto[i].nb && l.basse === auto[i].basse && l.haute === auto[i].haute) ? acm.commission_source : "main";
-      return { ...acm, commission_source: source, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), pieces: num("acm-pieces"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes).map(({ photo, image, ...reste }) => reste), concurrence: cochees("[data-conc]", candidatsConc).map(({ photo, ...reste }) => reste),
+      const d = { ...acm, commission_source: source, prix: num("acm-prix"), basse: num("acm-basse"), haute: num("acm-haute"), surface: num("acm-surface"), terrain: num("acm-terrain"), piece_vie: num("acm-piece-vie"), pieces: num("acm-pieces"), chambres: num("acm-chambres"), ventes: cochees("[data-vente]", candidatsVentes).map(({ photo, image, ...reste }) => reste), concurrence: cochees("[data-conc]", candidatsConc).map(({ photo, ...reste }) => reste),
         commission: com, acheteurs_inclure: $("acm-ach-inclure").checked, acheteurs_texte: $("acm-ach-texte").value.trim(), acheteurs_n: recalculerBudgets().length, acheteurs_budgets: budgets, acheteurs_total: tousBudgets.length,
         acheteurs_min: fenetre().min || 0, acheteurs_max: fenetre().max || 0, acheteurs_budget_choix: budgetChoisi,
         taux: num("acm-taux") ?? 4, assurance: num("acm-assurance") ?? 0.34, apport: num("acm-apport") || 0, duree: parseInt($("acm-duree").value, 10) || 25 };
+      // Les trois fourchettes de la commission suivent la saisie : repli = basse, raison = prix estimé,
+      // ambition = haute (un seul jeu de prix dans la fiche et dans le livret).
+      if (d.tiers_ajustes) {
+        const aj = { ...d.tiers_ajustes };
+        for (const [k, v] of [["repli", d.basse], ["raison", d.prix], ["ambition", d.haute]]) if (v) aj[k] = { ...(aj[k] || {}), montant: v };
+        d.tiers_ajustes = aj;
+      }
+      return d;
     };
     const sauver = async () => { const d = lire(); await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: d }); return d; };
     $("acm-save").addEventListener("click", async () => { try { await sauver(); toast("Livret prix : saisie enregistrée"); } catch (e) { toast(e.message, true); } });
@@ -4562,7 +4570,8 @@
       try { return await doc.embedJpg(Uint8Array.from(atob(jpeg.split(",")[1]), (ch) => ch.charCodeAt(0))); } catch { return null; }
     };
     const dateJour = new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
-    const prixRef = acm.haute || acm.prix || acm.basse || 0;
+    // Le financement part du PRIX ESTIMÉ (prix de raison), pas de la fourchette haute (Benoît, 21/10).
+    const prixRef = acm.prix || acm.haute || acm.basse || 0;
     const typeLib = { appartement: "Appartement", terrain: "Terrain" }[donnees.type] || "Maison";
     const estTerrain = donnees.type === "terrain";
     const bienLib = estTerrain ? "Terrain de " + Math.round(acm.terrain || acm.surface || 0) + " m²"
@@ -4673,19 +4682,23 @@
       ecrireCentre(pg, String(total), G + L * 0.6 + 45, yT + 10, 12, fB, blanc);
       if (acm.surface || acm.terrain) ecrireCentre(pg, bienLib, G + L / 2, yT + 36, 10.5, fR, gris);
       let yF = yT + 50;
+      // Les trois prix du livret SONT ceux de la saisie (Benoît, 21/10) : repli = fourchette basse,
+      // raison = prix estimé, ambition = fourchette haute — un seul montant par cadre, sans sous-fourchette.
+      // Les tiers de la commission ne servent que de repli quand la saisie est vide.
       const aj = acm.tiers_ajustes || {};
-      const fourchettes = TIERS_LIB.map(([k, lib]) => [lib, aj[k] || {}]).filter(([, x]) => x.montant);
+      const prixTiers = { repli: acm.basse || (aj.repli || {}).montant, raison: acm.prix || (aj.raison || {}).montant, ambition: acm.haute || (aj.ambition || {}).montant };
+      const fourchettes = TIERS_LIB.map(([k, lib]) => [lib, prixTiers[k]]).filter(([, v]) => v);
       if (fourchettes.length) {
-        fourchettes.forEach(([lib, x], j) => {
+        fourchettes.forEach(([lib, v], j) => {
           const w = L / fourchettes.length - 10, x0 = G + j * (L / fourchettes.length);
-          rect(pg, x0, yF, w, 72, { borderColor: or, borderWidth: 1, color: blanc });
-          ecrireCentre(pg, lib.toUpperCase(), x0 + w / 2, yF + 18, 9, fB, or);
-          ecrireCentre(pg, fmtPrix(x.montant), x0 + w / 2, yF + 40, 14, fB, noir);
-          if (x.min && x.max && x.min !== x.max) ecrireCentre(pg, "de " + fmtPrix(x.min) + " à " + fmtPrix(x.max), x0 + w / 2, yF + 58, 8.5, fR, gris);
+          rect(pg, x0, yF, w, 64, { borderColor: or, borderWidth: 1, color: blanc });
+          ecrireCentre(pg, lib.toUpperCase(), x0 + w / 2, yF + 20, 9, fB, or);
+          ecrireCentre(pg, fmtPrix(v), x0 + w / 2, yF + 44, 15, fB, noir);
         });
-        yF += 92;
+        yF += 84;
       }
-      if (acm.prix) couper("Prix estimé par votre conseiller : " + fmtPrix(acm.prix) + ((acm.basse || acm.haute) ? " (fourchette " + [acm.basse ? fmtPrix(acm.basse) : "", acm.haute ? fmtPrix(acm.haute) : ""].filter(Boolean).join(" – ") + ")" : ""), fS, 11, L).forEach((l, j) => ecrireCentre(pg, l, G + L / 2, yF + 12 + j * 14, 11, fS, noir));
+      // Sous les cadres : le prix estimé seul (c'est le prix de raison), sans rappel de fourchette.
+      if (acm.prix) ecrireCentre(pg, "Prix estimé par votre conseiller : " + fmtPrix(acm.prix), G + L / 2, yF + 12, 11, fS, noir);
       ecrireCentre(pg, "CENTURY 21 Kadima", G + L / 2, 760, 14, fB, or); }
     // 4. Les réactions des acheteurs du moment (facultatif) : combien cherchent à ce prix.
     if (acm.acheteurs_inclure) {
@@ -4859,6 +4872,12 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "livret-prix-21-10", depuis: "2026-10-21", jours: 7, titre: "Livret prix : un seul jeu de prix",
+      html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Les trois cadres</strong> de la page commission sont vos prix : prix de repli = fourchette basse, prix de raison = prix estimé, prix d'ambition = fourchette haute. Plus de sous-fourchette sous chaque cadre, et la ligne « Prix estimé par votre conseiller » ne donne que le prix de raison.</li>" +
+        "<li><strong>Financement</strong> : ce que paie réellement l'acquéreur (prix + frais de notaire, mensualité, revenus nécessaires) se calcule sur le <strong>prix estimé</strong>, plus sur la fourchette haute.</li>" +
+        "<li>« Générer le livret » enregistre la saisie avant d'assembler le PDF (prix compris).</li>" +
+        "</ul>" },
     { id: "evenements-20-10", depuis: "2026-10-20", jours: 10, titre: "Nouveau : les évènements de l'agence",
       html: '<p class="aide" style="max-width:none;">Marché de Noël, stand Leroy Merlin, soirée clients… tout se passe dans l\'onglet <strong>📅 Évènements</strong> (tuile sur l\'accueil Studio, lien dans l\'e-mail d\'annonce). Pour chaque évènement, répondez <strong>« Je participe »</strong> — sur un ou plusieurs créneaux quand il y en a — ou <strong>« Je ne participe pas »</strong>. Une inscription arrive dans votre agenda par e-mail (invitation à accepter) ; vous changez de créneau ou vous désinscrivez quand vous voulez, l\'agenda suit.</p>' },
     { id: "rappel-apres-r2-19-10", depuis: "2026-10-19", jours: 7, titre: "Nouveau : un rappel le lendemain du R2",

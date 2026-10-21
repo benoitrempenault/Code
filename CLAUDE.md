@@ -1429,6 +1429,13 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**Livret prix — un seul jeu de prix (21/10)** : les trois cadres de la page commission sont la SAISIE
+(`prixTiers` : repli = `acm.basse`, raison = `acm.prix`, ambition = `acm.haute` ; les `tiers_ajustes` de la
+commission ne servent que de repli), sans sous-fourchette ; la ligne « Prix estimé par votre conseiller »
+ne donne que le prix. `lire()` réaligne `tiers_ajustes[k].montant` sur la saisie. Le financement part du
+PRIX ESTIMÉ (`prixRef = acm.prix || acm.haute || acm.basse`, était haute d'abord) : smoke 330 000 → budget
+356 400, mensualité 1 982 €, revenus 5 660 €. Les contrôles du mémo des nouveautés dans le smoke ne citent
+plus d'entrée datée (elles expirent au bout de 7 jours).
 
 **Rappel J+1 après R2 au conseiller (19/10)** : table `crm_conseillers_rappels (id, rappel_apres_r2)`,
 cochée par l'admin dans L'équipe → Accès (« Rappel J+1 R2 », `PUT /crm/equipe/:id {rappel_apres_r2}`,
