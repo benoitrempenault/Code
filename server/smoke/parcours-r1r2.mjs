@@ -604,9 +604,10 @@ export default async function () {
     await ouvrir(page, "/administration/?brique=parcours", remi);
     await page.waitForSelector("#app:not([hidden])", { timeout: 8000 });
     const ongletsVisibles = await page.evaluate(() => [...document.querySelectorAll(".onglet")].filter((b) => !b.hidden).map((b) => b.textContent.trim()));
-    ok(ongletsVisibles.length === 1 && /Parcours R1\/R2/.test(ongletsVisibles[0]) && /Parcours R1\/R2/.test(await page.textContent("header h1"))
+    // Depuis le 20/10, l'onglet Évènements est ouvert à tous les conseillers : deux onglets, jamais les autres.
+    ok(ongletsVisibles.length >= 1 && ongletsVisibles.every((t) => /Parcours R1\/R2|Évènements/.test(t)) && /Parcours R1\/R2/.test(ongletsVisibles[0]) && /Parcours R1\/R2/.test(await page.textContent("header h1"))
        && await page.isVisible("#panneau-parcours") && !(await page.isVisible("#panneau-contacts")) && (await page.locator("#ecran-connexion:not([hidden])").count()) === 0,
-       "un conseiller n'a que l'onglet Parcours R1/R2, sans écran « Accès réservé » (" + ongletsVisibles.join(", ") + ")");
+       "un conseiller n'a que Parcours R1/R2 (et Évènements), sans écran « Accès réservé » (" + ongletsVisibles.join(", ") + ")");
     // Le mémo des nouveautés est par compte : Rémi le voit aussi ; « Plus tard » le referme sans le retenir.
     await page.waitForSelector("#nv-plus-tard", { timeout: 8000 });
     await page.click("#nv-plus-tard");
