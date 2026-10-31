@@ -1305,7 +1305,8 @@ export function createApp(env) {
     if (!mobile) return err(c, 400, "Numéro de mobile français attendu (06 ou 07).");
     const reglages = await CRM.getReglages(db, ctx.agency);
     const contenu = CRM.buildAnniversaireSms(
-      { prenom: ctx.user.name || "vous", conseiller: String(b.conseiller || "") }, "naissance", reglages, new Date().toISOString().slice(0, 10));
+      { prenom: ctx.user.name || "vous", conseiller: String(b.conseiller || "") }, "naissance", reglages, new Date().toISOString().slice(0, 10),
+      CRM.telephoneReponse(reglages, b.conseiller ? await CRM.profilConseillerPour(db, ctx.agency.id, String(b.conseiller)) : null));
     const r = await CRM.envoyerSmsBrevo(env, { to: mobile, content: contenu, sender: CRM.smsExpediteur(reglages.agence, ctx.agency) });
     if (!r.ok) return err(c, 502, r.error || "Envoi refusé par Brevo.");
     return c.json({ ok: true, contenu });
@@ -2687,10 +2688,12 @@ export function createApp(env) {
     const qa = await CRM.consommerQuota(db, ctx.agency.id, "", "envois");
     if (!qa.ok) return err(c, 429, `Plafond du jour de l'agence atteint : ${qa.max} envois manuels. Réessayez demain.`);
     const reglages = await CRM.getReglages(db, ctx.agency);
+    // {telephone} : le mobile du conseiller de la fiche, sinon celui de l'agence (on ne répond pas à l'expéditeur « C21Kadima »).
+    const profilMsg = contact.conseiller ? await CRM.profilConseillerPour(db, ctx.agency.id, contact.conseiller) : null;
     const r = await CRM.envoyerMessageContact(env, {
       agency: ctx.agency, reglages, contact, canal,
       sujet: String(b.sujet || "").slice(0, 200), texte: String(b.texte || "").slice(0, 4000),
-      expediteur: ctx.user.name || "",
+      expediteur: ctx.user.name || "", telephone: CRM.telephoneReponse(reglages, profilMsg),
     });
     const label = `${contact.prenom || ""} ${contact.nom || ""}`.trim();
     await db.run(

@@ -1314,13 +1314,13 @@ export const MODELES = {
     sujet: "Il y a {annees}, une belle page se tournait ✨",
     texte: "Il y a {depuis}, vous vendiez votre bien à {ville} avec notre agence. Nous gardons un très bon souvenir de ce projet mené ensemble, et nous espérons que ce nouveau chapitre vous a apporté tout ce que vous en attendiez.\n\nSi un nouveau projet se dessine — une vente, un achat, un investissement, ou simplement l'envie de connaître la valeur d'un bien — notre porte vous est toujours grande ouverte. Au plaisir de vous revoir !" },
   "sms-naissance": { titre: "Anniversaire de naissance", canal: "sms",
-    texte: "Joyeux anniversaire {prenom} ! Toute l'équipe pense à vous et vous souhaite une très belle journée. {signature} — {agence}" },
+    texte: "Joyeux anniversaire {prenom} ! Toute l'équipe pense à vous et vous souhaite une très belle journée. {signature} — {agence} · {telephone}" },
   "sms-naissance-couple": { titre: "Anniversaire de naissance — fiche couple", canal: "sms",
-    texte: "Un anniversaire se fête chez vous aujourd'hui : toute l'équipe pense à vous ! Dites-nous en un mot qui souffle les bougies (et la date de l'autre) pour des vœux à la bonne date l'an prochain. {signature} — {agence}" },
+    texte: "Un anniversaire se fête chez vous aujourd'hui : toute l'équipe pense à vous ! {repondre} qui souffle les bougies (et la date de l'autre), pour des vœux à la bonne date l'an prochain. {signature} — {agence}" },
   "sms-achat-acquereur": { titre: "Anniversaire d'achat (acquéreur)", canal: "sms",
-    texte: "Bonjour {prenom}, il y a {depuis}, vous receviez les clés de votre nouveau chez-vous. Bel anniversaire ! {signature} — {agence}" },
+    texte: "Bonjour {prenom}, il y a {depuis}, vous receviez les clés de votre nouveau chez-vous. Bel anniversaire ! {signature} — {agence} · {telephone}" },
   "sms-achat-vendeur": { titre: "Anniversaire de vente (vendeur)", canal: "sms",
-    texte: "Bonjour {prenom}, il y a {depuis}, vous vendiez votre bien avec nous. On pense à vous — belle journée ! {signature} — {agence}" },
+    texte: "Bonjour {prenom}, il y a {depuis}, vous vendiez votre bien avec nous. On pense à vous — belle journée ! {signature} — {agence} · {telephone}" },
   "estimation-avant-r1": { titre: "Estimation — veille du R1", canal: "email",
     sujet: "À demain, pour l'estimation de votre bien",
     texte: "Nous nous retrouvons demain au {adresse} pour l'estimation de votre bien. Nous prendrons le temps de le visiter ensemble et d'écouter votre projet — comptez environ une heure.\n\nSi vous les avez sous la main, quelques documents nous aideront à être précis : taxe foncière, DPE, factures de travaux récents, charges de copropriété le cas échéant. Rien d'obligatoire — nous ferons aussi très bien sans.\n\nÀ demain, et merci de votre confiance !" },
@@ -1372,6 +1372,8 @@ export function remplirModele(texte, vars) {
     // avant ! ? : ; reste : c'est la typographie francaise.
     .replace(/[^\S\n]+/g, " ")
     .replace(/ ([,.])/g, "$1")
+    // Un séparateur resté seul en fin de ligne (« — C21 Kadima · » sans téléphone) s'efface.
+    .replace(/\s*[·—–]\s*$/gm, "")
     .replace(/^[ ,]+|[ ]+$/gm, "")
     .trim();
 }
@@ -1820,10 +1822,14 @@ export function signatureSms(contact, reglages) {
   }
   return (reglages.anniversaires.smsSignature || "").trim() || (reglages.agence.nom || "L'agence");
 }
-export function buildAnniversaireSms(contact, type, reglages, isoDay) {
+// telephone : le numéro auquel répondre (telephoneReponse) — en queue du SMS,
+// et dans la question du SMS « couple » (« Répondez-nous par SMS au 06… »).
+export function buildAnniversaireSms(contact, type, reglages, isoDay, telephone = "") {
   const prenom = (contact.prenom || "").split(/\s+/)[0] || "";
   const signature = signatureSms(contact, reglages);
   const agence = reglages.agence.nom || "l'agence";
+  const repondre = telephone ? "Répondez-nous par SMS au " + telephone + " pour nous dire" : "Dites-nous en un mot";
+  const queue = telephone ? " · " + telephone : "";
   const annees = type === "naissance" ? null : yearsSince(contact.date_achat, isoDay);
   const nDepuis = annees && annees > 1 ? annees + " ans jour pour jour"
     : annees === 1 ? "un an jour pour jour" : "quelque temps jour pour jour";
@@ -1836,20 +1842,20 @@ export function buildAnniversaireSms(contact, type, reglages, isoDay) {
     return remplirModele(sur.texte, {
       prenom, nom: contact.nom || "", ville: contact.ville || "", agence, signature,
       annees: annees && annees > 0 ? annees + " an" + (annees > 1 ? "s" : "") : "quelque temps",
-      depuis: nDepuis, conseiller: contact.conseiller || "",
+      depuis: nDepuis, conseiller: contact.conseiller || "", telephone, repondre,
     });
   }
   if (type === "naissance") {
     return "Joyeux anniversaire" + (prenom ? " " + prenom : "") + " ! Toute l'équipe pense à vous " +
-      "et vous souhaite une très belle journée. " + signature + " — " + agence;
+      "et vous souhaite une très belle journée. " + signature + " — " + agence + queue;
   }
   const depuis = "il y a " + nDepuis;
   if (profilAchat(contact) === "vendeur") {
     return "Bonjour" + (prenom ? " " + prenom : "") + ", " + depuis + ", vous vendiez votre bien avec nous. " +
-      "On pense à vous — belle journée ! " + signature + " — " + agence;
+      "On pense à vous — belle journée ! " + signature + " — " + agence + queue;
   }
   return "Bonjour" + (prenom ? " " + prenom : "") + ", " + depuis + ", vous receviez les clés de votre " +
-    "nouveau chez-vous. Bel anniversaire ! " + signature + " — " + agence;
+    "nouveau chez-vous. Bel anniversaire ! " + signature + " — " + agence + queue;
 }
 export async function envoyerSmsBrevo(env, { to, content, sender }) {
   if (!env.BREVO_API_KEY) return { ok: false, dryRun: true, error: "" };
@@ -1876,9 +1882,17 @@ export async function profilConseillerPour(db, agencyId, brut) {
   const cle = cleNomConseiller(brut);
   if (!cle) return null;
   const rows = await db.all(
-    `SELECT cs.prenom, cs.nom, cs.email, COALESCE(pv.pv, '') AS agence FROM crm_conseillers cs
+    `SELECT cs.prenom, cs.nom, cs.email, cs.telephone, COALESCE(pv.pv, '') AS agence FROM crm_conseillers cs
      LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id WHERE cs.agency_id = ? AND cs.actif = 1`, [agencyId]);
   return rows.find((r) => cleNomConseiller(r.prenom + " " + r.nom) === cle) || null;
+}
+// Le numéro auquel répondre à un SMS (Benoît, 31/10) : un SMS part avec un
+// expéditeur « texte » (C21Kadima), auquel on ne peut pas répondre. Le mobile
+// du conseiller de la fiche, sinon le téléphone de son agence, sinon celui des
+// réglages — glissé dans le texte ({telephone}, {repondre}).
+export function telephoneReponse(reglages, profil) {
+  const ag = agencePour(reglages, profil);
+  return formatTelephone((profil && profil.telephone) || "") || formatTelephone(ag.telephone || (reglages.agence || {}).telephone || "") || "";
 }
 // À qui le client répond, et qui garde copie : le conseiller de la fiche quand
 // son profil a un e-mail (son agence en copie cachée), sinon l'agence du
@@ -1952,7 +1966,8 @@ export async function runAnniversaires(env, db, agency, reglages) {
           "SELECT id FROM crm_envois WHERE agency_id = ? AND contact_id = ? AND type = ? AND annee = ? AND statut = 'ok'",
           [agency.id, contact.id, type + "-sms", annee]);
         if (!dejaSms) {
-          const contenu = buildAnniversaireSms(contact, type, reglages, isoDay);
+          const profilSms = contact.conseiller ? await profilConseillerPour(db, agency.id, contact.conseiller) : null;
+          const contenu = buildAnniversaireSms(contact, type, reglages, isoDay, telephoneReponse(reglages, profilSms));
           const r = await envoyerSmsBrevo(env, { to: mobile, content: contenu, sender: expediteur });
           await db.run(
             "INSERT INTO crm_envois (agency_id, contact_id, contact, email, type, annee, statut, erreur, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -2902,7 +2917,7 @@ export function sanitizeVisite(b) {
 // Bibliothèque des messages (ou est écrit sur place), les balises {prenom}
 // {nom} {ville} {adresse} {conseiller} {agence} {signature} se remplissent
 // avec la fiche. Mail au gabarit de l'agence (Resend), SMS via Brevo.
-export async function envoyerMessageContact(env, { agency, reglages, contact, canal, sujet, texte, expediteur }) {
+export async function envoyerMessageContact(env, { agency, reglages, contact, canal, sujet, texte, expediteur, telephone = "" }) {
   const ag = reglages.agence || {};
   const vars = {
     prenom: contact.prenom || "", nom: contact.nom || "",
@@ -2910,6 +2925,7 @@ export async function envoyerMessageContact(env, { agency, reglages, contact, ca
     conseiller: contact.conseiller || expediteur || "",
     agence: ag.nom || agency.name || "", signature: ag.nom || agency.name || "",
     annees: "", depuis: "", r1: "", r2: "",
+    telephone, repondre: telephone ? "Répondez-nous par SMS au " + telephone + " pour nous dire" : "Dites-nous en un mot",
   };
   const corps = remplirModele(texte, vars);
   if (!corps) return { ok: false, error: "Le message est vide." };

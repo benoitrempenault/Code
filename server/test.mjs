@@ -3111,6 +3111,18 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const smsSans = buildAnniversaireSms({ conseiller: "" }, "naissance", regB, aujE);
     ok(!/  /.test(smsSans) && !/ [,.]/.test(smsSans) && /anniversaire !/.test(smsSans),
       "une balise vide s'efface proprement (pas de double espace, l'espace avant ! reste — typographie française)");
+    // Le numéro auquel répondre (31/10) : mobile du conseiller, sinon l'agence — en queue du SMS ; rien d'orphelin sans numéro.
+    const { telephoneReponse, remplirModele: remplirModeleT } = await import("./src/crm.js");
+    const regT = { ...regB, modeles: {}, agence: { ...regB.agence, telephone: "05 56 01 02 03" } };
+    const smsTel = buildAnniversaireSms({ prenom: "Sophie", conseiller: "Rémi BLANC" }, "naissance", regT, aujE, telephoneReponse(regT, { telephone: "0612345678" }));
+    ok(/Rémi — Agence Acheteurs Test · 06 12 34 56 78$/.test(smsTel), "le SMS d'anniversaire finit par le mobile du conseiller, formaté (" + smsTel + ")");
+    const smsAg = buildAnniversaireSms({ prenom: "Sophie" }, "achat", regT, aujE, telephoneReponse(regT, null));
+    ok(/· 05 56 01 02 03$/.test(smsAg), "sans conseiller : le téléphone de l'agence (" + smsAg + ")");
+    const regSans = { ...regT, agence: { ...regT.agence, telephone: "" } };
+    const smsRien = buildAnniversaireSms({ prenom: "Sophie" }, "naissance", regSans, aujE, telephoneReponse(regSans, null));
+    ok(/Agence Acheteurs Test$/.test(smsRien) && !/·/.test(smsRien), "sans aucun numéro : pas de séparateur orphelin (" + smsRien + ")");
+    const modTel = remplirModeleT("Bonjour {prenom}. {signature} — {agence} · {telephone}", { prenom: "Zoé", signature: "Rémi", agence: "C21", telephone: "" });
+    ok(modTel === "Bonjour Zoé. Rémi — C21", "un modèle de l'agence avec {telephone} vide perd le « · » final (" + modTel + ")");
   }
   // Retour au texte d'origine : surcharge vidée = texte livré.
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { modeles: {
@@ -3416,6 +3428,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const flag = { ...seul, civilite: "M.", prenom: "Paul", notes: ANNIV_A_CONFIRMER + " · vendeur 2019" };
     ok(/lequel de vous deux/.test(buildAnniversaireEmail(flag, "naissance", ag, aujE, {}).html),
       "une fiche scindée dont la date est « à confirmer » reçoit aussi le vœu qui interroge");
+    ok(/Répondez-nous par SMS au 06 12 34 56 78 pour nous dire qui souffle les bougies/.test(buildAnniversaireSms(couple, "naissance", { agence: ag, anniversaires: {} }, aujE, "06 12 34 56 78")) && /Dites-nous en un mot qui souffle les bougies/.test(buildAnniversaireSms(couple, "naissance", { agence: ag, anniversaires: {} }, aujE)),
+      "le SMS couple invite à répondre par SMS au numéro du conseiller quand il existe");
     ok(/souffle les bougies/.test(buildAnniversaireSms(couple, "naissance", { agence: ag, anniversaires: {} }, aujE)),
       "le SMS couple interroge lui aussi");
   }

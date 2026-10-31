@@ -1429,6 +1429,15 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**SMS : un numéro auquel répondre (31/10)** : l'expéditeur SMS Brevo est alphanumérique (`smsExpediteur` →
+« C21Kadima »), on ne peut pas y répondre et Studio n'a pas de réception SMS. `telephoneReponse(reglages,
+profil)` (crm.js) = mobile du conseiller de la fiche (`profilConseillerPour` renvoie maintenant `telephone`),
+sinon téléphone de son agence (`agencePour`), sinon réglages. Balises `{telephone}` et `{repondre}`
+(« Répondez-nous par SMS au 06… pour nous dire » / « Dites-nous en un mot ») dans les modèles `sms-*`, les
+textes par défaut (`buildAnniversaireSms(…, telephone)`), `envoyerMessageContact({ telephone })` (route
+`/crm/contacts/:id/envoyer`) et `test-sms`. `remplirModele` efface un séparateur `· — –` resté seul en fin de
+ligne. Mémo `sms-telephone-31-10`.
+
 **Commune du guide R2 vide (21/10)** : DÉPARTEMENT / RÉGION / POPULATION vides sur un livret = le cache
 `crm_environnement` (30 j) avait gardé `commune: null` le jour où geo.api.gouv.fr n'a pas répondu (le secours
 BAN ne donnait que nom + code INSEE). `commune(cp, ville, adresse)` (parcours.js) : deux essais geo, puis
