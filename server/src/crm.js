@@ -1149,6 +1149,10 @@ export async function avisAgence(db, agencyId, cle) {
   const r = (cle && par(cle)) || rows.find((x) => /saint-?medard/.test(sansAccentsMin(x.cle))) || rows[0] || null;
   return r ? { cle: r.cle, note_google: r.note_google, avis_google: r.avis_google, note_c21: r.note_c21, avis_c21: r.avis_c21, releve_le: r.releve_le, updated_at: r.updated_at } : null;
 }
+// Caudéran : le lien « laissez-nous un avis » de l'étape 7 (e-mail après le R2) et de la signature
+// des e-mails du parcours est celui de la fiche Google de Caudéran (Benoît, 03/11) ; Saint-Médard,
+// Blanquefort et Saint-Aubin gardent le lien de l'identité (AVIS_DEFAUT). Modifiable dans Réglages → Agences.
+export const AVIS_CAUDERAN = "https://www.google.com/search?sca_esv=e937aeff1a6f903b&rlz=1C1VDKB_frFR1105FR1105&sxsrf=AKL5yDgmIgeTc1h1_6gA1iA5WzRcSGpA7g:1793636786896&q=c21+kadima+cauderan&si=AE1YtOqu-FqC0k5URYML-DLmSNmCJ-h2DaZ4dTodKoIRJsEpjMwOkk-9GoOPE-Qp2D0NvuA_0wGy10dS9ncN6DbVlYCP8fV_eqf_s42tW1-Zf0MMhl_fL-4%3D&uds=AE2AFgY6zQpx83iqp9GGrbOHyXE9ayto1LqfcZy-oqk6Au-WuXZk9uc_9JMTjQRCvTbS71J-EK2O5LyfO4bxtLEx7qIP90UnVMqlcsCC7iZta4xY0OkGd9k&sa=X&sqi=2&ved=2ahUKEwiKyqfc2emXAxWVUKQEHbiiNGQQ3PALegQILRAE&biw=1920&bih=911&dpr=1";
 export function completerAgencesKadima(agency, agences) {
   if (!estKadima(agency)) return agences;
   const liste = agences.length ? agences : AGENCES_KADIMA.map((a) => ({ ...a }));
@@ -1159,6 +1163,7 @@ export function completerAgencesKadima(agency, agences) {
     // Caudéran : le mot du directeur et les courriers y sont signés de son directeur
     // (Benoît, 08/10) ; Saint-Médard et Blanquefort restent signés de l'identité générale.
     if (/cauderan/.test(sansAccentsMin((a.cle || "") + " " + (a.nom || ""))) && !String(a.signataire || "").trim()) o = { ...o, signataire: "Benjamin FAURE", fonction: String(a.fonction || "").trim() || "Directeur d'agence" };
+    if (/cauderan/.test(sansAccentsMin((a.cle || "") + " " + (a.nom || ""))) && !String(a.avis || "").trim()) o = { ...o, avis: AVIS_CAUDERAN };
     return o;
   });
 }

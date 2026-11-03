@@ -4871,6 +4871,8 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "avis-cauderan-03-11", depuis: "2026-11-03", jours: 7, titre: "Caudéran : le lien d'avis Google de l'étape 7",
+      html: '<p class="aide" style="max-width:none;">Pour les conseillers de <strong>Caudéran</strong>, l\'e-mail après le R2 (point 7) et la ligne « Nos avis clients » des e-mails du parcours renvoient désormais vers la fiche Google de l\'agence de Caudéran. Saint-Médard, Blanquefort et Saint-Aubin gardent leur lien.</p>' },
     { id: "sms-telephone-31-10", depuis: "2026-10-31", jours: 7, titre: "SMS : un numéro auquel répondre",
       html: '<p class="aide" style="max-width:none;">Un SMS envoyé depuis Studio part avec l\'expéditeur « C21Kadima », auquel on ne peut pas répondre. Désormais, les SMS d\'anniversaire et les SMS envoyés depuis une fiche contact se terminent par <strong>votre mobile</strong> (celui de votre profil conseiller ; sinon le téléphone de l\'agence) : les clients vous répondent directement. Vérifiez que votre mobile est bien renseigné dans votre profil. Balise <strong>{telephone}</strong> dans la Bibliothèque des messages.</p>' },
     { id: "livret-prix-21-10", depuis: "2026-10-21", jours: 7, titre: "Livret prix : un seul jeu de prix",

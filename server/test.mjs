@@ -3925,7 +3925,10 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const cd = CRMK.agencePour({ agence: { nom: "CENTURY 21 Kadima", mentions: "KADIMA TB — RCS 894 173 947", avis: "https://g.page/kadima" }, agences: vide }, { agence: "cauderan" });
     ok(/894 173 947/.test(bl.mentions) && bl.nom === "CENTURY 21 Kadima Blanquefort" && /221 avenue du Général de Gaulle/.test(bl.adresse) && bl.avis === "https://g.page/kadima",
        "un conseiller de Blanquefort : nom et adresse de Blanquefort, mentions et avis de Saint-Médard");
-    ok(/535 306 880/.test(cd.mentions) && /Louis-Barthou/.test(cd.adresse) && cd.telephone === "05 56 02 39 55", "un conseiller de Caudéran : mentions ICI CAUDERAN, adresse et téléphone de Caudéran"); }
+    ok(/535 306 880/.test(cd.mentions) && /Louis-Barthou/.test(cd.adresse) && cd.telephone === "05 56 02 39 55", "un conseiller de Caudéran : mentions ICI CAUDERAN, adresse et téléphone de Caudéran");
+    // Caudéran (03/11) : le lien d'avis Google de l'étape 7 est celui de la fiche Google de Caudéran ; un lien posé dans Réglages → Agences prime.
+    ok(cd.avis === CRMK.AVIS_CAUDERAN && /q=c21\+kadima\+cauderan/.test(cd.avis) && bl.avis === "https://g.page/kadima", "un conseiller de Caudéran : le lien d'avis Google de Caudéran, Blanquefort garde celui de l'identité");
+    ok(CRMK.completerAgencesKadima(kad, [{ cle: "cauderan", nom: "CENTURY 21 Kadima Bordeaux Caudéran", avis: "https://g.page/perso" }])[0].avis === "https://g.page/perso", "un lien d'avis saisi pour Caudéran n'est pas écrasé"); }
   await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test", bio: "Texte gardé" } });
   ok((await callR("/crm/conseillers", { headers: auth })).json.conseillers.find((x) => x.id === teddy.json.id).bio === "Texte gardé"
      && (await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test" } })).status === 200

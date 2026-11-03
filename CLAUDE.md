@@ -1429,6 +1429,11 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**Avis Google Caudéran (03/11)** : `AVIS_CAUDERAN` (crm.js, lien Google fourni par Benoît) posé par
+`completerAgencesKadima` sur le point de vente Caudéran quand son champ `avis` est vide → `agencePour` le
+donne à `{lien_avis}` (étape 7, e-mail après R2) et à « Nos avis clients » de la signature des e-mails du
+parcours. Un lien saisi dans Réglages → Agences prime. Mémo `avis-cauderan-03-11`.
+
 **SMS : un numéro auquel répondre (31/10)** : l'expéditeur SMS Brevo est alphanumérique (`smsExpediteur` →
 « C21Kadima »), on ne peut pas y répondre et Studio n'a pas de réception SMS. `telephoneReponse(reglages,
 profil)` (crm.js) = mobile du conseiller de la fiche (`profilConseillerPour` renvoie maintenant `telephone`),
