@@ -1428,11 +1428,24 @@
         zone.innerHTML = '<div class="vide">Aucun envoi pour l’instant.</div>';
         return;
       }
-      zone.innerHTML = '<div class="tableau-cadre"><table><thead><tr><th>Date</th><th>Contact</th><th>E-mail</th><th>Type</th><th>Statut</th></tr></thead><tbody>' +
+      // Le canal se lit (04/11) : les vœux par SMS portent une puce « SMS », et les autres types
+      // (rappel J+1 R2, séquence estimation, envois manuels) ont leur libellé au lieu de « Naissance ».
+      const libelleEnvoi = (e) => {
+        const sms = /-sms$/.test(e.type || ""), base = String(e.type || "").replace(/-sms$/, "");
+        const lib = base === "achat" ? (e.profil === "vendeur" ? '🔑 Vente <span class="puce grise">vendeur</span>' : '🏡 Achat <span class="puce">acquéreur</span>')
+          : base === "naissance" ? "🎂 Naissance"
+          : base === "rappel-apres-r2" ? "⏰ Rappel J+1 R2 (au conseiller)"
+          : /^estimation-/.test(base) ? "📍 Estimation · " + escH(base.replace(/^estimation-/, ""))
+          : /^manuel-/.test(base) ? "✍️ Envoi depuis la fiche"
+          : escH(base);
+        return lib + (sms ? ' <span class="puce">SMS</span>' : "");
+      };
+      const smsOk = envois.filter((e) => /-sms$/.test(e.type || "") && e.statut === "ok").length, smsKo = envois.filter((e) => /-sms$/.test(e.type || "") && e.statut !== "ok").length;
+      const dernierSms = envois.find((e) => /-sms$/.test(e.type || ""));
+      zone.innerHTML = '<p class="petit" style="margin:0 0 8px;">Sur les ' + envois.length + ' derniers envois : <strong>' + smsOk + ' SMS envoyé' + (smsOk > 1 ? "s" : "") + '</strong>' + (smsKo ? ', <span class="erreur">' + smsKo + " en erreur</span>" : "") + (dernierSms ? " · dernier SMS le " + escH(fmtTs(dernierSms.created_at)) : " · aucun SMS pour l'instant") + ".</p>" +
+        '<div class="tableau-cadre"><table><thead><tr><th>Date</th><th>Contact</th><th>Destinataire</th><th>Type</th><th>Statut</th></tr></thead><tbody>' +
         envois.map((e) => "<tr><td>" + fmtTs(e.created_at) + "</td><td>" + escH(e.contact) + "</td><td>" + escH(e.email) + "</td>" +
-          "<td>" + (e.type === "achat"
-            ? (e.profil === "vendeur" ? '🔑 Vente <span class="puce grise">vendeur</span>' : '🏡 Achat <span class="puce">acquéreur</span>')
-            : "🎂 Naissance") + "</td>" +
+          "<td>" + libelleEnvoi(e) + "</td>" +
           "<td>" + (e.statut === "ok" ? '<span class="ok">envoyé</span>' : '<span class="erreur">' + escH(e.erreur || "erreur") + "</span>") + "</td></tr>").join("") +
         "</tbody></table></div>";
     } catch (e) { toast(e.message, true); }
