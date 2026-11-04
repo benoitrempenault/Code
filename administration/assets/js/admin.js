@@ -146,6 +146,8 @@
   });
 
   /* ------------------------------- Modale -------------------------------- */
+  let gesteDocument = false;
+  for (const ev of ["pointerdown", "keydown"]) window.addEventListener(ev, () => { gesteDocument = true; }, { capture: true, once: true });
   function ouvrirModale(titre, corpsHtml, piedHtml) {
     $("modale-titre").textContent = titre;
     $("modale-corps").innerHTML = corpsHtml;
@@ -154,7 +156,9 @@
     // toute seule au chargement, comme le mémo des nouveautés) est ignorée par
     // le « précédent » de Chrome : history.back() sortirait alors de la page.
     // On ne la pose qu'après un premier clic.
-    const geste = !navigator.userActivation || navigator.userActivation.hasBeenActive;
+    // Le geste est compté dans CE document (clic ou touche) : `navigator.userActivation.hasBeenActive`
+    // survit à une navigation dans le même onglet, et l'intervention de Chrome, elle, juge par document.
+    const geste = gesteDocument;
     if (geste && $("voile").hidden && !(history.state && history.state.modale)) { try { history.pushState({ modale: true }, ""); } catch { /* sans historique */ } }
     $("voile").hidden = false;
     $("modale-corps").scrollTop = 0;
