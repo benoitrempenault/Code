@@ -1429,6 +1429,14 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**Guide R2 p4 « Évolution des taux d'intérêt » (04/11)** : la page est une image ; `tools/guides/taux-r2-p4.py
+<guide.pdf> <sortie.pdf>` (python3.13 + PyMuPDF) redessine TOUT le tableau par-dessus (fonds, grille, Barlow
+10.8/11.4/12, couleurs relevées) : 0,85 % janv. 2022 (montants d'origine, 501 940 compris), 3 % janv. 2026,
+3,50 % mai 2026, 4 % oct. 2026, 4,50 % janv. 2027, 5 % « ? 2027 ». Montants recalculés = capital sur 25 ans,
+assurance 0,34 %/an, arrondi au millier (modèle qui redonne les colonnes d'origine). Pour changer les taux :
+éditer `COLONNES` et relancer sur guide-r2.pdf ET guide-r2-cauderan.pdf ; le cache navigateur des PDF suit
+`?v=` d'admin.js (VERSION_ASSETS) → monter la version d'index.html.
+
 **Avis Google Caudéran (03/11)** : `AVIS_CAUDERAN` (crm.js, lien Google fourni par Benoît) posé par
 `completerAgencesKadima` sur le point de vente Caudéran quand son champ `avis` est vide → `agencePour` le
 donne à `{lien_avis}` (étape 7, e-mail après R2) et à « Nos avis clients » de la signature des e-mails du
