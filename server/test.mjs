@@ -2679,11 +2679,13 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     await db.run("DELETE FROM crm_conseillers WHERE agency_id = ? AND email = 'marc@autre-domaine.fr'", [agId]); }
   ok(runSms.sms === 2, "deux vœux partis par SMS (mobile requis, le fixe est écarté)");
   const smsTom = smsRecus.find((s) => s.recipient === "+33662125193");
+  ok(smsTom && smsTom.unicodeEnabled === false && smsTom.content.length <= 160, "le SMS part en jeu standard, un seul segment, unicode désactivé (" + (smsTom ? smsTom.content.length + " car." : "aucun") + ")");
   ok(smsTom && /Rémi/.test(smsTom.content) && /Joyeux anniversaire/.test(smsTom.content) && smsTom.sender.length <= 11,
     "le SMS est signé du prénom du conseiller de la fiche (expéditeur court)");
   const smsLea = smsRecus.find((s) => s.recipient === "+33755555555");
-  ok(smsLea && /Benoît Rempenault/.test(smsLea.content),
-    "sans conseiller : signé de la signature par défaut — et un contact sans e-mail reçoit quand même son vœu");
+  // « Benoît » devient « Benoit » : le î sort du jeu GSM standard (un segment au lieu de deux, 06/11).
+  ok(smsLea && /Benoit Rempenault/.test(smsLea.content) && !/Benoît/.test(smsLea.content),
+    "sans conseiller : signé de la signature par défaut (ramenée au jeu standard) — et un contact sans e-mail reçoit quand même son vœu");
   const smsAvant = smsRecus.length;
   await callS("/crm/anniversaires/run", { headers: auth, method: "POST" });
   ok(smsRecus.length === smsAvant, "un même vœu SMS ne part jamais deux fois dans l'année");
@@ -3115,12 +3117,15 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const { telephoneReponse, remplirModele: remplirModeleT } = await import("./src/crm.js");
     const regT = { ...regB, modeles: {}, agence: { ...regB.agence, telephone: "05 56 01 02 03" } };
     const smsTel = buildAnniversaireSms({ prenom: "Sophie", conseiller: "Rémi BLANC" }, "naissance", regT, aujE, telephoneReponse(regT, { telephone: "0612345678" }));
-    ok(/Rémi — Agence Acheteurs Test · 06 12 34 56 78$/.test(smsTel), "le SMS d'anniversaire finit par le mobile du conseiller, formaté (" + smsTel + ")");
+    ok(/Rémi, Agence Acheteurs Test - 06 12 34 56 78$/.test(smsTel) && smsTel.length <= 160 && CRM_TEST.estGsm7(smsTel), "le SMS d'anniversaire finit par le mobile du conseiller, formaté, en un segment standard (" + smsTel.length + " car. : " + smsTel + ")");
     const smsAg = buildAnniversaireSms({ prenom: "Sophie" }, "achat", regT, aujE, telephoneReponse(regT, null));
-    ok(/· 05 56 01 02 03$/.test(smsAg), "sans conseiller : le téléphone de l'agence (" + smsAg + ")");
+    ok(/- 05 56 01 02 03$/.test(smsAg) && smsAg.length <= 160, "sans conseiller : le téléphone de l'agence (" + smsAg + ")");
     const regSans = { ...regT, agence: { ...regT.agence, telephone: "" } };
     const smsRien = buildAnniversaireSms({ prenom: "Sophie" }, "naissance", regSans, aujE, telephoneReponse(regSans, null));
-    ok(/Agence Acheteurs Test$/.test(smsRien) && !/·/.test(smsRien), "sans aucun numéro : pas de séparateur orphelin (" + smsRien + ")");
+    ok(/Agence Acheteurs Test$/.test(smsRien) && !/[·-]\s*$/.test(smsRien), "sans aucun numéro : pas de séparateur orphelin (" + smsRien + ")");
+    const smsLong = buildAnniversaireSms({ prenom: "Jean-Baptiste", conseiller: "Laurence ARIZTOY", date_achat: decalerJour(aujE, -1100) }, "achat", { ...regT, agence: { ...regT.agence, nom: "CENTURY 21 Kadima" } }, aujE, "06 12 34 56 78");
+    ok(smsLong.length <= 160 && CRM_TEST.estGsm7(smsLong) && /il y a 3 ans vous receviez/.test(smsLong), "le vœu d'achat le plus long reste en un segment (" + smsLong.length + " car. : " + smsLong + ")");
+    ok(CRM_TEST.texteSms("Fête à Caudéran — 1 · 2 « ok » … l’œuvre") === "Fete à Caudéran - 1 - 2 \"ok\" ... l'oeuvre" && CRM_TEST.estGsm7(CRM_TEST.texteSms("Fête à Caudéran — l’œuvre")) && !CRM_TEST.estGsm7("Fête"), "texteSms ramène un texte au jeu GSM standard (ponctuation, œ, ê), estGsm7 le vérifie");
     const modTel = remplirModeleT("Bonjour {prenom}. {signature} — {agence} · {telephone}", { prenom: "Zoé", signature: "Rémi", agence: "C21", telephone: "" });
     ok(modTel === "Bonjour Zoé. Rémi — C21", "un modèle de l'agence avec {telephone} vide perd le « · » final (" + modTel + ")");
   }
@@ -3428,7 +3433,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const flag = { ...seul, civilite: "M.", prenom: "Paul", notes: ANNIV_A_CONFIRMER + " · vendeur 2019" };
     ok(/lequel de vous deux/.test(buildAnniversaireEmail(flag, "naissance", ag, aujE, {}).html),
       "une fiche scindée dont la date est « à confirmer » reçoit aussi le vœu qui interroge");
-    ok(/Répondez-nous par SMS au 06 12 34 56 78 pour nous dire qui souffle les bougies/.test(buildAnniversaireSms(couple, "naissance", { agence: ag, anniversaires: {} }, aujE, "06 12 34 56 78")) && /Dites-nous en un mot qui souffle les bougies/.test(buildAnniversaireSms(couple, "naissance", { agence: ag, anniversaires: {} }, aujE)),
+    ok(/souffle les bougies, par SMS au 06 12 34 56 78\./.test(buildAnniversaireSms(couple, "naissance", { agence: ag, anniversaires: {} }, aujE, "06 12 34 56 78")) && /Dites-nous qui souffle les bougies\./.test(buildAnniversaireSms(couple, "naissance", { agence: ag, anniversaires: {} }, aujE)),
       "le SMS couple invite à répondre par SMS au numéro du conseiller quand il existe");
     ok(/souffle les bougies/.test(buildAnniversaireSms(couple, "naissance", { agence: ag, anniversaires: {} }, aujE)),
       "le SMS couple interroge lui aussi");

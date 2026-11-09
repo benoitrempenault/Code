@@ -1429,6 +1429,15 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**SMS courts, un segment (06/11)** : Brevo facture au segment (≈ 4,5 crédits ≈ 0,045 € ; unicode = 70
+caractères/segment, standard = 160). Modèles `sms-*` et textes par défaut de `buildAnniversaireSms` resserrés
+(≤ 160 caractères en jeu GSM avec « Jean-Baptiste », « Laurence », « CENTURY 21 Kadima », un 06) : « {signature},
+{agence} - {telephone} », `{repondre}` = « , par SMS au 06… » ou rien, « il y a {annees} » (plus « jour pour jour »).
+`texteSms()` (crm.js) ramène tout SMS au jeu standard (— – · → -, ’ → ', « » → ", … → ..., œ → oe, ê â î ô û ç
+sans accent) et `envoyerSmsBrevo` ne met `unicodeEnabled` que si `estGsm7()` est faux. `remplirModele` efface
+aussi un « - » orphelin en fin de ligne. Relevés Brevo (accounts_get_account) : 05/11 8 h 40 = 4 190 crédits SMS,
+06/11 = 3 965 ; 25 vœux SMS ≈ 225 crédits avant ce changement. Mémo `sms-courts-06-11`.
+
 **Guide R2 p4 « Évolution des taux d'intérêt » (04/11)** : la page est une image ; `tools/guides/taux-r2-p4.py
 <guide.pdf> <sortie.pdf>` (python3.13 + PyMuPDF) redessine TOUT le tableau par-dessus (fonds, grille, Barlow
 10.8/11.4/12, couleurs relevées) : 0,85 % janv. 2022 (montants d'origine, 501 940 compris), 3 % janv. 2026,

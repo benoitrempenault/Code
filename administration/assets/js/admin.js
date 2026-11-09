@@ -4888,6 +4888,8 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "sms-courts-06-11", depuis: "2026-11-06", jours: 7, titre: "SMS : des vœux plus courts",
+      html: '<p class="aide" style="max-width:none;">Les SMS d\'anniversaire tiennent désormais en <strong>un seul segment</strong> (160 caractères, jeu standard) : textes resserrés, virgule et tiret simple, le numéro de réponse toujours à la fin. Les SMS écrits depuis une fiche contact passent aussi en jeu standard : la ponctuation typographique est remplacée et les rares lettres hors jeu (ê, ç, œ…) perdent leur accent. Un SMS coûte ainsi trois fois moins cher.</p>' },
     { id: "avis-cauderan-03-11", depuis: "2026-11-03", jours: 7, titre: "Caudéran : le lien d'avis Google de l'étape 7",
       html: '<p class="aide" style="max-width:none;">Pour les conseillers de <strong>Caudéran</strong>, l\'e-mail après le R2 (point 7) et la ligne « Nos avis clients » des e-mails du parcours renvoient désormais vers la fiche Google de l\'agence de Caudéran. Saint-Médard, Blanquefort et Saint-Aubin gardent leur lien.</p>' },
     { id: "sms-telephone-31-10", depuis: "2026-10-31", jours: 7, titre: "SMS : un numéro auquel répondre",

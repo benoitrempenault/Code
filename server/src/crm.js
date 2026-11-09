@@ -1319,13 +1319,13 @@ export const MODELES = {
     sujet: "Il y a {annees}, une belle page se tournait ✨",
     texte: "Il y a {depuis}, vous vendiez votre bien à {ville} avec notre agence. Nous gardons un très bon souvenir de ce projet mené ensemble, et nous espérons que ce nouveau chapitre vous a apporté tout ce que vous en attendiez.\n\nSi un nouveau projet se dessine — une vente, un achat, un investissement, ou simplement l'envie de connaître la valeur d'un bien — notre porte vous est toujours grande ouverte. Au plaisir de vous revoir !" },
   "sms-naissance": { titre: "Anniversaire de naissance", canal: "sms",
-    texte: "Joyeux anniversaire {prenom} ! Toute l'équipe pense à vous et vous souhaite une très belle journée. {signature} — {agence} · {telephone}" },
+    texte: "Joyeux anniversaire {prenom} ! Toute l'équipe vous souhaite une très belle journée. {signature}, {agence} - {telephone}" },
   "sms-naissance-couple": { titre: "Anniversaire de naissance — fiche couple", canal: "sms",
-    texte: "Un anniversaire se fête chez vous aujourd'hui : toute l'équipe pense à vous ! {repondre} qui souffle les bougies (et la date de l'autre), pour des vœux à la bonne date l'an prochain. {signature} — {agence}" },
+    texte: "Un anniversaire chez vous aujourd'hui : l'équipe pense à vous ! Dites-nous qui souffle les bougies{repondre}. {signature}, {agence}" },
   "sms-achat-acquereur": { titre: "Anniversaire d'achat (acquéreur)", canal: "sms",
-    texte: "Bonjour {prenom}, il y a {depuis}, vous receviez les clés de votre nouveau chez-vous. Bel anniversaire ! {signature} — {agence} · {telephone}" },
+    texte: "Bonjour {prenom}, il y a {annees} vous receviez les clés de votre chez-vous. Bel anniversaire ! {signature}, {agence} - {telephone}" },
   "sms-achat-vendeur": { titre: "Anniversaire de vente (vendeur)", canal: "sms",
-    texte: "Bonjour {prenom}, il y a {depuis}, vous vendiez votre bien avec nous. On pense à vous — belle journée ! {signature} — {agence} · {telephone}" },
+    texte: "Bonjour {prenom}, il y a {annees} vous vendiez votre bien avec nous. On pense à vous, belle journée ! {signature}, {agence} - {telephone}" },
   "estimation-avant-r1": { titre: "Estimation — veille du R1", canal: "email",
     sujet: "À demain, pour l'estimation de votre bien",
     texte: "Nous nous retrouvons demain au {adresse} pour l'estimation de votre bien. Nous prendrons le temps de le visiter ensemble et d'écouter votre projet — comptez environ une heure.\n\nSi vous les avez sous la main, quelques documents nous aideront à être précis : taxe foncière, DPE, factures de travaux récents, charges de copropriété le cas échéant. Rien d'obligatoire — nous ferons aussi très bien sans.\n\nÀ demain, et merci de votre confiance !" },
@@ -1378,7 +1378,7 @@ export function remplirModele(texte, vars) {
     .replace(/[^\S\n]+/g, " ")
     .replace(/ ([,.])/g, "$1")
     // Un séparateur resté seul en fin de ligne (« — C21 Kadima · » sans téléphone) s'efface.
-    .replace(/\s*[·—–]\s*$/gm, "")
+    .replace(/\s*[·—–-]\s*$/gm, "")
     .replace(/^[ ,]+|[ ]+$/gm, "")
     .trim();
 }
@@ -1833,8 +1833,10 @@ export function buildAnniversaireSms(contact, type, reglages, isoDay, telephone 
   const prenom = (contact.prenom || "").split(/\s+/)[0] || "";
   const signature = signatureSms(contact, reglages);
   const agence = reglages.agence.nom || "l'agence";
-  const repondre = telephone ? "Répondez-nous par SMS au " + telephone + " pour nous dire" : "Dites-nous en un mot";
-  const queue = telephone ? " · " + telephone : "";
+  // Textes courts (Benoît, 06/11) : un seul segment SMS (160 caractères en jeu standard), virgule et
+  // tiret simple plutôt que tiret long et point médian ; {repondre} = « , par SMS au 06… » ou rien.
+  const repondre = telephone ? ", par SMS au " + telephone : "";
+  const queue = telephone ? " - " + telephone : "";
   const annees = type === "naissance" ? null : yearsSince(contact.date_achat, isoDay);
   const nDepuis = annees && annees > 1 ? annees + " ans jour pour jour"
     : annees === 1 ? "un an jour pour jour" : "quelque temps jour pour jour";
@@ -1851,24 +1853,37 @@ export function buildAnniversaireSms(contact, type, reglages, isoDay, telephone 
     });
   }
   if (type === "naissance") {
-    return "Joyeux anniversaire" + (prenom ? " " + prenom : "") + " ! Toute l'équipe pense à vous " +
-      "et vous souhaite une très belle journée. " + signature + " — " + agence + queue;
+    return "Joyeux anniversaire" + (prenom ? " " + prenom : "") + " ! Toute l'équipe vous souhaite une très belle journée. " + signature + ", " + agence + queue;
   }
-  const depuis = "il y a " + nDepuis;
+  const depuis = "il y a " + (annees && annees > 0 ? annees + " an" + (annees > 1 ? "s" : "") : "quelque temps");
   if (profilAchat(contact) === "vendeur") {
-    return "Bonjour" + (prenom ? " " + prenom : "") + ", " + depuis + ", vous vendiez votre bien avec nous. " +
-      "On pense à vous — belle journée ! " + signature + " — " + agence + queue;
+    return "Bonjour" + (prenom ? " " + prenom : "") + ", " + depuis + " vous vendiez votre bien avec nous. On pense à vous, belle journée ! " + signature + ", " + agence + queue;
   }
-  return "Bonjour" + (prenom ? " " + prenom : "") + ", " + depuis + ", vous receviez les clés de votre " +
-    "nouveau chez-vous. Bel anniversaire ! " + signature + " — " + agence + queue;
+  return "Bonjour" + (prenom ? " " + prenom : "") + ", " + depuis + " vous receviez les clés de votre chez-vous. Bel anniversaire ! " + signature + ", " + agence + queue;
+}
+// Jeu de caractères GSM 7 bits (160 caractères par segment ; en unicode, 70 seulement et chaque
+// segment se paie). Les lettres du jeu de base, et les caractères étendus (comptés double).
+const GSM_BASE = new Set("@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà");
+const GSM_ETENDU = new Set("^{}\\[~]|€");
+export const estGsm7 = (t) => [...String(t || "")].every((c) => GSM_BASE.has(c) || GSM_ETENDU.has(c));
+// Ramène un SMS au jeu standard (Benoît, 06/11 : un vœu = un segment) : ponctuation typographique
+// remplacée, lettres hors jeu (ê â î ô û ç œ…) sans accent. Ce qui reste hors jeu passe en unicode.
+const SMS_REMPLACEMENTS = [[/[\u2014\u2013\u00b7\u2022]/g, "-"], [/[\u2018\u2019\u02bc]/g, "'"], [/\u00ab\s*/g, '"'], [/\s*\u00bb/g, '"'], [/[\u201c\u201d]/g, '"'], [/\u2026/g, "..."],
+  [/[\u00a0\u202f\u2009]/g, " "], [/œ/g, "oe"], [/Œ/g, "OE"], [/[êëě]/g, "e"], [/[âáã]/g, "a"], [/[îïí]/g, "i"], [/[ôóõ]/g, "o"], [/[ûúü]/g, "u"], [/ç/g, "c"],
+  [/[ÊËÈ]/g, "E"], [/[ÂÀÁ]/g, "A"], [/[ÎÏÍ]/g, "I"], [/[ÔÓÒ]/g, "O"], [/[ÛÚÙ]/g, "U"], [/[ÿý]/g, "y"]];
+export function texteSms(t) {
+  let out = String(t || "");
+  for (const [re, par] of SMS_REMPLACEMENTS) out = out.replace(re, par);
+  return out.replace(/ {2,}/g, " ").trim();
 }
 export async function envoyerSmsBrevo(env, { to, content, sender }) {
   if (!env.BREVO_API_KEY) return { ok: false, dryRun: true, error: "" };
+  content = texteSms(content);
   try {
     const res = await fetch((env.BREVO_BASE || "https://api.brevo.com") + "/v3/transactionalSMS/sms", {
       method: "POST",
       headers: { "api-key": env.BREVO_API_KEY, "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ type: "transactional", unicodeEnabled: true, sender, recipient: to, content }),
+      body: JSON.stringify({ type: "transactional", unicodeEnabled: !estGsm7(content), sender, recipient: to, content }),
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
@@ -2930,7 +2945,7 @@ export async function envoyerMessageContact(env, { agency, reglages, contact, ca
     conseiller: contact.conseiller || expediteur || "",
     agence: ag.nom || agency.name || "", signature: ag.nom || agency.name || "",
     annees: "", depuis: "", r1: "", r2: "",
-    telephone, repondre: telephone ? "Répondez-nous par SMS au " + telephone + " pour nous dire" : "Dites-nous en un mot",
+    telephone, repondre: telephone ? ", par SMS au " + telephone : "",
   };
   const corps = remplirModele(texte, vars);
   if (!corps) return { ok: false, error: "Le message est vide." };
