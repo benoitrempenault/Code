@@ -318,6 +318,51 @@ n'apparaissent pas (`applies: pasTerrain`, client et serveur), les deux dates SR
 disparaissent des « Dates clés » (une mention l'explique), `{{fin_retractation}}` est vide
 et le panneau « VENDU » se pose dès le compromis (J+3).
 
+### Revue générale du 09/11/2026
+
+Relecture complète du code de Studio Suivi. Ce qui a été corrigé :
+
+- **Nature du bien** : c'est le champ « Type » qui décide. Une maison dont la désignation
+  parlait de son « terrain » était suivie comme un terrain (donc **sans SRU ni délai de
+  rétractation** depuis le 08/10) ; un terrain « proche des commerces » devenait un local.
+  La désignation ne sert plus que si le type est muet, et le mot « terrain » seul n'y suffit
+  pas (il faut un terrain à bâtir, sans rien d'édifié).
+- **Conditions suspensives** : l'intitulé décide du sort d'une condition (`texteDecisif`).
+  Une vraie condition dont le DÉTAIL citait le prêt, le financement ou la préemption sortait
+  de l'échéancier sans rien dire. Un intitulé passe-partout (« Condition suspensive n°2 »)
+  laisse parler le détail. La fiche indique sous chaque condition de prêt ou de préemption
+  dans quelle phase elle est suivie.
+- **Recours au prêt, trois états** (`avecPret` : oui / non / inconnu). Champ non renseigné
+  mais condition de prêt au compromis = prêt (phase Financement). Inconnu sans condition :
+  les courriers n'inventent plus de « condition suspensive au … ».
+- **Date de rétractation estimée** : tant que « Présentation AR SRU » n'est pas saisie, la
+  date vaut compromis + 14 jours — l'étape le dit, et la fenêtre du courrier affiche un
+  avertissement rouge avant l'envoi.
+- **Purge de la préemption** : calculée sur « AR de la DIA » (le champ existait, il n'était
+  pas utilisé).
+- **Courriers sur un terrain / un achat comptant** : plus de « [fin_retractation ?] » ni de
+  « preuve de dépôt de la SRU » sur un terrain, plus d'« offre de prêt ci-jointe » sur un
+  achat comptant.
+- **Annuaire des notaires** : deux prénoms différents = deux notaires (« Me Bertrand PULON »
+  ne prend plus l'e-mail de « PULON Antoine », même seul de son nom) ; la préposition « à »
+  n'est plus prise pour une initiale ; « & Associés » est ignoré.
+- **Annuaire et modèles, corrections perdues** : après un rechargement de la liste, une
+  seconde correction sur la même fiche (ou le même modèle) s'affichait « enregistrée ✓ »
+  mais partait avec l'ancienne version. L'enregistrement relit désormais la fiche par son id.
+- **Faux « modifié par quelqu'un d'autre »** : (1) les enregistrements d'un même dossier
+  passent l'un après l'autre (`saveDossier` en file) ; (2) l'envoi d'un PDF (compromis,
+  avenant) faisait avancer la version du dossier sur le serveur sans que le poste le sache —
+  la réponse rend maintenant `updated_at` / `updated_at_avant`, et le poste suit (`suitVersion`).
+- **Saisies effacées au réaffichage** : note du journal en cours, action libre en
+  préparation, cases de marquage et replis ouverts survivent à un re-rendu ; les fiches
+  (Vendeurs, Conditions…) ne se referment plus quand on y ajoute une ligne.
+- **Décocher une étape** efface sa date clé (« Acte signé le… » ne reste plus après un clic
+  de trop) — sauf la présentation de la SRU, date légale conservée.
+- **Avenants** : la condition visée est retrouvée par son intitulé entier (plus par son
+  dernier mot) ; les dates lues sont validées avant d'être posées ; une condition « ajoutée »
+  déjà présente est modifiée, pas doublée.
+- **Agences** : « Nathan » (Caudéran) n'entraîne plus « Nathalie » (Saint-Médard).
+
 ### Habillage
 
 L'app est en **thème clair « lin »** (`suivi.css`, `color-scheme: light`) : fond sable
@@ -358,7 +403,7 @@ annuaire, mêmes comptes) mais chaque dossier appartient à une agence :
 | RIB du dépositaire envoyé à l'acquéreur | J+5 | sans RIB, pas de virement possible — l'e-mail joint le relevé de l'étude et met en garde contre la fraude au faux RIB |
 | Séquestre reçu | délai du compromis, sinon J+12 | versement usuel 5-10 % sous 8-10 jours ; les deux lignes disparaissent quand le compromis ne prévoit pas de dépôt |
 | DIA envoyée | **envoi du dossier aux notaires + 7 jours** (envoi estimé à J+3 si la date n'est pas renseignée) | **la** relance qui fait gagner un mois : plus tôt le notaire envoie la DIA, plus tôt les deux mois de la mairie courent ; demander une renonciation expresse si possible. S'applique à tous les dossiers, l'échéance étant recalculée à chaque affichage |
-| Purge du droit de préemption | envoi DIA + 2 mois (art. L213-2 C. urb., silence = renonciation) | pas de relance : le silence de la mairie suffit, on ne fait que constater |
+| Purge du droit de préemption | **accusé de réception de la DIA + 2 mois** (le délai court de la réception en mairie, art. L213-2 C. urb. ; silence = renonciation) ; sans AR saisi : envoi + 62 jours ; sans rien : compromis + 77 jours | pas de relance : le silence de la mairie suffit, on ne fait que constater |
 | Dépôt du dossier de prêt | date du compromis, sinon J+10 | clause usuelle 10-15 jours |
 | Accord de principe banque | J+30 | usage |
 | Offre de prêt (ODP) | échéance condition − 10 j, sinon J+45 | émission usuelle 30-45 jours ; L313-41 : durée min. de la condition 30 jours |

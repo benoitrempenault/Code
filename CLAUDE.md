@@ -89,6 +89,15 @@ tableau de bord des actions en retard, et **relances par e-mail** à partir de m
 partagés (table D1 `modeles`, routes `/modeles`, champs de fusion `{{reference}}` etc.,
 composition mailto + journalisation dans le dossier). Outil interne Century 21 (noindex,
 logo Kadima via `logo.js`) — mêmes règles de séparation que `/` et `/mandat/`.
+**Revue du 09/11** (détail dans `docs/suivi-dossiers.md`) : `typeBien` décide sur le champ
+Type (la désignation ne renverse plus rien — une maison « sur terrain » perdait sa SRU) ;
+`texteDecisif(c)` = l'intitulé d'une condition décide (CS_HORS / CS_DROIT), `condHors`,
+`avecPret(d)` oui|non|"" (condition de prêt listée = oui), `retractEstimee(d)` (alerte
+`#mailAlerte` dans le courrier), purge DIA sur `dates.ar_dia` + 2 mois ; `saveDossier` en
+file par dossier, `suitVersion` (les PUT compromis / avenant rendent `updated_at` et
+`updated_at_avant`) ; annuaire et modèles enregistrés PAR ID (`annEdits`) ; brouillons et
+focus conservés par `renderDossier(opts)` (`{neuf:true}` après un ajout) ; `conditionProche`
+(avenants, relecture) ; `dateIso` ; `etapes.js?v=` et `app.js?v=` montent ENSEMBLE.
 
 **`administration/` — Studio Administration**, l'app interne Kadima d'**administration de
 l'agence** : la base contacts partagée (import d'extraction Excel/CSV avec mappage de colonnes

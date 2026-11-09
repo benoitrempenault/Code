@@ -128,9 +128,13 @@
   }
   // Mots significatifs d'un nom, titres et formes juridiques retirés
   // (« Me Bertrand NAUTIACQ » → ["bertrand", "nautiacq"]).
-  const MOTS_VIDES = /^(me|mes|maitre|maitres|notaire|notaires|etude|office|notarial|notariale|scp|selarl|selas|sarl|sas|sa|et|de|du|des|la|le|les|d)$/;
+  const MOTS_VIDES = /^(me|mes|maitre|maitres|notaire|notaires|etude|office|notarial|notariale|scp|selarl|selas|sarl|sas|sa|et|de|du|des|la|le|les|d|associe|associes|associee|associees)$/;
   function motsNom(nom) {
-    return String(nom || "").trim().split(/[\s,'’.-]+/).map(normMot).filter((w) => w && !MOTS_VIDES.test(w));
+    return String(nom || "").trim().split(/[\s,'’.-]+/)
+      // « notaire à Bordeaux » : la préposition n'est pas une initiale (elle
+      // « couvrait » Antoine, Associés… et rapprochait deux notaires distincts).
+      .filter((w) => w !== "à" && w !== "À" && w !== "a")
+      .map(normMot).filter((w) => w && !MOTS_VIDES.test(w));
   }
   // Dernier mot significatif d'un nom (« Me Bertrand NAUTIACQ » → nautiacq).
   function motCle(nom) {
@@ -214,6 +218,19 @@
     const mots = motsNom(nom).filter((w) => w.length >= 3);
     return mots.length ? [mots[mots.length - 1]] : [];
   }
+  // Prénoms d'un nom : ses mots hors patronyme, avant toute précision de lieu
+  // (« , notaire à… », « (Saint-Médard) »).
+  function prenomsDe(nom, patro) {
+    const tete = String(nom || "").split(/[,(–—]|\s[àÀ]\s/)[0];
+    return motsNom(tete).filter((w) => !patro.some((p) => motCouvre(p, w)));
+  }
+  // Deux prénoms qui ne se recoupent pas = deux personnes (« Me Bertrand
+  // PULON » n'est pas « PULON Antoine », même s'il est seul de son nom dans
+  // l'annuaire). Un prénom absent d'un côté ne contredit rien.
+  function prenomsContraires(a, b, patro) {
+    const pa = prenomsDe(a, patro), pb = prenomsDe(b, patro);
+    return pa.length > 0 && pb.length > 0 && !pa.some((x) => pb.some((y) => motCouvre(x, y)));
+  }
   function annParPatronyme(types, nom) {
     const patro = patronymeDe(nom);
     if (!patro.length) return null;
@@ -222,6 +239,7 @@
     annuaire.filter((a) => types.includes(a.type)).forEach((a) => {
       const am = motsNom(a.nom);
       if (!patro.every((p) => am.some((x) => motCouvre(p, x)))) return;
+      if (prenomsContraires(nom, a.nom, patro)) return;
       const n = mots.filter((w) => am.some((x) => motCouvre(w, x))).length;
       if (n > bestN) { bestN = n; best = [a]; } else if (n === bestN) best.push(a);
     });
@@ -310,12 +328,27 @@
   // toutes (modifiable ensuite dans l'annuaire) ; les fiches sans agence
   // restent à Saint-Médard.
   async function seedSites() {
-    const CAUDERAN = ["benjamin", "natha", "florian", "maxime", "laura"];
+    // Prénoms EXACTS : le préfixe « natha » rattachait aussi Nathalie
+    // (Saint-Médard) à Caudéran, à la place de Nathan.
+    const CAUDERAN = ["benjamin", "nathan", "florian", "maxime", "laura"];
     for (const a of annOf("conseiller").filter((x) => !(x.ville || "").trim())) {
-      if (motsNom(a.nom).some((w) => CAUDERAN.some((p) => w.startsWith(p)))) {
+      if (motsNom(a.nom).some((w) => CAUDERAN.includes(w))) {
         a.ville = "Caudéran";
         try { await api("/annuaire", { method: "PUT", json: a }); } catch (e) { /* sans gravité */ }
       }
+    }
+    // Rattrapage, une fois par poste : la fiche de Nathalie rangée à Caudéran
+    // par l'ancien préfixe revient à Saint-Médard (modifiable ensuite).
+    let fait = "";
+    try { fait = localStorage.getItem("studio-suivi-fix-nathalie") || ""; } catch (e) { }
+    if (!fait) {
+      for (const a of annOf("conseiller")) {
+        if (motsNom(a.nom).includes("nathalie") && siteDeVille(a.ville) === "cauderan") {
+          a.ville = "Saint-Médard";
+          try { await api("/annuaire", { method: "PUT", json: a }); } catch (e) { /* sans gravité */ }
+        }
+      }
+      try { localStorage.setItem("studio-suivi-fix-nathalie", "1"); } catch (e) { }
     }
   }
 
@@ -334,6 +367,7 @@
   // du vide, et seulement si quelque chose a changé.
   async function syncAnnuaireFromDossier(d) {
     const jobs = [];
+    let ecrit = false;
     [d.notaire_vendeur, d.notaire_acquereur].forEach((n) => {
       if (n && (n.nom || "").trim() && (n.email || n.telephone || n.ville)) {
         jobs.push({ type: "notaire", nom: n.nom.trim(), ville: n.ville, telephone: n.telephone, email: n.email });
@@ -355,9 +389,12 @@
       fields.forEach((k) => { if ((j[k] || "").trim()) payload[k] = j[k].trim(); });
       try {
         await api("/annuaire", { method: "PUT", json: payload });
+        ecrit = true;
       } catch (e) { continue; }
     }
-    if (jobs.length) await loadAnnuaire();
+    // On ne relit l'annuaire que si une fiche a vraiment changé : le relire à
+    // chaque enregistrement de dossier remplaçait les fiches en mémoire.
+    if (ecrit) await loadAnnuaire();
   }
 
   // nom = nom d'usage (marital) ; nom_naissance = nom de jeune fille quand il
@@ -436,6 +473,28 @@
   // Conditions qu'on ne suit pas : le notaire s'en charge seul, et leur
   // présence dans la fiche n'apprend rien. Reconnue sur le seul intitulé.
 
+  /* Répare les dates mal formées (« 12/05/2026 » écrit par une extraction
+     ou une vieille sauvegarde au lieu de l'ISO « 2026-05-12 ») : une date
+     illisible rend son échéance incalculable — l'étape restait grise et ne
+     remontait jamais au tableau de bord. Tout autre texte est laissé. */
+  const MOIS_FR = { janvier: 1, fevrier: 2, mars: 3, avril: 4, mai: 5, juin: 6,
+    juillet: 7, aout: 8, septembre: 9, octobre: 10, novembre: 11, decembre: 12 };
+  const repareDate = (v) => {
+    const s = String(v || "").trim();
+    if (!s || /^\d{4}-\d{2}-\d{2}$/.test(s)) return v;
+    const m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/.exec(s);
+    if (m) {
+      const an = m[3].length === 2 ? "20" + m[3] : m[3];
+      return an + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0");
+    }
+    // « 15 avril 2026 », « 1er août 2026 » — l'écriture des compromis.
+    const t = /^(\d{1,2})(?:er)?\s+([a-zà-ÿ]+)\s+(\d{4})$/i.exec(s);
+    const mois = t && MOIS_FR[t[2].toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")];
+    if (mois) return t[3] + "-" + String(mois).padStart(2, "0") + "-" + t[1].padStart(2, "0");
+    return v;
+  };
+  const dateIso = (v) => { const r = String(repareDate(String(v == null ? "" : v).trim()) || "").trim(); return /^\d{4}-\d{2}-\d{2}$/.test(r) ? r : ""; };
+
   // Consolide un dossier chargé (ancien, partiel ou importé) sur le gabarit.
   function normalize(data) {
     const base = newDossier();
@@ -454,32 +513,15 @@
     if (!Array.isArray(data.journal)) data.journal = [];
     if (!Array.isArray(data.avenants)) data.avenants = [];
     if (!Array.isArray(data.actions_ajoutees)) data.actions_ajoutees = [];
-    /* Répare les dates mal formées (« 12/05/2026 » écrit par une extraction
-       ou une vieille sauvegarde au lieu de l'ISO « 2026-05-12 ») : une date
-       illisible rend son échéance incalculable — l'étape restait grise et ne
-       remontait jamais au tableau de bord. Tout autre texte est laissé. */
-    const MOIS_FR = { janvier: 1, fevrier: 2, mars: 3, avril: 4, mai: 5, juin: 6,
-      juillet: 7, aout: 8, septembre: 9, octobre: 10, novembre: 11, decembre: 12 };
-    const repareDate = (v) => {
-      const s = String(v || "").trim();
-      if (!s || /^\d{4}-\d{2}-\d{2}$/.test(s)) return v;
-      const m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/.exec(s);
-      if (m) {
-        const an = m[3].length === 2 ? "20" + m[3] : m[3];
-        return an + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0");
-      }
-      // « 15 avril 2026 », « 1er août 2026 » — l'écriture des compromis.
-      const t = /^(\d{1,2})(?:er)?\s+([a-zà-ÿ]+)\s+(\d{4})$/i.exec(s);
-      const mois = t && MOIS_FR[t[2].toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")];
-      if (mois) return t[3] + "-" + String(mois).padStart(2, "0") + "-" + t[1].padStart(2, "0");
-      return v;
-    };
     data.date_compromis = repareDate(data.date_compromis);
     data.date_butoir = repareDate(data.date_butoir);
     for (const k of Object.keys(data.dates)) {
       if (!/^signature_(heure|lieu_)/.test(k)) data.dates[k] = repareDate(data.dates[k]);
     }
     data.sequestre.delai = repareDate(data.sequestre.delai);
+    // Dates du prêt : mêmes réparations (une date « 30/11/2026 » laissait le
+    // champ vide à l'écran et l'échéance au délai par défaut).
+    ["date_limite_depot", "date_limite_obtention"].forEach((k) => { data.financement[k] = repareDate(data.financement[k]); });
     for (const o of [data.entretiens, data.diagnostics]) {
       if (o && typeof o === "object") for (const k of Object.keys(o)) o[k] = repareDate(o[k]);
     }
@@ -725,7 +767,23 @@
     el.textContent = s === "saving" ? "Enregistrement…" : s === "saved" ? "Enregistré ✓" : s === "error" ? "⚠ Non enregistré" : s === "dirty" ? "Modifié…" : "";
     el.style.color = s === "error" ? "var(--bad)" : "var(--muted)";
   }
-  async function saveDossier(id) {
+  /* Les enregistrements d'un même dossier passent L'UN APRÈS L'AUTRE. Envoyés
+     en parallèle (frappe rapide, case cochée pendant qu'un envoi est en vol),
+     le second partait avec l'ancienne version du dossier et le serveur
+     répondait « modifié par quelqu'un d'autre » — alors qu'on était seul.
+     Une seule sauvegarde attend derrière celle en cours : elle enverra
+     l'état du moment, inutile d'en empiler d'autres. */
+  const fileSaves = {};
+  function saveDossier(id) {
+    const f = fileSaves[id] || (fileSaves[id] = { cours: null, suite: null });
+    if (!f.cours) {
+      f.cours = saveDossierNow(id).finally(() => { f.cours = null; });
+      return f.cours;
+    }
+    if (!f.suite) f.suite = f.cours.then(() => { f.suite = null; return saveDossier(id); });
+    return f.suite;
+  }
+  async function saveDossierNow(id) {
     const d = details[id];
     if (!d) return;
     if (id === currentId) setSaveState("saving");
@@ -1130,6 +1188,7 @@
     if (touches && (location.hash || "").startsWith("#dossier/")) renderDossier();
   }
   const saveAnnSoon = {};
+  const annEdits = {}; // fiche id → champs saisis, pas encore enregistrés
   const coordTouche = {}; // fiche id → { email, telephone } modifiés depuis la dernière sauvegarde
   function wireAnnuaire() {
     const root = $("#annuaireList");
@@ -1142,19 +1201,29 @@
       const row = ev.target.closest("[data-aid]");
       const f = ev.target.dataset.afield;
       if (!row || !f) return;
-      const a = annuaire.find((x) => x.id === row.dataset.aid);
+      const id = row.dataset.aid;
+      const a = annuaire.find((x) => x.id === id);
       if (!a) return;
       a[f] = ev.target.value;
-      if (f === "email" || f === "telephone") (coordTouche[a.id] = coordTouche[a.id] || {})[f] = true;
-      saveAnnSoon[a.id] = saveAnnSoon[a.id] || debounce(async () => {
+      // La saisie est gardée À PART, par fiche : l'annuaire en mémoire est
+      // relu de temps à autre (ajout d'une fiche, enrichissement depuis un
+      // dossier) et l'objet d'avant n'est alors plus celui de la liste — on
+      // enregistrait l'ancien, et la seconde correction se perdait.
+      (annEdits[id] = annEdits[id] || {})[f] = ev.target.value;
+      if (f === "email" || f === "telephone") (coordTouche[id] = coordTouche[id] || {})[f] = true;
+      saveAnnSoon[id] = saveAnnSoon[id] || debounce(async () => {
+        const fiche = annuaire.find((x) => x.id === id);
+        if (!fiche) return;
+        Object.assign(fiche, annEdits[id] || {});
+        delete annEdits[id];
         try {
-          await api("/annuaire", { method: "PUT", json: a });
+          await api("/annuaire", { method: "PUT", json: fiche });
           toast("Annuaire enregistré ✓");
-          const champs = coordTouche[a.id];
-          if (champs) { delete coordTouche[a.id]; await propageCoordonnees(a, champs); }
+          const champs = coordTouche[id];
+          if (champs) { delete coordTouche[id]; await propageCoordonnees(fiche, champs); }
         } catch (e) { toast(e.message, true); }
       }, 1200);
-      saveAnnSoon[a.id]();
+      saveAnnSoon[id]();
     });
     root.addEventListener("click", async (ev) => {
       const seed = ev.target.closest("[data-aseed]");
@@ -1675,7 +1744,7 @@
     renderDossier();
   }
 
-  function renderDossier() {
+  function renderDossier(opts) {
     const det = details[currentId];
     const d = det.data;
     const view = $("#view-dossier");
@@ -1686,10 +1755,28 @@
        et il fallait recliquer. On note le champ actif et son curseur pour les
        remettre à l'identique une fois le nouveau HTML en place. */
     const actif = document.activeElement;
-    const focusAvant = (actif && view.contains(actif) && (actif.dataset.path || actif.id)) ? {
-      path: actif.dataset.path || "", id: actif.dataset.path ? "" : actif.id,
-      debut: actif.selectionStart, fin: actif.selectionEnd
-    } : null;
+    // Le champ actif se retrouve par son chemin, son id, ou — dans le journal
+    // et l'échéancier — par l'attribut qui le désigne (note, échéance, date).
+    const selActif = (el) => {
+      const q = (v) => String(v).replace(/"/g, '\\"');
+      if (el.dataset.path) return '[data-path="' + q(el.dataset.path) + '"]';
+      if (el.id) return "#" + CSS.escape(el.id);
+      if (el.dataset.jedit != null) return '[data-jedit="' + q(el.dataset.jedit) + '"]';
+      if (el.dataset.stepDue != null) return '[data-step-due="' + q(el.dataset.stepDue) + '"]';
+      if (el.dataset.stepDate != null) return '[data-step-date="' + q(el.dataset.stepDate) + '"]';
+      return "";
+    };
+    let debut = null, fin = null;
+    try { debut = actif.selectionStart; fin = actif.selectionEnd; } catch (e) { /* date, case à cocher… */ }
+    const focusAvant = (actif && view.contains(actif) && selActif(actif)) ? { sel: selActif(actif), debut, fin } : null;
+    /* Saisies EN COURS qui ne vivent que dans la page (note du journal pas
+       encore ajoutée, action libre en préparation, cases de marquage) : un
+       re-rendu différé les effaçait sous les doigts. On les reprend telles
+       quelles — sauf après un ajout (opts.neuf), où la zone repart à vide. */
+    const BROUILLONS = "input[id]:not([data-path]):not([type=file]), textarea[id]:not([data-path]), select[id]:not([data-path])";
+    const brouillons = (opts && opts.neuf) ? [] : $$("#view-dossier " + BROUILLONS.split(", ").join(", #view-dossier "))
+      .map((el) => ({ id: el.id, coche: el.type === "checkbox" ? el.checked : null, valeur: el.value }));
+    const replisOuverts = $$("#view-dossier details.faites").map((x) => x.open);
 
     // Échéancier groupé par phase.
     const steps = E.compute(d);
@@ -1759,7 +1846,13 @@
       '<button class="btn btn--sm btn--danger" data-rm="conditions_suspensives.' + i + '">✕</button>' +
       (E.condDroit(c)
         ? '<small class="cond__droit">Réglée par le notaire — pas de relance ni d\'étape à l\'échéancier.</small>'
-        : "") +
+        : E.condHors(c) === "financement"
+          ? (E.avecPret(d) === "non"
+            ? '<small class="cond__droit" style="color:var(--bad)">⚠ « Recours à un prêt » est sur Non : cette condition n\'est suivie nulle part. Corrigez l\'un ou l\'autre.</small>'
+            : '<small class="cond__droit">Suivie dans la phase « Financement » de l\'échéancier (pas de ligne en double).</small>')
+          : E.condHors(c) === "preemption"
+            ? '<small class="cond__droit">Suivie dans la phase « Préemption (DIA) » de l\'échéancier (pas de ligne en double).</small>'
+            : "") +
       "</div>"
     ).join("");
 
@@ -2032,10 +2125,15 @@
       '<datalist id="dlSyndics">' + annuaire.filter((a) => a.type === "syndic" || a.type === "president").map((a) => '<option value="' + esc(a.nom) + '">' + esc(a.type === "president" ? "Président" : "Syndic") + "</option>").join("") + "</datalist>";
 
     replierCartes();
+    brouillons.forEach((b) => {
+      const el = view.querySelector("#" + CSS.escape(b.id));
+      if (!el) return;
+      if (b.coche != null) el.checked = b.coche; else if (b.valeur) el.value = b.valeur;
+    });
+    const replis = $$("#view-dossier details.faites");
+    if (replis.length === replisOuverts.length) replis.forEach((x, i) => { if (replisOuverts[i]) x.open = true; });
     if (focusAvant) {
-      const el = focusAvant.path
-        ? view.querySelector('[data-path="' + focusAvant.path.replace(/"/g, '\\"') + '"]')
-        : view.querySelector("#" + CSS.escape(focusAvant.id));
+      const el = view.querySelector(focusAvant.sel);
       if (el) {
         try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
         try { if (typeof focusAvant.debut === "number") el.setSelectionRange(focusAvant.debut, focusAvant.fin); } catch (e) { /* select, date… */ }
@@ -2052,7 +2150,10 @@
     $$("#view-dossier .grid2 > .card").forEach((c) => {
       const h = c.querySelector("h3");
       if (!h) return;
-      const cle = h.textContent.trim();
+      // Clé = le titre SANS son compteur (« Vendeurs 2 ») : sinon la fiche se
+      // refermait dès qu'on y ajoutait une personne ou une condition.
+      const cle = Array.from(h.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent).join(" ").replace(/\s+/g, " ").trim()
+        || h.textContent.trim();
       h.dataset.carte = cle;
       c.classList.add("card--repli");
       c.classList.toggle("card--ouvert", cartesOuvertes.has(cle));
@@ -2119,7 +2220,7 @@
     const s = E.compute(d).find((x) => x.id === a.id);
     d.journal.push({ ts: Math.floor(Date.now() / 1000), user: userName(),
       text: "Action ajoutée à l'échéancier : " + (s ? s.label : libelle) + (s && s.due ? " (échéance " + E.fmtFr(s.due) + ")" : "") + "." });
-    markDirty(); renderDossier();
+    markDirty(); renderDossier({ neuf: true });
     toast("Action ajoutée ✓");
   }
   function retirerAction(d, id) {
@@ -2146,6 +2247,11 @@
     d.etapes[id].date = fait ? E.today() : "";
     const datePath = STEP_DATE[id];
     if (fait && datePath && !getByPath(d, datePath)) setByPath(d, datePath, E.today());
+    // Décocher efface la date clé liée (un clic de trop sur « Acte signé »
+    // laissait « Acte signé le… » en tête du dossier et lançait l'après-vente).
+    // Exception : la date de présentation de la SRU — une date légale saisie
+    // d'après l'accusé de réception, qu'un simple décochage ne doit pas perdre.
+    if (!fait && datePath && id !== "retour_sru") setByPath(d, datePath, "");
   }
 
   // Écouteurs délégués du détail de dossier — attachés UNE fois au démarrage
@@ -2412,7 +2518,7 @@
     }
     d.journal.push(note);
     if (lienInp && lienInp.value.trim() && !lien) toast("Lien ignoré : seules les adresses http(s) sont acceptées.", true);
-    markDirty(); renderDossier();
+    markDirty(); renderDossier({ neuf: true });
     const focus = $("#journalInput");
     if (focus) focus.focus();
   }
@@ -2438,6 +2544,16 @@
   }
 
   /* ------------------------- Compromis PDF (R2) --------------------------- */
+  /* L'envoi d'un PDF (compromis, avenant) fait avancer la version du dossier
+     sur le serveur. Si ce poste avait bien la version d'avant, il prend la
+     nouvelle — sinon son enregistrement suivant était refusé comme si un
+     collègue avait modifié le dossier. Si quelqu'un d'autre a VRAIMENT
+     enregistré entre-temps, les versions ne se suivent pas : on ne touche à
+     rien, et le garde-fou joue normalement. */
+  function suitVersion(id, rep) {
+    const det = details[id];
+    if (det && rep && rep.updated_at && Number(rep.updated_at_avant) === Number(det.updated_at)) det.updated_at = rep.updated_at;
+  }
   async function uploadCompromis(id, file) {
     if (file.type !== "application/pdf" && !/\.pdf$/i.test(file.name || "")) { toast("Choisissez un PDF.", true); return; }
     if (file.size > 15_000_000) { toast("PDF trop volumineux (15 Mo max).", true); return; }
@@ -2452,6 +2568,7 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Envoi impossible (" + res.status + ").");
       if (details[id]) details[id].compromis_size = data.size;
+      suitVersion(id, data);
       const m = list.find((x) => x.id === id);
       if (m) m.compromis_size = data.size;
       toast("Compromis attaché au dossier ✓");
@@ -2497,15 +2614,38 @@
       (d.conditions_suspensives || []).map((c) => "- " + (c.titre || "") + (c.echeance ? " (échéance " + E.fmtFr(c.echeance) + ")" : "")).join("\n") || "- aucune"
     ].join("\n");
   }
-  function trouveCondition(d, titre) {
-    const t = String(titre || "").trim().toLowerCase();
+  /* Retrouve, parmi les conditions du dossier, celle que désigne un intitulé.
+     Avant, le DERNIER MOT suffisait (« … de l'acquéreur ») : un avenant sur le
+     prêt de l'acquéreur pouvait modifier la revente du bien de l'acquéreur.
+     Désormais : intitulé identique, sinon l'un contenu dans l'autre, sinon une
+     nette majorité de mots communs — et toujours UNE seule candidate, à
+     défaut on ne devine pas. */
+  const normTitre = (x) => String(x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+  const MOTS_CS_VIDES = /^(de|du|des|la|le|les|un|une|et|au|aux|en|pour|par|sur|son|sa|ses|leur|leurs|condition|conditions|suspensive|suspensives)$/;
+  const motsTitre = (x) => normTitre(x).split(" ").filter((w) => w.length > 2 && !MOTS_CS_VIDES.test(w));
+  function conditionProche(liste, titre) {
+    const t = normTitre(titre);
     if (!t) return null;
-    return d.conditions_suspensives.find((y) => motCle(y.titre) && motCle(y.titre) === motCle(titre))
-      || d.conditions_suspensives.find((y) => {
-        const yt = String(y.titre || "").trim().toLowerCase();
-        return yt && (yt.includes(t) || t.includes(yt));
-      }) || null;
+    const avecTitre = (liste || []).filter((y) => normTitre(y.titre));
+    const exact = avecTitre.find((y) => normTitre(y.titre) === t);
+    if (exact) return exact;
+    const inclus = avecTitre.filter((y) => { const yt = normTitre(y.titre); return yt.includes(t) || t.includes(yt); });
+    if (inclus.length === 1) return inclus[0];
+    if (inclus.length > 1) return null;
+    const A = motsTitre(titre);
+    if (!A.length) return null;
+    let best = [], bestS = 0;
+    avecTitre.forEach((y) => {
+      const B = motsTitre(y.titre);
+      if (!B.length) return;
+      const communs = A.filter((w) => B.includes(w)).length;
+      const score = communs / Math.min(A.length, B.length);
+      if (communs < 2 && Math.min(A.length, B.length) > 1) return;
+      if (score > bestS) { bestS = score; best = [y]; } else if (score === bestS) best.push(y);
+    });
+    return (bestS >= 0.6 && best.length === 1) ? best[0] : null;
   }
+  function trouveCondition(d, titre) { return conditionProche(d.conditions_suspensives, titre); }
   /* Applique au dossier ce que l'avenant change. Renvoie la liste des
      modifications { champ, avant, apres } — vide si l'avenant ne touche à
      rien de suivi (clause purement rédactionnelle). */
@@ -2521,16 +2661,19 @@
       obj[k] = apres;
       return true;
     };
-    av.date = S(x.date_avenant);
+    // Une date n'est posée que si elle se lit comme une date (« 15/01/2027 »
+    // et « 15 janvier 2027 » sont converties) : un texte libre renvoyé par la
+    // lecture ne doit pas remplacer une vraie date du dossier.
+    av.date = dateIso(x.date_avenant);
     av.objet = S(x.objet);
-    const butoir = pose(d, "date_butoir", x.date_butoir, "Date butoir de réitération");
-    pose(d.dates, "signature_prevue", x.signature_prevue, "Date de signature prévue");
+    const butoir = pose(d, "date_butoir", dateIso(x.date_butoir), "Date butoir de réitération");
+    pose(d.dates, "signature_prevue", dateIso(x.signature_prevue), "Date de signature prévue");
     pose(d.prix, "prix_vente", x.prix_vente, "Prix de vente");
     pose(d.sequestre, "montant", x.sequestre_montant, "Dépôt de garantie");
     const fin = x.financement || {};
     const pret = [
-      pose(d.financement, "date_limite_depot", fin.date_limite_depot, "Prêt — dépôt de la demande avant le"),
-      pose(d.financement, "date_limite_obtention", fin.date_limite_obtention, "Prêt — obtention de l'offre avant le"),
+      pose(d.financement, "date_limite_depot", dateIso(fin.date_limite_depot), "Prêt — dépôt de la demande avant le"),
+      pose(d.financement, "date_limite_obtention", dateIso(fin.date_limite_obtention), "Prêt — obtention de l'offre avant le"),
       pose(d.financement, "montant_pret", fin.montant_pret, "Prêt — montant")
     ].some(Boolean);
     if (pret && !d.financement.recours_pret) d.financement.recours_pret = "oui";
@@ -2553,16 +2696,19 @@
         csTouchees = true;
         return;
       }
-      if (!ex || action === "ajoutee") {
-        d.conditions_suspensives.push({ titre, detail: S(c.detail), echeance: S(c.echeance), levee: false, avenant: av.n });
-        mods.push({ champ: "Condition ajoutée", avant: "", apres: titre + (S(c.echeance) ? " (échéance " + E.fmtFr(S(c.echeance)) + ")" : "") });
+      // « Ajoutée » alors qu'elle figure déjà au dossier : c'est une
+      // modification de l'existante, pas un doublon.
+      const echeance = dateIso(c.echeance);
+      if (!ex) {
+        d.conditions_suspensives.push({ titre, detail: S(c.detail), echeance, levee: false, avenant: av.n });
+        mods.push({ champ: "Condition ajoutée", avant: "", apres: titre + (echeance ? " (échéance " + E.fmtFr(echeance) + ")" : "") });
         csTouchees = true;
         return;
       }
-      if (pose(ex, "echeance", c.echeance, "Condition « " + ex.titre + " » — échéance")) csTouchees = true;
+      if (pose(ex, "echeance", echeance, "Condition « " + ex.titre + " » — échéance")) csTouchees = true;
       if (S(c.detail)) {
         ex.detail = [S(ex.detail), "Avenant n°" + av.n + " : " + S(c.detail)].filter(Boolean).join("\n");
-        if (!S(c.echeance)) mods.push({ champ: "Condition « " + ex.titre + " »", avant: "", apres: S(c.detail) });
+        if (!echeance) mods.push({ champ: "Condition « " + ex.titre + " »", avant: "", apres: S(c.detail) });
       }
     });
     if (csTouchees) Object.keys(d.etapes).forEach((id) => { if (/^cs_/.test(id) && d.etapes[id] && !d.etapes[id].done) delete d.etapes[id].due; });
@@ -2633,6 +2779,7 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Envoi impossible (" + res.status + ").");
       size = data.size || file.size;
+      suitVersion(id, data);
     } catch (e) { toast(e.message, true); return; }
     const av = { n, size, ts: Math.floor(Date.now() / 1000), user: userName(), date: "", objet: "", modifications: [] };
     d.avenants.push(av);
@@ -2912,16 +3059,24 @@
     // calcule, et les phrases qui en parlent disparaissent des courriers —
     // le vendeur lisait « financement des acquéreurs (condition suspensive au
     // 06/12/2026) » sur une vente sans prêt.
-    const sansPret = fin.recours_pret === "non";
+    // Trois états : prêt, comptant, ou INCONNU (fiche non renseignée et aucune
+    // condition de prêt au compromis) — dans ce dernier cas on n'invente pas
+    // de ligne de financement : elle s'efface du calendrier, et « l'état du
+    // financement » se signale à compléter.
+    const etatPret = E.avecPret(d);
+    const sansPret = etatPret === "non";
+    const pretInconnu = etatPret === "";
     const terrain = E.estTerrain(d);
     return {
-      __sansPret: sansPret, __optionnels: ["ligne_financement"],
+      __sansPret: sansPret, __terrain: terrain, __optionnels: ["ligne_financement"],
+      __retractEstimee: !terrain && E.retractEstimee(d),
       // Dernier jour du délai de rétractation (J+10 à compter du lendemain de
       // la présentation, prorogé au jour ouvrable) : « a expiré le … ».
       expiration_retractation: terrain ? "" : E.fmtFr(E.addDays(E.finRetract(d), -1)),
       // Lignes de calendrier qui ne s'écrivent que s'il y a un prêt.
-      ligne_financement: sansPret ? "" : "- financement des acquéreurs (condition suspensive au " + E.fmtFr(echPretDefaut) + "),\n",
-      financement_etat: sansPret ? "achat comptant, sans condition suspensive de prêt" : "en cours, condition suspensive au " + E.fmtFr(echPretDefaut),
+      ligne_financement: (sansPret || pretInconnu) ? "" : "- financement des acquéreurs (condition suspensive au " + E.fmtFr(echPretDefaut) + "),\n",
+      financement_etat: sansPret ? "achat comptant, sans condition suspensive de prêt"
+        : pretInconnu ? "" : "en cours, condition suspensive au " + E.fmtFr(echPretDefaut),
       reference: d.reference, adresse_bien: adresseComplete(d.bien), ville: d.bien.ville,
       prix: d.prix.prix_vente,
       // Le compromis écrit souvent une phrase entière dans « honoraires » :
@@ -2994,7 +3149,7 @@
     // Un champ « optionnel » vide s'efface simplement (la ligne de financement
     // d'une vente sans prêt) ; tout autre champ vide se signale « [x ?] ».
     const optionnels = fields.__optionnels || [];
-    const txt = String(tpl || "").replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (m, k) => {
+    let txt = String(tpl || "").replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (m, k) => {
       const v = fields[k.toLowerCase()];
       if ((v == null || v === "") && optionnels.includes(k.toLowerCase())) return "";
       return (v == null || v === "") ? "[" + k + " ?]" : v;
@@ -3003,9 +3158,20 @@
     // de la demande) n'a rien à dire — elle saute, même dans un modèle
     // retouché à la main qui garde {{echeance_pret}}.
     if (fields.__sansPret) {
-      return txt.split("\n").filter((l) => !/\[(echeance_pret|date_limite_depot) \?\]/.test(l)).join("\n");
+      txt = txt.split("\n").filter((l) => !/\[(echeance_pret|date_limite_depot) \?\]/.test(l)
+        && !/ci-joint l['’]offre de pr[êe]t/i.test(l)).join("\n");
     }
-    return txt;
+    // Terrain : ni notification SRU ni délai de rétractation. Les phrases des
+    // modèles qui en parlent s'adaptent au lieu d'afficher « [fin_retractation ?] ».
+    if (fields.__terrain) {
+      txt = txt
+        .replace(/Le délai de rétractation de la vente ([^\n]*?) est purgé depuis le \[fin_retractation \?\]/g,
+          "La vente $1 porte sur un terrain, sans délai de rétractation")
+        .replace(/ ainsi que la preuve de dépôt de la SRU/g, "")
+        .split("\n").filter((l) => !/\[(fin_retractation|expiration_retractation) \?\]/.test(l)).join("\n");
+    }
+    // Une ligne retirée ne laisse pas deux lignes vides d'affilée.
+    return (fields.__sansPret || fields.__terrain) ? txt.replace(/\n{3,}/g, "\n\n") : txt;
   }
 
   let mailCtx = null; // { dossierId, modeleName, stepId }
@@ -3038,6 +3204,13 @@
     $("#mailSubject").value = objetAvecAgence(fill(modele.sujet, f));
     $("#mailBody").value = fill(modele.corps, f);
     $("#ovMail").classList.add("on");
+    // Le message annonce une date de rétractation alors que la présentation
+    // du recommandé n'est pas saisie : la date n'est qu'une estimation.
+    const estimee = f.__retractEstimee && /\{\{\s*(fin_retractation|expiration_retractation)\s*\}\}/i.test((modele.sujet || "") + (modele.corps || ""));
+    $("#mailAlerte").hidden = !estimee;
+    $("#mailAlerte").textContent = estimee
+      ? "⚠ La date de rétractation de ce message est ESTIMÉE (compromis + 14 jours) : la « Présentation AR SRU » n'est pas saisie dans les Dates clés. Vérifiez la date avant d'envoyer."
+      : "";
     if (!to) {
       $("#mailTo").placeholder = "E-mail inconnu — saisissez-le ici (et notez-le dans le dossier ou l'annuaire pour la prochaine fois)";
       $("#mailTo").focus();
@@ -3116,14 +3289,20 @@
       const card = ev.target.closest(".modele");
       const f = ev.target.dataset.mfield;
       if (!card || !f) return;
-      const m = modeles.find((x) => x.id === card.dataset.mid);
+      const mid = card.dataset.mid;
+      const m = modeles.find((x) => x.id === mid);
       if (!m) return;
       m[f] = ev.target.value;
-      saveModeleSoon[m.id] = saveModeleSoon[m.id] || debounce(async () => {
-        try { await api("/modeles", { method: "PUT", json: m }); toast("Modèle enregistré ✓"); }
+      // Le modèle est relu PAR SON ID au moment d'enregistrer : la liste est
+      // rechargée après un ajout ou une restauration, et l'objet d'avant ne
+      // portait plus les corrections suivantes (enregistrées « ✓ » à vide).
+      saveModeleSoon[mid] = saveModeleSoon[mid] || debounce(async () => {
+        const cur = modeles.find((x) => x.id === mid);
+        if (!cur) return;
+        try { await api("/modeles", { method: "PUT", json: cur }); toast("Modèle enregistré ✓"); }
         catch (e) { toast(e.message, true); }
       }, 1200);
-      saveModeleSoon[m.id]();
+      saveModeleSoon[mid]();
     });
     $("#modelesList").addEventListener("click", async (ev) => {
       const del = ev.target.closest("[data-mdel]");
@@ -3255,7 +3434,8 @@
     // Conditions suspensives : on ajoute celles qui manquent, sans toucher
     // aux existantes (leur case « levée » est un état de travail).
     neuf.conditions_suspensives.forEach((c) => {
-      const deja = d.conditions_suspensives.some((y) => motCle(y.titre) && motCle(y.titre) === motCle(c.titre));
+      const deja = !!conditionProche(d.conditions_suspensives, c.titre)
+        || d.conditions_suspensives.some((y) => normTitre(y.titre) && (normTitre(y.titre).includes(normTitre(c.titre)) || normTitre(c.titre).includes(normTitre(y.titre))));
       if (!deja && (c.titre || "").trim()) { d.conditions_suspensives.push(c); faits.push("condition : " + c.titre); }
     });
     return faits;
@@ -3529,6 +3709,7 @@
         else if (r.texte) {
           // Serveur d'e-mails non configuré : on montre le contenu ici.
           mailCtx = null;
+          $("#mailAlerte").hidden = true;
           $("#mailTitle").textContent = r.sujet || "Récapitulatif du jour";
           $("#mailTo").value = userName();
           $("#mailCc").value = "";

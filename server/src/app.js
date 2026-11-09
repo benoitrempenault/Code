@@ -907,9 +907,14 @@ export function createApp(env) {
     const head = new Uint8Array(buf.slice(0, 5));
     if (String.fromCharCode(...head) !== "%PDF-") return err(c, 400, "Le fichier n'est pas un PDF.");
     await env.files.put(doKey(ctx.agency.id, row.id), buf);
+    // La version du dossier change : on rend l'ancienne ET la nouvelle, pour
+    // que le poste qui vient d'envoyer le PDF reste « à jour » — sans quoi son
+    // enregistrement suivant était refusé (« modifié par quelqu'un d'autre »).
+    const avant = (await db.get("SELECT updated_at FROM dossiers WHERE id = ?", [row.id]))?.updated_at;
+    const maj = now();
     await db.run("UPDATE dossiers SET compromis_size = ?, user_id = ?, updated_at = ? WHERE id = ?",
-      [buf.byteLength, ctx.user.id, now(), row.id]);
-    return c.json({ ok: true, size: buf.byteLength });
+      [buf.byteLength, ctx.user.id, maj, row.id]);
+    return c.json({ ok: true, size: buf.byteLength, updated_at: maj, updated_at_avant: avant });
   });
 
   app.get("/dossiers/:id/compromis", async (c) => {
@@ -945,8 +950,10 @@ export function createApp(env) {
     const head = new Uint8Array(buf.slice(0, 5));
     if (String.fromCharCode(...head) !== "%PDF-") return err(c, 400, "Le fichier n'est pas un PDF.");
     await env.files.put(avKey(ctx.agency.id, row.id, n), buf);
-    await db.run("UPDATE dossiers SET user_id = ?, updated_at = ? WHERE id = ?", [ctx.user.id, now(), row.id]);
-    return c.json({ ok: true, n, size: buf.byteLength });
+    const avant = (await db.get("SELECT updated_at FROM dossiers WHERE id = ?", [row.id]))?.updated_at;
+    const maj = now();
+    await db.run("UPDATE dossiers SET user_id = ?, updated_at = ? WHERE id = ?", [ctx.user.id, maj, row.id]);
+    return c.json({ ok: true, n, size: buf.byteLength, updated_at: maj, updated_at_avant: avant });
   });
 
   app.get("/dossiers/:id/avenants/:n", async (c) => {

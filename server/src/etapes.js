@@ -84,7 +84,14 @@ function finRetractDepuis(presentation) {
   return addDays(dernier, 1);
 }
 const finRetract = (d) => finRetractDepuis(d.dates && d.dates.presentation_sru) || addDays(ssp(d), 14);
-const pret = (d) => (d.financement && d.financement.recours_pret === "oui");
+// Miroir du client : « oui », « non » ou « » ; sans réponse dans la fiche, une
+// condition suspensive de prêt listée au compromis vaut « oui ».
+function avecPret(d) {
+  const r = String((d.financement && d.financement.recours_pret) || "").trim().toLowerCase();
+  if (r === "oui" || r === "non") return r;
+  return (d.conditions_suspensives || []).some((c) => CS_HORS[0].test(texteDecisif(c))) ? "oui" : "";
+}
+const pret = (d) => avecPret(d) === "oui";
 // Urbanisme (terrains) : mêmes règles que le client — DP puis PC, purges à
 // 3 mois de l'affichage constaté.
 /* Nature du bien (miroir du client) : un LOCAL COMMERCIAL se traite comme un
@@ -98,15 +105,31 @@ const estCopro = (d) => {
   return /copropri[\u00e9e]t[\u00e9e]/i.test(String(b.type || "") + " " + String(b.description || ""))
     || (d.syndic && d.syndic.role === "syndic" && !!String(d.syndic.nom || "").trim());
 };
+const NATURE_LOCAL = /local|commerc|bureau|boutique|entrep[ôo]t|fonds de commerce/i;
+const NATURE_TERRAIN = /terrain|parcelle|lot [àa] b[âa]tir/i;
+const NATURE_APPART = /appartement|studio|\bt[1-9]\b|duplex/i;
+const NATURE_MAISON = /maison|villa|pavillon|[ée]chopp?e|long[èe]re|immeuble/i;
 export function typeBien(d) {
   const t = String((d.bien && d.bien.type) || "");
-  const txt = t + " " + String((d.bien && d.bien.description) || "");
-  if (/local|commerc|bureau|boutique|entrep[\u00f4o]t|fonds de commerce/i.test(txt)) {
-    return estCopro(d) ? "appartement" : "maison";
-  }
-  if (/terrain|parcelle|lot [\u00e0a] b[\u00e2a]tir/i.test(t)) return "terrain";
-  if (/appartement|studio|\bt[1-9]\b|duplex/i.test(txt) || estCopro(d)) return "appartement";
-  if (/terrain/i.test(txt)) return "terrain";
+  const desc = String((d.bien && d.bien.description) || "");
+  const local = () => (estCopro(d) ? "appartement" : "maison");
+  // 1. Le TYPE décide dès qu'il nomme la nature du bien : la désignation
+  //    d'une maison parle presque toujours de son « terrain », celle d'un
+  //    terrain des « commerces » voisins — elle ne doit rien renverser.
+  if (NATURE_LOCAL.test(t)) return local();
+  if (NATURE_TERRAIN.test(t)) return "terrain";
+  if (NATURE_APPART.test(t)) return "appartement";
+  if (NATURE_MAISON.test(t)) return estCopro(d) ? "appartement" : "maison";
+  // 2. Type muet ou inconnu : la désignation, puis la copropriété. Le mot
+  //    « terrain » seul ne suffit pas (toute maison en a un) : il faut un
+  //    terrain à bâtir, ou une désignation qui COMMENCE par le terrain, et
+  //    rien d'édifié dessus.
+  if (NATURE_APPART.test(desc)) return "appartement";
+  if (/terrain [àa] b[âa]tir|lot [àa] b[âa]tir|^\s*(?:une? )?(?:terrain|parcelle)/i.test(desc)
+    && !/[ée]difi[ée]|construite?\b|b[âa]tie?\b/i.test(desc)) return "terrain";
+  if (NATURE_MAISON.test(desc)) return estCopro(d) ? "appartement" : "maison";
+  if (NATURE_LOCAL.test(desc)) return local();
+  if (estCopro(d)) return "appartement";
   return "maison";
 }
 const estTerrain = (d) => typeBien(d) === "terrain";
@@ -160,7 +183,7 @@ const ETAPES = [
   { id: "envoi_notaires", label: "Dossier envoyé aux notaires", due: (d) => addDays(ssp(d), 3) },
   // Miroir du client : dossiers ouverts depuis la mise en place seulement.
   { id: "envoi_courtier", label: "Acquéreurs présentés au courtier (coordonnées envoyées)", due: (d) => addDays(ssp(d), 3),
-    applies: (d) => d.suivi_courtier === true && !(d.financement && d.financement.recours_pret === "non") },
+    applies: (d) => d.suivi_courtier === true && avecPret(d) !== "non" },
   { id: "retour_sru", label: "AR de la notification SRU envoyé au notaire", due: (d) => addDays(ssp(d), 8), applies: pasTerrain },
   { id: "fin_retractation", label: "Fin du délai de rétractation (10 jours)", due: (d) => finRetract(d), applies: pasTerrain },
   { id: "panneau_vendu", label: "Panneau « VENDU » posé", due: (d) => (estTerrain(d) ? addDays(ssp(d), 3) : finRetract(d)) },
@@ -174,7 +197,8 @@ const ETAPES = [
     // 7 jours après l'envoi du dossier aux notaires (à défaut, envoi estimé J+3).
     due: (d) => addDays((d.dates && d.dates.envoi_notaires) || addDays(ssp(d), 3), 7) },
   { id: "purge_dia", label: "Droit de préemption purgé (2 mois)",
-    due: (d) => addDays(d.dates && d.dates.envoi_dia, 62) || addDays(ssp(d), 77) },
+    // Miroir du client : 2 mois à compter de la réception en mairie (AR).
+    due: (d) => addMonths(d.dates && d.dates.ar_dia, 2) || addDays(d.dates && d.dates.envoi_dia, 62) || addDays(ssp(d), 77) },
   { id: "dp_depot", label: "Déclaration préalable (DP) déposée en mairie", due: dpDepot, applies: estTerrain },
   { id: "dp_accord", label: "Accord de la DP (non-opposition) obtenu", due: dpAccord, applies: estTerrain },
   { id: "dp_affichage", label: "Affichage de la DP + constat d'huissier", due: dpAffichage, applies: estTerrain },
@@ -248,6 +272,13 @@ const CS_DROIT = /certificat d'urbanisme|titres? de propri[ée]t[ée]|origine de
 // Conditions qu'on ne suit pas : le notaire les règle seul. Miroir du client.
 const CS_INUTILE = /certificat d'urbanisme|titres? de propri[ée]t[ée]|[ée]tat hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur|pr[ée]emption/i;
 const CS_REITERATION = /r[ée]it[ée]ration|acte authentique|signature de l'acte/i;
+// Miroir du client : l'INTITULÉ décide ; le détail seulement s'il est vide ou
+// passe-partout (« Condition suspensive n°2 »).
+const CS_TITRE_VAGUE = /^(?:conditions? suspensives?|condition|autres? conditions?)?(?:\s*(?:n[°o.]?\s*)?\d+)?\s*[:.\-–—]?\s*$/i;
+function texteDecisif(c) {
+  const t = String((c && c.titre) || "").trim();
+  return CS_TITRE_VAGUE.test(t) ? String((c && c.detail) || "") : t;
+}
 const CS_JOURS = [
   { re: /revente|vente pr[ée]alable|vente de (?:son|leur|sa)|vente d'un (?:autre )?bien|vente du bien (?:de l'|des )acqu|mise en vente/i, jours: 60 },
   { re: /r[ée]gularisation|non d[ée]clar|conformit[ée]|\bdaact\b|ach[èe]vement des travaux|attestation de non-?contestation/i, jours: 60 },
@@ -305,10 +336,11 @@ function csEtapes(d) {
   (d.conditions_suspensives || []).forEach((c, i) => {
     const txt = (c.titre || "") + " " + (c.detail || "");
     if (!txt.trim()) return;
-    if (CS_HORS.some((re) => re.test(txt))) return;
-    if (CS_DROIT.test((c.titre || "").trim() || c.detail || "")) return;
+    const decisif = texteDecisif(c);
+    if (CS_HORS.some((re) => re.test(decisif))) return;
+    if (CS_DROIT.test(decisif)) return;
     if (terrain && /permis de construire|d[ée]claration pr[ée]alable/i.test(txt) && !/r[ée]gularisation/i.test(txt)) return;
-    if (CS_INUTILE.test((c.titre || "").trim() || c.detail || "")) return;
+    if (CS_INUTILE.test(decisif)) return;
     const t = CS_JOURS.find((x) => x.re.test(txt));
     let id = "cs_" + (slug(c.titre) || slug(c.detail) || i);
     if (vus[id]) id += "_" + i;

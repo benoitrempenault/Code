@@ -387,7 +387,21 @@ const pdfBytes = new TextEncoder().encode("%PDF-1.4 faux compromis de test " + "
 const pup = await app.fetch(new Request("http://api.test/dossiers/" + dosId + "/compromis", {
   method: "PUT", headers: { Authorization: "Bearer " + s3, "Content-Type": "application/pdf" }, body: pdfBytes
 }));
-ok(pup.status === 200 && (await pup.json()).size === pdfBytes.length, "PDF stocké");
+const pupJ = await pup.json();
+ok(pup.status === 200 && pupJ.size === pdfBytes.length, "PDF stocké");
+// L'envoi du PDF fait avancer la version du dossier : la réponse donne
+// l'ancienne et la nouvelle, pour que le poste qui l'a envoyé puisse
+// enregistrer ensuite sans faux « modifié par quelqu'un d'autre ».
+{
+  const apres = await call("/dossiers/" + dosId, { headers: { Authorization: "Bearer " + s3 } });
+  ok(pupJ.updated_at === apres.json.updated_at && pupJ.updated_at_avant != null && pupJ.updated_at_avant <= pupJ.updated_at,
+    "l'envoi du compromis rend la version d'avant et celle d'après");
+  const suite = await call("/dossiers", {
+    method: "PUT", headers: { Authorization: "Bearer " + s3 },
+    body: { id: dosId, name: apres.json.name, data: apres.json.data, base_updated_at: pupJ.updated_at }
+  });
+  ok(suite.status === 200, "enregistrement accepté juste après l'envoi du PDF (version suivie)");
+}
 ok(filesMem.has("do/" + agencyId + "/" + dosId + ".pdf"), "clé R2 par agence");
 const pget = await app.fetch(new Request("http://api.test/dossiers/" + dosId + "/compromis", { headers: { Authorization: "Bearer " + s3 } }));
 ok(pget.status === 200 && pget.headers.get("Content-Type") === "application/pdf"
@@ -409,6 +423,8 @@ console.log("— Avenants au compromis (R2, numérotés à côté du compromis)"
   const a1 = await put(1, avBytes);
   const j1 = await a1.json();
   ok(a1.status === 200 && j1.n === 1 && j1.size === avBytes.length, "avenant n°1 stocké");
+  ok(j1.updated_at === (await call("/dossiers/" + dosId, { headers: { Authorization: "Bearer " + s3 } })).json.updated_at
+    && j1.updated_at_avant != null, "l'envoi d'un avenant rend aussi les deux versions du dossier");
   ok(filesMem.has("do/" + agencyId + "/" + dosId + "-av1.pdf") && filesMem.has("do/" + agencyId + "/" + dosId + ".pdf"),
     "l'avenant vit à côté du compromis, jamais à sa place");
   const g1 = await app.fetch(new Request("http://api.test/dossiers/" + dosId + "/avenants/1", { headers: { Authorization: "Bearer " + s3 } }));
@@ -976,6 +992,29 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   ok(ids.includes("cs_enlevement_de_la_cuve_a_fioul"), "une condition non répertoriée est suivie telle quelle");
   ok(!ids.includes("cs_succession_a_regler"), "une condition déjà levée disparaît de l'échéancier");
   ok(!ids.some((i) => /cs_obtention_d_un_pret|cs_purge/.test(i)), "prêt et préemption ne sont pas dupliqués (phases dédiées)");
+  // C'est l'INTITULÉ qui décide : une vraie condition dont le détail cite le
+  // prêt ou la préemption reste suivie ; un intitulé passe-partout laisse
+  // parler le détail.
+  {
+    const dd = JSON.parse(JSON.stringify(d));
+    dd.conditions_suspensives = [
+      { titre: "Revente du bien de l'acquéreur", detail: "Le prix servira au financement, sans recours à un prêt relais" },
+      { titre: "Condition suspensive n°2", detail: "Obtention d'un prêt de 200 000 €" },
+      { titre: "Accord de l'assemblée générale", detail: "Sous réserve de la purge du droit de préemption du locataire" }
+    ];
+    const i2 = actionsFor(dd, "2026-06-10").map((a) => a.id);
+    ok(i2.includes("cs_revente_du_bien_de_l_acquereur"), "détail qui cite le financement : la revente reste à l'échéancier");
+    ok(i2.includes("cs_accord_de_l_assemblee_generale"), "détail qui cite la préemption : la condition reste suivie");
+    ok(!i2.some((i) => /^cs_condition_suspensive/.test(i)), "intitulé passe-partout : le détail (prêt) décide, pas de doublon");
+    // Recours au prêt non renseigné, mais condition de prêt au compromis :
+    // la phase Financement existe quand même (sinon le prêt n'était suivi nulle part).
+    dd.financement = { recours_pret: "" };
+    ok(actionsFor(dd, "2026-06-10").some((a) => a.id === "pret_depot"), "prêt non renseigné + condition de prêt listée → phase Financement");
+    dd.financement = { recours_pret: "non" };
+    ok(!actionsFor(dd, "2026-06-10").some((a) => a.id === "pret_depot"), "« non » explicite : pas de phase Financement");
+    dd.financement = { recours_pret: "" }; dd.conditions_suspensives = [];
+    ok(!actionsFor(dd, "2026-06-10").some((a) => a.id === "pret_depot"), "prêt inconnu et aucune condition de prêt : rien d'inventé");
+  }
   ok(!ids.includes("cs_urbanisme") && !ids.includes("cs_hypotheque"), "les étapes génériques d'urbanisme et d'hypothèque ont disparu");
   // Conditions de pur droit : réglées par le notaire, jamais relancées. Elles
   // restent en revanche dans la FICHE du dossier (le compromis les contient).
@@ -1031,6 +1070,15 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   const purge = actionsFor(casse, "2026-09-16").find((a) => a.id === "purge_dia");
   ok(purge && purge.due === "2026-08-17",
     "date DIA illisible : la purge retombe sur compromis + 77 jours au lieu de disparaître");
+  // Les 2 mois courent de la RÉCEPTION de la DIA en mairie : l'accusé de
+  // réception saisi prime sur la date d'envoi.
+  const recue = base();
+  recue.dates.envoi_dia = "2026-06-12"; recue.dates.ar_dia = "2026-06-16";
+  ok(actionsFor(recue, "2026-06-20").find((a) => a.id === "purge_dia").due === "2026-08-16",
+    "purge de la préemption : 2 mois après l'accusé de réception de la DIA");
+  delete recue.dates.ar_dia;
+  ok(actionsFor(recue, "2026-06-20").find((a) => a.id === "purge_dia").due === "2026-08-13",
+    "sans accusé de réception : envoi + 62 jours, comme avant");
   // Rétractation SRU : 10 jours à compter du LENDEMAIN de la présentation,
   // prorogés au premier jour ouvrable si le délai expire un week-end/férié.
   const sru = (presentation) => {
@@ -1137,6 +1185,21 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   ok(typeBien(bien("Terrain à bâtir")) === "terrain", "terrain à bâtir → terrain");
   ok(typeBien(bien("Appartement T3")) === "appartement", "appartement → appartement");
   ok(typeBien(bien("Maison individuelle")) === "maison", "maison → maison");
+  // Le TYPE décide ; la désignation ne renverse rien (toute maison a un
+  // « terrain », tout terrain est « proche des commerces »).
+  const avecDesc = (type, description, extra) => bien(type, { bien: Object.assign({ type, description }, extra || {}) });
+  ok(typeBien(avecDesc("Maison individuelle", "Maison d'habitation édifiée sur un terrain de 600 m²")) === "maison",
+    "maison dont la désignation cite son terrain : reste une maison (SRU conservée)");
+  ok(actionsFor(avecDesc("Maison individuelle", "sur terrain de 600 m²"), "2026-06-02").some((a) => a.id === "fin_retractation"),
+    "…et garde son délai de rétractation");
+  ok(typeBien(avecDesc("Terrain à bâtir", "Parcelle de 500 m² proche commerces et écoles")) === "terrain",
+    "terrain « proche commerces » : reste un terrain");
+  ok(typeBien(avecDesc("Appartement", "T3 avec bureau et cave")) === "appartement", "appartement avec bureau : reste un appartement");
+  ok(typeBien(avecDesc("", "Maison avec terrain")) === "maison", "type vide : une maison avec terrain n'est pas un terrain");
+  ok(typeBien(avecDesc("", "Un terrain à bâtir de 500 m² destiné à la construction d'une maison")) === "terrain",
+    "type vide : la désignation d'un terrain à bâtir le reconnaît");
+  ok(typeBien(avecDesc("", "Une parcelle de terrain sur laquelle est édifiée une maison")) === "maison",
+    "type vide : un terrain bâti est une maison");
   ok(actionsFor(bien("Terrain à bâtir"), "2026-06-10").some((a) => a.id === "pc_depot"),
     "la phase Urbanisme reste active sur un vrai terrain");
   // Terrain : pas de rétractation SRU (L271-1 CCH réservé à l'habitation) —

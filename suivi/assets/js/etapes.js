@@ -111,7 +111,21 @@
     return addDays(dernier, 1);
   }
   const finRetract = (d) => finRetractDepuis(d.dates.presentation_sru) || addDays(ssp(d), 14);
-  const pret = (d) => (d.financement && d.financement.recours_pret === "oui");
+  // La date de fin de rétractation est-elle ESTIMÉE ? Tant que la première
+  // présentation du recommandé n'est pas saisie, on compte compromis + 14 jours
+  // — un ordre de grandeur, pas une date à annoncer telle quelle au vendeur.
+  const retractEstimee = (d) => !finRetractDepuis(d.dates.presentation_sru);
+  /* Recours au prêt, en TROIS états : « oui », « non » (comptant) ou « »
+     (inconnu). Quand la fiche ne le dit pas, une condition suspensive de prêt
+     listée au compromis vaut « oui » — sinon le prêt n'était suivi nulle part
+     (la condition est écartée des conditions suspensives pour ne pas faire
+     doublon avec la phase Financement). */
+  function avecPret(d) {
+    const r = String((d.financement && d.financement.recours_pret) || "").trim().toLowerCase();
+    if (r === "oui" || r === "non") return r;
+    return (d.conditions_suspensives || []).some((c) => condHors(c) === "financement") ? "oui" : "";
+  }
+  const pret = (d) => avecPret(d) === "oui";
 
   /* ------------------------ Nature du bien -------------------------------
      Trois natures seulement pilotent le suivi : « terrain » (phase Urbanisme :
@@ -129,15 +143,31 @@
     return /copropri[ée]t[ée]/i.test(String(b.type || "") + " " + String(b.description || ""))
       || (d.syndic && d.syndic.role === "syndic" && !!String(d.syndic.nom || "").trim());
   };
+  const NATURE_LOCAL = /local|commerc|bureau|boutique|entrep[ôo]t|fonds de commerce/i;
+  const NATURE_TERRAIN = /terrain|parcelle|lot [àa] b[âa]tir/i;
+  const NATURE_APPART = /appartement|studio|\bt[1-9]\b|duplex/i;
+  const NATURE_MAISON = /maison|villa|pavillon|[ée]chopp?e|long[èe]re|immeuble/i;
   function typeBien(d) {
     const t = String((d.bien && d.bien.type) || "");
-    const txt = t + " " + String((d.bien && d.bien.description) || "");
-    if (/local|commerc|bureau|boutique|entrep[ôo]t|fonds de commerce/i.test(txt)) {
-      return estCopro(d) ? "appartement" : "maison";
-    }
-    if (/terrain|parcelle|lot [àa] b[âa]tir/i.test(t)) return "terrain";
-    if (/appartement|studio|\bt[1-9]\b|duplex/i.test(txt) || estCopro(d)) return "appartement";
-    if (/terrain/i.test(txt)) return "terrain";
+    const desc = String((d.bien && d.bien.description) || "");
+    const local = () => (estCopro(d) ? "appartement" : "maison");
+    // 1. Le TYPE décide dès qu'il nomme la nature du bien : la désignation
+    //    d'une maison parle presque toujours de son « terrain », celle d'un
+    //    terrain des « commerces » voisins — elle ne doit rien renverser.
+    if (NATURE_LOCAL.test(t)) return local();
+    if (NATURE_TERRAIN.test(t)) return "terrain";
+    if (NATURE_APPART.test(t)) return "appartement";
+    if (NATURE_MAISON.test(t)) return estCopro(d) ? "appartement" : "maison";
+    // 2. Type muet ou inconnu : la désignation, puis la copropriété. Le mot
+    //    « terrain » seul ne suffit pas (toute maison en a un) : il faut un
+    //    terrain à bâtir, ou une désignation qui COMMENCE par le terrain, et
+    //    rien d'édifié dessus.
+    if (NATURE_APPART.test(desc)) return "appartement";
+    if (/terrain [àa] b[âa]tir|lot [àa] b[âa]tir|^\s*(?:une? )?(?:terrain|parcelle)/i.test(desc)
+      && !/[ée]difi[ée]|construite?\b|b[âa]tie?\b/i.test(desc)) return "terrain";
+    if (NATURE_MAISON.test(desc)) return estCopro(d) ? "appartement" : "maison";
+    if (NATURE_LOCAL.test(desc)) return local();
+    if (estCopro(d)) return "appartement";
     return "maison";
   }
   const estTerrain = (d) => typeBien(d) === "terrain";
@@ -228,7 +258,20 @@
   const CS_DROIT = /certificat d'urbanisme|titres? de propri[ée]t[ée]|origine de (?:la )?propri[ée]t[ée]|servitude|[ée]tat hypoth[ée]caire|situation hypoth[ée]caire|hypoth[èe]que|mainlev[ée]e|privil[èe]ge de pr[êe]teur/i;
   // La condition est-elle de pur droit ? (Testée sur le seul intitulé, comme
   // dans csEtapes — la fiche du dossier s'en sert pour l'indiquer.)
-  const condDroit = (c) => CS_DROIT.test(String((c && c.titre) || "").trim() || String((c && c.detail) || ""));
+  /* Texte qui DÉCIDE du sort d'une condition : son intitulé. Le détail n'est
+     consulté que si l'intitulé est vide ou passe-partout (« Condition
+     suspensive n°2 ») — sinon une vraie condition (la revente du bien de
+     l'acquéreur…) sortait de l'échéancier dès que son détail citait au
+     passage le prêt, le financement ou la préemption. */
+  const CS_TITRE_VAGUE = /^(?:conditions? suspensives?|condition|autres? conditions?)?(?:\s*(?:n[°o.]?\s*)?\d+)?\s*[:.\-–—]?\s*$/i;
+  function texteDecisif(c) {
+    const t = String((c && c.titre) || "").trim();
+    return CS_TITRE_VAGUE.test(t) ? String((c && c.detail) || "") : t;
+  }
+  const condDroit = (c) => CS_DROIT.test(texteDecisif(c));
+  // La condition est-elle suivie dans une phase à part (Financement, DIA) ?
+  // Renvoie « financement », « preemption » ou « ».
+  const condHors = (c) => (CS_HORS[0].test(texteDecisif(c)) ? "financement" : CS_HORS[1].test(texteDecisif(c)) ? "preemption" : "");
   const CS_TYPES = [
     { key: "revente", cible: "acquereur", modele: "Relance condition suspensive", jours: 60,
       re: /revente|vente pr[ée]alable|vente de (?:son|leur|sa)|vente d'un (?:autre )?bien|vente du bien (?:de l'|des )acqu|mise en vente/i,
@@ -334,8 +377,8 @@
     return (d.conditions_suspensives || []).map((c, i) => {
       const txt = (c.titre || "") + " " + (c.detail || "");
       if (!txt.trim()) return null;
-      if (CS_HORS.some((re) => re.test(txt))) return null;
-      if (CS_DROIT.test((c.titre || "").trim() || c.detail || "")) return null;
+      if (condHors(c)) return null;
+      if (condDroit(c)) return null;
       // Sur un terrain, DP et PC sont déjà détaillés dans la phase Urbanisme.
       if (terrain && /permis de construire|d[ée]claration pr[ée]alable/i.test(txt) && !/r[ée]gularisation/i.test(txt)) return null;
       const t = typeCS(txt);
@@ -402,7 +445,7 @@
        recours au prêt n'a rien à lui envoyer. */
     { id: "envoi_courtier", phase: "Notification & rétractation", label: "Acquéreurs présentés au courtier (coordonnées envoyées)",
       cible: "courtier", modele: "Envoi au courtier", due: (d) => addDays(ssp(d), 3),
-      applies: (d) => d.suivi_courtier === true && !(d.financement && d.financement.recours_pret === "non"),
+      applies: (d) => d.suivi_courtier === true && avecPret(d) !== "non",
       hint: "Dès la signature : le courtier voit s'ils l'ont déjà contacté, ou les appelle pour le suivi de leur prêt. Sans recours au prêt, l'étape n'apparaît pas." },
     { id: "retour_sru", phase: "Notification & rétractation", label: "AR de la notification SRU envoyé au notaire",
       due: (d) => addDays(ssp(d), 8), applies: pasTerrain,
@@ -410,7 +453,9 @@
     { id: "fin_retractation", phase: "Notification & rétractation", label: "Fin du délai de rétractation (10 jours) — informer le vendeur",
       cible: "vendeur", modele: "Information vendeur — rétractation purgée",
       due: (d) => finRetract(d), applies: pasTerrain,
-      hint: "10 jours calendaires à compter du lendemain de la première présentation. Bonne nouvelle à annoncer au vendeur." },
+      hint: (d) => (retractEstimee(d)
+        ? "⚠ Date ESTIMÉE (compromis + 14 jours) : saisissez « Présentation AR SRU » dans Dates clés pour la date exacte, avant de l'annoncer au vendeur."
+        : "10 jours calendaires à compter du lendemain de la première présentation. Bonne nouvelle à annoncer au vendeur.") },
     { id: "panneau_vendu", phase: "Notification & rétractation", label: "Panneau / bandeau « VENDU » posé",
       cible: "conseiller_vendeur", modele: "Relance panneau VENDU",
       due: (d) => (estTerrain(d) ? addDays(ssp(d), 3) : finRetract(d)),
@@ -438,8 +483,12 @@
     // Purge du droit de préemption : rien à relancer, le silence de la mairie
     // suffit — on se contente de constater l'échéance.
     { id: "purge_dia", phase: "Préemption (DIA)", label: "Droit de préemption purgé (réponse de la mairie ou silence de 2 mois)",
-      due: (d) => addDays(d.dates.envoi_dia, 62) || addDays(ssp(d), 77),
-      hint: "Court à compter de l'envoi de la DIA : renseignez cette date pour un calcul juste." },
+      // Le délai de 2 mois court de la RÉCEPTION de la DIA en mairie (L213-2
+      // C. urb.) : l'accusé de réception prime ; à défaut l'envoi + 62 jours.
+      due: (d) => addMonths(d.dates.ar_dia, 2) || addDays(d.dates.envoi_dia, 62) || addDays(ssp(d), 77),
+      hint: (d) => (d.dates.ar_dia
+        ? "2 mois à compter de la réception de la DIA en mairie (accusé de réception saisi)."
+        : "Court à compter de la RÉCEPTION de la DIA en mairie : renseignez « AR de la DIA » dans Dates clés pour un calcul juste (à défaut : envoi + 2 mois).") },
 
     { id: "dp_depot", phase: "Urbanisme (terrain)", label: "Déclaration préalable (DP) déposée en mairie",
       due: (d) => dpDepot(d), applies: estTerrain,
@@ -764,7 +813,7 @@
   ];
 
   window.SuiviEtapes = {
-    ETAPES, compute, nextDue, sante, DEFAULT_MODELES, estTerrain, typeBien, condDroit,
+    ETAPES, compute, nextDue, sante, DEFAULT_MODELES, estTerrain, typeBien, condDroit, condHors, avecPret, retractEstimee,
     DIAGS, dureeDiag, diagExpiration, dateActe, ENTRETIENS, finRetract,
     addDays, addMonths, daysUntil, fmtFr, fmtIso, parseDate, today
   };
