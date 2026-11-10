@@ -613,6 +613,15 @@ export async function menageQuotidien(db, files = null) {
   // déposées 90 jours après la fin d'une offre (l'offre et son PDF restent).
   try { r.offresExpirees = await OFFRES.expirerOffres(db); } catch (e) { r.offresErreur = e.message; }
   try { r.offresPurgees = await OFFRES.purgerOffres(db, files); } catch (e) { r.purgeErreur = e.message; }
+  // Corbeille des brochures du compte : contenu R2 puis ligne, 30 jours après la suppression.
+  try {
+    const vieilles = await db.all("SELECT id, agency_id FROM brochures_corbeille WHERE deleted_at < ? LIMIT 100", [t - 30 * 86400]);
+    for (const v of vieilles) {
+      if (files) await files.delete("br/" + v.agency_id + "/" + v.id + ".json");
+      await db.run("DELETE FROM brochures_corbeille WHERE id = ?", [v.id]);
+    }
+    r.brochures = vieilles.length;
+  } catch (e) { r.brochuresErreur = e.message; }
   r.corbeille = changesOf(await db.run("DELETE FROM crm_corbeille WHERE created_at < ? OR (restored_at > 0 AND restored_at < ?)",
     [t - CORBEILLE_JOURS * 86400, t - 7 * 86400]));
   // Comptes partagés « .interne » (porte collaborateurs fermée le 12/10) : sessions et liens révoqués.

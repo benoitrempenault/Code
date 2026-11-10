@@ -1438,6 +1438,21 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**Bibliothèque des brochures — identité des dossiers (10/11, Stéphanie Dreyfus : « un dossier se lie à un
+autre »)** : trois causes reproduites — (1) depuis le retrait du bouton de la barre (19/10), tout enregistrement
+passait par un prompt pré-rempli du nom du dernier dossier ouvert ; (2) `#aiNotes` (hors état) n'était pas vidé à
+l'ouverture d'un dossier → « Générer » réécrivait B avec le bien de A ; (3) `PUT /brochures` = upsert PAR NOM,
+commun à l'agence, sans question. Correctif (mandat + mandat-pro, app.js) : `PUT /brochures` accepte `id` (mise à
+jour de la brochure ouverte, renommage si nom libre), `creer` (409 + `existe {id, auteur, updated_at, a_moi}` si le
+nom est pris), `remplacer` (l'ancienne version copiée en corbeille, motif `remplacee`) ; sans aucun des trois =
+ancien comportement (clients en cache). `DELETE /brochures/:id` = table `brochures_corbeille` (contenu R2 gardé),
+`GET /brochures/corbeille`, `POST /brochures/:id/restaurer`, purge à 30 j dans `menageQuotidien` (sous try).
+Client : `noterCourant()` (badge `#brOuverte`, libellé « 💾 Enregistrer « NOM » », bouton `#libSaveAs`, `#libTrash`
+créés en JS), `_courant {name, id}` gardé dans le même blob localStorage que l'état (retiré à `load()`/`loadData`),
+`viderHorsEtat()` à l'ouverture, `resetBlank()` quand on supprime le dossier ouvert, `cloudPutBrochure(body,
+silencieux)`. NON fait : même upsert par nom pour les fiches prestation (`/fiches`, fiche.js), suppression non
+réservée à l'auteur. Smoke `compte` : scénario complet ; tests serveur brochures.
+
 **SMS courts, un segment (06/11)** : Brevo facture au segment (≈ 4,5 crédits ≈ 0,045 € ; unicode = 70
 caractères/segment, standard = 160). Modèles `sms-*` et textes par défaut de `buildAnniversaireSms` resserrés
 (≤ 160 caractères en jeu GSM avec « Jean-Baptiste », « Laurence », « CENTURY 21 Kadima », un 06) : « {signature},

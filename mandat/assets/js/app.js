@@ -264,13 +264,16 @@
   function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(save, 400); }
   function save() {
     try {
-      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      // Le dossier ouvert (nom, identifiant du compte) est gardé AVEC l'état : après un rechargement,
+      // « Enregistrer » sait encore quelle brochure il met à jour (10/11).
+      let courant = null; try { courant = { name: currentFileName, id: currentCloudId }; } catch (e) { /* avant l'initialisation */ }
+      localStorage.setItem(LS_KEY, JSON.stringify(Object.assign({}, state, { _courant: courant })));
     } catch (e) {
       toast("Stockage local saturé (trop de photos). Pensez à « Sauvegarder » en .json.", true);
     }
   }
   function load() {
-    try { const raw = localStorage.getItem(LS_KEY); return raw ? JSON.parse(raw) : null; }
+    try { const raw = localStorage.getItem(LS_KEY); const o = raw ? JSON.parse(raw) : null; if (o) delete o._courant; return o; }
     catch (e) { return null; }
   }
 
@@ -1011,8 +1014,8 @@
     if (!askName && currentFileName) {
       name = currentFileName;
     } else {
-      const suggested = currentFileName ? currentFileName.replace(/\.json$/i, "") : (state.property.title || fileSlug());
-      const input = prompt("Nom de la brochure :", suggested);
+      const suggested = currentFileName ? nomCourant() + " (copie)" : (state.property.title || fileSlug());
+      const input = prompt(currentFileName ? "Nom de la nouvelle brochure (« " + nomCourant() + " » reste inchangée) :" : "Nom de la brochure :", suggested);
       if (input == null) return false; // annulé
       name = (safeName(input) || fileSlug()) + ".json";
       if (name !== currentFileName && await Lib.exists(name)) {
@@ -1022,7 +1025,8 @@
     const data = clone(state); data._app = "studio-brochure"; data._v = 2;
     try {
       await Lib.saveState(data, name);
-      currentFileName = name;
+      if (name !== currentFileName) currentCloudId = null; // autre nom = autre brochure sur le compte
+      currentFileName = name; noterCourant();
       if (!$("#libOverlay").hidden) {
         libItems = await Lib.list(); renderLibList();
         $("#libFolder").textContent = "Dossier : " + Lib.folderName();
@@ -1054,25 +1058,82 @@
     } catch (e) { throw new Error("Serveur injoignable — vérifiez votre connexion."); }
     const data = await res.json().catch(function () { return null; });
     if (res.status === 401) throw new Error("Session expirée — reconnectez-vous pour retrouver la bibliothèque du compte.");
-    if (!res.ok) throw new Error((data && data.error) || "Erreur serveur — réessayez.");
+    if (!res.ok) { const er = new Error((data && data.error) || "Erreur serveur — réessayez."); er.status = res.status; er.data = data; throw er; }
     return data;
   }
   let libCloudMode = false, currentCloudId = null;
-  // Enregistre la brochure courante sur le compte (nom demandé).
+  let libCorbeille = false;
+  try { const c0 = (JSON.parse(localStorage.getItem(LS_KEY) || "null") || {})._courant; if (c0) { currentFileName = c0.name || null; currentCloudId = c0.id || null; } } catch (e) { /* état local illisible */ }
+  /* Le dossier ouvert se lit en permanence (10/11, Stéphanie : « un dossier se lie à un autre ») :
+     son nom dans la barre du haut et sur le bouton d'enregistrement — on sait toujours QUELLE
+     brochure un enregistrement met à jour. */
+  function nomCourant() { return currentFileName ? currentFileName.replace(/\.json$/i, "") : ""; }
+  function noterCourant() {
+    save();
+    const n = nomCourant();
+    let b = document.getElementById("brOuverte");
+    const ancre = document.getElementById("btnLibrary");
+    if (!b && ancre && ancre.parentNode) {
+      b = document.createElement("span"); b.id = "brOuverte";
+      b.style.cssText = "align-self:center;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid rgba(190,175,135,.6);";
+      ancre.parentNode.insertBefore(b, ancre);
+    }
+    if (b) {
+      b.textContent = n ? "📄 " + n : "● Brochure non enregistrée";
+      b.title = n ? "Brochure ouverte : « " + n + " ». « Bibliothèque » → « Enregistrer » la met à jour." : "Cette brochure n'est pas encore dans la bibliothèque.";
+    }
+    const bs = document.getElementById("libSave"), bsa = document.getElementById("libSaveAs");
+    if (bs) bs.textContent = n ? "💾 Enregistrer « " + n + " »" : "Enregistrer la brochure actuelle";
+    if (bsa) bsa.hidden = !n;
+  }
+  // Champs hors état (notes brutes de l'étape 8, sources du quartier, statuts) : vidés à chaque
+  // ouverture — les notes du dossier précédent ne servent plus à régénérer le suivant.
+  function viderHorsEtat() {
+    const notes = document.getElementById("aiNotes"); if (notes) notes.value = "";
+    const src = document.getElementById("quartierSources"); if (src) src.innerHTML = "";
+    ["aiStatus", "quartierStatus", "captionStatus", "qrStatus", "notesStatus", "adStatus", "dpeStatus", "surfacesStatus"].forEach(function (id) {
+      const el = document.getElementById(id); if (el) { el.textContent = ""; el.className = "ai-status"; }
+    });
+  }
+  // Envoi au compte. Une brochure ouverte se met à jour PAR SON IDENTIFIANT ; un nom déjà pris par
+  // une autre brochure demande confirmation (l'ancienne version part à la corbeille, 30 jours).
+  // silencieux : copie de fond depuis le dossier OneDrive — jamais de question, jamais d'écrasement
+  // de la brochure d'un collègue.
+  async function cloudPutBrochure(body, silencieux) {
+    try { return await cloudApi("/brochures", { body: body }); }
+    catch (e) {
+      const ex = e && e.status === 409 && e.data && e.data.existe;
+      if (!ex) throw e;
+      if (silencieux) {
+        if (ex.a_moi && !body.id) return cloudApi("/brochures", { body: { id: ex.id, name: body.name, data: body.data } });
+        throw e;
+      }
+      const d = ex.updated_at ? new Date(ex.updated_at * 1000).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" }) : "";
+      const qui = ex.auteur ? " (enregistrée par " + ex.auteur + (d ? " le " + d : "") + ")" : "";
+      if (!confirm("Une autre brochure « " + body.name + " » existe déjà sur le compte" + qui + ".\n\nLa remplacer par celle-ci ? L'ancienne version ira dans la corbeille (30 jours).")) return null;
+      return cloudApi("/brochures", { body: { name: body.name, data: body.data, remplacer: true } });
+    }
+  }
+  // Enregistre la brochure courante sur le compte. askName = « sous un autre nom » (ou premier
+  // enregistrement) ; sinon la brochure ouverte est mise à jour, sans question.
   async function cloudSaveCurrent(askName) {
     let name;
+    const data = clone(state); data._app = "studio-brochure"; data._v = 2;
+    let body;
     if (!askName && currentFileName) {
-      name = currentFileName.replace(/\.json$/i, "");
+      name = nomCourant();
+      body = currentCloudId ? { id: currentCloudId, name: name, data: data } : { name: name, data: data, creer: true };
     } else {
-      const suggested = currentFileName ? currentFileName.replace(/\.json$/i, "") : (state.property.title || fileSlug());
-      const input = prompt("Nom de la brochure :", suggested);
+      const suggested = currentFileName ? nomCourant() + " (copie)" : (state.property.title || fileSlug());
+      const input = prompt(currentFileName ? "Nom de la nouvelle brochure (« " + nomCourant() + " » reste inchangée) :" : "Nom de la brochure :", suggested);
       if (input == null) return false;
       name = (safeName(input) || fileSlug()).slice(0, 120);
+      body = (currentCloudId && name === nomCourant()) ? { id: currentCloudId, name: name, data: data } : { name: name, data: data, creer: true };
     }
-    const data = clone(state); data._app = "studio-brochure"; data._v = 2;
     try {
-      const r = await cloudApi("/brochures", { body: { name: name, data: data } });
-      currentCloudId = r.id; currentFileName = name + ".json";
+      const r = await cloudPutBrochure(body, false);
+      if (!r) return false; // remplacement refusé
+      currentCloudId = r.id; currentFileName = name + ".json"; noterCourant();
       toast(r.updated ? "« " + name + " » mise à jour sur le compte ✓" : "Brochure enregistrée sur le compte : " + name);
       if (!$("#libOverlay").hidden) libRefresh();
       return true;
@@ -1083,31 +1144,64 @@
   function pushCurrentToCloud(name) {
     if (!cloudOn()) return;
     const data = clone(state); data._app = "studio-brochure"; data._v = 2;
-    cloudApi("/brochures", { body: { name: String(name || "").replace(/\.json$/i, ""), data: data } })
-      .then(function (r) { currentCloudId = r.id; }, function () { /* le dossier reste la référence */ });
+    const nom = String(name || "").replace(/\.json$/i, "");
+    cloudPutBrochure(currentCloudId ? { id: currentCloudId, name: nom, data: data } : { name: nom, data: data, creer: true }, true)
+      .then(function (r) { if (r && r.id) { currentCloudId = r.id; noterCourant(); } }, function () { /* nom déjà pris par un collègue, ou hors ligne : le dossier reste la référence */ });
   }
   async function cloudOpen(id) {
     try {
       const r = await cloudApi("/brochures/" + id);
       loadData(r.data);
       currentCloudId = id; currentFileName = (r.name || "brochure") + ".json";
+      viderHorsEtat(); noterCourant();
       closeLib();
       toast("« " + (state.property.title || r.name) + " » ouverte.");
     } catch (e) { toast(e.message, true); }
   }
   async function cloudDelete(id, name) {
-    if (!confirm("Supprimer définitivement « " + String(name || "").replace(/\.json$/i, "") + " » du compte (pour toute l'agence) ?")) return;
+    const nom = String(name || "").replace(/\.json$/i, "");
+    if (!confirm("Mettre « " + nom + " » à la corbeille ?\n\nElle disparaît de la bibliothèque de toute l'agence et reste récupérable 30 jours (bouton « 🗑 Corbeille »).")) return;
     try {
       await cloudApi("/brochures/" + id, { method: "DELETE" });
-      if (currentCloudId === id) currentCloudId = null;
-      libRefresh(); toast("Brochure supprimée.");
+      // La brochure ouverte vient d'être supprimée : l'éditeur repart à vide — son contenu ne
+      // doit pas finir, par un enregistrement suivant, dans un autre dossier.
+      if (currentCloudId === id) { resetBlank(); toast("Brochure mise à la corbeille — l'éditeur repart d'une brochure vierge."); }
+      else toast("Brochure mise à la corbeille (récupérable 30 jours).");
+      libRefresh();
+    } catch (e) { toast(e.message, true); }
+  }
+  async function corbeilleAfficher() {
+    const listEl = $("#libList"), hint = $("#libHint");
+    hint.textContent = "Corbeille : les brochures supprimées ou remplacées y restent 30 jours.";
+    listEl.innerHTML = '<div class="lib-empty">Chargement…</div>';
+    try {
+      const r = await cloudApi("/brochures/corbeille");
+      const items = r.brochures || [];
+      if (!items.length) { listEl.innerHTML = '<div class="lib-empty">La corbeille est vide.</div>'; return; }
+      listEl.innerHTML = items.map(function (x) {
+        const d = new Date((x.deleted_at || 0) * 1000);
+        const ds = isNaN(d) ? "" : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+        const sub = [x.title, x.location].filter(Boolean).join(" — ");
+        const meta = [(x.motif === "remplacee" ? "Version remplacée" : "Supprimée") + (ds ? " le " + ds : ""), x.par ? "par " + x.par : ""].filter(Boolean).join("  ·  ");
+        return '<div class="lib-item" data-name="' + esc(x.name) + '" data-id="' + esc(x.id) + '"><div class="lib-item__main">' +
+          '<div class="lib-item__title">' + esc(x.name) + "</div>" + (sub ? '<div class="lib-item__sub">' + esc(sub) + "</div>" : "") +
+          '<div class="lib-item__meta">' + esc(meta) + "</div></div>" +
+          '<div class="lib-item__actions"><button class="btn btn--primary btn--sm" data-act="restore">Restaurer</button></div></div>';
+      }).join("");
+    } catch (e) { listEl.innerHTML = ""; libHintError(hint, e, libRefresh); }
+  }
+  async function cloudRestore(id) {
+    try {
+      const r = await cloudApi("/brochures/" + id + "/restaurer", { method: "POST" });
+      toast("« " + r.name + " » restaurée dans la bibliothèque.");
+      libCorbeille = false; libRefresh();
     } catch (e) { toast(e.message, true); }
   }
 
   // Charge des données de projet dans l'état (import .json ou bibliothèque).
   function loadData(d) {
     if (!d || typeof d !== "object" || !d.property || typeof d.property !== "object") throw new Error("format");
-    stripDangerousKeys(d);
+    stripDangerousKeys(d); delete d._courant;
     state = normalizeState(Object.assign(clone(DEFAULT), d));
     hydrateForm(); renderPhotoUI(); render(); save();
   }
@@ -1118,7 +1212,7 @@
         const d = JSON.parse(r.result);
         if (d && d._app === "studio-fiche") { importFichePresta(d); return; }
         loadData(d);
-        currentFileName = null; // fichier importé : « Enregistrer » créera une entrée dans le dossier
+        currentFileName = null; currentCloudId = null; viderHorsEtat(); noterCourant(); // fichier importé : « Enregistrer » créera une entrée
         toast("Projet chargé.");
       } catch (e) { toast("Fichier .json invalide.", true); }
     };
@@ -1143,7 +1237,7 @@
     const ta = document.getElementById("aiNotes");
     if (ta) ta.value = notes;
     hydrateForm(); render(); save();
-    currentFileName = null;
+    currentFileName = null; currentCloudId = null; noterCourant();
     toast("Fiche prestation importée ✓ — rédaction de la brochure en cours…");
     // Étape 8 : l'utilisateur voit « Claude rédige… » puis « Fiche générée ✓ »
     // (sinon la rédaction tourne hors écran et semble ne produire que la couverture).
@@ -1156,7 +1250,7 @@
   // prestation (qui doit repartir d'une brochure vierge, pas hériter des
   // photos / localisation / textes du bien précédent).
   function resetBlank() {
-    state = blankState(); currentFileName = null; hydrateForm(); renderPhotoUI(); render(); save();
+    state = blankState(); currentFileName = null; currentCloudId = null; hydrateForm(); renderPhotoUI(); render(); noterCourant();
     // Vider aussi les champs hors-état : notes brutes (point 8) et sources du quartier.
     const notes = document.getElementById("aiNotes"); if (notes) notes.value = "";
     const src = document.getElementById("quartierSources"); if (src) src.innerHTML = "";
@@ -1550,13 +1644,15 @@
   function normTxt(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
 
   function paintLibMode() {
+    const co = document.getElementById("libTrash");
+    if (co) { co.hidden = !libCloudMode; co.textContent = libCorbeille ? "← Retour aux brochures" : "🗑 Corbeille"; }
     const t = $("#libToggle");
     if (!t) return;
     t.hidden = !(cloudOn() && Lib && Lib.isSupported()); // bascule utile seulement quand les deux modes existent
     t.textContent = libCloudMode ? "▤ Voir le dossier OneDrive" : "☁ Brochures du compte";
     $("#libChoose").hidden = libCloudMode;
   }
-  function openLib() { libCloudMode = cloudOn(); $("#libOverlay").hidden = false; libRefresh(); }
+  function openLib() { libCloudMode = cloudOn(); libCorbeille = false; $("#libOverlay").hidden = false; libRefresh(); }
   function closeLib() { $("#libOverlay").hidden = true; }
 
   // Message d'erreur de la bibliothèque « compte ». Quand la session est tombée
@@ -1582,6 +1678,7 @@
       btnChoose.disabled = false; btnSave.disabled = false;
       folderEl.textContent = "Brochures du compte — synchronisées entre vos appareils";
       hint.textContent = "Partagées avec toute l'agence : enregistrez sur l'ordinateur, ouvrez sur le téléphone (et inversement).";
+      if (libCorbeille) { await corbeilleAfficher(); return; }
       listEl.innerHTML = '<div class="lib-empty">Chargement…</div>';
       try {
         const r = await cloudApi("/brochures");
@@ -1631,6 +1728,7 @@
 
   function renderLibList() {
     const listEl = $("#libList");
+    if (libCloudMode && libCorbeille) return; // la corbeille a son propre affichage
     if (!libItems.length) {
       listEl.innerHTML = '<div class="lib-empty">' + (libCloudMode
         ? "Aucune brochure sur le compte pour le moment. « Enregistrer la brochure actuelle » — elle vous suivra du téléphone à l'ordinateur."
@@ -1669,7 +1767,7 @@
     try {
       const d = await Lib.read(name);
       loadData(d);
-      currentFileName = name;
+      currentFileName = name; currentCloudId = null; viderHorsEtat(); noterCourant();
       closeLib();
       toast("« " + (state.property.title || name) + " » ouverte. Modifiez, puis « Bibliothèque » → « Enregistrer ».");
     } catch (e) { toast("Ouverture impossible.", true); }
@@ -1679,20 +1777,23 @@
     if (!confirm("Supprimer définitivement « " + name + " » du dossier OneDrive ?")) return;
     try {
       await Lib.remove(name);
-      if (currentFileName === name) currentFileName = null;
+      if (currentFileName === name) { currentFileName = null; currentCloudId = null; noterCourant(); }
       libItems = await Lib.list(); renderLibList();
       toast("Brochure supprimée.");
     } catch (e) { toast("Suppression impossible.", true); }
   }
 
-  async function libSaveCurrent() {
-    if (libCloudMode) { await cloudSaveCurrent(true); return; }
+  // « Enregistrer » met à jour la brochure ouverte (son nom est écrit sur le bouton) ; sans brochure
+  // ouverte, le nom est demandé. « Enregistrer sous un autre nom… » en crée une autre.
+  async function libSaveCurrent(e, autreNom) {
+    const demander = autreNom === true || !currentFileName;
+    if (libCloudMode) { await cloudSaveCurrent(demander); return; }
     if (!Lib || !Lib.isSupported()) { downloadJson(); return; } // ni dossier ni compte : le projet se télécharge (.json)
     if (!Lib.folderName()) {
       try { await Lib.chooseFolder(); await libRefresh(); }
-      catch (e) { return; } // sélection annulée
+      catch (e2) { return; } // sélection annulée
     }
-    await saveCurrentToFolder(true); // demande / permet de changer le nom
+    await saveCurrentToFolder(demander);
   }
 
   function wireLibrary() {
@@ -1701,8 +1802,17 @@
     $("#libOverlay").addEventListener("click", function (e) { if (e.target === this) closeLib(); });
     document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !$("#libOverlay").hidden) closeLib(); });
     $("#libSearch").addEventListener("input", renderLibList);
-    if ($("#libToggle")) $("#libToggle").addEventListener("click", function () { libCloudMode = !libCloudMode; libRefresh(); });
+    if ($("#libToggle")) $("#libToggle").addEventListener("click", function () { libCloudMode = !libCloudMode; libCorbeille = false; libRefresh(); });
     $("#libSave").addEventListener("click", libSaveCurrent);
+    // Boutons ajoutés ici (les deux pages brochure partagent ce script) : « sous un autre nom » et la corbeille du compte.
+    const bsa = document.createElement("button"); bsa.className = "btn btn--ghost btn--sm"; bsa.id = "libSaveAs"; bsa.type = "button"; bsa.hidden = true;
+    bsa.textContent = "Enregistrer sous un autre nom…"; bsa.title = "Crée une AUTRE brochure à partir de celle-ci ; la brochure ouverte reste inchangée";
+    $("#libSave").parentNode.insertBefore(bsa, $("#libSave").nextSibling);
+    bsa.addEventListener("click", function (ev) { libSaveCurrent(ev, true); });
+    const bco = document.createElement("button"); bco.className = "btn btn--ghost btn--sm"; bco.id = "libTrash"; bco.type = "button"; bco.hidden = true;
+    bsa.parentNode.insertBefore(bco, bsa.nextSibling);
+    bco.addEventListener("click", function () { libCorbeille = !libCorbeille; libRefresh(); });
+    noterCourant();
     $("#libChoose").addEventListener("click", async function () {
       if (!Lib || !Lib.isSupported()) {
         toast("La bibliothèque nécessite Google Chrome ou Microsoft Edge sur ordinateur — sur téléphone, elle n'est pas disponible.", true);
@@ -1715,6 +1825,7 @@
       const btn = e.target.closest && e.target.closest("button[data-act]"); if (!btn) return;
       const item = e.target.closest(".lib-item"); if (!item) return;
       const name = item.getAttribute("data-name"), cid = item.getAttribute("data-id");
+      if (btn.getAttribute("data-act") === "restore") { cloudRestore(cid); return; }
       if (btn.getAttribute("data-act") === "open") { if (libCloudMode && cid) cloudOpen(cid); else libOpen(name); }
       else if (libCloudMode && cid) cloudDelete(cid, name);
       else libDelete(name);

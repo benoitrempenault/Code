@@ -51,6 +51,69 @@ export default async function () {
       await page.waitForTimeout(400);
       await page.screenshot({ path: new URL("./captures/brochure-cauderan-apercu.png", import.meta.url).pathname });
     } catch { }
+    /* Bibliothèque des brochures (10/11, Stéphanie : « un dossier se lie à un autre ») : la brochure
+       ouverte est nommée à l'écran et mise à jour par son identifiant, un nom déjà pris demande
+       confirmation, les notes se vident à l'ouverture, la suppression passe par la corbeille. */
+    { await ouvrir(page, "/mandat/brochure.html", membre);
+      await page.waitForSelector('[data-bind="property.title"]', { state: "attached", timeout: 15000 });
+      const dialogues = []; let reponse = null, accepter = true;
+      page.removeAllListeners("dialog");
+      page.on("dialog", async (d) => { dialogues.push(d.type() + " | " + d.message()); if (d.type() === "prompt") await d.accept(reponse == null ? d.defaultValue() : reponse); else if (accepter) await d.accept(); else await d.dismiss(); });
+      const comptes = async () => (await api("/brochures", { headers: membre.auth })).json.brochures;
+      const titreDe = async (id) => (await api("/brochures/" + id, { headers: membre.auth })).json.data.property.title;
+      const titre = async (t) => { await page.fill('[data-bind="property.title"]', t); await page.dispatchEvent('[data-bind="property.title"]', "input"); await page.waitForTimeout(350); };
+      const biblio = async () => { if (await page.locator("#libOverlay[hidden]").count()) { await page.click("#btnLibrary"); await page.waitForTimeout(700); } };
+      const fermer = async () => { if (!(await page.locator("#libOverlay[hidden]").count())) await page.click("#libClose"); await page.waitForTimeout(250); };
+      const ouvrirBr = async (nom) => { await biblio(); await page.click('.lib-item[data-name="' + nom + '.json"] [data-act="open"]'); await page.waitForTimeout(900); };
+      await page.click("#btnNew"); await page.waitForTimeout(400);
+      ok(/non enregistrée/.test(await page.textContent("#brOuverte")), "brochure neuve : la barre dit « Brochure non enregistrée »");
+      // A : premier enregistrement, le nom est demandé.
+      await titre("Maison A"); reponse = "DOSSIER A"; await biblio(); await page.click("#libSave"); await page.waitForTimeout(1000);
+      ok(/DOSSIER A/.test(await page.textContent("#brOuverte")) && /Enregistrer « DOSSIER A »/.test(await page.textContent("#libSave")) && !(await page.locator("#libSaveAs[hidden]").count()),
+        "après l'enregistrement, le nom du dossier ouvert est affiché en haut et sur le bouton « Enregistrer « DOSSIER A » »");
+      // Notes brutes saisies pour A, puis second dossier B par « Nouveau ».
+      await fermer();
+      await page.evaluate(() => { document.getElementById("aiNotes").value = "NOTES DU DOSSIER A"; });
+      await page.click("#btnNew"); await page.waitForTimeout(400);
+      await titre("Appartement B"); reponse = "DOSSIER B"; await biblio(); await page.click("#libSave"); await page.waitForTimeout(1000); await fermer();
+      // On rouvre A : les notes du dossier précédent ne suivent pas.
+      await page.evaluate(() => { document.getElementById("aiNotes").value = "NOTES DU DOSSIER B"; });
+      await ouvrirBr("DOSSIER A");
+      ok((await page.inputValue("#aiNotes")) === "" && (await page.inputValue('[data-bind="property.title"]')) === "Maison A" && /DOSSIER A/.test(await page.textContent("#brOuverte")),
+        "ouvrir un dossier vide la zone de notes brutes (plus de régénération avec le bien d'un autre dossier)");
+      // « Enregistrer » met à jour A sans rien demander ; B n'est pas touché.
+      const nDial = dialogues.length;
+      await titre("Maison A modifiée"); await biblio(); await page.click("#libSave"); await page.waitForTimeout(1000);
+      let l = await comptes();
+      ok(dialogues.length === nDial && l.length === 2 && await titreDe(l.find((b) => b.name === "DOSSIER A").id) === "Maison A modifiée" && await titreDe(l.find((b) => b.name === "DOSSIER B").id) === "Appartement B",
+        "« Enregistrer » met à jour le dossier ouvert sans question, l'autre dossier n'est pas touché");
+      // « Sous un autre nom » vers un nom déjà pris : refusé, rien n'est écrasé.
+      reponse = "DOSSIER B"; accepter = false; await page.click("#libSaveAs"); await page.waitForTimeout(1000);
+      l = await comptes();
+      ok(/existe déjà/.test(dialogues[dialogues.length - 1]) && l.length === 2 && await titreDe(l.find((b) => b.name === "DOSSIER B").id) === "Appartement B" && /DOSSIER A/.test(await page.textContent("#brOuverte")),
+        "enregistrer sous un nom déjà pris pose la question ; refusée, rien n'est écrasé (" + dialogues[dialogues.length - 1].slice(0, 80) + "…)");
+      // « Sous un autre nom » : une copie, l'original reste.
+      reponse = null; accepter = true; await page.click("#libSaveAs"); await page.waitForTimeout(1000);
+      l = await comptes();
+      ok(l.length === 3 && l.some((b) => b.name === "DOSSIER A (copie)") && /DOSSIER A \(copie\)/.test(await page.textContent("#brOuverte")), "« Enregistrer sous un autre nom » crée une copie et l'ouvre, l'original reste");
+      // Après rechargement, le dossier ouvert est retrouvé : l'enregistrement suivant met à jour le même.
+      await page.reload(); await page.waitForSelector("#brOuverte", { timeout: 15000 }); await page.waitForTimeout(600);
+      await titre("Copie retouchée après rechargement"); await biblio(); await page.click("#libSave"); await page.waitForTimeout(1000);
+      l = await comptes();
+      ok(l.length === 3 && await titreDe(l.find((b) => b.name === "DOSSIER A (copie)").id) === "Copie retouchée après rechargement", "après un rechargement de la page, « Enregistrer » retrouve le dossier ouvert (pas de doublon)");
+      // Suppression du dossier ouvert : corbeille, éditeur vierge ; restauration.
+      await page.click('.lib-item[data-name="DOSSIER A (copie).json"] [data-act="del"]'); await page.waitForTimeout(1000);
+      ok((await comptes()).length === 2 && /non enregistrée/.test(await page.textContent("#brOuverte")) && (await page.inputValue('[data-bind="property.title"]')) === "",
+        "supprimer le dossier ouvert le met à la corbeille et remet l'éditeur à vide");
+      await page.click("#libTrash"); await page.waitForSelector('.lib-item [data-act="restore"]', { timeout: 6000 });
+      await page.click('.lib-item [data-act="restore"]'); await page.waitForTimeout(1000);
+      l = await comptes();
+      ok(l.length === 3 && await titreDe(l.find((b) => b.name === "DOSSIER A (copie)").id) === "Copie retouchée après rechargement" && (await page.locator('.lib-item[data-name="DOSSIER A (copie).json"]').count()) === 1,
+        "la corbeille restaure la brochure avec son contenu");
+      await page.screenshot({ path: new URL("./captures/brochure-bibliotheque.png", import.meta.url).pathname }).catch(() => {});
+      await fermer();
+      page.removeAllListeners("dialog"); page.on("dialog", (d) => d.accept());
+    }
     await ouvrir(page, "/prospection/", membre);
     await page.waitForFunction(() => Array.from(document.querySelectorAll("button")).some((b) => b.textContent.includes("👤")), null, { timeout: 8000 });
     ok(await page.locator('a[href="../administration/"]').count() === 0, "un simple conseiller ne voit pas le bouton Administration");
@@ -59,8 +122,9 @@ export default async function () {
     // Parcours visible, et le bandeau dit qui est connecté.
     await ouvrir(page, "/administration/", membre);
     await page.waitForFunction(() => document.body.classList.contains("mode-conseiller"), null, { timeout: 8000 });
-    ok(/Parcours R1\/R2/.test(await page.textContent("header h1")) && await page.locator(".onglet:not([hidden])").count() === 1,
-      "compte non-admin : l'Administration s'ouvre sur le seul Parcours R1/R2");
+    // Depuis le 20/10, l'onglet Évènements est ouvert à tous : Parcours (+ Évènements), jamais les autres.
+    ok(/Parcours R1\/R2/.test(await page.textContent("header h1")) && (await page.locator(".onglet:not([hidden])").allTextContents()).every((t) => /Parcours R1\/R2|Évènements/.test(t)),
+      "compte non-admin : l'Administration s'ouvre sur Parcours R1/R2 (et Évènements), sans les autres onglets");
     await page.waitForSelector("#compte-bandeau button, header button:has-text('👤')", { timeout: 6000 });
     ok((await page.textContent("body")).includes("Camille CONSEILLER"), "le bandeau dit QUI est connecté");
     // Le mémo des nouveautés (Parcours) s'ouvre devant : « Plus tard » le range pour cette fois.

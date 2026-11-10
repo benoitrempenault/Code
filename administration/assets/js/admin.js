@@ -4888,6 +4888,14 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "brochures-bibliotheque-10-11", depuis: "2026-11-10", jours: 10, titre: "Brochures : chaque dossier reste le sien",
+      html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Le dossier ouvert est affiché</strong> en haut de l'écran (📄 son nom) et sur le bouton de la Bibliothèque : « 💾 Enregistrer « NOM » » met à jour CE dossier, sans rien demander.</li>" +
+        "<li><strong>« Enregistrer sous un autre nom… »</strong> crée une autre brochure à partir de celle-ci ; l'originale ne bouge pas. Pour un nouveau bien, partez de « Nouveau ».</li>" +
+        "<li>Un nom déjà pris par une autre brochure de l'agence pose la question avant de la remplacer.</li>" +
+        "<li>Les <strong>notes brutes</strong> se vident quand vous ouvrez un autre dossier : « Générer » ne réécrit plus un dossier avec le bien du précédent.</li>" +
+        "<li><strong>🗑 Corbeille</strong> : une brochure supprimée, ou remplacée, se récupère pendant 30 jours.</li>" +
+        "</ul>" },
     { id: "sms-courts-06-11", depuis: "2026-11-06", jours: 7, titre: "SMS : des vœux plus courts",
       html: '<p class="aide" style="max-width:none;">Les SMS d\'anniversaire tiennent désormais en <strong>un seul segment</strong> (160 caractères, jeu standard) : textes resserrés, virgule et tiret simple, le numéro de réponse toujours à la fin. Les SMS écrits depuis une fiche contact passent aussi en jeu standard : la ponctuation typographique est remplacée et les rares lettres hors jeu (ê, ç, œ…) perdent leur accent. Un SMS coûte ainsi trois fois moins cher.</p>' },
     { id: "avis-cauderan-03-11", depuis: "2026-11-03", jours: 7, titre: "Caudéran : le lien d'avis Google de l'étape 7",

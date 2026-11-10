@@ -3566,6 +3566,47 @@ export function createApp(env) {
     return c.json({ brochures: rows });
   });
 
+  // Corbeille (10/11) : brochures supprimées ou versions remplacées, 30 jours. Déclarée AVANT
+  // /brochures/:id, qui prendrait « corbeille » pour un identifiant.
+  const BROCHURES_CORBEILLE_JOURS = 30;
+  const versCorbeilleBrochure = async (row, userId, motif, id) => db.run(
+    `INSERT INTO brochures_corbeille (id, agency_id, user_id, name, title, location, price, type, size, created_at, updated_at, deleted_at, deleted_by, motif)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id || row.id, row.agency_id, row.user_id || "", row.name, row.title || "", row.location || "", row.price || "", row.type || "", row.size || 0,
+      row.created_at || 0, row.updated_at || 0, now(), userId, motif]);
+  app.get("/brochures/corbeille", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!filesReady()) return err(c, 501, "Bibliothèque du compte non configurée sur le serveur.");
+    const rows = await db.all(
+      `SELECT k.id, k.name, k.title, k.location, k.price, k.type, k.deleted_at, k.motif, COALESCE(u.name, '') AS par
+       FROM brochures_corbeille k LEFT JOIN users u ON u.id = k.deleted_by
+       WHERE k.agency_id = ? AND k.deleted_at > ? ORDER BY k.deleted_at DESC LIMIT 200`,
+      [ctx.agency.id, now() - BROCHURES_CORBEILLE_JOURS * 86400]);
+    return c.json({ brochures: rows, jours: BROCHURES_CORBEILLE_JOURS });
+  });
+  app.post("/brochures/:id/restaurer", async (c) => {
+    const ctx = await sessionFrom(c);
+    if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
+    if (!filesReady()) return err(c, 501, "Bibliothèque du compte non configurée sur le serveur.");
+    const k = await db.get("SELECT * FROM brochures_corbeille WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    if (!k) return err(c, 404, "Brochure introuvable dans la corbeille.");
+    if (!(await env.files.get(brKey(ctx.agency.id, k.id)))) return err(c, 404, "Le contenu de cette brochure n'est plus disponible.");
+    const count = await db.get("SELECT COUNT(*) AS n FROM brochures WHERE agency_id = ?", [ctx.agency.id]);
+    if ((count?.n || 0) >= BROCHURES_MAX) return err(c, 409, "Limite de brochures atteinte (" + BROCHURES_MAX + ") — supprimez-en d'abord.");
+    // Le nom d'origine s'il est libre, sinon « … (restaurée) », « … (restaurée 2) »…
+    let name = k.name;
+    for (let n = 1; await db.get("SELECT id FROM brochures WHERE agency_id = ? AND name = ?", [ctx.agency.id, name]); n++) {
+      name = (k.name + " (restaurée" + (n > 1 ? " " + n : "") + ")").slice(0, 120);
+      if (n > 20) return err(c, 409, "Nom déjà pris — renommez la brochure existante puis réessayez.");
+    }
+    await db.run(
+      "INSERT INTO brochures (id, agency_id, user_id, name, title, location, price, type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [k.id, ctx.agency.id, k.user_id || ctx.user.id, name, k.title, k.location, k.price, k.type, k.size, k.created_at || now(), now()]);
+    await db.run("DELETE FROM brochures_corbeille WHERE id = ?", [k.id]);
+    return c.json({ ok: true, id: k.id, name });
+  });
+
   app.get("/brochures/:id", async (c) => {
     const ctx = await sessionFrom(c);
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
@@ -3601,12 +3642,42 @@ export function createApp(env) {
       String(p.price || "").slice(0, 60),
       String(p.type || "").slice(0, 100)
     ];
-    const existing = await db.get("SELECT id FROM brochures WHERE agency_id = ? AND name = ?", [ctx.agency.id, name]);
+    /* Quelle brochure écrit-on ? (10/11 — « un dossier se lie à un autre »)
+       - b.id : la brochure OUVERTE, mise à jour par son identifiant (renommée au passage si le
+         nom est libre) ;
+       - sinon par son nom. Un nom déjà pris : remplacé seulement sur demande explicite
+         (b.remplacer, l'ancienne version part à la corbeille) ; refusé (409 + qui/quand) quand
+         l'appelant voulait CRÉER (b.creer) ; mis à jour pour les anciens clients encore en cache,
+         qui n'envoient ni l'un ni l'autre. */
+    const idDemande = String((b && b.id) || "").replace(/[^a-z0-9_]/gi, "").slice(0, 40);
+    const parNom = await db.get(
+      `SELECT b.*, COALESCE(u.name, '') AS auteur FROM brochures b LEFT JOIN users u ON u.id = b.user_id
+       WHERE b.agency_id = ? AND b.name = ?`, [ctx.agency.id, name]);
+    let existing = idDemande ? await db.get("SELECT * FROM brochures WHERE id = ? AND agency_id = ?", [idDemande, ctx.agency.id]) : null;
+    const conflit = () => c.json({
+      error: "Une autre brochure « " + name + " » existe déjà sur le compte.",
+      existe: { id: parNom.id, auteur: parNom.auteur, updated_at: parNom.updated_at, a_moi: parNom.user_id === ctx.user.id },
+    }, 409);
+    if (existing) {
+      if (parNom && parNom.id !== existing.id) return conflit();
+    } else if (parNom) {
+      if (b.remplacer === true) {
+        // L'ancienne version reste récupérable : son contenu est copié sous un nouvel identifiant.
+        const ancien = await env.files.get(brKey(ctx.agency.id, parNom.id));
+        if (ancien) {
+          const idCopie = randId("br");
+          await env.files.put(brKey(ctx.agency.id, idCopie), await ancien.text());
+          await versCorbeilleBrochure(parNom, ctx.user.id, "remplacee", idCopie);
+        }
+        existing = parNom;
+      } else if (b.creer === true || idDemande) return conflit();
+      else existing = parNom;
+    }
     const id = existing ? existing.id : randId("br");
     await env.files.put(brKey(ctx.agency.id, id), json);
     if (existing) {
-      await db.run("UPDATE brochures SET title = ?, location = ?, price = ?, type = ?, size = ?, user_id = ?, updated_at = ? WHERE id = ?",
-        [meta[0], meta[1], meta[2], meta[3], json.length, ctx.user.id, now(), id]);
+      await db.run("UPDATE brochures SET name = ?, title = ?, location = ?, price = ?, type = ?, size = ?, user_id = ?, updated_at = ? WHERE id = ?",
+        [name, meta[0], meta[1], meta[2], meta[3], json.length, ctx.user.id, now(), id]);
       return c.json({ ok: true, id, name, updated: true });
     }
     const count = await db.get("SELECT COUNT(*) AS n FROM brochures WHERE agency_id = ?", [ctx.agency.id]);
@@ -3624,12 +3695,14 @@ export function createApp(env) {
     const ctx = await sessionFrom(c);
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
     if (!filesReady()) return err(c, 501, "Bibliothèque du compte non configurée sur le serveur.");
-    const row = await db.get("SELECT id FROM brochures WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+    // Suppression = corbeille (30 jours) : la ligne change de table, le contenu R2 reste jusqu'à la purge.
+    const row = await db.get("SELECT * FROM brochures WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
     if (row) {
+      await db.run("DELETE FROM brochures_corbeille WHERE id = ?", [row.id]);
+      await versCorbeilleBrochure(row, ctx.user.id, "supprimee");
       await db.run("DELETE FROM brochures WHERE id = ?", [row.id]);
-      await env.files.delete(brKey(ctx.agency.id, row.id));
     }
-    return c.json({ ok: true });
+    return c.json({ ok: true, corbeille: !!row });
   });
 
   /* ------------------------------ Proxy IA ------------------------------ */

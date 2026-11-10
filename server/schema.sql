@@ -1342,3 +1342,24 @@ CREATE TABLE IF NOT EXISTS crm_evenement_creneaux_fin (
   id              TEXT PRIMARY KEY,            -- crm_evenement_creneaux.id
   date_fin        TEXT NOT NULL                -- AAAA-MM-JJ, > date du créneau
 );
+
+-- Corbeille des brochures du compte (10/11) : une brochure supprimée, ou la version
+-- remplacée par une autre du même nom, reste récupérable 30 jours (le contenu R2
+-- br/<agence>/<id>.json est gardé jusqu'à la purge du ménage quotidien).
+CREATE TABLE IF NOT EXISTS brochures_corbeille (
+  id         TEXT PRIMARY KEY,               -- br_xxxxxxxx (identifiant du contenu R2)
+  agency_id  TEXT NOT NULL,
+  user_id    TEXT NOT NULL DEFAULT '',       -- dernier auteur avant la suppression
+  name       TEXT NOT NULL,
+  title      TEXT NOT NULL DEFAULT '',
+  location   TEXT NOT NULL DEFAULT '',
+  price      TEXT NOT NULL DEFAULT '',
+  type       TEXT NOT NULL DEFAULT '',
+  size       INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  deleted_at INTEGER NOT NULL,
+  deleted_by TEXT NOT NULL DEFAULT '',       -- users.id de qui a supprimé / remplacé
+  motif      TEXT NOT NULL DEFAULT 'supprimee' -- supprimee | remplacee
+);
+CREATE INDEX IF NOT EXISTS idx_brochures_corbeille ON brochures_corbeille(agency_id, deleted_at);

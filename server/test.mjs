@@ -255,9 +255,51 @@ ok((await call("/brochures", { headers: { Authorization: "Bearer " + s2b } })).j
 ok((await call("/brochures/" + bput.json.id, { headers: { Authorization: "Bearer " + s2b } })).status === 404, "l'autre agence ne peut pas ouvrir");
 ok((await call("/brochures", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { name: "X", data: { _app: "studio-fiche" } } })).status === 400, "mauvais type de document refusé");
 ok((await call("/brochures", { headers: {} })).status === 401, "sans session : refusé");
-const bdel = await call("/brochures/" + bput.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
-ok(bdel.status === 200 && !filesMem.has("br/" + agencyId + "/" + bput.json.id + ".json")
-  && (await call("/brochures", { headers: { Authorization: "Bearer " + s3 } })).json.brochures.length === 0, "suppression : base + R2 nettoyés");
+// Identité des brochures (10/11) : mise à jour par identifiant, création refusée sur un nom pris,
+// remplacement explicite avec l'ancienne version à la corbeille, suppression récupérable 30 jours.
+{ const hB = { Authorization: "Bearer " + s3 };
+  const autre = { ...broData, property: { ...broData.property, title: "Tout autre bien" } };
+  const cree = await call("/brochures", { method: "PUT", headers: hB, body: { name: "VILLA LAFOND", data: autre, creer: true } });
+  ok(cree.status === 409 && cree.json.existe && cree.json.existe.id === bput.json.id && cree.json.existe.a_moi === true
+    && (await call("/brochures/" + bput.json.id, { headers: hB })).json.data.property.title === broData.property.title,
+    "créer sous un nom déjà pris : refusé (409, qui et quand), la brochure existante est intacte");
+  const parId = await call("/brochures", { method: "PUT", headers: hB, body: { id: bput.json.id, name: "VILLA LAFOND 2", data: broData } });
+  ok(parId.status === 200 && parId.json.id === bput.json.id && parId.json.updated === true
+    && (await call("/brochures", { headers: hB })).json.brochures.map((x) => x.name).join() === "VILLA LAFOND 2",
+    "mise à jour par identifiant : même brochure, renommée, pas de doublon");
+  const b2 = await call("/brochures", { method: "PUT", headers: hB, body: { name: "MAISON DUPONT", data: autre, creer: true } });
+  ok(b2.status === 200 && b2.json.updated === false && b2.json.id !== bput.json.id, "seconde brochure créée sous un autre nom");
+  ok((await call("/brochures", { method: "PUT", headers: hB, body: { id: b2.json.id, name: "VILLA LAFOND 2", data: autre } })).status === 409,
+    "renommer une brochure vers le nom d'une autre : refusé");
+  const rempl = await call("/brochures", { method: "PUT", headers: hB, body: { name: "VILLA LAFOND 2", data: autre, remplacer: true } });
+  const corb1 = (await call("/brochures/corbeille", { headers: hB })).json.brochures;
+  ok(rempl.status === 200 && rempl.json.id === bput.json.id && corb1.length === 1 && corb1[0].motif === "remplacee" && corb1[0].name === "VILLA LAFOND 2"
+    && (await call("/brochures/" + bput.json.id, { headers: hB })).json.data.property.title === "Tout autre bien",
+    "remplacement explicite : le contenu change, l'ancienne version est à la corbeille");
+  const rest1 = await call("/brochures/" + corb1[0].id + "/restaurer", { method: "POST", headers: hB, body: {} });
+  ok(rest1.status === 200 && rest1.json.name === "VILLA LAFOND 2 (restaurée)"
+    && (await call("/brochures/" + rest1.json.id, { headers: hB })).json.data.property.title === broData.property.title,
+    "la version remplacée se restaure sous « … (restaurée) » avec son contenu d'origine");
+  const bdel = await call("/brochures/" + bput.json.id, { method: "DELETE", headers: hB });
+  const corb2 = (await call("/brochures/corbeille", { headers: hB })).json.brochures;
+  ok(bdel.status === 200 && filesMem.has("br/" + agencyId + "/" + bput.json.id + ".json") && corb2.length === 1 && corb2[0].motif === "supprimee"
+    && (await call("/brochures", { headers: hB })).json.brochures.length === 2 && (await call("/brochures/" + bput.json.id, { headers: hB })).status === 404,
+    "suppression : la brochure quitte la bibliothèque et attend à la corbeille (contenu gardé)");
+  ok((await call("/brochures/corbeille", { headers: { Authorization: "Bearer " + s2b } })).json.brochures.length === 0
+    && (await call("/brochures/" + bput.json.id + "/restaurer", { method: "POST", headers: { Authorization: "Bearer " + s2b }, body: {} })).status === 404,
+    "la corbeille est propre à l'agence");
+  const rest2 = await call("/brochures/" + bput.json.id + "/restaurer", { method: "POST", headers: hB, body: {} });
+  ok(rest2.status === 200 && rest2.json.name === "VILLA LAFOND 2" && (await call("/brochures", { headers: hB })).json.brochures.length === 3, "restauration sous le nom d'origine quand il est libre");
+  // Purge : 30 jours après, le ménage efface la ligne et le contenu.
+  await call("/brochures/" + b2.json.id, { method: "DELETE", headers: hB });
+  await db.run("UPDATE brochures_corbeille SET deleted_at = ? WHERE id = ?", [Math.floor(Date.now() / 1000) - 31 * 86400, b2.json.id]);
+  const { menageQuotidien: menageBr } = await import("./src/crm.js");
+  const mB = await menageBr(db, { delete: async (k) => { filesMem.delete(k); } });
+  ok(mB.brochures === 1 && !filesMem.has("br/" + agencyId + "/" + b2.json.id + ".json") && (await call("/brochures/corbeille", { headers: hB })).json.brochures.length === 0,
+    "le ménage purge la corbeille des brochures après 30 jours (ligne et contenu)");
+  for (const x of (await call("/brochures", { headers: hB })).json.brochures) await call("/brochures/" + x.id, { method: "DELETE", headers: hB });
+  await db.run("DELETE FROM brochures_corbeille");
+}
 // Sans binding R2 (serveur pas encore configuré) : refus propre, pas de plantage.
 const appNoFiles = createApp({ db, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: true });
 const noFiles = await appNoFiles.fetch(new Request("http://api.test/brochures", { headers: { Authorization: "Bearer " + s3 } }));
