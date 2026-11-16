@@ -65,6 +65,9 @@
   }
 
   const escH = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  // Une adresse saisie à la main ou relevée ailleurs ne devient un lien que si c'est
+  // une adresse web (http, https) : un « javascript:… » collé dans un champ s'affiche, sans lien.
+  const urlSure = (u) => { const t = String(u ?? "").trim(); return /^https?:\/\//i.test(t) ? t : ""; };
   // Les fichiers du guide (JSON de mise en page, PDF des modèles) suivent la version
   // du script (?v=N dans index.html) : sans ça, le navigateur ou le CDN gardait
   // l'ancien guide-r1.json après une mise à jour (Benoît, 10/10).
@@ -293,9 +296,29 @@
   const CHAMP = (nom, id, valeur, placeholder) =>
     "<label>" + nom + '<input id="' + id + '" value="' + escH(valeur || "") + '"' + (placeholder ? ' placeholder="' + placeholder + '"' : "") + " /></label>";
 
-  function ouvrirContact(id) {
-    contactEnCours = id || null;
-    const c = id ? contacts.find((x) => x.id === id) : null;
+  // Une fiche est RELUE sur le serveur à chaque ouverture (audit du 16/11) : la liste
+  // `contacts` date du démarrage de l'écran. Une fiche créée depuis par un collègue (ligne
+  // d'un rappel, d'un anniversaire) s'ouvrait en « Nouveau contact » vide tout en gardant
+  // son id — « Enregistrer » effaçait alors e-mail, adresse, typologies, notes, opt-out —
+  // et un opt-out coché dans la journée était décoché par un simple « Enregistrer ».
+  // (Pas de route « une fiche » : l'export de la personne la rend entière, typologies lues.)
+  async function lireContact(id) {
+    const c = (await api("/crm/contacts/" + encodeURIComponent(id) + "/export")).contact;
+    const i = contacts.findIndex((x) => x.id === c.id);
+    if (i >= 0) contacts[i] = c; else contacts.push(c);
+    return c;
+  }
+  let demandeContact = 0;
+  async function ouvrirContact(id) {
+    let c = null;
+    if (id) {
+      const jeton = sessionModale, demande = ++demandeContact; // deux fiches demandées coup sur coup : la dernière s'ouvre
+      try { c = await lireContact(id); }
+      catch (e) { toast(e.status === 404 ? "Cette fiche n'existe plus (supprimée ou fusionnée) — rechargez la page pour mettre la liste à jour." : e.message, true); return; }
+      if (jeton !== sessionModale || demande !== demandeContact) return; // passé à autre chose pendant la lecture
+    }
+    // Jamais d'id gardé pour une fiche qui n'a pas été trouvée : sans fiche, c'est une création.
+    contactEnCours = c ? c.id : null;
     const types = (c && c.types) || [];
     ouvrirModale(c ? ((c.prenom + " " + c.nom).trim() || "Contact") : "Nouveau contact",
       '<div class="grille-champs">' +
@@ -391,9 +414,11 @@
   async function ouvrirEnvoi(contactId, canal) {
     const c = contacts.find((x) => x.id === contactId);
     if (!c) return;
+    const jetonEntree = sessionModale; // quittée pendant le chargement des modèles, la fenêtre ne s'ouvre pas par-dessus une autre
     if (!modelesEnvoi) {
       try { modelesEnvoi = (await api("/crm/modeles")).modeles; } catch (e) { modelesEnvoi = []; }
     }
+    if (jetonEntree !== sessionModale) return;
     // Les modèles portent canal "email" ou "sms" (registre MODELES).
     const duCanal = modelesEnvoi.filter((m) => (canal === "sms" ? m.canal === "sms" : m.canal !== "sms"));
     ouvrirModale((canal === "sms" ? "💬 SMS à " : "✉️ Mail à ") + ((c.prenom + " " + c.nom).trim() || "ce contact"),
@@ -418,16 +443,19 @@
       $("env-texte").value = m.texte || "";
     });
     $("env-envoyer").addEventListener("click", async () => {
+      const btn = $("env-envoyer"); if (btn.disabled) return; // un double clic n'envoie qu'un message
       const texte = $("env-texte").value.trim();
       if (!texte) { toast("Écrivez le message (ou choisissez-en un dans la bibliothèque).", true); return; }
+      btn.disabled = true;
+      const jeton = sessionModale;
       try {
         const r = await api("/crm/contacts/" + contactId + "/envoyer", { json: {
           canal, texte, sujet: $("env-sujet") ? $("env-sujet").value.trim() : "",
         } });
         toast(r.dryRun ? "Clé d'envoi absente sur le serveur — rien n'est parti (essai à blanc)."
           : (canal === "sms" ? "SMS envoyé" : "Mail envoyé") + " — noté dans le fil de suivi", !!r.dryRun);
-        ouvrirContact(contactId);
-      } catch (e) { toast(e.message, true); }
+        if (jeton === sessionModale) ouvrirContact(contactId);
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
     });
   }
 
@@ -474,6 +502,8 @@
       '<button class="btn btn-or" id="cj-save">' + (couple ? "Scinder" : "Créer la fiche du conjoint") + "</button>");
     $("cj-annuler").addEventListener("click", () => ouvrirContact(contactId));
     $("cj-save").addEventListener("click", async () => {
+      const btn = $("cj-save"); if (btn.disabled) return; btn.disabled = true; // un double clic ne crée qu'un conjoint
+      const jeton = sessionModale;
       const qui = (document.querySelector('input[name="cj-qui"]:checked') || {}).value || "fiche";
       const isoDe = (fr) => { const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(fr || "").trim()); return m ? m[3] + "-" + m[2] + "-" + m[1] : ""; };
       const dateAutre = isoDe($("cj-date-autre").value);
@@ -493,8 +523,8 @@
         toast(couple ? "Fiche scindée — chacun a la sienne" : "Fiche du conjoint créée");
         await chargerContacts();
         chargerUpcoming(); chargerAcheteurs();
-        ouvrirContact(qui === "conjoint" ? r.conjoint : r.fiche);
-      } catch (e) { toast(e.message, true); }
+        if (jeton === sessionModale) ouvrirContact(qui === "conjoint" ? r.conjoint : r.fiche);
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
     });
   }
 
@@ -502,44 +532,66 @@
   function ouvrirFusion(contactId) {
     const c = contacts.find((x) => x.id === contactId);
     if (!c) return;
-    const choisis = new Set();
-    ouvrirModale("🔀 Fusionner dans « " + escH(((c.prenom || "") + " " + (c.nom || "")).trim()) + " »",
+    // Les fiches cochées, AVEC leur contenu : elles restent affichées en tête de liste
+    // quelle que soit la recherche, et la confirmation les nomme. (Une fiche cochée puis
+    // sortie de l'écran par une autre recherche restait cochée et était absorbée sans être vue.)
+    const choisis = new Map();
+    const libelle = (x) => [((x.nom || "") + " " + (x.prenom || "")).trim() || "(sans nom)", x.email, fmtTel(x.telephone), x.ville].filter(Boolean).join(" · ");
+    ouvrirModale("🔀 Fusionner dans « " + ((c.prenom || "") + " " + (c.nom || "")).trim() + " »",
       '<p class="petit" style="margin-top:0;">Cette fiche est GARDÉE : elle complète ses champs vides avec ceux des fiches absorbées, et récupère leurs suivis, projets, visites et estimations. Les fiches absorbées disparaissent.</p>' +
       '<div class="grille-champs"><label>Chercher les doublons<input id="fu-q" value="' + escH(c.nom || "") + '" placeholder="nom, e-mail…" /></label></div>' +
       '<div id="fu-liste" style="max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:8px 12px; margin-top:8px;"></div>',
       '<button class="btn" id="fu-annuler">Annuler</button>' +
       '<button class="btn btn-or" id="fu-save">Fusionner</button>');
+    const zone = $("fu-liste"), champ = $("fu-q");
+    let trouves = [], message = "", derniereReq = 0;
+    const ligne = (x) =>
+      '<label class="case" style="width:100%; padding:3px 0;"><input type="checkbox" class="fu-ct" value="' + escH(x.id) + '"' + (choisis.has(x.id) ? " checked" : "") + " /> " +
+      "<strong>" + escH(x.nom) + "</strong> " + escH(x.prenom) + (x.civilite ? " (" + escH(x.civilite) + ")" : "") +
+      ' <span class="puce grise">' + escH([x.email, fmtTel(x.telephone), x.ville].filter(Boolean).join(" · ") || "sans coordonnées") + "</span></label>";
+    const rendre = () => {
+      const autres = trouves.filter((x) => !choisis.has(x.id));
+      zone.innerHTML =
+        (choisis.size ? '<p class="petit" style="margin:0 0 2px;"><strong>' + choisis.size + " fiche(s) cochée(s) — elles seront absorbées :</strong></p>" + [...choisis.values()].map(ligne).join("") +
+          '<p class="petit" style="margin:8px 0 2px;">Autres résultats :</p>' : "") +
+        (autres.length ? autres.map(ligne).join("") : '<p class="petit">' + (message || "Aucune autre fiche ne correspond.") + "</p>");
+    };
     const chercher = async () => {
-      const q = $("fu-q").value.trim();
-      if (q.length < 2) { $("fu-liste").innerHTML = '<p class="petit">Au moins 2 caractères.</p>'; return; }
+      const q = champ.value.trim(), req = ++derniereReq;
+      if (q.length < 2) { trouves = []; message = "Au moins 2 caractères."; rendre(); return; }
       try {
         const r = await api("/crm/contacts/recherche?q=" + encodeURIComponent(q));
-        const autres = (r.contacts || []).filter((x) => x.id !== contactId);
-        $("fu-liste").innerHTML = autres.length ? autres.map((x) =>
-          '<label class="case" style="width:100%; padding:3px 0;"><input type="checkbox" class="fu-ct" value="' + escH(x.id) + '"' + (choisis.has(x.id) ? " checked" : "") + " /> " +
-          "<strong>" + escH(x.nom) + "</strong> " + escH(x.prenom) + (x.civilite ? " (" + escH(x.civilite) + ")" : "") +
-          ' <span class="puce grise">' + escH([x.email, fmtTel(x.telephone), x.ville].filter(Boolean).join(" · ") || "sans coordonnées") + "</span></label>").join("")
-          : '<p class="petit">Aucune autre fiche ne correspond.</p>';
+        if (req !== derniereReq) return; // une recherche plus récente est partie
+        trouves = (r.contacts || []).filter((x) => x.id !== contactId); message = "";
+        rendre();
       } catch (e) { toast(e.message, true); }
     };
     let t = null;
-    $("fu-q").addEventListener("input", () => { clearTimeout(t); t = setTimeout(chercher, 300); });
-    $("fu-liste").addEventListener("change", (e) => {
+    champ.addEventListener("input", () => { clearTimeout(t); t = setTimeout(chercher, 300); });
+    zone.addEventListener("change", (e) => {
       const cb = e.target.closest(".fu-ct");
-      if (cb) { if (cb.checked) choisis.add(cb.value); else choisis.delete(cb.value); }
+      if (!cb) return;
+      const x = choisis.get(cb.value) || trouves.find((y) => y.id === cb.value);
+      if (cb.checked && x) choisis.set(x.id, x); else choisis.delete(cb.value);
+      rendre();
     });
     chercher();
     $("fu-annuler").addEventListener("click", () => ouvrirContact(contactId));
     $("fu-save").addEventListener("click", async () => {
+      const btn = $("fu-save"); if (btn.disabled) return;
       if (!choisis.size) { toast("Cochez au moins une fiche à absorber.", true); return; }
-      if (!confirm("Fusionner " + choisis.size + " fiche(s) dans celle-ci ? Les fiches absorbées disparaissent.")) return;
+      const absorber = [...choisis.keys()];
+      if (!confirm("Fusionner dans « " + libelle(c) + " » " + (absorber.length > 1 ? "ces " + absorber.length + " fiches" : "cette fiche") + " ?\n\n" +
+        [...choisis.values()].map((x) => "– " + libelle(x)).join("\n") + "\n\nLes fiches absorbées disparaissent.")) return;
+      btn.disabled = true;
+      const jeton = sessionModale;
       try {
-        await api("/crm/contacts/fusionner", { json: { garder: contactId, absorber: [...choisis] } });
-        toast(choisis.size + " fiche(s) fusionnée(s)");
+        await api("/crm/contacts/fusionner", { json: { garder: contactId, absorber } });
+        toast(absorber.length + " fiche(s) fusionnée(s)");
         await chargerContacts();
         chargerAcheteurs(); chargerDoublons();
-        ouvrirContact(contactId);
-      } catch (e) { toast(e.message, true); }
+        if (jeton === sessionModale) ouvrirContact(contactId);
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
     });
   }
 
@@ -651,6 +703,8 @@
   }
 
   async function enregistrerContact() {
+    const btn = $("btn-save-contact"); if (btn.disabled) return; btn.disabled = true; // un double clic ne crée qu'une fiche
+    const jeton = sessionModale;
     const val = (id) => $(id).value;
     try {
       await api("/crm/contacts", {
@@ -666,12 +720,12 @@
           types: Array.from(document.querySelectorAll(".c-type:checked")).map((x) => x.value),
         },
       });
-      fermerModale();
+      if (jeton === sessionModale) fermerModale();
       toast("Contact enregistré");
       await chargerContacts();
       chargerUpcoming();
       chargerAcheteurs();
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toast(e.message, true); btn.disabled = false; }
   }
   // Droit d'accès : le dossier complet de la personne, téléchargé en JSON
   // (à lui remettre tel quel ou à joindre à une réponse).
@@ -1070,12 +1124,17 @@
   }
   async function validerImport() {
     if (!importData) return;
+    // Le fichier est copié ICI, avant le premier « await » : `importData` est une variable
+    // commune, remise à vide dès qu'on rouvre « Importer » — un import long relisait alors
+    // le vide (ou un autre fichier) au milieu de son traitement.
+    const donnees = importData, jeton = sessionModale;
+    const demandes = donnees.preset === "acquereurs" ? projetsPresetAcquereurs() : [];
     let rows;
-    if (importData.preset === "biens") {
+    if (donnees.preset === "biens") {
       rows = lignesPresetBiens($("preset-typologie").value);
-    } else if (importData.preset === "acquereurs") {
+    } else if (donnees.preset === "acquereurs") {
       rows = lignesPresetAcquereurs();
-    } else if (importData.preset === "contacts") {
+    } else if (donnees.preset === "contacts") {
       rows = lignesPresetContacts();
     } else {
       const map = Array.from(document.querySelectorAll(".map-cible"))
@@ -1086,7 +1145,7 @@
       // voie », « Nom voie » → adresse) : on les recolle dans l'ordre du
       // fichier au lieu de ne garder que la dernière.
       const CUMULS = { adresse: " ", notes: " · " };
-      rows = importData.lignes.map((l) => {
+      rows = donnees.lignes.map((l) => {
         const o = {};
         for (const m of map) {
           const val = String(l[m.col] ?? "").trim();
@@ -1098,7 +1157,7 @@
     }
     const btn = $("btn-go-import");
     const pv = $("preset-pv") ? $("preset-pv").value : "";
-    const remplacer = importData.preset === "acquereurs" && $("preset-remplacer") && $("preset-remplacer").checked;
+    const remplacer = donnees.preset === "acquereurs" && $("preset-remplacer") && $("preset-remplacer").checked;
     if (remplacer && !confirm("Remplacer la base acquéreurs" + (pv ? " de l'agence " + ((agences().find((a) => a.cle === pv) || {}).nom || pv) : " (toutes agences)") + " ? Les projets d'achat sont effacés et les fiches typées seulement Acquéreur partent à la corbeille (restaurables 30 jours), puis le fichier est importé.")) return;
     btn.disabled = true;
     // Envoi par lots : garde chaque appel leger pour le serveur, et permet
@@ -1106,7 +1165,7 @@
     const LOT = 400;
     const total = { created: 0, updated: 0, skipped: 0 };
     let remplaces = null;
-    const retyper = importData.preset === "biens" && $("preset-typologie").value === "estime" && $("preset-retyper") && $("preset-retyper").checked;
+    const retyper = donnees.preset === "biens" && $("preset-typologie").value === "estime" && $("preset-retyper") && $("preset-retyper").checked;
     const debutImport = Math.floor(Date.now() / 1000) - 5;
     try {
       if (remplacer) {
@@ -1126,8 +1185,7 @@
       // Import acquéreurs : dans la foulée, les critères deviennent des
       // projets d'achat (un par personne encore sans projet).
       let projetsCrees = 0;
-      if (importData.preset === "acquereurs") {
-        const demandes = projetsPresetAcquereurs();
+      if (donnees.preset === "acquereurs") {
         for (let i = 0; i < demandes.length; i += LOT) {
           btn.textContent = "Projets d'achat… " + Math.min(i + LOT, demandes.length) + " / " + demandes.length;
           const r = await api("/crm/projets/auto", { json: { rows: demandes.slice(i, i + LOT) } });
@@ -1143,7 +1201,7 @@
           if (!r.restants || !r.retypes) break;
         }
       }
-      fermerModale();
+      if (jeton === sessionModale) fermerModale(); // une autre fenêtre ouverte entre-temps reste ouverte
       toast((retypes ? retypes + " fiche(s) estimée(s) absentes du fichier passée(s) en Prospect · " : "") + (remplaces ? "Base acquéreurs remplacée (" + remplaces.supprimes + " fiche(s) à la corbeille, " + remplaces.retypes + " retypée(s), " + remplaces.projets + " projet(s) effacé(s)) · " : "") +
         "Import terminé : " + total.created + " créé(s), " + total.updated + " mis à jour, " + total.skipped + " ignoré(s)" +
         (projetsCrees ? " · " + projetsCrees + " projet(s) d'achat créé(s)" : ""));
@@ -1163,8 +1221,10 @@
   // Diagnostic « où sont mes fiches ? » — un bloc texte à copier-coller.
   async function ouvrirDiagnostic() {
     ouvrirModale("🔎 Diagnostic adresses", '<p class="aide">Analyse de la base en cours…</p>', "");
+    const maFenetre = sessionModale; // l'analyse est longue : revenue après un changement de fenêtre, elle ne ferme ni ne remplace rien
     let d;
-    try { d = await api("/crm/contacts/diagnostic"); } catch (e) { toast(e.message, true); fermerModale(); return; }
+    try { d = await api("/crm/contacts/diagnostic"); } catch (e) { toast(e.message, true); if (maFenetre === sessionModale) fermerModale(); return; }
+    if (maFenetre !== sessionModale) return;
     const ex = (l) => l.map((r) => "  - " + [r.nom, r.adresse, r.cp, r.ville].filter(Boolean).join(", ") +
       " · types " + r.types + " · source " + r.source + " · créée " + r.cree + (r.notes ? " · notes : " + r.notes : "")).join("\n");
     const texte =
@@ -1188,8 +1248,10 @@
   }
   async function ouvrirNettoyage() {
     ouvrirModale("🧹 Nettoyer la base", '<p class="aide">Analyse de la base en cours…</p>', "");
+    const maFenetre = sessionModale; // même garde que le diagnostic
     let a;
-    try { a = await api("/crm/nettoyage"); } catch (e) { toast(e.message, true); fermerModale(); return; }
+    try { a = await api("/crm/nettoyage"); } catch (e) { toast(e.message, true); if (maFenetre === sessionModale) fermerModale(); return; }
+    if (maFenetre !== sessionModale) return;
     ouvrirModale("🧹 Nettoyer la base",
       '<p class="aide">Trois gestes, prudents : les fusions gardent la fiche la plus ancienne et absorbent ' +
       "les champs manquants et les typologies ; les homonymes ambigus (téléphones différents) ne sont " +
@@ -1208,6 +1270,7 @@
     const go = $("btn-go-nettoyage");
     if (go) go.addEventListener("click", async () => {
       go.disabled = true;
+      const jeton = sessionModale;
       const bilan = { vides: 0, doublons: 0, couples: 0 };
       let ambigusLaisses = 0;
       const libelles = { vides: "fiches vides", doublons: "doublons", couples: "couples" };
@@ -1225,7 +1288,7 @@
             curseur = r.curseur || "";
           }
         }
-        fermerModale();
+        if (jeton === sessionModale) fermerModale(); // le nettoyage dure : une fenêtre ouverte entre-temps reste ouverte
         toast("Nettoyage terminé : " + bilan.vides + " fiche(s) inutilisable(s) supprimée(s), " +
           bilan.doublons + " doublon(s) fusionné(s), " + bilan.couples + " couple(s) scindé(s)" +
           (ambigusLaisses ? " · " + ambigusLaisses + " cas ambigu(s) laissé(s) tel(s) quel(s)" : ""));
@@ -1323,7 +1386,7 @@
           "</td><td>" + escH(b.agence) + "</td><td>" + escH(b.ref) + "</td><td>" + escH((b.maj || "").slice(0, 10)) + "</td></tr>").join("") +
         "</tbody></table></div>" + (d.enVente > 150 ? '<p class="petit">Les 150 premiers biens sur ' + d.enVente + ".</p>" : "")
       : "";
-    zone.querySelectorAll("tr[data-url]").forEach((tr) => tr.addEventListener("click", () => window.open(tr.dataset.url, "_blank", "noopener")));
+    zone.querySelectorAll("tr[data-url]").forEach((tr) => tr.addEventListener("click", () => { if (urlSure(tr.dataset.url)) window.open(urlSure(tr.dataset.url), "_blank", "noopener"); }));
     if (d.echantillon) {
       zone.insertAdjacentHTML("beforeend", '<p class="petit"><button class="btn" id="btn-amepi-brut" style="padding:4px 10px; font-size:12px;">🔎 Voir un bien tel qu\'Amanda l\'envoie</button></p>');
       $("btn-amepi-brut").addEventListener("click", () => {
@@ -1559,9 +1622,9 @@
         vivants.map((r) => "<tr><td style=\"white-space:nowrap;\"><strong>" + escH(nomsDe(r.contacts)) + "</strong>" +
           (r.contacts[0] && r.contacts[0].conseiller ? '<br><span class="puce grise">' + escH(r.contacts[0].conseiller) + "</span>" : "") + "</td>" +
           "<td>" + r.matches.slice(0, 6).map((m) =>
-            '<a href="' + escH(m.url) + '" target="_blank" rel="noopener" style="color:inherit; text-decoration:none;">' +
+            (urlSure(m.url) ? '<a href="' + escH(urlSure(m.url)) + '" target="_blank" rel="noopener" style="color:inherit; text-decoration:none;">' : "") +
             '<span class="puce' + (m.source === "amepi" ? " amepi" : "") + '"' + (m.source === "amepi" ? ' title="Bien du fichier AMEPI — mandat détenu par ' + escH(m.agence || "un confrère") + '"' : "") + ">" +
-            (m.source === "amepi" ? "🤝 " : "") + escH(m.titre) + " — " + fmtPrix(m.prix) + (m.source === "amepi" && m.agence ? " · " + escH(m.agence) : "") + "</span></a>").join(" ") +
+            (m.source === "amepi" ? "🤝 " : "") + escH(m.titre) + " — " + fmtPrix(m.prix) + (m.source === "amepi" && m.agence ? " · " + escH(m.agence) : "") + "</span>" + (urlSure(m.url) ? "</a>" : "")).join(" ") +
           ((r.total ?? r.matches.length) > 6 ? ' <span class="puce grise">+' + ((r.total ?? r.matches.length) - 6) + "</span>" : "") +
           "</td></tr>").join("") +
         "</tbody></table></div>"
@@ -1590,7 +1653,8 @@
     };
     const listeContacts = ""; // rempli par rendreListeContacts() après ouverture
     const estAchat = kind === "achat";
-    ouvrirModale((p ? "Projet — " : "Nouveau projet — ") + (KINDS[kind] || kind),
+    // Le titre nomme les personnes : deux projets ouverts à la suite ne se confondent plus.
+    ouvrirModale((p ? "Projet — " : "Nouveau projet — ") + (KINDS[kind] || kind) + (p && p.contacts.length ? " — " + nomsDe(p.contacts) : ""),
       '<div class="grille-champs"><label>Personnes du projet (un couple = deux fiches)' +
       '<input id="p-filtre" placeholder="Filtrer les contacts…" /></label></div>' +
       '<div id="p-liste" style="max-height:180px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:8px 12px; margin-top:8px;">' + listeContacts + "</div>" +
@@ -1633,8 +1697,11 @@
     $("btn-annuler-projet").addEventListener("click", fermerModale);
     if ($("btn-offre-projet")) $("btn-offre-projet").addEventListener("click", () => ouvrirOffreForm(null, projetId));
     $("btn-save-projet").addEventListener("click", async () => {
+      const btn = $("btn-save-projet"); if (btn.disabled) return; // un double clic ne crée qu'un projet
       const contactIds = [...lies]; // les coches vivent dans `lies`, même hors filtre
       if (!contactIds.length) { toast("Reliez au moins une personne au projet.", true); return; }
+      btn.disabled = true;
+      const jeton = sessionModale;
       try {
         const body = { id: projetId || undefined, kind, statut: $("p-statut").value, contactIds, notes: $("p-notes").value };
         if (estAchat) {
@@ -1649,10 +1716,10 @@
           Object.assign(body, { adresse: $("p-adresse").value, ville: $("p-ville").value });
         }
         await api("/crm/projets", { method: "PUT", json: body });
-        fermerModale();
+        if (jeton === sessionModale) fermerModale();
         toast("Projet enregistré");
         chargerAcheteurs();
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
     });
     const suppr = $("btn-suppr-projet");
     if (suppr) suppr.addEventListener("click", async () => {
@@ -1768,11 +1835,16 @@
     const autresStock = stockEnVente.filter((a) => !dejaLa.has(a.id));
     const ligneBien = (a) =>
       '<label class="case" style="width:100%; padding:2px 0;"><input type="checkbox" class="rl-annonce" value="' + escH(a.id) + '" /> ' +
-      (a.url ? '<a href="' + escH(a.url) + '" target="_blank" rel="noopener" title="Voir l\'annonce">🔗</a> ' : "") +
+      (urlSure(a.url) ? '<a href="' + escH(urlSure(a.url)) + '" target="_blank" rel="noopener" title="Voir l\'annonce">🔗</a> ' : "") +
       (a.source === "amepi" ? '<span class="puce amepi" title="Bien du fichier AMEPI — mandat détenu par ' + escH(a.agence || "un confrère") + '">🤝 ' + escH(a.agence || "ALFA") + "</span> " : "") +
       escH(a.titre) + (a.prix ? " — " + fmtPrix(a.prix) : "") +
       (a.ville ? ' <span class="puce grise">' + escH(a.ville) + "</span>" : "") + "</label>";
     const rendre = () => {
+      // La zone n'est plus à l'écran (fenêtre fermée, autre projet ouvert) : on ne dessine
+      // rien et surtout on ne branche rien. Rappelée après un « await », cette fonction
+      // retrouvait par leur id les boutons du projet SUIVANT et y accrochait ses propres
+      // écouteurs : « + Visite » sur B créait aussi une visite sur A (audit du 16/11).
+      if (!zone.isConnected) return;
       zone.innerHTML =
         '<p class="petit" style="margin:10px 0 6px;"><strong>Biens proposés par les relances</strong></p>' +
         (act.proposes.length
@@ -1831,7 +1903,8 @@
           toast(s.value === "plu" ? "Noté : le bien a plu 👍" : s.value === "pas_plu" ? "Noté : le bien n'a pas plu" : "Avis effacé");
         } catch (e) { toast(e.message, true); }
       }));
-      const btnRelance = $("btn-relance-stock");
+      // Boutons et champs se cherchent DANS la zone, jamais par id dans toute la page.
+      const btnRelance = zone.querySelector("#btn-relance-stock");
       if (btnRelance) btnRelance.addEventListener("click", async () => {
         const ids = Array.from(zone.querySelectorAll(".rl-annonce:checked")).map((x) => x.value);
         if (!ids.length) { toast("Cochez au moins un bien à proposer.", true); return; }
@@ -1862,22 +1935,25 @@
         const v = act.visites.find((x) => x.id === b2.dataset.bon);
         if (v) imprimerBonVisite(v, p);
       }));
-      $("btn-ajout-visite").addEventListener("click", async () => {
-        const bien = $("v-bien").value.trim();
+      const btnVisite = zone.querySelector("#btn-ajout-visite");
+      btnVisite.addEventListener("click", async () => {
+        if (btnVisite.disabled) return; // un double clic ne crée qu'une visite
+        const bien = zone.querySelector("#v-bien").value.trim(), dateVisite = zone.querySelector("#v-date").value;
         if (!bien) { toast("Indiquez le bien à visiter.", true); return; }
+        btnVisite.disabled = true;
         const personnes = (p && p.contacts) || [];
         try {
           await api("/crm/visites", { json: {
             projet_id: projetId,
             contact_id: (personnes[0] || {}).id || "",
             contact: personnes.map((cx) => (cx.prenom ? cx.prenom + " " : "") + cx.nom).join(" & "),
-            bien, date_visite: $("v-date").value, statut: "prevue",
+            bien, date_visite: dateVisite, statut: "prevue",
             conseiller: (personnes[0] || {}).conseiller || "",
           } });
           toast("Visite enregistrée");
           act = await api("/crm/projets/" + projetId + "/activite");
           rendre();
-        } catch (e) { toast(e.message, true); }
+        } catch (e) { toast(e.message, true); btnVisite.disabled = false; }
       });
     };
     rendre();
@@ -2043,9 +2119,25 @@
         : '<div class="vide">Aucun envoi pour l\'instant. Les messages partent quand une fiche « en cours » atteint un jalon (veille du R1, lendemain du R1, lendemain du R2, relances).</div>';
     } catch (e) { toast(e.message, true); }
   }
-  function ouvrirEstimation(id) {
-    const x = estimations.find((e) => e.id === id);
-    if (!x) return;
+  // La fiche est RELUE à l'ouverture : la liste `estimations` date du démarrage, et ce
+  // formulaire remplace tout. Enregistré depuis une fiche périmée, il remettait les anciennes
+  // dates R1/R2 (changées entre-temps dans le parcours, ici ou par un collègue) — et les
+  // e-mails automatiques partaient sur de mauvaises dates (audit du 16/11).
+  let demandeEstimation = 0;
+  async function ouvrirEstimation(id) {
+    const connue = estimations.find((e) => e.id === id);
+    if (!connue) return;
+    const jeton = sessionModale, demande = ++demandeEstimation;
+    let x;
+    try {
+      // Pas de route « une fiche » : celles de son contact (quelques lignes), sinon la liste.
+      const r = await api("/crm/estimations" + (connue.contact_id ? "?contact_id=" + encodeURIComponent(connue.contact_id) : ""));
+      x = (r.estimations || []).find((e) => e.id === id);
+    } catch (e) { toast(e.message, true); return; }
+    if (jeton !== sessionModale || demande !== demandeEstimation) return; // passé à autre chose pendant la lecture
+    if (!x) { toast("Cette fiche estimation n'existe plus — la liste est mise à jour.", true); chargerEstimations(); return; }
+    const i = estimations.findIndex((e) => e.id === id);
+    if (i >= 0) estimations[i] = x;
     const bien = x.bien || {};
     const bienTxt = [bien.type, bien.surface ? bien.surface + " m²" : "", bien.pieces ? bien.pieces + " pièces" : "",
       bien.dpe ? "DPE " + bien.dpe : "", bien.prixEnvisage ? fmtPrix(bien.prixEnvisage) : ""].filter(Boolean).join(" · ");
@@ -2076,6 +2168,8 @@
       '<button class="btn" id="ee-annuler">Annuler</button><button class="btn btn-or" id="ee-save">Enregistrer</button>');
     $("ee-annuler").addEventListener("click", fermerModale);
     $("ee-save").addEventListener("click", async () => {
+      const btn = $("ee-save"); if (btn.disabled) return; btn.disabled = true;
+      const jetonF = sessionModale;
       try {
         await api("/crm/estimations/" + x.id, { method: "PUT", json: {
           nom: $("ee-nom").value.trim(), email: $("ee-email").value.trim(), telephone: $("ee-tel").value.trim(),
@@ -2085,10 +2179,11 @@
           conseiller: $("ee-conseiller").value.trim(), notes: $("ee-notes").value.trim(),
           contact_id: x.contact_id, lat: x.lat, lng: x.lng,
         } });
-        fermerModale();
+        if (jetonF === sessionModale) fermerModale();
         toast("Fiche estimation enregistrée");
         await chargerEstimations();
-      } catch (e) { toast(e.message, true); }
+        if (parcours.some((px) => px.id === x.id)) chargerParcours(); // la même fiche est aussi un parcours : sa ligne suit
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
     });
   }
   async function lancerEstimations() {
@@ -2245,6 +2340,8 @@
     });
     $("btn-annuler-offre").addEventListener("click", fermerModale);
     $("btn-save-offre").addEventListener("click", async () => {
+      const btn = $("btn-save-offre"); if (btn.disabled) return; // un double clic ne crée qu'une offre
+      const jeton = sessionModale;
       const lireVendeurs = () => Array.from(document.querySelectorAll(".of-v-nom")).map((el, i) => ({
         nom: el.value.trim(), prenom: document.querySelectorAll(".of-v-prenom")[i].value.trim(),
         email: document.querySelectorAll(".of-v-email")[i].value.trim(), telephone: document.querySelectorAll(".of-v-tel")[i].value.trim(),
@@ -2257,25 +2354,34 @@
       };
       try {
         if (o) {
+          btn.disabled = true;
           await api("/crm/offres/" + o.id, { method: "PUT", json: body });
           toast("Offre modifiée");
-          await chargerOffres(); ouvrirOffre(o.id);
+          await chargerOffres(); ouvrirOffre(o.id, jeton);
         } else {
           const projetId = $("of-projet").value;
           if (!projetId && !lies.size) { toast("Choisissez un projet d'achat ou au moins une personne.", true); return; }
           if (projetId) body.projetId = projetId; else body.contactIds = [...lies];
+          btn.disabled = true;
           const r = await api("/crm/offres", { json: body });
           toast("Offre " + r.numero + " créée");
           activerOnglet("offres");
-          await chargerOffres(); ouvrirOffre(r.id);
+          await chargerOffres(); ouvrirOffre(r.id, jeton);
         }
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
     });
   }
   // La fiche d'une offre : tout ce qu'il faut pour la faire avancer.
-  async function ouvrirOffre(id) {
+  // Rappelée à la fin d'un traitement (jeton = la fenêtre d'où il est parti) : si l'on est passé
+  // à autre chose, elle ne s'impose pas. Et une fiche demandée puis quittée avant sa réponse
+  // ne vient pas remplacer la fenêtre ouverte entre-temps.
+  let demandeOffre = 0;
+  async function ouvrirOffre(id, jeton) {
+    if (jeton !== undefined && jeton !== sessionModale) return;
+    const jetonEntree = sessionModale, demande = ++demandeOffre;
     let d;
     try { d = await api("/crm/offres/" + id); } catch (e) { toast(e.message, true); return; }
+    if (jetonEntree !== sessionModale || demande !== demandeOffre) return;
     const o = d.offre, sigs = d.signataires, offrants = sigs.filter((s) => s.role === "offrant"), vendeurs = sigs.filter((s) => s.role === "vendeur");
     const fin = o.financement || {};
     const ligneSig = (s) => '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:6px 0; border-bottom:1px solid var(--line);">' +
@@ -2329,6 +2435,8 @@
         (window.showDirectoryPicker ? '<button class="btn" id="btn-of-dossier-local" title="Écrit les fichiers directement dans le dossier choisi (ex. OneDrive)">📂 Enregistrer dans un dossier</button>' : "") : "") +
       (d.accesPieces && !o.terminee ? '<button class="btn btn-danger" id="btn-of-retirer">Retirer</button>' : ""));
     const corps = $("modale-corps");
+    const maFenetre = sessionModale;
+    const rouvrir = () => ouvrirOffre(o.id, maFenetre); // après une action : seulement si cette fiche est encore à l'écran
     const telecharger = async (path, nom) => {
       const a = account();
       const res = await fetch(API + path, { headers: { Authorization: "Bearer " + a.session } });
@@ -2402,13 +2510,13 @@
           if (r.lien) { try { await navigator.clipboard.writeText(r.lien); } catch (err) { } }
           toast(r.lien ? (r.envoye ? "Lien envoyé par e-mail (et copié dans le presse-papiers)" : "E-mail non envoyé — lien copié dans le presse-papiers, transmettez-le vous-même")
             : (r.envoye ? "Lien envoyé par e-mail" : "E-mail non envoyé — le lien est à transmettre par le conseiller du dossier ou un administrateur"), !r.envoye);
-          ouvrirOffre(o.id);
+          rouvrir();
         } else if (t.dataset.docDl) {
           await telecharger("/crm/offres/" + o.id + "/documents/" + t.dataset.docDl, t.dataset.docNom || "piece");
         } else if (t.dataset.docSup) {
           if (t.dataset.arme !== "1") { t.dataset.arme = "1"; t.textContent = "Confirmer ?"; setTimeout(() => { t.dataset.arme = ""; t.textContent = "✕"; }, 5000); return; }
           await api("/crm/offres/" + o.id + "/documents/" + t.dataset.docSup, { method: "DELETE" });
-          ouvrirOffre(o.id);
+          rouvrir();
         } else if (t.dataset.docAjout !== undefined) {
           pieceAjout = { type: t.dataset.docAjout, pour: t.dataset.docPour };
           $("of-fichier").value = ""; $("of-fichier").click();
@@ -2424,7 +2532,7 @@
             { method: "POST", headers: { Authorization: "Bearer " + a.session, "Content-Type": f.type || "application/octet-stream" }, body: f });
           const j = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(j.error || "Erreur " + res.status);
-          toast("Pièce ajoutée"); ouvrirOffre(o.id);
+          toast("Pièce ajoutée"); rouvrir();
         } catch (err) { toast(err.message, true); }
         return;
       }
@@ -2434,22 +2542,25 @@
     const on = (idBtn, fn) => { const b = $(idBtn); if (b) b.addEventListener("click", fn); };
     on("btn-of-modifier", () => ouvrirOffreForm({ ...o, vendeursDetail: vendeurs }, null));
     on("btn-of-envoyer", async () => {
+      const btn = $("btn-of-envoyer"); if (btn.disabled) return; btn.disabled = true; // un double clic n'envoie l'offre qu'une fois
       try {
         const r = await api("/crm/offres/" + o.id + "/envoyer", { json: {} });
         const nonEnvoyes = r.liens.filter((l) => !l.envoye);
         toast(nonEnvoyes.length ? (d.accesPieces ? "Lien(s) créé(s) — e-mail non envoyé pour " + nonEnvoyes.map((l) => l.libelle).join(", ") + " : utilisez « Renvoyer le lien » pour le copier"
-          : "E-mail non envoyé pour " + nonEnvoyes.map((l) => l.libelle).join(", ") + " — le lien est à transmettre par le conseiller du dossier ou un administrateur") : "Offre envoyée à " + r.liens.map((l) => l.libelle).join(" et "), !!nonEnvoyes.length);
-        await chargerOffres(); ouvrirOffre(o.id);
-      } catch (err) { toast(err.message, true); }
+          : "E-mail non envoyé pour " + nonEnvoyes.map((l) => l.libelle).join(", ") + " — le lien est à transmettre par le conseiller du dossier ou un administrateur") : "Offre envoyée à " + r.liens.map((l) => l.libelle).join(" et "),
+          nonEnvoyes.length > 0);
+        await chargerOffres(); rouvrir();
+      } catch (err) { toast(err.message, true); btn.disabled = false; }
     });
     on("btn-of-presenter", async () => {
+      const btn = $("btn-of-presenter"); if (btn.disabled) return; btn.disabled = true; // un double clic ne présente l'offre qu'une fois
       try {
         const r = await api("/crm/offres/" + o.id + "/presenter", { json: {} });
         if (r.presentee === false) toast("E-mail non envoyé au vendeur — le lien est à transmettre par le conseiller du dossier ou un administrateur", true);
         else toast("Offre présentée à " + r.liens.map((l) => l.libelle).join(" et "));
-        await chargerOffres(); ouvrirOffre(o.id);
+        await chargerOffres(); rouvrir();
       }
-      catch (err) { toast(err.message, true); }
+      catch (err) { toast(err.message, true); btn.disabled = false; }
     });
     on("btn-of-reponse", () => {
       ouvrirModale("Réponse du vendeur — offre " + o.numero,
@@ -2466,7 +2577,7 @@
       });
     });
     on("btn-of-dossier", async () => {
-      try { const r = await api("/crm/offres/" + o.id + "/dossier", { json: {} }); toast("Dossier Suivi créé : " + r.name); await chargerOffres(); ouvrirOffre(o.id); }
+      try { const r = await api("/crm/offres/" + o.id + "/dossier", { json: {} }); toast("Dossier Suivi créé : " + r.name); await chargerOffres(); rouvrir(); }
       catch (err) { toast(err.message, true); }
     });
     on("btn-of-pdf", () => telecharger("/crm/offres/" + o.id + "/pdf", "offre-" + o.numero + ".pdf").catch((err) => toast(err.message, true)));
@@ -2475,7 +2586,7 @@
     on("btn-of-retirer", async () => {
       const b = $("btn-of-retirer");
       if (b.dataset.arme !== "1") { b.dataset.arme = "1"; b.textContent = "Confirmer le retrait ?"; setTimeout(() => { b.dataset.arme = ""; b.textContent = "Retirer"; }, 6000); return; }
-      try { await api("/crm/offres/" + o.id + "/retirer", { json: {} }); toast("Offre retirée"); await chargerOffres(); ouvrirOffre(o.id); }
+      try { await api("/crm/offres/" + o.id + "/retirer", { json: {} }); toast("Offre retirée"); await chargerOffres(); rouvrir(); }
       catch (err) { toast(err.message, true); }
     });
   }
@@ -3047,6 +3158,15 @@
   // contact est créé en même temps que le parcours.
   function nouveauParcours() {
     let contactId = "";
+    // Ce que la fiche choisie a écrit dans le formulaire : si le choix est abandonné, ces
+    // champs (restés tels quels) repartent avec lui — l'e-mail de Paul ne reste pas sur le parcours de Sophie.
+    let prerempli = {};
+    const delier = () => {
+      for (const [k, val] of Object.entries(prerempli)) { const el = $(k); if (el && el.value === val) el.value = ""; }
+      contactId = ""; prerempli = {};
+      if ($("px-choisi")) $("px-choisi").innerHTML = "";
+      document.querySelectorAll("#px-resultats [data-ct]").forEach((o) => o.classList.remove("btn-or"));
+    };
     ouvrirModale("+ Nouveau parcours R1/R2",
       '<div class="grille-champs"><label>1. Chercher la personne dans les contacts<input id="px-q" placeholder="nom, e-mail, téléphone, adresse…" autocomplete="off" /></label></div>' +
       '<div id="px-resultats" style="max-height:170px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:6px 12px; margin:6px 0 12px;"><p class="petit">Tapez au moins 2 caractères. Personne ne correspond ? Remplissez la fiche ci-dessous : le contact sera créé avec le parcours.</p></div>' +
@@ -3067,17 +3187,24 @@
           : '<p class="petit">Aucun contact ne correspond — remplissez la fiche ci-dessous, le contact sera créé.</p>';
         zone.querySelectorAll("[data-ct]").forEach((b) => b.addEventListener("click", () => {
           const x = r.contacts.find((y) => y.id === b.dataset.ct); if (!x) return;
+          delier(); // un autre contact était choisi : ce qui venait de sa fiche s'efface d'abord
           contactId = x.id;
           if (["M.", "Mme", "M. et Mme"].includes(x.civilite)) $("px-civilite").value = x.civilite;
           $("px-prenom").value = x.prenom || ""; $("px-nom").value = x.nom || ""; $("px-email").value = x.email || ""; $("px-tel").value = fmtTel(x.telephone);
           $("px-adresse").value = x.adresse || ""; $("px-cp").value = x.cp || ""; $("px-ville").value = x.ville || "";
-          completerCodePostal(); // sans code postal sur la fiche : la BAN le retrouve
-          $("px-choisi").innerHTML = "Contact choisi : <strong>" + escH([x.prenom, x.nom].filter(Boolean).join(" ")) + "</strong> — la fiche ci-dessous est pré-remplie, complétez le bien et les rendez-vous.";
+          for (const k of ["px-prenom", "px-nom", "px-email", "px-tel", "px-adresse", "px-cp", "px-ville"]) if ($(k).value) prerempli[k] = $(k).value;
+          // sans code postal sur la fiche : la BAN le retrouve (et il part avec le choix, lui aussi)
+          completerCodePostal().then(() => { if (contactId === x.id && $("px-cp") && $("px-cp").value && !prerempli["px-cp"]) prerempli["px-cp"] = $("px-cp").value; });
+          $("px-choisi").innerHTML = "Contact choisi : <strong>" + escH([x.prenom, x.nom].filter(Boolean).join(" ")) + "</strong> — la fiche ci-dessous est pré-remplie, complétez le bien et les rendez-vous." +
+            ' <button type="button" class="btn" id="px-delier" style="padding:2px 9px; font-size:12px;" title="Le parcours ne sera pas relié à cette fiche : une nouvelle fiche contact sera créée (ou choisissez-en une autre)">✕ ne pas relier</button>';
+          $("px-delier").addEventListener("click", delier);
           zone.querySelectorAll("[data-ct]").forEach((o) => o.classList.toggle("btn-or", o === b));
         }));
       } catch (e) { toast(e.message, true); }
     };
-    $("px-q").addEventListener("input", () => { clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
+    // Toute nouvelle saisie dans la recherche abandonne le contact cliqué avant (comme pour un
+    // co-propriétaire) : sinon le parcours de Sophie était créé relié à la fiche de Paul.
+    $("px-q").addEventListener("input", () => { delier(); clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
     brancherMenuConseillers("px-conseiller"); brancherTypeBien(); brancherCodePostal();
     $("px-creer").addEventListener("click", async () => {
       const btn = $("px-creer"); if (btn.disabled) return; btn.disabled = true; btn.textContent = "Création…"; // un double clic ne crée qu'une fiche
@@ -3085,10 +3212,14 @@
         const bien = lireBienFiche();
         const r = await api("/crm/parcours", { json: { ...lireFormulaireParcours(null), contact_id: contactId } });
         if (Object.values(bien).some((x) => x != null)) { try { await sauverBienFiche(r.id, bien); } catch (e) { toast("Le bien n'a pas été enregistré : " + e.message, true); } }
-        toast(r.contact_cree ? "Parcours créé, et la fiche contact avec lui" : "Parcours créé"); await chargerParcours(); ouvrirParcours(r.id);
+        toast(r.contact_cree ? "Parcours créé, et la fiche contact avec lui" : "Parcours créé"); relireEstimations(); await chargerParcours(); ouvrirParcours(r.id);
       } catch (e) { toast(e.message, true); btn.disabled = false; btn.textContent = "Créer le parcours"; }
     });
   }
+  // La fiche d'un parcours EST une fiche estimation (mêmes dates R1/R2, même conseiller) :
+  // après l'avoir modifiée, la liste de l'onglet Estimations est relue. Restée sur ses
+  // valeurs du démarrage, elle remettait les anciennes dates au premier « Enregistrer ».
+  const relireEstimations = () => { if (!modeConseiller) chargerEstimations(); };
   let demandeParcours = 0;
   async function ouvrirParcours(id, jeton) {
     // Rappelée à la fin d'un traitement (jeton = la fenêtre d'où il est parti) : si l'on est passé à autre chose, elle ne s'impose pas.
@@ -3145,7 +3276,7 @@
     $("modale-ok").addEventListener("click", () => { fermerModale(); chargerParcours(); });
     $("px-effacer").addEventListener("click", async () => {
       if (!confirm("Effacer le parcours de " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" ") + " ? La fiche estimation disparaît aussi ; les fiches contact restent.\n\nLe dossier reste récupérable 30 jours dans « Dossiers supprimés ».")) return;
-      try { await api("/crm/parcours/" + id, { method: "DELETE" }); toast("Parcours effacé — récupérable 30 jours dans « 🗑 Dossiers supprimés »"); fermerModale(); chargerParcours(); } catch (e) { toast(e.message, true); }
+      try { await api("/crm/parcours/" + id, { method: "DELETE" }); toast("Parcours effacé — récupérable 30 jours dans « 🗑 Dossiers supprimés »"); fermerModale(); chargerParcours(); relireEstimations(); } catch (e) { toast(e.message, true); }
     });
     $("px-ajouter-prop").addEventListener("click", () => ajouterProprietaire(id, p));
     document.querySelectorAll("[data-retirer]").forEach((b) => b.addEventListener("click", async () => {
@@ -3154,7 +3285,7 @@
     }));
     $("px-signe").addEventListener("change", async () => {
       const jetonF = sessionModale;
-      try { await api("/crm/parcours/" + id, { method: "PUT", json: { conseiller_id: $("px-signe").value } }); toast("Les e-mails partiront signés du conseiller choisi"); await chargerParcours(); ouvrirParcours(id, jetonF); }
+      try { await api("/crm/parcours/" + id, { method: "PUT", json: { conseiller_id: $("px-signe").value } }); toast("Les e-mails partiront signés du conseiller choisi"); relireEstimations(); await chargerParcours(); ouvrirParcours(id, jetonF); }
       catch (e) { toast(e.message, true); }
     });
     brancherMenuConseillers("px-conseiller"); brancherTypeBien(); brancherCodePostal();
@@ -3166,7 +3297,7 @@
     $("px-maj").addEventListener("click", async () => {
       // Tout le formulaire est lu MAINTENANT : après un « await », la fenêtre peut être celle d'un autre dossier.
       const jetonF = sessionModale, bien = lireBienFiche();
-      try { await api("/crm/parcours/" + id, { method: "PUT", json: lireFormulaireParcours(p) }); await sauverBienFiche(id, bien); toast("Fiche enregistrée"); await chargerParcours(); ouvrirParcours(id, jetonF); }
+      try { await api("/crm/parcours/" + id, { method: "PUT", json: lireFormulaireParcours(p) }); await sauverBienFiche(id, bien); toast("Fiche enregistrée"); relireEstimations(); await chargerParcours(); ouvrirParcours(id, jetonF); }
       catch (e) { toast(e.message, true); }
     });
     document.querySelectorAll("[data-mail]").forEach((b) => b.addEventListener("click", () => preparerMailParcours(id, b.dataset.mail, p)));
@@ -4238,10 +4369,11 @@
     };
     $("pp-q").addEventListener("input", () => { contactId = ""; $("pp-choisi").textContent = ""; clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
     $("pp-ajouter").addEventListener("click", async () => {
+      const btn = $("pp-ajouter"); if (btn.disabled) return; btn.disabled = true; // un double clic n'ajoute qu'un co-propriétaire
       const jetonF = sessionModale;
       const corps = contactId ? { contact_id: contactId } : { civilite: $("pp-civilite").value, prenom: $("pp-prenom").value.trim(), nom: $("pp-nom").value.trim(), email: $("pp-email").value.trim(), telephone: $("pp-tel").value.trim() };
       try { const r = await api("/crm/parcours/" + id + "/proprietaires", { json: corps }); toast(r.contact_cree ? "Co-propriétaire ajouté, et sa fiche contact créée" : "Co-propriétaire ajouté"); ouvrirParcours(id, jetonF); }
-      catch (e) { toast(e.message, true); }
+      catch (e) { toast(e.message, true); btn.disabled = false; }
     });
   }
 
@@ -4400,7 +4532,7 @@
       '<label class="btn" style="padding:1px 6px; font-size:11px;" title="Poser ou remplacer la photo qui ira dans le livret">📷<input type="file" accept="' + FORMATS_PHOTO + '" data-photo="' + escH(a.id) + '" hidden /></label></span><span><strong>' +
       escH(fmtPrix(a.prix)) + "</strong>" + puceP(a) + " · " + escH(a.titre || "") + (a.ville ? " · " + escH(a.ville) : "") + '<br /><span class="petit">' +
       escH([a.adresse || "", a.pieces ? a.pieces + " pièces" : "", a.surface ? Math.round(a.surface) + " m²" : "", a.terrain ? "terrain " + Math.round(a.terrain) + " m²" : "", fmtM2(a), a.dist != null ? "à " + Math.round(a.dist) + " m" : "", a.jours ? "en vente depuis " + a.jours + " j" : "", a.baisse > 0 ? "baisse de " + fmtPrix(a.baisse) : "", a.source === "amepi" ? "ALFA · " + (a.agence || "confrère") : a.source === "portail" ? "vu sur " + (a.portail || "un portail") : a.source === "bienici" ? "Bien'ici · " + (a.agence || "agence") + (a.quartier ? " · " + a.quartier : "") : "notre agence"].filter(Boolean).join(" · ")) +
-      (a.url ? ' · <a href="' + escH(a.url) + '" target="_blank" rel="noopener">voir l\'annonce ↗</a>' : "") + "</span></span></label>";
+      (urlSure(a.url) ? ' · <a href="' + escH(urlSure(a.url)) + '" target="_blank" rel="noopener">voir l\'annonce ↗</a>' : a.url ? " · " + escH(a.url) : "") + "</span></span></label>";
     let comAvis = null;
     try { comAvis = await api("/crm/parcours/" + id + "/commission"); } catch { comAvis = null; }
     const depuisCommission = comAvis && (comAvis.avis || []).length && (!acm.commission || !acm.commission.length || acm.commission_source === "commission") ? lignesDepuisCommission(comAvis) : null;
@@ -4486,15 +4618,37 @@
     // Toute saisie du livret s'enregistre d'elle-même (comme le guide R2) : une
     // ligne de commission ajoutée reste là quand on rouvre.
     let autoSauve = 0;
-    const programmerSauve = () => { clearTimeout(autoSauve); autoSauve = setTimeout(() => { autoSauve = 0; sauver().catch(() => {}); }, 500); };
+    // Un enregistrement automatique qui échoue (session expirée, coupure, saisie refusée par le
+    // serveur) se VOIT : en rouge sous le formulaire tant qu'il dure, et dans un message, une fois.
+    // Avant, rien ne s'affichait alors que la page dit « Tout s'enregistre sur la fiche ».
+    let echecSauve = false, dernierEnvoi = "";
+    const montrerEchec = (e) => {
+      if (maFenetre !== sessionModale) return; // le livret n'est plus à l'écran : rien à y écrire
+      const etat = $("acm-etat");
+      if (etat) { etat.style.color = "#c62828"; etat.textContent = "⚠ Le livret n'est pas enregistré : " + e.message + " Votre saisie reste à l'écran ; elle repartira à la prochaine modification ou avec « Enregistrer »."; }
+      if (!echecSauve) toast("Livret non enregistré : " + e.message, true);
+      echecSauve = true;
+    };
+    const effacerEchec = () => {
+      if (!echecSauve) return; echecSauve = false;
+      const etat = maFenetre === sessionModale && $("acm-etat");
+      if (etat && /^⚠/.test(etat.textContent)) { etat.style.color = ""; etat.textContent = ""; }
+    };
+    const programmerSauve = () => { clearTimeout(autoSauve); autoSauve = setTimeout(() => { autoSauve = 0; sauver().then(effacerEchec, montrerEchec); }, 500); };
     surModale($("modale-corps"), "change", programmerSauve);
     $("acm-com-lignes").addEventListener("click", (e) => { if (e.target.closest("[data-com-suppr]")) programmerSauve(); });
     // Une saisie encore en attente au moment où une autre fenêtre s'ouvre : lue tout de suite
     // (la page est encore celle de CE livret), puis envoyée — jamais relue plus tard.
+    // Bouton « précédent » du téléphone pendant qu'un champ est en cours de saisie : son « change »
+    // n'a pas eu lieu, rien n'est programmé — on compare donc le formulaire au dernier état envoyé.
     avantFenetreSuivante(() => {
-      if (!autoSauve) return;
+      const programme = !!autoSauve;
       clearTimeout(autoSauve); autoSauve = 0;
-      try { const d = lire(); api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: d }).catch(() => {}); } catch { /* formulaire déjà parti */ }
+      try {
+        const d = lire();
+        if (!programme && JSON.stringify(d) === dernierEnvoi) return;
+        api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: d }).catch((e) => toast("Livret non enregistré : " + e.message, true));
+      } catch { /* formulaire déjà parti */ }
     });
     $("acm-commission").addEventListener("click", () => { document.querySelector(".modale").classList.remove("large"); ouvrirCommission(id, p); });
     $("acm-com-ajouter").addEventListener("click", () => { $("acm-com-lignes").insertAdjacentHTML("beforeend", ligneCom({ nb: "", basse: "", haute: "" }, comIdx++)); const der = $("acm-com-lignes").lastElementChild.querySelector("input"); if (der) der.focus(); });
@@ -4558,8 +4712,9 @@
       }
       return d;
     };
-    const sauver = async () => { const d = lire(); await api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: d }); return d; };
-    $("acm-save").addEventListener("click", async () => { try { await sauver(); toast("Livret prix : saisie enregistrée"); } catch (e) { toast(e.message, true); } });
+    const sauver = async () => { const d = lire(), envoi = JSON.stringify(d); await api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: d }); dernierEnvoi = envoi; return d; };
+    try { dernierEnvoi = JSON.stringify(lire()); } catch { /* fenêtre déjà quittée */ } // l'état à l'ouverture : ouvrir puis fermer un livret n'écrit rien
+    $("acm-save").addEventListener("click", async () => { try { await sauver(); effacerEchec(); toast("Livret prix : saisie enregistrée"); } catch (e) { echecSauve = false; montrerEchec(e); } });
     $("acm-generer").addEventListener("click", async () => {
       const btn = $("acm-generer"), etat = $("acm-etat"), jetonGen = sessionModale; btn.disabled = true;
       try {
@@ -5573,7 +5728,13 @@
   $("doublons-q").addEventListener("keydown", (e) => { if (e.key === "Enter") chargerDoublons(); });
   $("table-upcoming").addEventListener("click", async (e) => {
     const autre = e.target.closest("[data-anniv-autre]");
-    if (autre) { ouvrirConjoint(autre.dataset.annivAutre, true); return; }
+    if (autre) {
+      // La fiche peut dater d'après le démarrage (la liste des contacts n'est pas rechargée) : on la lit avant d'ouvrir.
+      const jeton = sessionModale;
+      try { await lireContact(autre.dataset.annivAutre); } catch (err2) { toast(err2.message, true); return; }
+      if (jeton === sessionModale) ouvrirConjoint(autre.dataset.annivAutre, true);
+      return;
+    }
     const okb = e.target.closest("[data-anniv-ok]");
     if (okb) {
       try {
@@ -5592,7 +5753,7 @@
   });
   $("table-annonces").addEventListener("click", (e) => {
     const tr = e.target.closest("tr[data-url]");
-    if (tr && tr.dataset.url) window.open(tr.dataset.url, "_blank", "noopener");
+    if (tr && urlSure(tr.dataset.url)) window.open(urlSure(tr.dataset.url), "_blank", "noopener");
   });
   $("btn-anniv-save").addEventListener("click", () => sauverReglages({
     anniversaires: {

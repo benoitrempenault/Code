@@ -176,6 +176,17 @@ export function sanitizeContact(b) {
 // sont echappees inline (sqlText) car D1 limite aussi le nombre de parametres
 // lies par requete (~100, soit 5 lignes de 20 colonnes seulement).
 const sqlText = (v) => "'" + String(v ?? "").replace(/'/g, "''") + "'";
+// Deux prénoms « concordent » : identiques sans casse ni accents, ou l'un est une
+// fiche couple (« Luc et Zoé ») qui contient l'autre. Sert à ne rapprocher par
+// e-mail que la même personne (import, nettoyage).
+const clePrenom = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+export function prenomsConcordent(a, b) {
+  const x = clePrenom(a), y = clePrenom(b);
+  if (x === y) return true;
+  if (!x || !y) return false;
+  const membres = (t) => t.split(/\s+(?:et|&)\s+/);
+  return membres(x).includes(y) || membres(y).includes(x);
+}
 const INSERT_MAX_LIGNES = 150;      // et au plus ~80 Ko de SQL par requete
 const INSERT_MAX_OCTETS = 80000;
 
@@ -281,11 +292,22 @@ export async function bulkUpsertContacts(db, agencyId, userId, rows, source = "i
   if (noms.length) conditions.push(`nom COLLATE NOCASE IN (${noms.map(sqlText).join(",")})`);
   const existing = conditions.length ? await db.all(
     `SELECT * FROM crm_contacts WHERE agency_id = ? AND (${conditions.join(" OR ")})`, [agencyId]) : [];
+  // Un e-mail peut être PARTAGÉ (un couple, un parent et son enfant) : on garde
+  // toutes les fiches qui le portent, et parEmail() ne rapproche que la même personne.
   const byEmail = new Map(), byName = new Map();
+  const noterEmail = (c) => { if (!c.email) return; const l = byEmail.get(c.email) || []; if (!l.includes(c)) l.push(c); byEmail.set(c.email, l); };
   for (const c of existing) {
-    if (c.email) byEmail.set(c.email, c);
+    noterEmail(c);
     byName.set(keyName(c.nom, c.prenom), c);
   }
+  const parEmail = (v) => {
+    const candidats = (v.email && byEmail.get(v.email)) || [];
+    const meme = candidats.find((c) => prenomsConcordent(c.prenom, v.prenom));
+    if (meme) return meme;
+    // Prénom inconnu d'un côté : on rapproche s'il n'y a qu'une fiche à cet e-mail.
+    // Deux prénoms différents = deux personnes : jamais fusionnées (audit du 16/11).
+    return candidats.length === 1 && (!clePrenom(v.prenom) || !clePrenom(candidats[0].prenom)) ? candidats[0] : null;
+  };
 
   const total = await db.get("SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ?", [agencyId]);
   let count = total?.n || 0, created = 0, updated = 0, skipped = 0;
@@ -296,7 +318,7 @@ export async function bulkUpsertContacts(db, agencyId, userId, rows, source = "i
 
   for (const v of propres) {
     if (!v.nom && !v.prenom && !v.email) { skipped++; continue; }
-    const match = (v.email && byEmail.get(v.email)) || byName.get(keyName(v.nom, v.prenom));
+    const match = parEmail(v) || byName.get(keyName(v.nom, v.prenom));
     if (match) {
       // Fusion EN PLACE : l'objet reste reference par les index, donc les
       // doublons internes au fichier se fusionnent aussi entre eux.
@@ -319,7 +341,7 @@ export async function bulkUpsertContacts(db, agencyId, userId, rows, source = "i
         user_id: userId,
         updated_at: ts,
       });
-      if (match.email) byEmail.set(match.email, match);
+      noterEmail(match);
       byName.set(keyName(match.nom, match.prenom), match);
       if (!nouvelles.has(match) && !fusionnees.has(match.id)) {
         fusionnees.set(match.id, match);
@@ -334,7 +356,7 @@ export async function bulkUpsertContacts(db, agencyId, userId, rows, source = "i
       };
       nouvelles.add(ligne);
       count++; created++;
-      if (ligne.email) byEmail.set(ligne.email, ligne);
+      noterEmail(ligne);
       byName.set(keyName(ligne.nom, ligne.prenom), ligne);
     }
   }
@@ -802,6 +824,9 @@ async function fusionnerGroupes(db, agencyId, userId, groupes, preferer = "") {
       correspondance.set(c.id, s.id);
     }
     s.types = JSON.stringify(types);
+    // « Ne plus contacter » demandé sur UNE des fiches vaut pour la personne : la
+    // fiche gardée le porte (il se perdait quand elle ne l'avait pas — audit du 16/11).
+    s.opt_out = g.some((c) => Number(c.opt_out)) ? 1 : 0;
     s.user_id = userId; s.updated_at = t;
     survivants.push(s);
   }
@@ -966,8 +991,25 @@ export async function executerNettoyage(db, agency, userId, action, curseur = ""
           if (!parCle.has(f.email)) parCle.set(f.email, []);
           parCle.get(f.email).push(f);
         }
-        traites = await fusionnerGroupes(db, agency.id, userId, [...parCle.values()].filter((g) => g.length > 1));
-        return { traites, ambigus: 0, fini: false, curseur: "e:" + cles[cles.length - 1].k };
+        // Un e-mail partagé n'est pas une seule personne : à l'intérieur d'un groupe,
+        // seules les fiches dont le prénom concorde fusionnent. Des prénoms différents
+        // (un couple sur la même adresse) restent deux fiches ; une fiche sans prénom
+        // au milieu de plusieurs prénoms est laissée (comptée ambiguë), jamais devinée.
+        const propres = [];
+        for (const g of parCle.values()) {
+          if (g.length < 2) continue;
+          const sous = [];
+          for (const f of g.filter((x) => clePrenom(x.prenom))) {
+            const s2 = sous.find((l) => l.some((x) => prenomsConcordent(x.prenom, f.prenom)));
+            if (s2) s2.push(f); else sous.push([f]);
+          }
+          const sansPrenom = g.filter((x) => !clePrenom(x.prenom));
+          if (sous.length <= 1) { propres.push(g); continue; }
+          ambigus += sansPrenom.length + sous.filter((l) => l.length < 2).length;
+          propres.push(...sous.filter((l) => l.length > 1));
+        }
+        traites = await fusionnerGroupes(db, agency.id, userId, propres);
+        return { traites, ambigus, fini: false, curseur: "e:" + cles[cles.length - 1].k };
       }
     }
     // phase noms

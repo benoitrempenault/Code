@@ -3906,6 +3906,38 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/contacts/fusionner", { headers: auth, body: { garder: garder.id, absorber: [] } })).status === 400,
     "fusionner sans rien absorber est refusé");
   ok((await callR("/crm/contacts/doublons", { headers: authP })).status === 403, "doublons et fusion sont réservés aux administrateurs");
+  // Audit du 16/11 — (b) « ne plus contacter » survit à la fusion, quelle que soit la fiche qui le portait.
+  { const ins = (id, prenom, opt, t) => db.run("INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone, adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out, created_at, updated_at) VALUES (?, ?, '', '', ?, 'OPTOUTFUSION', '', '', '', '', '', '', '', '[]', '', '', 'manuel', ?, ?, ?)", [id, agId, prenom, opt, t, t]);
+    await ins("ct_opt_garde", "Rose", 0, 10); await ins("ct_opt_abs", "Rose", 1, 11); await ins("ct_opt_abs2", "R.", 0, 12);
+    const fo = await callR("/crm/contacts/fusionner", { headers: auth, body: { garder: "ct_opt_garde", absorber: ["ct_opt_abs", "ct_opt_abs2"] } });
+    const og = await db.get("SELECT opt_out FROM crm_contacts WHERE id = 'ct_opt_garde'");
+    ok(fo.status === 200 && fo.json.absorbees === 2 && og.opt_out === 1, "fusion : dès qu'une fiche absorbée avait demandé à ne plus être contactée, la fiche gardée porte l'opt-out (" + JSON.stringify(og) + ")");
+    await db.run("DELETE FROM crm_contacts WHERE id = 'ct_opt_garde'"); }
+  // (c) Import : un e-mail PARTAGÉ ne fusionne pas deux prénoms différents ; le même prénom (casse, accents) se rapproche toujours.
+  { await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ prenom: "Paul", nom: "PARTAGE", email: "famille.partage@exemple.fr", telephone: "0601010101", notes: "Fiche de Paul" }] } });
+    const i2 = (await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+      { prenom: "Sophie", nom: "PARTAGE", email: "famille.partage@exemple.fr", telephone: "0602020202" },
+      { prenom: "PAUL", nom: "Partage", email: "Famille.Partage@exemple.fr", ville: "Mérignac" },
+    ] } })).json;
+    const fam = (await callR("/crm/contacts", { headers: auth })).json.contacts.filter((x) => x.email === "famille.partage@exemple.fr");
+    const paul = fam.find((x) => /^paul$/i.test(x.prenom)), sophie = fam.find((x) => x.prenom === "Sophie");
+    ok(i2.created === 1 && i2.updated === 1 && fam.length === 2 && paul && sophie && paul.telephone === "06 01 01 01 01" && paul.notes === "Fiche de Paul" && paul.ville === "Mérignac" && sophie.telephone === "06 02 02 02 02",
+       "import : sur un e-mail partagé, Sophie reçoit sa fiche (celle de Paul n'est pas renommée) et la ligne de Paul complète la sienne (" + JSON.stringify(fam.map((x) => [x.prenom, x.telephone])) + ")");
+    // Une ligne sans prénom, deux fiches à cet e-mail : on ne devine pas → rapprochement par nom + prénom, sinon nouvelle fiche.
+    const i3 = (await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "AUTRENOM", email: "famille.partage@exemple.fr" }] } })).json;
+    ok(i3.created === 1 && i3.updated === 0, "import : une ligne sans prénom sur un e-mail porté par deux fiches ne se colle sur aucune des deux");
+    // Une seule fiche à l'e-mail et un prénom inconnu d'un côté : rapprochée, comme avant.
+    await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "SEULEMAIL", email: "seul.email@exemple.fr" }] } });
+    const i4 = (await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ prenom: "Inès", nom: "SEULEMAIL", email: "seul.email@exemple.fr" }] } })).json;
+    ok(i4.created === 0 && i4.updated === 1, "import : une seule fiche à cet e-mail, sans prénom → la ligne la complète (pas de doublon)");
+    // Le nettoyage automatique « même e-mail » ne refond pas le couple : seuls les prénoms qui concordent fusionnent.
+    await db.run("INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone, adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out, created_at, updated_at) VALUES ('ct_part_dbl', ?, '', '', 'paul', 'PARTAGE', 'famille.partage@exemple.fr', '', '1 rue du Doublon', '', '', '', '', '[]', '', '', 'import', 0, 9000000000, 9000000000)", [agId]);
+    let cur = "", amb = 0;
+    for (let t4 = 0; t4 < 60; t4++) { const r = (await callR("/crm/nettoyage", { headers: auth, body: { action: "doublons", curseur: cur } })).json; amb += r.ambigus || 0; if (r.fini) break; if (!r.traites && !r.ambigus && (r.curseur || "") === cur) break; cur = r.curseur || ""; }
+    const fam2 = (await callR("/crm/contacts", { headers: auth })).json.contacts.filter((x) => x.email === "famille.partage@exemple.fr");
+    ok(fam2.filter((x) => /^paul$/i.test(x.prenom)).length === 1 && fam2.some((x) => x.prenom === "Sophie" && x.telephone === "06 02 02 02 02") && fam2.find((x) => /^paul$/i.test(x.prenom)).adresse === "1 rue du Doublon" && fam2.some((x) => x.nom === "AUTRENOM") && amb >= 1,
+       "nettoyage : sur un e-mail partagé, les deux « Paul » fusionnent, Sophie garde sa fiche, la fiche sans prénom est laissée (" + JSON.stringify(fam2.map((x) => [x.prenom, x.nom])) + ", ambigus " + amb + ")");
+    await callR("/crm/contacts/supprimer", { headers: auth, body: { ids: [...fam2.map((x) => x.id), ...(await callR("/crm/contacts", { headers: auth })).json.contacts.filter((x) => x.nom === "SEULEMAIL").map((x) => x.id)] } }); }
 
   /* ---- Fiches inutilisables + suppression en cascade / en masse ----------- */
   console.log("— Fiches inutilisables (sans nom, prénom seul, anonymisées) + suppression");
@@ -4234,6 +4266,14 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await callR("/crm/conseillers/cs_dbl1", { headers: auth, method: "DELETE" });
   const imp2 = await callR("/crm/conseillers/importer", { headers: auth, body: {} });
   ok(imp2.status === 200 && imp2.json.ajoutes === 0 && (await callR("/crm/conseillers", { headers: auth })).json.conseillers.length === csImp.length, "relancer l'import n'ajoute rien");
+  // Audit du 16/11 : la fenêtre « ✏️ conseiller » n'envoie pas `user_id` ; le serveur écrivait alors user_id = ''
+  // et le profil perdait le lien avec son compte (périmètre « mes parcours »).
+  { await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: carto.id, prenom: carto.prenom, nom: carto.nom, email: carto.email, fonction: "Conseillère", actif: true } });
+    const apres = await db.get("SELECT user_id, fonction FROM crm_conseillers WHERE id = ?", [carto.id]);
+    ok(apres.fonction === "Conseillère" && apres.user_id === membreP.json.user.id, "enregistrer un profil conseiller sans `user_id` dans le corps garde son lien avec le compte (" + JSON.stringify(apres.user_id) + ")");
+    await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: carto.id, prenom: carto.prenom, nom: carto.nom, email: carto.email, fonction: carto.fonction || "", actif: true, user_id: "" } });
+    ok((await db.get("SELECT user_id FROM crm_conseillers WHERE id = ?", [carto.id])).user_id === "", "…et un `user_id` explicitement vide le détache toujours");
+    await db.run("UPDATE crm_conseillers SET user_id = ? WHERE id = ?", [membreP.json.user.id, carto.id]); }
   const doublon = await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "teddy", nom: "besson", fonction: "Négociateur" } });
   ok(doublon.status === 200 && doublon.json.id === teddy.json.id && doublon.json.existant, "créer « teddy besson » sans id complète le profil existant au lieu de le doubler");
   await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test" } });
@@ -4248,11 +4288,31 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const ctPx = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.id === pxCree.json.contact_id);
   ok(ctPx && ctPx.nom === "MOUNEYRES" && ctPx.prenom === "Jean" && ctPx.civilite === "M. et Mme" && ctPx.email === "mouneyres@exemple.fr" && ctPx.types.includes("estime") && ctPx.source === "parcours",
      "le contact créé porte civilité, prénom, nom, e-mail, et la typologie « estimé »");
+  // Audit du 16/11 : un simple HOMONYME (même nom + prénom, sans e-mail ni téléphone en commun) n'est plus
+  // rattaché d'office — le parcours d'une autre personne partait sur sa fiche, ensuite réécrite. (Ce test
+  // attendait l'ancien rattachement par nom + prénom : il vérifie désormais qu'une nouvelle fiche est créée.)
   const pxBis = await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "MOUNEYRES", prenom: "Jean", adresse: "Ailleurs", ville: "Pessac" } });
-  ok(pxBis.status === 200 && !pxBis.json.contact_cree && pxBis.json.contact_id === pxCree.json.contact_id, "un second parcours pour le même nom + prénom réutilise la fiche contact");
+  ok(pxBis.status === 200 && pxBis.json.contact_cree && pxBis.json.contact_id !== pxCree.json.contact_id, "un second parcours pour un simple homonyme (même nom + prénom, ni e-mail ni téléphone) crée SA fiche contact");
+  // Le rattachement automatique demande une coordonnée identique : l'e-mail, ou le téléphone quel que soit son format.
+  const pxMail = await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "Mouneyres", prenom: "Jean", email: "MOUNEYRES@exemple.fr", adresse: "5 rue du Même Mail", ville: "Pessac" } });
+  ok(pxMail.status === 200 && !pxMail.json.contact_cree && pxMail.json.contact_id === pxCree.json.contact_id, "le même e-mail rattache à la fiche existante");
+  const pxTel = await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "MOUNEYRES", prenom: "Jean", telephone: "+33 6 00 00 00 02", adresse: "6 rue du Même Numéro", ville: "Pessac" } });
+  ok(pxTel.status === 200 && !pxTel.json.contact_cree && pxTel.json.contact_id === pxCree.json.contact_id, "le même téléphone (saisi « +33 6… ») rattache à la fiche existante");
+  // Un e-mail partagé par deux fiches (un couple) : celle du même prénom ; un prénom inconnu des deux → nouvelle fiche.
+  await db.run("INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone, adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out, created_at, updated_at) VALUES ('ct_px_cj', ?, '', 'Mme', 'Sophie', 'MOUNEYRES', 'mouneyres@exemple.fr', '', '', '', '', '', '', '[]', '', '', 'manuel', 0, 5, 5)", [agId]);
+  const pxCj = await callR("/crm/parcours", { headers: authP, body: { civilite: "Mme", nom: "MOUNEYRES", prenom: "sophie", email: "mouneyres@exemple.fr", adresse: "7 rue du Couple", ville: "Pessac" } });
+  const pxTiers = await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "MOUNEYRES", prenom: "Lucas", email: "mouneyres@exemple.fr", adresse: "8 rue du Fils", ville: "Pessac" } });
+  ok(pxCj.json.contact_id === "ct_px_cj" && !pxCj.json.contact_cree && pxTiers.json.contact_cree && ![ctPx.id, "ct_px_cj"].includes(pxTiers.json.contact_id),
+     "e-mail partagé par deux fiches : le parcours va à celle du même prénom ; un autre prénom reçoit sa propre fiche");
   const pxChoisi = await callR("/crm/parcours", { headers: authP, body: { contact_id: ctPx.id, nom: "AUTRE NOM", adresse: "3 rue Choisie", ville: "Pessac" } });
   ok(pxChoisi.status === 200 && pxChoisi.json.contact_id === ctPx.id && !pxChoisi.json.contact_cree, "un contact choisi dans la recherche est lié tel quel");
-  for (const idSup of [pxBis.json.id, pxChoisi.json.id]) await db.run("DELETE FROM crm_estimations WHERE id = ?", [idSup]);
+  // Une fiche reliée à un contact qui porte DÉJÀ ses coordonnées ne les remplace pas (la fiche de Paul n'est plus réécrite par le parcours de Sophie).
+  await callR("/crm/parcours/" + pxChoisi.json.id, { headers: authP, method: "PUT", body: { nom: "AUTRE NOM", prenom: "Sophie", email: "autre@exemple.fr", telephone: "07 77 77 77 77", adresse: "3 rue Choisie", cp: "33600", ville: "Pessac" } });
+  const ctIntact = await db.get("SELECT * FROM crm_contacts WHERE id = ?", [ctPx.id]);
+  ok(ctIntact.nom === "MOUNEYRES" && ctIntact.prenom === "Jean" && ctIntact.email === "mouneyres@exemple.fr" && ctIntact.telephone === "06 00 00 00 02" && ctIntact.adresse === "12 rue du Mandat Confiance" && ctIntact.ville === "SAINT AUBIN DE MEDOC",
+     "« Enregistrer la fiche » d'un parcours ne remplace ni le nom, ni l'e-mail, ni le téléphone, ni l'adresse de la fiche contact reliée");
+  for (const idSup of [pxBis.json.id, pxMail.json.id, pxTel.json.id, pxCj.json.id, pxTiers.json.id, pxChoisi.json.id]) { await db.run("DELETE FROM crm_estimations WHERE id = ?", [idSup]); await db.run("DELETE FROM crm_parcours WHERE estimation_id = ?", [idSup]); await db.run("DELETE FROM crm_estimation_contacts WHERE estimation_id = ?", [idSup]); }
+  await db.run("DELETE FROM crm_contacts WHERE id IN (?, ?, 'ct_px_cj')", [pxBis.json.contact_id, pxTiers.json.contact_id]);
   const pxId = pxCree.json.id;
   const pxFiche = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
   ok(pxFiche.prenom === "Jean" && pxFiche.type_bien === "maison" && pxFiche.r1_heure === "10:00" && pxFiche.conseiller.nom === "BESSON" && pxFiche.conseiller.photo_url && pxFiche.emails.includes("mouneyres@exemple.fr"),
@@ -4295,12 +4355,20 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const et = await callR("/crm/parcours/" + pxId + "/etape", { headers: authP, body: { etape: "guide-r1" } });
   ok(et.status === 200 && et.json.journal.some((j) => j.etape === "guide-r1"), "une étape faite hors e-mail (guide imprimé) se coche");
   ok((await callR("/crm/parcours/" + pxId + "/apercu?jalon=inconnu", { headers: authP })).status === 400, "jalon inconnu refusé");
-  // Compléter la fiche du parcours met à jour la fiche contact principale (sans rien effacer).
+  // Compléter la fiche du parcours COMPLÈTE la fiche contact principale : ses champs vides se remplissent,
+  // ceux qu'elle porte déjà ne sont ni effacés ni remplacés. (Audit du 16/11 : ce test attendait que le
+  // téléphone et l'adresse du parcours REMPLACENT ceux du contact ; on vide donc d'abord ces deux champs
+  // du contact pour vérifier le remplissage, puis on vérifie qu'une seconde saisie ne les remplace plus.)
+  await db.run("UPDATE crm_contacts SET telephone = '', adresse = '' WHERE id = ?", [pxFiche.contact_id]);
   const ctAvant = await db.get("SELECT * FROM crm_contacts WHERE id = ?", [pxFiche.contact_id]);
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { telephone: "06 11 22 33 44", adresse: "14 rue du Mandat Confiance", cp: "33160", ville: "Saint-Aubin-de-Médoc", prenom: "" } });
   const ctApres = await db.get("SELECT * FROM crm_contacts WHERE id = ?", [pxFiche.contact_id]);
-  ok(ctAvant && ctApres.telephone === "06 11 22 33 44" && ctApres.adresse === "14 rue du Mandat Confiance" && ctApres.cp === "33160" && ctApres.email === ctAvant.email && ctApres.prenom === ctAvant.prenom && ctApres.updated_at >= ctAvant.updated_at,
-     "compléter la fiche du parcours (téléphone, adresse) remonte sur la fiche contact ; un champ vidé n'efface rien (" + ctApres.telephone + ", " + ctApres.adresse + ")");
+  ok(ctAvant && ctApres.telephone === "06 11 22 33 44" && ctApres.adresse === "14 rue du Mandat Confiance" && ctApres.cp === "33160" && ctApres.ville === ctAvant.ville && ctApres.email === ctAvant.email && ctApres.prenom === ctAvant.prenom && ctApres.updated_at >= ctAvant.updated_at,
+     "compléter la fiche du parcours remplit les champs VIDES de la fiche contact (téléphone, adresse) ; la ville déjà saisie reste, un champ vidé n'efface rien (" + ctApres.telephone + ", " + ctApres.adresse + ", " + ctApres.ville + ")");
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { telephone: "06 55 55 55 55", adresse: "99 rue d'une Autre Personne" } });
+  const ctGarde = await db.get("SELECT * FROM crm_contacts WHERE id = ?", [pxFiche.contact_id]);
+  ok(ctGarde.telephone === "06 11 22 33 44" && ctGarde.adresse === "14 rue du Mandat Confiance", "…et une valeur déjà présente sur la fiche contact n'est jamais remplacée par celle du parcours");
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { telephone: "06 11 22 33 44" } });
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { adresse: "12 rue du Mandat Confiance", prenom: "Jean" } });
   const pxMaj = await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "appartement", r2: "2026-04-28", r2_heure: "9:00" } });
   const ap2b = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
