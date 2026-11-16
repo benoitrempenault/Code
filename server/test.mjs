@@ -4246,6 +4246,15 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok(t.groupes.length === 5 && de(t.tiers.repli) === "1 280000 300000 290000" && de(t.tiers.raison) === "3 290000 330000 308000" && de(t.tiers.ambition) === "1 320000 350000 335000",
        "5 avis, 5 fourchettes distinctes : chaque tiers va du plus petit prix bas au plus grand prix haut de ses avis (repli 280–300 k, raison 290–330 k, ambition 320–350 k) (" + JSON.stringify(t.tiers) + ")");
     await callR("/crm/parcours/" + pxCom.id, { headers: authP, method: "DELETE" }); }
+  // Une balise de fusion vide dont la phrase ne tient pas sans elle : l'aperçu de l'e-mail avant R1 d'une fiche sans date
+  // écrivait « notre rendez-vous de directement au … » → un rappel entre crochets, visible à la relecture.
+  { const pxSD = (await callR("/crm/parcours", { headers: authP, body: { civilite: "Mme", nom: "SANSDATE", prenom: "Ida", adresse: "2 rue du Calendrier", ville: "Pessac" } })).json;
+    const apSD = (await callR("/crm/parcours/" + pxSD.id + "/apercu?jalon=avant-r1", { headers: authP })).json;
+    ok(/notre rendez-vous de \[date du rendez-vous à préciser\] directement au 2 rue du Calendrier/.test(apSD.texte) && /\[date du rendez-vous à préciser\]/.test(apSD.sujet) && !/rendez-vous de directement/.test(apSD.texte)
+       && CRM_TEST.remplirModele("Bonjour {civilite_nom}, rendez-vous le {date_r1} — {telephone}", { civilite_nom: "", date_r1: "lundi 20 avril à 10h" }) === "Bonjour, rendez-vous le lundi 20 avril à 10h"
+       && CRM_TEST.remplirModele("Le {date_r1}.", {}) === "Le.",
+       "fiche sans date de R1 : l'aperçu de l'e-mail porte « [date du rendez-vous à préciser] » au lieu d'une phrase bancale ; les autres balises vides s'effacent comme avant (" + apSD.texte.split("\n")[2] + ")");
+    await callR("/crm/parcours/" + pxSD.id, { headers: authP, method: "DELETE" }); }
   // Effacer un parcours : dans son périmètre seulement ; la fiche disparaît de Studio Estimation, le contact reste.
   const pxSup = (await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "EFFACE", prenom: "Paul", adresse: "1 rue Gommée", ville: "Pessac" } })).json;
   ok((await callR("/crm/parcours/" + pxSup.id, { headers: authR, method: "DELETE" })).status === 404, "un autre conseiller ne peut pas effacer ce parcours");

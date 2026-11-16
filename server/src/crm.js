@@ -1391,9 +1391,14 @@ export const MODELES = {
     texte: "Votre estimation du {adresse} a six mois. En immobilier, c'est l'âge où un avis de valeur mérite un regard neuf : le marché du quartier a bougé, dans un sens ou dans l'autre.\n\nNous vous proposons de la réactualiser gratuitement — un simple échange suffit souvent. Répondez à cet e-mail ou appelez-nous quand vous voulez." },
 };
 
+// Les balises sans lesquelles la phrase ne tient pas (« notre rendez-vous de directement
+// au 12 rue… » quand la date du R1 manque sur la fiche) : vides, elles laissent un rappel
+// entre crochets, bien visible à la relecture de l'e-mail, au lieu d'une phrase bancale.
+const BALISES_A_PRECISER = { date_r1: "[date du rendez-vous à préciser]", date_r2: "[date du rendez-vous à préciser]",
+  fourchette_basse: "[fourchette basse à préciser]", fourchette_haute: "[fourchette haute à préciser]" };
 export function remplirModele(texte, vars) {
   return String(texte || "")
-    .replace(/\{(\w+)\}/g, (tout, cle) => (vars[cle] != null && vars[cle] !== "" ? String(vars[cle]) : ""))
+    .replace(/\{(\w+)\}/g, (tout, cle) => (vars[cle] != null && vars[cle] !== "" ? String(vars[cle]) : (cle in vars && BALISES_A_PRECISER[cle]) || ""))
     // Une balise effacee ne laisse ni double espace ni espace avant une
     // virgule ou un point (« Bonjour , » → « Bonjour, ») — mais l'espace
     // avant ! ? : ; reste : c'est la typographie francaise.
