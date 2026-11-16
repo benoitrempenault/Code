@@ -3369,6 +3369,33 @@
   // TikTok — tools/guides/variante-cauderan.py) ; les autres partagent le commun.
   const guideR1Cache = {}; // variante → { meta, pdf }
   const varianteGuide = (cs) => ((cs && cs.agence) === "cauderan" ? "cauderan" : "commun"); // R1 et R2
+  // Un document généré avec une réserve (texte trop long raccourci, commune indéterminée…) :
+  // on le dit à l'écran, assez longtemps pour être lu (le message ordinaire s'efface en 3 s).
+  function avertirDocument(titre, messages) {
+    const l = (messages || []).filter(Boolean);
+    if (!l.length) return;
+    toast("⚠ " + titre + " — " + l.join(" · "), true);
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => $("toast").classList.remove("visible"), 9000 + 5000 * l.length);
+  }
+  // Helvetica standard n'écrit que le jeu WinAnsi : un nom polonais, turc ou vietnamien
+  // (ł, Ś, ễ, ı, Ş, Č…), une espace fine ou une tabulation collée d'un autre logiciel
+  // faisaient échouer TOUT le guide R1 (« WinAnsi cannot encode »). Les espaces exotiques
+  // deviennent des espaces ; un texte hors du jeu s'écrit avec la police de secours
+  // embarquée (Barlow a ces lettres) ; à défaut la lettre perd son signe plutôt que de
+  // bloquer le document.
+  const espacesSimples = (t) => String(t == null ? "" : t).replace(/[\t\u2000-\u200a\u202f\u205f\u3000]/g, " ").replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029\u2060\ufeff]/g, "");
+  const SANS_SIGNE = { "ł": "l", "Ł": "L", "ı": "i", "İ": "I", "đ": "d", "Đ": "D", "ħ": "h", "Ħ": "H", "ŧ": "t", "Ŧ": "T", "ĸ": "k", "ŉ": "n" };
+  const jeuxPolices = new WeakMap();
+  const jeuDe = (font) => { if (!jeuxPolices.has(font)) jeuxPolices.set(font, new Set(font.getCharacterSet())); return jeuxPolices.get(font); };
+  const ecritTout = (font, t) => [...t].every((c) => jeuDe(font).has(c.codePointAt(0)));
+  function ecritureSure(texte, font, secours) {
+    const t = espacesSimples(texte);
+    if (ecritTout(font, t)) return { texte: t, font, mode: "normale" };
+    if (secours && ecritTout(secours, t)) return { texte: t, font: secours, mode: "secours" };
+    const sans = [...t].map((c) => { if (ecritTout(font, c)) return c; const b = SANS_SIGNE[c] || c.normalize("NFD").replace(/[\u0300-\u036f]/g, ""); return b && ecritTout(font, b) ? b : ""; }).join("");
+    return { texte: sans, font, mode: "sans-signe" };
+  }
   const sansAccentsMin = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
   async function genererGuideR1(p) {
     if (!window.PDFLib) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
@@ -3395,6 +3422,13 @@
     const copies = await doc.copyPages(source, ordre.filter((n) => typeof n === "number").map((n) => n - 1));
     let kCopie = 0, pgGeneree = null;
     for (const e of ordre) { if (e === "generee") pgGeneree = doc.addPage([595.28, 841.89]); else doc.addPage(copies[kCopie++]); }
+    // Les textes variables écrits en Helvetica (client, adresses) : s'ils sortent du jeu
+    // WinAnsi, Barlow (déjà chargée pour le mot du directeur) est embarquée en secours.
+    const stdR = await doc.embedFont(StandardFonts.Helvetica);
+    let secoursR1 = null; const ecritures = { secours: 0, sansSigne: 0 };
+    { const variables = [nomsClient(p), p.adresse, p.cp, p.ville, (p.agence && p.agence.adresse) || "", ...agences().flatMap((a) => [a.nom, a.adresse])].map(espacesSimples).join(" ");
+      if (window.fontkit && !ecritTout(stdR, variables)) { try { await chargerMotCache(); secoursR1 = await Promise.all(motCache.fontes.slice(0, 2).map((f) => doc.embedFont(f, { subset: true }))); } catch { secoursR1 = null; } } }
+    const sure = (texte, font, gras) => { const e = ecritureSure(texte, font, secoursR1 && secoursR1[gras ? 1 : 0]); if (e.mode === "secours") ecritures.secours++; else if (e.mode === "sans-signe") ecritures.sansSigne++; return e; };
     let pageConseiller = pageCs ? { source: "modele" } : { source: cs.nom ? "generee" : "aucune" };
     if (pgGeneree) { try { pageConseiller = { source: "generee", ...(await dessinerPageConseiller(doc, pgGeneree, p)) }; } catch (e) { pageConseiller.erreur = String(e.message || e); } }
     // Page « Notre agence » : les chiffres des avis du jour, par point de vente (relevés sur le site Kadima).
@@ -3447,10 +3481,11 @@
       const tenir = (texte, f, taille, largeur) => { let t = taille; while (t > 6 && f.widthOfTextAtSize(texte, t) > largeur) t -= 0.25; return t; };
       lieux.forEach((l, i) => {
         const y = z.haut + i * pas;
+        const ti = sure(l.titre, font, true), te = sure(l.texte, fontR, false);
         page.drawRectangle({ x: z.x, y: Y(y) - 1.5, width: 7.5, height: 7.5, borderColor: rgb(0.35, 0.35, 0.35), borderWidth: 0.8 });
-        page.drawText(l.titre, { x: z.xTexte, y: Y(y), size: z.taille, font, color: gris });
-        if (l.texte) page.drawText(l.texte, { x: z.xTexte, y: Y(y) - 8.8, size: tenir(l.texte, fontR, z.taille - 0.3, z.blanc[2] - z.xTexte - 8), font: fontR, color: gris });
-        if (l.ligne) page.drawLine({ start: { x: z.xTexte + font.widthOfTextAtSize(l.titre, z.taille) + 6, y: Y(y) - 1 }, end: { x: z.blanc[2] - 20, y: Y(y) - 1 }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
+        page.drawText(ti.texte, { x: z.xTexte, y: Y(y), size: z.taille, font: ti.font, color: gris });
+        if (te.texte) page.drawText(te.texte, { x: z.xTexte, y: Y(y) - 8.8, size: tenir(te.texte, te.font, z.taille - 0.3, z.blanc[2] - z.xTexte - 8), font: te.font, color: gris });
+        if (l.ligne) page.drawLine({ start: { x: z.xTexte + ti.font.widthOfTextAtSize(ti.texte, z.taille) + 6, y: Y(y) - 1 }, end: { x: z.blanc[2] - 20, y: Y(y) - 1 }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
       });
       // L'avis client : une légende qui dit à quoi sert le QR code, et le QR de
       // l'agence du conseiller quand elle a son propre lien d'avis (Caudéran…).
@@ -3478,11 +3513,16 @@
       const font = await doc.embedFont(StandardFonts.Helvetica);
       const h = page.getHeight();
       // Un texte trop long pour la place (jusqu'au titre, à gauche) se réduit.
-      const droite = (texte, spec) => {
-        if (!texte) return;
+      // Si une ligne du bloc demande la police de secours, les quatre la prennent : pas deux polices dans le même bloc.
+      const blocP1 = [nomsClient(p), (p.adresse || "").toUpperCase(), [p.cp, (p.ville || "").toUpperCase()].filter(Boolean).join(" ")];
+      const fontP1 = secoursR1 && blocP1.some((t) => !ecritTout(font, espacesSimples(t))) ? secoursR1[0] : font;
+      const droite = (brut, spec) => {
+        if (!brut) return;
+        const { texte, font: f } = sure(brut, fontP1, false);
+        if (fontP1 !== font) ecritures.secours++;
         let taille = spec.taille;
-        while (taille > 8 && font.widthOfTextAtSize(texte, taille) > p1.droite - (p1.gauche || 300)) taille -= 0.5;
-        page.drawText(texte, { x: p1.droite - font.widthOfTextAtSize(texte, taille), y: h - spec.y, size: taille, font, color: rgb(0, 0, 0) });
+        while (taille > 8 && f.widthOfTextAtSize(texte, taille) > p1.droite - (p1.gauche || 300)) taille -= 0.5;
+        page.drawText(texte, { x: p1.droite - f.widthOfTextAtSize(texte, taille), y: h - spec.y, size: taille, font: f, color: rgb(0, 0, 0) });
       };
       droite(nomsClient(p), p1.nom);
       droite((p.adresse || "").toUpperCase(), p1.adresse);
@@ -3492,7 +3532,12 @@
     doc.setTitle("Guide de commercialisation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", mot, pageConseiller, avisAgence, variante }; // relu par les parcours navigateur
+    // Ce qui n'a pas pu être imprimé tel quel se dit à l'écran.
+    const avertissements = [];
+    if (pageConseiller.caracteresOmis) avertissements.push("page « Votre conseiller » : la présentation est trop longue pour son encart, elle s'arrête après « " + pageConseiller.finTexte + " » (environ " + pageConseiller.caracteresOmis + " caractères non imprimés)");
+    if (ecritures.sansSigne) avertissements.push("certaines lettres du nom ou de l'adresse n'existent pas dans la police du guide : elles sont écrites sans leur signe");
+    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", mot, pageConseiller, avisAgence, variante, ecritures, avertissements }; // relu par les parcours navigateur
+    avertirDocument("Guide R1", avertissements);
     return url;
   }
   /* --------------------------- Mot du directeur --------------------------- */
@@ -3637,34 +3682,61 @@
     // Espace normale entre les milliers : Barlow n'a pas l'espace fine insécable de fr-FR.
     const fmt = (v) => (Number(v) > 0 ? Math.round(Number(v)).toLocaleString("fr-FR").replace(/[\u202f\u00a0]/g, " ") + " €" : "");
     const basse = fmt(courrier.basse), haute = fmt(courrier.haute);
-    let y = 405;
-    const para = (t, f, taille, pas, c) => { for (const l of couper(t, f || fR, taille || 11.5, 420)) { ecrire(l, 85, y, taille || 11.5, f || fR, c); y += pas || 16.5; } y += 8; };
-    para(appel);
-    para("Nous vous remercions de la confiance que vous nous accordez dans le cadre de votre projet immobilier. Suite à notre rendez-vous" + quandR2 + " et à l'analyse comparative du marché réalisée sur les biens vendus et en vente autour de chez vous, nous estimons la valeur de votre " + typeLib + (adresse ? " " + situe + " " + adresse : "") + " :");
-    // La fourchette, mise en valeur dans un cadre doré.
-    y += 2;
-    pg.drawRectangle({ x: 85, y: h - (y + 52), width: 425, height: 58, borderColor: or, borderWidth: 1.2, color: rgb255(0.98, 0.97, 0.94) });
+    const libre = String(courrier.texte || "").trim();
+    const prenom = prenomPropre(cs.prenom), nomCs = (cs.nom || "").toUpperCase();
     const titreF = basse && haute ? "Fourchette d'estimation" : "Estimation";
     const valF = basse && haute ? "entre " + basse + " et " + haute : (haute || basse);
     // Les montants sont suivis de « net vendeur » (Benoît, 12/10), plus petit, sur la même ligne.
     const mention = " net vendeur", wVal = fB.widthOfTextAtSize(valF, 19), wMention = fR.widthOfTextAtSize(mention, 11);
-    const xVal = 85 + (425 - wVal - wMention) / 2;
-    ecrire(titreF, 85 + (425 - fR.widthOfTextAtSize(titreF, 9.5)) / 2, y + 12, 9.5, fR, gris);
-    ecrire(valF, xVal, y + 38, 19, fB, or);
-    ecrire(mention, xVal + wVal, y + 38, 11, fR, gris);
-    y += 74;
-    const libre = String(courrier.texte || "").trim();
-    if (libre) for (const bloc of libre.split(/\n\s*\n|\n/).map((t) => t.trim()).filter(Boolean)) para(bloc);
-    para("Cette estimation est établie au vu du marché actuel et des biens comparables ; elle ne constitue pas une expertise et pourra être ajustée avec vous au moment de la mise en vente.", fR, 10, 14.5, gris);
-    para("Nous restons à votre entière disposition pour en parler et vous accompagner dans votre projet.");
-    para("Bien cordialement,");
-    // Signature du conseiller : prénom NOM, fonction, coordonnées.
-    const prenom = prenomPropre(cs.prenom), nomCs = (cs.nom || "").toUpperCase();
-    const ySig = Math.min(Math.max(y + 10, 640), 720);
-    ecrire(prenom || nomCs ? [prenom, nomCs].filter(Boolean).join(" ") : (ag.nom || "L'équipe de l'agence"), 330, ySig, 12.5, fB);
-    ecrire(cs.fonction || "Conseiller immobilier", 330, ySig + 16, 10.5, fI, gris);
-    ecrire([fmtTel(cs.telephone), cs.email].filter(Boolean).join(" · "), 330, ySig + 31, 9.5, fR, gris);
-    return { conseiller: [prenom, nomCs].filter(Boolean).join(" "), basse, haute, mention: mention.trim(), libre: !!libre, photo, agence: ag.nom || "" };
+    // Le corps se compose à une taille donnée, la signature toujours APRÈS le texte ;
+    // `tracer` à faux ne fait que mesurer. Au-delà de 4 lignes de mot libre, le texte
+    // passait sur la signature (posée à une hauteur plafonnée), puis sur le pied, puis
+    // sortait de la page (audit du 16/11) : on mesure d'abord, on réduit le corps de
+    // 11,5 à 10 pt s'il le faut, et au-delà on refuse en disant de combien raccourcir.
+    const BAS_SIGNATURE = 772; // dernière ligne de la signature, au-dessus du filet du pied (786)
+    // Pas de retour à la ligne avant « : ; ! ? » € % », après « « », ni au milieu d'un montant (« 349 000 € ») : ces espaces-là ne coupent pas.
+    const couperFr = (t, f, taille, larg) => couper(String(t || "").replace(/\s+(?=[:;!?»€%])/g, "\u0001").replace(/«\s+/g, "«\u0001").replace(/(\d)\s+(?=\d{3}(?!\d))/g, "$1\u0001"), f, taille, larg).map((l) => l.replace(/\u0001/g, " "));
+    const composer = (T, mot, tracer) => {
+      const k = T / 11.5, pasT = Math.round(16.5 * k * 10) / 10, entre = Math.round(8 * k * 10) / 10;
+      let y = 405;
+      const para = (t, f, taille, pas, c) => { for (const l of couperFr(t, f || fR, taille || T, 420)) { if (tracer) ecrire(l, 85, y, taille || T, f || fR, c); y += pas || pasT; } y += entre; };
+      para(appel);
+      para("Nous vous remercions de la confiance que vous nous accordez dans le cadre de votre projet immobilier. Suite à notre rendez-vous" + quandR2 + " et à l'analyse comparative du marché réalisée sur les biens vendus et en vente autour de chez vous, nous estimons la valeur de votre " + typeLib + (adresse ? " " + situe + " " + adresse : "") + " :");
+      // La fourchette, mise en valeur dans un cadre doré.
+      y += 2;
+      if (tracer) {
+        pg.drawRectangle({ x: 85, y: h - (y + 52), width: 425, height: 58, borderColor: or, borderWidth: 1.2, color: rgb255(0.98, 0.97, 0.94) });
+        const xVal = 85 + (425 - wVal - wMention) / 2;
+        ecrire(titreF, 85 + (425 - fR.widthOfTextAtSize(titreF, 9.5)) / 2, y + 12, 9.5, fR, gris);
+        ecrire(valF, xVal, y + 38, 19, fB, or);
+        ecrire(mention, xVal + wVal, y + 38, 11, fR, gris);
+      }
+      y += 74;
+      for (const bloc of String(mot || "").split(/\n\s*\n|\n/).map((t) => t.trim()).filter(Boolean)) para(bloc);
+      para("Cette estimation est établie au vu du marché actuel et des biens comparables ; elle ne constitue pas une expertise et pourra être ajustée avec vous au moment de la mise en vente.", fR, T - 1.5, pasT - 2, gris);
+      para("Nous restons à votre entière disposition pour en parler et vous accompagner dans votre projet.");
+      para("Bien cordialement,");
+      // Signature du conseiller : prénom NOM, fonction, coordonnées.
+      const ySig = Math.max(y + 10 * k, 640);
+      if (tracer) {
+        ecrire(prenom || nomCs ? [prenom, nomCs].filter(Boolean).join(" ") : (ag.nom || "L'équipe de l'agence"), 330, ySig, 12.5, fB);
+        ecrire(cs.fonction || "Conseiller immobilier", 330, ySig + 16, 10.5, fI, gris);
+        ecrire([fmtTel(cs.telephone), cs.email].filter(Boolean).join(" · "), 330, ySig + 31, 9.5, fR, gris);
+      }
+      return { yTexte: Math.round((y - entre) * 10) / 10, ySignature: Math.round(ySig * 10) / 10, bas: Math.round((ySig + 31) * 10) / 10 };
+    };
+    const TAILLE_MIN = 10;
+    let taille = 11.5;
+    while (taille > TAILLE_MIN && composer(taille, libre, false).bas > BAS_SIGNATURE) taille -= 0.25;
+    if (composer(taille, libre, false).bas > BAS_SIGNATURE) {
+      // Même au plus petit, le mot ne tient pas : la plus longue partie (coupée à un mot) qui tiendrait dit de combien raccourcir.
+      let tient = 0, trop = libre.length;
+      while (trop - tient > 1) { const n = Math.floor((tient + trop) / 2); if (composer(TAILLE_MIN, libre.slice(0, n).replace(/\S*$/, ""), false).bas <= BAS_SIGNATURE) tient = n; else trop = n; }
+      const enTrop = Math.max(10, Math.ceil((libre.length - tient) / 10) * 10);
+      throw new Error("Votre mot est trop long pour tenir sur la page du courrier : raccourcissez-le d'environ " + enTrop + " caractères (il en compte " + libre.length + ", environ " + Math.floor(tient / 10) * 10 + " tiennent).");
+    }
+    const mise = composer(taille, libre, true);
+    return { conseiller: [prenom, nomCs].filter(Boolean).join(" "), basse, haute, mention: mention.trim(), libre: !!libre, photo, agence: ag.nom || "", taille, ...mise };
   }
   const rgb255 = (r, g, b) => window.PDFLib.rgb(r, g, b);
   // Imprimer un PDF (URL blob) sans quitter la page : cadre invisible + boîte
@@ -3680,19 +3752,34 @@
   // Photo ronde (PNG transparent hors du disque), pour la page « Votre conseiller ».
   // Un texte de présentation dans une zone : on réduit la taille jusqu'à `tailleMin`
   // (jamais plus petit), puis on retire les derniers paragraphes entiers tant que ça
-  // déborde ; rien n'est coupé au milieu d'une phrase (Benoît, 10/10).
+  // déborde ; rien n'est coupé au milieu d'une phrase (Benoît, 10/10). Rend aussi ce
+  // qui manque (`omis`, `coupe`, `caracteresOmis`, `finTexte`) pour le dire à l'écran.
   function ajusterParagraphes(paras, couper, font, largeur, hauteurMax, tailleMax = 10.5, tailleMin = 9.5, interligne = 1.2) {
     const mesure = (bl, pas) => bl.reduce((h, b) => h + b.length * pas, 0) + Math.max(0, bl.length - 1) * pas * 0.6;
-    let taille = tailleMax, pas, blocs, gardes = paras.slice();
+    let taille = tailleMax, pas, blocs, gardes = paras.slice(), coupe = false;
     for (;;) {
       pas = Math.round(taille * interligne * 10) / 10;
       blocs = gardes.map((t) => couper(t, font, taille, largeur));
       if (mesure(blocs, pas) <= hauteurMax || !blocs.length) break;
       if (taille - 0.5 >= tailleMin) { taille -= 0.5; continue; }
-      gardes = gardes.slice(0, -1); taille = tailleMax; // trop long : un paragraphe de moins, et on repart grand
+      if (gardes.length > 1) { gardes = gardes.slice(0, -1); taille = tailleMax; continue; } // trop long : un paragraphe de moins, et on repart grand
+      // Un seul paragraphe, trop long à lui seul (un texte saisi d'un bloc) : il disparaissait
+      // EN ENTIER, la page sortait sans texte (audit du 16/11). Il s'arrête à la dernière
+      // phrase qui tient — toujours pas de coupe au milieu d'une phrase.
+      const phrases = phrasesDe(gardes[0]);
+      if (phrases.length > 1) { gardes = [phrases.slice(0, -1).join(" ")]; coupe = true; taille = tailleMax; continue; }
+      // Une seule phrase, interminable : les lignes qui tiennent, terminées par « … ».
+      const n = Math.max(1, Math.floor(hauteurMax / pas));
+      blocs = [blocs[0].slice(0, n)]; blocs[0][n - 1] = blocs[0][n - 1].replace(/[\s,;:.]+$/, "") + "…"; coupe = true;
+      break;
     }
-    return { taille, pas, blocs, omis: paras.length - gardes.length };
+    const lignes = blocs.flat(), imprime = lignes.join(" ").length;
+    return { taille, pas, blocs, omis: paras.length - gardes.length, coupe, caracteresOmis: paras.length - gardes.length || coupe ? Math.max(1, paras.join(" ").length - imprime) : 0,
+      finTexte: lignes.length ? lignes[lignes.length - 1].split(" ").slice(-5).join(" ") : "" };
   }
+  // Les phrases d'un texte : la coupe se fait après un point, « ! », « ? » ou « … » suivi
+  // d'une majuscule — pas après une abréviation d'une ou deux lettres (« M. Dupont »).
+  const phrasesDe = (texte) => String(texte || "").split(/(?<=(?:[^\s.]{3,}[.…]|[!?])["»”)]?)\s+(?=[A-ZÀ-ÖØ-Þ«"“(\d])/u).map((t) => t.trim()).filter(Boolean);
   // Le cadrage d'un portrait dans un cadre W × H : centré en largeur ; en hauteur,
   // le visage est dans le haut de la photo, la fenêtre s'ancre au quart supérieur
   // du débord (pas au milieu, qui coupait les têtes — Benoît, 10/10).
@@ -3802,9 +3889,10 @@
     }
     // Sa description : texte personnel du profil, sinon celui de sa page sur le site.
     const description = String(cs.bio || cs.bio_site || "").replace(/\r/g, "").split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean);
-    let yDesc = Math.max(285, yc + 12);
+    let yDesc = Math.max(285, yc + 12), descriptionOmise = null;
     if (description.length) {
-      const { taille, pas, blocs: bl } = ajusterParagraphes(description, couper, fI, D - G - 36, 230, 10.5, 9.5, 1.33);
+      const ajuste = ajusterParagraphes(description, couper, fI, D - G - 36, 230, 10.5, 9.5, 1.33);
+      const { taille, pas, blocs: bl } = ajuste; descriptionOmise = ajuste;
       const haut = bl.reduce((n, b) => n + b.length * pas + 6, 0) + 22;
       page.drawRectangle({ x: G, y: h - (yDesc + haut), width: D - G, height: haut, color: beige });
       page.drawRectangle({ x: G, y: h - (yDesc + haut), width: 3, height: haut, color: or });
@@ -3838,7 +3926,8 @@
         col.y += haut + ECART; poses++;
       }
     }
-    return { conseiller: [prenom, nomCs.toUpperCase()].filter(Boolean).join(" "), avis: poses, avisSite: avis.filter((a) => a.site).length, avisModele: avis.filter((a) => a.modele).length, photo, description: description.length ? (cs.bio ? "profil" : "site") : "aucune" };
+    return { conseiller: [prenom, nomCs.toUpperCase()].filter(Boolean).join(" "), avis: poses, avisSite: avis.filter((a) => a.site).length, avisModele: avis.filter((a) => a.modele).length, photo, description: description.length ? (cs.bio ? "profil" : "site") : "aucune",
+      caracteresOmis: descriptionOmise ? descriptionOmise.caracteresOmis : 0, finTexte: descriptionOmise ? descriptionOmise.finTexte : "" };
   }
   // Page « Notre agence » des guides (R1 p3, R2 p11) : les notes et nombres
   // d'avis redessinés aux chiffres relevés sur le site Kadima (par point de
@@ -4137,6 +4226,8 @@
     };
     const cpVille = [p.cp, p.ville].filter(Boolean).join(" ");
     const aujourdhui = new Date(); const dateJour = aujourdhui.getDate() + " " + MOIS_FR[aujourdhui.getMonth()] + " " + aujourdhui.getFullYear();
+    const avertissements = []; // ce qui n'a pas pu être imprimé tel quel : dit à l'écran en fin de génération
+    let debugP6 = null;
     // Page 1 : photo, client, adresse, date du jour.
     { const s = meta.p1, pg = page(s.page);
       await image(pg, r2.photo, s.photo, true);
@@ -4149,18 +4240,38 @@
       await image(pg, r2.photo, s.photo, true);
       ecrireDroite(pg, p.adresse, s.droite, s.adresse.y, s.adresse.taille, fR);
       ecrireDroite(pg, cpVille, s.droite, s.cpville.y, s.cpville.taille, fR);
-      // Chaque point va à la ligne dans son cadre (Benoît préfère ça à une
-      // limite de caractères) ; au-delà de 6 lignes le texte se resserre un peu.
-      const liste = (texte, z) => {
-        const items = String(texte || "").split(/\n/).map((t) => t.trim()).filter(Boolean).slice(0, z.max);
-        let taille = z.taille, pas = z.pas, lignes = [];
-        for (let essai = 0; essai < 3; essai++) {
-          lignes = []; for (const t of items) couper(t, fB, taille, z.largeur).forEach((l, j) => lignes.push({ l, fleche: j === 0 }));
-          if (lignes.length <= (z.maxLignes || 6)) break;
-          taille *= 0.9; pas *= 0.9;
+      // Chaque point va à la ligne dans son cadre (Benoît préfère ça à une limite de
+      // caractères). Le cadre du modèle contient 4 lignes au pas normal (de `y` à `bas`) :
+      // avec le pas de 14,4 gardé jusqu'à 7 lignes, la 5e sortait du cadre et la 8e était
+      // supprimée sans rien dire (audit du 16/11). Au-delà de 4 lignes le pas se resserre
+      // et le bloc remonte jusqu'à `haut` ; puis la taille descend, jamais sous `tailleMin` ;
+      // ce qui ne tient toujours pas est coupé (« … ») et signalé à l'écran.
+      const liste = (texte, z, nom) => {
+        const tous = String(texte || "").split(/\n/).map((t) => t.trim()).filter(Boolean), items = tous.slice(0, z.max);
+        if (tous.length > items.length) avertissements.push("page 6 : seuls les " + z.max + " premiers " + nom + " sont imprimés (" + tous.length + " saisis)");
+        const haut = z.haut || z.y, bas = z.bas || z.y + 3 * z.pas, tailleMin = z.tailleMin || 7, SERRE = 1.22; // pas minimal = 1,22 × la taille
+        const composer = (t) => { const l = []; items.forEach((it, k) => couper(it, fB, t, z.largeur).forEach((x, n) => l.push({ l: x, fleche: n === 0, item: k }))); return l; };
+        let taille = z.taille, lignes, pas;
+        for (;;) {
+          lignes = composer(taille);
+          pas = lignes.length > 1 ? Math.min(z.pas, (bas - haut) / (lignes.length - 1)) : z.pas;
+          if (pas >= taille * SERRE || taille - 0.25 < tailleMin) break;
+          taille = Math.round((taille - 0.25) * 100) / 100;
         }
-        lignes.slice(0, (z.maxLignes || 6) + 1).forEach(({ l, fleche }, i) => {
-          const y = z.y + i * pas, yb = pg.getHeight() - y;
+        let coupees = 0;
+        if (pas < taille * SERRE) {
+          pas = taille * SERRE;
+          const n = Math.floor((bas - haut) / pas) + 1, der = lignes[n - 1];
+          coupees = lignes.length - n; lignes = lignes.slice(0, n);
+          der.l = der.l.replace(/[\s,;:.]+$/, "");
+          while (der.l.includes(" ") && fB.widthOfTextAtSize(der.l + "…", taille) > z.largeur) der.l = der.l.replace(/\s+\S*$/, "");
+          der.l += "…";
+          const long = items.reduce((a, b) => (b.length > a.length ? b : a), "");
+          avertissements.push("page 6 : les " + nom + " sont trop longs pour leur cadre, le texte est coupé après « " + der.l.slice(-30) + " » — raccourcissez (le plus long fait " + long.length + " caractères : « " + long.slice(0, 30) + "… »)");
+        }
+        const y0 = Math.max(haut, Math.min(z.y, bas - (lignes.length - 1) * pas));
+        lignes.forEach(({ l, fleche }, i) => {
+          const y = y0 + i * pas, yb = pg.getHeight() - y;
           if (fleche) {
             pg.drawLine({ start: { x: z.x, y: yb + 2.6 }, end: { x: z.x + 6, y: yb + 2.6 }, thickness: 1.1, color: couleurs.or });
             pg.drawLine({ start: { x: z.x + 3.5, y: yb + 5 }, end: { x: z.x + 6, y: yb + 2.6 }, thickness: 1.1, color: couleurs.or });
@@ -4168,10 +4279,14 @@
           }
           ecrire(pg, l, z.xTexte, y, taille, fB);
         });
+        return { lignes: lignes.length, taille, pas: Math.round(pas * 100) / 100, coupees, haut: Math.round(y0 * 10) / 10, bas: Math.round((y0 + (lignes.length - 1) * pas) * 10) / 10, limite: bas };
       };
-      liste(r2.points_forts, s.forts); liste(r2.objections, s.objections); }
+      debugP6 = { forts: liste(r2.points_forts, s.forts, "points forts"), objections: liste(r2.objections, s.objections, "objections") }; }
     // Page 7 : commune, carte des commodités, tableau.
     { const s = meta.p7, pg = page(s.page), com = envr.commune || {};
+      // Commune indéterminée (code postal à plusieurs communes, ville de la fiche ambiguë) :
+      // la page porte la ville de la fiche, sans la population d'une commune voisine.
+      if (com.indeterminee || envr.erreurCommune) avertissements.push("page 7 : " + (envr.erreurCommune || "commune indéterminée") + " (la page porte la ville de la fiche, sans population)");
       ecrire(pg, (com.nom || p.ville || "").toUpperCase(), s.ville.x, s.ville.y, s.ville.taille, fR);
       ecrire(pg, (com.departement || "").toUpperCase(), s.departement.x, s.departement.y, s.departement.taille, fR);
       ecrire(pg, (com.region || "").toUpperCase(), s.region.x, s.region.y, s.region.taille, fR);
@@ -4192,7 +4307,9 @@
         pg.drawCircle({ x: s.tableau.x + 5, y: pg.getHeight() - y + 3, size: 4.5, color: rgb(...style[0].match(/\w\w/g).map((h) => parseInt(h, 16) / 255)) });
         ecrire(pg, cat.libelle + " : ", s.tableau.x + 14, y, s.tableau.taille, fB);
         const lx = s.tableau.x + 14 + fB.widthOfTextAtSize(cat.libelle + " : ", s.tableau.taille);
-        const texte = liste.length + " à moins de 1,5 km — " + noms.join(", ");
+        // Le relevé garde au plus 12 lieux par catégorie : à ce plafond, « 12 et plus ».
+        const plafond = envr.commoditesPlafond || 12;
+        const texte = (liste.length >= plafond ? plafond + " et plus" : liste.length) + " à moins de 1,5 km — " + noms.join(", ");
         const lignes = couper(texte, fR, s.tableau.taille, s.tableau.largeur - (lx - s.tableau.x));
         ecrire(pg, lignes[0], lx, y, s.tableau.taille, fR, couleurs.gris);
         if (lignes[1]) ecrire(pg, lignes.slice(1).join(" ").slice(0, 90), s.tableau.x + 14, y + 11, s.tableau.taille, fR, couleurs.gris);
@@ -4259,17 +4376,19 @@
       // descend par paliers avant de couper — plus de lignes sous le pavé gris.
       const paras = String((r2.bio != null && r2.bio !== "" ? r2.bio : cs.bio) || cs.bio_site || "").replace(/\r/g, "").split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean); // texte du R2, sinon du profil, sinon de sa page sur le site
       const basBio = s.bio.bas || 684;
-      const { taille, pas, blocs, omis } = ajusterParagraphes(paras, couper, fI, s.bio.largeur, basBio - s.bio.y + s.bio.taille, s.bio.taille, 9.5);
+      const { taille, pas, blocs, omis, coupe, caracteresOmis, finTexte } = ajusterParagraphes(paras, couper, fI, s.bio.largeur, basBio - s.bio.y + s.bio.taille, s.bio.taille, 9.5);
+      if (caracteresOmis) avertissements.push("page 12 : le texte du conseiller est trop long pour son cadre, il s'arrête après « " + finTexte + " » (environ " + caracteresOmis + " caractères non imprimés) — raccourcissez-le");
       let y = s.bio.y;
       for (const b of blocs) {
         for (const l of b) { ecrire(pg, l, s.bio.x, y, taille, fI); y += pas; }
         y += pas * 0.6;
       }
-      debugBio = { taille, lignes: blocs.reduce((n, b) => n + b.length, 0), paragraphes: blocs.length, omis }; }
+      debugBio = { taille, lignes: blocs.reduce((n, b) => n + b.length, 0), paragraphes: blocs.length, omis, coupe, caracteresOmis, bas: Math.round((y - pas * 1.6) * 10) / 10, limite: basBio }; }
     doc.setTitle("Vendons ensemble votre bien — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", avisAgence: avisAgenceR2, variante, mot: motR2, bio: debugBio };
+    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", avisAgence: avisAgenceR2, variante, mot: motR2, bio: debugBio, p6: debugP6, commune: { nom: (envr.commune || {}).nom || "", indeterminee: !!(envr.commune || {}).indeterminee }, avertissements };
+    avertirDocument("Guide R2", avertissements);
     return url;
   }
   // La fenêtre du guide R2 : photo du bien, points forts, objections, texte
@@ -4384,42 +4503,94 @@
   // biens en concurrence (photo + fiche), commission d'évaluation, acheteurs
   // du moment (facultatif), conditions de financement.
   const dvfCacheAcm = new Map();
-  function parseDvfCsv(texte) {
-    const lignes = texte.split("\n");
+  // Les natures de culture d'un terrain comparable à un terrain à bâtir (codes DVF) :
+  // terrains à bâtir, sols, jardins, terrains d'agrément. Un bois de 5 000 m² vendu
+  // 8 000 € sortait « Terrain à 2 €/m² » parmi les comparables d'un terrain à bâtir.
+  const NATURES_TERRAIN = new Set(["AB", "S", "J", "AG"]);
+  const natureTerrain = (code, lib) => (code ? NATURES_TERRAIN.has(code) : /^(terrains? a batir|sols?|jardins?|terrains? d'? ?agrement)$/.test(sansAccentsMin(lib)));
+  // Une mutation DVF tient sur PLUSIEURS lignes : une par local et par nature de culture
+  // de chaque parcelle. Garder la ligne de plus grande surface bâtie et le plus grand
+  // terrain donnait des surfaces et des prix au m² faux (audit du 16/11) : un terrain vendu
+  // en deux parcelles (400 + 350 m², 180 000 €) sortait à 400 m² et 450 €/m² au lieu de
+  // 750 m² et 240 €/m² ; deux appartements vendus ensemble 400 000 € (60 + 40 m²), à
+  // « 60 m², 6 667 €/m² ». Les terrains s'additionnent par parcelle et par nature (une
+  // même parcelle est répétée pour chaque local) ; une vente de plusieurs logements ou
+  // locaux n'a pas de prix au m² comparable : elle est écartée, et comptée dans `bilan`.
+  function parseDvfCsv(texte, bilan) {
+    const lignes = texte.split(/\r?\n/);
     if (lignes.length < 2) return [];
     const cols = lignes[0].split(","); const idx = {}; cols.forEach((c, i) => { idx[c] = i; });
+    const col = (c, nom) => (idx[nom] == null ? "" : c[idx[nom]] || "");
+    const natureConnue = idx.code_nature_culture != null || idx.nature_culture != null;
+    const PRINCIPAUX = { Maison: 1, Appartement: 1, "Local industriel. commercial ou assimilé": 1 };
     const parId = new Map();
     for (let i = 1; i < lignes.length; i++) {
       const c = lignes[i].split(",");
       if (c.length < cols.length - 2) continue;
-      const lat = parseFloat(c[idx.latitude]), lng = parseFloat(c[idx.longitude]), prix = parseFloat(c[idx.valeur_fonciere]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(prix) || prix < 1000) continue;
+      const prix = parseFloat(c[idx.valeur_fonciere]);
+      if (!Number.isFinite(prix) || prix < 1000) continue;
       if (c[idx.nature_mutation] !== "Vente" && c[idx.nature_mutation] !== "Vente en l'état futur d'achèvement") continue;
       const id = c[idx.id_mutation];
-      const ligne = { id: "dvf:" + id, date: c[idx.date_mutation], prix, lat, lng, type: c[idx.type_local] || "", surface: parseFloat(c[idx.surface_reelle_bati]) || 0,
-        pieces: parseInt(c[idx.nombre_pieces_principales], 10) || 0, terrain: parseFloat(c[idx.surface_terrain]) || 0,
-        adresse: [c[idx.adresse_numero], c[idx.adresse_nom_voie]].filter(Boolean).join(" "), ville: c[idx.nom_commune] || "" };
-      const cur = parId.get(id);
-      if (!cur || ligne.surface > cur.surface) { if (cur) ligne.terrain = Math.max(ligne.terrain, cur.terrain); parId.set(id, ligne); }
-      else cur.terrain = Math.max(cur.terrain, ligne.terrain);
+      let m = parId.get(id);
+      if (!m) { m = { id, prix, date: c[idx.date_mutation], terrains: new Map(), locaux: new Map(), repere: null }; parId.set(id, m); }
+      const lat = parseFloat(c[idx.latitude]), lng = parseFloat(c[idx.longitude]), situe = Number.isFinite(lat) && Number.isFinite(lng);
+      const ligne = { lat, lng, adresse: [col(c, "adresse_numero"), col(c, "adresse_nom_voie")].filter(Boolean).join(" "), ville: col(c, "nom_commune") };
+      if (situe && !m.repere) m.repere = ligne;
+      const parcelle = col(c, "id_parcelle") || ligne.adresse + "@" + c[idx.latitude] + "," + c[idx.longitude];
+      const terrain = parseFloat(c[idx.surface_terrain]) || 0, code = col(c, "code_nature_culture"), lib = col(c, "nature_culture");
+      const cleTerrain = terrain > 0 ? [parcelle, code || lib, col(c, "code_nature_culture_speciale"), terrain].join("|") : "";
+      if (cleTerrain) m.terrains.set(cleTerrain, { surface: terrain, comparable: !natureConnue || (!code && !lib) || natureTerrain(code, lib) });
+      const type = col(c, "type_local");
+      if (type) {
+        const surface = parseFloat(c[idx.surface_reelle_bati]) || 0, pieces = parseInt(c[idx.nombre_pieces_principales], 10) || 0;
+        const cle = [parcelle, type, surface, pieces, ...[1, 2, 3, 4, 5].map((n) => col(c, "lot" + n + "_numero"))].join("|");
+        let l = m.locaux.get(cle);
+        if (!l) { l = { type, surface, pieces, ligne: situe ? ligne : null, fois: new Map() }; m.locaux.set(cle, l); }
+        if (situe && !l.ligne) l.ligne = ligne;
+        l.fois.set(cleTerrain, (l.fois.get(cleTerrain) || 0) + 1); // un local est répété pour chaque nature de sa parcelle
+      }
     }
-    // Un terrain nu : aucun local bâti dans la mutation, une surface de terrain —
-    // typé « Terrain », son €/m² se calcule sur le terrain (surface = terrain).
-    for (const v of parId.values()) if (!v.type && !v.surface && v.terrain > 0) { v.type = "Terrain"; v.surface = v.terrain; }
-    return [...parId.values()].filter((v) => (v.type === "Maison" || v.type === "Appartement" || v.type === "Terrain") && v.surface > 0);
+    const ventes = [];
+    for (const m of parId.values()) {
+      const terrain = [...m.terrains.values()].reduce((n, t) => n + t.surface, 0);
+      const locaux = [...m.locaux.values()].map((l) => ({ ...l, n: Math.max(...l.fois.values()) }));
+      const principaux = locaux.filter((l) => PRINCIPAUX[l.type]), nb = principaux.reduce((n, l) => n + l.n, 0);
+      let v = null;
+      if (!locaux.length) {
+        // Un terrain nu : aucun local dans la mutation, une surface de terrain — typé
+        // « Terrain », son €/m² se calcule sur le terrain (surface = terrain) ; seulement
+        // si toutes ses parcelles sont de nature à bâtir, sol, jardin ou agrément.
+        if (terrain > 0 && [...m.terrains.values()].every((t) => t.comparable)) v = { type: "Terrain", surface: terrain, pieces: 0, ligne: m.repere };
+        else if (terrain > 0 && bilan) bilan.horsNature = (bilan.horsNature || 0) + 1;
+      } else if (nb > 1) { if (bilan) bilan.groupees = (bilan.groupees || 0) + 1; }
+      else if (nb === 1 && principaux[0].type !== "Local industriel. commercial ou assimilé") v = { type: principaux[0].type, surface: principaux[0].surface, pieces: principaux[0].pieces, ligne: principaux[0].ligne || m.repere };
+      if (!v || !v.ligne || !(v.surface > 0)) continue;
+      ventes.push({ id: "dvf:" + m.id, date: m.date, prix: m.prix, lat: v.ligne.lat, lng: v.ligne.lng, type: v.type, surface: v.surface, pieces: v.pieces, terrain, adresse: v.ligne.adresse, ville: v.ligne.ville });
+    }
+    return ventes;
   }
+  // Les millésimes DVF d'une commune (3 fichiers au plus, du plus récent au plus ancien).
+  // Un millésime absent (404, année pas encore publiée) est normal ; une erreur passagère
+  // est retentée une fois, puis l'année est dite manquante (`dvfBilans`, relu par le livret)
+  // et le résultat n'est PAS gardé en cache : il serait resté incomplet toute la session.
+  const dvfBilans = new Map();
   async function chargerDvfCommune(code, dep) {
     if (dvfCacheAcm.has(code)) return dvfCacheAcm.get(code);
-    const annee = new Date().getFullYear(), ventes = []; let trouvees = 0;
+    const annee = new Date().getFullYear(), ventes = [], bilan = { annees: [], manquantes: [], groupees: 0, horsNature: 0 }; let trouvees = 0;
+    const lire = async (a) => {
+      try { const r = await fetch(API + "/crm/dvf/" + a + "/" + dep + "/" + code, { headers: { Authorization: "Bearer " + account().session } }); return r.ok ? await r.text() : r.status === 404 ? null : false; }
+      catch { return false; }
+    };
     for (let a = annee; a >= annee - 4 && trouvees < 3; a--) {
-      try {
-        const r = await fetch(API + "/crm/dvf/" + a + "/" + dep + "/" + code, { headers: { Authorization: "Bearer " + account().session } });
-        if (!r.ok) continue;
-        ventes.push(...parseDvfCsv(await r.text())); trouvees++;
-      } catch { /* millésime absent */ }
+      let csv = await lire(a);
+      if (csv === false) { await new Promise((ok) => setTimeout(ok, 700)); csv = await lire(a); }
+      if (csv === false) { bilan.manquantes.push(a); continue; }
+      if (csv === null) continue; // millésime absent
+      ventes.push(...parseDvfCsv(csv, bilan)); bilan.annees.push(a); trouvees++;
     }
     const groupees = regrouperVentesIdentiques(ventes);
-    dvfCacheAcm.set(code, groupees);
+    dvfBilans.set(code, bilan);
+    if (!bilan.manquantes.length) dvfCacheAcm.set(code, groupees);
     return groupees;
   }
   // Un lotissement vend six maisons identiques sous la MÊME adresse (3 rue de Poupay,
@@ -4441,7 +4612,18 @@
     return gardees;
   }
   const distM = (a, b, c, d) => { const R = 6371000, r = Math.PI / 180, x = (d - b) * r * Math.cos((a + c) / 2 * r), y = (c - a) * r; return Math.sqrt(x * x + y * y) * R; };
-  const fmtM2 = (v) => (v && v.surface && v.prix ? Math.round(v.prix / v.surface).toLocaleString("fr-FR") + " €/m²" : "");
+  // Pas de prix au m² pour un programme neuf : son prix et sa surface sont des « à partir de » qui ne vont pas ensemble.
+  const fmtM2 = (v) => (v && !v.neuf && v.surface > 0 && v.prix > 0 ? Math.round(v.prix / v.surface).toLocaleString("fr-FR") + " €/m²" : "");
+  // Un programme neuf du portail gardé dans une saisie d'avant la correction porte encore
+  // ses fourchettes (surface [40, 83.77], pièces [2, 4]) : « NaN m² », « NaN €/m² » dans le
+  // livret. On en garde la plus petite valeur, comme le serveur le fait désormais.
+  const plusPetit = (v) => { if (!Array.isArray(v)) return v; const l = v.map(Number).filter((x) => Number.isFinite(x) && x > 0); return l.length ? Math.min(...l) : 0; };
+  const reduireProgramme = (a) => ([a.prix, a.surface, a.pieces, a.chambres, a.terrain].some(Array.isArray)
+    ? { ...a, prix: plusPetit(a.prix), surface: plusPetit(a.surface), pieces: plusPetit(a.pieces), chambres: plusPetit(a.chambres), terrain: plusPetit(a.terrain), neuf: 1 } : a);
+  // La médiane : pour un nombre pair de valeurs, la moyenne des deux du milieu
+  // (300, 320, 380, 400 → 350 ; `b[Math.floor(n / 2)]` rendait 380).
+  const medianeDe = (valeurs) => { const t = valeurs.slice().sort((a, b) => a - b), n = t.length; return n ? (n % 2 ? t[(n - 1) / 2] : (t[n / 2 - 1] + t[n / 2]) / 2) : 0; };
+  const piecesLib = (n) => n + (n > 1 ? " pièces" : " pièce");
   const fmtDateAcm = (d) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || "")); return m ? m[3] + "/" + m[2] + "/" + m[1] : String(d || ""); };
   const mensualite = (montant, tauxPct, annees) => { const t = tauxPct / 100 / 12, n = annees * 12; if (!montant || !n) return 0; return t ? montant * t / (1 - Math.pow(1 + t, -n)) : montant / n; };
   async function ouvrirAcm(id, p) {
@@ -4462,8 +4644,12 @@
     if (maFenetre !== sessionModale) return;
     const typeDvf = { appartement: "Appartement", terrain: "Terrain" }[donnees.type] || "Maison";
     const depuis = new Date(); depuis.setFullYear(depuis.getFullYear() - 2); // 24 derniers mois
-    const ventesDvf = dvf.filter((v) => v.type === typeDvf && v.date >= depuis.toISOString().slice(0, 10))
-      .map((v) => ({ ...v, source: "dvf", dist: Math.round(distM(donnees.lat, donnees.lng, v.lat, v.lng)) })).filter((v) => v.dist <= 1500).sort((a, b) => a.dist - b.dist).slice(0, 30);
+    const dvfAutour = dvf.filter((v) => v.type === typeDvf && v.date >= depuis.toISOString().slice(0, 10))
+      .map((v) => ({ ...v, source: "dvf", dist: Math.round(distM(donnees.lat, donnees.lng, v.lat, v.lng)) })).filter((v) => v.dist <= 1500).sort((a, b) => a.dist - b.dist);
+    // Au plus 30 ventes proposées et imprimées, les plus proches ; on compte AVANT de
+    // plafonner : le livret écrivait « 30 ventes à moins de 1,5 km » quand il y en avait davantage.
+    const ventesDvf = dvfAutour.slice(0, 30);
+    const bilanDvf = (donnees.commune && dvfBilans.get(donnees.commune.code)) || {};
     const ventesAgence = (donnees.ventes || []).filter((v) => v.prix > 0).map((v) => ({ ...v, source: "agence", dist: Math.round(v.dist) }));
     // Le nombre de pièces du bien (maison ou appartement) : les biens du même nombre de
     // pièces passent devant, puis ±1, les pièces inconnues entre ±1 et ±2, puis ±2… ; à
@@ -4483,7 +4669,8 @@
     const candidatsVentes = [...ventesAgence, ...ventesDvf].map((v) => ({ ...v, score: Math.round(scoreVente(v) * 100) / 100 }))
       .sort((a, b) => a.score - b.score || (a.source === "agence" ? -1 : 1));
     donnees.ventesDvf = ventesDvf; // toutes les ventes DVF autour : page dédiée du livret
-    window.__acmDebug = { dvf: dvf.length, ventesDvf: ventesDvf.length, commune: donnees.commune, lat: donnees.lat, lng: donnees.lng, type: donnees.type, surfaceRef, piecesRef,
+    donnees.ventesDvfTotal = dvfAutour.length; donnees.dvfManquantes = bilanDvf.manquantes || [];
+    window.__acmDebug = { dvf: dvf.length, ventesDvf: ventesDvf.length, ventesDvfTotal: dvfAutour.length, dvfBilan: bilanDvf, commune: donnees.commune, lat: donnees.lat, lng: donnees.lng, type: donnees.type, surfaceRef, piecesRef,
       ordreVentes: candidatsVentes.slice(0, 8).map((v) => ({ id: v.id, pieces: v.pieces, dist: v.dist, surface: v.surface, date: v.date, score: v.score })),
       identiques: dvf.filter((v) => v.ventes_identiques > 1).map((v) => ({ adresse: v.adresse, n: v.ventes_identiques, date: v.date, prix: v.prix })) }; // relu par le smoke
     // Les biens vus sur les portails (leboncoin, SeLoger…), saisis à la main avec
@@ -4933,7 +5120,7 @@
     const ventes = (acm.ventes || []).slice().sort(parPrix);
     livretDebug.prixVentes = ventes.map((v) => Number(v.prix) || 0);
     const m2 = ventes.filter((v) => v.surface && v.prix).map((v) => v.prix / v.surface).sort((a, b) => a - b);
-    const mediane = m2.length ? Math.round(m2[Math.floor(m2.length / 2)]) : 0;
+    const mediane = Math.round(medianeDe(m2));
     const XF = G + CW + 16;
     // Les photos des biens vendus : posées à la main ou vignette AMEPI au même endroit.
     let photosVentes = {};
@@ -4950,7 +5137,7 @@
         ecrire(pg, fmtPrix(v.prix), XF, y0 + 22, 18, fB, noir);
         ecrire(pg, "Vente du " + fmtDateAcm(v.date), XF, y0 + 40, 10, fS, gris);
         couper([v.adresse, v.ville].filter(Boolean).join(", ").toUpperCase(), fR, 9, D - XF).slice(0, 2).forEach((l, j) => ecrire(pg, l, XF, y0 + 56 + j * 12, 9, fR, noir));
-        const lignes = [[v.type || typeLib, v.pieces ? v.pieces + " pièces" : ""].filter(Boolean).join(" · "), surfaceLib(v), terrainLib(v), fmtM2(v) ? "soit " + fmtM2(v) : "", v.dist != null ? "à " + Math.round(v.dist) + " m du bien" : ""].filter(Boolean);
+        const lignes = [[v.type || typeLib, v.pieces ? piecesLib(v.pieces) : ""].filter(Boolean).join(" · "), surfaceLib(v), terrainLib(v), fmtM2(v) ? "soit " + fmtM2(v) : "", v.dist != null ? "à " + Math.round(v.dist) + " m du bien" : ""].filter(Boolean);
         lignes.forEach((l, j) => ecrire(pg, l, XF, y0 + 92 + j * 15, 10, fS, noir));
         ecrire(pg, v.source === "agence" ? "Vendu par notre agence" : "Source : DVF (données notariales)", XF, y0 + 92 + lignes.length * 15, 9, fR, gris);
         rect(pg, G, y0 + CH + 14, L, 0.6, { color: sable });
@@ -4961,22 +5148,42 @@
     const dvfTous = (donnees.ventesDvf || []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
     if (dvfTous.length) {
       const pg = await pageContenu("TOUTES LES VENTES AUTOUR DU BIEN", "(DVF)");
-      couper(pluriel(dvfTous.length, "vente de " + typeLib.toLowerCase(), "ventes de " + typeLib.toLowerCase() + "s") + (estTerrain ? " (terrains nus)" : "") + " à moins de 1,5 km sur les 24 derniers mois — données notariales publiques (DVF, data.gouv.fr)", fR, 9, L).slice(0, 1).forEach((l) => ecrire(pg, l, G, 88, 9, fR, gris));
-      await carte(pg, G, 98, L, 230, { lat: donnees.lat, lng: donnees.lng, zoom: 15, points: dvfTous.map((v) => ({ lat: v.lat, lng: v.lng, couleur: "#BEB18A", rayon: 6 })) });
+      // L'en-tête tient sur deux lignes : la phrase d'une seule ligne, trop longue, perdait
+      // sa fin « (DVF, data.gouv.fr) ». Il dit le VRAI nombre de ventes (« les 30 plus proches
+      // sur N » quand la liste est plafonnée) et l'année qui n'a pas pu être chargée.
+      const total = Math.max(donnees.ventesDvfTotal || 0, dvfTous.length);
+      const quoi = estTerrain ? ["vente de terrain nu", "ventes de terrains nus"] : donnees.type === "appartement" ? ["vente d'appartement", "ventes d'appartements"] : ["vente de maison", "ventes de maisons"];
+      const enTete = (total > dvfTous.length ? "Les " + dvfTous.length + " " + quoi[1] + " les plus proches, sur " + total : pluriel(dvfTous.length, quoi[0], quoi[1])) + " à moins de 1,5 km, sur les 24 derniers mois";
+      const manquantes = (donnees.dvfManquantes || []).slice().sort();
+      const sourceDvf = "Données notariales publiques (DVF, data.gouv.fr)" + (manquantes.length ? " — " + (manquantes.length > 1 ? "les années " + manquantes.join(", ") + " n'ont" : "l'année " + manquantes[0] + " n'a") + " pas pu être chargée" + (manquantes.length > 1 ? "s" : "") + " : liste incomplète" : "");
+      const tenir = (t, f, taille) => { let k = taille; while (k > 7 && largeur(t, f, k) > L) k -= 0.25; return k; };
+      const tEnTete = tenir(enTete, fS, 9), tSource = tenir(sourceDvf, fR, 8.5);
+      ecrire(pg, enTete, G, 86, tEnTete, fS, noir);
+      ecrire(pg, sourceDvf, G, 97.5, tSource, fR, gris);
+      // La carte se cadre sur les ventes affichées : au zoom 15, celles à plus de 750 m au
+      // nord ou au sud du bien tombaient hors du cadre. Le zoom recule tant qu'une vente déborde.
+      const HC = 224, mParPt = (z) => 2 * 156543.03 * Math.cos(donnees.lat * Math.PI / 180) / Math.pow(2, z);
+      const ecarts = dvfTous.map((v) => [Math.abs(v.lng - donnees.lng) * 111320 * Math.cos(donnees.lat * Math.PI / 180), Math.abs(v.lat - donnees.lat) * 111320]);
+      let zoomDvf = 15;
+      if (ecarts.some(([dx, dy]) => dx > (L / 2 - 8) * mParPt(15) || dy > (HC / 2 - 8) * mParPt(15))) zoomDvf = 14; // le zoom 14 couvre 1,5 km dans les quatre directions
+      await carte(pg, G, 104, L, HC, { lat: donnees.lat, lng: donnees.lng, zoom: zoomDvf, points: dvfTous.map((v) => ({ lat: v.lat, lng: v.lng, couleur: "#BEB18A", rayon: 6 })) });
       const cols = [["Date", G, 56], ["Adresse", G + 56, 138], ["Type", G + 194, 56], ["Surface", G + 250, 44], ["Prix", G + 294, 64], ["€/m²", G + 358, 44], ["Dist.", G + 402, 42]];
       rect(pg, G, 344, L, 18, { color: or });
       cols.forEach(([t, x]) => ecrire(pg, t, x + 4, 357, 8.5, fB, blanc));
-      dvfTous.slice(0, 27).forEach((v, j) => {
-        const y = 376 + j * 14.5;
-        if (j % 2 === 0) rect(pg, G, y - 10, L, 14.5, { color: sable });
+      // 27 lignes au pas normal ; jusqu'à 30 (le plafond) en resserrant un peu, pour que le tableau montre toutes les ventes de la carte.
+      const MAXL = 30, pasL = dvfTous.length > 27 ? 13 : 14.5;
+      dvfTous.slice(0, MAXL).forEach((v, j) => {
+        const y = 376 + j * pasL;
+        if (j % 2 === 0) rect(pg, G, y - 10, L, pasL, { color: sable });
         const cellules = [fmtDateAcm(v.date), (v.adresse || "").toUpperCase(), [v.type, v.pieces ? v.pieces + " p." : ""].filter(Boolean).join(" "), v.surface ? Math.round(v.surface) + " m²" : "", fmtPrix(v.prix), fmtM2(v).replace(" €/m²", ""), v.dist != null ? Math.round(v.dist) + " m" : ""];
         cellules.forEach((t, c) => { let txt = String(t); while (largeur(txt, fR, 8) > cols[c][2] - 5 && txt.length > 3) txt = txt.slice(0, -2) + "…"; ecrire(pg, txt, cols[c][1] + 3, y, 8, c === 4 ? fS : fR, noir); });
       });
-      if (dvfTous.length > 27) ecrire(pg, "… et " + pluriel(dvfTous.length - 27, "autre vente", "autres ventes") + ".", G, 376 + 27 * 14.5 + 4, 8.5, fR, gris);
+      if (dvfTous.length > MAXL) ecrire(pg, "… et " + pluriel(dvfTous.length - MAXL, "autre vente", "autres ventes") + ".", G, 376 + MAXL * pasL + 4, 8.5, fR, gris);
+      livretDebug.dvf = { imprimees: Math.min(dvfTous.length, MAXL), total, enTete, source: sourceDvf, zoom: zoomDvf, manquantes, largeurEnTete: Math.round(largeur(enTete, fS, tEnTete)), largeurSource: Math.round(largeur(sourceDvf, fR, tSource)), largeurUtile: L };
     }
     // 2. Les biens en concurrence : 2 biens par page, photo + fiche.
     await ajouterModele(meta.sections.concurrence);
-    const conc = (acm.concurrence || []).slice().sort(parPrix);
+    const conc = (acm.concurrence || []).map(reduireProgramme).sort(parPrix);
     livretDebug.prixConcurrence = conc.map((a) => Number(a.prix) || 0);
     for (let i = 0; i < conc.length; i += 2) {
       const pg = await pageContenu("LES BIENS EN", "CONCURRENCE");
@@ -4993,7 +5200,7 @@
         // (Bien'ici ne dit que « a baissé » : 1 → « Prix baissé de 1 € » était faux) ;
         // plus de ligne « Annonce de notre agence / Mandat confrère » (Benoît, 05/10).
         const typeLib2 = String(a.type || "").charAt(0).toUpperCase() + String(a.type || "").slice(1);
-        const lignes = [[typeLib2, a.pieces ? a.pieces + " pièces" : "", a.chambres ? a.chambres + " ch." : ""].filter(Boolean).join(" · "), surfaceLib(a) || (estTerrain && a.terrain ? Math.round(a.terrain) + " m² de terrain" : ""), terrainLib(a), ...couper(a.adresse || [a.cp, a.ville].filter(Boolean).join(" "), fS, 10, D - XF).slice(0, 2), a.dist != null ? "à " + Math.round(a.dist) + " m du bien" : "", a.jours ? "En vente depuis " + a.jours + " jours" : "", a.baisse > 1000 ? "Prix baissé de " + fmtPrix(a.baisse) : a.baisse > 0 ? "Prix baissé récemment" : ""].filter(Boolean);
+        const lignes = [[typeLib2, a.pieces ? piecesLib(a.pieces) : "", a.chambres ? a.chambres + " ch." : ""].filter(Boolean).join(" · "), surfaceLib(a) || (estTerrain && a.terrain ? Math.round(a.terrain) + " m² de terrain" : ""), terrainLib(a), ...couper(a.adresse || [a.cp, a.ville].filter(Boolean).join(" "), fS, 10, D - XF).slice(0, 2), a.dist != null ? "à " + Math.round(a.dist) + " m du bien" : "", a.jours ? "En vente depuis " + a.jours + " jours" : "", a.baisse > 1000 ? "Prix baissé de " + fmtPrix(a.baisse) : a.baisse > 0 ? "Prix baissé récemment" : ""].filter(Boolean);
         lignes.forEach((l, j) => ecrire(pg, l, XF, y0 + 92 + j * 15, 10, fS, noir));
         rect(pg, G, y0 + CH + 14, L, 0.6, { color: sable });
       }
@@ -5045,19 +5252,22 @@
       const pg = await pageContenu("LES RÉACTIONS DES ACHETEURS DU", "MOMENT");
       const n = acm.acheteurs_n || 0, b = (acm.acheteurs_budgets || []).slice().sort((x, y) => x - y);
       const fen = acm.acheteurs_min && acm.acheteurs_max ? ", avec un budget entre " + fmtPrix(acm.acheteurs_min) + " et " + fmtPrix(acm.acheteurs_max) : acm.acheteurs_min ? ", avec un budget d'au moins " + fmtPrix(acm.acheteurs_min) : acm.acheteurs_max ? ", avec un budget jusqu'à " + fmtPrix(acm.acheteurs_max) : "";
-      const intro = couper(n + " acheteur(s) en recherche active d'" + (donnees.type === "appartement" ? "un appartement" : "une maison") + (p.ville ? " à " + p.ville : "") + " dans notre fichier" + fen, fS, 11, L);
+      // Le bien recherché porte le libellé de SON type (la page d'un terrain écrivait « d'une maison »).
+      const intro = couper((n ? pluriel(n, "acheteur", "acheteurs") : "Aucun acheteur") + " en recherche active d'" + ({ appartement: "un appartement", terrain: "un terrain" }[donnees.type] || "une maison") + (p.ville ? " à " + p.ville : "") + " dans notre fichier" + fen, fS, 11, L);
       intro.forEach((l, j) => ecrire(pg, l, G, 105 + j * 14, 11, fS, noir));
-      if (b.length) ecrire(pg, "Budgets : de " + fmtPrix(b[0]) + " à " + fmtPrix(b[b.length - 1]) + " · médiane " + fmtPrix(b[Math.floor(b.length / 2)]), G, 108 + intro.length * 14, 10, fR, gris);
+      if (b.length) ecrire(pg, "Budgets : de " + fmtPrix(b[0]) + " à " + fmtPrix(b[b.length - 1]) + " · médiane " + fmtPrix(Math.round(medianeDe(b))), G, 108 + intro.length * 14, 10, fR, gris);
       const niveaux = [["Fourchette basse", acm.basse], ["Prix estimé", acm.prix], ["Fourchette haute", acm.haute]].filter(([, v]) => v);
       niveaux.forEach(([lib, v], j) => {
         const x = G + j * (L / Math.max(niveaux.length, 1)), w = L / Math.max(niveaux.length, 1) - 12;
         rect(pg, x, 150, w, 92, { borderColor: or, borderWidth: 1, color: blanc });
         ecrireCentre(pg, lib, x + w / 2, 170, 9.5, fR, gris);
         ecrireCentre(pg, fmtPrix(v), x + w / 2, 188, 11, fS, noir);
-        ecrireCentre(pg, String(b.filter((x2) => x2 >= v).length), x + w / 2, 222, 26, fB, or);
-        ecrireCentre(pg, "acheteur(s) à ce prix", x + w / 2, 236, 8.5, fR, gris);
+        const aCePrix = b.filter((x2) => x2 >= v).length;
+        ecrireCentre(pg, String(aCePrix), x + w / 2, 222, 26, fB, or);
+        ecrireCentre(pg, (aCePrix > 1 ? "acheteurs" : "acheteur") + " à ce prix", x + w / 2, 236, 8.5, fR, gris);
       });
       couper(acm.acheteurs_texte || "", fR, 10.5, L).slice(0, 36).forEach((l, j) => ecrire(pg, l, G, 275 + j * 15, 10.5, fR, noir));
+      livretDebug.acheteurs = { intro: intro.join(" "), mediane: b.length ? Math.round(medianeDe(b)) : 0 };
     }
     // 5. Les conditions de financement — sur le budget RÉEL de l'acquéreur :
     // prix + frais de notaire (toujours à sa charge) + travaux éventuels, moins l'apport.

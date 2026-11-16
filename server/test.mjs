@@ -1568,6 +1568,100 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
     "fiches aux e-mails différents → rien de deviné");
 }
 
+/* ---- Documents du parcours (admin.js, fonctions pures testées par extraction) ---- */
+{
+  const src = readFileSync(new URL("../administration/assets/js/admin.js", import.meta.url), "utf8");
+  const entre = (debut, fin) => { const i = src.indexOf(debut), j = src.indexOf(fin, i); if (i < 0 || j < 0) throw new Error("bloc introuvable dans admin.js : " + debut); return src.slice(i, j); };
+  const sansAccentsMin = src.split("\n").find((l) => l.startsWith("  const sansAccentsMin ="));
+  // --- DVF : une mutation tient sur plusieurs lignes (un local × une nature de culture par parcelle) ---
+  const { parseDvfCsv } = new Function(sansAccentsMin + "\n" + entre("  const NATURES_TERRAIN =", "  // Les millésimes DVF d'une commune") + "\nreturn { parseDvfCsv };")();
+  const ENTETE = "id_mutation,date_mutation,numero_disposition,nature_mutation,valeur_fonciere,adresse_numero,adresse_suffixe,adresse_nom_voie,adresse_code_voie,code_postal,code_commune,nom_commune,code_departement,ancien_code_commune,ancien_nom_commune,id_parcelle,ancien_id_parcelle,numero_volume,lot1_numero,lot1_surface_carrez,lot2_numero,lot2_surface_carrez,lot3_numero,lot3_surface_carrez,lot4_numero,lot4_surface_carrez,lot5_numero,lot5_surface_carrez,nombre_lots,code_type_local,type_local,surface_reelle_bati,nombre_pieces_principales,code_nature_culture,nature_culture,code_nature_culture_speciale,nature_culture_speciale,surface_terrain,longitude,latitude";
+  const NATURES = { AB: "terrains a bâtir", S: "sols", J: "jardins", AG: "terrains d'agrément", BT: "taillis simples", T: "terres" };
+  const TYPES = { Maison: 1, Appartement: 2, "Dépendance": 3, "Local industriel. commercial ou assimilé": 4 };
+  // Une ligne du fichier geo-dvf : mutation, prix, parcelle, [type de local, surface bâtie, pièces, n° de lot], [code de nature, surface de terrain], position.
+  const ligne = (id, prix, parcelle, local, terre, pos = [-0.7, 44.9]) => {
+    const [type = "", bati = "", pieces = "", lot = ""] = local || [], [code = "", terrain = ""] = terre || [];
+    return [id, "2026-03-10", 1, "Vente", prix, 12, "", "RUE DE LA SYNTHESE", "0001", 33160, 33449, "Saint-Médard-en-Jalles", 33, "", "", parcelle, "", "", lot, "", "", "", "", "", "", "", "", "", lot ? 1 : 0, TYPES[type] || "", type, bati, pieces, code, NATURES[code] || "", "", "", terrain, pos[0], pos[1]].join(",");
+  };
+  const csv = [ENTETE,
+    // a) un terrain à bâtir vendu en deux parcelles : 400 + 350 m², 180 000 €
+    ligne("T2P", 180000, "33449000AB0001", null, ["AB", 400]), ligne("T2P", 180000, "33449000AB0002", null, ["AB", 350]),
+    // b) deux appartements vendus ensemble 400 000 € (60 + 40 m²)
+    ligne("2APP", 400000, "33449000AC0010", ["Appartement", 60, 3, "12"]), ligne("2APP", 400000, "33449000AC0010", ["Appartement", 40, 2, "14"]),
+    // c) un bois de 5 000 m² vendu 8 000 €
+    ligne("BOIS", 8000, "33449000ZA0100", null, ["BT", 5000]),
+    // d) une maison et sa dépendance sur une parcelle à deux natures (sol 500 + jardin 300), plus le jardin voisin (250) : 4 + 1 lignes
+    ligne("MAIS", 350000, "33449000AD0020", ["Maison", 100, 5], ["S", 500]), ligne("MAIS", 350000, "33449000AD0020", ["Maison", 100, 5], ["J", 300]),
+    ligne("MAIS", 350000, "33449000AD0020", ["Dépendance", "", ""], ["S", 500]), ligne("MAIS", 350000, "33449000AD0020", ["Dépendance", "", ""], ["J", 300]),
+    ligne("MAIS", 350000, "33449000AD0021", null, ["J", 250]),
+    // e) un appartement et son parking (lots de copropriété, pas de terrain)
+    ligne("APPK", 210000, "33449000AE0030", ["Appartement", 45, 2, "7"]), ligne("APPK", 210000, "33449000AE0030", ["Dépendance", "", "", "107"]),
+    // f) un terrain dont la seconde parcelle n'est pas géolocalisée
+    ligne("TSANS", 150000, "33449000AF0040", null, ["AB", 300]), ligne("TSANS", 150000, "33449000AF0041", null, ["J", 200], ["", ""]),
+    // g) une maison et un local commercial vendus ensemble ; un local commercial seul ; un terrain à bâtir avec une parcelle de terres agricoles
+    ligne("MIXTE", 500000, "33449000AG0050", ["Maison", 90, 4], ["S", 400]), ligne("MIXTE", 500000, "33449000AG0050", ["Local industriel. commercial ou assimilé", 120, 0], ["S", 400]),
+    ligne("COMM", 300000, "33449000AH0060", ["Local industriel. commercial ou assimilé", 200, 0], ["S", 600]),
+    ligne("TAGRI", 90000, "33449000AI0070", null, ["AB", 500]), ligne("TAGRI", 90000, "33449000ZB0071", null, ["T", 4000]),
+    // h) deux maisons identiques sur la même parcelle, sans numéro de lot (même ligne deux fois)
+    ligne("2MAIS", 600000, "33449000AJ0080", ["Maison", 110, 5], ["S", 700]), ligne("2MAIS", 600000, "33449000AJ0080", ["Maison", 110, 5], ["S", 700]),
+  ].join("\n") + "\n";
+  const bilan = {};
+  const ventes = parseDvfCsv(csv, bilan), par = Object.fromEntries(ventes.map((v) => [v.id.slice(4), v]));
+  const m2 = (v) => Math.round(v.prix / v.surface);
+  ok(par.T2P && par.T2P.type === "Terrain" && par.T2P.surface === 750 && m2(par.T2P) === 240,
+     "DVF : un terrain vendu en deux parcelles (400 + 350 m², 180 000 €) fait 750 m² et 240 €/m² — il sortait à 400 m² et 450 €/m² (" + JSON.stringify(par.T2P && [par.T2P.surface, m2(par.T2P)]) + ")");
+  ok(!par["2APP"] && !par.MIXTE && !par["2MAIS"] && bilan.groupees === 3,
+     "DVF : deux appartements vendus ensemble (60 + 40 m², 400 000 €) ne donnent plus « 60 m², 6 667 €/m² » — une vente de plusieurs logements ou locaux est écartée et comptée (" + bilan.groupees + ")");
+  ok(!par.BOIS && !par.TAGRI && bilan.horsNature === 2,
+     "DVF : un bois de 5 000 m² à 8 000 € n'est plus un « Terrain à 2 €/m² » ; seuls les terrains à bâtir, sols, jardins et terrains d'agrément se comparent (" + bilan.horsNature + " écartés)");
+  ok(par.MAIS && par.MAIS.type === "Maison" && par.MAIS.surface === 100 && par.MAIS.pieces === 5 && par.MAIS.terrain === 1050 && m2(par.MAIS) === 3500,
+     "DVF : une maison (et sa dépendance) sur une parcelle à deux natures plus le jardin voisin : 100 m², terrain 500 + 300 + 250 = 1 050 m², compté une fois malgré les lignes répétées (" + JSON.stringify(par.MAIS && [par.MAIS.surface, par.MAIS.terrain]) + ")");
+  ok(par.APPK && par.APPK.type === "Appartement" && par.APPK.surface === 45 && par.APPK.terrain === 0 && par.TSANS && par.TSANS.surface === 500 && par.TSANS.lat === 44.9 && !par.COMM && ventes.length === 4,
+     "DVF : un appartement avec son parking reste un appartement de 45 m² ; une parcelle sans position compte dans la surface du terrain ; un local commercial seul n'est pas un comparable (" + ventes.map((v) => v.id).join(", ") + ")");
+  { // Un fichier sans les colonnes de parcelle ni de nature (ancien format, faux dépôt des smokes) se lit comme avant.
+    const ancien = "id_mutation,date_mutation,nature_mutation,valeur_fonciere,adresse_numero,adresse_nom_voie,nom_commune,type_local,surface_reelle_bati,nombre_pieces_principales,surface_terrain,longitude,latitude\n"
+      + "A1,2026-01-10,Vente,300000,1,ALLEE A,Ville,Maison,100,5,500,-0.7,44.9\nA2,2026-02-10,Vente,120000,2,CHEMIN B,Ville,,,,600,-0.71,44.91\nA3,2026-02-11,Vente,500,3,CHEMIN C,Ville,,,,600,-0.71,44.91\r\n";
+    const l = parseDvfCsv(ancien);
+    ok(l.length === 2 && l[0].type === "Maison" && l[0].terrain === 500 && l[0].adresse === "1 ALLEE A" && l[1].type === "Terrain" && l[1].surface === 600, "DVF : un fichier sans colonnes de parcelle ni de nature se lit comme avant (maison, terrain nu, prix dérisoire écarté)"); }
+
+  // --- Livret : médiane, programmes neufs, prix au m² ---
+  const { medianeDe, reduireProgramme, fmtM2, piecesLib } = new Function(entre("  // Pas de prix au m² pour un programme neuf", "  const fmtDateAcm =") + "\nreturn { medianeDe, reduireProgramme, fmtM2, piecesLib };")();
+  ok(medianeDe([300000, 320000, 380000, 400000]) === 350000 && medianeDe([400000, 300000, 320000]) === 320000 && medianeDe([]) === 0 && medianeDe([310000]) === 310000,
+     "livret : la médiane d'un nombre pair de budgets est la moyenne des deux du milieu (300, 320, 380, 400 k€ → 350 k€, plus 380)");
+  const prog = reduireProgramme({ id: "bienici:x", prix: [145000, 275000], surface: [40, 83.77], pieces: [2, 4], chambres: [1, 3] }), sansFine = (t) => t.replace(/[\u202f\u00a0]/g, " ");
+  ok(prog.prix === 145000 && prog.surface === 40 && prog.pieces === 2 && prog.chambres === 1 && prog.neuf === 1 && fmtM2(prog) === "" && sansFine(fmtM2({ prix: 300000, surface: 100 })) === "3 000 €/m²" && fmtM2({ prix: 300000, surface: [40, 80] }) === ""
+     && reduireProgramme({ prix: 250000, surface: 80 }).neuf === undefined && piecesLib(1) === "1 pièce" && piecesLib(4) === "4 pièces",
+     "livret : un programme neuf gardé avec ses fourchettes est ramené à ses plus petites valeurs, sans prix au m² (plus de « NaN m² », « NaN €/m² ») ; « 1 pièce » au singulier");
+
+  // --- Textes de présentation : un paragraphe trop long s'arrête à la dernière phrase qui tient ---
+  const { ajusterParagraphes, phrasesDe } = new Function(entre("  function ajusterParagraphes(", "  // Le cadrage d'un portrait dans un cadre W × H") + "\nreturn { ajusterParagraphes, phrasesDe };")();
+  const police = { widthOfTextAtSize: (t, taille) => t.length * taille * 0.46 };
+  const couper = (texte, font, taille, largeur) => { const out = []; let l = ""; for (const mot of String(texte || "").split(/\s+/).filter(Boolean)) { const e = l ? l + " " + mot : mot; if (font.widthOfTextAtSize(e, taille) > largeur && l) { out.push(l); l = mot; } else l = e; } if (l) out.push(l); return out; };
+  ok(JSON.stringify(phrasesDe("J'ai rencontré M. Dupont hier. Il vend sa maison ! Vraiment ? Oui, 3.5 km plus loin… Voilà.")) === JSON.stringify(["J'ai rencontré M. Dupont hier.", "Il vend sa maison !", "Vraiment ?", "Oui, 3.5 km plus loin…", "Voilà."]),
+     "phrases : coupe après . ! ? … suivis d'une majuscule, pas après « M. » ni dans « 3.5 » (" + JSON.stringify(phrasesDe("J'ai rencontré M. Dupont hier. Il vend sa maison ! Vraiment ? Oui, 3.5 km plus loin… Voilà.")) + ")");
+  const phrase = (n) => "Voici la phrase numéro " + n + " d'un texte de présentation saisi d'un seul bloc.";
+  const bloc = Array.from({ length: 16 }, (x, i) => phrase(i + 1)).join(" "); // ≈ 1 100 caractères, un seul paragraphe
+  const HAUT = 684 - 513.1 + 10.5, unBloc = ajusterParagraphes([bloc], couper, police, 194, HAUT, 10.5, 9.5);
+  const texteBloc = unBloc.blocs.flat().join(" "), hauteurBloc = unBloc.blocs.flat().length * unBloc.pas;
+  ok(bloc.length > 1000 && unBloc.blocs.length === 1 && texteBloc.length > 500 && bloc.startsWith(texteBloc) && /bloc\.$/.test(texteBloc) && unBloc.coupe === true && unBloc.omis === 0 && unBloc.caracteresOmis === bloc.length - texteBloc.length && unBloc.taille === 9.5 && hauteurBloc <= HAUT && /bloc\.$/.test(unBloc.finTexte),
+     "texte du conseiller d'un seul bloc de " + bloc.length + " caractères : il ne disparaît plus en entier, il s'arrête à la dernière phrase qui tient (" + texteBloc.length + " caractères imprimés, " + unBloc.caracteresOmis + " omis, " + unBloc.taille + " pt)");
+  const quatre = ajusterParagraphes([bloc.slice(0, 300), bloc.slice(300, 600), bloc.slice(600, 900), bloc.slice(900)], couper, police, 194, HAUT, 10.5, 9.5);
+  ok(quatre.blocs.length >= 2 && quatre.omis >= 1 && quatre.blocs.length + quatre.omis === 4 && quatre.coupe === false && quatre.caracteresOmis > 0, "plusieurs paragraphes : des paragraphes entiers sont retirés comme avant, et le manque est dit (" + JSON.stringify({ gardes: quatre.blocs.length, omis: quatre.omis, car: quatre.caracteresOmis }) + ")");
+  const court = ajusterParagraphes(["Un texte court.", "Deux paragraphes."], couper, police, 194, HAUT, 10.5, 9.5);
+  ok(court.taille === 10.5 && court.omis === 0 && !court.coupe && court.caracteresOmis === 0, "un texte qui tient n'est ni réduit ni signalé");
+  const sansFin = ajusterParagraphes([Array.from({ length: 260 }, () => "mot").join(" ")], couper, police, 194, HAUT, 10.5, 9.5), lignesSF = sansFin.blocs.flat();
+  ok(lignesSF.length >= 10 && lignesSF.length * sansFin.pas <= HAUT && /…$/.test(lignesSF[lignesSF.length - 1]) && sansFin.coupe && sansFin.caracteresOmis > 0, "une seule phrase interminable : les lignes qui tiennent, terminées par « … » (" + lignesSF.length + " lignes)");
+
+  // --- Guide R1 : un nom hors WinAnsi ne fait plus échouer le guide ---
+  const { ecritureSure } = new Function(entre("  const espacesSimples =", "  const sansAccentsMin =") + "\nreturn { ecritureSure };")();
+  const winAnsi = { getCharacterSet: () => [...Array.from({ length: 95 }, (x, i) => 32 + i), ...Array.from({ length: 96 }, (x, i) => 160 + i), 0x152, 0x153, 0x160, 0x161, 0x17d, 0x17e, 0x20ac, 0x2019] };
+  const barlow = { getCharacterSet: () => [...winAnsi.getCharacterSet(), ..."łŁŚśễıŞşČčĞğŻżąęń".split("").map((c) => c.codePointAt(0))] };
+  const e1 = ecritureSure("WIŚNIEWSKI Paweł", winAnsi, barlow), e2 = ecritureSure("WIŚNIEWSKI Paweł", winAnsi, null), e3 = ecritureSure("3 allée\u202fdes\tLilas\u200b", winAnsi, barlow), e4 = ecritureSure("Çeşme Şükrü Nguyễn ı 日本", winAnsi, null);
+  ok(e1.mode === "secours" && e1.font === barlow && e1.texte === "WIŚNIEWSKI Paweł" && e2.mode === "sans-signe" && e2.font === winAnsi && e2.texte === "WISNIEWSKI Pawel"
+     && e3.mode === "normale" && e3.texte === "3 allée des Lilas" && e4.texte === "Çesme Sükrü Nguyen i " && ecritureSure("Jean-Noël DUPONT", winAnsi, barlow).mode === "normale",
+     "guide R1 : « WIŚNIEWSKI Paweł » s'écrit avec la police de secours, sans elle les lettres perdent leur signe (" + e2.texte + ") ; espace fine et tabulation deviennent des espaces ; un nom courant garde la police du guide");
+}
+
 /* ---- Séquestre : comptabilité de l'étude dépositaire -------------------- */
 {
   // comptableDe() vit dans l'IIFE du client : on isole le bloc de
@@ -2437,6 +2531,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
       // Programme neuf (constructeur) : Bien'ici annonce une fourchette price = [min, max] (Benoît voyait « NaN € »).
       { id: "neuf-3", accountDisplayName: "Maisons MCA", adType: "buy", propertyType: "house", newProperty: true, price: [328430, null], surfaceArea: 100, landSurfaceArea: 600, roomsQuantity: 4, city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString(), blurInfo: { position: { lat: 44.8705, lon: -0.7125 } }, photos: [] },
       { id: "terrain-4", accountDisplayName: "Terrains du Médoc", adType: "buy", propertyType: "terrain", price: 150000, landSurfaceArea: 800, city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString() },
+      // Programme neuf d'appartements, tel que le portail l'annonce : prix, surface, pièces et chambres en fourchettes.
+      { id: "neuf-5", accountDisplayName: "Promoteur Test", adType: "buy", propertyType: "flat", newProperty: true, price: [145000, 275000], surfaceArea: [40, 83.77], roomsQuantity: [2, 4], bedroomsQuantity: [1, 3], city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString(), photos: [] },
     ];
     res.end(JSON.stringify({ total: tous.length, realEstateAds: tous.filter((a) => !typeDemande || a.propertyType === typeDemande) }));
   });
@@ -2479,6 +2575,9 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(/Vignes/.test(q)
       ? { features: [{ properties: { label: "7 Impasse des Vignes 33185 Le Haillan", score: 0.93, citycode: "33200", city: "Le Haillan", context: "33, Gironde, Nouvelle-Aquitaine" }, geometry: { coordinates: [-0.68, 44.9012] } }] }
+      // Une adresse que la Base Adresse situe à Saint-Médard-en-Jalles (33449), une autre qu'elle situe hors du code postal de la fiche.
+      : /Essai BAN ailleurs/.test(q) ? { features: [{ properties: { label: q, score: 0.7, citycode: "83137", city: "Toulon", context: "83, Var, Provence-Alpes-Côte d'Azur" }, geometry: { coordinates: [5.93, 43.12] } }] }
+      : /Essai BAN/.test(q) ? { features: [{ properties: { label: q, score: 0.9, citycode: "33449", city: "Saint-Médard-en-Jalles", context: "33, Gironde, Nouvelle-Aquitaine" }, geometry: { coordinates: [-0.751, 44.951] } }] }
       : { features: [] }));
   });
   await new Promise((r) => fauxBan.listen(18793, r));
@@ -2503,9 +2602,19 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await new Promise((r) => fauxOverpass.listen(18784, r));
   const communeHaillan = { nom: "Le Haillan", code: "33200", population: 11900, surface: 926, departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } };
   let geoMuet = false; // geo.api.gouv.fr en panne : 503 sur toutes les requêtes
+  // Les codes postaux à plusieurs communes, dans l'ORDRE de la vraie API (relevé le 16/11) :
+  // 33160 → Saint-Aubin-de-Médoc AVANT Saint-Médard-en-Jalles ; 33320 → Eysines avant Le Taillan-Médoc.
+  let geoPlusieurs = false;
+  const gironde = { departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } };
+  const COMMUNES_CP = {
+    33160: [{ nom: "Saint-Aubin-de-Médoc", code: "33376", population: 7769, surface: 3481.9, ...gironde }, { nom: "Saint-Médard-en-Jalles", code: "33449", population: 32910, surface: 8497.64, ...gironde }, { nom: "Salaunes", code: "33494", population: 1260, surface: 4355.19, ...gironde }],
+    33320: [{ nom: "Eysines", code: "33162", population: 24825, surface: 1201, ...gironde }, { nom: "Le Taillan-Médoc", code: "33519", population: 11073, surface: 1517, ...gironde }],
+  };
   const fauxGeo = (await import("node:http")).createServer((req, res) => {
     if (geoMuet) { res.writeHead(503); res.end("down"); return; }
     res.writeHead(200, { "Content-Type": "application/json" });
+    { const cpDemande = (/codePostal=(\d{5})/.exec(req.url) || [])[1];
+      if (geoPlusieurs && COMMUNES_CP[cpDemande]) { res.end(JSON.stringify(COMMUNES_CP[cpDemande])); return; } }
     // La fiche d'une commune par son code INSEE (secours après la BAN) ; un CP inconnu → liste vide.
     if (/^\/communes\/33200\b/.test(req.url)) { res.end(JSON.stringify(communeHaillan)); return; }
     if (/codePostal=33999/.test(req.url)) { res.end("[]"); return; }
@@ -4562,6 +4671,26 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(supAv.status === 200 && supAv.json.avis.length === 3, "un avis se retire");
   const ferme = await callR("/crm/parcours/" + pxId + "/commission/fermer", { headers: authP, body: {} });
   ok(ferme.json.ferme && (await callR("/public/commission?t=" + jeton, { body: { nom: "Tard", prix_min: 300000, prix_max: 310000 } })).status === 409 && (await callR("/public/commission?t=" + jeton, {})).json.ferme, "close, la commission n'accepte plus d'avis");
+  // Les fourchettes « De – À » des tiers, au-delà de 4 fourchettes distinctes (audit du 16/11) : le plus petit
+  // prix_min et le plus grand prix_max des avis DU TIERS — pas les extrêmes de leurs moyennes, qui imprimaient
+  // « 290 000 – 290 000 », « 300 000 – 315 000 », « 335 000 – 335 000 » pour les cinq avis ci-dessous.
+  { const pxCom = (await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "TIERSTEST", prenom: "Cinq", adresse: "5 rue des Avis", ville: "Pessac" } })).json;
+    const jetonT = new URL((await callR("/crm/parcours/" + pxCom.id + "/commission/ouvrir", { headers: authP, body: {} })).json.lien, "http://x").searchParams.get("t");
+    for (const [i, [mn, mx]] of [[280000, 300000], [290000, 310000], [300000, 320000], [300000, 330000], [320000, 350000]].entries()) await callR("/public/commission?t=" + jetonT, { body: { nom: "Collègue " + (i + 1), prix_min: mn, prix_max: mx } });
+    const t = (await callR("/crm/parcours/" + pxCom.id + "/commission", { headers: authP })).json;
+    const de = (x) => [x.nb, x.min, x.max, x.moyenne].join(" ");
+    ok(t.groupes.length === 5 && de(t.tiers.repli) === "1 280000 300000 290000" && de(t.tiers.raison) === "3 290000 330000 308000" && de(t.tiers.ambition) === "1 320000 350000 335000",
+       "5 avis, 5 fourchettes distinctes : chaque tiers va du plus petit prix bas au plus grand prix haut de ses avis (repli 280–300 k, raison 290–330 k, ambition 320–350 k) (" + JSON.stringify(t.tiers) + ")");
+    await callR("/crm/parcours/" + pxCom.id, { headers: authP, method: "DELETE" }); }
+  // Une balise de fusion vide dont la phrase ne tient pas sans elle : l'aperçu de l'e-mail avant R1 d'une fiche sans date
+  // écrivait « notre rendez-vous de directement au … » → un rappel entre crochets, visible à la relecture.
+  { const pxSD = (await callR("/crm/parcours", { headers: authP, body: { civilite: "Mme", nom: "SANSDATE", prenom: "Ida", adresse: "2 rue du Calendrier", ville: "Pessac" } })).json;
+    const apSD = (await callR("/crm/parcours/" + pxSD.id + "/apercu?jalon=avant-r1", { headers: authP })).json;
+    ok(/notre rendez-vous de \[date du rendez-vous à préciser\] directement au 2 rue du Calendrier/.test(apSD.texte) && /\[date du rendez-vous à préciser\]/.test(apSD.sujet) && !/rendez-vous de directement/.test(apSD.texte)
+       && CRM_TEST.remplirModele("Bonjour {civilite_nom}, rendez-vous le {date_r1} — {telephone}", { civilite_nom: "", date_r1: "lundi 20 avril à 10h" }) === "Bonjour, rendez-vous le lundi 20 avril à 10h"
+       && CRM_TEST.remplirModele("Le {date_r1}.", {}) === "Le.",
+       "fiche sans date de R1 : l'aperçu de l'e-mail porte « [date du rendez-vous à préciser] » au lieu d'une phrase bancale ; les autres balises vides s'effacent comme avant (" + apSD.texte.split("\n")[2] + ")");
+    await callR("/crm/parcours/" + pxSD.id, { headers: authP, method: "DELETE" }); }
   // Effacer un parcours : dans son périmètre seulement ; la fiche disparaît de Studio Estimation, le contact reste.
   const pxSup = (await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "EFFACE", prenom: "Paul", adresse: "1 rue Gommée", ville: "Pessac" } })).json;
   ok((await callR("/crm/parcours/" + pxSup.id, { headers: authR, method: "DELETE" })).status === 404, "un autre conseiller ne peut pas effacer ce parcours");
@@ -4646,6 +4775,67 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok(envR.commune && envR.commune.population === 11900, "service revenu : la commune est complète au passage suivant");
     await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { cp: "33160" } });
     await db.run("UPDATE crm_environnement SET data = ? WHERE cle = ?", [cacheEnv.data, cacheEnv.cle]); }
+  // La BONNE commune quand la ville n'est pas écrite comme le nom officiel (audit du 16/11) : « St Médard en
+  // Jalles », CP 33160 → l'API rend Saint-Aubin-de-Médoc en premier, et c'est elle qui sortait dans le guide R2,
+  // le fichier DVF et le portail. Code INSEE de la BAN d'abord, puis noms normalisés, jamais « la première ».
+  { geoPlusieurs = true;
+    const crC = await callR("/crm/parcours", { headers: authP, body: { civilite: "Mme", prenom: "Com", nom: "MUNETEST", adresse: "3 chemin Sans Repère", cp: "33160", ville: "St Médard en Jalles", type_bien: "maison" } });
+    const idC = crC.json.id;
+    await db.run("UPDATE crm_estimations SET lat = 44.951, lng = -0.751 WHERE id = ?", [idC]);
+    const cleC = "44.951,-0.751|v2";
+    const envDe = async () => (await callR("/crm/parcours/" + idC + "/environnement", { headers: authP })).json;
+    const cacheC = async () => JSON.parse((await db.get("SELECT data FROM crm_environnement WHERE cle = ?", [cleC])).data).commune;
+    const fiche = (corps) => callR("/crm/parcours/" + idC, { headers: authP, method: "PUT", body: corps });
+    const e1 = await envDe();
+    ok(e1.commune && e1.commune.code === "33449" && e1.commune.nom === "Saint-Médard-en-Jalles" && e1.commune.population === 32910 && !e1.erreurCommune,
+       "« St Médard en Jalles », 33160 : la commune est Saint-Médard-en-Jalles (32 910 hab.), plus Saint-Aubin-de-Médoc, première de la liste (" + JSON.stringify(e1.commune) + ")");
+    const dnC1 = (await callR("/crm/parcours/" + idC + "/acm/donnees", { headers: authP })).json;
+    ok(dnC1.commune && dnC1.commune.code === "33449", "…et le livret demande le fichier DVF de la bonne commune (" + JSON.stringify(dnC1.commune) + ")");
+    // Un cache d'avant la correction (mauvaise commune gardée 30 jours) est invalidé : il ne concorde pas avec la ville de la fiche.
+    { const brut = await db.get("SELECT data FROM crm_environnement WHERE cle = ?", [cleC]); const d = JSON.parse(brut.data);
+      d.commune = { nom: "Saint-Aubin-de-Médoc", code: "33376", population: 7769, surface: 3481.9, densite: 223, departement: "Gironde", region: "Nouvelle-Aquitaine" };
+      await db.run("UPDATE crm_environnement SET data = ? WHERE cle = ?", [JSON.stringify(d), cleC]); }
+    const e2 = await envDe();
+    ok(e2.commune.code === "33449" && (await cacheC()).code === "33449", "un cache gardé avec la mauvaise commune (Saint-Aubin-de-Médoc) est corrigé au passage suivant (" + e2.commune.nom + ")");
+    // Même piège à 33320 : « Le Taillan » → Le Taillan-Médoc (début du nom, sans ambiguïté), pas Eysines.
+    await fiche({ cp: "33320", ville: "Le Taillan" });
+    const e3 = await envDe();
+    ok(e3.commune.code === "33519" && e3.commune.nom === "Le Taillan-Médoc" && (await cacheC()).code === "33519", "« Le Taillan », 33320 : Le Taillan-Médoc, pas Eysines — et le cache de la maille suit la fiche (" + JSON.stringify(e3.commune) + ")");
+    // Rien pour trancher : commune indéterminée, dite — jamais une commune prise au hasard, ni en cache, ni au portail.
+    await fiche({ cp: "33160", ville: "Saint" });
+    const e4 = await envDe();
+    const dnC4 = (await callR("/crm/parcours/" + idC + "/acm/donnees", { headers: authP })).json;
+    const poC4 = (await callR("/crm/parcours/" + idC + "/acm/portails", { headers: authP })).json;
+    ok(e4.commune && e4.commune.indeterminee === true && !e4.commune.nom && !e4.commune.code && !e4.commune.population && e4.commune.departement === "Gironde"
+       && /commune indéterminée/.test(e4.erreurCommune) && /Saint-Aubin-de-Médoc, Saint-Médard-en-Jalles, Salaunes/.test(e4.erreurCommune),
+       "« Saint », 33160 (deux communes possibles) : commune indéterminée, les candidates sont nommées, le département reste connu (" + e4.erreurCommune + ")");
+    ok(dnC4.commune === null && dnC4.erreurs.some((t) => /commune indéterminée/.test(t)) && poC4.biens.length === 0 && /commune indéterminée/.test(poC4.erreur),
+       "…le livret ne charge alors aucun fichier DVF et n'interroge pas le portail sur une commune au hasard (" + JSON.stringify({ commune: dnC4.commune, portail: poC4.erreur.slice(0, 40) }) + ")");
+    // Le code INSEE de la Base Adresse Nationale tranche quand le nom ne dit rien…
+    await fiche({ adresse: "9 rue Essai BAN", ville: "Lotissement des Pins" });
+    const e5 = await envDe();
+    ok(e5.commune.code === "33449" && !e5.erreurCommune, "ville inexploitable mais adresse connue de la BAN : son code INSEE désigne la commune (" + e5.commune.nom + ")");
+    // …mais un géocodage tombé hors du code postal de la fiche n'est pas cru : le nom décide.
+    await fiche({ adresse: "9 rue Essai BAN ailleurs", ville: "SALAUNES" });
+    const e6 = await envDe();
+    ok(e6.commune.code === "33494", "un code INSEE de la BAN hors du code postal est ignoré, le nom de la fiche décide (" + e6.commune.nom + ")");
+    geoPlusieurs = false;
+    // Un code postal à une seule commune : elle est prise, même écrite autrement (comportement inchangé).
+    await fiche({ adresse: "3 chemin Sans Repère", cp: "33185", ville: "LE HAILLAN CEDEX" });
+    ok((await envDe()).commune.code === "33200", "un code postal à une seule commune la désigne, quelle que soit l'écriture de la ville");
+    await callR("/crm/parcours/" + idC, { headers: authP, method: "DELETE" }); }
+  // Guide R2 p7 : les distances imprimées partent du BIEN — le cache est partagé par maille de ~100 m et gardait
+  // celles du premier bien de la maille — et le plafond de 12 par catégorie est annoncé.
+  { const crV = await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", prenom: "Voi", nom: "SINTEST", adresse: "9 Impasse des Vignes", cp: "33185", ville: "Le Haillan", type_bien: "maison" } });
+    await db.run("UPDATE crm_estimations SET lat = 44.9014, lng = -0.6804 WHERE id = ?", [crV.json.id]); // même maille que le 7 (44.9012, -0.68)
+    const envA = (await callR("/crm/parcours/" + pxId + "/environnement", { headers: authP })).json;
+    const envB = (await callR("/crm/parcours/" + crV.json.id + "/environnement", { headers: authP })).json;
+    const dist = (la1, lo1, la2, lo2) => { const r = Math.PI / 180, h = Math.sin((la2 - la1) * r / 2) ** 2 + Math.cos(la1 * r) * Math.cos(la2 * r) * Math.sin((lo2 - lo1) * r / 2) ** 2; return 2 * 6371000 * Math.asin(Math.sqrt(h)); };
+    const phA = envA.commodites.find((x) => /Pharmacie/.test(x.nom)), phB = envB.commodites.find((x) => /Pharmacie/.test(x.nom));
+    ok((await db.get("SELECT COUNT(*) AS n FROM crm_environnement WHERE cle = '44.901,-0.680|v2'")).n === 1 && phA && phB && Math.abs(phB.dist - dist(44.9014, -0.6804, phB.lat, phB.lng)) < 3 && Math.abs(phA.dist - dist(44.9012, -0.68, phA.lat, phA.lng)) < 3 && Math.abs(phA.dist - phB.dist) > 10
+       && envB.commodites.every((x, i) => i === 0 || x.dist >= envB.commodites[i - 1].dist) && envB.commodites.every((x) => x.dist <= 1500) && envB.commoditesPlafond === 12,
+       "deux biens de la même maille partagent le cache, chacun reçoit SES distances (pharmacie à " + Math.round(phA && phA.dist) + " m de l'un, " + Math.round(phB && phB.dist) + " m de l'autre), triées, plafond annoncé");
+    await callR("/crm/parcours/" + crV.json.id, { headers: authP, method: "DELETE" }); }
   // Livret prix : la saisie se garde (nettoyée), les données comparables se relèvent, les photos ne se relaient que si elles sont connues.
   // Le livret se pré-remplit depuis le bien de la fiche estimation (Studio Estimation), et la complète en retour.
   await db.run("INSERT OR REPLACE INTO crm_estimation_bien (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?)",
@@ -4872,6 +5062,17 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      && dn.amepi.length === 1 && dn.amepi[0].agence === "Orpi Le Haillan" && dn.amepi[0].baisse === 10000 && dn.amepi[0].dist < 6000
      && dn.acheteurs.some((a) => a.budget_max === 340000) && dn.acheteurs.length === (dn0.acheteurs || []).length + 1,
      "les données comparables : commune INSEE, ventes de l'agence à 2 km, notre annonce (baisse, ancienneté), le mandat ALFA de même type, l'acheteur qui cherche une maison au Haillan — pas celui d'un appartement ni la recherche en pause (" + JSON.stringify({ com: dn.commune, v: dn.ventes.length, vignes: dn.ventes.some((v) => /Vignes/.test(v.adresse)), anH: anH && { baisse: anH.baisse, jours: anH.jours }, appt: dn.annonces.some((a) => a.type === "appartement"), am: dn.amepi.map((a) => [a.agence, a.baisse, a.dist]), ach: [dn.acheteurs.length, (dn0.acheteurs || []).length, dn.acheteurs.some((a) => a.budget_max === 340000)] }) + ")");
+  // Les acheteurs comptés dans le livret : sans aucun critère (ni type ni ville), on ne sait pas s'il cherche CE bien
+  // ICI → pas compté ; la même personne (recherche de sa fiche + projet d'achat) ne compte qu'une fois ; la ville
+  // d'une recherche concorde quelle que soit son écriture (« le haillan », « LE-HAILLAN »).
+  { await db.run("INSERT OR REPLACE INTO crm_recherches (contact_id, agency_id, actif, budget_min, budget_max, types, villes, pieces_min, surface_min, notes, user_id, created_at, updated_at) VALUES ('ct_ach4', ?, 1, 0, 500000, '[]', '[]', 0, 0, '', '', 1, 1), ('ct_ach5', ?, 1, 0, 310000, '[]', '[\"LE-HAILLAN\"]', 0, 0, '', '', 1, 1)", [agId, agId]);
+    await db.run("INSERT INTO crm_projets (id, agency_id, kind, statut, adresse, ville, budget_min, budget_max, types, villes, pieces_min, surface_min, notes, user_id, created_at, updated_at) VALUES ('pj_dbl', ?, 'achat', 'actif', '', '', 0, 360000, '[\"maison\"]', '[\"le haillan\"]', 0, 0, '', '', 1, 1)", [agId]);
+    await db.run("INSERT INTO crm_projet_contacts (projet_id, contact_id, agency_id) VALUES ('pj_dbl', 'ct_ach1', ?)", [agId]);
+    const dnA = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
+    const budgetsA = dnA.acheteurs.map((a) => a.budget_max);
+    ok(dnA.acheteurs.length === dn.acheteurs.length + 1 && !budgetsA.includes(500000) && budgetsA.includes(310000) && budgetsA.includes(360000) && !budgetsA.includes(340000) && dnA.acheteursSansCritere >= 1,
+       "acheteurs du livret : celui sans critère n'est pas compté, la même personne (recherche + projet) compte une fois à son budget le plus haut, la ville concorde malgré son écriture (" + JSON.stringify({ avant: dn.acheteurs.length, apres: budgetsA, sansCritere: dnA.acheteursSansCritere }) + ")");
+    await db.run("DELETE FROM crm_recherches WHERE contact_id IN ('ct_ach4', 'ct_ach5')"); await db.run("DELETE FROM crm_projet_contacts WHERE projet_id = 'pj_dbl'"); await db.run("DELETE FROM crm_projets WHERE id = 'pj_dbl'"); }
   const portails = (await callR("/crm/parcours/" + pxId + "/acm/portails?prix=330000", { headers: authP })).json;
   await db.run("INSERT OR REPLACE INTO crm_amepi_photos (agency_id, id, photo, updated_at) VALUES (?, 'am-1', ?, 1)", [agId, pixel]);
   const dnPh = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
@@ -4898,6 +5099,13 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
        "les e-mails parlent du terrain et demandent plan de bornage et arpentage, sans certificat d'urbanisme, ni factures d'énergie, ni copropriété");
     ok((await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "garage" } })).status === 200 && (await callR("/crm/parcours/" + pxId, { headers: authP })).json.type_bien === "maison",
        "un type inconnu retombe sur « maison »");
+    await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } }); }
+  // Programme neuf du portail (audit du 16/11) : surfaceArea [40, 83.77], roomsQuantity [2, 4] donnaient « NaN m² » et
+  // « NaN €/m² » dans le livret → la plus petite valeur de chaque fourchette, comme pour le prix.
+  { await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "appartement" } });
+    const neuf5 = (await callR("/crm/parcours/" + pxId + "/acm/portails", { headers: authP })).json.biens.find((b) => b.id === "bienici:neuf-5");
+    ok(neuf5 && neuf5.prix === 145000 && neuf5.surface === 40 && neuf5.pieces === 2 && neuf5.chambres === 1 && neuf5.neuf === 1 && neuf5.titre === "Neuf (à partir de) · Appartement · 2 pièces · 40 m²" && /\/appartement\/2pieces\/neuf-5/.test(neuf5.url) && !/NaN|,/.test(neuf5.titre + neuf5.url),
+       "un programme neuf en fourchettes : prix, surface, pièces et chambres ramenés à leur plus petite valeur, plus de NaN (" + JSON.stringify(neuf5 && [neuf5.prix, neuf5.surface, neuf5.pieces, neuf5.chambres, neuf5.titre]) + ")");
     await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } }); }
   await db.run("UPDATE crm_annonces SET image = '/photos/biens/relative-640.webp' WHERE id = 'maison-haillan-1'");
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { annonces: { siteUrl: "http://localhost:1" } } });

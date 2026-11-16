@@ -80,7 +80,9 @@
       "max": 4,
       "taille": 8.3,
       "largeur": 150,
-      "maxLignes": 6
+      "haut": 684,
+      "bas": 736.5,
+      "tailleMin": 7
     },
     "objections": {
       "x": 354.0,
@@ -90,7 +92,9 @@
       "max": 4,
       "taille": 8.3,
       "largeur": 150,
-      "maxLignes": 6
+      "haut": 684,
+      "bas": 736.5,
+      "tailleMin": 7
     }
   },
   "p7": {
