@@ -444,6 +444,33 @@ const dstale = await call("/dossiers", {
   body: { id: dosId, name: "MARTIN-LEROY / DURAND", data: dosData, base_updated_at: dget.json.updated_at - 10 }
 });
 ok(dstale.status === 409 && /modifié par quelqu'un/.test(dstale.json.error), "version périmée → 409 (pas d'écrasement silencieux)");
+{ // Recréer un dossier dont le nom existe déjà : jamais d'écrasement (audit 11/2026).
+  const auth3 = { Authorization: "Bearer " + s3 };
+  const avant = (await call("/dossiers/" + dosId, { headers: auth3 })).json;
+  const vierge = { _app: "studio-suivi", version: 1, reference: "MARTIN-LEROY / DURAND", statut: "en_cours", journal: [], etapes: {} };
+  const doublon = await call("/dossiers", { method: "PUT", headers: auth3, body: { name: "MARTIN-LEROY / DURAND", data: vierge } });
+  ok(doublon.status === 409 && doublon.json.existant && doublon.json.existant.id === dosId
+    && doublon.json.existant.updated_at === avant.updated_at && /existe déjà/.test(doublon.json.error),
+    "création SANS id sur un nom déjà pris → 409 avec l'id et la date du dossier existant");
+  const apres = (await call("/dossiers/" + dosId, { headers: auth3 })).json;
+  ok(apres.updated_at === avant.updated_at && apres.data.notaire_vendeur.nom === "Me MOREAU" && apres.data.date_compromis === "2026-08-01",
+    "… et le dossier existant n'a pas bougé (ni contenu, ni version)");
+  ok((await call("/dossiers", { method: "PUT", headers: auth3, body: { name: "MARTIN-LEROY / DURAND", data: vierge, base_updated_at: avant.updated_at } })).status === 409,
+    "… même en annonçant la bonne version : sans id, pas de mise à jour par nom");
+  const autre = await call("/dossiers", { method: "PUT", headers: auth3, body: { name: "MARTIN-LEROY / DURAND (2)", data: { ...vierge, reference: "MARTIN-LEROY / DURAND (2)" } } });
+  ok(autre.status === 200 && autre.json.updated === false && autre.json.id !== dosId
+    && (await call("/dossiers", { headers: auth3 })).json.dossiers.length === 2, "sous un autre nom (« … (2) ») : un second dossier, à côté du premier");
+  // Renommer le second comme le premier : refusé, avec le dossier qui porte déjà ce nom.
+  const renomme = await call("/dossiers", { method: "PUT", headers: auth3, body: { id: autre.json.id, name: "MARTIN-LEROY / DURAND", data: vierge } });
+  ok(renomme.status === 409 && renomme.json.existant && renomme.json.existant.id === dosId, "renommage vers un nom déjà pris → 409 (dossier existant désigné)");
+  // Remplacement EXPLICITE par nom : possible, toujours sous la garde de version.
+  ok((await call("/dossiers", { method: "PUT", headers: auth3, body: { name: "MARTIN-LEROY / DURAND (2)", remplacer: true, data: vierge, base_updated_at: autre.json.updated_at - 10 } })).status === 409,
+    "remplacer: true avec une version périmée → 409");
+  const remplace = await call("/dossiers", { method: "PUT", headers: auth3, body: { name: "MARTIN-LEROY / DURAND (2)", remplacer: true, data: { ...vierge, observations: "remplacé exprès" }, base_updated_at: autre.json.updated_at } });
+  ok(remplace.status === 200 && remplace.json.updated === true && remplace.json.id === autre.json.id
+    && (await call("/dossiers/" + autre.json.id, { headers: auth3 })).json.data.observations === "remplacé exprès", "remplacer: true → mise à jour par nom, à la demande");
+  await call("/dossiers/" + autre.json.id, { method: "DELETE", headers: auth3 });
+}
 ok((await call("/dossiers", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { name: "X", data: { _app: "studio-fiche" } } })).status === 400, "mauvais type de document refusé");
 ok((await call("/dossiers", { headers: { Authorization: "Bearer " + s2b } })).json.dossiers.length === 0, "l'autre agence ne voit aucun dossier");
 ok((await call("/dossiers/" + dosId, { headers: { Authorization: "Bearer " + s2b } })).status === 404, "l'autre agence ne peut pas ouvrir");
@@ -533,6 +560,27 @@ const an2 = await call("/annuaire", { method: "PUT", headers: { Authorization: "
 ok(an2.status === 200, "notaire ajouté");
 const an2b = await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { type: "notaire", nom: "Me NAUTIACQ", email: "b.nautiacq@notaires.fr" } });
 ok(an2b.status === 200 && an2b.json.updated === true && an2b.json.id === an2.json.id, "même (type, nom) → mise à jour, pas de doublon");
+{ // Un dossier enregistré ne fait que COMPLÉTER l'annuaire (`completer`) : il
+  // ne revient jamais sur une coordonnée déjà renseignée (audit 11/2026).
+  const auth3 = { Authorization: "Bearer " + s3 };
+  const ficheNot = async () => (await call("/annuaire", { headers: auth3 })).json.annuaire.find((a) => a.id === an2.json.id);
+  const avant = await ficheNot(); // e-mail corrigé ci-dessus, ville et téléphone vidés par la mise à jour
+  const comp = await call("/annuaire", { method: "PUT", headers: auth3, body: { type: "notaire", nom: "Me NAUTIACQ", completer: true,
+    email: "ancienne.adresse@notaires.fr", telephone: "0556000000", ville: "Saint-Médard-en-Jalles" } });
+  const apres = await ficheNot();
+  ok(comp.status === 200 && comp.json.id === an2.json.id && apres.email === "b.nautiacq@notaires.fr" && avant.email === apres.email,
+    "annuaire, completer : l'e-mail déjà renseigné n'est pas écrasé par celui d'un dossier (" + apres.email + ")");
+  ok(apres.telephone === "05 56 00 00 00" && apres.ville === "Saint-Médard-en-Jalles" && comp.json.completes.join() === "ville,telephone",
+    "annuaire, completer : les champs vides (ville, téléphone) sont remplis");
+  const rien = await call("/annuaire", { method: "PUT", headers: auth3, body: { id: an2.json.id, type: "notaire", nom: "Me NAUTIACQ", completer: true, email: "encore.une@notaires.fr", telephone: "0600000000" } });
+  ok(rien.status === 200 && rien.json.updated === false && (await ficheNot()).updated_at === apres.updated_at, "annuaire, completer : rien à compléter → fiche intacte");
+  const neuve = await call("/annuaire", { method: "PUT", headers: auth3, body: { type: "notaire", nom: "Me COMPLETE", completer: true, email: "etude@complete.fr" } });
+  ok(neuve.status === 200 && neuve.json.updated === false && neuve.json.id.startsWith("an_"), "annuaire, completer : une fiche inconnue est créée");
+  await call("/annuaire/" + neuve.json.id, { method: "DELETE", headers: auth3 });
+  // Une correction explicite (sans `completer`) reste la référence.
+  const corr = await call("/annuaire", { method: "PUT", headers: auth3, body: { id: an2.json.id, type: "notaire", nom: "Me NAUTIACQ", email: "b.nautiacq@notaires.fr", telephone: "05 56 99 99 99" } });
+  ok(corr.status === 200 && (await ficheNot()).telephone === "05 56 99 99 99", "annuaire : la correction explicite d'une fiche s'applique toujours");
+}
 ok((await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { type: "hacker", nom: "X" } })).status === 400, "type hors liste refusé");
 const anList = await call("/annuaire", { headers: { Authorization: "Bearer " + s3 } });
 ok(anList.status === 200 && anList.json.annuaire.length === 2
@@ -1043,8 +1091,9 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   // nomStandard/nomCourriel vivent dans l'IIFE du client : on isole le bloc
   // pour le vérifier ici, faute d'un autre banc de test côté navigateur.
   const src = readFileSync(new URL("../suivi/assets/js/app.js", import.meta.url), "utf8");
+  const normMot = src.slice(src.indexOf("  function normMot(w) {"), src.indexOf("  // Mots significatifs d'un nom"));
   const bloc = src.slice(src.indexOf("  const CIVILITES ="), src.indexOf("  // Consolide un dossier"));
-  const { nomStandard, nomCourriel } = new Function(bloc + "\nreturn { nomStandard, nomCourriel };")();
+  const { nomStandard, nomCourriel, decoupeNom } = new Function(normMot + bloc + "\nreturn { nomStandard, nomCourriel, decoupeNom };")();
   const paires = [
     ["Monsieur Didier Serge KASPAR", "Mr KASPAR Didier Serge", "Mr Didier Serge KASPAR"],
     ["Madame Florence DONDARINI", "Mme DONDARINI Florence", "Mme Florence DONDARINI"],
@@ -1061,6 +1110,26 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
     ok(nomCourriel(brut) === mail, "mail : « " + brut + " » → « " + mail + " »");
     ok(nomStandard(app) === app, "conversion stable : « " + app + " » ne bouge plus");
   }
+  // Audit 11/2026 : tout mot en minuscules était pris pour un prénom — « née »,
+  // « épouse », « et », « de », « représentée par »… et le nom, réécrit au
+  // chargement, repartait mélangé à l'enregistrement. Ne se réordonne plus
+  // qu'UNE personne physique dont les mots hors capitales sont des prénoms.
+  const intacts = [
+    "Mme Marie DUPONT née MARTIN", "Mme Marie MARTIN épouse DUPONT", "Mme DUPONT Marie veuve MARTIN", "Mme DUPONT Marie Née MARTIN",
+    "Mr et Mme DUPONT Jean", "Mr Jean DUPONT et Mme Marie DUPONT", "Mr Jean de LA FONTAINE", "Mr DUPONT Jean dit Jeannot",
+    "SCI LES TILLEULS représentée par Mr Paul DURAND", "SARL DUPONT Immobilier", "SAS MARTIN Frères", "Indivision DUPONT",
+    "Mr Jean DUPONT Pierre", "Mr DUPONT jean"
+  ];
+  for (const n of intacts) ok(nomStandard(n) === n && nomCourriel(n) === n, "nom laissé tel quel (app et courrier) : « " + n + " » → « " + nomStandard(n) + " »");
+  ok(nomStandard("Mr Jean-Pierre DUPONT") === "Mr DUPONT Jean-Pierre" && nomCourriel("Mme MARTIN Sophie Claire") === "Mme Sophie Claire MARTIN"
+    && nomCourriel("Mr LE GALL Yann") === "Mr Yann LE GALL",
+    "une personne physique seule (prénoms reconnus, particule en capitales comprise) se réordonne toujours");
+  // La référence du dossier et la formule d'appel gardent les mots en capitales, comme avant.
+  ok(decoupeNom("Mme Marie DUPONT née MARTIN").caps.join(" ") === "DUPONT MARTIN" && decoupeNom("SCI LES TILLEULS").caps === undefined,
+    "nom non réordonnable : ses mots en capitales restent disponibles pour la référence");
+  // normalize() ne réécrit plus les noms : ce qui se charge est ce qui se réenregistre.
+  const corpsNormalize = src.slice(src.indexOf("  function normalize(data) {"), src.indexOf("  /* ----------------------------- Chargements"));
+  ok(!/\.nom\s*=/.test(corpsNormalize) && !/nomStandard\(/.test(corpsNormalize), "normalize() ne modifie plus le nom des parties au chargement");
 }
 
 /* ---- Prompts : taille des schémas de sortie structurée ------------------ */
