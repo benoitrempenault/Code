@@ -8,7 +8,7 @@ export default async function () {
   const admin = await creerAgence("Smoke Livrets", "smoke-livrets@test.fr");
   const cs = (await api("/crm/conseillers", { headers: admin.auth, method: "PUT", body: { prenom: "Steph", nom: "DREY", email: "steph@smoke-livrets.fr", telephone: "06 11 22 33 44" } })).json;
   const creer = async (nom, adresse) => (await api("/crm/parcours", { headers: admin.auth, body: { civilite: "Mme", nom, adresse, cp: "33160", ville: "Saint-Médard-en-Jalles", type_bien: "maison", conseiller_id: cs.id } })).json.id;
-  const idA = await creer("COURTOIS", "28 rue Renault"), idB = await creer("BESSON", "5 impasse des Vignes"), idC = await creer("REY", "6 rue Emilien Tauriac");
+  const idA = await creer("ALPHA", "1 rue des Essais"), idB = await creer("BETA", "2 impasse du Test"), idC = await creer("GAMMA", "3 allée de la Démo");
   const acmDe = async (id) => (await api("/crm/parcours/" + id + "/acm", { headers: admin.auth })).json.acm || {};
   return parcours("livret-dossiers", { viewport: { width: 1300, height: 950 } }, async ({ page, ok }) => {
     await ouvrir(page, "/administration/?brique=parcours", admin);
