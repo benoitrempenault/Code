@@ -21,7 +21,11 @@
     return (Math.round(m / 100) / 10).toString().replace(".", ",") + " km";
   }
   function pos(e) { return e.lat != null ? [e.lat, e.lon] : (e.center ? [e.center.lat, e.center.lon] : null); }
-  function norm(s) { return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
+  // Clé de comparaison des noms : sans accents ni tirets (« Saint-Médard » = « Saint Medard »).
+  function norm(s) {
+    return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .replace(/[-‐‑–—'’.\s]+/g, " ").trim();
+  }
 
   async function fetchJsonRetry(url, opts, tries) {
     tries = tries || 3;
@@ -48,6 +52,8 @@
   // Un lycée se reconnaît à sa nature (school:FR, convention française
   // d'OpenStreetMap) ou, à défaut, à son nom.
   const RAYON_LYCEES = 10000;
+  // En dessous, une réponse accompagnée d'un « remark » est tenue pour interrompue.
+  const ELEMENTS_MIN = 10;
   function estLycee(t) { return /lyc[ée]e/i.test(t["school:FR"] || "") || /^lyc[ée]e/i.test((t.name || "").trim()); }
 
   function buildQuery(lat, lon, sansLycees) {
@@ -104,7 +110,10 @@
         out.transport.push({ d: d, name: name || "Tram", tram: true, lines: t.route_ref ? t.route_ref.split(";") : [] });
       } else if (t.amenity === "school" || t.amenity === "college") {
         if (!name) return;
-        if (t.amenity === "school" && estLycee(t)) out.lycee.push({ d: d, name: /lyc[ée]e/i.test(name) ? name : "Lycée " + name });
+        // Un ensemble scolaire (school:FR=collège;lycée) garde son nom tel quel : « Lycée »
+        // n'est ajouté que devant un établissement qui n'est QUE lycée.
+        const mixte = /;/.test(t["school:FR"] || "");
+        if (t.amenity === "school" && estLycee(t)) out.lycee.push({ d: d, name: (mixte || /lyc[ée]e/i.test(name)) ? name : "Lycée " + name });
         else if (d <= 2600) out.ecole.push({ d: d, name: name });
       } else if (t.shop === "bakery") { out.boul.push({ d: d, name: name || "Boulangerie" }); }
       else if (t.shop === "convenience") { out.boul.push({ d: d, name: name || "Supérette" }); }
@@ -128,7 +137,7 @@
   function aggregateStops(list, n) {
     const by = {};
     list.forEach(function (s) {
-      const k = (s.name || "").toLowerCase();
+      const k = norm(s.name);
       if (!by[k]) by[k] = { d: s.d, name: s.name, tram: s.tram, lines: {} };
       if (s.d < by[k].d) by[k].d = s.d;
       (s.lines || []).forEach(function (l) { by[k].lines[l] = 1; });
@@ -143,7 +152,7 @@
     const seen = {}; const kept = [];
     list.sort(function (a, b) { return a.d - b.d; });
     list.forEach(function (it) {
-      const k = (it.name || "").toLowerCase();
+      const k = norm(it.name); // « École Jean-Jaurès » et « Ecole Jean Jaures » : un seul établissement
       if (seen[k]) return; seen[k] = 1; kept.push(it);
     });
     return kept.slice(0, n);
@@ -158,12 +167,17 @@
 
     // La recherche complète (avec les lycées, plus large) ; si elle échoue, on
     // repart sans les lycées plutôt que de laisser le quartier vide.
+    // Overpass répond 200 même quand il abandonne (délai dépassé, mémoire) : il le dit dans
+    // « remark » et ne renvoie alors rien, ou presque. C'est un échec, pas un quartier vide.
     const interroger = function (sansLycees, essais) {
       return fetchJsonRetry(OVERPASS, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: "data=" + encodeURIComponent(buildQuery(lat, lon, sansLycees))
-      }, essais);
+      }, essais).then(function (d) {
+        if (d && d.remark && (d.elements || []).length < ELEMENTS_MIN) throw new Error("overpass: " + d.remark);
+        return d;
+      });
     };
     let data;
     try {
@@ -205,7 +219,7 @@
     // Les lycées les plus proches (à vol d'oiseau — pas le lycée de secteur,
     // qui dépend de la carte scolaire).
     const ly = top(c.lycee, 3);
-    if (ly.length) quartier.push({ label: ly.length > 1 ? "Lycées" : "Lycée", value: ly.map(function (s) { return s.name + " à " + fmt(s.d); }).join("  ·  ") });
+    if (ly.length) quartier.push({ label: ly.length > 1 ? "Lycées" : "Lycée", value: ly.map(function (s) { return s.name + " à " + fmt(s.d); }).join("  ·  ") + " (à vol d'oiseau)" });
 
     const su = top(c.super, 3);
     if (su.length) quartier.push({ label: "Supermarchés", value: su.map(function (s) { return s.name + " à " + fmt(s.d); }).join("  ·  ") });
