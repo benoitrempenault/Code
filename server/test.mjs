@@ -4256,6 +4256,32 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(acmPut.status === 200 && acmGet.acm.prix === 330000 && acmGet.acm.commission[0].nb === 3 && acmGet.acm.ventes[0].adresse === "1 rueTest" && acmGet.acm.profond.a.b.c.d.e === null,
      "la saisie du livret prix se relit, nettoyée des caractères de contrôle et bornée en profondeur");
   ok((await callR("/crm/parcours/" + pxId + "/acm", { headers: authR })).status === 404, "le livret d'un parcours hors périmètre est introuvable");
+  // Versions précédentes (16/11) : l'état en place est gardé avant d'être remplacé,
+  // au plus une version toutes les deux minutes ; le ménage éclaircit après un jour.
+  { await db.run("DELETE FROM crm_parcours_acm_versions WHERE estimation_id = ?", [pxId]);
+    const versions = async () => db.all("SELECT * FROM crm_parcours_acm_versions WHERE estimation_id = ? ORDER BY archive_at, id", [pxId]);
+    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 331000 } });
+    let vs = await versions();
+    ok(vs.length === 1 && JSON.parse(vs[0].data).prix === 330000 && vs[0].origine === "saisie", "remplacer un livret garde la version précédente");
+    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 332000 } });
+    ok((await versions()).length === 1, "deux enregistrements rapprochés ne gardent qu'une version (saisie automatique)");
+    await db.run("UPDATE crm_parcours_acm_versions SET archive_at = archive_at - 600 WHERE estimation_id = ?", [pxId]);
+    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 332000 } });
+    ok((await versions()).length === 1, "un enregistrement identique ne crée pas de version");
+    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 333000 } });
+    vs = await versions();
+    ok(vs.length === 2 && JSON.parse(vs[1].data).prix === 332000, "passé deux minutes, la version suivante est gardée à son tour");
+    // Ménage : quatre versions d'une même journée passée → la première et la dernière restent.
+    const jour = Math.floor(tNow / 86400) * 86400 - 2 * 86400;
+    await db.run("DELETE FROM crm_parcours_acm_versions WHERE estimation_id = ?", [pxId]);
+    for (let i = 0; i < 4; i++) await db.run("INSERT INTO crm_parcours_acm_versions (id, estimation_id, agency_id, data, saisie_at, archive_at, origine) VALUES (?, ?, ?, ?, 0, ?, 'saisie')", ["lvt" + i, pxId, "x", JSON.stringify({ prix: i }), jour + 3600 * (i + 1)]);
+    await db.run("INSERT INTO crm_parcours_acm_versions (id, estimation_id, agency_id, data, saisie_at, archive_at, origine) VALUES ('lvs', ?, 'x', '{}', 0, ?, 'sauvegarde')", [pxId, jour + 7200]);
+    await db.run("INSERT INTO crm_parcours_acm_versions (id, estimation_id, agency_id, data, saisie_at, archive_at, origine) VALUES ('lvv', ?, 'x', '{}', 0, ?, 'saisie')", [pxId, tNow - 100 * 86400]);
+    const mn = await CRM_TEST.menageQuotidien(db);
+    vs = await versions();
+    ok(!mn.livretsErreur && vs.map((v) => v.id).join() === "lvt0,lvs,lvt3", "le ménage garde la première et la dernière version du jour, les reprises de sauvegarde, et purge après 90 jours");
+    await db.run("DELETE FROM crm_parcours_acm_versions WHERE estimation_id = ?", [pxId]);
+    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: acmGet.acm }); }
   // Le courrier d'estimation : jalon e-mail avec le PDF en pièce jointe ; la fourchette vient
   // du livret (basse/haute), ou de celle saisie pour le courrier (acm.courrier).
   { const apC = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=courrier-estimation", { headers: authP })).json;

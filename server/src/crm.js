@@ -622,6 +622,17 @@ export async function menageQuotidien(db, files = null) {
     }
     r.brochures = vieilles.length;
   } catch (e) { r.brochuresErreur = e.message; }
+  // Versions précédentes des livrets prix : 90 jours ; passé un jour, on ne
+  // garde par dossier que la première et la dernière version de la journée.
+  try {
+    await db.run("DELETE FROM crm_parcours_acm_versions WHERE archive_at < ?", [t - 90 * 86400]);
+    r.livrets = changesOf(await db.run(
+      `DELETE FROM crm_parcours_acm_versions WHERE origine = 'saisie' AND archive_at >= ? AND archive_at < ? AND id NOT IN (
+         SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY estimation_id, archive_at / 86400 ORDER BY archive_at, id) AS a,
+                                    ROW_NUMBER() OVER (PARTITION BY estimation_id, archive_at / 86400 ORDER BY archive_at DESC, id DESC) AS d
+                         FROM crm_parcours_acm_versions WHERE origine = 'saisie' AND archive_at >= ? AND archive_at < ?) WHERE a = 1 OR d = 1)`,
+      [t - 4 * 86400, t - 86400, t - 4 * 86400, t - 86400]));
+  } catch (e) { r.livretsErreur = e.message; }
   r.corbeille = changesOf(await db.run("DELETE FROM crm_corbeille WHERE created_at < ? OR (restored_at > 0 AND restored_at < ?)",
     [t - CORBEILLE_JOURS * 86400, t - 7 * 86400]));
   // Comptes partagés « .interne » (porte collaborateurs fermée le 12/10) : sessions et liens révoqués.

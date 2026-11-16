@@ -148,7 +148,20 @@
   /* ------------------------------- Modale -------------------------------- */
   let gesteDocument = false;
   for (const ev of ["pointerdown", "keydown"]) window.addEventListener(ev, () => { gesteDocument = true; }, { capture: true, once: true });
+  /* Le corps et le pied de la fenêtre sont des éléments PERMANENTS, réutilisés par toutes les
+     fenêtres. Un écouteur posé dessus par une fenêtre survivait à sa fermeture : l'enregistrement
+     automatique du livret prix du dossier A tournait encore pendant qu'on saisissait le livret du
+     dossier B, et recopiait B dans A (Stéphanie Dreyfus, 10/11 : « un dossier se lie à un autre »,
+     caractéristiques recopiées sur trois dossiers, livret perdu). Tout écouteur posé sur ces
+     éléments passe donc par surModale() : il est retiré à l'ouverture de la fenêtre suivante. */
+  const nettoyagesModale = [];
+  let sessionModale = 0; // avance à chaque fenêtre : un rendu différé sait si « sa » fenêtre est encore là
+  function surModale(el, type, fn) { el.addEventListener(type, fn); nettoyagesModale.push(() => el.removeEventListener(type, fn)); }
+  function avantFenetreSuivante(fn) { nettoyagesModale.push(fn); }
   function ouvrirModale(titre, corpsHtml, piedHtml) {
+    while (nettoyagesModale.length) { try { nettoyagesModale.pop()(); } catch { /* un nettoyage en échec n'empêche pas d'ouvrir */ } }
+    sessionModale++;
+    delete $("modale-corps").dataset.livret;
     $("modale-titre").textContent = titre;
     $("modale-corps").innerHTML = corpsHtml;
     $("modale-pied").innerHTML = piedHtml || "";
@@ -2350,7 +2363,7 @@
       btn.disabled = false; btn.textContent = "📂 Enregistrer dans un dossier";
     }
     let pieceAjout = null;
-    corps.addEventListener("click", async (e) => {
+    surModale(corps, "click", async (e) => {
       const autre = e.target.closest("[data-autre-offre]");
       if (autre) { ouvrirOffre(autre.dataset.autreOffre); return; }
       const t = e.target.closest("[data-lien],[data-doc-dl],[data-doc-sup],[data-doc-ajout]");
@@ -2373,7 +2386,7 @@
         }
       } catch (err) { toast(err.message, true); }
     });
-    corps.addEventListener("change", async (e) => {
+    surModale(corps, "change", async (e) => {
       if (e.target.id === "of-fichier" && e.target.files[0] && pieceAjout) {
         const f = e.target.files[0];
         try {
@@ -2918,7 +2931,7 @@
   async function sauverBienFiche(id, bien) {
     const acm = (await api("/crm/parcours/" + id + "/acm")).acm || {};
     if (["surface", "terrain", "pieces", "chambres", "piece_vie"].every((k) => (acm[k] || null) === (bien[k] || null))) return;
-    await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: { ...acm, ...bien } });
+    await api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: { ...acm, ...bien } });
   }
   // Nouveau parcours : on cherche D'ABORD la personne dans les contacts ; la
   // fiche choisie pré-remplit le formulaire. Introuvable ? On remplit, et le
@@ -3703,7 +3716,7 @@
       '<p class="petit">Le courrier est écrit sur le papier à en-tête de l\'agence, avec la photo et les coordonnées du conseiller.</p>',
       '<button class="btn" id="ce-retour">Retour</button><button class="btn" id="ce-apercu">📄 Aperçu PDF</button><button class="btn" id="ce-imprimer">🖨 Imprimer</button><button class="btn btn-or" id="ce-envoyer">✉️ Envoyer par e-mail</button>');
     const lire = () => ({ basse: parseFloat($("ce-basse").value) || 0, haute: parseFloat($("ce-haute").value) || 0, texte: $("ce-texte").value.trim() });
-    const sauver = async () => { const courrier = lire(); await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: { ...acm, courrier } }); acm.courrier = courrier; return courrier; };
+    const sauver = async () => { const courrier = lire(); await api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: { ...acm, courrier } }); acm.courrier = courrier; return courrier; };
     const verifier = (c) => { if (!c.basse && !c.haute) throw new Error("Indiquez au moins une valeur de la fourchette."); if (c.basse && c.haute && c.basse > c.haute) throw new Error("La fourchette basse dépasse la fourchette haute."); };
     $("ce-retour").addEventListener("click", () => ouvrirParcours(id));
     $("ce-apercu").addEventListener("click", async () => {
@@ -4179,8 +4192,11 @@
     acm = acm.acm || {};
     ouvrirModale("🖨 Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), '<p class="aide">Ventes DVF autour du bien…</p>', "");
     document.querySelector(".modale").classList.add("large");
+    const maFenetre = sessionModale;
     let dvf = [];
     if (donnees.commune && donnees.commune.code) { try { dvf = await chargerDvfCommune(donnees.commune.code, donnees.commune.dep); } catch { dvf = []; } }
+    // Pendant le chargement des ventes, une autre fenêtre a pu s'ouvrir (autre dossier) : on n'écrit pas par-dessus.
+    if (maFenetre !== sessionModale) return;
     const typeDvf = { appartement: "Appartement", terrain: "Terrain" }[donnees.type] || "Maison";
     const depuis = new Date(); depuis.setFullYear(depuis.getFullYear() - 2); // 24 derniers mois
     const ventesDvf = dvf.filter((v) => v.type === typeDvf && v.date >= depuis.toISOString().slice(0, 10))
@@ -4330,12 +4346,21 @@
       '<p class="petit">Le livret calcule le prêt sur le budget réel de l\'acquéreur : prix + 8 % de frais de notaire, moins l\'apport (les travaux sont propres à chacun : la colonne reste sans montant).</p>' +
       '<p class="petit" id="acm-etat"></p>';
     $("modale-pied").innerHTML = '<button class="btn" id="acm-retour">Retour</button><button class="btn" id="acm-save">Enregistrer</button><button class="btn btn-or" id="acm-generer">🖨 Générer le livret</button>';
+    $("modale-corps").dataset.livret = id;
     $("acm-retour").addEventListener("click", async () => { try { await sauver(); } catch { /* on revient quand même */ } document.querySelector(".modale").classList.remove("large"); ouvrirParcours(id); });
     // Toute saisie du livret s'enregistre d'elle-même (comme le guide R2) : une
     // ligne de commission ajoutée reste là quand on rouvre.
     let autoSauve = 0;
-    $("modale-corps").addEventListener("change", () => { clearTimeout(autoSauve); autoSauve = setTimeout(() => sauver().catch(() => {}), 500); });
-    $("acm-com-lignes").addEventListener("click", (e) => { if (e.target.closest("[data-com-suppr]")) { clearTimeout(autoSauve); autoSauve = setTimeout(() => sauver().catch(() => {}), 500); } });
+    const programmerSauve = () => { clearTimeout(autoSauve); autoSauve = setTimeout(() => { autoSauve = 0; sauver().catch(() => {}); }, 500); };
+    surModale($("modale-corps"), "change", programmerSauve);
+    $("acm-com-lignes").addEventListener("click", (e) => { if (e.target.closest("[data-com-suppr]")) programmerSauve(); });
+    // Une saisie encore en attente au moment où une autre fenêtre s'ouvre : lue tout de suite
+    // (la page est encore celle de CE livret), puis envoyée — jamais relue plus tard.
+    avantFenetreSuivante(() => {
+      if (!autoSauve) return;
+      clearTimeout(autoSauve); autoSauve = 0;
+      try { const d = lire(); api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: d }).catch(() => {}); } catch { /* formulaire déjà parti */ }
+    });
     $("acm-commission").addEventListener("click", () => { document.querySelector(".modale").classList.remove("large"); ouvrirCommission(id, p); });
     $("acm-com-ajouter").addEventListener("click", () => { $("acm-com-lignes").insertAdjacentHTML("beforeend", ligneCom({ nb: "", basse: "", haute: "" }, comIdx++)); const der = $("acm-com-lignes").lastElementChild.querySelector("input"); if (der) der.focus(); });
     $("acm-com-lignes").addEventListener("click", (e) => { const b = e.target.closest("[data-com-suppr]"); if (b) b.closest(".ligne-com").remove(); });
@@ -4377,6 +4402,8 @@
       toast("Bien ajouté à la liste");
     });
     const lire = () => {
+      // Garde : on ne lit que le livret de CE dossier. Une autre fenêtre à l'écran = rien à enregistrer.
+      if ($("modale-corps").dataset.livret !== id) throw new Error("Le livret de ce dossier n'est plus à l'écran.");
       const num = (k) => { const v = parseFloat($(k).value); return Number.isFinite(v) ? v : null; };
       const cochees = (sel, liste) => [...document.querySelectorAll(sel)].filter((x) => x.checked).map((x) => liste.find((v) => v.id === x.dataset.vente || v.id === x.dataset.conc)).filter(Boolean);
       const com = [...document.querySelectorAll("[data-com-nb]")].map((x) => { const i = x.dataset.comNb; return { nb: parseInt(x.value, 10) || 0, basse: parseFloat(document.querySelector('[data-com-basse="' + i + '"]').value) || 0, haute: parseFloat(document.querySelector('[data-com-haute="' + i + '"]').value) || 0 }; }).filter((l) => l.nb > 0 || l.basse || l.haute);
@@ -4396,7 +4423,7 @@
       }
       return d;
     };
-    const sauver = async () => { const d = lire(); await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: d }); return d; };
+    const sauver = async () => { const d = lire(); await api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: d }); return d; };
     $("acm-save").addEventListener("click", async () => { try { await sauver(); toast("Livret prix : saisie enregistrée"); } catch (e) { toast(e.message, true); } });
     $("acm-generer").addEventListener("click", async () => {
       const btn = $("acm-generer"), etat = $("acm-etat"); btn.disabled = true;
@@ -4484,7 +4511,7 @@
           if (aj.repli.montant) maj.basse = aj.repli.montant;
           if (aj.raison.montant) maj.prix = aj.raison.montant;
           if (aj.ambition.montant) maj.haute = aj.ambition.montant;
-          await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: maj });
+          await api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: maj });
           acm = maj;
           toast("Commission reportée dans le livret prix (" + maj.commission.length + " ligne(s), 3 fourchettes)");
           rendre();
@@ -4888,6 +4915,12 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "livret-dossiers-16-11", depuis: "2026-11-16", jours: 10, titre: "Livret prix : un dossier n'écrit plus dans un autre",
+      html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Le défaut est corrigé</strong> : après avoir ouvert le livret prix de plusieurs dossiers, une saisie dans l'un pouvait s'enregistrer aussi dans les autres (mêmes surface, pièces et prix partout, ventes comparables vidées). Chaque livret n'écrit désormais que dans son dossier.</li>" +
+        "<li><strong>Vérifiez vos dossiers en cours</strong> : si les caractéristiques ou le livret d'un bien ne sont plus les bons, signalez-le à Benoît — les versions d'avant se retrouvent dans les sauvegardes.</li>" +
+        "<li>À partir d'aujourd'hui, Studio garde les <strong>versions précédentes</strong> de chaque livret.</li>" +
+        "</ul>" },
     { id: "brochures-bibliotheque-10-11", depuis: "2026-11-10", jours: 10, titre: "Brochures : chaque dossier reste le sien",
       html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
         "<li><strong>Le dossier ouvert est affiché</strong> en haut de l'écran (📄 son nom) et sur le bouton de la Bibliothèque : « 💾 Enregistrer « NOM » » met à jour CE dossier, sans rien demander.</li>" +

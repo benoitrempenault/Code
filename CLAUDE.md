@@ -1438,6 +1438,21 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**Livret prix — un dossier écrivait dans les autres (16/11, Stéphanie Dreyfus, la VRAIE cause de « dossiers
+liés »)** : `#modale-corps` / `#modale-pied` sont des éléments PERSISTANTS, réutilisés par toutes les fenêtres. Depuis
+la mi-octobre, `ouvrirAcm` y posait un écouteur `change` (enregistrement automatique) jamais retiré : après avoir
+ouvert le livret de A, toute saisie dans le livret de B rappelait le `sauver()` de A, qui lisait le formulaire de B
+et l'écrivait dans A (prix, surface, pièces de B ; ventes et concurrence vidées — listes de la fermeture de A).
+Touchait tout conseiller ouvrant plusieurs livrets sans recharger la page. Correctif (admin.js) : `surModale(el,
+type, fn)` / `avantFenetreSuivante(fn)` — écouteurs retirés par `ouvrirModale` ; `sessionModale` (un `await` qui
+revient après un changement de fenêtre abandonne) ; `#modale-corps.dataset.livret = id` et garde dans `lire()` ;
+la saisie en attente part avant de changer de fenêtre ; `ouvrirOffre` passe aussi par `surModale`. RÈGLE : ne
+jamais faire `$("modale-corps").addEventListener(...)` en direct. Serveur : `archiverLivret` garde l'état en place
+dans `crm_parcours_acm_versions` avant tout remplacement (≤ 1 version / 2 min / dossier ; ménage : première et
+dernière du jour après 24 h, purge 90 j ; `origine` saisie | restauration | sauvegarde). Les clients à jour écrivent
+`PUT …/acm?c=2`. Smoke `livret-dossiers` (échoue sur l'ancien script). La suppression d'un parcours laisse les
+lignes `crm_parcours_acm` / `crm_estimation_bien` orphelines (utile à la récupération).
+
 **Bibliothèque des brochures — identité des dossiers (10/11, Stéphanie Dreyfus : « un dossier se lie à un
 autre »)** : trois causes reproduites — (1) depuis le retrait du bouton de la barre (19/10), tout enregistrement
 passait par un prompt pré-rempli du nom du dernier dossier ouvert ; (2) `#aiNotes` (hors état) n'était pas vidé à

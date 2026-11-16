@@ -1363,3 +1363,17 @@ CREATE TABLE IF NOT EXISTS brochures_corbeille (
   motif      TEXT NOT NULL DEFAULT 'supprimee' -- supprimee | remplacee
 );
 CREATE INDEX IF NOT EXISTS idx_brochures_corbeille ON brochures_corbeille(agency_id, deleted_at);
+-- Versions précédentes du livret prix (16/11) : l'état en place avant chaque
+-- remplacement (au plus une toutes les deux minutes par dossier, éclairci par
+-- le ménage quotidien, 90 jours). origine : saisie | restauration | sauvegarde
+-- (version reprise d'une sauvegarde quotidienne de la base).
+CREATE TABLE IF NOT EXISTS crm_parcours_acm_versions (
+  id            TEXT PRIMARY KEY,
+  estimation_id TEXT NOT NULL,                -- crm_estimations.id
+  agency_id     TEXT NOT NULL,
+  data          TEXT NOT NULL,
+  saisie_at     INTEGER NOT NULL DEFAULT 0,   -- date de la saisie de cette version
+  archive_at    INTEGER NOT NULL,             -- date où elle a été remplacée
+  origine       TEXT NOT NULL DEFAULT 'saisie'
+);
+CREATE INDEX IF NOT EXISTS idx_acm_versions ON crm_parcours_acm_versions(estimation_id, archive_at);

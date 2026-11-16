@@ -1425,6 +1425,23 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     await db.run("INSERT OR REPLACE INTO crm_estimation_bien (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?)",
       [estId, ctx.agency.id, JSON.stringify(sanitizeBienEstimation(maj)), now()]);
   };
+  // Filet de sécurité (16/11) : avant qu'un enregistrement ne remplace le
+  // livret, l'état en place est gardé dans crm_parcours_acm_versions — au plus
+  // une version toutes les deux minutes par dossier (l'enregistrement
+  // automatique écrit à chaque saisie). Le ménage quotidien éclaircit ensuite.
+  // Un livret écrasé à tort se retrouve donc toujours.
+  const archiverLivret = async (agencyId, estId, nouveau, origine = "saisie") => {
+    try {
+      const ancien = await db.get("SELECT data, updated_at FROM crm_parcours_acm WHERE estimation_id = ?", [estId]);
+      if (!ancien || !ancien.data || ancien.data === "{}" || ancien.data === nouveau) return false;
+      const t = now();
+      const der = await db.get("SELECT MAX(archive_at) AS t FROM crm_parcours_acm_versions WHERE estimation_id = ?", [estId]);
+      if (origine === "saisie" && der && der.t && t - der.t < 120) return false;
+      await db.run("INSERT INTO crm_parcours_acm_versions (id, estimation_id, agency_id, data, saisie_at, archive_at, origine) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [randId("lv", 16), estId, agencyId, ancien.data, ancien.updated_at || 0, t, origine]);
+      return true;
+    } catch { return false; }
+  };
   app.get("/crm/parcours/:id/acm", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const p = await lireParcoursDe(ctx, c.req.param("id"));
@@ -1442,6 +1459,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!p) return err(c, 404, "Fiche introuvable.");
     const data = JSON.stringify(nettoyerJson(b) || {});
     if (data.length > 120000) return err(c, 400, "Saisie trop volumineuse.");
+    await archiverLivret(ctx.agency.id, p.est.id, data);
     await completerBien(ctx, p.est.id, b);
     await db.run(
       "INSERT INTO crm_parcours_acm (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(estimation_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
