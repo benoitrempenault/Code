@@ -45,7 +45,12 @@
     return { lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], props: f.properties };
   }
 
-  function buildQuery(lat, lon) {
+  // Un lycée se reconnaît à sa nature (school:FR, convention française
+  // d'OpenStreetMap) ou, à défaut, à son nom.
+  const RAYON_LYCEES = 10000;
+  function estLycee(t) { return /lyc[ée]e/i.test(t["school:FR"] || "") || /^lyc[ée]e/i.test((t.name || "").trim()); }
+
+  function buildQuery(lat, lon, sansLycees) {
     const p = lat + "," + lon;
     return "[out:json][timeout:25];" +
       "node(around:1300," + p + ")[highway=bus_stop]->.bs;" +
@@ -55,6 +60,10 @@
       "node(around:2600," + p + ")[amenity=school];" +
       "way(around:2600," + p + ")[amenity=school];" +
       "node(around:2600," + p + ")[amenity=college];" +
+      // Lycées : cherchés plus loin (un lycée dessert plusieurs communes).
+      (sansLycees ? "" :
+        "nwr(around:" + RAYON_LYCEES + "," + p + ")[amenity=school][\"school:FR\"~\"lyc\",i];" +
+        "nwr(around:" + RAYON_LYCEES + "," + p + ")[amenity=school][name~\"^lyc.e\",i];") +
       "node(around:1500," + p + ")[shop=bakery];" +
       "node(around:1500," + p + ")[shop=convenience];" +
       "node(around:2200," + p + ")[shop=supermarket];" +
@@ -83,7 +92,7 @@
   }
 
   function categorize(els, lat, lon, linesByNode) {
-    const out = { transport: [], ecole: [], boul: [], super: [], pharma: [], marche: [], townhall: [] };
+    const out = { transport: [], ecole: [], lycee: [], boul: [], super: [], pharma: [], marche: [], townhall: [] };
     els.forEach(function (e) {
       const t = e.tags || {}; const pp = pos(e); if (!pp) return;
       const d = haversine(lat, lon, pp[0], pp[1]);
@@ -94,7 +103,9 @@
       } else if (t.railway === "tram_stop" || t.station === "tram") {
         out.transport.push({ d: d, name: name || "Tram", tram: true, lines: t.route_ref ? t.route_ref.split(";") : [] });
       } else if (t.amenity === "school" || t.amenity === "college") {
-        if (name) out.ecole.push({ d: d, name: name });
+        if (!name) return;
+        if (t.amenity === "school" && estLycee(t)) out.lycee.push({ d: d, name: /lyc[ée]e/i.test(name) ? name : "Lycée " + name });
+        else if (d <= 2600) out.ecole.push({ d: d, name: name });
       } else if (t.shop === "bakery") { out.boul.push({ d: d, name: name || "Boulangerie" }); }
       else if (t.shop === "convenience") { out.boul.push({ d: d, name: name || "Supérette" }); }
       else if (t.shop === "supermarket") { if (name) out.super.push({ d: d, name: name }); }
@@ -145,13 +156,18 @@
     if (!geo) throw new Error("Adresse introuvable. Utilisez la saisie automatique pour la préciser.");
     const lat = geo.lat, lon = geo.lon, city = geo.props.city || "";
 
-    let data;
-    try {
-      data = await fetchJsonRetry(OVERPASS, {
+    // La recherche complète (avec les lycées, plus large) ; si elle échoue, on
+    // repart sans les lycées plutôt que de laisser le quartier vide.
+    const interroger = function (sansLycees, essais) {
+      return fetchJsonRetry(OVERPASS, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: "data=" + encodeURIComponent(buildQuery(lat, lon))
-      }, 3);
+        body: "data=" + encodeURIComponent(buildQuery(lat, lon, sansLycees))
+      }, essais);
+    };
+    let data;
+    try {
+      data = await interroger(false, 2).catch(function () { return interroger(true, 2); });
     } catch (e) {
       throw new Error("Service cartographique indisponible, réessayez dans un instant.");
     }
@@ -185,6 +201,11 @@
 
     const ec = top(c.ecole, 4);
     if (ec.length) quartier.push({ label: "Écoles", value: ec.map(function (s) { return s.name + " à " + fmt(s.d); }).join("  ·  ") });
+
+    // Les lycées les plus proches (à vol d'oiseau — pas le lycée de secteur,
+    // qui dépend de la carte scolaire).
+    const ly = top(c.lycee, 3);
+    if (ly.length) quartier.push({ label: ly.length > 1 ? "Lycées" : "Lycée", value: ly.map(function (s) { return s.name + " à " + fmt(s.d); }).join("  ·  ") });
 
     const su = top(c.super, 3);
     if (su.length) quartier.push({ label: "Supermarchés", value: su.map(function (s) { return s.name + " à " + fmt(s.d); }).join("  ·  ") });

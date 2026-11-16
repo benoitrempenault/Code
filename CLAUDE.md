@@ -1438,6 +1438,12 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**Brochures — lycées dans « Le quartier » (16/11)** : `geo.js` (mandat + mandat-pro, fichiers identiques, chargés en
+`geo.js?v=2`) cherche les lycées à 10 km (`amenity=school` + `school:FR~lyc` ou nom « Lycée… »), ligne « Lycées » =
+les 3 plus proches (vol d'oiseau, PAS le lycée de secteur), sortis de la ligne « Écoles ». Si la requête complète
+échoue, repli sur la requête sans lycées. Non vérifié sur Overpass réel le jour J (serveurs publics en 503, hôte
+injoignable depuis le conteneur) : vérifié sur données simulées.
+
 **Livret prix — un dossier écrivait dans les autres (16/11, Stéphanie Dreyfus, la VRAIE cause de « dossiers
 liés »)** : `#modale-corps` / `#modale-pied` sont des éléments PERSISTANTS, réutilisés par toutes les fenêtres. Depuis
 la mi-octobre, `ouvrirAcm` y posait un écouteur `change` (enregistrement automatique) jamais retiré : après avoir

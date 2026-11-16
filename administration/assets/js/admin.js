@@ -4915,6 +4915,8 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "brochure-lycees-16-11", depuis: "2026-11-16", jours: 7, titre: "Brochures : les lycées dans « Le quartier »",
+      html: '<p class="aide" style="max-width:none; margin:0;">Dans la brochure, « Rechercher le quartier » ajoute une ligne <strong>Lycées</strong> : les trois lycées les plus proches du bien, avec leur distance. Il s\'agit des plus proches à vol d\'oiseau, pas du lycée de secteur — la ligne se corrige ou se supprime comme les autres.</p>' },
     { id: "livret-dossiers-16-11", depuis: "2026-11-16", jours: 10, titre: "Livret prix : un dossier n'écrit plus dans un autre",
       html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
         "<li><strong>Le défaut est corrigé</strong> : après avoir ouvert le livret prix de plusieurs dossiers, une saisie dans l'un pouvait s'enregistrer aussi dans les autres (mêmes surface, pièces et prix partout, ventes comparables vidées). Chaque livret n'écrit désormais que dans son dossier.</li>" +
