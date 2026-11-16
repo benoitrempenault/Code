@@ -5426,6 +5426,15 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "revue-17-11", depuis: "2026-11-17", jours: 14, titre: "Grande révision : dossiers qui ne se mélangent plus, documents plus justes",
+      html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Brochures et fiches prestations</strong> : une réponse (rédaction, DPE, quartier) demandée pour un dossier ne s'écrit plus dans celui ouvert ensuite ; si un collègue a enregistré la même brochure entre-temps, Studio vous le dit avant de remplacer ; nouveau champ « Surface totale » ; plus de « € » parasite dans « À savoir ».</li>" +
+        "<li><strong>Parcours</strong> : un parcours ne se colle plus sur un homonyme ; « ✕ ne pas relier » dans Nouveau parcours ; un enregistrement refusé du livret s'affiche en rouge.</li>" +
+        "<li><strong>Documents</strong> : la bonne commune même quand la ville est abrégée (« St Médard »), ventes DVF aux surfaces justes, courrier d'estimation dont le texte ne passe plus sur la signature, guide R2 dont les textes restent dans leur cadre, guide R1 pour les noms à caractères étrangers.</li>" +
+        "<li><strong>Contacts</strong> : une fiche s'ouvre toujours à jour ; un double clic n'envoie plus deux SMS ; la fusion nomme les fiches concernées et garde « ne plus contacter ».</li>" +
+        "<li><strong>Suivi des ventes</strong> : créer un dossier dont la référence existe déjà ne l'écrase plus ; cocher « AR SRU envoyé au notaire » ne remplit plus la date de présentation ; un bandeau rouge signale tout dossier non enregistré.</li>" +
+        "<li><strong>Offres en ligne</strong> : le code de signature part aux coordonnées enregistrées par l'agence ; le vendeur ne reçoit plus le questionnaire de l'acquéreur.</li>" +
+        "</ul>" },
     { id: "livret-versions-17-11", depuis: "2026-11-16", jours: 14, titre: "Livret prix : second correctif, et de quoi retrouver ce qui a été écrasé",
       html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
         "<li><strong>Second défaut corrigé (16/11 au soir)</strong> : quitter un livret prix pendant qu'il chargeait encore, puis ouvrir celui d'un autre dossier, pouvait afficher le premier par-dessus le second — la saisie partait alors dans le mauvais dossier. Un livret quitté ne revient plus, et Studio refuse désormais toute saisie qui ne correspond pas au dossier affiché.</li>" +

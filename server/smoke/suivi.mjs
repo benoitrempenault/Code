@@ -409,6 +409,9 @@ async function parcoursRetourOnglet() {
     await page.waitForFunction(() => document.getElementById("todoList")?.textContent.includes("Notification SRU envoyée"), null, { timeout: 20000 });
     ok(true, "le tableau de bord liste l'action en retard (notification SRU à envoyer)");
     const d = await lireDossier(admin, id);
+    // La version d'un dossier est datée à la seconde : l'action du collègue doit tomber dans une autre seconde
+    // que la lecture de la page, sinon rien ne distingue les deux versions (le test échouait une fois sur deux).
+    await page.waitForTimeout(1300);
     await api("/dossiers", { method: "PUT", headers: admin.auth, body: { id, name: d.name,
       data: { ...d.data, etapes: { envoi_sru: { done: true, date: jour(-3) } } }, base_updated_at: d.updated_at } });
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));

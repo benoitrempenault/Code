@@ -1438,6 +1438,50 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**Révision générale en trois lots (17/11, après l'audit Fable 5.2 du 16/11) — ce qu'il faut savoir pour ne pas
+régresser.** Six chantiers fusionnés ; détail dans les commits `lot/*`.
+- *Serveur* : `sqlQ` / `sqlT` tronquent AVANT d'échapper, ids du navigateur en paramètres liés (`marques()`) ; erreur
+  500 = message générique + référence (détail au journal) ; `PUT /crm/estimations` ne réécrit plus `user_id` (le
+  créateur est immuable : c'est lui qui ouvre le périmètre du parcours) ; proxy IA = liste blanche de champs (`model`,
+  `max_tokens`, `system`, `messages`, `temperature`, `thinking`, `output_config`), jamais `stream` ni `tools`, cache
+  compté, 2xx sans `usage` = réservation gardée, limite IP en mode clé personnelle, purge `ai_rate` ; `/auth/request-link`
+  répond pareil que le compte existe ou non ; code par e-mail refusé si le mobile est vérifié, essais par session sans
+  remise à zéro ; `GET /rdv` et statut = ses propres rendez-vous pour un membre ; modification d'un suivi / d'une
+  visite = auteur ou admin ; plafonds d'envoi atomiques ; crons en NOMS de jours (`0 5 * * MON,FRI`, chaîne identique
+  dans wrangler.toml et worker.js, test) ; `enchainerEtapes` (une étape du cron en échec n'arrête pas les suivantes).
+- *Offres* : code de signature aux coordonnées de l'agence (modifiables depuis le lien seulement si vides) ; lien
+  magique, réponse manuelle et retrait = conseiller du dossier ou admin ; empreinte du texte affiché renvoyée à la
+  signature (409 si l'offre a changé) ; plafond de codes sur `otp_envois` ; après le gel ni retrait de pièce ni état
+  civil ; `questionnaire` réservé à l'offrant, certificat public sans journal ni IP ; nouveau jeton écrit seulement
+  après envoi réussi. À REPORTER À LA MAIN dans `kadima-site/src/offre/` (copie de `offre/assets/js/offre.js`).
+- *Suivi* : `PUT /dossiers` sans id sur un nom pris = 409 `existant` (sauf `remplacer`) ; `retour_sru` n'écrit plus
+  `dates.presentation_sru` ; étapes `contrat: true` (relance sans report d'échéance) ; `PRET_DEFAUT = 56` ; noms des
+  parties jamais réécrits par `normalize()` ; file des dossiers non enregistrés (bandeau, rejeu, `beforeunload`) ;
+  `PUT /annuaire` `completer: true` ne remplit que les champs vides.
+- *Brochures / fiches* : compteur `generation` (toute réponse asynchrone revenue après un changement de dossier est
+  jetée ; identité posée au retour d'un PUT seulement si la génération n'a pas changé) ; `viderHorsEtat` vide aussi
+  `dpeData` / `surfData` ; `PUT /brochures` avec `version` (409 `modifiee`), par nom sans intention = seulement sa
+  propre brochure ; `/fiches` : `id`, `creer`, `remplacer` ; `confirmerRemplacement` ; `sumSurfaces`,
+  `formatPriceValue`, `formatMoneyLine` (tests `server/test-formateurs.mjs`) ; `geo.js` : `remark` d'Overpass = échec.
+  Les anciennes pages `/` et `/pro/` n'ont reçu que le refus par nom.
+- *Administration* : `lireContact` (fiche relue par id à l'ouverture, via `/crm/contacts/:id/export`) ; Nouveau
+  parcours : `delier`, saisie = contact oublié ; serveur : rattachement d'un parcours sur e-mail OU téléphone
+  identique seulement (plus sur nom + prénom), `reporterSurContact` ne remplit que les champs vides ; projets :
+  `zone.isConnected` ; `montrerEchec` (livret) ; `urlSure` (href en http(s) seulement) ; fusion : `opt_out` conservé,
+  `prenomsConcordent` ; boutons d'envoi et de création protégés du double clic (modèle `px-creer`).
+- *Documents* : `choisirCommune` (code INSEE de la BAN, noms normalisés, jamais `liste[0]` si le code postal couvre
+  plusieurs communes → « commune indéterminée ») ; `parseDvfCsv` (terrains additionnés par parcelle, ventes groupées
+  et terrains non constructibles écartés) ; courrier mesuré avant écriture (refus au-delà d'environ 450 caractères de
+  mot libre) ; `ajusterParagraphes` coupe à la dernière phrase ; guide R2 p6 (`guide-r2.json` : `haut`, `bas`,
+  `tailleMin`) ; `ecritureSure` (Barlow si hors WinAnsi) ; `reduireProgramme` ; tiers de la commission = bornes réelles
+  des avis ; médiane paire ; smoke `documents`.
+- Smokes nouveaux : `admin-fiches`, `documents`, sous-parcours `suivi-*`. Lancer les tests en parallèle de plusieurs
+  copies du dépôt : `flock /tmp/studio-ports.lock …` (ports fixes).
+- NON FAIT, décisions du propriétaire : visibilité de la liste des estimations et de la recherche de contacts pour
+  un simple membre ; page d'attente de `/auth/exchange` (même IP = connexion sans question) ; webhook Stripe ; liens
+  d'agenda sans expiration ; corriger les coordonnées d'un offrant côté agence ; co-propriétaire encore rattaché par
+  nom + prénom ; autres lecteurs DVF (Studio Estimation, prospection) ; dépôt public et historique à purger.
+
 **Livret prix — SECOND défaut de dossiers mêlés (16/11 soir, Stéphanie : « j'ai fait A, puis modifié B, les infos de
 B se sont copiées sur A »)** : `ouvrirAcm` posait la fenêtre puis chargeait (DVF, portails, photos, commission) ;
 quittée pendant ce chargement pour le livret de B, sa suite revenait écrire SON formulaire (et ses écouteurs, id = A)
@@ -1811,7 +1855,7 @@ au vendeur si un bilan ENVOYÉ dans les 3 semaines précédentes la portait :
 que le conseiller relit ; les alertes ne partent jamais. Semaine couverte = dernière
 semaine COMPLÈTE. `crm_bilans` (un par mandat × semaine, brouillon|envoye|ignore ;
 `modifie` = relu → la régénération n'y touche plus). Délégations (« DELEGATION … ») et
-mandats absents du site : pas de bilan. Cron : lundi sur « 0 5 * * 1,5 » (budget de
+mandats absents du site : pas de bilan. Cron : lundi sur « 0 5 * * MON,FRI » (corrigé le 17/11 : « 1,5 » partait dimanche et jeudi chez Cloudflare) (budget de
 sous-requêtes séparé du 6h), si `reglages.bilans.enabled` — brouillons + **chaque bilan
 complet par e-mail à son conseiller** (29/09, demande de Benoît : `mailBilanConseiller` =
 bloc interne alertes/recommandation + texte tel que le vendeur le recevra + bouton « Modifier
