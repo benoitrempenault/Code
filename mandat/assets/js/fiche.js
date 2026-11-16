@@ -28,8 +28,42 @@
 
   /* ------------------------------- État --------------------------------- */
   const FIELDS = ["fVendeur", "fAdresse", "fType", "fNotes", "fCarac", "fInterieur", "fExterieur", "fCopro", "fASavoir", "fConf", "fFont", "fColor"];
+  // Champs que cette variante de la fiche ne connaît pas (ex. les notes confidentielles « fConf »,
+  // ou le titre « fTitre », écrits par l'autre variante) : gardés tels quels et ré-enregistrés avec
+  // la fiche — l'ouvrir ici puis l'enregistrer ne doit rien lui faire perdre.
+  let extras = {};
+  function clesInconnues(d) {
+    const o = {};
+    Object.keys(d || {}).forEach(function (k) {
+      if (FIELDS.indexOf(k) < 0 && /^f[A-Z][A-Za-z0-9]*$/.test(k) && typeof d[k] === "string") o[k] = d[k];
+    });
+    return o;
+  }
+  // Génération de la fiche : +1 à chaque changement de fiche (ouverture, import, « Nouvelle »). Une
+  // réponse partie pour la fiche précédente (structuration, transcription, enregistrement) n'est
+  // pas appliquée à la fiche affichée.
+  let generation = 0;
+  function perime(gen) {
+    if (gen === generation) return false;
+    toast("Réponse ignorée : elle concernait la fiche précédente.");
+    return true;
+  }
+  // Pose une fiche (ouverte ou importée) dans le formulaire. Un champ absent de la fiche est
+  // VIDÉ — il ne garde pas la valeur de la fiche précédente (notes confidentielles comprises) ;
+  // seuls les réglages de présentation (typo, couleur…) restent quand la fiche n'en porte pas.
+  function appliquerFiche(d) {
+    stopVoice(); // une dictée encore active écrirait la fiche précédente dans celle-ci
+    generation++;
+    FIELDS.forEach(function (id) {
+      const el = $("#" + id); if (!el) return;
+      if (typeof d[id] === "string") el.value = d[id];
+      else if (PREF_FIELDS.indexOf(id) < 0) el.value = "";
+    });
+    extras = clesInconnues(d);
+  }
   function collect() {
     const o = {};
+    Object.keys(extras).forEach(function (k) { o[k] = extras[k]; });
     FIELDS.forEach(function (id) { const el = $("#" + id); if (el) o[id] = el.value; });
     return o;
   }
@@ -48,6 +82,7 @@
       if (raw) {
         const o = JSON.parse(raw);
         FIELDS.forEach(function (id) { const el = $("#" + id); if (el && o[id] != null) el.value = o[id]; });
+        extras = clesInconnues(o);
       }
       const praw = localStorage.getItem(LS_PREFS);
       if (praw) {
@@ -231,8 +266,8 @@
       try {
         const d = JSON.parse(r.result);
         if (!d || d._app !== "studio-fiche") { toast("Ce fichier n'est pas une fiche prestation.", true); return; }
-        FIELDS.forEach(function (id) { const el = $("#" + id); if (el && typeof d[id] === "string") el.value = d[id]; });
-        currentFicheFile = null;
+        appliquerFiche(d);
+        currentFicheFile = null; currentCloudId = null;
         render(); save();
         toast("Fiche importée ✓");
       } catch (e) { toast("Fichier illisible.", true); }
@@ -432,7 +467,9 @@
           }
           images[i] = dataUrl;
           if (++done < files.length) return;
+          const gen = generation; // la fiche pour laquelle les notes sont lues
           window.BrochureAI.extractNotes({ apiKey: key, images: images }).then(function (text) {
+            if (perime(gen)) return;
             if (text && text.trim()) {
               notes.value = (notes.value.trim() ? notes.value.replace(/\s+$/, "") + "\n" : "") + text.trim();
               status.className = "ai-status is-ok"; status.textContent = "Notes transcrites ✓";
@@ -441,7 +478,7 @@
               status.className = "ai-status is-error"; status.textContent = "Rien de lisible dans ce fichier.";
             }
           }).catch(function (err) {
-            window.BrochureAI.showError(status, err);
+            if (gen === generation) window.BrochureAI.showError(status, err);
           });
         };
         if (isPdf) { const r = new FileReader(); r.onload = function () { put(r.result); }; r.readAsDataURL(f); }
@@ -460,8 +497,10 @@
       sweepConfidential();
       status.className = "ai-status is-busy"; status.textContent = "Structuration de la fiche…";
       btn.disabled = true;
+      const gen = generation; // la fiche dont on structure les notes
       window.BrochureAI.structureFiche({ apiKey: key, notes: $("#fNotes").value })
         .then(function (out) {
+          if (perime(gen)) return; // une autre fiche est ouverte : ses sections ne sont pas remplacées
           if (out.type && !$("#fType").value.trim()) $("#fType").value = out.type;
           $("#fCarac").value = (out.caracteristiques || []).join("\n");
           $("#fInterieur").value = (out.interieur || []).join("\n");
@@ -472,7 +511,7 @@
           status.className = "ai-status is-ok"; status.textContent = "Fiche structurée ✓ — relisez et ajustez.";
         })
         .catch(function (err) {
-          window.BrochureAI.showError(status, err);
+          if (gen === generation) window.BrochureAI.showError(status, err);
         })
         .then(function () { btn.disabled = false; });
     });
@@ -730,6 +769,7 @@
   // Même dossier OneDrive que les brochures ; les fiches y sont des .json
   // marqués _app: "studio-fiche" (invisibles dans la bibliothèque brochures).
   let currentFicheFile = null;
+  let currentCloudId = null; // la fiche du compte actuellement ouverte (mise à jour par son identifiant)
   function wireFicheLibrary() {
     function Lib() { return window.BrochureLibrary; }
     const overlay = $("#libOverlay");
@@ -756,10 +796,24 @@
       } catch (e) { throw new Error("Serveur injoignable — vérifiez votre connexion."); }
       const data = await res.json().catch(function () { return null; });
       if (res.status === 401) throw new Error("Session expirée — reconnectez-vous pour retrouver la bibliothèque du compte.");
-      if (!res.ok) throw new Error((data && data.error) || "Erreur serveur — réessayez.");
+      if (!res.ok) { const er = new Error((data && data.error) || "Erreur serveur — réessayez."); er.status = res.status; er.data = data; throw er; }
       return data;
     }
-    let cloudMode = false, currentCloudId = null;
+    let cloudMode = false;
+    // Envoi au compte. La fiche ouverte se met à jour PAR SON IDENTIFIANT ; un nom déjà pris par une
+    // autre fiche (celle d'un collègue, ou une autre « FICHE sans nom ») n'est jamais écrasé sans
+    // question. silencieux : copie de fond depuis le dossier — pas de question, pas d'écrasement.
+    async function cloudPutFiche(body, silencieux) {
+      try { return await cloudApi("/fiches", { body: body }); }
+      catch (e) {
+        const ex = e && e.status === 409 && e.data && e.data.existe;
+        if (!ex || silencieux) throw e;
+        const d = ex.updated_at ? new Date(ex.updated_at * 1000).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) : "";
+        const deQui = (ex.a_moi ? "votre fiche" : "la fiche" + (ex.auteur ? " de " + ex.auteur : "")) + (d ? " du " + d : "");
+        if (!confirm("Une autre fiche « " + body.name + " » existe déjà sur le compte.\n\nRemplacer " + deQui + " par celle-ci ? (Annuler pour choisir un autre nom.)")) return null;
+        return cloudApi("/fiches", { body: { name: body.name, data: body.data, remplacer: true } });
+      }
+    }
     function paintMode() {
       $("#libFolder").textContent = cloudMode
         ? "Fiches du compte — synchronisées entre vos appareils"
@@ -864,9 +918,19 @@
           name = (input.trim() || "fiche").slice(0, 120);
         }
         const data = collect(); data._app = "studio-fiche"; data._v = 1;
+        // La fiche ouverte, sous son nom : mise à jour par identifiant. Sinon c'est une AUTRE fiche
+        // (premier enregistrement, nouveau nom) : création — un nom déjà pris pose la question.
+        // (Fiche venue du dossier, pas encore liée au compte : par son nom — le serveur n'y touche que
+        // si elle est à nous.)
+        const memeNom = currentFicheFile === name + ".json";
+        const body = (memeNom && currentCloudId) ? { id: currentCloudId, name: name, data: data }
+          : (memeNom ? { name: name, data: data } : { name: name, data: data, creer: true });
+        const gen = generation;
         try {
-          const r = await cloudApi("/fiches", { body: { name: name, data: data } });
-          currentCloudId = r.id; currentFicheFile = name + ".json";
+          const r = await cloudPutFiche(body, false);
+          if (!r) return; // remplacement refusé
+          // Une autre fiche a été ouverte pendant l'envoi : elle garde sa propre identité.
+          if (gen === generation) { currentCloudId = r.id; currentFicheFile = name + ".json"; }
           toast(r.updated ? "« " + name + " » mise à jour sur votre compte ✓" : "Fiche enregistrée sur votre compte : " + name);
           if (!overlay.hidden) refresh();
         } catch (e) { toast(e.message, true); }
@@ -892,11 +956,15 @@
         }
       }
       const data = collect(); data._app = "studio-fiche"; data._v = 1;
+      const gen = generation;
       try {
         await Lib().saveState(data, name);
-        currentFicheFile = name;
+        if (gen === generation) {
+          if (name !== currentFicheFile) currentCloudId = null; // autre nom = autre fiche sur le compte
+          currentFicheFile = name;
+        }
         toast("Fiche enregistrée : " + name);
-        pushFicheToCloud(name); // copie « compte » silencieuse (téléphones + autres postes)
+        if (gen === generation) pushFicheToCloud(name); // copie « compte » silencieuse (téléphones + autres postes)
         if (!overlay.hidden) refresh();
       } catch (e) { toast("Enregistrement impossible.", true); }
     }
@@ -905,15 +973,19 @@
     function pushFicheToCloud(name) {
       if (!cloudOn()) return;
       const data = collect(); data._app = "studio-fiche"; data._v = 1;
-      cloudApi("/fiches", { body: { name: String(name || "").replace(/\.json$/i, ""), data: data } })
-        .then(function (r) { currentCloudId = r.id; }, function () { /* le dossier reste la référence */ });
+      const nom = String(name || "").replace(/\.json$/i, ""), gen = generation;
+      cloudPutFiche(currentCloudId ? { id: currentCloudId, name: nom, data: data } : { name: nom, data: data }, true)
+        .then(function (r) { if (r && r.id && gen === generation) currentCloudId = r.id; }, function () { /* nom pris par un collègue, ou hors ligne : le dossier reste la référence */ });
     }
+    let ouvertures = 0; // deux « Ouvrir » coup sur coup : seule la dernière demande s'applique
     async function openCloud(id) {
+      const jeton = ++ouvertures;
       try {
         const r = await cloudApi("/fiches/" + id);
+        if (jeton !== ouvertures) return;
         const d = r.data;
         if (!d || d._app !== "studio-fiche") { toast("Ce fichier n'est pas une fiche prestation.", true); return; }
-        FIELDS.forEach(function (fid) { const el = $("#" + fid); if (el && typeof d[fid] === "string") el.value = d[fid]; });
+        appliquerFiche(d);
         currentCloudId = id; currentFicheFile = (r.name || "fiche") + ".json";
         render(); save();
         overlay.hidden = true;
@@ -921,11 +993,13 @@
       } catch (e) { toast(e.message, true); }
     }
     async function openFiche(name) {
+      const jeton = ++ouvertures;
       try {
         const d = await Lib().read(name);
+        if (jeton !== ouvertures) return;
         if (!d || d._app !== "studio-fiche") { toast("Ce fichier n'est pas une fiche prestation.", true); return; }
-        FIELDS.forEach(function (id) { const el = $("#" + id); if (el && typeof d[id] === "string") el.value = d[id]; });
-        currentFicheFile = name;
+        appliquerFiche(d);
+        currentFicheFile = name; currentCloudId = null; // fichier du dossier : pas (encore) lié à une fiche du compte
         render(); save();
         overlay.hidden = true;
         toast("« " + name.replace(/\.json$/i, "") + " » ouverte.");
@@ -1008,7 +1082,7 @@
     $("#btnFicheNew").addEventListener("click", function () {
       if (!confirm("Repartir d'une fiche vierge ? La fiche actuelle sera effacée (pensez à l'exporter en Word).")) return;
       stopVoice(); // une dictée encore active re-remplirait les notes brutes
-      currentFicheFile = null;
+      currentFicheFile = null; currentCloudId = null; extras = {}; generation++;
       FIELDS.forEach(function (id) { $("#" + id).value = ""; });
       $("#fFont").value = "elegant"; $("#fColor").value = "#8a6a3c";
       render(); save();

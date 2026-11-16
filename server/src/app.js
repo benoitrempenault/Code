@@ -864,10 +864,32 @@ export function createApp(env) {
       String(data.fAdresse || "").slice(0, 200),
       String(data.fType || "").slice(0, 100)
     ];
-    const existing = await db.get("SELECT id FROM fiches WHERE agency_id = ? AND name = ?", [ctx.agency.id, name]);
+    /* Quelle fiche écrit-on ? Même règle que les brochures (10/11) :
+       - b.id : la fiche OUVERTE, mise à jour par son identifiant (renommée si le nom est libre) ;
+       - sinon par son nom. Un nom déjà pris : remplacé sur demande explicite (b.remplacer) ; refusé
+         (409 + qui/quand) quand l'appelant voulait CRÉER (b.creer) ; et, sans intention exprimée
+         (anciens clients encore en cache), mis à jour seulement si la fiche est à l'appelant — la
+         fiche d'un collègue (ou une « FICHE sans nom » de plus) n'est jamais écrasée en silence. */
+    const idDemande = String((b && b.id) || "").replace(/[^a-z0-9_]/gi, "").slice(0, 40);
+    const parNom = await db.get(
+      `SELECT f.id, f.user_id, f.updated_at, COALESCE(u.name, '') AS auteur FROM fiches f LEFT JOIN users u ON u.id = f.user_id
+       WHERE f.agency_id = ? AND f.name = ?`, [ctx.agency.id, name]);
+    let existing = idDemande ? await db.get("SELECT id FROM fiches WHERE id = ? AND agency_id = ?", [idDemande, ctx.agency.id]) : null;
+    const conflit = () => c.json({
+      error: "Une autre fiche « " + name + " » existe déjà sur le compte" + (parNom.auteur ? " (enregistrée par " + parNom.auteur + " le " + dateParis(parNom.updated_at) + ")" : "")
+        + " — enregistrez la vôtre sous un autre nom.",
+      existe: { id: parNom.id, auteur: parNom.auteur, updated_at: parNom.updated_at, a_moi: parNom.user_id === ctx.user.id },
+    }, 409);
     if (existing) {
-      await db.run("UPDATE fiches SET data = ?, vendeur = ?, adresse = ?, type = ?, user_id = ?, updated_at = ? WHERE id = ?",
-        [json, meta[0], meta[1], meta[2], ctx.user.id, now(), existing.id]);
+      if (parNom && parNom.id !== existing.id) return conflit();
+    } else if (parNom) {
+      if (b.remplacer === true) existing = parNom;
+      else if (b.creer === true || idDemande || parNom.user_id !== ctx.user.id) return conflit();
+      else existing = parNom;
+    }
+    if (existing) {
+      await db.run("UPDATE fiches SET name = ?, data = ?, vendeur = ?, adresse = ?, type = ?, user_id = ?, updated_at = ? WHERE id = ?",
+        [name, json, meta[0], meta[1], meta[2], ctx.user.id, now(), existing.id]);
       return c.json({ ok: true, id: existing.id, name, updated: true });
     }
     const count = await db.get("SELECT COUNT(*) AS n FROM fiches WHERE agency_id = ?", [ctx.agency.id]);
@@ -3812,48 +3834,71 @@ export function createApp(env) {
          nom est libre) ;
        - sinon par son nom. Un nom déjà pris : remplacé seulement sur demande explicite
          (b.remplacer, l'ancienne version part à la corbeille) ; refusé (409 + qui/quand) quand
-         l'appelant voulait CRÉER (b.creer) ; mis à jour pour les anciens clients encore en cache,
-         qui n'envoient ni l'un ni l'autre. */
+         l'appelant voulait CRÉER (b.creer) ; pour les anciens clients encore en cache (pages « / »
+         et « /pro/ »), qui n'envoient ni l'un ni l'autre, mis à jour seulement si la brochure est
+         à l'appelant — celle d'un collègue n'est plus écrasée par son nom, sans question.
+       Dernier écrit (16/11) : b.version = l'updated_at que le client connaît de la brochure ouverte.
+       S'il a changé (enregistrée entre-temps depuis un autre poste), 409 + qui/quand ; avec
+       b.remplacer, la version en place part à la corbeille puis est remplacée. Sans b.version
+       (pages en cache) : comportement d'avant. */
     const idDemande = String((b && b.id) || "").replace(/[^a-z0-9_]/gi, "").slice(0, 40);
     const parNom = await db.get(
       `SELECT b.*, COALESCE(u.name, '') AS auteur FROM brochures b LEFT JOIN users u ON u.id = b.user_id
        WHERE b.agency_id = ? AND b.name = ?`, [ctx.agency.id, name]);
-    let existing = idDemande ? await db.get("SELECT * FROM brochures WHERE id = ? AND agency_id = ?", [idDemande, ctx.agency.id]) : null;
+    let existing = idDemande ? await db.get(
+      `SELECT b.*, COALESCE(u.name, '') AS auteur FROM brochures b LEFT JOIN users u ON u.id = b.user_id
+       WHERE b.id = ? AND b.agency_id = ?`, [idDemande, ctx.agency.id]) : null;
     const conflit = () => c.json({
-      error: "Une autre brochure « " + name + " » existe déjà sur le compte.",
+      error: "Une autre brochure « " + name + " » existe déjà sur le compte" + (parNom.auteur ? " (enregistrée par " + parNom.auteur + " le " + dateParis(parNom.updated_at) + ")" : "")
+        + " — enregistrez la vôtre sous un autre nom.",
       existe: { id: parNom.id, auteur: parNom.auteur, updated_at: parNom.updated_at, a_moi: parNom.user_id === ctx.user.id },
     }, 409);
+    // La version en place reste récupérable : son contenu est copié sous un nouvel identifiant.
+    const garderAncienne = async (row) => {
+      const ancien = await env.files.get(brKey(ctx.agency.id, row.id));
+      if (!ancien) return;
+      const idCopie = randId("br");
+      await env.files.put(brKey(ctx.agency.id, idCopie), await ancien.text());
+      await versCorbeilleBrochure(row, ctx.user.id, "remplacee", idCopie);
+    };
     if (existing) {
       if (parNom && parNom.id !== existing.id) return conflit();
-    } else if (parNom) {
-      if (b.remplacer === true) {
-        // L'ancienne version reste récupérable : son contenu est copié sous un nouvel identifiant.
-        const ancien = await env.files.get(brKey(ctx.agency.id, parNom.id));
-        if (ancien) {
-          const idCopie = randId("br");
-          await env.files.put(brKey(ctx.agency.id, idCopie), await ancien.text());
-          await versCorbeilleBrochure(parNom, ctx.user.id, "remplacee", idCopie);
+      const version = b.version == null ? null : Number(b.version);
+      if (version != null && version !== existing.updated_at) {
+        if (b.remplacer !== true) {
+          return c.json({
+            error: "« " + existing.name + " » a été enregistrée sur le compte" + (existing.auteur ? " par " + existing.auteur : "") + " le " + dateParis(existing.updated_at)
+              + ", depuis que vous l'avez ouverte — rechargez-la avant de l'enregistrer.",
+            modifiee: { id: existing.id, auteur: existing.auteur, updated_at: existing.updated_at, a_moi: existing.user_id === ctx.user.id },
+          }, 409);
         }
-        existing = parNom;
-      } else if (b.creer === true || idDemande) return conflit();
+        await garderAncienne(existing);
+      }
+    } else if (parNom) {
+      if (b.remplacer === true) { await garderAncienne(parNom); existing = parNom; }
+      else if (b.creer === true || idDemande || parNom.user_id !== ctx.user.id) return conflit();
       else existing = parNom;
     }
     const id = existing ? existing.id : randId("br");
     await env.files.put(brKey(ctx.agency.id, id), json);
     if (existing) {
+      // Chaque enregistrement change updated_at (même deux dans la même seconde) : c'est lui que
+      // les clients comparent pour savoir si la brochure a bougé depuis leur ouverture.
+      const maj = Math.max(now(), (existing.updated_at || 0) + 1);
       await db.run("UPDATE brochures SET name = ?, title = ?, location = ?, price = ?, type = ?, size = ?, user_id = ?, updated_at = ? WHERE id = ?",
-        [name, meta[0], meta[1], meta[2], meta[3], json.length, ctx.user.id, now(), id]);
-      return c.json({ ok: true, id, name, updated: true });
+        [name, meta[0], meta[1], meta[2], meta[3], json.length, ctx.user.id, maj, id]);
+      return c.json({ ok: true, id, name, updated: true, updated_at: maj });
     }
     const count = await db.get("SELECT COUNT(*) AS n FROM brochures WHERE agency_id = ?", [ctx.agency.id]);
     if ((count?.n || 0) >= BROCHURES_MAX) {
       await env.files.delete(brKey(ctx.agency.id, id)).catch?.(() => { });
       return err(c, 409, "Limite de brochures atteinte (" + BROCHURES_MAX + ") — supprimez-en d'abord.");
     }
+    const cree = now();
     await db.run(
       "INSERT INTO brochures (id, agency_id, user_id, name, title, location, price, type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [id, ctx.agency.id, ctx.user.id, name, meta[0], meta[1], meta[2], meta[3], json.length, now(), now()]);
-    return c.json({ ok: true, id, name, updated: false });
+      [id, ctx.agency.id, ctx.user.id, name, meta[0], meta[1], meta[2], meta[3], json.length, cree, cree]);
+    return c.json({ ok: true, id, name, updated: false, updated_at: cree });
   });
 
   app.delete("/brochures/:id", async (c) => {

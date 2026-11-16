@@ -1054,7 +1054,7 @@
     } catch (e) { throw new Error("Serveur injoignable — vérifiez votre connexion."); }
     const data = await res.json().catch(function () { return null; });
     if (res.status === 401) throw new Error("Session expirée — reconnectez-vous pour retrouver la bibliothèque du compte.");
-    if (!res.ok) throw new Error((data && data.error) || "Erreur serveur — réessayez.");
+    if (!res.ok) { const er = new Error((data && data.error) || "Erreur serveur — réessayez."); er.status = res.status; throw er; }
     return data;
   }
   let libCloudMode = false, currentCloudId = null;
@@ -1076,7 +1076,12 @@
       toast(r.updated ? "« " + name + " » mise à jour sur le compte ✓" : "Brochure enregistrée sur le compte : " + name);
       if (!$("#libOverlay").hidden) libRefresh();
       return true;
-    } catch (e) { toast(e.message, true); return false; }
+    } catch (e) {
+      // Refus du serveur (ce nom est celui de la brochure d'un collègue) : le message dit qui et
+      // quand — il reste à l'écran le temps d'être lu, un toast de 3 s n'y suffit pas.
+      if (e.status === 409) alert(e.message); else toast(e.message, true);
+      return false;
+    }
   }
   // Copie « compte » silencieuse après un enregistrement dans le dossier :
   // la brochure devient visible sur les téléphones, sans double saisie.

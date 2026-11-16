@@ -207,11 +207,13 @@
           }
           images[i] = dataUrl;
           if (++done < files.length) return;
+          const gen = App().generation(); // le dossier pour lequel les notes sont lues
           window.BrochureAI.extractNotes({
             apiKey: key,
             model: $("#aiModel") ? $("#aiModel").value : undefined,
             images: images
           }).then(function (text) {
+            if (App().perime(gen)) return; // un autre dossier est ouvert : ses notes ne reçoivent pas celles-ci
             if (text && text.trim()) {
               notes.value = (notes.value.trim() ? notes.value.replace(/\s+$/, "") + "\n" : "") + text.trim();
               status.className = "ai-status is-ok"; status.textContent = "Notes transcrites ✓ — relisez et corrigez si besoin.";
@@ -219,7 +221,7 @@
               status.className = "ai-status is-error"; status.textContent = "Rien de lisible dans cette image.";
             }
           }).catch(function (err) {
-            window.BrochureAI.showError(status, err);
+            if (gen === App().generation()) window.BrochureAI.showError(status, err);
           });
         };
         if (isPdf) {
@@ -236,13 +238,20 @@
   /* ------------------- Prix : format automatique (000 000 €) ------------ */
   // « 700000 » devient « 700 000 € » — l'espace des milliers en cours de
   // frappe, le € à la sortie du champ. Les mentions (FAI…) sont conservées.
+  // Une virgule ou un point suivi de 1 ou 2 chiffres est une DÉCIMALE, pas un séparateur de
+  // milliers : « 450 000,00 » reste 450 000 € (et non 45 000 000 €), « 1,2 M€ » reste 1,2 M€.
   function formatPriceValue(v, addEuro) {
+    // En cours de frappe, le séparateur qu'on vient de taper attend ses chiffres.
+    if (!addEuro && /\d[.,]\s*$/.test(v)) return v;
     const m = /^\s*([\d\s.,\u00A0\u202F]*\d)([\s\S]*)$/.exec(v);
     if (!m) return v;
-    const digits = m[1].replace(/[^\d]/g, "");
+    const dm = /^([\s\S]*\d)[.,](\d{1,2})$/.exec(m[1]);
+    const digits = (dm ? dm[1] : m[1]).replace(/[^\d]/g, "");
     if (!digits) return v;
-    const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, "\u202F");
-    let rest = m[2].trim();
+    // « ,00 » ne dit rien : retiré à la sortie du champ (gardé pendant la frappe).
+    const dec = dm && !(addEuro && /^0+$/.test(dm[2])) ? "," + dm[2] : "";
+    const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, "\u202F") + dec;
+    let rest = m[2].trim().replace(/^[.,]\s*/, "");
     if (addEuro && rest.indexOf("€") < 0) rest = ("€ " + rest).trim();
     return grouped + (rest ? " " + rest : "");
   }
@@ -278,16 +287,24 @@
         status.className = "ai-status"; status.textContent = "";
         return;
       }
+      // Le lien a changé : l'ancien QR ne correspond plus — il est retiré tout de suite (un
+      // lien invalide ou une génération en échec ne laisse pas imprimer le QR d'une autre page).
+      App().setValue("property.webQr", null);
+      App().render(); App().scheduleSave();
       if (!/^https?:\/\//i.test(url)) {
         status.className = "ai-status is-error"; status.textContent = "Le lien doit commencer par http(s)://";
         return;
       }
       status.className = "ai-status is-busy"; status.textContent = "Génération du QR code…";
+      const gen = App().generation();
+      // La réponse ne vaut que pour CE dossier et CE lien (un lien corrigé entre-temps a sa propre demande).
+      const actuel = function () { return gen === App().generation() && (input.value || "").trim() === url; };
       fetch("https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=0&data=" + encodeURIComponent(url))
         .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.blob(); })
         .then(function (blob) {
           const rd = new FileReader();
           rd.onload = function () {
+            if (!actuel()) return;
             App().setValue("property.webQr", rd.result);
             App().render(); App().scheduleSave();
             status.className = "ai-status is-ok"; status.textContent = "QR code ajouté à la page de prix ✓";
@@ -295,17 +312,24 @@
           rd.readAsDataURL(blob);
         })
         .catch(function () {
+          if (!actuel()) return;
           status.className = "ai-status is-error"; status.textContent = "Génération impossible (connexion ?). Réessayez.";
         });
     });
   }
 
   /* ------- Montants automatiques dans « À savoir » (taxes, charges…) ----- */
+  // « € » seulement sur les lignes de taxe, de charges ou d'honoraires, et jamais devant une
+  // unité ou un mot : « Copropriété de 124 lots », « Bureau de 120 m² », « Chauffe-eau 270 L »
+  // restent tels quels (« eau » et « copro » déclenchaient l'ajout).
+  const LIGNE_MONTANT = /\btaxes?\b|\bcharges?\b|honorair|fonci[eè]r/i;
+  const SUITE_MONTANT = /^[\s\u00A0\u202F]*(?:$|[\/;:)\-–—]|[.,](?!\d)|(?:par|l['’]an|an|mois|trimestre|annuel(?:le)?s?|mensuel(?:le)?s?|HT|TTC)(?![A-Za-zÀ-ÿ0-9]))/i;
   function formatMoneyLine(line) {
-    if (!/taxe|charge|électric|electric|gaz|eau|copro|honorair|fonci/i.test(line)) return line;
-    return line.replace(/(\d[\d\s\u00A0\u202F]*\d|\d{3,})(?![\s\u00A0\u202F]*€|\d)/g, function (m) {
+    if (!LIGNE_MONTANT.test(line)) return line;
+    return line.replace(/(\d[\d\s\u00A0\u202F]*\d|\d{3,})(?![\s\u00A0\u202F]*€|\d)/g, function (m, g, pos, tout) {
       const digits = m.replace(/[^\d]/g, "");
       if (digits.length < 3 || /^(19|20)\d{2}$/.test(digits)) return m;
+      if (!SUITE_MONTANT.test(tout.slice(pos + m.length))) return m; // suivi d'une unité, d'un mot ou de décimales
       return digits.replace(/\B(?=(\d{3})+(?!\d))/g, "\u202F") + " €";
     });
   }
@@ -338,16 +362,18 @@
       }
       status.className = "ai-status is-busy"; status.textContent = "Rédaction de l'annonce…";
       btn.disabled = true;
+      const gen = App().generation();
       window.BrochureAI.generateAdText({
         apiKey: key,
         model: $("#aiModel").value,
         state: App().getState()
       }).then(function (text) {
+        if (App().perime(gen)) return; // l'annonce rédigée est celle du dossier précédent
         App().setValue("adText", text || "");
         App().hydrateForm(); App().save();
         status.className = "ai-status is-ok"; status.textContent = "Texte publicitaire prêt ✓";
       }).catch(function (err) {
-        window.BrochureAI.showError(status, err);
+        if (gen === App().generation()) window.BrochureAI.showError(status, err);
       }).then(function () { btn.disabled = false; });
     });
 
@@ -379,7 +405,10 @@
       if (raw) {
         localStorage.removeItem("studio-mandat-handoff");
         const h = JSON.parse(raw);
-        if (h && h.notes) {
+        // Une brochure en cours non enregistrée n'est pas effacée sans accord (l'injection est alors abandonnée).
+        if (h && h.notes && !App().confirmerRemplacement()) {
+          setTimeout(function () { App().toast("Injection annulée — la brochure en cours est conservée. Enregistrez-la, puis relancez l'injection depuis la fiche."); }, 300);
+        } else if (h && h.notes) {
           // Nouveau bien = nouvelle brochure : on repart d'un état vierge pour
           // ne pas hériter des photos, de la localisation ni des textes
           // (« attrait de la ville »…) du bien précédent.
@@ -399,7 +428,7 @@
 
   // Navigation programmée (ex. l'import d'une fiche prestation amène à
   // l'étape 8 pour rendre la rédaction automatique visible).
-  window.StudioWizard = { goto: show };
+  window.StudioWizard = { goto: show, formatPriceValue: formatPriceValue, formatMoneyLine: formatMoneyLine };
 
   document.addEventListener("DOMContentLoaded", init);
 })();

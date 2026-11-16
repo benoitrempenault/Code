@@ -354,6 +354,71 @@ const pwTeam = { json: { session: await sessionPar("u2@azur-immo.fr") } };
 ok(!!pwTeam.json.session && (await call("/me", { headers: { Authorization: "Bearer " + pwTeam.json.session } })).status === 200, "un conseiller sans mobile entre par le lien seul (pas de code)");
 await db.run("DELETE FROM login_tokens", []);
 
+// Audit du 16/11 : (4) le dernier écrit ne gagne plus en silence — le client envoie la version
+// (updated_at) qu'il connaît ; (5) sans intention exprimée, le nom ne suffit plus à écraser la
+// brochure ou la fiche d'un collègue (pages restées sur l'ancien script).
+console.log("— Brochures et fiches : version connue, nom d'un collègue (16/11)");
+{ const hA = { Authorization: "Bearer " + s3 }, hC = { Authorization: "Bearer " + pwTeam.json.session };
+  const don = (t) => ({ _app: "studio-brochure", _v: 2, property: { title: t } });
+  const titre = async (id) => (await call("/brochures/" + id, { headers: hA })).json.data.property.title;
+  const put = (h, body) => call("/brochures", { method: "PUT", headers: h, body });
+  const c1 = await put(hA, { name: "MAISON DES TESTS", data: don("Version 1"), creer: true });
+  ok(c1.status === 200 && typeof c1.json.updated_at === "number" && (await call("/brochures/" + c1.json.id, { headers: hA })).json.updated_at === c1.json.updated_at,
+    "l'enregistrement d'une brochure renvoie sa version (updated_at), la même qu'à l'ouverture");
+  const c2 = await put(hC, { id: c1.json.id, name: "MAISON DES TESTS", data: don("Version du collègue"), version: c1.json.updated_at });
+  ok(c2.status === 200 && c2.json.updated_at > c1.json.updated_at, "version à jour : enregistrement accepté, et la version change (même dans la même seconde)");
+  const c3 = await put(hA, { id: c1.json.id, name: "MAISON DES TESTS", data: don("Vieil état local"), version: c1.json.updated_at });
+  ok(c3.status === 409 && c3.json.modifiee && c3.json.modifiee.id === c1.json.id && c3.json.modifiee.updated_at === c2.json.updated_at && c3.json.modifiee.a_moi === false
+    && typeof c3.json.modifiee.auteur === "string" && /depuis que vous l'avez ouverte/.test(c3.json.error) && await titre(c1.json.id) === "Version du collègue",
+    "version dépassée (enregistrée entre-temps depuis un autre poste) : 409 avec auteur et date, rien n'est écrasé");
+  const c4 = await put(hA, { id: c1.json.id, name: "MAISON DES TESTS", data: don("Vieil état local"), version: c1.json.updated_at, remplacer: true });
+  const corbV = (await call("/brochures/corbeille", { headers: hA })).json.brochures;
+  ok(c4.status === 200 && c4.json.id === c1.json.id && await titre(c1.json.id) === "Vieil état local" && corbV.length === 1 && corbV[0].motif === "remplacee" && corbV[0].name === "MAISON DES TESTS",
+    "« Remplacer » malgré la version dépassée : accepté, la version remplacée part à la corbeille");
+  const restV = await call("/brochures/" + corbV[0].id + "/restaurer", { method: "POST", headers: hA, body: {} });
+  ok(restV.status === 200 && await titre(restV.json.id) === "Version du collègue", "…et se restaure avec le contenu du collègue");
+  const c5 = await put(hC, { id: c1.json.id, name: "MAISON DES TESTS", data: don("Client en cache, sans version") });
+  ok(c5.status === 200 && c5.json.updated === true && await titre(c1.json.id) === "Client en cache, sans version", "sans version (page en cache) : mise à jour par identifiant comme avant");
+  // Par le nom seul : la brochure appartient maintenant au collègue (dernier à l'avoir enregistrée).
+  const n1 = await put(hA, { name: "MAISON DES TESTS", data: don("Écrasée par son nom") });
+  ok(n1.status === 409 && n1.json.existe && n1.json.existe.id === c1.json.id && n1.json.existe.a_moi === false && /existe déjà/.test(n1.json.error) && /autre nom/.test(n1.json.error)
+    && await titre(c1.json.id) === "Client en cache, sans version",
+    "ancien client, par le nom seul : la brochure d'un collègue n'est pas écrasée (409, qui et quand dans le message)");
+  const n2 = await put(hC, { name: "MAISON DES TESTS", data: don("Ma brochure, par son nom") });
+  ok(n2.status === 200 && n2.json.updated === true && n2.json.id === c1.json.id, "ancien client, par le nom seul : sa PROPRE brochure se met toujours à jour");
+  const n3 = await put(hA, { name: "MAISON DES TESTS", data: don("Remplacement voulu"), remplacer: true });
+  ok(n3.status === 200 && n3.json.id === c1.json.id && await titre(c1.json.id) === "Remplacement voulu", "remplacement explicite de la brochure d'un collègue : toujours possible");
+  ok((await put(hA, { name: "MAISON DES TESTS", data: don("x") })).status === 200 && /Claire Fontaine/.test((await put(hC, { name: "MAISON DES TESTS", data: don("y") })).json.error || ""),
+    "le refus nomme l'auteur de la brochure en place");
+  for (const x of (await call("/brochures", { headers: hA })).json.brochures) await call("/brochures/" + x.id, { method: "DELETE", headers: hA });
+  await db.run("DELETE FROM brochures_corbeille");
+
+  // Fiches prestations : même règle par le nom, et mise à jour par identifiant de la fiche ouverte.
+  const fd = (v) => ({ _app: "studio-fiche", _v: 1, fVendeur: v });
+  const fput = (h, body) => call("/fiches", { method: "PUT", headers: h, body });
+  const vendeur = async (id) => (await call("/fiches/" + id, { headers: hA })).json.data.fVendeur;
+  const f1 = await fput(hA, { name: "FICHE sans nom", data: fd("Vendeur de Claire") });
+  const f2 = await fput(hC, { name: "FICHE sans nom", data: fd("Vendeur du collègue") });
+  ok(f1.status === 200 && f2.status === 409 && f2.json.existe && f2.json.existe.id === f1.json.id && f2.json.existe.a_moi === false && f2.json.existe.auteur === "Claire Fontaine"
+    && typeof f2.json.existe.updated_at === "number" && await vendeur(f1.json.id) === "Vendeur de Claire",
+    "fiche : le nom (« FICHE sans nom ») n'écrase pas la fiche d'un collègue — 409 avec auteur et date");
+  const f3 = await fput(hA, { name: "FICHE sans nom", data: fd("Autre bien, même nom par défaut"), creer: true });
+  ok(f3.status === 409 && f3.json.existe.a_moi === true && await vendeur(f1.json.id) === "Vendeur de Claire", "fiche : créer sous un nom déjà pris est refusé, même pour sa propre fiche");
+  const f4 = await fput(hA, { name: "FICHE sans nom", data: fd("Claire, par le nom") });
+  ok(f4.status === 200 && f4.json.updated === true && f4.json.id === f1.json.id, "fiche : ancien client, sa PROPRE fiche se met toujours à jour par son nom");
+  const f5 = await fput(hC, { id: f1.json.id, name: "FICHE sans nom", data: fd("Ouverte puis enregistrée par le collègue") });
+  ok(f5.status === 200 && f5.json.id === f1.json.id && await vendeur(f1.json.id) === "Ouverte puis enregistrée par le collègue", "fiche : la fiche OUVERTE se met à jour par son identifiant, quel qu'en soit l'auteur");
+  const f6 = await fput(hA, { name: "FICHE sans nom", data: fd("Remplacement voulu"), remplacer: true });
+  ok(f6.status === 200 && f6.json.id === f1.json.id && await vendeur(f1.json.id) === "Remplacement voulu", "fiche : remplacement explicite accepté");
+  const f7 = await fput(hA, { name: "FICHE 12 rue des Essais", data: fd("Seconde fiche"), creer: true });
+  const f8 = await fput(hA, { id: f7.json.id, name: "FICHE sans nom", data: fd("Renommage vers un nom pris") });
+  const f9 = await fput(hA, { id: f7.json.id, name: "FICHE 14 rue des Essais", data: fd("Renommée") });
+  ok(f7.status === 200 && f8.status === 409 && f9.status === 200 && f9.json.id === f7.json.id
+    && (await call("/fiches", { headers: hA })).json.fiches.map((x) => x.name).sort().join() === "FICHE 14 rue des Essais,FICHE sans nom",
+    "fiche : par identifiant, renommage vers un nom libre accepté, vers le nom d'une autre fiche refusé");
+  for (const x of (await call("/fiches", { headers: hA })).json.fiches) await call("/fiches/" + x.id, { method: "DELETE", headers: hA });
+}
+
 console.log("— Attente de connexion : la page qui a demandé le lien se connecte quand le lien est cliqué ailleurs");
 { const rl = await call("/auth/request-link", { body: { email: "claire@azur-immo.fr" } });
   ok(rl.status === 200 && rl.json.attente && rl.json.attente.length >= 20, "la demande de lien rend un jeton d'attente");
