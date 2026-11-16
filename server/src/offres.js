@@ -207,11 +207,18 @@ export function nomSignataire(s) {
   const prenom = i.prenoms || s.prenom || "";
   return [civ, prenom, nom].filter(Boolean).join(" ").trim();
 }
-// Ce qui empêche encore CE signataire de signer.
-export function bloqueursSignature(offre, sig, documents) {
+// Ce qui empêche encore CE signataire de signer. `offrants` (tous) : le
+// document figé à la première signature porte l'état civil de CHACUN, et il
+// ne se modifie plus ensuite — il doit donc être complet pour tous avant.
+export function bloqueursSignature(offre, sig, documents, offrants = []) {
   const m = [];
   if (!offre.prix || !offre.conditions.validite) m.push("l'offre n'est pas complète (prix, validité)");
   m.push(...manquesIdentite(sig.identite).map((x) => "votre " + x));
+  if (!offre.pdf_hash) {
+    for (const x of offrants) {
+      if (x.id !== sig.id && manquesIdentite(x.identite).length) m.push(`l'état civil de ${nomSignataire(x)} (à compléter depuis son propre lien)`);
+    }
+  }
   m.push(...manquesFinancement(offre.financement));
   if (!documents.some((d) => d.type === "identite" && d.signataire_id === sig.id)) m.push("votre pièce d'identité (à déposer avant de signer)");
   return m;
@@ -244,6 +251,18 @@ export function mentionsEquivalentes(attendue, tapee) {
 export function genererOtp() {
   const n = crypto.getRandomValues(new Uint32Array(1))[0] % 1000000;
   return String(n).padStart(6, "0");
+}
+// Où part le code de signature : aux coordonnées ENREGISTRÉES PAR L'AGENCE
+// (colonnes email / telephone), jamais à celles que le porteur du lien saisit
+// dans son état civil — il s'enverrait le code à lui-même. Ces dernières ne
+// servent que si l'agence n'a pour lui ni e-mail ni mobile (sinon personne
+// ne pourrait signer). Même règle de mobile que crm.mobileFrance (pas
+// d'import : cycle crm.js ↔ offres.js).
+const estMobileFr = (t) => /^(?:\+33|0033|0)[67]\d{8}$/.test(String(t || "").replace(/[\s.\-()]/g, ""));
+export function coordonneesOtp(s) {
+  if (s.email || estMobileFr(s.telephone)) return { email: s.email || "", telephone: s.telephone || "" };
+  const i = s.identite || {};
+  return { email: i.email || "", telephone: s.telephone || i.telephone || "" };
 }
 export const masquerTel = (t) => { const s = String(t || "").replace(/\s/g, ""); return s.length > 4 ? s.slice(0, 2) + "•• •• •• " + s.slice(-2) : s; };
 export const masquerEmail = (e) => { const [u, d] = String(e || "").split("@"); return u && d ? u.slice(0, 2) + "•••@" + d : e; };
@@ -512,7 +531,17 @@ export async function construirePdfOffre({ offre, offrants, vendeurs, agence, re
 // Le certificat : le document figé + une page qui consigne les signatures
 // (offrants, puis vendeurs) et le journal. Regénérable à tout moment depuis
 // la base — le document, lui, ne bouge pas.
-export async function construirePdfCertificat({ pdfOffre, offre, offrants, vendeurs, events, agence }) {
+// `complet: false` = l'exemplaire remis aux parties par leur lien : qui a
+// signé, quand, par quel moyen, l'empreinte et les mentions (le texte de
+// l'offre les annonce « au certificat annexé »). Les adresses IP, téléphones
+// et e-mails de l'AUTRE partie et le journal (pièces déposées, consultations
+// du conseiller) restent à l'agence.
+export async function construirePdfCertificat({ pdfOffre, offre, offrants, vendeurs, events, agence, complet = true }) {
+  const preuve = (s, ip) => {
+    if (!complet) return "";
+    const k = coordonneesOtp(s);
+    return `${k.telephone ? " (" + masquerTel(k.telephone) + ")" : ""}${k.email ? " / " + masquerEmail(k.email) : ""} — ${ip} ${s.signe_ip || "?"} — navigateur : ${(s.signe_ua || "?").slice(0, 110)}`;
+  };
   const pdf = await PDFDocument.load(pdfOffre);
   const fonts = await polices(pdf);
   const F = new Feuille(pdf, fonts, `Certificat de signature — offre ${offre.numero}`);
@@ -524,7 +553,7 @@ export async function construirePdfCertificat({ pdfOffre, offre, offrants, vende
   for (const s of offrants) {
     F.sous(nomSignataire(s));
     if (s.signe_at) {
-      F.texte(`Signé le ${dateHeureParis(s.signe_at)} — code reçu par ${s.otp_canal || "e-mail"}${s.telephone ? " (" + masquerTel(s.telephone) + ")" : ""}${s.email ? " / " + masquerEmail(s.email) : ""} — adresse IP ${s.signe_ip || "?"} — navigateur : ${(s.signe_ua || "?").slice(0, 110)}`, { size: 8.5, apres: 2 });
+      F.texte(`Signé le ${dateHeureParis(s.signe_at)} — code reçu par ${s.otp_canal || "e-mail"}${preuve(s, "adresse IP")}`, { size: 8.5, apres: 2 });
       F.texte(`Empreinte signée : ${s.signe_hash}`, { size: 8, apres: 2 });
       if (s.mention) F.texte(`Mention écrite par le signataire : « ${s.mention} »`, { size: 8.5, apres: 6 });
       else F.vide();
@@ -536,13 +565,14 @@ export async function construirePdfCertificat({ pdfOffre, offre, offrants, vende
     F.sous(nomSignataire(v));
     if (v.signe_at) {
       const dec = v.decision === "accepte" ? "ACCEPTE l'offre" : v.decision === "refuse" ? "REFUSE l'offre" : "fait une CONTRE-PROPOSITION";
-      F.texte(`${dec} — le ${dateHeureParis(v.signe_at)} — code reçu par ${v.otp_canal || "e-mail"}${v.telephone ? " (" + masquerTel(v.telephone) + ")" : ""}${v.email ? " / " + masquerEmail(v.email) : ""} — IP ${v.signe_ip || "?"} — navigateur : ${(v.signe_ua || "?").slice(0, 110)}`, { size: 8.5, apres: 2 });
+      F.texte(`${dec} — le ${dateHeureParis(v.signe_at)} — code reçu par ${v.otp_canal || "e-mail"}${preuve(v, "IP")}`, { size: 8.5, apres: 2 });
       if (v.mention) F.texte(`Mention : « ${v.mention} »`, { size: 8.5, apres: 6 });
     } else F.texte("Pas encore de réponse.", { size: 8.5, apres: 6 });
   }
   const rep = offre.reponse || {};
   if (rep.decision === "contre") F.texte(`Contre-proposition : ${rep.prix ? euros(rep.prix) : "—"}${rep.commentaire ? " — " + rep.commentaire : ""}`, { size: 9, gras: true, apres: 8 });
   if (rep.mode === "manuel") F.texte(`Réponse enregistrée par l'Agence (${rep.par || "conseiller"}) : ${rep.decision || ""}${rep.commentaire ? " — " + rep.commentaire : ""}`, { size: 8.5, apres: 8 });
+  if (!complet) return await pdf.save();
   F.titre("Journal");
   for (const e of events.slice(0, 60)) {
     F.texte(`${dateHeureParis(e.created_at)} — ${e.type}${e.detail ? " — " + e.detail : ""}${e.acteur ? " (" + e.acteur + ")" : ""}${e.ip ? " [" + e.ip + "]" : ""}`, { size: 7.5, apres: 1 });
@@ -553,6 +583,10 @@ export async function empreinte(bytes) {
   const d = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+// L'empreinte du TEXTE affiché au signataire (les paragraphes) : il la
+// renvoie avec sa signature, et l'on refuse si le texte a changé entre-temps
+// — avant la première signature, le conseiller peut encore modifier le prix.
+export const empreinteTexte = (paragraphes) => empreinte(new TextEncoder().encode(JSON.stringify(paragraphes.map((l) => [l.type, l.texte]))));
 
 /* --------------------------- Vers Studio Suivi ---------------------------- */
 // L'offre acceptée devient un dossier Suivi (compromis → acte) : parties,

@@ -2322,12 +2322,12 @@
       (!o.terminee && !o.figee ? '<button class="btn" id="btn-of-modifier">✏️ Modifier</button>' : "") +
       (!o.terminee && ["brouillon", "envoyee"].includes(o.statut) ? '<button class="btn btn-or" id="btn-of-envoyer">✉️ ' + (o.statut === "brouillon" ? "Envoyer à l'acquéreur" : "Renvoyer les liens") + "</button>" : "") +
       (o.statut === "signee" ? '<button class="btn btn-or" id="btn-of-presenter">📨 Présenter au vendeur</button>' : "") +
-      (["signee", "presentee"].includes(o.statut) ? '<button class="btn" id="btn-of-reponse">📝 Saisir la réponse du vendeur</button>' : "") +
+      (d.accesPieces && ["signee", "presentee"].includes(o.statut) ? '<button class="btn" id="btn-of-reponse">📝 Saisir la réponse du vendeur</button>' : "") +
       (o.statut === "acceptee" && !o.dossierId ? '<button class="btn btn-or" id="btn-of-dossier">📁 Créer le dossier Suivi</button>' : "") +
       '<button class="btn" id="btn-of-pdf">⬇ PDF</button>' +
       (d.accesPieces && d.documents.length ? '<button class="btn" id="btn-of-zip" title="Toutes les pièces + le PDF de l\'offre, en une archive à ranger dans OneDrive">⬇ Toutes les pièces (zip)</button>' +
         (window.showDirectoryPicker ? '<button class="btn" id="btn-of-dossier-local" title="Écrit les fichiers directement dans le dossier choisi (ex. OneDrive)">📂 Enregistrer dans un dossier</button>' : "") : "") +
-      (!o.terminee ? '<button class="btn btn-danger" id="btn-of-retirer">Retirer</button>' : ""));
+      (d.accesPieces && !o.terminee ? '<button class="btn btn-danger" id="btn-of-retirer">Retirer</button>' : ""));
     const corps = $("modale-corps");
     const telecharger = async (path, nom) => {
       const a = account();
@@ -2397,8 +2397,11 @@
       try {
         if (t.dataset.lien) {
           const r = await api("/crm/offres/" + o.id + "/signataires/" + t.dataset.lien + "/lien", { json: {} });
-          try { await navigator.clipboard.writeText(r.lien); } catch (err) { }
-          toast(r.envoye ? "Lien envoyé par e-mail (et copié dans le presse-papiers)" : "E-mail non envoyé — lien copié dans le presse-papiers, transmettez-le vous-même", !r.envoye);
+          // Le lien lui-même n'est rendu qu'au conseiller du dossier et aux
+          // admins (qui le tient peut signer) : les autres déclenchent l'e-mail.
+          if (r.lien) { try { await navigator.clipboard.writeText(r.lien); } catch (err) { } }
+          toast(r.lien ? (r.envoye ? "Lien envoyé par e-mail (et copié dans le presse-papiers)" : "E-mail non envoyé — lien copié dans le presse-papiers, transmettez-le vous-même")
+            : (r.envoye ? "Lien envoyé par e-mail" : "E-mail non envoyé — le lien est à transmettre par le conseiller du dossier ou un administrateur"), !r.envoye);
           ouvrirOffre(o.id);
         } else if (t.dataset.docDl) {
           await telecharger("/crm/offres/" + o.id + "/documents/" + t.dataset.docDl, t.dataset.docNom || "piece");
@@ -2434,12 +2437,18 @@
       try {
         const r = await api("/crm/offres/" + o.id + "/envoyer", { json: {} });
         const nonEnvoyes = r.liens.filter((l) => !l.envoye);
-        toast(nonEnvoyes.length ? "Lien(s) créé(s) — e-mail non envoyé pour " + nonEnvoyes.map((l) => l.libelle).join(", ") + " : utilisez « Renvoyer le lien » pour le copier" : "Offre envoyée à " + r.liens.map((l) => l.libelle).join(" et "), !!nonEnvoyes.length);
+        toast(nonEnvoyes.length ? (d.accesPieces ? "Lien(s) créé(s) — e-mail non envoyé pour " + nonEnvoyes.map((l) => l.libelle).join(", ") + " : utilisez « Renvoyer le lien » pour le copier"
+          : "E-mail non envoyé pour " + nonEnvoyes.map((l) => l.libelle).join(", ") + " — le lien est à transmettre par le conseiller du dossier ou un administrateur") : "Offre envoyée à " + r.liens.map((l) => l.libelle).join(" et "), !!nonEnvoyes.length);
         await chargerOffres(); ouvrirOffre(o.id);
       } catch (err) { toast(err.message, true); }
     });
     on("btn-of-presenter", async () => {
-      try { const r = await api("/crm/offres/" + o.id + "/presenter", { json: {} }); toast("Offre présentée à " + r.liens.map((l) => l.libelle).join(" et ")); await chargerOffres(); ouvrirOffre(o.id); }
+      try {
+        const r = await api("/crm/offres/" + o.id + "/presenter", { json: {} });
+        if (r.presentee === false) toast("E-mail non envoyé au vendeur — le lien est à transmettre par le conseiller du dossier ou un administrateur", true);
+        else toast("Offre présentée à " + r.liens.map((l) => l.libelle).join(" et "));
+        await chargerOffres(); ouvrirOffre(o.id);
+      }
       catch (err) { toast(err.message, true); }
     });
     on("btn-of-reponse", () => {

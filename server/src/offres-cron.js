@@ -2,7 +2,8 @@
    offres-cron.js — les rappels quotidiens de Studio Offre (cron du matin,
    après runCrmDaily) :
    - relance de l'acquéreur qui n'a pas signé 2 jours après l'envoi du lien
-     (nouveau lien, au plus 2 relances, 3 jours d'écart) ;
+     (nouveau lien, au plus 2 relances, 3 jours d'écart ; le lien n'est
+     remplacé et la relance comptée que si l'e-mail est parti) ;
    - alerte au conseiller la veille de l'expiration d'une offre encore sans
      réponse (une seule fois).
    Module à part pour ne pas créer de cycle crm.js ↔ offres.js.
@@ -19,11 +20,16 @@ export const RELANCES_MAX = 2;
 export function lienPublic(env, jeton) {
   return String(env.OFFRE_BASE || "https://benoitrempenault.github.io/Code/offre").replace(/\/$/, "") + "/#t=" + jeton;
 }
-export async function nouveauLien(env, db, s) {
+// Un lien se fabrique en deux temps : on le PRÉPARE (rien n'est écrit), on
+// l'envoie, et on ne le POSE qu'ensuite — poser d'abord tuait l'ancien lien
+// même quand l'e-mail ne partait pas, et l'acquéreur n'en avait plus aucun.
+export async function preparerLien(env) {
   const jeton = randToken(32);
+  return { lien: lienPublic(env, jeton), hash: await sha256hex(jeton) };
+}
+export async function poserLien(db, s, prepare) {
   await db.run("UPDATE crm_offre_signataires SET jeton_hash = ?, jeton_expire = ?, updated_at = ? WHERE id = ?",
-    [await sha256hex(jeton), now() + O.JETON_JOURS * 86400, now(), s.id]);
-  return lienPublic(env, jeton);
+    [prepare.hash, now() + O.JETON_JOURS * 86400, now(), s.id]);
 }
 export const bouton = (href, libelle) => `<p style="text-align:center; margin:26px 0;"><a href="${esc(href)}" style="background:#1D1D1B; color:#BEAF87; padding:14px 26px; border-radius:10px; text-decoration:none; font-family:Helvetica,Arial,sans-serif; font-weight:bold;">${esc(libelle)}</a></p>`;
 export async function mailAgence(env, db, agency, reglages, to, sujet, headline, bodyHtml, signature) {
@@ -38,7 +44,7 @@ export async function rappelsOffres(env, db) {
   const agences = await db.all(
     `SELECT DISTINCT a.* FROM agencies a JOIN crm_offres o ON o.agency_id = a.id
      WHERE a.status IN ('active','trial') AND o.statut IN ('envoyee','signee','presentee')`);
-  const bilan = { relances: 0, alertes: 0, erreurs: [] };
+  const bilan = { relances: 0, reportees: 0, alertes: 0, erreurs: [] };
   const demain = O.jourParis(now() + 86400);
   for (const agency of agences) {
     try {
@@ -57,12 +63,16 @@ export async function rappelsOffres(env, db) {
               const passees = await db.all("SELECT created_at FROM crm_offre_events WHERE offre_id = ? AND type = 'relance' AND acteur = ? ORDER BY created_at DESC", [o.id, nom]);
               if (passees.length >= RELANCES_MAX) continue;
               if (passees.length && passees[0].created_at > now() - RELANCE_ECART_JOURS * 86400) continue;
-              const lien = await nouveauLien(env, db, s);
+              const prepare = await preparerLien(env), lien = prepare.lien;
               const r = await mailAgence(env, db, agency, reglages, s.email, `Votre offre d'achat vous attend — ${bienDe(o)}`, "Votre offre d'achat vous attend",
                 texteEnParagraphes(`Bonjour ${s.prenom || ""},\n\nVotre offre d'achat pour le bien situé ${bienDe(o)} (${O.euros(o.prix)}) n'est pas encore signée. Elle est valable jusqu'au ${O.dateLongue(o.conditions.validite)} inclus : passé cette date, elle tombe.\n\nDepuis le lien ci-dessous (il remplace le précédent), vous pouvez la vérifier, déposer vos pièces et la signer en quelques minutes. Votre conseiller ${o.conseiller || ""} reste à votre disposition.`) +
                 bouton(lien, "Reprendre mon offre d'achat"),
                 o.conseiller ? `${o.conseiller}, votre conseiller` : "");
-              await O.journal(db, agency.id, o.id, "relance", `Relance de ${nom}${r.ok ? "" : " (e-mail non parti)"} — nouveau lien`, nom);
+              // E-mail reporté (plafond) ou refusé : ni nouveau jeton ni relance
+              // comptée — l'ancien lien reste valable, on réessaie demain.
+              if (!r.ok) { bilan.reportees++; continue; }
+              await poserLien(db, s, prepare);
+              await O.journal(db, agency.id, o.id, "relance", `Relance de ${nom} — nouveau lien`, nom);
               bilan.relances++;
             }
           }
