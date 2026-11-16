@@ -1450,7 +1450,7 @@ la saisie en attente part avant de changer de fenêtre ; `ouvrirOffre` passe aus
 jamais faire `$("modale-corps").addEventListener(...)` en direct. Serveur : `archiverLivret` garde l'état en place
 dans `crm_parcours_acm_versions` avant tout remplacement (≤ 1 version / 2 min / dossier ; ménage : première et
 dernière du jour après 24 h, purge 90 j ; `origine` saisie | restauration | sauvegarde). Les clients à jour écrivent
-`PUT …/acm?c=2`. Smoke `livret-dossiers` (échoue sur l'ancien script). La suppression d'un parcours laisse les
+`PUT …/acm?c=2` ; sans `c=2` le serveur répond 409 « rechargez la page » (onglets restés sur l'ancien script). Smoke `livret-dossiers` (échoue sur l'ancien script). La suppression d'un parcours laisse les
 lignes `crm_parcours_acm` / `crm_estimation_bien` orphelines (utile à la récupération).
 
 **Bibliothèque des brochures — identité des dossiers (10/11, Stéphanie Dreyfus : « un dossier se lie à un

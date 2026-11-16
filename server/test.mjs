@@ -4217,7 +4217,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const acmPre = (await callR("/crm/parcours/" + pxId + "/acm", { headers: authP })).json;
   ok(acmPre.acm.surface === 120 && acmPre.acm.terrain === 600 && acmPre.acm.prix === 345000 && acmPre.acm.chambres === 3 && acmPre.acm.piece_vie === 38 && acmPre.depuis_estimation.includes("piece_vie"),
      "le livret prix se pré-remplit depuis la fiche estimation : surface, terrain, prix envisagé, chambres et séjour lus dans le détail des pièces (" + JSON.stringify(acmPre.acm) + ")");
-  await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { surface: 125, chambres: 4, piece_vie: 40 } });
+  await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { surface: 125, chambres: 4, piece_vie: 40 } });
   const bienApres = JSON.parse((await db.get("SELECT data FROM crm_estimation_bien WHERE estimation_id = ?", [pxId])).data);
   ok(bienApres.surface === 120 && bienApres.chambres === 4 && bienApres.pieceVie === 40 && bienApres.prixEnvisage === 345000,
      "la fiche estimation reçoit en retour ce qui lui manquait (chambres, pièce de vie) sans que sa surface ni son prix soient écrasés");
@@ -4251,24 +4251,27 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     await db.run("DELETE FROM crm_amepi WHERE id = 'v7001'"); await db.run("DELETE FROM crm_amepi_photos WHERE id = 'v7001'");
   }
   const tNow = Math.floor(Date.now() / 1000);
-  const acmPut = await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { prix: 330000, basse: 320000, haute: 340000, commission: [{ nb: 3, basse: 300000, haute: 320000 }], ventes: [{ id: "dvf:1", prix: 315000, surface: 100, adresse: "1 rue\u0007Test" }], acheteurs_texte: "ok", profond: { a: { b: { c: { d: { e: { f: 1 } } } } } } } });
+  const acmPut = await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { prix: 330000, basse: 320000, haute: 340000, commission: [{ nb: 3, basse: 300000, haute: 320000 }], ventes: [{ id: "dvf:1", prix: 315000, surface: 100, adresse: "1 rue\u0007Test" }], acheteurs_texte: "ok", profond: { a: { b: { c: { d: { e: { f: 1 } } } } } } } });
   const acmGet = (await callR("/crm/parcours/" + pxId + "/acm", { headers: authP })).json;
   ok(acmPut.status === 200 && acmGet.acm.prix === 330000 && acmGet.acm.commission[0].nb === 3 && acmGet.acm.ventes[0].adresse === "1 rueTest" && acmGet.acm.profond.a.b.c.d.e === null,
      "la saisie du livret prix se relit, nettoyée des caractères de contrôle et bornée en profondeur");
   ok((await callR("/crm/parcours/" + pxId + "/acm", { headers: authR })).status === 404, "le livret d'un parcours hors périmètre est introuvable");
   // Versions précédentes (16/11) : l'état en place est gardé avant d'être remplacé,
   // au plus une version toutes les deux minutes ; le ménage éclaircit après un jour.
+  { const vieux = await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { prix: 1 } });
+    ok(vieux.status === 409 && /rechargez la page/.test(vieux.json.error || vieux.json.message || JSON.stringify(vieux.json)) && (await callR("/crm/parcours/" + pxId + "/acm", { headers: authP })).json.acm.prix === 330000,
+       "une page d'avant le correctif (sans ?c=2) n'écrit plus dans le livret : on lui demande de recharger"); }
   { await db.run("DELETE FROM crm_parcours_acm_versions WHERE estimation_id = ?", [pxId]);
     const versions = async () => db.all("SELECT * FROM crm_parcours_acm_versions WHERE estimation_id = ? ORDER BY archive_at, id", [pxId]);
-    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 331000 } });
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 331000 } });
     let vs = await versions();
     ok(vs.length === 1 && JSON.parse(vs[0].data).prix === 330000 && vs[0].origine === "saisie", "remplacer un livret garde la version précédente");
-    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 332000 } });
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 332000 } });
     ok((await versions()).length === 1, "deux enregistrements rapprochés ne gardent qu'une version (saisie automatique)");
     await db.run("UPDATE crm_parcours_acm_versions SET archive_at = archive_at - 600 WHERE estimation_id = ?", [pxId]);
-    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 332000 } });
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 332000 } });
     ok((await versions()).length === 1, "un enregistrement identique ne crée pas de version");
-    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 333000 } });
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 333000 } });
     vs = await versions();
     ok(vs.length === 2 && JSON.parse(vs[1].data).prix === 332000, "passé deux minutes, la version suivante est gardée à son tour");
     // Ménage : quatre versions d'une même journée passée → la première et la dernière restent.
@@ -4281,13 +4284,13 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     vs = await versions();
     ok(!mn.livretsErreur && vs.map((v) => v.id).join() === "lvt0,lvs,lvt3", "le ménage garde la première et la dernière version du jour, les reprises de sauvegarde, et purge après 90 jours");
     await db.run("DELETE FROM crm_parcours_acm_versions WHERE estimation_id = ?", [pxId]);
-    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: acmGet.acm }); }
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: acmGet.acm }); }
   // Le courrier d'estimation : jalon e-mail avec le PDF en pièce jointe ; la fourchette vient
   // du livret (basse/haute), ou de celle saisie pour le courrier (acm.courrier).
   { const apC = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=courrier-estimation", { headers: authP })).json;
     ok(/entre 320 000 € et 340 000 €/.test(apC.texte) && /ci-joint le courrier d'estimation/.test(apC.texte) && /Votre estimation/.test(apC.html),
        "l'e-mail du courrier d'estimation reprend la fourchette du livret (" + JSON.stringify(apC.sujet) + ")");
-    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { ...acmGet.acm, courrier: { basse: 325000, haute: 345000, texte: "Mot libre" } } });
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { ...acmGet.acm, courrier: { basse: 325000, haute: 345000, texte: "Mot libre" } } });
     const apC2 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=courrier-estimation", { headers: authP })).json;
     ok(/entre 325 000 € et 345 000 € net vendeur\./.test(apC2.texte), "la fourchette saisie pour le courrier prime sur celle du livret, suivie de « net vendeur » (" + JSON.stringify((apC2.texte.match(/entre[^.]*\./) || [])[0]) + ")");
     const sansPj = await callR("/crm/parcours/" + pxId + "/envoyer", { headers: authP, body: { jalon: "courrier-estimation" } });
@@ -4299,7 +4302,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
        && (await callR("/crm/parcours/" + pxId, { headers: authP })).json.journal.some((j) => j.etape === "courrier-estimation"),
        "le courrier part en pièce jointe (nom nettoyé), jamais sans le PDF, et l'étape se coche (" + JSON.stringify({ sans: sansPj.status, avec: avecPj.status }) + ")");
     ok((await callR("/crm/parcours/" + pxId + "/envoyer", { headers: authP, body: { jalon: "courrier-estimation", piece: { nom: "x.pdf", contenu: "A".repeat(8000001) } } })).status === 400, "une pièce jointe trop lourde est refusée");
-    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: acmGet.acm }); }
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: acmGet.acm }); }
   // Point 8 : la « démarche à suivre » (guide PDF assemblé dans le navigateur) part signée de
   // l'assistante transaction du point de vente — pas du conseiller (Benoît, 14/10).
   { const lea = await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "Léa", nom: "VASSEUR", fonction: "Assistante Transaction", telephone: "05 56 57 77 77", email: "lea.vasseur@kadima.test" } });

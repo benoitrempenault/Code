@@ -1453,6 +1453,10 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   });
   app.put("/crm/parcours/:id/acm", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    // Les pages chargées avant le 16/11 écrivaient le livret d'un dossier dans
+    // les autres (écouteur resté sur la fenêtre) : elles n'écrivent plus rien
+    // tant qu'elles n'ont pas été rechargées. Les pages à jour envoient ?c=2.
+    if (c.req.query("c") !== "2") return err(c, 409, "Studio a été mis à jour : rechargez la page (touche F5) avant de modifier ce dossier.");
     const b = await c.req.json().catch(() => null);
     if (!b || typeof b !== "object") return err(c, 400, "Corps JSON attendu.");
     const p = await lireParcoursDe(ctx, c.req.param("id"));
