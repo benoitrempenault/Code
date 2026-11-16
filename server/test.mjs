@@ -2163,6 +2163,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
       // Programme neuf (constructeur) : Bien'ici annonce une fourchette price = [min, max] (Benoît voyait « NaN € »).
       { id: "neuf-3", accountDisplayName: "Maisons MCA", adType: "buy", propertyType: "house", newProperty: true, price: [328430, null], surfaceArea: 100, landSurfaceArea: 600, roomsQuantity: 4, city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString(), blurInfo: { position: { lat: 44.8705, lon: -0.7125 } }, photos: [] },
       { id: "terrain-4", accountDisplayName: "Terrains du Médoc", adType: "buy", propertyType: "terrain", price: 150000, landSurfaceArea: 800, city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString() },
+      // Programme neuf d'appartements, tel que le portail l'annonce : prix, surface, pièces et chambres en fourchettes.
+      { id: "neuf-5", accountDisplayName: "Promoteur Test", adType: "buy", propertyType: "flat", newProperty: true, price: [145000, 275000], surfaceArea: [40, 83.77], roomsQuantity: [2, 4], bedroomsQuantity: [1, 3], city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString(), photos: [] },
     ];
     res.end(JSON.stringify({ total: tous.length, realEstateAds: tous.filter((a) => !typeDemande || a.propertyType === typeDemande) }));
   });
@@ -2205,6 +2207,9 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(/Vignes/.test(q)
       ? { features: [{ properties: { label: "7 Impasse des Vignes 33185 Le Haillan", score: 0.93, citycode: "33200", city: "Le Haillan", context: "33, Gironde, Nouvelle-Aquitaine" }, geometry: { coordinates: [-0.68, 44.9012] } }] }
+      // Une adresse que la Base Adresse situe à Saint-Médard-en-Jalles (33449), une autre qu'elle situe hors du code postal de la fiche.
+      : /Essai BAN ailleurs/.test(q) ? { features: [{ properties: { label: q, score: 0.7, citycode: "83137", city: "Toulon", context: "83, Var, Provence-Alpes-Côte d'Azur" }, geometry: { coordinates: [5.93, 43.12] } }] }
+      : /Essai BAN/.test(q) ? { features: [{ properties: { label: q, score: 0.9, citycode: "33449", city: "Saint-Médard-en-Jalles", context: "33, Gironde, Nouvelle-Aquitaine" }, geometry: { coordinates: [-0.751, 44.951] } }] }
       : { features: [] }));
   });
   await new Promise((r) => fauxBan.listen(18793, r));
@@ -2229,9 +2234,19 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await new Promise((r) => fauxOverpass.listen(18784, r));
   const communeHaillan = { nom: "Le Haillan", code: "33200", population: 11900, surface: 926, departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } };
   let geoMuet = false; // geo.api.gouv.fr en panne : 503 sur toutes les requêtes
+  // Les codes postaux à plusieurs communes, dans l'ORDRE de la vraie API (relevé le 16/11) :
+  // 33160 → Saint-Aubin-de-Médoc AVANT Saint-Médard-en-Jalles ; 33320 → Eysines avant Le Taillan-Médoc.
+  let geoPlusieurs = false;
+  const gironde = { departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } };
+  const COMMUNES_CP = {
+    33160: [{ nom: "Saint-Aubin-de-Médoc", code: "33376", population: 7769, surface: 3481.9, ...gironde }, { nom: "Saint-Médard-en-Jalles", code: "33449", population: 32910, surface: 8497.64, ...gironde }, { nom: "Salaunes", code: "33494", population: 1260, surface: 4355.19, ...gironde }],
+    33320: [{ nom: "Eysines", code: "33162", population: 24825, surface: 1201, ...gironde }, { nom: "Le Taillan-Médoc", code: "33519", population: 11073, surface: 1517, ...gironde }],
+  };
   const fauxGeo = (await import("node:http")).createServer((req, res) => {
     if (geoMuet) { res.writeHead(503); res.end("down"); return; }
     res.writeHead(200, { "Content-Type": "application/json" });
+    { const cpDemande = (/codePostal=(\d{5})/.exec(req.url) || [])[1];
+      if (geoPlusieurs && COMMUNES_CP[cpDemande]) { res.end(JSON.stringify(COMMUNES_CP[cpDemande])); return; } }
     // La fiche d'une commune par son code INSEE (secours après la BAN) ; un CP inconnu → liste vide.
     if (/^\/communes\/33200\b/.test(req.url)) { res.end(JSON.stringify(communeHaillan)); return; }
     if (/codePostal=33999/.test(req.url)) { res.end("[]"); return; }
@@ -4126,6 +4141,17 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(supAv.status === 200 && supAv.json.avis.length === 3, "un avis se retire");
   const ferme = await callR("/crm/parcours/" + pxId + "/commission/fermer", { headers: authP, body: {} });
   ok(ferme.json.ferme && (await callR("/public/commission?t=" + jeton, { body: { nom: "Tard", prix_min: 300000, prix_max: 310000 } })).status === 409 && (await callR("/public/commission?t=" + jeton, {})).json.ferme, "close, la commission n'accepte plus d'avis");
+  // Les fourchettes « De – À » des tiers, au-delà de 4 fourchettes distinctes (audit du 16/11) : le plus petit
+  // prix_min et le plus grand prix_max des avis DU TIERS — pas les extrêmes de leurs moyennes, qui imprimaient
+  // « 290 000 – 290 000 », « 300 000 – 315 000 », « 335 000 – 335 000 » pour les cinq avis ci-dessous.
+  { const pxCom = (await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "TIERSTEST", prenom: "Cinq", adresse: "5 rue des Avis", ville: "Pessac" } })).json;
+    const jetonT = new URL((await callR("/crm/parcours/" + pxCom.id + "/commission/ouvrir", { headers: authP, body: {} })).json.lien, "http://x").searchParams.get("t");
+    for (const [i, [mn, mx]] of [[280000, 300000], [290000, 310000], [300000, 320000], [300000, 330000], [320000, 350000]].entries()) await callR("/public/commission?t=" + jetonT, { body: { nom: "Collègue " + (i + 1), prix_min: mn, prix_max: mx } });
+    const t = (await callR("/crm/parcours/" + pxCom.id + "/commission", { headers: authP })).json;
+    const de = (x) => [x.nb, x.min, x.max, x.moyenne].join(" ");
+    ok(t.groupes.length === 5 && de(t.tiers.repli) === "1 280000 300000 290000" && de(t.tiers.raison) === "3 290000 330000 308000" && de(t.tiers.ambition) === "1 320000 350000 335000",
+       "5 avis, 5 fourchettes distinctes : chaque tiers va du plus petit prix bas au plus grand prix haut de ses avis (repli 280–300 k, raison 290–330 k, ambition 320–350 k) (" + JSON.stringify(t.tiers) + ")");
+    await callR("/crm/parcours/" + pxCom.id, { headers: authP, method: "DELETE" }); }
   // Effacer un parcours : dans son périmètre seulement ; la fiche disparaît de Studio Estimation, le contact reste.
   const pxSup = (await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "EFFACE", prenom: "Paul", adresse: "1 rue Gommée", ville: "Pessac" } })).json;
   ok((await callR("/crm/parcours/" + pxSup.id, { headers: authR, method: "DELETE" })).status === 404, "un autre conseiller ne peut pas effacer ce parcours");
@@ -4210,6 +4236,67 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok(envR.commune && envR.commune.population === 11900, "service revenu : la commune est complète au passage suivant");
     await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { cp: "33160" } });
     await db.run("UPDATE crm_environnement SET data = ? WHERE cle = ?", [cacheEnv.data, cacheEnv.cle]); }
+  // La BONNE commune quand la ville n'est pas écrite comme le nom officiel (audit du 16/11) : « St Médard en
+  // Jalles », CP 33160 → l'API rend Saint-Aubin-de-Médoc en premier, et c'est elle qui sortait dans le guide R2,
+  // le fichier DVF et le portail. Code INSEE de la BAN d'abord, puis noms normalisés, jamais « la première ».
+  { geoPlusieurs = true;
+    const crC = await callR("/crm/parcours", { headers: authP, body: { civilite: "Mme", prenom: "Com", nom: "MUNETEST", adresse: "3 chemin Sans Repère", cp: "33160", ville: "St Médard en Jalles", type_bien: "maison" } });
+    const idC = crC.json.id;
+    await db.run("UPDATE crm_estimations SET lat = 44.951, lng = -0.751 WHERE id = ?", [idC]);
+    const cleC = "44.951,-0.751|v2";
+    const envDe = async () => (await callR("/crm/parcours/" + idC + "/environnement", { headers: authP })).json;
+    const cacheC = async () => JSON.parse((await db.get("SELECT data FROM crm_environnement WHERE cle = ?", [cleC])).data).commune;
+    const fiche = (corps) => callR("/crm/parcours/" + idC, { headers: authP, method: "PUT", body: corps });
+    const e1 = await envDe();
+    ok(e1.commune && e1.commune.code === "33449" && e1.commune.nom === "Saint-Médard-en-Jalles" && e1.commune.population === 32910 && !e1.erreurCommune,
+       "« St Médard en Jalles », 33160 : la commune est Saint-Médard-en-Jalles (32 910 hab.), plus Saint-Aubin-de-Médoc, première de la liste (" + JSON.stringify(e1.commune) + ")");
+    const dnC1 = (await callR("/crm/parcours/" + idC + "/acm/donnees", { headers: authP })).json;
+    ok(dnC1.commune && dnC1.commune.code === "33449", "…et le livret demande le fichier DVF de la bonne commune (" + JSON.stringify(dnC1.commune) + ")");
+    // Un cache d'avant la correction (mauvaise commune gardée 30 jours) est invalidé : il ne concorde pas avec la ville de la fiche.
+    { const brut = await db.get("SELECT data FROM crm_environnement WHERE cle = ?", [cleC]); const d = JSON.parse(brut.data);
+      d.commune = { nom: "Saint-Aubin-de-Médoc", code: "33376", population: 7769, surface: 3481.9, densite: 223, departement: "Gironde", region: "Nouvelle-Aquitaine" };
+      await db.run("UPDATE crm_environnement SET data = ? WHERE cle = ?", [JSON.stringify(d), cleC]); }
+    const e2 = await envDe();
+    ok(e2.commune.code === "33449" && (await cacheC()).code === "33449", "un cache gardé avec la mauvaise commune (Saint-Aubin-de-Médoc) est corrigé au passage suivant (" + e2.commune.nom + ")");
+    // Même piège à 33320 : « Le Taillan » → Le Taillan-Médoc (début du nom, sans ambiguïté), pas Eysines.
+    await fiche({ cp: "33320", ville: "Le Taillan" });
+    const e3 = await envDe();
+    ok(e3.commune.code === "33519" && e3.commune.nom === "Le Taillan-Médoc" && (await cacheC()).code === "33519", "« Le Taillan », 33320 : Le Taillan-Médoc, pas Eysines — et le cache de la maille suit la fiche (" + JSON.stringify(e3.commune) + ")");
+    // Rien pour trancher : commune indéterminée, dite — jamais une commune prise au hasard, ni en cache, ni au portail.
+    await fiche({ cp: "33160", ville: "Saint" });
+    const e4 = await envDe();
+    const dnC4 = (await callR("/crm/parcours/" + idC + "/acm/donnees", { headers: authP })).json;
+    const poC4 = (await callR("/crm/parcours/" + idC + "/acm/portails", { headers: authP })).json;
+    ok(e4.commune && e4.commune.indeterminee === true && !e4.commune.nom && !e4.commune.code && !e4.commune.population && e4.commune.departement === "Gironde"
+       && /commune indéterminée/.test(e4.erreurCommune) && /Saint-Aubin-de-Médoc, Saint-Médard-en-Jalles, Salaunes/.test(e4.erreurCommune),
+       "« Saint », 33160 (deux communes possibles) : commune indéterminée, les candidates sont nommées, le département reste connu (" + e4.erreurCommune + ")");
+    ok(dnC4.commune === null && dnC4.erreurs.some((t) => /commune indéterminée/.test(t)) && poC4.biens.length === 0 && /commune indéterminée/.test(poC4.erreur),
+       "…le livret ne charge alors aucun fichier DVF et n'interroge pas le portail sur une commune au hasard (" + JSON.stringify({ commune: dnC4.commune, portail: poC4.erreur.slice(0, 40) }) + ")");
+    // Le code INSEE de la Base Adresse Nationale tranche quand le nom ne dit rien…
+    await fiche({ adresse: "9 rue Essai BAN", ville: "Lotissement des Pins" });
+    const e5 = await envDe();
+    ok(e5.commune.code === "33449" && !e5.erreurCommune, "ville inexploitable mais adresse connue de la BAN : son code INSEE désigne la commune (" + e5.commune.nom + ")");
+    // …mais un géocodage tombé hors du code postal de la fiche n'est pas cru : le nom décide.
+    await fiche({ adresse: "9 rue Essai BAN ailleurs", ville: "SALAUNES" });
+    const e6 = await envDe();
+    ok(e6.commune.code === "33494", "un code INSEE de la BAN hors du code postal est ignoré, le nom de la fiche décide (" + e6.commune.nom + ")");
+    geoPlusieurs = false;
+    // Un code postal à une seule commune : elle est prise, même écrite autrement (comportement inchangé).
+    await fiche({ adresse: "3 chemin Sans Repère", cp: "33185", ville: "LE HAILLAN CEDEX" });
+    ok((await envDe()).commune.code === "33200", "un code postal à une seule commune la désigne, quelle que soit l'écriture de la ville");
+    await callR("/crm/parcours/" + idC, { headers: authP, method: "DELETE" }); }
+  // Guide R2 p7 : les distances imprimées partent du BIEN — le cache est partagé par maille de ~100 m et gardait
+  // celles du premier bien de la maille — et le plafond de 12 par catégorie est annoncé.
+  { const crV = await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", prenom: "Voi", nom: "SINTEST", adresse: "9 Impasse des Vignes", cp: "33185", ville: "Le Haillan", type_bien: "maison" } });
+    await db.run("UPDATE crm_estimations SET lat = 44.9014, lng = -0.6804 WHERE id = ?", [crV.json.id]); // même maille que le 7 (44.9012, -0.68)
+    const envA = (await callR("/crm/parcours/" + pxId + "/environnement", { headers: authP })).json;
+    const envB = (await callR("/crm/parcours/" + crV.json.id + "/environnement", { headers: authP })).json;
+    const dist = (la1, lo1, la2, lo2) => { const r = Math.PI / 180, h = Math.sin((la2 - la1) * r / 2) ** 2 + Math.cos(la1 * r) * Math.cos(la2 * r) * Math.sin((lo2 - lo1) * r / 2) ** 2; return 2 * 6371000 * Math.asin(Math.sqrt(h)); };
+    const phA = envA.commodites.find((x) => /Pharmacie/.test(x.nom)), phB = envB.commodites.find((x) => /Pharmacie/.test(x.nom));
+    ok((await db.get("SELECT COUNT(*) AS n FROM crm_environnement WHERE cle = '44.901,-0.680|v2'")).n === 1 && phA && phB && Math.abs(phB.dist - dist(44.9014, -0.6804, phB.lat, phB.lng)) < 3 && Math.abs(phA.dist - dist(44.9012, -0.68, phA.lat, phA.lng)) < 3 && Math.abs(phA.dist - phB.dist) > 10
+       && envB.commodites.every((x, i) => i === 0 || x.dist >= envB.commodites[i - 1].dist) && envB.commodites.every((x) => x.dist <= 1500) && envB.commoditesPlafond === 12,
+       "deux biens de la même maille partagent le cache, chacun reçoit SES distances (pharmacie à " + Math.round(phA && phA.dist) + " m de l'un, " + Math.round(phB && phB.dist) + " m de l'autre), triées, plafond annoncé");
+    await callR("/crm/parcours/" + crV.json.id, { headers: authP, method: "DELETE" }); }
   // Livret prix : la saisie se garde (nettoyée), les données comparables se relèvent, les photos ne se relaient que si elles sont connues.
   // Le livret se pré-remplit depuis le bien de la fiche estimation (Studio Estimation), et la complète en retour.
   await db.run("INSERT OR REPLACE INTO crm_estimation_bien (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?)",
@@ -4436,6 +4523,17 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      && dn.amepi.length === 1 && dn.amepi[0].agence === "Orpi Le Haillan" && dn.amepi[0].baisse === 10000 && dn.amepi[0].dist < 6000
      && dn.acheteurs.some((a) => a.budget_max === 340000) && dn.acheteurs.length === (dn0.acheteurs || []).length + 1,
      "les données comparables : commune INSEE, ventes de l'agence à 2 km, notre annonce (baisse, ancienneté), le mandat ALFA de même type, l'acheteur qui cherche une maison au Haillan — pas celui d'un appartement ni la recherche en pause (" + JSON.stringify({ com: dn.commune, v: dn.ventes.length, vignes: dn.ventes.some((v) => /Vignes/.test(v.adresse)), anH: anH && { baisse: anH.baisse, jours: anH.jours }, appt: dn.annonces.some((a) => a.type === "appartement"), am: dn.amepi.map((a) => [a.agence, a.baisse, a.dist]), ach: [dn.acheteurs.length, (dn0.acheteurs || []).length, dn.acheteurs.some((a) => a.budget_max === 340000)] }) + ")");
+  // Les acheteurs comptés dans le livret : sans aucun critère (ni type ni ville), on ne sait pas s'il cherche CE bien
+  // ICI → pas compté ; la même personne (recherche de sa fiche + projet d'achat) ne compte qu'une fois ; la ville
+  // d'une recherche concorde quelle que soit son écriture (« le haillan », « LE-HAILLAN »).
+  { await db.run("INSERT OR REPLACE INTO crm_recherches (contact_id, agency_id, actif, budget_min, budget_max, types, villes, pieces_min, surface_min, notes, user_id, created_at, updated_at) VALUES ('ct_ach4', ?, 1, 0, 500000, '[]', '[]', 0, 0, '', '', 1, 1), ('ct_ach5', ?, 1, 0, 310000, '[]', '[\"LE-HAILLAN\"]', 0, 0, '', '', 1, 1)", [agId, agId]);
+    await db.run("INSERT INTO crm_projets (id, agency_id, kind, statut, adresse, ville, budget_min, budget_max, types, villes, pieces_min, surface_min, notes, user_id, created_at, updated_at) VALUES ('pj_dbl', ?, 'achat', 'actif', '', '', 0, 360000, '[\"maison\"]', '[\"le haillan\"]', 0, 0, '', '', 1, 1)", [agId]);
+    await db.run("INSERT INTO crm_projet_contacts (projet_id, contact_id, agency_id) VALUES ('pj_dbl', 'ct_ach1', ?)", [agId]);
+    const dnA = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
+    const budgetsA = dnA.acheteurs.map((a) => a.budget_max);
+    ok(dnA.acheteurs.length === dn.acheteurs.length + 1 && !budgetsA.includes(500000) && budgetsA.includes(310000) && budgetsA.includes(360000) && !budgetsA.includes(340000) && dnA.acheteursSansCritere >= 1,
+       "acheteurs du livret : celui sans critère n'est pas compté, la même personne (recherche + projet) compte une fois à son budget le plus haut, la ville concorde malgré son écriture (" + JSON.stringify({ avant: dn.acheteurs.length, apres: budgetsA, sansCritere: dnA.acheteursSansCritere }) + ")");
+    await db.run("DELETE FROM crm_recherches WHERE contact_id IN ('ct_ach4', 'ct_ach5')"); await db.run("DELETE FROM crm_projet_contacts WHERE projet_id = 'pj_dbl'"); await db.run("DELETE FROM crm_projets WHERE id = 'pj_dbl'"); }
   const portails = (await callR("/crm/parcours/" + pxId + "/acm/portails?prix=330000", { headers: authP })).json;
   await db.run("INSERT OR REPLACE INTO crm_amepi_photos (agency_id, id, photo, updated_at) VALUES (?, 'am-1', ?, 1)", [agId, pixel]);
   const dnPh = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
@@ -4462,6 +4560,13 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
        "les e-mails parlent du terrain et demandent plan de bornage et arpentage, sans certificat d'urbanisme, ni factures d'énergie, ni copropriété");
     ok((await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "garage" } })).status === 200 && (await callR("/crm/parcours/" + pxId, { headers: authP })).json.type_bien === "maison",
        "un type inconnu retombe sur « maison »");
+    await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } }); }
+  // Programme neuf du portail (audit du 16/11) : surfaceArea [40, 83.77], roomsQuantity [2, 4] donnaient « NaN m² » et
+  // « NaN €/m² » dans le livret → la plus petite valeur de chaque fourchette, comme pour le prix.
+  { await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "appartement" } });
+    const neuf5 = (await callR("/crm/parcours/" + pxId + "/acm/portails", { headers: authP })).json.biens.find((b) => b.id === "bienici:neuf-5");
+    ok(neuf5 && neuf5.prix === 145000 && neuf5.surface === 40 && neuf5.pieces === 2 && neuf5.chambres === 1 && neuf5.neuf === 1 && neuf5.titre === "Neuf (à partir de) · Appartement · 2 pièces · 40 m²" && /\/appartement\/2pieces\/neuf-5/.test(neuf5.url) && !/NaN|,/.test(neuf5.titre + neuf5.url),
+       "un programme neuf en fourchettes : prix, surface, pièces et chambres ramenés à leur plus petite valeur, plus de NaN (" + JSON.stringify(neuf5 && [neuf5.prix, neuf5.surface, neuf5.pieces, neuf5.chambres, neuf5.titre]) + ")");
     await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } }); }
   await db.run("UPDATE crm_annonces SET image = '/photos/biens/relative-640.webp' WHERE id = 'maison-haillan-1'");
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { annonces: { siteUrl: "http://localhost:1" } } });
