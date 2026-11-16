@@ -841,15 +841,26 @@ export function createApp(env) {
       String(data.date_compromis || "").slice(0, 10),
       String(data.echeance || "").slice(0, 10)
     ];
-    // Mise à jour par id (permet de renommer) ou, à défaut, par nom (upsert).
+    // Mise à jour par id (permet de renommer). SANS id, c'est une création :
+    // un nom déjà pris est refusé (409 + le dossier existant) au lieu de
+    // mettre à jour — recréer « DUPONT / MARTIN » remplaçait le dossier en
+    // cours (journal, étapes, avenants) par un dossier vierge. Seul un client
+    // qui le demande expressément (`remplacer: true`) écrit par nom.
     let existing = null;
     if (b.id) {
       existing = await db.get("SELECT id, updated_at FROM dossiers WHERE id = ? AND agency_id = ?", [String(b.id), ctx.agency.id]);
       if (!existing) return err(c, 404, "Dossier introuvable.");
-      const clash = await db.get("SELECT id FROM dossiers WHERE agency_id = ? AND name = ? AND id != ?", [ctx.agency.id, name, existing.id]);
-      if (clash) return err(c, 409, "Un autre dossier porte déjà ce nom.");
+      const clash = await db.get("SELECT id, name, updated_at FROM dossiers WHERE agency_id = ? AND name = ? AND id != ?", [ctx.agency.id, name, existing.id]);
+      if (clash) return c.json({ error: "Un autre dossier porte déjà ce nom.", existant: clash }, 409);
     } else {
-      existing = await db.get("SELECT id, updated_at FROM dossiers WHERE agency_id = ? AND name = ?", [ctx.agency.id, name]);
+      existing = await db.get("SELECT id, name, updated_at FROM dossiers WHERE agency_id = ? AND name = ?", [ctx.agency.id, name]);
+      if (existing && b.remplacer !== true) {
+        // Le message suffit aux pages restées en cache (elles l'affichent tel quel).
+        return c.json({
+          error: "Un dossier « " + name + " » existe déjà : ouvrez-le depuis la liste, ou créez celui-ci sous une autre référence. Rien n'a été modifié.",
+          existant: { id: existing.id, name: existing.name, updated_at: existing.updated_at }
+        }, 409);
+      }
     }
     // Garde anti-écrasement (collaboratif) : si le client annonce la version
     // qu'il avait chargée et qu'un collègue a enregistré depuis, on refuse.
@@ -1002,8 +1013,23 @@ export function createApp(env) {
     const f = (k, max) => String((b && b[k]) || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max || 160);
     const vals = { initiales: f("initiales", 10), ville: f("ville"), telephone: CRM.formatTelephone(f("telephone", 40)), email: f("email"), notes: f("notes", 1200) };
     let existing = null;
-    if (b.id) existing = await db.get("SELECT id FROM annuaire WHERE id = ? AND agency_id = ?", [String(b.id), ctx.agency.id]);
-    if (!existing) existing = await db.get("SELECT id FROM annuaire WHERE agency_id = ? AND type = ? AND nom = ?", [ctx.agency.id, type, nom]);
+    if (b.id) existing = await db.get("SELECT id, ville, telephone, email FROM annuaire WHERE id = ? AND agency_id = ?", [String(b.id), ctx.agency.id]);
+    if (!existing) existing = await db.get("SELECT id, ville, telephone, email FROM annuaire WHERE agency_id = ? AND type = ? AND nom = ?", [ctx.agency.id, type, nom]);
+    // `completer` : l'écriture vient d'un DOSSIER enregistré, pas d'une
+    // correction dans l'annuaire — elle ne remplit que les coordonnées restées
+    // vides. Sans cela, un vieux dossier remettait l'ancien e-mail d'un notaire
+    // à la place de celui corrigé la veille (la fiche lue ICI fait foi, pas la
+    // copie que le poste a en mémoire).
+    if (existing && b.completer === true) {
+      const ajout = {};
+      for (const k of ["ville", "telephone", "email"]) if (vals[k] && !String(existing[k] || "").trim()) ajout[k] = vals[k];
+      const cles = Object.keys(ajout);
+      if (cles.length) {
+        await db.run("UPDATE annuaire SET " + cles.map((k) => k + " = ?").join(", ") + ", user_id = ?, updated_at = ? WHERE id = ?",
+          cles.map((k) => ajout[k]).concat([ctx.user.id, now(), existing.id]));
+      }
+      return c.json({ ok: true, id: existing.id, updated: cles.length > 0, completes: cles });
+    }
     if (existing) {
       await db.run(
         "UPDATE annuaire SET type = ?, nom = ?, initiales = ?, ville = ?, telephone = ?, email = ?, notes = ?, user_id = ?, updated_at = ? WHERE id = ?",

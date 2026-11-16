@@ -63,7 +63,9 @@
      modele   : nom du modèle d'e-mail proposé (bouton ✉)
      due(d)   : échéance calculée (ISO) ou "" si inconnue
      applies(d): l'étape concerne-t-elle ce dossier ?
-     hint     : aide affichée sous l'étape                                     */
+     hint     : aide affichée sous l'étape
+     contrat  : l'échéance est une date du compromis ou de la loi — une
+                relance ne la reporte pas (voir logRelance dans app.js)       */
   const ssp = (d) => d.date_compromis || "";
   // « néant », « 0 € », vide : pas de dépôt de garantie, pas d'étape.
   function montantPositif(v) {
@@ -126,6 +128,14 @@
     return (d.conditions_suspensives || []).some((c) => condHors(c) === "financement") ? "oui" : "";
   }
   const pret = (d) => avecPret(d) === "oui";
+  /* Échéance de la condition de prêt : la date d'obtention saisie au dossier.
+     À défaut, compromis + 56 jours — une ESTIMATION qui fait vivre
+     l'échéancier, jamais une date à écrire dans un courrier (les relances
+     annonçaient « compromis + 60 j » pendant que l'échéancier comptait + 56).
+     Un seul défaut, ici, pour l'échéancier comme pour les courriers. */
+  const PRET_DEFAUT = 56;
+  const pretEstime = (d) => !(d.financement && parseDate(d.financement.date_limite_obtention));
+  const echeancePret = (d) => (pretEstime(d) ? addDays(ssp(d), PRET_DEFAUT) : d.financement.date_limite_obtention);
 
   /* ------------------------ Nature du bien -------------------------------
      Trois natures seulement pilotent le suivi : « terrain » (phase Urbanisme :
@@ -449,10 +459,10 @@
       hint: "Dès la signature : le courtier voit s'ils l'ont déjà contacté, ou les appelle pour le suivi de leur prêt. Sans recours au prêt, l'étape n'apparaît pas." },
     { id: "retour_sru", phase: "Notification & rétractation", label: "AR de la notification SRU envoyé au notaire",
       due: (d) => addDays(ssp(d), 8), applies: pasTerrain,
-      hint: "L'accusé de réception fait courir le délai : transmettez-le au notaire et renseignez la date de présentation dans « Dates clés », la fin de rétractation se calcule dessus." },
+      hint: "L'accusé de réception fait courir le délai : transmettez-le au notaire et renseignez la date de PREMIÈRE PRÉSENTATION dans « Dates clés » (« Présentation AR SRU ») — cocher cette case ne la remplit pas. La fin de rétractation se calcule dessus." },
     { id: "fin_retractation", phase: "Notification & rétractation", label: "Fin du délai de rétractation (10 jours) — informer le vendeur",
       cible: "vendeur", modele: "Information vendeur — rétractation purgée",
-      due: (d) => finRetract(d), applies: pasTerrain,
+      due: (d) => finRetract(d), applies: pasTerrain, contrat: true,
       hint: (d) => (retractEstimee(d)
         ? "⚠ Date ESTIMÉE (compromis + 14 jours) : saisissez « Présentation AR SRU » dans Dates clés pour la date exacte, avant de l'annoncer au vendeur."
         : "10 jours calendaires à compter du lendemain de la première présentation. Bonne nouvelle à annoncer au vendeur.") },
@@ -482,7 +492,7 @@
       hint: "LA relance qui fait gagner un mois : vérifier l'envoi 7 jours après la transmission du dossier aux notaires, demander une renonciation expresse si possible." },
     // Purge du droit de préemption : rien à relancer, le silence de la mairie
     // suffit — on se contente de constater l'échéance.
-    { id: "purge_dia", phase: "Préemption (DIA)", label: "Droit de préemption purgé (réponse de la mairie ou silence de 2 mois)",
+    { id: "purge_dia", phase: "Préemption (DIA)", contrat: true, label: "Droit de préemption purgé (réponse de la mairie ou silence de 2 mois)",
       // Le délai de 2 mois court de la RÉCEPTION de la DIA en mairie (L213-2
       // C. urb.) : l'accusé de réception prime ; à défaut l'envoi + 62 jours.
       due: (d) => addMonths(d.dates.ar_dia, 2) || addDays(d.dates.envoi_dia, 62) || addDays(ssp(d), 77),
@@ -518,7 +528,7 @@
     { id: "pret_depot", phase: "Financement", label: "Dossier de prêt déposé par l'acquéreur (justificatif)",
       cible: "acquereur", modele: "Relance dépôt du dossier de prêt",
       due: (d) => (d.financement && parseDate(d.financement.date_limite_depot)) ? d.financement.date_limite_depot : addDays(ssp(d), 10),
-      applies: pret },
+      applies: pret, contrat: true },
     { id: "pret_accord", phase: "Financement", label: "Accord de principe de la banque obtenu",
       cible: "acquereur", modele: "Suivi du financement", due: (d) => addDays(ssp(d), 30), applies: pret },
     { id: "pret_offre", phase: "Financement", label: "Offre de prêt (ODP) éditée par la banque",
@@ -528,9 +538,11 @@
       hint: "À l'échéance de la condition − 10 jours : alerte rouge, préparer un avenant de prorogation si besoin." },
     { id: "pret_acceptation", phase: "Financement", label: "Offre acceptée (après le délai de réflexion de 10 jours) — condition levée",
       cible: "acquereur", modele: "Relance offre de prêt",
-      due: (d) => (d.financement && parseDate(d.financement.date_limite_obtention)) ? d.financement.date_limite_obtention : addDays(ssp(d), 56),
-      applies: pret,
-      hint: "L'offre ne peut être acceptée qu'à partir du 11e jour après réception — demander copie de l'acceptation datée." },
+      due: (d) => echeancePret(d),
+      applies: pret, contrat: true,
+      hint: (d) => (pretEstime(d)
+        ? "⚠ Date ESTIMÉE (compromis + " + PRET_DEFAUT + " jours) : saisissez « Obtention avant le » dans Séquestre & financement, d'après le compromis. "
+        : "") + "L'offre ne peut être acceptée qu'à partir du 11e jour après réception — demander copie de l'acceptation datée." },
 
 
     { id: "ramonage", phase: "Entretiens & diagnostics", equip: "cheminee",
@@ -814,6 +826,7 @@
 
   window.SuiviEtapes = {
     ETAPES, compute, nextDue, sante, DEFAULT_MODELES, estTerrain, typeBien, condDroit, condHors, avecPret, retractEstimee,
+    PRET_DEFAUT, pretEstime, echeancePret,
     DIAGS, dureeDiag, diagExpiration, dateActe, ENTRETIENS, finRetract,
     addDays, addMonths, daysUntil, fmtFr, fmtIso, parseDate, today
   };
