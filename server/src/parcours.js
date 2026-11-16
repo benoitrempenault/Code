@@ -20,6 +20,11 @@ import { CORBEILLE_JOURS, restaurerCorbeille, runRappelsApresR2, formatTelephone
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
+// Rapprocher deux fiches par le téléphone : les chiffres seuls (« 06 11 22 33 44 »,
+// « 06.11.22.33.44 » et « +33 6 11 22 33 44 » sont le même numéro) ; trop court = pas un numéro.
+const chiffresTel = (t) => { const n = String(t || "").replace(/[\s.\-()\u00a0\u202f]/g, "").replace(/^(\+33|0033)/, "0"); return /^\d{10,15}$/.test(n) ? n : ""; };
+const SQL_CHIFFRES_TEL = "replace(replace(replace(replace(replace(replace(telephone, ' ', ''), '.', ''), '-', ''), '(', ''), ')', ''), '+33', '0')";
+const clePrenom = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 export const ETAPES = ["avant-r1", "guide-r1", "entre-r1-r2", "guide-r2", "acm", "courrier-estimation", "apres-r2", "demarche"];
@@ -311,13 +316,16 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!v.nom && !v.prenom) return err(c, 400, "Un nom ou un prénom est requis.");
     const id = strip(b.id, 40);
     if (id) {
-      const cur = await db.get("SELECT id, photo FROM crm_conseillers WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);
+      const cur = await db.get("SELECT id, photo, user_id FROM crm_conseillers WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);
       if (!cur) return err(c, 404, "Conseiller introuvable.");
       // Sans `photo` dans le corps, la photo en place reste.
       const photo = b.photo === undefined ? cur.photo : v.photo;
+      // Sans `user_id` non plus : l'écran ne l'envoie jamais, et le lien du profil avec
+      // son compte (périmètre « mes parcours ») était effacé à chaque « Enregistrer ».
+      const userId = b.user_id === undefined ? cur.user_id : v.user_id;
       await db.run(
         "UPDATE crm_conseillers SET user_id = ?, prenom = ?, nom = ?, fonction = ?, telephone = ?, email = ?, photo = ?, actif = ?, updated_at = ? WHERE id = ?",
-        [v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, photo, v.actif, now(), id]);
+        [userId, v.prenom, v.nom, v.fonction, v.telephone, v.email, photo, v.actif, now(), id]);
       if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(id, b);
       try { await majPhotoCarre(id, b); } catch (e) { return err(c, 400, e.message); }
       if (b.direction !== undefined) await ecrireDirection(id, b.direction === true || b.direction === 1);
@@ -827,15 +835,23 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (cs) v.conseiller = [cs.prenom, cs.nom].filter(Boolean).join(" ");
     // Le client est TOUJOURS une fiche contact : celle choisie dans la
     // recherche, sinon une fiche existante qui porte le même e-mail ou le même
-    // nom + prénom, sinon une nouvelle (typée « estimé »).
+    // téléphone, sinon une nouvelle (typée « estimé »).
+    // Un simple homonyme (même nom + prénom, prénom vide compris) n'est PAS
+    // rattaché : le parcours partait chez une autre personne, dont la fiche
+    // était ensuite réécrite (audit du 16/11). Le conseiller qui veut la fiche
+    // existante la choisit dans la recherche.
     let contactId = v.contact_id ? ((await db.get("SELECT id FROM crm_contacts WHERE id = ? AND agency_id = ?", [v.contact_id, ctx.agency.id])) || {}).id || "" : "";
     let contactCree = false;
     if (!contactId) {
       const px = sanitizeParcours(b);
-      const existant = v.email ? await db.get("SELECT id FROM crm_contacts WHERE agency_id = ? AND email = ?", [ctx.agency.id, v.email]) : null;
-      const homonyme = !existant && v.nom ? await db.get(
-        "SELECT id FROM crm_contacts WHERE agency_id = ? AND nom = ? COLLATE NOCASE AND prenom = ? COLLATE NOCASE", [ctx.agency.id, v.nom, px.prenom]) : null;
-      contactId = (existant || homonyme || {}).id || "";
+      const tel = chiffresTel(v.telephone);
+      const candidats = v.email || tel ? await db.all(
+        `SELECT id, prenom FROM crm_contacts WHERE agency_id = ? AND ((? <> '' AND email = ?) OR (? <> '' AND telephone <> '' AND ${SQL_CHIFFRES_TEL} = ?))
+         ORDER BY created_at, id LIMIT 20`, [ctx.agency.id, v.email, v.email, tel, tel]) : [];
+      // E-mail ou téléphone partagé par plusieurs fiches (un couple) : celle du même
+      // prénom ; aucune ne concorde → une nouvelle fiche plutôt qu'une au hasard.
+      const memePrenom = candidats.find((x) => clePrenom(x.prenom) === clePrenom(px.prenom));
+      contactId = (memePrenom || (candidats.length === 1 ? candidats[0] : null) || {}).id || "";
       if (!contactId) {
         const ct = sanitizeContact({ civilite: px.civilite, prenom: px.prenom, nom: v.nom, email: v.email, telephone: v.telephone, adresse: v.adresse, cp: px.cp, ville: v.ville, types: ["estime"], conseiller: v.conseiller });
         contactId = randId("ct"); contactCree = true;
@@ -887,7 +903,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   });
   // Ce que le conseiller complète dans la fiche du parcours (civilité, prénom,
   // nom, e-mail, téléphone, adresse, CP, ville) remonte sur la fiche contact
-  // principale — valeurs non vides seulement : rien ne s'efface d'ici.
+  // principale — pour COMPLÉTER ses champs vides seulement : rien ne s'efface
+  // ni ne se remplace d'ici.
   const CHAMPS_CONTACT = ["civilite", "prenom", "nom", "email", "telephone", "adresse", "cp", "ville"];
   async function reporterSurContact(ctx, est, v, b) {
     if (!est.contact_id || !CHAMPS_CONTACT.some((k) => k in b)) return;
@@ -899,7 +916,10 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     for (const k of CHAMPS_CONTACT) {
       if (!(k in b)) continue;
       const val = k === "email" ? strip(src[k], 160).toLowerCase() : strip(src[k], k === "adresse" ? 200 : 80);
-      if (val && val !== ct[k]) maj[k] = val;
+      // Seuls les champs VIDES de la fiche contact se remplissent : l'e-mail, le
+      // téléphone ou l'adresse qu'elle porte déjà ne sont jamais remplacés par ceux
+      // du parcours (un parcours relié à la mauvaise fiche la réécrivait — audit du 16/11).
+      if (val && !String(ct[k] || "").trim()) maj[k] = val;
     }
     if (!Object.keys(maj).length) return;
     const n = { ...ct, ...maj };
