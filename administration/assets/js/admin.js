@@ -5032,7 +5032,7 @@
         // (Bien'ici ne dit que « a baissé » : 1 → « Prix baissé de 1 € » était faux) ;
         // plus de ligne « Annonce de notre agence / Mandat confrère » (Benoît, 05/10).
         const typeLib2 = String(a.type || "").charAt(0).toUpperCase() + String(a.type || "").slice(1);
-        const lignes = [a.neuf ? "Programme neuf — prix, surface et pièces « à partir de »" : "", [typeLib2, a.pieces ? piecesLib(a.pieces) : "", a.chambres ? a.chambres + " ch." : ""].filter(Boolean).join(" · "), surfaceLib(a) || (estTerrain && a.terrain ? Math.round(a.terrain) + " m² de terrain" : ""), terrainLib(a), ...couper(a.adresse || [a.cp, a.ville].filter(Boolean).join(" "), fS, 10, D - XF).slice(0, 2), a.dist != null ? "à " + Math.round(a.dist) + " m du bien" : "", a.jours ? "En vente depuis " + a.jours + " jours" : "", a.baisse > 1000 ? "Prix baissé de " + fmtPrix(a.baisse) : a.baisse > 0 ? "Prix baissé récemment" : ""].filter(Boolean);
+        const lignes = [[typeLib2, a.pieces ? piecesLib(a.pieces) : "", a.chambres ? a.chambres + " ch." : ""].filter(Boolean).join(" · "), surfaceLib(a) || (estTerrain && a.terrain ? Math.round(a.terrain) + " m² de terrain" : ""), terrainLib(a), ...couper(a.adresse || [a.cp, a.ville].filter(Boolean).join(" "), fS, 10, D - XF).slice(0, 2), a.dist != null ? "à " + Math.round(a.dist) + " m du bien" : "", a.jours ? "En vente depuis " + a.jours + " jours" : "", a.baisse > 1000 ? "Prix baissé de " + fmtPrix(a.baisse) : a.baisse > 0 ? "Prix baissé récemment" : ""].filter(Boolean);
         lignes.forEach((l, j) => ecrire(pg, l, XF, y0 + 92 + j * 15, 10, fS, noir));
         rect(pg, G, y0 + CH + 14, L, 0.6, { color: sable });
       }

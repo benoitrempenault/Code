@@ -35,7 +35,7 @@ export default async function () {
   // A : un appartement dans un quartier dense (45 ventes DVF autour), ville écrite « St Médard en Jalles ».
   const idA = await creer({ nom: "DUPONT-EXEMPLE", prenom: "Jean", adresse: "12 rue des Ventes Nombreuses", ville: "St Médard en Jalles", type_bien: "appartement" });
   // B : un terrain, un nom et une adresse hors WinAnsi.
-  const idB = await creer({ civilite: "M.", nom: "WIŚNIEWSKI", prenom: "Paweł", adresse: "3 allée Çeşme bis", type_bien: "terrain" });
+  const idB = await creer({ civilite: "M.", nom: "WIŚNIEWSKI", prenom: "Paweł", adresse: "3 allée Çeşme\u202fbis", type_bien: "terrain" });
   // C : un code postal à deux communes (Eysines, Le Taillan-Médoc), une ville qui n'en désigne aucune.
   const idC = await creer({ nom: "MARTIN-EXEMPLE", prenom: "Anne", adresse: "5 rue du Doute", cp: "33320", ville: "Quartier du Centre" });
   // Les acheteurs de terrains : budgets 300, 320, 380 et 400 k€ (médiane 350 k€) ; le 4e a deux projets

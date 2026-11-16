@@ -1373,7 +1373,7 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   const { medianeDe, reduireProgramme, fmtM2, piecesLib } = new Function(entre("  // Pas de prix au m² pour un programme neuf", "  const fmtDateAcm =") + "\nreturn { medianeDe, reduireProgramme, fmtM2, piecesLib };")();
   ok(medianeDe([300000, 320000, 380000, 400000]) === 350000 && medianeDe([400000, 300000, 320000]) === 320000 && medianeDe([]) === 0 && medianeDe([310000]) === 310000,
      "livret : la médiane d'un nombre pair de budgets est la moyenne des deux du milieu (300, 320, 380, 400 k€ → 350 k€, plus 380)");
-  const prog = reduireProgramme({ id: "bienici:x", prix: [145000, 275000], surface: [40, 83.77], pieces: [2, 4], chambres: [1, 3] }), sansFine = (t) => t.replace(/[  ]/g, " ");
+  const prog = reduireProgramme({ id: "bienici:x", prix: [145000, 275000], surface: [40, 83.77], pieces: [2, 4], chambres: [1, 3] }), sansFine = (t) => t.replace(/[\u202f\u00a0]/g, " ");
   ok(prog.prix === 145000 && prog.surface === 40 && prog.pieces === 2 && prog.chambres === 1 && prog.neuf === 1 && fmtM2(prog) === "" && sansFine(fmtM2({ prix: 300000, surface: 100 })) === "3 000 €/m²" && fmtM2({ prix: 300000, surface: [40, 80] }) === ""
      && reduireProgramme({ prix: 250000, surface: 80 }).neuf === undefined && piecesLib(1) === "1 pièce" && piecesLib(4) === "4 pièces",
      "livret : un programme neuf gardé avec ses fourchettes est ramené à ses plus petites valeurs, sans prix au m² (plus de « NaN m² », « NaN €/m² ») ; « 1 pièce » au singulier");
@@ -1401,7 +1401,7 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   const { ecritureSure } = new Function(entre("  const espacesSimples =", "  const sansAccentsMin =") + "\nreturn { ecritureSure };")();
   const winAnsi = { getCharacterSet: () => [...Array.from({ length: 95 }, (x, i) => 32 + i), ...Array.from({ length: 96 }, (x, i) => 160 + i), 0x152, 0x153, 0x160, 0x161, 0x17d, 0x17e, 0x20ac, 0x2019] };
   const barlow = { getCharacterSet: () => [...winAnsi.getCharacterSet(), ..."łŁŚśễıŞşČčĞğŻżąęń".split("").map((c) => c.codePointAt(0))] };
-  const e1 = ecritureSure("WIŚNIEWSKI Paweł", winAnsi, barlow), e2 = ecritureSure("WIŚNIEWSKI Paweł", winAnsi, null), e3 = ecritureSure("3 allée des\tLilas​", winAnsi, barlow), e4 = ecritureSure("Çeşme Şükrü Nguyễn ı 日本", winAnsi, null);
+  const e1 = ecritureSure("WIŚNIEWSKI Paweł", winAnsi, barlow), e2 = ecritureSure("WIŚNIEWSKI Paweł", winAnsi, null), e3 = ecritureSure("3 allée\u202fdes\tLilas\u200b", winAnsi, barlow), e4 = ecritureSure("Çeşme Şükrü Nguyễn ı 日本", winAnsi, null);
   ok(e1.mode === "secours" && e1.font === barlow && e1.texte === "WIŚNIEWSKI Paweł" && e2.mode === "sans-signe" && e2.font === winAnsi && e2.texte === "WISNIEWSKI Pawel"
      && e3.mode === "normale" && e3.texte === "3 allée des Lilas" && e4.texte === "Çesme Sükrü Nguyen i " && ecritureSure("Jean-Noël DUPONT", winAnsi, barlow).mode === "normale",
      "guide R1 : « WIŚNIEWSKI Paweł » s'écrit avec la police de secours, sans elle les lettres perdent leur signe (" + e2.texte + ") ; espace fine et tabulation deviennent des espaces ; un nom courant garde la police du guide");

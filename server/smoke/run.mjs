@@ -111,11 +111,12 @@ const dvf = createServer((req, res) => {
   }
   // Un quartier dense (parcours « documents ») : 45 appartements de 3 pièces vendus autour du bien
   // « rue des Ventes Nombreuses », de 150 m à 1,4 km dans toutes les directions — plus que les 30 imprimées.
-  { const ref = [...positionsBan.entries()].reverse().find(([q]) => /Ventes Nombreuses/i.test(q));
-    if (ref) { const [lon, lat] = ref[1];
-      for (let k = 0; k < 45; k++) { const d = 150 + k * 28, a = k * 2.4;
-        lignes.push(["2026-D" + k, "2026-0" + (1 + (k % 9)) + "-1" + (k % 9), "Vente", 200000 + k * 1500, 1 + k, "RUE DENSE", "Saint-Medard-en-Jalles", "Appartement", 60 + (k % 5), 3, 0,
-          (lon + d * Math.cos(a) / (111320 * Math.cos(lat * Math.PI / 180))).toFixed(5), (lat + d * Math.sin(a) / 111320).toFixed(5)].join(",")); } } }
+  // (Autour de CHAQUE position que la fausse BAN a donnée à cette adresse : la fiche et son contact
+  // sont géocodés avec des libellés différents, donc à des endroits différents.)
+  [...positionsBan.entries()].filter(([q]) => /Ventes Nombreuses/i.test(q)).forEach(([, [lon, lat]], n) => {
+    for (let k = 0; k < 45; k++) { const d = 150 + k * 28, a = k * 2.4;
+      lignes.push(["2026-D" + n + "-" + k, "2026-0" + (1 + (k % 9)) + "-1" + (k % 9), "Vente", 200000 + k * 1500, 1 + k, "RUE DENSE", "Saint-Medard-en-Jalles", "Appartement", 60 + (k % 5), 3, 0,
+        (lon + d * Math.cos(a) / (111320 * Math.cos(lat * Math.PI / 180))).toFixed(5), (lat + d * Math.sin(a) / 111320).toFixed(5)].join(",")); } });
   res.writeHead(200, { "Content-Type": "text/csv" }); res.end(lignes.join("\n") + "\n");
 }).listen(PORT_DVF);
 
