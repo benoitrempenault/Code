@@ -47,6 +47,25 @@ export default async function () {
     await saisir("#acm-prix", 255000); await page.click("#acm-retour"); await page.waitForTimeout(1200);
     ok((await acmDe(idB)).prix === 255000 && (await acmDe(idA)).prix === 400000, "une saisie suivie aussitôt de « Retour » est enregistrée dans son dossier, et seulement là");
 
+    // --- Un livret quitté pendant son chargement ne revient pas s'afficher sur un autre -------
+    // (16/11, second signalement : « j'ai fait A, puis modifié B, et les infos de B se sont
+    // copiées sur A ».) Le chargement du livret de A est ralenti ; on le quitte pour celui de B.
+    await page.click("#modale-fermer").catch(() => {}); await page.waitForTimeout(300);
+    await page.route("**/crm/parcours/" + idA + "/acm/portails*", async (route) => { await new Promise((r) => setTimeout(r, 2500)); await route.continue(); });
+    await page.click('tr[data-parcours="' + idA + '"]');
+    await page.waitForSelector('[data-guide="acm"]', { timeout: 10000 });
+    await page.click('[data-guide="acm"]');           // livret de A : en cours de chargement…
+    await page.waitForTimeout(400);
+    await page.click("#modale-fermer"); await page.waitForTimeout(200); // …on n'attend pas
+    await livret(idB);                                  // livret de B, affiché
+    await page.waitForTimeout(3200);                    // le chargement de A se termine pendant ce temps
+    ok(/BETA/.test(await page.locator("#modale-titre").innerText()) && await page.inputValue("#acm-prix") === "255000",
+       "le livret affiché reste celui de B (titre et prix), même quand le chargement de A se termine après");
+    await saisir("#acm-prix", 260000); await page.waitForTimeout(1500);
+    ok((await acmDe(idB)).prix === 260000 && (await acmDe(idA)).prix === 400000, "la saisie va dans B ; le dossier A, quitté pendant son chargement, ne bouge pas (" + JSON.stringify({ a: (await acmDe(idA)).prix, b: (await acmDe(idB)).prix }) + ")");
+    await page.unroute("**/crm/parcours/" + idA + "/acm/portails*");
+    await page.click("#acm-retour"); await page.waitForSelector('[data-guide="acm"]', { timeout: 10000 });
+
     // --- « Versions précédentes » : un livret écrasé se reprend -----------------------------
     await page.click("#modale-fermer"); await page.waitForTimeout(300);
     const t = Math.floor(Date.now() / 1000);

@@ -1438,6 +1438,19 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**Livret prix — SECOND défaut de dossiers mêlés (16/11 soir, Stéphanie : « j'ai fait A, puis modifié B, les infos de
+B se sont copiées sur A »)** : `ouvrirAcm` posait la fenêtre puis chargeait (DVF, portails, photos, commission) ;
+quittée pendant ce chargement pour le livret de B, sa suite revenait écrire SON formulaire (et ses écouteurs, id = A)
+dans la fenêtre de B, sous le titre de B → la saisie « de B » partait dans A. Reproduit par le smoke
+`livret-dossiers` (route `/acm/portails` ralentie). Correctif (admin.js) : garde `maFenetre !== sessionModale` juste
+avant le rendu du livret ; `quitterFenetre()` (fermeture, retour navigateur) avance `sessionModale`, retire les
+écouteurs et fait partir la saisie en attente ; `ouvrirParcours` : la dernière fiche demandée l'emporte
+(`demandeParcours`) ; `rendre()` de la commission et réponses de la fenêtre e-mail gardées. GARDE CENTRALE dans
+`api()` : toute écriture `/crm/parcours/<id>/…` est refusée si la fenêtre ouverte est celle d'un autre dossier
+(`fenetreDossier`, posé par `pourDossier(id)` JUSTE AVANT `ouvrirModale`, vidé à la fermeture). RÈGLE : toute nouvelle
+fenêtre liée à un parcours appelle `pourDossier(id); ouvrirModale(…)` et, si elle écrit dans la fenêtre après un
+`await`, vérifie `sessionModale`.
+
 **Livret prix — versions précédentes, dossiers supprimés, récupération depuis les sauvegardes (16/11, suite du
 défaut ci-dessous)** : `GET /crm/parcours/:id/acm/versions` (résumés ; `actuel` + `versions`, celles identiques au
 livret en place sont tues) et `POST …/versions/:vid/restaurer` (le livret en place est archivé avant, `origine`

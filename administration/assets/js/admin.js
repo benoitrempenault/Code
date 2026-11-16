@@ -16,10 +16,20 @@
     try { return JSON.parse(localStorage.getItem("studio-mandatpro-account") || "null"); }
     catch (e) { return null; }
   }
+  // Le dossier Parcours de la fenêtre ouverte (posé par pourDossier(id) juste
+  // avant ouvrirModale, vidé à la fermeture). Garde centrale : aucune écriture
+  // vers un dossier ne part d'une fenêtre qui en montre un autre — même si un
+  // chargement en retard ou un écouteur oublié le tentait (16/11).
+  let fenetreDossier = "", dossierSuivant = "";
+  function pourDossier(id) { dossierSuivant = id || ""; }
   async function api(path, opts) {
     opts = opts || {};
     const a = account();
     if (!a || !a.session) throw new Error("Session invalide — reconnectez-vous.");
+    if ((opts.method || (opts.json !== undefined || opts.body ? "POST" : "GET")) !== "GET" && fenetreDossier) {
+      const visee = /^\/crm\/parcours\/([^/?]+)/.exec(path);
+      if (visee && visee[1] !== fenetreDossier) throw new Error("Cette saisie appartient à un autre dossier que celui affiché : rien n'a été enregistré. Fermez la fenêtre et rouvrez le dossier.");
+    }
     const headers = Object.assign({ Authorization: "Bearer " + a.session }, opts.headers || {});
     if (opts.json !== undefined) {
       headers["Content-Type"] = "application/json";
@@ -161,6 +171,7 @@
   function ouvrirModale(titre, corpsHtml, piedHtml) {
     while (nettoyagesModale.length) { try { nettoyagesModale.pop()(); } catch { /* un nettoyage en échec n'empêche pas d'ouvrir */ } }
     sessionModale++;
+    fenetreDossier = dossierSuivant; dossierSuivant = "";
     delete $("modale-corps").dataset.livret;
     $("modale-titre").textContent = titre;
     $("modale-corps").innerHTML = corpsHtml;
@@ -178,8 +189,17 @@
   }
   // Le bouton « retour » (téléphone, navigateur) ferme la fenêtre ouverte au
   // lieu de quitter l'Administration.
-  window.addEventListener("popstate", () => { if (!$("voile").hidden) { $("voile").hidden = true; document.querySelector(".modale").classList.remove("large"); } });
+  // Fermer la fenêtre compte comme en changer : un chargement encore en route
+  // pour elle s'abandonne (sessionModale), ses écouteurs sont retirés et sa
+  // saisie en attente part tout de suite.
+  function quitterFenetre() {
+    while (nettoyagesModale.length) { try { nettoyagesModale.pop()(); } catch { /* rien */ } }
+    sessionModale++; fenetreDossier = ""; dossierSuivant = "";
+    delete $("modale-corps").dataset.livret;
+  }
+  window.addEventListener("popstate", () => { if (!$("voile").hidden) { quitterFenetre(); $("voile").hidden = true; document.querySelector(".modale").classList.remove("large"); } });
   function fermerModale() {
+    quitterFenetre();
     $("voile").hidden = true; document.querySelector(".modale").classList.remove("large");
     if (history.state && history.state.modale) { try { history.back(); } catch { /* rien */ } }
   }
@@ -2885,7 +2905,7 @@
   // reprendre une garde à son tour le livret qu'elle remplace.
   async function ouvrirVersionsLivret(id, p) {
     document.querySelector(".modale").classList.add("large");
-    ouvrirModale("🕘 Versions précédentes du livret — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), '<p class="aide">Chargement…</p>',
+    pourDossier(id); ouvrirModale("🕘 Versions précédentes du livret — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), '<p class="aide">Chargement…</p>',
       '<button class="btn btn-or" id="lv-retour">Retour au livret</button>');
     const maFenetre = sessionModale;
     $("lv-retour").addEventListener("click", () => ouvrirAcm(id, p));
@@ -3054,9 +3074,12 @@
       } catch (e) { toast(e.message, true); btn.disabled = false; btn.textContent = "Créer le parcours"; }
     });
   }
+  let demandeParcours = 0;
   async function ouvrirParcours(id) {
     let p;
+    const demande = ++demandeParcours; // deux fiches demandées coup sur coup : seule la dernière s'ouvre
     try { p = await api("/crm/parcours/" + id); p.bien = (await api("/crm/parcours/" + id + "/acm")).acm || {}; } catch (e) { toast(e.message, true); return; }
+    if (demande !== demandeParcours) return;
     const faites = new Map(p.journal.map((j) => [j.etape, j]));
     const bienManque = (p.type_bien === "terrain" ? ["terrain"] : ["surface", "chambres", "piece_vie"]).filter((k) => !p.bien[k]);
     const etapesHtml = '<div class="etapes">' + etapesPour(p).map((e, i) => {
@@ -3088,7 +3111,7 @@
     const csLigne = '<select id="px-signe" style="max-width:260px; vertical-align:middle;"><option value="">— choisir le conseiller —</option>' +
       conseillers.filter((c) => c.actif || p.conseiller_id === c.id).map((c) => '<option value="' + c.id + '"' + (p.conseiller_id === c.id ? " selected" : "") + ">" + escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</option>").join("") +
       '</select> <span class="petit" id="px-signe-detail">' + csDetail + "</span>";
-    ouvrirModale("🧭 " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
+    pourDossier(id); ouvrirModale("🧭 " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
       '<details><summary style="cursor:pointer;">Fiche client et rendez-vous — ' + escH([p.adresse, p.ville].filter(Boolean).join(", ")) +
       " · R1 " + dateFrCourte(p.r1, p.r1_heure) + " · R2 " + dateFrCourte(p.r2, p.r2_heure) +
       (bienManque.length ? ' <span class="puce" style="background:#e07a5f; color:#fff;" title="Ces informations passent dans la commission d\'évaluation et le livret prix">à renseigner : ' + escH(bienManque.map((k) => ({ surface: "surface", chambres: "chambres", piece_vie: "pièce de vie", terrain: "surface du terrain" })[k]).join(", ")) + "</span>" : "") + "</summary>" +
@@ -3781,7 +3804,7 @@
     try { acm = (await api("/crm/parcours/" + id + "/acm")).acm || {}; } catch { acm = {}; }
     const cr = acm.courrier && typeof acm.courrier === "object" ? acm.courrier : {};
     const basse = cr.basse || acm.basse || "", haute = cr.haute || acm.haute || "";
-    ouvrirModale("📨 Courrier d'estimation",
+    pourDossier(id); ouvrirModale("📨 Courrier d'estimation",
       '<p class="aide">La fourchette (net vendeur) reprend celle du livret prix ; ajustez-la, ajoutez un mot personnel, puis imprimez le courrier ou envoyez-le par e-mail en pièce jointe (l\'envoi se confirme en deux temps), signé ' +
       (p.conseiller ? "<strong>" + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + "</strong>" : "<strong>de l'agence</strong> (choisissez le conseiller sur la fiche)") + ".</p>" +
       '<div class="grille-champs"><label>Fourchette basse (€)<input id="ce-basse" type="number" step="1000" value="' + escH(basse) + '" /></label>' +
@@ -4097,7 +4120,7 @@
     try { r2 = await api("/crm/parcours/" + id + "/r2"); } catch (e) { toast(e.message, true); return; }
     let photo; // undefined = inchangée
     const cs = r2.conseiller || {};
-    ouvrirModale("🖨 Guide R2 — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
+    pourDossier(id); ouvrirModale("🖨 Guide R2 — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
       '<p class="aide">Ce qui manque au guide : la photo du bien, vos points forts et objections, votre texte. Le reste (commune, commodités à 1,5 km, ventes de l\'agence à 1 km, date du jour, mois) se remplit tout seul.</p>' +
       '<div class="barre" style="align-items:center;">' +
       '<img id="r2-apercu" src="' + escH(r2.photo || "") + '" alt="" style="width:160px; height:106px; object-fit:cover; border-radius:10px; background:var(--line);" />' +
@@ -4155,7 +4178,7 @@
   // quelques champs d'une nouvelle fiche (créée avec l'adresse du bien).
   function ajouterProprietaire(id, p) {
     let contactId = "";
-    ouvrirModale("+ Co-propriétaire — " + [p.prenom, p.nom].filter(Boolean).join(" "),
+    pourDossier(id); ouvrirModale("+ Co-propriétaire — " + [p.prenom, p.nom].filter(Boolean).join(" "),
       '<div class="grille-champs"><label>Chercher dans les contacts<input id="pp-q" placeholder="nom, e-mail, téléphone…" autocomplete="off" /></label></div>' +
       '<div id="pp-resultats" style="max-height:150px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:6px 12px; margin:6px 0 12px;"><p class="petit">Tapez au moins 2 caractères. Introuvable ? Remplissez ci-dessous : la fiche contact sera créée.</p></div>' +
       '<p class="petit" id="pp-choisi"></p>' +
@@ -4264,7 +4287,7 @@
     catch (e) { toast(e.message, true); return; }
     const depuisEstimation = acm.depuis_estimation || [];
     acm = acm.acm || {};
-    ouvrirModale("🖨 Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), '<p class="aide">Ventes DVF autour du bien…</p>', "");
+    pourDossier(id); ouvrirModale("🖨 Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), '<p class="aide">Ventes DVF autour du bien…</p>', "");
     document.querySelector(".modale").classList.add("large");
     const maFenetre = sessionModale;
     let dvf = [];
@@ -4379,6 +4402,9 @@
         (budgets.length ? " · budgets de " + fmtPrix(budgets[0]) + " à " + fmtPrix(budgets[budgets.length - 1]) : "") +
         (prix ? ". À " + fmtPrix(prix) + " : " + nbAu(prix) + " acheteur(s)" : "") + (basse ? " · fourchette basse " + fmtPrix(basse) + " : " + nbAu(basse) : "") + (haute ? " · fourchette haute " + fmtPrix(haute) + " : " + nbAu(haute) : "") + ".";
     };
+    // Tous les chargements sont revenus : si la fenêtre a changé entre-temps
+    // (fermée, ou un autre dossier ouvert), ce livret ne s'affiche pas.
+    if (maFenetre !== sessionModale) return;
     $("modale-corps").innerHTML =
       '<p class="aide">Cochez ce qui entre dans le livret, complétez la commission d\'évaluation et le financement. Tout s\'enregistre sur la fiche.</p>' +
       '<h3 style="margin:10px 0 4px;">Le bien</h3>' +
@@ -4549,7 +4575,9 @@
       }
       return o;
     };
+    let fenetreCom = 0;
     const rendre = () => {
+      if (fenetreCom && fenetreCom !== sessionModale) return; // un « Actualiser » revenu après un changement de fenêtre
       const tiers = tiersAffiches(), qr = qrDataUrl(com.lien);
       $("modale-corps").innerHTML =
         '<p class="aide">Faites scanner ce QR code aux collègues (en réunion ou en photo) : chacun ouvre le bien et donne sa fourchette, sans compte. Les réponses arrivent ici' + (com.ferme ? " — <strong>commission close</strong>" : "") + ".</p>" +
@@ -4593,7 +4621,8 @@
         } catch (e) { toast(e.message, true); }
       });
     };
-    ouvrirModale("🗳 Commission d'évaluation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), "", "");
+    pourDossier(id); ouvrirModale("🗳 Commission d'évaluation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), "", "");
+    fenetreCom = sessionModale;
     rendre();
   }
   let livretCache = null;
@@ -4902,7 +4931,7 @@
   // s'ouvre que sur un clic (jamais bloqué, même sur téléphone) ; « Enregistrer »
   // télécharge ; « Retour » rouvre la fiche.
   function documentPret(id, titre, url, fichier, note) {
-    ouvrirModale("✅ " + titre,
+    pourDossier(id); ouvrirModale("✅ " + titre,
       '<p class="aide">Le document est prêt. Ouvrez-le dans un nouvel onglet pour le lire ou l\'imprimer, ou enregistrez-le ; la fiche du parcours vous attend derrière.</p>' +
       (note ? '<p class="petit" id="doc-note" style="white-space:pre-wrap;">' + escH(note) + "</p>" : "") +
       '<div class="barre"><a class="btn btn-or" id="doc-ouvrir" href="' + escH(url) + '" target="_blank" rel="noopener">📄 Ouvrir le document</a>' +
@@ -4925,7 +4954,7 @@
     // Retour de l'aperçu : le texte relu reste tel que le conseiller l'a laissé.
     if (relu) { a.sujet = relu.sujet; a.texte = relu.texte; }
     const etape = ETAPES_PARCOURS.find((e) => e.cle === jalon);
-    ouvrirModale("✉️ " + (etape ? etape.titre : jalon),
+    pourDossier(id); ouvrirModale("✉️ " + (etape ? etape.titre : jalon),
       (piece ? '<p class="petit" id="pm-piece">📎 Pièce jointe : <strong>' + escH(piece.nom) + "</strong> (" + Math.round(piece.octets.byteLength / 1024) + " Ko)" + (piece.url ? ' — <a href="' + escH(piece.url) + '" target="_blank" rel="noopener">👁 ouvrir le PDF</a>' : "") + "</p>" : "") +
       '<p class="aide">Relisez et ajustez : ce texte partira tel quel à ' +
       (a.destinataires.length ? escH(a.destinataires.join(", ")) : "<strong>personne (pas d'e-mail sur la fiche)</strong>") + ", signé " +
@@ -4945,6 +4974,7 @@
       if (!r.checked) return;
       try {
         const n = await api("/crm/parcours/" + id + "/apercu?jalon=" + jalon + "&lieu=" + encodeURIComponent(r.value));
+        if (fenetreDossier !== id || !$("pm-sujet")) return;
         lieu = n.lieu || r.value;
         $("pm-sujet").value = n.sujet; $("pm-texte").value = n.texte;
         toast("Texte mis à jour pour « " + (a.lieux.find((l) => l.cle === lieu) || {}).libelle + " »");
@@ -4955,6 +4985,7 @@
       const relu = { sujet: $("pm-sujet").value, texte: $("pm-texte").value, lieu };
       try {
         const r = await api("/crm/parcours/" + id + "/apercu?jalon=" + jalon + "&sujet=" + encodeURIComponent(relu.sujet) + "&texte=" + encodeURIComponent(relu.texte));
+        if (fenetreDossier !== id) return;
         const iframe = document.createElement("iframe"); iframe.className = "apercu-mail"; iframe.setAttribute("sandbox", ""); iframe.srcdoc = r.html;
         const corps = $("modale-corps"); corps.innerHTML = ""; corps.appendChild(iframe);
         $("modale-pied").innerHTML = '<button class="btn" id="pm-retour">← Revenir au texte</button>';
@@ -4990,8 +5021,9 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
-    { id: "livret-versions-17-11", depuis: "2026-11-17", jours: 14, titre: "Retrouver un livret écrasé ou un dossier supprimé",
+    { id: "livret-versions-17-11", depuis: "2026-11-16", jours: 14, titre: "Livret prix : second correctif, et de quoi retrouver ce qui a été écrasé",
       html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Second défaut corrigé (16/11 au soir)</strong> : quitter un livret prix pendant qu'il chargeait encore, puis ouvrir celui d'un autre dossier, pouvait afficher le premier par-dessus le second — la saisie partait alors dans le mauvais dossier. Un livret quitté ne revient plus, et Studio refuse désormais toute saisie qui ne correspond pas au dossier affiché.</li>" +
         "<li><strong>🕘 Versions précédentes</strong> (en bas du livret prix) : le livret tel qu'il était avant ses dernières modifications. « Reprendre » remet une version en place — prix, caractéristiques, ventes retenues, biens en concurrence, commission. Le livret remplacé reste dans la liste : rien n'est perdu.</li>" +
         "<li><strong>🗑 Dossiers supprimés</strong> (en haut de la liste des parcours) : un parcours effacé se restaure pendant 30 jours, avec ses rendez-vous, ses propriétaires et son livret.</li>" +
         "<li>Les livrets abîmés par le défaut corrigé le 16/11 et les dossiers supprimés depuis début octobre y sont proposés, repris des sauvegardes de Studio : à vous de reprendre ceux qui vous manquent.</li>" +

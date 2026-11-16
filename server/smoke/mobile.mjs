@@ -14,6 +14,9 @@ export default async function () {
     ok((await deborde()) <= 1, "l'accueil ne déborde pas horizontalement (" + (await deborde()) + " px)");
     await page.click('[data-onglet="parcours"]');
     await page.waitForFunction(() => document.querySelector("#table-parcours tr[data-parcours]"), null, { timeout: 8000 });
+    // Le mémo des nouveautés s'ouvre de lui-même sur l'onglet : on le referme avant de continuer.
+    await page.waitForTimeout(400);
+    { const nv = page.locator("#nv-compris"); if (await nv.count()) { await nv.click(); await page.waitForTimeout(300); } }
     await capture(page, "mobile-parcours");
     await page.click("#table-parcours tr[data-parcours]");
     await page.waitForSelector(".etapes", { timeout: 8000 });
