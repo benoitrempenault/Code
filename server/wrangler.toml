@@ -26,7 +26,10 @@ bucket_name = "studio-brochure-files"
 # absences Outlook (permanences) — 5h30/4h30 à Paris selon la saison.
 # 0 6 tous les jours : Administration (annonces du site + vœux d'anniversaire),
 # 8h/7h à Paris selon la saison — inerte pour les agences qui n'ont rien activé.
-crons = ["0 5 * * 1,5", "30 3 * * *", "0 6 * * *"]
+# Le jour s'écrit en NOMS (MON, FRI) : chez Cloudflare 1 = dimanche, « 1,5 »
+# partait dimanche et jeudi. worker.js compare event.cron à ces chaînes,
+# caractère pour caractère : changer l'une sans l'autre éteint le cron (test.mjs le vérifie).
+crons = ["0 5 * * MON,FRI", "30 3 * * *", "0 6 * * *"]
 
 [vars]
 # century21-kadima.fr : l'espace public de l'offre d'achat (offre/) y sera posé (CORS).

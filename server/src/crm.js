@@ -457,16 +457,16 @@ export const QUOTAS = {
 // quand le plafond du jour est atteint (rien n'est compté dans ce cas).
 export async function consommerQuota(db, agencyId, userId, cle, max = QUOTAS[cle]) {
   const jour = parisDate();
-  const cur = await db.get(
-    "SELECT n FROM crm_quotas WHERE agency_id = ? AND user_id = ? AND jour = ? AND cle = ?",
-    [agencyId, userId || "", jour, cle]);
-  const n = cur ? Number(cur.n) : 0;
-  if (n >= max) return { ok: false, n, max };
-  await db.run(
-    `INSERT INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES (?, ?, ?, ?, 1)
-     ON CONFLICT(agency_id, user_id, jour, cle) DO UPDATE SET n = n + 1`,
-    [agencyId, userId || "", jour, cle]);
-  return { ok: true, n: n + 1, max };
+  const qui = [agencyId, userId || "", jour, cle];
+  // Incrément gardé, en UNE requête (comme quota_counters) : « lire puis
+  // écrire » laissait N requêtes parallèles lire le même compteur et passer
+  // toutes sous le plafond.
+  await db.run("INSERT OR IGNORE INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES (?, ?, ?, ?, 0)", qui);
+  const r = await db.run(
+    "UPDATE crm_quotas SET n = n + 1 WHERE agency_id = ? AND user_id = ? AND jour = ? AND cle = ? AND n < ?",
+    [...qui, Number(max) || 0]);
+  const cur = await db.get("SELECT n FROM crm_quotas WHERE agency_id = ? AND user_id = ? AND jour = ? AND cle = ?", qui);
+  return { ok: changesOf(r) === 1, n: cur ? Number(cur.n) : 0, max };
 }
 
 // Réserve d'un coup `nb` unités du plafond : rend le nombre accordé (0 → rien).
@@ -635,19 +635,43 @@ export async function menageQuotidien(db, files = null) {
                          FROM crm_parcours_acm_versions WHERE origine = 'saisie' AND archive_at >= ? AND archive_at < ?) WHERE a = 1 OR d = 1)`,
       [t - 4 * 86400, t - 86400, t - 4 * 86400, t - 86400]));
   } catch (e) { r.livretsErreur = e.message; }
-  r.corbeille = changesOf(await db.run("DELETE FROM crm_corbeille WHERE created_at < ? OR (restored_at > 0 AND restored_at < ?)",
-    [t - CORBEILLE_JOURS * 86400, t - 7 * 86400]));
+  // Chaque purge sous son propre try : une requête refusée par D1 (base
+  // saturée, quota du jour) ne prive ni des purges suivantes, ni — plus loin
+  // dans la chaîne du matin — des vœux et des rappels d'offres.
+  const purge = async (nom, sql, params = []) => {
+    try { r[nom] = changesOf(await db.run(sql, params)); }
+    catch (e) { r[nom + "Erreur"] = (e && e.message) || String(e); console.error("[ménage] " + nom + " :", r[nom + "Erreur"]); }
+  };
+  await purge("corbeille", "DELETE FROM crm_corbeille WHERE created_at < ? OR (restored_at > 0 AND restored_at < ?)",
+    [t - CORBEILLE_JOURS * 86400, t - 7 * 86400]);
   // Comptes partagés « .interne » (porte collaborateurs fermée le 12/10) : sessions et liens révoqués.
-  r.partages = changesOf(await db.run("UPDATE sessions SET revoked = 1 WHERE revoked = 0 AND user_id IN (SELECT id FROM users WHERE email LIKE '%.interne')"));
-  await db.run("DELETE FROM login_tokens WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%.interne')");
-  r.sessions = changesOf(await db.run("DELETE FROM sessions WHERE revoked = 1 OR last_seen < ?", [t - 90 * 86400]));
-  r.liens = changesOf(await db.run("DELETE FROM login_tokens WHERE expires_at < ?", [t - 86400]));
-  await db.run("DELETE FROM login_attentes WHERE created_at < ?", [t - 86400]);
-  await db.run("DELETE FROM login_attentes_appareil WHERE created_at < ?", [t - 86400]);
-  await db.run("DELETE FROM sessions_appareils WHERE token_hash NOT IN (SELECT token_hash FROM sessions)");
-  r.journal = changesOf(await db.run("DELETE FROM connexions_journal WHERE created_at < ?", [t - 180 * 86400]));
-  r.quotas = changesOf(await db.run("DELETE FROM crm_quotas WHERE jour < ?", [parisDate(new Date((t - 92 * 86400) * 1000))]));
+  await purge("partages", "UPDATE sessions SET revoked = 1 WHERE revoked = 0 AND user_id IN (SELECT id FROM users WHERE email LIKE '%.interne')");
+  await purge("liensPartages", "DELETE FROM login_tokens WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%.interne')");
+  await purge("sessions", "DELETE FROM sessions WHERE revoked = 1 OR last_seen < ?", [t - 90 * 86400]);
+  await purge("liens", "DELETE FROM login_tokens WHERE expires_at < ?", [t - 86400]);
+  await purge("attentes", "DELETE FROM login_attentes WHERE created_at < ?", [t - 86400]);
+  await purge("attentesAppareil", "DELETE FROM login_attentes_appareil WHERE created_at < ?", [t - 86400]);
+  await purge("appareils", "DELETE FROM sessions_appareils WHERE token_hash NOT IN (SELECT token_hash FROM sessions)");
+  await purge("journal", "DELETE FROM connexions_journal WHERE created_at < ?", [t - 180 * 86400]);
+  await purge("quotas", "DELETE FROM crm_quotas WHERE jour < ?", [parisDate(new Date((t - 92 * 86400) * 1000))]);
+  // Compteurs de débit (ai_rate : IA par agence, par clé personnelle, routes
+  // publiques par IP) : ils ne servent que le temps de leur fenêtre, quelques
+  // minutes, et la table grossissait sans fin. On garde deux jours.
+  await purge("debits", "DELETE FROM ai_rate WHERE minute < ?", [Math.floor(t / 60) - 2 * 1440]);
   return r;
+}
+
+// Les étapes d'un cron, l'une après l'autre, chacune sous son propre try :
+// celle qui échoue est journalisée par son nom et les suivantes tournent quand
+// même (un ménage en erreur ne prive plus l'agence des vœux du jour). Rend,
+// par étape, le résultat ou { erreur }.
+export async function enchainerEtapes(etapes) {
+  const bilan = {};
+  for (const [nom, etape] of etapes) {
+    try { bilan[nom] = await etape(); }
+    catch (e) { bilan[nom] = { erreur: (e && e.message) || String(e) }; console.error("[cron] étape « " + nom + " » en échec :", bilan[nom].erreur); }
+  }
+  return bilan;
 }
 
 // Suppression de fiches en cascade (géocache, liaisons projets/estimations,
@@ -3252,7 +3276,8 @@ export async function geocoderEnMasse(env, db, agencyId, max = 1000) {
   const iId = col("id"), iLat = col("latitude"), iLng = col("longitude"), iScore = col("result_score"), iLabel = col("result_label"), iCp = col("result_postcode"), iType = col("result_type");
   if (iId < 0 || iLat < 0 || iLng < 0) throw new Error("Géocodage en masse : colonnes inattendues (" + entete.join(",") + ").");
   const parId = new Map(attente.map((a) => [a.id, a]));
-  const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
+  // Tronquer AVANT de doubler les apostrophes (couper après laissait une apostrophe orpheline : injection SQL).
+  const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").slice(0, 200).replace(/'/g, "''") + "'";
   const t = now();
   const valeurs = [];
   let geocodes = 0, echecs = 0;
@@ -3368,7 +3393,8 @@ async function geocoderLot(env, db, agencyId, attente, total) {
     env.BAN_BASE || "https://api-adresse.data.gouv.fr",
     env.GEOPF_BASE || "https://data.geopf.fr/geocodage",
   ];
-  const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
+  // Tronquer AVANT de doubler les apostrophes (couper après laissait une apostrophe orpheline : injection SQL).
+  const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").slice(0, 200).replace(/'/g, "''") + "'";
   // EN FILE INDIENNE, jamais en parallèle : la BAN et l'IGN refusent les
   // RAFALES venant des serveurs partagés (constaté en production : 12 d'un
   // coup = « BAN 0 ok / 12 refus · IGN 0 ok / 12 refus », alors qu'à l'unité

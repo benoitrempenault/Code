@@ -34,10 +34,19 @@ const FICHE_MAL_RANGEE = {
   exterieur: ["Clôture mitoyenne des deux côtés", "Portail manuel"], copro: [], aSavoir: []
 };
 const upstreamCalls = [];
+// Réponse imposée au PROCHAIN appel ({ status, type, corps }) : usage avec
+// cache, réponse sans usage, flux SSE, refus — pour les tests du proxy.
+let reponseIA = null;
 const fake = (await import("node:http")).createServer(async (req, res) => {
   const chunks = []; for await (const c of req) chunks.push(c);
   const body = JSON.parse(Buffer.concat(chunks).toString());
   upstreamCalls.push({ headers: req.headers, body });
+  if (reponseIA) {
+    const r = reponseIA; reponseIA = null;
+    res.writeHead(r.status || 200, { "Content-Type": r.type || "application/json" });
+    res.end(r.corps);
+    return;
+  }
   res.writeHead(200, { "Content-Type": "application/json" });
   // Fiche prestations : le faux modèle reproduit le défaut observé en
   // production — toutes les pièces empilées dans « Surfaces », plus de m²
@@ -204,9 +213,24 @@ ok((await call("/me", { headers: { Authorization: "Bearer " + s4 } })).status ==
 const s3 = s4;   // session valide réutilisée par la suite des tests
 
 console.log("— Limite d'envoi des liens de connexion");
-let last429 = null;
-for (let i = 0; i < 5; i++) last429 = await call("/auth/request-link", { body: { email: "claire@azur-immo.fr" } });
-ok(last429.status === 429 && /10 minutes/.test(last429.json.error), "rafale bloquée à 4 liens / 10 min avec message adapté");
+// Au-delà de 4 liens / 10 min plus rien ne part — mais la réponse reste celle
+// de toujours : un 429 ici disait à n'importe qui que l'adresse a un compte.
+const nbLiensClaire = async () => (await db.get("SELECT COUNT(*) AS n FROM login_tokens WHERE user_id = (SELECT id FROM users WHERE email = 'claire@azur-immo.fr')")).n;
+let dernierLien = null, liensAvantDernier = 0;
+for (let i = 0; i < 5; i++) { liensAvantDernier = await nbLiensClaire(); dernierLien = await call("/auth/request-link", { body: { email: "claire@azur-immo.fr" } }); }
+ok(dernierLien.status === 200 && (await nbLiensClaire()) === liensAvantDernier && !dernierLien.json.dev_token,
+  "rafale : au-delà de 4 liens / 10 min, aucun lien de plus ne part");
+ok(/Si un compte existe/.test(dernierLien.json.message) && typeof dernierLien.json.attente === "string" && dernierLien.json.attente.length >= 20,
+  "…et la réponse reste la réponse ordinaire, jeton d'attente compris (pas de 429 qui trahit le compte)");
+const lienInconnu = await call("/auth/request-link", { body: { email: "personne@sans-compte.example" } });
+ok(lienInconnu.status === 200 && JSON.stringify(Object.keys(lienInconnu.json).sort()) === JSON.stringify(["attente", "message", "ok"])
+  && lienInconnu.json.message === dernierLien.json.message && lienInconnu.json.attente.length === dernierLien.json.attente.length,
+  "adresse sans compte : même réponse, avec un jeton d'attente (factice)");
+ok((await call("/auth/attente", { body: { attente: lienInconnu.json.attente } })).json.etat === "attente"
+  && (await call("/auth/attente", { body: { attente: dernierLien.json.attente } })).json.etat === "attente",
+  "un jeton factice attend comme un vrai — et ne mène à aucune session");
+await db.run("UPDATE login_attentes SET created_at = created_at - 3600 WHERE user_id = ''");
+ok((await call("/auth/attente", { body: { attente: lienInconnu.json.attente } })).json.etat === "expiree", "…puis expire comme un vrai");
 
 console.log("— Mise à jour d'agence (admin)");
 const upd = await call("/admin/agencies/" + agencyId, { headers: admin, body: { seats: 30, quota_eur: 60 } });
@@ -727,6 +751,82 @@ ok(/transcris des notes/.test(upstreamCalls[upstreamCalls.length - 1].body.syste
 const byoQuota = await db.get("SELECT spent_micros FROM quota_counters WHERE scope LIKE 'byo:%'");
 ok(!byoQuota, "aucun quota consommé en mode clé personnelle");
 ok((await call("/v1/messages", { headers: { "X-User-Key": "pas-une-cle" }, body: { model: "claude-sonnet-5", messages: [] } })).status === 401, "clé personnelle malformée → 401");
+{
+  // Sans session, la limite par IP passe AVANT le compteur par clé : une clé inventée
+  // par requête ne remplit plus la table des débits, et rien ne part chez Anthropic.
+  const ipTest = "198.51.100.77", scopeIp = "ip:ia-cle:" + (await sha256hex(ipTest)).slice(0, 16);
+  const cleA = "sk-ant-api03-cle-de-test-numero-un-0123456789", cleB = "sk-ant-api03-cle-de-test-numero-deux-0123456789";
+  const scopeCle = async (k) => "byo:" + (await sha256hex(k)).slice(0, 16);
+  const byoIp = await call("/v1/messages", { headers: { "X-User-Key": cleA, "CF-Connecting-IP": ipTest }, body: { model: "claude-sonnet-5", max_tokens: 50, task: "extract_notes", messages: [{ role: "user", content: "notes" }] } });
+  const compteur = async (scope) => ((await db.get("SELECT n FROM ai_rate WHERE scope = ?", [scope])) || {}).n;
+  ok(byoIp.status === 200 && (await compteur(scopeIp)) === 1 && (await compteur(await scopeCle(cleA))) === 1,
+    "clé personnelle : l'appel est compté par IP, puis par clé");
+  const minuteT = Math.floor(Date.now() / 60000);
+  for (const m of [minuteT, minuteT + 1]) await db.run("INSERT OR REPLACE INTO ai_rate (scope, minute, n) VALUES (?, ?, 120)", [scopeIp, m]);
+  const appelsAvant = upstreamCalls.length;
+  const byoTrop = await call("/v1/messages", { headers: { "X-User-Key": cleB, "CF-Connecting-IP": ipTest }, body: { model: "claude-sonnet-5", max_tokens: 50, task: "extract_notes", messages: [{ role: "user", content: "notes" }] } });
+  ok(byoTrop.status === 429 && upstreamCalls.length === appelsAvant && (await compteur(await scopeCle(cleB))) === undefined,
+    "IP au plafond : 429 avant toute écriture par clé et avant tout relais (une clé inventée ne crée plus de ligne)");
+  await db.run("DELETE FROM ai_rate WHERE scope = ?", [scopeIp]);
+}
+
+console.log("— Proxy IA : liste blanche des champs, coût du cache, réservation");
+{
+  const { costMicros } = await import("./src/util.js");
+  const { decouperGrosCorps } = await import("./src/app.js");
+  const h3 = { Authorization: "Bearer " + s3 };
+  const cles = (o) => JSON.stringify(Object.keys(o).sort());
+  const depense = async () => ((await db.get("SELECT spent_micros FROM quota_counters WHERE scope = ? ORDER BY month DESC LIMIT 1", [agencyId])) || { spent_micros: 0 }).spent_micros;
+  // Corps ordinaire : seuls les champs de nos apps partent (« stream » faisait rembourser la réservation).
+  const filtre = await call("/v1/messages", { headers: h3, body: { model: "claude-sonnet-5", max_tokens: 100, stream: true, tools: [{ name: "outil", input_schema: { type: "object" } }],
+    tool_choice: { type: "auto" }, mcp_servers: [], metadata: { user_id: "x" }, thinking: { type: "disabled" }, messages: [{ role: "user", content: "test" }] } });
+  ok(filtre.status === 200 && cles(upstreamCalls[upstreamCalls.length - 1].body) === cles({ model: 1, max_tokens: 1, messages: 1, thinking: 1 }),
+    "corps ordinaire : ni stream, ni tools, ni rien hors liste blanche ne part (" + cles(upstreamCalls[upstreamCalls.length - 1].body) + ")");
+  // Gros corps : « stream » et « tools » glissés APRÈS les messages (clé échappée comprise) ne passent plus.
+  const texteGros = "y".repeat(1_100_000) + " \\\"guillemets\\\" et antislash \\\\ puis ] } [ { en clair";
+  const queuePiegee = "{\"model\":\"claude-sonnet-5\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"" + texteGros
+    + "\"}]}],\"str\\u0065am\":true,\"stream\":true,\"tools\":[{\"name\":\"outil\"}],\"thinking\":{\"type\":\"disabled\"}}";
+  const rq = await app.fetch(new Request("http://api.test/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", ...h3 }, body: queuePiegee }));
+  const recuQ = upstreamCalls[upstreamCalls.length - 1].body;
+  ok(rq.status === 200 && cles(recuQ) === cles({ model: 1, max_tokens: 1, messages: 1, thinking: 1 }) && recuQ.thinking.type === "disabled",
+    "gros corps : stream et tools écrits après les messages sont retirés, thinking (envoyé par nos apps) reste (" + cles(recuQ) + ")");
+  ok(recuQ.messages.length === 1 && recuQ.messages[0].content[0].text === JSON.parse(queuePiegee).messages[0].content[0].text,
+    "gros corps : le texte arrive intact (guillemets échappés, antislashs, crochets dans une chaîne)");
+  // Formes refusées : le tableau des messages doit se refermer proprement, suivi d'une virgule ou de la fin.
+  const gros = "z".repeat(1_100_000);
+  const refuse = async (corps) => (await app.fetch(new Request("http://api.test/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", ...h3 }, body: corps }))).status;
+  ok((await refuse("{\"model\":\"claude-sonnet-5\",\"messages\":[{\"role\":\"user\",\"content\":\"" + gros + "\"}}],\"stream\":true}")) === 400
+    && (await refuse("{\"model\":\"claude-sonnet-5\",\"messages\":\"" + gros + "\",\"stream\":true}")) === 400
+    && (await refuse("{\"model\":\"claude-sonnet-5\",\"messages\":[{\"role\":\"user\",\"content\":\"" + gros + "\"}] \"stream\":true}")) === 400
+    && (await refuse("{\"model\":\"claude-sonnet-5\",\"messages\":[{\"role\":\"user\",\"content\":\"" + gros + "\"}")) === 400,
+    "gros corps mal formé (accolades croisées, messages hors tableau, suite sans virgule, tableau ouvert) → 400");
+  ok(decouperGrosCorps("{\"messages\":[" + "[".repeat(80) + "]".repeat(80) + "]}") === null && decouperGrosCorps("{\"model\":\"m\",\"messages\":[\"" + "\\\"".repeat(300000) + "\"]}") === null,
+    "gros corps : profondeur et longueur du parcours bornées (pas de calcul sans fin)");
+  // Coût : l'écriture et la relecture du cache de prompt comptent (1,25 × et 0,1 × le prix d'entrée).
+  const avantCache = await depense();
+  reponseIA = { corps: JSON.stringify({ id: "msg_cache", type: "message", role: "assistant", content: [{ type: "text", text: "ok" }],
+    usage: { input_tokens: 10, cache_creation_input_tokens: 1000, cache_read_input_tokens: 10000, output_tokens: 100 } }) };
+  const avecCache = await call("/v1/messages", { headers: h3, body: { model: "claude-sonnet-5", max_tokens: 200, messages: [{ role: "user", content: "test" }] } });
+  const ligneCache = await db.get("SELECT tokens_in, tokens_out, cost_micros FROM usage WHERE agency_id = ? ORDER BY id DESC LIMIT 1", [agencyId]);
+  const attendu = costMicros("claude-sonnet-5", 10 + 1000 * 1.25 + 10000 * 0.1, 100);
+  ok(avecCache.status === 200 && ligneCache.cost_micros === attendu && attendu > costMicros("claude-sonnet-5", 10, 100) * 2 && ligneCache.tokens_in === 11010,
+    "tokens de cache comptés dans le coût (" + ligneCache.cost_micros + " µ€ au lieu de " + costMicros("claude-sonnet-5", 10, 100) + ")");
+  ok((await depense()) - avantCache === attendu, "…et dans le quota de l'agence");
+  // Réponse 2xx sans usage lisible (flux, JSON tronqué) : la réservation n'est plus remboursée.
+  const avantFlux = await depense();
+  reponseIA = { type: "text/event-stream", corps: "event: message_start\ndata: {\"type\":\"message_start\"}\n\n" };
+  const flux = await call("/v1/messages", { headers: h3, body: { model: "claude-sonnet-5", max_tokens: 200, messages: [{ role: "user", content: "test" }] } });
+  ok(flux.status === 502 && (await depense()) - avantFlux >= costMicros("claude-sonnet-5", 0, 200), "réponse 200 illisible : 502 au client, réservation conservée (" + ((await depense()) - avantFlux) + " µ€)");
+  const avantSans = await depense();
+  reponseIA = { corps: JSON.stringify({ id: "msg_sans_usage", type: "message", content: [{ type: "text", text: "ok" }] }) };
+  const sansUsage = await call("/v1/messages", { headers: h3, body: { model: "claude-sonnet-5", max_tokens: 200, messages: [{ role: "user", content: "test" }] } });
+  ok(sansUsage.status === 200 && (await depense()) - avantSans >= costMicros("claude-sonnet-5", 0, 200), "réponse 200 sans usage : réservation conservée");
+  // Refus d'Anthropic (rien de facturé) : remboursement complet, comme avant.
+  const avantRefus = await depense();
+  reponseIA = { status: 400, corps: JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "refus de test" } }) };
+  const refus = await call("/v1/messages", { headers: h3, body: { model: "claude-sonnet-5", max_tokens: 200, messages: [{ role: "user", content: "test" }] } });
+  ok(refus.status === 400 && (await depense()) === avantRefus, "refus d'Anthropic (4xx) : réservation remboursée en entier");
+}
 
 console.log("— Quota mensuel");
 await db.run("UPDATE agencies SET quota_eur = 0.00001 WHERE id = ?", [agencyId]);
@@ -889,6 +989,27 @@ ok((await call("/agency/users", { headers: { Authorization: "Bearer " + u2sess }
 // retraits
 ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 400, "l'admin ne peut pas se retirer lui-même");
 ok((await call("/agency/users/" + addC.json.user.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 200, "l'admin retire un conseiller");
+{ // Hors développement, le lien de bienvenue (il ouvre une session) part par e-mail et ne revient plus dans la réponse.
+  const appProd = createApp({ db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: false });
+  const rProd = await appProd.fetch(new Request("http://api.test/agency/users", { method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + s3 }, body: JSON.stringify({ email: "sans.lien@azur-immo.fr", name: "Sans Lien" }) }));
+  const jProd = await rProd.json();
+  const lienCree = await db.get("SELECT COUNT(*) AS n FROM login_tokens WHERE user_id = ?", [jProd.user && jProd.user.id]);
+  ok(rProd.status === 200 && jProd.user.email === "sans.lien@azur-immo.fr" && !("invite_link" in jProd) && !/#token=/.test(JSON.stringify(jProd)) && lienCree.n === 1,
+    "hors DEV_MODE : le compte est créé, son lien de bienvenue existe mais n'est plus renvoyé à l'appelant");
+  await call("/agency/users/" + jProd.user.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
+  // Erreur inattendue : le message du moteur SQL reste dans le journal du serveur, le client reçoit une référence.
+  const dbCasse = { get: async () => { throw new Error("D1_ERROR: no such column: mot_secret in SELECT * FROM table_interne"); }, all: async () => [], run: async () => ({}) };
+  const appCasse = createApp({ db: dbCasse, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: false });
+  const journalErr = [], errOrigine = console.error;
+  console.error = (...a) => { journalErr.push(a.join(" ")); };
+  let r500, j500;
+  try { r500 = await appCasse.fetch(new Request("http://api.test/me", { headers: { Authorization: "Bearer jeton-quelconque" } })); j500 = await r500.json(); }
+  finally { console.error = errOrigine; }
+  ok(r500.status === 500 && /^Erreur serveur/.test(j500.error) && !/mot_secret|table_interne|D1_ERROR|SELECT/.test(JSON.stringify(j500)) && /^er_/.test(j500.ref || ""),
+    "erreur 500 : message générique au client, sans le texte du moteur SQL (" + j500.error + ")");
+  ok(journalErr.some((l) => l.includes("mot_secret") && l.includes(j500.ref)), "…le détail part au journal du serveur, avec la même référence");
+}
 // Un conseiller qui s'est déjà connecté (sessions, jetons) se retire aussi : D1 vérifie les clés
 // étrangères, des sessions seulement révoquées faisaient échouer la suppression (« FOREIGN KEY constraint failed »).
 { const addT = await call("/agency/users", { headers: { Authorization: "Bearer " + s3 }, body: { email: "temporaire@azur-immo.fr", name: "Tempo" } });
@@ -1551,6 +1672,25 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const mesRdv = await call("/rdv?from=" + demain + "&to=" + demain, { headers: auth });
   ok(mesRdv.json.rdv.length === 1 && mesRdv.json.rdv[0].client_nom === "Jean Dupont", "l'agence voit le rendez-vous pris en ligne");
   ok((await call("/rdv/" + mesRdv.json.rdv[0].id + "/statut", { headers: auth, body: { statut: "confirme" } })).status === 200, "rendez-vous confirmé");
+  {
+    // Les coordonnées des clients restent chez LEUR conseiller (comme dans le flux d'agenda) :
+    // la direction voit tout, un conseiller ne lit et ne modifie que ses rendez-vous.
+    const idRdv = mesRdv.json.rdv[0].id, fenetre = "/rdv?from=" + demain + "&to=" + demain;
+    const authU2 = { Authorization: "Bearer " + pwTeam.json.session };
+    const rdvU2 = await call(fenetre, { headers: authU2 });
+    ok(rdvU2.status === 200 && rdvU2.json.rdv.length === 1 && rdvU2.json.rdv[0].client_nom === "Jean Dupont", "le conseiller de permanence voit SON rendez-vous");
+    const collegue = await call("/agency/users", { headers: auth, body: { email: "collegue.rdv@azur-immo.fr", name: "Collègue RDV" } });
+    const authCol = { Authorization: "Bearer " + (await call("/auth/exchange", { body: { token: collegue.json.invite_link.split("#token=")[1] } })).json.session };
+    const rdvCol = await call(fenetre, { headers: authCol });
+    ok(rdvCol.status === 200 && rdvCol.json.rdv.length === 0 && (await call("/rdv", { headers: authCol })).json.rdv.length === 0,
+      "un autre conseiller ne reçoit pas les rendez-vous de ses collègues (ni les coordonnées de leurs clients)");
+    const annuleCol = await call("/rdv/" + idRdv + "/statut", { headers: authCol, body: { statut: "annule" } });
+    ok(annuleCol.status === 403 && (await db.get("SELECT statut FROM rdv WHERE id = ?", [idRdv])).statut === "confirme", "…et ne peut pas annuler celui d'un collègue (403, statut inchangé)");
+    ok((await call("/rdv/" + idRdv + "/statut", { headers: authU2, body: { statut: "honore" } })).status === 200 && (await db.get("SELECT statut FROM rdv WHERE id = ?", [idRdv])).statut === "honore",
+      "le conseiller concerné, lui, change le statut du sien");
+    await call("/rdv/" + idRdv + "/statut", { headers: auth, body: { statut: "confirme" } });
+    await call("/agency/users/" + collegue.json.user.id, { method: "DELETE", headers: auth }); // siège libéré
+  }
 
   // Un rendez-vous annulé LIBÈRE son créneau : la page publique le repropose
   // et un autre client peut le reprendre — sans erreur 500 (l'unicité ne
@@ -2689,25 +2829,42 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const aps = (await callS("/me/appareils", { headers: authC })).json;
     ok(aps.appareils.length === 1 && aps.appareils[0].courant === true && aps.appareils[0].nom === "iPhone · Safari" && aps.mobile.numero === "06 ** ** ** 78" && aps.mobile.verifie === true,
       "Mes appareils : l'iPhone courant et le mobile vérifié (" + JSON.stringify(aps) + ")");
-    // Second appareil : nouveau code ; renvoi par e-mail à la demande ; fermeture à distance.
+    // Second appareil : nouveau code ; fermeture à distance. Le mobile est maintenant VÉRIFIÉ :
+    // le code ne part plus que par SMS (l'e-mail a déjà reçu le lien, ce ne serait plus un second facteur).
     const ex2 = await callS("/auth/exchange", { body: { token: await lienPour("code2fa@ach-test.fr") }, headers: { "User-Agent": UA_PC } });
     const auth2 = { Authorization: "Bearer " + ex2.json.session };
-    const mailsAvant2 = mailsRecus.length;
+    const mailsAvant2 = mailsRecus.length, smsAvant2 = smsRecus.length;
     const renvoi = await callS("/auth/code/envoyer", { headers: auth2, body: { canal: "email" } });
-    const mailCode = mailsRecus[mailsRecus.length - 1];
-    ok(renvoi.status === 200 && renvoi.json.canal === "email" && mailsRecus.length === mailsAvant2 + 1 && /code de connexion Studio : \d{6}/.test(mailCode.subject) && mailCode.to[0] === "code2fa@ach-test.fr",
-      "le code peut être renvoyé par e-mail (" + JSON.stringify(renvoi.json) + ")");
-    const code2 = (mailCode.subject.match(/(\d{6})/) || [])[1];
-    ok((await callS("/auth/code/verifier", { headers: auth2, body: { code: code2 } })).status === 200, "le code e-mail valide le second appareil");
+    ok(renvoi.status === 403 && /uniquement par SMS/.test(renvoi.json.error) && !mailsRecus.slice(mailsAvant2).some((m) => /code de connexion/.test(m.subject || "")),
+      "mobile vérifié : le code n'est pas renvoyé par e-mail (" + JSON.stringify(renvoi.json) + ")");
+    const renvoiSms = await callS("/auth/code/envoyer", { headers: auth2, body: {} });
+    ok(renvoiSms.status === 200 && renvoiSms.json.canal === "sms" && smsRecus.length === smsAvant2 + 1, "…il se redemande par SMS");
+    ok(ex.json.verification.emailPossible === true && ex2.json.verification.emailPossible === false && renvoiSms.json.emailPossible === false,
+      "la réponse dit à l'écran si le code par e-mail est encore possible (oui avant la vérification du mobile, non après)");
+    const code2 = smsRecus[smsRecus.length - 1].content.slice(0, 6);
+    ok((await callS("/auth/code/verifier", { headers: auth2, body: { code: code2 } })).status === 200, "le code SMS valide le second appareil");
     const aps2 = (await callS("/me/appareils", { headers: authC })).json.appareils;
     const pc = aps2.find((a) => a.nom === "Windows · Chrome");
     ok(aps2.length === 2 && pc && !pc.courant, "deux appareils listés depuis l'iPhone (" + JSON.stringify(aps2.map((a) => a.nom)) + ")");
     ok((await callS("/me/appareils/" + pc.id, { headers: authC, method: "DELETE" })).status === 200 && (await callS("/me", { headers: auth2 })).status === 401, "fermer le PC depuis l'iPhone : sa session est révoquée");
-    // Cinq mauvais codes → redemander un code.
+    // Cinq essais PAR SESSION : redemander un code ne les rend pas (5 codes × 5 essais = 25 tentatives avant).
     const ex3 = await callS("/auth/exchange", { body: { token: await lienPour("code2fa@ach-test.fr") } });
     const auth3 = { Authorization: "Bearer " + ex3.json.session };
-    let dernier = null; for (let i = 0; i < 6; i++) dernier = await callS("/auth/code/verifier", { headers: auth3, body: { code: "111111" } });
-    ok(dernier.status === 429 || (dernier.status === 200 && ex3.json.verification.dev_code === "111111"), "cinq mauvais codes → 429, il faut un nouveau code");
+    const fauxDe = (c) => String((parseInt(c, 10) + 1) % 1000000).padStart(6, "0");
+    for (let i = 0; i < 3; i++) await callS("/auth/code/verifier", { headers: auth3, body: { code: fauxDe(ex3.json.verification.dev_code) } });
+    const neuf = await callS("/auth/code/envoyer", { headers: auth3, body: {} });
+    ok(neuf.status === 200 && (await db.get("SELECT code_essais FROM sessions_appareils WHERE token_hash = ?", [await sha256hex(ex3.json.session)])).code_essais === 3,
+      "un nouveau code ne remet pas les essais à zéro (3 comptés avant, 3 après)");
+    const ko4 = await callS("/auth/code/verifier", { headers: auth3, body: { code: fauxDe(neuf.json.dev_code) } });
+    const ko5 = await callS("/auth/code/verifier", { headers: auth3, body: { code: fauxDe(neuf.json.dev_code) } });
+    ok(ko4.status === 401 && /1 essai/.test(ko4.json.error) && ko5.status === 401 && /lien de connexion/.test(ko5.json.error), "4e et 5e essais refusés, le décompte continue (" + ko4.json.error + ")");
+    const sixieme = await callS("/auth/code/verifier", { headers: auth3, body: { code: neuf.json.dev_code } });
+    ok(sixieme.status === 429 && (await callS("/me", { headers: auth3 })).status === 401, "cinq mauvais codes sur la session → même le BON code est refusé (429)");
+    ok((await callS("/auth/code/envoyer", { headers: auth3, body: {} })).status === 429, "…et plus aucun code n'est envoyé : il faut un nouveau lien");
+    // Essais en rafale : comptés un par un (incrément gardé), jamais plus de cinq comparaisons.
+    await db.run("UPDATE sessions_appareils SET code_essais = 0 WHERE token_hash = ?", [await sha256hex(ex3.json.session)]);
+    const rafale = await Promise.all(Array.from({ length: 12 }, () => callS("/auth/code/verifier", { headers: auth3, body: { code: fauxDe(neuf.json.dev_code) } })));
+    ok(rafale.filter((r) => r.status === 401).length === 5 && rafale.filter((r) => r.status === 429).length === 7, "douze essais en parallèle : cinq comparés, sept refusés");
     // Journal de l'agence (admin seulement).
     const jr = (await callS("/agency/connexions", { headers: auth })).json.connexions;
     ok(jr.some((j) => j.type === "connexion" && j.email === "code2fa@ach-test.fr" && /code sms/.test(j.detail) && j.ip === "203.0.113.42") && jr.some((j) => j.type === "code-ko") && jr.some((j) => j.type === "appareil-ferme"),
@@ -2723,6 +2880,13 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const smsAvant5 = smsRecus.length;
     const ex5 = await callS("/auth/exchange", { body: { token: await lienPour("code2fa@ach-test.fr") } });
     ok(ex5.json.verification.requis === true && smsRecus.length === smsAvant5 + 1 && smsRecus[smsRecus.length - 1].recipient === "+33700000000", "le code part sur le nouveau numéro");
+    // Ce nouveau numéro n'est PAS encore vérifié : le code peut encore être demandé par e-mail.
+    const mailsAvant5 = mailsRecus.length;
+    const renvoi5 = await callS("/auth/code/envoyer", { headers: { Authorization: "Bearer " + ex5.json.session }, body: { canal: "email" } });
+    const mailCode5 = mailsRecus[mailsRecus.length - 1];
+    ok(renvoi5.status === 200 && renvoi5.json.canal === "email" && mailsRecus.length === mailsAvant5 + 1 && /code de connexion Studio : \d{6}/.test(mailCode5.subject) && mailCode5.to[0] === "code2fa@ach-test.fr",
+      "mobile pas encore vérifié : le code peut être renvoyé par e-mail (" + JSON.stringify(renvoi5.json) + ")");
+    ok((await callS("/auth/code/verifier", { headers: { Authorization: "Bearer " + ex5.json.session }, body: { code: (mailCode5.subject.match(/(\d{6})/) || [])[1] } })).status === 200, "…et le code e-mail valide l'appareil");
     await db.run("DELETE FROM login_tokens WHERE user_id = ?", [cpt.json.user.id]);
     ok((await callS("/agency/users/" + cpt.json.user.id, { headers: auth, method: "DELETE" })).status === 200, "le compte de test est retiré (siège libéré)");
     await db.run("DELETE FROM crm_conseillers WHERE agency_id = ? AND email = 'code2fa@ach-test.fr'", [agId]); }
@@ -3760,7 +3924,77 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(menage.corbeille >= 1 && !(await callR("/crm/corbeille", { headers: auth })).json.entrees.some((e) => e.ref_id === svA),
      "le ménage quotidien purge la corbeille au-delà de 30 jours");
 
+  console.log("— Audit de sécurité : ids écrits dans le SQL, créateur d'une estimation, modification réservée à l'auteur");
+  {
+    // (1) La charge de l'audit. Un id de 19 lettres + 21 apostrophes était échappé PUIS coupé à 60 : il restait
+    // une apostrophe orpheline, et l'id suivant devenait du SQL (UNION sur les e-mails des comptes).
+    const charge = "a".repeat(19) + "'".repeat(21), union = ") UNION SELECT email FROM users --";
+    const inj = await callR("/crm/estimations", { headers: authD4, body: { nom: "Fiche de test", adresse: "1 rue de l'Audit", ville: "Le Haillan", contactIds: [charge, union] } });
+    const liesDe = async (id) => (await db.all("SELECT contact_id FROM crm_estimation_contacts WHERE estimation_id = ?", [id])).map((r) => r.contact_id);
+    const estInj = await db.get("SELECT contact_id FROM crm_estimations WHERE id = ?", [inj.json && inj.json.id]);
+    ok(inj.status === 200 && (await liesDe(inj.json.id)).length === 0 && estInj && !/@/.test(estInj.contact_id),
+      "contactIds piégés (apostrophes + UNION) : la fiche se crée, rien n'est lu ni lié (" + inj.status + " " + JSON.stringify(inj.json && inj.json.error) + ")");
+    const mixte = await callR("/crm/estimations/" + inj.json.id, { headers: authD4, method: "PUT", body: { nom: "Fiche de test", adresse: "1 rue de l'Audit", contactIds: ["ct_o'neil", cbCt.id, charge, union] } });
+    ok(mixte.status === 200 && JSON.stringify(await liesDe(inj.json.id)) === JSON.stringify([cbCt.id]), "un id contenant une apostrophe est simplement ignoré, le vrai contact est lié");
+    const rlInj = await callR("/crm/projets/" + projetId + "/relancer", { headers: auth, body: { annonceIds: ["b".repeat(59) + "'", ") UNION SELECT email FROM users --"] } });
+    ok(rlInj.status === 404 && /stock/.test(rlInj.json.error), "annonceIds piégés : « aucun de ces biens », pas d'erreur SQL (" + rlInj.status + ")");
+    const libelle = "L".repeat(199) + "'";
+    const geoInj = await callR("/crm/geo/batch", { headers: auth, body: { rows: [{ contactId: cbCt.id, lat: 44.91, lng: -0.71, label: libelle + " suite coupée", score: 0.9, adresse: "x" },
+      { contactId: "c".repeat(199) + "'", lat: 44.9, lng: -0.7, label: "y", score: 0.9, adresse: ") OR 1=1 --" }] } });
+    ok(geoInj.status === 200 && geoInj.json.enregistres === 1 && (await db.get("SELECT label FROM crm_geo WHERE contact_id = ?", [cbCt.id])).label === libelle,
+      "géocache : une valeur coupée juste après une apostrophe reste une valeur (tronquée avant d'être échappée)");
+    await callR("/crm/geo/batch", { headers: auth, body: { rows: [{ contactId: cbCt.id, lat: 44.9, lng: -0.7, label: "y", score: 0.9, adresse: "y" }] } });
+
+    // (2) Enregistrer la fiche d'un collègue ne fait pas de soi son « créateur » (c'est lui qui ouvre le parcours).
+    const estP = await callR("/crm/estimations", { headers: authP, body: { nom: "Dossier du collègue", adresse: "2 rue de l'Audit", ville: "Le Haillan" } });
+    const createur = (await db.get("SELECT user_id FROM crm_estimations WHERE id = ?", [estP.json.id])).user_id;
+    const moiD4 = (await callR("/me", { headers: authD4 })).json.user.id;
+    const putCollegue = await callR("/crm/estimations/" + estP.json.id, { headers: authD4, method: "PUT", body: { nom: "Dossier du collègue", adresse: "2 rue de l'Audit", ville: "Le Haillan", notes: "relu par un collègue" } });
+    const apresPut = await db.get("SELECT user_id, notes FROM crm_estimations WHERE id = ?", [estP.json.id]);
+    ok(putCollegue.status === 200 && apresPut.notes === "relu par un collègue" && createur && createur !== moiD4 && apresPut.user_id === createur,
+      "PUT d'une estimation : la fiche est enregistrée, son créateur (user_id) reste celui de la création");
+
+    // (6) Suivis et visites : la règle « auteur ou administrateur » vaut aussi pour la modification.
+    const svG = (await callR("/crm/suivis", { headers: authP, body: { contact_id: cbCt.id, type: "appel", commentaire: "Appel de l'auteur.", rappel_le: "2030-01-15" } })).json.id;
+    const lireSv = () => db.get("SELECT commentaire, rappel_fait, type FROM crm_suivis WHERE id = ?", [svG]);
+    const reecrit = await callR("/crm/suivis/" + svG, { headers: authD4, method: "PUT", body: { commentaire: "Réécrit par un collègue.", rappel_fait: 1 } });
+    ok(reecrit.status === 403 && (await lireSv()).commentaire === "Appel de l'auteur." && (await lireSv()).rappel_fait === 0, "un collègue ne réécrit pas le suivi d'un autre (403, rien n'a bougé)");
+    const coche = await callR("/crm/suivis/" + svG, { headers: authD4, method: "PUT", body: { rappel_fait: 1 } });
+    ok(coche.status === 200 && (await lireSv()).rappel_fait === 1 && (await lireSv()).commentaire === "Appel de l'auteur.", "…mais il peut cocher « rappel fait »");
+    ok((await callR("/crm/suivis/" + svG, { headers: authD4, method: "PUT", body: { ...(await db.get("SELECT * FROM crm_suivis WHERE id = ?", [svG])), rappel_fait: 0 } })).status === 200 && (await lireSv()).rappel_fait === 0,
+      "…y compris en renvoyant la ligne entière inchangée (rappel « à refaire »)");
+    ok((await callR("/crm/suivis/" + svG, { headers: authP, method: "PUT", body: { commentaire: "Corrigé par son auteur." } })).status === 200 && (await lireSv()).commentaire === "Corrigé par son auteur.", "l'auteur corrige son suivi");
+    ok((await callR("/crm/suivis/" + svG, { headers: auth, method: "PUT", body: { commentaire: "Corrigé par la direction." } })).status === 200 && (await lireSv()).commentaire === "Corrigé par la direction.", "un administrateur aussi");
+    const corpsVi = { contact_id: cbCt.id, contact: "Anne CORBEILLE", bien: "5 rue de l'Audit", date_visite: "2026-09-21" };
+    const viG = (await callR("/crm/visites", { headers: authP, body: corpsVi })).json.id;
+    const lireVi = () => db.get("SELECT v.compte_rendu, v.user_id, COALESCE(a.avis, '') AS avis FROM crm_visites v LEFT JOIN crm_visite_avis a ON a.visite_id = v.id WHERE v.id = ?", [viG]);
+    const auteurVi = (await lireVi()).user_id;
+    const viCol = await callR("/crm/visites/" + viG, { headers: authD4, method: "PUT", body: { ...corpsVi, compte_rendu: "Réécrit par un collègue.", avis: "pas_plu" } });
+    ok(viCol.status === 403 && (await lireVi()).compte_rendu === "" && (await lireVi()).avis === "", "un collègue ne réécrit pas la visite d'un autre (403, ni compte rendu ni avis)");
+    ok((await callR("/crm/visites/" + viG, { headers: authP, method: "PUT", body: { ...corpsVi, compte_rendu: "Visite faite.", avis: "plu" } })).status === 200 && (await lireVi()).avis === "plu", "l'auteur complète sa visite");
+    ok((await callR("/crm/visites/" + viG, { headers: auth, method: "PUT", body: { ...corpsVi, compte_rendu: "Relu par la direction." } })).status === 200
+      && (await lireVi()).compte_rendu === "Relu par la direction." && (await lireVi()).user_id === auteurVi, "un administrateur la corrige sans en devenir l'auteur");
+    // Décor retiré : rien de tout cela ne doit peser sur les tests suivants.
+    await db.run("DELETE FROM crm_visite_avis WHERE visite_id = ?", [viG]);
+    await db.run("DELETE FROM crm_visites WHERE id = ?", [viG]);
+    await db.run("DELETE FROM crm_suivis WHERE id = ?", [svG]);
+    for (const id of [inj.json.id, estP.json.id]) {
+      await db.run("DELETE FROM crm_estimation_contacts WHERE estimation_id = ?", [id]);
+      await db.run("DELETE FROM crm_estimations WHERE id = ?", [id]);
+    }
+  }
+
   console.log("— Durcissement : plafonds du jour (envois manuels, prospects)");
+  {
+    // Plafond atomique : douze consommations lancées ensemble sous un plafond de 5 → cinq accordées, pas une de plus
+    // (« lire puis écrire » les laissait toutes passer).
+    const ensemble = await Promise.all(Array.from({ length: 12 }, () => CRM_TEST.consommerQuota(db, "ag_test_parallele", "us_test", "test-parallele", 5)));
+    const compte = (await db.get("SELECT n FROM crm_quotas WHERE agency_id = 'ag_test_parallele' AND cle = 'test-parallele'")).n;
+    ok(ensemble.filter((q) => q.ok).length === 5 && compte === 5 && ensemble.every((q) => q.max === 5), "plafond du jour : 12 demandes en parallèle, 5 accordées et 5 comptées (" + ensemble.filter((q) => q.ok).length + "/" + compte + ")");
+    const apresPlafond = await CRM_TEST.consommerQuota(db, "ag_test_parallele", "us_test", "test-parallele", 5);
+    ok(apresPlafond.ok === false && apresPlafond.n === 5, "…et la suivante est refusée sans rien compter");
+    await db.run("DELETE FROM crm_quotas WHERE agency_id = 'ag_test_parallele'");
+  }
   const meP = (await callR("/me", { headers: authP })).json.user;
   const jourQ = CRM_TEST.parisDate();
   await db.run("INSERT OR REPLACE INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES (?, ?, ?, 'envoi-mail', 99)", [agId, meP.id, jourQ]);
@@ -5724,6 +5958,68 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   const mort = await callM("/crm/meta/relever", { headers: authM, body: {} });
   ok(mort.status === 502 && /expiré ou révoqué/.test(mort.json.error) && (await callM("/crm/meta", { headers: authM })).json.compte.statut === "erreur", "jeton expiré : message clair, statut en erreur");
   fauxMeta.close();
+}
+
+console.log("— Crons : mêmes chaînes dans wrangler.toml et worker.js, chaîne du matin étape par étape, ménage des compteurs");
+{
+  // event.cron rend la chaîne de wrangler.toml caractère pour caractère : si les deux fichiers divergent, le cron
+  // tourne « à vide » sans la moindre erreur. Et chez Cloudflare 1 = dimanche : le jour s'écrit en noms.
+  const toml = readFileSync(new URL("./wrangler.toml", import.meta.url), "utf8");
+  const srcWorker = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
+  const crons = JSON.parse((/^crons\s*=\s*(\[[^\]]*\])/m.exec(toml) || [])[1] || "[]");
+  const dansWorker = [...srcWorker.matchAll(/"((?:[\w*\/,-]+ ){4}[\w*\/,-]+)"/g)].map((m) => m[1]);
+  ok(crons.length === 3 && dansWorker.length >= 2 && dansWorker.every((x) => crons.includes(x)),
+    "chaque cron comparé dans worker.js existe à l'identique dans wrangler.toml (" + JSON.stringify(dansWorker) + " / " + JSON.stringify(crons) + ")");
+  const hebdo = crons.filter((x) => x.split(" ")[4] !== "*");
+  ok(hebdo.length === 1 && hebdo[0] === "0 5 * * MON,FRI" && dansWorker.includes(hebdo[0]) && crons.every((x) => !/\d/.test(x.split(" ")[4])),
+    "le cron de lundi et vendredi s'écrit en noms de jours, jamais en chiffres (" + hebdo.join(" | ") + ")");
+  ok(!/event\.cron\s*[!=]==?\s*["'`]/.test(srcWorker) && dansWorker.includes("0 6 * * *"), "worker.js compare event.cron à ses constantes, pas à des chaînes recopiées");
+
+  // Chaîne du matin : une étape qui tombe est journalisée, les suivantes tournent quand même.
+  const journalCron = [], errOrigine = console.error;
+  console.error = (...a) => { journalCron.push(a.join(" ")); };
+  try {
+    const ordre = [];
+    const bilan = await CRM_TEST.enchainerEtapes([
+      ["première", async () => { ordre.push(1); throw new Error("base saturée"); }],
+      ["deuxième", async () => { ordre.push(2); return { fait: true }; }],
+      ["troisième", () => { ordre.push(3); throw new Error("autre panne"); }],
+    ]);
+    ok(JSON.stringify(ordre) === "[1,2,3]" && bilan["première"].erreur === "base saturée" && bilan["deuxième"].fait === true && bilan["troisième"].erreur === "autre panne",
+      "une étape en échec n'arrête pas les suivantes");
+    ok(journalCron.some((l) => /première/.test(l) && /base saturée/.test(l)) && journalCron.some((l) => /troisième/.test(l)), "…et chaque échec est journalisé avec le nom de l'étape");
+    // Le cron de 6 h du Worker, base en panne : la promesse confiée à waitUntil se termine sans rejet,
+    // et l'Administration puis les rappels d'offres ont bien été tentés APRÈS le ménage.
+    journalCron.length = 0;
+    const worker = (await import("./worker.js")).default;
+    let appelsD1 = 0;
+    const d1EnPanne = { prepare() { appelsD1++; throw new Error("D1_ERROR: base en panne"); } };
+    const confiees = [];
+    await worker.scheduled({ cron: "0 6 * * *" }, { DB: d1EnPanne }, { waitUntil: (p) => confiees.push(p) });
+    const fin = await Promise.allSettled(confiees);
+    const bilanCron = (fin[0] && fin[0].value) || {};
+    ok(confiees.length === 1 && fin[0].status === "fulfilled" && !!bilanCron["administration"] && !!bilanCron["rappels d'offres"],
+      "cron de 6 h, base en panne : la chaîne va au bout sans rejet (" + JSON.stringify(Object.keys(bilanCron)) + ")");
+    ok(!!(bilanCron["administration"] || {}).erreur && !!(bilanCron["rappels d'offres"] || {}).erreur && journalCron.some((l) => /administration/.test(l)) && journalCron.some((l) => /rappels d'offres/.test(l)) && appelsD1 > 10,
+      "…l'Administration et les rappels d'offres sont tentés après un ménage en erreur, et leurs échecs journalisés");
+    // Le ménage lui-même : une purge refusée n'empêche pas les suivantes.
+    const dbCapricieux = { ...db, run: async (sql, params) => { if (/connexions_journal/.test(sql)) throw new Error("purge refusée"); return db.run(sql, params); } };
+    const t0 = Math.floor(Date.now() / 1000), minute0 = Math.floor(t0 / 60);
+    await db.run("INSERT OR REPLACE INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES ('ag_test_menage', '', '2020-01-01', 'vieux', 1)");
+    // Compteurs de débit : un vieux de trois jours, un de la minute, et celui (fenêtre de 10 min) d'une demande de lien.
+    await db.run("INSERT OR REPLACE INTO ai_rate (scope, minute, n) VALUES ('test-vieux', ?, 3)", [minute0 - 3 * 1440]);
+    await db.run("INSERT OR REPLACE INTO ai_rate (scope, minute, n) VALUES ('test-frais', ?, 3)", [minute0]);
+    await call("/auth/request-link", { body: { email: "personne@sans-compte.example" }, headers: { "CF-Connecting-IP": "198.51.100.88" } });
+    const scopeLien = "ip:lien:" + (await sha256hex("198.51.100.88")).slice(0, 16);
+    const menageC = await CRM_TEST.menageQuotidien(dbCapricieux);
+    ok(menageC.journalErreur === "purge refusée" && menageC.quotas >= 1 && !(await db.get("SELECT n FROM crm_quotas WHERE agency_id = 'ag_test_menage'")),
+      "ménage : une purge refusée est notée, les suivantes sont faites (" + JSON.stringify({ journal: menageC.journalErreur, quotas: menageC.quotas }) + ")");
+    ok(menageC.debits >= 1 && !(await db.get("SELECT n FROM ai_rate WHERE scope = 'test-vieux'")) && !!(await db.get("SELECT n FROM ai_rate WHERE scope = 'test-frais'")),
+      "ménage : les compteurs de débit de plus de deux jours sont purgés, ceux du moment restent");
+    const ligneLien = await db.get("SELECT minute, n FROM ai_rate WHERE scope = ?", [scopeLien]);
+    ok(ligneLien && ligneLien.n === 1 && Math.abs(ligneLien.minute - minute0) <= 11, "…y compris le compteur à fenêtre de 10 minutes d'une demande de lien (daté en minutes, pas purgé à tort)");
+    await db.run("DELETE FROM ai_rate WHERE scope IN ('test-frais', ?)", [scopeLien]);
+  } finally { console.error = errOrigine; }
 }
 
 fake.close();

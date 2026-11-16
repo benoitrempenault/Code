@@ -62,6 +62,71 @@ const DEFAULT_AI_RATE_PER_MIN = 60;      // appels IA par agence et par minute
 // plus l'enveloppe JSON. Au-delà, c'est un payload absurde — on refuse.
 const DEFAULT_AI_MAX_BODY = 17_000_000;
 const RESERVE_INPUT_CAP = 200000;        // plafond de tokens d'entrée estimés pour la réservation
+// Champs relayés à Anthropic : ceux que nos apps envoient (ai.js), rien de
+// plus. Tout le reste est retiré — « stream » (réponse en flux illisible ici :
+// la réservation était remboursée, le quota contourné), « tools » et
+// « mcp_servers » (outils facturés à part), etc. task / task_arg sont à nous
+// (prompt injecté) et ne partent jamais.
+const CHAMPS_IA = ["model", "max_tokens", "system", "messages", "temperature", "thinking", "output_config", "task", "task_arg"];
+const GROS_CORPS = 1_000_000;            // au-delà, le corps n'est pas désérialisé
+const HORS_MESSAGES_MAX = 100000;        // gros corps : taille des petits champs, avant comme après « messages »
+const DECOUPE_PAS_MAX = 500000;          // gros corps : borne du parcours (temps de calcul de l'isolat)
+
+/* Gros corps du proxy IA (un compromis de 12 Mo pèse 16 Mo en base64) : on ne
+   le désérialise pas — mais on ne recolle plus sa queue « telle quelle », elle
+   pouvait porter n'importe quel champ après les messages. On isole la VALEUR
+   de "messages" (un tableau : crochets, accolades et chaînes suivis à la main,
+   les chaînes sautées d'un indexOf) ; tout le reste, avant ET après, est lu
+   comme un petit objet JSON qui passera la même liste blanche que les corps
+   ordinaires. Rend { champs, messages: '"messages":[…]' }, ou null si le corps
+   n'a pas cette forme. */
+export function decouperGrosCorps(raw) {
+  const i = raw.indexOf("\"messages\"");
+  const fin = raw.lastIndexOf("}");
+  if (i <= 0 || i > HORS_MESSAGES_MAX || fin < i || !/\}\s*$/.test(raw.slice(-8))) return null;
+  const blanc = (ch) => ch === 32 || ch === 9 || ch === 10 || ch === 13;
+  let p = i + 10;
+  while (blanc(raw.charCodeAt(p))) p++;
+  if (raw.charCodeAt(p) !== 58) return null;            // « : »
+  p++;
+  while (blanc(raw.charCodeAt(p))) p++;
+  if (raw.charCodeAt(p) !== 91) return null;            // « [ »
+  const debut = p, pile = [];
+  let pas = 0, ferme = false;
+  while (p < fin && !ferme) {
+    if (++pas > DECOUPE_PAS_MAX) return null;
+    const ch = raw.charCodeAt(p);
+    if (ch === 34) {
+      // Chaîne : jusqu'au prochain guillemet non échappé (nombre pair de « \ » devant).
+      let j = p;
+      for (;;) {
+        j = raw.indexOf("\"", j + 1);
+        if (j < 0 || j >= fin) return null;
+        let anti = 0;
+        for (let k = j - 1; raw.charCodeAt(k) === 92; k--) { anti++; if (++pas > DECOUPE_PAS_MAX) return null; }
+        if (anti % 2 === 0) break;
+        if (++pas > DECOUPE_PAS_MAX) return null;
+      }
+      p = j + 1;
+      continue;
+    }
+    if (ch === 91 || ch === 123) { pile.push(ch); if (pile.length > 64) return null; }
+    else if (ch === 93 || ch === 125) {
+      if (pile.pop() !== ch - 2) return null;               // « ] » ferme « [ », « } » ferme « { »
+      if (!pile.length) ferme = true;
+    }
+    p++;
+  }
+  if (!ferme) return null;
+  const suite = raw.slice(p, fin);
+  if (suite.length > HORS_MESSAGES_MAX || !/^\s*(,|$)/.test(suite)) return null;
+  try {
+    const tete = JSON.parse(raw.slice(0, i).replace(/,\s*$/, "") + "}");
+    const apres = JSON.parse("{" + suite.replace(/^\s*,/, "") + "}");
+    // Doublon : le champ écrit AVANT les messages l'emporte (comme avant).
+    return { champs: { ...apres, ...tete }, messages: "\"messages\":" + raw.slice(debut, p) };
+  } catch (e) { return null; }
+}
 
 export function createApp(env) {
   const db = env.db;
@@ -109,12 +174,15 @@ export function createApp(env) {
   /* Une exception non rattrapée rendait « Internal Server Error » en texte
      brut : l'app affichait « Erreur 500 » et personne — ni l'utilisateur, ni
      nous depuis l'extérieur — ne savait POURQUOI (une base D1 saturée, une
-     requête refusée…). On rend la cause en JSON, sans pile d'appel ni
-     secret : le message d'erreur du moteur suffit à diagnostiquer. */
+     requête refusée…). On répond en JSON — mais le message du moteur (nom
+     des tables, des colonnes, bout de requête) ne sort plus du serveur : il
+     aidait surtout celui qui cherche une injection. Le détail part au
+     journal du Worker avec une référence, que le client reçoit seule. */
   app.onError((e, c) => {
     const msg = String((e && e.message) || e || "erreur inconnue").slice(0, 300);
-    console.error("[500]", c.req.method, c.req.path, msg);
-    return c.json({ error: "Erreur serveur : " + msg }, 500);
+    const ref = randId("er");
+    console.error("[500]", ref, c.req.method, c.req.path, msg);
+    return c.json({ error: "Erreur serveur — réessayez dans un instant (réf. " + ref + ").", ref }, 500);
   });
   // Date « AAAA-MM-JJ » d'un epoch en secondes (bornes des fenêtres glissantes).
   const isoJour = (ts) => new Date(ts * 1000).toISOString().slice(0, 10);
@@ -178,7 +246,9 @@ export function createApp(env) {
   }
   async function envoyerCode(c, user, agency, hash, canal, mobile) {
     const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
-    await db.run("UPDATE sessions_appareils SET code_hash = ?, code_expire = ?, code_essais = 0, code_envois = code_envois + 1, canal = ? WHERE token_hash = ?",
+    // code_essais n'est PAS remis à zéro : les essais se comptent par session,
+    // sinon chaque nouveau code redonnait cinq tentatives (25 au lieu de 5).
+    await db.run("UPDATE sessions_appareils SET code_hash = ?, code_expire = ?, code_envois = code_envois + 1, canal = ? WHERE token_hash = ?",
       [await sha256hex(code), now() + CODE_MINUTES * 60, canal, hash]);
     let r;
     if (canal === "sms") {
@@ -286,7 +356,10 @@ export function createApp(env) {
     const ip = c.req.header("CF-Connecting-IP") || String(c.req.header("x-forwarded-for") || "").split(",")[0].trim() || "";
     if (!ip) return true;
     const scope = "ip:" + cle + ":" + (await sha256hex(ip)).slice(0, 16);
-    const fenetre = Math.floor(now() / (60 * fenetreMin));
+    // Début de la fenêtre, en MINUTES depuis 1970 quelle que soit sa durée :
+    // le ménage quotidien purge ai_rate sur cette colonne (une fenêtre comptée
+    // en dizaines de minutes passait pour vieille de plusieurs années).
+    const fenetre = Math.floor(now() / (60 * fenetreMin)) * fenetreMin;
     await db.run("INSERT OR IGNORE INTO ai_rate (scope, minute, n) VALUES (?, ?, 0)", [scope, fenetre]);
     const r = await db.run("UPDATE ai_rate SET n = n + 1 WHERE scope = ? AND minute = ? AND n < ?", [scope, fenetre, max]);
     return changesOf(r) === 1;
@@ -299,22 +372,33 @@ export function createApp(env) {
     const email = String(body.email || "").trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(c, 400, "Adresse e-mail invalide.");
     const user = await db.get("SELECT * FROM users WHERE email = ?", [email]);
-    // Réponse identique que le compte existe ou non (pas de fuite d'annuaire).
+    // Réponse identique que le compte existe ou non (pas de fuite d'annuaire) :
+    // même message ET un jeton d'attente dans tous les cas. Le jeton factice
+    // (compte inconnu, conseiller parti, plafond atteint) a sa ligne en base
+    // comme un vrai — il attend puis expire pareil — mais ne mène à aucun lien.
     const generic = { ok: true, message: "Si un compte existe pour cette adresse, un lien de connexion vient d'être envoyé." };
-    if (!user) return c.json(generic);
+    const sansLien = async () => {
+      const factice = randToken(32);
+      await db.run("INSERT INTO login_attentes (attente_hash, token_hash, user_id, etat, dernier_poll, created_at) VALUES (?, ?, '', 'attente', 0, ?)",
+        [await sha256hex(factice), await sha256hex(randToken(32)), now()]);
+      return c.json({ ...generic, attente: factice });
+    };
+    if (!user) return sansLien();
     // Un conseiller « inactif » dans l'Équipe (départ) n'entre plus : même réponse, rien ne part.
     const profil = await db.get("SELECT actif FROM crm_conseillers WHERE agency_id = ? AND lower(email) = ? ORDER BY updated_at DESC LIMIT 1", [user.agency_id, email]);
-    if (profil && !profil.actif) return c.json(generic);
+    if (profil && !profil.actif) return sansLien();
+    // Plafonds par compte : rien ne part, et la réponse reste la même — un
+    // « 429 » ici disait à n'importe qui que l'adresse a un compte.
     const burst = await db.get(
       "SELECT COUNT(*) AS n FROM login_tokens WHERE user_id = ? AND created_at > ?",
       [user.id, now() - 600]
     );
-    if ((burst?.n || 0) >= MAX_LINKS_PER_10MIN) return err(c, 429, "Plusieurs liens viennent d'être envoyés — utilisez le dernier reçu, ou réessayez dans 10 minutes.");
+    if ((burst?.n || 0) >= MAX_LINKS_PER_10MIN) return sansLien();
     const recent = await db.get(
       "SELECT COUNT(*) AS n FROM login_tokens WHERE user_id = ? AND created_at > ?",
       [user.id, now() - 3600]
     );
-    if ((recent?.n || 0) >= MAX_LINKS_PER_HOUR) return err(c, 429, "Trop de demandes — réessayez dans une heure.");
+    if ((recent?.n || 0) >= MAX_LINKS_PER_HOUR) return sansLien();
     const { token, link } = await issueLoginLink(user, LINK_TTL, null, body.retour);
     // Jeton d'attente : la page qui a demandé le lien le garde et interroge
     // /auth/attente ; quand le lien est cliqué ailleurs, c'est elle qui se connecte.
@@ -409,9 +493,12 @@ export function createApp(env) {
     if (mob && env.BREVO_API_KEY) {
       await db.run("UPDATE sessions_appareils SET verifie = 0 WHERE token_hash = ?", [hashS]);
       let r = await envoyerCode(c, user, agency, hashS, "sms", mob.mobile);
-      if (!r.ok) r = await envoyerCode(c, user, agency, hashS, "email", "");
+      // Repli e-mail seulement si le mobile n'a jamais été vérifié : sinon le
+      // second facteur retombait sur la boîte e-mail, celle qui a déjà reçu le lien.
+      if (!r.ok && !mob.verifie) r = await envoyerCode(c, user, agency, hashS, "email", "");
       return reponseSession(bearer, user, agency, { verification: {
         requis: true, canal: r.canal, mobile: masquerMobile(mob.mobile), email: masquerEmail(user.email), expireDans: CODE_MINUTES * 60,
+        emailPossible: !mob.verifie, // l'écran peut masquer « recevoir le code par e-mail »
         ...(r.dev_code ? { dev_code: r.dev_code } : {}),
       } });
     }
@@ -427,13 +514,20 @@ export function createApp(env) {
     const ap = await db.get("SELECT * FROM sessions_appareils WHERE token_hash = ?", [ctx.hash]);
     if (!ap || ap.verifie) return c.json({ ok: true, deja: true });
     if (ap.code_envois >= CODE_ENVOIS_MAX) return err(c, 429, "Trop de codes demandés pour cet appareil — redemandez un lien de connexion.");
+    // Essais épuisés : un nouveau code ne les rend pas, inutile de l'envoyer.
+    if (ap.code_essais >= CODE_ESSAIS_MAX) return err(c, 429, "Trop d'essais sur cet appareil — redemandez un lien de connexion.");
     const b = await c.req.json().catch(() => ({}));
     const mob = await mobileDe(ctx.user);
+    // Mobile vérifié : le code ne part QUE par SMS. Le canal e-mail (à la
+    // demande ou en repli) est réservé aux comptes sans mobile vérifié — sinon
+    // qui tient la boîte e-mail (le lien y est déjà arrivé) passait le second facteur.
+    const smsSeul = !!(mob && mob.verifie && env.BREVO_API_KEY);
+    if (smsSeul && b.canal === "email") return err(c, 403, "Ce compte a un mobile vérifié : le code part uniquement par SMS. Téléphone changé ? L'administrateur de l'agence peut mettre à jour votre mobile.");
     const canal = b.canal === "email" || !mob || !env.BREVO_API_KEY ? "email" : "sms";
     let r = await envoyerCode(c, ctx.user, ctx.agency, ctx.hash, canal, mob ? mob.mobile : "");
-    if (!r.ok && canal === "sms") r = await envoyerCode(c, ctx.user, ctx.agency, ctx.hash, "email", "");
+    if (!r.ok && canal === "sms" && !smsSeul) r = await envoyerCode(c, ctx.user, ctx.agency, ctx.hash, "email", "");
     if (!r.ok) return err(c, 502, "Le code n'a pas pu partir — " + (r.error || "envoi non configuré") + ".");
-    return c.json({ ok: true, canal: r.canal, mobile: mob ? masquerMobile(mob.mobile) : "", email: masquerEmail(ctx.user.email), expireDans: CODE_MINUTES * 60, ...(r.dev_code ? { dev_code: r.dev_code } : {}) });
+    return c.json({ ok: true, canal: r.canal, mobile: mob ? masquerMobile(mob.mobile) : "", email: masquerEmail(ctx.user.email), expireDans: CODE_MINUTES * 60, emailPossible: !smsSeul, ...(r.dev_code ? { dev_code: r.dev_code } : {}) });
   });
   app.post("/auth/code/verifier", async (c) => {
     if (!(await limiteIp(c, "code", 30, 1))) return TROP(c);
@@ -442,13 +536,15 @@ export function createApp(env) {
     const ap = await db.get("SELECT * FROM sessions_appareils WHERE token_hash = ?", [ctx.hash]);
     if (!ap || ap.verifie) return c.json(reponseSession(undefined, ctx.user, ctx.agency, { deja: true }));
     if (!ap.code_hash || ap.code_expire < now()) return err(c, 401, "Code expiré — demandez-en un nouveau.");
-    if (ap.code_essais >= CODE_ESSAIS_MAX) return err(c, 429, "Trop d'essais — demandez un nouveau code.");
+    // L'essai est compté AVANT la comparaison, en une requête gardée : des
+    // essais envoyés en rafale ne passent pas à plusieurs sous le plafond.
+    const essai = await db.run("UPDATE sessions_appareils SET code_essais = code_essais + 1 WHERE token_hash = ? AND code_essais < ?", [ctx.hash, CODE_ESSAIS_MAX]);
+    if (changesOf(essai) !== 1) return err(c, 429, "Trop d'essais sur cet appareil — redemandez un lien de connexion.");
     const b = await c.req.json().catch(() => ({}));
     const code = String(b.code || "").replace(/\D/g, "");
     if (!code || !safeEqual(await sha256hex(code), ap.code_hash)) {
-      await db.run("UPDATE sessions_appareils SET code_essais = code_essais + 1 WHERE token_hash = ?", [ctx.hash]);
       await journal(ctx.agency.id, ctx.user.id, "code-ko", ap.canal, ipDe(c));
-      return err(c, 401, "Code incorrect" + (CODE_ESSAIS_MAX - ap.code_essais - 1 > 0 ? " — il vous reste " + (CODE_ESSAIS_MAX - ap.code_essais - 1) + " essai(s)." : " — demandez un nouveau code."));
+      return err(c, 401, "Code incorrect" + (CODE_ESSAIS_MAX - ap.code_essais - 1 > 0 ? " — il vous reste " + (CODE_ESSAIS_MAX - ap.code_essais - 1) + " essai(s)." : " — redemandez un lien de connexion."));
     }
     await db.run("UPDATE sessions_appareils SET verifie = 1, code_hash = '', code_expire = 0 WHERE token_hash = ?", [ctx.hash]);
     if (ap.canal === "sms") {
@@ -662,7 +758,10 @@ export function createApp(env) {
     const user = { id: randId("us"), email, name, agency_id: agency.id, role: "member" };
     await db.run("INSERT INTO users (id, agency_id, email, name, role, created_at) VALUES (?, ?, ?, ?, 'member', ?)", [user.id, agency.id, email, name, now()]);
     const { link } = await lienBienvenue(user);
-    return { user, invite_link: link };
+    // Le lien de bienvenue ouvre une session : il part par e-mail au conseiller,
+    // il ne revient pas dans la réponse (aucun écran ne s'en sert) — sauf en
+    // développement, où les tests et les smokes se connectent avec.
+    return { user, invite_link: env.DEV_MODE ? link : undefined };
   }
   app.post("/agency/users", async (c) => {
     const ctx = await sessionFrom(c);
@@ -1979,7 +2078,9 @@ export function createApp(env) {
     const b = await c.req.json().catch(() => null);
     const rows = (b && Array.isArray(b.rows) ? b.rows : []).slice(0, GEO_BATCH_MAX);
     if (!rows.length) return err(c, 400, "Aucune position à enregistrer.");
-    const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
+    // Tronquer AVANT de doubler les apostrophes : couper après laissait une
+    // apostrophe orpheline en bout de valeur, et la valeur suivante devenait du SQL.
+    const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").slice(0, 200).replace(/'/g, "''") + "'";
     // La géocache accepte les contacts, les dossiers de vente (Suivi) et les
     // ventes importées de l'agence — jamais un id d'une autre agence. Les ids
     // sont écrits dans le SQL (échappés) : un lot de 100 contacts dépassait
@@ -2170,7 +2271,13 @@ export function createApp(env) {
      le CONSEILLER depuis Studio Estimation (membre) ; les e-mails du
      parcours partent tout seuls via le cron (runEstimations). */
   const ESTIMATIONS_MAX = 400;
-  const sqlQ = (v) => "'" + String(v ?? "").replace(/'/g, "''").slice(0, 60) + "'";
+  // Valeur écrite dans le SQL : réservée aux ids RELUS en base (listes trop
+  // longues pour les 100 paramètres liés de D1). On tronque AVANT de doubler
+  // les apostrophes — l'inverse laissait une apostrophe orpheline en bout de
+  // valeur, et la valeur suivante devenait du SQL. Tout ce qui vient du
+  // navigateur passe par des paramètres liés (« ? »).
+  const sqlQ = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").slice(0, 60).replace(/'/g, "''") + "'";
+  const marques = (liste) => liste.map(() => "?").join(",");
 
   // Personnes liées (couple = deux fiches contact) et bien : posés après la
   // fiche, en remplaçant l'existant. Seuls les contacts de l'agence comptent.
@@ -2178,14 +2285,15 @@ export function createApp(env) {
     let premier;
     if (Array.isArray(b.contactIds)) {
       const ids = [...new Set(b.contactIds.map((x) => String(x || "").slice(0, 40)).filter(Boolean))].slice(0, 10);
+      // Les ids viennent du navigateur : paramètres liés (10 au plus), jamais dans le SQL.
       const valides = ids.length ? (await db.all(
-        `SELECT id FROM crm_contacts WHERE agency_id = ? AND id IN (${ids.map(sqlQ).join(",")})`,
-        [agencyId])).map((r) => r.id) : [];
+        `SELECT id FROM crm_contacts WHERE agency_id = ? AND id IN (${marques(ids)})`,
+        [agencyId, ...ids])).map((r) => r.id) : [];
       await db.run("DELETE FROM crm_estimation_contacts WHERE estimation_id = ? AND agency_id = ?", [estId, agencyId]);
       if (valides.length) {
         await db.run(
           "INSERT OR IGNORE INTO crm_estimation_contacts (estimation_id, contact_id, agency_id) VALUES " +
-          valides.map((id) => `(${sqlQ(estId)},${sqlQ(id)},${sqlQ(agencyId)})`).join(","), []);
+          valides.map(() => "(?,?,?)").join(","), valides.flatMap((id) => [estId, id, agencyId]));
       }
       premier = valides[0] || "";
     }
@@ -2267,12 +2375,15 @@ export function createApp(env) {
     try { v = CRM.sanitizeEstimation(b); } catch (e) { return err(c, 400, e.message); }
     const premier = await poserLiensEstimation(ctx.agency.id, cur.id, b);
     const contactPrincipal = premier !== undefined ? (premier || v.contact_id) : v.contact_id;
+    // user_id reste celui de la CRÉATION : le réécrire avec l'appelant faisait
+    // de quiconque enregistre la fiche d'un collègue son « créateur », et lui
+    // ouvrait le parcours du dossier (parcours.js, dansPerimetre).
     await db.run(
       `UPDATE crm_estimations SET contact_id = ?, nom = ?, email = ?, telephone = ?, adresse = ?,
        ville = ?, lat = ?, lng = ?, r1 = ?, r2 = ?, statut = ?, qualification = ?, conseiller = ?,
-       notes = ?, user_id = ?, updated_at = ? WHERE id = ?`,
+       notes = ?, updated_at = ? WHERE id = ?`,
       [contactPrincipal, v.nom, v.email, v.telephone, v.adresse, v.ville, v.lat, v.lng,
-        v.r1, v.r2, v.statut, v.qualification, v.conseiller, v.notes, ctx.user.id, now(), cur.id]);
+        v.r1, v.r2, v.statut, v.qualification, v.conseiller, v.notes, now(), cur.id]);
     return c.json({ ok: true, id: cur.id });
   });
 
@@ -2456,17 +2567,21 @@ export function createApp(env) {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const b = await c.req.json().catch(() => null);
     if (!b) return err(c, 400, "Corps JSON attendu.");
-    const cur = await db.get("SELECT id FROM crm_visites WHERE id = ? AND agency_id = ?",
+    const cur = await db.get("SELECT id, user_id FROM crm_visites WHERE id = ? AND agency_id = ?",
       [c.req.param("id"), ctx.agency.id]);
     if (!cur) return err(c, 404, "Visite introuvable.");
+    // Même règle que la suppression : réécrire la visite d'un collègue (compte
+    // rendu, avis, date) revenait à l'effacer sans passer par la corbeille.
+    if (cur.user_id !== ctx.user.id && !isAgencyAdmin(ctx)) return err(c, 403, "Seul l'auteur de la visite ou un administrateur peut la modifier.");
     let v;
     try { v = CRM.sanitizeVisite(b); } catch (e) { return err(c, 400, e.message); }
+    // L'auteur reste celui de la création (un administrateur qui corrige ne le remplace pas).
     await db.run(
       `UPDATE crm_visites SET projet_id = ?, contact_id = ?, contact = ?, bien = ?, annonce_id = ?,
-       date_visite = ?, statut = ?, compte_rendu = ?, conseiller = ?, user_id = ?, updated_at = ?
+       date_visite = ?, statut = ?, compte_rendu = ?, conseiller = ?, updated_at = ?
        WHERE id = ?`,
       [v.projet_id, v.contact_id, v.contact, v.bien, v.annonce_id, v.date_visite, v.statut,
-        v.compte_rendu, v.conseiller, ctx.user.id, now(), cur.id]);
+        v.compte_rendu, v.conseiller, now(), cur.id]);
     // L'avis après visite : le bien a plu, pas plu — ou on efface.
     if (b.avis !== undefined) {
       const avis = ["plu", "pas_plu"].includes(String(b.avis)) ? String(b.avis) : "";
@@ -2519,7 +2634,7 @@ export function createApp(env) {
   app.post("/crm/projets/:id/relancer", async (c) => {
     const { ctx, resp } = await crmCtx(c); if (!ctx) return resp;
     const b = await c.req.json().catch(() => ({}));
-    const ids = [...new Set((Array.isArray(b.annonceIds) ? b.annonceIds : []).map(String))].slice(0, 6);
+    const ids = [...new Set((Array.isArray(b.annonceIds) ? b.annonceIds : []).map((x) => String(x).slice(0, 80)))].slice(0, 6);
     if (!ids.length) return err(c, 400, "Choisissez au moins un bien à proposer.");
     const projetId = c.req.param("id");
     const projet = (await CRM.listProjets(db, ctx.agency)).find((p) => p.id === projetId);
@@ -2529,12 +2644,13 @@ export function createApp(env) {
     const idsSite = ids.filter((x) => !x.startsWith("amepi:"));
     const idsAmepi = ids.filter((x) => x.startsWith("amepi:")).map((x) => x.slice(6));
     const annonces = idsSite.length ? await db.all(
-      `SELECT * FROM crm_annonces WHERE agency_id = ? AND id IN (${idsSite.map(sqlQ).join(",")})`,
-      [ctx.agency.id]) : [];
+      // Ids choisis dans le navigateur : paramètres liés (6 au plus).
+      `SELECT * FROM crm_annonces WHERE agency_id = ? AND id IN (${marques(idsSite)})`,
+      [ctx.agency.id, ...idsSite]) : [];
     if (idsAmepi.length) {
       const confreres = await db.all(
-        `SELECT * FROM crm_amepi WHERE agency_id = ? AND statut = 'en_vente' AND id IN (${idsAmepi.map(sqlQ).join(",")})`,
-        [ctx.agency.id]);
+        `SELECT * FROM crm_amepi WHERE agency_id = ? AND statut = 'en_vente' AND id IN (${marques(idsAmepi)})`,
+        [ctx.agency.id, ...idsAmepi]);
       annonces.push(...confreres.map(AMEPI.commeAnnonce));
     }
     if (!annonces.length) return err(c, 404, "Aucun de ces biens n'est dans le stock.");
@@ -2627,6 +2743,16 @@ export function createApp(env) {
     const cur = await db.get("SELECT * FROM crm_suivis WHERE id = ? AND agency_id = ?",
       [c.req.param("id"), ctx.agency.id]);
     if (!cur) return err(c, 404, "Suivi introuvable.");
+    // Même règle que la suppression : seul l'auteur (ou un administrateur)
+    // réécrit un suivi. Un collègue peut seulement cocher « rappel fait » —
+    // c'est le geste de l'agenda des rappels, partagé par toute l'agence.
+    if (cur.user_id !== ctx.user.id && !isAgencyAdmin(ctx)) {
+      const reecrit = ["contact_id", "adresse", "type", "commentaire", "rappel_le", "conseiller"]
+        .some((k) => b[k] !== undefined && String(b[k] ?? "") !== String(cur[k] ?? ""));
+      if (reecrit || b.rappel_fait === undefined) return err(c, 403, "Seul l'auteur du suivi ou un administrateur peut le modifier — vous pouvez seulement cocher le rappel.");
+      await db.run("UPDATE crm_suivis SET rappel_fait = ? WHERE id = ?", [b.rappel_fait ? 1 : 0, cur.id]);
+      return c.json({ ok: true, id: cur.id });
+    }
     let s;
     try { s = CRM.sanitizeSuivi({ ...cur, ...b }); } catch (e) { return err(c, 400, e.message); }
     await db.run(
@@ -3288,8 +3414,13 @@ export function createApp(env) {
     if (!ctx) return err(c, 401, "Session invalide — reconnectez-vous.");
     const from = PERM.estDate(c.req.query("from")) ? c.req.query("from") : "0000-01-01";
     const to = PERM.estDate(c.req.query("to")) ? c.req.query("to") : "9999-12-31";
-    const rows = await db.all(
-      "SELECT * FROM rdv WHERE agency_id = ? AND date >= ? AND date <= ? ORDER BY date, debut", [ctx.agency.id, from, to]);
+    // Les rendez-vous portent les coordonnées des clients : comme pour le flux
+    // d'agenda, toute l'agence pour la direction, les SIENS (clé = son e-mail)
+    // pour un conseiller.
+    const rows = isAgencyAdmin(ctx)
+      ? await db.all("SELECT * FROM rdv WHERE agency_id = ? AND date >= ? AND date <= ? ORDER BY date, debut", [ctx.agency.id, from, to])
+      : await db.all("SELECT * FROM rdv WHERE agency_id = ? AND cle = ? AND date >= ? AND date <= ? ORDER BY date, debut",
+        [ctx.agency.id, PERM.cleConseiller(ctx.user.email), from, to]);
     return c.json({ rdv: rows });
   });
 
@@ -3299,6 +3430,14 @@ export function createApp(env) {
     const b = await c.req.json().catch(() => null);
     const statut = ["demande", "confirme", "annule", "honore"].includes(String(b && b.statut)) ? b.statut : "";
     if (!statut) return err(c, 400, "statut invalide.");
+    // Même règle qu'en lecture : un conseiller ne confirme ni n'annule le
+    // rendez-vous d'un collègue — la direction, si.
+    if (!isAgencyAdmin(ctx)) {
+      const cur = await db.get("SELECT cle FROM rdv WHERE id = ? AND agency_id = ?", [c.req.param("id"), ctx.agency.id]);
+      if (cur && PERM.cleConseiller(cur.cle) !== PERM.cleConseiller(ctx.user.email)) {
+        return err(c, 403, "Ce rendez-vous est celui d'un collègue — seule la direction peut le modifier.");
+      }
+    }
     await db.run("UPDATE rdv SET statut = ?, updated_at = ? WHERE id = ? AND agency_id = ?",
       [statut, now(), c.req.param("id"), ctx.agency.id]);
     return c.json({ ok: true });
@@ -3724,6 +3863,10 @@ export function createApp(env) {
       const uk = (c.req.header("X-User-Key") || "").trim();
       if (/^sk-ant-[\w-]{16,}$/.test(uk)) byoKey = uk;
       else return err(c, 401, "Session invalide — reconnectez-vous.");
+      // Sans session, n'importe qui arrive ici avec une clé inventée : limite
+      // par IP AVANT le compteur par clé (une ligne ai_rate par clé inventée,
+      // sans fin) et avant tout relais vers Anthropic.
+      if (!(await limiteIp(c, "ia-cle", aiRatePerMin * 2, 1))) return err(c, 429, "Trop de requêtes IA en peu de temps — patientez une minute.");
     }
     if (ctx && !agencyOpen(ctx.agency)) return err(c, 402, "Abonnement inactif — activez votre abonnement pour utiliser la rédaction IA.");
     if (!byoKey && !env.ANTHROPIC_API_KEY) return err(c, 501, "Proxy IA non configuré (ANTHROPIC_API_KEY).");
@@ -3734,24 +3877,21 @@ export function createApp(env) {
     /* Gros corps (un compromis de 12 Mo pèse 16 Mo en base64) : on ne le
        désérialise PAS. JSON.parse puis JSON.stringify d'un tel corps coûtent
        près d'une demi-seconde de CPU et trois copies de 16 Mo — l'isolat
-       (10 ms de CPU, 128 Mo) est tué et le client reçoit un 500 brut. On ne
-       lit que la TÊTE (les petits champs, avant "messages") et on recolle la
-       queue telle quelle dans la requête sortante, NOS champs placés après
-       elle : en JSON la dernière clé l'emporte, un doublon glissé dans la
-       queue ne peut donc ni changer le modèle ni écraser le prompt. */
-    const GROS_CORPS = 1_000_000;
+       (10 ms de CPU, 128 Mo) est tué et le client reçoit un 500 brut. Seul
+       le tableau des messages est recollé tel quel dans la requête sortante
+       (decouperGrosCorps) ; les petits champs qui l'entourent sont lus. */
     let body = null, queue = "";
     if (rawLen > GROS_CORPS) {
-      const i = raw.indexOf("\"messages\"");
-      if (i > 0 && /\}\s*$/.test(raw.slice(-8))) {
-        try { body = JSON.parse(raw.slice(0, i).replace(/,\s*$/, "") + "}"); } catch (e) { body = null; }
-        queue = raw.slice(i, raw.lastIndexOf("}")); // '"messages":[…]' sans l'accolade finale
-      }
+      const d = decouperGrosCorps(raw);
+      if (d) { body = d.champs; queue = d.messages; } // '"messages":[…]'
     } else {
       try { body = JSON.parse(raw); } catch (e) { body = null; }
     }
     raw = null;
     if (!body || typeof body !== "object" || Array.isArray(body)) return err(c, 400, "Corps de requête invalide.");
+    // Liste blanche : seuls nos champs partent chez Anthropic, où qu'ils aient
+    // été écrits dans le corps (ni flux, ni outils — voir CHAMPS_IA).
+    body = Object.fromEntries(CHAMPS_IA.filter((k) => body[k] !== undefined).map((k) => [k, body[k]]));
     // Gros corps : les messages vivent dans la queue, jamais deux fois. Pour
     // un corps ordinaire, ils restent dans body — les retirer ici SANS
     // condition envoyait tous les appels courants à Anthropic sans messages
@@ -3759,7 +3899,6 @@ export function createApp(env) {
     if (queue) delete body.messages;
     if (!aiModels.includes(String(body.model || ""))) return err(c, 400, "Modèle non autorisé.");
     body.max_tokens = Math.min(parseInt(body.max_tokens, 10) || 1024, MAX_TOKENS_CAP);
-    delete body.stream; // v1 : pas de flux
 
     // Prompts métier côté serveur : le client envoie un identifiant de tâche
     // (body.task) et un court contexte (body.task_arg) ; on injecte le prompt
@@ -3835,7 +3974,7 @@ export function createApp(env) {
           "x-api-key": byoKey || env.ANTHROPIC_API_KEY,
           "anthropic-version": "2023-06-01"
         },
-        // Gros corps : queue du client (messages) puis nos champs, qui priment.
+        // Gros corps : le tableau des messages du client, puis les champs filtrés.
         body: queue ? "{" + queue + "," + JSON.stringify(body).slice(1) : JSON.stringify(body)
       });
     } catch (e) {
@@ -3846,18 +3985,35 @@ export function createApp(env) {
     // Fiche prestations : garde-fou déterministe (surfaces des pièces remises
     // sur leur ligne d'Intérieur si le modèle les a empilées dans « Surfaces »).
     if (upstream.ok && tacheIA === "structure_fiche") data = reparerReponseFiche(data);
-    // (3) Réconciliation : coût réel si succès, sinon remboursement complet
-    // (mode session uniquement).
+    // (3) Réconciliation : coût réel si succès, remboursement complet si
+    // Anthropic a refusé l'appel (mode session uniquement).
     let actual = 0;
-    if (ctx && upstream.ok && data && data.usage) {
-      actual = costMicros(model, data.usage.input_tokens || 0, data.usage.output_tokens || 0);
+    // « usage lisible » = un objet qui porte bien ses deux compteurs en nombres.
+    const usage = upstream.ok && data && data.usage && typeof data.usage === "object"
+      && Number.isFinite(data.usage.input_tokens) && Number.isFinite(data.usage.output_tokens) ? data.usage : null;
+    if (ctx && usage) {
+      const nb = (v) => Math.max(0, Math.round(Number(v)) || 0);
+      // L'entrée ne se résume pas à input_tokens : avec un cache de prompt,
+      // l'essentiel est compté à part — écriture du cache à 1,25 × le prix
+      // d'entrée (2 × pour un cache d'une heure), relecture à 0,1 ×.
+      const lu = nb(usage.cache_read_input_tokens), ecrit = nb(usage.cache_creation_input_tokens);
+      const ecrit1h = Math.min(ecrit, nb(usage.cache_creation && usage.cache_creation.ephemeral_1h_input_tokens));
+      const entree = nb(usage.input_tokens) + (ecrit - ecrit1h) * 1.25 + ecrit1h * 2 + lu * 0.1;
+      actual = costMicros(model, entree, nb(usage.output_tokens));
       await db.run(
         "INSERT INTO usage (agency_id, user_id, model, tokens_in, tokens_out, cost_micros, month, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [ctx.agency.id, ctx.user.id, model, data.usage.input_tokens || 0, data.usage.output_tokens || 0, actual, month, now()]
+        [ctx.agency.id, ctx.user.id, model, nb(usage.input_tokens) + ecrit + lu, nb(usage.output_tokens), actual, month, now()]
       );
+    } else if (ctx && upstream.ok) {
+      // Réponse 2xx sans usage lisible : l'appel a été servi (et facturé) sans
+      // que l'on sache combien — la réservation pessimiste reste due, elle
+      // n'est plus remboursée.
+      actual = est;
+      console.error("[ia] réponse " + upstream.status + " sans usage lisible : réservation conservée", ctx.agency.id, model);
     }
     await adjust(actual - est);
-    return c.json(data ?? { error: "Réponse IA illisible." }, upstream.status);
+    // Un 2xx illisible ne se présente pas comme un succès au client.
+    return c.json(data ?? { error: "Réponse IA illisible." }, data == null && upstream.ok ? 502 : upstream.status);
   });
 
   /* ----------------- Clés d'activation : validation en ligne ------------- */
