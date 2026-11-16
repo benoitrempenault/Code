@@ -5245,6 +5245,20 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
     return { status: res.status, headers: res.headers, json: ct.includes("json") ? await res.json() : null, bytes: ct.includes("json") ? null : new Uint8Array(await res.arrayBuffer()) };
   };
 
+  // Le texte d'un PDF produit par pdf-lib : flux compressés, une chaîne
+  // hexadécimale par ligne tracée (« <…> Tj »).
+  const { inflateSync } = await import("node:zlib");
+  const textePdf = (bytes) => {
+    const buf = Buffer.from(bytes), brut = buf.toString("latin1"), lignes = [];
+    for (const m of brut.matchAll(/stream\r?\n/g)) {
+      const debut = m.index + m[0].length, fin = brut.indexOf("endstream", debut);
+      let flux = "";
+      try { flux = inflateSync(buf.subarray(debut, fin)).toString("latin1"); } catch { continue; }
+      for (const t of flux.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) lignes.push(Buffer.from(t[1], "hex").toString("latin1"));
+    }
+    return lignes.join("\n");
+  };
+
   // Le couple : deux fiches contact.
   const ctE = (await call("/crm/contacts", { method: "PUT", headers: authA, body: { civilite: "Mme", nom: "Müller", prenom: "Éléonore", email: "eleonore@exemple.fr", telephone: "06 12 34 56 78", adresse: "3 allée du Parc", cp: "33700", ville: "Mérignac", types: ["acquereur"] } })).json;
   const ctJ = (await call("/crm/contacts", { method: "PUT", headers: authA, body: { civilite: "M.", nom: "Dupont", prenom: "Jean", email: "jean@exemple.fr", telephone: "06 98 76 54 32", types: ["acquereur"] } })).json;
@@ -5273,6 +5287,15 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   const jetonE = env1.json.liens[0].lien.split("#t=")[1], jetonJ = env1.json.liens[1].lien.split("#t=")[1];
   const hE = { "X-Offre-Jeton": jetonE }, hJ = { "X-Offre-Jeton": jetonJ };
   ok((await call("/crm/offres/" + ofId, { headers: authPaul })).json.offre.statut === "envoyee", "statut : envoyée");
+  // Qui tient le lien peut signer : un autre membre ne le reçoit jamais, et
+  // sa demande ne tue pas le lien en cours quand l'e-mail ne part pas.
+  const envLea = await call("/crm/offres/" + ofId + "/envoyer", { headers: authLea, body: {} });
+  const lienLea = await call("/crm/offres/" + ofId + "/signataires/" + det0.signataires[0].id + "/lien", { headers: authLea, body: {} });
+  ok(envLea.status === 200 && envLea.json.liens.length === 2 && envLea.json.liens.every((l) => !("lien" in l) && l.envoye === false) && lienLea.status === 200 && !("lien" in lienLea.json) && !/#t=/.test(JSON.stringify([envLea.json, lienLea.json])),
+    "un autre conseiller peut demander l'envoi, mais ne reçoit jamais le lien magique");
+  ok((await call("/public/offre", { headers: hE })).status === 200 && (await call("/public/offre", { headers: hJ })).status === 200
+     && (await call("/crm/offres/" + ofId, { headers: authPaul })).json.events.filter((e) => e.type === "lien-non-envoye").length === 3,
+    "e-mail non parti et lien non rendu : les liens en cours restent valables (journal « lien-non-envoye »)");
 
   console.log("— Offres d'achat : parcours de l'acquéreur (sans session)");
   ok((await call("/public/offre", { headers: { "X-Offre-Jeton": "n-importe-quoi-de-long-et-faux" } })).status === 401, "jeton inconnu → 401");
@@ -5283,6 +5306,17 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
 
   const idE = await call("/public/offre/identite", { method: "PUT", headers: hE, body: { civilite: "Madame", nom: "Müller", nomNaissance: "Schmidt", prenoms: "Éléonore", naissance: "1988-04-12", lieuNaissance: "Bordeaux", nationalite: "Française", adresse: "3 allée du Parc, 33700 Mérignac", profession: "Ingénieure", contratTravail: "CDI", employeur: "Thales, Mérignac" } });
   ok(idE.status === 200 && idE.json.manques.length === 0, "état civil d'Éléonore complet");
+  // Le code de signature part aux coordonnées de l'agence : le porteur du lien ne les remplace pas.
+  const pirateMail = await call("/public/offre/identite", { method: "PUT", headers: hE, body: { email: "pirate@exemple.fr" } });
+  const pirateTel = await call("/public/offre/identite", { method: "PUT", headers: hE, body: { telephone: "07 00 00 00 00", profession: "Pirate" } });
+  ok(pirateMail.status === 403 && /contactez votre conseiller/.test(pirateMail.json.error) && pirateTel.status === 403, "remplacer l'e-mail ou le téléphone enregistrés par l'agence depuis le lien : refusé (" + pirateMail.json.error + ")");
+  ok((await call("/public/offre/identite", { method: "PUT", headers: hE, body: { email: " ELEONORE@exemple.fr", telephone: "+33 6 12 34 56 78" } })).status === 200, "les mêmes coordonnées, écrites autrement, ne sont pas une modification");
+  const ligneE = await db.get("SELECT email, telephone, identite FROM crm_offre_signataires WHERE id = ?", [pubE.json.moi.id]);
+  const pubEco = (await call("/public/offre", { headers: hE })).json;
+  ok(ligneE.email === "eleonore@exemple.fr" && ligneE.telephone === "06 12 34 56 78" && JSON.parse(ligneE.identite).email === "eleonore@exemple.fr" && JSON.parse(ligneE.identite).profession === "Ingénieure"
+     && pubEco.otp.email === "el•••@exemple.fr" && pubEco.moi.email === "eleonore@exemple.fr", "les coordonnées de l'agence sont intactes : c'est là que partira le code");
+  ok(pubEco.bloqueurs.some((b) => /état civil de Monsieur Jean DUPONT/.test(b)) && (await call("/public/offre/otp", { headers: hE, body: {} })).status === 400,
+    "tant que l'état civil du co-acquéreur est incomplet, personne ne signe (le document figé le porte)");
   ok((await call("/public/offre/identite", { method: "PUT", headers: hJ, body: { civilite: "Monsieur", nom: "Dupont", prenoms: "Jean", naissance: "1985-01-02", lieuNaissance: "Paris", adresse: "3 allée du Parc, 33700 Mérignac" } })).status === 200, "état civil de Jean complet");
   // Financement SANS prêt (la mention L313-42 devient obligatoire) + notaire.
   const fin = await call("/public/offre/financement", { method: "PUT", headers: hE, body: { financement: { sansPret: true, apport: 224917, apportOrigine: "vente d'un appartement" }, questionnaire: { situation: "marie", mariage: { date: "2015-06-20", lieu: "Bordeaux", regime: "communauté réduite aux acquêts", contrat: false }, notaire: { etude: "Me Durand", adresse: "Bordeaux", email: "durand@notaires.fr" } } } });
@@ -5301,6 +5335,11 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   ok(depE.status === 200 && depE.json.document.mime === "image/png" && depE.json.document.signataireId === pubE.json.moi.id, "CNI d'Éléonore déposée (PNG reconnu, rattachée à elle)");
   const depDom = await callRaw("/public/offre/documents?type=domicile&nom=edf.png", { headers: hJ, body: PNG });
   ok(depDom.status === 200 && depDom.json.document.signataireId === "", "justificatif de domicile déposé par Jean (pièce du ménage)");
+  const supAutrui = await callRaw("/public/offre/documents/" + depE.json.document.id, { method: "DELETE", headers: hJ });
+  const depAutre = await callRaw("/public/offre/documents?type=autre&nom=brouillon.png", { headers: hJ, body: PNG });
+  ok(supAutrui.status === 403 && (await callRaw("/public/offre/documents/" + depAutre.json.document.id, { method: "DELETE", headers: hE })).status === 200
+     && (await call("/crm/offres/" + ofId, { headers: authPaul })).json.documents.length === 2,
+    "avant signature : on ne retire pas la pièce d'identité du co-acquéreur (403), une pièce du ménage oui");
 
   // Signature d'Éléonore : OTP, mention, engagement.
   ok((await call("/public/offre/signer", { headers: hE, body: { code: "000000", mention: pubE2.mention, engagement: true } })).status === 400, "signer sans code demandé → refus");
@@ -5310,13 +5349,30 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   ok(sigKo.status === 400 && /mention/i.test(sigKo.json.error), "mention manuscrite tronquée → refus");
   const sigKo2 = await call("/public/offre/signer", { headers: hE, body: { code: "123456", mention: pubE2.mention, engagement: true } });
   ok(sigKo2.status === 400 && /incorrect/.test(sigKo2.json.error), "mauvais code → refus");
-  const sigE = await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""), engagement: true } });
+  // Le prix change entre l'affichage et la signature (rien n'est encore figé) :
+  // l'empreinte du texte affiché ne correspond plus, la signature est refusée.
+  ok(/^[0-9a-f]{64}$/.test(pubE2.empreinte) && pubE2.empreinte === (await call("/public/offre", { headers: hJ })).json.empreinte && pubE2.empreinte !== pubEco.empreinte,
+    "le texte affiché a une empreinte : la même pour les deux acquéreurs, une autre dès que le texte change");
+  ok((await call("/crm/offres/" + ofId, { method: "PUT", headers: authPaul, body: { prix: 254917 } })).status === 200, "avant toute signature, le conseiller peut encore modifier le prix…");
+  const sigPerime = await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention, engagement: true, empreinte: pubE2.empreinte } });
+  const nonSigne = await db.get("SELECT s.signe_at, o.pdf_hash FROM crm_offre_signataires s JOIN crm_offres o ON o.id = s.offre_id WHERE s.id = ?", [pubE.json.moi.id]);
+  ok(sigPerime.status === 409 && sigPerime.json.relire === true && /relisez/.test(sigPerime.json.error) && nonSigne.signe_at === 0 && nonSigne.pdf_hash === "",
+    "…mais l'acquéreur qui avait affiché l'ancien prix ne signe pas le nouveau sans le relire (409, rien n'est figé)");
+  const pubE3 = (await call("/public/offre", { headers: hE })).json;
+  ok(pubE3.offre.prix === 254917 && pubE3.empreinte !== pubE2.empreinte, "le texte rechargé porte le nouveau prix et une autre empreinte");
+  await call("/crm/offres/" + ofId, { method: "PUT", headers: authPaul, body: { prix: 224917 } });
+  const empreinteE = (await call("/public/offre", { headers: hE })).json.empreinte;
+  const sigE = await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""), engagement: true, empreinte: empreinteE } });
   ok(sigE.status === 200 && sigE.json.tousSignes === false && sigE.json.restent.length === 1, "Éléonore a signé (mention tapée sans accents acceptée) — reste Jean");
   const apresE = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
   ok(apresE.offre.figee && apresE.offre.pdfHash.length === 64 && apresE.events.some((e) => e.type === "figee"), "le document est figé à la première signature (empreinte SHA-256)");
   ok((await call("/crm/offres/" + ofId, { method: "PUT", headers: authPaul, body: { prix: 200000 } })).status === 409, "le conseiller ne peut plus modifier l'offre après signature");
   ok((await call("/public/offre/financement", { method: "PUT", headers: hJ, body: { financement: { sansPret: false, pret: 100000, duree: 20 } } })).status === 409, "le financement ne bouge plus non plus");
   ok((await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention, engagement: true } })).status === 409, "signer deux fois : refus");
+  const idJgel = await call("/public/offre/identite", { method: "PUT", headers: hJ, body: { nom: "Dupond", adresse: "ailleurs" } });
+  ok(idJgel.status === 409 && /ne se modifie plus/.test(idJgel.json.error) && /DUPONT/.test((await call("/public/offre", { headers: hJ })).json.moi.libelle), "document figé : le co-acquéreur qui n'a pas encore signé ne change plus son état civil");
+  ok((await callRaw("/public/offre/documents/" + depDom.json.document.id, { method: "DELETE", headers: hJ })).status === 409 && (await callRaw("/public/offre/documents/" + depE.json.document.id, { method: "DELETE", headers: hE })).status === 409
+     && (await call("/crm/offres/" + ofId, { headers: authPaul })).json.documents.length === 2, "document figé : plus aucune pièce ne se retire depuis le lien public");
 
   // Jean : bloqué tant que SA pièce d'identité n'est pas déposée.
   const otpJko = await call("/public/offre/otp", { headers: hJ, body: {} });
@@ -5324,7 +5380,7 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   ok((await callRaw("/public/offre/documents?type=identite&nom=cni-jean.png", { headers: hJ, body: PNG })).status === 200, "CNI de Jean déposée");
   const otpJ = await call("/public/offre/otp", { headers: hJ, body: {} });
   const mentionJ = (await call("/public/offre", { headers: hJ })).json.mention;
-  const sigJ = await call("/public/offre/signer", { headers: hJ, body: { code: otpJ.json.dev_code, mention: mentionJ, engagement: true } });
+  const sigJ = await call("/public/offre/signer", { headers: { ...hJ, "x-forwarded-for": "203.0.113.7" }, body: { code: otpJ.json.dev_code, mention: mentionJ, engagement: true } });
   ok(sigJ.status === 200 && sigJ.json.tousSignes === true, "Jean a signé : l'offre est signée par les deux");
   const signee = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
   ok(signee.offre.statut === "signee" && signee.signataires.filter((s) => s.role === "offrant").every((s) => s.signeAt > 0 && s.mention), "statut : signée, les deux mentions L313-42 consignées");
@@ -5340,12 +5396,21 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   ok(pdf.status === 200 && String.fromCharCode(...pdf.bytes.slice(0, 5)) === "%PDF-" && pdf.bytes.length > 8000, "le PDF (document + certificat) se télécharge (" + pdf.bytes.length + " octets)");
   const pdfPub = await callRaw("/public/offre/pdf", { method: "GET", headers: hE });
   ok(pdfPub.status === 200 && String.fromCharCode(...pdfPub.bytes.slice(0, 5)) === "%PDF-", "l'acquéreur récupère aussi son PDF");
+  const tAgence = textePdf(pdf.bytes), tPublic = textePdf(pdfPub.bytes);
+  ok(/CERTIFICAT DE SIGNATURE/.test(tAgence) && /JOURNAL/.test(tAgence) && tAgence.includes("203.0.113.7") && /cni eleonore\.png/.test(tAgence), "le certificat de l'agence garde le journal complet (adresses IP, pièces déposées)");
+  ok(/CERTIFICAT DE SIGNATURE/.test(tPublic) && (tPublic.match(/Sign. le /g) || []).length === 2 && /code re.u par/.test(tPublic) && /Empreinte sign.e/.test(tPublic) && /Mention .crite par le signataire/.test(tPublic)
+     && !/JOURNAL/.test(tPublic) && !tPublic.includes("203.0.113.7") && !/cni[ -]|\.png|navigateur|adresse IP|\x95/.test(tPublic),
+    "le certificat remis par le lien public : qui a signé, quand, par quel moyen, les mentions — ni journal, ni adresse IP, ni coordonnées");
 
   const pres = await call("/crm/offres/" + ofId + "/presenter", { headers: authPaul, body: {} });
   ok(pres.status === 200 && pres.json.liens.length === 1, "offre présentée au vendeur (lien émis)");
   const hV = { "X-Offre-Jeton": pres.json.liens[0].lien.split("#t=")[1] };
   const pubV = await call("/public/offre", { headers: hV });
   ok(pubV.status === 200 && pubV.json.role === "vendeur" && pubV.json.pieces.length === 0 && pubV.json.mention.accepte, "le vendeur voit l'offre, pas les pièces de l'acquéreur");
+  ok(!("questionnaire" in pubV.json.offre) && !/"marie"|Me Durand|durand@notaires|acquêts/.test(JSON.stringify(pubV.json)) && pubE2.offre.questionnaire.situation === "marie" && pubE2.offre.questionnaire.notaire.etude === "Me Durand",
+    "le questionnaire personnel de l'acquéreur (situation, régime, notaire) n'est pas rendu au vendeur — l'acquéreur, lui, le retrouve");
+  const pdfV = await callRaw("/public/offre/pdf", { method: "GET", headers: hV });
+  ok(pdfV.status === 200 && !/JOURNAL|203\.0\.113\.7|cni[ -]|\.png/.test(textePdf(pdfV.bytes)), "le PDF du vendeur ne porte ni le journal ni l'adresse IP de l'acquéreur");
   ok((await call("/public/offre/identite", { method: "PUT", headers: hV, body: { nom: "X" } })).status === 403, "le vendeur ne touche pas à l'état civil de l'acquéreur");
   ok((await callRaw("/public/offre/documents?type=identite&nom=x.png", { headers: hV, body: PNG })).status === 403, "ni au dépôt de pièces");
   const otpV = await call("/public/offre/otp", { headers: hV, body: {} });
@@ -5374,6 +5439,8 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   ok(menage2.offresExpirees === 1 && (await call("/crm/offres/" + nb2.json.id, { headers: authPaul })).json.offre.statut === "expiree", "offre expirée par le ménage quotidien");
   const nb3 = (await call("/crm/offres", { headers: authPaul, body: { contactIds: [ctJ.id], bien: { adresse: "9 rue Haute", ville: "Blanquefort", description: "Terrain" }, prix: 90000, conditions: { validite: dans(5), avantContrat: dans(40) } } })).json;
   ok((await call("/crm/offres/" + nb3.id + "/reponse", { headers: authPaul, body: { decision: "accepte" } })).status === 409, "pas de réponse vendeur sur une offre non signée");
+  const retraitLea = await call("/crm/offres/" + nb3.id + "/retirer", { headers: authLea, body: {} });
+  ok(retraitLea.status === 403 && /conseiller du dossier/.test(retraitLea.json.error) && (await call("/crm/offres/" + nb3.id, { headers: authPaul })).json.offre.statut === "brouillon", "un autre conseiller ne retire pas l'offre (403)");
   ok((await call("/crm/offres/" + nb3.id + "/retirer", { headers: authPaul, body: { motif: "L'acquéreur renonce" } })).status === 200 &&
      (await call("/crm/offres/" + nb3.id, { headers: authPaul })).json.offre.statut === "retiree", "offre retirée");
   // Purge : 90 jours après la fin, les pièces disparaissent (R2 + base), pas le PDF.
@@ -5384,9 +5451,9 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   ok(avantPurge === 3 && menage3.offresPurgees.documents === 3 && apresPurge.documents.length === 0 && apresPurge.offre.purgee && !filesMem.has(O_TEST.cleDocument(agOf, ofId, docId)),
     "purge : 3 pièces effacées du stockage et de la base, offre marquée purgée");
   ok(filesMem.has(O_TEST.clePdf(agOf, ofId)) && (await callRaw("/crm/offres/" + ofId + "/pdf", { method: "GET", headers: authPaul })).status === 200, "le PDF signé survit à la purge");
-  // À la réponse du vendeur, l'acquéreur a reçu un NOUVEAU lien (l'ancien est
-  // remplacé) : l'ancien jeton ne passe plus (401), et de toute façon une
-  // offre terminée refuse tout dépôt (409).
+  // À la réponse du vendeur, l'acquéreur reçoit un NOUVEAU lien par e-mail
+  // (l'ancien n'est remplacé que si l'e-mail part — ici, pas de fournisseur) ;
+  // dans tous les cas une offre terminée refuse tout dépôt (409).
   const depFin = (await callRaw("/public/offre/documents?type=identite&nom=x.png", { headers: hE, body: PNG })).status;
   ok(depFin === 401 || depFin === 409, "plus de dépôt sur une offre terminée (" + depFin + ")");
   ok(O_TEST.nombreEnLettres(224917) === "deux cent vingt-quatre mille neuf cent dix-sept" && O_TEST.nombreEnLettres(80000) === "quatre-vingt mille" && O_TEST.nombreEnLettres(1000000) === "un million",
@@ -5396,9 +5463,11 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   const mailsOffre = [];
   const fauxResendO = (await import("node:http")).createServer(async (req, res) => {
     const chunks = []; for await (const c of req) chunks.push(c);
+    if (resendEnPanne) { res.writeHead(429, { "Content-Type": "application/json" }); res.end(JSON.stringify({ message: "quota" })); return; }
     mailsOffre.push(JSON.parse(Buffer.concat(chunks).toString()));
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ id: "email_test" }));
   });
+  let resendEnPanne = false;   // le fournisseur refuse tout (quota dépassé)
   await new Promise((r) => fauxResendO.listen(18800, r));
   const envO = { db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
     RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18800", MAIL_FROM: "Studio Brochure <connexion@studiobrochure.fr>", OFFRE_BASE: "https://exemple.test/offre" };
@@ -5412,21 +5481,36 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   const nb4 = (await callO("/crm/offres", { headers: authPaul, body: { projetId: acc.offre.projetId, bien: { adresse: "1 rue du Test", ville: "Mérignac", description: "T3" }, prix: 180000, conditions: { validite: dans(6), avantContrat: dans(40) } } })).json;
   await db.run("UPDATE crm_offres SET statut = 'signee' WHERE id = ?", [nb4.id]);
   mailsOffre.length = 0;
+  const repLea = await callO("/crm/offres/" + nb4.id + "/reponse", { headers: authLea, body: { decision: "accepte" } });
+  ok(repLea.status === 403 && mailsOffre.length === 0 && (await call("/crm/offres/" + nb4.id, { headers: authPaul })).json.offre.statut === "signee", "un autre conseiller ne saisit pas la réponse du vendeur à sa place (403, offre inchangée)");
   ok((await callO("/crm/offres/" + nb4.id + "/reponse", { headers: authPaul, body: { decision: "contre", prix: 190000, commentaire: "Pas en dessous" } })).status === 200, "contre-proposition enregistrée");
   const auxAcquereurs = mailsOffre.filter((m) => ["eleonore@exemple.fr", "jean@exemple.fr"].includes(m.to[0]));
   ok(auxAcquereurs.length === 2 && auxAcquereurs.every((m) => /contre-proposition/i.test(m.html) && /190[\s\u202f]?000/.test(m.html) && m.html.includes("https://exemple.test/offre/#t=")),
     "les deux acquéreurs reçoivent la réponse du vendeur (contre-proposition à 190 000 €, nouveau lien)");
   ok(mailsOffre.some((m) => m.to[0] === "paul@offre-test.fr" && /Contre-proposition/.test(m.subject)), "…et le conseiller aussi");
+  const jetonDuMail = (m) => /#t=([A-Za-z0-9_-]{20,})/.exec(m.html)[1];
+  ok((await call("/public/offre", { headers: { "X-Offre-Jeton": jetonDuMail(auxAcquereurs[0]) } })).json.offre.statut === "contre_offre", "le lien reçu par e-mail ouvre bien l'offre et sa réponse");
   // (b) Relance J+2 : offre envoyée, lien parti il y a 3 jours, personne n'a signé.
   const nb5 = (await callO("/crm/offres", { headers: authPaul, body: { contactIds: [ctE.id, ctJ.id], bien: { adresse: "2 rue du Test", ville: "Mérignac", description: "T4" }, prix: 210000, conditions: { validite: dans(1), avantContrat: dans(40) } } })).json;
-  await callO("/crm/offres/" + nb5.id + "/envoyer", { headers: authPaul, body: {} });
+  const env5 = await callO("/crm/offres/" + nb5.id + "/envoyer", { headers: authPaul, body: {} });
+  const anciens5 = env5.json.liens.map((l) => ({ "X-Offre-Jeton": l.lien.split("#t=")[1] }));
   mailsOffre.length = 0;
   const rap0 = await rappelsOffres(envO, db);
   ok(rap0.relances === 0, "à J+0 : pas de relance");
   await db.run("UPDATE crm_offre_events SET created_at = created_at - 3 * 86400 WHERE offre_id = ? AND type = 'lien-envoye'", [nb5.id]);
+  // L'e-mail de relance est refusé : l'ancien lien doit rester le bon, et la relance ne pas être comptée.
+  resendEnPanne = true;
+  const rapKo = await rappelsOffres(envO, db);
+  resendEnPanne = false;
+  const relancesKo = await db.get("SELECT COUNT(*) AS n FROM crm_offre_events WHERE offre_id = ? AND type = 'relance'", [nb5.id]);
+  ok(rapKo.relances === 0 && rapKo.reportees === 2 && relancesKo.n === 0 && (await call("/public/offre", { headers: anciens5[0] })).status === 200 && (await call("/public/offre", { headers: anciens5[1] })).status === 200,
+    "relance dont l'e-mail ne part pas : ni nouveau lien (l'ancien ouvre toujours) ni relance comptée");
   let rap = await rappelsOffres(envO, db);
   const relances = mailsOffre.filter((m) => /vous attend/.test(m.subject));
   ok(rap.relances === 2 && relances.length === 2 && relances.every((m) => m.html.includes("https://exemple.test/offre/#t=")), "à J+3 : les deux acquéreurs non signés sont relancés, avec un nouveau lien");
+  const nouveaux5 = relances.map((m) => ({ "X-Offre-Jeton": jetonDuMail(m) }));
+  ok((await call("/public/offre", { headers: anciens5[0] })).status === 401 && (await call("/public/offre", { headers: nouveaux5[0] })).status === 200 && (await call("/public/offre", { headers: nouveaux5[1] })).status === 200,
+    "e-mail parti : le nouveau lien remplace l'ancien");
   // (c) Alerte d'expiration : validité = demain → le conseiller est prévenu, une seule fois.
   const alertes = mailsOffre.filter((m) => /expire demain/.test(m.subject));
   ok(rap0.alertes === 1 && rap.alertes === 0 && alertes.length === 1 && alertes[0].to[0] === "paul@offre-test.fr" && /OA-\d{4}-0005/.test(alertes[0].subject), "la veille de l'expiration, le conseiller du dossier est alerté");
@@ -5434,6 +5518,67 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   rap = await rappelsOffres(envO, db);
   ok(rap.relances === 0 && rap.alertes === 0 && mailsOffre.length === 0, "second passage le même jour : ni relance ni alerte en double");
   ok((await callO("/crm/offres/rappels", { headers: authLea, body: {} })).status === 403 && (await callO("/crm/offres/rappels", { headers: authA, body: {} })).status === 200, "les rappels se lancent à la main (admin seulement)");
+  // (d) Réponse du vendeur dont l'e-mail à l'acquéreur ne part pas : son lien en cours reste valable.
+  await db.run("UPDATE crm_offres SET statut = 'signee' WHERE id = ?", [nb5.id]);
+  resendEnPanne = true;
+  ok((await callO("/crm/offres/" + nb5.id + "/reponse", { headers: authPaul, body: { decision: "refuse" } })).status === 200, "refus enregistré pendant une panne d'e-mail");
+  resendEnPanne = false;
+  ok((await call("/public/offre", { headers: nouveaux5[0] })).json.offre.statut === "refusee" && (await call("/public/offre", { headers: nouveaux5[1] })).status === 200, "…l'acquéreur garde son lien et y lit la réponse");
+
+  console.log("— Offres d'achat : lien réservé au conseiller du dossier, coordonnées du code, plafond de codes par signataire");
+  // Un acquéreur dont l'agence n'a QUE l'e-mail ; un autre dont elle n'a rien.
+  const ctS = (await call("/crm/contacts", { method: "PUT", headers: authA, body: { civilite: "Mme", nom: "Sansmobile", prenom: "Zoé", email: "zoe@exemple.fr", types: ["acquereur"] } })).json;
+  const ctN = (await call("/crm/contacts", { method: "PUT", headers: authA, body: { civilite: "M.", nom: "Sansrien", prenom: "Noé", types: ["acquereur"] } })).json;
+  const cadre = (adresse) => ({ bien: { adresse, ville: "Mérignac", description: "T2" }, prix: 120000, conditions: { validite: dans(6), avantContrat: dans(40) } });
+  const nb6 = (await callO("/crm/offres", { headers: authPaul, body: { contactIds: [ctS.id], ...cadre("6 rue du Test") } })).json;
+  const sig6 = (await call("/crm/offres/" + nb6.id, { headers: authPaul })).json.signataires[0];
+  // Brouillon, e-mail en panne, demandeur sans accès : rien n'est envoyé, l'offre reste un brouillon.
+  resendEnPanne = true;
+  const env6Lea = await callO("/crm/offres/" + nb6.id + "/envoyer", { headers: authLea, body: {} });
+  resendEnPanne = false;
+  ok(env6Lea.status === 200 && env6Lea.json.liens[0].envoye === false && !("lien" in env6Lea.json.liens[0]) && (await call("/crm/offres/" + nb6.id, { headers: authPaul })).json.offre.statut === "brouillon",
+    "envoi demandé par un autre conseiller, e-mail refusé : aucun lien n'existe, l'offre reste un brouillon");
+  const env6 = await callO("/crm/offres/" + nb6.id + "/envoyer", { headers: authPaul, body: {} });
+  const h6 = { "X-Offre-Jeton": env6.json.liens[0].lien.split("#t=")[1] };
+  ok(env6.json.liens[0].envoye === true && (await call("/public/offre", { headers: h6 })).status === 200 && (await call("/crm/offres/" + nb6.id, { headers: authPaul })).json.offre.statut === "envoyee", "le conseiller du dossier, lui, reçoit le lien (et l'admin de même)");
+  ok((await callO("/crm/offres/" + nb6.id + "/signataires/" + sig6.id + "/lien", { headers: authA, body: {} })).json.lien.includes("/offre/#t=") && (await call("/public/offre", { headers: h6 })).status === 401, "un lien rendu à l'admin remplace le précédent");
+  // E-mail en état de marche : la demande d'un autre conseiller part au client, sans lui rendre le lien.
+  mailsOffre.length = 0;
+  const lien6Lea = await callO("/crm/offres/" + nb6.id + "/signataires/" + sig6.id + "/lien", { headers: authLea, body: {} });
+  const h6b = { "X-Offre-Jeton": jetonDuMail(mailsOffre.find((m) => m.to[0] === "zoe@exemple.fr")) };
+  ok(lien6Lea.status === 200 && lien6Lea.json.envoye === true && !("lien" in lien6Lea.json) && (await call("/public/offre", { headers: h6b })).status === 200, "« Renvoyer le lien » par un autre conseiller : l'e-mail part au client, le lien n'est pas dans la réponse");
+  // Coordonnée VIDE côté agence : l'acquéreuse la renseigne dans son état civil — le code part quand même à l'e-mail de l'agence.
+  const id6 = await call("/public/offre/identite", { method: "PUT", headers: h6b, body: { civilite: "Madame", nom: "Sansmobile", prenoms: "Zoé", naissance: "1990-03-04", lieuNaissance: "Pau", adresse: "1 rue Neuve, 33000 Bordeaux", telephone: "06 55 55 55 55" } });
+  const ligne6 = await db.get("SELECT email, telephone, identite FROM crm_offre_signataires WHERE id = ?", [sig6.id]);
+  const pub6 = (await call("/public/offre", { headers: h6b })).json;
+  ok(id6.status === 200 && ligne6.telephone === "" && JSON.parse(ligne6.identite).telephone === "06 55 55 55 55" && pub6.moi.telephone === "" && pub6.otp.telephone === "" && pub6.otp.email === "zo•••@exemple.fr",
+    "un téléphone vide côté agence se renseigne (état civil), sans devenir une destination du code tant que l'agence a un e-mail");
+  ok((await call("/public/offre/identite", { method: "PUT", headers: h6b, body: { telephone: "06 44 44 44 44", email: "zoe@exemple.fr" } })).status === 200 && (await call("/public/offre/identite", { method: "PUT", headers: h6b, body: { email: "autre@exemple.fr" } })).status === 403,
+    "…et se corrige librement, contrairement à l'e-mail enregistré par l'agence");
+  // Plafond de codes : compté sur le signataire, pas sur son nom affiché (modifiable).
+  await call("/public/offre/financement", { method: "PUT", headers: h6b, body: { financement: { sansPret: false, pret: 100000, duree: 20 } } });
+  await callRaw("/public/offre/documents?type=identite&nom=piece.png", { headers: h6b, body: PNG });
+  const codes6 = [];
+  for (let i = 0; i < O_TEST.OTP_ENVOIS_MAX + 1; i++) {
+    await call("/public/offre/identite", { method: "PUT", headers: h6b, body: { prenoms: "Zoé " + "abcdefg"[i] } });
+    codes6.push((await call("/public/offre/otp", { headers: h6b, body: {} })).status);
+  }
+  ok(codes6.slice(0, O_TEST.OTP_ENVOIS_MAX).every((x) => x === 200) && codes6[O_TEST.OTP_ENVOIS_MAX] === 429, "7e code de l'heure refusé (429) même en changeant de nom entre chaque demande : " + codes6.join(" "));
+  await db.run("UPDATE crm_offre_signataires SET otp_expire = otp_expire - 3600 WHERE id = ?", [sig6.id]);
+  ok((await call("/public/offre/otp", { headers: h6b, body: {} })).status === 200 && (await db.get("SELECT otp_envois FROM crm_offre_signataires WHERE id = ?", [sig6.id])).otp_envois === 1, "une heure sans envoi : le compteur repart de 1");
+  // L'agence n'a NI e-mail NI téléphone : seul cas où le code part aux coordonnées saisies par le signataire.
+  const nb7 = (await call("/crm/offres", { headers: authPaul, body: { contactIds: [ctN.id], ...cadre("7 rue du Test") } })).json;
+  const env7 = await call("/crm/offres/" + nb7.id + "/envoyer", { headers: authPaul, body: {} });
+  const h7 = { "X-Offre-Jeton": env7.json.liens[0].lien.split("#t=")[1] };
+  const pub7a = (await call("/public/offre", { headers: h7 })).json;
+  await call("/public/offre/identite", { method: "PUT", headers: h7, body: { email: "noe@exemple.fr" } });
+  const pub7b = (await call("/public/offre", { headers: h7 })).json;
+  ok(env7.json.liens[0].envoye === false && pub7a.otp.canaux.length === 0 && pub7b.otp.canaux.join() === "email" && pub7b.otp.email === "no•••@exemple.fr" && pub7b.moi.email === "",
+    "sans aucune coordonnée côté agence, le lien est remis par le conseiller et le code part à l'e-mail que l'acquéreur renseigne");
+  // Offre figée AVANT la règle « état civil de tous avant la première signature » : un état civil resté incomplet se complète encore (une fois).
+  await db.run("UPDATE crm_offres SET pdf_hash = ? WHERE id = ?", ["f".repeat(64), nb7.id]);
+  const id7 = await call("/public/offre/identite", { method: "PUT", headers: h7, body: { naissance: "1980-05-06", lieuNaissance: "Agen", adresse: "2 rue Vieille, 47000 Agen" } });
+  ok(id7.status === 200 && id7.json.manques.length === 0 && (await call("/public/offre/identite", { method: "PUT", headers: h7, body: { adresse: "ailleurs" } })).status === 409, "offre figée avec un état civil incomplet (cas hérité) : il se complète, puis ne bouge plus");
   fauxResendO.close();
 }
 

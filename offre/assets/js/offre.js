@@ -36,7 +36,7 @@
     catch (e) { throw new Error("Connexion impossible — vérifiez votre réseau, puis réessayez."); }
     if (opts.brut) { if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Erreur " + res.status); } return res; }
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) { const e = new Error(j.error || "Erreur " + res.status); e.status = res.status; throw e; }
+    if (!res.ok) { const e = new Error(j.error || "Erreur " + res.status); e.status = res.status; e.relire = !!j.relire; throw e; }
     return j;
   }
 
@@ -76,7 +76,9 @@
     rendreJalons();
     // Après signature ou offre figée : les formulaires se lisent, ne s'éditent plus.
     const figee = o.figee || o.terminee;
-    verrouiller($("#formIdentite"), !!moi.signeAt || o.terminee);
+    // (Document figé par la signature du co-acquéreur : l'état civil de chacun
+    // y est écrit, il ne se modifie plus non plus.)
+    verrouiller($("#formIdentite"), !!moi.signeAt || o.terminee || (o.figee && moi.identiteComplete));
     verrouiller($("#formFinancement"), figee);
   }
   function verrouiller(form, oui) {
@@ -152,6 +154,22 @@
     const pm = i.personneMorale || {};
     set("pmNom", pm.nom || ""); set("pmForme", pm.forme || ""); set("pmRcs", pm.rcs || ""); set("pmSiege", pm.siege || "");
     $("#blocSociete").hidden = !i.societe;
+    // L'e-mail et le mobile enregistrés par l'agence reçoivent le code de
+    // signature : ils se lisent ici, et ne se corrigent qu'auprès du
+    // conseiller (le serveur refuse tout autre valeur). Vides côté agence,
+    // ils restent à renseigner.
+    [["email", data.moi.email], ["telephone", data.moi.telephone]].forEach((c) => {
+      const el = f.elements[c[0]], agence = c[1];
+      if (!el) return;
+      let note = el.parentNode.querySelector("small");
+      el.readOnly = !!agence;
+      el.style.background = agence ? "var(--panel)" : "";
+      if (agence) {
+        el.value = agence;
+        if (!note) { note = document.createElement("small"); note.className = "aide"; el.parentNode.appendChild(note); }
+        note.textContent = "Enregistré par l'agence — pour le corriger, contactez votre conseiller.";
+      } else if (note) note.remove();
+    });
   }
   async function enregistrerIdentite(e) {
     e.preventDefault();
@@ -225,6 +243,9 @@
     const pieces = data.pieces || [];
     if (!pieces.length) { $("#pieces").innerHTML = '<p class="aide">La liste des pièces s\'affichera une fois votre financement renseigné.</p>'; return; }
     const fermee = o.terminee;
+    // « retirer » : ses propres pièces et celles du ménage, tant que rien
+    // n'est signé (ensuite, c'est le conseiller qui remplace une pièce).
+    const retirable = (d) => !d.verifie && !fermee && !o.figee && (!d.signataireId || d.signataireId === data.moi.id);
     $("#pieces").innerHTML = pieces.map((p) =>
       '<div class="piece' + (p.documents.length ? " ok" : "") + (p.requise ? "" : " facultative") + '">' +
       '<div class="etat">' + (p.documents.length ? "✓" : "") + "</div>" +
@@ -232,7 +253,7 @@
       (p.personne ? '<div class="qui">' + txt(p.personne) + "</div>" : "") +
       (p.documents.length ? '<div class="fichiers">' + p.documents.map((d) =>
         '<div class="fichier"><span>📎 ' + txt(d.nom) + " (" + Math.round(d.taille / 1024) + " Ko)" + (d.verifie ? " — vérifiée par l'agence" : "") + "</span>" +
-        (d.verifie || fermee ? "" : '<button type="button" class="sup" data-sup="' + txt(d.id) + '">retirer</button>') + "</div>").join("") + "</div>" : "") +
+        (retirable(d) ? '<button type="button" class="sup" data-sup="' + txt(d.id) + '">retirer</button>' : "") + "</div>").join("") + "</div>" : "") +
       "</div>" +
       (fermee ? "" : '<button type="button" class="ajout" data-type="' + txt(p.type) + '" data-pour="' + txt(p.signataireId || "") + '">' + (p.documents.length ? "+ Ajouter" : "📷 Déposer") + "</button>") +
       "</div>").join("") +
@@ -330,12 +351,22 @@
     if (code.length !== 6) { message("#msgSignature", "Saisissez le code à 6 chiffres reçu.", "err"); return; }
     btn.disabled = true; message("#msgSignature", "Signature en cours…");
     try {
-      const r = await api("/public/offre/signer", { json: { code, mention, engagement } });
+      // L'empreinte du texte affiché part avec la signature : si l'offre a été
+      // modifiée entre-temps, le serveur refuse et l'on réaffiche le texte.
+      const r = await api("/public/offre/signer", { json: { code, mention, engagement, empreinte: data.empreinte } });
       otpDemande = false;
       await recharger();
       $("#etapeSignature").scrollIntoView({ behavior: "smooth", block: "start" });
       if (!r.tousSignes) message("#msgSignature", "");
-    } catch (err) { btn.disabled = false; message("#msgSignature", err.message, "err"); }
+    } catch (err) {
+      btn.disabled = false;
+      if (err.relire) {
+        await recharger().catch(() => { });
+        $("#texteOffre").hidden = false; $("#btnTexte").textContent = "Replier le texte";
+        $("#etapeRecap").scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      message("#msgSignature", err.message, "err");
+    }
   }
 
   /* -------------------------------- Vendeur -------------------------------- */

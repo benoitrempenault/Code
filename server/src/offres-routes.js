@@ -3,8 +3,9 @@
 
    Deux mondes :
    - /crm/offres/*   : l'agence (session « Mon compte »). Lecture de la liste
-     et du détail ouverte à tout membre ; les PIÈCES déposées ne sont
-     visibles que du conseiller du dossier et des administrateurs.
+     et du détail ouverte à tout membre ; les PIÈCES déposées, le LIEN
+     magique d'un signataire, la réponse saisie pour le vendeur et le retrait
+     sont réservés au conseiller du dossier et aux administrateurs.
    - /public/offre/* : l'acquéreur ou le vendeur, SANS session, identifié par
      le jeton de son lien magique (en-tête X-Offre-Jeton — jamais dans l'URL,
      pour ne pas traîner dans les journaux). Tout ce qu'il envoie est validé
@@ -12,8 +13,8 @@
    ========================================================================= */
 import * as O from "./offres.js";
 import { envoyerMailHtml, envoyerSmsBrevo, wrapEmail, texteEnParagraphes, mobileFrance, smsExpediteur, getReglages } from "./crm.js";
-import { now, randId, randToken, sha256hex, safeEqual } from "./util.js";
-import { rappelsOffres } from "./offres-cron.js";
+import { now, randId, sha256hex, safeEqual } from "./util.js";
+import { rappelsOffres, preparerLien, poserLien } from "./offres-cron.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
@@ -22,8 +23,6 @@ const texteHtml = texteEnParagraphes;
 export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAgencyAdmin, filesReady, DOSSIERS_MAX }) {
   const ipDe = (c) => c.req.header("CF-Connecting-IP") || String(c.req.header("x-forwarded-for") || "").split(",")[0].trim() || "";
   const uaDe = (c) => String(c.req.header("user-agent") || "").slice(0, 200);
-  // Base de la page publique (dossier offre/), surchargeable par OFFRE_BASE.
-  const lienPublic = (jeton) => String(env.OFFRE_BASE || "https://benoitrempenault.github.io/Code/offre").replace(/\/$/, "") + "/#t=" + jeton;
 
   /* ------------------------------ Chargement ------------------------------ */
   async function chargerOffre(agencyId, id) {
@@ -56,7 +55,12 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
     signeeAt: o.signee_at, presenteeAt: o.presentee_at, reponseAt: o.reponse_at, purgeAt: o.purge_at, purgee: !!o.purgee,
     figee: !!o.pdf_hash, terminee: O.STATUTS_TERMINES.includes(o.statut), createdAt: o.created_at, updatedAt: o.updated_at,
   });
+  // Le conseiller du dossier et les admins : eux seuls lisent les pièces,
+  // reçoivent le lien magique dans une réponse, saisissent la réponse du
+  // vendeur ou retirent l'offre. Un autre membre qui tiendrait le lien
+  // pourrait signer à la place du client.
   const accesPieces = (ctx, o) => isAgencyAdmin(ctx) || (o.conseiller_id && o.conseiller_id === ctx.user.id);
+  const RESERVE = "Réservé au conseiller du dossier et aux administrateurs.";
 
   async function majOffre(id, champs) {
     const cles = Object.keys(champs);
@@ -75,8 +79,10 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
     o.pdf_hash = hash;
     return hash;
   }
-  // Le PDF complet : le document (figé, ou un aperçu recalculé) + certificat.
-  async function pdfComplet(o, agency) {
+  // Le PDF : le document (figé, ou un aperçu recalculé) + certificat —
+  // complet (journal, adresses IP) pour l'agence, réduit aux signatures pour
+  // l'exemplaire remis par le lien public.
+  async function pdfComplet(o, agency, complet = true) {
     const sigs = await signatairesDe(o.id);
     const offrants = sigs.filter((s) => s.role === "offrant"), vendeurs = sigs.filter((s) => s.role === "vendeur");
     const { ag, reg } = await reglagesDe(agency);
@@ -86,8 +92,8 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
       if (obj) base = new Uint8Array(await obj.arrayBuffer());
     }
     if (!base) base = await O.construirePdfOffre({ offre: o, offrants, vendeurs, agence: ag, reg });
-    const events = await eventsDe(o.id, 60);
-    return O.construirePdfCertificat({ pdfOffre: base, offre: o, offrants, vendeurs, events, agence: ag });
+    const events = complet ? await eventsDe(o.id, 60) : [];
+    return O.construirePdfCertificat({ pdfOffre: base, offre: o, offrants, vendeurs, events, agence: ag, complet });
   }
 
   /* ------------------------------- E-mails -------------------------------- */
@@ -114,14 +120,15 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
       o.conseiller ? `${o.conseiller}, votre conseiller` : "");
   }
   async function envoyerOtp(agency, ag, o, s, code) {
-    const mobile = mobileFrance(s.telephone);
+    const k = O.coordonneesOtp(s);
+    const mobile = mobileFrance(k.telephone);
     const canaux = [];
     if (mobile && env.BREVO_API_KEY) {
       const r = await envoyerSmsBrevo(env, { to: mobile, content: `${code} est votre code pour signer l'offre d'achat ${o.numero}. Valable ${O.OTP_MINUTES} minutes. Ne le communiquez à personne.`, sender: smsExpediteur(ag, agency) });
       if (r.ok) canaux.push("sms");
     }
-    if (s.email) {
-      const r = await mail(agency, ag, s.email, `${code} — votre code pour l'offre ${o.numero}`, "Votre code de signature",
+    if (k.email) {
+      const r = await mail(agency, ag, k.email, `${code} — votre code pour l'offre ${o.numero}`, "Votre code de signature",
         `<p style="text-align:center; font-size:34px; letter-spacing:8px; font-family:Helvetica,Arial,sans-serif; font-weight:bold;">${esc(code)}</p>` +
         texteEnParagraphes(`Ce code confirme votre signature de l'offre d'achat ${o.numero}. Il est valable ${O.OTP_MINUTES} minutes. Si vous n'êtes pas à l'origine de cette demande, ne le saisissez nulle part et prévenez votre conseiller.`));
       if (r.ok || r.dryRun) canaux.push("email");
@@ -136,11 +143,19 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
   }
 
   /* ------------------------ Jetons des liens magiques --------------------- */
-  async function nouveauLien(s) {
-    const jeton = randToken(32);
-    await db.run("UPDATE crm_offre_signataires SET jeton_hash = ?, jeton_expire = ?, updated_at = ? WHERE id = ?",
-      [await sha256hex(jeton), now() + O.JETON_JOURS * 86400, now(), s.id]);
-    return lienPublic(jeton);
+  // Un nouveau lien pour un signataire, demandé par un membre. Il ne remplace
+  // l'ancien que s'il arrive à quelqu'un : parti par e-mail, ou rendu dans la
+  // réponse — au seul conseiller du dossier / admin, qui le transmettra.
+  // Sinon l'ancien reste valable (et personne ne tient le nouveau).
+  async function emettreLien(ctx, o, s, envoyer) {
+    const acces = accesPieces(ctx, o);
+    const prepare = await preparerLien(env);
+    const r = s.email ? await envoyer(prepare.lien) : { ok: false, error: "pas d'e-mail" };
+    const pose = !!r.ok || acces;
+    if (pose) await poserLien(db, s, prepare);
+    const ligne = { signataireId: s.id, libelle: O.nomSignataire(s), email: s.email, envoye: !!r.ok };
+    if (acces) ligne.lien = prepare.lien;
+    return { ligne, pose, erreur: r.ok ? "" : (r.error || "non configuré") };
   }
 
   /* ============================== AGENCE ================================ */
@@ -321,13 +336,16 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
     const offrants = (await signatairesDe(o.id)).filter((s) => s.role === "offrant");
     const { ag } = await reglagesDe(ctx.agency);
     const liens = [];
+    let poses = 0;
     for (const s of offrants) {
-      const lien = await nouveauLien(s);
-      const r = s.email ? await envoyerLienOffrant(ctx.agency, ag, o, s, lien) : { ok: false, error: "pas d'e-mail" };
-      liens.push({ signataireId: s.id, libelle: O.nomSignataire(s), email: s.email, envoye: !!r.ok, lien });
-      await O.journal(db, ctx.agency.id, o.id, "lien-envoye", `Lien envoyé à ${O.nomSignataire(s)}${r.ok ? "" : " (e-mail non parti : " + (r.error || "non configuré") + ")"}`, ctx.user.name || ctx.user.email, ipDe(c));
+      const { ligne, pose, erreur } = await emettreLien(ctx, o, s, (lien) => envoyerLienOffrant(ctx.agency, ag, o, s, lien));
+      liens.push(ligne);
+      if (pose) poses++;
+      await O.journal(db, ctx.agency.id, o.id, pose ? "lien-envoye" : "lien-non-envoye",
+        pose ? `Lien envoyé à ${O.nomSignataire(s)}${erreur ? " (e-mail non parti : " + erreur + ")" : ""}` : `Lien non envoyé à ${O.nomSignataire(s)} (e-mail non parti : ${erreur}) — à transmettre par le conseiller du dossier`,
+        ctx.user.name || ctx.user.email, ipDe(c));
     }
-    if (o.statut === "brouillon") await majOffre(o.id, { statut: "envoyee" });
+    if (o.statut === "brouillon" && poses) await majOffre(o.id, { statut: "envoyee" });
     return c.json({ ok: true, liens });
   });
 
@@ -341,10 +359,13 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
     if (!s) return err(c, 404, "Signataire introuvable.");
     if (s.role === "vendeur" && !["signee", "presentee"].includes(o.statut)) return err(c, 409, "Le vendeur ne reçoit le lien qu'une fois l'offre signée par l'acquéreur (« Présenter au vendeur »).");
     const { ag } = await reglagesDe(ctx.agency);
-    const lien = await nouveauLien(s);
-    const r = s.email ? (s.role === "vendeur" ? await envoyerLienVendeur(ctx.agency, ag, o, s, lien) : await envoyerLienOffrant(ctx.agency, ag, o, s, lien)) : { ok: false };
-    await O.journal(db, ctx.agency.id, o.id, "lien-envoye", `Nouveau lien pour ${O.nomSignataire(s)}${r.ok ? "" : " (à transmettre par le conseiller)"}`, ctx.user.name || ctx.user.email, ipDe(c));
-    return c.json({ ok: true, envoye: !!r.ok, lien });
+    const { ligne, pose } = await emettreLien(ctx, o, s, (lien) => (s.role === "vendeur" ? envoyerLienVendeur(ctx.agency, ag, o, s, lien) : envoyerLienOffrant(ctx.agency, ag, o, s, lien)));
+    await O.journal(db, ctx.agency.id, o.id, pose ? "lien-envoye" : "lien-non-envoye",
+      pose ? `Nouveau lien pour ${O.nomSignataire(s)}${ligne.envoye ? "" : " (à transmettre par le conseiller)"}` : `Lien non envoyé à ${O.nomSignataire(s)} (e-mail non parti) — à transmettre par le conseiller du dossier`,
+      ctx.user.name || ctx.user.email, ipDe(c));
+    const out = { ok: true, envoye: ligne.envoye };
+    if (ligne.lien) out.lien = ligne.lien;
+    return c.json(out);
   });
 
   // Présentation au vendeur : l'offre signée part aux vendeurs (lien + OTP).
@@ -357,15 +378,19 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
     if (!vendeurs.length) return err(c, 400, "Désignez d'abord le ou les vendeurs (nom, e-mail).");
     const { ag } = await reglagesDe(ctx.agency);
     const liens = [];
+    let poses = 0;
     for (const v of vendeurs) {
       if (v.signe_at) continue;
-      const lien = await nouveauLien(v);
-      const r = v.email ? await envoyerLienVendeur(ctx.agency, ag, o, v, lien) : { ok: false };
-      liens.push({ signataireId: v.id, libelle: O.nomSignataire(v), email: v.email, envoye: !!r.ok, lien });
-      await O.journal(db, ctx.agency.id, o.id, "presentee", `Offre présentée à ${O.nomSignataire(v)}${r.ok ? "" : " (lien à transmettre)"}`, ctx.user.name || ctx.user.email, ipDe(c));
+      const { ligne, pose } = await emettreLien(ctx, o, v, (lien) => envoyerLienVendeur(ctx.agency, ag, o, v, lien));
+      liens.push(ligne);
+      if (pose) poses++;
+      await O.journal(db, ctx.agency.id, o.id, pose ? "presentee" : "lien-non-envoye",
+        pose ? `Offre présentée à ${O.nomSignataire(v)}${ligne.envoye ? "" : " (lien à transmettre)"}` : `Lien non envoyé à ${O.nomSignataire(v)} (e-mail non parti) — à transmettre par le conseiller du dossier`,
+        ctx.user.name || ctx.user.email, ipDe(c));
     }
-    await majOffre(o.id, { statut: "presentee", presentee_at: o.presentee_at || now() });
-    return c.json({ ok: true, liens });
+    // Présentée = au moins un vendeur tient son lien (ou le conseiller pour lui).
+    if (poses || o.statut === "presentee") await majOffre(o.id, { statut: "presentee", presentee_at: o.presentee_at || now() });
+    return c.json({ ok: true, liens, presentee: !!poses || o.statut === "presentee" });
   });
 
   // Réponse saisie par l'agence (vendeur qui a répondu en agence / par
@@ -374,6 +399,9 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const o = await chargerOffre(ctx.agency.id, c.req.param("id"));
     if (!o) return err(c, 404, "Offre introuvable.");
+    // Une réponse saisie à la main conclut l'offre sans le vendeur : pas par
+    // n'importe quel membre.
+    if (!accesPieces(ctx, o)) return err(c, 403, RESERVE);
     if (!["signee", "presentee"].includes(o.statut)) return err(c, 409, "Une réponse ne s'enregistre que sur une offre signée par l'acquéreur.");
     const b = await c.req.json().catch(() => ({}));
     const decision = ["accepte", "refuse", "contre"].includes(b.decision) ? b.decision : "";
@@ -396,12 +424,14 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
         ? `Le propriétaire n'a pas accepté votre offre d'achat pour le bien situé ${bien} (${O.euros(o.prix)}). Votre conseiller ${o.conseiller || ""} vous rappelle pour en parler et envisager la suite.`
         : `Le propriétaire a répondu à votre offre d'achat pour le bien situé ${bien} par une contre-proposition${rep.prix ? " à " + O.euros(rep.prix) : ""}${rep.commentaire ? " : « " + rep.commentaire + " »" : ""}. Votre offre à ${O.euros(o.prix)} est donc close ; votre conseiller ${o.conseiller || ""} vous rappelle pour en discuter.`;
     for (const s of offrants) {
-      const lien = await nouveauLien(s);
-      await mail(agency, ag, s.email, `Réponse du propriétaire — ${bien}`, statut === "acceptee" ? "Votre offre est acceptée" : statut === "refusee" ? "Votre offre n'a pas été retenue" : "Le propriétaire fait une contre-proposition",
+      const prepare = await preparerLien(env);
+      const r = await mail(agency, ag, s.email, `Réponse du propriétaire — ${bien}`, statut === "acceptee" ? "Votre offre est acceptée" : statut === "refusee" ? "Votre offre n'a pas été retenue" : "Le propriétaire fait une contre-proposition",
         texteHtml(`Bonjour ${s.prenom || ""},
 
-${texteA}`) + bouton(lien, "Voir l'offre et son certificat"),
-        o.conseiller ? `${o.conseiller}, votre conseiller` : "").catch(() => { });
+${texteA}`) + bouton(prepare.lien, "Voir l'offre et son certificat"),
+        o.conseiller ? `${o.conseiller}, votre conseiller` : "").catch(() => null);
+      // Le nouveau lien ne remplace l'ancien que si l'e-mail est parti.
+      if (r && r.ok) await poserLien(db, s, prepare);
     }
     await prevenirConseiller(agency, ag, o, `Offre ${o.numero} : ${O.STATUTS_LIBELLES[statut]}`,
       `L'offre ${o.numero} (${[o.bien.adresse, o.bien.ville].filter(Boolean).join(", ")}, ${O.euros(o.prix)}) est ${O.STATUTS_LIBELLES[statut].toLowerCase()}.${rep.prix ? " Contre-proposition : " + O.euros(rep.prix) + "." : ""}${rep.commentaire ? "\n\n« " + rep.commentaire + " »" : ""}\n\nRetrouvez-la dans Studio Administration, onglet Offres.`);
@@ -412,6 +442,7 @@ ${texteA}`) + bouton(lien, "Voir l'offre et son certificat"),
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const o = await chargerOffre(ctx.agency.id, c.req.param("id"));
     if (!o) return err(c, 404, "Offre introuvable.");
+    if (!accesPieces(ctx, o)) return err(c, 403, RESERVE);
     if (O.STATUTS_TERMINES.includes(o.statut)) return err(c, 409, "Cette offre est déjà terminée.");
     const b = await c.req.json().catch(() => ({}));
     await majOffre(o.id, { statut: "retiree", purge_at: now() + O.PURGE_JOURS * 86400 });
@@ -564,21 +595,27 @@ ${texteA}`) + bouton(lien, "Voir l'offre et son certificat"),
     const derniere = await db.get("SELECT created_at FROM crm_offre_events WHERE offre_id = ? AND type = 'ouverture' AND acteur = ? ORDER BY created_at DESC LIMIT 1", [o.id, O.nomSignataire(s)]);
     if (!derniere || derniere.created_at < now() - 3600) await O.journal(db, agency.id, o.id, "ouverture", s.role === "vendeur" ? "Le vendeur a ouvert l'offre" : "L'acquéreur a ouvert son espace", O.nomSignataire(s), ipDe(c));
     const estOffrant = s.role === "offrant";
+    const paragraphes = O.paragraphesOffre(o, offrants, vendeurs, ag, reg);
+    const k = O.coordonneesOtp(s);
     return c.json({
       role: s.role,
       moi: vueSignataire(s, true),
       offre: {
         numero: o.numero, statut: o.statut, statutLibelle: O.STATUTS_LIBELLES[o.statut] || o.statut, terminee: terminee(o), figee: !!o.pdf_hash,
-        bien: o.bien, prix: o.prix, conditions: o.conditions, financement: o.financement, questionnaire: o.questionnaire,
+        // Le questionnaire du ménage (situation, régime, notaire) n'est pas dans
+        // le texte de l'offre : le vendeur ne le reçoit pas.
+        bien: o.bien, prix: o.prix, conditions: o.conditions, financement: o.financement, questionnaire: estOffrant ? o.questionnaire : undefined,
         conseiller: o.conseiller, signeeAt: o.signee_at, reponse: o.reponse, dossierId: !!o.dossier_id,
       },
       agence: { nom: ag.nom || agency.name, adresse: ag.adresse || "", telephone: ag.telephone || "", email: ag.email || "" },
       signataires: sigs.map((x) => ({ id: x.id, role: x.role, libelle: O.nomSignataire(x), signeAt: x.signe_at, decision: x.decision, identiteComplete: !O.manquesIdentite(x.identite).length })),
       pieces: estOffrant ? O.piecesRequises(o, offrants, docs).map((p) => ({ ...p, documents: p.documents.map(vueDocument) })) : [],
-      bloqueurs: estOffrant ? O.bloqueursSignature(o, s, docs) : [],
+      bloqueurs: estOffrant ? O.bloqueursSignature(o, s, docs, offrants) : [],
       mention: estOffrant ? (o.financement.sansPret ? O.mentionSansPret(s) : "") : { accepte: O.mentionVendeur(s, "accepte"), refuse: O.mentionVendeur(s, "refuse") },
-      paragraphes: O.paragraphesOffre(o, offrants, vendeurs, ag, reg),
-      otp: { canaux: [mobileFrance(s.telephone) && env.BREVO_API_KEY ? "sms" : "", s.email ? "email" : ""].filter(Boolean), telephone: O.masquerTel(s.telephone), email: O.masquerEmail(s.email) },
+      paragraphes,
+      // À renvoyer avec la signature : la preuve du texte affiché.
+      empreinte: await O.empreinteTexte(paragraphes),
+      otp: { canaux: [mobileFrance(k.telephone) && env.BREVO_API_KEY ? "sms" : "", k.email ? "email" : ""].filter(Boolean), telephone: O.masquerTel(k.telephone), email: O.masquerEmail(k.email) },
     });
   });
 
@@ -587,11 +624,25 @@ ${texteA}`) + bouton(lien, "Voir l'offre et son certificat"),
     const { s, o, agency, resp } = await contextePublic(c); if (!s) return resp;
     if (s.role !== "offrant") return err(c, 403, "Réservé à l'acquéreur.");
     if (s.signe_at || terminee(o)) return err(c, 409, "Votre identité ne se modifie plus après signature.");
+    // Document figé : l'état civil de chacun y est écrit, il ne bouge plus.
+    // (Seule exception, pour les offres figées avant cette règle : un état
+    // civil resté incomplet se complète encore, sinon l'offre serait bloquée.)
+    if (o.pdf_hash && !O.manquesIdentite(s.identite).length) return err(c, 409, "L'offre est signée : votre état civil ne se modifie plus. Contactez votre conseiller.");
     const b = await c.req.json().catch(() => null);
     if (!b) return err(c, 400, "Corps JSON attendu.");
+    // L'e-mail et le téléphone enregistrés par l'agence reçoivent le code de
+    // signature : le porteur du lien ne les remplace pas (il s'enverrait le
+    // code). Il ne renseigne que ce que l'agence n'a pas — dans son état
+    // civil, jamais dans les colonnes de l'agence.
+    const chiffres = (t) => String(t ?? "").replace(/\D/g, "").replace(/^(?:0033|33)(?=\d{9}$)/, "0");
+    const minus = (e) => String(e ?? "").trim().toLowerCase();
+    const autre = (saisi, agence, norme) => !!agence && !!norme(saisi) && norme(saisi) !== norme(agence);
+    if (autre(b.email, s.email, minus) || autre(b.telephone, s.telephone, chiffres)) return err(c, 403, "Pour corriger votre e-mail ou votre téléphone, contactez votre conseiller.");
     const identite = O.sanitizeIdentite(b, s.identite);
-    await db.run("UPDATE crm_offre_signataires SET identite = ?, nom = ?, prenom = ?, email = ?, telephone = ?, updated_at = ? WHERE id = ?",
-      [JSON.stringify(identite), identite.nom || s.nom, identite.prenoms || s.prenom, identite.email || s.email, identite.telephone || s.telephone, now(), s.id]);
+    if (s.email) identite.email = s.email;
+    if (s.telephone) identite.telephone = s.telephone;
+    await db.run("UPDATE crm_offre_signataires SET identite = ?, nom = ?, prenom = ?, updated_at = ? WHERE id = ?",
+      [JSON.stringify(identite), identite.nom || s.nom, identite.prenoms || s.prenom, now(), s.id]);
     await O.journal(db, agency.id, o.id, "identite", "État civil complété", O.nomSignataire({ ...s, identite }), ipDe(c));
     return c.json({ ok: true, manques: O.manquesIdentite(identite) });
   });
@@ -631,6 +682,11 @@ ${texteA}`) + bouton(lien, "Voir l'offre et son certificat"),
     if (s.role !== "offrant") return err(c, 403, "Réservé à l'acquéreur.");
     const d = await db.get("SELECT * FROM crm_offre_documents WHERE id = ? AND offre_id = ?", [c.req.param("doc"), o.id]);
     if (!d) return err(c, 404, "Pièce introuvable.");
+    // Les pièces accompagnent la signature (l'identité la conditionne) : une
+    // fois le document figé elles ne se retirent plus d'ici, et jamais celles
+    // d'une autre personne (les pièces du ménage restent communes).
+    if (o.pdf_hash || terminee(o)) return err(c, 409, "L'offre est signée : les pièces ne se retirent plus. Contactez votre conseiller pour en remplacer une.");
+    if (d.signataire_id && d.signataire_id !== s.id) return err(c, 403, "Cette pièce appartient à une autre personne : elle seule (ou votre conseiller) peut la retirer.");
     if (d.verifie) return err(c, 409, "Cette pièce a été validée par l'agence : contactez votre conseiller pour la remplacer.");
     if (filesReady()) await env.files.delete(O.cleDocument(agency.id, o.id, d.id)).catch?.(() => { });
     await db.run("DELETE FROM crm_offre_documents WHERE id = ?", [d.id]);
@@ -640,27 +696,31 @@ ${texteA}`) + bouton(lien, "Voir l'offre et son certificat"),
 
   app.get("/public/offre/pdf", async (c) => {
     const { s, o, agency, resp } = await contextePublic(c); if (!s) return resp;
-    const bytes = await pdfComplet(o, agency);
+    // L'exemplaire des parties : les signatures, pas le journal de l'agence.
+    const bytes = await pdfComplet(o, agency, false);
     return c.body(bytes, 200, { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="offre-${o.numero}.pdf"` });
   });
 
   // Envoi du code à usage unique (SMS + e-mail).
   app.post("/public/offre/otp", async (c) => {
-    const { s, o, agency, resp } = await contextePublic(c); if (!s) return resp;
+    const { s, o, agency, sigs, resp } = await contextePublic(c); if (!s) return resp;
     if (s.signe_at) return err(c, 409, "Vous avez déjà signé.");
     if (terminee(o)) return err(c, 409, "Cette offre est terminée.");
     const docs = await documentsDe(o.id);
     if (s.role === "offrant") {
-      const bloqueurs = O.bloqueursSignature(o, s, docs);
+      const bloqueurs = O.bloqueursSignature(o, s, docs, sigs.filter((x) => x.role === "offrant"));
       if (bloqueurs.length) return err(c, 400, "Avant de signer : " + bloqueurs.join(" ; ") + ".");
     } else if (o.statut !== "presentee") return err(c, 409, "L'offre ne vous a pas encore été présentée.");
-    const recents = await db.get("SELECT COUNT(*) AS n FROM crm_offre_events WHERE offre_id = ? AND type = 'otp' AND acteur = ? AND created_at > ?", [o.id, O.nomSignataire(s), now() - 3600]);
-    if ((recents?.n || 0) >= O.OTP_ENVOIS_MAX) return err(c, 429, "Trop de codes demandés — réessayez dans une heure, ou appelez votre conseiller.");
+    // Plafond compté sur le SIGNATAIRE (colonne otp_envois), pas sur son nom
+    // affiché, qu'il peut changer. Le dernier code est parti à otp_expire −
+    // 10 min ; une heure sans envoi remet le compteur à zéro.
+    const serie = s.otp_expire - O.OTP_MINUTES * 60 > now() - 3600;
+    if (serie && s.otp_envois >= O.OTP_ENVOIS_MAX) return err(c, 429, "Trop de codes demandés — réessayez dans une heure, ou appelez votre conseiller.");
     const { ag } = await reglagesDe(agency);
     const code = O.genererOtp();
     const canaux = await envoyerOtp(agency, ag, o, s, code);
     if (!canaux.length && !env.DEV_MODE) return err(c, 502, "Impossible d'envoyer le code (ni SMS ni e-mail). Contactez votre conseiller.");
-    await db.run("UPDATE crm_offre_signataires SET otp_hash = ?, otp_expire = ?, otp_essais = 0, otp_envois = otp_envois + 1, otp_canal = ?, updated_at = ? WHERE id = ?",
+    await db.run(`UPDATE crm_offre_signataires SET otp_hash = ?, otp_expire = ?, otp_essais = 0, otp_envois = ${serie ? "otp_envois + 1" : "1"}, otp_canal = ?, updated_at = ? WHERE id = ?`,
       [await sha256hex(code), now() + O.OTP_MINUTES * 60, canaux.join("+") || "dev", now(), s.id]);
     await O.journal(db, agency.id, o.id, "otp", "Code envoyé (" + (canaux.join(" + ") || "mode dev") + ")", O.nomSignataire(s), ipDe(c));
     const out = { ok: true, canaux, expireDans: O.OTP_MINUTES * 60 };
@@ -686,7 +746,8 @@ ${texteA}`) + bouton(lien, "Voir l'offre et son certificat"),
     if (terminee(o)) return err(c, 409, "Cette offre est terminée.");
     const b = await c.req.json().catch(() => ({}));
     const docs = await documentsDe(o.id);
-    const bloqueurs = O.bloqueursSignature(o, s, docs);
+    const offrants = sigs.filter((x) => x.role === "offrant"), vendeurs = sigs.filter((x) => x.role === "vendeur");
+    const bloqueurs = O.bloqueursSignature(o, s, docs, offrants);
     if (bloqueurs.length) return err(c, 400, "Avant de signer : " + bloqueurs.join(" ; ") + ".");
     let mention = "";
     if (o.financement.sansPret) {
@@ -694,9 +755,20 @@ ${texteA}`) + bouton(lien, "Voir l'offre et son certificat"),
       if (!O.mentionsEquivalentes(O.mentionSansPret(s), mention)) return err(c, 400, "La mention manuscrite ne correspond pas : recopiez-la exactement (c'est elle qui vaut renonciation à la condition de prêt).");
     }
     if (!b.engagement) return err(c, 400, "Cochez la case d'engagement pour signer.");
+    // Il signe le texte qu'il a AFFICHÉ : tant que rien n'est figé, le cadre
+    // (prix, dates) peut encore être modifié par l'agence entre l'affichage
+    // et la signature. La page renvoie l'empreinte reçue avec le texte ; si
+    // elle ne correspond plus, il relit d'abord. Le document est ensuite figé
+    // depuis ce même état (o, offrants), celui qu'on vient de comparer.
+    // (Une page d'avant cette vérification n'envoie pas d'empreinte : on ne
+    // bloque pas sa signature.)
+    if (b.empreinte !== undefined) {
+      const { ag, reg } = await reglagesDe(agency);
+      const actuelle = await O.empreinteTexte(O.paragraphesOffre(o, offrants, vendeurs, ag, reg));
+      if (String(b.empreinte) !== actuelle) return c.json({ error: "L'offre a été modifiée depuis que vous l'avez affichée : relisez-la, puis signez.", relire: true }, 409);
+    }
     const ko = await verifierOtp(s, b.code);
     if (ko) return err(c, 400, ko);
-    const offrants = sigs.filter((x) => x.role === "offrant"), vendeurs = sigs.filter((x) => x.role === "vendeur");
     const hash = await figerSiBesoin(o, offrants, vendeurs, agency);
     await db.run(
       "UPDATE crm_offre_signataires SET signe_at = ?, signe_ip = ?, signe_ua = ?, signe_hash = ?, mention = ?, otp_hash = '', otp_expire = 0, updated_at = ? WHERE id = ?",
