@@ -3373,9 +3373,13 @@
       const font = await doc.embedFont(StandardFonts.Helvetica);
       const h = page.getHeight();
       // Un texte trop long pour la place (jusqu'au titre, à gauche) se réduit.
+      // Si une ligne du bloc demande la police de secours, les quatre la prennent : pas deux polices dans le même bloc.
+      const blocP1 = [nomsClient(p), (p.adresse || "").toUpperCase(), [p.cp, (p.ville || "").toUpperCase()].filter(Boolean).join(" ")];
+      const fontP1 = secoursR1 && blocP1.some((t) => !ecritTout(font, espacesSimples(t))) ? secoursR1[0] : font;
       const droite = (brut, spec) => {
         if (!brut) return;
-        const { texte, font: f } = sure(brut, font, false);
+        const { texte, font: f } = sure(brut, fontP1, false);
+        if (fontP1 !== font) ecritures.secours++;
         let taille = spec.taille;
         while (taille > 8 && f.widthOfTextAtSize(texte, taille) > p1.droite - (p1.gauche || 300)) taille -= 0.5;
         page.drawText(texte, { x: p1.droite - f.widthOfTextAtSize(texte, taille), y: h - spec.y, size: taille, font: f, color: rgb(0, 0, 0) });
@@ -3550,8 +3554,8 @@
     // sortait de la page (audit du 16/11) : on mesure d'abord, on réduit le corps de
     // 11,5 à 10 pt s'il le faut, et au-delà on refuse en disant de combien raccourcir.
     const BAS_SIGNATURE = 772; // dernière ligne de la signature, au-dessus du filet du pied (786)
-    // Pas de retour à la ligne avant « : ; ! ? » » ni après « « » : l'espace qui les accompagne en français ne coupe pas.
-    const couperFr = (t, f, taille, larg) => couper(String(t || "").replace(/\s+(?=[:;!?»])/g, "\u0001").replace(/«\s+/g, "«\u0001"), f, taille, larg).map((l) => l.replace(/\u0001/g, " "));
+    // Pas de retour à la ligne avant « : ; ! ? » € % », après « « », ni au milieu d'un montant (« 349 000 € ») : ces espaces-là ne coupent pas.
+    const couperFr = (t, f, taille, larg) => couper(String(t || "").replace(/\s+(?=[:;!?»€%])/g, "\u0001").replace(/«\s+/g, "«\u0001").replace(/(\d)\s+(?=\d{3}(?!\d))/g, "$1\u0001"), f, taille, larg).map((l) => l.replace(/\u0001/g, " "));
     const composer = (T, mot, tracer) => {
       const k = T / 11.5, pasT = Math.round(16.5 * k * 10) / 10, entre = Math.round(8 * k * 10) / 10;
       let y = 405;
