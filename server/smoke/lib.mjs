@@ -68,7 +68,7 @@ export async function ajouterConseiller(admin, email, name) {
 // Une page prête : ressources externes coupées, géocodage inverse simulé
 // (adresse au choix), API de production relayée vers l'API locale.
 export async function nouvellePage(browser, options = {}) {
-  const page = await browser.newPage({ viewport: options.viewport || { width: 1200, height: 900 } });
+  const page = await browser.newPage({ viewport: options.viewport || { width: 1200, height: 900 }, deviceScaleFactor: options.deviceScaleFactor || 1 });
   page.__erreurs = [];
   page.on("pageerror", (e) => page.__erreurs.push("pageerror: " + e.message));
   page.on("dialog", (d) => d.accept());

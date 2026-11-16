@@ -16,7 +16,7 @@
    que le conseiller a déjà envoyé à la main.
    ========================================================================= */
 import { now, randId, randToken, safeEqual } from "./util.js";
-import { runRappelsApresR2, formatTelephone, groupePv, filtrePv, filtrePvProjet, MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier , releverAvisAgences, avisAgence, releverAvisConseillers, jsonAvisSite } from "./crm.js";
+import { CORBEILLE_JOURS, restaurerCorbeille, runRappelsApresR2, formatTelephone, groupePv, filtrePv, filtrePvProjet, MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier , releverAvisAgences, avisAgence, releverAvisConseillers, jsonAvisSite } from "./crm.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
@@ -926,10 +926,62 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
-    for (const [table, col] of [["crm_parcours_r2", "estimation_id"], ["crm_parcours", "estimation_id"], ["crm_estimation_contacts", "estimation_id"], ["crm_estimations", "id"]]) {
+    // Le dossier part en corbeille (30 jours, « Dossiers supprimés ») avant
+    // d'être effacé : ses lignes, table par table. Si la photo du R2 rend
+    // l'entrée trop lourde, on la laisse ; la suppression a lieu dans tous les cas.
+    const tables = [["crm_parcours_r2", "estimation_id"], ["crm_parcours", "estimation_id"], ["crm_estimation_contacts", "estimation_id"], ["crm_estimations", "id"]];
+    try {
+      const payload = {};
+      for (const [table, col] of tables) payload[table] = await db.all(`SELECT * FROM ${table} WHERE ${col} = ?`, [p.est.id]);
+      const libelle = libelleDossier(p.est, p.px).slice(0, 160);
+      const poser = (pl) => db.run(
+        "INSERT INTO crm_corbeille (id, agency_id, type, ref_id, libelle, payload, user_id, created_at, restored_at) VALUES (?, ?, 'parcours', ?, ?, ?, ?, ?, 0)",
+        [randId("cb"), ctx.agency.id, p.est.id, libelle, JSON.stringify(pl), ctx.user.id, now()]);
+      try { await poser(payload); }
+      catch { await poser({ ...payload, crm_parcours_r2: payload.crm_parcours_r2.map((r) => ({ ...r, photo: "" })) }); }
+    } catch { /* la corbeille ne bloque jamais une suppression */ }
+    for (const [table, col] of tables) {
       await db.run(`DELETE FROM ${table} WHERE ${col} = ?`, [p.est.id]);
     }
-    return c.json({ ok: true });
+    return c.json({ ok: true, corbeille_jours: CORBEILLE_JOURS });
+  });
+  // « Dossiers supprimés » : les parcours effacés depuis moins de 30 jours (et
+  // ceux retrouvés dans les sauvegardes), dans le périmètre de chacun — un
+  // conseiller voit les siens, la direction les voit tous.
+  const libelleDossier = (est, px) => [[px && px.civilite, px && px.prenom, est.nom].filter(Boolean).join(" "), [est.adresse, est.ville].filter(Boolean).join(", ")].filter(Boolean).join(" — ");
+  const entreesCorbeilleParcours = async (ctx) => {
+    const per = await perimetre(ctx);
+    const rows = await db.all(
+      "SELECT id, ref_id, libelle, payload, user_id, created_at FROM crm_corbeille WHERE agency_id = ? AND type = 'parcours' AND restored_at = 0 AND created_at > ? ORDER BY created_at DESC LIMIT 150",
+      [ctx.agency.id, now() - CORBEILLE_JOURS * 86400]);
+    const vivants = new Set((await db.all("SELECT id FROM crm_estimations WHERE agency_id = ?", [ctx.agency.id])).map((r) => r.id));
+    const out = [];
+    for (const r of rows) {
+      let pl = {}; try { pl = JSON.parse(r.payload || "{}"); } catch { pl = {}; }
+      const est = (pl.crm_estimations || [])[0], px = (pl.crm_parcours || [])[0] || null;
+      if (!est || vivants.has(r.ref_id) || !dansPerimetre(per, est, px)) continue;
+      out.push({ row: r, est, px, meta: (pl._meta && typeof pl._meta === "object") ? pl._meta : {} });
+    }
+    return out;
+  };
+  app.get("/crm/parcours-corbeille", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const expire = now() - CORBEILLE_JOURS * 86400;
+    const entrees = (await entreesCorbeilleParcours(ctx)).map(({ row, est, px, meta }) => ({
+      id: row.id, libelle: row.libelle || libelleDossier(est, px), adresse: [est.adresse, est.ville].filter(Boolean).join(", "),
+      conseiller_id: (px && px.conseiller_id) || "", r1: est.r1 || "", r2: est.r2 || "",
+      supprime_le: row.created_at, sauvegarde: String(meta.sauvegarde || "").slice(0, 10),
+      jours_restants: Math.max(0, Math.ceil((row.created_at - expire) / 86400)),
+    }));
+    return c.json({ jours: CORBEILLE_JOURS, entrees });
+  });
+  app.post("/crm/parcours-corbeille/:id/restaurer", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const e = (await entreesCorbeilleParcours(ctx)).find((x) => x.row.id === c.req.param("id"));
+    if (!e) return err(c, 404, "Dossier introuvable dans les dossiers supprimés (ou déjà restauré).");
+    const r = await restaurerCorbeille(db, ctx.agency.id, e.row.id);
+    if (!r) return err(c, 404, "Dossier introuvable dans les dossiers supprimés (ou déjà restauré).");
+    return c.json({ ok: true, id: e.row.ref_id, libelle: r.libelle });
   });
   // Un co-propriétaire : un contact choisi dans la recherche, sinon une fiche
   // existante (même e-mail, ou même nom + prénom), sinon une nouvelle fiche.
@@ -1442,6 +1494,38 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       return true;
     } catch { return false; }
   };
+  // Ce qu'on montre d'une version pour la reconnaître sans l'ouvrir.
+  const resumeLivret = (d) => {
+    const n = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null);
+    const liste = (v) => (Array.isArray(v) ? v.length : 0);
+    return { prix: n(d.prix), basse: n(d.basse), haute: n(d.haute), surface: n(d.surface), terrain: n(d.terrain), pieces: n(d.pieces), chambres: n(d.chambres),
+      ventes: liste(d.ventes), concurrence: liste(d.concurrence), commission: liste(d.commission) };
+  };
+  app.get("/crm/parcours/:id/acm/versions", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    const actuel = await db.get("SELECT data, updated_at FROM crm_parcours_acm WHERE estimation_id = ?", [p.est.id]);
+    const rows = await db.all(
+      "SELECT id, data, saisie_at, archive_at, origine FROM crm_parcours_acm_versions WHERE estimation_id = ? ORDER BY CASE WHEN saisie_at > 0 THEN saisie_at ELSE archive_at END DESC, archive_at DESC LIMIT 60", [p.est.id]);
+    const lire = (t) => { try { return JSON.parse(t || "{}") || {}; } catch { return {}; } };
+    const versions = rows.filter((r) => !actuel || r.data !== actuel.data).map((r) => ({ id: r.id, saisie_at: r.saisie_at, archive_at: r.archive_at, origine: r.origine, resume: resumeLivret(lire(r.data)) }));
+    return c.json({ actuel: actuel ? { updated_at: actuel.updated_at, resume: resumeLivret(lire(actuel.data)) } : null, versions });
+  });
+  // Reprendre une version : le livret en place est gardé à son tour (on peut
+  // donc revenir en arrière), puis remplacé par la version choisie.
+  app.post("/crm/parcours/:id/acm/versions/:vid/restaurer", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    const v = await db.get("SELECT data FROM crm_parcours_acm_versions WHERE id = ? AND estimation_id = ?", [c.req.param("vid"), p.est.id]);
+    if (!v) return err(c, 404, "Version introuvable.");
+    await archiverLivret(ctx.agency.id, p.est.id, v.data, "restauration");
+    await db.run(
+      "INSERT INTO crm_parcours_acm (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(estimation_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+      [p.est.id, ctx.agency.id, v.data, now()]);
+    return c.json({ ok: true });
+  });
   app.get("/crm/parcours/:id/acm", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const p = await lireParcoursDe(ctx, c.req.param("id"));

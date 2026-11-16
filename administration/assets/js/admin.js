@@ -688,7 +688,7 @@
     try {
       const { entrees } = await api("/crm/corbeille");
       if (!entrees.length) { zone.innerHTML = '<p class="petit">La corbeille est vide.</p>'; return; }
-      const TYPES_CB = { contact: "Fiche", suivi: "Suivi", visite: "Visite" };
+      const TYPES_CB = { contact: "Fiche", suivi: "Suivi", visite: "Visite", parcours: "Parcours R1/R2" };
       zone.innerHTML = '<div class="barre"><button class="btn" id="btn-corbeille-prospects" title="Les fiches qui n\'étaient qu\'Acquéreur, retirées par le remplacement de la base acquéreurs, reviennent typées Prospect ; celles ré-importées depuis le fichier ne sont pas dupliquées">↩ Faire revenir les acquéreurs retirés, en Prospect</button></div>' +
         '<div class="tableau-cadre"><table><thead><tr><th>Type</th><th>Quoi</th><th>Supprimé le</th><th>Reste</th><th></th></tr></thead><tbody>' +
         entrees.map((e) => "<tr><td>" + escH(TYPES_CB[e.type] || e.type) + "</td><td>" + escH(e.libelle) + "</td><td>" +
@@ -2852,6 +2852,80 @@
       : '<div class="vide">Aucun parcours en cours — « + Nouveau parcours » pour commencer.</div>';
     zone.querySelectorAll("tr[data-parcours]").forEach((tr) => tr.addEventListener("click", () => ouvrirParcours(tr.dataset.parcours)));
   }
+  // « Dossiers supprimés » (16/11) : les parcours effacés depuis moins de 30
+  // jours, et ceux retrouvés dans les sauvegardes. Chacun voit les siens.
+  const quandFr = (t, heure) => { if (!t) return "—"; const d = new Date(t * 1000); return d.toLocaleDateString("fr-FR") + (heure ? " à " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : ""); };
+  async function ouvrirDossiersSupprimes() {
+    document.querySelector(".modale").classList.add("large");
+    ouvrirModale("🗑 Dossiers supprimés", '<p class="aide">Chargement…</p>', '<button class="btn btn-or" id="modale-ok">Fermer</button>');
+    const maFenetre = sessionModale;
+    $("modale-ok").addEventListener("click", () => { fermerModale(); chargerParcours(); });
+    let r;
+    try { r = await api("/crm/parcours-corbeille"); } catch (e) { if (maFenetre === sessionModale) $("modale-corps").innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; return; }
+    if (maFenetre !== sessionModale) return;
+    const nomCs = (cid) => { const c = conseillers.find((x) => x.id === cid); return c ? [c.prenom, c.nom].filter(Boolean).join(" ") : "—"; };
+    $("modale-corps").innerHTML =
+      '<p class="aide" style="max-width:none;">Un parcours effacé reste ici <strong>' + r.jours + " jours</strong>. « Restaurer » le remet dans la liste tel qu'il était : rendez-vous, propriétaires, e-mails envoyés, livret prix." +
+      (parcoursTous ? "" : " Vous voyez vos dossiers ; la direction les voit tous.") + "</p>" +
+      (r.entrees.length
+        ? '<div class="tableau-cadre"><table><thead><tr><th>Dossier</th><th>Conseiller</th><th>R1</th><th>R2</th><th>Supprimé</th><th>Reste</th><th></th></tr></thead><tbody>' +
+          r.entrees.map((e) => "<tr><td><strong>" + escH(e.libelle.split(" — ")[0]) + '</strong><br><span class="petit">' + escH(e.adresse || "") + "</span></td><td>" + escH(nomCs(e.conseiller_id)) + "</td><td>" + dateFrCourte(e.r1) + "</td><td>" + dateFrCourte(e.r2) + "</td><td>" +
+            (e.sauvegarde ? '<span class="puce grise" title="Dossier absent de Studio, retrouvé dans une sauvegarde quotidienne de la base">sauvegarde du ' + escH(e.sauvegarde.split("-").reverse().join("/")) + "</span>" : "le " + quandFr(e.supprime_le)) +
+            "</td><td>" + e.jours_restants + ' j</td><td style="text-align:right;"><button class="btn" style="white-space:nowrap;" data-px-restaurer="' + escH(e.id) + '">↩ Restaurer</button></td></tr>').join("") +
+          "</tbody></table></div>"
+        : '<div class="vide">Aucun dossier supprimé ces ' + r.jours + " derniers jours.</div>");
+    $("modale-corps").querySelectorAll("[data-px-restaurer]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { const x = await api("/crm/parcours-corbeille/" + b.dataset.pxRestaurer + "/restaurer", { method: "POST" }); toast("Dossier restauré : " + (x.libelle || "")); await chargerParcours(); ouvrirDossiersSupprimes(); }
+      catch (e) { toast(e.message, true); b.disabled = false; }
+    }));
+  }
+  // « Versions précédentes » du livret prix : Studio garde l'état d'avant chaque
+  // enregistrement (et les versions retrouvées dans les sauvegardes). En
+  // reprendre une garde à son tour le livret qu'elle remplace.
+  async function ouvrirVersionsLivret(id, p) {
+    document.querySelector(".modale").classList.add("large");
+    ouvrirModale("🕘 Versions précédentes du livret — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), '<p class="aide">Chargement…</p>',
+      '<button class="btn btn-or" id="lv-retour">Retour au livret</button>');
+    const maFenetre = sessionModale;
+    $("lv-retour").addEventListener("click", () => ouvrirAcm(id, p));
+    let r;
+    try { r = await api("/crm/parcours/" + id + "/acm/versions"); } catch (e) { if (maFenetre === sessionModale) $("modale-corps").innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; return; }
+    if (maFenetre !== sessionModale) return;
+    const nb = (v) => Number(v).toLocaleString("fr-FR");
+    const ref = (r.actuel && r.actuel.resume) || {};
+    // Le résumé d'une version ; en gras, ce qui diffère du livret en place.
+    const resume = (x, comparer) => {
+      const m = (k, texte) => (comparer && (x[k] || null) !== (ref[k] || null) ? "<strong>" + texte + "</strong>" : texte);
+      const bouts = [];
+      bouts.push(m("prix", x.prix ? "Prix " + nb(x.prix) + " €" : "Prix non saisi"));
+      if (x.basse || x.haute) bouts.push((comparer && ((x.basse || null) !== (ref.basse || null) || (x.haute || null) !== (ref.haute || null)) ? "<strong>" : "") + "de " + (x.basse ? nb(x.basse) : "?") + " à " + (x.haute ? nb(x.haute) : "?") + " €" + (comparer && ((x.basse || null) !== (ref.basse || null) || (x.haute || null) !== (ref.haute || null)) ? "</strong>" : ""));
+      bouts.push(m("surface", x.surface ? nb(x.surface) + " m²" : "surface ?"));
+      if (x.terrain) bouts.push(m("terrain", "terrain " + nb(x.terrain) + " m²"));
+      bouts.push(m("pieces", x.pieces ? x.pieces + " pièce" + (x.pieces > 1 ? "s" : "") : "pièces ?"));
+      if (x.chambres) bouts.push(m("chambres", x.chambres + " ch."));
+      bouts.push(m("ventes", x.ventes + " vente" + (x.ventes > 1 ? "s" : "") + " retenue" + (x.ventes > 1 ? "s" : "")));
+      bouts.push(m("concurrence", x.concurrence + " bien" + (x.concurrence > 1 ? "s" : "") + " en concurrence"));
+      if (x.commission) bouts.push(m("commission", "commission : " + x.commission + " ligne" + (x.commission > 1 ? "s" : "")));
+      return bouts.join(" · ");
+    };
+    const origine = (v) => (v.origine === "sauvegarde" ? ' <span class="puce grise" title="Version retrouvée dans une sauvegarde quotidienne de la base">sauvegarde</span>'
+      : v.origine === "restauration" ? ' <span class="puce grise" title="Le livret qui était en place quand une version a été reprise">avant une reprise</span>' : "");
+    $("modale-corps").innerHTML =
+      '<p class="aide" style="max-width:none;">Studio garde le livret tel qu\'il était avant chaque modification. « Reprendre » remet une version en place ; le livret actuel passe alors dans cette liste, rien n\'est perdu. En <strong>gras</strong> : ce qui diffère du livret actuel.</p>' +
+      '<div class="tableau-cadre"><table><thead><tr><th style="white-space:nowrap;">Enregistrée le</th><th>Contenu</th><th></th></tr></thead><tbody>' +
+      '<tr><td style="white-space:nowrap;">' + (r.actuel ? quandFr(r.actuel.updated_at, true) : "—") + ' <span class="puce">en place</span></td><td>' + (r.actuel ? resume(ref, false) : "Livret vide") + "</td><td></td></tr>" +
+      r.versions.map((v) => '<tr><td style="white-space:nowrap;">' + quandFr(v.saisie_at || v.archive_at, true) + origine(v) + "</td><td>" + resume(v.resume, true) +
+        '</td><td style="text-align:right;"><button class="btn" style="white-space:nowrap;" data-lv="' + escH(v.id) + '" data-lv-date="' + escH(quandFr(v.saisie_at || v.archive_at, true)) + '">↩ Reprendre</button></td></tr>').join("") +
+      "</tbody></table></div>" +
+      (r.versions.length ? "" : '<p class="petit">Aucune version précédente pour ce dossier. Studio les garde depuis le 16/11 ; les plus anciennes viennent des sauvegardes de la base.</p>');
+    $("modale-corps").querySelectorAll("[data-lv]").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirm("Reprendre la version du " + b.dataset.lvDate + " ?\n\nLe livret actuel sera gardé dans les versions précédentes.")) return;
+      b.disabled = true;
+      try { await api("/crm/parcours/" + id + "/acm/versions/" + b.dataset.lv + "/restaurer", { method: "POST" }); toast("Version du " + b.dataset.lvDate + " reprise"); ouvrirAcm(id, p); }
+      catch (e) { toast(e.message, true); b.disabled = false; }
+    }));
+  }
   function formulaireParcours(p) {
     const v = (k) => escH(p && p[k] || "");
     const b = (p && p.bien) || {};
@@ -3030,8 +3104,8 @@
       '<button class="btn btn-or" id="modale-ok">Fermer</button>');
     $("modale-ok").addEventListener("click", () => { fermerModale(); chargerParcours(); });
     $("px-effacer").addEventListener("click", async () => {
-      if (!confirm("Effacer le parcours de " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" ") + " ? La fiche estimation disparaît aussi ; les fiches contact restent.")) return;
-      try { await api("/crm/parcours/" + id, { method: "DELETE" }); toast("Parcours effacé"); fermerModale(); chargerParcours(); } catch (e) { toast(e.message, true); }
+      if (!confirm("Effacer le parcours de " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" ") + " ? La fiche estimation disparaît aussi ; les fiches contact restent.\n\nLe dossier reste récupérable 30 jours dans « Dossiers supprimés ».")) return;
+      try { await api("/crm/parcours/" + id, { method: "DELETE" }); toast("Parcours effacé — récupérable 30 jours dans « 🗑 Dossiers supprimés »"); fermerModale(); chargerParcours(); } catch (e) { toast(e.message, true); }
     });
     $("px-ajouter-prop").addEventListener("click", () => ajouterProprietaire(id, p));
     document.querySelectorAll("[data-retirer]").forEach((b) => b.addEventListener("click", async () => {
@@ -4345,9 +4419,10 @@
       "</div>" +
       '<p class="petit">Le livret calcule le prêt sur le budget réel de l\'acquéreur : prix + 8 % de frais de notaire, moins l\'apport (les travaux sont propres à chacun : la colonne reste sans montant).</p>' +
       '<p class="petit" id="acm-etat"></p>';
-    $("modale-pied").innerHTML = '<button class="btn" id="acm-retour">Retour</button><button class="btn" id="acm-save">Enregistrer</button><button class="btn btn-or" id="acm-generer">🖨 Générer le livret</button>';
+    $("modale-pied").innerHTML = '<button class="btn" id="acm-retour">Retour</button><button class="btn" id="acm-versions" title="Le livret tel qu\'il était avant ses dernières modifications : pour retrouver une saisie écrasée">🕘 Versions précédentes</button><button class="btn" id="acm-save">Enregistrer</button><button class="btn btn-or" id="acm-generer">🖨 Générer le livret</button>';
     $("modale-corps").dataset.livret = id;
     $("acm-retour").addEventListener("click", async () => { try { await sauver(); } catch { /* on revient quand même */ } document.querySelector(".modale").classList.remove("large"); ouvrirParcours(id); });
+    $("acm-versions").addEventListener("click", async () => { try { await sauver(); } catch { /* la liste s'ouvre quand même */ } ouvrirVersionsLivret(id, p); });
     // Toute saisie du livret s'enregistre d'elle-même (comme le guide R2) : une
     // ligne de commission ajoutée reste là quand on rouvre.
     let autoSauve = 0;
@@ -4915,6 +4990,12 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "livret-versions-17-11", depuis: "2026-11-17", jours: 14, titre: "Retrouver un livret écrasé ou un dossier supprimé",
+      html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>🕘 Versions précédentes</strong> (en bas du livret prix) : le livret tel qu'il était avant ses dernières modifications. « Reprendre » remet une version en place — prix, caractéristiques, ventes retenues, biens en concurrence, commission. Le livret remplacé reste dans la liste : rien n'est perdu.</li>" +
+        "<li><strong>🗑 Dossiers supprimés</strong> (en haut de la liste des parcours) : un parcours effacé se restaure pendant 30 jours, avec ses rendez-vous, ses propriétaires et son livret.</li>" +
+        "<li>Les livrets abîmés par le défaut corrigé le 16/11 et les dossiers supprimés depuis début octobre y sont proposés, repris des sauvegardes de Studio : à vous de reprendre ceux qui vous manquent.</li>" +
+        "</ul>" },
     { id: "brochure-lycees-16-11", depuis: "2026-11-16", jours: 7, titre: "Brochures : les lycées dans « Le quartier »",
       html: '<p class="aide" style="max-width:none; margin:0;">Dans la brochure, « Rechercher le quartier » ajoute une ligne <strong>Lycées</strong> : les trois lycées les plus proches du bien, avec leur distance. Il s\'agit des plus proches à vol d\'oiseau, pas du lycée de secteur — la ligne se corrige ou se supprime comme les autres.</p>' },
     { id: "livret-dossiers-16-11", depuis: "2026-11-16", jours: 10, titre: "Livret prix : un dossier n'écrit plus dans un autre",
@@ -5398,6 +5479,7 @@
   });
   $("btn-import").addEventListener("click", ouvrirImport);
   $("btn-nouveau-parcours").addEventListener("click", nouveauParcours);
+  if ($("btn-parcours-supprimes")) $("btn-parcours-supprimes").addEventListener("click", ouvrirDossiersSupprimes);
   $("parcours-recherche").addEventListener("input", rendreParcours);
   $("parcours-tous").addEventListener("change", rendreParcours);
   $("btn-nouveau-conseiller").addEventListener("click", () => ouvrirConseiller(null));

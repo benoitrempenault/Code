@@ -34,6 +34,9 @@ jobs:
           done
           echo "Syntaxe OK sur $count fichiers JS."
 
+      - name: Outil de récupération des livrets (fausses sauvegardes)
+        run: node tools/recuperation/test.mjs
+
       - name: Tests d'intégration du serveur
         working-directory: server
         run: |

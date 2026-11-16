@@ -4285,6 +4285,44 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok(!mn.livretsErreur && vs.map((v) => v.id).join() === "lvt0,lvs,lvt3", "le ménage garde la première et la dernière version du jour, les reprises de sauvegarde, et purge après 90 jours");
     await db.run("DELETE FROM crm_parcours_acm_versions WHERE estimation_id = ?", [pxId]);
     await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: acmGet.acm }); }
+  // « Versions précédentes » : la liste résume chaque version ; en reprendre une garde
+  // celle qu'elle remplace (on peut revenir en arrière).
+  { await db.run("DELETE FROM crm_parcours_acm_versions WHERE estimation_id = ?", [pxId]);
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 250000, surface: 135, ventes: [] } });
+    const lv = (await callR("/crm/parcours/" + pxId + "/acm/versions", { headers: authP })).json;
+    ok(lv.versions.length === 1 && lv.versions[0].resume.prix === 330000 && lv.versions[0].resume.ventes === 1 && lv.actuel.resume.prix === 250000 && lv.actuel.resume.ventes === 0 && lv.versions[0].origine === "saisie",
+       "la liste des versions résume la version d'avant (prix, ventes retenues) et le livret en place");
+    ok((await callR("/crm/parcours/" + pxId + "/acm/versions", { headers: authR })).status === 404 &&
+       (await callR("/crm/parcours/" + pxId + "/acm/versions/" + lv.versions[0].id + "/restaurer", { headers: authR, method: "POST" })).status === 404,
+       "hors périmètre, ni la liste des versions ni la reprise ne répondent");
+    const rep = await callR("/crm/parcours/" + pxId + "/acm/versions/" + lv.versions[0].id + "/restaurer", { headers: authP, method: "POST" });
+    const apres = (await callR("/crm/parcours/" + pxId + "/acm", { headers: authP })).json.acm;
+    const lv2 = (await callR("/crm/parcours/" + pxId + "/acm/versions", { headers: authP })).json;
+    ok(rep.status === 200 && apres.prix === 330000 && apres.ventes.length === 1 && lv2.versions.length === 1 && lv2.versions[0].resume.prix === 250000 && lv2.versions[0].origine === "restauration",
+       "reprendre une version remet le livret d'avant, et garde celui qu'elle remplace");
+    ok((await callR("/crm/parcours/" + pxId + "/acm/versions/lv_inconnue/restaurer", { headers: authP, method: "POST" })).status === 404, "une version inconnue est refusée");
+    await db.run("DELETE FROM crm_parcours_acm_versions WHERE estimation_id = ?", [pxId]); }
+  // « Dossiers supprimés » : un parcours effacé part en corbeille 30 jours ; son conseiller
+  // (ou la direction) le restaure avec ses rendez-vous, ses propriétaires et son livret.
+  { const cr = await callR("/crm/parcours", { headers: authP, body: { civilite: "Mme", prenom: "Lucie", nom: "LAMBERT", email: "lambert@exemple.fr", adresse: "8 allée des Essais", cp: "33160", ville: "Saint-Médard-en-Jalles", r1: "2026-11-02", r1_heure: "09:30", r2: "2026-11-09", r2_heure: "18:00" } });
+    const idC = cr.json.id;
+    await callR("/crm/parcours/" + idC + "/acm?c=2", { headers: authP, method: "PUT", body: { prix: 410000, surface: 98, ventes: [{ id: "dvf:9", prix: 400000 }] } });
+    const eff = await callR("/crm/parcours/" + idC, { headers: authP, method: "DELETE" });
+    ok(eff.status === 200 && eff.json.corbeille_jours === 30 && (await callR("/crm/parcours/" + idC, { headers: authP })).status === 404, "effacer un parcours répond avec la durée de la corbeille");
+    const cb = (await callR("/crm/parcours-corbeille", { headers: authP })).json;
+    const e = cb.entrees.find((x) => /LAMBERT/.test(x.libelle));
+    ok(cb.jours === 30 && e && /Lucie LAMBERT — 8 allée des Essais/.test(e.libelle) && e.r1 === "2026-11-02" && e.jours_restants === 30, "le parcours effacé figure dans les dossiers supprimés de son conseiller");
+    ok(!(await callR("/crm/parcours-corbeille", { headers: authR })).json.entrees.some((x) => /LAMBERT/.test(x.libelle)) &&
+       (await callR("/crm/parcours-corbeille/" + e.id + "/restaurer", { headers: authR, method: "POST" })).status === 404,
+       "un autre conseiller ne voit pas ce dossier supprimé et ne peut pas le restaurer");
+    const res = await callR("/crm/parcours-corbeille/" + e.id + "/restaurer", { headers: authP, method: "POST" });
+    const revenu = (await callR("/crm/parcours/" + idC, { headers: authP })).json;
+    const acmRevenu = (await callR("/crm/parcours/" + idC + "/acm", { headers: authP })).json.acm;
+    ok(res.status === 200 && res.json.id === idC && JSON.stringify(revenu).includes("2026-11-02") && JSON.stringify(revenu).includes("18:00") && JSON.stringify(revenu).includes("lambert@exemple.fr") && acmRevenu.prix === 410000 && acmRevenu.ventes.length === 1,
+       "restaurer remet le dossier avec ses rendez-vous, son propriétaire et son livret");
+    ok(!(await callR("/crm/parcours-corbeille", { headers: authP })).json.entrees.some((x) => x.id === e.id) &&
+       (await callR("/crm/parcours-corbeille/" + e.id + "/restaurer", { headers: authP, method: "POST" })).status === 404, "un dossier restauré quitte la liste");
+    await callR("/crm/parcours/" + idC, { headers: authP, method: "DELETE" }); }
   // Le courrier d'estimation : jalon e-mail avec le PDF en pièce jointe ; la fourchette vient
   // du livret (basse/haute), ou de celle saisie pour le courrier (acm.courrier).
   { const apC = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=courrier-estimation", { headers: authP })).json;

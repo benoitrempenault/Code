@@ -1438,6 +1438,24 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**Livret prix — versions précédentes, dossiers supprimés, récupération depuis les sauvegardes (16/11, suite du
+défaut ci-dessous)** : `GET /crm/parcours/:id/acm/versions` (résumés ; `actuel` + `versions`, celles identiques au
+livret en place sont tues) et `POST …/versions/:vid/restaurer` (le livret en place est archivé avant, `origine`
+restauration). `DELETE /crm/parcours/:id` pose d'abord une entrée `crm_corbeille` type `parcours` (payload =
+lignes de `crm_estimations`, `crm_parcours`, `crm_parcours_r2`, `crm_estimation_contacts` ; insert à paramètres
+liés, sans la photo du R2 si trop lourd) ; `GET /crm/parcours-corbeille` / `POST /crm/parcours-corbeille/:id/
+restaurer` = périmètre du conseiller (direction : tout), entrées dont la fiche existe déjà tues ; `restaurerCorbeille`
+accepte désormais les colonnes à chiffres (`r1`, `r2`). Écrans (admin.js) : `ouvrirVersionsLivret` (bouton
+`#acm-versions` du pied du livret), `ouvrirDossiersSupprimes` (`#btn-parcours-supprimes`). Récupération :
+`tools/recuperation/recuperer-livrets.mjs` + workflow manuel `recuperer-livrets.yml` (entrées `jours`, `ecrire`) —
+relit les artefacts `d1-backup-*`, la plus récente = référence ; écrit des `INSERT OR IGNORE` (ids déterministes
+`lvs_…` / `cb_s…`, relançable) dans `crm_parcours_acm_versions` (origine sauvegarde) et `crm_corbeille` ; un dossier
+dont le contact n'existe plus ne revient pas (RGPD) ; instructions > 90 Ko laissées (limite D1 100 Ko) ; le journal
+(public) ne montre QUE des nombres. Le lecteur SQL suit guillemets ET commentaires (SQLite garde le texte des
+CREATE TABLE, apostrophes des commentaires comprises). Essai : `node tools/recuperation/test.mjs` (CI). Smoke
+`livret-dossiers` étendu (pose des lignes dans la base jetable du lanceur via `node:sqlite`). Ne JAMAIS mettre de
+vrais noms/adresses de clients dans les tests : le dépôt est public.
+
 **Brochures — lycées dans « Le quartier » (16/11)** : `geo.js` (mandat + mandat-pro, fichiers identiques, chargés en
 `geo.js?v=2`) cherche les lycées à 10 km (`amenity=school` + `school:FR~lyc` ou nom « Lycée… »), ligne « Lycées » =
 les 3 plus proches (vol d'oiseau, PAS le lycée de secteur), sortis de la ligne « Écoles ». Si la requête complète

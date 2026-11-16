@@ -545,7 +545,9 @@ export const CORBEILLE_JOURS = 30;
 // Tables qu'une entrée de corbeille peut réinsérer (liste blanche : le JSON
 // stocké ne décide jamais où l'on écrit).
 const TABLES_CORBEILLE = ["crm_contacts", "crm_suivis", "crm_visites", "crm_visite_avis",
-  "crm_geo", "crm_projet_contacts", "crm_estimation_contacts"];
+  "crm_geo", "crm_projet_contacts", "crm_estimation_contacts",
+  // Un dossier Parcours R1/R2 supprimé (type « parcours », 16/11).
+  "crm_estimations", "crm_parcours", "crm_parcours_r2"];
 
 // Une entrée par objet supprimé : payload = { table: [lignes…] }. Insertion
 // par lots de 20 lignes (une seule requête par lot — D1 compte chaque
@@ -590,7 +592,7 @@ export async function restaurerCorbeille(db, agencyId, id, options = {}) {
     let n = 0;
     for (const ligne of lignes) {
       if (!ligne || typeof ligne !== "object") continue;
-      const cols = Object.keys(ligne).filter((k) => /^[a-z_]+$/.test(k));
+      const cols = Object.keys(ligne).filter((k) => /^[a-z_][a-z0-9_]*$/.test(k)); // r1, r2… : des chiffres aussi
       if (!cols.length) continue;
       // La ligne retourne dans CETTE agence, quoi que dise le JSON.
       const vals = cols.map((k) => (k === "agency_id" ? agencyId : ligne[k]));
