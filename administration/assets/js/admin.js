@@ -22,11 +22,17 @@
   // chargement en retard ou un écouteur oublié le tentait (16/11).
   let fenetreDossier = "", dossierSuivant = "";
   function pourDossier(id) { dossierSuivant = id || ""; }
+  // Un traitement long revenu après un changement de fenêtre : on le dit, sans rien ouvrir ni cocher par-dessus.
+  function fenetreQuittee(jeton, quoi) {
+    if (jeton === sessionModale) return false;
+    toast((quoi || "Le document") + " : vous avez changé de fenêtre avant la fin. Rien n'a été modifié ; relancez depuis le dossier concerné.", true);
+    return true;
+  }
   async function api(path, opts) {
     opts = opts || {};
     const a = account();
     if (!a || !a.session) throw new Error("Session invalide — reconnectez-vous.");
-    if ((opts.method || (opts.json !== undefined || opts.body ? "POST" : "GET")) !== "GET" && fenetreDossier) {
+    if ((opts.method || (opts.json !== undefined || opts.body ? "POST" : "GET")) !== "GET" && fenetreDossier && !opts.horsFenetre) {
       const visee = /^\/crm\/parcours\/([^/?]+)/.exec(path);
       if (visee && visee[1] !== fenetreDossier) throw new Error("Cette saisie appartient à un autre dossier que celui affiché : rien n'a été enregistré. Fermez la fenêtre et rouvrez le dossier.");
     }
@@ -3025,7 +3031,7 @@
   async function sauverBienFiche(id, bien) {
     const acm = (await api("/crm/parcours/" + id + "/acm")).acm || {};
     if (["surface", "terrain", "pieces", "chambres", "piece_vie"].every((k) => (acm[k] || null) === (bien[k] || null))) return;
-    await api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: { ...acm, ...bien } });
+    await api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: { ...acm, ...bien }, horsFenetre: true });
   }
   // Nouveau parcours : on cherche D'ABORD la personne dans les contacts ; la
   // fiche choisie pré-remplit le formulaire. Introuvable ? On remplit, et le
@@ -3075,7 +3081,9 @@
     });
   }
   let demandeParcours = 0;
-  async function ouvrirParcours(id) {
+  async function ouvrirParcours(id, jeton) {
+    // Rappelée à la fin d'un traitement (jeton = la fenêtre d'où il est parti) : si l'on est passé à autre chose, elle ne s'impose pas.
+    if (jeton !== undefined && jeton !== sessionModale) return;
     let p;
     const demande = ++demandeParcours; // deux fiches demandées coup sur coup : seule la dernière s'ouvre
     try { p = await api("/crm/parcours/" + id); p.bien = (await api("/crm/parcours/" + id + "/acm")).acm || {}; } catch (e) { toast(e.message, true); return; }
@@ -3132,10 +3140,12 @@
     });
     $("px-ajouter-prop").addEventListener("click", () => ajouterProprietaire(id, p));
     document.querySelectorAll("[data-retirer]").forEach((b) => b.addEventListener("click", async () => {
-      try { await api("/crm/parcours/" + id + "/proprietaires/" + b.dataset.retirer, { method: "DELETE" }); toast("Propriétaire retiré"); ouvrirParcours(id); } catch (e) { toast(e.message, true); }
+      const jetonF = sessionModale;
+      try { await api("/crm/parcours/" + id + "/proprietaires/" + b.dataset.retirer, { method: "DELETE" }); toast("Propriétaire retiré"); ouvrirParcours(id, jetonF); } catch (e) { toast(e.message, true); }
     }));
     $("px-signe").addEventListener("change", async () => {
-      try { await api("/crm/parcours/" + id, { method: "PUT", json: { conseiller_id: $("px-signe").value } }); toast("Les e-mails partiront signés du conseiller choisi"); await chargerParcours(); ouvrirParcours(id); }
+      const jetonF = sessionModale;
+      try { await api("/crm/parcours/" + id, { method: "PUT", json: { conseiller_id: $("px-signe").value } }); toast("Les e-mails partiront signés du conseiller choisi"); await chargerParcours(); ouvrirParcours(id, jetonF); }
       catch (e) { toast(e.message, true); }
     });
     brancherMenuConseillers("px-conseiller"); brancherTypeBien(); brancherCodePostal();
@@ -3145,7 +3155,9 @@
       try { await sauverBienFiche(id, lireBienFiche()); toast("Bien enregistré"); } catch (e) { toast(e.message, true); }
     });
     $("px-maj").addEventListener("click", async () => {
-      try { await api("/crm/parcours/" + id, { method: "PUT", json: lireFormulaireParcours(p) }); await sauverBienFiche(id, lireBienFiche()); toast("Fiche enregistrée"); await chargerParcours(); ouvrirParcours(id); }
+      // Tout le formulaire est lu MAINTENANT : après un « await », la fenêtre peut être celle d'un autre dossier.
+      const jetonF = sessionModale, bien = lireBienFiche();
+      try { await api("/crm/parcours/" + id, { method: "PUT", json: lireFormulaireParcours(p) }); await sauverBienFiche(id, bien); toast("Fiche enregistrée"); await chargerParcours(); ouvrirParcours(id, jetonF); }
       catch (e) { toast(e.message, true); }
     });
     document.querySelectorAll("[data-mail]").forEach((b) => b.addEventListener("click", () => preparerMailParcours(id, b.dataset.mail, p)));
@@ -3157,26 +3169,31 @@
       if (b.dataset.guide === "demarche") {
         if (!p.conseiller) { toast("Choisissez d'abord le conseiller de la fiche : le guide porte sa page.", true); return; }
         b.disabled = true; const lib = b.textContent; b.textContent = "Préparation…";
-        try { const g = await genererDemarche(p); preparerMailParcours(id, "demarche", p, null, { nom: g.fichier, octets: g.octets, url: g.url }); }
+        const jetonF = sessionModale;
+        try { const g = await genererDemarche(p); if (fenetreQuittee(jetonF, "Guide « démarche à suivre »")) return; preparerMailParcours(id, "demarche", p, null, { nom: g.fichier, octets: g.octets, url: g.url }); }
         catch (e) { toast(e.message, true); b.disabled = false; b.textContent = lib; }
         return;
       }
       if (b.dataset.guide === "mot") {
         b.disabled = true; const lib = b.textContent; b.textContent = "Préparation…";
-        try { const u = await genererMotDirecteur(p); documentPret(id, "Mot du directeur prêt", u, window.__dernierGuide && window.__dernierGuide.fichier); }
+        const jetonF = sessionModale;
+        try { const u = await genererMotDirecteur(p); if (fenetreQuittee(jetonF, "Mot du directeur")) return; documentPret(id, "Mot du directeur prêt", u, window.__dernierGuide && window.__dernierGuide.fichier); }
         catch (e) { toast(e.message, true); } finally { b.disabled = false; b.textContent = lib; }
         return;
       }
       b.disabled = true; b.textContent = "Préparation…";
       try {
+        const jetonF = sessionModale;
         const urlR1 = await genererGuideR1(p);
+        if (fenetreQuittee(jetonF, "Guide R1")) return;
         if (!faites.has("guide-r1")) await api("/crm/parcours/" + id + "/etape", { json: { etape: "guide-r1" } });
         documentPret(id, "Guide R1 prêt", urlR1, window.__dernierGuide && window.__dernierGuide.fichier);
       } catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "🖨 Guide R1 personnalisé"; }
     }));
     document.querySelectorAll("[data-cocher]").forEach((b) => b.addEventListener("click", async () => {
       const deja = faites.has(b.dataset.cocher);
-      try { await api("/crm/parcours/" + id + "/etape", { json: { etape: b.dataset.cocher, defaire: deja } }); ouvrirParcours(id); }
+      const jetonF = sessionModale;
+      try { await api("/crm/parcours/" + id + "/etape", { json: { etape: b.dataset.cocher, defaire: deja } }); ouvrirParcours(id, jetonF); }
       catch (e) { toast(e.message, true); }
     }));
   }
@@ -3800,11 +3817,13 @@
   // libre, gardés avec la saisie du livret (acm.courrier) ; aperçu PDF ou envoi
   // par e-mail (le PDF en pièce jointe, texte du jalon relu avant envoi).
   async function ouvrirCourrierEstimation(id, p) {
+    const jetonEntree = sessionModale;
     let acm = {};
     try { acm = (await api("/crm/parcours/" + id + "/acm")).acm || {}; } catch { acm = {}; }
     const cr = acm.courrier && typeof acm.courrier === "object" ? acm.courrier : {};
     const basse = cr.basse || acm.basse || "", haute = cr.haute || acm.haute || "";
-    pourDossier(id); ouvrirModale("📨 Courrier d'estimation",
+    if (jetonEntree !== sessionModale) return;
+    pourDossier(id); ouvrirModale("📨 Courrier d'estimation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
       '<p class="aide">La fourchette (net vendeur) reprend celle du livret prix ; ajustez-la, ajoutez un mot personnel, puis imprimez le courrier ou envoyez-le par e-mail en pièce jointe (l\'envoi se confirme en deux temps), signé ' +
       (p.conseiller ? "<strong>" + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + "</strong>" : "<strong>de l'agence</strong> (choisissez le conseiller sur la fiche)") + ".</p>" +
       '<div class="grille-champs"><label>Fourchette basse (€)<input id="ce-basse" type="number" step="1000" value="' + escH(basse) + '" /></label>' +
@@ -3818,17 +3837,17 @@
     $("ce-retour").addEventListener("click", () => ouvrirParcours(id));
     $("ce-apercu").addEventListener("click", async () => {
       const b = $("ce-apercu"); b.disabled = true; b.textContent = "Préparation…";
-      try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); documentPret(id, "Courrier d'estimation prêt", g.url, g.fichier); }
+      const jetonCe = sessionModale; try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); if (fenetreQuittee(jetonCe, "Courrier d'estimation")) return; documentPret(id, "Courrier d'estimation prêt", g.url, g.fichier); }
       catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "📄 Aperçu PDF"; }
     });
     $("ce-imprimer").addEventListener("click", async () => {
       const b = $("ce-imprimer"); b.disabled = true; b.textContent = "Préparation…";
-      try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); imprimerPdf(g.url); documentPret(id, "Courrier d'estimation prêt", g.url, g.fichier, "La boîte d'impression s'ouvre. Si elle n'apparaît pas, ouvrez le document et imprimez-le depuis là."); }
+      const jetonCe = sessionModale; try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); if (fenetreQuittee(jetonCe, "Courrier d'estimation")) return; imprimerPdf(g.url); documentPret(id, "Courrier d'estimation prêt", g.url, g.fichier, "La boîte d'impression s'ouvre. Si elle n'apparaît pas, ouvrez le document et imprimez-le depuis là."); }
       catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "🖨 Imprimer"; }
     });
     $("ce-envoyer").addEventListener("click", async () => {
       const b = $("ce-envoyer"); b.disabled = true; b.textContent = "Préparation…";
-      try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); preparerMailParcours(id, "courrier-estimation", p, null, { nom: g.fichier, octets: g.octets }); }
+      const jetonCe = sessionModale; try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); if (fenetreQuittee(jetonCe, "Courrier d'estimation")) return; preparerMailParcours(id, "courrier-estimation", p, null, { nom: g.fichier, octets: g.octets }); }
       catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "✉️ Envoyer par e-mail"; }
     });
   }
@@ -4116,10 +4135,12 @@
   // La fenêtre du guide R2 : photo du bien, points forts, objections, texte
   // du conseiller — enregistrés sur la fiche — puis assemblage et impression.
   async function ouvrirGuideR2(id, p) {
+    const jetonEntree = sessionModale;
     let r2;
     try { r2 = await api("/crm/parcours/" + id + "/r2"); } catch (e) { toast(e.message, true); return; }
     let photo; // undefined = inchangée
     const cs = r2.conseiller || {};
+    if (jetonEntree !== sessionModale) return;
     pourDossier(id); ouvrirModale("🖨 Guide R2 — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
       '<p class="aide">Ce qui manque au guide : la photo du bien, vos points forts et objections, votre texte. Le reste (commune, commodités à 1,5 km, ventes de l\'agence à 1 km, date du jour, mois) se remplit tout seul.</p>' +
       '<div class="barre" style="align-items:center;">' +
@@ -4151,12 +4172,12 @@
       try { r2 = await sauver(); $("r2-etat").textContent = "Enregistré."; chargerConseillers(); } catch (e) { toast(e.message, true); }
     });
     $("r2-generer").addEventListener("click", async () => {
-      const btn = $("r2-generer"), etat = $("r2-etat"); btn.disabled = true;
+      const btn = $("r2-generer"), etat = $("r2-etat"), jetonR2 = sessionModale; btn.disabled = true;
       try {
         etat.textContent = "Enregistrement…"; r2 = await sauver();
         // Les biens estimés de la commune sans position se géocodent d'abord (12 par appel, 40 appels au plus).
         for (let tour = 0; tour < 40; tour++) {
-          let g; try { g = await api("/crm/parcours/" + id + "/estimes/positionner", { json: {} }); } catch { break; }
+          let g; try { g = await api("/crm/parcours/" + id + "/estimes/positionner", { json: {}, horsFenetre: true }); } catch { break; }
           if (!g.traites && !g.geocodes) break;
           etat.textContent = "Positionnement des biens estimés de la commune… " + (g.restants || 0) + " restant(s)";
           if (!g.restants) break;
@@ -4167,6 +4188,7 @@
         if (envr.erreur) toast("Commodités indisponibles : " + envr.erreur, true);
         etat.textContent = "Cartes et assemblage du guide…";
         const urlR2 = await genererGuideR2({ ...p, cp: p.cp, ville: p.ville }, r2, envr);
+        if (fenetreQuittee(jetonR2, "Guide R2")) return;
         await api("/crm/parcours/" + id + "/etape", { json: { etape: "guide-r2" } });
         chargerConseillers();
         documentPret(id, "Guide R2 prêt", urlR2, window.__dernierGuide && window.__dernierGuide.fichier);
@@ -4207,8 +4229,9 @@
     };
     $("pp-q").addEventListener("input", () => { contactId = ""; $("pp-choisi").textContent = ""; clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
     $("pp-ajouter").addEventListener("click", async () => {
+      const jetonF = sessionModale;
       const corps = contactId ? { contact_id: contactId } : { civilite: $("pp-civilite").value, prenom: $("pp-prenom").value.trim(), nom: $("pp-nom").value.trim(), email: $("pp-email").value.trim(), telephone: $("pp-tel").value.trim() };
-      try { const r = await api("/crm/parcours/" + id + "/proprietaires", { json: corps }); toast(r.contact_cree ? "Co-propriétaire ajouté, et sa fiche contact créée" : "Co-propriétaire ajouté"); ouvrirParcours(id); }
+      try { const r = await api("/crm/parcours/" + id + "/proprietaires", { json: corps }); toast(r.contact_cree ? "Co-propriétaire ajouté, et sa fiche contact créée" : "Co-propriétaire ajouté"); ouvrirParcours(id, jetonF); }
       catch (e) { toast(e.message, true); }
     });
   }
@@ -4281,12 +4304,14 @@
   const fmtDateAcm = (d) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || "")); return m ? m[3] + "/" + m[2] + "/" + m[1] : String(d || ""); };
   const mensualite = (montant, tauxPct, annees) => { const t = tauxPct / 100 / 12, n = annees * 12; if (!montant || !n) return 0; return t ? montant * t / (1 - Math.pow(1 + t, -n)) : montant / n; };
   async function ouvrirAcm(id, p) {
+    const jetonEntree = sessionModale; // quittée avant même de s'ouvrir, la fenêtre ne s'ouvre pas
     let acm, donnees;
     let photosRep = { photos: {} };
     try { [acm, donnees, photosRep] = await Promise.all([api("/crm/parcours/" + id + "/acm"), api("/crm/parcours/" + id + "/acm/donnees"), api("/crm/parcours/" + id + "/acm/photos").catch(() => ({ photos: {} }))]); }
     catch (e) { toast(e.message, true); return; }
     const depuisEstimation = acm.depuis_estimation || [];
     acm = acm.acm || {};
+    if (jetonEntree !== sessionModale) return;
     pourDossier(id); ouvrirModale("🖨 Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), '<p class="aide">Ventes DVF autour du bien…</p>', "");
     document.querySelector(".modale").classList.add("large");
     const maFenetre = sessionModale;
@@ -4447,8 +4472,8 @@
       '<p class="petit" id="acm-etat"></p>';
     $("modale-pied").innerHTML = '<button class="btn" id="acm-retour">Retour</button><button class="btn" id="acm-versions" title="Le livret tel qu\'il était avant ses dernières modifications : pour retrouver une saisie écrasée">🕘 Versions précédentes</button><button class="btn" id="acm-save">Enregistrer</button><button class="btn btn-or" id="acm-generer">🖨 Générer le livret</button>';
     $("modale-corps").dataset.livret = id;
-    $("acm-retour").addEventListener("click", async () => { try { await sauver(); } catch { /* on revient quand même */ } document.querySelector(".modale").classList.remove("large"); ouvrirParcours(id); });
-    $("acm-versions").addEventListener("click", async () => { try { await sauver(); } catch { /* la liste s'ouvre quand même */ } ouvrirVersionsLivret(id, p); });
+    $("acm-retour").addEventListener("click", async () => { const jetonF = sessionModale; try { await sauver(); } catch { /* on revient quand même */ } if (jetonF !== sessionModale) return; document.querySelector(".modale").classList.remove("large"); ouvrirParcours(id); });
+    $("acm-versions").addEventListener("click", async () => { const jetonF = sessionModale; try { await sauver(); } catch { /* la liste s'ouvre quand même */ } if (jetonF !== sessionModale) return; ouvrirVersionsLivret(id, p); });
     // Toute saisie du livret s'enregistre d'elle-même (comme le guide R2) : une
     // ligne de commission ajoutée reste là quand on rouvre.
     let autoSauve = 0;
@@ -4479,7 +4504,7 @@
       try {
         const img = await lireImage(f); // décodée une fois (HEIC compris)
         const photo = await reduireImage(img, 900, 0.78, 150000);
-        await api("/crm/parcours/" + id + "/acm/photos/" + encodeURIComponent(cle), { method: "PUT", json: { photo } });
+        await api("/crm/parcours/" + id + "/acm/photos/" + encodeURIComponent(cle), { method: "PUT", json: { photo }, horsFenetre: true });
         const cand = liste.find((x) => x.id === cle); if (cand) cand.photo = photo;
         const vig = document.querySelector('[data-vignette="' + cle + '"]');
         if (vig) { const im = document.createElement("img"); im.src = photo; im.alt = ""; im.className = "vignette-conc"; im.dataset.vignette = cle; vig.replaceWith(im); }
@@ -4527,11 +4552,12 @@
     const sauver = async () => { const d = lire(); await api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: d }); return d; };
     $("acm-save").addEventListener("click", async () => { try { await sauver(); toast("Livret prix : saisie enregistrée"); } catch (e) { toast(e.message, true); } });
     $("acm-generer").addEventListener("click", async () => {
-      const btn = $("acm-generer"), etat = $("acm-etat"); btn.disabled = true;
+      const btn = $("acm-generer"), etat = $("acm-etat"), jetonGen = sessionModale; btn.disabled = true;
       try {
         etat.textContent = "Enregistrement…"; const d = await sauver();
         etat.textContent = "Cartes, photos et assemblage du livret…";
         const urlAcm = await genererLivretPrix(p, d, donnees);
+        if (fenetreQuittee(jetonGen, "Livret prix")) return;
         await api("/crm/parcours/" + id + "/etape", { json: { etape: "acm" } });
         // Compte-rendu des photos (biens en concurrence) et version du script : de quoi diagnostiquer sans deviner.
         const dbg = (window.__dernierGuide && window.__dernierGuide.debug) || { photos: 0, sansPhoto: 0, sources: [] };
@@ -4560,6 +4586,7 @@
     try { const q = window.qrcode(0, "M"); q.addData(texte); q.make(); return q.createDataURL(6, 8); } catch { return ""; }
   };
   async function ouvrirCommission(id, p) {
+    const jetonEntree = sessionModale;
     let com, acm = {};
     try {
       com = await api("/crm/parcours/" + id + "/commission"); if (!com.ouvert) com = await api("/crm/parcours/" + id + "/commission/ouvrir", { json: {} });
@@ -4621,6 +4648,7 @@
         } catch (e) { toast(e.message, true); }
       });
     };
+    if (jetonEntree !== sessionModale) return;
     pourDossier(id); ouvrirModale("🗳 Commission d'évaluation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), "", "");
     fenetreCom = sessionModale;
     rendre();
@@ -4946,6 +4974,7 @@
   // Le mail d'un jalon : sujet et texte pré-remplis, à relire ; aperçu du
   // rendu ; envoi à toutes les personnes de la fiche.
   async function preparerMailParcours(id, jalon, p, relu, piece) {
+    const jetonEntree = sessionModale;
     let a;
     // Le lieu du R2 (mail entre R1 et R2) : l'agence choisie ou le domicile du client, gardé d'un aller-retour à l'autre.
     let lieu = relu && relu.lieu ? relu.lieu : "";
@@ -4954,7 +4983,8 @@
     // Retour de l'aperçu : le texte relu reste tel que le conseiller l'a laissé.
     if (relu) { a.sujet = relu.sujet; a.texte = relu.texte; }
     const etape = ETAPES_PARCOURS.find((e) => e.cle === jalon);
-    pourDossier(id); ouvrirModale("✉️ " + (etape ? etape.titre : jalon),
+    if (jetonEntree !== sessionModale) return;
+    pourDossier(id); ouvrirModale("✉️ " + (etape ? etape.titre : jalon) + " — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
       (piece ? '<p class="petit" id="pm-piece">📎 Pièce jointe : <strong>' + escH(piece.nom) + "</strong> (" + Math.round(piece.octets.byteLength / 1024) + " Ko)" + (piece.url ? ' — <a href="' + escH(piece.url) + '" target="_blank" rel="noopener">👁 ouvrir le PDF</a>' : "") + "</p>" : "") +
       '<p class="aide">Relisez et ajustez : ce texte partira tel quel à ' +
       (a.destinataires.length ? escH(a.destinataires.join(", ")) : "<strong>personne (pas d'e-mail sur la fiche)</strong>") + ", signé " +
@@ -4997,9 +5027,10 @@
       try {
         const corps = { jalon, sujet: $("pm-sujet").value, texte: $("pm-texte").value, lieu: lieu || undefined };
         if (piece) { let b64 = ""; const u = new Uint8Array(piece.octets); for (let i = 0; i < u.length; i += 8192) b64 += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); corps.piece = { nom: piece.nom, contenu: btoa(b64) }; }
+        const jetonF = sessionModale;
         const r = await api("/crm/parcours/" + id + "/envoyer", { json: corps });
         toast(r.envoyes + " e-mail(s) envoyé(s)" + (r.erreurs ? " · " + r.erreurs + " erreur(s)" : ""), r.erreurs > 0);
-        ouvrirParcours(id);
+        ouvrirParcours(id, jetonF);
       } catch (e) { toast(e.message, true); btn.disabled = false; btn.textContent = "✉️ Envoyer"; }
     };
     $("pm-envoyer").addEventListener("click", () => {

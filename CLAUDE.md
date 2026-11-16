@@ -1450,6 +1450,14 @@ avant le rendu du livret ; `quitterFenetre()` (fermeture, retour navigateur) ava
 (`fenetreDossier`, posé par `pourDossier(id)` JUSTE AVANT `ouvrirModale`, vidé à la fermeture). RÈGLE : toute nouvelle
 fenêtre liée à un parcours appelle `pourDossier(id); ouvrirModale(…)` et, si elle écrit dans la fenêtre après un
 `await`, vérifie `sessionModale`.
+Complément du même soir (revue) : le jeton doit être pris À L'ENTRÉE de la fonction, avant le premier `await`
+(`jetonEntree` dans `ouvrirAcm`, `preparerMailParcours`, `ouvrirCourrierEstimation`, `ouvrirGuideR2`,
+`ouvrirCommission`) — sinon une fenêtre quittée AVANT de s'ouvrir venait encore remplacer celle du dossier suivant.
+`ouvrirParcours(id, jeton)` ne s'impose plus en fin de traitement si la fenêtre a changé ; « Enregistrer la fiche » lit
+tout le formulaire avant son premier `await` ; générations longues : `fenetreQuittee(jeton, quoi)` (ni étape cochée
+ni document ouvert par-dessus). `api(…, { horsFenetre: true })` = écriture voulue pour un dossier dont la valeur a été
+lue au moment du geste (bien de la fiche, photo, positionnement). Smoke : fetch enveloppé dans la page pour retenir
+une réponse (l'interception Playwright faisait échouer la requête retardée).
 
 **Livret prix — versions précédentes, dossiers supprimés, récupération depuis les sauvegardes (16/11, suite du
 défaut ci-dessous)** : `GET /crm/parcours/:id/acm/versions` (résumés ; `actuel` + `versions`, celles identiques au

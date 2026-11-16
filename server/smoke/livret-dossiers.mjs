@@ -64,6 +64,24 @@ export default async function () {
     await saisir("#acm-prix", 260000); await page.waitForTimeout(1500);
     ok((await acmDe(idB)).prix === 260000 && (await acmDe(idA)).prix === 400000, "la saisie va dans B ; le dossier A, quitté pendant son chargement, ne bouge pas (" + JSON.stringify({ a: (await acmDe(idA)).prix, b: (await acmDe(idB)).prix }) + ")");
     await page.unroute("**/crm/parcours/" + idA + "/acm/portails*");
+    // Même chose quand on quitte le livret de A AVANT que sa fenêtre ne s'ouvre (premier chargement lent) :
+    // il ne vient pas remplacer celui de B une fois arrivé.
+    await page.click("#acm-retour"); await page.waitForSelector('[data-guide="acm"]', { timeout: 10000 });
+    await page.click("#modale-fermer"); await page.waitForTimeout(300);
+    // La réponse est retenue DANS la page (fetch enveloppé) : c'est le cas réel d'un réseau lent, sans dépendre de l'interception.
+    await page.evaluate((motif) => { const f = window.fetch; window.__fetchOrigine = f; window.fetch = async (u, o) => { const r = await f(u, o); if (String(u).includes(motif)) await new Promise((x) => setTimeout(x, 2500)); return r; }; }, idA + "/acm/donnees");
+    await page.click('tr[data-parcours="' + idA + '"]');
+    await page.waitForSelector('[data-guide="acm"]', { timeout: 10000 });
+    await page.click('[data-guide="acm"]');           // rien ne s'affiche encore : les données de A arrivent…
+    await page.waitForTimeout(300);
+    await page.click("#modale-fermer"); await page.waitForTimeout(200);
+    await livret(idB);
+    await page.waitForTimeout(3200);
+    ok(/BETA/.test(await page.locator("#modale-titre").innerText()) && await page.inputValue("#acm-prix") === "260000",
+       "quitté avant de s'ouvrir, le livret de A ne remplace pas celui de B");
+    await saisir("#acm-prix", 265000); await page.waitForTimeout(1500);
+    ok((await acmDe(idB)).prix === 265000 && (await acmDe(idA)).prix === 400000, "…et la saisie reste dans B (" + JSON.stringify({ a: (await acmDe(idA)).prix, b: (await acmDe(idB)).prix }) + ")");
+    await page.evaluate(() => { window.fetch = window.__fetchOrigine; });
     await page.click("#acm-retour"); await page.waitForSelector('[data-guide="acm"]', { timeout: 10000 });
 
     // --- « Versions précédentes » : un livret écrasé se reprend -----------------------------
