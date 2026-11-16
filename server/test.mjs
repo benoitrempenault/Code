@@ -1313,6 +1313,100 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
     "fiches aux e-mails différents → rien de deviné");
 }
 
+/* ---- Documents du parcours (admin.js, fonctions pures testées par extraction) ---- */
+{
+  const src = readFileSync(new URL("../administration/assets/js/admin.js", import.meta.url), "utf8");
+  const entre = (debut, fin) => { const i = src.indexOf(debut), j = src.indexOf(fin, i); if (i < 0 || j < 0) throw new Error("bloc introuvable dans admin.js : " + debut); return src.slice(i, j); };
+  const sansAccentsMin = src.split("\n").find((l) => l.startsWith("  const sansAccentsMin ="));
+  // --- DVF : une mutation tient sur plusieurs lignes (un local × une nature de culture par parcelle) ---
+  const { parseDvfCsv } = new Function(sansAccentsMin + "\n" + entre("  const NATURES_TERRAIN =", "  // Les millésimes DVF d'une commune") + "\nreturn { parseDvfCsv };")();
+  const ENTETE = "id_mutation,date_mutation,numero_disposition,nature_mutation,valeur_fonciere,adresse_numero,adresse_suffixe,adresse_nom_voie,adresse_code_voie,code_postal,code_commune,nom_commune,code_departement,ancien_code_commune,ancien_nom_commune,id_parcelle,ancien_id_parcelle,numero_volume,lot1_numero,lot1_surface_carrez,lot2_numero,lot2_surface_carrez,lot3_numero,lot3_surface_carrez,lot4_numero,lot4_surface_carrez,lot5_numero,lot5_surface_carrez,nombre_lots,code_type_local,type_local,surface_reelle_bati,nombre_pieces_principales,code_nature_culture,nature_culture,code_nature_culture_speciale,nature_culture_speciale,surface_terrain,longitude,latitude";
+  const NATURES = { AB: "terrains a bâtir", S: "sols", J: "jardins", AG: "terrains d'agrément", BT: "taillis simples", T: "terres" };
+  const TYPES = { Maison: 1, Appartement: 2, "Dépendance": 3, "Local industriel. commercial ou assimilé": 4 };
+  // Une ligne du fichier geo-dvf : mutation, prix, parcelle, [type de local, surface bâtie, pièces, n° de lot], [code de nature, surface de terrain], position.
+  const ligne = (id, prix, parcelle, local, terre, pos = [-0.7, 44.9]) => {
+    const [type = "", bati = "", pieces = "", lot = ""] = local || [], [code = "", terrain = ""] = terre || [];
+    return [id, "2026-03-10", 1, "Vente", prix, 12, "", "RUE DE LA SYNTHESE", "0001", 33160, 33449, "Saint-Médard-en-Jalles", 33, "", "", parcelle, "", "", lot, "", "", "", "", "", "", "", "", "", lot ? 1 : 0, TYPES[type] || "", type, bati, pieces, code, NATURES[code] || "", "", "", terrain, pos[0], pos[1]].join(",");
+  };
+  const csv = [ENTETE,
+    // a) un terrain à bâtir vendu en deux parcelles : 400 + 350 m², 180 000 €
+    ligne("T2P", 180000, "33449000AB0001", null, ["AB", 400]), ligne("T2P", 180000, "33449000AB0002", null, ["AB", 350]),
+    // b) deux appartements vendus ensemble 400 000 € (60 + 40 m²)
+    ligne("2APP", 400000, "33449000AC0010", ["Appartement", 60, 3, "12"]), ligne("2APP", 400000, "33449000AC0010", ["Appartement", 40, 2, "14"]),
+    // c) un bois de 5 000 m² vendu 8 000 €
+    ligne("BOIS", 8000, "33449000ZA0100", null, ["BT", 5000]),
+    // d) une maison et sa dépendance sur une parcelle à deux natures (sol 500 + jardin 300), plus le jardin voisin (250) : 4 + 1 lignes
+    ligne("MAIS", 350000, "33449000AD0020", ["Maison", 100, 5], ["S", 500]), ligne("MAIS", 350000, "33449000AD0020", ["Maison", 100, 5], ["J", 300]),
+    ligne("MAIS", 350000, "33449000AD0020", ["Dépendance", "", ""], ["S", 500]), ligne("MAIS", 350000, "33449000AD0020", ["Dépendance", "", ""], ["J", 300]),
+    ligne("MAIS", 350000, "33449000AD0021", null, ["J", 250]),
+    // e) un appartement et son parking (lots de copropriété, pas de terrain)
+    ligne("APPK", 210000, "33449000AE0030", ["Appartement", 45, 2, "7"]), ligne("APPK", 210000, "33449000AE0030", ["Dépendance", "", "", "107"]),
+    // f) un terrain dont la seconde parcelle n'est pas géolocalisée
+    ligne("TSANS", 150000, "33449000AF0040", null, ["AB", 300]), ligne("TSANS", 150000, "33449000AF0041", null, ["J", 200], ["", ""]),
+    // g) une maison et un local commercial vendus ensemble ; un local commercial seul ; un terrain à bâtir avec une parcelle de terres agricoles
+    ligne("MIXTE", 500000, "33449000AG0050", ["Maison", 90, 4], ["S", 400]), ligne("MIXTE", 500000, "33449000AG0050", ["Local industriel. commercial ou assimilé", 120, 0], ["S", 400]),
+    ligne("COMM", 300000, "33449000AH0060", ["Local industriel. commercial ou assimilé", 200, 0], ["S", 600]),
+    ligne("TAGRI", 90000, "33449000AI0070", null, ["AB", 500]), ligne("TAGRI", 90000, "33449000ZB0071", null, ["T", 4000]),
+    // h) deux maisons identiques sur la même parcelle, sans numéro de lot (même ligne deux fois)
+    ligne("2MAIS", 600000, "33449000AJ0080", ["Maison", 110, 5], ["S", 700]), ligne("2MAIS", 600000, "33449000AJ0080", ["Maison", 110, 5], ["S", 700]),
+  ].join("\n") + "\n";
+  const bilan = {};
+  const ventes = parseDvfCsv(csv, bilan), par = Object.fromEntries(ventes.map((v) => [v.id.slice(4), v]));
+  const m2 = (v) => Math.round(v.prix / v.surface);
+  ok(par.T2P && par.T2P.type === "Terrain" && par.T2P.surface === 750 && m2(par.T2P) === 240,
+     "DVF : un terrain vendu en deux parcelles (400 + 350 m², 180 000 €) fait 750 m² et 240 €/m² — il sortait à 400 m² et 450 €/m² (" + JSON.stringify(par.T2P && [par.T2P.surface, m2(par.T2P)]) + ")");
+  ok(!par["2APP"] && !par.MIXTE && !par["2MAIS"] && bilan.groupees === 3,
+     "DVF : deux appartements vendus ensemble (60 + 40 m², 400 000 €) ne donnent plus « 60 m², 6 667 €/m² » — une vente de plusieurs logements ou locaux est écartée et comptée (" + bilan.groupees + ")");
+  ok(!par.BOIS && !par.TAGRI && bilan.horsNature === 2,
+     "DVF : un bois de 5 000 m² à 8 000 € n'est plus un « Terrain à 2 €/m² » ; seuls les terrains à bâtir, sols, jardins et terrains d'agrément se comparent (" + bilan.horsNature + " écartés)");
+  ok(par.MAIS && par.MAIS.type === "Maison" && par.MAIS.surface === 100 && par.MAIS.pieces === 5 && par.MAIS.terrain === 1050 && m2(par.MAIS) === 3500,
+     "DVF : une maison (et sa dépendance) sur une parcelle à deux natures plus le jardin voisin : 100 m², terrain 500 + 300 + 250 = 1 050 m², compté une fois malgré les lignes répétées (" + JSON.stringify(par.MAIS && [par.MAIS.surface, par.MAIS.terrain]) + ")");
+  ok(par.APPK && par.APPK.type === "Appartement" && par.APPK.surface === 45 && par.APPK.terrain === 0 && par.TSANS && par.TSANS.surface === 500 && par.TSANS.lat === 44.9 && !par.COMM && ventes.length === 4,
+     "DVF : un appartement avec son parking reste un appartement de 45 m² ; une parcelle sans position compte dans la surface du terrain ; un local commercial seul n'est pas un comparable (" + ventes.map((v) => v.id).join(", ") + ")");
+  { // Un fichier sans les colonnes de parcelle ni de nature (ancien format, faux dépôt des smokes) se lit comme avant.
+    const ancien = "id_mutation,date_mutation,nature_mutation,valeur_fonciere,adresse_numero,adresse_nom_voie,nom_commune,type_local,surface_reelle_bati,nombre_pieces_principales,surface_terrain,longitude,latitude\n"
+      + "A1,2026-01-10,Vente,300000,1,ALLEE A,Ville,Maison,100,5,500,-0.7,44.9\nA2,2026-02-10,Vente,120000,2,CHEMIN B,Ville,,,,600,-0.71,44.91\nA3,2026-02-11,Vente,500,3,CHEMIN C,Ville,,,,600,-0.71,44.91\r\n";
+    const l = parseDvfCsv(ancien);
+    ok(l.length === 2 && l[0].type === "Maison" && l[0].terrain === 500 && l[0].adresse === "1 ALLEE A" && l[1].type === "Terrain" && l[1].surface === 600, "DVF : un fichier sans colonnes de parcelle ni de nature se lit comme avant (maison, terrain nu, prix dérisoire écarté)"); }
+
+  // --- Livret : médiane, programmes neufs, prix au m² ---
+  const { medianeDe, reduireProgramme, fmtM2, piecesLib } = new Function(entre("  // Pas de prix au m² pour un programme neuf", "  const fmtDateAcm =") + "\nreturn { medianeDe, reduireProgramme, fmtM2, piecesLib };")();
+  ok(medianeDe([300000, 320000, 380000, 400000]) === 350000 && medianeDe([400000, 300000, 320000]) === 320000 && medianeDe([]) === 0 && medianeDe([310000]) === 310000,
+     "livret : la médiane d'un nombre pair de budgets est la moyenne des deux du milieu (300, 320, 380, 400 k€ → 350 k€, plus 380)");
+  const prog = reduireProgramme({ id: "bienici:x", prix: [145000, 275000], surface: [40, 83.77], pieces: [2, 4], chambres: [1, 3] }), sansFine = (t) => t.replace(/[  ]/g, " ");
+  ok(prog.prix === 145000 && prog.surface === 40 && prog.pieces === 2 && prog.chambres === 1 && prog.neuf === 1 && fmtM2(prog) === "" && sansFine(fmtM2({ prix: 300000, surface: 100 })) === "3 000 €/m²" && fmtM2({ prix: 300000, surface: [40, 80] }) === ""
+     && reduireProgramme({ prix: 250000, surface: 80 }).neuf === undefined && piecesLib(1) === "1 pièce" && piecesLib(4) === "4 pièces",
+     "livret : un programme neuf gardé avec ses fourchettes est ramené à ses plus petites valeurs, sans prix au m² (plus de « NaN m² », « NaN €/m² ») ; « 1 pièce » au singulier");
+
+  // --- Textes de présentation : un paragraphe trop long s'arrête à la dernière phrase qui tient ---
+  const { ajusterParagraphes, phrasesDe } = new Function(entre("  function ajusterParagraphes(", "  // Le cadrage d'un portrait dans un cadre W × H") + "\nreturn { ajusterParagraphes, phrasesDe };")();
+  const police = { widthOfTextAtSize: (t, taille) => t.length * taille * 0.46 };
+  const couper = (texte, font, taille, largeur) => { const out = []; let l = ""; for (const mot of String(texte || "").split(/\s+/).filter(Boolean)) { const e = l ? l + " " + mot : mot; if (font.widthOfTextAtSize(e, taille) > largeur && l) { out.push(l); l = mot; } else l = e; } if (l) out.push(l); return out; };
+  ok(JSON.stringify(phrasesDe("J'ai rencontré M. Dupont hier. Il vend sa maison ! Vraiment ? Oui, 3.5 km plus loin… Voilà.")) === JSON.stringify(["J'ai rencontré M. Dupont hier.", "Il vend sa maison !", "Vraiment ?", "Oui, 3.5 km plus loin…", "Voilà."]),
+     "phrases : coupe après . ! ? … suivis d'une majuscule, pas après « M. » ni dans « 3.5 » (" + JSON.stringify(phrasesDe("J'ai rencontré M. Dupont hier. Il vend sa maison ! Vraiment ? Oui, 3.5 km plus loin… Voilà.")) + ")");
+  const phrase = (n) => "Voici la phrase numéro " + n + " d'un texte de présentation saisi d'un seul bloc.";
+  const bloc = Array.from({ length: 16 }, (x, i) => phrase(i + 1)).join(" "); // ≈ 1 100 caractères, un seul paragraphe
+  const HAUT = 684 - 513.1 + 10.5, unBloc = ajusterParagraphes([bloc], couper, police, 194, HAUT, 10.5, 9.5);
+  const texteBloc = unBloc.blocs.flat().join(" "), hauteurBloc = unBloc.blocs.flat().length * unBloc.pas;
+  ok(bloc.length > 1000 && unBloc.blocs.length === 1 && texteBloc.length > 500 && bloc.startsWith(texteBloc) && /bloc\.$/.test(texteBloc) && unBloc.coupe === true && unBloc.omis === 0 && unBloc.caracteresOmis === bloc.length - texteBloc.length && unBloc.taille === 9.5 && hauteurBloc <= HAUT && /bloc\.$/.test(unBloc.finTexte),
+     "texte du conseiller d'un seul bloc de " + bloc.length + " caractères : il ne disparaît plus en entier, il s'arrête à la dernière phrase qui tient (" + texteBloc.length + " caractères imprimés, " + unBloc.caracteresOmis + " omis, " + unBloc.taille + " pt)");
+  const quatre = ajusterParagraphes([bloc.slice(0, 300), bloc.slice(300, 600), bloc.slice(600, 900), bloc.slice(900)], couper, police, 194, HAUT, 10.5, 9.5);
+  ok(quatre.blocs.length >= 2 && quatre.omis >= 1 && quatre.blocs.length + quatre.omis === 4 && quatre.coupe === false && quatre.caracteresOmis > 0, "plusieurs paragraphes : des paragraphes entiers sont retirés comme avant, et le manque est dit (" + JSON.stringify({ gardes: quatre.blocs.length, omis: quatre.omis, car: quatre.caracteresOmis }) + ")");
+  const court = ajusterParagraphes(["Un texte court.", "Deux paragraphes."], couper, police, 194, HAUT, 10.5, 9.5);
+  ok(court.taille === 10.5 && court.omis === 0 && !court.coupe && court.caracteresOmis === 0, "un texte qui tient n'est ni réduit ni signalé");
+  const sansFin = ajusterParagraphes([Array.from({ length: 260 }, () => "mot").join(" ")], couper, police, 194, HAUT, 10.5, 9.5), lignesSF = sansFin.blocs.flat();
+  ok(lignesSF.length >= 10 && lignesSF.length * sansFin.pas <= HAUT && /…$/.test(lignesSF[lignesSF.length - 1]) && sansFin.coupe && sansFin.caracteresOmis > 0, "une seule phrase interminable : les lignes qui tiennent, terminées par « … » (" + lignesSF.length + " lignes)");
+
+  // --- Guide R1 : un nom hors WinAnsi ne fait plus échouer le guide ---
+  const { ecritureSure } = new Function(entre("  const espacesSimples =", "  const sansAccentsMin =") + "\nreturn { ecritureSure };")();
+  const winAnsi = { getCharacterSet: () => [...Array.from({ length: 95 }, (x, i) => 32 + i), ...Array.from({ length: 96 }, (x, i) => 160 + i), 0x152, 0x153, 0x160, 0x161, 0x17d, 0x17e, 0x20ac, 0x2019] };
+  const barlow = { getCharacterSet: () => [...winAnsi.getCharacterSet(), ..."łŁŚśễıŞşČčĞğŻżąęń".split("").map((c) => c.codePointAt(0))] };
+  const e1 = ecritureSure("WIŚNIEWSKI Paweł", winAnsi, barlow), e2 = ecritureSure("WIŚNIEWSKI Paweł", winAnsi, null), e3 = ecritureSure("3 allée des\tLilas​", winAnsi, barlow), e4 = ecritureSure("Çeşme Şükrü Nguyễn ı 日本", winAnsi, null);
+  ok(e1.mode === "secours" && e1.font === barlow && e1.texte === "WIŚNIEWSKI Paweł" && e2.mode === "sans-signe" && e2.font === winAnsi && e2.texte === "WISNIEWSKI Pawel"
+     && e3.mode === "normale" && e3.texte === "3 allée des Lilas" && e4.texte === "Çesme Sükrü Nguyen i " && ecritureSure("Jean-Noël DUPONT", winAnsi, barlow).mode === "normale",
+     "guide R1 : « WIŚNIEWSKI Paweł » s'écrit avec la police de secours, sans elle les lettres perdent leur signe (" + e2.texte + ") ; espace fine et tabulation deviennent des espaces ; un nom courant garde la police du guide");
+}
+
 /* ---- Séquestre : comptabilité de l'étude dépositaire -------------------- */
 {
   // comptableDe() vit dans l'IIFE du client : on isole le bloc de
