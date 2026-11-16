@@ -91,15 +91,26 @@
   let preview = { mode: "fit", value: 0.62 };
   let currentFileName = null;   // nom du .json ouvert depuis la bibliothèque (pour réenregistrer au même endroit)
   let libItems = [];            // dernière liste lue du dossier
+  // Génération du dossier : +1 à chaque changement de dossier (ouverture, import, « Nouveau »,
+  // injection). Une réponse partie pour le dossier précédent (enregistrement, IA, QR…) se reconnaît
+  // à sa génération et n'est pas appliquée au dossier affiché.
+  let generation = 0;
+  function perime(gen) {
+    if (gen === generation) return false;
+    toast("Réponse ignorée : elle concernait le dossier précédent.");
+    return true;
+  }
 
   // migration / valeurs par défaut sûres (ex. ancien champ `plan` unique -> `plans[]`)
   function normalizeState(s) {
     if (!s || typeof s !== "object") s = {};
-    // Garantit la présence des objets de premier niveau (localStorage ancien/partiel).
+    // Garantit la présence des objets de premier niveau (localStorage ancien/partiel) — complétés
+    // par le bien VIERGE : l'exemple (DPE A/64, surfaces de la villa…) ne revient pas dans un vrai dossier.
+    const vierge = blankState();
     ["property", "theme", "agency", "features", "diagnostics"].forEach(function (k) {
-      if (!s[k] || typeof s[k] !== "object" || Array.isArray(s[k])) s[k] = clone(DEFAULT[k]);
+      if (!s[k] || typeof s[k] !== "object" || Array.isArray(s[k])) s[k] = vierge[k];
     });
-    if (!s.property.stats || typeof s.property.stats !== "object") s.property.stats = clone(DEFAULT.property.stats);
+    if (!s.property.stats || typeof s.property.stats !== "object") s.property.stats = vierge.property.stats;
     if (s.plan && (!s.plans || !s.plans.length)) s.plans = [s.plan];
     if (!s.plans) s.plans = [];
     delete s.plan;
@@ -266,7 +277,7 @@
     try {
       // Le dossier ouvert (nom, identifiant du compte) est gardé AVEC l'état : après un rechargement,
       // « Enregistrer » sait encore quelle brochure il met à jour (10/11).
-      let courant = null; try { courant = { name: currentFileName, id: currentCloudId }; } catch (e) { /* avant l'initialisation */ }
+      let courant = null; try { courant = { name: currentFileName, id: currentCloudId, version: currentCloudVersion }; } catch (e) { /* avant l'initialisation */ }
       localStorage.setItem(LS_KEY, JSON.stringify(Object.assign({}, state, { _courant: courant })));
     } catch (e) {
       toast("Stockage local saturé (trop de photos). Pensez à « Sauvegarder » en .json.", true);
@@ -801,10 +812,13 @@
     }).join("");
   }
 
+  // Somme des lignes : « 1 223 m² » vaut 1223 (espace des milliers), et une ligne « Total… »
+  // recopiée du mesurage n'est pas additionnée une seconde fois.
   function sumSurfaces(rows) {
     let sum = 0, any = false;
     (rows || []).forEach(function (r) {
-      const m = String(r.value).replace(",", ".").match(/[0-9]+(\.[0-9]+)?/);
+      if (/\btotal/i.test(String(r.label || ""))) return;
+      const m = String(r.value).replace(/(\d)[\s\u00A0\u202F]+(?=\d)/g, "$1").replace(",", ".").match(/[0-9]+(\.[0-9]+)?/);
       if (m) { sum += parseFloat(m[0]); any = true; }
     });
     if (!any) return "";
@@ -826,7 +840,8 @@
     const rows = state.surfaces || [];
     if (!rows.length) return "";
     const hab = (state.property.stats && state.property.stats.surface) || "";
-    const tot = sumSurfaces(rows) || state.surfacesTotal || "";
+    // Le total mesuré (lu sur le mesurage ou saisi) prime ; à défaut, la somme des lignes.
+    const tot = String(state.surfacesTotal || "").trim() || sumSurfaces(rows) || "";
     const d = surfDensity(rows.length);
     const style = "--surf-fs:" + d[0] + "pt;--surf-vpad:" + d[1] + "mm;--surf-hpad:" + d[2] +
       "mm;--surf-cmb:" + d[3] + "mm;--surf-sclbl:" + d[4] + "pt;--surf-scval:" + d[5] + "pt";
@@ -1023,18 +1038,25 @@
       }
     }
     const data = clone(state); data._app = "studio-brochure"; data._v = 2;
+    const gen = generation;
+    verrouEnregistrement(1);
     try {
       await Lib.saveState(data, name);
-      if (name !== currentFileName) currentCloudId = null; // autre nom = autre brochure sur le compte
-      currentFileName = name; noterCourant();
+      // Un autre dossier a été ouvert pendant l'écriture : le fichier est bien enregistré, mais le
+      // dossier affiché garde SA propre identité.
+      if (gen === generation) {
+        if (name !== currentFileName) { currentCloudId = null; currentCloudVersion = null; } // autre nom = autre brochure sur le compte
+        currentFileName = name; noterCourant();
+      }
       if (!$("#libOverlay").hidden) {
         libItems = await Lib.list(); renderLibList();
         $("#libFolder").textContent = "Dossier : " + Lib.folderName();
       }
       toast("Brochure enregistrée : " + name);
-      pushCurrentToCloud(name); // copie « compte » silencieuse (téléphones + autres postes)
+      if (gen === generation) pushCurrentToCloud(name); // copie « compte » silencieuse (téléphones + autres postes)
       return true;
     } catch (e) { toast("Enregistrement impossible.", true); return false; }
+    finally { verrouEnregistrement(-1); }
   }
 
   /* ------------- Brochures du compte (synchronisées serveur) ------------- */
@@ -1061,9 +1083,28 @@
     if (!res.ok) { const er = new Error((data && data.error) || "Erreur serveur — réessayez."); er.status = res.status; er.data = data; throw er; }
     return data;
   }
-  let libCloudMode = false, currentCloudId = null;
+  // libCloudMode : null tant que la Bibliothèque n'a pas été ouverte (le mode se décide alors au compte connecté).
+  let libCloudMode = null, currentCloudId = null;
+  // Version (updated_at) de la brochure du compte telle qu'on l'a ouverte ou enregistrée : envoyée à
+  // chaque mise à jour, elle permet au serveur de refuser d'écraser en silence un enregistrement fait
+  // entre-temps depuis un autre poste.
+  let currentCloudVersion = null;
   let libCorbeille = false;
-  try { const c0 = (JSON.parse(localStorage.getItem(LS_KEY) || "null") || {})._courant; if (c0) { currentFileName = c0.name || null; currentCloudId = c0.id || null; } } catch (e) { /* état local illisible */ }
+  try { const c0 = (JSON.parse(localStorage.getItem(LS_KEY) || "null") || {})._courant; if (c0) { currentFileName = c0.name || null; currentCloudId = c0.id || null; currentCloudVersion = (c0.id && c0.version) || null; } } catch (e) { /* état local illisible */ }
+  // Pendant un enregistrement, on ne change pas de dossier : « Nouveau », « Importer », « Ouvrir » et
+  // « Supprimer » attendent la réponse (sinon elle reposerait l'identité de l'ancien dossier sur le nouveau).
+  let enregistrements = 0;
+  function verrouEnregistrement(delta) {
+    enregistrements = Math.max(0, enregistrements + delta);
+    const occupe = enregistrements > 0;
+    ["btnNew", "btnImport"].forEach(function (id) { const b = document.getElementById(id); if (b) b.disabled = occupe; });
+    $all("#libList button[data-act]").forEach(function (b) { b.disabled = occupe; });
+  }
+  function enregistrementEnCours() {
+    if (!enregistrements) return false;
+    toast("Enregistrement en cours — un instant…");
+    return true;
+  }
   /* Le dossier ouvert se lit en permanence (10/11, Stéphanie : « un dossier se lie à un autre ») :
      son nom dans la barre du haut et sur le bouton d'enregistrement — on sait toujours QUELLE
      brochure un enregistrement met à jour. */
@@ -1094,6 +1135,25 @@
     ["aiStatus", "quartierStatus", "captionStatus", "qrStatus", "notesStatus", "adStatus", "dpeStatus", "surfacesStatus"].forEach(function (id) {
       const el = document.getElementById(id); if (el) { el.textContent = ""; el.className = "ai-status"; }
     });
+    // Les fichiers chargés (DPE, mesurage) appartiennent au dossier précédent : le DPE du bien A
+    // ne doit pas pouvoir s'analyser dans la brochure de B.
+    dpeData = []; surfData = null; paintDpeFiles(); paintSurfFile("");
+  }
+  // Fichiers en attente d'analyse (hors état) : diagnostics (plusieurs, cumulés) et mesurage.
+  let dpeData = [], surfData = null;
+  function paintDpeFiles() {
+    const p = $("#dpeFileName");
+    if (p) p.textContent = dpeData.length
+      ? dpeData.length + " fichier" + (dpeData.length > 1 ? "s" : "") + " : " + dpeData.map(function (d) { return d.name; }).join(", ")
+      : "";
+    const clr = document.getElementById("btnDpeClear");
+    if (clr) clr.hidden = !dpeData.length;
+    const btn = document.getElementById("btnAIDpe");
+    if (btn) btn.disabled = !dpeData.length;
+  }
+  function paintSurfFile(nom) {
+    const p = document.getElementById("surfacesFileName"); if (p) p.textContent = nom || "";
+    const btn = document.getElementById("btnAISurfaces"); if (btn) btn.disabled = !surfData;
   }
   // Envoi au compte. Une brochure ouverte se met à jour PAR SON IDENTIFIANT ; un nom déjà pris par
   // une autre brochure demande confirmation (l'ancienne version part à la corbeille, 30 jours).
@@ -1102,6 +1162,19 @@
   async function cloudPutBrochure(body, silencieux) {
     try { return await cloudApi("/brochures", { body: body }); }
     catch (e) {
+      // La brochure a été enregistrée depuis un autre poste après notre ouverture : on ne
+      // l'écrase pas sans le dire (la copie de fond, elle, renonce).
+      const mo = e && e.status === 409 && e.data && e.data.modifiee;
+      if (mo) {
+        if (silencieux) throw e;
+        const quand = mo.updated_at ? new Date(mo.updated_at * 1000).toLocaleString("fr-FR", { day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" }) : "";
+        const par = (mo.auteur ? " par " + mo.auteur : "") + (quand ? " le " + quand : "");
+        if (confirm("« " + body.name + " » a été enregistrée sur le compte" + par + ", depuis que vous l'avez ouverte.\n\nRemplacer la version du compte par la vôtre ? L'autre version ira dans la corbeille (30 jours).\n\n(Annuler : vous pourrez recharger la version du compte.)")) {
+          return cloudApi("/brochures", { body: { id: body.id, name: body.name, data: body.data, version: body.version, remplacer: true } });
+        }
+        if (confirm("Recharger la version du compte de « " + body.name + " » ?\n\nCe que vous avez à l'écran sera remplacé. (Annuler : rien n'est enregistré, votre écran reste tel quel.)")) await cloudOpen(body.id, true);
+        return null;
+      }
       const ex = e && e.status === 409 && e.data && e.data.existe;
       if (!ex) throw e;
       if (silencieux) {
@@ -1122,22 +1195,38 @@
     let body;
     if (!askName && currentFileName) {
       name = nomCourant();
-      body = currentCloudId ? { id: currentCloudId, name: name, data: data } : { name: name, data: data, creer: true };
+      body = currentCloudId ? corpsParId(name, data) : { name: name, data: data, creer: true };
     } else {
       const suggested = currentFileName ? nomCourant() + " (copie)" : (state.property.title || fileSlug());
       const input = prompt(currentFileName ? "Nom de la nouvelle brochure (« " + nomCourant() + " » reste inchangée) :" : "Nom de la brochure :", suggested);
       if (input == null) return false;
       name = (safeName(input) || fileSlug()).slice(0, 120);
-      body = (currentCloudId && name === nomCourant()) ? { id: currentCloudId, name: name, data: data } : { name: name, data: data, creer: true };
+      body = (currentCloudId && name === nomCourant()) ? corpsParId(name, data) : { name: name, data: data, creer: true };
     }
+    // La réponse n'arrive qu'après l'envoi (photos = plusieurs secondes) : si le dossier a changé
+    // entre-temps, elle ne repose PAS l'identité de l'ancien dossier sur le nouveau.
+    const gen = generation;
+    verrouEnregistrement(1);
     try {
       const r = await cloudPutBrochure(body, false);
       if (!r) return false; // remplacement refusé
-      currentCloudId = r.id; currentFileName = name + ".json"; noterCourant();
+      if (gen !== generation) {
+        toast("« " + name + " » enregistrée sur le compte — le dossier affiché, ouvert entre-temps, n'a pas changé.");
+        if (!$("#libOverlay").hidden) libRefresh();
+        return true;
+      }
+      currentCloudId = r.id; currentCloudVersion = r.updated_at || null; currentFileName = name + ".json"; noterCourant();
       toast(r.updated ? "« " + name + " » mise à jour sur le compte ✓" : "Brochure enregistrée sur le compte : " + name);
       if (!$("#libOverlay").hidden) libRefresh();
       return true;
     } catch (e) { toast(e.message, true); return false; }
+    finally { verrouEnregistrement(-1); }
+  }
+  // Mise à jour de la brochure ouverte : par son identifiant, avec la version qu'on en connaît.
+  function corpsParId(name, data) {
+    const b = { id: currentCloudId, name: name, data: data };
+    if (currentCloudVersion) b.version = currentCloudVersion;
+    return b;
   }
   // Copie « compte » silencieuse après un enregistrement dans le dossier :
   // la brochure devient visible sur les téléphones, sans double saisie.
@@ -1145,20 +1234,32 @@
     if (!cloudOn()) return;
     const data = clone(state); data._app = "studio-brochure"; data._v = 2;
     const nom = String(name || "").replace(/\.json$/i, "");
-    cloudPutBrochure(currentCloudId ? { id: currentCloudId, name: nom, data: data } : { name: nom, data: data, creer: true }, true)
-      .then(function (r) { if (r && r.id) { currentCloudId = r.id; noterCourant(); } }, function () { /* nom déjà pris par un collègue, ou hors ligne : le dossier reste la référence */ });
+    const gen = generation;
+    cloudPutBrochure(currentCloudId ? corpsParId(nom, data) : { name: nom, data: data, creer: true }, true)
+      .then(function (r) {
+        // Même garde que l'enregistrement : la copie de fond d'un dossier quitté ne lie pas le suivant.
+        if (r && r.id && gen === generation) { currentCloudId = r.id; currentCloudVersion = r.updated_at || null; noterCourant(); }
+      }, function () { /* nom déjà pris par un collègue, version plus récente sur le compte, ou hors ligne : le dossier reste la référence */ });
   }
-  async function cloudOpen(id) {
+  // force : rechargement demandé pendant un enregistrement (version du compte plus récente).
+  let ouvertures = 0;
+  async function cloudOpen(id, force) {
+    if (!force && enregistrementEnCours()) return;
+    // Deux « Ouvrir » coup sur coup : seule la dernière demande s'applique ; et une brochure
+    // demandée avant un « Nouveau » ne vient pas remplacer le nouveau dossier.
+    const jeton = ++ouvertures, gen = generation;
     try {
       const r = await cloudApi("/brochures/" + id);
+      if (jeton !== ouvertures || gen !== generation) return;
       loadData(r.data);
-      currentCloudId = id; currentFileName = (r.name || "brochure") + ".json";
+      currentCloudId = id; currentCloudVersion = r.updated_at || null; currentFileName = (r.name || "brochure") + ".json";
       viderHorsEtat(); noterCourant();
       closeLib();
       toast("« " + (state.property.title || r.name) + " » ouverte.");
     } catch (e) { toast(e.message, true); }
   }
   async function cloudDelete(id, name) {
+    if (enregistrementEnCours()) return;
     const nom = String(name || "").replace(/\.json$/i, "");
     if (!confirm("Mettre « " + nom + " » à la corbeille ?\n\nElle disparaît de la bibliothèque de toute l'agence et reste récupérable 30 jours (bouton « 🗑 Corbeille »).")) return;
     try {
@@ -1202,15 +1303,35 @@
   function loadData(d) {
     if (!d || typeof d !== "object" || !d.property || typeof d.property !== "object") throw new Error("format");
     stripDangerousKeys(d); delete d._courant;
-    state = normalizeState(Object.assign(clone(DEFAULT), d));
+    // Les clés absentes du fichier sont complétées par le bien VIERGE (pas par l'exemple : un
+    // .json partiel ne doit pas hériter du DPE, des surfaces ni du quartier de la villa témoin).
+    state = normalizeState(Object.assign(blankState(), d));
+    generation++; // autre dossier : les réponses encore en route ne le concernent plus
     hydrateForm(); renderPhotoUI(); render(); save();
   }
+  // La brochure en cours contient-elle quelque chose ? (le bien, pas les réglages d'agence)
+  function brochureEntamee() {
+    const p = state.property || {}, f = state.features || {}, notes = document.getElementById("aiNotes");
+    return [p.type, p.title, p.address, p.location, p.hook, p.description, p.price, state.adText, notes && notes.value]
+      .some(function (v) { return String(v || "").trim(); })
+      || !!state.coverPhoto
+      || [state.gallery, state.plans, state.surfaces, state.quartier, f.interieur, f.exterieur, f.aSavoir].some(function (l) { return l && l.length; });
+  }
+  // Avant de remplacer la brochure en cours (import, injection d'une fiche) : si elle n'est pas
+  // vide et n'a pas de dossier enregistré, rien ne permettrait de la retrouver — on demande.
+  function confirmerRemplacement() {
+    if (currentFileName || !brochureEntamee()) return true;
+    return confirm("La brochure en cours n'est pas enregistrée : elle sera remplacée et perdue.\n\nContinuer ? (Annuler pour l'enregistrer d'abord dans la Bibliothèque.)");
+  }
   function doImportJson(file) {
+    if (enregistrementEnCours()) return;
     const r = new FileReader();
     r.onload = function () {
       try {
         const d = JSON.parse(r.result);
         if (d && d._app === "studio-fiche") { importFichePresta(d); return; }
+        if (!d || typeof d !== "object" || !d.property || typeof d.property !== "object") throw new Error("format");
+        if (!confirmerRemplacement()) return;
         loadData(d);
         currentFileName = null; currentCloudId = null; viderHorsEtat(); noterCourant(); // fichier importé : « Enregistrer » créera une entrée
         toast("Projet chargé.");
@@ -1231,6 +1352,7 @@
     });
     const notes = parts.length ? parts.join("\n\n") : String(d.fNotes || "").trim();
     if (!notes) { toast("Cette fiche prestation est vide — dictez ou structurez-la d'abord dans l'app Fiche prestation.", true); return; }
+    if (!confirmerRemplacement()) return;
     resetBlank(); // nouveau bien = brochure vierge (pas d'héritage du bien précédent)
     if (d.fType) setPath(state, "property.type", String(d.fType));
     if (d.fAdresse) setPath(state, "property.address", String(d.fAdresse));
@@ -1250,15 +1372,16 @@
   // prestation (qui doit repartir d'une brochure vierge, pas hériter des
   // photos / localisation / textes du bien précédent).
   function resetBlank() {
-    state = blankState(); currentFileName = null; currentCloudId = null; hydrateForm(); renderPhotoUI(); render(); noterCourant();
-    // Vider aussi les champs hors-état : notes brutes (point 8) et sources du quartier.
-    const notes = document.getElementById("aiNotes"); if (notes) notes.value = "";
-    const src = document.getElementById("quartierSources"); if (src) src.innerHTML = "";
-    ["aiStatus", "quartierStatus", "captionStatus", "qrStatus", "notesStatus", "adStatus", "dpeStatus", "surfacesStatus"].forEach(function (id) {
-      const el = document.getElementById(id); if (el) { el.textContent = ""; el.className = "ai-status"; }
-    });
+    state = blankState(); currentFileName = null; currentCloudId = null;
+    generation++; // autre dossier : les réponses encore en route ne le concernent plus
+    hydrateForm(); renderPhotoUI(); render(); noterCourant();
+    // Vider aussi les champs hors-état : notes brutes (point 8), sources du quartier, fichiers chargés.
+    viderHorsEtat();
+    // Le bien vierge porte l'agence du siège : on repose le point de vente du conseiller.
+    appliquerPointDeVente();
   }
   function doNew() {
+    if (enregistrementEnCours()) return;
     if (!confirm("Repartir d'une fiche vierge ? Le projet actuel sera remplacé (pensez à le sauvegarder).")) return;
     resetBlank();
     toast("Nouvelle fiche.");
@@ -1383,6 +1506,7 @@
       const btn = $("#btnAIGenerate");
       status.className = "ai-status is-busy"; status.textContent = "Claude rédige…";
       btn.disabled = true;
+      const gen = generation; // le dossier pour lequel la rédaction est demandée
       window.BrochureAI.generate({
         apiKey: keyInput.value,
         model: $("#aiModel").value,
@@ -1390,10 +1514,11 @@
         notes: $("#aiNotes").value,
         context: { type: state.property.type, location: state.property.location, title: state.property.title }
       }).then(function (out) {
+        if (perime(gen)) return; // un autre dossier est ouvert : son texte n'est pas réécrit
         applyAI(out);
         status.className = "ai-status is-ok"; status.textContent = "Fiche générée ✓";
       }).catch(function (err) {
-        window.BrochureAI.showError(status, err);
+        if (gen === generation) window.BrochureAI.showError(status, err);
       }).then(function () { btn.disabled = false; });
     });
 
@@ -1403,7 +1528,9 @@
       // Seules les photos SANS légende sont analysées : les légendes déjà
       // écrites (ou corrigées à la main) ne sont jamais écrasées.
       const pending = [];
-      state.gallery.forEach(function (p, i) { if (!(p.caption || "").trim()) pending.push({ url: p.url, gi: i }); });
+      // Chaque légende revient à SA photo par son identifiant (pas par sa place : la galerie peut
+      // être réordonnée, ou une photo supprimée, pendant l'analyse).
+      state.gallery.forEach(function (p) { if (!p.id) p.id = uid(); if (!(p.caption || "").trim()) pending.push({ url: p.url, id: p.id }); });
       if (!pending.length) {
         status.className = "ai-status is-ok";
         status.textContent = "Toutes les photos ont déjà une légende — effacez-en une pour la faire réécrire.";
@@ -1414,15 +1541,18 @@
       status.textContent = "Analyse de " + pending.length + " photo" + (pending.length > 1 ? "s" : "") +
         (kept ? " (les " + kept + " légendes existantes sont conservées)…" : "…");
       btnCap.disabled = true;
+      const gen = generation;
       window.BrochureAI.captionPhotos({
         apiKey: keyInput.value,
         model: $("#aiModel").value,
         photos: pending,
         context: { type: state.property.type }
       }).then(function (caps) {
+        if (perime(gen)) return;
         caps.forEach(function (c) {
           if (c && typeof c.index === "number" && pending[c.index]) {
-            const g = state.gallery[pending[c.index].gi];
+            const id = pending[c.index].id;
+            const g = state.gallery.filter(function (x) { return x.id === id; })[0];
             if (g && !(g.caption || "").trim()) g.caption = c.caption;
           }
         });
@@ -1431,24 +1561,14 @@
         status.textContent = pending.length + " photo" + (pending.length > 1 ? "s" : "") + " légendée" + (pending.length > 1 ? "s" : "") + " ✓" +
           (kept ? " — " + kept + " légende" + (kept > 1 ? "s" : "") + " existante" + (kept > 1 ? "s" : "") + " conservée" + (kept > 1 ? "s" : "") + "." : "");
       }).catch(function (err) {
-        window.BrochureAI.showError(status, err);
+        if (gen === generation) window.BrochureAI.showError(status, err);
       }).then(function () { btnCap.disabled = false; });
     });
 
     // Chargement & lecture du diagnostic (DPE)
     // Diagnostics : plusieurs fichiers possibles (PDF et/ou photos), cumulés
     // d'une sélection à l'autre — pratique pour photographier page par page.
-    var dpeData = [];
-    function paintDpeFiles() {
-      const p = $("#dpeFileName");
-      if (p) p.textContent = dpeData.length
-        ? dpeData.length + " fichier" + (dpeData.length > 1 ? "s" : "") + " : " + dpeData.map(function (d) { return d.name; }).join(", ")
-        : "";
-      const clr = document.getElementById("btnDpeClear");
-      if (clr) clr.hidden = !dpeData.length;
-      const btn = document.getElementById("btnAIDpe");
-      if (btn) btn.disabled = !dpeData.length;
-    }
+    // (dpeData / paintDpeFiles : au niveau du module, vidés à chaque changement de dossier.)
     var fileDpe = document.getElementById("fileDpe");
     if (fileDpe) fileDpe.addEventListener("change", function (e) {
       const files = Array.prototype.slice.call(e.target.files || []);
@@ -1469,9 +1589,11 @@
       }
       status.className = "ai-status"; status.textContent = "Lecture de " + files.length + " fichier" + (files.length > 1 ? "s" : "") + "…";
       let done = 0;
+      const gen = generation;
       files.forEach(function (f) {
         const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
         const put = function (url) {
+          if (gen !== generation) return; // fichier lu pour le dossier précédent
           if (url) dpeData.push({ dataUrl: url, isPdf: isPdf, name: f.name });
           else { status.className = "ai-status is-error"; status.textContent = "Image illisible : « " + f.name + " » (HEIC ? Convertissez-la en JPG)."; }
           if (++done === files.length && dpeData.length) {
@@ -1499,10 +1621,12 @@
       status.className = "ai-status is-busy";
       status.textContent = "Analyse de " + dpeData.length + " fichier" + (dpeData.length > 1 ? "s" : "") + "…";
       btnDpe.disabled = true;
+      const gen = generation;
       window.BrochureAI.extractDiagnostics({
         apiKey: keyInput.value, model: $("#aiModel").value,
         files: dpeData
       }).then(function (d) {
+        if (perime(gen)) return; // le DPE lu appartient au dossier précédent
         if (d.dpe) state.diagnostics.dpe = d.dpe;
         if (d.dpeValue) state.diagnostics.dpeValue = d.dpeValue;
         if (d.ges) state.diagnostics.ges = d.ges;
@@ -1512,12 +1636,11 @@
         hydrateForm(); render(); save();
         status.className = "ai-status is-ok"; status.textContent = "Diagnostics mis à jour ✓";
       }).catch(function (err) {
-        window.BrochureAI.showError(status, err);
-      }).then(function () { btnDpe.disabled = false; });
+        if (gen === generation) window.BrochureAI.showError(status, err);
+      }).then(function () { btnDpe.disabled = !dpeData.length; });
     });
 
-    // Tableau des surfaces : PDF/image → tableau design
-    var surfData = null;
+    // Tableau des surfaces : PDF/image → tableau design (surfData : au niveau du module)
     var fileSurf = document.getElementById("fileSurfaces");
     if (fileSurf) fileSurf.addEventListener("change", function (e) {
       const f = e.target.files[0]; if (!f) return;
@@ -1534,7 +1657,11 @@
       }
       $("#surfacesFileName").textContent = f.name;
       const status = $("#surfacesStatus"); status.className = "ai-status"; status.textContent = "Lecture du fichier…";
-      const done = function (url) { surfData = { dataUrl: url, isPdf: isPdf }; $("#btnAISurfaces").disabled = false; status.textContent = "Prêt à analyser."; };
+      const gen = generation;
+      const done = function (url) {
+        if (gen !== generation) return; // fichier lu pour le dossier précédent
+        surfData = { dataUrl: url, isPdf: isPdf }; $("#btnAISurfaces").disabled = false; status.textContent = "Prêt à analyser.";
+      };
       if (isPdf) { const r = new FileReader(); r.onload = function () { done(r.result); }; r.readAsDataURL(f); }
       else { resizeImage(f, 2200, 0.85).then(done).catch(function () { status.className = "ai-status is-error"; status.textContent = "Image illisible."; }); }
     });
@@ -1543,14 +1670,19 @@
       if (!surfData) return;
       const status = $("#surfacesStatus");
       status.className = "ai-status is-busy"; status.textContent = "Analyse du tableau…"; btnSurf.disabled = true;
+      const gen = generation;
       window.BrochureAI.extractSurfaces({ apiKey: keyInput.value, model: $("#aiModel").value, dataUrl: surfData.dataUrl, isPdf: surfData.isPdf })
         .then(function (d) {
-          if (d.rows && d.rows.length) state.surfaces = d.rows.map(function (r) { return { label: r.room, value: r.area }; });
-          if (d.total) state.surfacesTotal = d.total;
+          if (perime(gen)) return;
+          if (d.rows && d.rows.length) {
+            state.surfaces = d.rows.map(function (r) { return { label: r.room, value: r.area }; });
+            // Nouveau tableau : le total suit (celui du mesurage, sinon la somme des lignes).
+            state.surfacesTotal = d.total || "";
+          } else if (d.total) state.surfacesTotal = d.total;
           hydrateForm(); render(); save();
           status.className = "ai-status is-ok"; status.textContent = "Tableau créé ✓";
-        }).catch(function (err) { window.BrochureAI.showError(status, err); })
-        .then(function () { btnSurf.disabled = false; });
+        }).catch(function (err) { if (gen === generation) window.BrochureAI.showError(status, err); })
+        .then(function () { btnSurf.disabled = !surfData; });
     });
 
     $("#btnAIQuartier").addEventListener("click", function () {
@@ -1558,8 +1690,18 @@
       const btn = $("#btnAIQuartier");
       status.className = "ai-status is-busy"; status.textContent = "Recherche du quartier…";
       btn.disabled = true;
+      const gen = generation;
       // 1) Données cartographiques réelles (OpenStreetMap) — noms + distances exactes.
       window.BrochureGeo.searchQuartier(state.property.address).then(function (out) {
+        if (perime(gen)) return; // le quartier trouvé est celui du dossier précédent
+        // Une recherche qui rapporte MOINS de rubriques que la liste en place (service
+        // cartographique saturé, réponse partielle) ne l'écrase pas sans accord.
+        const avant = (state.quartier || []).length, apres = (out.quartier || []).length;
+        const garder = apres < avant && !confirm("La recherche n'a trouvé que " + apres + " rubrique" + (apres > 1 ? "s" : "") + " pour le quartier, contre " + avant + " actuellement.\n\nRemplacer quand même la liste actuelle ?");
+        if (garder) {
+          status.className = "ai-status"; status.textContent = "Liste du quartier conservée (recherche moins complète).";
+          return;
+        }
         if (out.quartier && out.quartier.length) state.quartier = out.quartier;
         if (out.location && !state.property.location) state.property.location = out.location;
         hydrateForm(); render(); save();
@@ -1569,7 +1711,7 @@
         //    la tâche se tait toute seule si aucun accès IA n'est disponible.
         completerAttraitVille(out.location);
       }).catch(function (err) {
-        window.BrochureAI.showError(status, err);
+        if (gen === generation) window.BrochureAI.showError(status, err);
       }).then(function () { btn.disabled = false; });
     });
   }
@@ -1623,10 +1765,12 @@
     if (!ville || attraitEnCours || state.property.quartierIntro) return;
     attraitEnCours = true;
     const key = $("#aiKey"), model = $("#aiModel"), tone = $("#aiTone");
+    const gen = generation;
     window.BrochureAI.generateCityIntro({
       apiKey: key ? key.value : "", model: model ? model.value : "", city: ville, tone: tone ? tone.value : ""
     }).then(function (intro) {
-      if (intro && !state.property.quartierIntro) { state.property.quartierIntro = intro; hydrateForm(); render(); save(); }
+      // Silencieux aussi quand le dossier a changé : l'attrait de la ville de A ne va pas dans B.
+      if (gen === generation && intro && !state.property.quartierIntro) { state.property.quartierIntro = intro; hydrateForm(); render(); save(); }
     }).catch(function () { /* silencieux : la page Quartier reste sans intro */ })
       .then(function () { attraitEnCours = false; });
   }
@@ -1761,11 +1905,15 @@
         '<button class="btn btn--ghost btn--sm" data-act="del">Supprimer</button>' +
         "</div></div>";
     }).join("");
+    verrouEnregistrement(0); // une liste repeinte pendant un enregistrement garde ses boutons inactifs
   }
 
   async function libOpen(name) {
+    if (enregistrementEnCours()) return;
+    const jeton = ++ouvertures, gen = generation;
     try {
       const d = await Lib.read(name);
+      if (jeton !== ouvertures || gen !== generation) return; // un autre dossier a été ouvert entre-temps
       loadData(d);
       currentFileName = name; currentCloudId = null; viderHorsEtat(); noterCourant();
       closeLib();
@@ -1774,6 +1922,7 @@
   }
 
   async function libDelete(name) {
+    if (enregistrementEnCours()) return;
     if (!confirm("Supprimer définitivement « " + name + " » du dossier OneDrive ?")) return;
     try {
       await Lib.remove(name);
@@ -1786,7 +1935,12 @@
   // « Enregistrer » met à jour la brochure ouverte (son nom est écrit sur le bouton) ; sans brochure
   // ouverte, le nom est demandé. « Enregistrer sous un autre nom… » en crée une autre.
   async function libSaveCurrent(e, autreNom) {
+    if (enregistrementEnCours()) return; // un second envoi croiserait le premier
     const demander = autreNom === true || !currentFileName;
+    // Bouton de fin de parcours cliqué sans avoir ouvert la Bibliothèque : le mode n'a pas encore
+    // été choisi — un compte connecté enregistre sur le compte (sur téléphone, un .json partait
+    // dans les téléchargements et rien n'arrivait sur le compte).
+    if (libCloudMode == null) libCloudMode = cloudOn();
     if (libCloudMode) { await cloudSaveCurrent(demander); return; }
     if (!Lib || !Lib.isSupported()) { downloadJson(); return; } // ni dossier ni compte : le projet se télécharge (.json)
     if (!Lib.folderName()) {
@@ -1962,7 +2116,12 @@
     renderPhotoUI: renderPhotoUI,
     toast: toast,
     doNew: doNew,
-    resetBlank: resetBlank
+    resetBlank: resetBlank,
+    // Pour wizard.js : génération du dossier (réponses asynchrones) et confirmation avant remplacement.
+    generation: function () { return generation; },
+    perime: perime,
+    confirmerRemplacement: confirmerRemplacement,
+    sumSurfaces: sumSurfaces
   };
 
   document.addEventListener("DOMContentLoaded", init);
