@@ -6,9 +6,16 @@ import { wrapD1 } from "./src/db.js";
 import { createApp } from "./src/app.js";
 import { runRecap } from "./src/recap.js";
 import { releverAbsencesOutlook } from "./src/releve.js";
-import { runCrmDaily, menageQuotidien } from "./src/crm.js";
+import { runCrmDaily, menageQuotidien, enchainerEtapes } from "./src/crm.js";
 import { rappelsOffres } from "./src/offres-cron.js";
 import { runBilans, rappelImport } from "./src/bilans.js";
+
+// Les crons de wrangler.toml, À L'IDENTIQUE : event.cron rend la chaîne du
+// fichier caractère pour caractère, et un test compare les deux. Le cron de
+// lundi et vendredi s'écrit en NOMS de jours : chez Cloudflare 1 = dimanche,
+// « 1,5 » partait donc dimanche et jeudi, et rien ne tournait jamais.
+const CRON_MATIN = "0 6 * * *";
+const CRON_LUNDI_VENDREDI = "0 5 * * MON,FRI";
 
 export default {
   // Cron (wrangler.toml [triggers]) : récapitulatif des actions à mener
@@ -21,18 +28,27 @@ export default {
     // d'anniversaire, agence par agence. Inerte tant que l'agence n'a rien
     // activé dans ses réglages Administration.
     // Le ménage (corbeille > 30 j, sessions mortes, liens périmés) passe avant.
-    if (event.cron === "0 6 * * *") { ctx.waitUntil(menageQuotidien(db, env.FILES || null).then(() => runCrmDaily(env, db)).then(() => rappelsOffres(env, db))); return; }
+    // Chaque étape sous son propre try : un ménage refusé par D1 ne fait plus
+    // tomber les vœux ni les rappels d'offres du jour.
+    if (event.cron === CRON_MATIN) {
+      ctx.waitUntil(enchainerEtapes([
+        ["ménage", () => menageQuotidien(db, env.FILES || null)],
+        ["administration", () => runCrmDaily(env, db)],
+        ["rappels d'offres", () => rappelsOffres(env, db)],
+      ]));
+      return;
+    }
     // Lundi 5h UTC : brouillons des bilans vendeurs de la semaine écoulée
     // (budget de sous-requêtes à part de celui du cron de 6h). Inerte tant
     // que l'agence n'a pas activé les bilans dans ses réglages.
-    if (event.cron === "0 5 * * 1,5" && new Date().getUTCDay() === 1) ctx.waitUntil(runBilans(env, db));
+    if (event.cron === CRON_LUNDI_VENDREDI && new Date().getUTCDay() === 1) ctx.waitUntil(runBilans(env, db));
     // Vendredi 5h UTC : rappel d'importer l'export des mandats avant lundi.
-    if (event.cron === "0 5 * * 1,5" && new Date().getUTCDay() === 5) ctx.waitUntil(rappelImport(env, db));
+    if (event.cron === CRON_LUNDI_VENDREDI && new Date().getUTCDay() === 5) ctx.waitUntil(rappelImport(env, db));
     // Relevé nocturne des absences Outlook (permanences). Inerte tant que
     // l'agence n'a pas coché « relever automatiquement » dans ses réglages.
     ctx.waitUntil(releverAbsencesOutlook(env, db));
     // Récapitulatif Suivi : uniquement sur SON cron, et si RECAP_AUTO=1.
-    if (env.RECAP_AUTO !== "1" || event.cron !== "0 5 * * 1,5") return;
+    if (env.RECAP_AUTO !== "1" || event.cron !== CRON_LUNDI_VENDREDI) return;
     ctx.waitUntil(runRecap(env, db));
   },
 
