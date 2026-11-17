@@ -5426,6 +5426,8 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "connexion-17-11", depuis: "2026-11-17", jours: 10, titre: "Connexion : du lien de l'e-mail au code SMS, sans détour",
+      html: '<p class="aide" style="max-width:none; margin:0;">Quand vous vous reconnectez sur votre ordinateur, le lien reçu par e-mail ouvre maintenant <strong>directement la page du code SMS</strong> : plus de bouton « Ouvrir ma session », plus besoin de revenir sur l\'onglet où vous aviez saisi votre adresse. Le SMS part aussitôt. (Sur téléphone, quand le lien s\'ouvre dans l\'application mail, rien ne change : c\'est l\'application Studio qui se connecte.)</p>' },
     { id: "revue-17-11", depuis: "2026-11-17", jours: 14, titre: "Grande révision : dossiers qui ne se mélangent plus, documents plus justes",
       html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
         "<li><strong>Brochures et fiches prestations</strong> : une réponse (rédaction, DPE, quartier) demandée pour un dossier ne s'écrit plus dans celui ouvert ensuite ; si un collègue a enregistré la même brochure entre-temps, Studio vous le dit avant de remplacer ; nouveau champ « Surface totale » ; plus de « € » parasite dans « À savoir ».</li>" +

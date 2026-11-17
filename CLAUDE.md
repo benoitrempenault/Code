@@ -1438,6 +1438,18 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**Connexion — du lien e-mail au code SMS sans détour (17/11, Benoît : « je fais Ouvrir la session, mais ça ne me
+renvoie pas sur la page du code SMS »)** : c'était VOULU par la conception « la page qui attend se connecte »
+(`/auth/attente`) : la page ouverte par le lien confirmait seulement, et l'onglet où l'e-mail avait été saisi recevait
+la session et le code — invisible sur ordinateur (on reste devant le nouvel onglet), et aucun SMS si l'onglet d'origine
+était fermé ou en veille. Désormais (`mandat-pro/assets/js/compte.js`, aucun changement serveur) : si le navigateur qui
+ouvre le lien est celui qui l'a demandé (attente présente dans le stockage local, clé `studio-compte-lien-attente` —
+un robot de messagerie ne l'a pas), `consumeHashToken` échange aussitôt avec `ici: true` : pas de bouton, session et
+code SMS sur CETTE page. L'onglet d'origine suit (`suivreAutreOnglet`, évènement `storage`) : même saisie du code,
+puis le compte, sans l'alerte « ouvert sur un autre appareil ». Autre navigateur (application mail du téléphone, app
+d'écran d'accueil, autre poste) : inchangé — bouton anti-robot, puis c'est la page d'origine qui reçoit le code ;
+« Continuer ici plutôt » reste proposé. Smoke `connexion` : il lance SON serveur (port 18810) et un faux Brevo
+(18809), car brancher `BREVO_API_KEY` sur le serveur commun des smokes fait exiger un code aux autres comptes de test.
 **Révision générale en trois lots (17/11, après l'audit Fable 5.2 du 16/11) — ce qu'il faut savoir pour ne pas
 régresser.** Six chantiers fusionnés ; détail dans les commits `lot/*`.
 - *Serveur* : `sqlQ` / `sqlT` tronquent AVANT d'échapper, ids du navigateur en paramètres liés (`marques()`) ; erreur

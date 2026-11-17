@@ -104,8 +104,8 @@
     if (d.user.role === "admin") $("#cardTeam").hidden = false;
   }
 
-  async function handleToken(token) {
-    const r = await api("/auth/exchange", { body: { token: token } }).catch(function () { return { status: 0 }; });
+  async function handleToken(token, ici) {
+    const r = await api("/auth/exchange", { body: ici ? { token: token, ici: true } : { token: token } }).catch(function () { return { status: 0 }; });
     try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { }
     if (r.status === 200 && r.data && r.data.aConfirmer) {
       // Une page attend ce lien sur un AUTRE appareil : est-ce bien la vôtre ?
@@ -138,12 +138,12 @@
       $("#btnConfirm").hidden = true;
       const msg = $("#loginMsg");
       msg.className = "msg is-ok";
-      msg.textContent = r.data.message || "Connexion confirmée : retournez dans Studio sur la page où vous avez saisi votre e-mail, elle se connecte toute seule. Vous pouvez fermer celle-ci.";
+      msg.textContent = "C'est confirmé. Retournez sur la page Studio où vous avez saisi votre e-mail : elle s'ouvre toute seule et vous demande le code reçu par SMS. Vous pouvez fermer celle-ci.";
       if (r.data.ici_possible) {
         // La page qui attendait a peut-être été fermée (app d'écran d'accueil
-        // relancée à blanc) : on peut ouvrir la session ici, en secours.
+        // relancée à blanc), ou l'on préfère simplement continuer ici.
         const b = document.createElement("button");
-        b.type = "button"; b.className = "btn"; b.style.marginTop = "10px"; b.textContent = "Je n'ai plus cette page — ouvrir ma session ici";
+        b.type = "button"; b.className = "btn btn--primary"; b.style.marginTop = "10px"; b.style.display = "block"; b.textContent = "Continuer ici plutôt (code SMS sur cette page)";
         b.addEventListener("click", async function () {
           b.disabled = true;
           const r2 = await api("/auth/exchange", { body: { token: token, ici: true } }).catch(function () { return { status: 0 }; });
@@ -203,11 +203,14 @@
     const tour = async function () {
       if (attenteTour !== tour) return;
       attenteTimer = null;
+      // Le lien a été ouvert dans un autre onglet de CE navigateur, qui a repris la connexion : on le suit.
+      if (!lireLocal(SS_LIEN, ATTENTE_MAX_MS)) { attenteTour = null; suivreAutreOnglet(); return; }
       const r = await api("/auth/attente", { body: { attente: l.attente } }).catch(function () { return { status: 0 }; });
       if (attenteTour !== tour) return;
       if (r.status === 200 && r.data && r.data.etat === "prete") { arreterAttente(); await terminerConnexion(r.data); return; }
       if (r.status === 200 && r.data && r.data.etat === "refusee") {
         arreterAttente();
+        if (suivreAutreOnglet()) return; // c'est un onglet de ce navigateur qui s'est connecté : rien d'inquiétant
         $("#loginMsg").className = "msg is-error";
         $("#loginMsg").textContent = "Le lien a été ouvert sur un autre appareil, qui s'est connecté à votre place. Si ce n'était pas vous, prévenez l'administrateur ; sinon redemandez un lien ici.";
         return;
@@ -220,6 +223,21 @@
     attenteTimer = setTimeout(tour, 2000);
     return true;
   }
+  // Le lien de l'e-mail s'est ouvert dans un AUTRE onglet du même navigateur, et
+  // c'est lui qui ouvre la session (17/11 : on ne renvoie plus l'utilisateur vers
+  // cette page-ci). Ici, on suit : compte ouvert → on l'affiche ; code attendu →
+  // on le propose aussi (le même code vaut dans les deux onglets).
+  function suivreAutreOnglet() {
+    if ((getAccount() || {}).session) { if (!goRetour()) paintMe(); return true; }
+    const att = attenteLue();
+    if (att && att.session) { showCode(att); return true; }
+    return false;
+  }
+  window.addEventListener("storage", function (e) {
+    if ($("#cardMe") && !$("#cardMe").hidden) return; // déjà connecté ici : rien à suivre
+    if (e.key === LS_ACCOUNT && e.newValue) { arreterAttente(); suivreAutreOnglet(); return; }
+    if (e.key === SS_ATTENTE && e.newValue && !$("#cardLogin").hidden) suivreAutreOnglet();
+  });
   // Retour sur la page (app d'écran d'accueil reprise après l'e-mail) : on
   // interroge tout de suite au lieu d'attendre le prochain tour.
   document.addEventListener("visibilitychange", function () {
@@ -430,8 +448,23 @@
     // On attend donc un clic — les robots ne cliquent pas sur les boutons.
     const m = /[#&]token=([^&]+)/.exec(location.hash || "");
     if (!m) return false;
-    pendingToken = decodeURIComponent(m[1]);
+    const jeton = decodeURIComponent(m[1]);
     try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { }
+    // EXCEPTION (17/11) : ce navigateur est celui qui a demandé le lien (son
+    // attente est dans le stockage local — un robot de messagerie ne l'a pas).
+    // Pas de bouton : la session s'ouvre ICI, tout de suite, et le code SMS
+    // s'affiche sur cette page. Avant, c'était l'onglet d'origine qui recevait
+    // la session et le code : l'utilisateur restait devant « retournez sur
+    // l'autre page », et le SMS ne partait pas si cet onglet était fermé.
+    if (lireLocal(SS_LIEN, ATTENTE_MAX_MS)) {
+      show("cardLogin");
+      $("#btnConfirm").hidden = true;
+      $("#loginMsg").className = "msg is-ok";
+      $("#loginMsg").textContent = "Connexion en cours…";
+      handleToken(jeton, true);
+      return true;
+    }
+    pendingToken = jeton;
     show("cardLogin");
     $("#btnConfirm").hidden = false;
     $("#loginMsg").className = "msg is-ok";
