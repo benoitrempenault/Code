@@ -2392,6 +2392,8 @@
       (s.signeAt ? '<span class="puce verte">' + (s.role === "vendeur" ? ({ accepte: "a accepté", refuse: "a refusé", contre: "contre-proposition" }[s.decision] || "a répondu") : "signé") + " le " + fmtTs(s.signeAt) + "</span>"
         : (s.lienActif ? '<span class="puce">lien actif</span>' : "")) +
       (!o.terminee && !s.signeAt && (s.role === "offrant" || ["signee", "presentee"].includes(o.statut)) ? '<button class="btn" style="padding:4px 10px; font-size:12px;" data-lien="' + s.id + '">🔗 ' + (s.lienActif ? "Renvoyer le lien" : "Envoyer le lien") + "</button>" : "") +
+      // L'acquéreur ne peut plus changer lui-même son e-mail ni son mobile (le code de signature y part) : l'agence corrige ici.
+      (d.accesPieces && !o.terminee && !s.signeAt ? '<button class="btn" style="padding:4px 10px; font-size:12px;" data-coord="' + s.id + '" title="Corriger l\'e-mail ou le mobile où part le code de signature">✎ Coordonnées</button>' : "") +
       "</div>";
     const lignePiece = (p) => '<div style="display:flex; gap:10px; align-items:flex-start; padding:6px 0; border-bottom:1px solid var(--line);">' +
       '<span style="width:22px;">' + (p.documents.length ? "✅" : p.requise ? "⬜" : "▫️") + "</span><div style=\"flex:1;\"><strong>" + escH(p.libelle) + "</strong>" + (p.personne ? ' <span class="puce grise">' + escH(p.personne) + "</span>" : "") +
@@ -2500,6 +2502,18 @@
     surModale(corps, "click", async (e) => {
       const autre = e.target.closest("[data-autre-offre]");
       if (autre) { ouvrirOffre(autre.dataset.autreOffre); return; }
+      const co = e.target.closest("[data-coord]");
+      if (co) {
+        const sg = d.signataires.find((x) => x.id === co.dataset.coord); if (!sg) return;
+        const email = prompt("E-mail de " + sg.libelle + " (le lien et le code de signature y sont envoyés) :", sg.email || ""); if (email === null) return;
+        const tel = prompt("Mobile de " + sg.libelle + " (le code de signature y part par SMS) :", sg.telephone || ""); if (tel === null) return;
+        try {
+          await api("/crm/offres/" + o.id + "/signataires/" + sg.id + "/coordonnees", { method: "PUT", json: { email: email.trim(), telephone: tel.trim() } });
+          toast("Coordonnées corrigées — utilisez « Renvoyer le lien » pour que " + sg.libelle + " reçoive un lien à la bonne adresse");
+          rouvrir();
+        } catch (err) { toast(err.message, true); }
+        return;
+      }
       const t = e.target.closest("[data-lien],[data-doc-dl],[data-doc-sup],[data-doc-ajout]");
       if (!t) return;
       try {

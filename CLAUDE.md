@@ -1457,15 +1457,16 @@ régresser.** Six chantiers fusionnés ; détail dans les commits `lot/*`.
   créateur est immuable : c'est lui qui ouvre le périmètre du parcours) ; proxy IA = liste blanche de champs (`model`,
   `max_tokens`, `system`, `messages`, `temperature`, `thinking`, `output_config`), jamais `stream` ni `tools`, cache
   compté, 2xx sans `usage` = réservation gardée, limite IP en mode clé personnelle, purge `ai_rate` ; `/auth/request-link`
-  répond pareil que le compte existe ou non ; code par e-mail refusé si le mobile est vérifié, essais par session sans
-  remise à zéro ; `GET /rdv` et statut = ses propres rendez-vous pour un membre ; modification d'un suivi / d'une
+  répond pareil que le compte existe ou non ; code par e-mail GARDÉ en secours même avec un mobile vérifié (choix de
+  Benoît, 17/11 : les SMS n'arrivent pas toujours), essais par session sans remise à zéro ; `GET /rdv` et statut = ses propres rendez-vous pour un membre ; modification d'un suivi / d'une
   visite = auteur ou admin ; plafonds d'envoi atomiques ; crons en NOMS de jours (`0 5 * * MON,FRI`, chaîne identique
   dans wrangler.toml et worker.js, test) ; `enchainerEtapes` (une étape du cron en échec n'arrête pas les suivantes).
 - *Offres* : code de signature aux coordonnées de l'agence (modifiables depuis le lien seulement si vides) ; lien
   magique, réponse manuelle et retrait = conseiller du dossier ou admin ; empreinte du texte affiché renvoyée à la
   signature (409 si l'offre a changé) ; plafond de codes sur `otp_envois` ; après le gel ni retrait de pièce ni état
   civil ; `questionnaire` réservé à l'offrant, certificat public sans journal ni IP ; nouveau jeton écrit seulement
-  après envoi réussi. À REPORTER À LA MAIN dans `kadima-site/src/offre/` (copie de `offre/assets/js/offre.js`).
+  après envoi réussi ; `PUT /crm/offres/:id/signataires/:sid/coordonnees` (conseiller du dossier ou admin, avant
+  signature) + bouton « ✎ Coordonnées » : c'est là qu'une coordonnée mal saisie se corrige. À REPORTER À LA MAIN dans `kadima-site/src/offre/` (copie de `offre/assets/js/offre.js`).
 - *Suivi* : `PUT /dossiers` sans id sur un nom pris = 409 `existant` (sauf `remplacer`) ; `retour_sru` n'écrit plus
   `dates.presentation_sru` ; étapes `contrat: true` (relance sans report d'échéance) ; `PRET_DEFAUT = 56` ; noms des
   parties jamais réécrits par `normalize()` ; file des dossiers non enregistrés (bandeau, rejeu, `beforeunload`) ;
@@ -1474,7 +1475,7 @@ régresser.** Six chantiers fusionnés ; détail dans les commits `lot/*`.
   jetée ; identité posée au retour d'un PUT seulement si la génération n'a pas changé) ; `viderHorsEtat` vide aussi
   `dpeData` / `surfData` ; `PUT /brochures` avec `version` (409 `modifiee`), par nom sans intention = seulement sa
   propre brochure ; `/fiches` : `id`, `creer`, `remplacer` ; `confirmerRemplacement` ; `sumSurfaces`,
-  `formatPriceValue`, `formatMoneyLine` (tests `server/test-formateurs.mjs`) ; `geo.js` : `remark` d'Overpass = échec.
+  `formatPriceValue`, `formatMoneyLine` (« € » sur taxe / charges / honoraires / électricité / gaz ; tests `server/test-formateurs.mjs`) ; `geo.js` : `remark` d'Overpass = échec.
   Les anciennes pages `/` et `/pro/` n'ont reçu que le refus par nom.
 - *Administration* : `lireContact` (fiche relue par id à l'ouverture, via `/crm/contacts/:id/export`) ; Nouveau
   parcours : `delier`, saisie = contact oublié ; serveur : rattachement d'un parcours sur e-mail OU téléphone

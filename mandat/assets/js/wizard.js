@@ -319,10 +319,12 @@
   }
 
   /* ------- Montants automatiques dans « À savoir » (taxes, charges…) ----- */
-  // « € » seulement sur les lignes de taxe, de charges ou d'honoraires, et jamais devant une
+  // « € » seulement sur les lignes de taxe, de charges, d'honoraires, d'électricité ou de gaz, et jamais devant une
   // unité ou un mot : « Copropriété de 124 lots », « Bureau de 120 m² », « Chauffe-eau 270 L »
   // restent tels quels (« eau » et « copro » déclenchaient l'ajout).
-  const LIGNE_MONTANT = /\btaxes?\b|\bcharges?\b|honorair|fonci[eè]r/i;
+  // Électricité et gaz aussi (17/11) : « Électricité : 400 / mois » retrouve son « € » ; la garde
+  // « jamais devant une unité ou un mot » protège « 5 400 kWh » ou « chaudière gaz de 2019 ».
+  const LIGNE_MONTANT = /\btaxes?\b|\bcharges?\b|honorair|fonci[eè]r|[ée]lectricit[ée]|\bgaz\b/i;
   const SUITE_MONTANT = /^[\s\u00A0\u202F]*(?:$|[\/;:)\-–—]|[.,](?!\d)|(?:par|l['’]an|an|mois|trimestre|annuel(?:le)?s?|mensuel(?:le)?s?|HT|TTC)(?![A-Za-zÀ-ÿ0-9]))/i;
   function formatMoneyLine(line) {
     if (!LIGNE_MONTANT.test(line)) return line;

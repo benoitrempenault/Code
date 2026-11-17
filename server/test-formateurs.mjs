@@ -58,6 +58,10 @@ for (const variante of ["mandat", "mandat-pro"]) {
   egal(ligne("Bureau de 120 m²"), "Bureau de 120 m²", "« Bureau de 120 m² » : pas de €");
   egal(ligne("Chauffe-eau 270 L"), "Chauffe-eau 270 L", "« Chauffe-eau 270 L » : pas de €");
   egal(ligne("Chauffe-eau électrique de 300 litres"), "Chauffe-eau électrique de 300 litres", "« 300 litres » : pas de €");
+  egal(ligne("Électricité : 400 / mois"), "Électricité : 400 € / mois", "« Électricité : 400 / mois » reçoit son €");
+  egal(ligne("Gaz : environ 1200 par an"), "Gaz : environ 1" + F + "200 € par an", "« Gaz : environ 1200 par an » reçoit son €");
+  egal(ligne("Consommation d'électricité : 5400 kWh"), "Consommation d'électricité : 5400 kWh", "« 5400 kWh » : pas de €");
+  egal(ligne("Chaudière gaz de 2019"), "Chaudière gaz de 2019", "une année n'est pas un montant");
   egal(ligne("Taxe foncière : 2900"), "Taxe foncière : 2" + F + "900 €", "taxe foncière : le montant reçoit son €");
   egal(ligne("Taxe foncière 2025 : 2900"), "Taxe foncière 2025 : 2" + F + "900 €", "l'année n'est pas un montant");
   egal(ligne("Taxe foncière : 2 900 €"), "Taxe foncière : 2 900 €", "un montant déjà en € n'est pas doublé");
@@ -67,7 +71,8 @@ for (const variante of ["mandat", "mandat-pro"]) {
   egal(ligne("Copropriété de 124 lots, charges 1800 par an"), "Copropriété de 124 lots, charges 1" + F + "800 € par an", "sur une ligne de charges, le nombre de lots reste un nombre");
   egal(ligne("Taxe foncière pour 120 m² : 950"), "Taxe foncière pour 120 m² : 950 €", "sur une ligne de taxe, la surface reste une surface");
   egal(ligne("Charges : 1250,50 par an"), "Charges : 1250,50 par an", "un montant à centimes n'est pas coupé en deux");
-  egal(ligne("Électricité : environ 400 / mois"), "Électricité : environ 400 / mois", "hors taxe / charges / honoraires : la ligne n'est pas touchée (règle demandée)");
+  egal(ligne("Électricité : environ 400 / mois"), "Électricité : environ 400 € / mois", "électricité : le € revient (choix du 17/11)");
+  egal(ligne("Jardin : environ 400 / mois d'entretien"), "Jardin : environ 400 / mois d'entretien", "hors taxe / charges / honoraires / électricité / gaz : la ligne n'est pas touchée");
 
   // Surface totale : somme des lignes (le total mesuré, lui, prime dans la page).
   egal(somme([{ label: "Terrain", value: "1 223 m²" }]), "1223 m²", "« 1 223 m² » vaut 1223");

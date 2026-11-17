@@ -3078,12 +3078,13 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const auth2 = { Authorization: "Bearer " + ex2.json.session };
     const mailsAvant2 = mailsRecus.length, smsAvant2 = smsRecus.length;
     const renvoi = await callS("/auth/code/envoyer", { headers: auth2, body: { canal: "email" } });
-    ok(renvoi.status === 403 && /uniquement par SMS/.test(renvoi.json.error) && !mailsRecus.slice(mailsAvant2).some((m) => /code de connexion/.test(m.subject || "")),
-      "mobile vérifié : le code n'est pas renvoyé par e-mail (" + JSON.stringify(renvoi.json) + ")");
+    // Choix du propriétaire (17/11) : le code par e-mail reste un secours, même avec un mobile vérifié.
+    ok(renvoi.status === 200 && renvoi.json.canal === "email" && mailsRecus.slice(mailsAvant2).some((m) => /code de connexion/i.test(m.subject || "")),
+      "mobile vérifié : le code peut encore être demandé par e-mail, en secours (" + JSON.stringify(renvoi.json) + ")");
     const renvoiSms = await callS("/auth/code/envoyer", { headers: auth2, body: {} });
     ok(renvoiSms.status === 200 && renvoiSms.json.canal === "sms" && smsRecus.length === smsAvant2 + 1, "…il se redemande par SMS");
-    ok(ex.json.verification.emailPossible === true && ex2.json.verification.emailPossible === false && renvoiSms.json.emailPossible === false,
-      "la réponse dit à l'écran si le code par e-mail est encore possible (oui avant la vérification du mobile, non après)");
+    ok(ex.json.verification.emailPossible === true && ex2.json.verification.emailPossible === true && renvoiSms.json.emailPossible === true,
+      "la réponse dit à l'écran que le code par e-mail reste possible");
     const code2 = smsRecus[smsRecus.length - 1].content.slice(0, 6);
     ok((await callS("/auth/code/verifier", { headers: auth2, body: { code: code2 } })).status === 200, "le code SMS valide le second appareil");
     const aps2 = (await callS("/me/appareils", { headers: authC })).json.appareils;
@@ -5721,6 +5722,17 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   const pirateTel = await call("/public/offre/identite", { method: "PUT", headers: hE, body: { telephone: "07 00 00 00 00", profession: "Pirate" } });
   ok(pirateMail.status === 403 && /contactez votre conseiller/.test(pirateMail.json.error) && pirateTel.status === 403, "remplacer l'e-mail ou le téléphone enregistrés par l'agence depuis le lien : refusé (" + pirateMail.json.error + ")");
   ok((await call("/public/offre/identite", { method: "PUT", headers: hE, body: { email: " ELEONORE@exemple.fr", telephone: "+33 6 12 34 56 78" } })).status === 200, "les mêmes coordonnées, écrites autrement, ne sont pas une modification");
+  // L'agence, elle, corrige une coordonnée mal saisie (conseiller du dossier ou admin, avant signature).
+  { const sg0 = (await call("/crm/offres/" + ofId, { headers: authPaul })).json.signataires[0];
+    const urlC = "/crm/offres/" + ofId + "/signataires/" + sg0.id + "/coordonnees";
+    ok((await call(urlC, { method: "PUT", headers: authLea, body: { email: "lea@exemple.fr" } })).status === 403, "un autre conseiller ne corrige pas les coordonnées d'un signataire (403)");
+    ok((await call(urlC, { method: "PUT", headers: authPaul, body: { email: "pas-un-email", telephone: sg0.telephone } })).status === 400
+      && (await call(urlC, { method: "PUT", headers: authPaul, body: { email: "", telephone: "" } })).status === 400, "e-mail invalide, ou plus aucune coordonnée : refusé");
+    const cor = await call(urlC, { method: "PUT", headers: authPaul, body: { email: "Eleonore.M@exemple.fr", telephone: "06 99 88 77 66" } });
+    const apresC = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
+    ok(cor.status === 200 && apresC.signataires[0].email === "eleonore.m@exemple.fr" && apresC.signataires[0].telephone === "06 99 88 77 66" && apresC.events.some((e) => e.type === "coordonnees"),
+      "le conseiller du dossier corrige l'e-mail et le mobile ; c'est journalisé");
+    await call(urlC, { method: "PUT", headers: authPaul, body: { email: sg0.email, telephone: sg0.telephone } }); }
   const ligneE = await db.get("SELECT email, telephone, identite FROM crm_offre_signataires WHERE id = ?", [pubE.json.moi.id]);
   const pubEco = (await call("/public/offre", { headers: hE })).json;
   ok(ligneE.email === "eleonore@exemple.fr" && ligneE.telephone === "06 12 34 56 78" && JSON.parse(ligneE.identite).email === "eleonore@exemple.fr" && JSON.parse(ligneE.identite).profession === "Ingénieure"
@@ -5893,6 +5905,12 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   mailsOffre.length = 0;
   const repLea = await callO("/crm/offres/" + nb4.id + "/reponse", { headers: authLea, body: { decision: "accepte" } });
   ok(repLea.status === 403 && mailsOffre.length === 0 && (await call("/crm/offres/" + nb4.id, { headers: authPaul })).json.offre.statut === "signee", "un autre conseiller ne saisit pas la réponse du vendeur à sa place (403, offre inchangée)");
+  { const sgS = (await call("/crm/offres/" + nb4.id, { headers: authPaul })).json.signataires.find((x) => x.role === "offrant");
+    // (Cette offre a été passée « signée » directement en base : on pose aussi la signature de l'offrant, le temps du contrôle.)
+    await db.run("UPDATE crm_offre_signataires SET signe_at = 1 WHERE id = ?", [sgS.id]);
+    const corS = await call("/crm/offres/" + nb4.id + "/signataires/" + sgS.id + "/coordonnees", { method: "PUT", headers: authPaul, body: { email: "autre@exemple.fr" } });
+    await db.run("UPDATE crm_offre_signataires SET signe_at = 0 WHERE id = ?", [sgS.id]);
+    ok(corS.status === 409 && /déjà signé/.test(corS.json.error), "après sa signature, les coordonnées d'un signataire ne se modifient plus"); }
   ok((await callO("/crm/offres/" + nb4.id + "/reponse", { headers: authPaul, body: { decision: "contre", prix: 190000, commentaire: "Pas en dessous" } })).status === 200, "contre-proposition enregistrée");
   const auxAcquereurs = mailsOffre.filter((m) => ["eleonore@exemple.fr", "jean@exemple.fr"].includes(m.to[0]));
   ok(auxAcquereurs.length === 2 && auxAcquereurs.every((m) => /contre-proposition/i.test(m.html) && /190[\s\u202f]?000/.test(m.html) && m.html.includes("https://exemple.test/offre/#t=")),

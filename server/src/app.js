@@ -493,12 +493,14 @@ export function createApp(env) {
     if (mob && env.BREVO_API_KEY) {
       await db.run("UPDATE sessions_appareils SET verifie = 0 WHERE token_hash = ?", [hashS]);
       let r = await envoyerCode(c, user, agency, hashS, "sms", mob.mobile);
-      // Repli e-mail seulement si le mobile n'a jamais été vérifié : sinon le
-      // second facteur retombait sur la boîte e-mail, celle qui a déjà reçu le lien.
-      if (!r.ok && !mob.verifie) r = await envoyerCode(c, user, agency, hashS, "email", "");
+      // Repli e-mail quand le SMS ne part pas. Choix du propriétaire (17/11) : on
+      // GARDE ce secours même avec un mobile vérifié — les SMS n'arrivent pas
+      // toujours, et sans lui un conseiller resterait à la porte. Le prix connu :
+      // qui lit la boîte e-mail peut alors passer le second facteur.
+      if (!r.ok) r = await envoyerCode(c, user, agency, hashS, "email", "");
       return reponseSession(bearer, user, agency, { verification: {
         requis: true, canal: r.canal, mobile: masquerMobile(mob.mobile), email: masquerEmail(user.email), expireDans: CODE_MINUTES * 60,
-        emailPossible: !mob.verifie, // l'écran peut masquer « recevoir le code par e-mail »
+        emailPossible: true,
         ...(r.dev_code ? { dev_code: r.dev_code } : {}),
       } });
     }
@@ -518,16 +520,13 @@ export function createApp(env) {
     if (ap.code_essais >= CODE_ESSAIS_MAX) return err(c, 429, "Trop d'essais sur cet appareil — redemandez un lien de connexion.");
     const b = await c.req.json().catch(() => ({}));
     const mob = await mobileDe(ctx.user);
-    // Mobile vérifié : le code ne part QUE par SMS. Le canal e-mail (à la
-    // demande ou en repli) est réservé aux comptes sans mobile vérifié — sinon
-    // qui tient la boîte e-mail (le lien y est déjà arrivé) passait le second facteur.
-    const smsSeul = !!(mob && mob.verifie && env.BREVO_API_KEY);
-    if (smsSeul && b.canal === "email") return err(c, 403, "Ce compte a un mobile vérifié : le code part uniquement par SMS. Téléphone changé ? L'administrateur de l'agence peut mettre à jour votre mobile.");
+    // Le code par e-mail reste possible, à la demande ou en repli (choix du
+    // propriétaire, 17/11 : les SMS n'arrivent pas toujours).
     const canal = b.canal === "email" || !mob || !env.BREVO_API_KEY ? "email" : "sms";
     let r = await envoyerCode(c, ctx.user, ctx.agency, ctx.hash, canal, mob ? mob.mobile : "");
-    if (!r.ok && canal === "sms" && !smsSeul) r = await envoyerCode(c, ctx.user, ctx.agency, ctx.hash, "email", "");
+    if (!r.ok && canal === "sms") r = await envoyerCode(c, ctx.user, ctx.agency, ctx.hash, "email", "");
     if (!r.ok) return err(c, 502, "Le code n'a pas pu partir — " + (r.error || "envoi non configuré") + ".");
-    return c.json({ ok: true, canal: r.canal, mobile: mob ? masquerMobile(mob.mobile) : "", email: masquerEmail(ctx.user.email), expireDans: CODE_MINUTES * 60, emailPossible: !smsSeul, ...(r.dev_code ? { dev_code: r.dev_code } : {}) });
+    return c.json({ ok: true, canal: r.canal, mobile: mob ? masquerMobile(mob.mobile) : "", email: masquerEmail(ctx.user.email), expireDans: CODE_MINUTES * 60, emailPossible: true, ...(r.dev_code ? { dev_code: r.dev_code } : {}) });
   });
   app.post("/auth/code/verifier", async (c) => {
     if (!(await limiteIp(c, "code", 30, 1))) return TROP(c);

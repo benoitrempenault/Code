@@ -368,6 +368,34 @@ export function monterRoutesOffres(app, { db, env, err, membreCtx, crmCtx, isAge
     return c.json(out);
   });
 
+  // Corriger l'e-mail ou le mobile d'un signataire (17/11). Depuis son lien, le
+  // signataire ne peut plus les changer (le code de signature part aux
+  // coordonnées de l'agence) : c'est donc ICI qu'une erreur de saisie se
+  // rattrape — conseiller du dossier ou administrateur seulement, tant que la
+  // personne n'a pas signé. Le code en cours tombe : il était parti à l'ancienne adresse.
+  app.put("/crm/offres/:id/signataires/:sid/coordonnees", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const o = await chargerOffre(ctx.agency.id, c.req.param("id"));
+    if (!o) return err(c, 404, "Offre introuvable.");
+    if (!accesPieces(ctx, o)) return err(c, 403, RESERVE);
+    if (O.STATUTS_TERMINES.includes(o.statut)) return err(c, 409, "Cette offre est terminée.");
+    const s = (await signatairesDe(o.id)).find((x) => x.id === c.req.param("sid"));
+    if (!s) return err(c, 404, "Signataire introuvable.");
+    if (s.signe_at) return err(c, 409, "Cette personne a déjà signé : ses coordonnées ne se modifient plus.");
+    const b = await c.req.json().catch(() => null);
+    if (!b || typeof b !== "object") return err(c, 400, "Corps JSON attendu.");
+    const email = strip(b.email, 120).toLowerCase(), telephone = strip(b.telephone, 40);
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(c, 400, "Adresse e-mail invalide.");
+    if (telephone && !/^[+\d][\d\s.\-()]{5,}$/.test(telephone)) return err(c, 400, "Numéro de téléphone invalide.");
+    if (!email && !telephone) return err(c, 400, "Il faut au moins un e-mail ou un téléphone : c'est là que part le code de signature.");
+    await db.run("UPDATE crm_offre_signataires SET email = ?, telephone = ?, otp_hash = '', otp_expire = 0 WHERE id = ? AND agency_id = ?",
+      [email, telephone, s.id, ctx.agency.id]);
+    await O.journal(db, ctx.agency.id, o.id, "coordonnees",
+      `Coordonnées de ${O.nomSignataire(s)} corrigées par l'agence` + (email !== (s.email || "") ? " (e-mail)" : "") + (telephone !== (s.telephone || "") ? " (téléphone)" : ""),
+      ctx.user.name || ctx.user.email, ipDe(c));
+    return c.json({ ok: true, email, telephone });
+  });
+
   // Présentation au vendeur : l'offre signée part aux vendeurs (lien + OTP).
   app.post("/crm/offres/:id/presenter", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
