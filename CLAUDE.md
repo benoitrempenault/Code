@@ -98,6 +98,11 @@ file par dossier, `suitVersion` (les PUT compromis / avenant rendent `updated_at
 `updated_at_avant`) ; annuaire et modèles enregistrés PAR ID (`annEdits`) ; brouillons et
 focus conservés par `renderDossier(opts)` (`{neuf:true}` après un ajout) ; `conditionProche`
 (avenants, relecture) ; `dateIso` ; `etapes.js?v=` et `app.js?v=` montent ENSEMBLE.
+**Dates qui ne tenaient pas (17/11)** : `aSauver` (ids modifiés) + `envoyerEnAttente()` (debounce,
+`route`, onglet masqué, `beforeunload`) — l'envoi différé partait sur le dossier ouvert au
+moment de l'envoi ; `renderDossierApres()` attend la sortie d'un champ date (un « change » par
+chiffre déréglait la saisie au clavier) et le relâchement de la souris ; `nomUnique()` (créer un
+dossier de même référence écrasait l'ancien). Assets `?v=5`.
 
 **`administration/` — Studio Administration**, l'app interne Kadima d'**administration de
 l'agence** : la base contacts partagée (import d'extraction Excel/CSV avec mappage de colonnes

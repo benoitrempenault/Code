@@ -773,6 +773,17 @@
      répondait « modifié par quelqu'un d'autre » — alors qu'on était seul.
      Une seule sauvegarde attend derrière celle en cours : elle enverra
      l'état du moment, inutile d'en empiler d'autres. */
+  /* Le serveur range les dossiers par NOM (leur référence) : deux dossiers de
+     même nom ne peuvent pas coexister — créer le second écrasait le premier,
+     et renommer l'un comme l'autre bloquait tous ses enregistrements. Le nom
+     envoyé est donc rendu unique (« DUPONT / MARTIN (2) ») ; la référence
+     affichée dans la fiche, elle, ne change pas. */
+  function nomUnique(nom, id) {
+    const pris = (n) => list.some((x) => x.id !== id && String(x.name || "").trim().toLowerCase() === n.toLowerCase());
+    if (!pris(nom)) return nom;
+    for (let i = 2; i < 50; i++) { if (!pris(nom + " (" + i + ")")) return nom + " (" + i + ")"; }
+    return nom + " (" + Date.now().toString(36) + ")";
+  }
   const fileSaves = {};
   function saveDossier(id) {
     const f = fileSaves[id] || (fileSaves[id] = { cours: null, suite: null });
@@ -792,7 +803,7 @@
     // par partie (repli sur l'ancien champ libre pour les dossiers existants).
     const cv = (d.data.conseiller_vendeur || "").trim(), ca = (d.data.conseiller_acquereur || "").trim();
     if (cv || ca) d.data.conseillers = [cv, ca].filter(Boolean).join(" / ");
-    const name = (d.data.reference || d.name || "Dossier sans nom").trim() || "Dossier sans nom";
+    const name = nomUnique((d.data.reference || d.name || "Dossier sans nom").trim() || "Dossier sans nom", d.id);
     try {
       const r = await api("/dossiers", {
         method: "PUT",
@@ -805,7 +816,14 @@
       syncAnnuaireFromDossier(d.data); // enrichit l'annuaire en arrière-plan
     } catch (e) {
       if (id === currentId) setSaveState("error");
-      if (e.status === 409) {
+      if (e.status === 409 && /porte déjà ce nom/i.test(e.message || "")) {
+        // Deux dossiers de même référence (créé entre-temps par un collègue) :
+        // rien à recharger, et surtout rien à perdre — la liste est relue, le
+        // prochain enregistrement prendra un nom distinct.
+        aSauver.add(id);
+        try { await loadList(); } catch (e2) { /* on réessaiera */ }
+        toast("Un autre dossier porte la même référence : celui-ci sera enregistré sous un nom distinct. Modifiez un champ pour relancer l'enregistrement.", true);
+      } else if (e.status === 409) {
         if (confirm(e.message + "\n\nRecharger la version la plus récente ? (vos dernières modifications non enregistrées seront perdues)")) {
           await loadDetail(id, true);
           if (id === currentId) { renderDossier(); setSaveState(""); }
@@ -813,9 +831,20 @@
       } else toast(e.message, true);
     }
   }
-  function saveCurrent() { return saveDossier(currentId); }
-  const saveSoon = debounce(saveCurrent, 900);
-  function markDirty() { setSaveState("dirty"); saveSoon(); }
+  function saveCurrent() { aSauver.delete(currentId); return saveDossier(currentId); }
+  /* Dossiers modifiés et pas encore envoyés. L'enregistrement différé visait
+     « le dossier ouvert AU MOMENT de l'envoi » : en changeant de dossier dans
+     la seconde, la modification restait dans la page sans jamais partir au
+     serveur — et la date d'avant revenait à la réouverture. On retient donc
+     QUEL dossier a été touché, et tout part dès qu'on quitte la fiche. */
+  const aSauver = new Set();
+  function envoyerEnAttente() {
+    const ids = Array.from(aSauver);
+    aSauver.clear();
+    return Promise.all(ids.map((id) => saveDossier(id)));
+  }
+  const saveSoon = debounce(envoyerEnAttente, 900);
+  function markDirty() { if (currentId) aSauver.add(currentId); setSaveState("dirty"); saveSoon(); }
   function refreshListRow(d) {
     const i = list.findIndex((x) => x.id === d.id);
     const row = {
@@ -829,6 +858,8 @@
 
   /* ------------------------------- Routage -------------------------------- */
   function route() {
+    // On quitte une fiche : ce qui y a été modifié part tout de suite.
+    envoyerEnAttente();
     const h = location.hash || "#board";
     let view = h.slice(1);
     if (view.startsWith("dossier/")) { currentId = decodeURIComponent(view.slice(8)); view = "dossier"; }
@@ -1746,6 +1777,7 @@
 
   function renderDossier(opts) {
     const det = details[currentId];
+    if (!det) return; // dossier en cours de chargement : openDossier rendra
     const d = det.data;
     const view = $("#view-dossier");
     const santeD = E.sante(d);
@@ -2124,6 +2156,8 @@
       '<datalist id="dlConseillers">' + annOf("conseiller").map((a) => '<option value="' + esc(a.initiales || a.nom) + '">' + esc(a.nom) + "</option>").join("") + "</datalist>" +
       '<datalist id="dlSyndics">' + annuaire.filter((a) => a.type === "syndic" || a.type === "president").map((a) => '<option value="' + esc(a.nom) + '">' + esc(a.type === "president" ? "Président" : "Syndic") + "</option>").join("") + "</datalist>";
 
+    // Année sur 4 chiffres : sans borne, le champ accepte « 112026 ».
+    $$("#view-dossier input[type=date]").forEach((el) => { el.max = "2099-12-31"; });
     replierCartes();
     brouillons.forEach((b) => {
       const el = view.querySelector("#" + CSS.escape(b.id));
@@ -2377,6 +2411,8 @@
       const d = cur(), t = ev.target;
       if (!d || ev.key !== "Enter" || ev.shiftKey) return;
       if (t.id === "journalInput" || t.id === "journalLien") { ev.preventDefault(); ajouterNote(d); }
+      // Entrée dans un champ date : la saisie est validée, la fiche se met à jour.
+      else if (t.tagName === "INPUT" && (t.type === "date" || t.type === "time")) t.blur();
     });
     // Ouvrir / refermer une fiche du dossier (sans re-rendu : on garde la
     // position dans la page et le contenu des champs en cours d'édition).
@@ -2522,14 +2558,40 @@
     const focus = $("#journalInput");
     if (focus) focus.focus();
   }
-  const renderDossierSoon = debounce(() => { if ((location.hash || "").startsWith("#dossier/")) renderDossier(); }, 1200);
+  const renderDossierSoon = debounce(() => renderDossierApres(), 1200);
   /* Rendu « juste après » : un champ quitté (nom du notaire, date, initiales)
      déclenche un re-rendu, mais l'événement change survient AU MILIEU du clic
      vers la case suivante (mousedown → blur → change → mouseup → focus). Un
      rendu synchrone à ce moment-là remplace la case visée avant qu'elle ne
      reçoive le focus : le clic ne fait rien, il faut recliquer. On laisse le
      clic se terminer, puis on rend — et renderDossier remet le focus où il est. */
-  const renderDossierApres = () => setTimeout(() => { if ((location.hash || "").startsWith("#dossier/")) renderDossier(); }, 0);
+  /* Deux cas où il faut encore patienter avant de rendre :
+     - une DATE en cours de saisie. Un champ date émet « change » à chaque
+       chiffre ; le re-rendu remettait le curseur sur le jour, et taper
+       24/11/2026 donnait une tout autre date. On attend que le champ soit
+       quitté (ou validé par Entrée) ;
+     - un bouton de souris ENFONCÉ : rendre avant le relâchement remplace
+       l'élément visé, et le clic se perd. */
+  let sourisEnfoncee = false;
+  document.addEventListener("mousedown", () => { sourisEnfoncee = true; }, true);
+  document.addEventListener("mouseup", () => { sourisEnfoncee = false; }, true);
+  const saisieDeDate = () => {
+    const a = document.activeElement;
+    return (a && a.tagName === "INPUT" && (a.type === "date" || a.type === "time") && $("#view-dossier").contains(a)) ? a : null;
+  };
+  let renduEnAttente = false;
+  function renderDossierApres() {
+    if (renduEnAttente) return;
+    renduEnAttente = true;
+    const rendre = () => {
+      const champ = saisieDeDate();
+      if (champ) { champ.addEventListener("blur", () => setTimeout(rendre, 0), { once: true }); return; }
+      if (sourisEnfoncee) { document.addEventListener("mouseup", () => setTimeout(rendre, 0), { once: true, capture: true }); return; }
+      renduEnAttente = false;
+      if ((location.hash || "").startsWith("#dossier/")) renderDossier();
+    };
+    setTimeout(rendre, 0);
+  }
 
   async function deleteCurrent() {
     const det = details[currentId];
@@ -3529,7 +3591,11 @@
     // au stock existant, que normalize() laisse à false.
     data.suivi_courtier = true;
     data.echeance = E.nextDue(data);
-    const name = (data.reference || "Dossier du " + new Date().toLocaleDateString("fr-FR")).trim();
+    // Nom unique : un nouveau dossier ne remplace JAMAIS un dossier existant
+    // de même référence (même compromis analysé deux fois, seconde vente
+    // entre les mêmes parties).
+    try { await loadList(); } catch (e) { /* liste en mémoire à défaut */ }
+    const name = nomUnique((data.reference || "Dossier du " + new Date().toLocaleDateString("fr-FR")).trim(), "");
     const r = await api("/dossiers", { method: "PUT", json: { name, data } });
     details[r.id] = { id: r.id, name: r.name, updated_at: r.updated_at, data, compromis_size: 0 };
     refreshListRow(details[r.id]);
@@ -3740,6 +3806,16 @@
       window.location.href = url;
       logRelance("ouverte dans la messagerie");
       $("#ovMail").classList.remove("on");
+    });
+    // Onglet masqué ou page quittée : ce qui n'est pas encore parti part
+    // maintenant ; s'il reste une modification à envoyer, le navigateur
+    // demande confirmation avant de fermer.
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") envoyerEnAttente(); });
+    window.addEventListener("beforeunload", (ev) => {
+      if (!aSauver.size) return;
+      envoyerEnAttente();
+      ev.preventDefault();
+      ev.returnValue = "";
     });
     // Recharge silencieuse au retour sur l'onglet (travail à plusieurs).
     window.addEventListener("focus", async () => {

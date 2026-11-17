@@ -363,6 +363,28 @@ Relecture complète du code de Studio Suivi. Ce qui a été corrigé :
   déjà présente est modifiée, pas doublée.
 - **Agences** : « Nathan » (Caudéran) n'entraîne plus « Nathalie » (Saint-Médard).
 
+### Dates qui ne tenaient pas (17/11/2026)
+
+Deux défauts reproduits au navigateur sur la ligne « Dossier de prêt déposé par l'acquéreur » :
+
+- **Enregistrement parti sur le mauvais dossier.** L'envoi différé (0,9 s) visait « le dossier
+  ouvert au moment de l'envoi » : en changeant de dossier dans la foulée, la modification
+  restait dans la page sans jamais partir, et la date d'avant revenait. `markDirty()` retient
+  désormais QUEL dossier a été touché (`aSauver`), `envoyerEnAttente()` part à chaque
+  changement de vue (`route`), quand l'onglet est masqué, et le navigateur demande
+  confirmation si l'on ferme la page avec une modification non envoyée.
+- **Date tapée au clavier.** Un champ date émet « change » à chaque chiffre ; le re-rendu
+  remettait le curseur sur le jour, et « 24/11/2026 » devenait une autre date. Le rendu attend
+  que le champ date soit quitté (ou validé par Entrée) — `renderDossierApres()` — et qu'aucun
+  bouton de souris ne soit enfoncé (un clic pouvait se perdre). Année bornée à 2099.
+- **Deux dossiers de même référence.** Le serveur range les dossiers par nom : créer un second
+  dossier de même référence REMPLAÇAIT le premier, et un renommage en doublon bloquait tous
+  les enregistrements (« Un autre dossier porte déjà ce nom », puis rechargement et perte de
+  la saisie). `nomUnique()` envoie « DUPONT / MARTIN (2) » ; la référence affichée ne change pas.
+
+Rappel : une relance envoyée par « ✉ Relancer » (Envoyer par e-mail ou Copier le texte)
+repousse l'échéance de la ligne à aujourd'hui + 7 jours, jamais plus tôt qu'elle n'était.
+
 ### Habillage
 
 L'app est en **thème clair « lin »** (`suivi.css`, `color-scheme: light`) : fond sable
