@@ -14,6 +14,17 @@
      node agent-portails.mjs connecter    Edge ouvert : connectez-vous aux portails
      node agent-portails.mjs apprendre    Edge ouvert : naviguez jusqu'aux stats,
                                           chaque page visitée est envoyée à Studio
+     node agent-portails.mjs maintenir    passage léger (SeLoger par défaut) pour
+                                          garder la session ouverte entre deux relevés
+     node agent-portails.mjs diagnostic   note dans le journal la durée de vie des
+                                          cookies des portails (jamais leur valeur)
+
+   Sessions : Chromium ne garde pas les cookies « de session » (sans date
+   d'expiration) d'un lancement à l'autre. Si un portail (SeLoger) tient la
+   connexion dans un tel cookie, elle se perd à chaque fermeture d'Edge, même
+   avec « rester connecté ». L'agent en garde donc une copie CHIFFRÉE (DPAPI
+   Windows, compte de l'utilisateur) dans session-portails.dat et la remet au
+   lancement suivant.
    ========================================================================= */
 import { readFile, writeFile, appendFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
@@ -24,6 +35,8 @@ const ICI = dirname(fileURLToPath(import.meta.url));
 const JOURNAL = join(ICI, "agent-portails.log");
 const ETAT = join(ICI, "dernier-releve.json");
 const PROFIL = join(ICI, "profil-navigateur");
+const SESSIONS = join(ICI, "session-portails.dat");   // cookies de session, chiffrés (DPAPI)
+const VERROU = join(ICI, "agent.verrou");             // un seul Edge à la fois sur le profil
 const ACCUEILS = {
   seloger: "https://myselogerpro.com/login",
   bienici: "https://pro.bienici.com/",
@@ -110,6 +123,69 @@ async function ouvrir(visible) {
     }
   }
 }
+/* ---------------------- Cookies de session (SeLoger) ----------------------- */
+// Chiffrement DPAPI (compte Windows courant) par PowerShell : le fichier ne se
+// relit que sur ce PC, sous cette session. Hors Windows (essais) : en clair.
+function dpapi(sens, base64) {
+  const ps = `Add-Type -AssemblyName System.Security; $e=[Console]::In.ReadToEnd().Trim(); $b=[Convert]::FromBase64String($e); ` +
+    `$r=[Security.Cryptography.ProtectedData]::${sens}($b,$null,'CurrentUser'); [Convert]::ToBase64String($r)`;
+  return execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], { input: base64, encoding: "utf8", timeout: 20000 }).trim();
+}
+function proteger(texte) {
+  const b = Buffer.from(texte, "utf8").toString("base64");
+  return process.platform === "win32" ? "dpapi:" + dpapi("Protect", b) : "clair:" + b;
+}
+function deproteger(contenu) {
+  const [mode, b] = String(contenu).split(":");
+  const brut = mode === "dpapi" ? dpapi("Unprotect", b) : b;
+  return Buffer.from(brut, "base64").toString("utf8");
+}
+// Domaines dont on garde les cookies de session : ceux des portails.
+function domaineDePortail(domaine, portails) {
+  const d = String(domaine || "").replace(/^\./, "");
+  return Object.values(portails || {}).some((v) => (v.domaines || []).some((x) => d === x || d.endsWith("." + x)));
+}
+// Après un passage réussi : les cookies SANS date d'expiration des portails.
+async function garderSessions(ctx, portails) {
+  try {
+    const sess = (await ctx.cookies()).filter((c) => c.expires === -1 && domaineDePortail(c.domain, portails));
+    if (!sess.length) return 0;
+    await writeFile(SESSIONS, proteger(JSON.stringify({ le: Date.now(), cookies: sess })));
+    return sess.length;
+  } catch (e) { await log("Sauvegarde des sessions impossible : " + e.message); return 0; }
+}
+// Au lancement : remet les cookies de session gardés qui ont disparu.
+async function restaurerSessions(ctx) {
+  let gardes;
+  try { gardes = JSON.parse(deproteger(await readFile(SESSIONS, "utf8"))).cookies || []; } catch { return 0; }
+  const presents = new Set((await ctx.cookies()).map((c) => c.domain + "|" + c.path + "|" + c.name));
+  const manquants = gardes.filter((c) => !presents.has(c.domain + "|" + c.path + "|" + c.name));
+  if (!manquants.length) return 0;
+  try { await ctx.addCookies(manquants); } catch (e) { await log("Restauration des sessions impossible : " + e.message); return 0; }
+  return manquants.length;
+}
+// Ce que dit le navigateur des cookies d'un portail : nom, domaine, fin de vie.
+async function decrireCookies(ctx, portails) {
+  const maintenant = Date.now() / 1000;
+  return (await ctx.cookies()).filter((c) => domaineDePortail(c.domain, portails)).map((c) => {
+    const vie = c.expires === -1 ? "session (perdu à la fermeture d'Edge)"
+      : c.expires < maintenant ? "expiré" : "expire dans " + Math.round((c.expires - maintenant) / 3600) + " h";
+    return `${c.domain} ${c.name} — ${vie}${c.httpOnly ? " · httpOnly" : ""}`;
+  });
+}
+
+/* --------------------------------- Verrou ---------------------------------- */
+// Relevé et maintien partagent le profil : le second attend ou renonce.
+async function prendreVerrou() {
+  try {
+    const t = Number(await readFile(VERROU, "utf8"));
+    if (t && Date.now() - t < 15 * 60 * 1000) return false;    // un autre passage en cours (< 15 min)
+  } catch { }
+  await writeFile(VERROU, String(Date.now()));
+  return true;
+}
+async function rendreVerrou() { try { await writeFile(VERROU, "0"); } catch { } }
+
 function fermerEdgeDuProfil() {
   if (process.platform !== "win32") return;
   const cible = PROFIL.replace(/'/g, "''");
@@ -202,8 +278,24 @@ if (mode === "connecter") {
     await pg.goto(ACCUEILS[p] || cons.portails[p].pages[0]?.url, { waitUntil: "domcontentloaded" }).catch(() => { });
   }
   await log("Edge est ouvert : connectez-vous à chaque portail (cochez « rester connecté »), puis fermez Edge.");
+  // Une fois Edge fermé, ses cookies ne se lisent plus : on note les cookies
+  // de session au fil de l'eau, et on garde la dernière photo à la fermeture.
+  let photo = [], description = [];
+  const noter = async () => {
+    try {
+      photo = (await ctx.cookies()).filter((c) => c.expires === -1 && domaineDePortail(c.domain, cons.portails));
+      description = await decrireCookies(ctx, cons.portails);
+    } catch { }
+  };
+  const minuterie = setInterval(noter, 5000);
   await new Promise((r) => ctx.on("close", r));
-  await log("Profil enregistré. Les relevés utiliseront ces connexions.");
+  clearInterval(minuterie);
+  if (photo.length) {
+    try { await writeFile(SESSIONS, proteger(JSON.stringify({ le: Date.now(), cookies: photo }))); }
+    catch (e) { await log("Sauvegarde des sessions impossible : " + e.message); }
+  }
+  await log(`Profil enregistré (${photo.length} cookie(s) de session gardé(s), chiffrés). Les relevés utiliseront ces connexions.`);
+  if (description.length) await log("Cookies des portails à la fermeture :\n  " + description.join("\n  "));
   process.exit(0);
 }
 
@@ -249,6 +341,48 @@ if (mode === "apprendre") {
   process.exit(0);
 }
 
+/* ------------------------- Maintenir / Diagnostic -------------------------- */
+// Maintenir : toutes les 3 h (tâche planifiée), un passage léger sur la page
+// relevée des portails de cfg.maintien (SeLoger par défaut) — rien n'est
+// déposé, sauf une session expirée, signalée tout de suite dans Studio.
+// Diagnostic : même passage sur tous les portails, et le journal note la durée
+// de vie de leurs cookies (jamais leur valeur) pour savoir pourquoi un portail
+// se déconnecte.
+const estSurLogin = (finale, cible) => /login|connexion|signin|sign-in|auth|identification|compte\/connecter/i.test(finale) && !/login|connexion|auth/i.test(cible);
+if (mode === "maintenir" || mode === "diagnostic") {
+  let cons;
+  try { cons = await studio("/crm/portails/consignes"); }
+  catch (e) { await log(`[${mode}] consignes illisibles : ${e.message}`); process.exit(1); }
+  const cibles = mode === "diagnostic" ? Object.keys(cons.portails) : (cfg.maintien || ["seloger"]);
+  if (!(await prendreVerrou())) { await log(`[${mode}] un relevé est en cours : passage remis à plus tard.`); process.exit(0); }
+  const ctx = await ouvrir(false);
+  const remis = await restaurerSessions(ctx);
+  if (mode === "diagnostic") await log(`[diagnostic] ${remis} cookie(s) de session remis depuis la sauvegarde. Cookies au lancement :\n  ` + (await decrireCookies(ctx, cons.portails)).join("\n  "));
+  const page = ctx.pages()[0] || await ctx.newPage();
+  let expirees = 0;
+  for (const p of cibles) {
+    const v = cons.portails[p];
+    const url = (v && v.pages[0] && v.pages[0].url) || ACCUEILS[p];
+    if (!url) continue;
+    try {
+      await page.goto(url, { waitUntil: "load", timeout: 60000 });
+      await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => { });
+      await attendre(2000);
+      const finale = page.url();
+      if (estSurLogin(finale, url)) {
+        expirees++;
+        await log(`[${mode}] [${p}] session expirée (redirigé vers ${finale.split("?")[0]}).`);
+        if (mode === "maintenir") await studio("/crm/portails/depot", { portail: p, mode: "releve", url, session: "expiree" }).catch(() => { });
+      } else await log(`[${mode}] [${p}] session active.`);
+    } catch (e) { await log(`[${mode}] [${p}] ${e.message}`); }
+  }
+  if (mode === "diagnostic") await log("[diagnostic] Cookies après le passage :\n  " + (await decrireCookies(ctx, cons.portails)).join("\n  "));
+  if (!expirees) await garderSessions(ctx, cons.portails);
+  await ctx.close().catch(() => { });
+  await rendreVerrou();
+  process.exit(0);
+}
+
 /* -------------------------------- Relevé ---------------------------------- */
 const aujourdhui = new Date().toISOString().slice(0, 10);
 if (!args.includes("--forcer")) {
@@ -260,11 +394,14 @@ catch (e) { await log("Consignes illisibles : " + e.message); await passage("con
 const aFaire = Object.entries(cons.portails).filter(([, v]) => v.pages.length);
 if (!aFaire.length) { await log("Aucune page à relever : faites d'abord l'apprentissage (APPRENDRE.cmd) et choisissez les pages dans Studio Bilans."); await passage("sans-page"); process.exit(0); }
 
+if (!(await prendreVerrou())) { await log("Un autre passage de l'agent est en cours : relevé remis au prochain lancement."); await passage("verrou"); process.exit(0); }
 const ctx = await ouvrir(false);
+const remis = await restaurerSessions(ctx);
+if (remis) await log(`${remis} cookie(s) de session remis depuis la sauvegarde.`);
 await reecrire(ctx, cons.reecritures);
 const ecoute = ecouter(ctx, cons.portails);
 const page = ctx.pages()[0] || await ctx.newPage();
-let erreurs = 0;
+let erreurs = 0, sessionPerdue = false;
 for (const [p, v] of aFaire) {
   for (const cible of v.pages) {
     try {
@@ -280,10 +417,12 @@ for (const [p, v] of aFaire) {
       }
       await attendre(2500);
       const finale = page.url();
-      const surLogin = /login|connexion|signin|sign-in|auth|identification|compte\/connecter/i.test(finale) && !/login|connexion|auth/i.test(cible.url);
-      if (surLogin) {
+      if (estSurLogin(finale, cible.url)) {
+        sessionPerdue = true;
         await studio("/crm/portails/depot", { portail: p, mode: "releve", url: cible.url, session: "expiree" });
-        await log(`[${p}] session expirée (redirigé vers ${finale}) : lancez CONNECTER.cmd.`);
+        await log(`[${p}] session expirée (redirigé vers ${finale.split("?")[0]}) : lancez CONNECTER.cmd.`);
+        // Pour comprendre la déconnexion : ce qu'il restait comme cookies du portail.
+        await log(`[${p}] cookies restants :\n  ` + (await decrireCookies(ctx, { [p]: cons.portails[p] })).join("\n  "));
         erreurs++;
         break;
       }
@@ -293,7 +432,9 @@ for (const [p, v] of aFaire) {
     } catch (e) { erreurs++; await log(`[${p}] ${cible.url} : ${e.message}`); }
   }
 }
+if (!sessionPerdue) await garderSessions(ctx, cons.portails);
 await ctx.close();
+await rendreVerrou();
 if (!erreurs) await writeFile(ETAT, JSON.stringify({ jour: aujourdhui }));
 await log(erreurs ? `Relevé terminé avec ${erreurs} erreur(s).` : "Relevé terminé.");
 await passage(erreurs ? "erreurs" : "termine", erreurs ? `${erreurs} erreur(s)` : "");

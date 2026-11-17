@@ -10,6 +10,11 @@ import { runCrmDaily, menageQuotidien } from "./src/crm.js";
 import { rappelsOffres } from "./src/offres-cron.js";
 import { runBilans, rappelImport } from "./src/bilans.js";
 
+// Doit être IDENTIQUE à la chaîne de wrangler.toml ([triggers] crons) :
+// event.cron vaut exactement la chaîne configurée. Cloudflare : 1 = dimanche,
+// d'où les abréviations (MON, FRI) plutôt que des chiffres.
+const CRON_LUNDI_VENDREDI = "0 5 * * MON,FRI";
+
 export default {
   // Cron (wrangler.toml [triggers]) : récapitulatif des actions à mener
   // envoyé aux comptes de chaque agence (app Suivi). Interrupteur RECAP_AUTO :
@@ -25,14 +30,14 @@ export default {
     // Lundi 5h UTC : brouillons des bilans vendeurs de la semaine écoulée
     // (budget de sous-requêtes à part de celui du cron de 6h). Inerte tant
     // que l'agence n'a pas activé les bilans dans ses réglages.
-    if (event.cron === "0 5 * * 1,5" && new Date().getUTCDay() === 1) ctx.waitUntil(runBilans(env, db));
+    if (event.cron === CRON_LUNDI_VENDREDI && new Date().getUTCDay() === 1) ctx.waitUntil(runBilans(env, db));
     // Vendredi 5h UTC : rappel d'importer l'export des mandats avant lundi.
-    if (event.cron === "0 5 * * 1,5" && new Date().getUTCDay() === 5) ctx.waitUntil(rappelImport(env, db));
+    if (event.cron === CRON_LUNDI_VENDREDI && new Date().getUTCDay() === 5) ctx.waitUntil(rappelImport(env, db));
     // Relevé nocturne des absences Outlook (permanences). Inerte tant que
     // l'agence n'a pas coché « relever automatiquement » dans ses réglages.
     ctx.waitUntil(releverAbsencesOutlook(env, db));
     // Récapitulatif Suivi : uniquement sur SON cron, et si RECAP_AUTO=1.
-    if (env.RECAP_AUTO !== "1" || event.cron !== "0 5 * * 1,5") return;
+    if (env.RECAP_AUTO !== "1" || event.cron !== CRON_LUNDI_VENDREDI) return;
     ctx.waitUntil(runRecap(env, db));
   },
 
