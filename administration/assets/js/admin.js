@@ -5052,6 +5052,8 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "connexion-17-11", depuis: "2026-11-17", jours: 10, titre: "Connexion : du lien de l'e-mail au code SMS, sans détour",
+      html: '<p class="aide" style="max-width:none; margin:0;">Quand vous vous reconnectez sur votre ordinateur, le lien reçu par e-mail ouvre maintenant <strong>directement la page du code SMS</strong> : plus de bouton « Ouvrir ma session », plus besoin de revenir sur l\'onglet où vous aviez saisi votre adresse. Le SMS part aussitôt. (Sur téléphone, quand le lien s\'ouvre dans l\'application mail, rien ne change : c\'est l\'application Studio qui se connecte.)</p>' },
     { id: "livret-versions-17-11", depuis: "2026-11-16", jours: 14, titre: "Livret prix : second correctif, et de quoi retrouver ce qui a été écrasé",
       html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
         "<li><strong>Second défaut corrigé (16/11 au soir)</strong> : quitter un livret prix pendant qu'il chargeait encore, puis ouvrir celui d'un autre dossier, pouvait afficher le premier par-dessus le second — la saisie partait alors dans le mauvais dossier. Un livret quitté ne revient plus, et Studio refuse désormais toute saisie qui ne correspond pas au dossier affiché.</li>" +
