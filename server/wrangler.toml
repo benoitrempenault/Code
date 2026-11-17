@@ -22,11 +22,16 @@ bucket_name = "studio-brochure-files"
 # ont des dossiers en cours. DÉSACTIVÉ tant que RECAP_AUTO ≠ "1" (le bouton
 # « Recevoir le récap maintenant » de l'app reste actif). Test : POST /admin/recap.
 [triggers]
-# 0 5 lun/ven : récapitulatif Suivi · 30 3 tous les jours : relevé des
+# ATTENTION : chez Cloudflare, le jour 1 est le DIMANCHE (1 = SUN … 7 = SAT).
+# « 0 5 * * 1,5 » tombait donc le dimanche et le jeudi, et les tests
+# getUTCDay() === 1 / 5 du Worker n'étaient jamais vrais : ni bilans du
+# lundi, ni rappel d'import du vendredi. Toujours écrire MON, FRI…
+# 0 5 lun/ven : bilans vendeurs (lundi), rappel d'import (vendredi),
+# récapitulatif Suivi · 30 3 tous les jours : relevé des
 # absences Outlook (permanences) — 5h30/4h30 à Paris selon la saison.
 # 0 6 tous les jours : Administration (annonces du site + vœux d'anniversaire),
 # 8h/7h à Paris selon la saison — inerte pour les agences qui n'ont rien activé.
-crons = ["0 5 * * 1,5", "30 3 * * *", "0 6 * * *"]
+crons = ["0 5 * * MON,FRI", "30 3 * * *", "0 6 * * *"]
 
 [vars]
 # century21-kadima.fr : l'espace public de l'offre d'achat (offre/) y sera posé (CORS).

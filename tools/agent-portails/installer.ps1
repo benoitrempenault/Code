@@ -51,6 +51,16 @@ $soir = New-ScheduledTaskTrigger -Daily -At 20:00
 $reglages = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -RunOnlyIfNetworkAvailable
 Register-ScheduledTask -TaskName "Studio Kadima - Agent portails" -Action $action -Trigger @($ouverture, $soir) -Settings $reglages -Force | Out-Null
 Write-Host "Tache planifiee installee : Studio Kadima - Agent portails (ouverture de session + 20h)." -ForegroundColor Green
+
+# 3) Maintien des sessions (SeLoger) : un passage leger toutes les 3 h, de 7h a 22h,
+#    pour que la connexion ne s'eteigne pas entre deux releves quotidiens.
+$maintien = New-ScheduledTaskAction -Execute $node -Argument "`"$script`" maintenir" -WorkingDirectory $ici
+$cycle = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddHours(7) -RepetitionInterval (New-TimeSpan -Hours 3) -RepetitionDuration (New-TimeSpan -Hours 15)
+$chaqueJour = New-ScheduledTaskTrigger -Daily -At 07:00
+$chaqueJour.Repetition = $cycle.Repetition
+$reglagesM = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -RunOnlyIfNetworkAvailable -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName "Studio Kadima - Agent portails (maintien)" -Action $maintien -Trigger $chaqueJour -Settings $reglagesM -Force | Out-Null
+Write-Host "Tache planifiee installee : Studio Kadima - Agent portails (maintien) - toutes les 3 h de 7h a 22h." -ForegroundColor Green
 Write-Host ""
 Write-Host "Etape suivante : double-cliquez CONNECTER.cmd et connectez-vous aux 3 portails (une fois)." -ForegroundColor Yellow
 Write-Host "Puis APPRENDRE.cmd : montrez-lui les pages de statistiques de vos annonces." -ForegroundColor Yellow
