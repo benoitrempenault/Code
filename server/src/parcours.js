@@ -16,10 +16,15 @@
    que le conseiller a déjà envoyé à la main.
    ========================================================================= */
 import { now, randId, randToken, safeEqual } from "./util.js";
-import { runRappelsApresR2, formatTelephone, groupePv, filtrePv, filtrePvProjet, MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier , releverAvisAgences, avisAgence, releverAvisConseillers, jsonAvisSite } from "./crm.js";
+import { CORBEILLE_JOURS, restaurerCorbeille, runRappelsApresR2, formatTelephone, groupePv, filtrePv, filtrePvProjet, MODELES, remplirModele, surchargeModele, wrapEmail, envoyerMailHtml, getReglages, agencePour, sanitizeEstimation, sanitizeContact, sanitizeBienEstimation, geocoderEstimesCommune, genrePrenom, dossierVendu, adresseDossier , releverAvisAgences, avisAgence, releverAvisConseillers, jsonAvisSite } from "./crm.js";
 
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const strip = (v, max = 200) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
+// Rapprocher deux fiches par le téléphone : les chiffres seuls (« 06 11 22 33 44 »,
+// « 06.11.22.33.44 » et « +33 6 11 22 33 44 » sont le même numéro) ; trop court = pas un numéro.
+const chiffresTel = (t) => { const n = String(t || "").replace(/[\s.\-()\u00a0\u202f]/g, "").replace(/^(\+33|0033)/, "0"); return /^\d{10,15}$/.test(n) ? n : ""; };
+const SQL_CHIFFRES_TEL = "replace(replace(replace(replace(replace(replace(telephone, ' ', ''), '.', ''), '-', ''), '(', ''), ')', ''), '+33', '0')";
+const clePrenom = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 export const ETAPES = ["avant-r1", "guide-r1", "entre-r1-r2", "guide-r2", "acm", "courrier-estimation", "apres-r2", "demarche"];
@@ -311,13 +316,16 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!v.nom && !v.prenom) return err(c, 400, "Un nom ou un prénom est requis.");
     const id = strip(b.id, 40);
     if (id) {
-      const cur = await db.get("SELECT id, photo FROM crm_conseillers WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);
+      const cur = await db.get("SELECT id, photo, user_id FROM crm_conseillers WHERE id = ? AND agency_id = ?", [id, ctx.agency.id]);
       if (!cur) return err(c, 404, "Conseiller introuvable.");
       // Sans `photo` dans le corps, la photo en place reste.
       const photo = b.photo === undefined ? cur.photo : v.photo;
+      // Sans `user_id` non plus : l'écran ne l'envoie jamais, et le lien du profil avec
+      // son compte (périmètre « mes parcours ») était effacé à chaque « Enregistrer ».
+      const userId = b.user_id === undefined ? cur.user_id : v.user_id;
       await db.run(
         "UPDATE crm_conseillers SET user_id = ?, prenom = ?, nom = ?, fonction = ?, telephone = ?, email = ?, photo = ?, actif = ?, updated_at = ? WHERE id = ?",
-        [v.user_id, v.prenom, v.nom, v.fonction, v.telephone, v.email, photo, v.actif, now(), id]);
+        [userId, v.prenom, v.nom, v.fonction, v.telephone, v.email, photo, v.actif, now(), id]);
       if (b.bio !== undefined || b.genre !== undefined) await ecrireExtra(id, b);
       try { await majPhotoCarre(id, b); } catch (e) { return err(c, 400, e.message); }
       if (b.direction !== undefined) await ecrireDirection(id, b.direction === true || b.direction === 1);
@@ -827,15 +835,23 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (cs) v.conseiller = [cs.prenom, cs.nom].filter(Boolean).join(" ");
     // Le client est TOUJOURS une fiche contact : celle choisie dans la
     // recherche, sinon une fiche existante qui porte le même e-mail ou le même
-    // nom + prénom, sinon une nouvelle (typée « estimé »).
+    // téléphone, sinon une nouvelle (typée « estimé »).
+    // Un simple homonyme (même nom + prénom, prénom vide compris) n'est PAS
+    // rattaché : le parcours partait chez une autre personne, dont la fiche
+    // était ensuite réécrite (audit du 16/11). Le conseiller qui veut la fiche
+    // existante la choisit dans la recherche.
     let contactId = v.contact_id ? ((await db.get("SELECT id FROM crm_contacts WHERE id = ? AND agency_id = ?", [v.contact_id, ctx.agency.id])) || {}).id || "" : "";
     let contactCree = false;
     if (!contactId) {
       const px = sanitizeParcours(b);
-      const existant = v.email ? await db.get("SELECT id FROM crm_contacts WHERE agency_id = ? AND email = ?", [ctx.agency.id, v.email]) : null;
-      const homonyme = !existant && v.nom ? await db.get(
-        "SELECT id FROM crm_contacts WHERE agency_id = ? AND nom = ? COLLATE NOCASE AND prenom = ? COLLATE NOCASE", [ctx.agency.id, v.nom, px.prenom]) : null;
-      contactId = (existant || homonyme || {}).id || "";
+      const tel = chiffresTel(v.telephone);
+      const candidats = v.email || tel ? await db.all(
+        `SELECT id, prenom FROM crm_contacts WHERE agency_id = ? AND ((? <> '' AND email = ?) OR (? <> '' AND telephone <> '' AND ${SQL_CHIFFRES_TEL} = ?))
+         ORDER BY created_at, id LIMIT 20`, [ctx.agency.id, v.email, v.email, tel, tel]) : [];
+      // E-mail ou téléphone partagé par plusieurs fiches (un couple) : celle du même
+      // prénom ; aucune ne concorde → une nouvelle fiche plutôt qu'une au hasard.
+      const memePrenom = candidats.find((x) => clePrenom(x.prenom) === clePrenom(px.prenom));
+      contactId = (memePrenom || (candidats.length === 1 ? candidats[0] : null) || {}).id || "";
       if (!contactId) {
         const ct = sanitizeContact({ civilite: px.civilite, prenom: px.prenom, nom: v.nom, email: v.email, telephone: v.telephone, adresse: v.adresse, cp: px.cp, ville: v.ville, types: ["estime"], conseiller: v.conseiller });
         contactId = randId("ct"); contactCree = true;
@@ -887,7 +903,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   });
   // Ce que le conseiller complète dans la fiche du parcours (civilité, prénom,
   // nom, e-mail, téléphone, adresse, CP, ville) remonte sur la fiche contact
-  // principale — valeurs non vides seulement : rien ne s'efface d'ici.
+  // principale — pour COMPLÉTER ses champs vides seulement : rien ne s'efface
+  // ni ne se remplace d'ici.
   const CHAMPS_CONTACT = ["civilite", "prenom", "nom", "email", "telephone", "adresse", "cp", "ville"];
   async function reporterSurContact(ctx, est, v, b) {
     if (!est.contact_id || !CHAMPS_CONTACT.some((k) => k in b)) return;
@@ -899,7 +916,10 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     for (const k of CHAMPS_CONTACT) {
       if (!(k in b)) continue;
       const val = k === "email" ? strip(src[k], 160).toLowerCase() : strip(src[k], k === "adresse" ? 200 : 80);
-      if (val && val !== ct[k]) maj[k] = val;
+      // Seuls les champs VIDES de la fiche contact se remplissent : l'e-mail, le
+      // téléphone ou l'adresse qu'elle porte déjà ne sont jamais remplacés par ceux
+      // du parcours (un parcours relié à la mauvaise fiche la réécrivait — audit du 16/11).
+      if (val && !String(ct[k] || "").trim()) maj[k] = val;
     }
     if (!Object.keys(maj).length) return;
     const n = { ...ct, ...maj };
@@ -926,10 +946,62 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
-    for (const [table, col] of [["crm_parcours_r2", "estimation_id"], ["crm_parcours", "estimation_id"], ["crm_estimation_contacts", "estimation_id"], ["crm_estimations", "id"]]) {
+    // Le dossier part en corbeille (30 jours, « Dossiers supprimés ») avant
+    // d'être effacé : ses lignes, table par table. Si la photo du R2 rend
+    // l'entrée trop lourde, on la laisse ; la suppression a lieu dans tous les cas.
+    const tables = [["crm_parcours_r2", "estimation_id"], ["crm_parcours", "estimation_id"], ["crm_estimation_contacts", "estimation_id"], ["crm_estimations", "id"]];
+    try {
+      const payload = {};
+      for (const [table, col] of tables) payload[table] = await db.all(`SELECT * FROM ${table} WHERE ${col} = ?`, [p.est.id]);
+      const libelle = libelleDossier(p.est, p.px).slice(0, 160);
+      const poser = (pl) => db.run(
+        "INSERT INTO crm_corbeille (id, agency_id, type, ref_id, libelle, payload, user_id, created_at, restored_at) VALUES (?, ?, 'parcours', ?, ?, ?, ?, ?, 0)",
+        [randId("cb"), ctx.agency.id, p.est.id, libelle, JSON.stringify(pl), ctx.user.id, now()]);
+      try { await poser(payload); }
+      catch { await poser({ ...payload, crm_parcours_r2: payload.crm_parcours_r2.map((r) => ({ ...r, photo: "" })) }); }
+    } catch { /* la corbeille ne bloque jamais une suppression */ }
+    for (const [table, col] of tables) {
       await db.run(`DELETE FROM ${table} WHERE ${col} = ?`, [p.est.id]);
     }
-    return c.json({ ok: true });
+    return c.json({ ok: true, corbeille_jours: CORBEILLE_JOURS });
+  });
+  // « Dossiers supprimés » : les parcours effacés depuis moins de 30 jours (et
+  // ceux retrouvés dans les sauvegardes), dans le périmètre de chacun — un
+  // conseiller voit les siens, la direction les voit tous.
+  const libelleDossier = (est, px) => [[px && px.civilite, px && px.prenom, est.nom].filter(Boolean).join(" "), [est.adresse, est.ville].filter(Boolean).join(", ")].filter(Boolean).join(" — ");
+  const entreesCorbeilleParcours = async (ctx) => {
+    const per = await perimetre(ctx);
+    const rows = await db.all(
+      "SELECT id, ref_id, libelle, payload, user_id, created_at FROM crm_corbeille WHERE agency_id = ? AND type = 'parcours' AND restored_at = 0 AND created_at > ? ORDER BY created_at DESC LIMIT 150",
+      [ctx.agency.id, now() - CORBEILLE_JOURS * 86400]);
+    const vivants = new Set((await db.all("SELECT id FROM crm_estimations WHERE agency_id = ?", [ctx.agency.id])).map((r) => r.id));
+    const out = [];
+    for (const r of rows) {
+      let pl = {}; try { pl = JSON.parse(r.payload || "{}"); } catch { pl = {}; }
+      const est = (pl.crm_estimations || [])[0], px = (pl.crm_parcours || [])[0] || null;
+      if (!est || vivants.has(r.ref_id) || !dansPerimetre(per, est, px)) continue;
+      out.push({ row: r, est, px, meta: (pl._meta && typeof pl._meta === "object") ? pl._meta : {} });
+    }
+    return out;
+  };
+  app.get("/crm/parcours-corbeille", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const expire = now() - CORBEILLE_JOURS * 86400;
+    const entrees = (await entreesCorbeilleParcours(ctx)).map(({ row, est, px, meta }) => ({
+      id: row.id, libelle: row.libelle || libelleDossier(est, px), adresse: [est.adresse, est.ville].filter(Boolean).join(", "),
+      conseiller_id: (px && px.conseiller_id) || "", r1: est.r1 || "", r2: est.r2 || "",
+      supprime_le: row.created_at, sauvegarde: String(meta.sauvegarde || "").slice(0, 10),
+      jours_restants: Math.max(0, Math.ceil((row.created_at - expire) / 86400)),
+    }));
+    return c.json({ jours: CORBEILLE_JOURS, entrees });
+  });
+  app.post("/crm/parcours-corbeille/:id/restaurer", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const e = (await entreesCorbeilleParcours(ctx)).find((x) => x.row.id === c.req.param("id"));
+    if (!e) return err(c, 404, "Dossier introuvable dans les dossiers supprimés (ou déjà restauré).");
+    const r = await restaurerCorbeille(db, ctx.agency.id, e.row.id);
+    if (!r) return err(c, 404, "Dossier introuvable dans les dossiers supprimés (ou déjà restauré).");
+    return c.json({ ok: true, id: e.row.ref_id, libelle: r.libelle });
   });
   // Un co-propriétaire : un contact choisi dans la recherche, sinon une fiche
   // existante (même e-mail, ou même nom + prénom), sinon une nouvelle fiche.
@@ -1136,17 +1208,50 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!r.ok) return null;
     return r.json();
   }
-  async function commune(cp, ville, adresse = "") {
+  // Les mots d'un nom de ville tel qu'on l'écrit sur une fiche : accents, tirets et
+  // apostrophes ôtés, « st / ste » développés, articles, liaisons et « cedex » retirés
+  // (« St Médard en Jalles » et « Saint-Médard-en-Jalles » donnent la même suite).
+  const motsVille = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\bcedex\b.*$/, "")
+    .replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean).map((m) => (m === "st" ? "saint" : m === "ste" ? "sainte" : m))
+    .filter((m) => !/^(le|la|les|l|de|du|des|d|en|sur|sous|\d+(e|er|eme)?)$/.test(m));
+  const debutDe = (a, b) => a.length > 0 && a.length <= b.length && a.every((m, i) => m === b[i]);
+  // La ville d'une fiche et le nom officiel d'une commune concordent : mêmes mots, ou l'un commence l'autre (« Le Taillan » / « Le Taillan-Médoc »).
+  const villesConcordent = (ville, nom) => { const a = motsVille(ville), b = motsVille(nom); return !a.length || !b.length || debutDe(a, b) || debutDe(b, a); };
+  // Parmi les communes d'un code postal, celle du bien : d'abord le code INSEE de la
+  // Base Adresse Nationale (l'adresse géocodée ne ment pas sur sa commune), puis le nom
+  // de la fiche (mêmes mots, sinon un début sans ambiguïté). Jamais « la première de la
+  // liste » : 33160 rend Saint-Aubin-de-Médoc AVANT Saint-Médard-en-Jalles, et un guide
+  // R2 sortait au nom de la mauvaise commune (audit du 16/11). null = indéterminée.
+  const choisirCommune = (liste, ville, citycode) => {
+    if (liste.length === 1) return liste[0];
+    const parCode = citycode ? liste.find((x) => x.code === citycode) : null;
+    if (parCode) return parCode;
+    const v = motsVille(ville);
+    if (!v.length) return null;
+    const memes = liste.filter((x) => motsVille(x.nom).join(" ") === v.join(" "));
+    if (memes.length === 1) return memes[0];
+    const proches = liste.filter((x) => { const n = motsVille(x.nom); return debutDe(v, n) || debutDe(n, v); });
+    return proches.length === 1 ? proches[0] : null;
+  };
+  // `ban` : le géocodage de l'adresse quand l'appelant vient de le faire (évite un second appel).
+  async function commune(cp, ville, adresse = "", ban = null) {
     const base = (env.GEO_BASE || "https://geo.api.gouv.fr").replace(/\/+$/, "");
     const champs = "fields=nom,code,population,surface,departement,region&format=json";
-    const norm = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
     let liste = null;
     for (let essai = 0; essai < 2 && !(Array.isArray(liste) && liste.length); essai++) {
       try { liste = await lireGeo(base + "/communes?" + champs + "&" + (cp ? "codePostal=" + encodeURIComponent(cp) : "nom=" + encodeURIComponent(ville || ""))); } catch { liste = null; }
     }
-    if (Array.isArray(liste) && liste.length) return formeCommune(liste.find((x) => norm(x.nom) === norm(ville)) || liste[0], cp);
-    let g = null;
-    try { g = await geocoderBan(adresse, cp, ville); } catch { g = null; }
+    let g = ban;
+    if (Array.isArray(liste) && liste.length) {
+      if (liste.length > 1 && !g) { try { g = await geocoderBan(adresse, cp, ville); } catch { g = null; } }
+      const choisie = choisirCommune(liste, ville, g && g.citycode);
+      if (choisie) return formeCommune(choisie, cp);
+      // Plusieurs communes possibles et rien pour trancher : on le dit, sans en inventer une.
+      const deps = [...new Set(liste.map((x) => (x.departement && x.departement.nom) || ""))], regs = [...new Set(liste.map((x) => (x.region && x.region.nom) || ""))];
+      const forme = formeCommune({ nom: "", code: "", departement: deps.length === 1 && deps[0] ? { nom: deps[0] } : null, region: regs.length === 1 && regs[0] ? { nom: regs[0] } : null }, cp);
+      return { ...forme, code: "", indeterminee: true, possibles: liste.map((x) => x.nom).slice(0, 12) };
+    }
+    if (!g) { try { g = await geocoderBan(adresse, cp, ville); } catch { g = null; } }
     if (!g || !g.citycode) return null;
     let c = null;
     try { c = await lireGeo(base + "/communes/" + encodeURIComponent(g.citycode) + "?" + champs); } catch { c = null; }
@@ -1155,6 +1260,9 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const forme = formeCommune({ nom: g.city || ville || "", code: g.citycode }, cp);
     return { ...forme, departement: ctx[1] || forme.departement, region: ctx[2] || forme.region, incomplete: true };
   }
+  // Ce qu'on dit quand la commune est indéterminée (fenêtre du livret, guide R2).
+  const messageIndeterminee = (com, cp, ville) => "commune indéterminée : " + (cp ? "le code postal " + cp + " couvre " : "plusieurs communes possibles : ") + (com.possibles || []).join(", ") +
+    (ville ? " et « " + ville + " » n'en désigne aucune sans ambiguïté" : " et la fiche n'a pas de ville") + " — corrigez la ville de la fiche";
   const communeComplete = (c) => !!(c && c.code && c.population && c.departement && c.region);
   // Plusieurs relais Overpass : le premier qui répond avec des éléments gagne.
   // Le 30/09, depuis Cloudflare, lz4, kumi, private.coffee et overpass-api.de
@@ -1162,6 +1270,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   // R2) ; le relais français (overpass.openstreetmap.fr) répondait en 2 s.
   // Il passe donc en tête, les autres restent en secours.
   const RELAIS_OVERPASS = ["https://overpass.openstreetmap.fr", "https://lz4.overpass-api.de", "https://overpass.kumi.systems", "https://overpass.private.coffee", "https://overpass-api.de"];
+  const PLAFOND_COMMODITES = 12; // par catégorie : le guide écrit « 12 et plus » quand il est atteint
   async function commodites(lat, lng) {
     const relais = [...new Set([(env.OVERPASS_BASE || RELAIS_OVERPASS[0]).replace(/\/+$/, ""), ...(env.OVERPASS_BASE ? [] : RELAIS_OVERPASS)])];
     let derniere = null;
@@ -1198,7 +1307,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     }
     out.sort((a, b) => a.dist - b.dist);
     // Au plus 12 par catégorie (les arrêts de bus pullulent) ; ordonné par distance.
-    const parCat = {}; return out.filter((o) => (parCat[o.cat] = (parCat[o.cat] || 0) + 1) <= 12);
+    const parCat = {}; return out.filter((o) => (parCat[o.cat] = (parCat[o.cat] || 0) + 1) <= PLAFOND_COMMODITES);
   }
   // Diagnostic : quel relais Overpass répond depuis le serveur (sans session,
   // résultat gardé 10 min pour ne pas solliciter les relais).
@@ -1276,11 +1385,12 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
     let { lat, lng } = p.est;
+    let ban = null; // le géocodage du jour, s'il vient d'être fait : son code INSEE désigne la commune
     if (!lat && !lng) {
       let g = null;
       try { g = await geocoderBan(p.est.adresse, p.px.cp, p.est.ville); } catch (e) { return err(c, 502, e.message); }
       if (!g) return err(c, 400, "Adresse du bien introuvable (vérifiez l'adresse, le code postal et la ville).");
-      lat = g.lat; lng = g.lng;
+      lat = g.lat; lng = g.lng; ban = g;
       await db.run("UPDATE crm_estimations SET lat = ?, lng = ? WHERE id = ?", [lat, lng, p.est.id]);
     }
     const cle = lat.toFixed(3) + "," + lng.toFixed(3) + "|v2"; // v2 : sans lieux privés, avec libellés
@@ -1291,15 +1401,24 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (data && !(data.commodites || []).length) data = null;
     // Un cache dont la commune est vide ou incomplète (geo.api.gouv.fr muet ce
     // jour-là) : on la recherche à nouveau, sans refaire les commodités.
-    if (data && !communeComplete(data.commune)) {
-      const com = await commune(p.px.cp, p.est.ville, p.est.adresse).catch(() => null);
-      if (com && (communeComplete(com) || !data.commune)) {
+    // Un cache dont la commune ne concorde pas avec la ville de la fiche : avant le
+    // 16/11, la PREMIÈRE commune du code postal était prise quand la ville n'était pas
+    // écrite comme le nom officiel (« St Médard en Jalles » → Saint-Aubin-de-Médoc,
+    // gardée 30 jours). Elle est recherchée à nouveau ; faute de confirmation, la
+    // réponse ne la porte pas.
+    const douteuse = !!(data && data.commune && data.commune.nom && !villesConcordent(p.est.ville, data.commune.nom));
+    if (data && (douteuse || !communeComplete(data.commune))) {
+      const com = await commune(p.px.cp, p.est.ville, p.est.adresse, ban).catch(() => null);
+      if (douteuse) {
+        if (communeComplete(com) && com.code !== data.commune.code) await db.run("UPDATE crm_environnement SET data = ? WHERE cle = ?", [JSON.stringify({ ...data, commune: com }), cle]);
+        data.commune = com;
+      } else if (com && (communeComplete(com) || !data.commune)) {
         data.commune = com;
         if (communeComplete(com)) await db.run("UPDATE crm_environnement SET data = ? WHERE cle = ?", [JSON.stringify(data), cle]);
       }
     }
     if (!data) {
-      const [com, liste] = await Promise.all([commune(p.px.cp, p.est.ville, p.est.adresse).catch(() => null), commodites(lat, lng).catch((e) => ({ erreur: e.message }))]);
+      const [com, liste] = await Promise.all([commune(p.px.cp, p.est.ville, p.est.adresse, ban).catch(() => null), commodites(lat, lng).catch((e) => ({ erreur: e.message }))]);
       data = { commune: com, commodites: Array.isArray(liste) ? liste : [], erreur: liste && liste.erreur ? liste.erreur : "" };
       // Une réponse vide n'est pas gardée : le prochain guide retentera.
       if (!data.erreur && data.commodites.length) await db.run(
@@ -1314,8 +1433,12 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       `SELECT COUNT(*) AS n FROM crm_contacts c LEFT JOIN crm_geo g ON g.contact_id = c.id
        WHERE c.agency_id = ? AND c.adresse <> '' AND c.types LIKE '%estime%' AND (c.cp = ? OR c.ville = ? COLLATE NOCASE) AND ${filtrePv(groupe, "c.id")}
          AND (g.contact_id IS NULL OR (g.lat = 0 AND g.lng = 0))`, [ctx.agency.id, p.px.cp || "-", p.est.ville || "-"]);
+    // Le cache est partagé par maille de ~100 m : les distances gardées sont celles du
+    // premier bien de la maille. Elles sont recalculées depuis CE bien avant d'être imprimées.
+    const proches = (data.commodites || []).map((o) => ({ ...o, dist: distanceM(lat, lng, o.lat, o.lng) })).filter((o) => o.dist <= 1500).sort((a, b) => a.dist - b.dist);
+    const indeterminee = data.commune && data.commune.indeterminee ? messageIndeterminee(data.commune, p.px.cp, p.est.ville) : "";
     // La carte dessine 80 ventes et 60 estimés au plus ; la légende dit les vrais totaux (ventesTotal, estimationsTotal).
-    return c.json({ lat, lng, perimetre: groupe, commune: data.commune, commodites: data.commodites, erreur: data.erreur || "", ventes: ventes.slice(0, 80), ventesTotal: ventes.length, estimations: estimations.slice(0, 60), estimationsTotal: estimations.length, estimationsEnAttente: (attenteEst && attenteEst.n) || 0, categories: CATEGORIES.map(([cle, libelle]) => ({ cle, libelle })) });
+    return c.json({ lat, lng, perimetre: groupe, commune: data.commune, erreurCommune: indeterminee, commodites: proches, commoditesPlafond: PLAFOND_COMMODITES, erreur: data.erreur || "", ventes: ventes.slice(0, 80), ventesTotal: ventes.length, estimations: estimations.slice(0, 60), estimationsTotal: estimations.length, estimationsEnAttente: (attenteEst && attenteEst.n) || 0, categories: CATEGORIES.map(([cle, libelle]) => ({ cle, libelle })) });
   });
   // Les ventes de l'agence autour d'un point : ventes importées + dossiers
   // Les biens déjà estimés par l'agence autour du bien (carte du guide R2) :
@@ -1425,6 +1548,55 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     await db.run("INSERT OR REPLACE INTO crm_estimation_bien (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?)",
       [estId, ctx.agency.id, JSON.stringify(sanitizeBienEstimation(maj)), now()]);
   };
+  // Filet de sécurité (16/11) : avant qu'un enregistrement ne remplace le
+  // livret, l'état en place est gardé dans crm_parcours_acm_versions — au plus
+  // une version toutes les deux minutes par dossier (l'enregistrement
+  // automatique écrit à chaque saisie). Le ménage quotidien éclaircit ensuite.
+  // Un livret écrasé à tort se retrouve donc toujours.
+  const archiverLivret = async (agencyId, estId, nouveau, origine = "saisie") => {
+    try {
+      const ancien = await db.get("SELECT data, updated_at FROM crm_parcours_acm WHERE estimation_id = ?", [estId]);
+      if (!ancien || !ancien.data || ancien.data === "{}" || ancien.data === nouveau) return false;
+      const t = now();
+      const der = await db.get("SELECT MAX(archive_at) AS t FROM crm_parcours_acm_versions WHERE estimation_id = ?", [estId]);
+      if (origine === "saisie" && der && der.t && t - der.t < 120) return false;
+      await db.run("INSERT INTO crm_parcours_acm_versions (id, estimation_id, agency_id, data, saisie_at, archive_at, origine) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [randId("lv", 16), estId, agencyId, ancien.data, ancien.updated_at || 0, t, origine]);
+      return true;
+    } catch { return false; }
+  };
+  // Ce qu'on montre d'une version pour la reconnaître sans l'ouvrir.
+  const resumeLivret = (d) => {
+    const n = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null);
+    const liste = (v) => (Array.isArray(v) ? v.length : 0);
+    return { prix: n(d.prix), basse: n(d.basse), haute: n(d.haute), surface: n(d.surface), terrain: n(d.terrain), pieces: n(d.pieces), chambres: n(d.chambres),
+      ventes: liste(d.ventes), concurrence: liste(d.concurrence), commission: liste(d.commission) };
+  };
+  app.get("/crm/parcours/:id/acm/versions", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    const actuel = await db.get("SELECT data, updated_at FROM crm_parcours_acm WHERE estimation_id = ?", [p.est.id]);
+    const rows = await db.all(
+      "SELECT id, data, saisie_at, archive_at, origine FROM crm_parcours_acm_versions WHERE estimation_id = ? ORDER BY CASE WHEN saisie_at > 0 THEN saisie_at ELSE archive_at END DESC, archive_at DESC LIMIT 60", [p.est.id]);
+    const lire = (t) => { try { return JSON.parse(t || "{}") || {}; } catch { return {}; } };
+    const versions = rows.filter((r) => !actuel || r.data !== actuel.data).map((r) => ({ id: r.id, saisie_at: r.saisie_at, archive_at: r.archive_at, origine: r.origine, resume: resumeLivret(lire(r.data)) }));
+    return c.json({ actuel: actuel ? { updated_at: actuel.updated_at, resume: resumeLivret(lire(actuel.data)) } : null, versions });
+  });
+  // Reprendre une version : le livret en place est gardé à son tour (on peut
+  // donc revenir en arrière), puis remplacé par la version choisie.
+  app.post("/crm/parcours/:id/acm/versions/:vid/restaurer", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const p = await lireParcoursDe(ctx, c.req.param("id"));
+    if (!p) return err(c, 404, "Fiche introuvable.");
+    const v = await db.get("SELECT data FROM crm_parcours_acm_versions WHERE id = ? AND estimation_id = ?", [c.req.param("vid"), p.est.id]);
+    if (!v) return err(c, 404, "Version introuvable.");
+    await archiverLivret(ctx.agency.id, p.est.id, v.data, "restauration");
+    await db.run(
+      "INSERT INTO crm_parcours_acm (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(estimation_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+      [p.est.id, ctx.agency.id, v.data, now()]);
+    return c.json({ ok: true });
+  });
   app.get("/crm/parcours/:id/acm", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const p = await lireParcoursDe(ctx, c.req.param("id"));
@@ -1436,12 +1608,17 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   });
   app.put("/crm/parcours/:id/acm", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    // Les pages chargées avant le 16/11 écrivaient le livret d'un dossier dans
+    // les autres (écouteur resté sur la fenêtre) : elles n'écrivent plus rien
+    // tant qu'elles n'ont pas été rechargées. Les pages à jour envoient ?c=2.
+    if (c.req.query("c") !== "2") return err(c, 409, "Studio a été mis à jour : rechargez la page (touche F5) avant de modifier ce dossier.");
     const b = await c.req.json().catch(() => null);
     if (!b || typeof b !== "object") return err(c, 400, "Corps JSON attendu.");
     const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
     const data = JSON.stringify(nettoyerJson(b) || {});
     if (data.length > 120000) return err(c, 400, "Saisie trop volumineuse.");
+    await archiverLivret(ctx.agency.id, p.est.id, data);
     await completerBien(ctx, p.est.id, b);
     await db.run(
       "INSERT INTO crm_parcours_acm (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(estimation_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
@@ -1527,7 +1704,9 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const type = typeBien(p.px.type_bien);
     let erreurs = [];
     let com = await commune(p.px.cp, p.est.ville, p.est.adresse).catch((e) => { erreurs.push("commune : " + e.message); return null; });
-    if (!com || !com.code) {
+    // Commune indéterminée : pas de fichier DVF plutôt que celui d'une commune voisine.
+    if (com && com.indeterminee) { erreurs.push(messageIndeterminee(com, p.px.cp, p.est.ville)); com = null; }
+    else if (!com || !com.code) {
       // geo.api.gouv.fr muet : la BAN connaît aussi le code INSEE de l'adresse.
       try { const g = await geocoderBan(p.est.adresse, p.px.cp, p.est.ville); if (g && g.citycode) com = { code: g.citycode, nom: g.city || p.est.ville }; } catch (e) { erreurs.push("BAN : " + e.message); }
     }
@@ -1536,7 +1715,6 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const groupe = await groupeDe(ctx, p);
     const ventes = (await ventesAutour(ctx.agency.id, lat, lng, 2000, groupe))
       .filter((v) => (sansAccents(v.type) ? sansAccents(v.type) === type : type !== "terrain")).slice(0, 40);
-    const villeN = sansAccents(p.est.ville);
     const siteAg = ((await getReglages(db, ctx.agency)).annonces.siteUrl || "").replace(/\/+$/, "");
     const absolue = (img) => (img && /^\//.test(img) && siteAg ? siteAg + img : img || "");
     const brutesAnnonces = await db.all(
@@ -1555,11 +1733,28 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       .map((a) => ({ source: "amepi", id: a.id, ref: a.ref, agence: a.agence, url: a.url, photo: a.photo || "", titre: [a.type, a.pieces ? a.pieces + " pièces" : "", a.surface ? Math.round(a.surface) + " m²" : ""].filter(Boolean).join(" · "), type: a.type, prix: a.prix, ancien_prix: a.ancien_prix, ville: a.ville, cp: a.cp, pieces: a.pieces, chambres: a.chambres, surface: a.surface, terrain: a.terrain, image: a.image, lat: a.lat, lng: a.lng, dist: a.lat && a.lng ? distanceM(lat, lng, a.lat, a.lng) : null, jours: Math.round((now() - a.first_seen) / 86400), baisse: a.ancien_prix && a.prix ? a.ancien_prix - a.prix : 0 }))
       .sort((a, b) => (a.dist ?? 1e9) - (b.dist ?? 1e9)).slice(0, 40);
     // Les acheteurs en recherche : fiches contact (crm_recherches) + projets d'achat, filtrés par type et commune.
-    const acheteurs = [];
-    const garder = (r) => { const t = jsonArrLocal(r.types).map(sansAccents), v = jsonArrLocal(r.villes).map(sansAccents); return (!t.length || t.includes(type)) && (!v.length || v.includes(villeN)); };
-    for (const r of await db.all(`SELECT budget_min, budget_max, types, villes, pieces_min, surface_min FROM crm_recherches WHERE agency_id = ? AND actif = 1 AND ${filtrePv(groupe, "contact_id")}`, [ctx.agency.id])) if (garder(r)) acheteurs.push({ budget_min: r.budget_min, budget_max: r.budget_max, pieces_min: r.pieces_min, surface_min: r.surface_min });
-    for (const r of await db.all(`SELECT budget_min, budget_max, types, villes, pieces_min FROM crm_projets WHERE agency_id = ? AND kind = 'achat' AND statut = 'actif' AND ${filtrePvProjet(groupe, "crm_projets.id")}`, [ctx.agency.id])) if (garder(r)) acheteurs.push({ budget_min: r.budget_min, budget_max: r.budget_max, pieces_min: r.pieces_min, surface_min: null });
-    return c.json({ lat, lng, type, perimetre: groupe, commune: com && com.code ? { code: com.code, nom: com.nom, dep: String(p.px.cp || com.code || "").slice(0, 2) } : null, erreurs, ventes, annonces, amepi, acheteurs: acheteurs.slice(0, 300) });
+    // Un acheteur sans AUCUN critère (ni type ni ville) ne cherche pas « ce bien dans cette
+    // commune » : il n'est pas compté. Une même personne (la recherche de sa fiche et son
+    // projet d'achat, un couple sur le même projet) ne compte qu'une fois, au budget le plus haut.
+    const acheteurs = [], rangParContact = new Map();
+    let sansCritere = 0;
+    const villesBien = new Set([p.est.ville, com && com.nom].map((x) => motsVille(x).join(" ")).filter(Boolean));
+    const garder = (r) => {
+      const t = jsonArrLocal(r.types).map(sansAccents), v = jsonArrLocal(r.villes).map((x) => motsVille(x).join(" ")).filter(Boolean);
+      if (!t.length && !v.length) { sansCritere++; return false; }
+      return (!t.length || t.includes(type)) && (!v.length || v.some((x) => villesBien.has(x)));
+    };
+    const compter = (contacts, a) => {
+      const ids = contacts.filter(Boolean), deja = ids.map((id) => rangParContact.get(id)).find((k) => k !== undefined);
+      if (deja !== undefined) { if ((a.budget_max || 0) > (acheteurs[deja].budget_max || 0)) acheteurs[deja] = a; for (const id of ids) rangParContact.set(id, deja); return; }
+      for (const id of ids) rangParContact.set(id, acheteurs.length);
+      acheteurs.push(a);
+    };
+    for (const r of await db.all(`SELECT contact_id, budget_min, budget_max, types, villes, pieces_min, surface_min FROM crm_recherches WHERE agency_id = ? AND actif = 1 AND ${filtrePv(groupe, "contact_id")}`, [ctx.agency.id])) if (garder(r)) compter([r.contact_id], { budget_min: r.budget_min, budget_max: r.budget_max, pieces_min: r.pieces_min, surface_min: r.surface_min });
+    const contactsProjet = new Map();
+    for (const r of await db.all("SELECT projet_id, contact_id FROM crm_projet_contacts WHERE agency_id = ?", [ctx.agency.id])) contactsProjet.set(r.projet_id, [...(contactsProjet.get(r.projet_id) || []), r.contact_id]);
+    for (const r of await db.all(`SELECT id, budget_min, budget_max, types, villes, pieces_min FROM crm_projets WHERE agency_id = ? AND kind = 'achat' AND statut = 'actif' AND ${filtrePvProjet(groupe, "crm_projets.id")}`, [ctx.agency.id])) if (garder(r)) compter(contactsProjet.get(r.id) || [], { budget_min: r.budget_min, budget_max: r.budget_max, pieces_min: r.pieces_min, surface_min: null });
+    return c.json({ lat, lng, type, perimetre: groupe, commune: com && com.code ? { code: com.code, nom: com.nom, dep: String(p.px.cp || com.code || "").slice(0, 2) } : null, erreurs, ventes, annonces, amepi, acheteurs: acheteurs.slice(0, 300), acheteursSansCritere: sansCritere });
   });
   // Bien'ici (portail) : les biens en vente sur la commune, même type, autour du
   // prix — photo, prix, surface, terrain, pièces, position approchée (125 m),
@@ -1573,6 +1768,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const type = BIENICI_TYPES[typeBien(p.px.type_bien)];
     const prix = Number(c.req.query("prix")) || 0;
     const com = await commune(p.px.cp, p.est.ville, p.est.adresse).catch(() => null);
+    // Commune indéterminée : le portail n'est pas interrogé sur une commune prise au hasard.
+    if (com && com.indeterminee) return c.json({ biens: [], erreur: messageIndeterminee(com, p.px.cp, p.est.ville) });
     const cle = [sansAccents(p.est.ville), p.px.cp, type].join("|");
     let liste = cacheBienici.get(cle);
     if (!liste || liste.le < now() - 3 * 3600) {
@@ -1586,6 +1783,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   });
   const BIENICI_TYPES = { maison: "house", appartement: "flat", terrain: "terrain" };
   const BIENICI_LIB = { house: "Maison", flat: "Appartement", terrain: "Terrain" };
+  // Une valeur d'annonce, ou la plus petite d'une fourchette [min, max] (programme neuf).
+  const plusPetit = (v) => { const l = (Array.isArray(v) ? v : [v]).map(Number).filter((x) => Number.isFinite(x) && x > 0); return l.length ? Math.min(...l) : 0; };
   async function bieniciCommune(ville, cp, codeInsee, type) {
     const suggest = (env.BIENICI_SUGGEST || "https://res.bienici.com/suggest.json") + "?q=" + encodeURIComponent(ville || cp || "");
     const ua = { "User-Agent": "Mozilla/5.0 (StudioKadima)", Accept: "application/json" };
@@ -1605,14 +1804,14 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     return (j.realEstateAds || []).filter((a) => !a.propertyType || a.propertyType === type).map((a) => {
       const pos = a.blurInfo && (a.blurInfo.position || a.blurInfo.centroid);
       const photo = a.photos && a.photos[0] ? (a.photos[0].url_photo || a.photos[0].url || "") : "";
-      const pieces = a.roomsQuantity || 0;
-      // Les programmes neufs (constructeurs) annoncent une fourchette : price = [min, max]
-      // → on garde le prix d'appel (sinon « NaN € » dans le livret) et on le dit.
-      const neuf = !!a.newProperty || Array.isArray(a.price);
-      const prix = Array.isArray(a.price) ? Number(a.price.find((v) => Number(v) > 0)) || 0 : Number(a.price) || 0;
-      return { source: "bienici", id: "bienici:" + a.id, ref: String(a.reference || ""), agence: a.accountDisplayName || "", prix, neuf: neuf ? 1 : 0, surface: a.surfaceArea || 0, terrain: a.landSurfaceArea || 0,
-        pieces, chambres: a.bedroomsQuantity || 0, type: BIENICI_LIB[type] || "Maison", ville: a.city || "", cp: a.postalCode || "", quartier: a.district && a.district.libelle ? String(a.district.libelle).slice(0, 60) : "",
-        titre: [neuf ? "Neuf (à partir de)" : "", BIENICI_LIB[type] || "Maison", pieces ? pieces + " pièces" : "", a.surfaceArea ? Math.round(a.surfaceArea) + " m²" : (type === "terrain" && a.landSurfaceArea ? Math.round(a.landSurfaceArea) + " m² de terrain" : "")].filter(Boolean).join(" · "),
+      // Les programmes neufs (constructeurs) annoncent des fourchettes : price = [145000, 275000],
+      // surfaceArea = [40, 83.77], roomsQuantity = [2, 4] → on garde la plus petite valeur
+      // (« à partir de » ; sinon « NaN € », « NaN m² » dans le livret) et on le dit.
+      const neuf = !!a.newProperty || [a.price, a.surfaceArea, a.roomsQuantity, a.bedroomsQuantity].some(Array.isArray);
+      const prix = plusPetit(a.price), surface = plusPetit(a.surfaceArea), terrain = plusPetit(a.landSurfaceArea), pieces = plusPetit(a.roomsQuantity);
+      return { source: "bienici", id: "bienici:" + a.id, ref: String(a.reference || ""), agence: a.accountDisplayName || "", prix, neuf: neuf ? 1 : 0, surface, terrain,
+        pieces, chambres: plusPetit(a.bedroomsQuantity), type: BIENICI_LIB[type] || "Maison", ville: a.city || "", cp: a.postalCode || "", quartier: a.district && a.district.libelle ? String(a.district.libelle).slice(0, 60) : "",
+        titre: [neuf ? "Neuf (à partir de)" : "", BIENICI_LIB[type] || "Maison", pieces ? pieces + (pieces > 1 ? " pièces" : " pièce") : "", surface ? Math.round(surface) + " m²" : (type === "terrain" && terrain ? Math.round(terrain) + " m² de terrain" : "")].filter(Boolean).join(" · "),
         image: photo, url: "https://www.bienici.com/annonce/" + (a.adType === "rent" ? "location" : "vente") + "/" + slug(a.city || ville) + "/" + ({ flat: "appartement", terrain: "terrain" }[type] || "maison") + "/" + (pieces || 1) + "pieces/" + encodeURIComponent(a.id),
         lat: pos ? pos.lat : null, lng: pos ? pos.lon : null, jours: joursEnVente(a.publicationDate), baisse: a.priceHasDecreased ? 1 : 0, dpe: a.energyClassification || "" };
     });
@@ -1640,11 +1839,13 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     return [...map.values()];
   };
   const tiersDe = (avis) => {
-    const moys = avis.map((a) => (a.prix_min + a.prix_max) / 2).sort((x, y) => x - y);
+    const moys = avis.map((a) => ({ moy: (a.prix_min + a.prix_max) / 2, min: a.prix_min, max: a.prix_max })).sort((x, y) => x.moy - y.moy);
     // Tiers équilibrés (Kadimestim laissait le tiers haut vide dès que n n'était
     // pas multiple de 3) : bas et haut = n/3 arrondi en dessous, le médian prend le reste.
     const n = moys.length, t = n >= 3 ? Math.floor(n / 3) : (n === 2 ? 1 : 0);
-    const part = (l) => ({ nb: l.length, moyenne: l.length ? Math.round(l.reduce((s2, v) => s2 + v, 0) / l.length / 1000) * 1000 : 0, min: l.length ? Math.min(...l) : 0, max: l.length ? Math.max(...l) : 0 });
+    // « De – À » d'un tiers : le plus petit prix_min et le plus grand prix_max de SES avis
+    // (les extrêmes des moyennes donnaient « 290 000 – 290 000 » pour un avis 280–300 k).
+    const part = (l) => ({ nb: l.length, moyenne: l.length ? Math.round(l.reduce((s2, v) => s2 + v.moy, 0) / l.length / 1000) * 1000 : 0, min: l.length ? Math.min(...l.map((v) => v.min)) : 0, max: l.length ? Math.max(...l.map((v) => v.max)) : 0 });
     return { repli: part(moys.slice(0, t)), raison: part(moys.slice(t, n - t)), ambition: part(moys.slice(n - t)) };
   };
   const lienCommission = (token) => {

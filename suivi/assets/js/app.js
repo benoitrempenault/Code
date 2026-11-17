@@ -96,6 +96,7 @@
     if (!res.ok) {
       const err = new Error(data.error || ("Erreur " + res.status));
       err.status = res.status;
+      err.data = data; // ex. le dossier existant d'un 409 « nom déjà pris »
       throw err;
     }
     return data;
@@ -107,7 +108,6 @@
   let modeles = [];           // modèles d'e-mails de l'agence
   let annuaire = [];          // annuaire partagé (conseillers, notaires, syndics…)
   let currentId = null;       // dossier ouvert
-  let saveState = "";         // "" | "dirty" | "saving" | "saved" | "error"
 
   /* ------------------------- Annuaire (partagé) --------------------------- */
   const annOf = (type) => annuaire.filter((a) => a.type === type);
@@ -363,8 +363,9 @@
     } catch (e) { if (!silencieux) toast(e.message, true); return 0; }
   }
   // Après enregistrement d'un dossier : les coordonnées saisies (notaires,
-  // syndic/président) enrichissent l'annuaire — sans écraser une valeur par
-  // du vide, et seulement si quelque chose a changé.
+  // syndic/président) COMPLÈTENT l'annuaire — elles n'en remplissent que les
+  // champs vides. Une coordonnée déjà dans l'annuaire fait référence : un
+  // vieux dossier y remettait l'ancien e-mail d'un notaire, corrigé la veille.
   async function syncAnnuaireFromDossier(d) {
     const jobs = [];
     let ecrit = false;
@@ -382,11 +383,12 @@
       // l'enrichit sous SON nom, au lieu de créer un doublon à chaque
       // orthographe rencontrée dans un compromis.
       const ex = annFuzzy([j.type], j.nom);
-      const fields = ["ville", "telephone", "email"];
-      const changed = !ex || fields.some((k) => (j[k] || "").trim() && (j[k] || "").trim() !== (ex[k] || ""));
-      if (!changed) continue;
-      const payload = Object.assign({}, ex || {}, { type: j.type, nom: ex ? ex.nom : j.nom });
-      fields.forEach((k) => { if ((j[k] || "").trim()) payload[k] = j[k].trim(); });
+      const manque = ["ville", "telephone", "email"].filter((k) => (j[k] || "").trim() && !(ex && (ex[k] || "").trim()));
+      if (ex && !manque.length) continue;
+      // `completer` : le serveur ne remplit que ce qui est vide dans SA fiche
+      // (la copie de l'annuaire en mémoire ici peut dater de ce matin).
+      const payload = Object.assign({}, ex || {}, { type: j.type, nom: ex ? ex.nom : j.nom, completer: true });
+      manque.forEach((k) => { payload[k] = j[k].trim(); });
       try {
         await api("/annuaire", { method: "PUT", json: payload });
         ecrit = true;
@@ -440,9 +442,22 @@
        qu'attend un notaire ou un client.
      Le patronyme est reconnu à ses CAPITALES, comme il est écrit dans tous
      les compromis. Sans capitales, on ne devine pas : le nom est laissé tel
-     quel plutôt que d'inverser un prénom composé au hasard.                */
+     quel plutôt que d'inverser un prénom composé au hasard.
+     Le réordonnancement n'est qu'un AFFICHAGE (courriers, référence) : le nom
+     enregistré reste celui qui a été saisi ou lu au compromis. Et il ne vaut
+     que pour UNE personne physique « civilité + NOM + prénoms » — tout mot en
+     minuscules était pris pour un prénom : « Mme Marie DUPONT née MARTIN »
+     devenait « Mme DUPONT MARTIN Marie née », une société « représentée par »
+     son gérant était mélangée à lui.                                        */
   const CIVILITES = { "m": "Mr", "m.": "Mr", "mr": "Mr", "mr.": "Mr", "monsieur": "Mr",
     "mme": "Mme", "mme.": "Mme", "madame": "Mme", "mlle": "Mlle", "mademoiselle": "Mlle" };
+  // Mots qui signalent autre chose qu'UNE personne physique : état civil
+  // (née, épouse, veuve), deuxième personne (et, une autre civilité),
+  // représentation, formes de société. Comparés sans accents ni casse.
+  const HORS_PERSONNE = /^(nee?|epoux|epouse|veuf|veuve|divorcee?|et|ou|dit|dite|alias|representee?s?|par|pour|son|sa|ses|gerante?|societe|sci|scp|sarl|sas|sasu|eurl|snc|selarl|selas|earl|gaec|gfa|indivision|succession|consorts|m|mr|mme|mlle|monsieur|madame|mademoiselle)$/;
+  const PARTICULE = /^(de|du|des|d|la|le|les)$/;
+  // Un vrai prénom : Majuscule puis minuscules, composé ou non (« Jean-Pierre »).
+  const estPrenom = (w) => /^[A-ZÀ-Þ][a-zà-ÿ]+(?:[-'’][A-ZÀ-Þa-zà-ÿ][a-zà-ÿ]*)*$/.test(w) && !PARTICULE.test(normMot(w));
   function decoupeNom(nom) {
     const mots = String(nom || "").trim().split(/\s+/).filter(Boolean);
     if (!mots.length) return null;
@@ -457,6 +472,16 @@
     const estCap = (w) => /[A-ZÀ-Þ]{2}/.test(w) && w === w.toUpperCase();
     const nomFamille = mots.filter(estCap), prenoms = mots.filter((w) => !estCap(w));
     if (!nomFamille.length || !prenoms.length) return { civ, reste: mots.join(" ") };
+    // Réordonnable seulement si c'est une personne et une seule : aucun mot
+    // d'état civil, de société ou de liaison, des prénoms qui en sont, et un
+    // patronyme d'un seul tenant, avant ou après eux. Sinon le nom reste tel
+    // quel ; `caps` garde ses mots en capitales pour la référence du dossier
+    // et la formule d'appel, qui ne changent pas.
+    const debut = mots.findIndex(estCap), fin = mots.length - 1 - mots.slice().reverse().findIndex(estCap);
+    const dUnTenant = fin - debut + 1 === nomFamille.length && (debut === 0 || fin === mots.length - 1);
+    if (mots.some((w) => HORS_PERSONNE.test(normMot(w))) || !prenoms.every(estPrenom) || !dUnTenant) {
+      return { civ, reste: mots.join(" "), caps: nomFamille };
+    }
     return { civ, nomFamille, prenoms };
   }
   function assemble(p, patronymeDabord) {
@@ -543,10 +568,27 @@
     // servitudes, situation hypothécaire…) RESTENT dans la fiche du dossier :
     // elles font partie du compromis. C'est l'échéancier qui les ignore, le
     // notaire les réglant sans nous (E.condDroit).
-    // Anciens dossiers : les noms passent à l'écriture « Mr DUPONT Jean-Pierre ».
-    ["vendeurs", "acquereurs"].forEach((k) => data[k].forEach((p) => {
-      if (p && p.nom) p.nom = nomStandard(p.nom);
-    }));
+    // Les noms des parties ne sont PAS réécrits ici : ce qui se charge se
+    // réenregistre, et « Mme Marie DUPONT née MARTIN » repartait mélangé au
+    // premier enregistrement. L'ordre « NOM Prénom » n'est qu'un affichage.
+    // Anciennes relances : elles repoussaient d'une semaine l'échéance
+    // affichée, même quand c'est une date du compromis ou de la loi (condition
+    // de prêt, fin de rétractation). Ces étapes reviennent à leur date
+    // calculée — seulement si la surcharge est bien celle de la relance.
+    if (data.etapes && typeof data.etapes === "object") {
+      for (const id of Object.keys(data.etapes)) {
+        const et = data.etapes[id];
+        if (!et || typeof et !== "object" || et.done || !et.due || !et.relance || !et.relance.ts) continue;
+        if (!echeanceContrat(data, id) || relanceReporte(data, id)) continue;
+        // Jamais une date posée À LA MAIN : ce retour au calcul effaçait la date
+        // saisie dès qu'elle tombait une semaine après la relance (« ça me
+        // remet la date initiale »). Seules les relances d'AVANT le 17/11 ont
+        // pu reporter ces étapes d'elles-mêmes ; depuis, une date qui s'y
+        // trouve a forcément été saisie.
+        if (et.dueManuel || et.relance.ts >= RELANCES_ANCIENNES) continue;
+        if (et.due === E.addDays(E.fmtIso(new Date(et.relance.ts * 1000)), REPORT_RELANCE)) delete et.due;
+      }
+    }
     return data;
   }
 
@@ -760,50 +802,110 @@
   }
 
   /* ------------------------------ Sauvegarde ------------------------------ */
-  function setSaveState(s) {
-    saveState = s;
+  // L'état d'enregistrement est tenu PAR DOSSIER : « ⚠ Non enregistré »
+  // s'effaçait dès qu'on ouvrait un autre dossier.
+  const etatsSave = {};       // id → "" | "dirty" | "saving" | "saved" | "error"
+  function setSaveState(s, id) {
+    if (id === undefined) id = currentId;
+    etatsSave[id] = s;
+    if (id === currentId) afficheSaveState();
+  }
+  function afficheSaveState() {
     const el = $("#saveState");
     if (!el) return;
+    const s = etatsSave[currentId] || "";
     el.textContent = s === "saving" ? "Enregistrement…" : s === "saved" ? "Enregistré ✓" : s === "error" ? "⚠ Non enregistré" : s === "dirty" ? "Modifié…" : "";
     el.style.color = s === "error" ? "var(--bad)" : "var(--muted)";
+  }
+  /* Ce qui reste à enregistrer. `enAttente` : les dossiers modifiés dont
+     l'enregistrement n'est pas encore confirmé (minuteur armé ou envoi en
+     vol). `nonEnregistres` : ceux dont le dernier envoi a ÉCHOUÉ — un bandeau
+     les nomme tant qu'il en reste, ils sont rejoués au retour du réseau, et
+     l'onglet ne se ferme pas sans prévenir. Avant, un toast de 6 secondes
+     était la seule trace d'une modification perdue. */
+  const enAttente = new Set();
+  const nonEnregistres = {};  // id → { motif, rejouable }
+  const minuteurs = {};       // id → enregistrement différé de CE dossier
+  const modifsLocales = {};   // id → compteur de modifications (une frappe pendant un envoi)
+  const resteAEnregistrer = () => enAttente.size > 0 || Object.keys(nonEnregistres).length > 0;
+  function oublierSave(id) {
+    clearTimeout(minuteurs[id]);
+    delete minuteurs[id];
+    enAttente.delete(id);
+    delete nonEnregistres[id];
+    etatsSave[id] = "";
+    majBandeauSave();
+  }
+  // Le bandeau est créé ici (pas dans la page) : il n'existe que s'il y a
+  // quelque chose à dire, et reste visible dans toutes les vues.
+  function majBandeauSave() {
+    let b = $("#nonEnregistre");
+    const ids = Object.keys(nonEnregistres);
+    // (La page garde la hauteur du bandeau en bas : il ne masque rien.)
+    document.body.style.paddingBottom = ids.length ? "64px" : "";
+    if (!ids.length) { if (b) { b.hidden = true; b.style.display = "none"; } return; }
+    if (!b) {
+      b = document.createElement("div");
+      b.id = "nonEnregistre";
+      b.setAttribute("role", "alert");
+      b.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:85;background:var(--bad);color:#fff;" +
+        "padding:9px 18px;font-size:13.5px;gap:8px 14px;align-items:center;flex-wrap:wrap";
+      b.addEventListener("click", (ev) => { if (ev.target.closest("[data-rejouer]")) rejouerEnregistrements(true); });
+      document.body.appendChild(b);
+    }
+    const rejouables = ids.filter((id) => nonEnregistres[id].rejouable).length;
+    b.innerHTML = '<span style="flex:1 1 320px">⚠ <b>' + ids.length + (ids.length > 1 ? " dossiers non enregistrés" : " dossier non enregistré") + "</b> : " +
+      ids.map((id) => '<a href="#dossier/' + esc(encodeURIComponent(id)) + '" style="color:#fff">' +
+        esc((details[id] && (details[id].data.reference || details[id].name)) || id) + "</a>" +
+        (nonEnregistres[id].rejouable ? "" : " (" + esc(nonEnregistres[id].motif) + ")")).join(", ") +
+      ". " + (rejouables ? "Vos modifications sont gardées ici : nouvel essai automatique au retour du réseau — ne fermez pas cet onglet."
+        : "Ouvrez le dossier pour régler le problème — ne fermez pas cet onglet.") + "</span>" +
+      '<button class="btn btn--sm" data-rejouer type="button">Réessayer maintenant</button>';
+    b.hidden = false;
+    b.style.display = "flex";
+  }
+  // Rejoue les enregistrements en échec : ceux qu'un nouvel essai peut
+  // sauver (coupure réseau, serveur indisponible), ou tous si on le demande.
+  function rejouerEnregistrements(tous) {
+    for (const id of Object.keys(nonEnregistres)) {
+      if (tous || nonEnregistres[id].rejouable) saveDossier(id, { silencieux: !tous });
+    }
   }
   /* Les enregistrements d'un même dossier passent L'UN APRÈS L'AUTRE. Envoyés
      en parallèle (frappe rapide, case cochée pendant qu'un envoi est en vol),
      le second partait avec l'ancienne version du dossier et le serveur
      répondait « modifié par quelqu'un d'autre » — alors qu'on était seul.
      Une seule sauvegarde attend derrière celle en cours : elle enverra
-     l'état du moment, inutile d'en empiler d'autres. */
-  /* Le serveur range les dossiers par NOM (leur référence) : deux dossiers de
-     même nom ne peuvent pas coexister — créer le second écrasait le premier,
-     et renommer l'un comme l'autre bloquait tous ses enregistrements. Le nom
-     envoyé est donc rendu unique (« DUPONT / MARTIN (2) ») ; la référence
-     affichée dans la fiche, elle, ne change pas. */
-  function nomUnique(nom, id) {
-    const pris = (n) => list.some((x) => x.id !== id && String(x.name || "").trim().toLowerCase() === n.toLowerCase());
-    if (!pris(nom)) return nom;
-    for (let i = 2; i < 50; i++) { if (!pris(nom + " (" + i + ")")) return nom + " (" + i + ")"; }
-    return nom + " (" + Date.now().toString(36) + ")";
-  }
+     l'état du moment, inutile d'en empiler d'autres.
+     Rend VRAI si le dossier est enregistré, FAUX sinon : les appelants
+     n'annoncent plus « ✓ » après un échec. */
   const fileSaves = {};
-  function saveDossier(id) {
+  function saveDossier(id, opts) {
     const f = fileSaves[id] || (fileSaves[id] = { cours: null, suite: null });
     if (!f.cours) {
-      f.cours = saveDossierNow(id).finally(() => { f.cours = null; });
+      f.cours = saveDossierNow(id, opts).finally(() => { f.cours = null; });
       return f.cours;
     }
-    if (!f.suite) f.suite = f.cours.then(() => { f.suite = null; return saveDossier(id); });
+    if (!f.suite) f.suite = f.cours.then(() => { f.suite = null; return saveDossier(id, opts); });
     return f.suite;
   }
-  async function saveDossierNow(id) {
+  async function saveDossierNow(id, opts) {
     const d = details[id];
-    if (!d) return;
-    if (id === currentId) setSaveState("saving");
+    if (!d) { oublierSave(id); return false; }
+    const silencieux = !!(opts && opts.silencieux);
+    // Cet envoi emporte tout ce qui est modifié à cet instant : le minuteur
+    // du dossier n'a plus lieu d'être (une frappe ultérieure le réarmera).
+    clearTimeout(minuteurs[id]);
+    delete minuteurs[id];
+    const modifs = modifsLocales[id] || 0;
+    enAttente.add(id);
+    setSaveState("saving", id);
     d.data.echeance = E.nextDue(d.data);
     // Métadonnée « conseillers » de la liste : « CV / CA » depuis les champs
     // par partie (repli sur l'ancien champ libre pour les dossiers existants).
     const cv = (d.data.conseiller_vendeur || "").trim(), ca = (d.data.conseiller_acquereur || "").trim();
     if (cv || ca) d.data.conseillers = [cv, ca].filter(Boolean).join(" / ");
-    const name = nomUnique((d.data.reference || d.name || "Dossier sans nom").trim() || "Dossier sans nom", d.id);
+    const name = (d.data.reference || d.name || "Dossier sans nom").trim() || "Dossier sans nom";
     try {
       const r = await api("/dossiers", {
         method: "PUT",
@@ -811,40 +913,51 @@
       });
       d.updated_at = r.updated_at;
       d.name = name;
-      if (id === currentId) setSaveState("saved");
+      delete nonEnregistres[id];
+      // Modifié pendant l'envoi : le dossier reste « à enregistrer », son
+      // minuteur (réarmé par la frappe) renverra la suite.
+      if ((modifsLocales[id] || 0) === modifs) { enAttente.delete(id); setSaveState("saved", id); }
+      else setSaveState("dirty", id);
+      majBandeauSave();
       refreshListRow(d);
-      syncAnnuaireFromDossier(d.data); // enrichit l'annuaire en arrière-plan
+      syncAnnuaireFromDossier(d.data); // complète l'annuaire en arrière-plan
+      return true;
     } catch (e) {
-      if (id === currentId) setSaveState("error");
-      if (e.status === 409 && /porte déjà ce nom/i.test(e.message || "")) {
-        // Deux dossiers de même référence (créé entre-temps par un collègue) :
-        // rien à recharger, et surtout rien à perdre — la liste est relue, le
-        // prochain enregistrement prendra un nom distinct.
-        aSauver.add(id);
-        try { await loadList(); } catch (e2) { /* on réessaiera */ }
-        toast("Un autre dossier porte la même référence : celui-ci sera enregistré sous un nom distinct. Modifiez un champ pour relancer l'enregistrement.", true);
-      } else if (e.status === 409) {
+      // Un collègue a enregistré ce dossier depuis qu'on l'a chargé.
+      const conflitVersion = e.status === 409 && !(e.data && e.data.existant);
+      const rejouable = !e.status || e.status === 401 || e.status === 429 || e.status >= 500;
+      nonEnregistres[id] = {
+        motif: conflitVersion ? "modifié entre-temps par quelqu'un d'autre" : e.status === 409 ? "un autre dossier porte déjà ce nom" : e.message,
+        rejouable
+      };
+      setSaveState("error", id);
+      majBandeauSave();
+      if (conflitVersion) {
         if (confirm(e.message + "\n\nRecharger la version la plus récente ? (vos dernières modifications non enregistrées seront perdues)")) {
-          await loadDetail(id, true);
-          if (id === currentId) { renderDossier(); setSaveState(""); }
+          try { await loadDetail(id, true); } catch (e2) { toast(e2.message, true); return false; }
+          oublierSave(id);
+          if (id === currentId && (location.hash || "").startsWith("#dossier/")) renderDossier();
         }
-      } else toast(e.message, true);
+      } else if (e.status === 409) {
+        toast("Un autre dossier porte déjà ce nom : changez la référence de celui-ci pour l'enregistrer.", true);
+      } else if (!silencieux) {
+        toast(e.message + (rejouable ? " Vos modifications sont gardées : nouvel essai automatique." : ""), true);
+      }
+      return false;
     }
   }
-  function saveCurrent() { aSauver.delete(currentId); return saveDossier(currentId); }
-  /* Dossiers modifiés et pas encore envoyés. L'enregistrement différé visait
-     « le dossier ouvert AU MOMENT de l'envoi » : en changeant de dossier dans
-     la seconde, la modification restait dans la page sans jamais partir au
-     serveur — et la date d'avant revenait à la réouverture. On retient donc
-     QUEL dossier a été touché, et tout part dès qu'on quitte la fiche. */
-  const aSauver = new Set();
-  function envoyerEnAttente() {
-    const ids = Array.from(aSauver);
-    aSauver.clear();
-    return Promise.all(ids.map((id) => saveDossier(id)));
+  /* Enregistrement différé (900 ms après la dernière frappe), armé POUR LE
+     DOSSIER MODIFIÉ. Un minuteur commun enregistrait le dossier AFFICHÉ à
+     l'échéance : passer de A à B dans la seconde sautait A. */
+  function markDirty(id) {
+    if (id === undefined) id = currentId;
+    if (id == null || !details[id]) return;
+    modifsLocales[id] = (modifsLocales[id] || 0) + 1;
+    enAttente.add(id);
+    setSaveState("dirty", id);
+    clearTimeout(minuteurs[id]);
+    minuteurs[id] = setTimeout(() => { delete minuteurs[id]; saveDossier(id); }, 900);
   }
-  const saveSoon = debounce(envoyerEnAttente, 900);
-  function markDirty() { if (currentId) aSauver.add(currentId); setSaveState("dirty"); saveSoon(); }
   function refreshListRow(d) {
     const i = list.findIndex((x) => x.id === d.id);
     const row = {
@@ -858,8 +971,6 @@
 
   /* ------------------------------- Routage -------------------------------- */
   function route() {
-    // On quitte une fiche : ce qui y a été modifié part tout de suite.
-    envoyerEnAttente();
     const h = location.hash || "#board";
     let view = h.slice(1);
     if (view.startsWith("dossier/")) { currentId = decodeURIComponent(view.slice(8)); view = "dossier"; }
@@ -1194,7 +1305,7 @@
     if (champs.email && /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(mail)) valeurs.email = mail;
     if (champs.telephone && tel.replace(/\D/g, "").length >= 10) valeurs.telephone = tel;
     if (!Object.keys(valeurs).length) return;
-    let touches = 0;
+    let touches = 0, echecs = 0;
     for (const m of list) {
       try { await loadDetail(m.id); } catch (e) { continue; }
       const d = details[m.id].data;
@@ -1213,10 +1324,13 @@
         const hit = annFuzzy(["syndic", "president"], d.syndic.nom);
         if (hit && hit.id === a.id) applique(d.syndic);
       }
-      if (modif) { await saveDossier(m.id); touches++; }
+      if (modif) { if (await saveDossier(m.id)) touches++; else echecs++; }
     }
-    if (touches) toast("Coordonnées répercutées sur " + touches + " dossier(s) ✓");
-    if (touches && (location.hash || "").startsWith("#dossier/")) renderDossier();
+    // Un enregistrement qui échoue ne s'annonce pas « ✓ » : le dossier reste
+    // dans le bandeau « non enregistré » et sera rejoué avec ces coordonnées.
+    if (echecs) toast("Coordonnées non enregistrées sur " + echecs + " dossier(s)" + (touches ? " (répercutées sur " + touches + ")" : "") + " — voir le bandeau « non enregistré ».", true);
+    else if (touches) toast("Coordonnées répercutées sur " + touches + " dossier(s) ✓");
+    if ((touches || echecs) && (location.hash || "").startsWith("#dossier/")) renderDossier();
   }
   const saveAnnSoon = {};
   const annEdits = {}; // fiche id → champs saisis, pas encore enregistrés
@@ -1298,6 +1412,26 @@
   // s'y prendre la veille, c'est reporter la signature.
   const CRITIQUES = ["diagnostics", "ramonage", "entretien_chaudiere", "entretien_clim", "facture_emise"];
   const REPORT_RELANCE = 7; // jours gagnés par une relance envoyée
+  // L'échéance de cette étape est-elle une date du COMPROMIS ou de la LOI
+  // (condition de prêt, fin de rétractation, purge de la préemption…) ? Une
+  // relance ne la déplace pas. Vaut aussi pour une action ajoutée à la main
+  // depuis le catalogue (elle reprend l'échéance de son étape d'origine).
+  const defEtape = (d, stepId) => {
+    const ajoutee = (d.actions_ajoutees || []).find((a) => a && a.id === stepId);
+    return E.ETAPES.find((e) => e.id === ((ajoutee && ajoutee.base) || stepId)) || null;
+  };
+  function echeanceContrat(d, stepId) {
+    const def = defEtape(d, stepId);
+    return !!(def && def.contrat);
+  }
+  // Exception : le dépôt du dossier de prêt. C'est une date du compromis, mais
+  // une relance la repousse quand même d'une semaine (la ligne rappelle alors
+  // la date du compromis).
+  function relanceReporte(d, stepId) {
+    const def = defEtape(d, stepId);
+    return !!(def && def.relanceReporte);
+  }
+  const RELANCES_ANCIENNES = 1794873600; // 17/11/2026 0 h UTC
   // Étapes où envoyer le message EST l'action : la relance les coche d'office
   // (l'appel & crémaillère est fait dès que les conseillers ont leur consigne).
   const RELANCE_ACCOMPLIT = ["appel_apres_vente"];
@@ -1771,8 +1905,10 @@
     }
     // Coordonnées des notaires / du syndic complétées depuis l'annuaire dès
     // l'ouverture (nom reconnu → tél, e-mail, ville remplis s'ils sont vides).
-    if (autofillFromAnnuaire(details[id].data)) markDirty();
-    renderDossier();
+    // (Le dossier a pu être quitté pendant son chargement : on ne rend, et on
+    // ne marque « modifié », que celui-là.)
+    if (autofillFromAnnuaire(details[id].data)) markDirty(id);
+    if (id === currentId) renderDossier();
   }
 
   function renderDossier(opts) {
@@ -1833,12 +1969,18 @@
         const relTxt = s.relance && s.relance.ts
           ? "✉ Dernière relance le " + new Date(s.relance.ts * 1000).toLocaleDateString("fr-FR") + (s.relance.user ? " (" + s.relance.user + ")" : "")
           : "";
+        // Échéance du compromis déplacée (relance, ou date posée à la main) :
+        // la vraie date du compromis reste rappelée sur la ligne.
+        const duCompromis = (!s.done && s.def && s.def.contrat && s.def.due) ? s.def.due(d) : "";
+        const rappelCompromis = (duCompromis && s.due && duCompromis !== s.due)
+          ? "Date du compromis : " + E.fmtFr(duCompromis) : "";
         return '<div class="etape' + (s.done ? " done" : "") + '">' +
           '<input type="checkbox" data-step-done="' + esc(s.id) + '"' + (s.done ? " checked" : "") + " />" +
           '<span class="lab">' + esc(s.label) +
           (s.ajoutee ? ' <small class="etape__tag">ajoutée à la main</small>' : "") +
           (s.hint ? "<small>" + esc(s.hint) + "</small>" : "") +
-          (relTxt ? '<small style="color:var(--warn)">' + esc(relTxt) + "</small>" : "") + "</span>" +
+          (relTxt ? '<small style="color:var(--warn)">' + esc(relTxt) + "</small>" : "") +
+          (rappelCompromis ? '<small style="color:var(--bad)">' + esc(rappelCompromis) + "</small>" : "") + "</span>" +
           dateCtl +
           '<span class="delta ' + deltaCls + '">' + esc(deltaTxt) + "</span>" + mailBtn +
           (s.ajoutee ? '<button class="btn btn--sm btn--danger" data-step-rm="' + esc(s.id) + '" title="Retirer cette action ajoutée">✕</button>' : "") +
@@ -2173,7 +2315,10 @@
         try { if (typeof focusAvant.debut === "number") el.setSelectionRange(focusAvant.debut, focusAvant.fin); } catch (e) { /* select, date… */ }
       }
     }
-    setSaveState(saveState === "dirty" || saveState === "saving" ? saveState : "");
+    // « Enregistré ✓ » ne survit pas à un re-rendu ; « Modifié… » et
+    // « ⚠ Non enregistré » restent tant qu'ils sont vrais.
+    if (etatsSave[currentId] === "saved") etatsSave[currentId] = "";
+    afficheSaveState();
   }
 
   /* Sous l'échéancier, les fiches (dossier, bien, parties, notaires, dates…)
@@ -2215,9 +2360,14 @@
 
   // Cocher une étape peut renseigner la date clé correspondante (et vice-versa) ;
   // la date « fait le » d'une étape suit sa date clé, et réciproquement.
+  // « AR de la notification SRU envoyé au notaire » n'en fait PAS partie : le
+  // jour où l'on transmet l'accusé au notaire n'est pas celui de la première
+  // présentation du recommandé. Cocher l'étape écrivait la date du jour dans
+  // « Présentation AR SRU » — et la rétractation était annoncée purgée trop
+  // tôt. Cette date légale ne se saisit que dans « Dates clés ».
   const STEP_DATE = {
     envoi_sru: "dates.envoi_sru", envoi_notaires: "dates.envoi_notaires",
-    retour_sru: "dates.presentation_sru", envoi_dia: "dates.envoi_dia",
+    envoi_dia: "dates.envoi_dia",
     signature: "dates.signature_acte",
     dp_depot: "dates.dp_depot", dp_accord: "dates.dp_accord", dp_affichage: "dates.dp_affichage",
     pc_depot: "dates.pc_depot", pc_accord: "dates.pc_accord", pc_affichage: "dates.pc_affichage"
@@ -2283,9 +2433,7 @@
     if (fait && datePath && !getByPath(d, datePath)) setByPath(d, datePath, E.today());
     // Décocher efface la date clé liée (un clic de trop sur « Acte signé »
     // laissait « Acte signé le… » en tête du dossier et lançait l'après-vente).
-    // Exception : la date de présentation de la SRU — une date légale saisie
-    // d'après l'accusé de réception, qu'un simple décochage ne doit pas perdre.
-    if (!fait && datePath && id !== "retour_sru") setByPath(d, datePath, "");
+    if (!fait && datePath) setByPath(d, datePath, "");
   }
 
   // Écouteurs délégués du détail de dossier — attachés UNE fois au démarrage
@@ -2347,7 +2495,11 @@
         // surcharge locale), pour que les deux champs restent le même.
         const duePath = STEP_DUE_DATE[id];
         if (duePath) { setByPath(d, duePath, t.value); d.etapes[id].due = ""; }
-        else d.etapes[id].due = t.value;
+        else {
+          d.etapes[id].due = t.value;
+          // Date choisie à la main : elle tient, aucun recalcul ne l'efface.
+          if (t.value) d.etapes[id].dueManuel = true; else delete d.etapes[id].dueManuel;
+        }
         markDirty(); renderDossierApres(); return;
       }
       // Date « fait le » d'une étape : modifiable, et répercutée sur la date
@@ -2498,7 +2650,11 @@
           const faits = await relireCompromis(currentId);
           toast(faits.length ? faits.length + " champ(s) complété(s) — voir le journal." : "Rien à compléter : le dossier est déjà à jour.");
           renderDossier();
-        } catch (e) { toast(e.message, true); }
+        } catch (e) {
+          toast(e.message, true);
+          // Champs complétés mais non enregistrés : ils sont à l'écran quand même.
+          if ((location.hash || "").startsWith("#dossier/")) renderDossier();
+        }
         b.disabled = false; b.textContent = "🔄 Relire le compromis";
         return;
       }
@@ -2526,7 +2682,9 @@
       et.relance = { ts: dernier.ts, modele: et.relance ? et.relance.modele : "", user: dernier.user || "" };
     } else {
       delete et.relance;
-      delete et.due;
+      // (Une échéance du compromis n'a pas été reportée par la relance : une
+      // date qui s'y trouve a été saisie à la main, on la garde.)
+      if (!echeanceContrat(d, stepId) || (relanceReporte(d, stepId) && !et.dueManuel)) delete et.due;
       // La relance effacée avait coché l'étape d'office : on la décoche aussi.
       if (RELANCE_ACCOMPLIT.includes(stepId) && et.done) marquerEtape(d, stepId, false);
     }
@@ -2599,6 +2757,7 @@
     try {
       await api("/dossiers/" + encodeURIComponent(currentId), { method: "DELETE" });
       delete details[currentId];
+      oublierSave(currentId); // plus rien à enregistrer pour lui
       list = list.filter((x) => x.id !== currentId);
       toast("Dossier supprimé.");
       location.hash = "#dossiers";
@@ -2821,7 +2980,16 @@
         (av.user ? " par " + esc(av.user) : "") + ". Les valeurs d'origine du compromis restent lisibles ici (barrées).</p>" +
         "</div>").join("") + "</div>";
   }
-  async function joindreAvenant(id, file) {
+  // Dossiers tenus par une lecture de PDF (avenant, relecture du compromis) :
+  // elle dure une à deux minutes et écrit dans le dossier en mémoire à la fin
+  // — celui-là ne doit pas être relu du serveur entre-temps (retour d'onglet).
+  const lecturesEnCours = new Set();
+  async function pendantLecture(id, fn) {
+    lecturesEnCours.add(id);
+    try { return await fn(); } finally { lecturesEnCours.delete(id); }
+  }
+  const joindreAvenant = (id, file) => pendantLecture(id, () => joindreAvenantNow(id, file));
+  async function joindreAvenantNow(id, file) {
     const det = details[id];
     if (!det) return;
     const d = det.data;
@@ -2869,9 +3037,10 @@
       text: "📎 Avenant n°" + n + (av.date ? " du " + E.fmtFr(av.date) : "") + (av.objet ? " — " + av.objet : "") +
         (mods.length ? "\nChangements appliqués : " + mods.map((m) => m.champ + " : " + (m.avant ? fmtValeur(m.avant) + " → " : "") + fmtValeur(m.apres)).join(" ; ") + "."
           : "\nAucun changement suivi.") });
-    await saveDossier(id);
+    const enregistre = await saveDossier(id);
     if (currentId === id) renderDossier();
-    toast(mods.length ? "Avenant n°" + n + " lu : " + mods.length + " changement(s) appliqué(s) ✓" : "Avenant n°" + n + " attaché — rien à modifier au dossier.");
+    if (!enregistre) toast("Avenant n°" + n + " lu, mais le dossier n'a pas pu être enregistré — voir le bandeau « non enregistré ».", true);
+    else toast(mods.length ? "Avenant n°" + n + " lu : " + mods.length + " changement(s) appliqué(s) ✓" : "Avenant n°" + n + " attaché — rien à modifier au dossier.");
   }
 
   /* --------------------------- Relances e-mail ---------------------------- */
@@ -2893,7 +3062,7 @@
     (arr || []).forEach((p) => {
       const x = decoupeNom(p && p.nom);
       if (!x) return;
-      const nf = x.reste != null ? x.reste.toUpperCase() : x.nomFamille.join(" ");
+      const nf = x.reste != null ? (x.caps ? x.caps.join(" ") : x.reste.toUpperCase()) : x.nomFamille.join(" ");
       if (nf && !vus.some((v) => v.toLowerCase() === nf.toLowerCase())) vus.push(nf);
     });
     return vus;
@@ -2915,10 +3084,12 @@
     const p = decoupeNom(nom);
     if (!p) return "";
     const civ = CIVILITE_LONGUE[p.civ] || p.civ;
-    const patronyme = p.reste != null ? p.reste : p.nomFamille.join(" ");
+    const patronyme = p.reste != null ? (p.caps ? p.caps.join(" ") : p.reste) : p.nomFamille.join(" ");
     return [civ, patronyme].filter(Boolean).join(" ");
   }
   function joinFormel(arr) { return (arr || []).map((p) => nomFormel(p.nom)).filter(Boolean).join(" et "); }
+  // Les règles d'écriture des noms, consultables par les parcours de test (smoke).
+  window.SuiviNoms = { nomStandard, nomCourriel, nomFormel };
   // Adresses d'une étude : le notaire (dossier, sinon annuaire) ET son clerc
   // en charge du dossier (saisi au dossier uniquement, jamais dans l'annuaire).
   function mailsEtude(d, key) {
@@ -3110,13 +3281,19 @@
     const cible = step ? step.cible : "";
     const salutation = cible === "notaires" ? (notaireUnique(d) ? "Maître," : "Bonjour Maîtres,")
       : /^notaire/.test(cible || "") || cible === "depositaire" ? "Maître," : "Bonjour,";
-    // Mêmes valeurs par défaut que l'échéancier quand le compromis ne donne
-    // pas de date précise (« dans les 10 jours ») : dépôt du prêt = compromis
-    // + 10 j ; échéance de la condition de prêt = celle de la condition
-    // suspensive « prêt » si listée, sinon compromis + 60 j.
+    // Même valeur par défaut que l'échéancier quand le compromis ne donne pas
+    // de date précise (« dans les 10 jours ») : dépôt du prêt = compromis + 10 j.
     const depotDefaut = fin.date_limite_depot || E.addDays(d.date_compromis, 10);
+    // Échéance de la condition de prêt : la date saisie (« Obtention avant
+    // le »), sinon celle de la condition de prêt listée au compromis. À
+    // défaut, AUCUNE date : les courriers affirmaient « condition suspensive
+    // au [compromis + 60 j] » pendant que l'échéancier comptait + 56 j. Le
+    // défaut (E.echeancePret, le même partout) reste une estimation de
+    // travail ; dans un courrier le champ s'écrit « [echeance_pret ?] », à
+    // compléter d'après le compromis.
     const condPret = (d.conditions_suspensives || []).find((c) => /pr[êe]t|financement/i.test(c.titre || ""));
-    const echPretDefaut = fin.date_limite_obtention || (condPret && condPret.echeance) || E.addDays(d.date_compromis, 60);
+    const echPret = E.fmtFr(fin.date_limite_obtention) || E.fmtFr(condPret && condPret.echeance);
+    const echPretTxt = echPret || "[echeance_pret ?]";
     // Achat comptant (« Recours à un prêt : non ») : aucune date de prêt ne se
     // calcule, et les phrases qui en parlent disparaissent des courriers —
     // le vendeur lisait « financement des acquéreurs (condition suspensive au
@@ -3132,13 +3309,14 @@
     return {
       __sansPret: sansPret, __terrain: terrain, __optionnels: ["ligne_financement"],
       __retractEstimee: !terrain && E.retractEstimee(d),
+      __echPretManque: !sansPret && !echPret,
       // Dernier jour du délai de rétractation (J+10 à compter du lendemain de
       // la présentation, prorogé au jour ouvrable) : « a expiré le … ».
       expiration_retractation: terrain ? "" : E.fmtFr(E.addDays(E.finRetract(d), -1)),
       // Lignes de calendrier qui ne s'écrivent que s'il y a un prêt.
-      ligne_financement: (sansPret || pretInconnu) ? "" : "- financement des acquéreurs (condition suspensive au " + E.fmtFr(echPretDefaut) + "),\n",
+      ligne_financement: (sansPret || pretInconnu) ? "" : "- financement des acquéreurs (condition suspensive au " + echPretTxt + "),\n",
       financement_etat: sansPret ? "achat comptant, sans condition suspensive de prêt"
-        : pretInconnu ? "" : "en cours, condition suspensive au " + E.fmtFr(echPretDefaut),
+        : pretInconnu ? "" : "en cours, condition suspensive au " + echPretTxt,
       reference: d.reference, adresse_bien: adresseComplete(d.bien), ville: d.bien.ville,
       prix: d.prix.prix_vente,
       // Le compromis écrit souvent une phrase entière dans « honoraires » :
@@ -3165,7 +3343,7 @@
       // + 10 jours, prorogé au jour ouvrable si le délai expire un week-end.
       fin_retractation: terrain ? "" : E.fmtFr(E.finRetract(d)),
       sequestre_montant: d.sequestre.montant, sequestre_depositaire: d.sequestre.depositaire,
-      date_limite_depot: sansPret ? "" : E.fmtFr(depotDefaut), echeance_pret: sansPret ? "" : E.fmtFr(echPretDefaut),
+      date_limite_depot: sansPret ? "" : E.fmtFr(depotDefaut), echeance_pret: sansPret ? "" : echPret,
       signature_prevue: dateHeure(d.dates.signature_prevue, d.dates.signature_heure),
       signature_acte: E.fmtFr(d.dates.signature_acte),
       signature_lieu_vendeur: d.dates.signature_lieu_vendeur || "",
@@ -3237,6 +3415,7 @@
   }
 
   let mailCtx = null; // { dossierId, modeleName, stepId }
+  let versMessagerie = 0; // instant du dernier « mailto: » (voir beforeunload)
   function openMail(dossierId, modele, stepId) {
     const d = details[dossierId].data;
     const step = stepId ? E.compute(d).find((s) => s.id === stepId) : null;
@@ -3269,10 +3448,14 @@
     // Le message annonce une date de rétractation alors que la présentation
     // du recommandé n'est pas saisie : la date n'est qu'une estimation.
     const estimee = f.__retractEstimee && /\{\{\s*(fin_retractation|expiration_retractation)\s*\}\}/i.test((modele.sujet || "") + (modele.corps || ""));
-    $("#mailAlerte").hidden = !estimee;
-    $("#mailAlerte").textContent = estimee
-      ? "⚠ La date de rétractation de ce message est ESTIMÉE (compromis + 14 jours) : la « Présentation AR SRU » n'est pas saisie dans les Dates clés. Vérifiez la date avant d'envoyer."
-      : "";
+    // Le message parle de l'échéance du prêt alors qu'elle n'est pas au
+    // dossier : il porte « [echeance_pret ?] », jamais une date inventée.
+    const pretACompleter = f.__echPretManque && /\[echeance_pret \?\]/.test($("#mailSubject").value + $("#mailBody").value);
+    const alertes = [];
+    if (estimee) alertes.push("⚠ La date de rétractation de ce message est ESTIMÉE (compromis + 14 jours) : la « Présentation AR SRU » n'est pas saisie dans les Dates clés. Vérifiez la date avant d'envoyer.");
+    if (pretACompleter) alertes.push("⚠ L'échéance de la condition de prêt n'est pas saisie au dossier (« Obtention avant le ») : remplacez « [echeance_pret ?] » par la date du compromis avant d'envoyer. L'échéancier compte à défaut compromis + " + E.PRET_DEFAUT + " jours" + (E.fmtFr(E.echeancePret(d)) ? " (" + E.fmtFr(E.echeancePret(d)) + ")" : "") + " — une estimation, pas une date à annoncer.");
+    $("#mailAlerte").hidden = !alertes.length;
+    $("#mailAlerte").textContent = alertes.join(" ");
     if (!to) {
       $("#mailTo").placeholder = "E-mail inconnu — saisissez-le ici (et notez-le dans le dossier ou l'annuaire pour la prochaine fois)";
       $("#mailTo").focus();
@@ -3307,11 +3490,14 @@
         marquerEtape(det.data, mailCtx.stepId, true);
       // La balle est dans le camp d'en face : l'action sort du tableau de bord
       // pour une semaine. Une relance ne fait que REPOUSSER — jamais avancer —
-      // et n'a pas à déplacer une date clé (la signature reste où elle est).
-      } else if (!STEP_DUE_DATE[mailCtx.stepId]) {
+      // et n'a pas à déplacer une date clé (la signature reste où elle est),
+      // ni une échéance du compromis ou de la loi : la condition de prêt
+      // « au 30/11 » s'affichait au 07/12 après une relance. Pour celles-là,
+      // « relancé le » (et.relance, ci-dessus) suffit — la date ne bouge pas.
+      } else if (!STEP_DUE_DATE[mailCtx.stepId] && (!echeanceContrat(det.data, mailCtx.stepId) || relanceReporte(det.data, mailCtx.stepId))) {
         const step = E.compute(det.data).find((x) => x.id === mailCtx.stepId);
         const report = E.addDays(E.today(), REPORT_RELANCE);
-        if (step && (!step.due || step.due < report)) et.due = report;
+        if (step && (!step.due || step.due < report)) { et.due = report; delete et.dueManuel; }
       }
     }
     const wasCurrent = currentId === mailCtx.dossierId;
@@ -3504,7 +3690,8 @@
   }
 
   // Relit le compromis d'un dossier et complète ce qui manque.
-  async function relireCompromis(id) {
+  const relireCompromis = (id) => pendantLecture(id, () => relireCompromisNow(id));
+  async function relireCompromisNow(id) {
     const det = details[id];
     if (!det) throw new Error("Dossier non chargé.");
     if (!det.compromis_size) throw new Error("Aucun compromis PDF attaché à ce dossier.");
@@ -3523,7 +3710,7 @@
         ts: Math.floor(Date.now() / 1000), user: userName(),
         text: "🔄 Relecture du compromis : " + faits.length + " champ(s) complété(s) — " + faits.join(", ")
       });
-      await saveDossier(id);
+      if (!(await saveDossier(id))) throw new Error(faits.length + " champ(s) complété(s), mais le dossier n'a pas pu être enregistré — voir le bandeau « non enregistré ».");
     }
     return faits;
   }
@@ -3585,22 +3772,80 @@
     return d;
   }
 
+  /* Crée le dossier. Rend { id, cree } — ou null si l'on a renoncé.
+     Une création part SANS id : si la référence est déjà celle d'un dossier,
+     le serveur refuse (409) au lieu de l'écraser, et l'on choisit — ouvrir
+     l'existant (rien n'est créé, le PDF n'est pas envoyé) ou créer quand même
+     sous un autre nom, « … (2) ». Cas vécus : un collègue recrée « DUPONT /
+     MARTIN » depuis le même compromis ; deux « Créer à la main » le même jour
+     sans référence (« Dossier du JJ/MM/AAAA »). */
   async function createDossier(data, pdfFile) {
     // Dossier NOUVEAU : les étapes réservées aux dossiers ouverts à partir
     // d'une date (envoi des acquéreurs au courtier) s'y appliquent — jamais
     // au stock existant, que normalize() laisse à false.
     data.suivi_courtier = true;
     data.echeance = E.nextDue(data);
-    // Nom unique : un nouveau dossier ne remplace JAMAIS un dossier existant
-    // de même référence (même compromis analysé deux fois, seconde vente
-    // entre les mêmes parties).
-    try { await loadList(); } catch (e) { /* liste en mémoire à défaut */ }
-    const name = nomUnique((data.reference || "Dossier du " + new Date().toLocaleDateString("fr-FR")).trim(), "");
-    const r = await api("/dossiers", { method: "PUT", json: { name, data } });
+    const name = (data.reference || "Dossier du " + new Date().toLocaleDateString("fr-FR")).trim();
+    const existantDe = (e) => (e.status === 409 && e.data && e.data.existant) || null;
+    // La liste en mémoire le sait souvent déjà (et rien n'est alors envoyé) ;
+    // le serveur tranche pour ce qu'elle ignore — le dossier qu'un collègue
+    // vient de créer.
+    let existant = list.find((x) => x.name === name) || null, r = null;
+    if (!existant) {
+      try { r = await api("/dossiers", { method: "PUT", json: { name, data } }); }
+      catch (e) { existant = existantDe(e); if (!existant) throw e; }
+    }
+    if (existant) {
+      const choix = await choixDoublon(name, existant);
+      if (choix === "ouvrir") {
+        try { await loadList(); } catch (e2) { /* la liste se rechargera plus tard */ }
+        return { id: existant.id, cree: false };
+      }
+      if (choix !== "creer") return null;
+      // Premier nom libre : « (2) », « (3) »… La référence suit le nom —
+      // sinon l'enregistrement suivant voudrait reprendre le nom du premier.
+      for (let n = 2; !r && n <= 50; n++) {
+        const autre = name + " (" + n + ")";
+        if (list.some((x) => x.name === autre)) continue;
+        if (data.reference) data.reference = autre;
+        try { r = await api("/dossiers", { method: "PUT", json: { name: autre, data } }); }
+        catch (e2) { if (!existantDe(e2)) throw e2; }
+      }
+      if (!r) throw new Error("Trop de dossiers portent déjà ce nom — choisissez une autre référence.");
+    }
     details[r.id] = { id: r.id, name: r.name, updated_at: r.updated_at, data, compromis_size: 0 };
     refreshListRow(details[r.id]);
     if (pdfFile) await uploadCompromis(r.id, pdfFile);
-    return r.id;
+    return { id: r.id, cree: true };
+  }
+  // La fenêtre du choix (créée ici, à la demande) : « ouvrir » | « creer » | « annuler ».
+  function choixDoublon(name, existant) {
+    return new Promise((resolve) => {
+      let ov = $("#ovDoublon");
+      if (!ov) {
+        ov = document.createElement("div");
+        ov.id = "ovDoublon";
+        ov.className = "overlay";
+        document.body.appendChild(ov);
+      }
+      const maj = existant.updated_at ? new Date(existant.updated_at * 1000).toLocaleDateString("fr-FR") : "";
+      ov.innerHTML = '<div class="modal" style="max-width:560px"><h3>Ce dossier existe déjà</h3>' +
+        "<p>Un dossier « <b>" + esc(existant.name || name) + "</b> » existe déjà dans l'agence" +
+        (maj ? " (dernière modification le " + esc(maj) + ")" : "") + ". " +
+        "Il n'a pas été touché : son journal, ses étapes et son compromis sont intacts.</p>" +
+        '<p class="hintline">S\'il s\'agit de la même vente, ouvrez-le. S\'il s\'agit d\'une autre vente du même nom, créez ce dossier à part : son nom portera un numéro, « ' +
+        esc(name) + ' (2) ».</p>' +
+        '<div class="foot"><button class="btn" id="doublonAnnuler" type="button">Annuler</button>' +
+        '<button class="btn" id="doublonCreer" type="button">Créer quand même sous un autre nom</button>' +
+        '<button class="btn btn--primary" id="doublonOuvrir" type="button">Ouvrir le dossier existant</button></div></div>';
+      ov.onclick = (ev) => {
+        const b = ev.target.closest("button");
+        if (!b) return;
+        ov.classList.remove("on");
+        resolve(b.id === "doublonOuvrir" ? "ouvrir" : b.id === "doublonCreer" ? "creer" : "annuler");
+      };
+      ov.classList.add("on");
+    });
   }
 
   function wireNewModal() {
@@ -3627,9 +3872,11 @@
       d.reference = ref.trim() || "Dossier du " + new Date().toLocaleDateString("fr-FR");
       d.date_compromis = E.today();
       try {
-        const id = await createDossier(d, newFiles.find((f) => f.isPdf && f.rawFile) ? newFiles.find((f) => f.isPdf).rawFile : null);
+        const r = await createDossier(d, newFiles.find((f) => f.isPdf && f.rawFile) ? newFiles.find((f) => f.isPdf).rawFile : null);
+        if (!r) return; // référence déjà prise, création abandonnée
         ov.classList.remove("on");
-        location.hash = "#dossier/" + id;
+        if (!r.cree) toast("Dossier existant ouvert — rien n'a été créé.");
+        location.hash = "#dossier/" + r.id;
       } catch (e) { toast(e.message, true); }
     });
     $("#btnAnalyse").addEventListener("click", async () => {
@@ -3640,10 +3887,12 @@
         const x = await window.SuiviAI.extractCompromis({ files: newFiles });
         const d = extractionToDossier(x);
         const pdf = newFiles.find((f) => f.isPdf && f.rawFile);
-        const id = await createDossier(d, pdf ? pdf.rawFile : null);
-        ov.classList.remove("on");
-        toast("Dossier créé — relisez la fiche, tout est modifiable.");
-        location.hash = "#dossier/" + id;
+        const r = await createDossier(d, pdf ? pdf.rawFile : null);
+        if (r) {
+          ov.classList.remove("on");
+          toast(r.cree ? "Dossier créé — relisez la fiche, tout est modifiable." : "Dossier existant ouvert — rien n'a été créé.");
+          location.hash = "#dossier/" + r.id;
+        }
       } catch (e) { toast(e.message, true); }
       btn.disabled = !newFiles.length;
       btn.textContent = "✨ Analyser le compromis";
@@ -3706,7 +3955,8 @@
     $("#btnRefresh").addEventListener("click", async () => {
       try {
         await loadList();
-        for (const id of Object.keys(details)) delete details[id];
+        // (Sauf les dossiers modifiés ici et pas encore enregistrés.)
+        for (const id of Object.keys(details)) if (!enAttente.has(id) && !nonEnregistres[id] && !lecturesEnCours.has(id)) delete details[id];
         renderList();
         toast("Liste actualisée.");
       } catch (e) { toast(e.message, true); }
@@ -3803,28 +4053,45 @@
         "?subject=" + encodeURIComponent($("#mailSubject").value) +
         ($("#mailCc").value ? "&cc=" + encodeURIComponent($("#mailCc").value) : "") +
         "&body=" + encodeURIComponent($("#mailBody").value);
+      versMessagerie = Date.now(); // ce départ-là n'est pas une fermeture de l'onglet
       window.location.href = url;
       logRelance("ouverte dans la messagerie");
       $("#ovMail").classList.remove("on");
     });
-    // Onglet masqué ou page quittée : ce qui n'est pas encore parti part
-    // maintenant ; s'il reste une modification à envoyer, le navigateur
-    // demande confirmation avant de fermer.
-    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") envoyerEnAttente(); });
+    // Ce qui n'a pas pu s'enregistrer repart dès que le réseau revient (et,
+    // à défaut de signal du navigateur, toutes les 30 secondes).
+    window.addEventListener("online", () => rejouerEnregistrements(false));
+    setInterval(() => { if (navigator.onLine !== false) rejouerEnregistrements(false); }, 30000);
+    // Fermer ou recharger l'onglet avec du non-enregistré : le navigateur
+    // demande confirmation (l'ouverture de la messagerie, elle, ne quitte rien).
     window.addEventListener("beforeunload", (ev) => {
-      if (!aSauver.size) return;
-      envoyerEnAttente();
+      if (!resteAEnregistrer() || Date.now() - versMessagerie < 3000) return;
       ev.preventDefault();
       ev.returnValue = "";
     });
     // Recharge silencieuse au retour sur l'onglet (travail à plusieurs).
     window.addEventListener("focus", async () => {
       if (!account()) return;
+      rejouerEnregistrements(false);
       try {
         await loadList();
         const h = location.hash || "#board";
+        // La liste seule ne suffit pas : tableau de bord, réunion et
+        // portefeuille se calculent sur le DÉTAIL des dossiers, gardé en
+        // mémoire — on y voyait encore à faire ce qu'un collègue avait fait.
+        // On oublie donc les détails dont la version a changé sur le serveur,
+        // sauf ce qui est en cours ici (dossier ouvert, modification non
+        // enregistrée, lecture d'un PDF) : ils seront relus à l'affichage.
+        const ouvert = h.startsWith("#dossier/") ? currentId : null;
+        for (const m of list) {
+          const det = details[m.id];
+          if (det && Number(det.updated_at) !== Number(m.updated_at) && m.id !== ouvert
+            && !enAttente.has(m.id) && !nonEnregistres[m.id] && !lecturesEnCours.has(m.id)) delete details[m.id];
+        }
         if (h === "#board") renderBoard();
         else if (h === "#dossiers") renderList();
+        else if (h === "#reunion") renderReunion();
+        else if (h === "#stats") renderStats();
       } catch (e) { /* silencieux */ }
     });
   }

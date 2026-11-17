@@ -176,6 +176,17 @@ export function sanitizeContact(b) {
 // sont echappees inline (sqlText) car D1 limite aussi le nombre de parametres
 // lies par requete (~100, soit 5 lignes de 20 colonnes seulement).
 const sqlText = (v) => "'" + String(v ?? "").replace(/'/g, "''") + "'";
+// Deux prénoms « concordent » : identiques sans casse ni accents, ou l'un est une
+// fiche couple (« Luc et Zoé ») qui contient l'autre. Sert à ne rapprocher par
+// e-mail que la même personne (import, nettoyage).
+const clePrenom = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+export function prenomsConcordent(a, b) {
+  const x = clePrenom(a), y = clePrenom(b);
+  if (x === y) return true;
+  if (!x || !y) return false;
+  const membres = (t) => t.split(/\s+(?:et|&)\s+/);
+  return membres(x).includes(y) || membres(y).includes(x);
+}
 const INSERT_MAX_LIGNES = 150;      // et au plus ~80 Ko de SQL par requete
 const INSERT_MAX_OCTETS = 80000;
 
@@ -281,11 +292,22 @@ export async function bulkUpsertContacts(db, agencyId, userId, rows, source = "i
   if (noms.length) conditions.push(`nom COLLATE NOCASE IN (${noms.map(sqlText).join(",")})`);
   const existing = conditions.length ? await db.all(
     `SELECT * FROM crm_contacts WHERE agency_id = ? AND (${conditions.join(" OR ")})`, [agencyId]) : [];
+  // Un e-mail peut être PARTAGÉ (un couple, un parent et son enfant) : on garde
+  // toutes les fiches qui le portent, et parEmail() ne rapproche que la même personne.
   const byEmail = new Map(), byName = new Map();
+  const noterEmail = (c) => { if (!c.email) return; const l = byEmail.get(c.email) || []; if (!l.includes(c)) l.push(c); byEmail.set(c.email, l); };
   for (const c of existing) {
-    if (c.email) byEmail.set(c.email, c);
+    noterEmail(c);
     byName.set(keyName(c.nom, c.prenom), c);
   }
+  const parEmail = (v) => {
+    const candidats = (v.email && byEmail.get(v.email)) || [];
+    const meme = candidats.find((c) => prenomsConcordent(c.prenom, v.prenom));
+    if (meme) return meme;
+    // Prénom inconnu d'un côté : on rapproche s'il n'y a qu'une fiche à cet e-mail.
+    // Deux prénoms différents = deux personnes : jamais fusionnées (audit du 16/11).
+    return candidats.length === 1 && (!clePrenom(v.prenom) || !clePrenom(candidats[0].prenom)) ? candidats[0] : null;
+  };
 
   const total = await db.get("SELECT COUNT(*) AS n FROM crm_contacts WHERE agency_id = ?", [agencyId]);
   let count = total?.n || 0, created = 0, updated = 0, skipped = 0;
@@ -296,7 +318,7 @@ export async function bulkUpsertContacts(db, agencyId, userId, rows, source = "i
 
   for (const v of propres) {
     if (!v.nom && !v.prenom && !v.email) { skipped++; continue; }
-    const match = (v.email && byEmail.get(v.email)) || byName.get(keyName(v.nom, v.prenom));
+    const match = parEmail(v) || byName.get(keyName(v.nom, v.prenom));
     if (match) {
       // Fusion EN PLACE : l'objet reste reference par les index, donc les
       // doublons internes au fichier se fusionnent aussi entre eux.
@@ -319,7 +341,7 @@ export async function bulkUpsertContacts(db, agencyId, userId, rows, source = "i
         user_id: userId,
         updated_at: ts,
       });
-      if (match.email) byEmail.set(match.email, match);
+      noterEmail(match);
       byName.set(keyName(match.nom, match.prenom), match);
       if (!nouvelles.has(match) && !fusionnees.has(match.id)) {
         fusionnees.set(match.id, match);
@@ -334,7 +356,7 @@ export async function bulkUpsertContacts(db, agencyId, userId, rows, source = "i
       };
       nouvelles.add(ligne);
       count++; created++;
-      if (ligne.email) byEmail.set(ligne.email, ligne);
+      noterEmail(ligne);
       byName.set(keyName(ligne.nom, ligne.prenom), ligne);
     }
   }
@@ -457,16 +479,16 @@ export const QUOTAS = {
 // quand le plafond du jour est atteint (rien n'est compté dans ce cas).
 export async function consommerQuota(db, agencyId, userId, cle, max = QUOTAS[cle]) {
   const jour = parisDate();
-  const cur = await db.get(
-    "SELECT n FROM crm_quotas WHERE agency_id = ? AND user_id = ? AND jour = ? AND cle = ?",
-    [agencyId, userId || "", jour, cle]);
-  const n = cur ? Number(cur.n) : 0;
-  if (n >= max) return { ok: false, n, max };
-  await db.run(
-    `INSERT INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES (?, ?, ?, ?, 1)
-     ON CONFLICT(agency_id, user_id, jour, cle) DO UPDATE SET n = n + 1`,
-    [agencyId, userId || "", jour, cle]);
-  return { ok: true, n: n + 1, max };
+  const qui = [agencyId, userId || "", jour, cle];
+  // Incrément gardé, en UNE requête (comme quota_counters) : « lire puis
+  // écrire » laissait N requêtes parallèles lire le même compteur et passer
+  // toutes sous le plafond.
+  await db.run("INSERT OR IGNORE INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES (?, ?, ?, ?, 0)", qui);
+  const r = await db.run(
+    "UPDATE crm_quotas SET n = n + 1 WHERE agency_id = ? AND user_id = ? AND jour = ? AND cle = ? AND n < ?",
+    [...qui, Number(max) || 0]);
+  const cur = await db.get("SELECT n FROM crm_quotas WHERE agency_id = ? AND user_id = ? AND jour = ? AND cle = ?", qui);
+  return { ok: changesOf(r) === 1, n: cur ? Number(cur.n) : 0, max };
 }
 
 // Réserve d'un coup `nb` unités du plafond : rend le nombre accordé (0 → rien).
@@ -545,7 +567,9 @@ export const CORBEILLE_JOURS = 30;
 // Tables qu'une entrée de corbeille peut réinsérer (liste blanche : le JSON
 // stocké ne décide jamais où l'on écrit).
 const TABLES_CORBEILLE = ["crm_contacts", "crm_suivis", "crm_visites", "crm_visite_avis",
-  "crm_geo", "crm_projet_contacts", "crm_estimation_contacts"];
+  "crm_geo", "crm_projet_contacts", "crm_estimation_contacts",
+  // Un dossier Parcours R1/R2 supprimé (type « parcours », 16/11).
+  "crm_estimations", "crm_parcours", "crm_parcours_r2"];
 
 // Une entrée par objet supprimé : payload = { table: [lignes…] }. Insertion
 // par lots de 20 lignes (une seule requête par lot — D1 compte chaque
@@ -590,7 +614,7 @@ export async function restaurerCorbeille(db, agencyId, id, options = {}) {
     let n = 0;
     for (const ligne of lignes) {
       if (!ligne || typeof ligne !== "object") continue;
-      const cols = Object.keys(ligne).filter((k) => /^[a-z_]+$/.test(k));
+      const cols = Object.keys(ligne).filter((k) => /^[a-z_][a-z0-9_]*$/.test(k)); // r1, r2… : des chiffres aussi
       if (!cols.length) continue;
       // La ligne retourne dans CETTE agence, quoi que dise le JSON.
       const vals = cols.map((k) => (k === "agency_id" ? agencyId : ligne[k]));
@@ -613,19 +637,63 @@ export async function menageQuotidien(db, files = null) {
   // déposées 90 jours après la fin d'une offre (l'offre et son PDF restent).
   try { r.offresExpirees = await OFFRES.expirerOffres(db); } catch (e) { r.offresErreur = e.message; }
   try { r.offresPurgees = await OFFRES.purgerOffres(db, files); } catch (e) { r.purgeErreur = e.message; }
-  r.corbeille = changesOf(await db.run("DELETE FROM crm_corbeille WHERE created_at < ? OR (restored_at > 0 AND restored_at < ?)",
-    [t - CORBEILLE_JOURS * 86400, t - 7 * 86400]));
+  // Corbeille des brochures du compte : contenu R2 puis ligne, 30 jours après la suppression.
+  try {
+    const vieilles = await db.all("SELECT id, agency_id FROM brochures_corbeille WHERE deleted_at < ? LIMIT 100", [t - 30 * 86400]);
+    for (const v of vieilles) {
+      if (files) await files.delete("br/" + v.agency_id + "/" + v.id + ".json");
+      await db.run("DELETE FROM brochures_corbeille WHERE id = ?", [v.id]);
+    }
+    r.brochures = vieilles.length;
+  } catch (e) { r.brochuresErreur = e.message; }
+  // Versions précédentes des livrets prix : 90 jours ; passé un jour, on ne
+  // garde par dossier que la première et la dernière version de la journée.
+  try {
+    await db.run("DELETE FROM crm_parcours_acm_versions WHERE archive_at < ?", [t - 90 * 86400]);
+    r.livrets = changesOf(await db.run(
+      `DELETE FROM crm_parcours_acm_versions WHERE origine = 'saisie' AND archive_at >= ? AND archive_at < ? AND id NOT IN (
+         SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY estimation_id, archive_at / 86400 ORDER BY archive_at, id) AS a,
+                                    ROW_NUMBER() OVER (PARTITION BY estimation_id, archive_at / 86400 ORDER BY archive_at DESC, id DESC) AS d
+                         FROM crm_parcours_acm_versions WHERE origine = 'saisie' AND archive_at >= ? AND archive_at < ?) WHERE a = 1 OR d = 1)`,
+      [t - 4 * 86400, t - 86400, t - 4 * 86400, t - 86400]));
+  } catch (e) { r.livretsErreur = e.message; }
+  // Chaque purge sous son propre try : une requête refusée par D1 (base
+  // saturée, quota du jour) ne prive ni des purges suivantes, ni — plus loin
+  // dans la chaîne du matin — des vœux et des rappels d'offres.
+  const purge = async (nom, sql, params = []) => {
+    try { r[nom] = changesOf(await db.run(sql, params)); }
+    catch (e) { r[nom + "Erreur"] = (e && e.message) || String(e); console.error("[ménage] " + nom + " :", r[nom + "Erreur"]); }
+  };
+  await purge("corbeille", "DELETE FROM crm_corbeille WHERE created_at < ? OR (restored_at > 0 AND restored_at < ?)",
+    [t - CORBEILLE_JOURS * 86400, t - 7 * 86400]);
   // Comptes partagés « .interne » (porte collaborateurs fermée le 12/10) : sessions et liens révoqués.
-  r.partages = changesOf(await db.run("UPDATE sessions SET revoked = 1 WHERE revoked = 0 AND user_id IN (SELECT id FROM users WHERE email LIKE '%.interne')"));
-  await db.run("DELETE FROM login_tokens WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%.interne')");
-  r.sessions = changesOf(await db.run("DELETE FROM sessions WHERE revoked = 1 OR last_seen < ?", [t - 90 * 86400]));
-  r.liens = changesOf(await db.run("DELETE FROM login_tokens WHERE expires_at < ?", [t - 86400]));
-  await db.run("DELETE FROM login_attentes WHERE created_at < ?", [t - 86400]);
-  await db.run("DELETE FROM login_attentes_appareil WHERE created_at < ?", [t - 86400]);
-  await db.run("DELETE FROM sessions_appareils WHERE token_hash NOT IN (SELECT token_hash FROM sessions)");
-  r.journal = changesOf(await db.run("DELETE FROM connexions_journal WHERE created_at < ?", [t - 180 * 86400]));
-  r.quotas = changesOf(await db.run("DELETE FROM crm_quotas WHERE jour < ?", [parisDate(new Date((t - 92 * 86400) * 1000))]));
+  await purge("partages", "UPDATE sessions SET revoked = 1 WHERE revoked = 0 AND user_id IN (SELECT id FROM users WHERE email LIKE '%.interne')");
+  await purge("liensPartages", "DELETE FROM login_tokens WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%.interne')");
+  await purge("sessions", "DELETE FROM sessions WHERE revoked = 1 OR last_seen < ?", [t - 90 * 86400]);
+  await purge("liens", "DELETE FROM login_tokens WHERE expires_at < ?", [t - 86400]);
+  await purge("attentes", "DELETE FROM login_attentes WHERE created_at < ?", [t - 86400]);
+  await purge("attentesAppareil", "DELETE FROM login_attentes_appareil WHERE created_at < ?", [t - 86400]);
+  await purge("appareils", "DELETE FROM sessions_appareils WHERE token_hash NOT IN (SELECT token_hash FROM sessions)");
+  await purge("journal", "DELETE FROM connexions_journal WHERE created_at < ?", [t - 180 * 86400]);
+  await purge("quotas", "DELETE FROM crm_quotas WHERE jour < ?", [parisDate(new Date((t - 92 * 86400) * 1000))]);
+  // Compteurs de débit (ai_rate : IA par agence, par clé personnelle, routes
+  // publiques par IP) : ils ne servent que le temps de leur fenêtre, quelques
+  // minutes, et la table grossissait sans fin. On garde deux jours.
+  await purge("debits", "DELETE FROM ai_rate WHERE minute < ?", [Math.floor(t / 60) - 2 * 1440]);
   return r;
+}
+
+// Les étapes d'un cron, l'une après l'autre, chacune sous son propre try :
+// celle qui échoue est journalisée par son nom et les suivantes tournent quand
+// même (un ménage en erreur ne prive plus l'agence des vœux du jour). Rend,
+// par étape, le résultat ou { erreur }.
+export async function enchainerEtapes(etapes) {
+  const bilan = {};
+  for (const [nom, etape] of etapes) {
+    try { bilan[nom] = await etape(); }
+    catch (e) { bilan[nom] = { erreur: (e && e.message) || String(e) }; console.error("[cron] étape « " + nom + " » en échec :", bilan[nom].erreur); }
+  }
+  return bilan;
 }
 
 // Suppression de fiches en cascade (géocache, liaisons projets/estimations,
@@ -756,6 +824,9 @@ async function fusionnerGroupes(db, agencyId, userId, groupes, preferer = "") {
       correspondance.set(c.id, s.id);
     }
     s.types = JSON.stringify(types);
+    // « Ne plus contacter » demandé sur UNE des fiches vaut pour la personne : la
+    // fiche gardée le porte (il se perdait quand elle ne l'avait pas — audit du 16/11).
+    s.opt_out = g.some((c) => Number(c.opt_out)) ? 1 : 0;
     s.user_id = userId; s.updated_at = t;
     survivants.push(s);
   }
@@ -920,8 +991,25 @@ export async function executerNettoyage(db, agency, userId, action, curseur = ""
           if (!parCle.has(f.email)) parCle.set(f.email, []);
           parCle.get(f.email).push(f);
         }
-        traites = await fusionnerGroupes(db, agency.id, userId, [...parCle.values()].filter((g) => g.length > 1));
-        return { traites, ambigus: 0, fini: false, curseur: "e:" + cles[cles.length - 1].k };
+        // Un e-mail partagé n'est pas une seule personne : à l'intérieur d'un groupe,
+        // seules les fiches dont le prénom concorde fusionnent. Des prénoms différents
+        // (un couple sur la même adresse) restent deux fiches ; une fiche sans prénom
+        // au milieu de plusieurs prénoms est laissée (comptée ambiguë), jamais devinée.
+        const propres = [];
+        for (const g of parCle.values()) {
+          if (g.length < 2) continue;
+          const sous = [];
+          for (const f of g.filter((x) => clePrenom(x.prenom))) {
+            const s2 = sous.find((l) => l.some((x) => prenomsConcordent(x.prenom, f.prenom)));
+            if (s2) s2.push(f); else sous.push([f]);
+          }
+          const sansPrenom = g.filter((x) => !clePrenom(x.prenom));
+          if (sous.length <= 1) { propres.push(g); continue; }
+          ambigus += sansPrenom.length + sous.filter((l) => l.length < 2).length;
+          propres.push(...sous.filter((l) => l.length > 1));
+        }
+        traites = await fusionnerGroupes(db, agency.id, userId, propres);
+        return { traites, ambigus, fini: false, curseur: "e:" + cles[cles.length - 1].k };
       }
     }
     // phase noms
@@ -1369,9 +1457,14 @@ export const MODELES = {
     texte: "Votre estimation du {adresse} a six mois. En immobilier, c'est l'âge où un avis de valeur mérite un regard neuf : le marché du quartier a bougé, dans un sens ou dans l'autre.\n\nNous vous proposons de la réactualiser gratuitement — un simple échange suffit souvent. Répondez à cet e-mail ou appelez-nous quand vous voulez." },
 };
 
+// Les balises sans lesquelles la phrase ne tient pas (« notre rendez-vous de directement
+// au 12 rue… » quand la date du R1 manque sur la fiche) : vides, elles laissent un rappel
+// entre crochets, bien visible à la relecture de l'e-mail, au lieu d'une phrase bancale.
+const BALISES_A_PRECISER = { date_r1: "[date du rendez-vous à préciser]", date_r2: "[date du rendez-vous à préciser]",
+  fourchette_basse: "[fourchette basse à préciser]", fourchette_haute: "[fourchette haute à préciser]" };
 export function remplirModele(texte, vars) {
   return String(texte || "")
-    .replace(/\{(\w+)\}/g, (tout, cle) => (vars[cle] != null && vars[cle] !== "" ? String(vars[cle]) : ""))
+    .replace(/\{(\w+)\}/g, (tout, cle) => (vars[cle] != null && vars[cle] !== "" ? String(vars[cle]) : (cle in vars && BALISES_A_PRECISER[cle]) || ""))
     // Une balise effacee ne laisse ni double espace ni espace avant une
     // virgule ou un point (« Bonjour , » → « Bonjour, ») — mais l'espace
     // avant ! ? : ; reste : c'est la typographie francaise.
@@ -3230,7 +3323,8 @@ export async function geocoderEnMasse(env, db, agencyId, max = 1000) {
   const iId = col("id"), iLat = col("latitude"), iLng = col("longitude"), iScore = col("result_score"), iLabel = col("result_label"), iCp = col("result_postcode"), iType = col("result_type");
   if (iId < 0 || iLat < 0 || iLng < 0) throw new Error("Géocodage en masse : colonnes inattendues (" + entete.join(",") + ").");
   const parId = new Map(attente.map((a) => [a.id, a]));
-  const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
+  // Tronquer AVANT de doubler les apostrophes (couper après laissait une apostrophe orpheline : injection SQL).
+  const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").slice(0, 200).replace(/'/g, "''") + "'";
   const t = now();
   const valeurs = [];
   let geocodes = 0, echecs = 0;
@@ -3346,7 +3440,8 @@ async function geocoderLot(env, db, agencyId, attente, total) {
     env.BAN_BASE || "https://api-adresse.data.gouv.fr",
     env.GEOPF_BASE || "https://data.geopf.fr/geocodage",
   ];
-  const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").replace(/'/g, "''").slice(0, 200) + "'";
+  // Tronquer AVANT de doubler les apostrophes (couper après laissait une apostrophe orpheline : injection SQL).
+  const sqlT = (v) => "'" + String(v ?? "").replace(/[\u0000-\u001f]/g, "").slice(0, 200).replace(/'/g, "''") + "'";
   // EN FILE INDIENNE, jamais en parallèle : la BAN et l'IGN refusent les
   // RAFALES venant des serveurs partagés (constaté en production : 12 d'un
   // coup = « BAN 0 ok / 12 refus · IGN 0 ok / 12 refus », alors qu'à l'unité

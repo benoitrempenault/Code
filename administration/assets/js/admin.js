@@ -16,10 +16,26 @@
     try { return JSON.parse(localStorage.getItem("studio-mandatpro-account") || "null"); }
     catch (e) { return null; }
   }
+  // Le dossier Parcours de la fenêtre ouverte (posé par pourDossier(id) juste
+  // avant ouvrirModale, vidé à la fermeture). Garde centrale : aucune écriture
+  // vers un dossier ne part d'une fenêtre qui en montre un autre — même si un
+  // chargement en retard ou un écouteur oublié le tentait (16/11).
+  let fenetreDossier = "", dossierSuivant = "";
+  function pourDossier(id) { dossierSuivant = id || ""; }
+  // Un traitement long revenu après un changement de fenêtre : on le dit, sans rien ouvrir ni cocher par-dessus.
+  function fenetreQuittee(jeton, quoi) {
+    if (jeton === sessionModale) return false;
+    toast((quoi || "Le document") + " : vous avez changé de fenêtre avant la fin. Rien n'a été modifié ; relancez depuis le dossier concerné.", true);
+    return true;
+  }
   async function api(path, opts) {
     opts = opts || {};
     const a = account();
     if (!a || !a.session) throw new Error("Session invalide — reconnectez-vous.");
+    if ((opts.method || (opts.json !== undefined || opts.body ? "POST" : "GET")) !== "GET" && fenetreDossier && !opts.horsFenetre) {
+      const visee = /^\/crm\/parcours\/([^/?]+)/.exec(path);
+      if (visee && visee[1] !== fenetreDossier) throw new Error("Cette saisie appartient à un autre dossier que celui affiché : rien n'a été enregistré. Fermez la fenêtre et rouvrez le dossier.");
+    }
     const headers = Object.assign({ Authorization: "Bearer " + a.session }, opts.headers || {});
     if (opts.json !== undefined) {
       headers["Content-Type"] = "application/json";
@@ -49,6 +65,9 @@
   }
 
   const escH = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  // Une adresse saisie à la main ou relevée ailleurs ne devient un lien que si c'est
+  // une adresse web (http, https) : un « javascript:… » collé dans un champ s'affiche, sans lien.
+  const urlSure = (u) => { const t = String(u ?? "").trim(); return /^https?:\/\//i.test(t) ? t : ""; };
   // Les fichiers du guide (JSON de mise en page, PDF des modèles) suivent la version
   // du script (?v=N dans index.html) : sans ça, le navigateur ou le CDN gardait
   // l'ancien guide-r1.json après une mise à jour (Benoît, 10/10).
@@ -148,7 +167,21 @@
   /* ------------------------------- Modale -------------------------------- */
   let gesteDocument = false;
   for (const ev of ["pointerdown", "keydown"]) window.addEventListener(ev, () => { gesteDocument = true; }, { capture: true, once: true });
+  /* Le corps et le pied de la fenêtre sont des éléments PERMANENTS, réutilisés par toutes les
+     fenêtres. Un écouteur posé dessus par une fenêtre survivait à sa fermeture : l'enregistrement
+     automatique du livret prix du dossier A tournait encore pendant qu'on saisissait le livret du
+     dossier B, et recopiait B dans A (Stéphanie Dreyfus, 10/11 : « un dossier se lie à un autre »,
+     caractéristiques recopiées sur trois dossiers, livret perdu). Tout écouteur posé sur ces
+     éléments passe donc par surModale() : il est retiré à l'ouverture de la fenêtre suivante. */
+  const nettoyagesModale = [];
+  let sessionModale = 0; // avance à chaque fenêtre : un rendu différé sait si « sa » fenêtre est encore là
+  function surModale(el, type, fn) { el.addEventListener(type, fn); nettoyagesModale.push(() => el.removeEventListener(type, fn)); }
+  function avantFenetreSuivante(fn) { nettoyagesModale.push(fn); }
   function ouvrirModale(titre, corpsHtml, piedHtml) {
+    while (nettoyagesModale.length) { try { nettoyagesModale.pop()(); } catch { /* un nettoyage en échec n'empêche pas d'ouvrir */ } }
+    sessionModale++;
+    fenetreDossier = dossierSuivant; dossierSuivant = "";
+    delete $("modale-corps").dataset.livret;
     $("modale-titre").textContent = titre;
     $("modale-corps").innerHTML = corpsHtml;
     $("modale-pied").innerHTML = piedHtml || "";
@@ -165,8 +198,17 @@
   }
   // Le bouton « retour » (téléphone, navigateur) ferme la fenêtre ouverte au
   // lieu de quitter l'Administration.
-  window.addEventListener("popstate", () => { if (!$("voile").hidden) { $("voile").hidden = true; document.querySelector(".modale").classList.remove("large"); } });
+  // Fermer la fenêtre compte comme en changer : un chargement encore en route
+  // pour elle s'abandonne (sessionModale), ses écouteurs sont retirés et sa
+  // saisie en attente part tout de suite.
+  function quitterFenetre() {
+    while (nettoyagesModale.length) { try { nettoyagesModale.pop()(); } catch { /* rien */ } }
+    sessionModale++; fenetreDossier = ""; dossierSuivant = "";
+    delete $("modale-corps").dataset.livret;
+  }
+  window.addEventListener("popstate", () => { if (!$("voile").hidden) { quitterFenetre(); $("voile").hidden = true; document.querySelector(".modale").classList.remove("large"); } });
   function fermerModale() {
+    quitterFenetre();
     $("voile").hidden = true; document.querySelector(".modale").classList.remove("large");
     if (history.state && history.state.modale) { try { history.back(); } catch { /* rien */ } }
   }
@@ -254,9 +296,29 @@
   const CHAMP = (nom, id, valeur, placeholder) =>
     "<label>" + nom + '<input id="' + id + '" value="' + escH(valeur || "") + '"' + (placeholder ? ' placeholder="' + placeholder + '"' : "") + " /></label>";
 
-  function ouvrirContact(id) {
-    contactEnCours = id || null;
-    const c = id ? contacts.find((x) => x.id === id) : null;
+  // Une fiche est RELUE sur le serveur à chaque ouverture (audit du 16/11) : la liste
+  // `contacts` date du démarrage de l'écran. Une fiche créée depuis par un collègue (ligne
+  // d'un rappel, d'un anniversaire) s'ouvrait en « Nouveau contact » vide tout en gardant
+  // son id — « Enregistrer » effaçait alors e-mail, adresse, typologies, notes, opt-out —
+  // et un opt-out coché dans la journée était décoché par un simple « Enregistrer ».
+  // (Pas de route « une fiche » : l'export de la personne la rend entière, typologies lues.)
+  async function lireContact(id) {
+    const c = (await api("/crm/contacts/" + encodeURIComponent(id) + "/export")).contact;
+    const i = contacts.findIndex((x) => x.id === c.id);
+    if (i >= 0) contacts[i] = c; else contacts.push(c);
+    return c;
+  }
+  let demandeContact = 0;
+  async function ouvrirContact(id) {
+    let c = null;
+    if (id) {
+      const jeton = sessionModale, demande = ++demandeContact; // deux fiches demandées coup sur coup : la dernière s'ouvre
+      try { c = await lireContact(id); }
+      catch (e) { toast(e.status === 404 ? "Cette fiche n'existe plus (supprimée ou fusionnée) — rechargez la page pour mettre la liste à jour." : e.message, true); return; }
+      if (jeton !== sessionModale || demande !== demandeContact) return; // passé à autre chose pendant la lecture
+    }
+    // Jamais d'id gardé pour une fiche qui n'a pas été trouvée : sans fiche, c'est une création.
+    contactEnCours = c ? c.id : null;
     const types = (c && c.types) || [];
     ouvrirModale(c ? ((c.prenom + " " + c.nom).trim() || "Contact") : "Nouveau contact",
       '<div class="grille-champs">' +
@@ -352,9 +414,11 @@
   async function ouvrirEnvoi(contactId, canal) {
     const c = contacts.find((x) => x.id === contactId);
     if (!c) return;
+    const jetonEntree = sessionModale; // quittée pendant le chargement des modèles, la fenêtre ne s'ouvre pas par-dessus une autre
     if (!modelesEnvoi) {
       try { modelesEnvoi = (await api("/crm/modeles")).modeles; } catch (e) { modelesEnvoi = []; }
     }
+    if (jetonEntree !== sessionModale) return;
     // Les modèles portent canal "email" ou "sms" (registre MODELES).
     const duCanal = modelesEnvoi.filter((m) => (canal === "sms" ? m.canal === "sms" : m.canal !== "sms"));
     ouvrirModale((canal === "sms" ? "💬 SMS à " : "✉️ Mail à ") + ((c.prenom + " " + c.nom).trim() || "ce contact"),
@@ -379,16 +443,19 @@
       $("env-texte").value = m.texte || "";
     });
     $("env-envoyer").addEventListener("click", async () => {
+      const btn = $("env-envoyer"); if (btn.disabled) return; // un double clic n'envoie qu'un message
       const texte = $("env-texte").value.trim();
       if (!texte) { toast("Écrivez le message (ou choisissez-en un dans la bibliothèque).", true); return; }
+      btn.disabled = true;
+      const jeton = sessionModale;
       try {
         const r = await api("/crm/contacts/" + contactId + "/envoyer", { json: {
           canal, texte, sujet: $("env-sujet") ? $("env-sujet").value.trim() : "",
         } });
         toast(r.dryRun ? "Clé d'envoi absente sur le serveur — rien n'est parti (essai à blanc)."
           : (canal === "sms" ? "SMS envoyé" : "Mail envoyé") + " — noté dans le fil de suivi", !!r.dryRun);
-        ouvrirContact(contactId);
-      } catch (e) { toast(e.message, true); }
+        if (jeton === sessionModale) ouvrirContact(contactId);
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
     });
   }
 
@@ -435,6 +502,8 @@
       '<button class="btn btn-or" id="cj-save">' + (couple ? "Scinder" : "Créer la fiche du conjoint") + "</button>");
     $("cj-annuler").addEventListener("click", () => ouvrirContact(contactId));
     $("cj-save").addEventListener("click", async () => {
+      const btn = $("cj-save"); if (btn.disabled) return; btn.disabled = true; // un double clic ne crée qu'un conjoint
+      const jeton = sessionModale;
       const qui = (document.querySelector('input[name="cj-qui"]:checked') || {}).value || "fiche";
       const isoDe = (fr) => { const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(fr || "").trim()); return m ? m[3] + "-" + m[2] + "-" + m[1] : ""; };
       const dateAutre = isoDe($("cj-date-autre").value);
@@ -454,8 +523,8 @@
         toast(couple ? "Fiche scindée — chacun a la sienne" : "Fiche du conjoint créée");
         await chargerContacts();
         chargerUpcoming(); chargerAcheteurs();
-        ouvrirContact(qui === "conjoint" ? r.conjoint : r.fiche);
-      } catch (e) { toast(e.message, true); }
+        if (jeton === sessionModale) ouvrirContact(qui === "conjoint" ? r.conjoint : r.fiche);
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
     });
   }
 
@@ -463,44 +532,66 @@
   function ouvrirFusion(contactId) {
     const c = contacts.find((x) => x.id === contactId);
     if (!c) return;
-    const choisis = new Set();
-    ouvrirModale("🔀 Fusionner dans « " + escH(((c.prenom || "") + " " + (c.nom || "")).trim()) + " »",
+    // Les fiches cochées, AVEC leur contenu : elles restent affichées en tête de liste
+    // quelle que soit la recherche, et la confirmation les nomme. (Une fiche cochée puis
+    // sortie de l'écran par une autre recherche restait cochée et était absorbée sans être vue.)
+    const choisis = new Map();
+    const libelle = (x) => [((x.nom || "") + " " + (x.prenom || "")).trim() || "(sans nom)", x.email, fmtTel(x.telephone), x.ville].filter(Boolean).join(" · ");
+    ouvrirModale("🔀 Fusionner dans « " + ((c.prenom || "") + " " + (c.nom || "")).trim() + " »",
       '<p class="petit" style="margin-top:0;">Cette fiche est GARDÉE : elle complète ses champs vides avec ceux des fiches absorbées, et récupère leurs suivis, projets, visites et estimations. Les fiches absorbées disparaissent.</p>' +
       '<div class="grille-champs"><label>Chercher les doublons<input id="fu-q" value="' + escH(c.nom || "") + '" placeholder="nom, e-mail…" /></label></div>' +
       '<div id="fu-liste" style="max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:8px 12px; margin-top:8px;"></div>',
       '<button class="btn" id="fu-annuler">Annuler</button>' +
       '<button class="btn btn-or" id="fu-save">Fusionner</button>');
+    const zone = $("fu-liste"), champ = $("fu-q");
+    let trouves = [], message = "", derniereReq = 0;
+    const ligne = (x) =>
+      '<label class="case" style="width:100%; padding:3px 0;"><input type="checkbox" class="fu-ct" value="' + escH(x.id) + '"' + (choisis.has(x.id) ? " checked" : "") + " /> " +
+      "<strong>" + escH(x.nom) + "</strong> " + escH(x.prenom) + (x.civilite ? " (" + escH(x.civilite) + ")" : "") +
+      ' <span class="puce grise">' + escH([x.email, fmtTel(x.telephone), x.ville].filter(Boolean).join(" · ") || "sans coordonnées") + "</span></label>";
+    const rendre = () => {
+      const autres = trouves.filter((x) => !choisis.has(x.id));
+      zone.innerHTML =
+        (choisis.size ? '<p class="petit" style="margin:0 0 2px;"><strong>' + choisis.size + " fiche(s) cochée(s) — elles seront absorbées :</strong></p>" + [...choisis.values()].map(ligne).join("") +
+          '<p class="petit" style="margin:8px 0 2px;">Autres résultats :</p>' : "") +
+        (autres.length ? autres.map(ligne).join("") : '<p class="petit">' + (message || "Aucune autre fiche ne correspond.") + "</p>");
+    };
     const chercher = async () => {
-      const q = $("fu-q").value.trim();
-      if (q.length < 2) { $("fu-liste").innerHTML = '<p class="petit">Au moins 2 caractères.</p>'; return; }
+      const q = champ.value.trim(), req = ++derniereReq;
+      if (q.length < 2) { trouves = []; message = "Au moins 2 caractères."; rendre(); return; }
       try {
         const r = await api("/crm/contacts/recherche?q=" + encodeURIComponent(q));
-        const autres = (r.contacts || []).filter((x) => x.id !== contactId);
-        $("fu-liste").innerHTML = autres.length ? autres.map((x) =>
-          '<label class="case" style="width:100%; padding:3px 0;"><input type="checkbox" class="fu-ct" value="' + escH(x.id) + '"' + (choisis.has(x.id) ? " checked" : "") + " /> " +
-          "<strong>" + escH(x.nom) + "</strong> " + escH(x.prenom) + (x.civilite ? " (" + escH(x.civilite) + ")" : "") +
-          ' <span class="puce grise">' + escH([x.email, fmtTel(x.telephone), x.ville].filter(Boolean).join(" · ") || "sans coordonnées") + "</span></label>").join("")
-          : '<p class="petit">Aucune autre fiche ne correspond.</p>';
+        if (req !== derniereReq) return; // une recherche plus récente est partie
+        trouves = (r.contacts || []).filter((x) => x.id !== contactId); message = "";
+        rendre();
       } catch (e) { toast(e.message, true); }
     };
     let t = null;
-    $("fu-q").addEventListener("input", () => { clearTimeout(t); t = setTimeout(chercher, 300); });
-    $("fu-liste").addEventListener("change", (e) => {
+    champ.addEventListener("input", () => { clearTimeout(t); t = setTimeout(chercher, 300); });
+    zone.addEventListener("change", (e) => {
       const cb = e.target.closest(".fu-ct");
-      if (cb) { if (cb.checked) choisis.add(cb.value); else choisis.delete(cb.value); }
+      if (!cb) return;
+      const x = choisis.get(cb.value) || trouves.find((y) => y.id === cb.value);
+      if (cb.checked && x) choisis.set(x.id, x); else choisis.delete(cb.value);
+      rendre();
     });
     chercher();
     $("fu-annuler").addEventListener("click", () => ouvrirContact(contactId));
     $("fu-save").addEventListener("click", async () => {
+      const btn = $("fu-save"); if (btn.disabled) return;
       if (!choisis.size) { toast("Cochez au moins une fiche à absorber.", true); return; }
-      if (!confirm("Fusionner " + choisis.size + " fiche(s) dans celle-ci ? Les fiches absorbées disparaissent.")) return;
+      const absorber = [...choisis.keys()];
+      if (!confirm("Fusionner dans « " + libelle(c) + " » " + (absorber.length > 1 ? "ces " + absorber.length + " fiches" : "cette fiche") + " ?\n\n" +
+        [...choisis.values()].map((x) => "– " + libelle(x)).join("\n") + "\n\nLes fiches absorbées disparaissent.")) return;
+      btn.disabled = true;
+      const jeton = sessionModale;
       try {
-        await api("/crm/contacts/fusionner", { json: { garder: contactId, absorber: [...choisis] } });
-        toast(choisis.size + " fiche(s) fusionnée(s)");
+        await api("/crm/contacts/fusionner", { json: { garder: contactId, absorber } });
+        toast(absorber.length + " fiche(s) fusionnée(s)");
         await chargerContacts();
         chargerAcheteurs(); chargerDoublons();
-        ouvrirContact(contactId);
-      } catch (e) { toast(e.message, true); }
+        if (jeton === sessionModale) ouvrirContact(contactId);
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
     });
   }
 
@@ -612,6 +703,8 @@
   }
 
   async function enregistrerContact() {
+    const btn = $("btn-save-contact"); if (btn.disabled) return; btn.disabled = true; // un double clic ne crée qu'une fiche
+    const jeton = sessionModale;
     const val = (id) => $(id).value;
     try {
       await api("/crm/contacts", {
@@ -627,12 +720,12 @@
           types: Array.from(document.querySelectorAll(".c-type:checked")).map((x) => x.value),
         },
       });
-      fermerModale();
+      if (jeton === sessionModale) fermerModale();
       toast("Contact enregistré");
       await chargerContacts();
       chargerUpcoming();
       chargerAcheteurs();
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toast(e.message, true); btn.disabled = false; }
   }
   // Droit d'accès : le dossier complet de la personne, téléchargé en JSON
   // (à lui remettre tel quel ou à joindre à une réponse).
@@ -675,7 +768,7 @@
     try {
       const { entrees } = await api("/crm/corbeille");
       if (!entrees.length) { zone.innerHTML = '<p class="petit">La corbeille est vide.</p>'; return; }
-      const TYPES_CB = { contact: "Fiche", suivi: "Suivi", visite: "Visite" };
+      const TYPES_CB = { contact: "Fiche", suivi: "Suivi", visite: "Visite", parcours: "Parcours R1/R2" };
       zone.innerHTML = '<div class="barre"><button class="btn" id="btn-corbeille-prospects" title="Les fiches qui n\'étaient qu\'Acquéreur, retirées par le remplacement de la base acquéreurs, reviennent typées Prospect ; celles ré-importées depuis le fichier ne sont pas dupliquées">↩ Faire revenir les acquéreurs retirés, en Prospect</button></div>' +
         '<div class="tableau-cadre"><table><thead><tr><th>Type</th><th>Quoi</th><th>Supprimé le</th><th>Reste</th><th></th></tr></thead><tbody>' +
         entrees.map((e) => "<tr><td>" + escH(TYPES_CB[e.type] || e.type) + "</td><td>" + escH(e.libelle) + "</td><td>" +
@@ -1031,12 +1124,17 @@
   }
   async function validerImport() {
     if (!importData) return;
+    // Le fichier est copié ICI, avant le premier « await » : `importData` est une variable
+    // commune, remise à vide dès qu'on rouvre « Importer » — un import long relisait alors
+    // le vide (ou un autre fichier) au milieu de son traitement.
+    const donnees = importData, jeton = sessionModale;
+    const demandes = donnees.preset === "acquereurs" ? projetsPresetAcquereurs() : [];
     let rows;
-    if (importData.preset === "biens") {
+    if (donnees.preset === "biens") {
       rows = lignesPresetBiens($("preset-typologie").value);
-    } else if (importData.preset === "acquereurs") {
+    } else if (donnees.preset === "acquereurs") {
       rows = lignesPresetAcquereurs();
-    } else if (importData.preset === "contacts") {
+    } else if (donnees.preset === "contacts") {
       rows = lignesPresetContacts();
     } else {
       const map = Array.from(document.querySelectorAll(".map-cible"))
@@ -1047,7 +1145,7 @@
       // voie », « Nom voie » → adresse) : on les recolle dans l'ordre du
       // fichier au lieu de ne garder que la dernière.
       const CUMULS = { adresse: " ", notes: " · " };
-      rows = importData.lignes.map((l) => {
+      rows = donnees.lignes.map((l) => {
         const o = {};
         for (const m of map) {
           const val = String(l[m.col] ?? "").trim();
@@ -1059,7 +1157,7 @@
     }
     const btn = $("btn-go-import");
     const pv = $("preset-pv") ? $("preset-pv").value : "";
-    const remplacer = importData.preset === "acquereurs" && $("preset-remplacer") && $("preset-remplacer").checked;
+    const remplacer = donnees.preset === "acquereurs" && $("preset-remplacer") && $("preset-remplacer").checked;
     if (remplacer && !confirm("Remplacer la base acquéreurs" + (pv ? " de l'agence " + ((agences().find((a) => a.cle === pv) || {}).nom || pv) : " (toutes agences)") + " ? Les projets d'achat sont effacés et les fiches typées seulement Acquéreur partent à la corbeille (restaurables 30 jours), puis le fichier est importé.")) return;
     btn.disabled = true;
     // Envoi par lots : garde chaque appel leger pour le serveur, et permet
@@ -1067,7 +1165,7 @@
     const LOT = 400;
     const total = { created: 0, updated: 0, skipped: 0 };
     let remplaces = null;
-    const retyper = importData.preset === "biens" && $("preset-typologie").value === "estime" && $("preset-retyper") && $("preset-retyper").checked;
+    const retyper = donnees.preset === "biens" && $("preset-typologie").value === "estime" && $("preset-retyper") && $("preset-retyper").checked;
     const debutImport = Math.floor(Date.now() / 1000) - 5;
     try {
       if (remplacer) {
@@ -1087,8 +1185,7 @@
       // Import acquéreurs : dans la foulée, les critères deviennent des
       // projets d'achat (un par personne encore sans projet).
       let projetsCrees = 0;
-      if (importData.preset === "acquereurs") {
-        const demandes = projetsPresetAcquereurs();
+      if (donnees.preset === "acquereurs") {
         for (let i = 0; i < demandes.length; i += LOT) {
           btn.textContent = "Projets d'achat… " + Math.min(i + LOT, demandes.length) + " / " + demandes.length;
           const r = await api("/crm/projets/auto", { json: { rows: demandes.slice(i, i + LOT) } });
@@ -1104,7 +1201,7 @@
           if (!r.restants || !r.retypes) break;
         }
       }
-      fermerModale();
+      if (jeton === sessionModale) fermerModale(); // une autre fenêtre ouverte entre-temps reste ouverte
       toast((retypes ? retypes + " fiche(s) estimée(s) absentes du fichier passée(s) en Prospect · " : "") + (remplaces ? "Base acquéreurs remplacée (" + remplaces.supprimes + " fiche(s) à la corbeille, " + remplaces.retypes + " retypée(s), " + remplaces.projets + " projet(s) effacé(s)) · " : "") +
         "Import terminé : " + total.created + " créé(s), " + total.updated + " mis à jour, " + total.skipped + " ignoré(s)" +
         (projetsCrees ? " · " + projetsCrees + " projet(s) d'achat créé(s)" : ""));
@@ -1124,8 +1221,10 @@
   // Diagnostic « où sont mes fiches ? » — un bloc texte à copier-coller.
   async function ouvrirDiagnostic() {
     ouvrirModale("🔎 Diagnostic adresses", '<p class="aide">Analyse de la base en cours…</p>', "");
+    const maFenetre = sessionModale; // l'analyse est longue : revenue après un changement de fenêtre, elle ne ferme ni ne remplace rien
     let d;
-    try { d = await api("/crm/contacts/diagnostic"); } catch (e) { toast(e.message, true); fermerModale(); return; }
+    try { d = await api("/crm/contacts/diagnostic"); } catch (e) { toast(e.message, true); if (maFenetre === sessionModale) fermerModale(); return; }
+    if (maFenetre !== sessionModale) return;
     const ex = (l) => l.map((r) => "  - " + [r.nom, r.adresse, r.cp, r.ville].filter(Boolean).join(", ") +
       " · types " + r.types + " · source " + r.source + " · créée " + r.cree + (r.notes ? " · notes : " + r.notes : "")).join("\n");
     const texte =
@@ -1149,8 +1248,10 @@
   }
   async function ouvrirNettoyage() {
     ouvrirModale("🧹 Nettoyer la base", '<p class="aide">Analyse de la base en cours…</p>', "");
+    const maFenetre = sessionModale; // même garde que le diagnostic
     let a;
-    try { a = await api("/crm/nettoyage"); } catch (e) { toast(e.message, true); fermerModale(); return; }
+    try { a = await api("/crm/nettoyage"); } catch (e) { toast(e.message, true); if (maFenetre === sessionModale) fermerModale(); return; }
+    if (maFenetre !== sessionModale) return;
     ouvrirModale("🧹 Nettoyer la base",
       '<p class="aide">Trois gestes, prudents : les fusions gardent la fiche la plus ancienne et absorbent ' +
       "les champs manquants et les typologies ; les homonymes ambigus (téléphones différents) ne sont " +
@@ -1169,6 +1270,7 @@
     const go = $("btn-go-nettoyage");
     if (go) go.addEventListener("click", async () => {
       go.disabled = true;
+      const jeton = sessionModale;
       const bilan = { vides: 0, doublons: 0, couples: 0 };
       let ambigusLaisses = 0;
       const libelles = { vides: "fiches vides", doublons: "doublons", couples: "couples" };
@@ -1186,7 +1288,7 @@
             curseur = r.curseur || "";
           }
         }
-        fermerModale();
+        if (jeton === sessionModale) fermerModale(); // le nettoyage dure : une fenêtre ouverte entre-temps reste ouverte
         toast("Nettoyage terminé : " + bilan.vides + " fiche(s) inutilisable(s) supprimée(s), " +
           bilan.doublons + " doublon(s) fusionné(s), " + bilan.couples + " couple(s) scindé(s)" +
           (ambigusLaisses ? " · " + ambigusLaisses + " cas ambigu(s) laissé(s) tel(s) quel(s)" : ""));
@@ -1284,7 +1386,7 @@
           "</td><td>" + escH(b.agence) + "</td><td>" + escH(b.ref) + "</td><td>" + escH((b.maj || "").slice(0, 10)) + "</td></tr>").join("") +
         "</tbody></table></div>" + (d.enVente > 150 ? '<p class="petit">Les 150 premiers biens sur ' + d.enVente + ".</p>" : "")
       : "";
-    zone.querySelectorAll("tr[data-url]").forEach((tr) => tr.addEventListener("click", () => window.open(tr.dataset.url, "_blank", "noopener")));
+    zone.querySelectorAll("tr[data-url]").forEach((tr) => tr.addEventListener("click", () => { if (urlSure(tr.dataset.url)) window.open(urlSure(tr.dataset.url), "_blank", "noopener"); }));
     if (d.echantillon) {
       zone.insertAdjacentHTML("beforeend", '<p class="petit"><button class="btn" id="btn-amepi-brut" style="padding:4px 10px; font-size:12px;">🔎 Voir un bien tel qu\'Amanda l\'envoie</button></p>');
       $("btn-amepi-brut").addEventListener("click", () => {
@@ -1520,9 +1622,9 @@
         vivants.map((r) => "<tr><td style=\"white-space:nowrap;\"><strong>" + escH(nomsDe(r.contacts)) + "</strong>" +
           (r.contacts[0] && r.contacts[0].conseiller ? '<br><span class="puce grise">' + escH(r.contacts[0].conseiller) + "</span>" : "") + "</td>" +
           "<td>" + r.matches.slice(0, 6).map((m) =>
-            '<a href="' + escH(m.url) + '" target="_blank" rel="noopener" style="color:inherit; text-decoration:none;">' +
+            (urlSure(m.url) ? '<a href="' + escH(urlSure(m.url)) + '" target="_blank" rel="noopener" style="color:inherit; text-decoration:none;">' : "") +
             '<span class="puce' + (m.source === "amepi" ? " amepi" : "") + '"' + (m.source === "amepi" ? ' title="Bien du fichier AMEPI — mandat détenu par ' + escH(m.agence || "un confrère") + '"' : "") + ">" +
-            (m.source === "amepi" ? "🤝 " : "") + escH(m.titre) + " — " + fmtPrix(m.prix) + (m.source === "amepi" && m.agence ? " · " + escH(m.agence) : "") + "</span></a>").join(" ") +
+            (m.source === "amepi" ? "🤝 " : "") + escH(m.titre) + " — " + fmtPrix(m.prix) + (m.source === "amepi" && m.agence ? " · " + escH(m.agence) : "") + "</span>" + (urlSure(m.url) ? "</a>" : "")).join(" ") +
           ((r.total ?? r.matches.length) > 6 ? ' <span class="puce grise">+' + ((r.total ?? r.matches.length) - 6) + "</span>" : "") +
           "</td></tr>").join("") +
         "</tbody></table></div>"
@@ -1551,7 +1653,8 @@
     };
     const listeContacts = ""; // rempli par rendreListeContacts() après ouverture
     const estAchat = kind === "achat";
-    ouvrirModale((p ? "Projet — " : "Nouveau projet — ") + (KINDS[kind] || kind),
+    // Le titre nomme les personnes : deux projets ouverts à la suite ne se confondent plus.
+    ouvrirModale((p ? "Projet — " : "Nouveau projet — ") + (KINDS[kind] || kind) + (p && p.contacts.length ? " — " + nomsDe(p.contacts) : ""),
       '<div class="grille-champs"><label>Personnes du projet (un couple = deux fiches)' +
       '<input id="p-filtre" placeholder="Filtrer les contacts…" /></label></div>' +
       '<div id="p-liste" style="max-height:180px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:8px 12px; margin-top:8px;">' + listeContacts + "</div>" +
@@ -1594,8 +1697,11 @@
     $("btn-annuler-projet").addEventListener("click", fermerModale);
     if ($("btn-offre-projet")) $("btn-offre-projet").addEventListener("click", () => ouvrirOffreForm(null, projetId));
     $("btn-save-projet").addEventListener("click", async () => {
+      const btn = $("btn-save-projet"); if (btn.disabled) return; // un double clic ne crée qu'un projet
       const contactIds = [...lies]; // les coches vivent dans `lies`, même hors filtre
       if (!contactIds.length) { toast("Reliez au moins une personne au projet.", true); return; }
+      btn.disabled = true;
+      const jeton = sessionModale;
       try {
         const body = { id: projetId || undefined, kind, statut: $("p-statut").value, contactIds, notes: $("p-notes").value };
         if (estAchat) {
@@ -1610,10 +1716,10 @@
           Object.assign(body, { adresse: $("p-adresse").value, ville: $("p-ville").value });
         }
         await api("/crm/projets", { method: "PUT", json: body });
-        fermerModale();
+        if (jeton === sessionModale) fermerModale();
         toast("Projet enregistré");
         chargerAcheteurs();
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
     });
     const suppr = $("btn-suppr-projet");
     if (suppr) suppr.addEventListener("click", async () => {
@@ -1729,11 +1835,16 @@
     const autresStock = stockEnVente.filter((a) => !dejaLa.has(a.id));
     const ligneBien = (a) =>
       '<label class="case" style="width:100%; padding:2px 0;"><input type="checkbox" class="rl-annonce" value="' + escH(a.id) + '" /> ' +
-      (a.url ? '<a href="' + escH(a.url) + '" target="_blank" rel="noopener" title="Voir l\'annonce">🔗</a> ' : "") +
+      (urlSure(a.url) ? '<a href="' + escH(urlSure(a.url)) + '" target="_blank" rel="noopener" title="Voir l\'annonce">🔗</a> ' : "") +
       (a.source === "amepi" ? '<span class="puce amepi" title="Bien du fichier AMEPI — mandat détenu par ' + escH(a.agence || "un confrère") + '">🤝 ' + escH(a.agence || "ALFA") + "</span> " : "") +
       escH(a.titre) + (a.prix ? " — " + fmtPrix(a.prix) : "") +
       (a.ville ? ' <span class="puce grise">' + escH(a.ville) + "</span>" : "") + "</label>";
     const rendre = () => {
+      // La zone n'est plus à l'écran (fenêtre fermée, autre projet ouvert) : on ne dessine
+      // rien et surtout on ne branche rien. Rappelée après un « await », cette fonction
+      // retrouvait par leur id les boutons du projet SUIVANT et y accrochait ses propres
+      // écouteurs : « + Visite » sur B créait aussi une visite sur A (audit du 16/11).
+      if (!zone.isConnected) return;
       zone.innerHTML =
         '<p class="petit" style="margin:10px 0 6px;"><strong>Biens proposés par les relances</strong></p>' +
         (act.proposes.length
@@ -1792,7 +1903,8 @@
           toast(s.value === "plu" ? "Noté : le bien a plu 👍" : s.value === "pas_plu" ? "Noté : le bien n'a pas plu" : "Avis effacé");
         } catch (e) { toast(e.message, true); }
       }));
-      const btnRelance = $("btn-relance-stock");
+      // Boutons et champs se cherchent DANS la zone, jamais par id dans toute la page.
+      const btnRelance = zone.querySelector("#btn-relance-stock");
       if (btnRelance) btnRelance.addEventListener("click", async () => {
         const ids = Array.from(zone.querySelectorAll(".rl-annonce:checked")).map((x) => x.value);
         if (!ids.length) { toast("Cochez au moins un bien à proposer.", true); return; }
@@ -1823,22 +1935,25 @@
         const v = act.visites.find((x) => x.id === b2.dataset.bon);
         if (v) imprimerBonVisite(v, p);
       }));
-      $("btn-ajout-visite").addEventListener("click", async () => {
-        const bien = $("v-bien").value.trim();
+      const btnVisite = zone.querySelector("#btn-ajout-visite");
+      btnVisite.addEventListener("click", async () => {
+        if (btnVisite.disabled) return; // un double clic ne crée qu'une visite
+        const bien = zone.querySelector("#v-bien").value.trim(), dateVisite = zone.querySelector("#v-date").value;
         if (!bien) { toast("Indiquez le bien à visiter.", true); return; }
+        btnVisite.disabled = true;
         const personnes = (p && p.contacts) || [];
         try {
           await api("/crm/visites", { json: {
             projet_id: projetId,
             contact_id: (personnes[0] || {}).id || "",
             contact: personnes.map((cx) => (cx.prenom ? cx.prenom + " " : "") + cx.nom).join(" & "),
-            bien, date_visite: $("v-date").value, statut: "prevue",
+            bien, date_visite: dateVisite, statut: "prevue",
             conseiller: (personnes[0] || {}).conseiller || "",
           } });
           toast("Visite enregistrée");
           act = await api("/crm/projets/" + projetId + "/activite");
           rendre();
-        } catch (e) { toast(e.message, true); }
+        } catch (e) { toast(e.message, true); btnVisite.disabled = false; }
       });
     };
     rendre();
@@ -2004,9 +2119,25 @@
         : '<div class="vide">Aucun envoi pour l\'instant. Les messages partent quand une fiche « en cours » atteint un jalon (veille du R1, lendemain du R1, lendemain du R2, relances).</div>';
     } catch (e) { toast(e.message, true); }
   }
-  function ouvrirEstimation(id) {
-    const x = estimations.find((e) => e.id === id);
-    if (!x) return;
+  // La fiche est RELUE à l'ouverture : la liste `estimations` date du démarrage, et ce
+  // formulaire remplace tout. Enregistré depuis une fiche périmée, il remettait les anciennes
+  // dates R1/R2 (changées entre-temps dans le parcours, ici ou par un collègue) — et les
+  // e-mails automatiques partaient sur de mauvaises dates (audit du 16/11).
+  let demandeEstimation = 0;
+  async function ouvrirEstimation(id) {
+    const connue = estimations.find((e) => e.id === id);
+    if (!connue) return;
+    const jeton = sessionModale, demande = ++demandeEstimation;
+    let x;
+    try {
+      // Pas de route « une fiche » : celles de son contact (quelques lignes), sinon la liste.
+      const r = await api("/crm/estimations" + (connue.contact_id ? "?contact_id=" + encodeURIComponent(connue.contact_id) : ""));
+      x = (r.estimations || []).find((e) => e.id === id);
+    } catch (e) { toast(e.message, true); return; }
+    if (jeton !== sessionModale || demande !== demandeEstimation) return; // passé à autre chose pendant la lecture
+    if (!x) { toast("Cette fiche estimation n'existe plus — la liste est mise à jour.", true); chargerEstimations(); return; }
+    const i = estimations.findIndex((e) => e.id === id);
+    if (i >= 0) estimations[i] = x;
     const bien = x.bien || {};
     const bienTxt = [bien.type, bien.surface ? bien.surface + " m²" : "", bien.pieces ? bien.pieces + " pièces" : "",
       bien.dpe ? "DPE " + bien.dpe : "", bien.prixEnvisage ? fmtPrix(bien.prixEnvisage) : ""].filter(Boolean).join(" · ");
@@ -2037,6 +2168,8 @@
       '<button class="btn" id="ee-annuler">Annuler</button><button class="btn btn-or" id="ee-save">Enregistrer</button>');
     $("ee-annuler").addEventListener("click", fermerModale);
     $("ee-save").addEventListener("click", async () => {
+      const btn = $("ee-save"); if (btn.disabled) return; btn.disabled = true;
+      const jetonF = sessionModale;
       try {
         await api("/crm/estimations/" + x.id, { method: "PUT", json: {
           nom: $("ee-nom").value.trim(), email: $("ee-email").value.trim(), telephone: $("ee-tel").value.trim(),
@@ -2046,10 +2179,11 @@
           conseiller: $("ee-conseiller").value.trim(), notes: $("ee-notes").value.trim(),
           contact_id: x.contact_id, lat: x.lat, lng: x.lng,
         } });
-        fermerModale();
+        if (jetonF === sessionModale) fermerModale();
         toast("Fiche estimation enregistrée");
         await chargerEstimations();
-      } catch (e) { toast(e.message, true); }
+        if (parcours.some((px) => px.id === x.id)) chargerParcours(); // la même fiche est aussi un parcours : sa ligne suit
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
     });
   }
   async function lancerEstimations() {
@@ -2206,6 +2340,8 @@
     });
     $("btn-annuler-offre").addEventListener("click", fermerModale);
     $("btn-save-offre").addEventListener("click", async () => {
+      const btn = $("btn-save-offre"); if (btn.disabled) return; // un double clic ne crée qu'une offre
+      const jeton = sessionModale;
       const lireVendeurs = () => Array.from(document.querySelectorAll(".of-v-nom")).map((el, i) => ({
         nom: el.value.trim(), prenom: document.querySelectorAll(".of-v-prenom")[i].value.trim(),
         email: document.querySelectorAll(".of-v-email")[i].value.trim(), telephone: document.querySelectorAll(".of-v-tel")[i].value.trim(),
@@ -2218,25 +2354,34 @@
       };
       try {
         if (o) {
+          btn.disabled = true;
           await api("/crm/offres/" + o.id, { method: "PUT", json: body });
           toast("Offre modifiée");
-          await chargerOffres(); ouvrirOffre(o.id);
+          await chargerOffres(); ouvrirOffre(o.id, jeton);
         } else {
           const projetId = $("of-projet").value;
           if (!projetId && !lies.size) { toast("Choisissez un projet d'achat ou au moins une personne.", true); return; }
           if (projetId) body.projetId = projetId; else body.contactIds = [...lies];
+          btn.disabled = true;
           const r = await api("/crm/offres", { json: body });
           toast("Offre " + r.numero + " créée");
           activerOnglet("offres");
-          await chargerOffres(); ouvrirOffre(r.id);
+          await chargerOffres(); ouvrirOffre(r.id, jeton);
         }
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
     });
   }
   // La fiche d'une offre : tout ce qu'il faut pour la faire avancer.
-  async function ouvrirOffre(id) {
+  // Rappelée à la fin d'un traitement (jeton = la fenêtre d'où il est parti) : si l'on est passé
+  // à autre chose, elle ne s'impose pas. Et une fiche demandée puis quittée avant sa réponse
+  // ne vient pas remplacer la fenêtre ouverte entre-temps.
+  let demandeOffre = 0;
+  async function ouvrirOffre(id, jeton) {
+    if (jeton !== undefined && jeton !== sessionModale) return;
+    const jetonEntree = sessionModale, demande = ++demandeOffre;
     let d;
     try { d = await api("/crm/offres/" + id); } catch (e) { toast(e.message, true); return; }
+    if (jetonEntree !== sessionModale || demande !== demandeOffre) return;
     const o = d.offre, sigs = d.signataires, offrants = sigs.filter((s) => s.role === "offrant"), vendeurs = sigs.filter((s) => s.role === "vendeur");
     const fin = o.financement || {};
     const ligneSig = (s) => '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:6px 0; border-bottom:1px solid var(--line);">' +
@@ -2247,6 +2392,8 @@
       (s.signeAt ? '<span class="puce verte">' + (s.role === "vendeur" ? ({ accepte: "a accepté", refuse: "a refusé", contre: "contre-proposition" }[s.decision] || "a répondu") : "signé") + " le " + fmtTs(s.signeAt) + "</span>"
         : (s.lienActif ? '<span class="puce">lien actif</span>' : "")) +
       (!o.terminee && !s.signeAt && (s.role === "offrant" || ["signee", "presentee"].includes(o.statut)) ? '<button class="btn" style="padding:4px 10px; font-size:12px;" data-lien="' + s.id + '">🔗 ' + (s.lienActif ? "Renvoyer le lien" : "Envoyer le lien") + "</button>" : "") +
+      // L'acquéreur ne peut plus changer lui-même son e-mail ni son mobile (le code de signature y part) : l'agence corrige ici.
+      (d.accesPieces && !o.terminee && !s.signeAt ? '<button class="btn" style="padding:4px 10px; font-size:12px;" data-coord="' + s.id + '" title="Corriger l\'e-mail ou le mobile où part le code de signature">✎ Coordonnées</button>' : "") +
       "</div>";
     const lignePiece = (p) => '<div style="display:flex; gap:10px; align-items:flex-start; padding:6px 0; border-bottom:1px solid var(--line);">' +
       '<span style="width:22px;">' + (p.documents.length ? "✅" : p.requise ? "⬜" : "▫️") + "</span><div style=\"flex:1;\"><strong>" + escH(p.libelle) + "</strong>" + (p.personne ? ' <span class="puce grise">' + escH(p.personne) + "</span>" : "") +
@@ -2283,13 +2430,15 @@
       (!o.terminee && !o.figee ? '<button class="btn" id="btn-of-modifier">✏️ Modifier</button>' : "") +
       (!o.terminee && ["brouillon", "envoyee"].includes(o.statut) ? '<button class="btn btn-or" id="btn-of-envoyer">✉️ ' + (o.statut === "brouillon" ? "Envoyer à l'acquéreur" : "Renvoyer les liens") + "</button>" : "") +
       (o.statut === "signee" ? '<button class="btn btn-or" id="btn-of-presenter">📨 Présenter au vendeur</button>' : "") +
-      (["signee", "presentee"].includes(o.statut) ? '<button class="btn" id="btn-of-reponse">📝 Saisir la réponse du vendeur</button>' : "") +
+      (d.accesPieces && ["signee", "presentee"].includes(o.statut) ? '<button class="btn" id="btn-of-reponse">📝 Saisir la réponse du vendeur</button>' : "") +
       (o.statut === "acceptee" && !o.dossierId ? '<button class="btn btn-or" id="btn-of-dossier">📁 Créer le dossier Suivi</button>' : "") +
       '<button class="btn" id="btn-of-pdf">⬇ PDF</button>' +
       (d.accesPieces && d.documents.length ? '<button class="btn" id="btn-of-zip" title="Toutes les pièces + le PDF de l\'offre, en une archive à ranger dans OneDrive">⬇ Toutes les pièces (zip)</button>' +
         (window.showDirectoryPicker ? '<button class="btn" id="btn-of-dossier-local" title="Écrit les fichiers directement dans le dossier choisi (ex. OneDrive)">📂 Enregistrer dans un dossier</button>' : "") : "") +
-      (!o.terminee ? '<button class="btn btn-danger" id="btn-of-retirer">Retirer</button>' : ""));
+      (d.accesPieces && !o.terminee ? '<button class="btn btn-danger" id="btn-of-retirer">Retirer</button>' : ""));
     const corps = $("modale-corps");
+    const maFenetre = sessionModale;
+    const rouvrir = () => ouvrirOffre(o.id, maFenetre); // après une action : seulement si cette fiche est encore à l'écran
     const telecharger = async (path, nom) => {
       const a = account();
       const res = await fetch(API + path, { headers: { Authorization: "Bearer " + a.session } });
@@ -2350,30 +2499,45 @@
       btn.disabled = false; btn.textContent = "📂 Enregistrer dans un dossier";
     }
     let pieceAjout = null;
-    corps.addEventListener("click", async (e) => {
+    surModale(corps, "click", async (e) => {
       const autre = e.target.closest("[data-autre-offre]");
       if (autre) { ouvrirOffre(autre.dataset.autreOffre); return; }
+      const co = e.target.closest("[data-coord]");
+      if (co) {
+        const sg = d.signataires.find((x) => x.id === co.dataset.coord); if (!sg) return;
+        const email = prompt("E-mail de " + sg.libelle + " (le lien et le code de signature y sont envoyés) :", sg.email || ""); if (email === null) return;
+        const tel = prompt("Mobile de " + sg.libelle + " (le code de signature y part par SMS) :", sg.telephone || ""); if (tel === null) return;
+        try {
+          await api("/crm/offres/" + o.id + "/signataires/" + sg.id + "/coordonnees", { method: "PUT", json: { email: email.trim(), telephone: tel.trim() } });
+          toast("Coordonnées corrigées — utilisez « Renvoyer le lien » pour que " + sg.libelle + " reçoive un lien à la bonne adresse");
+          rouvrir();
+        } catch (err) { toast(err.message, true); }
+        return;
+      }
       const t = e.target.closest("[data-lien],[data-doc-dl],[data-doc-sup],[data-doc-ajout]");
       if (!t) return;
       try {
         if (t.dataset.lien) {
           const r = await api("/crm/offres/" + o.id + "/signataires/" + t.dataset.lien + "/lien", { json: {} });
-          try { await navigator.clipboard.writeText(r.lien); } catch (err) { }
-          toast(r.envoye ? "Lien envoyé par e-mail (et copié dans le presse-papiers)" : "E-mail non envoyé — lien copié dans le presse-papiers, transmettez-le vous-même", !r.envoye);
-          ouvrirOffre(o.id);
+          // Le lien lui-même n'est rendu qu'au conseiller du dossier et aux
+          // admins (qui le tient peut signer) : les autres déclenchent l'e-mail.
+          if (r.lien) { try { await navigator.clipboard.writeText(r.lien); } catch (err) { } }
+          toast(r.lien ? (r.envoye ? "Lien envoyé par e-mail (et copié dans le presse-papiers)" : "E-mail non envoyé — lien copié dans le presse-papiers, transmettez-le vous-même")
+            : (r.envoye ? "Lien envoyé par e-mail" : "E-mail non envoyé — le lien est à transmettre par le conseiller du dossier ou un administrateur"), !r.envoye);
+          rouvrir();
         } else if (t.dataset.docDl) {
           await telecharger("/crm/offres/" + o.id + "/documents/" + t.dataset.docDl, t.dataset.docNom || "piece");
         } else if (t.dataset.docSup) {
           if (t.dataset.arme !== "1") { t.dataset.arme = "1"; t.textContent = "Confirmer ?"; setTimeout(() => { t.dataset.arme = ""; t.textContent = "✕"; }, 5000); return; }
           await api("/crm/offres/" + o.id + "/documents/" + t.dataset.docSup, { method: "DELETE" });
-          ouvrirOffre(o.id);
+          rouvrir();
         } else if (t.dataset.docAjout !== undefined) {
           pieceAjout = { type: t.dataset.docAjout, pour: t.dataset.docPour };
           $("of-fichier").value = ""; $("of-fichier").click();
         }
       } catch (err) { toast(err.message, true); }
     });
-    corps.addEventListener("change", async (e) => {
+    surModale(corps, "change", async (e) => {
       if (e.target.id === "of-fichier" && e.target.files[0] && pieceAjout) {
         const f = e.target.files[0];
         try {
@@ -2382,7 +2546,7 @@
             { method: "POST", headers: { Authorization: "Bearer " + a.session, "Content-Type": f.type || "application/octet-stream" }, body: f });
           const j = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(j.error || "Erreur " + res.status);
-          toast("Pièce ajoutée"); ouvrirOffre(o.id);
+          toast("Pièce ajoutée"); rouvrir();
         } catch (err) { toast(err.message, true); }
         return;
       }
@@ -2392,16 +2556,25 @@
     const on = (idBtn, fn) => { const b = $(idBtn); if (b) b.addEventListener("click", fn); };
     on("btn-of-modifier", () => ouvrirOffreForm({ ...o, vendeursDetail: vendeurs }, null));
     on("btn-of-envoyer", async () => {
+      const btn = $("btn-of-envoyer"); if (btn.disabled) return; btn.disabled = true; // un double clic n'envoie l'offre qu'une fois
       try {
         const r = await api("/crm/offres/" + o.id + "/envoyer", { json: {} });
         const nonEnvoyes = r.liens.filter((l) => !l.envoye);
-        toast(nonEnvoyes.length ? "Lien(s) créé(s) — e-mail non envoyé pour " + nonEnvoyes.map((l) => l.libelle).join(", ") + " : utilisez « Renvoyer le lien » pour le copier" : "Offre envoyée à " + r.liens.map((l) => l.libelle).join(" et "), !!nonEnvoyes.length);
-        await chargerOffres(); ouvrirOffre(o.id);
-      } catch (err) { toast(err.message, true); }
+        toast(nonEnvoyes.length ? (d.accesPieces ? "Lien(s) créé(s) — e-mail non envoyé pour " + nonEnvoyes.map((l) => l.libelle).join(", ") + " : utilisez « Renvoyer le lien » pour le copier"
+          : "E-mail non envoyé pour " + nonEnvoyes.map((l) => l.libelle).join(", ") + " — le lien est à transmettre par le conseiller du dossier ou un administrateur") : "Offre envoyée à " + r.liens.map((l) => l.libelle).join(" et "),
+          nonEnvoyes.length > 0);
+        await chargerOffres(); rouvrir();
+      } catch (err) { toast(err.message, true); btn.disabled = false; }
     });
     on("btn-of-presenter", async () => {
-      try { const r = await api("/crm/offres/" + o.id + "/presenter", { json: {} }); toast("Offre présentée à " + r.liens.map((l) => l.libelle).join(" et ")); await chargerOffres(); ouvrirOffre(o.id); }
-      catch (err) { toast(err.message, true); }
+      const btn = $("btn-of-presenter"); if (btn.disabled) return; btn.disabled = true; // un double clic ne présente l'offre qu'une fois
+      try {
+        const r = await api("/crm/offres/" + o.id + "/presenter", { json: {} });
+        if (r.presentee === false) toast("E-mail non envoyé au vendeur — le lien est à transmettre par le conseiller du dossier ou un administrateur", true);
+        else toast("Offre présentée à " + r.liens.map((l) => l.libelle).join(" et "));
+        await chargerOffres(); rouvrir();
+      }
+      catch (err) { toast(err.message, true); btn.disabled = false; }
     });
     on("btn-of-reponse", () => {
       ouvrirModale("Réponse du vendeur — offre " + o.numero,
@@ -2418,7 +2591,7 @@
       });
     });
     on("btn-of-dossier", async () => {
-      try { const r = await api("/crm/offres/" + o.id + "/dossier", { json: {} }); toast("Dossier Suivi créé : " + r.name); await chargerOffres(); ouvrirOffre(o.id); }
+      try { const r = await api("/crm/offres/" + o.id + "/dossier", { json: {} }); toast("Dossier Suivi créé : " + r.name); await chargerOffres(); rouvrir(); }
       catch (err) { toast(err.message, true); }
     });
     on("btn-of-pdf", () => telecharger("/crm/offres/" + o.id + "/pdf", "offre-" + o.numero + ".pdf").catch((err) => toast(err.message, true)));
@@ -2427,7 +2600,7 @@
     on("btn-of-retirer", async () => {
       const b = $("btn-of-retirer");
       if (b.dataset.arme !== "1") { b.dataset.arme = "1"; b.textContent = "Confirmer le retrait ?"; setTimeout(() => { b.dataset.arme = ""; b.textContent = "Retirer"; }, 6000); return; }
-      try { await api("/crm/offres/" + o.id + "/retirer", { json: {} }); toast("Offre retirée"); await chargerOffres(); ouvrirOffre(o.id); }
+      try { await api("/crm/offres/" + o.id + "/retirer", { json: {} }); toast("Offre retirée"); await chargerOffres(); rouvrir(); }
       catch (err) { toast(err.message, true); }
     });
   }
@@ -2839,6 +3012,80 @@
       : '<div class="vide">Aucun parcours en cours — « + Nouveau parcours » pour commencer.</div>';
     zone.querySelectorAll("tr[data-parcours]").forEach((tr) => tr.addEventListener("click", () => ouvrirParcours(tr.dataset.parcours)));
   }
+  // « Dossiers supprimés » (16/11) : les parcours effacés depuis moins de 30
+  // jours, et ceux retrouvés dans les sauvegardes. Chacun voit les siens.
+  const quandFr = (t, heure) => { if (!t) return "—"; const d = new Date(t * 1000); return d.toLocaleDateString("fr-FR") + (heure ? " à " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : ""); };
+  async function ouvrirDossiersSupprimes() {
+    document.querySelector(".modale").classList.add("large");
+    ouvrirModale("🗑 Dossiers supprimés", '<p class="aide">Chargement…</p>', '<button class="btn btn-or" id="modale-ok">Fermer</button>');
+    const maFenetre = sessionModale;
+    $("modale-ok").addEventListener("click", () => { fermerModale(); chargerParcours(); });
+    let r;
+    try { r = await api("/crm/parcours-corbeille"); } catch (e) { if (maFenetre === sessionModale) $("modale-corps").innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; return; }
+    if (maFenetre !== sessionModale) return;
+    const nomCs = (cid) => { const c = conseillers.find((x) => x.id === cid); return c ? [c.prenom, c.nom].filter(Boolean).join(" ") : "—"; };
+    $("modale-corps").innerHTML =
+      '<p class="aide" style="max-width:none;">Un parcours effacé reste ici <strong>' + r.jours + " jours</strong>. « Restaurer » le remet dans la liste tel qu'il était : rendez-vous, propriétaires, e-mails envoyés, livret prix." +
+      (parcoursTous ? "" : " Vous voyez vos dossiers ; la direction les voit tous.") + "</p>" +
+      (r.entrees.length
+        ? '<div class="tableau-cadre"><table><thead><tr><th>Dossier</th><th>Conseiller</th><th>R1</th><th>R2</th><th>Supprimé</th><th>Reste</th><th></th></tr></thead><tbody>' +
+          r.entrees.map((e) => "<tr><td><strong>" + escH(e.libelle.split(" — ")[0]) + '</strong><br><span class="petit">' + escH(e.adresse || "") + "</span></td><td>" + escH(nomCs(e.conseiller_id)) + "</td><td>" + dateFrCourte(e.r1) + "</td><td>" + dateFrCourte(e.r2) + "</td><td>" +
+            (e.sauvegarde ? '<span class="puce grise" title="Dossier absent de Studio, retrouvé dans une sauvegarde quotidienne de la base">sauvegarde du ' + escH(e.sauvegarde.split("-").reverse().join("/")) + "</span>" : "le " + quandFr(e.supprime_le)) +
+            "</td><td>" + e.jours_restants + ' j</td><td style="text-align:right;"><button class="btn" style="white-space:nowrap;" data-px-restaurer="' + escH(e.id) + '">↩ Restaurer</button></td></tr>').join("") +
+          "</tbody></table></div>"
+        : '<div class="vide">Aucun dossier supprimé ces ' + r.jours + " derniers jours.</div>");
+    $("modale-corps").querySelectorAll("[data-px-restaurer]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { const x = await api("/crm/parcours-corbeille/" + b.dataset.pxRestaurer + "/restaurer", { method: "POST" }); toast("Dossier restauré : " + (x.libelle || "")); await chargerParcours(); ouvrirDossiersSupprimes(); }
+      catch (e) { toast(e.message, true); b.disabled = false; }
+    }));
+  }
+  // « Versions précédentes » du livret prix : Studio garde l'état d'avant chaque
+  // enregistrement (et les versions retrouvées dans les sauvegardes). En
+  // reprendre une garde à son tour le livret qu'elle remplace.
+  async function ouvrirVersionsLivret(id, p) {
+    document.querySelector(".modale").classList.add("large");
+    pourDossier(id); ouvrirModale("🕘 Versions précédentes du livret — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), '<p class="aide">Chargement…</p>',
+      '<button class="btn btn-or" id="lv-retour">Retour au livret</button>');
+    const maFenetre = sessionModale;
+    $("lv-retour").addEventListener("click", () => ouvrirAcm(id, p));
+    let r;
+    try { r = await api("/crm/parcours/" + id + "/acm/versions"); } catch (e) { if (maFenetre === sessionModale) $("modale-corps").innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; return; }
+    if (maFenetre !== sessionModale) return;
+    const nb = (v) => Number(v).toLocaleString("fr-FR");
+    const ref = (r.actuel && r.actuel.resume) || {};
+    // Le résumé d'une version ; en gras, ce qui diffère du livret en place.
+    const resume = (x, comparer) => {
+      const m = (k, texte) => (comparer && (x[k] || null) !== (ref[k] || null) ? "<strong>" + texte + "</strong>" : texte);
+      const bouts = [];
+      bouts.push(m("prix", x.prix ? "Prix " + nb(x.prix) + " €" : "Prix non saisi"));
+      if (x.basse || x.haute) bouts.push((comparer && ((x.basse || null) !== (ref.basse || null) || (x.haute || null) !== (ref.haute || null)) ? "<strong>" : "") + "de " + (x.basse ? nb(x.basse) : "?") + " à " + (x.haute ? nb(x.haute) : "?") + " €" + (comparer && ((x.basse || null) !== (ref.basse || null) || (x.haute || null) !== (ref.haute || null)) ? "</strong>" : ""));
+      bouts.push(m("surface", x.surface ? nb(x.surface) + " m²" : "surface ?"));
+      if (x.terrain) bouts.push(m("terrain", "terrain " + nb(x.terrain) + " m²"));
+      bouts.push(m("pieces", x.pieces ? x.pieces + " pièce" + (x.pieces > 1 ? "s" : "") : "pièces ?"));
+      if (x.chambres) bouts.push(m("chambres", x.chambres + " ch."));
+      bouts.push(m("ventes", x.ventes + " vente" + (x.ventes > 1 ? "s" : "") + " retenue" + (x.ventes > 1 ? "s" : "")));
+      bouts.push(m("concurrence", x.concurrence + " bien" + (x.concurrence > 1 ? "s" : "") + " en concurrence"));
+      if (x.commission) bouts.push(m("commission", "commission : " + x.commission + " ligne" + (x.commission > 1 ? "s" : "")));
+      return bouts.join(" · ");
+    };
+    const origine = (v) => (v.origine === "sauvegarde" ? ' <span class="puce grise" title="Version retrouvée dans une sauvegarde quotidienne de la base">sauvegarde</span>'
+      : v.origine === "restauration" ? ' <span class="puce grise" title="Le livret qui était en place quand une version a été reprise">avant une reprise</span>' : "");
+    $("modale-corps").innerHTML =
+      '<p class="aide" style="max-width:none;">Studio garde le livret tel qu\'il était avant chaque modification. « Reprendre » remet une version en place ; le livret actuel passe alors dans cette liste, rien n\'est perdu. En <strong>gras</strong> : ce qui diffère du livret actuel.</p>' +
+      '<div class="tableau-cadre"><table><thead><tr><th style="white-space:nowrap;">Enregistrée le</th><th>Contenu</th><th></th></tr></thead><tbody>' +
+      '<tr><td style="white-space:nowrap;">' + (r.actuel ? quandFr(r.actuel.updated_at, true) : "—") + ' <span class="puce">en place</span></td><td>' + (r.actuel ? resume(ref, false) : "Livret vide") + "</td><td></td></tr>" +
+      r.versions.map((v) => '<tr><td style="white-space:nowrap;">' + quandFr(v.saisie_at || v.archive_at, true) + origine(v) + "</td><td>" + resume(v.resume, true) +
+        '</td><td style="text-align:right;"><button class="btn" style="white-space:nowrap;" data-lv="' + escH(v.id) + '" data-lv-date="' + escH(quandFr(v.saisie_at || v.archive_at, true)) + '">↩ Reprendre</button></td></tr>').join("") +
+      "</tbody></table></div>" +
+      (r.versions.length ? "" : '<p class="petit">Aucune version précédente pour ce dossier. Studio les garde depuis le 16/11 ; les plus anciennes viennent des sauvegardes de la base.</p>');
+    $("modale-corps").querySelectorAll("[data-lv]").forEach((b) => b.addEventListener("click", async () => {
+      if (!confirm("Reprendre la version du " + b.dataset.lvDate + " ?\n\nLe livret actuel sera gardé dans les versions précédentes.")) return;
+      b.disabled = true;
+      try { await api("/crm/parcours/" + id + "/acm/versions/" + b.dataset.lv + "/restaurer", { method: "POST" }); toast("Version du " + b.dataset.lvDate + " reprise"); ouvrirAcm(id, p); }
+      catch (e) { toast(e.message, true); b.disabled = false; }
+    }));
+  }
   function formulaireParcours(p) {
     const v = (k) => escH(p && p[k] || "");
     const b = (p && p.bien) || {};
@@ -2918,13 +3165,22 @@
   async function sauverBienFiche(id, bien) {
     const acm = (await api("/crm/parcours/" + id + "/acm")).acm || {};
     if (["surface", "terrain", "pieces", "chambres", "piece_vie"].every((k) => (acm[k] || null) === (bien[k] || null))) return;
-    await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: { ...acm, ...bien } });
+    await api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: { ...acm, ...bien }, horsFenetre: true });
   }
   // Nouveau parcours : on cherche D'ABORD la personne dans les contacts ; la
   // fiche choisie pré-remplit le formulaire. Introuvable ? On remplit, et le
   // contact est créé en même temps que le parcours.
   function nouveauParcours() {
     let contactId = "";
+    // Ce que la fiche choisie a écrit dans le formulaire : si le choix est abandonné, ces
+    // champs (restés tels quels) repartent avec lui — l'e-mail de Paul ne reste pas sur le parcours de Sophie.
+    let prerempli = {};
+    const delier = () => {
+      for (const [k, val] of Object.entries(prerempli)) { const el = $(k); if (el && el.value === val) el.value = ""; }
+      contactId = ""; prerempli = {};
+      if ($("px-choisi")) $("px-choisi").innerHTML = "";
+      document.querySelectorAll("#px-resultats [data-ct]").forEach((o) => o.classList.remove("btn-or"));
+    };
     ouvrirModale("+ Nouveau parcours R1/R2",
       '<div class="grille-champs"><label>1. Chercher la personne dans les contacts<input id="px-q" placeholder="nom, e-mail, téléphone, adresse…" autocomplete="off" /></label></div>' +
       '<div id="px-resultats" style="max-height:170px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:6px 12px; margin:6px 0 12px;"><p class="petit">Tapez au moins 2 caractères. Personne ne correspond ? Remplissez la fiche ci-dessous : le contact sera créé avec le parcours.</p></div>' +
@@ -2945,17 +3201,24 @@
           : '<p class="petit">Aucun contact ne correspond — remplissez la fiche ci-dessous, le contact sera créé.</p>';
         zone.querySelectorAll("[data-ct]").forEach((b) => b.addEventListener("click", () => {
           const x = r.contacts.find((y) => y.id === b.dataset.ct); if (!x) return;
+          delier(); // un autre contact était choisi : ce qui venait de sa fiche s'efface d'abord
           contactId = x.id;
           if (["M.", "Mme", "M. et Mme"].includes(x.civilite)) $("px-civilite").value = x.civilite;
           $("px-prenom").value = x.prenom || ""; $("px-nom").value = x.nom || ""; $("px-email").value = x.email || ""; $("px-tel").value = fmtTel(x.telephone);
           $("px-adresse").value = x.adresse || ""; $("px-cp").value = x.cp || ""; $("px-ville").value = x.ville || "";
-          completerCodePostal(); // sans code postal sur la fiche : la BAN le retrouve
-          $("px-choisi").innerHTML = "Contact choisi : <strong>" + escH([x.prenom, x.nom].filter(Boolean).join(" ")) + "</strong> — la fiche ci-dessous est pré-remplie, complétez le bien et les rendez-vous.";
+          for (const k of ["px-prenom", "px-nom", "px-email", "px-tel", "px-adresse", "px-cp", "px-ville"]) if ($(k).value) prerempli[k] = $(k).value;
+          // sans code postal sur la fiche : la BAN le retrouve (et il part avec le choix, lui aussi)
+          completerCodePostal().then(() => { if (contactId === x.id && $("px-cp") && $("px-cp").value && !prerempli["px-cp"]) prerempli["px-cp"] = $("px-cp").value; });
+          $("px-choisi").innerHTML = "Contact choisi : <strong>" + escH([x.prenom, x.nom].filter(Boolean).join(" ")) + "</strong> — la fiche ci-dessous est pré-remplie, complétez le bien et les rendez-vous." +
+            ' <button type="button" class="btn" id="px-delier" style="padding:2px 9px; font-size:12px;" title="Le parcours ne sera pas relié à cette fiche : une nouvelle fiche contact sera créée (ou choisissez-en une autre)">✕ ne pas relier</button>';
+          $("px-delier").addEventListener("click", delier);
           zone.querySelectorAll("[data-ct]").forEach((o) => o.classList.toggle("btn-or", o === b));
         }));
       } catch (e) { toast(e.message, true); }
     };
-    $("px-q").addEventListener("input", () => { clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
+    // Toute nouvelle saisie dans la recherche abandonne le contact cliqué avant (comme pour un
+    // co-propriétaire) : sinon le parcours de Sophie était créé relié à la fiche de Paul.
+    $("px-q").addEventListener("input", () => { delier(); clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
     brancherMenuConseillers("px-conseiller"); brancherTypeBien(); brancherCodePostal();
     $("px-creer").addEventListener("click", async () => {
       const btn = $("px-creer"); if (btn.disabled) return; btn.disabled = true; btn.textContent = "Création…"; // un double clic ne crée qu'une fiche
@@ -2963,13 +3226,22 @@
         const bien = lireBienFiche();
         const r = await api("/crm/parcours", { json: { ...lireFormulaireParcours(null), contact_id: contactId } });
         if (Object.values(bien).some((x) => x != null)) { try { await sauverBienFiche(r.id, bien); } catch (e) { toast("Le bien n'a pas été enregistré : " + e.message, true); } }
-        toast(r.contact_cree ? "Parcours créé, et la fiche contact avec lui" : "Parcours créé"); await chargerParcours(); ouvrirParcours(r.id);
+        toast(r.contact_cree ? "Parcours créé, et la fiche contact avec lui" : "Parcours créé"); relireEstimations(); await chargerParcours(); ouvrirParcours(r.id);
       } catch (e) { toast(e.message, true); btn.disabled = false; btn.textContent = "Créer le parcours"; }
     });
   }
-  async function ouvrirParcours(id) {
+  // La fiche d'un parcours EST une fiche estimation (mêmes dates R1/R2, même conseiller) :
+  // après l'avoir modifiée, la liste de l'onglet Estimations est relue. Restée sur ses
+  // valeurs du démarrage, elle remettait les anciennes dates au premier « Enregistrer ».
+  const relireEstimations = () => { if (!modeConseiller) chargerEstimations(); };
+  let demandeParcours = 0;
+  async function ouvrirParcours(id, jeton) {
+    // Rappelée à la fin d'un traitement (jeton = la fenêtre d'où il est parti) : si l'on est passé à autre chose, elle ne s'impose pas.
+    if (jeton !== undefined && jeton !== sessionModale) return;
     let p;
+    const demande = ++demandeParcours; // deux fiches demandées coup sur coup : seule la dernière s'ouvre
     try { p = await api("/crm/parcours/" + id); p.bien = (await api("/crm/parcours/" + id + "/acm")).acm || {}; } catch (e) { toast(e.message, true); return; }
+    if (demande !== demandeParcours) return;
     const faites = new Map(p.journal.map((j) => [j.etape, j]));
     const bienManque = (p.type_bien === "terrain" ? ["terrain"] : ["surface", "chambres", "piece_vie"]).filter((k) => !p.bien[k]);
     const etapesHtml = '<div class="etapes">' + etapesPour(p).map((e, i) => {
@@ -3001,7 +3273,7 @@
     const csLigne = '<select id="px-signe" style="max-width:260px; vertical-align:middle;"><option value="">— choisir le conseiller —</option>' +
       conseillers.filter((c) => c.actif || p.conseiller_id === c.id).map((c) => '<option value="' + c.id + '"' + (p.conseiller_id === c.id ? " selected" : "") + ">" + escH([c.prenom, c.nom].filter(Boolean).join(" ")) + "</option>").join("") +
       '</select> <span class="petit" id="px-signe-detail">' + csDetail + "</span>";
-    ouvrirModale("🧭 " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
+    pourDossier(id); ouvrirModale("🧭 " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
       '<details><summary style="cursor:pointer;">Fiche client et rendez-vous — ' + escH([p.adresse, p.ville].filter(Boolean).join(", ")) +
       " · R1 " + dateFrCourte(p.r1, p.r1_heure) + " · R2 " + dateFrCourte(p.r2, p.r2_heure) +
       (bienManque.length ? ' <span class="puce" style="background:#e07a5f; color:#fff;" title="Ces informations passent dans la commission d\'évaluation et le livret prix">à renseigner : ' + escH(bienManque.map((k) => ({ surface: "surface", chambres: "chambres", piece_vie: "pièce de vie", terrain: "surface du terrain" })[k]).join(", ")) + "</span>" : "") + "</summary>" +
@@ -3017,15 +3289,17 @@
       '<button class="btn btn-or" id="modale-ok">Fermer</button>');
     $("modale-ok").addEventListener("click", () => { fermerModale(); chargerParcours(); });
     $("px-effacer").addEventListener("click", async () => {
-      if (!confirm("Effacer le parcours de " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" ") + " ? La fiche estimation disparaît aussi ; les fiches contact restent.")) return;
-      try { await api("/crm/parcours/" + id, { method: "DELETE" }); toast("Parcours effacé"); fermerModale(); chargerParcours(); } catch (e) { toast(e.message, true); }
+      if (!confirm("Effacer le parcours de " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" ") + " ? La fiche estimation disparaît aussi ; les fiches contact restent.\n\nLe dossier reste récupérable 30 jours dans « Dossiers supprimés ».")) return;
+      try { await api("/crm/parcours/" + id, { method: "DELETE" }); toast("Parcours effacé — récupérable 30 jours dans « 🗑 Dossiers supprimés »"); fermerModale(); chargerParcours(); relireEstimations(); } catch (e) { toast(e.message, true); }
     });
     $("px-ajouter-prop").addEventListener("click", () => ajouterProprietaire(id, p));
     document.querySelectorAll("[data-retirer]").forEach((b) => b.addEventListener("click", async () => {
-      try { await api("/crm/parcours/" + id + "/proprietaires/" + b.dataset.retirer, { method: "DELETE" }); toast("Propriétaire retiré"); ouvrirParcours(id); } catch (e) { toast(e.message, true); }
+      const jetonF = sessionModale;
+      try { await api("/crm/parcours/" + id + "/proprietaires/" + b.dataset.retirer, { method: "DELETE" }); toast("Propriétaire retiré"); ouvrirParcours(id, jetonF); } catch (e) { toast(e.message, true); }
     }));
     $("px-signe").addEventListener("change", async () => {
-      try { await api("/crm/parcours/" + id, { method: "PUT", json: { conseiller_id: $("px-signe").value } }); toast("Les e-mails partiront signés du conseiller choisi"); await chargerParcours(); ouvrirParcours(id); }
+      const jetonF = sessionModale;
+      try { await api("/crm/parcours/" + id, { method: "PUT", json: { conseiller_id: $("px-signe").value } }); toast("Les e-mails partiront signés du conseiller choisi"); relireEstimations(); await chargerParcours(); ouvrirParcours(id, jetonF); }
       catch (e) { toast(e.message, true); }
     });
     brancherMenuConseillers("px-conseiller"); brancherTypeBien(); brancherCodePostal();
@@ -3035,7 +3309,9 @@
       try { await sauverBienFiche(id, lireBienFiche()); toast("Bien enregistré"); } catch (e) { toast(e.message, true); }
     });
     $("px-maj").addEventListener("click", async () => {
-      try { await api("/crm/parcours/" + id, { method: "PUT", json: lireFormulaireParcours(p) }); await sauverBienFiche(id, lireBienFiche()); toast("Fiche enregistrée"); await chargerParcours(); ouvrirParcours(id); }
+      // Tout le formulaire est lu MAINTENANT : après un « await », la fenêtre peut être celle d'un autre dossier.
+      const jetonF = sessionModale, bien = lireBienFiche();
+      try { await api("/crm/parcours/" + id, { method: "PUT", json: lireFormulaireParcours(p) }); await sauverBienFiche(id, bien); toast("Fiche enregistrée"); relireEstimations(); await chargerParcours(); ouvrirParcours(id, jetonF); }
       catch (e) { toast(e.message, true); }
     });
     document.querySelectorAll("[data-mail]").forEach((b) => b.addEventListener("click", () => preparerMailParcours(id, b.dataset.mail, p)));
@@ -3047,26 +3323,31 @@
       if (b.dataset.guide === "demarche") {
         if (!p.conseiller) { toast("Choisissez d'abord le conseiller de la fiche : le guide porte sa page.", true); return; }
         b.disabled = true; const lib = b.textContent; b.textContent = "Préparation…";
-        try { const g = await genererDemarche(p); preparerMailParcours(id, "demarche", p, null, { nom: g.fichier, octets: g.octets, url: g.url }); }
+        const jetonF = sessionModale;
+        try { const g = await genererDemarche(p); if (fenetreQuittee(jetonF, "Guide « démarche à suivre »")) return; preparerMailParcours(id, "demarche", p, null, { nom: g.fichier, octets: g.octets, url: g.url }); }
         catch (e) { toast(e.message, true); b.disabled = false; b.textContent = lib; }
         return;
       }
       if (b.dataset.guide === "mot") {
         b.disabled = true; const lib = b.textContent; b.textContent = "Préparation…";
-        try { const u = await genererMotDirecteur(p); documentPret(id, "Mot du directeur prêt", u, window.__dernierGuide && window.__dernierGuide.fichier); }
+        const jetonF = sessionModale;
+        try { const u = await genererMotDirecteur(p); if (fenetreQuittee(jetonF, "Mot du directeur")) return; documentPret(id, "Mot du directeur prêt", u, window.__dernierGuide && window.__dernierGuide.fichier); }
         catch (e) { toast(e.message, true); } finally { b.disabled = false; b.textContent = lib; }
         return;
       }
       b.disabled = true; b.textContent = "Préparation…";
       try {
+        const jetonF = sessionModale;
         const urlR1 = await genererGuideR1(p);
+        if (fenetreQuittee(jetonF, "Guide R1")) return;
         if (!faites.has("guide-r1")) await api("/crm/parcours/" + id + "/etape", { json: { etape: "guide-r1" } });
         documentPret(id, "Guide R1 prêt", urlR1, window.__dernierGuide && window.__dernierGuide.fichier);
       } catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "🖨 Guide R1 personnalisé"; }
     }));
     document.querySelectorAll("[data-cocher]").forEach((b) => b.addEventListener("click", async () => {
       const deja = faites.has(b.dataset.cocher);
-      try { await api("/crm/parcours/" + id + "/etape", { json: { etape: b.dataset.cocher, defaire: deja } }); ouvrirParcours(id); }
+      const jetonF = sessionModale;
+      try { await api("/crm/parcours/" + id + "/etape", { json: { etape: b.dataset.cocher, defaire: deja } }); ouvrirParcours(id, jetonF); }
       catch (e) { toast(e.message, true); }
     }));
   }
@@ -3102,6 +3383,33 @@
   // TikTok — tools/guides/variante-cauderan.py) ; les autres partagent le commun.
   const guideR1Cache = {}; // variante → { meta, pdf }
   const varianteGuide = (cs) => ((cs && cs.agence) === "cauderan" ? "cauderan" : "commun"); // R1 et R2
+  // Un document généré avec une réserve (texte trop long raccourci, commune indéterminée…) :
+  // on le dit à l'écran, assez longtemps pour être lu (le message ordinaire s'efface en 3 s).
+  function avertirDocument(titre, messages) {
+    const l = (messages || []).filter(Boolean);
+    if (!l.length) return;
+    toast("⚠ " + titre + " — " + l.join(" · "), true);
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => $("toast").classList.remove("visible"), 9000 + 5000 * l.length);
+  }
+  // Helvetica standard n'écrit que le jeu WinAnsi : un nom polonais, turc ou vietnamien
+  // (ł, Ś, ễ, ı, Ş, Č…), une espace fine ou une tabulation collée d'un autre logiciel
+  // faisaient échouer TOUT le guide R1 (« WinAnsi cannot encode »). Les espaces exotiques
+  // deviennent des espaces ; un texte hors du jeu s'écrit avec la police de secours
+  // embarquée (Barlow a ces lettres) ; à défaut la lettre perd son signe plutôt que de
+  // bloquer le document.
+  const espacesSimples = (t) => String(t == null ? "" : t).replace(/[\t\u2000-\u200a\u202f\u205f\u3000]/g, " ").replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029\u2060\ufeff]/g, "");
+  const SANS_SIGNE = { "ł": "l", "Ł": "L", "ı": "i", "İ": "I", "đ": "d", "Đ": "D", "ħ": "h", "Ħ": "H", "ŧ": "t", "Ŧ": "T", "ĸ": "k", "ŉ": "n" };
+  const jeuxPolices = new WeakMap();
+  const jeuDe = (font) => { if (!jeuxPolices.has(font)) jeuxPolices.set(font, new Set(font.getCharacterSet())); return jeuxPolices.get(font); };
+  const ecritTout = (font, t) => [...t].every((c) => jeuDe(font).has(c.codePointAt(0)));
+  function ecritureSure(texte, font, secours) {
+    const t = espacesSimples(texte);
+    if (ecritTout(font, t)) return { texte: t, font, mode: "normale" };
+    if (secours && ecritTout(secours, t)) return { texte: t, font: secours, mode: "secours" };
+    const sans = [...t].map((c) => { if (ecritTout(font, c)) return c; const b = SANS_SIGNE[c] || c.normalize("NFD").replace(/[\u0300-\u036f]/g, ""); return b && ecritTout(font, b) ? b : ""; }).join("");
+    return { texte: sans, font, mode: "sans-signe" };
+  }
   const sansAccentsMin = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
   async function genererGuideR1(p) {
     if (!window.PDFLib) throw new Error("Le générateur de PDF n'est pas chargé (rechargez la page).");
@@ -3128,6 +3436,13 @@
     const copies = await doc.copyPages(source, ordre.filter((n) => typeof n === "number").map((n) => n - 1));
     let kCopie = 0, pgGeneree = null;
     for (const e of ordre) { if (e === "generee") pgGeneree = doc.addPage([595.28, 841.89]); else doc.addPage(copies[kCopie++]); }
+    // Les textes variables écrits en Helvetica (client, adresses) : s'ils sortent du jeu
+    // WinAnsi, Barlow (déjà chargée pour le mot du directeur) est embarquée en secours.
+    const stdR = await doc.embedFont(StandardFonts.Helvetica);
+    let secoursR1 = null; const ecritures = { secours: 0, sansSigne: 0 };
+    { const variables = [nomsClient(p), p.adresse, p.cp, p.ville, (p.agence && p.agence.adresse) || "", ...agences().flatMap((a) => [a.nom, a.adresse])].map(espacesSimples).join(" ");
+      if (window.fontkit && !ecritTout(stdR, variables)) { try { await chargerMotCache(); secoursR1 = await Promise.all(motCache.fontes.slice(0, 2).map((f) => doc.embedFont(f, { subset: true }))); } catch { secoursR1 = null; } } }
+    const sure = (texte, font, gras) => { const e = ecritureSure(texte, font, secoursR1 && secoursR1[gras ? 1 : 0]); if (e.mode === "secours") ecritures.secours++; else if (e.mode === "sans-signe") ecritures.sansSigne++; return e; };
     let pageConseiller = pageCs ? { source: "modele" } : { source: cs.nom ? "generee" : "aucune" };
     if (pgGeneree) { try { pageConseiller = { source: "generee", ...(await dessinerPageConseiller(doc, pgGeneree, p)) }; } catch (e) { pageConseiller.erreur = String(e.message || e); } }
     // Page « Notre agence » : les chiffres des avis du jour, par point de vente (relevés sur le site Kadima).
@@ -3180,10 +3495,11 @@
       const tenir = (texte, f, taille, largeur) => { let t = taille; while (t > 6 && f.widthOfTextAtSize(texte, t) > largeur) t -= 0.25; return t; };
       lieux.forEach((l, i) => {
         const y = z.haut + i * pas;
+        const ti = sure(l.titre, font, true), te = sure(l.texte, fontR, false);
         page.drawRectangle({ x: z.x, y: Y(y) - 1.5, width: 7.5, height: 7.5, borderColor: rgb(0.35, 0.35, 0.35), borderWidth: 0.8 });
-        page.drawText(l.titre, { x: z.xTexte, y: Y(y), size: z.taille, font, color: gris });
-        if (l.texte) page.drawText(l.texte, { x: z.xTexte, y: Y(y) - 8.8, size: tenir(l.texte, fontR, z.taille - 0.3, z.blanc[2] - z.xTexte - 8), font: fontR, color: gris });
-        if (l.ligne) page.drawLine({ start: { x: z.xTexte + font.widthOfTextAtSize(l.titre, z.taille) + 6, y: Y(y) - 1 }, end: { x: z.blanc[2] - 20, y: Y(y) - 1 }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
+        page.drawText(ti.texte, { x: z.xTexte, y: Y(y), size: z.taille, font: ti.font, color: gris });
+        if (te.texte) page.drawText(te.texte, { x: z.xTexte, y: Y(y) - 8.8, size: tenir(te.texte, te.font, z.taille - 0.3, z.blanc[2] - z.xTexte - 8), font: te.font, color: gris });
+        if (l.ligne) page.drawLine({ start: { x: z.xTexte + ti.font.widthOfTextAtSize(ti.texte, z.taille) + 6, y: Y(y) - 1 }, end: { x: z.blanc[2] - 20, y: Y(y) - 1 }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
       });
       // L'avis client : une légende qui dit à quoi sert le QR code, et le QR de
       // l'agence du conseiller quand elle a son propre lien d'avis (Caudéran…).
@@ -3211,11 +3527,16 @@
       const font = await doc.embedFont(StandardFonts.Helvetica);
       const h = page.getHeight();
       // Un texte trop long pour la place (jusqu'au titre, à gauche) se réduit.
-      const droite = (texte, spec) => {
-        if (!texte) return;
+      // Si une ligne du bloc demande la police de secours, les quatre la prennent : pas deux polices dans le même bloc.
+      const blocP1 = [nomsClient(p), (p.adresse || "").toUpperCase(), [p.cp, (p.ville || "").toUpperCase()].filter(Boolean).join(" ")];
+      const fontP1 = secoursR1 && blocP1.some((t) => !ecritTout(font, espacesSimples(t))) ? secoursR1[0] : font;
+      const droite = (brut, spec) => {
+        if (!brut) return;
+        const { texte, font: f } = sure(brut, fontP1, false);
+        if (fontP1 !== font) ecritures.secours++;
         let taille = spec.taille;
-        while (taille > 8 && font.widthOfTextAtSize(texte, taille) > p1.droite - (p1.gauche || 300)) taille -= 0.5;
-        page.drawText(texte, { x: p1.droite - font.widthOfTextAtSize(texte, taille), y: h - spec.y, size: taille, font, color: rgb(0, 0, 0) });
+        while (taille > 8 && f.widthOfTextAtSize(texte, taille) > p1.droite - (p1.gauche || 300)) taille -= 0.5;
+        page.drawText(texte, { x: p1.droite - f.widthOfTextAtSize(texte, taille), y: h - spec.y, size: taille, font: f, color: rgb(0, 0, 0) });
       };
       droite(nomsClient(p), p1.nom);
       droite((p.adresse || "").toUpperCase(), p1.adresse);
@@ -3225,7 +3546,12 @@
     doc.setTitle("Guide de commercialisation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", mot, pageConseiller, avisAgence, variante }; // relu par les parcours navigateur
+    // Ce qui n'a pas pu être imprimé tel quel se dit à l'écran.
+    const avertissements = [];
+    if (pageConseiller.caracteresOmis) avertissements.push("page « Votre conseiller » : la présentation est trop longue pour son encart, elle s'arrête après « " + pageConseiller.finTexte + " » (environ " + pageConseiller.caracteresOmis + " caractères non imprimés)");
+    if (ecritures.sansSigne) avertissements.push("certaines lettres du nom ou de l'adresse n'existent pas dans la police du guide : elles sont écrites sans leur signe");
+    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", mot, pageConseiller, avisAgence, variante, ecritures, avertissements }; // relu par les parcours navigateur
+    avertirDocument("Guide R1", avertissements);
     return url;
   }
   /* --------------------------- Mot du directeur --------------------------- */
@@ -3370,34 +3696,61 @@
     // Espace normale entre les milliers : Barlow n'a pas l'espace fine insécable de fr-FR.
     const fmt = (v) => (Number(v) > 0 ? Math.round(Number(v)).toLocaleString("fr-FR").replace(/[\u202f\u00a0]/g, " ") + " €" : "");
     const basse = fmt(courrier.basse), haute = fmt(courrier.haute);
-    let y = 405;
-    const para = (t, f, taille, pas, c) => { for (const l of couper(t, f || fR, taille || 11.5, 420)) { ecrire(l, 85, y, taille || 11.5, f || fR, c); y += pas || 16.5; } y += 8; };
-    para(appel);
-    para("Nous vous remercions de la confiance que vous nous accordez dans le cadre de votre projet immobilier. Suite à notre rendez-vous" + quandR2 + " et à l'analyse comparative du marché réalisée sur les biens vendus et en vente autour de chez vous, nous estimons la valeur de votre " + typeLib + (adresse ? " " + situe + " " + adresse : "") + " :");
-    // La fourchette, mise en valeur dans un cadre doré.
-    y += 2;
-    pg.drawRectangle({ x: 85, y: h - (y + 52), width: 425, height: 58, borderColor: or, borderWidth: 1.2, color: rgb255(0.98, 0.97, 0.94) });
+    const libre = String(courrier.texte || "").trim();
+    const prenom = prenomPropre(cs.prenom), nomCs = (cs.nom || "").toUpperCase();
     const titreF = basse && haute ? "Fourchette d'estimation" : "Estimation";
     const valF = basse && haute ? "entre " + basse + " et " + haute : (haute || basse);
     // Les montants sont suivis de « net vendeur » (Benoît, 12/10), plus petit, sur la même ligne.
     const mention = " net vendeur", wVal = fB.widthOfTextAtSize(valF, 19), wMention = fR.widthOfTextAtSize(mention, 11);
-    const xVal = 85 + (425 - wVal - wMention) / 2;
-    ecrire(titreF, 85 + (425 - fR.widthOfTextAtSize(titreF, 9.5)) / 2, y + 12, 9.5, fR, gris);
-    ecrire(valF, xVal, y + 38, 19, fB, or);
-    ecrire(mention, xVal + wVal, y + 38, 11, fR, gris);
-    y += 74;
-    const libre = String(courrier.texte || "").trim();
-    if (libre) for (const bloc of libre.split(/\n\s*\n|\n/).map((t) => t.trim()).filter(Boolean)) para(bloc);
-    para("Cette estimation est établie au vu du marché actuel et des biens comparables ; elle ne constitue pas une expertise et pourra être ajustée avec vous au moment de la mise en vente.", fR, 10, 14.5, gris);
-    para("Nous restons à votre entière disposition pour en parler et vous accompagner dans votre projet.");
-    para("Bien cordialement,");
-    // Signature du conseiller : prénom NOM, fonction, coordonnées.
-    const prenom = prenomPropre(cs.prenom), nomCs = (cs.nom || "").toUpperCase();
-    const ySig = Math.min(Math.max(y + 10, 640), 720);
-    ecrire(prenom || nomCs ? [prenom, nomCs].filter(Boolean).join(" ") : (ag.nom || "L'équipe de l'agence"), 330, ySig, 12.5, fB);
-    ecrire(cs.fonction || "Conseiller immobilier", 330, ySig + 16, 10.5, fI, gris);
-    ecrire([fmtTel(cs.telephone), cs.email].filter(Boolean).join(" · "), 330, ySig + 31, 9.5, fR, gris);
-    return { conseiller: [prenom, nomCs].filter(Boolean).join(" "), basse, haute, mention: mention.trim(), libre: !!libre, photo, agence: ag.nom || "" };
+    // Le corps se compose à une taille donnée, la signature toujours APRÈS le texte ;
+    // `tracer` à faux ne fait que mesurer. Au-delà de 4 lignes de mot libre, le texte
+    // passait sur la signature (posée à une hauteur plafonnée), puis sur le pied, puis
+    // sortait de la page (audit du 16/11) : on mesure d'abord, on réduit le corps de
+    // 11,5 à 10 pt s'il le faut, et au-delà on refuse en disant de combien raccourcir.
+    const BAS_SIGNATURE = 772; // dernière ligne de la signature, au-dessus du filet du pied (786)
+    // Pas de retour à la ligne avant « : ; ! ? » € % », après « « », ni au milieu d'un montant (« 349 000 € ») : ces espaces-là ne coupent pas.
+    const couperFr = (t, f, taille, larg) => couper(String(t || "").replace(/\s+(?=[:;!?»€%])/g, "\u0001").replace(/«\s+/g, "«\u0001").replace(/(\d)\s+(?=\d{3}(?!\d))/g, "$1\u0001"), f, taille, larg).map((l) => l.replace(/\u0001/g, " "));
+    const composer = (T, mot, tracer) => {
+      const k = T / 11.5, pasT = Math.round(16.5 * k * 10) / 10, entre = Math.round(8 * k * 10) / 10;
+      let y = 405;
+      const para = (t, f, taille, pas, c) => { for (const l of couperFr(t, f || fR, taille || T, 420)) { if (tracer) ecrire(l, 85, y, taille || T, f || fR, c); y += pas || pasT; } y += entre; };
+      para(appel);
+      para("Nous vous remercions de la confiance que vous nous accordez dans le cadre de votre projet immobilier. Suite à notre rendez-vous" + quandR2 + " et à l'analyse comparative du marché réalisée sur les biens vendus et en vente autour de chez vous, nous estimons la valeur de votre " + typeLib + (adresse ? " " + situe + " " + adresse : "") + " :");
+      // La fourchette, mise en valeur dans un cadre doré.
+      y += 2;
+      if (tracer) {
+        pg.drawRectangle({ x: 85, y: h - (y + 52), width: 425, height: 58, borderColor: or, borderWidth: 1.2, color: rgb255(0.98, 0.97, 0.94) });
+        const xVal = 85 + (425 - wVal - wMention) / 2;
+        ecrire(titreF, 85 + (425 - fR.widthOfTextAtSize(titreF, 9.5)) / 2, y + 12, 9.5, fR, gris);
+        ecrire(valF, xVal, y + 38, 19, fB, or);
+        ecrire(mention, xVal + wVal, y + 38, 11, fR, gris);
+      }
+      y += 74;
+      for (const bloc of String(mot || "").split(/\n\s*\n|\n/).map((t) => t.trim()).filter(Boolean)) para(bloc);
+      para("Cette estimation est établie au vu du marché actuel et des biens comparables ; elle ne constitue pas une expertise et pourra être ajustée avec vous au moment de la mise en vente.", fR, T - 1.5, pasT - 2, gris);
+      para("Nous restons à votre entière disposition pour en parler et vous accompagner dans votre projet.");
+      para("Bien cordialement,");
+      // Signature du conseiller : prénom NOM, fonction, coordonnées.
+      const ySig = Math.max(y + 10 * k, 640);
+      if (tracer) {
+        ecrire(prenom || nomCs ? [prenom, nomCs].filter(Boolean).join(" ") : (ag.nom || "L'équipe de l'agence"), 330, ySig, 12.5, fB);
+        ecrire(cs.fonction || "Conseiller immobilier", 330, ySig + 16, 10.5, fI, gris);
+        ecrire([fmtTel(cs.telephone), cs.email].filter(Boolean).join(" · "), 330, ySig + 31, 9.5, fR, gris);
+      }
+      return { yTexte: Math.round((y - entre) * 10) / 10, ySignature: Math.round(ySig * 10) / 10, bas: Math.round((ySig + 31) * 10) / 10 };
+    };
+    const TAILLE_MIN = 10;
+    let taille = 11.5;
+    while (taille > TAILLE_MIN && composer(taille, libre, false).bas > BAS_SIGNATURE) taille -= 0.25;
+    if (composer(taille, libre, false).bas > BAS_SIGNATURE) {
+      // Même au plus petit, le mot ne tient pas : la plus longue partie (coupée à un mot) qui tiendrait dit de combien raccourcir.
+      let tient = 0, trop = libre.length;
+      while (trop - tient > 1) { const n = Math.floor((tient + trop) / 2); if (composer(TAILLE_MIN, libre.slice(0, n).replace(/\S*$/, ""), false).bas <= BAS_SIGNATURE) tient = n; else trop = n; }
+      const enTrop = Math.max(10, Math.ceil((libre.length - tient) / 10) * 10);
+      throw new Error("Votre mot est trop long pour tenir sur la page du courrier : raccourcissez-le d'environ " + enTrop + " caractères (il en compte " + libre.length + ", environ " + Math.floor(tient / 10) * 10 + " tiennent).");
+    }
+    const mise = composer(taille, libre, true);
+    return { conseiller: [prenom, nomCs].filter(Boolean).join(" "), basse, haute, mention: mention.trim(), libre: !!libre, photo, agence: ag.nom || "", taille, ...mise };
   }
   const rgb255 = (r, g, b) => window.PDFLib.rgb(r, g, b);
   // Imprimer un PDF (URL blob) sans quitter la page : cadre invisible + boîte
@@ -3413,19 +3766,34 @@
   // Photo ronde (PNG transparent hors du disque), pour la page « Votre conseiller ».
   // Un texte de présentation dans une zone : on réduit la taille jusqu'à `tailleMin`
   // (jamais plus petit), puis on retire les derniers paragraphes entiers tant que ça
-  // déborde ; rien n'est coupé au milieu d'une phrase (Benoît, 10/10).
+  // déborde ; rien n'est coupé au milieu d'une phrase (Benoît, 10/10). Rend aussi ce
+  // qui manque (`omis`, `coupe`, `caracteresOmis`, `finTexte`) pour le dire à l'écran.
   function ajusterParagraphes(paras, couper, font, largeur, hauteurMax, tailleMax = 10.5, tailleMin = 9.5, interligne = 1.2) {
     const mesure = (bl, pas) => bl.reduce((h, b) => h + b.length * pas, 0) + Math.max(0, bl.length - 1) * pas * 0.6;
-    let taille = tailleMax, pas, blocs, gardes = paras.slice();
+    let taille = tailleMax, pas, blocs, gardes = paras.slice(), coupe = false;
     for (;;) {
       pas = Math.round(taille * interligne * 10) / 10;
       blocs = gardes.map((t) => couper(t, font, taille, largeur));
       if (mesure(blocs, pas) <= hauteurMax || !blocs.length) break;
       if (taille - 0.5 >= tailleMin) { taille -= 0.5; continue; }
-      gardes = gardes.slice(0, -1); taille = tailleMax; // trop long : un paragraphe de moins, et on repart grand
+      if (gardes.length > 1) { gardes = gardes.slice(0, -1); taille = tailleMax; continue; } // trop long : un paragraphe de moins, et on repart grand
+      // Un seul paragraphe, trop long à lui seul (un texte saisi d'un bloc) : il disparaissait
+      // EN ENTIER, la page sortait sans texte (audit du 16/11). Il s'arrête à la dernière
+      // phrase qui tient — toujours pas de coupe au milieu d'une phrase.
+      const phrases = phrasesDe(gardes[0]);
+      if (phrases.length > 1) { gardes = [phrases.slice(0, -1).join(" ")]; coupe = true; taille = tailleMax; continue; }
+      // Une seule phrase, interminable : les lignes qui tiennent, terminées par « … ».
+      const n = Math.max(1, Math.floor(hauteurMax / pas));
+      blocs = [blocs[0].slice(0, n)]; blocs[0][n - 1] = blocs[0][n - 1].replace(/[\s,;:.]+$/, "") + "…"; coupe = true;
+      break;
     }
-    return { taille, pas, blocs, omis: paras.length - gardes.length };
+    const lignes = blocs.flat(), imprime = lignes.join(" ").length;
+    return { taille, pas, blocs, omis: paras.length - gardes.length, coupe, caracteresOmis: paras.length - gardes.length || coupe ? Math.max(1, paras.join(" ").length - imprime) : 0,
+      finTexte: lignes.length ? lignes[lignes.length - 1].split(" ").slice(-5).join(" ") : "" };
   }
+  // Les phrases d'un texte : la coupe se fait après un point, « ! », « ? » ou « … » suivi
+  // d'une majuscule — pas après une abréviation d'une ou deux lettres (« M. Dupont »).
+  const phrasesDe = (texte) => String(texte || "").split(/(?<=(?:[^\s.]{3,}[.…]|[!?])["»”)]?)\s+(?=[A-ZÀ-ÖØ-Þ«"“(\d])/u).map((t) => t.trim()).filter(Boolean);
   // Le cadrage d'un portrait dans un cadre W × H : centré en largeur ; en hauteur,
   // le visage est dans le haut de la photo, la fenêtre s'ancre au quart supérieur
   // du débord (pas au milieu, qui coupait les têtes — Benoît, 10/10).
@@ -3535,9 +3903,10 @@
     }
     // Sa description : texte personnel du profil, sinon celui de sa page sur le site.
     const description = String(cs.bio || cs.bio_site || "").replace(/\r/g, "").split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean);
-    let yDesc = Math.max(285, yc + 12);
+    let yDesc = Math.max(285, yc + 12), descriptionOmise = null;
     if (description.length) {
-      const { taille, pas, blocs: bl } = ajusterParagraphes(description, couper, fI, D - G - 36, 230, 10.5, 9.5, 1.33);
+      const ajuste = ajusterParagraphes(description, couper, fI, D - G - 36, 230, 10.5, 9.5, 1.33);
+      const { taille, pas, blocs: bl } = ajuste; descriptionOmise = ajuste;
       const haut = bl.reduce((n, b) => n + b.length * pas + 6, 0) + 22;
       page.drawRectangle({ x: G, y: h - (yDesc + haut), width: D - G, height: haut, color: beige });
       page.drawRectangle({ x: G, y: h - (yDesc + haut), width: 3, height: haut, color: or });
@@ -3571,7 +3940,8 @@
         col.y += haut + ECART; poses++;
       }
     }
-    return { conseiller: [prenom, nomCs.toUpperCase()].filter(Boolean).join(" "), avis: poses, avisSite: avis.filter((a) => a.site).length, avisModele: avis.filter((a) => a.modele).length, photo, description: description.length ? (cs.bio ? "profil" : "site") : "aucune" };
+    return { conseiller: [prenom, nomCs.toUpperCase()].filter(Boolean).join(" "), avis: poses, avisSite: avis.filter((a) => a.site).length, avisModele: avis.filter((a) => a.modele).length, photo, description: description.length ? (cs.bio ? "profil" : "site") : "aucune",
+      caracteresOmis: descriptionOmise ? descriptionOmise.caracteresOmis : 0, finTexte: descriptionOmise ? descriptionOmise.finTexte : "" };
   }
   // Page « Notre agence » des guides (R1 p3, R2 p11) : les notes et nombres
   // d'avis redessinés aux chiffres relevés sur le site Kadima (par point de
@@ -3690,11 +4060,13 @@
   // libre, gardés avec la saisie du livret (acm.courrier) ; aperçu PDF ou envoi
   // par e-mail (le PDF en pièce jointe, texte du jalon relu avant envoi).
   async function ouvrirCourrierEstimation(id, p) {
+    const jetonEntree = sessionModale;
     let acm = {};
     try { acm = (await api("/crm/parcours/" + id + "/acm")).acm || {}; } catch { acm = {}; }
     const cr = acm.courrier && typeof acm.courrier === "object" ? acm.courrier : {};
     const basse = cr.basse || acm.basse || "", haute = cr.haute || acm.haute || "";
-    ouvrirModale("📨 Courrier d'estimation",
+    if (jetonEntree !== sessionModale) return;
+    pourDossier(id); ouvrirModale("📨 Courrier d'estimation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
       '<p class="aide">La fourchette (net vendeur) reprend celle du livret prix ; ajustez-la, ajoutez un mot personnel, puis imprimez le courrier ou envoyez-le par e-mail en pièce jointe (l\'envoi se confirme en deux temps), signé ' +
       (p.conseiller ? "<strong>" + escH([p.conseiller.prenom, p.conseiller.nom].filter(Boolean).join(" ")) + "</strong>" : "<strong>de l'agence</strong> (choisissez le conseiller sur la fiche)") + ".</p>" +
       '<div class="grille-champs"><label>Fourchette basse (€)<input id="ce-basse" type="number" step="1000" value="' + escH(basse) + '" /></label>' +
@@ -3703,22 +4075,22 @@
       '<p class="petit">Le courrier est écrit sur le papier à en-tête de l\'agence, avec la photo et les coordonnées du conseiller.</p>',
       '<button class="btn" id="ce-retour">Retour</button><button class="btn" id="ce-apercu">📄 Aperçu PDF</button><button class="btn" id="ce-imprimer">🖨 Imprimer</button><button class="btn btn-or" id="ce-envoyer">✉️ Envoyer par e-mail</button>');
     const lire = () => ({ basse: parseFloat($("ce-basse").value) || 0, haute: parseFloat($("ce-haute").value) || 0, texte: $("ce-texte").value.trim() });
-    const sauver = async () => { const courrier = lire(); await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: { ...acm, courrier } }); acm.courrier = courrier; return courrier; };
+    const sauver = async () => { const courrier = lire(); await api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: { ...acm, courrier } }); acm.courrier = courrier; return courrier; };
     const verifier = (c) => { if (!c.basse && !c.haute) throw new Error("Indiquez au moins une valeur de la fourchette."); if (c.basse && c.haute && c.basse > c.haute) throw new Error("La fourchette basse dépasse la fourchette haute."); };
     $("ce-retour").addEventListener("click", () => ouvrirParcours(id));
     $("ce-apercu").addEventListener("click", async () => {
       const b = $("ce-apercu"); b.disabled = true; b.textContent = "Préparation…";
-      try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); documentPret(id, "Courrier d'estimation prêt", g.url, g.fichier); }
+      const jetonCe = sessionModale; try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); if (fenetreQuittee(jetonCe, "Courrier d'estimation")) return; documentPret(id, "Courrier d'estimation prêt", g.url, g.fichier); }
       catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "📄 Aperçu PDF"; }
     });
     $("ce-imprimer").addEventListener("click", async () => {
       const b = $("ce-imprimer"); b.disabled = true; b.textContent = "Préparation…";
-      try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); imprimerPdf(g.url); documentPret(id, "Courrier d'estimation prêt", g.url, g.fichier, "La boîte d'impression s'ouvre. Si elle n'apparaît pas, ouvrez le document et imprimez-le depuis là."); }
+      const jetonCe = sessionModale; try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); if (fenetreQuittee(jetonCe, "Courrier d'estimation")) return; imprimerPdf(g.url); documentPret(id, "Courrier d'estimation prêt", g.url, g.fichier, "La boîte d'impression s'ouvre. Si elle n'apparaît pas, ouvrez le document et imprimez-le depuis là."); }
       catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "🖨 Imprimer"; }
     });
     $("ce-envoyer").addEventListener("click", async () => {
       const b = $("ce-envoyer"); b.disabled = true; b.textContent = "Préparation…";
-      try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); preparerMailParcours(id, "courrier-estimation", p, null, { nom: g.fichier, octets: g.octets }); }
+      const jetonCe = sessionModale; try { const c = lire(); verifier(c); await sauver(); const g = await genererCourrierEstimation(p, c); if (fenetreQuittee(jetonCe, "Courrier d'estimation")) return; preparerMailParcours(id, "courrier-estimation", p, null, { nom: g.fichier, octets: g.octets }); }
       catch (e) { toast(e.message, true); b.disabled = false; b.textContent = "✉️ Envoyer par e-mail"; }
     });
   }
@@ -3868,6 +4240,8 @@
     };
     const cpVille = [p.cp, p.ville].filter(Boolean).join(" ");
     const aujourdhui = new Date(); const dateJour = aujourdhui.getDate() + " " + MOIS_FR[aujourdhui.getMonth()] + " " + aujourdhui.getFullYear();
+    const avertissements = []; // ce qui n'a pas pu être imprimé tel quel : dit à l'écran en fin de génération
+    let debugP6 = null;
     // Page 1 : photo, client, adresse, date du jour.
     { const s = meta.p1, pg = page(s.page);
       await image(pg, r2.photo, s.photo, true);
@@ -3880,18 +4254,38 @@
       await image(pg, r2.photo, s.photo, true);
       ecrireDroite(pg, p.adresse, s.droite, s.adresse.y, s.adresse.taille, fR);
       ecrireDroite(pg, cpVille, s.droite, s.cpville.y, s.cpville.taille, fR);
-      // Chaque point va à la ligne dans son cadre (Benoît préfère ça à une
-      // limite de caractères) ; au-delà de 6 lignes le texte se resserre un peu.
-      const liste = (texte, z) => {
-        const items = String(texte || "").split(/\n/).map((t) => t.trim()).filter(Boolean).slice(0, z.max);
-        let taille = z.taille, pas = z.pas, lignes = [];
-        for (let essai = 0; essai < 3; essai++) {
-          lignes = []; for (const t of items) couper(t, fB, taille, z.largeur).forEach((l, j) => lignes.push({ l, fleche: j === 0 }));
-          if (lignes.length <= (z.maxLignes || 6)) break;
-          taille *= 0.9; pas *= 0.9;
+      // Chaque point va à la ligne dans son cadre (Benoît préfère ça à une limite de
+      // caractères). Le cadre du modèle contient 4 lignes au pas normal (de `y` à `bas`) :
+      // avec le pas de 14,4 gardé jusqu'à 7 lignes, la 5e sortait du cadre et la 8e était
+      // supprimée sans rien dire (audit du 16/11). Au-delà de 4 lignes le pas se resserre
+      // et le bloc remonte jusqu'à `haut` ; puis la taille descend, jamais sous `tailleMin` ;
+      // ce qui ne tient toujours pas est coupé (« … ») et signalé à l'écran.
+      const liste = (texte, z, nom) => {
+        const tous = String(texte || "").split(/\n/).map((t) => t.trim()).filter(Boolean), items = tous.slice(0, z.max);
+        if (tous.length > items.length) avertissements.push("page 6 : seuls les " + z.max + " premiers " + nom + " sont imprimés (" + tous.length + " saisis)");
+        const haut = z.haut || z.y, bas = z.bas || z.y + 3 * z.pas, tailleMin = z.tailleMin || 7, SERRE = 1.22; // pas minimal = 1,22 × la taille
+        const composer = (t) => { const l = []; items.forEach((it, k) => couper(it, fB, t, z.largeur).forEach((x, n) => l.push({ l: x, fleche: n === 0, item: k }))); return l; };
+        let taille = z.taille, lignes, pas;
+        for (;;) {
+          lignes = composer(taille);
+          pas = lignes.length > 1 ? Math.min(z.pas, (bas - haut) / (lignes.length - 1)) : z.pas;
+          if (pas >= taille * SERRE || taille - 0.25 < tailleMin) break;
+          taille = Math.round((taille - 0.25) * 100) / 100;
         }
-        lignes.slice(0, (z.maxLignes || 6) + 1).forEach(({ l, fleche }, i) => {
-          const y = z.y + i * pas, yb = pg.getHeight() - y;
+        let coupees = 0;
+        if (pas < taille * SERRE) {
+          pas = taille * SERRE;
+          const n = Math.floor((bas - haut) / pas) + 1, der = lignes[n - 1];
+          coupees = lignes.length - n; lignes = lignes.slice(0, n);
+          der.l = der.l.replace(/[\s,;:.]+$/, "");
+          while (der.l.includes(" ") && fB.widthOfTextAtSize(der.l + "…", taille) > z.largeur) der.l = der.l.replace(/\s+\S*$/, "");
+          der.l += "…";
+          const long = items.reduce((a, b) => (b.length > a.length ? b : a), "");
+          avertissements.push("page 6 : les " + nom + " sont trop longs pour leur cadre, le texte est coupé après « " + der.l.slice(-30) + " » — raccourcissez (le plus long fait " + long.length + " caractères : « " + long.slice(0, 30) + "… »)");
+        }
+        const y0 = Math.max(haut, Math.min(z.y, bas - (lignes.length - 1) * pas));
+        lignes.forEach(({ l, fleche }, i) => {
+          const y = y0 + i * pas, yb = pg.getHeight() - y;
           if (fleche) {
             pg.drawLine({ start: { x: z.x, y: yb + 2.6 }, end: { x: z.x + 6, y: yb + 2.6 }, thickness: 1.1, color: couleurs.or });
             pg.drawLine({ start: { x: z.x + 3.5, y: yb + 5 }, end: { x: z.x + 6, y: yb + 2.6 }, thickness: 1.1, color: couleurs.or });
@@ -3899,10 +4293,14 @@
           }
           ecrire(pg, l, z.xTexte, y, taille, fB);
         });
+        return { lignes: lignes.length, taille, pas: Math.round(pas * 100) / 100, coupees, haut: Math.round(y0 * 10) / 10, bas: Math.round((y0 + (lignes.length - 1) * pas) * 10) / 10, limite: bas };
       };
-      liste(r2.points_forts, s.forts); liste(r2.objections, s.objections); }
+      debugP6 = { forts: liste(r2.points_forts, s.forts, "points forts"), objections: liste(r2.objections, s.objections, "objections") }; }
     // Page 7 : commune, carte des commodités, tableau.
     { const s = meta.p7, pg = page(s.page), com = envr.commune || {};
+      // Commune indéterminée (code postal à plusieurs communes, ville de la fiche ambiguë) :
+      // la page porte la ville de la fiche, sans la population d'une commune voisine.
+      if (com.indeterminee || envr.erreurCommune) avertissements.push("page 7 : " + (envr.erreurCommune || "commune indéterminée") + " (la page porte la ville de la fiche, sans population)");
       ecrire(pg, (com.nom || p.ville || "").toUpperCase(), s.ville.x, s.ville.y, s.ville.taille, fR);
       ecrire(pg, (com.departement || "").toUpperCase(), s.departement.x, s.departement.y, s.departement.taille, fR);
       ecrire(pg, (com.region || "").toUpperCase(), s.region.x, s.region.y, s.region.taille, fR);
@@ -3923,7 +4321,9 @@
         pg.drawCircle({ x: s.tableau.x + 5, y: pg.getHeight() - y + 3, size: 4.5, color: rgb(...style[0].match(/\w\w/g).map((h) => parseInt(h, 16) / 255)) });
         ecrire(pg, cat.libelle + " : ", s.tableau.x + 14, y, s.tableau.taille, fB);
         const lx = s.tableau.x + 14 + fB.widthOfTextAtSize(cat.libelle + " : ", s.tableau.taille);
-        const texte = liste.length + " à moins de 1,5 km — " + noms.join(", ");
+        // Le relevé garde au plus 12 lieux par catégorie : à ce plafond, « 12 et plus ».
+        const plafond = envr.commoditesPlafond || 12;
+        const texte = (liste.length >= plafond ? plafond + " et plus" : liste.length) + " à moins de 1,5 km — " + noms.join(", ");
         const lignes = couper(texte, fR, s.tableau.taille, s.tableau.largeur - (lx - s.tableau.x));
         ecrire(pg, lignes[0], lx, y, s.tableau.taille, fR, couleurs.gris);
         if (lignes[1]) ecrire(pg, lignes.slice(1).join(" ").slice(0, 90), s.tableau.x + 14, y + 11, s.tableau.taille, fR, couleurs.gris);
@@ -3990,27 +4390,31 @@
       // descend par paliers avant de couper — plus de lignes sous le pavé gris.
       const paras = String((r2.bio != null && r2.bio !== "" ? r2.bio : cs.bio) || cs.bio_site || "").replace(/\r/g, "").split(/\n\s*\n/).map((t) => t.trim()).filter(Boolean); // texte du R2, sinon du profil, sinon de sa page sur le site
       const basBio = s.bio.bas || 684;
-      const { taille, pas, blocs, omis } = ajusterParagraphes(paras, couper, fI, s.bio.largeur, basBio - s.bio.y + s.bio.taille, s.bio.taille, 9.5);
+      const { taille, pas, blocs, omis, coupe, caracteresOmis, finTexte } = ajusterParagraphes(paras, couper, fI, s.bio.largeur, basBio - s.bio.y + s.bio.taille, s.bio.taille, 9.5);
+      if (caracteresOmis) avertissements.push("page 12 : le texte du conseiller est trop long pour son cadre, il s'arrête après « " + finTexte + " » (environ " + caracteresOmis + " caractères non imprimés) — raccourcissez-le");
       let y = s.bio.y;
       for (const b of blocs) {
         for (const l of b) { ecrire(pg, l, s.bio.x, y, taille, fI); y += pas; }
         y += pas * 0.6;
       }
-      debugBio = { taille, lignes: blocs.reduce((n, b) => n + b.length, 0), paragraphes: blocs.length, omis }; }
+      debugBio = { taille, lignes: blocs.reduce((n, b) => n + b.length, 0), paragraphes: blocs.length, omis, coupe, caracteresOmis, bas: Math.round((y - pas * 1.6) * 10) / 10, limite: basBio }; }
     doc.setTitle("Vendons ensemble votre bien — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", avisAgence: avisAgenceR2, variante, mot: motR2, bio: debugBio };
+    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", avisAgence: avisAgenceR2, variante, mot: motR2, bio: debugBio, p6: debugP6, commune: { nom: (envr.commune || {}).nom || "", indeterminee: !!(envr.commune || {}).indeterminee }, avertissements };
+    avertirDocument("Guide R2", avertissements);
     return url;
   }
   // La fenêtre du guide R2 : photo du bien, points forts, objections, texte
   // du conseiller — enregistrés sur la fiche — puis assemblage et impression.
   async function ouvrirGuideR2(id, p) {
+    const jetonEntree = sessionModale;
     let r2;
     try { r2 = await api("/crm/parcours/" + id + "/r2"); } catch (e) { toast(e.message, true); return; }
     let photo; // undefined = inchangée
     const cs = r2.conseiller || {};
-    ouvrirModale("🖨 Guide R2 — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
+    if (jetonEntree !== sessionModale) return;
+    pourDossier(id); ouvrirModale("🖨 Guide R2 — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
       '<p class="aide">Ce qui manque au guide : la photo du bien, vos points forts et objections, votre texte. Le reste (commune, commodités à 1,5 km, ventes de l\'agence à 1 km, date du jour, mois) se remplit tout seul.</p>' +
       '<div class="barre" style="align-items:center;">' +
       '<img id="r2-apercu" src="' + escH(r2.photo || "") + '" alt="" style="width:160px; height:106px; object-fit:cover; border-radius:10px; background:var(--line);" />' +
@@ -4041,12 +4445,12 @@
       try { r2 = await sauver(); $("r2-etat").textContent = "Enregistré."; chargerConseillers(); } catch (e) { toast(e.message, true); }
     });
     $("r2-generer").addEventListener("click", async () => {
-      const btn = $("r2-generer"), etat = $("r2-etat"); btn.disabled = true;
+      const btn = $("r2-generer"), etat = $("r2-etat"), jetonR2 = sessionModale; btn.disabled = true;
       try {
         etat.textContent = "Enregistrement…"; r2 = await sauver();
         // Les biens estimés de la commune sans position se géocodent d'abord (12 par appel, 40 appels au plus).
         for (let tour = 0; tour < 40; tour++) {
-          let g; try { g = await api("/crm/parcours/" + id + "/estimes/positionner", { json: {} }); } catch { break; }
+          let g; try { g = await api("/crm/parcours/" + id + "/estimes/positionner", { json: {}, horsFenetre: true }); } catch { break; }
           if (!g.traites && !g.geocodes) break;
           etat.textContent = "Positionnement des biens estimés de la commune… " + (g.restants || 0) + " restant(s)";
           if (!g.restants) break;
@@ -4057,6 +4461,7 @@
         if (envr.erreur) toast("Commodités indisponibles : " + envr.erreur, true);
         etat.textContent = "Cartes et assemblage du guide…";
         const urlR2 = await genererGuideR2({ ...p, cp: p.cp, ville: p.ville }, r2, envr);
+        if (fenetreQuittee(jetonR2, "Guide R2")) return;
         await api("/crm/parcours/" + id + "/etape", { json: { etape: "guide-r2" } });
         chargerConseillers();
         documentPret(id, "Guide R2 prêt", urlR2, window.__dernierGuide && window.__dernierGuide.fichier);
@@ -4068,7 +4473,7 @@
   // quelques champs d'une nouvelle fiche (créée avec l'adresse du bien).
   function ajouterProprietaire(id, p) {
     let contactId = "";
-    ouvrirModale("+ Co-propriétaire — " + [p.prenom, p.nom].filter(Boolean).join(" "),
+    pourDossier(id); ouvrirModale("+ Co-propriétaire — " + [p.prenom, p.nom].filter(Boolean).join(" "),
       '<div class="grille-champs"><label>Chercher dans les contacts<input id="pp-q" placeholder="nom, e-mail, téléphone…" autocomplete="off" /></label></div>' +
       '<div id="pp-resultats" style="max-height:150px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:6px 12px; margin:6px 0 12px;"><p class="petit">Tapez au moins 2 caractères. Introuvable ? Remplissez ci-dessous : la fiche contact sera créée.</p></div>' +
       '<p class="petit" id="pp-choisi"></p>' +
@@ -4097,9 +4502,11 @@
     };
     $("pp-q").addEventListener("input", () => { contactId = ""; $("pp-choisi").textContent = ""; clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
     $("pp-ajouter").addEventListener("click", async () => {
+      const btn = $("pp-ajouter"); if (btn.disabled) return; btn.disabled = true; // un double clic n'ajoute qu'un co-propriétaire
+      const jetonF = sessionModale;
       const corps = contactId ? { contact_id: contactId } : { civilite: $("pp-civilite").value, prenom: $("pp-prenom").value.trim(), nom: $("pp-nom").value.trim(), email: $("pp-email").value.trim(), telephone: $("pp-tel").value.trim() };
-      try { const r = await api("/crm/parcours/" + id + "/proprietaires", { json: corps }); toast(r.contact_cree ? "Co-propriétaire ajouté, et sa fiche contact créée" : "Co-propriétaire ajouté"); ouvrirParcours(id); }
-      catch (e) { toast(e.message, true); }
+      try { const r = await api("/crm/parcours/" + id + "/proprietaires", { json: corps }); toast(r.contact_cree ? "Co-propriétaire ajouté, et sa fiche contact créée" : "Co-propriétaire ajouté"); ouvrirParcours(id, jetonF); }
+      catch (e) { toast(e.message, true); btn.disabled = false; }
     });
   }
 
@@ -4110,42 +4517,94 @@
   // biens en concurrence (photo + fiche), commission d'évaluation, acheteurs
   // du moment (facultatif), conditions de financement.
   const dvfCacheAcm = new Map();
-  function parseDvfCsv(texte) {
-    const lignes = texte.split("\n");
+  // Les natures de culture d'un terrain comparable à un terrain à bâtir (codes DVF) :
+  // terrains à bâtir, sols, jardins, terrains d'agrément. Un bois de 5 000 m² vendu
+  // 8 000 € sortait « Terrain à 2 €/m² » parmi les comparables d'un terrain à bâtir.
+  const NATURES_TERRAIN = new Set(["AB", "S", "J", "AG"]);
+  const natureTerrain = (code, lib) => (code ? NATURES_TERRAIN.has(code) : /^(terrains? a batir|sols?|jardins?|terrains? d'? ?agrement)$/.test(sansAccentsMin(lib)));
+  // Une mutation DVF tient sur PLUSIEURS lignes : une par local et par nature de culture
+  // de chaque parcelle. Garder la ligne de plus grande surface bâtie et le plus grand
+  // terrain donnait des surfaces et des prix au m² faux (audit du 16/11) : un terrain vendu
+  // en deux parcelles (400 + 350 m², 180 000 €) sortait à 400 m² et 450 €/m² au lieu de
+  // 750 m² et 240 €/m² ; deux appartements vendus ensemble 400 000 € (60 + 40 m²), à
+  // « 60 m², 6 667 €/m² ». Les terrains s'additionnent par parcelle et par nature (une
+  // même parcelle est répétée pour chaque local) ; une vente de plusieurs logements ou
+  // locaux n'a pas de prix au m² comparable : elle est écartée, et comptée dans `bilan`.
+  function parseDvfCsv(texte, bilan) {
+    const lignes = texte.split(/\r?\n/);
     if (lignes.length < 2) return [];
     const cols = lignes[0].split(","); const idx = {}; cols.forEach((c, i) => { idx[c] = i; });
+    const col = (c, nom) => (idx[nom] == null ? "" : c[idx[nom]] || "");
+    const natureConnue = idx.code_nature_culture != null || idx.nature_culture != null;
+    const PRINCIPAUX = { Maison: 1, Appartement: 1, "Local industriel. commercial ou assimilé": 1 };
     const parId = new Map();
     for (let i = 1; i < lignes.length; i++) {
       const c = lignes[i].split(",");
       if (c.length < cols.length - 2) continue;
-      const lat = parseFloat(c[idx.latitude]), lng = parseFloat(c[idx.longitude]), prix = parseFloat(c[idx.valeur_fonciere]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(prix) || prix < 1000) continue;
+      const prix = parseFloat(c[idx.valeur_fonciere]);
+      if (!Number.isFinite(prix) || prix < 1000) continue;
       if (c[idx.nature_mutation] !== "Vente" && c[idx.nature_mutation] !== "Vente en l'état futur d'achèvement") continue;
       const id = c[idx.id_mutation];
-      const ligne = { id: "dvf:" + id, date: c[idx.date_mutation], prix, lat, lng, type: c[idx.type_local] || "", surface: parseFloat(c[idx.surface_reelle_bati]) || 0,
-        pieces: parseInt(c[idx.nombre_pieces_principales], 10) || 0, terrain: parseFloat(c[idx.surface_terrain]) || 0,
-        adresse: [c[idx.adresse_numero], c[idx.adresse_nom_voie]].filter(Boolean).join(" "), ville: c[idx.nom_commune] || "" };
-      const cur = parId.get(id);
-      if (!cur || ligne.surface > cur.surface) { if (cur) ligne.terrain = Math.max(ligne.terrain, cur.terrain); parId.set(id, ligne); }
-      else cur.terrain = Math.max(cur.terrain, ligne.terrain);
+      let m = parId.get(id);
+      if (!m) { m = { id, prix, date: c[idx.date_mutation], terrains: new Map(), locaux: new Map(), repere: null }; parId.set(id, m); }
+      const lat = parseFloat(c[idx.latitude]), lng = parseFloat(c[idx.longitude]), situe = Number.isFinite(lat) && Number.isFinite(lng);
+      const ligne = { lat, lng, adresse: [col(c, "adresse_numero"), col(c, "adresse_nom_voie")].filter(Boolean).join(" "), ville: col(c, "nom_commune") };
+      if (situe && !m.repere) m.repere = ligne;
+      const parcelle = col(c, "id_parcelle") || ligne.adresse + "@" + c[idx.latitude] + "," + c[idx.longitude];
+      const terrain = parseFloat(c[idx.surface_terrain]) || 0, code = col(c, "code_nature_culture"), lib = col(c, "nature_culture");
+      const cleTerrain = terrain > 0 ? [parcelle, code || lib, col(c, "code_nature_culture_speciale"), terrain].join("|") : "";
+      if (cleTerrain) m.terrains.set(cleTerrain, { surface: terrain, comparable: !natureConnue || (!code && !lib) || natureTerrain(code, lib) });
+      const type = col(c, "type_local");
+      if (type) {
+        const surface = parseFloat(c[idx.surface_reelle_bati]) || 0, pieces = parseInt(c[idx.nombre_pieces_principales], 10) || 0;
+        const cle = [parcelle, type, surface, pieces, ...[1, 2, 3, 4, 5].map((n) => col(c, "lot" + n + "_numero"))].join("|");
+        let l = m.locaux.get(cle);
+        if (!l) { l = { type, surface, pieces, ligne: situe ? ligne : null, fois: new Map() }; m.locaux.set(cle, l); }
+        if (situe && !l.ligne) l.ligne = ligne;
+        l.fois.set(cleTerrain, (l.fois.get(cleTerrain) || 0) + 1); // un local est répété pour chaque nature de sa parcelle
+      }
     }
-    // Un terrain nu : aucun local bâti dans la mutation, une surface de terrain —
-    // typé « Terrain », son €/m² se calcule sur le terrain (surface = terrain).
-    for (const v of parId.values()) if (!v.type && !v.surface && v.terrain > 0) { v.type = "Terrain"; v.surface = v.terrain; }
-    return [...parId.values()].filter((v) => (v.type === "Maison" || v.type === "Appartement" || v.type === "Terrain") && v.surface > 0);
+    const ventes = [];
+    for (const m of parId.values()) {
+      const terrain = [...m.terrains.values()].reduce((n, t) => n + t.surface, 0);
+      const locaux = [...m.locaux.values()].map((l) => ({ ...l, n: Math.max(...l.fois.values()) }));
+      const principaux = locaux.filter((l) => PRINCIPAUX[l.type]), nb = principaux.reduce((n, l) => n + l.n, 0);
+      let v = null;
+      if (!locaux.length) {
+        // Un terrain nu : aucun local dans la mutation, une surface de terrain — typé
+        // « Terrain », son €/m² se calcule sur le terrain (surface = terrain) ; seulement
+        // si toutes ses parcelles sont de nature à bâtir, sol, jardin ou agrément.
+        if (terrain > 0 && [...m.terrains.values()].every((t) => t.comparable)) v = { type: "Terrain", surface: terrain, pieces: 0, ligne: m.repere };
+        else if (terrain > 0 && bilan) bilan.horsNature = (bilan.horsNature || 0) + 1;
+      } else if (nb > 1) { if (bilan) bilan.groupees = (bilan.groupees || 0) + 1; }
+      else if (nb === 1 && principaux[0].type !== "Local industriel. commercial ou assimilé") v = { type: principaux[0].type, surface: principaux[0].surface, pieces: principaux[0].pieces, ligne: principaux[0].ligne || m.repere };
+      if (!v || !v.ligne || !(v.surface > 0)) continue;
+      ventes.push({ id: "dvf:" + m.id, date: m.date, prix: m.prix, lat: v.ligne.lat, lng: v.ligne.lng, type: v.type, surface: v.surface, pieces: v.pieces, terrain, adresse: v.ligne.adresse, ville: v.ligne.ville });
+    }
+    return ventes;
   }
+  // Les millésimes DVF d'une commune (3 fichiers au plus, du plus récent au plus ancien).
+  // Un millésime absent (404, année pas encore publiée) est normal ; une erreur passagère
+  // est retentée une fois, puis l'année est dite manquante (`dvfBilans`, relu par le livret)
+  // et le résultat n'est PAS gardé en cache : il serait resté incomplet toute la session.
+  const dvfBilans = new Map();
   async function chargerDvfCommune(code, dep) {
     if (dvfCacheAcm.has(code)) return dvfCacheAcm.get(code);
-    const annee = new Date().getFullYear(), ventes = []; let trouvees = 0;
+    const annee = new Date().getFullYear(), ventes = [], bilan = { annees: [], manquantes: [], groupees: 0, horsNature: 0 }; let trouvees = 0;
+    const lire = async (a) => {
+      try { const r = await fetch(API + "/crm/dvf/" + a + "/" + dep + "/" + code, { headers: { Authorization: "Bearer " + account().session } }); return r.ok ? await r.text() : r.status === 404 ? null : false; }
+      catch { return false; }
+    };
     for (let a = annee; a >= annee - 4 && trouvees < 3; a--) {
-      try {
-        const r = await fetch(API + "/crm/dvf/" + a + "/" + dep + "/" + code, { headers: { Authorization: "Bearer " + account().session } });
-        if (!r.ok) continue;
-        ventes.push(...parseDvfCsv(await r.text())); trouvees++;
-      } catch { /* millésime absent */ }
+      let csv = await lire(a);
+      if (csv === false) { await new Promise((ok) => setTimeout(ok, 700)); csv = await lire(a); }
+      if (csv === false) { bilan.manquantes.push(a); continue; }
+      if (csv === null) continue; // millésime absent
+      ventes.push(...parseDvfCsv(csv, bilan)); bilan.annees.push(a); trouvees++;
     }
     const groupees = regrouperVentesIdentiques(ventes);
-    dvfCacheAcm.set(code, groupees);
+    dvfBilans.set(code, bilan);
+    if (!bilan.manquantes.length) dvfCacheAcm.set(code, groupees);
     return groupees;
   }
   // Un lotissement vend six maisons identiques sous la MÊME adresse (3 rue de Poupay,
@@ -4167,24 +4626,44 @@
     return gardees;
   }
   const distM = (a, b, c, d) => { const R = 6371000, r = Math.PI / 180, x = (d - b) * r * Math.cos((a + c) / 2 * r), y = (c - a) * r; return Math.sqrt(x * x + y * y) * R; };
-  const fmtM2 = (v) => (v && v.surface && v.prix ? Math.round(v.prix / v.surface).toLocaleString("fr-FR") + " €/m²" : "");
+  // Pas de prix au m² pour un programme neuf : son prix et sa surface sont des « à partir de » qui ne vont pas ensemble.
+  const fmtM2 = (v) => (v && !v.neuf && v.surface > 0 && v.prix > 0 ? Math.round(v.prix / v.surface).toLocaleString("fr-FR") + " €/m²" : "");
+  // Un programme neuf du portail gardé dans une saisie d'avant la correction porte encore
+  // ses fourchettes (surface [40, 83.77], pièces [2, 4]) : « NaN m² », « NaN €/m² » dans le
+  // livret. On en garde la plus petite valeur, comme le serveur le fait désormais.
+  const plusPetit = (v) => { if (!Array.isArray(v)) return v; const l = v.map(Number).filter((x) => Number.isFinite(x) && x > 0); return l.length ? Math.min(...l) : 0; };
+  const reduireProgramme = (a) => ([a.prix, a.surface, a.pieces, a.chambres, a.terrain].some(Array.isArray)
+    ? { ...a, prix: plusPetit(a.prix), surface: plusPetit(a.surface), pieces: plusPetit(a.pieces), chambres: plusPetit(a.chambres), terrain: plusPetit(a.terrain), neuf: 1 } : a);
+  // La médiane : pour un nombre pair de valeurs, la moyenne des deux du milieu
+  // (300, 320, 380, 400 → 350 ; `b[Math.floor(n / 2)]` rendait 380).
+  const medianeDe = (valeurs) => { const t = valeurs.slice().sort((a, b) => a - b), n = t.length; return n ? (n % 2 ? t[(n - 1) / 2] : (t[n / 2 - 1] + t[n / 2]) / 2) : 0; };
+  const piecesLib = (n) => n + (n > 1 ? " pièces" : " pièce");
   const fmtDateAcm = (d) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || "")); return m ? m[3] + "/" + m[2] + "/" + m[1] : String(d || ""); };
   const mensualite = (montant, tauxPct, annees) => { const t = tauxPct / 100 / 12, n = annees * 12; if (!montant || !n) return 0; return t ? montant * t / (1 - Math.pow(1 + t, -n)) : montant / n; };
   async function ouvrirAcm(id, p) {
+    const jetonEntree = sessionModale; // quittée avant même de s'ouvrir, la fenêtre ne s'ouvre pas
     let acm, donnees;
     let photosRep = { photos: {} };
     try { [acm, donnees, photosRep] = await Promise.all([api("/crm/parcours/" + id + "/acm"), api("/crm/parcours/" + id + "/acm/donnees"), api("/crm/parcours/" + id + "/acm/photos").catch(() => ({ photos: {} }))]); }
     catch (e) { toast(e.message, true); return; }
     const depuisEstimation = acm.depuis_estimation || [];
     acm = acm.acm || {};
-    ouvrirModale("🖨 Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), '<p class="aide">Ventes DVF autour du bien…</p>', "");
+    if (jetonEntree !== sessionModale) return;
+    pourDossier(id); ouvrirModale("🖨 Livret prix — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), '<p class="aide">Ventes DVF autour du bien…</p>', "");
     document.querySelector(".modale").classList.add("large");
+    const maFenetre = sessionModale;
     let dvf = [];
     if (donnees.commune && donnees.commune.code) { try { dvf = await chargerDvfCommune(donnees.commune.code, donnees.commune.dep); } catch { dvf = []; } }
+    // Pendant le chargement des ventes, une autre fenêtre a pu s'ouvrir (autre dossier) : on n'écrit pas par-dessus.
+    if (maFenetre !== sessionModale) return;
     const typeDvf = { appartement: "Appartement", terrain: "Terrain" }[donnees.type] || "Maison";
     const depuis = new Date(); depuis.setFullYear(depuis.getFullYear() - 2); // 24 derniers mois
-    const ventesDvf = dvf.filter((v) => v.type === typeDvf && v.date >= depuis.toISOString().slice(0, 10))
-      .map((v) => ({ ...v, source: "dvf", dist: Math.round(distM(donnees.lat, donnees.lng, v.lat, v.lng)) })).filter((v) => v.dist <= 1500).sort((a, b) => a.dist - b.dist).slice(0, 30);
+    const dvfAutour = dvf.filter((v) => v.type === typeDvf && v.date >= depuis.toISOString().slice(0, 10))
+      .map((v) => ({ ...v, source: "dvf", dist: Math.round(distM(donnees.lat, donnees.lng, v.lat, v.lng)) })).filter((v) => v.dist <= 1500).sort((a, b) => a.dist - b.dist);
+    // Au plus 30 ventes proposées et imprimées, les plus proches ; on compte AVANT de
+    // plafonner : le livret écrivait « 30 ventes à moins de 1,5 km » quand il y en avait davantage.
+    const ventesDvf = dvfAutour.slice(0, 30);
+    const bilanDvf = (donnees.commune && dvfBilans.get(donnees.commune.code)) || {};
     const ventesAgence = (donnees.ventes || []).filter((v) => v.prix > 0).map((v) => ({ ...v, source: "agence", dist: Math.round(v.dist) }));
     // Le nombre de pièces du bien (maison ou appartement) : les biens du même nombre de
     // pièces passent devant, puis ±1, les pièces inconnues entre ±1 et ±2, puis ±2… ; à
@@ -4204,7 +4683,8 @@
     const candidatsVentes = [...ventesAgence, ...ventesDvf].map((v) => ({ ...v, score: Math.round(scoreVente(v) * 100) / 100 }))
       .sort((a, b) => a.score - b.score || (a.source === "agence" ? -1 : 1));
     donnees.ventesDvf = ventesDvf; // toutes les ventes DVF autour : page dédiée du livret
-    window.__acmDebug = { dvf: dvf.length, ventesDvf: ventesDvf.length, commune: donnees.commune, lat: donnees.lat, lng: donnees.lng, type: donnees.type, surfaceRef, piecesRef,
+    donnees.ventesDvfTotal = dvfAutour.length; donnees.dvfManquantes = bilanDvf.manquantes || [];
+    window.__acmDebug = { dvf: dvf.length, ventesDvf: ventesDvf.length, ventesDvfTotal: dvfAutour.length, dvfBilan: bilanDvf, commune: donnees.commune, lat: donnees.lat, lng: donnees.lng, type: donnees.type, surfaceRef, piecesRef,
       ordreVentes: candidatsVentes.slice(0, 8).map((v) => ({ id: v.id, pieces: v.pieces, dist: v.dist, surface: v.surface, date: v.date, score: v.score })),
       identiques: dvf.filter((v) => v.ventes_identiques > 1).map((v) => ({ adresse: v.adresse, n: v.ventes_identiques, date: v.date, prix: v.prix })) }; // relu par le smoke
     // Les biens vus sur les portails (leboncoin, SeLoger…), saisis à la main avec
@@ -4253,7 +4733,7 @@
       '<label class="btn" style="padding:1px 6px; font-size:11px;" title="Poser ou remplacer la photo qui ira dans le livret">📷<input type="file" accept="' + FORMATS_PHOTO + '" data-photo="' + escH(a.id) + '" hidden /></label></span><span><strong>' +
       escH(fmtPrix(a.prix)) + "</strong>" + puceP(a) + " · " + escH(a.titre || "") + (a.ville ? " · " + escH(a.ville) : "") + '<br /><span class="petit">' +
       escH([a.adresse || "", a.pieces ? a.pieces + " pièces" : "", a.surface ? Math.round(a.surface) + " m²" : "", a.terrain ? "terrain " + Math.round(a.terrain) + " m²" : "", fmtM2(a), a.dist != null ? "à " + Math.round(a.dist) + " m" : "", a.jours ? "en vente depuis " + a.jours + " j" : "", a.baisse > 0 ? "baisse de " + fmtPrix(a.baisse) : "", a.source === "amepi" ? "ALFA · " + (a.agence || "confrère") : a.source === "portail" ? "vu sur " + (a.portail || "un portail") : a.source === "bienici" ? "Bien'ici · " + (a.agence || "agence") + (a.quartier ? " · " + a.quartier : "") : "notre agence"].filter(Boolean).join(" · ")) +
-      (a.url ? ' · <a href="' + escH(a.url) + '" target="_blank" rel="noopener">voir l\'annonce ↗</a>' : "") + "</span></span></label>";
+      (urlSure(a.url) ? ' · <a href="' + escH(urlSure(a.url)) + '" target="_blank" rel="noopener">voir l\'annonce ↗</a>' : a.url ? " · " + escH(a.url) : "") + "</span></span></label>";
     let comAvis = null;
     try { comAvis = await api("/crm/parcours/" + id + "/commission"); } catch { comAvis = null; }
     const depuisCommission = comAvis && (comAvis.avis || []).length && (!acm.commission || !acm.commission.length || acm.commission_source === "commission") ? lignesDepuisCommission(comAvis) : null;
@@ -4289,6 +4769,9 @@
         (budgets.length ? " · budgets de " + fmtPrix(budgets[0]) + " à " + fmtPrix(budgets[budgets.length - 1]) : "") +
         (prix ? ". À " + fmtPrix(prix) + " : " + nbAu(prix) + " acheteur(s)" : "") + (basse ? " · fourchette basse " + fmtPrix(basse) + " : " + nbAu(basse) : "") + (haute ? " · fourchette haute " + fmtPrix(haute) + " : " + nbAu(haute) : "") + ".";
     };
+    // Tous les chargements sont revenus : si la fenêtre a changé entre-temps
+    // (fermée, ou un autre dossier ouvert), ce livret ne s'affiche pas.
+    if (maFenetre !== sessionModale) return;
     $("modale-corps").innerHTML =
       '<p class="aide">Cochez ce qui entre dans le livret, complétez la commission d\'évaluation et le financement. Tout s\'enregistre sur la fiche.</p>' +
       '<h3 style="margin:10px 0 4px;">Le bien</h3>' +
@@ -4329,13 +4812,45 @@
       "</div>" +
       '<p class="petit">Le livret calcule le prêt sur le budget réel de l\'acquéreur : prix + 8 % de frais de notaire, moins l\'apport (les travaux sont propres à chacun : la colonne reste sans montant).</p>' +
       '<p class="petit" id="acm-etat"></p>';
-    $("modale-pied").innerHTML = '<button class="btn" id="acm-retour">Retour</button><button class="btn" id="acm-save">Enregistrer</button><button class="btn btn-or" id="acm-generer">🖨 Générer le livret</button>';
-    $("acm-retour").addEventListener("click", async () => { try { await sauver(); } catch { /* on revient quand même */ } document.querySelector(".modale").classList.remove("large"); ouvrirParcours(id); });
+    $("modale-pied").innerHTML = '<button class="btn" id="acm-retour">Retour</button><button class="btn" id="acm-versions" title="Le livret tel qu\'il était avant ses dernières modifications : pour retrouver une saisie écrasée">🕘 Versions précédentes</button><button class="btn" id="acm-save">Enregistrer</button><button class="btn btn-or" id="acm-generer">🖨 Générer le livret</button>';
+    $("modale-corps").dataset.livret = id;
+    $("acm-retour").addEventListener("click", async () => { const jetonF = sessionModale; try { await sauver(); } catch { /* on revient quand même */ } if (jetonF !== sessionModale) return; document.querySelector(".modale").classList.remove("large"); ouvrirParcours(id); });
+    $("acm-versions").addEventListener("click", async () => { const jetonF = sessionModale; try { await sauver(); } catch { /* la liste s'ouvre quand même */ } if (jetonF !== sessionModale) return; ouvrirVersionsLivret(id, p); });
     // Toute saisie du livret s'enregistre d'elle-même (comme le guide R2) : une
     // ligne de commission ajoutée reste là quand on rouvre.
     let autoSauve = 0;
-    $("modale-corps").addEventListener("change", () => { clearTimeout(autoSauve); autoSauve = setTimeout(() => sauver().catch(() => {}), 500); });
-    $("acm-com-lignes").addEventListener("click", (e) => { if (e.target.closest("[data-com-suppr]")) { clearTimeout(autoSauve); autoSauve = setTimeout(() => sauver().catch(() => {}), 500); } });
+    // Un enregistrement automatique qui échoue (session expirée, coupure, saisie refusée par le
+    // serveur) se VOIT : en rouge sous le formulaire tant qu'il dure, et dans un message, une fois.
+    // Avant, rien ne s'affichait alors que la page dit « Tout s'enregistre sur la fiche ».
+    let echecSauve = false, dernierEnvoi = "";
+    const montrerEchec = (e) => {
+      if (maFenetre !== sessionModale) return; // le livret n'est plus à l'écran : rien à y écrire
+      const etat = $("acm-etat");
+      if (etat) { etat.style.color = "#c62828"; etat.textContent = "⚠ Le livret n'est pas enregistré : " + e.message + " Votre saisie reste à l'écran ; elle repartira à la prochaine modification ou avec « Enregistrer »."; }
+      if (!echecSauve) toast("Livret non enregistré : " + e.message, true);
+      echecSauve = true;
+    };
+    const effacerEchec = () => {
+      if (!echecSauve) return; echecSauve = false;
+      const etat = maFenetre === sessionModale && $("acm-etat");
+      if (etat && /^⚠/.test(etat.textContent)) { etat.style.color = ""; etat.textContent = ""; }
+    };
+    const programmerSauve = () => { clearTimeout(autoSauve); autoSauve = setTimeout(() => { autoSauve = 0; sauver().then(effacerEchec, montrerEchec); }, 500); };
+    surModale($("modale-corps"), "change", programmerSauve);
+    $("acm-com-lignes").addEventListener("click", (e) => { if (e.target.closest("[data-com-suppr]")) programmerSauve(); });
+    // Une saisie encore en attente au moment où une autre fenêtre s'ouvre : lue tout de suite
+    // (la page est encore celle de CE livret), puis envoyée — jamais relue plus tard.
+    // Bouton « précédent » du téléphone pendant qu'un champ est en cours de saisie : son « change »
+    // n'a pas eu lieu, rien n'est programmé — on compare donc le formulaire au dernier état envoyé.
+    avantFenetreSuivante(() => {
+      const programme = !!autoSauve;
+      clearTimeout(autoSauve); autoSauve = 0;
+      try {
+        const d = lire();
+        if (!programme && JSON.stringify(d) === dernierEnvoi) return;
+        api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: d }).catch((e) => toast("Livret non enregistré : " + e.message, true));
+      } catch { /* formulaire déjà parti */ }
+    });
     $("acm-commission").addEventListener("click", () => { document.querySelector(".modale").classList.remove("large"); ouvrirCommission(id, p); });
     $("acm-com-ajouter").addEventListener("click", () => { $("acm-com-lignes").insertAdjacentHTML("beforeend", ligneCom({ nb: "", basse: "", haute: "" }, comIdx++)); const der = $("acm-com-lignes").lastElementChild.querySelector("input"); if (der) der.focus(); });
     $("acm-com-lignes").addEventListener("click", (e) => { const b = e.target.closest("[data-com-suppr]"); if (b) b.closest(".ligne-com").remove(); });
@@ -4353,7 +4868,7 @@
       try {
         const img = await lireImage(f); // décodée une fois (HEIC compris)
         const photo = await reduireImage(img, 900, 0.78, 150000);
-        await api("/crm/parcours/" + id + "/acm/photos/" + encodeURIComponent(cle), { method: "PUT", json: { photo } });
+        await api("/crm/parcours/" + id + "/acm/photos/" + encodeURIComponent(cle), { method: "PUT", json: { photo }, horsFenetre: true });
         const cand = liste.find((x) => x.id === cle); if (cand) cand.photo = photo;
         const vig = document.querySelector('[data-vignette="' + cle + '"]');
         if (vig) { const im = document.createElement("img"); im.src = photo; im.alt = ""; im.className = "vignette-conc"; im.dataset.vignette = cle; vig.replaceWith(im); }
@@ -4377,6 +4892,8 @@
       toast("Bien ajouté à la liste");
     });
     const lire = () => {
+      // Garde : on ne lit que le livret de CE dossier. Une autre fenêtre à l'écran = rien à enregistrer.
+      if ($("modale-corps").dataset.livret !== id) throw new Error("Le livret de ce dossier n'est plus à l'écran.");
       const num = (k) => { const v = parseFloat($(k).value); return Number.isFinite(v) ? v : null; };
       const cochees = (sel, liste) => [...document.querySelectorAll(sel)].filter((x) => x.checked).map((x) => liste.find((v) => v.id === x.dataset.vente || v.id === x.dataset.conc)).filter(Boolean);
       const com = [...document.querySelectorAll("[data-com-nb]")].map((x) => { const i = x.dataset.comNb; return { nb: parseInt(x.value, 10) || 0, basse: parseFloat(document.querySelector('[data-com-basse="' + i + '"]').value) || 0, haute: parseFloat(document.querySelector('[data-com-haute="' + i + '"]').value) || 0 }; }).filter((l) => l.nb > 0 || l.basse || l.haute);
@@ -4396,14 +4913,16 @@
       }
       return d;
     };
-    const sauver = async () => { const d = lire(); await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: d }); return d; };
-    $("acm-save").addEventListener("click", async () => { try { await sauver(); toast("Livret prix : saisie enregistrée"); } catch (e) { toast(e.message, true); } });
+    const sauver = async () => { const d = lire(), envoi = JSON.stringify(d); await api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: d }); dernierEnvoi = envoi; return d; };
+    try { dernierEnvoi = JSON.stringify(lire()); } catch { /* fenêtre déjà quittée */ } // l'état à l'ouverture : ouvrir puis fermer un livret n'écrit rien
+    $("acm-save").addEventListener("click", async () => { try { await sauver(); effacerEchec(); toast("Livret prix : saisie enregistrée"); } catch (e) { echecSauve = false; montrerEchec(e); } });
     $("acm-generer").addEventListener("click", async () => {
-      const btn = $("acm-generer"), etat = $("acm-etat"); btn.disabled = true;
+      const btn = $("acm-generer"), etat = $("acm-etat"), jetonGen = sessionModale; btn.disabled = true;
       try {
         etat.textContent = "Enregistrement…"; const d = await sauver();
         etat.textContent = "Cartes, photos et assemblage du livret…";
         const urlAcm = await genererLivretPrix(p, d, donnees);
+        if (fenetreQuittee(jetonGen, "Livret prix")) return;
         await api("/crm/parcours/" + id + "/etape", { json: { etape: "acm" } });
         // Compte-rendu des photos (biens en concurrence) et version du script : de quoi diagnostiquer sans deviner.
         const dbg = (window.__dernierGuide && window.__dernierGuide.debug) || { photos: 0, sansPhoto: 0, sources: [] };
@@ -4432,6 +4951,7 @@
     try { const q = window.qrcode(0, "M"); q.addData(texte); q.make(); return q.createDataURL(6, 8); } catch { return ""; }
   };
   async function ouvrirCommission(id, p) {
+    const jetonEntree = sessionModale;
     let com, acm = {};
     try {
       com = await api("/crm/parcours/" + id + "/commission"); if (!com.ouvert) com = await api("/crm/parcours/" + id + "/commission/ouvrir", { json: {} });
@@ -4447,7 +4967,9 @@
       }
       return o;
     };
+    let fenetreCom = 0;
     const rendre = () => {
+      if (fenetreCom && fenetreCom !== sessionModale) return; // un « Actualiser » revenu après un changement de fenêtre
       const tiers = tiersAffiches(), qr = qrDataUrl(com.lien);
       $("modale-corps").innerHTML =
         '<p class="aide">Faites scanner ce QR code aux collègues (en réunion ou en photo) : chacun ouvre le bien et donne sa fourchette, sans compte. Les réponses arrivent ici' + (com.ferme ? " — <strong>commission close</strong>" : "") + ".</p>" +
@@ -4484,14 +5006,16 @@
           if (aj.repli.montant) maj.basse = aj.repli.montant;
           if (aj.raison.montant) maj.prix = aj.raison.montant;
           if (aj.ambition.montant) maj.haute = aj.ambition.montant;
-          await api("/crm/parcours/" + id + "/acm", { method: "PUT", json: maj });
+          await api("/crm/parcours/" + id + "/acm?c=2", { method: "PUT", json: maj });
           acm = maj;
           toast("Commission reportée dans le livret prix (" + maj.commission.length + " ligne(s), 3 fourchettes)");
           rendre();
         } catch (e) { toast(e.message, true); }
       });
     };
-    ouvrirModale("🗳 Commission d'évaluation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), "", "");
+    if (jetonEntree !== sessionModale) return;
+    pourDossier(id); ouvrirModale("🗳 Commission d'évaluation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "), "", "");
+    fenetreCom = sessionModale;
     rendre();
   }
   let livretCache = null;
@@ -4610,7 +5134,7 @@
     const ventes = (acm.ventes || []).slice().sort(parPrix);
     livretDebug.prixVentes = ventes.map((v) => Number(v.prix) || 0);
     const m2 = ventes.filter((v) => v.surface && v.prix).map((v) => v.prix / v.surface).sort((a, b) => a - b);
-    const mediane = m2.length ? Math.round(m2[Math.floor(m2.length / 2)]) : 0;
+    const mediane = Math.round(medianeDe(m2));
     const XF = G + CW + 16;
     // Les photos des biens vendus : posées à la main ou vignette AMEPI au même endroit.
     let photosVentes = {};
@@ -4627,7 +5151,7 @@
         ecrire(pg, fmtPrix(v.prix), XF, y0 + 22, 18, fB, noir);
         ecrire(pg, "Vente du " + fmtDateAcm(v.date), XF, y0 + 40, 10, fS, gris);
         couper([v.adresse, v.ville].filter(Boolean).join(", ").toUpperCase(), fR, 9, D - XF).slice(0, 2).forEach((l, j) => ecrire(pg, l, XF, y0 + 56 + j * 12, 9, fR, noir));
-        const lignes = [[v.type || typeLib, v.pieces ? v.pieces + " pièces" : ""].filter(Boolean).join(" · "), surfaceLib(v), terrainLib(v), fmtM2(v) ? "soit " + fmtM2(v) : "", v.dist != null ? "à " + Math.round(v.dist) + " m du bien" : ""].filter(Boolean);
+        const lignes = [[v.type || typeLib, v.pieces ? piecesLib(v.pieces) : ""].filter(Boolean).join(" · "), surfaceLib(v), terrainLib(v), fmtM2(v) ? "soit " + fmtM2(v) : "", v.dist != null ? "à " + Math.round(v.dist) + " m du bien" : ""].filter(Boolean);
         lignes.forEach((l, j) => ecrire(pg, l, XF, y0 + 92 + j * 15, 10, fS, noir));
         ecrire(pg, v.source === "agence" ? "Vendu par notre agence" : "Source : DVF (données notariales)", XF, y0 + 92 + lignes.length * 15, 9, fR, gris);
         rect(pg, G, y0 + CH + 14, L, 0.6, { color: sable });
@@ -4638,22 +5162,42 @@
     const dvfTous = (donnees.ventesDvf || []).slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
     if (dvfTous.length) {
       const pg = await pageContenu("TOUTES LES VENTES AUTOUR DU BIEN", "(DVF)");
-      couper(pluriel(dvfTous.length, "vente de " + typeLib.toLowerCase(), "ventes de " + typeLib.toLowerCase() + "s") + (estTerrain ? " (terrains nus)" : "") + " à moins de 1,5 km sur les 24 derniers mois — données notariales publiques (DVF, data.gouv.fr)", fR, 9, L).slice(0, 1).forEach((l) => ecrire(pg, l, G, 88, 9, fR, gris));
-      await carte(pg, G, 98, L, 230, { lat: donnees.lat, lng: donnees.lng, zoom: 15, points: dvfTous.map((v) => ({ lat: v.lat, lng: v.lng, couleur: "#BEB18A", rayon: 6 })) });
+      // L'en-tête tient sur deux lignes : la phrase d'une seule ligne, trop longue, perdait
+      // sa fin « (DVF, data.gouv.fr) ». Il dit le VRAI nombre de ventes (« les 30 plus proches
+      // sur N » quand la liste est plafonnée) et l'année qui n'a pas pu être chargée.
+      const total = Math.max(donnees.ventesDvfTotal || 0, dvfTous.length);
+      const quoi = estTerrain ? ["vente de terrain nu", "ventes de terrains nus"] : donnees.type === "appartement" ? ["vente d'appartement", "ventes d'appartements"] : ["vente de maison", "ventes de maisons"];
+      const enTete = (total > dvfTous.length ? "Les " + dvfTous.length + " " + quoi[1] + " les plus proches, sur " + total : pluriel(dvfTous.length, quoi[0], quoi[1])) + " à moins de 1,5 km, sur les 24 derniers mois";
+      const manquantes = (donnees.dvfManquantes || []).slice().sort();
+      const sourceDvf = "Données notariales publiques (DVF, data.gouv.fr)" + (manquantes.length ? " — " + (manquantes.length > 1 ? "les années " + manquantes.join(", ") + " n'ont" : "l'année " + manquantes[0] + " n'a") + " pas pu être chargée" + (manquantes.length > 1 ? "s" : "") + " : liste incomplète" : "");
+      const tenir = (t, f, taille) => { let k = taille; while (k > 7 && largeur(t, f, k) > L) k -= 0.25; return k; };
+      const tEnTete = tenir(enTete, fS, 9), tSource = tenir(sourceDvf, fR, 8.5);
+      ecrire(pg, enTete, G, 86, tEnTete, fS, noir);
+      ecrire(pg, sourceDvf, G, 97.5, tSource, fR, gris);
+      // La carte se cadre sur les ventes affichées : au zoom 15, celles à plus de 750 m au
+      // nord ou au sud du bien tombaient hors du cadre. Le zoom recule tant qu'une vente déborde.
+      const HC = 224, mParPt = (z) => 2 * 156543.03 * Math.cos(donnees.lat * Math.PI / 180) / Math.pow(2, z);
+      const ecarts = dvfTous.map((v) => [Math.abs(v.lng - donnees.lng) * 111320 * Math.cos(donnees.lat * Math.PI / 180), Math.abs(v.lat - donnees.lat) * 111320]);
+      let zoomDvf = 15;
+      if (ecarts.some(([dx, dy]) => dx > (L / 2 - 8) * mParPt(15) || dy > (HC / 2 - 8) * mParPt(15))) zoomDvf = 14; // le zoom 14 couvre 1,5 km dans les quatre directions
+      await carte(pg, G, 104, L, HC, { lat: donnees.lat, lng: donnees.lng, zoom: zoomDvf, points: dvfTous.map((v) => ({ lat: v.lat, lng: v.lng, couleur: "#BEB18A", rayon: 6 })) });
       const cols = [["Date", G, 56], ["Adresse", G + 56, 138], ["Type", G + 194, 56], ["Surface", G + 250, 44], ["Prix", G + 294, 64], ["€/m²", G + 358, 44], ["Dist.", G + 402, 42]];
       rect(pg, G, 344, L, 18, { color: or });
       cols.forEach(([t, x]) => ecrire(pg, t, x + 4, 357, 8.5, fB, blanc));
-      dvfTous.slice(0, 27).forEach((v, j) => {
-        const y = 376 + j * 14.5;
-        if (j % 2 === 0) rect(pg, G, y - 10, L, 14.5, { color: sable });
+      // 27 lignes au pas normal ; jusqu'à 30 (le plafond) en resserrant un peu, pour que le tableau montre toutes les ventes de la carte.
+      const MAXL = 30, pasL = dvfTous.length > 27 ? 13 : 14.5;
+      dvfTous.slice(0, MAXL).forEach((v, j) => {
+        const y = 376 + j * pasL;
+        if (j % 2 === 0) rect(pg, G, y - 10, L, pasL, { color: sable });
         const cellules = [fmtDateAcm(v.date), (v.adresse || "").toUpperCase(), [v.type, v.pieces ? v.pieces + " p." : ""].filter(Boolean).join(" "), v.surface ? Math.round(v.surface) + " m²" : "", fmtPrix(v.prix), fmtM2(v).replace(" €/m²", ""), v.dist != null ? Math.round(v.dist) + " m" : ""];
         cellules.forEach((t, c) => { let txt = String(t); while (largeur(txt, fR, 8) > cols[c][2] - 5 && txt.length > 3) txt = txt.slice(0, -2) + "…"; ecrire(pg, txt, cols[c][1] + 3, y, 8, c === 4 ? fS : fR, noir); });
       });
-      if (dvfTous.length > 27) ecrire(pg, "… et " + pluriel(dvfTous.length - 27, "autre vente", "autres ventes") + ".", G, 376 + 27 * 14.5 + 4, 8.5, fR, gris);
+      if (dvfTous.length > MAXL) ecrire(pg, "… et " + pluriel(dvfTous.length - MAXL, "autre vente", "autres ventes") + ".", G, 376 + MAXL * pasL + 4, 8.5, fR, gris);
+      livretDebug.dvf = { imprimees: Math.min(dvfTous.length, MAXL), total, enTete, source: sourceDvf, zoom: zoomDvf, manquantes, largeurEnTete: Math.round(largeur(enTete, fS, tEnTete)), largeurSource: Math.round(largeur(sourceDvf, fR, tSource)), largeurUtile: L };
     }
     // 2. Les biens en concurrence : 2 biens par page, photo + fiche.
     await ajouterModele(meta.sections.concurrence);
-    const conc = (acm.concurrence || []).slice().sort(parPrix);
+    const conc = (acm.concurrence || []).map(reduireProgramme).sort(parPrix);
     livretDebug.prixConcurrence = conc.map((a) => Number(a.prix) || 0);
     for (let i = 0; i < conc.length; i += 2) {
       const pg = await pageContenu("LES BIENS EN", "CONCURRENCE");
@@ -4670,7 +5214,7 @@
         // (Bien'ici ne dit que « a baissé » : 1 → « Prix baissé de 1 € » était faux) ;
         // plus de ligne « Annonce de notre agence / Mandat confrère » (Benoît, 05/10).
         const typeLib2 = String(a.type || "").charAt(0).toUpperCase() + String(a.type || "").slice(1);
-        const lignes = [[typeLib2, a.pieces ? a.pieces + " pièces" : "", a.chambres ? a.chambres + " ch." : ""].filter(Boolean).join(" · "), surfaceLib(a) || (estTerrain && a.terrain ? Math.round(a.terrain) + " m² de terrain" : ""), terrainLib(a), ...couper(a.adresse || [a.cp, a.ville].filter(Boolean).join(" "), fS, 10, D - XF).slice(0, 2), a.dist != null ? "à " + Math.round(a.dist) + " m du bien" : "", a.jours ? "En vente depuis " + a.jours + " jours" : "", a.baisse > 1000 ? "Prix baissé de " + fmtPrix(a.baisse) : a.baisse > 0 ? "Prix baissé récemment" : ""].filter(Boolean);
+        const lignes = [[typeLib2, a.pieces ? piecesLib(a.pieces) : "", a.chambres ? a.chambres + " ch." : ""].filter(Boolean).join(" · "), surfaceLib(a) || (estTerrain && a.terrain ? Math.round(a.terrain) + " m² de terrain" : ""), terrainLib(a), ...couper(a.adresse || [a.cp, a.ville].filter(Boolean).join(" "), fS, 10, D - XF).slice(0, 2), a.dist != null ? "à " + Math.round(a.dist) + " m du bien" : "", a.jours ? "En vente depuis " + a.jours + " jours" : "", a.baisse > 1000 ? "Prix baissé de " + fmtPrix(a.baisse) : a.baisse > 0 ? "Prix baissé récemment" : ""].filter(Boolean);
         lignes.forEach((l, j) => ecrire(pg, l, XF, y0 + 92 + j * 15, 10, fS, noir));
         rect(pg, G, y0 + CH + 14, L, 0.6, { color: sable });
       }
@@ -4722,19 +5266,22 @@
       const pg = await pageContenu("LES RÉACTIONS DES ACHETEURS DU", "MOMENT");
       const n = acm.acheteurs_n || 0, b = (acm.acheteurs_budgets || []).slice().sort((x, y) => x - y);
       const fen = acm.acheteurs_min && acm.acheteurs_max ? ", avec un budget entre " + fmtPrix(acm.acheteurs_min) + " et " + fmtPrix(acm.acheteurs_max) : acm.acheteurs_min ? ", avec un budget d'au moins " + fmtPrix(acm.acheteurs_min) : acm.acheteurs_max ? ", avec un budget jusqu'à " + fmtPrix(acm.acheteurs_max) : "";
-      const intro = couper(n + " acheteur(s) en recherche active d'" + (donnees.type === "appartement" ? "un appartement" : "une maison") + (p.ville ? " à " + p.ville : "") + " dans notre fichier" + fen, fS, 11, L);
+      // Le bien recherché porte le libellé de SON type (la page d'un terrain écrivait « d'une maison »).
+      const intro = couper((n ? pluriel(n, "acheteur", "acheteurs") : "Aucun acheteur") + " en recherche active d'" + ({ appartement: "un appartement", terrain: "un terrain" }[donnees.type] || "une maison") + (p.ville ? " à " + p.ville : "") + " dans notre fichier" + fen, fS, 11, L);
       intro.forEach((l, j) => ecrire(pg, l, G, 105 + j * 14, 11, fS, noir));
-      if (b.length) ecrire(pg, "Budgets : de " + fmtPrix(b[0]) + " à " + fmtPrix(b[b.length - 1]) + " · médiane " + fmtPrix(b[Math.floor(b.length / 2)]), G, 108 + intro.length * 14, 10, fR, gris);
+      if (b.length) ecrire(pg, "Budgets : de " + fmtPrix(b[0]) + " à " + fmtPrix(b[b.length - 1]) + " · médiane " + fmtPrix(Math.round(medianeDe(b))), G, 108 + intro.length * 14, 10, fR, gris);
       const niveaux = [["Fourchette basse", acm.basse], ["Prix estimé", acm.prix], ["Fourchette haute", acm.haute]].filter(([, v]) => v);
       niveaux.forEach(([lib, v], j) => {
         const x = G + j * (L / Math.max(niveaux.length, 1)), w = L / Math.max(niveaux.length, 1) - 12;
         rect(pg, x, 150, w, 92, { borderColor: or, borderWidth: 1, color: blanc });
         ecrireCentre(pg, lib, x + w / 2, 170, 9.5, fR, gris);
         ecrireCentre(pg, fmtPrix(v), x + w / 2, 188, 11, fS, noir);
-        ecrireCentre(pg, String(b.filter((x2) => x2 >= v).length), x + w / 2, 222, 26, fB, or);
-        ecrireCentre(pg, "acheteur(s) à ce prix", x + w / 2, 236, 8.5, fR, gris);
+        const aCePrix = b.filter((x2) => x2 >= v).length;
+        ecrireCentre(pg, String(aCePrix), x + w / 2, 222, 26, fB, or);
+        ecrireCentre(pg, (aCePrix > 1 ? "acheteurs" : "acheteur") + " à ce prix", x + w / 2, 236, 8.5, fR, gris);
       });
       couper(acm.acheteurs_texte || "", fR, 10.5, L).slice(0, 36).forEach((l, j) => ecrire(pg, l, G, 275 + j * 15, 10.5, fR, noir));
+      livretDebug.acheteurs = { intro: intro.join(" "), mediane: b.length ? Math.round(medianeDe(b)) : 0 };
     }
     // 5. Les conditions de financement — sur le budget RÉEL de l'acquéreur :
     // prix + frais de notaire (toujours à sa charge) + travaux éventuels, moins l'apport.
@@ -4800,7 +5347,7 @@
   // s'ouvre que sur un clic (jamais bloqué, même sur téléphone) ; « Enregistrer »
   // télécharge ; « Retour » rouvre la fiche.
   function documentPret(id, titre, url, fichier, note) {
-    ouvrirModale("✅ " + titre,
+    pourDossier(id); ouvrirModale("✅ " + titre,
       '<p class="aide">Le document est prêt. Ouvrez-le dans un nouvel onglet pour le lire ou l\'imprimer, ou enregistrez-le ; la fiche du parcours vous attend derrière.</p>' +
       (note ? '<p class="petit" id="doc-note" style="white-space:pre-wrap;">' + escH(note) + "</p>" : "") +
       '<div class="barre"><a class="btn btn-or" id="doc-ouvrir" href="' + escH(url) + '" target="_blank" rel="noopener">📄 Ouvrir le document</a>' +
@@ -4815,6 +5362,7 @@
   // Le mail d'un jalon : sujet et texte pré-remplis, à relire ; aperçu du
   // rendu ; envoi à toutes les personnes de la fiche.
   async function preparerMailParcours(id, jalon, p, relu, piece) {
+    const jetonEntree = sessionModale;
     let a;
     // Le lieu du R2 (mail entre R1 et R2) : l'agence choisie ou le domicile du client, gardé d'un aller-retour à l'autre.
     let lieu = relu && relu.lieu ? relu.lieu : "";
@@ -4823,7 +5371,8 @@
     // Retour de l'aperçu : le texte relu reste tel que le conseiller l'a laissé.
     if (relu) { a.sujet = relu.sujet; a.texte = relu.texte; }
     const etape = ETAPES_PARCOURS.find((e) => e.cle === jalon);
-    ouvrirModale("✉️ " + (etape ? etape.titre : jalon),
+    if (jetonEntree !== sessionModale) return;
+    pourDossier(id); ouvrirModale("✉️ " + (etape ? etape.titre : jalon) + " — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "),
       (piece ? '<p class="petit" id="pm-piece">📎 Pièce jointe : <strong>' + escH(piece.nom) + "</strong> (" + Math.round(piece.octets.byteLength / 1024) + " Ko)" + (piece.url ? ' — <a href="' + escH(piece.url) + '" target="_blank" rel="noopener">👁 ouvrir le PDF</a>' : "") + "</p>" : "") +
       '<p class="aide">Relisez et ajustez : ce texte partira tel quel à ' +
       (a.destinataires.length ? escH(a.destinataires.join(", ")) : "<strong>personne (pas d'e-mail sur la fiche)</strong>") + ", signé " +
@@ -4843,6 +5392,7 @@
       if (!r.checked) return;
       try {
         const n = await api("/crm/parcours/" + id + "/apercu?jalon=" + jalon + "&lieu=" + encodeURIComponent(r.value));
+        if (fenetreDossier !== id || !$("pm-sujet")) return;
         lieu = n.lieu || r.value;
         $("pm-sujet").value = n.sujet; $("pm-texte").value = n.texte;
         toast("Texte mis à jour pour « " + (a.lieux.find((l) => l.cle === lieu) || {}).libelle + " »");
@@ -4853,6 +5403,7 @@
       const relu = { sujet: $("pm-sujet").value, texte: $("pm-texte").value, lieu };
       try {
         const r = await api("/crm/parcours/" + id + "/apercu?jalon=" + jalon + "&sujet=" + encodeURIComponent(relu.sujet) + "&texte=" + encodeURIComponent(relu.texte));
+        if (fenetreDossier !== id) return;
         const iframe = document.createElement("iframe"); iframe.className = "apercu-mail"; iframe.setAttribute("sandbox", ""); iframe.srcdoc = r.html;
         const corps = $("modale-corps"); corps.innerHTML = ""; corps.appendChild(iframe);
         $("modale-pied").innerHTML = '<button class="btn" id="pm-retour">← Revenir au texte</button>';
@@ -4864,9 +5415,10 @@
       try {
         const corps = { jalon, sujet: $("pm-sujet").value, texte: $("pm-texte").value, lieu: lieu || undefined };
         if (piece) { let b64 = ""; const u = new Uint8Array(piece.octets); for (let i = 0; i < u.length; i += 8192) b64 += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); corps.piece = { nom: piece.nom, contenu: btoa(b64) }; }
+        const jetonF = sessionModale;
         const r = await api("/crm/parcours/" + id + "/envoyer", { json: corps });
         toast(r.envoyes + " e-mail(s) envoyé(s)" + (r.erreurs ? " · " + r.erreurs + " erreur(s)" : ""), r.erreurs > 0);
-        ouvrirParcours(id);
+        ouvrirParcours(id, jetonF);
       } catch (e) { toast(e.message, true); btn.disabled = false; btn.textContent = "✉️ Envoyer"; }
     };
     $("pm-envoyer").addEventListener("click", () => {
@@ -4888,6 +5440,47 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "suivi-dates-17-11", depuis: "2026-11-17", jours: 7, titre: "Suivi des ventes : relances et dates",
+      html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Dossier de prêt déposé par l'acquéreur</strong> : une relance envoyée par « ✉ Relancer » repousse de nouveau la ligne d'une semaine. La date du compromis reste rappelée en rouge sur la ligne.</li>" +
+        "<li><strong>Date modifiée à la main</strong> : elle tient. Elle pouvait revenir à la date d'avant en rouvrant le dossier.</li>" +
+        "<li><strong>Date tapée au clavier</strong> : la saisie ne se dérègle plus d'un chiffre à l'autre ; la fiche se met à jour en sortant du champ ou avec Entrée.</li>" +
+        "<li><strong>Diagnostics</strong> : la relance est prévue 15 jours avant la fin de validité.</li>" +
+        "</ul>" },
+    { id: "connexion-17-11", depuis: "2026-11-17", jours: 10, titre: "Connexion : du lien de l'e-mail au code SMS, sans détour",
+      html: '<p class="aide" style="max-width:none; margin:0;">Quand vous vous reconnectez sur votre ordinateur, le lien reçu par e-mail ouvre maintenant <strong>directement la page du code SMS</strong> : plus de bouton « Ouvrir ma session », plus besoin de revenir sur l\'onglet où vous aviez saisi votre adresse. Le SMS part aussitôt. (Sur téléphone, quand le lien s\'ouvre dans l\'application mail, rien ne change : c\'est l\'application Studio qui se connecte.)</p>' },
+    { id: "revue-17-11", depuis: "2026-11-17", jours: 14, titre: "Grande révision : dossiers qui ne se mélangent plus, documents plus justes",
+      html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Brochures et fiches prestations</strong> : une réponse (rédaction, DPE, quartier) demandée pour un dossier ne s'écrit plus dans celui ouvert ensuite ; si un collègue a enregistré la même brochure entre-temps, Studio vous le dit avant de remplacer ; nouveau champ « Surface totale » ; plus de « € » parasite dans « À savoir ».</li>" +
+        "<li><strong>Parcours</strong> : un parcours ne se colle plus sur un homonyme ; « ✕ ne pas relier » dans Nouveau parcours ; un enregistrement refusé du livret s'affiche en rouge.</li>" +
+        "<li><strong>Documents</strong> : la bonne commune même quand la ville est abrégée (« St Médard »), ventes DVF aux surfaces justes, courrier d'estimation dont le texte ne passe plus sur la signature, guide R2 dont les textes restent dans leur cadre, guide R1 pour les noms à caractères étrangers.</li>" +
+        "<li><strong>Contacts</strong> : une fiche s'ouvre toujours à jour ; un double clic n'envoie plus deux SMS ; la fusion nomme les fiches concernées et garde « ne plus contacter ».</li>" +
+        "<li><strong>Suivi des ventes</strong> : créer un dossier dont la référence existe déjà ne l'écrase plus ; cocher « AR SRU envoyé au notaire » ne remplit plus la date de présentation ; un bandeau rouge signale tout dossier non enregistré.</li>" +
+        "<li><strong>Offres en ligne</strong> : le code de signature part aux coordonnées enregistrées par l'agence ; le vendeur ne reçoit plus le questionnaire de l'acquéreur.</li>" +
+        "</ul>" },
+    { id: "livret-versions-17-11", depuis: "2026-11-16", jours: 14, titre: "Livret prix : second correctif, et de quoi retrouver ce qui a été écrasé",
+      html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Second défaut corrigé (16/11 au soir)</strong> : quitter un livret prix pendant qu'il chargeait encore, puis ouvrir celui d'un autre dossier, pouvait afficher le premier par-dessus le second — la saisie partait alors dans le mauvais dossier. Un livret quitté ne revient plus, et Studio refuse désormais toute saisie qui ne correspond pas au dossier affiché.</li>" +
+        "<li><strong>🕘 Versions précédentes</strong> (en bas du livret prix) : le livret tel qu'il était avant ses dernières modifications. « Reprendre » remet une version en place — prix, caractéristiques, ventes retenues, biens en concurrence, commission. Le livret remplacé reste dans la liste : rien n'est perdu.</li>" +
+        "<li><strong>🗑 Dossiers supprimés</strong> (en haut de la liste des parcours) : un parcours effacé se restaure pendant 30 jours, avec ses rendez-vous, ses propriétaires et son livret.</li>" +
+        "<li>Les livrets abîmés par le défaut corrigé le 16/11 et les dossiers supprimés depuis début octobre y sont proposés, repris des sauvegardes de Studio : à vous de reprendre ceux qui vous manquent.</li>" +
+        "</ul>" },
+    { id: "brochure-lycees-16-11", depuis: "2026-11-16", jours: 7, titre: "Brochures : les lycées dans « Le quartier »",
+      html: '<p class="aide" style="max-width:none; margin:0;">Dans la brochure, « Rechercher le quartier » ajoute une ligne <strong>Lycées</strong> : les trois lycées les plus proches du bien, avec leur distance. Il s\'agit des plus proches à vol d\'oiseau, pas du lycée de secteur — la ligne se corrige ou se supprime comme les autres.</p>' },
+    { id: "livret-dossiers-16-11", depuis: "2026-11-16", jours: 10, titre: "Livret prix : un dossier n'écrit plus dans un autre",
+      html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Le défaut est corrigé</strong> : après avoir ouvert le livret prix de plusieurs dossiers, une saisie dans l'un pouvait s'enregistrer aussi dans les autres (mêmes surface, pièces et prix partout, ventes comparables vidées). Chaque livret n'écrit désormais que dans son dossier.</li>" +
+        "<li><strong>Vérifiez vos dossiers en cours</strong> : si les caractéristiques ou le livret d'un bien ne sont plus les bons, signalez-le à Benoît — les versions d'avant se retrouvent dans les sauvegardes.</li>" +
+        "<li>À partir d'aujourd'hui, Studio garde les <strong>versions précédentes</strong> de chaque livret.</li>" +
+        "</ul>" },
+    { id: "brochures-bibliotheque-10-11", depuis: "2026-11-10", jours: 10, titre: "Brochures : chaque dossier reste le sien",
+      html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Le dossier ouvert est affiché</strong> en haut de l'écran (📄 son nom) et sur le bouton de la Bibliothèque : « 💾 Enregistrer « NOM » » met à jour CE dossier, sans rien demander.</li>" +
+        "<li><strong>« Enregistrer sous un autre nom… »</strong> crée une autre brochure à partir de celle-ci ; l'originale ne bouge pas. Pour un nouveau bien, partez de « Nouveau ».</li>" +
+        "<li>Un nom déjà pris par une autre brochure de l'agence pose la question avant de la remplacer.</li>" +
+        "<li>Les <strong>notes brutes</strong> se vident quand vous ouvrez un autre dossier : « Générer » ne réécrit plus un dossier avec le bien du précédent.</li>" +
+        "<li><strong>🗑 Corbeille</strong> : une brochure supprimée, ou remplacée, se récupère pendant 30 jours.</li>" +
+        "</ul>" },
     { id: "sms-courts-06-11", depuis: "2026-11-06", jours: 7, titre: "SMS : des vœux plus courts",
       html: '<p class="aide" style="max-width:none;">Les SMS d\'anniversaire tiennent désormais en <strong>un seul segment</strong> (160 caractères, jeu standard) : textes resserrés, virgule et tiret simple, le numéro de réponse toujours à la fin. Les SMS écrits depuis une fiche contact passent aussi en jeu standard : la ponctuation typographique est remplacée et les rares lettres hors jeu (ê, ç, œ…) perdent leur accent. Un SMS coûte ainsi trois fois moins cher.</p>' },
     { id: "avis-cauderan-03-11", depuis: "2026-11-03", jours: 7, titre: "Caudéran : le lien d'avis Google de l'étape 7",
@@ -5355,6 +5948,7 @@
   });
   $("btn-import").addEventListener("click", ouvrirImport);
   $("btn-nouveau-parcours").addEventListener("click", nouveauParcours);
+  if ($("btn-parcours-supprimes")) $("btn-parcours-supprimes").addEventListener("click", ouvrirDossiersSupprimes);
   $("parcours-recherche").addEventListener("input", rendreParcours);
   $("parcours-tous").addEventListener("change", rendreParcours);
   $("btn-nouveau-conseiller").addEventListener("click", () => ouvrirConseiller(null));
@@ -5376,7 +5970,13 @@
   $("doublons-q").addEventListener("keydown", (e) => { if (e.key === "Enter") chargerDoublons(); });
   $("table-upcoming").addEventListener("click", async (e) => {
     const autre = e.target.closest("[data-anniv-autre]");
-    if (autre) { ouvrirConjoint(autre.dataset.annivAutre, true); return; }
+    if (autre) {
+      // La fiche peut dater d'après le démarrage (la liste des contacts n'est pas rechargée) : on la lit avant d'ouvrir.
+      const jeton = sessionModale;
+      try { await lireContact(autre.dataset.annivAutre); } catch (err2) { toast(err2.message, true); return; }
+      if (jeton === sessionModale) ouvrirConjoint(autre.dataset.annivAutre, true);
+      return;
+    }
     const okb = e.target.closest("[data-anniv-ok]");
     if (okb) {
       try {
@@ -5395,7 +5995,7 @@
   });
   $("table-annonces").addEventListener("click", (e) => {
     const tr = e.target.closest("tr[data-url]");
-    if (tr && tr.dataset.url) window.open(tr.dataset.url, "_blank", "noopener");
+    if (tr && urlSure(tr.dataset.url)) window.open(urlSure(tr.dataset.url), "_blank", "noopener");
   });
   $("btn-anniv-save").addEventListener("click", () => sauverReglages({
     anniversaires: {

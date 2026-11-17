@@ -230,8 +230,9 @@ const ETAPES = [
     applies: (d) => !!(d.equipements && d.equipements.climatisation) && alerteEntretien(d, "climatisation") },
   // Alerte seulement quand un diagnostic ne tiendra pas jusqu'à l'acte, et
   // 30 jours avant son expiration au plus tôt. Miroir du client.
+  // L'échéance est la date de relance : 15 jours avant la fin de validité.
   { id: "diagnostics", label: "Diagnostics à renouveler avant l'acte",
-    due: (d) => premiereExpiration(d),
+    due: (d) => addDays(premiereExpiration(d), -15),
     applies: (d) => {
       const exp = premiereExpiration(d);
       return !!exp && !dt(d, "signature_acte") && daysUntil(exp) <= 30;

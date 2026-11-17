@@ -365,25 +365,30 @@ Relecture complète du code de Studio Suivi. Ce qui a été corrigé :
 
 ### Dates qui ne tenaient pas (17/11/2026)
 
-Deux défauts reproduits au navigateur sur la ligne « Dossier de prêt déposé par l'acquéreur » :
+Symptômes signalés sur la ligne « Dossier de prêt déposé par l'acquéreur » : la relance ne
+décale plus la date d'une semaine, et une date modifiée à la main revient à la date d'avant
+quand on rouvre le dossier. Causes, toutes deux issues de l'audit du 16/11 :
 
-- **Enregistrement parti sur le mauvais dossier.** L'envoi différé (0,9 s) visait « le dossier
-  ouvert au moment de l'envoi » : en changeant de dossier dans la foulée, la modification
-  restait dans la page sans jamais partir, et la date d'avant revenait. `markDirty()` retient
-  désormais QUEL dossier a été touché (`aSauver`), `envoyerEnAttente()` part à chaque
-  changement de vue (`route`), quand l'onglet est masqué, et le navigateur demande
-  confirmation si l'on ferme la page avec une modification non envoyée.
-- **Date tapée au clavier.** Un champ date émet « change » à chaque chiffre ; le re-rendu
-  remettait le curseur sur le jour, et « 24/11/2026 » devenait une autre date. Le rendu attend
-  que le champ date soit quitté (ou validé par Entrée) — `renderDossierApres()` — et qu'aucun
-  bouton de souris ne soit enfoncé (un clic pouvait se perdre). Année bornée à 2099.
-- **Deux dossiers de même référence.** Le serveur range les dossiers par nom : créer un second
-  dossier de même référence REMPLAÇAIT le premier, et un renommage en doublon bloquait tous
-  les enregistrements (« Un autre dossier porte déjà ce nom », puis rechargement et perte de
-  la saisie). `nomUnique()` envoie « DUPONT / MARTIN (2) » ; la référence affichée ne change pas.
+- une relance ne reportait plus les étapes `contrat` (dates du compromis ou de la loi) ;
+- au chargement, `normalize()` rendait au calcul toute échéance `contrat` égale à « date de la
+  relance + 7 jours » — donc aussi la date qu'on venait de poser à la main une semaine après.
 
-Rappel : une relance envoyée par « ✉ Relancer » (Envoyer par e-mail ou Copier le texte)
-repousse l'échéance de la ligne à aujourd'hui + 7 jours, jamais plus tôt qu'elle n'était.
+Ce qui est en place :
+
+- **Dépôt du dossier de prêt** (`relanceReporte: true` dans etapes.js) : une relance repousse
+  de nouveau la ligne à aujourd'hui + 7 jours (jamais plus tôt qu'elle n'était). La ligne
+  rappelle « Date du compromis : JJ/MM/AAAA » dès que la date affichée n'est plus celle du
+  compromis. Les autres dates du compromis ou de la loi (offre acceptée, fin de rétractation,
+  purge de la préemption) ne bougent toujours pas à la relance.
+- **Date posée à la main** : marquée `dueManuel` dans l'étape ; le retour au calcul de
+  `normalize()` ne touche plus ni une date manuelle, ni une relance du 17/11 ou après
+  (`RELANCES_ANCIENNES`), ni le dépôt du prêt.
+- **Date tapée au clavier** : un champ date émet « change » à chaque chiffre ; le re-rendu
+  remettait le curseur sur le jour, et « 24/11/2026 » devenait une autre date.
+  `renderDossierApres()` attend que le champ date soit quitté (ou validé par Entrée) et
+  qu'aucun bouton de souris ne soit enfoncé. Année bornée à 2099.
+- **Diagnostics** : l'échéance de la ligne est la date de relance, 15 jours avant la première
+  fin de validité (`RELANCE_DIAG`) ; la ligne paraît toujours 30 jours avant.
 
 ### Habillage
 
@@ -433,7 +438,7 @@ annuaire, mêmes comptes) mais chaque dossier appartient à une agence :
 | Conditions suspensives hors prêt | **première relance 15 jours avant** l'échéance de la condition (celle du compromis ; à défaut, pour une condition de réitération, la date de signature ; sinon le délai usuel du type, sinon la date butoir) | une étape **par condition extraite du compromis** (revente d'un bien de l'acquéreur, régularisation de travaux, assainissement, locataire, succession, bornage, copropriété, autorisation d'urbanisme ou administrative…) ; prêt et préemption sont exclus, ils ont leur propre phase, et les conditions de pur droit (origine de propriété, urbanisme et servitudes, situation hypothécaire, titres de propriété, mainlevée…) **restent dans la fiche du dossier** — le compromis les contient — mais **n'entrent pas dans l'échéancier** (`CS_DROIT`) : le notaire les règle sans nous, et la fiche le signale sous chacune. Le droit de préemption a sa propre phase. Cocher l'étape lève la condition dans la fiche, et inversement |
 | Dépôt d'une autorisation d'urbanisme | **compromis + 10 jours**, sauf délai de dépôt stipulé au compromis (date, nombre de jours ou de mois), qui prime | ligne ajoutée **juste au-dessus** de toute condition d'autorisation d'urbanisme (autorisation d'urbanisme, permis de construire / d'aménager / de démolir, déclaration préalable) : tant que la demande n'est pas déposée en mairie, l'instruction ne court pas. Le délai stipulé n'est lu que dans une phrase parlant de dépôt — une date d'obtention ou de purge n'est jamais prise pour un délai de dépôt. L'étape disparaît dès la condition levée |
 | Entretiens (ramonage, chaudière, clim/PAC) | dernier entretien + 12 mois (24 pour la clim/PAC) | seulement pour les équipements présents au dossier (compromis ou « ＋ Ajouter un équipement ») ; **la ligne apparaît dès que l'équipement est déclaré** (08/10) — la date saisie dans « Équipements & entretiens » se retrouve aussitôt dans l'échéancier avec son échéance, orange à J-7, rouge une fois périmée ; date inconnue = attestation à récupérer ; un ✕ sur la ligne retire l'équipement du dossier (pas au bien) ; plus rien une fois l'acte signé. Relance interne au **conseiller vendeur** |
-| Diagnostics à renouveler | première expiration tombant avant l'acte | **alerte à J-30**, orange à J-7, rouge une fois périmé ; aucune ligne tant que tout tient jusqu'à la signature (DPE 10 ans, audit 5 ans, ERP et termites 6 mois, gaz/élec/assainissement 3 ans, amiante et plomb illimités sauf présence : 3 ans / 1 an). Relance interne au **conseiller vendeur** |
+| Diagnostics à renouveler | **15 jours avant** la première expiration tombant avant l'acte (date de relance) | la ligne paraît à J-30 de l'expiration ; aucune ligne tant que tout tient jusqu'à la signature (DPE 10 ans, audit 5 ans, ERP et termites 6 mois, gaz/élec/assainissement 3 ans, amiante et plomb illimités sauf présence : 3 ans / 1 an). Relance interne au **conseiller vendeur** |
 | Demande de date de signature | butoir − 21 jours | aux **deux études** (modèle « Demande de date de signature ») : proposer une date, obtenir le projet d'acte et les pièces manquantes |
 | Acte authentique | date prévue, sinon butoir (≈ J+92 en moyenne nationale) | l'échéance de l'étape **est** la date clé « signature prévue » : modifier l'une modifie l'autre. La carte « Rendez-vous de signature » porte en plus l'**heure**, le **lieu de chaque partie** (les deux ne comparaissent pas toujours à la même étude) et la date « **Acte signé le** » (retirée des « Dates clés »), qui déclenche toute l'après-vente et reste liée à la case « Acte authentique signé » de l'échéancier → `{{signature_prevue}}` (« 20/11/2026 à 14 h 30 »), `{{signature_acte}}`, `{{signature_lieu}}`, `{{signature_lieu_vendeur}}`, `{{signature_lieu_acquereur}}` |
 | Facture d'honoraires agence | acte − 7 jours | suit automatiquement la date de l'acte, pour que le notaire l'ait au dossier à l'appel de fonds |

@@ -1,0 +1,67 @@
+name: Récupération des livrets (depuis les sauvegardes)
+
+# Relit les sauvegardes quotidiennes chiffrées de la base et remet à portée de
+# main, dans Studio, ce qu'une erreur a fait perdre :
+#   - les versions précédentes des livrets prix  → « 🕘 Versions précédentes »
+#   - les parcours R1/R2 supprimés               → « 🗑 Dossiers supprimés »
+# Rien n'est modifié ni écrasé (INSERT OR IGNORE) ; chaque conseiller choisit
+# ensuite lui-même ce qu'il reprend. Peut être relancé sans doublon.
+#
+# Le dépôt est PUBLIC, ses journaux aussi : le script n'affiche que des nombres,
+# jamais un nom, une adresse ni un identifiant.
+#
+# Lancement : onglet Actions → ce workflow → « Run workflow ».
+#   1er passage : laisser « Écrire dans Studio » décoché (essai : il compte).
+#   2e passage  : cocher « Écrire dans Studio ».
+# Pour partir de l'état le plus frais, lancer d'abord « Sauvegarde D1 (chiffrée) ».
+#
+# Secrets : CLOUDFLARE_API_TOKEN (édition D1, celui du déploiement) et
+#           BACKUP_PASSPHRASE (celle des sauvegardes).
+
+on:
+  workflow_dispatch:
+    inputs:
+      jours:
+        description: "Nombre de jours de sauvegardes à relire"
+        default: "40"
+        required: true
+      ecrire:
+        description: "Écrire dans Studio (décoché : essai, compte seulement)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: recuperer-livrets
+  cancel-in-progress: false
+
+jobs:
+  recuperer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+      GH_TOKEN: ${{ github.token }}
+      JOURS: ${{ inputs.jours }}
+      ECRIRE: ${{ inputs.ecrire }}
+      NODE_NO_WARNINGS: "1"
+    steps:
+      - name: Vérifier la présence des secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::error::Secrets CLOUDFLARE_API_TOKEN et/ou BACKUP_PASSPHRASE manquants."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Relire les sauvegardes et préparer la récupération
+        run: node tools/recuperation/recuperer-livrets.mjs

@@ -34,10 +34,19 @@ const FICHE_MAL_RANGEE = {
   exterieur: ["Clôture mitoyenne des deux côtés", "Portail manuel"], copro: [], aSavoir: []
 };
 const upstreamCalls = [];
+// Réponse imposée au PROCHAIN appel ({ status, type, corps }) : usage avec
+// cache, réponse sans usage, flux SSE, refus — pour les tests du proxy.
+let reponseIA = null;
 const fake = (await import("node:http")).createServer(async (req, res) => {
   const chunks = []; for await (const c of req) chunks.push(c);
   const body = JSON.parse(Buffer.concat(chunks).toString());
   upstreamCalls.push({ headers: req.headers, body });
+  if (reponseIA) {
+    const r = reponseIA; reponseIA = null;
+    res.writeHead(r.status || 200, { "Content-Type": r.type || "application/json" });
+    res.end(r.corps);
+    return;
+  }
   res.writeHead(200, { "Content-Type": "application/json" });
   // Fiche prestations : le faux modèle reproduit le défaut observé en
   // production — toutes les pièces empilées dans « Surfaces », plus de m²
@@ -204,9 +213,24 @@ ok((await call("/me", { headers: { Authorization: "Bearer " + s4 } })).status ==
 const s3 = s4;   // session valide réutilisée par la suite des tests
 
 console.log("— Limite d'envoi des liens de connexion");
-let last429 = null;
-for (let i = 0; i < 5; i++) last429 = await call("/auth/request-link", { body: { email: "claire@azur-immo.fr" } });
-ok(last429.status === 429 && /10 minutes/.test(last429.json.error), "rafale bloquée à 4 liens / 10 min avec message adapté");
+// Au-delà de 4 liens / 10 min plus rien ne part — mais la réponse reste celle
+// de toujours : un 429 ici disait à n'importe qui que l'adresse a un compte.
+const nbLiensClaire = async () => (await db.get("SELECT COUNT(*) AS n FROM login_tokens WHERE user_id = (SELECT id FROM users WHERE email = 'claire@azur-immo.fr')")).n;
+let dernierLien = null, liensAvantDernier = 0;
+for (let i = 0; i < 5; i++) { liensAvantDernier = await nbLiensClaire(); dernierLien = await call("/auth/request-link", { body: { email: "claire@azur-immo.fr" } }); }
+ok(dernierLien.status === 200 && (await nbLiensClaire()) === liensAvantDernier && !dernierLien.json.dev_token,
+  "rafale : au-delà de 4 liens / 10 min, aucun lien de plus ne part");
+ok(/Si un compte existe/.test(dernierLien.json.message) && typeof dernierLien.json.attente === "string" && dernierLien.json.attente.length >= 20,
+  "…et la réponse reste la réponse ordinaire, jeton d'attente compris (pas de 429 qui trahit le compte)");
+const lienInconnu = await call("/auth/request-link", { body: { email: "personne@sans-compte.example" } });
+ok(lienInconnu.status === 200 && JSON.stringify(Object.keys(lienInconnu.json).sort()) === JSON.stringify(["attente", "message", "ok"])
+  && lienInconnu.json.message === dernierLien.json.message && lienInconnu.json.attente.length === dernierLien.json.attente.length,
+  "adresse sans compte : même réponse, avec un jeton d'attente (factice)");
+ok((await call("/auth/attente", { body: { attente: lienInconnu.json.attente } })).json.etat === "attente"
+  && (await call("/auth/attente", { body: { attente: dernierLien.json.attente } })).json.etat === "attente",
+  "un jeton factice attend comme un vrai — et ne mène à aucune session");
+await db.run("UPDATE login_attentes SET created_at = created_at - 3600 WHERE user_id = ''");
+ok((await call("/auth/attente", { body: { attente: lienInconnu.json.attente } })).json.etat === "expiree", "…puis expire comme un vrai");
 
 console.log("— Mise à jour d'agence (admin)");
 const upd = await call("/admin/agencies/" + agencyId, { headers: admin, body: { seats: 30, quota_eur: 60 } });
@@ -255,9 +279,51 @@ ok((await call("/brochures", { headers: { Authorization: "Bearer " + s2b } })).j
 ok((await call("/brochures/" + bput.json.id, { headers: { Authorization: "Bearer " + s2b } })).status === 404, "l'autre agence ne peut pas ouvrir");
 ok((await call("/brochures", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { name: "X", data: { _app: "studio-fiche" } } })).status === 400, "mauvais type de document refusé");
 ok((await call("/brochures", { headers: {} })).status === 401, "sans session : refusé");
-const bdel = await call("/brochures/" + bput.json.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
-ok(bdel.status === 200 && !filesMem.has("br/" + agencyId + "/" + bput.json.id + ".json")
-  && (await call("/brochures", { headers: { Authorization: "Bearer " + s3 } })).json.brochures.length === 0, "suppression : base + R2 nettoyés");
+// Identité des brochures (10/11) : mise à jour par identifiant, création refusée sur un nom pris,
+// remplacement explicite avec l'ancienne version à la corbeille, suppression récupérable 30 jours.
+{ const hB = { Authorization: "Bearer " + s3 };
+  const autre = { ...broData, property: { ...broData.property, title: "Tout autre bien" } };
+  const cree = await call("/brochures", { method: "PUT", headers: hB, body: { name: "VILLA LAFOND", data: autre, creer: true } });
+  ok(cree.status === 409 && cree.json.existe && cree.json.existe.id === bput.json.id && cree.json.existe.a_moi === true
+    && (await call("/brochures/" + bput.json.id, { headers: hB })).json.data.property.title === broData.property.title,
+    "créer sous un nom déjà pris : refusé (409, qui et quand), la brochure existante est intacte");
+  const parId = await call("/brochures", { method: "PUT", headers: hB, body: { id: bput.json.id, name: "VILLA LAFOND 2", data: broData } });
+  ok(parId.status === 200 && parId.json.id === bput.json.id && parId.json.updated === true
+    && (await call("/brochures", { headers: hB })).json.brochures.map((x) => x.name).join() === "VILLA LAFOND 2",
+    "mise à jour par identifiant : même brochure, renommée, pas de doublon");
+  const b2 = await call("/brochures", { method: "PUT", headers: hB, body: { name: "MAISON DUPONT", data: autre, creer: true } });
+  ok(b2.status === 200 && b2.json.updated === false && b2.json.id !== bput.json.id, "seconde brochure créée sous un autre nom");
+  ok((await call("/brochures", { method: "PUT", headers: hB, body: { id: b2.json.id, name: "VILLA LAFOND 2", data: autre } })).status === 409,
+    "renommer une brochure vers le nom d'une autre : refusé");
+  const rempl = await call("/brochures", { method: "PUT", headers: hB, body: { name: "VILLA LAFOND 2", data: autre, remplacer: true } });
+  const corb1 = (await call("/brochures/corbeille", { headers: hB })).json.brochures;
+  ok(rempl.status === 200 && rempl.json.id === bput.json.id && corb1.length === 1 && corb1[0].motif === "remplacee" && corb1[0].name === "VILLA LAFOND 2"
+    && (await call("/brochures/" + bput.json.id, { headers: hB })).json.data.property.title === "Tout autre bien",
+    "remplacement explicite : le contenu change, l'ancienne version est à la corbeille");
+  const rest1 = await call("/brochures/" + corb1[0].id + "/restaurer", { method: "POST", headers: hB, body: {} });
+  ok(rest1.status === 200 && rest1.json.name === "VILLA LAFOND 2 (restaurée)"
+    && (await call("/brochures/" + rest1.json.id, { headers: hB })).json.data.property.title === broData.property.title,
+    "la version remplacée se restaure sous « … (restaurée) » avec son contenu d'origine");
+  const bdel = await call("/brochures/" + bput.json.id, { method: "DELETE", headers: hB });
+  const corb2 = (await call("/brochures/corbeille", { headers: hB })).json.brochures;
+  ok(bdel.status === 200 && filesMem.has("br/" + agencyId + "/" + bput.json.id + ".json") && corb2.length === 1 && corb2[0].motif === "supprimee"
+    && (await call("/brochures", { headers: hB })).json.brochures.length === 2 && (await call("/brochures/" + bput.json.id, { headers: hB })).status === 404,
+    "suppression : la brochure quitte la bibliothèque et attend à la corbeille (contenu gardé)");
+  ok((await call("/brochures/corbeille", { headers: { Authorization: "Bearer " + s2b } })).json.brochures.length === 0
+    && (await call("/brochures/" + bput.json.id + "/restaurer", { method: "POST", headers: { Authorization: "Bearer " + s2b }, body: {} })).status === 404,
+    "la corbeille est propre à l'agence");
+  const rest2 = await call("/brochures/" + bput.json.id + "/restaurer", { method: "POST", headers: hB, body: {} });
+  ok(rest2.status === 200 && rest2.json.name === "VILLA LAFOND 2" && (await call("/brochures", { headers: hB })).json.brochures.length === 3, "restauration sous le nom d'origine quand il est libre");
+  // Purge : 30 jours après, le ménage efface la ligne et le contenu.
+  await call("/brochures/" + b2.json.id, { method: "DELETE", headers: hB });
+  await db.run("UPDATE brochures_corbeille SET deleted_at = ? WHERE id = ?", [Math.floor(Date.now() / 1000) - 31 * 86400, b2.json.id]);
+  const { menageQuotidien: menageBr } = await import("./src/crm.js");
+  const mB = await menageBr(db, { delete: async (k) => { filesMem.delete(k); } });
+  ok(mB.brochures === 1 && !filesMem.has("br/" + agencyId + "/" + b2.json.id + ".json") && (await call("/brochures/corbeille", { headers: hB })).json.brochures.length === 0,
+    "le ménage purge la corbeille des brochures après 30 jours (ligne et contenu)");
+  for (const x of (await call("/brochures", { headers: hB })).json.brochures) await call("/brochures/" + x.id, { method: "DELETE", headers: hB });
+  await db.run("DELETE FROM brochures_corbeille");
+}
 // Sans binding R2 (serveur pas encore configuré) : refus propre, pas de plantage.
 const appNoFiles = createApp({ db, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: true });
 const noFiles = await appNoFiles.fetch(new Request("http://api.test/brochures", { headers: { Authorization: "Bearer " + s3 } }));
@@ -287,6 +353,71 @@ const sessionPar = async (email) => {
 const pwTeam = { json: { session: await sessionPar("u2@azur-immo.fr") } };
 ok(!!pwTeam.json.session && (await call("/me", { headers: { Authorization: "Bearer " + pwTeam.json.session } })).status === 200, "un conseiller sans mobile entre par le lien seul (pas de code)");
 await db.run("DELETE FROM login_tokens", []);
+
+// Audit du 16/11 : (4) le dernier écrit ne gagne plus en silence — le client envoie la version
+// (updated_at) qu'il connaît ; (5) sans intention exprimée, le nom ne suffit plus à écraser la
+// brochure ou la fiche d'un collègue (pages restées sur l'ancien script).
+console.log("— Brochures et fiches : version connue, nom d'un collègue (16/11)");
+{ const hA = { Authorization: "Bearer " + s3 }, hC = { Authorization: "Bearer " + pwTeam.json.session };
+  const don = (t) => ({ _app: "studio-brochure", _v: 2, property: { title: t } });
+  const titre = async (id) => (await call("/brochures/" + id, { headers: hA })).json.data.property.title;
+  const put = (h, body) => call("/brochures", { method: "PUT", headers: h, body });
+  const c1 = await put(hA, { name: "MAISON DES TESTS", data: don("Version 1"), creer: true });
+  ok(c1.status === 200 && typeof c1.json.updated_at === "number" && (await call("/brochures/" + c1.json.id, { headers: hA })).json.updated_at === c1.json.updated_at,
+    "l'enregistrement d'une brochure renvoie sa version (updated_at), la même qu'à l'ouverture");
+  const c2 = await put(hC, { id: c1.json.id, name: "MAISON DES TESTS", data: don("Version du collègue"), version: c1.json.updated_at });
+  ok(c2.status === 200 && c2.json.updated_at > c1.json.updated_at, "version à jour : enregistrement accepté, et la version change (même dans la même seconde)");
+  const c3 = await put(hA, { id: c1.json.id, name: "MAISON DES TESTS", data: don("Vieil état local"), version: c1.json.updated_at });
+  ok(c3.status === 409 && c3.json.modifiee && c3.json.modifiee.id === c1.json.id && c3.json.modifiee.updated_at === c2.json.updated_at && c3.json.modifiee.a_moi === false
+    && typeof c3.json.modifiee.auteur === "string" && /depuis que vous l'avez ouverte/.test(c3.json.error) && await titre(c1.json.id) === "Version du collègue",
+    "version dépassée (enregistrée entre-temps depuis un autre poste) : 409 avec auteur et date, rien n'est écrasé");
+  const c4 = await put(hA, { id: c1.json.id, name: "MAISON DES TESTS", data: don("Vieil état local"), version: c1.json.updated_at, remplacer: true });
+  const corbV = (await call("/brochures/corbeille", { headers: hA })).json.brochures;
+  ok(c4.status === 200 && c4.json.id === c1.json.id && await titre(c1.json.id) === "Vieil état local" && corbV.length === 1 && corbV[0].motif === "remplacee" && corbV[0].name === "MAISON DES TESTS",
+    "« Remplacer » malgré la version dépassée : accepté, la version remplacée part à la corbeille");
+  const restV = await call("/brochures/" + corbV[0].id + "/restaurer", { method: "POST", headers: hA, body: {} });
+  ok(restV.status === 200 && await titre(restV.json.id) === "Version du collègue", "…et se restaure avec le contenu du collègue");
+  const c5 = await put(hC, { id: c1.json.id, name: "MAISON DES TESTS", data: don("Client en cache, sans version") });
+  ok(c5.status === 200 && c5.json.updated === true && await titre(c1.json.id) === "Client en cache, sans version", "sans version (page en cache) : mise à jour par identifiant comme avant");
+  // Par le nom seul : la brochure appartient maintenant au collègue (dernier à l'avoir enregistrée).
+  const n1 = await put(hA, { name: "MAISON DES TESTS", data: don("Écrasée par son nom") });
+  ok(n1.status === 409 && n1.json.existe && n1.json.existe.id === c1.json.id && n1.json.existe.a_moi === false && /existe déjà/.test(n1.json.error) && /autre nom/.test(n1.json.error)
+    && await titre(c1.json.id) === "Client en cache, sans version",
+    "ancien client, par le nom seul : la brochure d'un collègue n'est pas écrasée (409, qui et quand dans le message)");
+  const n2 = await put(hC, { name: "MAISON DES TESTS", data: don("Ma brochure, par son nom") });
+  ok(n2.status === 200 && n2.json.updated === true && n2.json.id === c1.json.id, "ancien client, par le nom seul : sa PROPRE brochure se met toujours à jour");
+  const n3 = await put(hA, { name: "MAISON DES TESTS", data: don("Remplacement voulu"), remplacer: true });
+  ok(n3.status === 200 && n3.json.id === c1.json.id && await titre(c1.json.id) === "Remplacement voulu", "remplacement explicite de la brochure d'un collègue : toujours possible");
+  ok((await put(hA, { name: "MAISON DES TESTS", data: don("x") })).status === 200 && /Claire Fontaine/.test((await put(hC, { name: "MAISON DES TESTS", data: don("y") })).json.error || ""),
+    "le refus nomme l'auteur de la brochure en place");
+  for (const x of (await call("/brochures", { headers: hA })).json.brochures) await call("/brochures/" + x.id, { method: "DELETE", headers: hA });
+  await db.run("DELETE FROM brochures_corbeille");
+
+  // Fiches prestations : même règle par le nom, et mise à jour par identifiant de la fiche ouverte.
+  const fd = (v) => ({ _app: "studio-fiche", _v: 1, fVendeur: v });
+  const fput = (h, body) => call("/fiches", { method: "PUT", headers: h, body });
+  const vendeur = async (id) => (await call("/fiches/" + id, { headers: hA })).json.data.fVendeur;
+  const f1 = await fput(hA, { name: "FICHE sans nom", data: fd("Vendeur de Claire") });
+  const f2 = await fput(hC, { name: "FICHE sans nom", data: fd("Vendeur du collègue") });
+  ok(f1.status === 200 && f2.status === 409 && f2.json.existe && f2.json.existe.id === f1.json.id && f2.json.existe.a_moi === false && f2.json.existe.auteur === "Claire Fontaine"
+    && typeof f2.json.existe.updated_at === "number" && await vendeur(f1.json.id) === "Vendeur de Claire",
+    "fiche : le nom (« FICHE sans nom ») n'écrase pas la fiche d'un collègue — 409 avec auteur et date");
+  const f3 = await fput(hA, { name: "FICHE sans nom", data: fd("Autre bien, même nom par défaut"), creer: true });
+  ok(f3.status === 409 && f3.json.existe.a_moi === true && await vendeur(f1.json.id) === "Vendeur de Claire", "fiche : créer sous un nom déjà pris est refusé, même pour sa propre fiche");
+  const f4 = await fput(hA, { name: "FICHE sans nom", data: fd("Claire, par le nom") });
+  ok(f4.status === 200 && f4.json.updated === true && f4.json.id === f1.json.id, "fiche : ancien client, sa PROPRE fiche se met toujours à jour par son nom");
+  const f5 = await fput(hC, { id: f1.json.id, name: "FICHE sans nom", data: fd("Ouverte puis enregistrée par le collègue") });
+  ok(f5.status === 200 && f5.json.id === f1.json.id && await vendeur(f1.json.id) === "Ouverte puis enregistrée par le collègue", "fiche : la fiche OUVERTE se met à jour par son identifiant, quel qu'en soit l'auteur");
+  const f6 = await fput(hA, { name: "FICHE sans nom", data: fd("Remplacement voulu"), remplacer: true });
+  ok(f6.status === 200 && f6.json.id === f1.json.id && await vendeur(f1.json.id) === "Remplacement voulu", "fiche : remplacement explicite accepté");
+  const f7 = await fput(hA, { name: "FICHE 12 rue des Essais", data: fd("Seconde fiche"), creer: true });
+  const f8 = await fput(hA, { id: f7.json.id, name: "FICHE sans nom", data: fd("Renommage vers un nom pris") });
+  const f9 = await fput(hA, { id: f7.json.id, name: "FICHE 14 rue des Essais", data: fd("Renommée") });
+  ok(f7.status === 200 && f8.status === 409 && f9.status === 200 && f9.json.id === f7.json.id
+    && (await call("/fiches", { headers: hA })).json.fiches.map((x) => x.name).sort().join() === "FICHE 14 rue des Essais,FICHE sans nom",
+    "fiche : par identifiant, renommage vers un nom libre accepté, vers le nom d'une autre fiche refusé");
+  for (const x of (await call("/fiches", { headers: hA })).json.fiches) await call("/fiches/" + x.id, { method: "DELETE", headers: hA });
+}
 
 console.log("— Attente de connexion : la page qui a demandé le lien se connecte quand le lien est cliqué ailleurs");
 { const rl = await call("/auth/request-link", { body: { email: "claire@azur-immo.fr" } });
@@ -378,6 +509,33 @@ const dstale = await call("/dossiers", {
   body: { id: dosId, name: "MARTIN-LEROY / DURAND", data: dosData, base_updated_at: dget.json.updated_at - 10 }
 });
 ok(dstale.status === 409 && /modifié par quelqu'un/.test(dstale.json.error), "version périmée → 409 (pas d'écrasement silencieux)");
+{ // Recréer un dossier dont le nom existe déjà : jamais d'écrasement (audit 11/2026).
+  const auth3 = { Authorization: "Bearer " + s3 };
+  const avant = (await call("/dossiers/" + dosId, { headers: auth3 })).json;
+  const vierge = { _app: "studio-suivi", version: 1, reference: "MARTIN-LEROY / DURAND", statut: "en_cours", journal: [], etapes: {} };
+  const doublon = await call("/dossiers", { method: "PUT", headers: auth3, body: { name: "MARTIN-LEROY / DURAND", data: vierge } });
+  ok(doublon.status === 409 && doublon.json.existant && doublon.json.existant.id === dosId
+    && doublon.json.existant.updated_at === avant.updated_at && /existe déjà/.test(doublon.json.error),
+    "création SANS id sur un nom déjà pris → 409 avec l'id et la date du dossier existant");
+  const apres = (await call("/dossiers/" + dosId, { headers: auth3 })).json;
+  ok(apres.updated_at === avant.updated_at && apres.data.notaire_vendeur.nom === "Me MOREAU" && apres.data.date_compromis === "2026-08-01",
+    "… et le dossier existant n'a pas bougé (ni contenu, ni version)");
+  ok((await call("/dossiers", { method: "PUT", headers: auth3, body: { name: "MARTIN-LEROY / DURAND", data: vierge, base_updated_at: avant.updated_at } })).status === 409,
+    "… même en annonçant la bonne version : sans id, pas de mise à jour par nom");
+  const autre = await call("/dossiers", { method: "PUT", headers: auth3, body: { name: "MARTIN-LEROY / DURAND (2)", data: { ...vierge, reference: "MARTIN-LEROY / DURAND (2)" } } });
+  ok(autre.status === 200 && autre.json.updated === false && autre.json.id !== dosId
+    && (await call("/dossiers", { headers: auth3 })).json.dossiers.length === 2, "sous un autre nom (« … (2) ») : un second dossier, à côté du premier");
+  // Renommer le second comme le premier : refusé, avec le dossier qui porte déjà ce nom.
+  const renomme = await call("/dossiers", { method: "PUT", headers: auth3, body: { id: autre.json.id, name: "MARTIN-LEROY / DURAND", data: vierge } });
+  ok(renomme.status === 409 && renomme.json.existant && renomme.json.existant.id === dosId, "renommage vers un nom déjà pris → 409 (dossier existant désigné)");
+  // Remplacement EXPLICITE par nom : possible, toujours sous la garde de version.
+  ok((await call("/dossiers", { method: "PUT", headers: auth3, body: { name: "MARTIN-LEROY / DURAND (2)", remplacer: true, data: vierge, base_updated_at: autre.json.updated_at - 10 } })).status === 409,
+    "remplacer: true avec une version périmée → 409");
+  const remplace = await call("/dossiers", { method: "PUT", headers: auth3, body: { name: "MARTIN-LEROY / DURAND (2)", remplacer: true, data: { ...vierge, observations: "remplacé exprès" }, base_updated_at: autre.json.updated_at } });
+  ok(remplace.status === 200 && remplace.json.updated === true && remplace.json.id === autre.json.id
+    && (await call("/dossiers/" + autre.json.id, { headers: auth3 })).json.data.observations === "remplacé exprès", "remplacer: true → mise à jour par nom, à la demande");
+  await call("/dossiers/" + autre.json.id, { method: "DELETE", headers: auth3 });
+}
 ok((await call("/dossiers", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { name: "X", data: { _app: "studio-fiche" } } })).status === 400, "mauvais type de document refusé");
 ok((await call("/dossiers", { headers: { Authorization: "Bearer " + s2b } })).json.dossiers.length === 0, "l'autre agence ne voit aucun dossier");
 ok((await call("/dossiers/" + dosId, { headers: { Authorization: "Bearer " + s2b } })).status === 404, "l'autre agence ne peut pas ouvrir");
@@ -467,6 +625,27 @@ const an2 = await call("/annuaire", { method: "PUT", headers: { Authorization: "
 ok(an2.status === 200, "notaire ajouté");
 const an2b = await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { type: "notaire", nom: "Me NAUTIACQ", email: "b.nautiacq@notaires.fr" } });
 ok(an2b.status === 200 && an2b.json.updated === true && an2b.json.id === an2.json.id, "même (type, nom) → mise à jour, pas de doublon");
+{ // Un dossier enregistré ne fait que COMPLÉTER l'annuaire (`completer`) : il
+  // ne revient jamais sur une coordonnée déjà renseignée (audit 11/2026).
+  const auth3 = { Authorization: "Bearer " + s3 };
+  const ficheNot = async () => (await call("/annuaire", { headers: auth3 })).json.annuaire.find((a) => a.id === an2.json.id);
+  const avant = await ficheNot(); // e-mail corrigé ci-dessus, ville et téléphone vidés par la mise à jour
+  const comp = await call("/annuaire", { method: "PUT", headers: auth3, body: { type: "notaire", nom: "Me NAUTIACQ", completer: true,
+    email: "ancienne.adresse@notaires.fr", telephone: "0556000000", ville: "Saint-Médard-en-Jalles" } });
+  const apres = await ficheNot();
+  ok(comp.status === 200 && comp.json.id === an2.json.id && apres.email === "b.nautiacq@notaires.fr" && avant.email === apres.email,
+    "annuaire, completer : l'e-mail déjà renseigné n'est pas écrasé par celui d'un dossier (" + apres.email + ")");
+  ok(apres.telephone === "05 56 00 00 00" && apres.ville === "Saint-Médard-en-Jalles" && comp.json.completes.join() === "ville,telephone",
+    "annuaire, completer : les champs vides (ville, téléphone) sont remplis");
+  const rien = await call("/annuaire", { method: "PUT", headers: auth3, body: { id: an2.json.id, type: "notaire", nom: "Me NAUTIACQ", completer: true, email: "encore.une@notaires.fr", telephone: "0600000000" } });
+  ok(rien.status === 200 && rien.json.updated === false && (await ficheNot()).updated_at === apres.updated_at, "annuaire, completer : rien à compléter → fiche intacte");
+  const neuve = await call("/annuaire", { method: "PUT", headers: auth3, body: { type: "notaire", nom: "Me COMPLETE", completer: true, email: "etude@complete.fr" } });
+  ok(neuve.status === 200 && neuve.json.updated === false && neuve.json.id.startsWith("an_"), "annuaire, completer : une fiche inconnue est créée");
+  await call("/annuaire/" + neuve.json.id, { method: "DELETE", headers: auth3 });
+  // Une correction explicite (sans `completer`) reste la référence.
+  const corr = await call("/annuaire", { method: "PUT", headers: auth3, body: { id: an2.json.id, type: "notaire", nom: "Me NAUTIACQ", email: "b.nautiacq@notaires.fr", telephone: "05 56 99 99 99" } });
+  ok(corr.status === 200 && (await ficheNot()).telephone === "05 56 99 99 99", "annuaire : la correction explicite d'une fiche s'applique toujours");
+}
 ok((await call("/annuaire", { method: "PUT", headers: { Authorization: "Bearer " + s3 }, body: { type: "hacker", nom: "X" } })).status === 400, "type hors liste refusé");
 const anList = await call("/annuaire", { headers: { Authorization: "Bearer " + s3 } });
 ok(anList.status === 200 && anList.json.annuaire.length === 2
@@ -685,6 +864,82 @@ ok(/transcris des notes/.test(upstreamCalls[upstreamCalls.length - 1].body.syste
 const byoQuota = await db.get("SELECT spent_micros FROM quota_counters WHERE scope LIKE 'byo:%'");
 ok(!byoQuota, "aucun quota consommé en mode clé personnelle");
 ok((await call("/v1/messages", { headers: { "X-User-Key": "pas-une-cle" }, body: { model: "claude-sonnet-5", messages: [] } })).status === 401, "clé personnelle malformée → 401");
+{
+  // Sans session, la limite par IP passe AVANT le compteur par clé : une clé inventée
+  // par requête ne remplit plus la table des débits, et rien ne part chez Anthropic.
+  const ipTest = "198.51.100.77", scopeIp = "ip:ia-cle:" + (await sha256hex(ipTest)).slice(0, 16);
+  const cleA = "sk-ant-api03-cle-de-test-numero-un-0123456789", cleB = "sk-ant-api03-cle-de-test-numero-deux-0123456789";
+  const scopeCle = async (k) => "byo:" + (await sha256hex(k)).slice(0, 16);
+  const byoIp = await call("/v1/messages", { headers: { "X-User-Key": cleA, "CF-Connecting-IP": ipTest }, body: { model: "claude-sonnet-5", max_tokens: 50, task: "extract_notes", messages: [{ role: "user", content: "notes" }] } });
+  const compteur = async (scope) => ((await db.get("SELECT n FROM ai_rate WHERE scope = ?", [scope])) || {}).n;
+  ok(byoIp.status === 200 && (await compteur(scopeIp)) === 1 && (await compteur(await scopeCle(cleA))) === 1,
+    "clé personnelle : l'appel est compté par IP, puis par clé");
+  const minuteT = Math.floor(Date.now() / 60000);
+  for (const m of [minuteT, minuteT + 1]) await db.run("INSERT OR REPLACE INTO ai_rate (scope, minute, n) VALUES (?, ?, 120)", [scopeIp, m]);
+  const appelsAvant = upstreamCalls.length;
+  const byoTrop = await call("/v1/messages", { headers: { "X-User-Key": cleB, "CF-Connecting-IP": ipTest }, body: { model: "claude-sonnet-5", max_tokens: 50, task: "extract_notes", messages: [{ role: "user", content: "notes" }] } });
+  ok(byoTrop.status === 429 && upstreamCalls.length === appelsAvant && (await compteur(await scopeCle(cleB))) === undefined,
+    "IP au plafond : 429 avant toute écriture par clé et avant tout relais (une clé inventée ne crée plus de ligne)");
+  await db.run("DELETE FROM ai_rate WHERE scope = ?", [scopeIp]);
+}
+
+console.log("— Proxy IA : liste blanche des champs, coût du cache, réservation");
+{
+  const { costMicros } = await import("./src/util.js");
+  const { decouperGrosCorps } = await import("./src/app.js");
+  const h3 = { Authorization: "Bearer " + s3 };
+  const cles = (o) => JSON.stringify(Object.keys(o).sort());
+  const depense = async () => ((await db.get("SELECT spent_micros FROM quota_counters WHERE scope = ? ORDER BY month DESC LIMIT 1", [agencyId])) || { spent_micros: 0 }).spent_micros;
+  // Corps ordinaire : seuls les champs de nos apps partent (« stream » faisait rembourser la réservation).
+  const filtre = await call("/v1/messages", { headers: h3, body: { model: "claude-sonnet-5", max_tokens: 100, stream: true, tools: [{ name: "outil", input_schema: { type: "object" } }],
+    tool_choice: { type: "auto" }, mcp_servers: [], metadata: { user_id: "x" }, thinking: { type: "disabled" }, messages: [{ role: "user", content: "test" }] } });
+  ok(filtre.status === 200 && cles(upstreamCalls[upstreamCalls.length - 1].body) === cles({ model: 1, max_tokens: 1, messages: 1, thinking: 1 }),
+    "corps ordinaire : ni stream, ni tools, ni rien hors liste blanche ne part (" + cles(upstreamCalls[upstreamCalls.length - 1].body) + ")");
+  // Gros corps : « stream » et « tools » glissés APRÈS les messages (clé échappée comprise) ne passent plus.
+  const texteGros = "y".repeat(1_100_000) + " \\\"guillemets\\\" et antislash \\\\ puis ] } [ { en clair";
+  const queuePiegee = "{\"model\":\"claude-sonnet-5\",\"max_tokens\":100,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"" + texteGros
+    + "\"}]}],\"str\\u0065am\":true,\"stream\":true,\"tools\":[{\"name\":\"outil\"}],\"thinking\":{\"type\":\"disabled\"}}";
+  const rq = await app.fetch(new Request("http://api.test/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", ...h3 }, body: queuePiegee }));
+  const recuQ = upstreamCalls[upstreamCalls.length - 1].body;
+  ok(rq.status === 200 && cles(recuQ) === cles({ model: 1, max_tokens: 1, messages: 1, thinking: 1 }) && recuQ.thinking.type === "disabled",
+    "gros corps : stream et tools écrits après les messages sont retirés, thinking (envoyé par nos apps) reste (" + cles(recuQ) + ")");
+  ok(recuQ.messages.length === 1 && recuQ.messages[0].content[0].text === JSON.parse(queuePiegee).messages[0].content[0].text,
+    "gros corps : le texte arrive intact (guillemets échappés, antislashs, crochets dans une chaîne)");
+  // Formes refusées : le tableau des messages doit se refermer proprement, suivi d'une virgule ou de la fin.
+  const gros = "z".repeat(1_100_000);
+  const refuse = async (corps) => (await app.fetch(new Request("http://api.test/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", ...h3 }, body: corps }))).status;
+  ok((await refuse("{\"model\":\"claude-sonnet-5\",\"messages\":[{\"role\":\"user\",\"content\":\"" + gros + "\"}}],\"stream\":true}")) === 400
+    && (await refuse("{\"model\":\"claude-sonnet-5\",\"messages\":\"" + gros + "\",\"stream\":true}")) === 400
+    && (await refuse("{\"model\":\"claude-sonnet-5\",\"messages\":[{\"role\":\"user\",\"content\":\"" + gros + "\"}] \"stream\":true}")) === 400
+    && (await refuse("{\"model\":\"claude-sonnet-5\",\"messages\":[{\"role\":\"user\",\"content\":\"" + gros + "\"}")) === 400,
+    "gros corps mal formé (accolades croisées, messages hors tableau, suite sans virgule, tableau ouvert) → 400");
+  ok(decouperGrosCorps("{\"messages\":[" + "[".repeat(80) + "]".repeat(80) + "]}") === null && decouperGrosCorps("{\"model\":\"m\",\"messages\":[\"" + "\\\"".repeat(300000) + "\"]}") === null,
+    "gros corps : profondeur et longueur du parcours bornées (pas de calcul sans fin)");
+  // Coût : l'écriture et la relecture du cache de prompt comptent (1,25 × et 0,1 × le prix d'entrée).
+  const avantCache = await depense();
+  reponseIA = { corps: JSON.stringify({ id: "msg_cache", type: "message", role: "assistant", content: [{ type: "text", text: "ok" }],
+    usage: { input_tokens: 10, cache_creation_input_tokens: 1000, cache_read_input_tokens: 10000, output_tokens: 100 } }) };
+  const avecCache = await call("/v1/messages", { headers: h3, body: { model: "claude-sonnet-5", max_tokens: 200, messages: [{ role: "user", content: "test" }] } });
+  const ligneCache = await db.get("SELECT tokens_in, tokens_out, cost_micros FROM usage WHERE agency_id = ? ORDER BY id DESC LIMIT 1", [agencyId]);
+  const attendu = costMicros("claude-sonnet-5", 10 + 1000 * 1.25 + 10000 * 0.1, 100);
+  ok(avecCache.status === 200 && ligneCache.cost_micros === attendu && attendu > costMicros("claude-sonnet-5", 10, 100) * 2 && ligneCache.tokens_in === 11010,
+    "tokens de cache comptés dans le coût (" + ligneCache.cost_micros + " µ€ au lieu de " + costMicros("claude-sonnet-5", 10, 100) + ")");
+  ok((await depense()) - avantCache === attendu, "…et dans le quota de l'agence");
+  // Réponse 2xx sans usage lisible (flux, JSON tronqué) : la réservation n'est plus remboursée.
+  const avantFlux = await depense();
+  reponseIA = { type: "text/event-stream", corps: "event: message_start\ndata: {\"type\":\"message_start\"}\n\n" };
+  const flux = await call("/v1/messages", { headers: h3, body: { model: "claude-sonnet-5", max_tokens: 200, messages: [{ role: "user", content: "test" }] } });
+  ok(flux.status === 502 && (await depense()) - avantFlux >= costMicros("claude-sonnet-5", 0, 200), "réponse 200 illisible : 502 au client, réservation conservée (" + ((await depense()) - avantFlux) + " µ€)");
+  const avantSans = await depense();
+  reponseIA = { corps: JSON.stringify({ id: "msg_sans_usage", type: "message", content: [{ type: "text", text: "ok" }] }) };
+  const sansUsage = await call("/v1/messages", { headers: h3, body: { model: "claude-sonnet-5", max_tokens: 200, messages: [{ role: "user", content: "test" }] } });
+  ok(sansUsage.status === 200 && (await depense()) - avantSans >= costMicros("claude-sonnet-5", 0, 200), "réponse 200 sans usage : réservation conservée");
+  // Refus d'Anthropic (rien de facturé) : remboursement complet, comme avant.
+  const avantRefus = await depense();
+  reponseIA = { status: 400, corps: JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "refus de test" } }) };
+  const refus = await call("/v1/messages", { headers: h3, body: { model: "claude-sonnet-5", max_tokens: 200, messages: [{ role: "user", content: "test" }] } });
+  ok(refus.status === 400 && (await depense()) === avantRefus, "refus d'Anthropic (4xx) : réservation remboursée en entier");
+}
 
 console.log("— Quota mensuel");
 await db.run("UPDATE agencies SET quota_eur = 0.00001 WHERE id = ?", [agencyId]);
@@ -847,6 +1102,27 @@ ok((await call("/agency/users", { headers: { Authorization: "Bearer " + u2sess }
 // retraits
 ok((await call("/agency/users/" + claireId, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 400, "l'admin ne peut pas se retirer lui-même");
 ok((await call("/agency/users/" + addC.json.user.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } })).status === 200, "l'admin retire un conseiller");
+{ // Hors développement, le lien de bienvenue (il ouvre une session) part par e-mail et ne revient plus dans la réponse.
+  const appProd = createApp({ db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: false });
+  const rProd = await appProd.fetch(new Request("http://api.test/agency/users", { method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + s3 }, body: JSON.stringify({ email: "sans.lien@azur-immo.fr", name: "Sans Lien" }) }));
+  const jProd = await rProd.json();
+  const lienCree = await db.get("SELECT COUNT(*) AS n FROM login_tokens WHERE user_id = ?", [jProd.user && jProd.user.id]);
+  ok(rProd.status === 200 && jProd.user.email === "sans.lien@azur-immo.fr" && !("invite_link" in jProd) && !/#token=/.test(JSON.stringify(jProd)) && lienCree.n === 1,
+    "hors DEV_MODE : le compte est créé, son lien de bienvenue existe mais n'est plus renvoyé à l'appelant");
+  await call("/agency/users/" + jProd.user.id, { method: "DELETE", headers: { Authorization: "Bearer " + s3 } });
+  // Erreur inattendue : le message du moteur SQL reste dans le journal du serveur, le client reçoit une référence.
+  const dbCasse = { get: async () => { throw new Error("D1_ERROR: no such column: mot_secret in SELECT * FROM table_interne"); }, all: async () => [], run: async () => ({}) };
+  const appCasse = createApp({ db: dbCasse, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: false });
+  const journalErr = [], errOrigine = console.error;
+  console.error = (...a) => { journalErr.push(a.join(" ")); };
+  let r500, j500;
+  try { r500 = await appCasse.fetch(new Request("http://api.test/me", { headers: { Authorization: "Bearer jeton-quelconque" } })); j500 = await r500.json(); }
+  finally { console.error = errOrigine; }
+  ok(r500.status === 500 && /^Erreur serveur/.test(j500.error) && !/mot_secret|table_interne|D1_ERROR|SELECT/.test(JSON.stringify(j500)) && /^er_/.test(j500.ref || ""),
+    "erreur 500 : message générique au client, sans le texte du moteur SQL (" + j500.error + ")");
+  ok(journalErr.some((l) => l.includes("mot_secret") && l.includes(j500.ref)), "…le détail part au journal du serveur, avec la même référence");
+}
 // Un conseiller qui s'est déjà connecté (sessions, jetons) se retire aussi : D1 vérifie les clés
 // étrangères, des sessions seulement révoquées faisaient échouer la suppression (« FOREIGN KEY constraint failed »).
 { const addT = await call("/agency/users", { headers: { Authorization: "Bearer " + s3 }, body: { email: "temporaire@azur-immo.fr", name: "Tempo" } });
@@ -880,8 +1156,9 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   // nomStandard/nomCourriel vivent dans l'IIFE du client : on isole le bloc
   // pour le vérifier ici, faute d'un autre banc de test côté navigateur.
   const src = readFileSync(new URL("../suivi/assets/js/app.js", import.meta.url), "utf8");
+  const normMot = src.slice(src.indexOf("  function normMot(w) {"), src.indexOf("  // Mots significatifs d'un nom"));
   const bloc = src.slice(src.indexOf("  const CIVILITES ="), src.indexOf("  // Consolide un dossier"));
-  const { nomStandard, nomCourriel } = new Function(bloc + "\nreturn { nomStandard, nomCourriel };")();
+  const { nomStandard, nomCourriel, decoupeNom } = new Function(normMot + bloc + "\nreturn { nomStandard, nomCourriel, decoupeNom };")();
   const paires = [
     ["Monsieur Didier Serge KASPAR", "Mr KASPAR Didier Serge", "Mr Didier Serge KASPAR"],
     ["Madame Florence DONDARINI", "Mme DONDARINI Florence", "Mme Florence DONDARINI"],
@@ -898,6 +1175,26 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
     ok(nomCourriel(brut) === mail, "mail : « " + brut + " » → « " + mail + " »");
     ok(nomStandard(app) === app, "conversion stable : « " + app + " » ne bouge plus");
   }
+  // Audit 11/2026 : tout mot en minuscules était pris pour un prénom — « née »,
+  // « épouse », « et », « de », « représentée par »… et le nom, réécrit au
+  // chargement, repartait mélangé à l'enregistrement. Ne se réordonne plus
+  // qu'UNE personne physique dont les mots hors capitales sont des prénoms.
+  const intacts = [
+    "Mme Marie DUPONT née MARTIN", "Mme Marie MARTIN épouse DUPONT", "Mme DUPONT Marie veuve MARTIN", "Mme DUPONT Marie Née MARTIN",
+    "Mr et Mme DUPONT Jean", "Mr Jean DUPONT et Mme Marie DUPONT", "Mr Jean de LA FONTAINE", "Mr DUPONT Jean dit Jeannot",
+    "SCI LES TILLEULS représentée par Mr Paul DURAND", "SARL DUPONT Immobilier", "SAS MARTIN Frères", "Indivision DUPONT",
+    "Mr Jean DUPONT Pierre", "Mr DUPONT jean"
+  ];
+  for (const n of intacts) ok(nomStandard(n) === n && nomCourriel(n) === n, "nom laissé tel quel (app et courrier) : « " + n + " » → « " + nomStandard(n) + " »");
+  ok(nomStandard("Mr Jean-Pierre DUPONT") === "Mr DUPONT Jean-Pierre" && nomCourriel("Mme MARTIN Sophie Claire") === "Mme Sophie Claire MARTIN"
+    && nomCourriel("Mr LE GALL Yann") === "Mr Yann LE GALL",
+    "une personne physique seule (prénoms reconnus, particule en capitales comprise) se réordonne toujours");
+  // La référence du dossier et la formule d'appel gardent les mots en capitales, comme avant.
+  ok(decoupeNom("Mme Marie DUPONT née MARTIN").caps.join(" ") === "DUPONT MARTIN" && decoupeNom("SCI LES TILLEULS").caps === undefined,
+    "nom non réordonnable : ses mots en capitales restent disponibles pour la référence");
+  // normalize() ne réécrit plus les noms : ce qui se charge est ce qui se réenregistre.
+  const corpsNormalize = src.slice(src.indexOf("  function normalize(data) {"), src.indexOf("  /* ----------------------------- Chargements"));
+  ok(!/\.nom\s*=/.test(corpsNormalize) && !/nomStandard\(/.test(corpsNormalize), "normalize() ne modifie plus le nom des parties au chargement");
 }
 
 /* ---- Prompts : taille des schémas de sortie structurée ------------------ */
@@ -1079,6 +1376,12 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   delete recue.dates.ar_dia;
   ok(actionsFor(recue, "2026-06-20").find((a) => a.id === "purge_dia").due === "2026-08-13",
     "sans accusé de réception : envoi + 62 jours, comme avant");
+  // Diagnostics : l'échéance de la ligne est la date de RELANCE, quinze jours
+  // avant la première fin de validité (ERP : 6 mois → 10/09/2026).
+  const diag = base();
+  diag.diagnostics = { erp: "2026-03-10" };
+  const ligneDiag = actionsFor(diag, "2026-08-20").find((a) => a.id === "diagnostics");
+  ok(ligneDiag && ligneDiag.due === "2026-08-26", "diagnostics : relance prévue 15 jours avant la fin de validité");
   // Rétractation SRU : 10 jours à compter du LENDEMAIN de la présentation,
   // prorogés au premier jour ouvrable si le délai expire un week-end/férié.
   const sru = (presentation) => {
@@ -1269,6 +1572,100 @@ ok((await call("/agency/users/" + u2Id + "/role", { method: "PUT", headers: { Au
   const distincts = [N("PULON Antoine", "antoine@pulon.fr"), N("PULON Bertrand", "bertrand@pulon.fr"), N("Me PULON", "")];
   ok((fuzzy(distincts, "Me PULON") || {}).email == null || (fuzzy(distincts, "Me PULON") || {}).email === "",
     "fiches aux e-mails différents → rien de deviné");
+}
+
+/* ---- Documents du parcours (admin.js, fonctions pures testées par extraction) ---- */
+{
+  const src = readFileSync(new URL("../administration/assets/js/admin.js", import.meta.url), "utf8");
+  const entre = (debut, fin) => { const i = src.indexOf(debut), j = src.indexOf(fin, i); if (i < 0 || j < 0) throw new Error("bloc introuvable dans admin.js : " + debut); return src.slice(i, j); };
+  const sansAccentsMin = src.split("\n").find((l) => l.startsWith("  const sansAccentsMin ="));
+  // --- DVF : une mutation tient sur plusieurs lignes (un local × une nature de culture par parcelle) ---
+  const { parseDvfCsv } = new Function(sansAccentsMin + "\n" + entre("  const NATURES_TERRAIN =", "  // Les millésimes DVF d'une commune") + "\nreturn { parseDvfCsv };")();
+  const ENTETE = "id_mutation,date_mutation,numero_disposition,nature_mutation,valeur_fonciere,adresse_numero,adresse_suffixe,adresse_nom_voie,adresse_code_voie,code_postal,code_commune,nom_commune,code_departement,ancien_code_commune,ancien_nom_commune,id_parcelle,ancien_id_parcelle,numero_volume,lot1_numero,lot1_surface_carrez,lot2_numero,lot2_surface_carrez,lot3_numero,lot3_surface_carrez,lot4_numero,lot4_surface_carrez,lot5_numero,lot5_surface_carrez,nombre_lots,code_type_local,type_local,surface_reelle_bati,nombre_pieces_principales,code_nature_culture,nature_culture,code_nature_culture_speciale,nature_culture_speciale,surface_terrain,longitude,latitude";
+  const NATURES = { AB: "terrains a bâtir", S: "sols", J: "jardins", AG: "terrains d'agrément", BT: "taillis simples", T: "terres" };
+  const TYPES = { Maison: 1, Appartement: 2, "Dépendance": 3, "Local industriel. commercial ou assimilé": 4 };
+  // Une ligne du fichier geo-dvf : mutation, prix, parcelle, [type de local, surface bâtie, pièces, n° de lot], [code de nature, surface de terrain], position.
+  const ligne = (id, prix, parcelle, local, terre, pos = [-0.7, 44.9]) => {
+    const [type = "", bati = "", pieces = "", lot = ""] = local || [], [code = "", terrain = ""] = terre || [];
+    return [id, "2026-03-10", 1, "Vente", prix, 12, "", "RUE DE LA SYNTHESE", "0001", 33160, 33449, "Saint-Médard-en-Jalles", 33, "", "", parcelle, "", "", lot, "", "", "", "", "", "", "", "", "", lot ? 1 : 0, TYPES[type] || "", type, bati, pieces, code, NATURES[code] || "", "", "", terrain, pos[0], pos[1]].join(",");
+  };
+  const csv = [ENTETE,
+    // a) un terrain à bâtir vendu en deux parcelles : 400 + 350 m², 180 000 €
+    ligne("T2P", 180000, "33449000AB0001", null, ["AB", 400]), ligne("T2P", 180000, "33449000AB0002", null, ["AB", 350]),
+    // b) deux appartements vendus ensemble 400 000 € (60 + 40 m²)
+    ligne("2APP", 400000, "33449000AC0010", ["Appartement", 60, 3, "12"]), ligne("2APP", 400000, "33449000AC0010", ["Appartement", 40, 2, "14"]),
+    // c) un bois de 5 000 m² vendu 8 000 €
+    ligne("BOIS", 8000, "33449000ZA0100", null, ["BT", 5000]),
+    // d) une maison et sa dépendance sur une parcelle à deux natures (sol 500 + jardin 300), plus le jardin voisin (250) : 4 + 1 lignes
+    ligne("MAIS", 350000, "33449000AD0020", ["Maison", 100, 5], ["S", 500]), ligne("MAIS", 350000, "33449000AD0020", ["Maison", 100, 5], ["J", 300]),
+    ligne("MAIS", 350000, "33449000AD0020", ["Dépendance", "", ""], ["S", 500]), ligne("MAIS", 350000, "33449000AD0020", ["Dépendance", "", ""], ["J", 300]),
+    ligne("MAIS", 350000, "33449000AD0021", null, ["J", 250]),
+    // e) un appartement et son parking (lots de copropriété, pas de terrain)
+    ligne("APPK", 210000, "33449000AE0030", ["Appartement", 45, 2, "7"]), ligne("APPK", 210000, "33449000AE0030", ["Dépendance", "", "", "107"]),
+    // f) un terrain dont la seconde parcelle n'est pas géolocalisée
+    ligne("TSANS", 150000, "33449000AF0040", null, ["AB", 300]), ligne("TSANS", 150000, "33449000AF0041", null, ["J", 200], ["", ""]),
+    // g) une maison et un local commercial vendus ensemble ; un local commercial seul ; un terrain à bâtir avec une parcelle de terres agricoles
+    ligne("MIXTE", 500000, "33449000AG0050", ["Maison", 90, 4], ["S", 400]), ligne("MIXTE", 500000, "33449000AG0050", ["Local industriel. commercial ou assimilé", 120, 0], ["S", 400]),
+    ligne("COMM", 300000, "33449000AH0060", ["Local industriel. commercial ou assimilé", 200, 0], ["S", 600]),
+    ligne("TAGRI", 90000, "33449000AI0070", null, ["AB", 500]), ligne("TAGRI", 90000, "33449000ZB0071", null, ["T", 4000]),
+    // h) deux maisons identiques sur la même parcelle, sans numéro de lot (même ligne deux fois)
+    ligne("2MAIS", 600000, "33449000AJ0080", ["Maison", 110, 5], ["S", 700]), ligne("2MAIS", 600000, "33449000AJ0080", ["Maison", 110, 5], ["S", 700]),
+  ].join("\n") + "\n";
+  const bilan = {};
+  const ventes = parseDvfCsv(csv, bilan), par = Object.fromEntries(ventes.map((v) => [v.id.slice(4), v]));
+  const m2 = (v) => Math.round(v.prix / v.surface);
+  ok(par.T2P && par.T2P.type === "Terrain" && par.T2P.surface === 750 && m2(par.T2P) === 240,
+     "DVF : un terrain vendu en deux parcelles (400 + 350 m², 180 000 €) fait 750 m² et 240 €/m² — il sortait à 400 m² et 450 €/m² (" + JSON.stringify(par.T2P && [par.T2P.surface, m2(par.T2P)]) + ")");
+  ok(!par["2APP"] && !par.MIXTE && !par["2MAIS"] && bilan.groupees === 3,
+     "DVF : deux appartements vendus ensemble (60 + 40 m², 400 000 €) ne donnent plus « 60 m², 6 667 €/m² » — une vente de plusieurs logements ou locaux est écartée et comptée (" + bilan.groupees + ")");
+  ok(!par.BOIS && !par.TAGRI && bilan.horsNature === 2,
+     "DVF : un bois de 5 000 m² à 8 000 € n'est plus un « Terrain à 2 €/m² » ; seuls les terrains à bâtir, sols, jardins et terrains d'agrément se comparent (" + bilan.horsNature + " écartés)");
+  ok(par.MAIS && par.MAIS.type === "Maison" && par.MAIS.surface === 100 && par.MAIS.pieces === 5 && par.MAIS.terrain === 1050 && m2(par.MAIS) === 3500,
+     "DVF : une maison (et sa dépendance) sur une parcelle à deux natures plus le jardin voisin : 100 m², terrain 500 + 300 + 250 = 1 050 m², compté une fois malgré les lignes répétées (" + JSON.stringify(par.MAIS && [par.MAIS.surface, par.MAIS.terrain]) + ")");
+  ok(par.APPK && par.APPK.type === "Appartement" && par.APPK.surface === 45 && par.APPK.terrain === 0 && par.TSANS && par.TSANS.surface === 500 && par.TSANS.lat === 44.9 && !par.COMM && ventes.length === 4,
+     "DVF : un appartement avec son parking reste un appartement de 45 m² ; une parcelle sans position compte dans la surface du terrain ; un local commercial seul n'est pas un comparable (" + ventes.map((v) => v.id).join(", ") + ")");
+  { // Un fichier sans les colonnes de parcelle ni de nature (ancien format, faux dépôt des smokes) se lit comme avant.
+    const ancien = "id_mutation,date_mutation,nature_mutation,valeur_fonciere,adresse_numero,adresse_nom_voie,nom_commune,type_local,surface_reelle_bati,nombre_pieces_principales,surface_terrain,longitude,latitude\n"
+      + "A1,2026-01-10,Vente,300000,1,ALLEE A,Ville,Maison,100,5,500,-0.7,44.9\nA2,2026-02-10,Vente,120000,2,CHEMIN B,Ville,,,,600,-0.71,44.91\nA3,2026-02-11,Vente,500,3,CHEMIN C,Ville,,,,600,-0.71,44.91\r\n";
+    const l = parseDvfCsv(ancien);
+    ok(l.length === 2 && l[0].type === "Maison" && l[0].terrain === 500 && l[0].adresse === "1 ALLEE A" && l[1].type === "Terrain" && l[1].surface === 600, "DVF : un fichier sans colonnes de parcelle ni de nature se lit comme avant (maison, terrain nu, prix dérisoire écarté)"); }
+
+  // --- Livret : médiane, programmes neufs, prix au m² ---
+  const { medianeDe, reduireProgramme, fmtM2, piecesLib } = new Function(entre("  // Pas de prix au m² pour un programme neuf", "  const fmtDateAcm =") + "\nreturn { medianeDe, reduireProgramme, fmtM2, piecesLib };")();
+  ok(medianeDe([300000, 320000, 380000, 400000]) === 350000 && medianeDe([400000, 300000, 320000]) === 320000 && medianeDe([]) === 0 && medianeDe([310000]) === 310000,
+     "livret : la médiane d'un nombre pair de budgets est la moyenne des deux du milieu (300, 320, 380, 400 k€ → 350 k€, plus 380)");
+  const prog = reduireProgramme({ id: "bienici:x", prix: [145000, 275000], surface: [40, 83.77], pieces: [2, 4], chambres: [1, 3] }), sansFine = (t) => t.replace(/[\u202f\u00a0]/g, " ");
+  ok(prog.prix === 145000 && prog.surface === 40 && prog.pieces === 2 && prog.chambres === 1 && prog.neuf === 1 && fmtM2(prog) === "" && sansFine(fmtM2({ prix: 300000, surface: 100 })) === "3 000 €/m²" && fmtM2({ prix: 300000, surface: [40, 80] }) === ""
+     && reduireProgramme({ prix: 250000, surface: 80 }).neuf === undefined && piecesLib(1) === "1 pièce" && piecesLib(4) === "4 pièces",
+     "livret : un programme neuf gardé avec ses fourchettes est ramené à ses plus petites valeurs, sans prix au m² (plus de « NaN m² », « NaN €/m² ») ; « 1 pièce » au singulier");
+
+  // --- Textes de présentation : un paragraphe trop long s'arrête à la dernière phrase qui tient ---
+  const { ajusterParagraphes, phrasesDe } = new Function(entre("  function ajusterParagraphes(", "  // Le cadrage d'un portrait dans un cadre W × H") + "\nreturn { ajusterParagraphes, phrasesDe };")();
+  const police = { widthOfTextAtSize: (t, taille) => t.length * taille * 0.46 };
+  const couper = (texte, font, taille, largeur) => { const out = []; let l = ""; for (const mot of String(texte || "").split(/\s+/).filter(Boolean)) { const e = l ? l + " " + mot : mot; if (font.widthOfTextAtSize(e, taille) > largeur && l) { out.push(l); l = mot; } else l = e; } if (l) out.push(l); return out; };
+  ok(JSON.stringify(phrasesDe("J'ai rencontré M. Dupont hier. Il vend sa maison ! Vraiment ? Oui, 3.5 km plus loin… Voilà.")) === JSON.stringify(["J'ai rencontré M. Dupont hier.", "Il vend sa maison !", "Vraiment ?", "Oui, 3.5 km plus loin…", "Voilà."]),
+     "phrases : coupe après . ! ? … suivis d'une majuscule, pas après « M. » ni dans « 3.5 » (" + JSON.stringify(phrasesDe("J'ai rencontré M. Dupont hier. Il vend sa maison ! Vraiment ? Oui, 3.5 km plus loin… Voilà.")) + ")");
+  const phrase = (n) => "Voici la phrase numéro " + n + " d'un texte de présentation saisi d'un seul bloc.";
+  const bloc = Array.from({ length: 16 }, (x, i) => phrase(i + 1)).join(" "); // ≈ 1 100 caractères, un seul paragraphe
+  const HAUT = 684 - 513.1 + 10.5, unBloc = ajusterParagraphes([bloc], couper, police, 194, HAUT, 10.5, 9.5);
+  const texteBloc = unBloc.blocs.flat().join(" "), hauteurBloc = unBloc.blocs.flat().length * unBloc.pas;
+  ok(bloc.length > 1000 && unBloc.blocs.length === 1 && texteBloc.length > 500 && bloc.startsWith(texteBloc) && /bloc\.$/.test(texteBloc) && unBloc.coupe === true && unBloc.omis === 0 && unBloc.caracteresOmis === bloc.length - texteBloc.length && unBloc.taille === 9.5 && hauteurBloc <= HAUT && /bloc\.$/.test(unBloc.finTexte),
+     "texte du conseiller d'un seul bloc de " + bloc.length + " caractères : il ne disparaît plus en entier, il s'arrête à la dernière phrase qui tient (" + texteBloc.length + " caractères imprimés, " + unBloc.caracteresOmis + " omis, " + unBloc.taille + " pt)");
+  const quatre = ajusterParagraphes([bloc.slice(0, 300), bloc.slice(300, 600), bloc.slice(600, 900), bloc.slice(900)], couper, police, 194, HAUT, 10.5, 9.5);
+  ok(quatre.blocs.length >= 2 && quatre.omis >= 1 && quatre.blocs.length + quatre.omis === 4 && quatre.coupe === false && quatre.caracteresOmis > 0, "plusieurs paragraphes : des paragraphes entiers sont retirés comme avant, et le manque est dit (" + JSON.stringify({ gardes: quatre.blocs.length, omis: quatre.omis, car: quatre.caracteresOmis }) + ")");
+  const court = ajusterParagraphes(["Un texte court.", "Deux paragraphes."], couper, police, 194, HAUT, 10.5, 9.5);
+  ok(court.taille === 10.5 && court.omis === 0 && !court.coupe && court.caracteresOmis === 0, "un texte qui tient n'est ni réduit ni signalé");
+  const sansFin = ajusterParagraphes([Array.from({ length: 260 }, () => "mot").join(" ")], couper, police, 194, HAUT, 10.5, 9.5), lignesSF = sansFin.blocs.flat();
+  ok(lignesSF.length >= 10 && lignesSF.length * sansFin.pas <= HAUT && /…$/.test(lignesSF[lignesSF.length - 1]) && sansFin.coupe && sansFin.caracteresOmis > 0, "une seule phrase interminable : les lignes qui tiennent, terminées par « … » (" + lignesSF.length + " lignes)");
+
+  // --- Guide R1 : un nom hors WinAnsi ne fait plus échouer le guide ---
+  const { ecritureSure } = new Function(entre("  const espacesSimples =", "  const sansAccentsMin =") + "\nreturn { ecritureSure };")();
+  const winAnsi = { getCharacterSet: () => [...Array.from({ length: 95 }, (x, i) => 32 + i), ...Array.from({ length: 96 }, (x, i) => 160 + i), 0x152, 0x153, 0x160, 0x161, 0x17d, 0x17e, 0x20ac, 0x2019] };
+  const barlow = { getCharacterSet: () => [...winAnsi.getCharacterSet(), ..."łŁŚśễıŞşČčĞğŻżąęń".split("").map((c) => c.codePointAt(0))] };
+  const e1 = ecritureSure("WIŚNIEWSKI Paweł", winAnsi, barlow), e2 = ecritureSure("WIŚNIEWSKI Paweł", winAnsi, null), e3 = ecritureSure("3 allée\u202fdes\tLilas\u200b", winAnsi, barlow), e4 = ecritureSure("Çeşme Şükrü Nguyễn ı 日本", winAnsi, null);
+  ok(e1.mode === "secours" && e1.font === barlow && e1.texte === "WIŚNIEWSKI Paweł" && e2.mode === "sans-signe" && e2.font === winAnsi && e2.texte === "WISNIEWSKI Pawel"
+     && e3.mode === "normale" && e3.texte === "3 allée des Lilas" && e4.texte === "Çesme Sükrü Nguyen i " && ecritureSure("Jean-Noël DUPONT", winAnsi, barlow).mode === "normale",
+     "guide R1 : « WIŚNIEWSKI Paweł » s'écrit avec la police de secours, sans elle les lettres perdent leur signe (" + e2.texte + ") ; espace fine et tabulation deviennent des espaces ; un nom courant garde la police du guide");
 }
 
 /* ---- Séquestre : comptabilité de l'étude dépositaire -------------------- */
@@ -1509,6 +1906,25 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const mesRdv = await call("/rdv?from=" + demain + "&to=" + demain, { headers: auth });
   ok(mesRdv.json.rdv.length === 1 && mesRdv.json.rdv[0].client_nom === "Jean Dupont", "l'agence voit le rendez-vous pris en ligne");
   ok((await call("/rdv/" + mesRdv.json.rdv[0].id + "/statut", { headers: auth, body: { statut: "confirme" } })).status === 200, "rendez-vous confirmé");
+  {
+    // Les coordonnées des clients restent chez LEUR conseiller (comme dans le flux d'agenda) :
+    // la direction voit tout, un conseiller ne lit et ne modifie que ses rendez-vous.
+    const idRdv = mesRdv.json.rdv[0].id, fenetre = "/rdv?from=" + demain + "&to=" + demain;
+    const authU2 = { Authorization: "Bearer " + pwTeam.json.session };
+    const rdvU2 = await call(fenetre, { headers: authU2 });
+    ok(rdvU2.status === 200 && rdvU2.json.rdv.length === 1 && rdvU2.json.rdv[0].client_nom === "Jean Dupont", "le conseiller de permanence voit SON rendez-vous");
+    const collegue = await call("/agency/users", { headers: auth, body: { email: "collegue.rdv@azur-immo.fr", name: "Collègue RDV" } });
+    const authCol = { Authorization: "Bearer " + (await call("/auth/exchange", { body: { token: collegue.json.invite_link.split("#token=")[1] } })).json.session };
+    const rdvCol = await call(fenetre, { headers: authCol });
+    ok(rdvCol.status === 200 && rdvCol.json.rdv.length === 0 && (await call("/rdv", { headers: authCol })).json.rdv.length === 0,
+      "un autre conseiller ne reçoit pas les rendez-vous de ses collègues (ni les coordonnées de leurs clients)");
+    const annuleCol = await call("/rdv/" + idRdv + "/statut", { headers: authCol, body: { statut: "annule" } });
+    ok(annuleCol.status === 403 && (await db.get("SELECT statut FROM rdv WHERE id = ?", [idRdv])).statut === "confirme", "…et ne peut pas annuler celui d'un collègue (403, statut inchangé)");
+    ok((await call("/rdv/" + idRdv + "/statut", { headers: authU2, body: { statut: "honore" } })).status === 200 && (await db.get("SELECT statut FROM rdv WHERE id = ?", [idRdv])).statut === "honore",
+      "le conseiller concerné, lui, change le statut du sien");
+    await call("/rdv/" + idRdv + "/statut", { headers: auth, body: { statut: "confirme" } });
+    await call("/agency/users/" + collegue.json.user.id, { method: "DELETE", headers: auth }); // siège libéré
+  }
 
   // Un rendez-vous annulé LIBÈRE son créneau : la page publique le repropose
   // et un autre client peut le reprendre — sans erreur 500 (l'unicité ne
@@ -2121,6 +2537,8 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
       // Programme neuf (constructeur) : Bien'ici annonce une fourchette price = [min, max] (Benoît voyait « NaN € »).
       { id: "neuf-3", accountDisplayName: "Maisons MCA", adType: "buy", propertyType: "house", newProperty: true, price: [328430, null], surfaceArea: 100, landSurfaceArea: 600, roomsQuantity: 4, city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString(), blurInfo: { position: { lat: 44.8705, lon: -0.7125 } }, photos: [] },
       { id: "terrain-4", accountDisplayName: "Terrains du Médoc", adType: "buy", propertyType: "terrain", price: 150000, landSurfaceArea: 800, city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString() },
+      // Programme neuf d'appartements, tel que le portail l'annonce : prix, surface, pièces et chambres en fourchettes.
+      { id: "neuf-5", accountDisplayName: "Promoteur Test", adType: "buy", propertyType: "flat", newProperty: true, price: [145000, 275000], surfaceArea: [40, 83.77], roomsQuantity: [2, 4], bedroomsQuantity: [1, 3], city: "Le Haillan", postalCode: "33185", publicationDate: new Date().toISOString(), photos: [] },
     ];
     res.end(JSON.stringify({ total: tous.length, realEstateAds: tous.filter((a) => !typeDemande || a.propertyType === typeDemande) }));
   });
@@ -2163,6 +2581,9 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(/Vignes/.test(q)
       ? { features: [{ properties: { label: "7 Impasse des Vignes 33185 Le Haillan", score: 0.93, citycode: "33200", city: "Le Haillan", context: "33, Gironde, Nouvelle-Aquitaine" }, geometry: { coordinates: [-0.68, 44.9012] } }] }
+      // Une adresse que la Base Adresse situe à Saint-Médard-en-Jalles (33449), une autre qu'elle situe hors du code postal de la fiche.
+      : /Essai BAN ailleurs/.test(q) ? { features: [{ properties: { label: q, score: 0.7, citycode: "83137", city: "Toulon", context: "83, Var, Provence-Alpes-Côte d'Azur" }, geometry: { coordinates: [5.93, 43.12] } }] }
+      : /Essai BAN/.test(q) ? { features: [{ properties: { label: q, score: 0.9, citycode: "33449", city: "Saint-Médard-en-Jalles", context: "33, Gironde, Nouvelle-Aquitaine" }, geometry: { coordinates: [-0.751, 44.951] } }] }
       : { features: [] }));
   });
   await new Promise((r) => fauxBan.listen(18793, r));
@@ -2187,9 +2608,19 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await new Promise((r) => fauxOverpass.listen(18784, r));
   const communeHaillan = { nom: "Le Haillan", code: "33200", population: 11900, surface: 926, departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } };
   let geoMuet = false; // geo.api.gouv.fr en panne : 503 sur toutes les requêtes
+  // Les codes postaux à plusieurs communes, dans l'ORDRE de la vraie API (relevé le 16/11) :
+  // 33160 → Saint-Aubin-de-Médoc AVANT Saint-Médard-en-Jalles ; 33320 → Eysines avant Le Taillan-Médoc.
+  let geoPlusieurs = false;
+  const gironde = { departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } };
+  const COMMUNES_CP = {
+    33160: [{ nom: "Saint-Aubin-de-Médoc", code: "33376", population: 7769, surface: 3481.9, ...gironde }, { nom: "Saint-Médard-en-Jalles", code: "33449", population: 32910, surface: 8497.64, ...gironde }, { nom: "Salaunes", code: "33494", population: 1260, surface: 4355.19, ...gironde }],
+    33320: [{ nom: "Eysines", code: "33162", population: 24825, surface: 1201, ...gironde }, { nom: "Le Taillan-Médoc", code: "33519", population: 11073, surface: 1517, ...gironde }],
+  };
   const fauxGeo = (await import("node:http")).createServer((req, res) => {
     if (geoMuet) { res.writeHead(503); res.end("down"); return; }
     res.writeHead(200, { "Content-Type": "application/json" });
+    { const cpDemande = (/codePostal=(\d{5})/.exec(req.url) || [])[1];
+      if (geoPlusieurs && COMMUNES_CP[cpDemande]) { res.end(JSON.stringify(COMMUNES_CP[cpDemande])); return; } }
     // La fiche d'une commune par son code INSEE (secours après la BAN) ; un CP inconnu → liste vide.
     if (/^\/communes\/33200\b/.test(req.url)) { res.end(JSON.stringify(communeHaillan)); return; }
     if (/codePostal=33999/.test(req.url)) { res.end("[]"); return; }
@@ -2647,25 +3078,43 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const aps = (await callS("/me/appareils", { headers: authC })).json;
     ok(aps.appareils.length === 1 && aps.appareils[0].courant === true && aps.appareils[0].nom === "iPhone · Safari" && aps.mobile.numero === "06 ** ** ** 78" && aps.mobile.verifie === true,
       "Mes appareils : l'iPhone courant et le mobile vérifié (" + JSON.stringify(aps) + ")");
-    // Second appareil : nouveau code ; renvoi par e-mail à la demande ; fermeture à distance.
+    // Second appareil : nouveau code ; fermeture à distance. Le mobile est maintenant VÉRIFIÉ :
+    // le code ne part plus que par SMS (l'e-mail a déjà reçu le lien, ce ne serait plus un second facteur).
     const ex2 = await callS("/auth/exchange", { body: { token: await lienPour("code2fa@ach-test.fr") }, headers: { "User-Agent": UA_PC } });
     const auth2 = { Authorization: "Bearer " + ex2.json.session };
-    const mailsAvant2 = mailsRecus.length;
+    const mailsAvant2 = mailsRecus.length, smsAvant2 = smsRecus.length;
     const renvoi = await callS("/auth/code/envoyer", { headers: auth2, body: { canal: "email" } });
-    const mailCode = mailsRecus[mailsRecus.length - 1];
-    ok(renvoi.status === 200 && renvoi.json.canal === "email" && mailsRecus.length === mailsAvant2 + 1 && /code de connexion Studio : \d{6}/.test(mailCode.subject) && mailCode.to[0] === "code2fa@ach-test.fr",
-      "le code peut être renvoyé par e-mail (" + JSON.stringify(renvoi.json) + ")");
-    const code2 = (mailCode.subject.match(/(\d{6})/) || [])[1];
-    ok((await callS("/auth/code/verifier", { headers: auth2, body: { code: code2 } })).status === 200, "le code e-mail valide le second appareil");
+    // Choix du propriétaire (17/11) : le code par e-mail reste un secours, même avec un mobile vérifié.
+    ok(renvoi.status === 200 && renvoi.json.canal === "email" && mailsRecus.slice(mailsAvant2).some((m) => /code de connexion/i.test(m.subject || "")),
+      "mobile vérifié : le code peut encore être demandé par e-mail, en secours (" + JSON.stringify(renvoi.json) + ")");
+    const renvoiSms = await callS("/auth/code/envoyer", { headers: auth2, body: {} });
+    ok(renvoiSms.status === 200 && renvoiSms.json.canal === "sms" && smsRecus.length === smsAvant2 + 1, "…il se redemande par SMS");
+    ok(ex.json.verification.emailPossible === true && ex2.json.verification.emailPossible === true && renvoiSms.json.emailPossible === true,
+      "la réponse dit à l'écran que le code par e-mail reste possible");
+    const code2 = smsRecus[smsRecus.length - 1].content.slice(0, 6);
+    ok((await callS("/auth/code/verifier", { headers: auth2, body: { code: code2 } })).status === 200, "le code SMS valide le second appareil");
     const aps2 = (await callS("/me/appareils", { headers: authC })).json.appareils;
     const pc = aps2.find((a) => a.nom === "Windows · Chrome");
     ok(aps2.length === 2 && pc && !pc.courant, "deux appareils listés depuis l'iPhone (" + JSON.stringify(aps2.map((a) => a.nom)) + ")");
     ok((await callS("/me/appareils/" + pc.id, { headers: authC, method: "DELETE" })).status === 200 && (await callS("/me", { headers: auth2 })).status === 401, "fermer le PC depuis l'iPhone : sa session est révoquée");
-    // Cinq mauvais codes → redemander un code.
+    // Cinq essais PAR SESSION : redemander un code ne les rend pas (5 codes × 5 essais = 25 tentatives avant).
     const ex3 = await callS("/auth/exchange", { body: { token: await lienPour("code2fa@ach-test.fr") } });
     const auth3 = { Authorization: "Bearer " + ex3.json.session };
-    let dernier = null; for (let i = 0; i < 6; i++) dernier = await callS("/auth/code/verifier", { headers: auth3, body: { code: "111111" } });
-    ok(dernier.status === 429 || (dernier.status === 200 && ex3.json.verification.dev_code === "111111"), "cinq mauvais codes → 429, il faut un nouveau code");
+    const fauxDe = (c) => String((parseInt(c, 10) + 1) % 1000000).padStart(6, "0");
+    for (let i = 0; i < 3; i++) await callS("/auth/code/verifier", { headers: auth3, body: { code: fauxDe(ex3.json.verification.dev_code) } });
+    const neuf = await callS("/auth/code/envoyer", { headers: auth3, body: {} });
+    ok(neuf.status === 200 && (await db.get("SELECT code_essais FROM sessions_appareils WHERE token_hash = ?", [await sha256hex(ex3.json.session)])).code_essais === 3,
+      "un nouveau code ne remet pas les essais à zéro (3 comptés avant, 3 après)");
+    const ko4 = await callS("/auth/code/verifier", { headers: auth3, body: { code: fauxDe(neuf.json.dev_code) } });
+    const ko5 = await callS("/auth/code/verifier", { headers: auth3, body: { code: fauxDe(neuf.json.dev_code) } });
+    ok(ko4.status === 401 && /1 essai/.test(ko4.json.error) && ko5.status === 401 && /lien de connexion/.test(ko5.json.error), "4e et 5e essais refusés, le décompte continue (" + ko4.json.error + ")");
+    const sixieme = await callS("/auth/code/verifier", { headers: auth3, body: { code: neuf.json.dev_code } });
+    ok(sixieme.status === 429 && (await callS("/me", { headers: auth3 })).status === 401, "cinq mauvais codes sur la session → même le BON code est refusé (429)");
+    ok((await callS("/auth/code/envoyer", { headers: auth3, body: {} })).status === 429, "…et plus aucun code n'est envoyé : il faut un nouveau lien");
+    // Essais en rafale : comptés un par un (incrément gardé), jamais plus de cinq comparaisons.
+    await db.run("UPDATE sessions_appareils SET code_essais = 0 WHERE token_hash = ?", [await sha256hex(ex3.json.session)]);
+    const rafale = await Promise.all(Array.from({ length: 12 }, () => callS("/auth/code/verifier", { headers: auth3, body: { code: fauxDe(neuf.json.dev_code) } })));
+    ok(rafale.filter((r) => r.status === 401).length === 5 && rafale.filter((r) => r.status === 429).length === 7, "douze essais en parallèle : cinq comparés, sept refusés");
     // Journal de l'agence (admin seulement).
     const jr = (await callS("/agency/connexions", { headers: auth })).json.connexions;
     ok(jr.some((j) => j.type === "connexion" && j.email === "code2fa@ach-test.fr" && /code sms/.test(j.detail) && j.ip === "203.0.113.42") && jr.some((j) => j.type === "code-ko") && jr.some((j) => j.type === "appareil-ferme"),
@@ -2681,6 +3130,13 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     const smsAvant5 = smsRecus.length;
     const ex5 = await callS("/auth/exchange", { body: { token: await lienPour("code2fa@ach-test.fr") } });
     ok(ex5.json.verification.requis === true && smsRecus.length === smsAvant5 + 1 && smsRecus[smsRecus.length - 1].recipient === "+33700000000", "le code part sur le nouveau numéro");
+    // Ce nouveau numéro n'est PAS encore vérifié : le code peut encore être demandé par e-mail.
+    const mailsAvant5 = mailsRecus.length;
+    const renvoi5 = await callS("/auth/code/envoyer", { headers: { Authorization: "Bearer " + ex5.json.session }, body: { canal: "email" } });
+    const mailCode5 = mailsRecus[mailsRecus.length - 1];
+    ok(renvoi5.status === 200 && renvoi5.json.canal === "email" && mailsRecus.length === mailsAvant5 + 1 && /code de connexion Studio : \d{6}/.test(mailCode5.subject) && mailCode5.to[0] === "code2fa@ach-test.fr",
+      "mobile pas encore vérifié : le code peut être renvoyé par e-mail (" + JSON.stringify(renvoi5.json) + ")");
+    ok((await callS("/auth/code/verifier", { headers: { Authorization: "Bearer " + ex5.json.session }, body: { code: (mailCode5.subject.match(/(\d{6})/) || [])[1] } })).status === 200, "…et le code e-mail valide l'appareil");
     await db.run("DELETE FROM login_tokens WHERE user_id = ?", [cpt.json.user.id]);
     ok((await callS("/agency/users/" + cpt.json.user.id, { headers: auth, method: "DELETE" })).status === 200, "le compte de test est retiré (siège libéré)");
     await db.run("DELETE FROM crm_conseillers WHERE agency_id = ? AND email = 'code2fa@ach-test.fr'", [agId]); }
@@ -3566,6 +4022,38 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await callR("/crm/contacts/fusionner", { headers: auth, body: { garder: garder.id, absorber: [] } })).status === 400,
     "fusionner sans rien absorber est refusé");
   ok((await callR("/crm/contacts/doublons", { headers: authP })).status === 403, "doublons et fusion sont réservés aux administrateurs");
+  // Audit du 16/11 — (b) « ne plus contacter » survit à la fusion, quelle que soit la fiche qui le portait.
+  { const ins = (id, prenom, opt, t) => db.run("INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone, adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out, created_at, updated_at) VALUES (?, ?, '', '', ?, 'OPTOUTFUSION', '', '', '', '', '', '', '', '[]', '', '', 'manuel', ?, ?, ?)", [id, agId, prenom, opt, t, t]);
+    await ins("ct_opt_garde", "Rose", 0, 10); await ins("ct_opt_abs", "Rose", 1, 11); await ins("ct_opt_abs2", "R.", 0, 12);
+    const fo = await callR("/crm/contacts/fusionner", { headers: auth, body: { garder: "ct_opt_garde", absorber: ["ct_opt_abs", "ct_opt_abs2"] } });
+    const og = await db.get("SELECT opt_out FROM crm_contacts WHERE id = 'ct_opt_garde'");
+    ok(fo.status === 200 && fo.json.absorbees === 2 && og.opt_out === 1, "fusion : dès qu'une fiche absorbée avait demandé à ne plus être contactée, la fiche gardée porte l'opt-out (" + JSON.stringify(og) + ")");
+    await db.run("DELETE FROM crm_contacts WHERE id = 'ct_opt_garde'"); }
+  // (c) Import : un e-mail PARTAGÉ ne fusionne pas deux prénoms différents ; le même prénom (casse, accents) se rapproche toujours.
+  { await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ prenom: "Paul", nom: "PARTAGE", email: "famille.partage@exemple.fr", telephone: "0601010101", notes: "Fiche de Paul" }] } });
+    const i2 = (await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [
+      { prenom: "Sophie", nom: "PARTAGE", email: "famille.partage@exemple.fr", telephone: "0602020202" },
+      { prenom: "PAUL", nom: "Partage", email: "Famille.Partage@exemple.fr", ville: "Mérignac" },
+    ] } })).json;
+    const fam = (await callR("/crm/contacts", { headers: auth })).json.contacts.filter((x) => x.email === "famille.partage@exemple.fr");
+    const paul = fam.find((x) => /^paul$/i.test(x.prenom)), sophie = fam.find((x) => x.prenom === "Sophie");
+    ok(i2.created === 1 && i2.updated === 1 && fam.length === 2 && paul && sophie && paul.telephone === "06 01 01 01 01" && paul.notes === "Fiche de Paul" && paul.ville === "Mérignac" && sophie.telephone === "06 02 02 02 02",
+       "import : sur un e-mail partagé, Sophie reçoit sa fiche (celle de Paul n'est pas renommée) et la ligne de Paul complète la sienne (" + JSON.stringify(fam.map((x) => [x.prenom, x.telephone])) + ")");
+    // Une ligne sans prénom, deux fiches à cet e-mail : on ne devine pas → rapprochement par nom + prénom, sinon nouvelle fiche.
+    const i3 = (await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "AUTRENOM", email: "famille.partage@exemple.fr" }] } })).json;
+    ok(i3.created === 1 && i3.updated === 0, "import : une ligne sans prénom sur un e-mail porté par deux fiches ne se colle sur aucune des deux");
+    // Une seule fiche à l'e-mail et un prénom inconnu d'un côté : rapprochée, comme avant.
+    await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ nom: "SEULEMAIL", email: "seul.email@exemple.fr" }] } });
+    const i4 = (await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ prenom: "Inès", nom: "SEULEMAIL", email: "seul.email@exemple.fr" }] } })).json;
+    ok(i4.created === 0 && i4.updated === 1, "import : une seule fiche à cet e-mail, sans prénom → la ligne la complète (pas de doublon)");
+    // Le nettoyage automatique « même e-mail » ne refond pas le couple : seuls les prénoms qui concordent fusionnent.
+    await db.run("INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone, adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out, created_at, updated_at) VALUES ('ct_part_dbl', ?, '', '', 'paul', 'PARTAGE', 'famille.partage@exemple.fr', '', '1 rue du Doublon', '', '', '', '', '[]', '', '', 'import', 0, 9000000000, 9000000000)", [agId]);
+    let cur = "", amb = 0;
+    for (let t4 = 0; t4 < 60; t4++) { const r = (await callR("/crm/nettoyage", { headers: auth, body: { action: "doublons", curseur: cur } })).json; amb += r.ambigus || 0; if (r.fini) break; if (!r.traites && !r.ambigus && (r.curseur || "") === cur) break; cur = r.curseur || ""; }
+    const fam2 = (await callR("/crm/contacts", { headers: auth })).json.contacts.filter((x) => x.email === "famille.partage@exemple.fr");
+    ok(fam2.filter((x) => /^paul$/i.test(x.prenom)).length === 1 && fam2.some((x) => x.prenom === "Sophie" && x.telephone === "06 02 02 02 02") && fam2.find((x) => /^paul$/i.test(x.prenom)).adresse === "1 rue du Doublon" && fam2.some((x) => x.nom === "AUTRENOM") && amb >= 1,
+       "nettoyage : sur un e-mail partagé, les deux « Paul » fusionnent, Sophie garde sa fiche, la fiche sans prénom est laissée (" + JSON.stringify(fam2.map((x) => [x.prenom, x.nom])) + ", ambigus " + amb + ")");
+    await callR("/crm/contacts/supprimer", { headers: auth, body: { ids: [...fam2.map((x) => x.id), ...(await callR("/crm/contacts", { headers: auth })).json.contacts.filter((x) => x.nom === "SEULEMAIL").map((x) => x.id)] } }); }
 
   /* ---- Fiches inutilisables + suppression en cascade / en masse ----------- */
   console.log("— Fiches inutilisables (sans nom, prénom seul, anonymisées) + suppression");
@@ -3718,7 +4206,77 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(menage.corbeille >= 1 && !(await callR("/crm/corbeille", { headers: auth })).json.entrees.some((e) => e.ref_id === svA),
      "le ménage quotidien purge la corbeille au-delà de 30 jours");
 
+  console.log("— Audit de sécurité : ids écrits dans le SQL, créateur d'une estimation, modification réservée à l'auteur");
+  {
+    // (1) La charge de l'audit. Un id de 19 lettres + 21 apostrophes était échappé PUIS coupé à 60 : il restait
+    // une apostrophe orpheline, et l'id suivant devenait du SQL (UNION sur les e-mails des comptes).
+    const charge = "a".repeat(19) + "'".repeat(21), union = ") UNION SELECT email FROM users --";
+    const inj = await callR("/crm/estimations", { headers: authD4, body: { nom: "Fiche de test", adresse: "1 rue de l'Audit", ville: "Le Haillan", contactIds: [charge, union] } });
+    const liesDe = async (id) => (await db.all("SELECT contact_id FROM crm_estimation_contacts WHERE estimation_id = ?", [id])).map((r) => r.contact_id);
+    const estInj = await db.get("SELECT contact_id FROM crm_estimations WHERE id = ?", [inj.json && inj.json.id]);
+    ok(inj.status === 200 && (await liesDe(inj.json.id)).length === 0 && estInj && !/@/.test(estInj.contact_id),
+      "contactIds piégés (apostrophes + UNION) : la fiche se crée, rien n'est lu ni lié (" + inj.status + " " + JSON.stringify(inj.json && inj.json.error) + ")");
+    const mixte = await callR("/crm/estimations/" + inj.json.id, { headers: authD4, method: "PUT", body: { nom: "Fiche de test", adresse: "1 rue de l'Audit", contactIds: ["ct_o'neil", cbCt.id, charge, union] } });
+    ok(mixte.status === 200 && JSON.stringify(await liesDe(inj.json.id)) === JSON.stringify([cbCt.id]), "un id contenant une apostrophe est simplement ignoré, le vrai contact est lié");
+    const rlInj = await callR("/crm/projets/" + projetId + "/relancer", { headers: auth, body: { annonceIds: ["b".repeat(59) + "'", ") UNION SELECT email FROM users --"] } });
+    ok(rlInj.status === 404 && /stock/.test(rlInj.json.error), "annonceIds piégés : « aucun de ces biens », pas d'erreur SQL (" + rlInj.status + ")");
+    const libelle = "L".repeat(199) + "'";
+    const geoInj = await callR("/crm/geo/batch", { headers: auth, body: { rows: [{ contactId: cbCt.id, lat: 44.91, lng: -0.71, label: libelle + " suite coupée", score: 0.9, adresse: "x" },
+      { contactId: "c".repeat(199) + "'", lat: 44.9, lng: -0.7, label: "y", score: 0.9, adresse: ") OR 1=1 --" }] } });
+    ok(geoInj.status === 200 && geoInj.json.enregistres === 1 && (await db.get("SELECT label FROM crm_geo WHERE contact_id = ?", [cbCt.id])).label === libelle,
+      "géocache : une valeur coupée juste après une apostrophe reste une valeur (tronquée avant d'être échappée)");
+    await callR("/crm/geo/batch", { headers: auth, body: { rows: [{ contactId: cbCt.id, lat: 44.9, lng: -0.7, label: "y", score: 0.9, adresse: "y" }] } });
+
+    // (2) Enregistrer la fiche d'un collègue ne fait pas de soi son « créateur » (c'est lui qui ouvre le parcours).
+    const estP = await callR("/crm/estimations", { headers: authP, body: { nom: "Dossier du collègue", adresse: "2 rue de l'Audit", ville: "Le Haillan" } });
+    const createur = (await db.get("SELECT user_id FROM crm_estimations WHERE id = ?", [estP.json.id])).user_id;
+    const moiD4 = (await callR("/me", { headers: authD4 })).json.user.id;
+    const putCollegue = await callR("/crm/estimations/" + estP.json.id, { headers: authD4, method: "PUT", body: { nom: "Dossier du collègue", adresse: "2 rue de l'Audit", ville: "Le Haillan", notes: "relu par un collègue" } });
+    const apresPut = await db.get("SELECT user_id, notes FROM crm_estimations WHERE id = ?", [estP.json.id]);
+    ok(putCollegue.status === 200 && apresPut.notes === "relu par un collègue" && createur && createur !== moiD4 && apresPut.user_id === createur,
+      "PUT d'une estimation : la fiche est enregistrée, son créateur (user_id) reste celui de la création");
+
+    // (6) Suivis et visites : la règle « auteur ou administrateur » vaut aussi pour la modification.
+    const svG = (await callR("/crm/suivis", { headers: authP, body: { contact_id: cbCt.id, type: "appel", commentaire: "Appel de l'auteur.", rappel_le: "2030-01-15" } })).json.id;
+    const lireSv = () => db.get("SELECT commentaire, rappel_fait, type FROM crm_suivis WHERE id = ?", [svG]);
+    const reecrit = await callR("/crm/suivis/" + svG, { headers: authD4, method: "PUT", body: { commentaire: "Réécrit par un collègue.", rappel_fait: 1 } });
+    ok(reecrit.status === 403 && (await lireSv()).commentaire === "Appel de l'auteur." && (await lireSv()).rappel_fait === 0, "un collègue ne réécrit pas le suivi d'un autre (403, rien n'a bougé)");
+    const coche = await callR("/crm/suivis/" + svG, { headers: authD4, method: "PUT", body: { rappel_fait: 1 } });
+    ok(coche.status === 200 && (await lireSv()).rappel_fait === 1 && (await lireSv()).commentaire === "Appel de l'auteur.", "…mais il peut cocher « rappel fait »");
+    ok((await callR("/crm/suivis/" + svG, { headers: authD4, method: "PUT", body: { ...(await db.get("SELECT * FROM crm_suivis WHERE id = ?", [svG])), rappel_fait: 0 } })).status === 200 && (await lireSv()).rappel_fait === 0,
+      "…y compris en renvoyant la ligne entière inchangée (rappel « à refaire »)");
+    ok((await callR("/crm/suivis/" + svG, { headers: authP, method: "PUT", body: { commentaire: "Corrigé par son auteur." } })).status === 200 && (await lireSv()).commentaire === "Corrigé par son auteur.", "l'auteur corrige son suivi");
+    ok((await callR("/crm/suivis/" + svG, { headers: auth, method: "PUT", body: { commentaire: "Corrigé par la direction." } })).status === 200 && (await lireSv()).commentaire === "Corrigé par la direction.", "un administrateur aussi");
+    const corpsVi = { contact_id: cbCt.id, contact: "Anne CORBEILLE", bien: "5 rue de l'Audit", date_visite: "2026-09-21" };
+    const viG = (await callR("/crm/visites", { headers: authP, body: corpsVi })).json.id;
+    const lireVi = () => db.get("SELECT v.compte_rendu, v.user_id, COALESCE(a.avis, '') AS avis FROM crm_visites v LEFT JOIN crm_visite_avis a ON a.visite_id = v.id WHERE v.id = ?", [viG]);
+    const auteurVi = (await lireVi()).user_id;
+    const viCol = await callR("/crm/visites/" + viG, { headers: authD4, method: "PUT", body: { ...corpsVi, compte_rendu: "Réécrit par un collègue.", avis: "pas_plu" } });
+    ok(viCol.status === 403 && (await lireVi()).compte_rendu === "" && (await lireVi()).avis === "", "un collègue ne réécrit pas la visite d'un autre (403, ni compte rendu ni avis)");
+    ok((await callR("/crm/visites/" + viG, { headers: authP, method: "PUT", body: { ...corpsVi, compte_rendu: "Visite faite.", avis: "plu" } })).status === 200 && (await lireVi()).avis === "plu", "l'auteur complète sa visite");
+    ok((await callR("/crm/visites/" + viG, { headers: auth, method: "PUT", body: { ...corpsVi, compte_rendu: "Relu par la direction." } })).status === 200
+      && (await lireVi()).compte_rendu === "Relu par la direction." && (await lireVi()).user_id === auteurVi, "un administrateur la corrige sans en devenir l'auteur");
+    // Décor retiré : rien de tout cela ne doit peser sur les tests suivants.
+    await db.run("DELETE FROM crm_visite_avis WHERE visite_id = ?", [viG]);
+    await db.run("DELETE FROM crm_visites WHERE id = ?", [viG]);
+    await db.run("DELETE FROM crm_suivis WHERE id = ?", [svG]);
+    for (const id of [inj.json.id, estP.json.id]) {
+      await db.run("DELETE FROM crm_estimation_contacts WHERE estimation_id = ?", [id]);
+      await db.run("DELETE FROM crm_estimations WHERE id = ?", [id]);
+    }
+  }
+
   console.log("— Durcissement : plafonds du jour (envois manuels, prospects)");
+  {
+    // Plafond atomique : douze consommations lancées ensemble sous un plafond de 5 → cinq accordées, pas une de plus
+    // (« lire puis écrire » les laissait toutes passer).
+    const ensemble = await Promise.all(Array.from({ length: 12 }, () => CRM_TEST.consommerQuota(db, "ag_test_parallele", "us_test", "test-parallele", 5)));
+    const compte = (await db.get("SELECT n FROM crm_quotas WHERE agency_id = 'ag_test_parallele' AND cle = 'test-parallele'")).n;
+    ok(ensemble.filter((q) => q.ok).length === 5 && compte === 5 && ensemble.every((q) => q.max === 5), "plafond du jour : 12 demandes en parallèle, 5 accordées et 5 comptées (" + ensemble.filter((q) => q.ok).length + "/" + compte + ")");
+    const apresPlafond = await CRM_TEST.consommerQuota(db, "ag_test_parallele", "us_test", "test-parallele", 5);
+    ok(apresPlafond.ok === false && apresPlafond.n === 5, "…et la suivante est refusée sans rien compter");
+    await db.run("DELETE FROM crm_quotas WHERE agency_id = 'ag_test_parallele'");
+  }
   const meP = (await callR("/me", { headers: authP })).json.user;
   const jourQ = CRM_TEST.parisDate();
   await db.run("INSERT OR REPLACE INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES (?, ?, ?, 'envoi-mail', 99)", [agId, meP.id, jourQ]);
@@ -3824,6 +4382,14 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   await callR("/crm/conseillers/cs_dbl1", { headers: auth, method: "DELETE" });
   const imp2 = await callR("/crm/conseillers/importer", { headers: auth, body: {} });
   ok(imp2.status === 200 && imp2.json.ajoutes === 0 && (await callR("/crm/conseillers", { headers: auth })).json.conseillers.length === csImp.length, "relancer l'import n'ajoute rien");
+  // Audit du 16/11 : la fenêtre « ✏️ conseiller » n'envoie pas `user_id` ; le serveur écrivait alors user_id = ''
+  // et le profil perdait le lien avec son compte (périmètre « mes parcours »).
+  { await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: carto.id, prenom: carto.prenom, nom: carto.nom, email: carto.email, fonction: "Conseillère", actif: true } });
+    const apres = await db.get("SELECT user_id, fonction FROM crm_conseillers WHERE id = ?", [carto.id]);
+    ok(apres.fonction === "Conseillère" && apres.user_id === membreP.json.user.id, "enregistrer un profil conseiller sans `user_id` dans le corps garde son lien avec le compte (" + JSON.stringify(apres.user_id) + ")");
+    await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: carto.id, prenom: carto.prenom, nom: carto.nom, email: carto.email, fonction: carto.fonction || "", actif: true, user_id: "" } });
+    ok((await db.get("SELECT user_id FROM crm_conseillers WHERE id = ?", [carto.id])).user_id === "", "…et un `user_id` explicitement vide le détache toujours");
+    await db.run("UPDATE crm_conseillers SET user_id = ? WHERE id = ?", [membreP.json.user.id, carto.id]); }
   const doublon = await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "teddy", nom: "besson", fonction: "Négociateur" } });
   ok(doublon.status === 200 && doublon.json.id === teddy.json.id && doublon.json.existant, "créer « teddy besson » sans id complète le profil existant au lieu de le doubler");
   await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { id: teddy.json.id, prenom: "Teddy", nom: "BESSON", fonction: "Conseiller immobilier", telephone: "06 00 00 00 01", email: "teddy@kadima.test" } });
@@ -3838,11 +4404,31 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const ctPx = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.id === pxCree.json.contact_id);
   ok(ctPx && ctPx.nom === "MOUNEYRES" && ctPx.prenom === "Jean" && ctPx.civilite === "M. et Mme" && ctPx.email === "mouneyres@exemple.fr" && ctPx.types.includes("estime") && ctPx.source === "parcours",
      "le contact créé porte civilité, prénom, nom, e-mail, et la typologie « estimé »");
+  // Audit du 16/11 : un simple HOMONYME (même nom + prénom, sans e-mail ni téléphone en commun) n'est plus
+  // rattaché d'office — le parcours d'une autre personne partait sur sa fiche, ensuite réécrite. (Ce test
+  // attendait l'ancien rattachement par nom + prénom : il vérifie désormais qu'une nouvelle fiche est créée.)
   const pxBis = await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "MOUNEYRES", prenom: "Jean", adresse: "Ailleurs", ville: "Pessac" } });
-  ok(pxBis.status === 200 && !pxBis.json.contact_cree && pxBis.json.contact_id === pxCree.json.contact_id, "un second parcours pour le même nom + prénom réutilise la fiche contact");
+  ok(pxBis.status === 200 && pxBis.json.contact_cree && pxBis.json.contact_id !== pxCree.json.contact_id, "un second parcours pour un simple homonyme (même nom + prénom, ni e-mail ni téléphone) crée SA fiche contact");
+  // Le rattachement automatique demande une coordonnée identique : l'e-mail, ou le téléphone quel que soit son format.
+  const pxMail = await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "Mouneyres", prenom: "Jean", email: "MOUNEYRES@exemple.fr", adresse: "5 rue du Même Mail", ville: "Pessac" } });
+  ok(pxMail.status === 200 && !pxMail.json.contact_cree && pxMail.json.contact_id === pxCree.json.contact_id, "le même e-mail rattache à la fiche existante");
+  const pxTel = await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "MOUNEYRES", prenom: "Jean", telephone: "+33 6 00 00 00 02", adresse: "6 rue du Même Numéro", ville: "Pessac" } });
+  ok(pxTel.status === 200 && !pxTel.json.contact_cree && pxTel.json.contact_id === pxCree.json.contact_id, "le même téléphone (saisi « +33 6… ») rattache à la fiche existante");
+  // Un e-mail partagé par deux fiches (un couple) : celle du même prénom ; un prénom inconnu des deux → nouvelle fiche.
+  await db.run("INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone, adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out, created_at, updated_at) VALUES ('ct_px_cj', ?, '', 'Mme', 'Sophie', 'MOUNEYRES', 'mouneyres@exemple.fr', '', '', '', '', '', '', '[]', '', '', 'manuel', 0, 5, 5)", [agId]);
+  const pxCj = await callR("/crm/parcours", { headers: authP, body: { civilite: "Mme", nom: "MOUNEYRES", prenom: "sophie", email: "mouneyres@exemple.fr", adresse: "7 rue du Couple", ville: "Pessac" } });
+  const pxTiers = await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "MOUNEYRES", prenom: "Lucas", email: "mouneyres@exemple.fr", adresse: "8 rue du Fils", ville: "Pessac" } });
+  ok(pxCj.json.contact_id === "ct_px_cj" && !pxCj.json.contact_cree && pxTiers.json.contact_cree && ![ctPx.id, "ct_px_cj"].includes(pxTiers.json.contact_id),
+     "e-mail partagé par deux fiches : le parcours va à celle du même prénom ; un autre prénom reçoit sa propre fiche");
   const pxChoisi = await callR("/crm/parcours", { headers: authP, body: { contact_id: ctPx.id, nom: "AUTRE NOM", adresse: "3 rue Choisie", ville: "Pessac" } });
   ok(pxChoisi.status === 200 && pxChoisi.json.contact_id === ctPx.id && !pxChoisi.json.contact_cree, "un contact choisi dans la recherche est lié tel quel");
-  for (const idSup of [pxBis.json.id, pxChoisi.json.id]) await db.run("DELETE FROM crm_estimations WHERE id = ?", [idSup]);
+  // Une fiche reliée à un contact qui porte DÉJÀ ses coordonnées ne les remplace pas (la fiche de Paul n'est plus réécrite par le parcours de Sophie).
+  await callR("/crm/parcours/" + pxChoisi.json.id, { headers: authP, method: "PUT", body: { nom: "AUTRE NOM", prenom: "Sophie", email: "autre@exemple.fr", telephone: "07 77 77 77 77", adresse: "3 rue Choisie", cp: "33600", ville: "Pessac" } });
+  const ctIntact = await db.get("SELECT * FROM crm_contacts WHERE id = ?", [ctPx.id]);
+  ok(ctIntact.nom === "MOUNEYRES" && ctIntact.prenom === "Jean" && ctIntact.email === "mouneyres@exemple.fr" && ctIntact.telephone === "06 00 00 00 02" && ctIntact.adresse === "12 rue du Mandat Confiance" && ctIntact.ville === "SAINT AUBIN DE MEDOC",
+     "« Enregistrer la fiche » d'un parcours ne remplace ni le nom, ni l'e-mail, ni le téléphone, ni l'adresse de la fiche contact reliée");
+  for (const idSup of [pxBis.json.id, pxMail.json.id, pxTel.json.id, pxCj.json.id, pxTiers.json.id, pxChoisi.json.id]) { await db.run("DELETE FROM crm_estimations WHERE id = ?", [idSup]); await db.run("DELETE FROM crm_parcours WHERE estimation_id = ?", [idSup]); await db.run("DELETE FROM crm_estimation_contacts WHERE estimation_id = ?", [idSup]); }
+  await db.run("DELETE FROM crm_contacts WHERE id IN (?, ?, 'ct_px_cj')", [pxBis.json.contact_id, pxTiers.json.contact_id]);
   const pxId = pxCree.json.id;
   const pxFiche = (await callR("/crm/parcours/" + pxId, { headers: authP })).json;
   ok(pxFiche.prenom === "Jean" && pxFiche.type_bien === "maison" && pxFiche.r1_heure === "10:00" && pxFiche.conseiller.nom === "BESSON" && pxFiche.conseiller.photo_url && pxFiche.emails.includes("mouneyres@exemple.fr"),
@@ -3885,12 +4471,20 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const et = await callR("/crm/parcours/" + pxId + "/etape", { headers: authP, body: { etape: "guide-r1" } });
   ok(et.status === 200 && et.json.journal.some((j) => j.etape === "guide-r1"), "une étape faite hors e-mail (guide imprimé) se coche");
   ok((await callR("/crm/parcours/" + pxId + "/apercu?jalon=inconnu", { headers: authP })).status === 400, "jalon inconnu refusé");
-  // Compléter la fiche du parcours met à jour la fiche contact principale (sans rien effacer).
+  // Compléter la fiche du parcours COMPLÈTE la fiche contact principale : ses champs vides se remplissent,
+  // ceux qu'elle porte déjà ne sont ni effacés ni remplacés. (Audit du 16/11 : ce test attendait que le
+  // téléphone et l'adresse du parcours REMPLACENT ceux du contact ; on vide donc d'abord ces deux champs
+  // du contact pour vérifier le remplissage, puis on vérifie qu'une seconde saisie ne les remplace plus.)
+  await db.run("UPDATE crm_contacts SET telephone = '', adresse = '' WHERE id = ?", [pxFiche.contact_id]);
   const ctAvant = await db.get("SELECT * FROM crm_contacts WHERE id = ?", [pxFiche.contact_id]);
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { telephone: "06 11 22 33 44", adresse: "14 rue du Mandat Confiance", cp: "33160", ville: "Saint-Aubin-de-Médoc", prenom: "" } });
   const ctApres = await db.get("SELECT * FROM crm_contacts WHERE id = ?", [pxFiche.contact_id]);
-  ok(ctAvant && ctApres.telephone === "06 11 22 33 44" && ctApres.adresse === "14 rue du Mandat Confiance" && ctApres.cp === "33160" && ctApres.email === ctAvant.email && ctApres.prenom === ctAvant.prenom && ctApres.updated_at >= ctAvant.updated_at,
-     "compléter la fiche du parcours (téléphone, adresse) remonte sur la fiche contact ; un champ vidé n'efface rien (" + ctApres.telephone + ", " + ctApres.adresse + ")");
+  ok(ctAvant && ctApres.telephone === "06 11 22 33 44" && ctApres.adresse === "14 rue du Mandat Confiance" && ctApres.cp === "33160" && ctApres.ville === ctAvant.ville && ctApres.email === ctAvant.email && ctApres.prenom === ctAvant.prenom && ctApres.updated_at >= ctAvant.updated_at,
+     "compléter la fiche du parcours remplit les champs VIDES de la fiche contact (téléphone, adresse) ; la ville déjà saisie reste, un champ vidé n'efface rien (" + ctApres.telephone + ", " + ctApres.adresse + ", " + ctApres.ville + ")");
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { telephone: "06 55 55 55 55", adresse: "99 rue d'une Autre Personne" } });
+  const ctGarde = await db.get("SELECT * FROM crm_contacts WHERE id = ?", [pxFiche.contact_id]);
+  ok(ctGarde.telephone === "06 11 22 33 44" && ctGarde.adresse === "14 rue du Mandat Confiance", "…et une valeur déjà présente sur la fiche contact n'est jamais remplacée par celle du parcours");
+  await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { telephone: "06 11 22 33 44" } });
   await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { adresse: "12 rue du Mandat Confiance", prenom: "Jean" } });
   const pxMaj = await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "appartement", r2: "2026-04-28", r2_heure: "9:00" } });
   const ap2b = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=entre-r1-r2", { headers: authP })).json;
@@ -4084,6 +4678,26 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok(supAv.status === 200 && supAv.json.avis.length === 3, "un avis se retire");
   const ferme = await callR("/crm/parcours/" + pxId + "/commission/fermer", { headers: authP, body: {} });
   ok(ferme.json.ferme && (await callR("/public/commission?t=" + jeton, { body: { nom: "Tard", prix_min: 300000, prix_max: 310000 } })).status === 409 && (await callR("/public/commission?t=" + jeton, {})).json.ferme, "close, la commission n'accepte plus d'avis");
+  // Les fourchettes « De – À » des tiers, au-delà de 4 fourchettes distinctes (audit du 16/11) : le plus petit
+  // prix_min et le plus grand prix_max des avis DU TIERS — pas les extrêmes de leurs moyennes, qui imprimaient
+  // « 290 000 – 290 000 », « 300 000 – 315 000 », « 335 000 – 335 000 » pour les cinq avis ci-dessous.
+  { const pxCom = (await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "TIERSTEST", prenom: "Cinq", adresse: "5 rue des Avis", ville: "Pessac" } })).json;
+    const jetonT = new URL((await callR("/crm/parcours/" + pxCom.id + "/commission/ouvrir", { headers: authP, body: {} })).json.lien, "http://x").searchParams.get("t");
+    for (const [i, [mn, mx]] of [[280000, 300000], [290000, 310000], [300000, 320000], [300000, 330000], [320000, 350000]].entries()) await callR("/public/commission?t=" + jetonT, { body: { nom: "Collègue " + (i + 1), prix_min: mn, prix_max: mx } });
+    const t = (await callR("/crm/parcours/" + pxCom.id + "/commission", { headers: authP })).json;
+    const de = (x) => [x.nb, x.min, x.max, x.moyenne].join(" ");
+    ok(t.groupes.length === 5 && de(t.tiers.repli) === "1 280000 300000 290000" && de(t.tiers.raison) === "3 290000 330000 308000" && de(t.tiers.ambition) === "1 320000 350000 335000",
+       "5 avis, 5 fourchettes distinctes : chaque tiers va du plus petit prix bas au plus grand prix haut de ses avis (repli 280–300 k, raison 290–330 k, ambition 320–350 k) (" + JSON.stringify(t.tiers) + ")");
+    await callR("/crm/parcours/" + pxCom.id, { headers: authP, method: "DELETE" }); }
+  // Une balise de fusion vide dont la phrase ne tient pas sans elle : l'aperçu de l'e-mail avant R1 d'une fiche sans date
+  // écrivait « notre rendez-vous de directement au … » → un rappel entre crochets, visible à la relecture.
+  { const pxSD = (await callR("/crm/parcours", { headers: authP, body: { civilite: "Mme", nom: "SANSDATE", prenom: "Ida", adresse: "2 rue du Calendrier", ville: "Pessac" } })).json;
+    const apSD = (await callR("/crm/parcours/" + pxSD.id + "/apercu?jalon=avant-r1", { headers: authP })).json;
+    ok(/notre rendez-vous de \[date du rendez-vous à préciser\] directement au 2 rue du Calendrier/.test(apSD.texte) && /\[date du rendez-vous à préciser\]/.test(apSD.sujet) && !/rendez-vous de directement/.test(apSD.texte)
+       && CRM_TEST.remplirModele("Bonjour {civilite_nom}, rendez-vous le {date_r1} — {telephone}", { civilite_nom: "", date_r1: "lundi 20 avril à 10h" }) === "Bonjour, rendez-vous le lundi 20 avril à 10h"
+       && CRM_TEST.remplirModele("Le {date_r1}.", {}) === "Le.",
+       "fiche sans date de R1 : l'aperçu de l'e-mail porte « [date du rendez-vous à préciser] » au lieu d'une phrase bancale ; les autres balises vides s'effacent comme avant (" + apSD.texte.split("\n")[2] + ")");
+    await callR("/crm/parcours/" + pxSD.id, { headers: authP, method: "DELETE" }); }
   // Effacer un parcours : dans son périmètre seulement ; la fiche disparaît de Studio Estimation, le contact reste.
   const pxSup = (await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", nom: "EFFACE", prenom: "Paul", adresse: "1 rue Gommée", ville: "Pessac" } })).json;
   ok((await callR("/crm/parcours/" + pxSup.id, { headers: authR, method: "DELETE" })).status === 404, "un autre conseiller ne peut pas effacer ce parcours");
@@ -4168,6 +4782,67 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     ok(envR.commune && envR.commune.population === 11900, "service revenu : la commune est complète au passage suivant");
     await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { cp: "33160" } });
     await db.run("UPDATE crm_environnement SET data = ? WHERE cle = ?", [cacheEnv.data, cacheEnv.cle]); }
+  // La BONNE commune quand la ville n'est pas écrite comme le nom officiel (audit du 16/11) : « St Médard en
+  // Jalles », CP 33160 → l'API rend Saint-Aubin-de-Médoc en premier, et c'est elle qui sortait dans le guide R2,
+  // le fichier DVF et le portail. Code INSEE de la BAN d'abord, puis noms normalisés, jamais « la première ».
+  { geoPlusieurs = true;
+    const crC = await callR("/crm/parcours", { headers: authP, body: { civilite: "Mme", prenom: "Com", nom: "MUNETEST", adresse: "3 chemin Sans Repère", cp: "33160", ville: "St Médard en Jalles", type_bien: "maison" } });
+    const idC = crC.json.id;
+    await db.run("UPDATE crm_estimations SET lat = 44.951, lng = -0.751 WHERE id = ?", [idC]);
+    const cleC = "44.951,-0.751|v2";
+    const envDe = async () => (await callR("/crm/parcours/" + idC + "/environnement", { headers: authP })).json;
+    const cacheC = async () => JSON.parse((await db.get("SELECT data FROM crm_environnement WHERE cle = ?", [cleC])).data).commune;
+    const fiche = (corps) => callR("/crm/parcours/" + idC, { headers: authP, method: "PUT", body: corps });
+    const e1 = await envDe();
+    ok(e1.commune && e1.commune.code === "33449" && e1.commune.nom === "Saint-Médard-en-Jalles" && e1.commune.population === 32910 && !e1.erreurCommune,
+       "« St Médard en Jalles », 33160 : la commune est Saint-Médard-en-Jalles (32 910 hab.), plus Saint-Aubin-de-Médoc, première de la liste (" + JSON.stringify(e1.commune) + ")");
+    const dnC1 = (await callR("/crm/parcours/" + idC + "/acm/donnees", { headers: authP })).json;
+    ok(dnC1.commune && dnC1.commune.code === "33449", "…et le livret demande le fichier DVF de la bonne commune (" + JSON.stringify(dnC1.commune) + ")");
+    // Un cache d'avant la correction (mauvaise commune gardée 30 jours) est invalidé : il ne concorde pas avec la ville de la fiche.
+    { const brut = await db.get("SELECT data FROM crm_environnement WHERE cle = ?", [cleC]); const d = JSON.parse(brut.data);
+      d.commune = { nom: "Saint-Aubin-de-Médoc", code: "33376", population: 7769, surface: 3481.9, densite: 223, departement: "Gironde", region: "Nouvelle-Aquitaine" };
+      await db.run("UPDATE crm_environnement SET data = ? WHERE cle = ?", [JSON.stringify(d), cleC]); }
+    const e2 = await envDe();
+    ok(e2.commune.code === "33449" && (await cacheC()).code === "33449", "un cache gardé avec la mauvaise commune (Saint-Aubin-de-Médoc) est corrigé au passage suivant (" + e2.commune.nom + ")");
+    // Même piège à 33320 : « Le Taillan » → Le Taillan-Médoc (début du nom, sans ambiguïté), pas Eysines.
+    await fiche({ cp: "33320", ville: "Le Taillan" });
+    const e3 = await envDe();
+    ok(e3.commune.code === "33519" && e3.commune.nom === "Le Taillan-Médoc" && (await cacheC()).code === "33519", "« Le Taillan », 33320 : Le Taillan-Médoc, pas Eysines — et le cache de la maille suit la fiche (" + JSON.stringify(e3.commune) + ")");
+    // Rien pour trancher : commune indéterminée, dite — jamais une commune prise au hasard, ni en cache, ni au portail.
+    await fiche({ cp: "33160", ville: "Saint" });
+    const e4 = await envDe();
+    const dnC4 = (await callR("/crm/parcours/" + idC + "/acm/donnees", { headers: authP })).json;
+    const poC4 = (await callR("/crm/parcours/" + idC + "/acm/portails", { headers: authP })).json;
+    ok(e4.commune && e4.commune.indeterminee === true && !e4.commune.nom && !e4.commune.code && !e4.commune.population && e4.commune.departement === "Gironde"
+       && /commune indéterminée/.test(e4.erreurCommune) && /Saint-Aubin-de-Médoc, Saint-Médard-en-Jalles, Salaunes/.test(e4.erreurCommune),
+       "« Saint », 33160 (deux communes possibles) : commune indéterminée, les candidates sont nommées, le département reste connu (" + e4.erreurCommune + ")");
+    ok(dnC4.commune === null && dnC4.erreurs.some((t) => /commune indéterminée/.test(t)) && poC4.biens.length === 0 && /commune indéterminée/.test(poC4.erreur),
+       "…le livret ne charge alors aucun fichier DVF et n'interroge pas le portail sur une commune au hasard (" + JSON.stringify({ commune: dnC4.commune, portail: poC4.erreur.slice(0, 40) }) + ")");
+    // Le code INSEE de la Base Adresse Nationale tranche quand le nom ne dit rien…
+    await fiche({ adresse: "9 rue Essai BAN", ville: "Lotissement des Pins" });
+    const e5 = await envDe();
+    ok(e5.commune.code === "33449" && !e5.erreurCommune, "ville inexploitable mais adresse connue de la BAN : son code INSEE désigne la commune (" + e5.commune.nom + ")");
+    // …mais un géocodage tombé hors du code postal de la fiche n'est pas cru : le nom décide.
+    await fiche({ adresse: "9 rue Essai BAN ailleurs", ville: "SALAUNES" });
+    const e6 = await envDe();
+    ok(e6.commune.code === "33494", "un code INSEE de la BAN hors du code postal est ignoré, le nom de la fiche décide (" + e6.commune.nom + ")");
+    geoPlusieurs = false;
+    // Un code postal à une seule commune : elle est prise, même écrite autrement (comportement inchangé).
+    await fiche({ adresse: "3 chemin Sans Repère", cp: "33185", ville: "LE HAILLAN CEDEX" });
+    ok((await envDe()).commune.code === "33200", "un code postal à une seule commune la désigne, quelle que soit l'écriture de la ville");
+    await callR("/crm/parcours/" + idC, { headers: authP, method: "DELETE" }); }
+  // Guide R2 p7 : les distances imprimées partent du BIEN — le cache est partagé par maille de ~100 m et gardait
+  // celles du premier bien de la maille — et le plafond de 12 par catégorie est annoncé.
+  { const crV = await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", prenom: "Voi", nom: "SINTEST", adresse: "9 Impasse des Vignes", cp: "33185", ville: "Le Haillan", type_bien: "maison" } });
+    await db.run("UPDATE crm_estimations SET lat = 44.9014, lng = -0.6804 WHERE id = ?", [crV.json.id]); // même maille que le 7 (44.9012, -0.68)
+    const envA = (await callR("/crm/parcours/" + pxId + "/environnement", { headers: authP })).json;
+    const envB = (await callR("/crm/parcours/" + crV.json.id + "/environnement", { headers: authP })).json;
+    const dist = (la1, lo1, la2, lo2) => { const r = Math.PI / 180, h = Math.sin((la2 - la1) * r / 2) ** 2 + Math.cos(la1 * r) * Math.cos(la2 * r) * Math.sin((lo2 - lo1) * r / 2) ** 2; return 2 * 6371000 * Math.asin(Math.sqrt(h)); };
+    const phA = envA.commodites.find((x) => /Pharmacie/.test(x.nom)), phB = envB.commodites.find((x) => /Pharmacie/.test(x.nom));
+    ok((await db.get("SELECT COUNT(*) AS n FROM crm_environnement WHERE cle = '44.901,-0.680|v2'")).n === 1 && phA && phB && Math.abs(phB.dist - dist(44.9014, -0.6804, phB.lat, phB.lng)) < 3 && Math.abs(phA.dist - dist(44.9012, -0.68, phA.lat, phA.lng)) < 3 && Math.abs(phA.dist - phB.dist) > 10
+       && envB.commodites.every((x, i) => i === 0 || x.dist >= envB.commodites[i - 1].dist) && envB.commodites.every((x) => x.dist <= 1500) && envB.commoditesPlafond === 12,
+       "deux biens de la même maille partagent le cache, chacun reçoit SES distances (pharmacie à " + Math.round(phA && phA.dist) + " m de l'un, " + Math.round(phB && phB.dist) + " m de l'autre), triées, plafond annoncé");
+    await callR("/crm/parcours/" + crV.json.id, { headers: authP, method: "DELETE" }); }
   // Livret prix : la saisie se garde (nettoyée), les données comparables se relèvent, les photos ne se relaient que si elles sont connues.
   // Le livret se pré-remplit depuis le bien de la fiche estimation (Studio Estimation), et la complète en retour.
   await db.run("INSERT OR REPLACE INTO crm_estimation_bien (estimation_id, agency_id, data, updated_at) VALUES (?, ?, ?, ?)",
@@ -4175,7 +4850,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   const acmPre = (await callR("/crm/parcours/" + pxId + "/acm", { headers: authP })).json;
   ok(acmPre.acm.surface === 120 && acmPre.acm.terrain === 600 && acmPre.acm.prix === 345000 && acmPre.acm.chambres === 3 && acmPre.acm.piece_vie === 38 && acmPre.depuis_estimation.includes("piece_vie"),
      "le livret prix se pré-remplit depuis la fiche estimation : surface, terrain, prix envisagé, chambres et séjour lus dans le détail des pièces (" + JSON.stringify(acmPre.acm) + ")");
-  await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { surface: 125, chambres: 4, piece_vie: 40 } });
+  await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { surface: 125, chambres: 4, piece_vie: 40 } });
   const bienApres = JSON.parse((await db.get("SELECT data FROM crm_estimation_bien WHERE estimation_id = ?", [pxId])).data);
   ok(bienApres.surface === 120 && bienApres.chambres === 4 && bienApres.pieceVie === 40 && bienApres.prixEnvisage === 345000,
      "la fiche estimation reçoit en retour ce qui lui manquait (chambres, pièce de vie) sans que sa surface ni son prix soient écrasés");
@@ -4209,17 +4884,84 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
     await db.run("DELETE FROM crm_amepi WHERE id = 'v7001'"); await db.run("DELETE FROM crm_amepi_photos WHERE id = 'v7001'");
   }
   const tNow = Math.floor(Date.now() / 1000);
-  const acmPut = await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { prix: 330000, basse: 320000, haute: 340000, commission: [{ nb: 3, basse: 300000, haute: 320000 }], ventes: [{ id: "dvf:1", prix: 315000, surface: 100, adresse: "1 rue\u0007Test" }], acheteurs_texte: "ok", profond: { a: { b: { c: { d: { e: { f: 1 } } } } } } } });
+  const acmPut = await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { prix: 330000, basse: 320000, haute: 340000, commission: [{ nb: 3, basse: 300000, haute: 320000 }], ventes: [{ id: "dvf:1", prix: 315000, surface: 100, adresse: "1 rue\u0007Test" }], acheteurs_texte: "ok", profond: { a: { b: { c: { d: { e: { f: 1 } } } } } } } });
   const acmGet = (await callR("/crm/parcours/" + pxId + "/acm", { headers: authP })).json;
   ok(acmPut.status === 200 && acmGet.acm.prix === 330000 && acmGet.acm.commission[0].nb === 3 && acmGet.acm.ventes[0].adresse === "1 rueTest" && acmGet.acm.profond.a.b.c.d.e === null,
      "la saisie du livret prix se relit, nettoyée des caractères de contrôle et bornée en profondeur");
   ok((await callR("/crm/parcours/" + pxId + "/acm", { headers: authR })).status === 404, "le livret d'un parcours hors périmètre est introuvable");
+  // Versions précédentes (16/11) : l'état en place est gardé avant d'être remplacé,
+  // au plus une version toutes les deux minutes ; le ménage éclaircit après un jour.
+  { const vieux = await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { prix: 1 } });
+    ok(vieux.status === 409 && /rechargez la page/.test(vieux.json.error || vieux.json.message || JSON.stringify(vieux.json)) && (await callR("/crm/parcours/" + pxId + "/acm", { headers: authP })).json.acm.prix === 330000,
+       "une page d'avant le correctif (sans ?c=2) n'écrit plus dans le livret : on lui demande de recharger"); }
+  { await db.run("DELETE FROM crm_parcours_acm_versions WHERE estimation_id = ?", [pxId]);
+    const versions = async () => db.all("SELECT * FROM crm_parcours_acm_versions WHERE estimation_id = ? ORDER BY archive_at, id", [pxId]);
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 331000 } });
+    let vs = await versions();
+    ok(vs.length === 1 && JSON.parse(vs[0].data).prix === 330000 && vs[0].origine === "saisie", "remplacer un livret garde la version précédente");
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 332000 } });
+    ok((await versions()).length === 1, "deux enregistrements rapprochés ne gardent qu'une version (saisie automatique)");
+    await db.run("UPDATE crm_parcours_acm_versions SET archive_at = archive_at - 600 WHERE estimation_id = ?", [pxId]);
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 332000 } });
+    ok((await versions()).length === 1, "un enregistrement identique ne crée pas de version");
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 333000 } });
+    vs = await versions();
+    ok(vs.length === 2 && JSON.parse(vs[1].data).prix === 332000, "passé deux minutes, la version suivante est gardée à son tour");
+    // Ménage : quatre versions d'une même journée passée → la première et la dernière restent.
+    const jour = Math.floor(tNow / 86400) * 86400 - 2 * 86400;
+    await db.run("DELETE FROM crm_parcours_acm_versions WHERE estimation_id = ?", [pxId]);
+    for (let i = 0; i < 4; i++) await db.run("INSERT INTO crm_parcours_acm_versions (id, estimation_id, agency_id, data, saisie_at, archive_at, origine) VALUES (?, ?, ?, ?, 0, ?, 'saisie')", ["lvt" + i, pxId, "x", JSON.stringify({ prix: i }), jour + 3600 * (i + 1)]);
+    await db.run("INSERT INTO crm_parcours_acm_versions (id, estimation_id, agency_id, data, saisie_at, archive_at, origine) VALUES ('lvs', ?, 'x', '{}', 0, ?, 'sauvegarde')", [pxId, jour + 7200]);
+    await db.run("INSERT INTO crm_parcours_acm_versions (id, estimation_id, agency_id, data, saisie_at, archive_at, origine) VALUES ('lvv', ?, 'x', '{}', 0, ?, 'saisie')", [pxId, tNow - 100 * 86400]);
+    const mn = await CRM_TEST.menageQuotidien(db);
+    vs = await versions();
+    ok(!mn.livretsErreur && vs.map((v) => v.id).join() === "lvt0,lvs,lvt3", "le ménage garde la première et la dernière version du jour, les reprises de sauvegarde, et purge après 90 jours");
+    await db.run("DELETE FROM crm_parcours_acm_versions WHERE estimation_id = ?", [pxId]);
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: acmGet.acm }); }
+  // « Versions précédentes » : la liste résume chaque version ; en reprendre une garde
+  // celle qu'elle remplace (on peut revenir en arrière).
+  { await db.run("DELETE FROM crm_parcours_acm_versions WHERE estimation_id = ?", [pxId]);
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { ...acmGet.acm, prix: 250000, surface: 135, ventes: [] } });
+    const lv = (await callR("/crm/parcours/" + pxId + "/acm/versions", { headers: authP })).json;
+    ok(lv.versions.length === 1 && lv.versions[0].resume.prix === 330000 && lv.versions[0].resume.ventes === 1 && lv.actuel.resume.prix === 250000 && lv.actuel.resume.ventes === 0 && lv.versions[0].origine === "saisie",
+       "la liste des versions résume la version d'avant (prix, ventes retenues) et le livret en place");
+    ok((await callR("/crm/parcours/" + pxId + "/acm/versions", { headers: authR })).status === 404 &&
+       (await callR("/crm/parcours/" + pxId + "/acm/versions/" + lv.versions[0].id + "/restaurer", { headers: authR, method: "POST" })).status === 404,
+       "hors périmètre, ni la liste des versions ni la reprise ne répondent");
+    const rep = await callR("/crm/parcours/" + pxId + "/acm/versions/" + lv.versions[0].id + "/restaurer", { headers: authP, method: "POST" });
+    const apres = (await callR("/crm/parcours/" + pxId + "/acm", { headers: authP })).json.acm;
+    const lv2 = (await callR("/crm/parcours/" + pxId + "/acm/versions", { headers: authP })).json;
+    ok(rep.status === 200 && apres.prix === 330000 && apres.ventes.length === 1 && lv2.versions.length === 1 && lv2.versions[0].resume.prix === 250000 && lv2.versions[0].origine === "restauration",
+       "reprendre une version remet le livret d'avant, et garde celui qu'elle remplace");
+    ok((await callR("/crm/parcours/" + pxId + "/acm/versions/lv_inconnue/restaurer", { headers: authP, method: "POST" })).status === 404, "une version inconnue est refusée");
+    await db.run("DELETE FROM crm_parcours_acm_versions WHERE estimation_id = ?", [pxId]); }
+  // « Dossiers supprimés » : un parcours effacé part en corbeille 30 jours ; son conseiller
+  // (ou la direction) le restaure avec ses rendez-vous, ses propriétaires et son livret.
+  { const cr = await callR("/crm/parcours", { headers: authP, body: { civilite: "Mme", prenom: "Lucie", nom: "LAMBERT", email: "lambert@exemple.fr", adresse: "8 allée des Essais", cp: "33160", ville: "Saint-Médard-en-Jalles", r1: "2026-11-02", r1_heure: "09:30", r2: "2026-11-09", r2_heure: "18:00" } });
+    const idC = cr.json.id;
+    await callR("/crm/parcours/" + idC + "/acm?c=2", { headers: authP, method: "PUT", body: { prix: 410000, surface: 98, ventes: [{ id: "dvf:9", prix: 400000 }] } });
+    const eff = await callR("/crm/parcours/" + idC, { headers: authP, method: "DELETE" });
+    ok(eff.status === 200 && eff.json.corbeille_jours === 30 && (await callR("/crm/parcours/" + idC, { headers: authP })).status === 404, "effacer un parcours répond avec la durée de la corbeille");
+    const cb = (await callR("/crm/parcours-corbeille", { headers: authP })).json;
+    const e = cb.entrees.find((x) => /LAMBERT/.test(x.libelle));
+    ok(cb.jours === 30 && e && /Lucie LAMBERT — 8 allée des Essais/.test(e.libelle) && e.r1 === "2026-11-02" && e.jours_restants === 30, "le parcours effacé figure dans les dossiers supprimés de son conseiller");
+    ok(!(await callR("/crm/parcours-corbeille", { headers: authR })).json.entrees.some((x) => /LAMBERT/.test(x.libelle)) &&
+       (await callR("/crm/parcours-corbeille/" + e.id + "/restaurer", { headers: authR, method: "POST" })).status === 404,
+       "un autre conseiller ne voit pas ce dossier supprimé et ne peut pas le restaurer");
+    const res = await callR("/crm/parcours-corbeille/" + e.id + "/restaurer", { headers: authP, method: "POST" });
+    const revenu = (await callR("/crm/parcours/" + idC, { headers: authP })).json;
+    const acmRevenu = (await callR("/crm/parcours/" + idC + "/acm", { headers: authP })).json.acm;
+    ok(res.status === 200 && res.json.id === idC && JSON.stringify(revenu).includes("2026-11-02") && JSON.stringify(revenu).includes("18:00") && JSON.stringify(revenu).includes("lambert@exemple.fr") && acmRevenu.prix === 410000 && acmRevenu.ventes.length === 1,
+       "restaurer remet le dossier avec ses rendez-vous, son propriétaire et son livret");
+    ok(!(await callR("/crm/parcours-corbeille", { headers: authP })).json.entrees.some((x) => x.id === e.id) &&
+       (await callR("/crm/parcours-corbeille/" + e.id + "/restaurer", { headers: authP, method: "POST" })).status === 404, "un dossier restauré quitte la liste");
+    await callR("/crm/parcours/" + idC, { headers: authP, method: "DELETE" }); }
   // Le courrier d'estimation : jalon e-mail avec le PDF en pièce jointe ; la fourchette vient
   // du livret (basse/haute), ou de celle saisie pour le courrier (acm.courrier).
   { const apC = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=courrier-estimation", { headers: authP })).json;
     ok(/entre 320 000 € et 340 000 €/.test(apC.texte) && /ci-joint le courrier d'estimation/.test(apC.texte) && /Votre estimation/.test(apC.html),
        "l'e-mail du courrier d'estimation reprend la fourchette du livret (" + JSON.stringify(apC.sujet) + ")");
-    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: { ...acmGet.acm, courrier: { basse: 325000, haute: 345000, texte: "Mot libre" } } });
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: { ...acmGet.acm, courrier: { basse: 325000, haute: 345000, texte: "Mot libre" } } });
     const apC2 = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=courrier-estimation", { headers: authP })).json;
     ok(/entre 325 000 € et 345 000 € net vendeur\./.test(apC2.texte), "la fourchette saisie pour le courrier prime sur celle du livret, suivie de « net vendeur » (" + JSON.stringify((apC2.texte.match(/entre[^.]*\./) || [])[0]) + ")");
     const sansPj = await callR("/crm/parcours/" + pxId + "/envoyer", { headers: authP, body: { jalon: "courrier-estimation" } });
@@ -4231,7 +4973,7 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
        && (await callR("/crm/parcours/" + pxId, { headers: authP })).json.journal.some((j) => j.etape === "courrier-estimation"),
        "le courrier part en pièce jointe (nom nettoyé), jamais sans le PDF, et l'étape se coche (" + JSON.stringify({ sans: sansPj.status, avec: avecPj.status }) + ")");
     ok((await callR("/crm/parcours/" + pxId + "/envoyer", { headers: authP, body: { jalon: "courrier-estimation", piece: { nom: "x.pdf", contenu: "A".repeat(8000001) } } })).status === 400, "une pièce jointe trop lourde est refusée");
-    await callR("/crm/parcours/" + pxId + "/acm", { headers: authP, method: "PUT", body: acmGet.acm }); }
+    await callR("/crm/parcours/" + pxId + "/acm?c=2", { headers: authP, method: "PUT", body: acmGet.acm }); }
   // Point 8 : la « démarche à suivre » (guide PDF assemblé dans le navigateur) part signée de
   // l'assistante transaction du point de vente — pas du conseiller (Benoît, 14/10).
   { const lea = await callR("/crm/conseillers", { headers: auth, method: "PUT", body: { prenom: "Léa", nom: "VASSEUR", fonction: "Assistante Transaction", telephone: "05 56 57 77 77", email: "lea.vasseur@kadima.test" } });
@@ -4327,6 +5069,17 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
      && dn.amepi.length === 1 && dn.amepi[0].agence === "Orpi Le Haillan" && dn.amepi[0].baisse === 10000 && dn.amepi[0].dist < 6000
      && dn.acheteurs.some((a) => a.budget_max === 340000) && dn.acheteurs.length === (dn0.acheteurs || []).length + 1,
      "les données comparables : commune INSEE, ventes de l'agence à 2 km, notre annonce (baisse, ancienneté), le mandat ALFA de même type, l'acheteur qui cherche une maison au Haillan — pas celui d'un appartement ni la recherche en pause (" + JSON.stringify({ com: dn.commune, v: dn.ventes.length, vignes: dn.ventes.some((v) => /Vignes/.test(v.adresse)), anH: anH && { baisse: anH.baisse, jours: anH.jours }, appt: dn.annonces.some((a) => a.type === "appartement"), am: dn.amepi.map((a) => [a.agence, a.baisse, a.dist]), ach: [dn.acheteurs.length, (dn0.acheteurs || []).length, dn.acheteurs.some((a) => a.budget_max === 340000)] }) + ")");
+  // Les acheteurs comptés dans le livret : sans aucun critère (ni type ni ville), on ne sait pas s'il cherche CE bien
+  // ICI → pas compté ; la même personne (recherche de sa fiche + projet d'achat) ne compte qu'une fois ; la ville
+  // d'une recherche concorde quelle que soit son écriture (« le haillan », « LE-HAILLAN »).
+  { await db.run("INSERT OR REPLACE INTO crm_recherches (contact_id, agency_id, actif, budget_min, budget_max, types, villes, pieces_min, surface_min, notes, user_id, created_at, updated_at) VALUES ('ct_ach4', ?, 1, 0, 500000, '[]', '[]', 0, 0, '', '', 1, 1), ('ct_ach5', ?, 1, 0, 310000, '[]', '[\"LE-HAILLAN\"]', 0, 0, '', '', 1, 1)", [agId, agId]);
+    await db.run("INSERT INTO crm_projets (id, agency_id, kind, statut, adresse, ville, budget_min, budget_max, types, villes, pieces_min, surface_min, notes, user_id, created_at, updated_at) VALUES ('pj_dbl', ?, 'achat', 'actif', '', '', 0, 360000, '[\"maison\"]', '[\"le haillan\"]', 0, 0, '', '', 1, 1)", [agId]);
+    await db.run("INSERT INTO crm_projet_contacts (projet_id, contact_id, agency_id) VALUES ('pj_dbl', 'ct_ach1', ?)", [agId]);
+    const dnA = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
+    const budgetsA = dnA.acheteurs.map((a) => a.budget_max);
+    ok(dnA.acheteurs.length === dn.acheteurs.length + 1 && !budgetsA.includes(500000) && budgetsA.includes(310000) && budgetsA.includes(360000) && !budgetsA.includes(340000) && dnA.acheteursSansCritere >= 1,
+       "acheteurs du livret : celui sans critère n'est pas compté, la même personne (recherche + projet) compte une fois à son budget le plus haut, la ville concorde malgré son écriture (" + JSON.stringify({ avant: dn.acheteurs.length, apres: budgetsA, sansCritere: dnA.acheteursSansCritere }) + ")");
+    await db.run("DELETE FROM crm_recherches WHERE contact_id IN ('ct_ach4', 'ct_ach5')"); await db.run("DELETE FROM crm_projet_contacts WHERE projet_id = 'pj_dbl'"); await db.run("DELETE FROM crm_projets WHERE id = 'pj_dbl'"); }
   const portails = (await callR("/crm/parcours/" + pxId + "/acm/portails?prix=330000", { headers: authP })).json;
   await db.run("INSERT OR REPLACE INTO crm_amepi_photos (agency_id, id, photo, updated_at) VALUES (?, 'am-1', ?, 1)", [agId, pixel]);
   const dnPh = (await callR("/crm/parcours/" + pxId + "/acm/donnees", { headers: authP })).json;
@@ -4353,6 +5106,13 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
        "les e-mails parlent du terrain et demandent plan de bornage et arpentage, sans certificat d'urbanisme, ni factures d'énergie, ni copropriété");
     ok((await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "garage" } })).status === 200 && (await callR("/crm/parcours/" + pxId, { headers: authP })).json.type_bien === "maison",
        "un type inconnu retombe sur « maison »");
+    await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } }); }
+  // Programme neuf du portail (audit du 16/11) : surfaceArea [40, 83.77], roomsQuantity [2, 4] donnaient « NaN m² » et
+  // « NaN €/m² » dans le livret → la plus petite valeur de chaque fourchette, comme pour le prix.
+  { await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "appartement" } });
+    const neuf5 = (await callR("/crm/parcours/" + pxId + "/acm/portails", { headers: authP })).json.biens.find((b) => b.id === "bienici:neuf-5");
+    ok(neuf5 && neuf5.prix === 145000 && neuf5.surface === 40 && neuf5.pieces === 2 && neuf5.chambres === 1 && neuf5.neuf === 1 && neuf5.titre === "Neuf (à partir de) · Appartement · 2 pièces · 40 m²" && /\/appartement\/2pieces\/neuf-5/.test(neuf5.url) && !/NaN|,/.test(neuf5.titre + neuf5.url),
+       "un programme neuf en fourchettes : prix, surface, pièces et chambres ramenés à leur plus petite valeur, plus de NaN (" + JSON.stringify(neuf5 && [neuf5.prix, neuf5.surface, neuf5.pieces, neuf5.chambres, neuf5.titre]) + ")");
     await callR("/crm/parcours/" + pxId, { headers: authP, method: "PUT", body: { type_bien: "maison" } }); }
   await db.run("UPDATE crm_annonces SET image = '/photos/biens/relative-640.webp' WHERE id = 'maison-haillan-1'");
   await callR("/crm/reglages", { headers: auth, method: "PUT", body: { annonces: { siteUrl: "http://localhost:1" } } });
@@ -4902,6 +5662,20 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
     return { status: res.status, headers: res.headers, json: ct.includes("json") ? await res.json() : null, bytes: ct.includes("json") ? null : new Uint8Array(await res.arrayBuffer()) };
   };
 
+  // Le texte d'un PDF produit par pdf-lib : flux compressés, une chaîne
+  // hexadécimale par ligne tracée (« <…> Tj »).
+  const { inflateSync } = await import("node:zlib");
+  const textePdf = (bytes) => {
+    const buf = Buffer.from(bytes), brut = buf.toString("latin1"), lignes = [];
+    for (const m of brut.matchAll(/stream\r?\n/g)) {
+      const debut = m.index + m[0].length, fin = brut.indexOf("endstream", debut);
+      let flux = "";
+      try { flux = inflateSync(buf.subarray(debut, fin)).toString("latin1"); } catch { continue; }
+      for (const t of flux.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) lignes.push(Buffer.from(t[1], "hex").toString("latin1"));
+    }
+    return lignes.join("\n");
+  };
+
   // Le couple : deux fiches contact.
   const ctE = (await call("/crm/contacts", { method: "PUT", headers: authA, body: { civilite: "Mme", nom: "Müller", prenom: "Éléonore", email: "eleonore@exemple.fr", telephone: "06 12 34 56 78", adresse: "3 allée du Parc", cp: "33700", ville: "Mérignac", types: ["acquereur"] } })).json;
   const ctJ = (await call("/crm/contacts", { method: "PUT", headers: authA, body: { civilite: "M.", nom: "Dupont", prenom: "Jean", email: "jean@exemple.fr", telephone: "06 98 76 54 32", types: ["acquereur"] } })).json;
@@ -4930,6 +5704,15 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   const jetonE = env1.json.liens[0].lien.split("#t=")[1], jetonJ = env1.json.liens[1].lien.split("#t=")[1];
   const hE = { "X-Offre-Jeton": jetonE }, hJ = { "X-Offre-Jeton": jetonJ };
   ok((await call("/crm/offres/" + ofId, { headers: authPaul })).json.offre.statut === "envoyee", "statut : envoyée");
+  // Qui tient le lien peut signer : un autre membre ne le reçoit jamais, et
+  // sa demande ne tue pas le lien en cours quand l'e-mail ne part pas.
+  const envLea = await call("/crm/offres/" + ofId + "/envoyer", { headers: authLea, body: {} });
+  const lienLea = await call("/crm/offres/" + ofId + "/signataires/" + det0.signataires[0].id + "/lien", { headers: authLea, body: {} });
+  ok(envLea.status === 200 && envLea.json.liens.length === 2 && envLea.json.liens.every((l) => !("lien" in l) && l.envoye === false) && lienLea.status === 200 && !("lien" in lienLea.json) && !/#t=/.test(JSON.stringify([envLea.json, lienLea.json])),
+    "un autre conseiller peut demander l'envoi, mais ne reçoit jamais le lien magique");
+  ok((await call("/public/offre", { headers: hE })).status === 200 && (await call("/public/offre", { headers: hJ })).status === 200
+     && (await call("/crm/offres/" + ofId, { headers: authPaul })).json.events.filter((e) => e.type === "lien-non-envoye").length === 3,
+    "e-mail non parti et lien non rendu : les liens en cours restent valables (journal « lien-non-envoye »)");
 
   console.log("— Offres d'achat : parcours de l'acquéreur (sans session)");
   ok((await call("/public/offre", { headers: { "X-Offre-Jeton": "n-importe-quoi-de-long-et-faux" } })).status === 401, "jeton inconnu → 401");
@@ -4940,6 +5723,28 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
 
   const idE = await call("/public/offre/identite", { method: "PUT", headers: hE, body: { civilite: "Madame", nom: "Müller", nomNaissance: "Schmidt", prenoms: "Éléonore", naissance: "1988-04-12", lieuNaissance: "Bordeaux", nationalite: "Française", adresse: "3 allée du Parc, 33700 Mérignac", profession: "Ingénieure", contratTravail: "CDI", employeur: "Thales, Mérignac" } });
   ok(idE.status === 200 && idE.json.manques.length === 0, "état civil d'Éléonore complet");
+  // Le code de signature part aux coordonnées de l'agence : le porteur du lien ne les remplace pas.
+  const pirateMail = await call("/public/offre/identite", { method: "PUT", headers: hE, body: { email: "pirate@exemple.fr" } });
+  const pirateTel = await call("/public/offre/identite", { method: "PUT", headers: hE, body: { telephone: "07 00 00 00 00", profession: "Pirate" } });
+  ok(pirateMail.status === 403 && /contactez votre conseiller/.test(pirateMail.json.error) && pirateTel.status === 403, "remplacer l'e-mail ou le téléphone enregistrés par l'agence depuis le lien : refusé (" + pirateMail.json.error + ")");
+  ok((await call("/public/offre/identite", { method: "PUT", headers: hE, body: { email: " ELEONORE@exemple.fr", telephone: "+33 6 12 34 56 78" } })).status === 200, "les mêmes coordonnées, écrites autrement, ne sont pas une modification");
+  // L'agence, elle, corrige une coordonnée mal saisie (conseiller du dossier ou admin, avant signature).
+  { const sg0 = (await call("/crm/offres/" + ofId, { headers: authPaul })).json.signataires[0];
+    const urlC = "/crm/offres/" + ofId + "/signataires/" + sg0.id + "/coordonnees";
+    ok((await call(urlC, { method: "PUT", headers: authLea, body: { email: "lea@exemple.fr" } })).status === 403, "un autre conseiller ne corrige pas les coordonnées d'un signataire (403)");
+    ok((await call(urlC, { method: "PUT", headers: authPaul, body: { email: "pas-un-email", telephone: sg0.telephone } })).status === 400
+      && (await call(urlC, { method: "PUT", headers: authPaul, body: { email: "", telephone: "" } })).status === 400, "e-mail invalide, ou plus aucune coordonnée : refusé");
+    const cor = await call(urlC, { method: "PUT", headers: authPaul, body: { email: "Eleonore.M@exemple.fr", telephone: "06 99 88 77 66" } });
+    const apresC = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
+    ok(cor.status === 200 && apresC.signataires[0].email === "eleonore.m@exemple.fr" && apresC.signataires[0].telephone === "06 99 88 77 66" && apresC.events.some((e) => e.type === "coordonnees"),
+      "le conseiller du dossier corrige l'e-mail et le mobile ; c'est journalisé");
+    await call(urlC, { method: "PUT", headers: authPaul, body: { email: sg0.email, telephone: sg0.telephone } }); }
+  const ligneE = await db.get("SELECT email, telephone, identite FROM crm_offre_signataires WHERE id = ?", [pubE.json.moi.id]);
+  const pubEco = (await call("/public/offre", { headers: hE })).json;
+  ok(ligneE.email === "eleonore@exemple.fr" && ligneE.telephone === "06 12 34 56 78" && JSON.parse(ligneE.identite).email === "eleonore@exemple.fr" && JSON.parse(ligneE.identite).profession === "Ingénieure"
+     && pubEco.otp.email === "el•••@exemple.fr" && pubEco.moi.email === "eleonore@exemple.fr", "les coordonnées de l'agence sont intactes : c'est là que partira le code");
+  ok(pubEco.bloqueurs.some((b) => /état civil de Monsieur Jean DUPONT/.test(b)) && (await call("/public/offre/otp", { headers: hE, body: {} })).status === 400,
+    "tant que l'état civil du co-acquéreur est incomplet, personne ne signe (le document figé le porte)");
   ok((await call("/public/offre/identite", { method: "PUT", headers: hJ, body: { civilite: "Monsieur", nom: "Dupont", prenoms: "Jean", naissance: "1985-01-02", lieuNaissance: "Paris", adresse: "3 allée du Parc, 33700 Mérignac" } })).status === 200, "état civil de Jean complet");
   // Financement SANS prêt (la mention L313-42 devient obligatoire) + notaire.
   const fin = await call("/public/offre/financement", { method: "PUT", headers: hE, body: { financement: { sansPret: true, apport: 224917, apportOrigine: "vente d'un appartement" }, questionnaire: { situation: "marie", mariage: { date: "2015-06-20", lieu: "Bordeaux", regime: "communauté réduite aux acquêts", contrat: false }, notaire: { etude: "Me Durand", adresse: "Bordeaux", email: "durand@notaires.fr" } } } });
@@ -4958,6 +5763,11 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   ok(depE.status === 200 && depE.json.document.mime === "image/png" && depE.json.document.signataireId === pubE.json.moi.id, "CNI d'Éléonore déposée (PNG reconnu, rattachée à elle)");
   const depDom = await callRaw("/public/offre/documents?type=domicile&nom=edf.png", { headers: hJ, body: PNG });
   ok(depDom.status === 200 && depDom.json.document.signataireId === "", "justificatif de domicile déposé par Jean (pièce du ménage)");
+  const supAutrui = await callRaw("/public/offre/documents/" + depE.json.document.id, { method: "DELETE", headers: hJ });
+  const depAutre = await callRaw("/public/offre/documents?type=autre&nom=brouillon.png", { headers: hJ, body: PNG });
+  ok(supAutrui.status === 403 && (await callRaw("/public/offre/documents/" + depAutre.json.document.id, { method: "DELETE", headers: hE })).status === 200
+     && (await call("/crm/offres/" + ofId, { headers: authPaul })).json.documents.length === 2,
+    "avant signature : on ne retire pas la pièce d'identité du co-acquéreur (403), une pièce du ménage oui");
 
   // Signature d'Éléonore : OTP, mention, engagement.
   ok((await call("/public/offre/signer", { headers: hE, body: { code: "000000", mention: pubE2.mention, engagement: true } })).status === 400, "signer sans code demandé → refus");
@@ -4967,13 +5777,30 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   ok(sigKo.status === 400 && /mention/i.test(sigKo.json.error), "mention manuscrite tronquée → refus");
   const sigKo2 = await call("/public/offre/signer", { headers: hE, body: { code: "123456", mention: pubE2.mention, engagement: true } });
   ok(sigKo2.status === 400 && /incorrect/.test(sigKo2.json.error), "mauvais code → refus");
-  const sigE = await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""), engagement: true } });
+  // Le prix change entre l'affichage et la signature (rien n'est encore figé) :
+  // l'empreinte du texte affiché ne correspond plus, la signature est refusée.
+  ok(/^[0-9a-f]{64}$/.test(pubE2.empreinte) && pubE2.empreinte === (await call("/public/offre", { headers: hJ })).json.empreinte && pubE2.empreinte !== pubEco.empreinte,
+    "le texte affiché a une empreinte : la même pour les deux acquéreurs, une autre dès que le texte change");
+  ok((await call("/crm/offres/" + ofId, { method: "PUT", headers: authPaul, body: { prix: 254917 } })).status === 200, "avant toute signature, le conseiller peut encore modifier le prix…");
+  const sigPerime = await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention, engagement: true, empreinte: pubE2.empreinte } });
+  const nonSigne = await db.get("SELECT s.signe_at, o.pdf_hash FROM crm_offre_signataires s JOIN crm_offres o ON o.id = s.offre_id WHERE s.id = ?", [pubE.json.moi.id]);
+  ok(sigPerime.status === 409 && sigPerime.json.relire === true && /relisez/.test(sigPerime.json.error) && nonSigne.signe_at === 0 && nonSigne.pdf_hash === "",
+    "…mais l'acquéreur qui avait affiché l'ancien prix ne signe pas le nouveau sans le relire (409, rien n'est figé)");
+  const pubE3 = (await call("/public/offre", { headers: hE })).json;
+  ok(pubE3.offre.prix === 254917 && pubE3.empreinte !== pubE2.empreinte, "le texte rechargé porte le nouveau prix et une autre empreinte");
+  await call("/crm/offres/" + ofId, { method: "PUT", headers: authPaul, body: { prix: 224917 } });
+  const empreinteE = (await call("/public/offre", { headers: hE })).json.empreinte;
+  const sigE = await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""), engagement: true, empreinte: empreinteE } });
   ok(sigE.status === 200 && sigE.json.tousSignes === false && sigE.json.restent.length === 1, "Éléonore a signé (mention tapée sans accents acceptée) — reste Jean");
   const apresE = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
   ok(apresE.offre.figee && apresE.offre.pdfHash.length === 64 && apresE.events.some((e) => e.type === "figee"), "le document est figé à la première signature (empreinte SHA-256)");
   ok((await call("/crm/offres/" + ofId, { method: "PUT", headers: authPaul, body: { prix: 200000 } })).status === 409, "le conseiller ne peut plus modifier l'offre après signature");
   ok((await call("/public/offre/financement", { method: "PUT", headers: hJ, body: { financement: { sansPret: false, pret: 100000, duree: 20 } } })).status === 409, "le financement ne bouge plus non plus");
   ok((await call("/public/offre/signer", { headers: hE, body: { code: otpE.json.dev_code, mention: pubE2.mention, engagement: true } })).status === 409, "signer deux fois : refus");
+  const idJgel = await call("/public/offre/identite", { method: "PUT", headers: hJ, body: { nom: "Dupond", adresse: "ailleurs" } });
+  ok(idJgel.status === 409 && /ne se modifie plus/.test(idJgel.json.error) && /DUPONT/.test((await call("/public/offre", { headers: hJ })).json.moi.libelle), "document figé : le co-acquéreur qui n'a pas encore signé ne change plus son état civil");
+  ok((await callRaw("/public/offre/documents/" + depDom.json.document.id, { method: "DELETE", headers: hJ })).status === 409 && (await callRaw("/public/offre/documents/" + depE.json.document.id, { method: "DELETE", headers: hE })).status === 409
+     && (await call("/crm/offres/" + ofId, { headers: authPaul })).json.documents.length === 2, "document figé : plus aucune pièce ne se retire depuis le lien public");
 
   // Jean : bloqué tant que SA pièce d'identité n'est pas déposée.
   const otpJko = await call("/public/offre/otp", { headers: hJ, body: {} });
@@ -4981,7 +5808,7 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   ok((await callRaw("/public/offre/documents?type=identite&nom=cni-jean.png", { headers: hJ, body: PNG })).status === 200, "CNI de Jean déposée");
   const otpJ = await call("/public/offre/otp", { headers: hJ, body: {} });
   const mentionJ = (await call("/public/offre", { headers: hJ })).json.mention;
-  const sigJ = await call("/public/offre/signer", { headers: hJ, body: { code: otpJ.json.dev_code, mention: mentionJ, engagement: true } });
+  const sigJ = await call("/public/offre/signer", { headers: { ...hJ, "x-forwarded-for": "203.0.113.7" }, body: { code: otpJ.json.dev_code, mention: mentionJ, engagement: true } });
   ok(sigJ.status === 200 && sigJ.json.tousSignes === true, "Jean a signé : l'offre est signée par les deux");
   const signee = (await call("/crm/offres/" + ofId, { headers: authPaul })).json;
   ok(signee.offre.statut === "signee" && signee.signataires.filter((s) => s.role === "offrant").every((s) => s.signeAt > 0 && s.mention), "statut : signée, les deux mentions L313-42 consignées");
@@ -4997,12 +5824,21 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   ok(pdf.status === 200 && String.fromCharCode(...pdf.bytes.slice(0, 5)) === "%PDF-" && pdf.bytes.length > 8000, "le PDF (document + certificat) se télécharge (" + pdf.bytes.length + " octets)");
   const pdfPub = await callRaw("/public/offre/pdf", { method: "GET", headers: hE });
   ok(pdfPub.status === 200 && String.fromCharCode(...pdfPub.bytes.slice(0, 5)) === "%PDF-", "l'acquéreur récupère aussi son PDF");
+  const tAgence = textePdf(pdf.bytes), tPublic = textePdf(pdfPub.bytes);
+  ok(/CERTIFICAT DE SIGNATURE/.test(tAgence) && /JOURNAL/.test(tAgence) && tAgence.includes("203.0.113.7") && /cni eleonore\.png/.test(tAgence), "le certificat de l'agence garde le journal complet (adresses IP, pièces déposées)");
+  ok(/CERTIFICAT DE SIGNATURE/.test(tPublic) && (tPublic.match(/Sign. le /g) || []).length === 2 && /code re.u par/.test(tPublic) && /Empreinte sign.e/.test(tPublic) && /Mention .crite par le signataire/.test(tPublic)
+     && !/JOURNAL/.test(tPublic) && !tPublic.includes("203.0.113.7") && !/cni[ -]|\.png|navigateur|adresse IP|\x95/.test(tPublic),
+    "le certificat remis par le lien public : qui a signé, quand, par quel moyen, les mentions — ni journal, ni adresse IP, ni coordonnées");
 
   const pres = await call("/crm/offres/" + ofId + "/presenter", { headers: authPaul, body: {} });
   ok(pres.status === 200 && pres.json.liens.length === 1, "offre présentée au vendeur (lien émis)");
   const hV = { "X-Offre-Jeton": pres.json.liens[0].lien.split("#t=")[1] };
   const pubV = await call("/public/offre", { headers: hV });
   ok(pubV.status === 200 && pubV.json.role === "vendeur" && pubV.json.pieces.length === 0 && pubV.json.mention.accepte, "le vendeur voit l'offre, pas les pièces de l'acquéreur");
+  ok(!("questionnaire" in pubV.json.offre) && !/"marie"|Me Durand|durand@notaires|acquêts/.test(JSON.stringify(pubV.json)) && pubE2.offre.questionnaire.situation === "marie" && pubE2.offre.questionnaire.notaire.etude === "Me Durand",
+    "le questionnaire personnel de l'acquéreur (situation, régime, notaire) n'est pas rendu au vendeur — l'acquéreur, lui, le retrouve");
+  const pdfV = await callRaw("/public/offre/pdf", { method: "GET", headers: hV });
+  ok(pdfV.status === 200 && !/JOURNAL|203\.0\.113\.7|cni[ -]|\.png/.test(textePdf(pdfV.bytes)), "le PDF du vendeur ne porte ni le journal ni l'adresse IP de l'acquéreur");
   ok((await call("/public/offre/identite", { method: "PUT", headers: hV, body: { nom: "X" } })).status === 403, "le vendeur ne touche pas à l'état civil de l'acquéreur");
   ok((await callRaw("/public/offre/documents?type=identite&nom=x.png", { headers: hV, body: PNG })).status === 403, "ni au dépôt de pièces");
   const otpV = await call("/public/offre/otp", { headers: hV, body: {} });
@@ -5031,6 +5867,8 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   ok(menage2.offresExpirees === 1 && (await call("/crm/offres/" + nb2.json.id, { headers: authPaul })).json.offre.statut === "expiree", "offre expirée par le ménage quotidien");
   const nb3 = (await call("/crm/offres", { headers: authPaul, body: { contactIds: [ctJ.id], bien: { adresse: "9 rue Haute", ville: "Blanquefort", description: "Terrain" }, prix: 90000, conditions: { validite: dans(5), avantContrat: dans(40) } } })).json;
   ok((await call("/crm/offres/" + nb3.id + "/reponse", { headers: authPaul, body: { decision: "accepte" } })).status === 409, "pas de réponse vendeur sur une offre non signée");
+  const retraitLea = await call("/crm/offres/" + nb3.id + "/retirer", { headers: authLea, body: {} });
+  ok(retraitLea.status === 403 && /conseiller du dossier/.test(retraitLea.json.error) && (await call("/crm/offres/" + nb3.id, { headers: authPaul })).json.offre.statut === "brouillon", "un autre conseiller ne retire pas l'offre (403)");
   ok((await call("/crm/offres/" + nb3.id + "/retirer", { headers: authPaul, body: { motif: "L'acquéreur renonce" } })).status === 200 &&
      (await call("/crm/offres/" + nb3.id, { headers: authPaul })).json.offre.statut === "retiree", "offre retirée");
   // Purge : 90 jours après la fin, les pièces disparaissent (R2 + base), pas le PDF.
@@ -5041,9 +5879,9 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   ok(avantPurge === 3 && menage3.offresPurgees.documents === 3 && apresPurge.documents.length === 0 && apresPurge.offre.purgee && !filesMem.has(O_TEST.cleDocument(agOf, ofId, docId)),
     "purge : 3 pièces effacées du stockage et de la base, offre marquée purgée");
   ok(filesMem.has(O_TEST.clePdf(agOf, ofId)) && (await callRaw("/crm/offres/" + ofId + "/pdf", { method: "GET", headers: authPaul })).status === 200, "le PDF signé survit à la purge");
-  // À la réponse du vendeur, l'acquéreur a reçu un NOUVEAU lien (l'ancien est
-  // remplacé) : l'ancien jeton ne passe plus (401), et de toute façon une
-  // offre terminée refuse tout dépôt (409).
+  // À la réponse du vendeur, l'acquéreur reçoit un NOUVEAU lien par e-mail
+  // (l'ancien n'est remplacé que si l'e-mail part — ici, pas de fournisseur) ;
+  // dans tous les cas une offre terminée refuse tout dépôt (409).
   const depFin = (await callRaw("/public/offre/documents?type=identite&nom=x.png", { headers: hE, body: PNG })).status;
   ok(depFin === 401 || depFin === 409, "plus de dépôt sur une offre terminée (" + depFin + ")");
   ok(O_TEST.nombreEnLettres(224917) === "deux cent vingt-quatre mille neuf cent dix-sept" && O_TEST.nombreEnLettres(80000) === "quatre-vingt mille" && O_TEST.nombreEnLettres(1000000) === "un million",
@@ -5053,9 +5891,11 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   const mailsOffre = [];
   const fauxResendO = (await import("node:http")).createServer(async (req, res) => {
     const chunks = []; for await (const c of req) chunks.push(c);
+    if (resendEnPanne) { res.writeHead(429, { "Content-Type": "application/json" }); res.end(JSON.stringify({ message: "quota" })); return; }
     mailsOffre.push(JSON.parse(Buffer.concat(chunks).toString()));
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ id: "email_test" }));
   });
+  let resendEnPanne = false;   // le fournisseur refuse tout (quota dépassé)
   await new Promise((r) => fauxResendO.listen(18800, r));
   const envO = { db, files, SESSION_SECRET: "test-secret", ADMIN_KEY: "test-admin", APP_ORIGINS: "http://localhost:8014", DEV_MODE: true,
     RESEND_API_KEY: "re_test", RESEND_BASE: "http://localhost:18800", MAIL_FROM: "Studio Brochure <connexion@studiobrochure.fr>", OFFRE_BASE: "https://exemple.test/offre" };
@@ -5069,21 +5909,42 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   const nb4 = (await callO("/crm/offres", { headers: authPaul, body: { projetId: acc.offre.projetId, bien: { adresse: "1 rue du Test", ville: "Mérignac", description: "T3" }, prix: 180000, conditions: { validite: dans(6), avantContrat: dans(40) } } })).json;
   await db.run("UPDATE crm_offres SET statut = 'signee' WHERE id = ?", [nb4.id]);
   mailsOffre.length = 0;
+  const repLea = await callO("/crm/offres/" + nb4.id + "/reponse", { headers: authLea, body: { decision: "accepte" } });
+  ok(repLea.status === 403 && mailsOffre.length === 0 && (await call("/crm/offres/" + nb4.id, { headers: authPaul })).json.offre.statut === "signee", "un autre conseiller ne saisit pas la réponse du vendeur à sa place (403, offre inchangée)");
+  { const sgS = (await call("/crm/offres/" + nb4.id, { headers: authPaul })).json.signataires.find((x) => x.role === "offrant");
+    // (Cette offre a été passée « signée » directement en base : on pose aussi la signature de l'offrant, le temps du contrôle.)
+    await db.run("UPDATE crm_offre_signataires SET signe_at = 1 WHERE id = ?", [sgS.id]);
+    const corS = await call("/crm/offres/" + nb4.id + "/signataires/" + sgS.id + "/coordonnees", { method: "PUT", headers: authPaul, body: { email: "autre@exemple.fr" } });
+    await db.run("UPDATE crm_offre_signataires SET signe_at = 0 WHERE id = ?", [sgS.id]);
+    ok(corS.status === 409 && /déjà signé/.test(corS.json.error), "après sa signature, les coordonnées d'un signataire ne se modifient plus"); }
   ok((await callO("/crm/offres/" + nb4.id + "/reponse", { headers: authPaul, body: { decision: "contre", prix: 190000, commentaire: "Pas en dessous" } })).status === 200, "contre-proposition enregistrée");
   const auxAcquereurs = mailsOffre.filter((m) => ["eleonore@exemple.fr", "jean@exemple.fr"].includes(m.to[0]));
   ok(auxAcquereurs.length === 2 && auxAcquereurs.every((m) => /contre-proposition/i.test(m.html) && /190[\s\u202f]?000/.test(m.html) && m.html.includes("https://exemple.test/offre/#t=")),
     "les deux acquéreurs reçoivent la réponse du vendeur (contre-proposition à 190 000 €, nouveau lien)");
   ok(mailsOffre.some((m) => m.to[0] === "paul@offre-test.fr" && /Contre-proposition/.test(m.subject)), "…et le conseiller aussi");
+  const jetonDuMail = (m) => /#t=([A-Za-z0-9_-]{20,})/.exec(m.html)[1];
+  ok((await call("/public/offre", { headers: { "X-Offre-Jeton": jetonDuMail(auxAcquereurs[0]) } })).json.offre.statut === "contre_offre", "le lien reçu par e-mail ouvre bien l'offre et sa réponse");
   // (b) Relance J+2 : offre envoyée, lien parti il y a 3 jours, personne n'a signé.
   const nb5 = (await callO("/crm/offres", { headers: authPaul, body: { contactIds: [ctE.id, ctJ.id], bien: { adresse: "2 rue du Test", ville: "Mérignac", description: "T4" }, prix: 210000, conditions: { validite: dans(1), avantContrat: dans(40) } } })).json;
-  await callO("/crm/offres/" + nb5.id + "/envoyer", { headers: authPaul, body: {} });
+  const env5 = await callO("/crm/offres/" + nb5.id + "/envoyer", { headers: authPaul, body: {} });
+  const anciens5 = env5.json.liens.map((l) => ({ "X-Offre-Jeton": l.lien.split("#t=")[1] }));
   mailsOffre.length = 0;
   const rap0 = await rappelsOffres(envO, db);
   ok(rap0.relances === 0, "à J+0 : pas de relance");
   await db.run("UPDATE crm_offre_events SET created_at = created_at - 3 * 86400 WHERE offre_id = ? AND type = 'lien-envoye'", [nb5.id]);
+  // L'e-mail de relance est refusé : l'ancien lien doit rester le bon, et la relance ne pas être comptée.
+  resendEnPanne = true;
+  const rapKo = await rappelsOffres(envO, db);
+  resendEnPanne = false;
+  const relancesKo = await db.get("SELECT COUNT(*) AS n FROM crm_offre_events WHERE offre_id = ? AND type = 'relance'", [nb5.id]);
+  ok(rapKo.relances === 0 && rapKo.reportees === 2 && relancesKo.n === 0 && (await call("/public/offre", { headers: anciens5[0] })).status === 200 && (await call("/public/offre", { headers: anciens5[1] })).status === 200,
+    "relance dont l'e-mail ne part pas : ni nouveau lien (l'ancien ouvre toujours) ni relance comptée");
   let rap = await rappelsOffres(envO, db);
   const relances = mailsOffre.filter((m) => /vous attend/.test(m.subject));
   ok(rap.relances === 2 && relances.length === 2 && relances.every((m) => m.html.includes("https://exemple.test/offre/#t=")), "à J+3 : les deux acquéreurs non signés sont relancés, avec un nouveau lien");
+  const nouveaux5 = relances.map((m) => ({ "X-Offre-Jeton": jetonDuMail(m) }));
+  ok((await call("/public/offre", { headers: anciens5[0] })).status === 401 && (await call("/public/offre", { headers: nouveaux5[0] })).status === 200 && (await call("/public/offre", { headers: nouveaux5[1] })).status === 200,
+    "e-mail parti : le nouveau lien remplace l'ancien");
   // (c) Alerte d'expiration : validité = demain → le conseiller est prévenu, une seule fois.
   const alertes = mailsOffre.filter((m) => /expire demain/.test(m.subject));
   ok(rap0.alertes === 1 && rap.alertes === 0 && alertes.length === 1 && alertes[0].to[0] === "paul@offre-test.fr" && /OA-\d{4}-0005/.test(alertes[0].subject), "la veille de l'expiration, le conseiller du dossier est alerté");
@@ -5091,6 +5952,67 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   rap = await rappelsOffres(envO, db);
   ok(rap.relances === 0 && rap.alertes === 0 && mailsOffre.length === 0, "second passage le même jour : ni relance ni alerte en double");
   ok((await callO("/crm/offres/rappels", { headers: authLea, body: {} })).status === 403 && (await callO("/crm/offres/rappels", { headers: authA, body: {} })).status === 200, "les rappels se lancent à la main (admin seulement)");
+  // (d) Réponse du vendeur dont l'e-mail à l'acquéreur ne part pas : son lien en cours reste valable.
+  await db.run("UPDATE crm_offres SET statut = 'signee' WHERE id = ?", [nb5.id]);
+  resendEnPanne = true;
+  ok((await callO("/crm/offres/" + nb5.id + "/reponse", { headers: authPaul, body: { decision: "refuse" } })).status === 200, "refus enregistré pendant une panne d'e-mail");
+  resendEnPanne = false;
+  ok((await call("/public/offre", { headers: nouveaux5[0] })).json.offre.statut === "refusee" && (await call("/public/offre", { headers: nouveaux5[1] })).status === 200, "…l'acquéreur garde son lien et y lit la réponse");
+
+  console.log("— Offres d'achat : lien réservé au conseiller du dossier, coordonnées du code, plafond de codes par signataire");
+  // Un acquéreur dont l'agence n'a QUE l'e-mail ; un autre dont elle n'a rien.
+  const ctS = (await call("/crm/contacts", { method: "PUT", headers: authA, body: { civilite: "Mme", nom: "Sansmobile", prenom: "Zoé", email: "zoe@exemple.fr", types: ["acquereur"] } })).json;
+  const ctN = (await call("/crm/contacts", { method: "PUT", headers: authA, body: { civilite: "M.", nom: "Sansrien", prenom: "Noé", types: ["acquereur"] } })).json;
+  const cadre = (adresse) => ({ bien: { adresse, ville: "Mérignac", description: "T2" }, prix: 120000, conditions: { validite: dans(6), avantContrat: dans(40) } });
+  const nb6 = (await callO("/crm/offres", { headers: authPaul, body: { contactIds: [ctS.id], ...cadre("6 rue du Test") } })).json;
+  const sig6 = (await call("/crm/offres/" + nb6.id, { headers: authPaul })).json.signataires[0];
+  // Brouillon, e-mail en panne, demandeur sans accès : rien n'est envoyé, l'offre reste un brouillon.
+  resendEnPanne = true;
+  const env6Lea = await callO("/crm/offres/" + nb6.id + "/envoyer", { headers: authLea, body: {} });
+  resendEnPanne = false;
+  ok(env6Lea.status === 200 && env6Lea.json.liens[0].envoye === false && !("lien" in env6Lea.json.liens[0]) && (await call("/crm/offres/" + nb6.id, { headers: authPaul })).json.offre.statut === "brouillon",
+    "envoi demandé par un autre conseiller, e-mail refusé : aucun lien n'existe, l'offre reste un brouillon");
+  const env6 = await callO("/crm/offres/" + nb6.id + "/envoyer", { headers: authPaul, body: {} });
+  const h6 = { "X-Offre-Jeton": env6.json.liens[0].lien.split("#t=")[1] };
+  ok(env6.json.liens[0].envoye === true && (await call("/public/offre", { headers: h6 })).status === 200 && (await call("/crm/offres/" + nb6.id, { headers: authPaul })).json.offre.statut === "envoyee", "le conseiller du dossier, lui, reçoit le lien (et l'admin de même)");
+  ok((await callO("/crm/offres/" + nb6.id + "/signataires/" + sig6.id + "/lien", { headers: authA, body: {} })).json.lien.includes("/offre/#t=") && (await call("/public/offre", { headers: h6 })).status === 401, "un lien rendu à l'admin remplace le précédent");
+  // E-mail en état de marche : la demande d'un autre conseiller part au client, sans lui rendre le lien.
+  mailsOffre.length = 0;
+  const lien6Lea = await callO("/crm/offres/" + nb6.id + "/signataires/" + sig6.id + "/lien", { headers: authLea, body: {} });
+  const h6b = { "X-Offre-Jeton": jetonDuMail(mailsOffre.find((m) => m.to[0] === "zoe@exemple.fr")) };
+  ok(lien6Lea.status === 200 && lien6Lea.json.envoye === true && !("lien" in lien6Lea.json) && (await call("/public/offre", { headers: h6b })).status === 200, "« Renvoyer le lien » par un autre conseiller : l'e-mail part au client, le lien n'est pas dans la réponse");
+  // Coordonnée VIDE côté agence : l'acquéreuse la renseigne dans son état civil — le code part quand même à l'e-mail de l'agence.
+  const id6 = await call("/public/offre/identite", { method: "PUT", headers: h6b, body: { civilite: "Madame", nom: "Sansmobile", prenoms: "Zoé", naissance: "1990-03-04", lieuNaissance: "Pau", adresse: "1 rue Neuve, 33000 Bordeaux", telephone: "06 55 55 55 55" } });
+  const ligne6 = await db.get("SELECT email, telephone, identite FROM crm_offre_signataires WHERE id = ?", [sig6.id]);
+  const pub6 = (await call("/public/offre", { headers: h6b })).json;
+  ok(id6.status === 200 && ligne6.telephone === "" && JSON.parse(ligne6.identite).telephone === "06 55 55 55 55" && pub6.moi.telephone === "" && pub6.otp.telephone === "" && pub6.otp.email === "zo•••@exemple.fr",
+    "un téléphone vide côté agence se renseigne (état civil), sans devenir une destination du code tant que l'agence a un e-mail");
+  ok((await call("/public/offre/identite", { method: "PUT", headers: h6b, body: { telephone: "06 44 44 44 44", email: "zoe@exemple.fr" } })).status === 200 && (await call("/public/offre/identite", { method: "PUT", headers: h6b, body: { email: "autre@exemple.fr" } })).status === 403,
+    "…et se corrige librement, contrairement à l'e-mail enregistré par l'agence");
+  // Plafond de codes : compté sur le signataire, pas sur son nom affiché (modifiable).
+  await call("/public/offre/financement", { method: "PUT", headers: h6b, body: { financement: { sansPret: false, pret: 100000, duree: 20 } } });
+  await callRaw("/public/offre/documents?type=identite&nom=piece.png", { headers: h6b, body: PNG });
+  const codes6 = [];
+  for (let i = 0; i < O_TEST.OTP_ENVOIS_MAX + 1; i++) {
+    await call("/public/offre/identite", { method: "PUT", headers: h6b, body: { prenoms: "Zoé " + "abcdefg"[i] } });
+    codes6.push((await call("/public/offre/otp", { headers: h6b, body: {} })).status);
+  }
+  ok(codes6.slice(0, O_TEST.OTP_ENVOIS_MAX).every((x) => x === 200) && codes6[O_TEST.OTP_ENVOIS_MAX] === 429, "7e code de l'heure refusé (429) même en changeant de nom entre chaque demande : " + codes6.join(" "));
+  await db.run("UPDATE crm_offre_signataires SET otp_expire = otp_expire - 3600 WHERE id = ?", [sig6.id]);
+  ok((await call("/public/offre/otp", { headers: h6b, body: {} })).status === 200 && (await db.get("SELECT otp_envois FROM crm_offre_signataires WHERE id = ?", [sig6.id])).otp_envois === 1, "une heure sans envoi : le compteur repart de 1");
+  // L'agence n'a NI e-mail NI téléphone : seul cas où le code part aux coordonnées saisies par le signataire.
+  const nb7 = (await call("/crm/offres", { headers: authPaul, body: { contactIds: [ctN.id], ...cadre("7 rue du Test") } })).json;
+  const env7 = await call("/crm/offres/" + nb7.id + "/envoyer", { headers: authPaul, body: {} });
+  const h7 = { "X-Offre-Jeton": env7.json.liens[0].lien.split("#t=")[1] };
+  const pub7a = (await call("/public/offre", { headers: h7 })).json;
+  await call("/public/offre/identite", { method: "PUT", headers: h7, body: { email: "noe@exemple.fr" } });
+  const pub7b = (await call("/public/offre", { headers: h7 })).json;
+  ok(env7.json.liens[0].envoye === false && pub7a.otp.canaux.length === 0 && pub7b.otp.canaux.join() === "email" && pub7b.otp.email === "no•••@exemple.fr" && pub7b.moi.email === "",
+    "sans aucune coordonnée côté agence, le lien est remis par le conseiller et le code part à l'e-mail que l'acquéreur renseigne");
+  // Offre figée AVANT la règle « état civil de tous avant la première signature » : un état civil resté incomplet se complète encore (une fois).
+  await db.run("UPDATE crm_offres SET pdf_hash = ? WHERE id = ?", ["f".repeat(64), nb7.id]);
+  const id7 = await call("/public/offre/identite", { method: "PUT", headers: h7, body: { naissance: "1980-05-06", lieuNaissance: "Agen", adresse: "2 rue Vieille, 47000 Agen" } });
+  ok(id7.status === 200 && id7.json.manques.length === 0 && (await call("/public/offre/identite", { method: "PUT", headers: h7, body: { adresse: "ailleurs" } })).status === 409, "offre figée avec un état civil incomplet (cas hérité) : il se complète, puis ne bouge plus");
   fauxResendO.close();
 }
 
@@ -5615,6 +6537,68 @@ console.log("— Porte collaborateurs Kadima FERMÉE (12/10) : plus de compte pa
   const mort = await callM("/crm/meta/relever", { headers: authM, body: {} });
   ok(mort.status === 502 && /expiré ou révoqué/.test(mort.json.error) && (await callM("/crm/meta", { headers: authM })).json.compte.statut === "erreur", "jeton expiré : message clair, statut en erreur");
   fauxMeta.close();
+}
+
+console.log("— Crons : mêmes chaînes dans wrangler.toml et worker.js, chaîne du matin étape par étape, ménage des compteurs");
+{
+  // event.cron rend la chaîne de wrangler.toml caractère pour caractère : si les deux fichiers divergent, le cron
+  // tourne « à vide » sans la moindre erreur. Et chez Cloudflare 1 = dimanche : le jour s'écrit en noms.
+  const toml = readFileSync(new URL("./wrangler.toml", import.meta.url), "utf8");
+  const srcWorker = readFileSync(new URL("./worker.js", import.meta.url), "utf8");
+  const crons = JSON.parse((/^crons\s*=\s*(\[[^\]]*\])/m.exec(toml) || [])[1] || "[]");
+  const dansWorker = [...srcWorker.matchAll(/"((?:[\w*\/,-]+ ){4}[\w*\/,-]+)"/g)].map((m) => m[1]);
+  ok(crons.length === 3 && dansWorker.length >= 2 && dansWorker.every((x) => crons.includes(x)),
+    "chaque cron comparé dans worker.js existe à l'identique dans wrangler.toml (" + JSON.stringify(dansWorker) + " / " + JSON.stringify(crons) + ")");
+  const hebdo = crons.filter((x) => x.split(" ")[4] !== "*");
+  ok(hebdo.length === 1 && hebdo[0] === "0 5 * * MON,FRI" && dansWorker.includes(hebdo[0]) && crons.every((x) => !/\d/.test(x.split(" ")[4])),
+    "le cron de lundi et vendredi s'écrit en noms de jours, jamais en chiffres (" + hebdo.join(" | ") + ")");
+  ok(!/event\.cron\s*[!=]==?\s*["'`]/.test(srcWorker) && dansWorker.includes("0 6 * * *"), "worker.js compare event.cron à ses constantes, pas à des chaînes recopiées");
+
+  // Chaîne du matin : une étape qui tombe est journalisée, les suivantes tournent quand même.
+  const journalCron = [], errOrigine = console.error;
+  console.error = (...a) => { journalCron.push(a.join(" ")); };
+  try {
+    const ordre = [];
+    const bilan = await CRM_TEST.enchainerEtapes([
+      ["première", async () => { ordre.push(1); throw new Error("base saturée"); }],
+      ["deuxième", async () => { ordre.push(2); return { fait: true }; }],
+      ["troisième", () => { ordre.push(3); throw new Error("autre panne"); }],
+    ]);
+    ok(JSON.stringify(ordre) === "[1,2,3]" && bilan["première"].erreur === "base saturée" && bilan["deuxième"].fait === true && bilan["troisième"].erreur === "autre panne",
+      "une étape en échec n'arrête pas les suivantes");
+    ok(journalCron.some((l) => /première/.test(l) && /base saturée/.test(l)) && journalCron.some((l) => /troisième/.test(l)), "…et chaque échec est journalisé avec le nom de l'étape");
+    // Le cron de 6 h du Worker, base en panne : la promesse confiée à waitUntil se termine sans rejet,
+    // et l'Administration puis les rappels d'offres ont bien été tentés APRÈS le ménage.
+    journalCron.length = 0;
+    const worker = (await import("./worker.js")).default;
+    let appelsD1 = 0;
+    const d1EnPanne = { prepare() { appelsD1++; throw new Error("D1_ERROR: base en panne"); } };
+    const confiees = [];
+    await worker.scheduled({ cron: "0 6 * * *" }, { DB: d1EnPanne }, { waitUntil: (p) => confiees.push(p) });
+    const fin = await Promise.allSettled(confiees);
+    const bilanCron = (fin[0] && fin[0].value) || {};
+    ok(confiees.length === 1 && fin[0].status === "fulfilled" && !!bilanCron["administration"] && !!bilanCron["rappels d'offres"],
+      "cron de 6 h, base en panne : la chaîne va au bout sans rejet (" + JSON.stringify(Object.keys(bilanCron)) + ")");
+    ok(!!(bilanCron["administration"] || {}).erreur && !!(bilanCron["rappels d'offres"] || {}).erreur && journalCron.some((l) => /administration/.test(l)) && journalCron.some((l) => /rappels d'offres/.test(l)) && appelsD1 > 10,
+      "…l'Administration et les rappels d'offres sont tentés après un ménage en erreur, et leurs échecs journalisés");
+    // Le ménage lui-même : une purge refusée n'empêche pas les suivantes.
+    const dbCapricieux = { ...db, run: async (sql, params) => { if (/connexions_journal/.test(sql)) throw new Error("purge refusée"); return db.run(sql, params); } };
+    const t0 = Math.floor(Date.now() / 1000), minute0 = Math.floor(t0 / 60);
+    await db.run("INSERT OR REPLACE INTO crm_quotas (agency_id, user_id, jour, cle, n) VALUES ('ag_test_menage', '', '2020-01-01', 'vieux', 1)");
+    // Compteurs de débit : un vieux de trois jours, un de la minute, et celui (fenêtre de 10 min) d'une demande de lien.
+    await db.run("INSERT OR REPLACE INTO ai_rate (scope, minute, n) VALUES ('test-vieux', ?, 3)", [minute0 - 3 * 1440]);
+    await db.run("INSERT OR REPLACE INTO ai_rate (scope, minute, n) VALUES ('test-frais', ?, 3)", [minute0]);
+    await call("/auth/request-link", { body: { email: "personne@sans-compte.example" }, headers: { "CF-Connecting-IP": "198.51.100.88" } });
+    const scopeLien = "ip:lien:" + (await sha256hex("198.51.100.88")).slice(0, 16);
+    const menageC = await CRM_TEST.menageQuotidien(dbCapricieux);
+    ok(menageC.journalErreur === "purge refusée" && menageC.quotas >= 1 && !(await db.get("SELECT n FROM crm_quotas WHERE agency_id = 'ag_test_menage'")),
+      "ménage : une purge refusée est notée, les suivantes sont faites (" + JSON.stringify({ journal: menageC.journalErreur, quotas: menageC.quotas }) + ")");
+    ok(menageC.debits >= 1 && !(await db.get("SELECT n FROM ai_rate WHERE scope = 'test-vieux'")) && !!(await db.get("SELECT n FROM ai_rate WHERE scope = 'test-frais'")),
+      "ménage : les compteurs de débit de plus de deux jours sont purgés, ceux du moment restent");
+    const ligneLien = await db.get("SELECT minute, n FROM ai_rate WHERE scope = ?", [scopeLien]);
+    ok(ligneLien && ligneLien.n === 1 && Math.abs(ligneLien.minute - minute0) <= 11, "…y compris le compteur à fenêtre de 10 minutes d'une demande de lien (daté en minutes, pas purgé à tort)");
+    await db.run("DELETE FROM ai_rate WHERE scope IN ('test-frais', ?)", [scopeLien]);
+  } finally { console.error = errOrigine; }
 }
 
 fake.close();

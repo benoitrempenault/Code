@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 const ICI = new URL(".", import.meta.url).pathname;
 const RACINE = resolve(ICI, "../..");
 const PORT_API = 8788, PORT_SITE = 8014, PORT_BAN = 18796;
-const PARCOURS = ["suppression", "anniversaires", "suivi", "fiche-adresse", "compte", "maisons", "offre", "parcours-r1r2", "mobile", "bilans"];
+const PARCOURS = ["suppression", "anniversaires", "suivi", "fiche-adresse", "compte", "maisons", "offre", "parcours-r1r2", "livret-dossiers", "admin-fiches", "documents", "connexion", "mobile", "bilans"];
 const choisis = process.argv.slice(2).length ? process.argv.slice(2) : PARCOURS;
 
 // 1) Fausse BAN pour le serveur (géocodage direct) : toute adresse trouve une
@@ -72,6 +72,8 @@ const overpass = createServer(async (req, res) => {
 }).listen(PORT_OVERPASS);
 const geo = createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "application/json" });
+  // Un code postal à DEUX communes, dans l'ordre de la vraie API (parcours « documents » : commune indéterminée).
+  if (/codePostal=33320/.test(req.url)) return res.end(JSON.stringify([{ nom: "Eysines", code: "33162", population: 24825, surface: 1201, departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } }, { nom: "Le Taillan-Médoc", code: "33519", population: 11073, surface: 1517, departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } }]));
   res.end(JSON.stringify([{ nom: "Saint-Médard-en-Jalles", code: "33449", population: 32000, surface: 8524, departement: { nom: "Gironde" }, region: { nom: "Nouvelle-Aquitaine" } }]));
 }).listen(PORT_GEO);
 
@@ -107,6 +109,14 @@ const dvf = createServer((req, res) => {
     lignes.push(["2026-A" + a, "2026-0" + (1 + (a % 9)) + "-0" + (1 + (a % 9)), "Vente", 150000 + (a % 3) * 55000, 1 + (a % 20), "RUE DES SMOKES", "Saint-Medard-en-Jalles", "Appartement", 45 + (a % 3) * 18, 2 + (a % 3), 0,
       (-0.92 + i * 0.0085 + 0.004).toFixed(5), (44.80 + j * 0.0075 + 0.0037).toFixed(5)].join(","));
   }
+  // Un quartier dense (parcours « documents ») : 45 appartements de 3 pièces vendus autour du bien
+  // « rue des Ventes Nombreuses », de 150 m à 1,4 km dans toutes les directions — plus que les 30 imprimées.
+  // (Autour de CHAQUE position que la fausse BAN a donnée à cette adresse : la fiche et son contact
+  // sont géocodés avec des libellés différents, donc à des endroits différents.)
+  [...positionsBan.entries()].filter(([q]) => /Ventes Nombreuses/i.test(q)).forEach(([, [lon, lat]], n) => {
+    for (let k = 0; k < 45; k++) { const d = 150 + k * 28, a = k * 2.4;
+      lignes.push(["2026-D" + n + "-" + k, "2026-0" + (1 + (k % 9)) + "-1" + (k % 9), "Vente", 200000 + k * 1500, 1 + k, "RUE DENSE", "Saint-Medard-en-Jalles", "Appartement", 60 + (k % 5), 3, 0,
+        (lon + d * Math.cos(a) / (111320 * Math.cos(lat * Math.PI / 180))).toFixed(5), (lat + d * Math.sin(a) / 111320).toFixed(5)].join(",")); } });
   res.writeHead(200, { "Content-Type": "text/csv" }); res.end(lignes.join("\n") + "\n");
 }).listen(PORT_DVF);
 
@@ -122,6 +132,8 @@ const bienici = createServer((req, res) => {
   const tous = [
     { id: "flat-smoke-2", accountDisplayName: "Appart Smoke", adType: "buy", propertyType: "flat", price: 236000, surfaceArea: 48, roomsQuantity: 2, bedroomsQuantity: 1, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date().toISOString() },
     { id: "flat-smoke-3", accountDisplayName: "Appart Smoke", adType: "buy", propertyType: "flat", price: 262000, surfaceArea: 66, roomsQuantity: 3, bedroomsQuantity: 2, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date().toISOString() },
+    // Un programme neuf, tel que le portail l'annonce : prix, surface, pièces et chambres en fourchettes [min, max].
+    { id: "neuf-smoke-4", accountDisplayName: "Promoteur Smoke", adType: "buy", propertyType: "flat", newProperty: true, price: [145000, 275000], surfaceArea: [40, 83.77], roomsQuantity: [2, 4], bedroomsQuantity: [1, 3], city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date().toISOString(), photos: [{ url: "http://localhost:" + PORT_BIENICI + "/photo/neuf.jpg" }] },
     { id: "terrain-smoke-3", accountDisplayName: "Terrains Smoke", adType: "buy", propertyType: "terrain", price: 260000, landSurfaceArea: 750, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date().toISOString() },
     { id: "orpi-smoke-1", accountDisplayName: "ORPI Smoke", adType: "buy", propertyType: "house", price: 335000, surfaceArea: 98, landSurfaceArea: 410, roomsQuantity: 5, bedroomsQuantity: 3, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: "1970-01-01T00:00:00.000Z", priceHasDecreased: false, blurInfo: { position: { lat: 44.90, lon: -0.72 } }, photos: [{ url: "http://localhost:" + PORT_BIENICI + "/photo/orpi.jpg" }], district: { libelle: "Gajac" } },
     { id: "human-smoke-2", accountDisplayName: "HUMAN Immobilier", adType: "buy", propertyType: "house", price: 349900, surfaceArea: 95, landSurfaceArea: 322, roomsQuantity: 4, city: "Saint-Médard-en-Jalles", postalCode: "33160", publicationDate: new Date().toISOString(), priceHasDecreased: true, blurInfo: { position: { lat: 44.91, lon: -0.73 } }, photos: [{ url: "http://localhost:" + PORT_BIENICI + "/photo/human.jpg" }] },

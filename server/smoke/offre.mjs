@@ -1,7 +1,10 @@
 /* Parcours « offre » : le conseiller crée une offre depuis l'Administration
    (couple), l'envoie ; l'acquéreur ouvre son lien, complète état civil et
    financement (sans prêt), dépose sa pièce d'identité, tape la mention et
-   signe par code ; le conseiller retrouve l'offre signée. */
+   signe par code ; le conseiller retrouve l'offre signée.
+   Garde-fous vérifiés au passage : e-mail et mobile de l'agence en lecture
+   seule, état civil des DEUX acquéreurs avant la première signature, prix
+   modifié entre l'affichage et la signature → relecture imposée. */
 import { api, attendreToast, creerAgence, ouvrir, parcours, SITE } from "./lib.mjs";
 import { mkdir } from "node:fs/promises";
 
@@ -47,12 +50,25 @@ export default async function () {
     const lien = (await api("/crm/offres/" + offres[0].id + "/signataires/" + elle.id + "/lien", { headers: admin.auth, body: {} })).json.lien;
     ok(lien.startsWith(SITE + "/offre/#t="), "le lien magique pointe sur la page publique du site");
 
+    const lui = det.signataires.find((s) => s.role === "offrant" && /DUPONT/.test(s.libelle));
+    const lienJ = (await api("/crm/offres/" + offres[0].id + "/signataires/" + lui.id + "/lien", { headers: admin.auth, body: {} })).json.lien;
+    // D'un lien à l'autre dans le même onglet, seul le fragment change (la
+    // page se recharge d'elle-même) : on attend le formulaire du BON signataire.
+    const ouvrirLien = async (url, nom) => {
+      await page.goto(url);
+      await page.waitForFunction((n) => {
+        const el = document.querySelector("#formIdentite [name=nom]");
+        return !document.getElementById("parcoursOffrant").hidden && !!el && el.value.toUpperCase() === n;
+      }, nom, { timeout: 8000 });
+    };
+
     // L'acquéreuse, sans session : on vide le compte de l'appareil.
     await page.evaluate(() => localStorage.clear());
-    await page.goto(lien);
-    await page.waitForSelector("#parcoursOffrant:not([hidden])", { timeout: 8000 });
+    await ouvrirLien(lien, "MÜLLER");
     ok((await page.textContent("#recap")).replace(/\s/g, "").includes("224917€"), "la page publique affiche le prix et le bien");
     const f = page.locator("#formIdentite");
+    ok(elle.email === "eleonore@smoke.fr" && await f.locator("input[name=email]").evaluate((el, v) => el.readOnly && el.value === v, elle.email)
+       && await f.locator("input[name=telephone]").evaluate((el, v) => el.readOnly && !!v && el.value === v, elle.telephone) && /contactez votre conseiller/.test(await f.textContent()), "l'e-mail et le mobile enregistrés par l'agence s'affichent en lecture seule (le code de signature y part)");
     await f.locator("input[name=naissance]").fill("1988-04-12");
     await f.locator("input[name=lieuNaissance]").fill("Bordeaux");
     await f.locator("input[name=profession]").fill("Ingénieure");
@@ -73,6 +89,23 @@ export default async function () {
     await chooser.setFiles({ name: "cni.png", mimeType: "image/png", buffer: PNG });
     await page.waitForFunction(() => /déposée/.test(document.getElementById("msgPieces").textContent), null, { timeout: 10000 });
     ok(true, "la pièce d'identité se dépose (photo passée par le canvas puis envoyée)");
+    // Le document figé à la première signature porte l'état civil des deux :
+    // tant que celui de Jean est incomplet, Éléonore ne peut pas signer.
+    await page.waitForFunction(() => /état civil de Monsieur Jean DUPONT/.test(document.getElementById("signatureContenu").textContent), null, { timeout: 6000 });
+    ok(!(await page.$("#btnCode")), "signature d'Éléonore en attente de l'état civil de son co-acquéreur");
+
+    // Jean : son lien, son état civil (l'adresse manquait).
+    await ouvrirLien(lienJ, "DUPONT");
+    const fj = page.locator("#formIdentite");
+    await fj.locator("input[name=naissance]").fill("1985-01-02");
+    await fj.locator("input[name=lieuNaissance]").fill("Paris");
+    await fj.locator("input[name=adresse]").fill("3 allée du Parc, 33700 Mérignac");
+    await page.click("#formIdentite button[type=submit]");
+    await page.waitForFunction(() => /enregistré/i.test(document.getElementById("msgIdentite").textContent), null, { timeout: 6000 });
+
+    // Retour chez Éléonore : elle demande son code, puis l'agence change le prix
+    // AVANT qu'elle signe — la page refuse, réaffiche l'offre, et elle relit.
+    await ouvrirLien(lien, "MÜLLER");
     await page.waitForSelector("#btnCode", { timeout: 6000 });
     const mention = await page.textContent(".mention");
     await page.fill("#mentionSaisie", mention);
@@ -81,26 +114,27 @@ export default async function () {
     await page.waitForFunction(() => /mode test : \d{6}/.test(document.getElementById("msgSignature").textContent), null, { timeout: 8000 });
     const code = /mode test : (\d{6})/.exec(await page.textContent("#msgSignature"))[1];
     await page.fill("#code", code);
+    await api("/crm/offres/" + offres[0].id, { method: "PUT", headers: admin.auth, body: { prix: 225000 } });
+    await page.click("#btnSigner");
+    await page.waitForFunction(() => /relisez/.test(document.getElementById("msgSignature").textContent), null, { timeout: 8000 });
+    ok((await page.textContent("#recap")).replace(/\s/g, "").includes("225000€") && await page.isVisible("#texteOffre") && !(await api("/crm/offres/" + offres[0].id, { headers: admin.auth })).json.offre.figee,
+      "prix modifié entre l'affichage et la signature : rien n'est signé, la page réaffiche l'offre à relire (225 000 €)");
+    await page.fill("#mentionSaisie", mention);
+    await page.check("#engagement");
+    await page.fill("#code", code);
     await page.screenshot({ path: captures + "offre-signature.png", fullPage: true });
     await page.click("#btnSigner");
     await page.waitForFunction(() => /Vous avez signé/.test(document.getElementById("signatureContenu").textContent), null, { timeout: 10000 });
-    ok(true, "Éléonore a signé par code — mention L313-42 tapée, engagement coché");
+    ok(true, "Éléonore a signé par code, après relecture — mention L313-42 tapée, engagement coché");
     await page.screenshot({ path: captures + "offre-signee.png", fullPage: true });
     const apres = (await api("/crm/offres/" + offres[0].id, { headers: admin.auth })).json;
     ok(apres.offre.figee && apres.signataires.find((s) => s.id === elle.id).signeAt > 0, "côté agence : document figé, signature d'Éléonore consignée");
 
-    // Jean : son lien, son état civil (l'adresse manquait), sa CNI, sa signature.
-    const lui = det.signataires.find((s) => s.role === "offrant" && /DUPONT/.test(s.libelle));
-    const lienJ = (await api("/crm/offres/" + offres[0].id + "/signataires/" + lui.id + "/lien", { headers: admin.auth, body: {} })).json.lien;
-    await page.goto(lienJ);
-    await page.waitForSelector("#parcoursOffrant:not([hidden])", { timeout: 8000 });
-    ok(await page.locator("#formFinancement input[name=apport]").isDisabled(), "chez Jean, le financement est verrouillé (document figé)");
-    const fj = page.locator("#formIdentite");
-    await fj.locator("input[name=naissance]").fill("1985-01-02");
-    await fj.locator("input[name=lieuNaissance]").fill("Paris");
-    await fj.locator("input[name=adresse]").fill("3 allée du Parc, 33700 Mérignac");
-    await page.click("#formIdentite button[type=submit]");
-    await page.waitForFunction(() => /enregistré/i.test(document.getElementById("msgIdentite").textContent), null, { timeout: 6000 });
+    // Jean : sa CNI, sa signature. Le document est figé : ni le financement ni
+    // son état civil ne se modifient plus, et la CNI d'Éléonore ne se retire plus.
+    await ouvrirLien(lienJ, "DUPONT");
+    ok(await page.locator("#formFinancement input[name=apport]").isDisabled() && await page.locator("#formIdentite input[name=adresse]").isDisabled() && !(await page.$("#pieces [data-sup]")),
+      "chez Jean, financement et état civil sont verrouillés (document figé), plus aucune pièce ne se retire");
     const [chooserJ] = await Promise.all([page.waitForEvent("filechooser"), page.click('.piece:not(.ok) [data-type="identite"] >> nth=0')]);
     await chooserJ.setFiles({ name: "cni-jean.png", mimeType: "image/png", buffer: PNG });
     await page.waitForFunction(() => /déposée/.test(document.getElementById("msgPieces").textContent), null, { timeout: 10000 });

@@ -21,7 +21,11 @@
     return (Math.round(m / 100) / 10).toString().replace(".", ",") + " km";
   }
   function pos(e) { return e.lat != null ? [e.lat, e.lon] : (e.center ? [e.center.lat, e.center.lon] : null); }
-  function norm(s) { return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
+  // Clé de comparaison des noms : sans accents ni tirets (« Saint-Médard » = « Saint Medard »).
+  function norm(s) {
+    return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .replace(/[-‐‑–—'’.\s]+/g, " ").trim();
+  }
 
   async function fetchJsonRetry(url, opts, tries) {
     tries = tries || 3;
@@ -45,7 +49,14 @@
     return { lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], props: f.properties };
   }
 
-  function buildQuery(lat, lon) {
+  // Un lycée se reconnaît à sa nature (school:FR, convention française
+  // d'OpenStreetMap) ou, à défaut, à son nom.
+  const RAYON_LYCEES = 10000;
+  // En dessous, une réponse accompagnée d'un « remark » est tenue pour interrompue.
+  const ELEMENTS_MIN = 10;
+  function estLycee(t) { return /lyc[ée]e/i.test(t["school:FR"] || "") || /^lyc[ée]e/i.test((t.name || "").trim()); }
+
+  function buildQuery(lat, lon, sansLycees) {
     const p = lat + "," + lon;
     return "[out:json][timeout:25];" +
       "node(around:1300," + p + ")[highway=bus_stop]->.bs;" +
@@ -55,6 +66,10 @@
       "node(around:2600," + p + ")[amenity=school];" +
       "way(around:2600," + p + ")[amenity=school];" +
       "node(around:2600," + p + ")[amenity=college];" +
+      // Lycées : cherchés plus loin (un lycée dessert plusieurs communes).
+      (sansLycees ? "" :
+        "nwr(around:" + RAYON_LYCEES + "," + p + ")[amenity=school][\"school:FR\"~\"lyc\",i];" +
+        "nwr(around:" + RAYON_LYCEES + "," + p + ")[amenity=school][name~\"^lyc.e\",i];") +
       "node(around:1500," + p + ")[shop=bakery];" +
       "node(around:1500," + p + ")[shop=convenience];" +
       "node(around:2200," + p + ")[shop=supermarket];" +
@@ -83,7 +98,7 @@
   }
 
   function categorize(els, lat, lon, linesByNode) {
-    const out = { transport: [], ecole: [], boul: [], super: [], pharma: [], marche: [], townhall: [] };
+    const out = { transport: [], ecole: [], lycee: [], boul: [], super: [], pharma: [], marche: [], townhall: [] };
     els.forEach(function (e) {
       const t = e.tags || {}; const pp = pos(e); if (!pp) return;
       const d = haversine(lat, lon, pp[0], pp[1]);
@@ -94,7 +109,12 @@
       } else if (t.railway === "tram_stop" || t.station === "tram") {
         out.transport.push({ d: d, name: name || "Tram", tram: true, lines: t.route_ref ? t.route_ref.split(";") : [] });
       } else if (t.amenity === "school" || t.amenity === "college") {
-        if (name) out.ecole.push({ d: d, name: name });
+        if (!name) return;
+        // Un ensemble scolaire (school:FR=collège;lycée) garde son nom tel quel : « Lycée »
+        // n'est ajouté que devant un établissement qui n'est QUE lycée.
+        const mixte = /;/.test(t["school:FR"] || "");
+        if (t.amenity === "school" && estLycee(t)) out.lycee.push({ d: d, name: (mixte || /lyc[ée]e/i.test(name)) ? name : "Lycée " + name });
+        else if (d <= 2600) out.ecole.push({ d: d, name: name });
       } else if (t.shop === "bakery") { out.boul.push({ d: d, name: name || "Boulangerie" }); }
       else if (t.shop === "convenience") { out.boul.push({ d: d, name: name || "Supérette" }); }
       else if (t.shop === "supermarket") { if (name) out.super.push({ d: d, name: name }); }
@@ -117,7 +137,7 @@
   function aggregateStops(list, n) {
     const by = {};
     list.forEach(function (s) {
-      const k = (s.name || "").toLowerCase();
+      const k = norm(s.name);
       if (!by[k]) by[k] = { d: s.d, name: s.name, tram: s.tram, lines: {} };
       if (s.d < by[k].d) by[k].d = s.d;
       (s.lines || []).forEach(function (l) { by[k].lines[l] = 1; });
@@ -132,7 +152,7 @@
     const seen = {}; const kept = [];
     list.sort(function (a, b) { return a.d - b.d; });
     list.forEach(function (it) {
-      const k = (it.name || "").toLowerCase();
+      const k = norm(it.name); // « École Jean-Jaurès » et « Ecole Jean Jaures » : un seul établissement
       if (seen[k]) return; seen[k] = 1; kept.push(it);
     });
     return kept.slice(0, n);
@@ -145,13 +165,23 @@
     if (!geo) throw new Error("Adresse introuvable. Utilisez la saisie automatique pour la préciser.");
     const lat = geo.lat, lon = geo.lon, city = geo.props.city || "";
 
-    let data;
-    try {
-      data = await fetchJsonRetry(OVERPASS, {
+    // La recherche complète (avec les lycées, plus large) ; si elle échoue, on
+    // repart sans les lycées plutôt que de laisser le quartier vide.
+    // Overpass répond 200 même quand il abandonne (délai dépassé, mémoire) : il le dit dans
+    // « remark » et ne renvoie alors rien, ou presque. C'est un échec, pas un quartier vide.
+    const interroger = function (sansLycees, essais) {
+      return fetchJsonRetry(OVERPASS, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: "data=" + encodeURIComponent(buildQuery(lat, lon))
-      }, 3);
+        body: "data=" + encodeURIComponent(buildQuery(lat, lon, sansLycees))
+      }, essais).then(function (d) {
+        if (d && d.remark && (d.elements || []).length < ELEMENTS_MIN) throw new Error("overpass: " + d.remark);
+        return d;
+      });
+    };
+    let data;
+    try {
+      data = await interroger(false, 2).catch(function () { return interroger(true, 2); });
     } catch (e) {
       throw new Error("Service cartographique indisponible, réessayez dans un instant.");
     }
@@ -185,6 +215,11 @@
 
     const ec = top(c.ecole, 4);
     if (ec.length) quartier.push({ label: "Écoles", value: ec.map(function (s) { return s.name + " à " + fmt(s.d); }).join("  ·  ") });
+
+    // Les lycées les plus proches (à vol d'oiseau — pas le lycée de secteur,
+    // qui dépend de la carte scolaire).
+    const ly = top(c.lycee, 3);
+    if (ly.length) quartier.push({ label: ly.length > 1 ? "Lycées" : "Lycée", value: ly.map(function (s) { return s.name + " à " + fmt(s.d); }).join("  ·  ") + " (à vol d'oiseau)" });
 
     const su = top(c.super, 3);
     if (su.length) quartier.push({ label: "Supermarchés", value: su.map(function (s) { return s.name + " à " + fmt(s.d); }).join("  ·  ") });

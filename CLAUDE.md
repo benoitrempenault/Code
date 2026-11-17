@@ -98,11 +98,16 @@ file par dossier, `suitVersion` (les PUT compromis / avenant rendent `updated_at
 `updated_at_avant`) ; annuaire et modèles enregistrés PAR ID (`annEdits`) ; brouillons et
 focus conservés par `renderDossier(opts)` (`{neuf:true}` après un ajout) ; `conditionProche`
 (avenants, relecture) ; `dateIso` ; `etapes.js?v=` et `app.js?v=` montent ENSEMBLE.
-**Dates qui ne tenaient pas (17/11)** : `aSauver` (ids modifiés) + `envoyerEnAttente()` (debounce,
-`route`, onglet masqué, `beforeunload`) — l'envoi différé partait sur le dossier ouvert au
-moment de l'envoi ; `renderDossierApres()` attend la sortie d'un champ date (un « change » par
-chiffre déréglait la saisie au clavier) et le relâchement de la souris ; `nomUnique()` (créer un
-dossier de même référence écrasait l'ancien). Assets `?v=5`.
+**Dates qui ne tenaient pas (17/11)** : l'audit du 16/11 (autre discussion) avait figé les étapes
+`contrat` à la relance et `normalize()` rendait au calcul toute échéance = relance + 7 j, donc
+aussi une date posée à la main. Désormais `relanceReporte: true` sur `pret_depot` (la relance
+repousse d'une semaine, la ligne rappelle « Date du compromis : … »), `dueManuel` sur une date
+saisie, `RELANCES_ANCIENNES` (le retour au calcul ne vise que les relances d'avant le 17/11) ;
+`renderDossierApres()` attend la sortie d'un champ date (un « change » par chiffre déréglait la
+saisie au clavier) et le relâchement de la souris ; diagnostics : échéance = fin de validité
+− 15 j (`RELANCE_DIAG`, client et serveur). Assets `?v=6`, mémo `suivi-dates-17-11`.
+AVANT de tester ou de décrire le comportement « en ligne », fusionner la branche de déploiement :
+une autre discussion y pousse aussi sur Suivi.
 
 **`administration/` — Studio Administration**, l'app interne Kadima d'**administration de
 l'agence** : la base contacts partagée (import d'extraction Excel/CSV avec mappage de colonnes
@@ -1443,6 +1448,138 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**Connexion — du lien e-mail au code SMS sans détour (17/11, Benoît : « je fais Ouvrir la session, mais ça ne me
+renvoie pas sur la page du code SMS »)** : c'était VOULU par la conception « la page qui attend se connecte »
+(`/auth/attente`) : la page ouverte par le lien confirmait seulement, et l'onglet où l'e-mail avait été saisi recevait
+la session et le code — invisible sur ordinateur (on reste devant le nouvel onglet), et aucun SMS si l'onglet d'origine
+était fermé ou en veille. Désormais (`mandat-pro/assets/js/compte.js`, aucun changement serveur) : si le navigateur qui
+ouvre le lien est celui qui l'a demandé (attente présente dans le stockage local, clé `studio-compte-lien-attente` —
+un robot de messagerie ne l'a pas), `consumeHashToken` échange aussitôt avec `ici: true` : pas de bouton, session et
+code SMS sur CETTE page. L'onglet d'origine suit (`suivreAutreOnglet`, évènement `storage`) : même saisie du code,
+puis le compte, sans l'alerte « ouvert sur un autre appareil ». Autre navigateur (application mail du téléphone, app
+d'écran d'accueil, autre poste) : inchangé — bouton anti-robot, puis c'est la page d'origine qui reçoit le code ;
+« Continuer ici plutôt » reste proposé. Smoke `connexion` : il lance SON serveur (port 18810) et un faux Brevo
+(18809), car brancher `BREVO_API_KEY` sur le serveur commun des smokes fait exiger un code aux autres comptes de test.
+**Révision générale en trois lots (17/11, après l'audit Fable 5.2 du 16/11) — ce qu'il faut savoir pour ne pas
+régresser.** Six chantiers fusionnés ; détail dans les commits `lot/*`.
+- *Serveur* : `sqlQ` / `sqlT` tronquent AVANT d'échapper, ids du navigateur en paramètres liés (`marques()`) ; erreur
+  500 = message générique + référence (détail au journal) ; `PUT /crm/estimations` ne réécrit plus `user_id` (le
+  créateur est immuable : c'est lui qui ouvre le périmètre du parcours) ; proxy IA = liste blanche de champs (`model`,
+  `max_tokens`, `system`, `messages`, `temperature`, `thinking`, `output_config`), jamais `stream` ni `tools`, cache
+  compté, 2xx sans `usage` = réservation gardée, limite IP en mode clé personnelle, purge `ai_rate` ; `/auth/request-link`
+  répond pareil que le compte existe ou non ; code par e-mail GARDÉ en secours même avec un mobile vérifié (choix de
+  Benoît, 17/11 : les SMS n'arrivent pas toujours), essais par session sans remise à zéro ; `GET /rdv` et statut = ses propres rendez-vous pour un membre ; modification d'un suivi / d'une
+  visite = auteur ou admin ; plafonds d'envoi atomiques ; crons en NOMS de jours (`0 5 * * MON,FRI`, chaîne identique
+  dans wrangler.toml et worker.js, test) ; `enchainerEtapes` (une étape du cron en échec n'arrête pas les suivantes).
+- *Offres* : code de signature aux coordonnées de l'agence (modifiables depuis le lien seulement si vides) ; lien
+  magique, réponse manuelle et retrait = conseiller du dossier ou admin ; empreinte du texte affiché renvoyée à la
+  signature (409 si l'offre a changé) ; plafond de codes sur `otp_envois` ; après le gel ni retrait de pièce ni état
+  civil ; `questionnaire` réservé à l'offrant, certificat public sans journal ni IP ; nouveau jeton écrit seulement
+  après envoi réussi ; `PUT /crm/offres/:id/signataires/:sid/coordonnees` (conseiller du dossier ou admin, avant
+  signature) + bouton « ✎ Coordonnées » : c'est là qu'une coordonnée mal saisie se corrige. À REPORTER À LA MAIN dans `kadima-site/src/offre/` (copie de `offre/assets/js/offre.js`).
+- *Suivi* : `PUT /dossiers` sans id sur un nom pris = 409 `existant` (sauf `remplacer`) ; `retour_sru` n'écrit plus
+  `dates.presentation_sru` ; étapes `contrat: true` (relance sans report d'échéance) ; `PRET_DEFAUT = 56` ; noms des
+  parties jamais réécrits par `normalize()` ; file des dossiers non enregistrés (bandeau, rejeu, `beforeunload`) ;
+  `PUT /annuaire` `completer: true` ne remplit que les champs vides.
+- *Brochures / fiches* : compteur `generation` (toute réponse asynchrone revenue après un changement de dossier est
+  jetée ; identité posée au retour d'un PUT seulement si la génération n'a pas changé) ; `viderHorsEtat` vide aussi
+  `dpeData` / `surfData` ; `PUT /brochures` avec `version` (409 `modifiee`), par nom sans intention = seulement sa
+  propre brochure ; `/fiches` : `id`, `creer`, `remplacer` ; `confirmerRemplacement` ; `sumSurfaces`,
+  `formatPriceValue`, `formatMoneyLine` (« € » sur taxe / charges / honoraires / électricité / gaz ; tests `server/test-formateurs.mjs`) ; `geo.js` : `remark` d'Overpass = échec.
+  Les anciennes pages `/` et `/pro/` n'ont reçu que le refus par nom.
+- *Administration* : `lireContact` (fiche relue par id à l'ouverture, via `/crm/contacts/:id/export`) ; Nouveau
+  parcours : `delier`, saisie = contact oublié ; serveur : rattachement d'un parcours sur e-mail OU téléphone
+  identique seulement (plus sur nom + prénom), `reporterSurContact` ne remplit que les champs vides ; projets :
+  `zone.isConnected` ; `montrerEchec` (livret) ; `urlSure` (href en http(s) seulement) ; fusion : `opt_out` conservé,
+  `prenomsConcordent` ; boutons d'envoi et de création protégés du double clic (modèle `px-creer`).
+- *Documents* : `choisirCommune` (code INSEE de la BAN, noms normalisés, jamais `liste[0]` si le code postal couvre
+  plusieurs communes → « commune indéterminée ») ; `parseDvfCsv` (terrains additionnés par parcelle, ventes groupées
+  et terrains non constructibles écartés) ; courrier mesuré avant écriture (refus au-delà d'environ 450 caractères de
+  mot libre) ; `ajusterParagraphes` coupe à la dernière phrase ; guide R2 p6 (`guide-r2.json` : `haut`, `bas`,
+  `tailleMin`) ; `ecritureSure` (Barlow si hors WinAnsi) ; `reduireProgramme` ; tiers de la commission = bornes réelles
+  des avis ; médiane paire ; smoke `documents`.
+- Smokes nouveaux : `admin-fiches`, `documents`, sous-parcours `suivi-*`. Lancer les tests en parallèle de plusieurs
+  copies du dépôt : `flock /tmp/studio-ports.lock …` (ports fixes).
+- NON FAIT, décisions du propriétaire : visibilité de la liste des estimations et de la recherche de contacts pour
+  un simple membre ; page d'attente de `/auth/exchange` (même IP = connexion sans question) ; webhook Stripe ; liens
+  d'agenda sans expiration ; corriger les coordonnées d'un offrant côté agence ; co-propriétaire encore rattaché par
+  nom + prénom ; autres lecteurs DVF (Studio Estimation, prospection) ; dépôt public et historique à purger.
+
+**Livret prix — SECOND défaut de dossiers mêlés (16/11 soir, Stéphanie : « j'ai fait A, puis modifié B, les infos de
+B se sont copiées sur A »)** : `ouvrirAcm` posait la fenêtre puis chargeait (DVF, portails, photos, commission) ;
+quittée pendant ce chargement pour le livret de B, sa suite revenait écrire SON formulaire (et ses écouteurs, id = A)
+dans la fenêtre de B, sous le titre de B → la saisie « de B » partait dans A. Reproduit par le smoke
+`livret-dossiers` (route `/acm/portails` ralentie). Correctif (admin.js) : garde `maFenetre !== sessionModale` juste
+avant le rendu du livret ; `quitterFenetre()` (fermeture, retour navigateur) avance `sessionModale`, retire les
+écouteurs et fait partir la saisie en attente ; `ouvrirParcours` : la dernière fiche demandée l'emporte
+(`demandeParcours`) ; `rendre()` de la commission et réponses de la fenêtre e-mail gardées. GARDE CENTRALE dans
+`api()` : toute écriture `/crm/parcours/<id>/…` est refusée si la fenêtre ouverte est celle d'un autre dossier
+(`fenetreDossier`, posé par `pourDossier(id)` JUSTE AVANT `ouvrirModale`, vidé à la fermeture). RÈGLE : toute nouvelle
+fenêtre liée à un parcours appelle `pourDossier(id); ouvrirModale(…)` et, si elle écrit dans la fenêtre après un
+`await`, vérifie `sessionModale`.
+Complément du même soir (revue) : le jeton doit être pris À L'ENTRÉE de la fonction, avant le premier `await`
+(`jetonEntree` dans `ouvrirAcm`, `preparerMailParcours`, `ouvrirCourrierEstimation`, `ouvrirGuideR2`,
+`ouvrirCommission`) — sinon une fenêtre quittée AVANT de s'ouvrir venait encore remplacer celle du dossier suivant.
+`ouvrirParcours(id, jeton)` ne s'impose plus en fin de traitement si la fenêtre a changé ; « Enregistrer la fiche » lit
+tout le formulaire avant son premier `await` ; générations longues : `fenetreQuittee(jeton, quoi)` (ni étape cochée
+ni document ouvert par-dessus). `api(…, { horsFenetre: true })` = écriture voulue pour un dossier dont la valeur a été
+lue au moment du geste (bien de la fiche, photo, positionnement). Smoke : fetch enveloppé dans la page pour retenir
+une réponse (l'interception Playwright faisait échouer la requête retardée).
+
+**Livret prix — versions précédentes, dossiers supprimés, récupération depuis les sauvegardes (16/11, suite du
+défaut ci-dessous)** : `GET /crm/parcours/:id/acm/versions` (résumés ; `actuel` + `versions`, celles identiques au
+livret en place sont tues) et `POST …/versions/:vid/restaurer` (le livret en place est archivé avant, `origine`
+restauration). `DELETE /crm/parcours/:id` pose d'abord une entrée `crm_corbeille` type `parcours` (payload =
+lignes de `crm_estimations`, `crm_parcours`, `crm_parcours_r2`, `crm_estimation_contacts` ; insert à paramètres
+liés, sans la photo du R2 si trop lourd) ; `GET /crm/parcours-corbeille` / `POST /crm/parcours-corbeille/:id/
+restaurer` = périmètre du conseiller (direction : tout), entrées dont la fiche existe déjà tues ; `restaurerCorbeille`
+accepte désormais les colonnes à chiffres (`r1`, `r2`). Écrans (admin.js) : `ouvrirVersionsLivret` (bouton
+`#acm-versions` du pied du livret), `ouvrirDossiersSupprimes` (`#btn-parcours-supprimes`). Récupération :
+`tools/recuperation/recuperer-livrets.mjs` + workflow manuel `recuperer-livrets.yml` (entrées `jours`, `ecrire`) —
+relit les artefacts `d1-backup-*`, la plus récente = référence ; écrit des `INSERT OR IGNORE` (ids déterministes
+`lvs_…` / `cb_s…`, relançable) dans `crm_parcours_acm_versions` (origine sauvegarde) et `crm_corbeille` ; un dossier
+dont le contact n'existe plus ne revient pas (RGPD) ; instructions > 90 Ko laissées (limite D1 100 Ko) ; le journal
+(public) ne montre QUE des nombres. Le lecteur SQL suit guillemets ET commentaires (SQLite garde le texte des
+CREATE TABLE, apostrophes des commentaires comprises). Essai : `node tools/recuperation/test.mjs` (CI). Smoke
+`livret-dossiers` étendu (pose des lignes dans la base jetable du lanceur via `node:sqlite`). Ne JAMAIS mettre de
+vrais noms/adresses de clients dans les tests : le dépôt est public.
+
+**Brochures — lycées dans « Le quartier » (16/11)** : `geo.js` (mandat + mandat-pro, fichiers identiques, chargés en
+`geo.js?v=2`) cherche les lycées à 10 km (`amenity=school` + `school:FR~lyc` ou nom « Lycée… »), ligne « Lycées » =
+les 3 plus proches (vol d'oiseau, PAS le lycée de secteur), sortis de la ligne « Écoles ». Si la requête complète
+échoue, repli sur la requête sans lycées. Non vérifié sur Overpass réel le jour J (serveurs publics en 503, hôte
+injoignable depuis le conteneur) : vérifié sur données simulées.
+
+**Livret prix — un dossier écrivait dans les autres (16/11, Stéphanie Dreyfus, la VRAIE cause de « dossiers
+liés »)** : `#modale-corps` / `#modale-pied` sont des éléments PERSISTANTS, réutilisés par toutes les fenêtres. Depuis
+la mi-octobre, `ouvrirAcm` y posait un écouteur `change` (enregistrement automatique) jamais retiré : après avoir
+ouvert le livret de A, toute saisie dans le livret de B rappelait le `sauver()` de A, qui lisait le formulaire de B
+et l'écrivait dans A (prix, surface, pièces de B ; ventes et concurrence vidées — listes de la fermeture de A).
+Touchait tout conseiller ouvrant plusieurs livrets sans recharger la page. Correctif (admin.js) : `surModale(el,
+type, fn)` / `avantFenetreSuivante(fn)` — écouteurs retirés par `ouvrirModale` ; `sessionModale` (un `await` qui
+revient après un changement de fenêtre abandonne) ; `#modale-corps.dataset.livret = id` et garde dans `lire()` ;
+la saisie en attente part avant de changer de fenêtre ; `ouvrirOffre` passe aussi par `surModale`. RÈGLE : ne
+jamais faire `$("modale-corps").addEventListener(...)` en direct. Serveur : `archiverLivret` garde l'état en place
+dans `crm_parcours_acm_versions` avant tout remplacement (≤ 1 version / 2 min / dossier ; ménage : première et
+dernière du jour après 24 h, purge 90 j ; `origine` saisie | restauration | sauvegarde). Les clients à jour écrivent
+`PUT …/acm?c=2` ; sans `c=2` le serveur répond 409 « rechargez la page » (onglets restés sur l'ancien script). Smoke `livret-dossiers` (échoue sur l'ancien script). La suppression d'un parcours laisse les
+lignes `crm_parcours_acm` / `crm_estimation_bien` orphelines (utile à la récupération).
+
+**Bibliothèque des brochures — identité des dossiers (10/11, Stéphanie Dreyfus : « un dossier se lie à un
+autre »)** : trois causes reproduites — (1) depuis le retrait du bouton de la barre (19/10), tout enregistrement
+passait par un prompt pré-rempli du nom du dernier dossier ouvert ; (2) `#aiNotes` (hors état) n'était pas vidé à
+l'ouverture d'un dossier → « Générer » réécrivait B avec le bien de A ; (3) `PUT /brochures` = upsert PAR NOM,
+commun à l'agence, sans question. Correctif (mandat + mandat-pro, app.js) : `PUT /brochures` accepte `id` (mise à
+jour de la brochure ouverte, renommage si nom libre), `creer` (409 + `existe {id, auteur, updated_at, a_moi}` si le
+nom est pris), `remplacer` (l'ancienne version copiée en corbeille, motif `remplacee`) ; sans aucun des trois =
+ancien comportement (clients en cache). `DELETE /brochures/:id` = table `brochures_corbeille` (contenu R2 gardé),
+`GET /brochures/corbeille`, `POST /brochures/:id/restaurer`, purge à 30 j dans `menageQuotidien` (sous try).
+Client : `noterCourant()` (badge `#brOuverte`, libellé « 💾 Enregistrer « NOM » », bouton `#libSaveAs`, `#libTrash`
+créés en JS), `_courant {name, id}` gardé dans le même blob localStorage que l'état (retiré à `load()`/`loadData`),
+`viderHorsEtat()` à l'ouverture, `resetBlank()` quand on supprime le dossier ouvert, `cloudPutBrochure(body,
+silencieux)`. NON fait : même upsert par nom pour les fiches prestation (`/fiches`, fiche.js), suppression non
+réservée à l'auteur. Smoke `compte` : scénario complet ; tests serveur brochures.
+
 **SMS courts, un segment (06/11)** : Brevo facture au segment (≈ 4,5 crédits ≈ 0,045 € ; unicode = 70
 caractères/segment, standard = 160). Modèles `sms-*` et textes par défaut de `buildAnniversaireSms` resserrés
 (≤ 160 caractères en jeu GSM avec « Jean-Baptiste », « Laurence », « CENTURY 21 Kadima », un 06) : « {signature},
@@ -1741,7 +1878,7 @@ au vendeur si un bilan ENVOYÉ dans les 3 semaines précédentes la portait :
 que le conseiller relit ; les alertes ne partent jamais. Semaine couverte = dernière
 semaine COMPLÈTE. `crm_bilans` (un par mandat × semaine, brouillon|envoye|ignore ;
 `modifie` = relu → la régénération n'y touche plus). Délégations (« DELEGATION … ») et
-mandats absents du site : pas de bilan. Cron : lundi sur « 0 5 * * 1,5 » (budget de
+mandats absents du site : pas de bilan. Cron : lundi sur « 0 5 * * MON,FRI » (corrigé le 17/11 : « 1,5 » partait dimanche et jeudi chez Cloudflare) (budget de
 sous-requêtes séparé du 6h), si `reglages.bilans.enabled` — brouillons + **chaque bilan
 complet par e-mail à son conseiller** (29/09, demande de Benoît : `mailBilanConseiller` =
 bloc interne alertes/recommandation + texte tel que le vendeur le recevra + bouton « Modifier
