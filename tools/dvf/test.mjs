@@ -86,6 +86,8 @@ try {
   const etat = JSON.parse((await appel("/crm/dvf-etat", auth)).texte);
   ok(etat.livraison === "2026-10-20" && etat.jusquau === "2026-06-29" && etat.deps.join() === "33" && etat.annees.join() === "2025,2026", "l'état dit la livraison, la dernière vente connue, les départements et les années");
 
+  { const h = await (await fetch(API + "/health")).json();
+    ok(h.dvf && h.dvf.livraison === "2026-10-20" && h.dvf.jusquau === "2026-06-29", "/health publie la livraison DVF en place (pour la vérification extérieure)"); }
   ok(/déjà en place/.test(await lancer()), "relancé, le script voit que la livraison est déjà en place et ne refait rien");
   const j24 = await lancer({ DEPARTEMENTS: "24" });
   const etat2 = JSON.parse((await appel("/crm/dvf-etat", auth)).texte);

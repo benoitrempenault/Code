@@ -344,9 +344,13 @@ export function createApp(env) {
     } catch (e) { d1.ecriture = String((e && e.message) || e).slice(0, 200); }
     // commit : le SHA déployé (workflow) — null en local. C'est ce qui permet
     // de diagnostiquer sur le code qui tourne vraiment, pas sur une branche.
+    // dvf : la livraison DVF en place et la date de la dernière vente connue (données
+    // publiques) — c'est ce qu'une vérification extérieure compare à data.gouv.
+    let dvf = null;
+    try { const e = await etatDvf(); if (e) dvf = { livraison: e.livraison || "", jusquau: e.jusquau || "", deps: e.deps || [] }; } catch { dvf = null; }
     return c.json({ ok: d1.lecture === "ok" && d1.ecriture === "ok", ts: now(), devices: MAX_SESSIONS,
       session_jours: SESSION_TTL / 86400, session_max_jours: SESSION_MAX_AGE / 86400, d1,
-      commit: env.DEPLOY_COMMIT || null });
+      commit: env.DEPLOY_COMMIT || null, dvf });
   });
 
   /* --------------------------- Authentification ------------------------- */
