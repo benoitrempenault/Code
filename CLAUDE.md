@@ -1448,6 +1448,23 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**DVF — dépôt de Studio, ventes 2026 (18/11, Benoît : « les réf DVF 2026 dans le livret »)** : Etalab ne publie
+plus de fichier « une commune × un millésime ». Le dossier `files.data.gouv.fr/geo-dvf/latest/csv/` que lisait le
+relais `/crm/dvf` est une ARCHIVE figée à la livraison d'avril (ventes jusqu'au 31/12/2025), annoncée SUPPRIMÉE fin
+novembre 2026 ; la livraison d'octobre (1er semestre 2026 compris) n'existe qu'en fichiers nationaux `full-AAAA.csv.gz`
+(jeu data.gouv « demandes-de-valeurs-foncieres-geolocalisees », mêmes 40 colonnes). Désormais : `tools/dvf/
+decouper-dvf.mjs` (workflow `dvf.yml`, le 25 de chaque mois et à la main, entrée `departements`, défaut `33`) lit la
+liste sur l'API data.gouv, décompresse au fil de l'eau, découpe par commune (`champs13` respecte les guillemets) et
+dépose sur le serveur : `PUT /depot/dvf/<année>/<dép>/<commune>` puis `PUT /depot/dvf/etat` EN DERNIER. Le dépôt
+n'existe que si le secret `DVF_DEPOT_KEY` est posé : le workflow pose une clé jetable (`wrangler secret put`), s'en
+sert, puis la remplace par une autre que personne ne connaît. Stockage R2 : `dvf/<année>/<dép>/<commune>.csv` et
+`dvf/_etat.json` { livraison, jusquau, deps, annees }. `lireDvfCommune` (app.js) : dépôt d'abord ; département + année
+couverts par l'état et fichier absent = 404 sans interroger Etalab ; hors couverture = ancien relais tant qu'il
+existe (en-tête `X-Dvf-Source: studio | etalab`). `GET /crm/dvf-etat` → le livret écrit « ventes publiées jusqu'à
+juin 2026 ». Livret, Studio Estimation et prospection demandent déjà l'année en cours d'abord : rien à changer côté
+écran. Un département hors `deps` n'aura PLUS de DVF quand l'archive disparaîtra : l'ajouter au workflow. Essai :
+`node tools/dvf/test.mjs` (vrai serveur local, CI).
+
 **Connexion — du lien e-mail au code SMS sans détour (17/11, Benoît : « je fais Ouvrir la session, mais ça ne me
 renvoie pas sur la page du code SMS »)** : c'était VOULU par la conception « la page qui attend se connecte »
 (`/auth/attente`) : la page ouverte par le lien confirmait seulement, et l'onglet où l'e-mail avait été saisi recevait

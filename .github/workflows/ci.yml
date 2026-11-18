@@ -37,6 +37,12 @@ jobs:
       - name: Outil de récupération des livrets (fausses sauvegardes)
         run: node tools/recuperation/test.mjs
 
+      - name: Découpage DVF par commune (faux fichiers nationaux)
+        working-directory: server
+        run: |
+          npm install
+          cd .. && node tools/dvf/test.mjs
+
       - name: Tests d'intégration du serveur
         working-directory: server
         run: |

@@ -29,6 +29,7 @@ const app = createApp({
   files,
   SESSION_SECRET: process.env.SESSION_SECRET || "dev-secret",
   ADMIN_KEY: process.env.ADMIN_KEY || "dev-admin",
+  DVF_DEPOT_KEY: process.env.DVF_DEPOT_KEY || "",
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || "",
   ANTHROPIC_BASE: process.env.ANTHROPIC_BASE || "",
   DEPLOY_COMMIT: process.env.DEPLOY_COMMIT || "",

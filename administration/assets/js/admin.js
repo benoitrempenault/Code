@@ -4588,6 +4588,12 @@
   // est retentée une fois, puis l'année est dite manquante (`dvfBilans`, relu par le livret)
   // et le résultat n'est PAS gardé en cache : il serait resté incomplet toute la session.
   const dvfBilans = new Map();
+  // Jusqu'où vont les ventes publiées (le dépôt DVF de Studio le sait) : dit dans le livret.
+  let dvfJusquauCache = null;
+  async function dvfPublieJusquau() {
+    if (dvfJusquauCache === null) { try { dvfJusquauCache = (await api("/crm/dvf-etat")).jusquau || ""; } catch { return ""; } }
+    return dvfJusquauCache;
+  }
   async function chargerDvfCommune(code, dep) {
     if (dvfCacheAcm.has(code)) return dvfCacheAcm.get(code);
     const annee = new Date().getFullYear(), ventes = [], bilan = { annees: [], manquantes: [], groupees: 0, horsNature: 0 }; let trouvees = 0;
@@ -4684,6 +4690,7 @@
       .sort((a, b) => a.score - b.score || (a.source === "agence" ? -1 : 1));
     donnees.ventesDvf = ventesDvf; // toutes les ventes DVF autour : page dédiée du livret
     donnees.ventesDvfTotal = dvfAutour.length; donnees.dvfManquantes = bilanDvf.manquantes || [];
+    donnees.dvfJusquau = await dvfPublieJusquau();
     window.__acmDebug = { dvf: dvf.length, ventesDvf: ventesDvf.length, ventesDvfTotal: dvfAutour.length, dvfBilan: bilanDvf, commune: donnees.commune, lat: donnees.lat, lng: donnees.lng, type: donnees.type, surfaceRef, piecesRef,
       ordreVentes: candidatsVentes.slice(0, 8).map((v) => ({ id: v.id, pieces: v.pieces, dist: v.dist, surface: v.surface, date: v.date, score: v.score })),
       identiques: dvf.filter((v) => v.ventes_identiques > 1).map((v) => ({ adresse: v.adresse, n: v.ventes_identiques, date: v.date, prix: v.prix })) }; // relu par le smoke
@@ -5169,7 +5176,10 @@
       const quoi = estTerrain ? ["vente de terrain nu", "ventes de terrains nus"] : donnees.type === "appartement" ? ["vente d'appartement", "ventes d'appartements"] : ["vente de maison", "ventes de maisons"];
       const enTete = (total > dvfTous.length ? "Les " + dvfTous.length + " " + quoi[1] + " les plus proches, sur " + total : pluriel(dvfTous.length, quoi[0], quoi[1])) + " à moins de 1,5 km, sur les 24 derniers mois";
       const manquantes = (donnees.dvfManquantes || []).slice().sort();
-      const sourceDvf = "Données notariales publiques (DVF, data.gouv.fr)" + (manquantes.length ? " — " + (manquantes.length > 1 ? "les années " + manquantes.join(", ") + " n'ont" : "l'année " + manquantes[0] + " n'a") + " pas pu être chargée" + (manquantes.length > 1 ? "s" : "") + " : liste incomplète" : "");
+      // DVF paraît deux fois l'an, avec environ six mois de décalage : on dit jusqu'où vont les ventes publiées.
+      const moisDvf = /^(\d{4})-(\d{2})/.exec(donnees.dvfJusquau || "");
+      const publie = moisDvf ? ", ventes publiées jusqu'à " + ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"][Number(moisDvf[2]) - 1].replace(/^([aeiouéèêh])/, "$1") + " " + moisDvf[1] : "";
+      const sourceDvf = "Données notariales publiques (DVF, data.gouv.fr" + publie + ")" + (manquantes.length ? " — " + (manquantes.length > 1 ? "les années " + manquantes.join(", ") + " n'ont" : "l'année " + manquantes[0] + " n'a") + " pas pu être chargée" + (manquantes.length > 1 ? "s" : "") + " : liste incomplète" : "");
       const tenir = (t, f, taille) => { let k = taille; while (k > 7 && largeur(t, f, k) > L) k -= 0.25; return k; };
       const tEnTete = tenir(enTete, fS, 9), tSource = tenir(sourceDvf, fR, 8.5);
       ecrire(pg, enTete, G, 86, tEnTete, fS, noir);
@@ -5440,6 +5450,8 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "dvf-2026-18-11", depuis: "2026-11-18", jours: 10, titre: "Livret prix : les ventes du 1er semestre 2026",
+      html: '<p class="aide" style="max-width:none; margin:0;">Les ventes DVF vont maintenant <strong>jusqu\'à fin juin 2026</strong> (elles s\'arrêtaient fin 2025) : livret prix, Studio Estimation et carte de prospection. Le livret indique jusqu\'à quel mois les ventes sont publiées. Les données officielles paraissent deux fois par an, avec environ six mois de décalage : la suite de 2026 arrivera au printemps.</p>' },
     { id: "suivi-dates-17-11", depuis: "2026-11-17", jours: 7, titre: "Suivi des ventes : relances et dates",
       html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
         "<li><strong>Dossier de prêt déposé par l'acquéreur</strong> : une relance envoyée par « ✉ Relancer » repousse de nouveau la ligne d'une semaine. La date du compromis reste rappelée en rouge sur la ligne.</li>" +

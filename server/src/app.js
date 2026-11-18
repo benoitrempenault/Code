@@ -3021,6 +3021,40 @@ export function createApp(env) {
     return c.json({ batiments, total: j.numberMatched ?? batiments.length }, 200, { "Cache-Control": "private, max-age=604800" });
   });
 
+  // DVF AU DÉPÔT DE STUDIO (18/11). Les fichiers « une commune × un millésime »
+  // d'Etalab sont figés à la livraison d'avril et annoncés supprimés fin
+  // novembre 2026 ; la suite (dont le 1er semestre 2026) n'est publiée qu'en
+  // fichiers nationaux. Un travail planifié (tools/dvf, workflow « DVF ») les
+  // découpe par commune et les dépose ici, dans le stockage de Studio :
+  //   dvf/<année>/<département>/<commune>.csv   et   dvf/_etat.json
+  // L'état dit quels départements et quelles années sont couverts : pour eux,
+  // un fichier absent veut dire « aucune vente », sans interroger Etalab.
+  // Hors couverture, on retombe sur l'ancien relais tant qu'il existe.
+  const DVF_ETAT = "dvf/_etat.json";
+  let dvfEtat = { lu: 0, etat: null };
+  async function etatDvf() {
+    if (!env.files) return null;
+    if (dvfEtat.lu > now() - 300) return dvfEtat.etat;
+    let etat = null;
+    try { const o = await env.files.get(DVF_ETAT); if (o) etat = JSON.parse(await o.text()); } catch { etat = null; }
+    dvfEtat = { lu: now(), etat };
+    return etat;
+  }
+  // → { status: 200, texte } | { status: 200, corps } | { status: 404 } | { status: 502, message }
+  async function lireDvfCommune(annee, dep, commune) {
+    if (env.files) {
+      try { const o = await env.files.get(`dvf/${annee}/${dep}/${commune}.csv`); if (o) return { status: 200, texte: await o.text(), source: "studio" }; } catch { /* on tente la suite */ }
+      const etat = await etatDvf();
+      if (etat && Array.isArray(etat.deps) && etat.deps.includes(dep) && etat.annees && etat.annees[annee]) return { status: 404, source: "studio" };
+    }
+    const base = env.DVF_BASE || "https://files.data.gouv.fr/geo-dvf/latest/csv";
+    let amont;
+    try { amont = await fetch(`${base}/${annee}/communes/${dep}/${commune}.csv`, { redirect: "follow" }); }
+    catch (e) { return { status: 502, message: "files.data.gouv.fr ne répond pas — réessayez dans un instant." }; }
+    if (amont.status === 404) return { status: 404, source: "etalab" };
+    if (!amont.ok) return { status: 502, message: "files.data.gouv.fr répond " + amont.status + " — réessayez dans un instant." };
+    return { status: 200, corps: amont.body, source: "etalab" };
+  }
   app.get("/crm/dvf/:annee/:dep/:commune", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
     const annee = c.req.param("annee");
@@ -3029,18 +3063,54 @@ export function createApp(env) {
     if (!/^20\d{2}$/.test(annee) || !/^[0-9AB]{2,3}$/.test(dep) || !/^[0-9AB]{5}$/.test(commune)) {
       return err(c, 400, "Millésime, département ou commune invalide.");
     }
-    const base = env.DVF_BASE || "https://files.data.gouv.fr/geo-dvf/latest/csv";
-    let amont;
-    try {
-      amont = await fetch(`${base}/${annee}/communes/${dep}/${commune}.csv`, { redirect: "follow" });
-    } catch (e) {
-      return err(c, 502, "files.data.gouv.fr ne répond pas — réessayez dans un instant.");
-    }
-    if (amont.status === 404) return err(c, 404, "Pas de fichier DVF pour cette commune et ce millésime.");
-    if (!amont.ok) return err(c, 502, "files.data.gouv.fr répond " + amont.status + " — réessayez dans un instant.");
-    return new Response(amont.body, {
-      headers: { "Content-Type": "text/csv; charset=utf-8", "Cache-Control": "private, max-age=86400" },
+    const r = await lireDvfCommune(annee, dep, commune);
+    if (r.status === 404) return err(c, 404, "Pas de fichier DVF pour cette commune et ce millésime.");
+    if (r.status !== 200) return err(c, 502, r.message);
+    return new Response(r.texte !== undefined ? r.texte : r.corps, {
+      headers: { "Content-Type": "text/csv; charset=utf-8", "Cache-Control": "private, max-age=86400", "X-Dvf-Source": r.source },
     });
+  });
+  // Jusqu'où vont les ventes connues (affiché dans le livret) : l'état du dépôt, sans rien d'autre.
+  app.get("/crm/dvf-etat", async (c) => {
+    const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
+    const e = await etatDvf();
+    return c.json(e ? { livraison: e.livraison || "", jusquau: e.jusquau || "", deps: e.deps || [], annees: Object.keys(e.annees || {}).sort() } : { livraison: "", jusquau: "", deps: [], annees: [] });
+  });
+  // Le DÉPÔT : seul le travail planifié écrit ici, avec une clé jetable posée
+  // sur le serveur le temps du travail (DVF_DEPOT_KEY) puis remplacée. Sans
+  // clé posée, ces routes n'existent pas (404). Chemins et contenu bornés.
+  const depotDvfOuvert = (c) => !!env.DVF_DEPOT_KEY && safeEqual(c.req.header("X-Depot-Key") || "", env.DVF_DEPOT_KEY);
+  app.put("/depot/dvf/etat", async (c) => {
+    if (!env.DVF_DEPOT_KEY || !env.files) return err(c, 404, "Introuvable.");
+    if (!depotDvfOuvert(c)) return err(c, 401, "Clé de dépôt refusée.");
+    const b = await c.req.json().catch(() => null);
+    if (!b || typeof b !== "object" || !Array.isArray(b.deps) || !b.annees || typeof b.annees !== "object") return err(c, 400, "État attendu : { livraison, jusquau, deps, annees }.");
+    const etat = {
+      livraison: String(b.livraison || "").slice(0, 10), jusquau: String(b.jusquau || "").slice(0, 10), genere_le: now(),
+      deps: b.deps.map((d) => String(d).toUpperCase()).filter((d) => /^[0-9AB]{2,3}$/.test(d)).slice(0, 110),
+      annees: Object.fromEntries(Object.entries(b.annees).filter(([a]) => /^20\d{2}$/.test(a)).slice(0, 12)
+        .map(([a, v]) => [a, { jusquau: String((v && v.jusquau) || "").slice(0, 10), communes: Number(v && v.communes) || 0, ventes: Number(v && v.ventes) || 0 }])),
+    };
+    await env.files.put(DVF_ETAT, JSON.stringify(etat));
+    dvfEtat = { lu: 0, etat: null };
+    return c.json({ ok: true, etat });
+  });
+  app.get("/depot/dvf/etat", async (c) => {
+    if (!env.DVF_DEPOT_KEY || !env.files) return err(c, 404, "Introuvable.");
+    if (!depotDvfOuvert(c)) return err(c, 401, "Clé de dépôt refusée.");
+    dvfEtat = { lu: 0, etat: null };
+    return c.json({ etat: await etatDvf() });
+  });
+  app.put("/depot/dvf/:annee/:dep/:commune", async (c) => {
+    if (!env.DVF_DEPOT_KEY || !env.files) return err(c, 404, "Introuvable.");
+    if (!depotDvfOuvert(c)) return err(c, 401, "Clé de dépôt refusée.");
+    const annee = c.req.param("annee"), dep = c.req.param("dep").toUpperCase(), commune = c.req.param("commune").toUpperCase();
+    if (!/^20\d{2}$/.test(annee) || !/^[0-9AB]{2,3}$/.test(dep) || !/^[0-9AB]{5}$/.test(commune)) return err(c, 400, "Millésime, département ou commune invalide.");
+    const texte = await c.req.text();
+    if (texte.length > 40 * 1024 * 1024) return err(c, 413, "Fichier trop volumineux.");
+    if (!texte.startsWith("id_mutation,")) return err(c, 400, "Un fichier DVF commence par son en-tête (id_mutation,…).");
+    await env.files.put(`dvf/${annee}/${dep}/${commune}.csv`, texte);
+    return c.json({ ok: true, octets: texte.length });
   });
 
   /* ===================== Permanences (app Permanence) ======================

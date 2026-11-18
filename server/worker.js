@@ -75,6 +75,7 @@ export default {
       SITE_STATS_BASE: env.SITE_STATS_BASE || "",
       KADIMA_SITE_BASE: env.KADIMA_SITE_BASE || "", // avis clients par point de vente (pages d'agence du site Kadima) : surchargeable en test
       SITE_STATS_KEY: env.SITE_STATS_KEY || "",
+      DVF_DEPOT_KEY: env.DVF_DEPOT_KEY || "", // clé jetable du dépôt DVF (workflow « DVF ») ; vide = dépôt fermé
       BILANS_BASE: env.BILANS_BASE || "",
       META_GRAPH_BASE: env.META_GRAPH_BASE || "", // Facebook / Instagram (bilans vendeurs) : surchargeable en test
       STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET || "",

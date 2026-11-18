@@ -3453,6 +3453,11 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   ok((await reqDvf("/crm/dvf/1999/33/33449", sessP)).status === 400, "relais DVF : millésime fantaisiste refusé");
   ok((await reqDvf("/crm/dvf/2025/xx/33449", sessP)).status === 400, "relais DVF : département invalide refusé");
   ok((await reqDvf("/crm/dvf/2025/33/abcde", sessP)).status === 400, "relais DVF : code commune invalide refusé");
+  // Le dépôt DVF (18/11) : fermé tant qu'aucune clé jetable n'est posée sur le serveur ; l'état est lisible par un conseiller.
+  { const depot = await appR.fetch(new Request("http://api.test/depot/dvf/2026/33/33449", { method: "PUT", headers: { "X-Depot-Key": "nimporte" }, body: "id_mutation,x\n" }));
+    const etatD = await reqDvf("/crm/dvf-etat", sessP);
+    ok(depot.status === 404 && etatD.status === 200 && (await etatD.json()).jusquau === "" && (await reqDvf("/crm/dvf-etat")).status === 401,
+      "dépôt DVF : fermé sans clé posée (404) ; l'état vide se lit avec une session, pas sans"); }
   // La Corse (2A/2B) passe la validation — le faux dépôt n'a pas le fichier.
   ok((await reqDvf("/crm/dvf/2025/2A/2A004", sessP)).status === 404, "relais DVF : les codes corses (2A…) sont acceptés");
 
