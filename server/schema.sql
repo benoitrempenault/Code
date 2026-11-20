@@ -1377,3 +1377,15 @@ CREATE TABLE IF NOT EXISTS crm_parcours_acm_versions (
   origine       TEXT NOT NULL DEFAULT 'saisie'
 );
 CREATE INDEX IF NOT EXISTS idx_acm_versions ON crm_parcours_acm_versions(estimation_id, archive_at);
+
+-- La civilité d'un propriétaire POUR UN DOSSIER du parcours R1/R2 (20/11) : la
+-- fiche contact peut être celle d'un couple (« M. et Mme ») alors que seule
+-- madame est propriétaire du bien. Absente : la civilité de la fiche contact.
+CREATE TABLE IF NOT EXISTS crm_parcours_proprietaires (
+  estimation_id TEXT NOT NULL,                -- crm_estimations.id
+  contact_id    TEXT NOT NULL,
+  agency_id     TEXT NOT NULL,
+  civilite      TEXT NOT NULL DEFAULT '',
+  updated_at    INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (estimation_id, contact_id)
+);

@@ -4665,6 +4665,31 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   for (const cid of [prop1.json.contact_id, propMemeNom.json.contact_id]) await callR("/crm/parcours/" + pxId + "/proprietaires/" + cid, { headers: authP, method: "DELETE" });
   const apSeul = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
   ok((await callR("/crm/parcours/" + pxId, { headers: authP })).json.proprietaires.length === 1 && /Madame, Monsieur MOUNEYRES,\n/.test(apSeul.texte) && apSeul.destinataires.length === 1, "retirés, le mail redevient celui d'un seul foyer");
+  // La civilité d'un co-propriétaire vaut pour le dossier (20/11) : la fiche contact d'un couple « M. et Mme »
+  // dont seule madame est propriétaire — le guide et le mail écrivaient « M. et Mme ».
+  { await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ civilite: "M. et Mme", nom: "COUPLEX", prenom: "", email: "couplex@exemple.fr" }] } });
+    const couple = (await callR("/crm/contacts", { headers: auth })).json.contacts.find((x) => x.email === "couplex@exemple.fr");
+    const dos = await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", prenom: "Bernard", nom: "PRINCIPALX", email: "principalx@exemple.fr", adresse: "9 allée de l'Essai", cp: "33160", ville: "Saint-Médard-en-Jalles", conseiller_id: teddy.json.id, r1: "2026-12-02", r1_heure: "10:00" } });
+    const idC = dos.json.id, lire = async () => (await callR("/crm/parcours/" + idC, { headers: authP })).json.proprietaires;
+    const aj = await callR("/crm/parcours/" + idC + "/proprietaires", { headers: authP, body: { civilite: "Mme", prenom: "", nom: "COUPLEX" } });
+    const civFiche = async () => (await db.get("SELECT civilite FROM crm_contacts WHERE id = ?", [couple.id])).civilite;
+    ok(aj.status === 200 && !aj.json.contact_cree && aj.json.contact_id === couple.id && aj.json.proprietaires[1].civilite === "Mme" && await civFiche() === "M. et Mme",
+       "« Mme COUPLEX » ajoutée alors qu'une fiche « M. et Mme COUPLEX » existe : la fiche est reprise, le dossier écrit « Mme », la fiche contact garde « M. et Mme »");
+    const apC = (await callR("/crm/parcours/" + idC + "/apercu?jalon=avant-r1", { headers: authP })).json;
+    ok(/^Bonjour Monsieur PRINCIPALX, Madame COUPLEX,\n/.test(apC.texte), "le mail s'adresse à « Monsieur PRINCIPALX, Madame COUPLEX » (" + apC.texte.split("\n")[0] + ")");
+    const maj = await callR("/crm/parcours/" + idC + "/proprietaires", { headers: authP, body: { contact_id: couple.id, civilite: "M." } });
+    ok(maj.status === 200 && maj.json.deja === true && maj.json.proprietaires.length === 2 && maj.json.proprietaires[1].civilite === "M.", "rajouter la même personne avec une autre civilité la met à jour, sans doublon");
+    const retour = await callR("/crm/parcours/" + idC + "/proprietaires", { headers: authP, body: { contact_id: couple.id, civilite: "M. et Mme" } });
+    ok(retour.json.proprietaires[1].civilite === "M. et Mme" && !(await db.get("SELECT 1 AS x FROM crm_parcours_proprietaires WHERE estimation_id = ?", [idC])), "revenue à la civilité de la fiche contact, rien n'est gardé à part");
+    // Le propriétaire principal s'écrit comme sur la fiche du parcours, pas comme sa fiche contact.
+    await callR("/crm/parcours/" + idC, { headers: authP, method: "PUT", body: { civilite: "Mme", prenom: "Bernadette" } });
+    const princ = (await lire())[0];
+    ok(princ.principal && princ.civilite === "Mme" && princ.prenom === "Bernadette" && princ.nom === "PRINCIPALX", "à plusieurs, le propriétaire principal garde la civilité et le prénom de la fiche du parcours (" + [princ.civilite, princ.prenom, princ.nom].join(" ") + ")");
+    await callR("/crm/parcours/" + idC + "/proprietaires", { headers: authP, body: { contact_id: couple.id, civilite: "Mme" } });
+    await callR("/crm/parcours/" + idC + "/proprietaires/" + couple.id, { headers: authP, method: "DELETE" });
+    ok((await lire()).length === 1 && !(await db.get("SELECT 1 AS x FROM crm_parcours_proprietaires WHERE estimation_id = ?", [idC])), "retirée de la fiche, sa civilité de dossier s'efface aussi");
+    for (const t of ["crm_estimation_contacts", "crm_parcours"]) await db.run(`DELETE FROM ${t} WHERE estimation_id = ?`, [idC]);
+    await db.run("DELETE FROM crm_estimations WHERE id = ?", [idC]); await db.run("DELETE FROM crm_contacts WHERE email IN ('couplex@exemple.fr', 'principalx@exemple.fr')"); }
   // Commission d'évaluation : lien public, avis des collègues, groupes et tiers comme Kadimestim, clôture.
   const comOuv = await callR("/crm/parcours/" + pxId + "/commission/ouvrir", { headers: authP, body: {} });
   const jeton = new URL(comOuv.json.lien, "http://x").searchParams.get("t");

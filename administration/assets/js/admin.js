@@ -4478,7 +4478,7 @@
       '<div id="pp-resultats" style="max-height:150px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:6px 12px; margin:6px 0 12px;"><p class="petit">Tapez au moins 2 caractères. Introuvable ? Remplissez ci-dessous : la fiche contact sera créée.</p></div>' +
       '<p class="petit" id="pp-choisi"></p>' +
       '<div class="grille-champs">' +
-      '<label>Civilité<select id="pp-civilite">' + ["Mme", "M."].map((c) => "<option>" + c + "</option>").join("") + "</select></label>" +
+      '<label>Civilité (pour ce dossier)<select id="pp-civilite">' + ["Mme", "M.", "M. et Mme"].map((c) => "<option>" + c + "</option>").join("") + "</select></label>" +
       '<label>Prénom<input id="pp-prenom" /></label><label>Nom<input id="pp-nom" /></label>' +
       '<label>E-mail<input id="pp-email" type="email" /></label><label>Téléphone<input id="pp-tel" /></label></div>',
       '<button class="btn" id="pp-annuler">Retour</button><button class="btn btn-or" id="pp-ajouter">Ajouter</button>');
@@ -4495,17 +4495,22 @@
           : '<p class="petit">Personne ne correspond : remplissez la fiche ci-dessous.</p>';
         zone.querySelectorAll("[data-pp]").forEach((b) => b.addEventListener("click", () => {
           const x = r.contacts.find((c) => c.id === b.dataset.pp); contactId = x.id;
-          $("pp-civilite").value = x.civilite === "M." ? "M." : "Mme"; $("pp-prenom").value = x.prenom || ""; $("pp-nom").value = x.nom || ""; $("pp-email").value = x.email || ""; $("pp-tel").value = fmtTel(x.telephone);
-          $("pp-choisi").textContent = "Fiche choisie : " + [x.prenom, x.nom].filter(Boolean).join(" ");
+          // La fiche choisie est reprise telle quelle (nom, e-mail : ils se corrigent sur la fiche contact) ;
+          // seule la civilité se choisit ici, pour ce dossier.
+          const civFiche = ["Mme", "M.", "M. et Mme"].includes(civiliteCourte(x.civilite)) ? civiliteCourte(x.civilite) : "";
+          $("pp-civilite").value = civFiche || "Mme"; $("pp-prenom").value = x.prenom || ""; $("pp-nom").value = x.nom || ""; $("pp-email").value = x.email || ""; $("pp-tel").value = fmtTel(x.telephone);
+          verrouiller(true);
+          $("pp-choisi").textContent = "Fiche choisie : " + [x.civilite, x.prenom, x.nom].filter(Boolean).join(" ") + ". Vérifiez la civilité ci-dessous : c'est elle qui s'imprime sur les guides et dans les e-mails de ce dossier.";
         }));
       } catch (e) { zone.innerHTML = '<p class="petit">' + escH(e.message) + "</p>"; }
     };
-    $("pp-q").addEventListener("input", () => { contactId = ""; $("pp-choisi").textContent = ""; clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
+    const verrouiller = (oui) => ["pp-prenom", "pp-nom", "pp-email", "pp-tel"].forEach((k) => { $(k).readOnly = oui; $(k).style.opacity = oui ? "0.6" : ""; });
+    $("pp-q").addEventListener("input", () => { contactId = ""; verrouiller(false); $("pp-choisi").textContent = ""; clearTimeout(minuteur); minuteur = setTimeout(chercher, 250); });
     $("pp-ajouter").addEventListener("click", async () => {
       const btn = $("pp-ajouter"); if (btn.disabled) return; btn.disabled = true; // un double clic n'ajoute qu'un co-propriétaire
       const jetonF = sessionModale;
-      const corps = contactId ? { contact_id: contactId } : { civilite: $("pp-civilite").value, prenom: $("pp-prenom").value.trim(), nom: $("pp-nom").value.trim(), email: $("pp-email").value.trim(), telephone: $("pp-tel").value.trim() };
-      try { const r = await api("/crm/parcours/" + id + "/proprietaires", { json: corps }); toast(r.contact_cree ? "Co-propriétaire ajouté, et sa fiche contact créée" : "Co-propriétaire ajouté"); ouvrirParcours(id, jetonF); }
+      const corps = contactId ? { contact_id: contactId, civilite: $("pp-civilite").value } : { civilite: $("pp-civilite").value, prenom: $("pp-prenom").value.trim(), nom: $("pp-nom").value.trim(), email: $("pp-email").value.trim(), telephone: $("pp-tel").value.trim() };
+      try { const r = await api("/crm/parcours/" + id + "/proprietaires", { json: corps }); toast(r.deja ? "Co-propriétaire déjà sur la fiche : civilité mise à jour" : r.contact_cree ? "Co-propriétaire ajouté, et sa fiche contact créée" : "Co-propriétaire ajouté"); ouvrirParcours(id, jetonF); }
       catch (e) { toast(e.message, true); btn.disabled = false; }
     });
   }
@@ -5450,6 +5455,8 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "civilite-coproprietaire-20-11", depuis: "2026-11-20", jours: 7, titre: "Parcours R1/R2 : la civilité d'un co-propriétaire",
+      html: '<p class="aide" style="max-width:none; margin:0;">La civilité choisie en ajoutant un co-propriétaire est maintenant <strong>celle qui s\'imprime</strong> sur les guides et dans les e-mails du dossier, même si la personne a déjà une fiche contact avec une autre civilité (un couple « M. et Mme » dont seule madame est propriétaire, par exemple). Pour corriger un dossier en cours : « + Co-propriétaire », rechercher la personne, choisir la bonne civilité, « Ajouter » — elle est mise à jour, sans doublon. La fiche contact, elle, ne change pas.</p>' },
     { id: "dvf-2026-18-11", depuis: "2026-11-18", jours: 10, titre: "Livret prix : les ventes du 1er semestre 2026",
       html: '<p class="aide" style="max-width:none; margin:0;">Les ventes DVF vont maintenant <strong>jusqu\'à fin juin 2026</strong> (elles s\'arrêtaient fin 2025) : livret prix, Studio Estimation et carte de prospection. Le livret indique jusqu\'à quel mois les ventes sont publiées. Les données officielles paraissent deux fois par an, avec environ six mois de décalage : la suite de 2026 arrivera au printemps.</p>' },
     { id: "suivi-dates-17-11", depuis: "2026-11-17", jours: 7, titre: "Suivi des ventes : relances et dates",

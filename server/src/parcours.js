@@ -65,6 +65,7 @@ export function civiliteNoms(civilite, nom, proprietaires) {
   if (noms.size === 1) return civiliteNom("M. et Mme", liste[0].nom);
   return liste.map((o) => civiliteNom(o.civilite || "M. et Mme", o.nom)).join(", ");
 }
+export const PROPRIETAIRES_MAX = 4;
 
 // Les pièces à préparer, selon le type de bien (à relire avant envoi).
 export const TYPES_BIEN = ["maison", "appartement", "terrain"];
@@ -715,11 +716,17 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
   };
   // Les propriétaires du bien : les contacts liés à la fiche, la fiche
   // principale (celle de la création) en premier.
-  const proprietairesDe = async (agencyId, est) => {
+  // Le propriétaire principal s'écrit comme sur la fiche du parcours (civilité, prénom, nom
+  // retouchés là), les autres avec la civilité choisie pour ce dossier.
+  const proprietairesDe = async (agencyId, est, px) => {
     const rows = await db.all(
-      `SELECT c.id, c.civilite, c.prenom, c.nom, c.email, c.telephone FROM crm_estimation_contacts ec JOIN crm_contacts c ON c.id = ec.contact_id
+      `SELECT c.id, COALESCE(NULLIF(pp.civilite, ''), c.civilite) AS civilite, c.prenom, c.nom, c.email, c.telephone
+       FROM crm_estimation_contacts ec JOIN crm_contacts c ON c.id = ec.contact_id
+       LEFT JOIN crm_parcours_proprietaires pp ON pp.estimation_id = ec.estimation_id AND pp.contact_id = ec.contact_id
        WHERE ec.estimation_id = ? AND ec.agency_id = ? ORDER BY CASE WHEN c.id = ? THEN 0 ELSE 1 END, c.nom, c.prenom`, [est.id, agencyId, est.contact_id || ""]);
-    return rows.map((r) => ({ ...r, principal: r.id === est.contact_id }));
+    return rows.map((r) => (r.id === est.contact_id
+      ? { ...r, civilite: (px && px.civilite) || r.civilite, prenom: (px && px.prenom) || r.prenom, nom: est.nom || r.nom, principal: true }
+      : { ...r, principal: false }));
   };
   const lireParcours = async (agencyId, id) => {
     const est = await db.get("SELECT * FROM crm_estimations WHERE id = ? AND agency_id = ?", [id, agencyId]);
@@ -731,7 +738,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
       `SELECT cs.id, cs.prenom, cs.nom, cs.fonction, cs.telephone, cs.email, (cs.photo <> '') AS a_photo, x.bio, x.genre, COALESCE(pv.pv, '') AS agence, COALESCE(av.avis, '') AS avis, COALESCE(avs.avis, '[]') AS avis_site_json, COALESCE(ts.texte, '') AS bio_site, COALESCE(pc.updated_at, 0) AS photo_carre_le
        FROM crm_conseillers cs LEFT JOIN crm_conseillers_extra x ON x.id = cs.id LEFT JOIN crm_conseillers_pv pv ON pv.id = cs.id LEFT JOIN crm_conseillers_avis av ON av.id = cs.id LEFT JOIN crm_conseillers_avis_site avs ON avs.id = cs.id LEFT JOIN crm_conseillers_texte_site ts ON ts.id = cs.id LEFT JOIN crm_conseillers_photo_carre pc ON pc.id = cs.id WHERE cs.id = ? AND cs.agency_id = ?`, [px.conseiller_id, agencyId]) : null;
     if (conseiller) { conseiller.bio = conseiller.bio || ""; conseiller.genre = conseiller.genre || genrePrenom(conseiller.prenom); conseiller.avis_site = jsonAvisSite(conseiller.avis_site_json); delete conseiller.avis_site_json; }
-    const proprietaires = await proprietairesDe(agencyId, est);
+    const proprietaires = await proprietairesDe(agencyId, est, px);
     return { est, px: { ...px, journal, conseiller_prenom: conseiller ? conseiller.prenom : "", conseiller_nom: conseiller ? conseiller.nom : "" }, conseiller, proprietaires };
   };
   // Le mail « démarche à suivre » (point 8, Benoît 14/10) est signé de
@@ -949,7 +956,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     // Le dossier part en corbeille (30 jours, « Dossiers supprimés ») avant
     // d'être effacé : ses lignes, table par table. Si la photo du R2 rend
     // l'entrée trop lourde, on la laisse ; la suppression a lieu dans tous les cas.
-    const tables = [["crm_parcours_r2", "estimation_id"], ["crm_parcours", "estimation_id"], ["crm_estimation_contacts", "estimation_id"], ["crm_estimations", "id"]];
+    const tables = [["crm_parcours_r2", "estimation_id"], ["crm_parcours", "estimation_id"], ["crm_parcours_proprietaires", "estimation_id"], ["crm_estimation_contacts", "estimation_id"], ["crm_estimations", "id"]];
     try {
       const payload = {};
       for (const [table, col] of tables) payload[table] = await db.all(`SELECT * FROM ${table} WHERE ${col} = ?`, [p.est.id]);
@@ -1011,25 +1018,38 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     if (!b) return err(c, 400, "Corps JSON attendu.");
     const p = await lireParcoursDe(ctx, c.req.param("id"));
     if (!p) return err(c, 404, "Fiche introuvable.");
-    if (p.proprietaires.length >= 4) return err(c, 400, "Quatre propriétaires au plus par fiche.");
+    // La civilité saisie vaut POUR CE DOSSIER, même quand la personne a déjà une fiche contact
+    // (un couple « M. et Mme » dont seule madame est propriétaire : le guide écrivait « M. et Mme »).
+    const civSaisie = { "m.": "M.", "mme": "Mme", "m. et mme": "M. et Mme" }[String(b.civilite || "").trim().toLowerCase()] || "";
     let contactId = b.contact_id ? ((await db.get("SELECT id FROM crm_contacts WHERE id = ? AND agency_id = ?", [strip(b.contact_id, 40), ctx.agency.id])) || {}).id || "" : "";
-    let cree = false;
+    let cree = false, ct = null;
     if (!contactId) {
-      let ct; try { ct = sanitizeContact({ civilite: b.civilite, prenom: b.prenom, nom: b.nom, email: b.email, telephone: b.telephone, adresse: p.est.adresse, cp: p.px.cp, ville: p.est.ville, types: ["estime"], conseiller: p.est.conseiller }); } catch (e) { return err(c, 400, e.message); }
+      try { ct = sanitizeContact({ civilite: b.civilite, prenom: b.prenom, nom: b.nom, email: b.email, telephone: b.telephone, adresse: p.est.adresse, cp: p.px.cp, ville: p.est.ville, types: ["estime"], conseiller: p.est.conseiller }); } catch (e) { return err(c, 400, e.message); }
       if (!ct.nom) return err(c, 400, "Le nom du propriétaire est requis.");
       const existant = ct.email ? await db.get("SELECT id FROM crm_contacts WHERE agency_id = ? AND email = ?", [ctx.agency.id, ct.email]) : null;
       const homonyme = !existant ? await db.get("SELECT id FROM crm_contacts WHERE agency_id = ? AND nom = ? COLLATE NOCASE AND prenom = ? COLLATE NOCASE", [ctx.agency.id, ct.nom, ct.prenom]) : null;
       contactId = (existant || homonyme || {}).id || "";
-      if (!contactId) {
-        contactId = randId("ct"); cree = true;
-        await db.run(
-          `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone, adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, '', 'parcours', 0, ?, ?)`,
-          [contactId, ctx.agency.id, ctx.user.id, ct.civilite, ct.prenom, ct.nom, ct.email, ct.telephone, ct.adresse, ct.cp, ct.ville, JSON.stringify(ct.types), ct.conseiller, now(), now()]);
-      }
+    }
+    // Déjà sur la fiche : on ne fait que mettre sa civilité à jour (et ce n'est pas un propriétaire de plus).
+    const deja = !!contactId && p.proprietaires.some((o) => o.id === contactId);
+    if (!deja && p.proprietaires.length >= PROPRIETAIRES_MAX) return err(c, 400, "Quatre propriétaires au plus par fiche.");
+    if (!contactId) {
+      contactId = randId("ct"); cree = true;
+      await db.run(
+        `INSERT INTO crm_contacts (id, agency_id, user_id, civilite, prenom, nom, email, telephone, adresse, cp, ville, date_naissance, date_achat, types, conseiller, notes, source, opt_out, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, '', 'parcours', 0, ?, ?)`,
+        [contactId, ctx.agency.id, ctx.user.id, ct.civilite, ct.prenom, ct.nom, ct.email, ct.telephone, ct.adresse, ct.cp, ct.ville, JSON.stringify(ct.types), ct.conseiller, now(), now()]);
     }
     await db.run("INSERT OR IGNORE INTO crm_estimation_contacts (estimation_id, contact_id, agency_id) VALUES (?, ?, ?)", [p.est.id, contactId, ctx.agency.id]);
-    return c.json({ ok: true, contact_id: contactId, contact_cree: cree, proprietaires: await proprietairesDe(ctx.agency.id, p.est) });
+    if (civSaisie && contactId !== p.est.contact_id) {
+      const fiche = await db.get("SELECT civilite FROM crm_contacts WHERE id = ?", [contactId]);
+      if (fiche && fiche.civilite === civSaisie) await db.run("DELETE FROM crm_parcours_proprietaires WHERE estimation_id = ? AND contact_id = ?", [p.est.id, contactId]);
+      else await db.run(
+        `INSERT INTO crm_parcours_proprietaires (estimation_id, contact_id, agency_id, civilite, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(estimation_id, contact_id) DO UPDATE SET civilite = excluded.civilite, updated_at = excluded.updated_at`,
+        [p.est.id, contactId, ctx.agency.id, civSaisie, now()]);
+    }
+    return c.json({ ok: true, contact_id: contactId, contact_cree: cree, deja, proprietaires: await proprietairesDe(ctx.agency.id, p.est, p.px) });
   });
   app.delete("/crm/parcours/:id/proprietaires/:contactId", async (c) => {
     const { ctx, resp } = await membreCtx(c); if (!ctx) return resp;
@@ -1038,7 +1058,8 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     const cid = c.req.param("contactId");
     if (cid === p.est.contact_id) return err(c, 400, "La fiche principale ne se retire pas : modifiez-la, ou effacez le parcours.");
     await db.run("DELETE FROM crm_estimation_contacts WHERE estimation_id = ? AND contact_id = ? AND agency_id = ?", [p.est.id, cid, ctx.agency.id]);
-    return c.json({ ok: true, proprietaires: await proprietairesDe(ctx.agency.id, p.est) });
+    await db.run("DELETE FROM crm_parcours_proprietaires WHERE estimation_id = ? AND contact_id = ? AND agency_id = ?", [p.est.id, cid, ctx.agency.id]);
+    return c.json({ ok: true, proprietaires: await proprietairesDe(ctx.agency.id, p.est, p.px) });
   });
 
   // Le mail pré-rempli d'un jalon : sujet + texte à relire, et son rendu.

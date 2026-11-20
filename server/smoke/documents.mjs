@@ -47,6 +47,10 @@ export default async function () {
   await projet(acheteurs[3], 400000, ["terrain"]); await projet(acheteurs[3], 370000, ["terrain"]); await projet(acheteurs[4], 340000, []);
   await api("/crm/parcours/" + idB + "/acm?c=2", { headers: admin.auth, method: "PUT", body: { terrain: 800, prix: 330000, basse: 305000, haute: 350000 } });
 
+  // G : un co-propriétaire dont la fiche contact est celle d'un couple (« M. et Mme »), alors que seule madame est propriétaire.
+  await api("/crm/contacts/bulk", { headers: admin.auth, body: { rows: [{ civilite: "M. et Mme", nom: "COUPLE-EXEMPLE", prenom: "", email: "couple@documents.test" }] } });
+  const idG = await creer({ civilite: "M.", nom: "SEUL-EXEMPLE", prenom: "Bernard", adresse: "9 allée de la Civilité" });
+
   return parcours("documents", { viewport: { width: 1300, height: 950 } }, async ({ page, ok }) => {
     await ouvrir(page, "/administration/?brique=parcours", admin);
     await page.waitForSelector('tr[data-parcours="' + idA + '"]', { timeout: 15000 });
@@ -167,5 +171,27 @@ export default async function () {
     ok(/^4 acheteurs en recherche active d'un terrain à Saint-Médard-en-Jalles dans notre fichier/.test(ach.intro || "") && !/\(s\)|maison/.test(ach.intro || "") && ach.mediane === 350000,
       "livret d'un terrain, page « acheteurs » : « " + (ach.intro || "").slice(0, 90) + "… », médiane des budgets 300, 320, 380 et 400 k€ = " + ach.mediane + " €");
     await garderDocument(page, "documents-livret-terrain.pdf");
+    await page.click("#doc-retour"); await page.waitForSelector(".etapes", { timeout: 10000 });
+
+    // --- La civilité d'un co-propriétaire (20/11) : « Mme » choisie pour une fiche contact « M. et Mme » — le guide écrivait « M. et Mme ».
+    await fiche(idG);
+    await page.click("#px-ajouter-prop");
+    await page.waitForSelector("#pp-ajouter", { timeout: 8000 });
+    await page.fill("#pp-q", "couple-ex");
+    await page.waitForSelector("#pp-resultats [data-pp]", { timeout: 8000 });
+    await page.click("#pp-resultats [data-pp]");
+    const choisi = await page.evaluate(() => ({ civ: document.getElementById("pp-civilite").value, fige: document.getElementById("pp-nom").readOnly, texte: document.getElementById("pp-choisi").textContent }));
+    ok(choisi.civ === "M. et Mme" && choisi.fige && /Fiche choisie : M\. et Mme COUPLE-EXEMPLE/.test(choisi.texte) && /Vérifiez la civilité/.test(choisi.texte),
+      "co-propriétaire choisi dans les contacts : la fenêtre montre sa vraie civilité (« M. et Mme ») et demande de la vérifier (" + JSON.stringify(choisi) + ")");
+    await page.selectOption("#pp-civilite", "Mme");
+    await page.click("#pp-ajouter");
+    await page.waitForFunction(() => /Mme COUPLE-EXEMPLE/.test(document.getElementById("modale-corps")?.textContent || "") && !!document.querySelector(".etapes"), null, { timeout: 8000 });
+    ok(!/M\. et Mme COUPLE-EXEMPLE/.test(await page.textContent("#modale-corps")), "la fiche du parcours affiche « Mme COUPLE-EXEMPLE »");
+    await page.click('[data-mail="avant-r1"]');
+    await page.waitForSelector("#pm-texte", { timeout: 8000 });
+    const debutG = (await page.inputValue("#pm-texte")).split("\n")[0];
+    ok(debutG === "Bonjour Monsieur SEUL-EXEMPLE, Madame COUPLE-EXEMPLE,", "l'e-mail avant R1 s'ouvre sur « " + debutG + " »");
+    await page.click("#pm-annuler");
+    await page.waitForSelector(".etapes", { timeout: 8000 });
   });
 }

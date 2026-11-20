@@ -1448,6 +1448,17 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**Parcours R1/R2 — civilité d'un co-propriétaire (20/11, Benoît : « je mets Mme, le guide écrit M. et Mme »)** : le
+co-propriétaire était rattaché à une fiche contact existante (choisie, ou même nom + prénom) et le guide prenait la
+civilité de CETTE fiche (un couple « M. et Mme »), pas celle saisie. Désormais la civilité saisie vaut pour le dossier :
+table `crm_parcours_proprietaires` (estimation_id, contact_id, civilite ; absente = civilité de la fiche contact, qui
+n'est jamais modifiée), lue par `proprietairesDe` ; suit la suppression du dossier (corbeille), le retrait du
+co-propriétaire, la fusion et la suppression de contacts. `POST …/proprietaires` avec une personne déjà sur la fiche =
+mise à jour de sa civilité (`deja: true`), sans doublon. Le propriétaire PRINCIPAL s'écrit, à plusieurs, comme sur la
+fiche du parcours (`px.civilite`, `px.prenom`, `est.nom`) — avant, comme sa fiche contact. Fenêtre « + Co-propriétaire » :
+liste Mme / M. / M. et Mme, la vraie civilité de la fiche choisie est montrée, nom et e-mail figés (ils se corrigent
+sur la fiche contact).
+
 **DVF — dépôt de Studio, ventes 2026 (18/11, Benoît : « les réf DVF 2026 dans le livret »)** : Etalab ne publie
 plus de fichier « une commune × un millésime ». Le dossier `files.data.gouv.fr/geo-dvf/latest/csv/` que lisait le
 relais `/crm/dvf` est une ARCHIVE figée à la livraison d'avril (ventes jusqu'au 31/12/2025), annoncée SUPPRIMÉE fin

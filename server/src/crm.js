@@ -569,7 +569,7 @@ export const CORBEILLE_JOURS = 30;
 const TABLES_CORBEILLE = ["crm_contacts", "crm_suivis", "crm_visites", "crm_visite_avis",
   "crm_geo", "crm_projet_contacts", "crm_estimation_contacts",
   // Un dossier Parcours R1/R2 supprimé (type « parcours », 16/11).
-  "crm_estimations", "crm_parcours", "crm_parcours_r2"];
+  "crm_estimations", "crm_parcours", "crm_parcours_r2", "crm_parcours_proprietaires"];
 
 // Une entrée par objet supprimé : payload = { table: [lignes…] }. Insertion
 // par lots de 20 lignes (une seule requête par lot — D1 compte chaque
@@ -756,6 +756,7 @@ export async function supprimerContacts(db, agencyId, ids, options = {}) {
     await db.run(`DELETE FROM crm_geo WHERE contact_id IN (${ok})`, []);
     await db.run(`DELETE FROM crm_projet_contacts WHERE contact_id IN (${ok})`, []);
     await db.run(`DELETE FROM crm_estimation_contacts WHERE contact_id IN (${ok})`, []);
+    await db.run(`DELETE FROM crm_parcours_proprietaires WHERE contact_id IN (${ok})`, []);
     await db.run(`DELETE FROM crm_suivis WHERE contact_id IN (${ok})`, []);
     await db.run(`DELETE FROM crm_contacts WHERE id IN (${ok})`, []);
     total += connus.length;
@@ -854,6 +855,8 @@ async function fusionnerGroupes(db, agencyId, userId, groupes, preferer = "") {
     await db.run(`UPDATE crm_estimations SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
     await db.run(`UPDATE OR IGNORE crm_estimation_contacts SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
     await db.run(`DELETE FROM crm_estimation_contacts WHERE contact_id IN (${dans})`, []);
+    await db.run(`UPDATE OR IGNORE crm_parcours_proprietaires SET contact_id = ${cas} WHERE contact_id IN (${dans})`, []);
+    await db.run(`DELETE FROM crm_parcours_proprietaires WHERE contact_id IN (${dans})`, []);
     await db.run(`DELETE FROM crm_contacts WHERE id IN (${dans})`, []);
   }
   return doublons.length;
