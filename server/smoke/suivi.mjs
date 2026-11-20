@@ -230,14 +230,16 @@ async function parcoursEcheances() {
     financement: { recours_pret: "oui", date_limite_obtention: jour(3) } }));
   const idB = await poserDossier(admin, dossierType(REF_B, { date_compromis: jour(-10), acquereurs,
     financement: { recours_pret: "oui" } }));
-  // C : relancé il y a 2 jours par l'ancienne version, qui avait reporté la condition de prêt (due hier) à J+5 ;
-  //     et une échéance saisie à la main sur le dépôt du prêt, qui doit rester.
+  // C : relancé par l'ancienne version (AVANT le 17/11/2026), qui avait reporté d'une semaine la fin de
+  //     rétractation — une date de la loi : elle revient à son calcul. Dates FIXES : le retour au calcul ne
+  //     vise que les relances d'avant le 17/11 (un « il y a 2 jours » glissant a cessé de valoir le 19/11).
+  //     Le dépôt du prêt porte, lui, une échéance saisie à la main : elle reste.
   const REF_C = "SMOKEANCIEN / SMOKEPRET";
-  const relanceC = new Date(); relanceC.setDate(relanceC.getDate() - 2); relanceC.setHours(12, 0, 0, 0);
-  const idC = await poserDossier(admin, dossierType(REF_C, { date_compromis: jour(-55), acquereurs,
-    financement: { recours_pret: "oui", date_limite_obtention: jour(-1) },
-    etapes: { pret_acceptation: { due: jour(5), relance: { ts: Math.floor(relanceC.getTime() / 1000), modele: "Relance offre de prêt", user: "Smoke" } },
-      pret_depot: { due: jour(9), relance: { ts: Math.floor(relanceC.getTime() / 1000), modele: "Relance dépôt du dossier de prêt", user: "Smoke" } } } }));
+  const relanceC = new Date(2026, 10, 10, 12, 0, 0);
+  const idC = await poserDossier(admin, dossierType(REF_C, { date_compromis: "2026-10-20", acquereurs,
+    financement: { recours_pret: "oui", date_limite_obtention: "2026-12-15" },
+    etapes: { fin_retractation: { due: "2026-11-17", relance: { ts: Math.floor(relanceC.getTime() / 1000), modele: "Information vendeur — rétractation purgée", user: "Smoke" } },
+      pret_depot: { due: "2026-12-01", relance: { ts: Math.floor(relanceC.getTime() / 1000), modele: "Relance dépôt du dossier de prêt", user: "Smoke" } } } }));
   return parcours("suivi-echeances", {}, async ({ page, ok }) => {
     await allerDossier(page, admin, idA, REF_A);
     await page.evaluate(() => { navigator.clipboard.writeText = async () => { }; });
@@ -248,12 +250,20 @@ async function parcoursEcheances() {
       await page.click("#btnMailClose");
       return attendre(async () => { const x = await lireDossier(admin, idA); return x.data.etapes?.[etape]?.relance ? x : null; });
     };
+    // Offre acceptée (et dépôt du dossier) : la relance repousse la ligne d'une semaine, la date du
+    // compromis reste rappelée dessus (demandes des 17 et 20/11).
     let d = await relancer("pret_acceptation");
     ok(!!d, "la relance de la condition de prêt est mémorisée sur son étape (« relancé le »)");
-    ok(!!d && !d.data.etapes.pret_acceptation.due, "… sans surcharger l'échéance contractuelle");
+    ok(!!d && d.data.etapes.pret_acceptation.due === jour(7), "… et repousse la ligne « Offre acceptée » à aujourd'hui + 7 jours");
     await page.waitForFunction(() => document.getElementById("view-dossier").textContent.includes("Dernière relance le"), null, { timeout: 5000 }).catch(() => { });
-    ok(await page.inputValue('[data-step-due="pret_acceptation"]') === jour(3), "l'échéancier affiche toujours la date du compromis (" + jourFr(jour(3)) + ")");
+    ok(await page.inputValue('[data-step-due="pret_acceptation"]') === jour(7), "l'échéancier affiche la date repoussée (" + jourFr(jour(7)) + ")");
+    ok((await page.textContent("#view-dossier")).includes("Date du compromis : " + jourFr(jour(3))), "… en rappelant la date du compromis (" + jourFr(jour(3)) + ")");
     ok((await page.textContent("#view-dossier")).includes("Dernière relance le"), "la ligne dit « Dernière relance le … »");
+    // Une date de la LOI, elle, ne bouge pas à la relance (fin de rétractation).
+    const finAvant = await page.inputValue('[data-step-due="fin_retractation"]');
+    d = await relancer("fin_retractation");
+    ok(!!d && !d.data.etapes.fin_retractation.due, "une date de la loi (fin de rétractation) n'est pas reportée par la relance");
+    ok(await page.inputValue('[data-step-due="fin_retractation"]') === finAvant, "… et s'affiche toujours à sa date (" + jourFr(finAvant) + ")");
     // Une étape sans date contractuelle garde le report d'une semaine.
     d = await relancer("envoi_dia");
     ok(!!d && d.data.etapes.envoi_dia.due === jour(7), "une relance ordinaire (DIA) reporte toujours l'action d'une semaine");
@@ -269,8 +279,28 @@ async function parcoursEcheances() {
     ok((await page.textContent("#view-dossier")).includes("compromis + 56 jours"), "l'échéancier annonce son défaut (compromis + 56 jours) comme une estimation");
 
     await allerDossier(page, admin, idC, REF_C);
-    ok(await page.inputValue('[data-step-due="pret_acceptation"]') === jour(-1), "dossier relancé par l'ancienne version : la condition de prêt revient à sa date du compromis (" + jourFr(jour(-1)) + ")");
-    ok(await page.inputValue('[data-step-due="pret_depot"]') === jour(9), "… mais une échéance saisie à la main (qui n'est pas « relance + 7 j ») est gardée");
+    ok(await page.inputValue('[data-step-due="fin_retractation"]') === "2026-11-03", "dossier relancé par l'ancienne version : la fin de rétractation revient à sa date calculée (03/11/2026)");
+    ok(await page.inputValue('[data-step-due="pret_depot"]') === "2026-12-01", "… mais une échéance saisie à la main (qui n'est pas « relance + 7 j ») est gardée");
+
+    // La facture d'honoraires suit la date de signature : J-7, même si une date y avait été posée.
+    await allerDossier(page, admin, idA, REF_A);
+    const poser = async (sel, v) => page.evaluate(([sel, v]) => { const e = document.querySelector(sel); e.value = v; e.dispatchEvent(new Event("input", { bubbles: true })); e.dispatchEvent(new Event("change", { bubbles: true })); }, [sel, v]);
+    const sigInitiale = await page.inputValue('[data-step-due="signature"]');
+    ok(!(await page.textContent("#view-dossier")).includes("Date prévue initialement"), "tant que la signature n'a pas bougé, rien n'est rappelé sous la ligne");
+    await poser('#view-dossier [data-step-due="signature"]', jour(40));
+    await page.waitForFunction((v) => (document.querySelector('#view-dossier [data-step-due="facture_emise"]') || {}).value === v, jour(33), { timeout: 5000 }).catch(() => { });
+    ok(await page.inputValue('[data-step-due="facture_emise"]') === jour(33), "signature posée à J+40 : la facture se cale à J+33");
+    await poser('#view-dossier [data-step-due="facture_emise"]', jour(20));
+    await page.waitForTimeout(300);
+    ok(await page.inputValue('[data-step-due="facture_emise"]') === jour(20), "une date posée à la main sur la facture tient tant que la signature ne bouge pas");
+    await poser('#view-dossier [data-step-due="signature"]', jour(60));
+    await page.waitForFunction((v) => (document.querySelector('#view-dossier [data-step-due="facture_emise"]') || {}).value === v, jour(53), { timeout: 5000 }).catch(() => { });
+    ok(await page.inputValue('[data-step-due="facture_emise"]') === jour(53), "signature déplacée à J+60 : la facture suit à J+53 (la date posée s'efface)");
+    const dF = await attendre(async () => { const x = await lireDossier(admin, idA); return (x.data.dates.signature_prevue === jour(60) && !(x.data.etapes.facture_emise || {}).due) ? x : null; });
+    ok(!!dF, "… et c'est enregistré (plus de date propre à la facture sur le serveur)");
+    const ligneSig = await page.evaluate(() => document.querySelector('#view-dossier [data-step-done="signature"]').closest(".etape").textContent);
+    ok(ligneSig.includes("Date prévue initialement : " + jourFr(sigInitiale)), "la ligne « Acte authentique signé » rappelle la date prévue initialement (" + jourFr(sigInitiale) + "), même après deux déplacements");
+    ok(!!dF && dF.data.dates.signature_initiale === sigInitiale, "… gardée au dossier");
   });
 }
 

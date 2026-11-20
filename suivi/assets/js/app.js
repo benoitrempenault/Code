@@ -423,7 +423,7 @@
       financement: { recours_pret: "", montant_pret: "", duree: "", taux_max: "", banques: "", date_limite_depot: "", date_limite_obtention: "" },
       conditions_suspensives: [],
       dates: {
-        envoi_sru: "", presentation_sru: "", envoi_notaires: "", envoi_dia: "", ar_dia: "", signature_prevue: "", signature_heure: "", signature_lieu_vendeur: "", signature_lieu_acquereur: "", signature_acte: "",
+        envoi_sru: "", presentation_sru: "", envoi_notaires: "", envoi_dia: "", ar_dia: "", signature_prevue: "", signature_initiale: "", signature_heure: "", signature_lieu_vendeur: "", signature_lieu_acquereur: "", signature_acte: "",
         dp_depot: "", dp_accord: "", dp_affichage: "", pc_depot: "", pc_accord: "", pc_affichage: ""
       },
       etapes: {}, journal: [], observations: "", echeance: "",
@@ -1915,6 +1915,8 @@
     const det = details[currentId];
     if (!det) return; // dossier en cours de chargement : openDossier rendra
     const d = det.data;
+    sigVue = dateActeDe(d);
+    prevueVue = datePrevueDe(d);
     const view = $("#view-dossier");
     const santeD = E.sante(d);
     /* Le rendu remplace tout le HTML de la vue : le champ où l'on tape
@@ -1974,13 +1976,18 @@
         const duCompromis = (!s.done && s.def && s.def.contrat && s.def.due) ? s.def.due(d) : "";
         const rappelCompromis = (duCompromis && s.due && duCompromis !== s.due)
           ? "Date du compromis : " + E.fmtFr(duCompromis) : "";
+        // Signature : la date prévue à l'origine, dès qu'elle a été déplacée.
+        const initiale = s.id === "signature" ? (d.dates.signature_initiale || "") : "";
+        const rappelInitiale = (initiale && E.fmtFr(initiale) && initiale !== (s.done ? (s.date || d.dates.signature_acte) : s.due))
+          ? "Date prévue initialement : " + E.fmtFr(initiale) : "";
         return '<div class="etape' + (s.done ? " done" : "") + '">' +
           '<input type="checkbox" data-step-done="' + esc(s.id) + '"' + (s.done ? " checked" : "") + " />" +
           '<span class="lab">' + esc(s.label) +
           (s.ajoutee ? ' <small class="etape__tag">ajoutée à la main</small>' : "") +
           (s.hint ? "<small>" + esc(s.hint) + "</small>" : "") +
           (relTxt ? '<small style="color:var(--warn)">' + esc(relTxt) + "</small>" : "") +
-          (rappelCompromis ? '<small style="color:var(--bad)">' + esc(rappelCompromis) + "</small>" : "") + "</span>" +
+          (rappelCompromis ? '<small style="color:var(--bad)">' + esc(rappelCompromis) + "</small>" : "") +
+          (rappelInitiale ? '<small class="etape__initiale" style="color:var(--muted)">' + esc(rappelInitiale) + "</small>" : "") + "</span>" +
           dateCtl +
           '<span class="delta ' + deltaCls + '">' + esc(deltaTxt) + "</span>" + mailBtn +
           (s.ajoutee ? '<button class="btn btn--sm btn--danger" data-step-rm="' + esc(s.id) + '" title="Retirer cette action ajoutée">✕</button>' : "") +
@@ -2257,6 +2264,7 @@
       '<div class="card"><h3>✍ Rendez-vous de signature</h3><div class="grid3">' +
       input("Date prévue", "dates.signature_prevue", d, "date") +
       input("Heure", "dates.signature_heure", d, "time") +
+      input("Prévue initialement", "dates.signature_initiale", d, "date") +
       input("Acte signé le", "dates.signature_acte", d, "date") +
       "</div><div class=\"grid2\">" +
       input("Lieu — vendeurs", "dates.signature_lieu_vendeur", d, "text", 'list="dlEtudes" placeholder="Étude de Me…"') +
@@ -2434,6 +2442,37 @@
     // Décocher efface la date clé liée (un clic de trop sur « Acte signé »
     // laissait « Acte signé le… » en tête du dossier et lançait l'après-vente).
     if (!fait && datePath) setByPath(d, datePath, "");
+    if (id === "signature") factureSuitSignature(d);
+  }
+
+  /* La facture d'honoraires part une semaine avant l'acte. Dès que la date de
+     signature bouge (date prévue, date de l'acte, butoir quand rien d'autre
+     n'est calé), une échéance restée sur la ligne « Facture » — posée à la
+     main ou repoussée par une relance — est rendue au calcul : elle revient
+     à J-7 de la NOUVELLE date. Une facture déjà envoyée n'est pas touchée. */
+  const dateActeDe = (d) => (d && (d.dates.signature_acte || d.dates.signature_prevue || d.date_butoir)) || "";
+  let sigVue = ""; // date de signature du dossier tel qu'il est affiché
+  /* Date de signature PRÉVUE (date prévue, à défaut la butoir) telle qu'elle
+     était au dernier affichage. La première fois qu'elle change, l'ancienne
+     est gardée dans dates.signature_initiale : la ligne « Acte authentique
+     signé » rappelle alors la date prévue initialement. On compare à la
+     valeur AFFICHÉE (pas à la frappe précédente) : un champ date passe par
+     des valeurs intermédiaires chiffre après chiffre. */
+  // (Sans date prévue ni butoir, la ligne affiche compromis + 92 jours : c'est
+  // cette date-là que l'on voit, donc celle que l'on retient.)
+  const datePrevueDe = (d) => (d && (d.dates.signature_prevue || d.date_butoir || E.addDays(d.date_compromis, 92))) || "";
+  let prevueVue = "";
+  function retenirDateInitiale(d, avant) {
+    if (!d || d.dates.signature_initiale || !avant || datePrevueDe(d) === avant) return false;
+    d.dates.signature_initiale = avant;
+    return true;
+  }
+  function factureSuitSignature(d) {
+    const et = d.etapes && d.etapes.facture_emise;
+    if (!et || et.done || !et.due) return false;
+    delete et.due;
+    delete et.dueManuel;
+    return true;
   }
 
   // Écouteurs délégués du détail de dossier — attachés UNE fois au démarrage
@@ -2442,6 +2481,18 @@
     const view = $("#view-dossier");
     const cur = () => (details[currentId] ? details[currentId].data : null);
 
+    // Après le traitement d'une modification : la date de signature a-t-elle
+    // changé depuis le dernier affichage ? Si oui, la facture la suit (J-7).
+    // (Écouteur posé APRÈS le principal ci-dessous : il passe en second.)
+    const suivreSignature = () => {
+      const d = cur();
+      if (!d) return;
+      if (retenirDateInitiale(d, prevueVue)) markDirty();
+      const s = dateActeDe(d);
+      if (s === sigVue) return;
+      sigVue = s;
+      if (factureSuitSignature(d)) markDirty();
+    };
     view.addEventListener("input", (ev) => {
       const d = cur(), t = ev.target;
       if (!d) return;
@@ -2558,6 +2609,7 @@
       // événement ne survient qu'à la sortie du champ — pas pendant la saisie.
       if (t.dataset.path) renderDossierSoon();
     });
+    view.addEventListener("change", suivreSignature);
     // Entrée dans la zone d'ajout du journal = « Ajouter » (Maj+Entrée exclu).
     view.addEventListener("keydown", (ev) => {
       const d = cur(), t = ev.target;
@@ -2887,8 +2939,11 @@
     // lecture ne doit pas remplacer une vraie date du dossier.
     av.date = dateIso(x.date_avenant);
     av.objet = S(x.objet);
+    const sigAvantAvenant = dateActeDe(d), prevueAvantAvenant = datePrevueDe(d);
     const butoir = pose(d, "date_butoir", dateIso(x.date_butoir), "Date butoir de réitération");
     pose(d.dates, "signature_prevue", dateIso(x.signature_prevue), "Date de signature prévue");
+    if (dateActeDe(d) !== sigAvantAvenant) factureSuitSignature(d);
+    retenirDateInitiale(d, prevueAvantAvenant);
     pose(d.prix, "prix_vente", x.prix_vente, "Prix de vente");
     pose(d.sequestre, "montant", x.sequestre_montant, "Dépôt de garantie");
     const fin = x.financement || {};

@@ -543,7 +543,9 @@
     { id: "pret_acceptation", phase: "Financement", label: "Offre acceptée (après le délai de réflexion de 10 jours) — condition levée",
       cible: "acquereur", modele: "Relance offre de prêt",
       due: (d) => echeancePret(d),
-      applies: pret, contrat: true,
+      // Comme le dépôt du dossier : une relance repousse la ligne d'une semaine
+      // (demande du 20/11), la date du compromis restant rappelée dessus.
+      applies: pret, contrat: true, relanceReporte: true,
       hint: (d) => (pretEstime(d)
         ? "⚠ Date ESTIMÉE (compromis + " + PRET_DEFAUT + " jours) : saisissez « Obtention avant le » dans Séquestre & financement, d'après le compromis. "
         : "") + "L'offre ne peut être acceptée qu'à partir du 11e jour après réception — demander copie de l'acceptation datée." },

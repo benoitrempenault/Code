@@ -108,6 +108,16 @@ saisie au clavier) et le relâchement de la souris ; diagnostics : échéance = 
 − 15 j (`RELANCE_DIAG`, client et serveur). Assets `?v=6`, mémo `suivi-dates-17-11`.
 AVANT de tester ou de décrire le comportement « en ligne », fusionner la branche de déploiement :
 une autre discussion y pousse aussi sur Suivi.
+**Offre acceptée, facture, date initiale (20/11)** : `relanceReporte` aussi sur `pret_acceptation`
+(restent figées à la relance : `fin_retractation`, `purge_dia`) ; `factureSuitSignature(d)` efface
+l'échéance propre de `facture_emise` dès que la date de signature change (`suivreSignature`,
+écouteur `change` posé APRÈS le principal, compare à `sigVue` posé par `renderDossier` ; aussi
+dans `marquerEtape("signature")` et `appliquerAvenant`) ; `dates.signature_initiale` =
+première date de signature affichée avant un déplacement (`retenirDateInitiale`, comparée à
+`prevueVue` et non à la frappe précédente), rappelée sous la ligne et modifiable dans
+« Rendez-vous de signature ». Smoke `suivi-echeances` : dates FIXES pour l'ancienne relance (un
+« il y a 2 jours » glissant avait cessé de valoir le 19/11, `RELANCES_ANCIENNES`). Assets `?v=7`,
+mémo `suivi-signature-20-11`.
 
 **`administration/` — Studio Administration**, l'app interne Kadima d'**administration de
 l'agence** : la base contacts partagée (import d'extraction Excel/CSV avec mappage de colonnes

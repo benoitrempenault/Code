@@ -5455,6 +5455,12 @@
   // pendant `jours` jours à partir de `depuis`, sauf si le conseiller a cliqué
   // « J'ai compris » (retenu par compte, sur cet appareil). Benoît, 14/10.
   const NOUVEAUTES = [
+    { id: "suivi-signature-20-11", depuis: "2026-11-20", jours: 7, titre: "Suivi des ventes : offre de prêt, facture et date de signature",
+      html: '<ul class="aide" style="max-width:none; padding-left:18px; margin:0;">' +
+        "<li><strong>Offre acceptée — condition levée</strong> : une relance envoyée par « ✉ Relancer » repousse la ligne d'une semaine, comme pour le dépôt du dossier de prêt. La date du compromis reste rappelée en rouge.</li>" +
+        "<li><strong>Facture d'honoraires</strong> : quand la date de signature change, la facture suit et reste une semaine avant l'acte.</li>" +
+        "<li><strong>Acte authentique signé</strong> : dès que la date est déplacée, la ligne rappelle la <strong>date prévue initialement</strong> (modifiable dans « Rendez-vous de signature »).</li>" +
+        "</ul>" },
     { id: "civilite-coproprietaire-20-11", depuis: "2026-11-20", jours: 7, titre: "Parcours R1/R2 : la civilité d'un co-propriétaire",
       html: '<p class="aide" style="max-width:none; margin:0;">La civilité choisie en ajoutant un co-propriétaire est maintenant <strong>celle qui s\'imprime</strong> sur les guides et dans les e-mails du dossier, même si la personne a déjà une fiche contact avec une autre civilité (un couple « M. et Mme » dont seule madame est propriétaire, par exemple). Pour corriger un dossier en cours : « + Co-propriétaire », rechercher la personne, choisir la bonne civilité, « Ajouter » — elle est mise à jour, sans doublon. La fiche contact, elle, ne change pas.</p>' },
     { id: "dvf-2026-18-11", depuis: "2026-11-18", jours: 10, titre: "Livret prix : les ventes du 1er semestre 2026",

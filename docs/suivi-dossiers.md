@@ -390,6 +390,24 @@ Ce qui est en place :
 - **Diagnostics** : l'échéance de la ligne est la date de relance, 15 jours avant la première
   fin de validité (`RELANCE_DIAG`) ; la ligne paraît toujours 30 jours avant.
 
+### Offre acceptée, facture et date de signature (20/11/2026)
+
+- **Offre acceptée — condition levée** (`pret_acceptation`, `relanceReporte: true`) : une relance
+  repousse la ligne à aujourd'hui + 7 jours, comme le dépôt du dossier ; « Date du compromis : … »
+  reste rappelée. Seules la fin de rétractation et la purge de la préemption (dates de la loi)
+  ne bougent pas à la relance.
+- **Facture d'honoraires** (`facture_emise`) : son échéance est la signature − 7 jours. Une date
+  restée sur la ligne (posée à la main, ou repoussée par une relance) l'empêchait de suivre.
+  Dès que la date de signature change — échéance de la ligne « Acte authentique signé », « Date
+  prévue » ou « Acte signé le » des dates clés, date butoir quand rien d'autre n'est calé,
+  avenant, case cochée — `factureSuitSignature()` rend la ligne au calcul. Une facture déjà
+  envoyée n'est pas touchée ; une date posée à la main tient tant que la signature ne bouge pas.
+- **Date prévue initialement** (`dates.signature_initiale`) : la première fois que la date de
+  signature affichée est déplacée, l'ancienne est gardée et rappelée en petit sous la ligne
+  « Acte authentique signé ». Elle ne change plus ensuite ; elle se corrige dans la carte
+  « Rendez-vous de signature » (champ « Prévue initialement »). Pour un dossier dont la date
+  avait déjà été déplacée avant le 20/11, la date d'origine n'est pas connue : la saisir là.
+
 ### Habillage
 
 L'app est en **thème clair « lin »** (`suivi.css`, `color-scheme: light`) : fond sable
