@@ -83,6 +83,8 @@ export default async function () {
     const r1 = pretR1 ? await guide() : { erreur: await lireToast() };
     ok(pretR1 && r1.pages === 14 && /WIŚNIEWSKI/.test(r1.titre) && r1.ecritures && r1.ecritures.secours >= 3 && r1.ecritures.sansSigne === 0 && r1.fichier === "guide-r1-wisniewski.pdf",
       "guide R1 au nom de « WIŚNIEWSKI Paweł », allée Çeşme : le guide sort (14 pages), nom et adresse écrits avec la police embarquée qui a ces lettres (" + JSON.stringify(pretR1 ? { pages: r1.pages, ecritures: r1.ecritures, fichier: r1.fichier } : r1) + ")");
+    ok(r1.variante === "commun" && r1.photoEquipe && r1.photoEquipe.largeur === 190 && r1.photoEquipe.hauteur > 100 && r1.photoEquipe.hauteur < 112,
+      "guide R1 de Saint-Médard : la photo de l'équipe est posée sur la page « Notre agence » (" + JSON.stringify(r1.photoEquipe) + ")");
     if (pretR1) { await garderDocument(page, "documents-guide-r1.pdf"); await page.click("#doc-retour"); await page.waitForSelector(".etapes", { timeout: 10000 }); }
 
     // --- Guide R2 : texte du conseiller de 900 caractères d'un seul bloc (p12), 4 points dont 2 longs (p6).
@@ -105,6 +107,7 @@ export default async function () {
     ok(r2.p6 && [r2.p6.forts, r2.p6.objections].every((z) => z.lignes === 6 && z.coupees === 0 && z.bas <= z.limite && z.haut >= 684 && z.taille >= 7) && !r2.avertissements.some((t) => /page 6/.test(t)),
       "R2 p6 : quatre points dont deux longs (6 lignes) tiennent DANS leur cadre, sans rien couper (" + JSON.stringify(r2.p6) + ")");
     ok(r2.commune && r2.commune.nom === "Saint-Médard-en-Jalles" && !r2.commune.indeterminee && r2.pages === 20, "R2 p7 : la fiche écrite « St Médard en Jalles » porte la commune Saint-Médard-en-Jalles (" + JSON.stringify(r2.commune) + ")");
+    ok(r2.photoEquipe && r2.photoEquipe.largeur === 190, "guide R2 de Saint-Médard : la photo de l'équipe est posée sur la page « Notre agence » (" + JSON.stringify(r2.photoEquipe) + ")");
     await garderDocument(page, "documents-guide-r2.pdf");
     // Des points bien trop longs et une commune indéterminée : coupés et signalés, jamais hors du cadre ni une commune au hasard.
     const longs = [1, 2, 3, 4].map((k) => POINT_TRES_LONG + " (" + k + ")").join("\n");
@@ -254,6 +257,15 @@ export default async function () {
     await page.click("#pm-annuler");
     await page.waitForSelector(".etapes", { timeout: 8000 });
     const r1G = await r1Noms(idG);
+    ok(r1G.photoEquipe && r1G.photoEquipe.largeur === 190, "un conseiller de Saint-Médard ou sans point de vente : photo de l'équipe");
     ok(r1G.noms && r1G.noms.lignes.join(" ") === "M. Bernard SEUL-EXEMPLE et Mme COUPLE-EXEMPLE", "guide R1 : « " + (r1G.noms ? r1G.noms.lignes.join(" ") : "") + " » — la civilité choisie pour le dossier, pas celle de la fiche contact");
+    // La photo de l'équipe est celle de Saint-Médard et Blanquefort : un conseiller de Saint-Aubin garde le logo.
+    await page.click("#doc-retour"); await page.waitForSelector(".etapes", { timeout: 10000 });
+    for (const [agence, attendu] of [["blanquefort", true], ["saint-aubin", false]]) {
+      await api("/crm/conseillers", { headers: admin.auth, method: "PUT", body: { id: cs.id, prenom: "Camille", nom: "EXEMPLE", fonction: "Conseillère immobilier", genre: "f", telephone: "06 00 00 00 01", email: "camille@exemple.test", agence } });
+      const g = await r1Noms(idG);
+      ok(g.variante === "commun" && !!g.photoEquipe === attendu, "guide R1 d'un conseiller de " + agence + " : " + (attendu ? "photo de l'équipe" : "le logo, pas la photo") + " (" + JSON.stringify(g.photoEquipe) + ")");
+      await page.click("#doc-retour"); await page.waitForSelector(".etapes", { timeout: 10000 });
+    }
   });
 }

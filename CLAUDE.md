@@ -1458,6 +1458,13 @@ jour, fin > début exigée ; postérieure = heure de fin libre, 18h → 16h) ; m
 garde un évènement tant qu'un créneau n'est pas fini (EXISTS sur la date de fin). Client : champ « Date de fin (si
 différente) » sur le créneau unique (`#ev-u-date-fin`) et sur chaque ligne (`.ev-l-date-fin`), carte « du … au … »,
 « 18h → 16h ». Tests dans le bloc Évènements. Assets `?v=101`.
+**Guides R1/R2 — photo de l'équipe de Saint-Médard et Blanquefort (20/11, Benoît)** : `poserPhotoEquipe` (admin.js)
+pose `administration/assets/img/equipe-saint-medard.jpg` sur la page « Notre agence » du guide COMMUN (R1 p3, R2 p11),
+en haut à droite, par-dessus le logo du modèle (zone x 370→560, haut 32 ; hauteur selon la photo) — à la génération,
+le PDF modèle n'est pas retouché. Pour : point de vente `saint-medard`, `blanquefort` ou aucun ; Saint-Aubin garde le
+logo, Caudéran a sa photo dans son propre PDF. Changer la photo = remplacer le fichier (JPEG, ~1200 px de large).
+`__dernierGuide.photoEquipe` pour les essais (smokes `documents`, `parcours-r1r2`).
+
 **Parcours R1/R2 — civilité d'un co-propriétaire (20/11, Benoît : « je mets Mme, le guide écrit M. et Mme »)** : le
 co-propriétaire était rattaché à une fiche contact existante (choisie, ou même nom + prénom) et le guide prenait la
 civilité de CETTE fiche (un couple « M. et Mme »), pas celle saisie. Désormais la civilité saisie vaut pour le dossier :

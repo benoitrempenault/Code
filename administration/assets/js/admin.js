@@ -3491,7 +3491,9 @@
     if (pgGeneree) { try { pageConseiller = { source: "generee", ...(await dessinerPageConseiller(doc, pgGeneree, p)) }; } catch (e) { pageConseiller.erreur = String(e.message || e); } }
     // Page « Notre agence » : les chiffres des avis du jour, par point de vente (relevés sur le site Kadima).
     let avisAgence = null;
-    { const i3 = ordre.indexOf(3); if (i3 >= 0 && p.agence && p.agence.avis_chiffres) { try { avisAgence = await redessinerAvisAgence(doc, doc.getPage(i3), p.agence.avis_chiffres, variante); } catch (e) { avisAgence = { erreur: String(e.message || e) }; } } }
+    let photoEquipe = null;
+    { const i3 = ordre.indexOf(3); if (i3 >= 0 && p.agence && p.agence.avis_chiffres) { try { avisAgence = await redessinerAvisAgence(doc, doc.getPage(i3), p.agence.avis_chiffres, variante); } catch (e) { avisAgence = { erreur: String(e.message || e) }; } }
+      if (i3 >= 0) { try { photoEquipe = await poserPhotoEquipe(doc, doc.getPage(i3), p, variante); } catch (e) { photoEquipe = { erreur: String(e.message || e) }; } } }
     // Le mot du directeur : la page du modèle (une image d'un ancien courrier,
     // qui nommait toujours le même conseiller) laisse place au courrier généré,
     // au bon conseiller, à la bonne agence, au bon site.
@@ -3604,7 +3606,7 @@
     if (pageConseiller.caracteresOmis) avertissements.push("page « Votre conseiller » : la présentation est trop longue pour son encart, elle s'arrête après « " + pageConseiller.finTexte + " » (environ " + pageConseiller.caracteresOmis + " caractères non imprimés)");
     if (nomsAbreges) avertissements.push(NOMS_ABREGES);
     if (ecritures.sansSigne) avertissements.push("certaines lettres du nom ou de l'adresse n'existent pas dans la police du guide : elles sont écrites sans leur signe");
-    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", mot, pageConseiller, avisAgence, variante, ecritures, avertissements, noms: nomsP1 }; // relu par les parcours navigateur
+    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", mot, pageConseiller, avisAgence, photoEquipe, variante, ecritures, avertissements, noms: nomsP1 }; // relu par les parcours navigateur
     avertirDocument("Guide R1", avertissements);
     return url;
   }
@@ -4006,6 +4008,21 @@
     commun: { note_c21: [126, 302, 200, 326, 16.8], avis_c21: [112, 339, 212, 364, 16.8], note_google: [400, 300, 464, 324, 16.8], avis_google: [392, 340, 482, 365, 16.8] },
     cauderan: { note_c21: [106, 306, 188, 332, 18.8], avis_c21: [100, 335, 189, 361, 18.8], note_google: [388, 300, 454, 326, 18.8], avis_google: [380, 332, 471, 358, 18.8] },
   };
+  // La photo de l'équipe de Saint-Médard et Blanquefort (Benoît, 20/11), sur la page « Notre agence »
+  // du guide commun : en haut à droite, à la place du logo — comme la page de Caudéran porte la sienne.
+  // Saint-Aubin garde le logo. zone : x0, haut, x1 (la hauteur suit les proportions de la photo).
+  const PHOTO_EQUIPE = { fichier: "assets/img/equipe-saint-medard.jpg", pour: ["", "saint-medard", "blanquefort"], zone: [370, 32, 560] };
+  let photoEquipeCache = null;
+  async function poserPhotoEquipe(doc, page, p, variante) {
+    if (variante !== "commun" || !PHOTO_EQUIPE.pour.includes((p.agence && p.agence.pv) || "")) return null;
+    if (!photoEquipeCache) photoEquipeCache = await fetch(asset(PHOTO_EQUIPE.fichier)).then((r) => { if (!r.ok) throw new Error("photo de l'équipe introuvable"); return r.arrayBuffer(); });
+    const im = await doc.embedJpg(photoEquipeCache);
+    const { rgb } = window.PDFLib, [x0, haut, x1] = PHOTO_EQUIPE.zone;
+    const largeur = x1 - x0, hauteur = largeur * im.height / im.width, y = page.getHeight() - haut - hauteur + page.getMediaBox().y;
+    page.drawRectangle({ x: x0 - 2, y: y - 2, width: largeur + 4, height: hauteur + 4, color: rgb(1, 1, 1) }); // le logo du modèle reste dessous
+    page.drawImage(im, { x: x0, y, width: largeur, height: hauteur });
+    return { largeur, hauteur: Math.round(hauteur * 10) / 10 };
+  }
   async function redessinerAvisAgence(doc, page, ch, variante) {
     const z = ZONES_AVIS[variante] || ZONES_AVIS.commun;
     const { rgb } = window.PDFLib;
@@ -4423,6 +4440,8 @@
     // Page 11 « Notre agence » : les chiffres des avis du jour, par point de vente.
     let avisAgenceR2 = null;
     if (p.agence && p.agence.avis_chiffres) { try { avisAgenceR2 = await redessinerAvisAgence(doc, page(11), p.agence.avis_chiffres, variante); } catch (e) { avisAgenceR2 = { erreur: String(e.message || e) }; } }
+    let photoEquipeR2 = null;
+    try { photoEquipeR2 = await poserPhotoEquipe(doc, page(11), p, variante); } catch (e) { photoEquipeR2 = { erreur: String(e.message || e) }; }
     let debugBio = null;
     { const s = meta.p12, pg = page(s.page), cs = r2.conseiller || p.conseiller || {};
       const f = cs.genre === "f";
@@ -4462,7 +4481,7 @@
     doc.setTitle("Vendons ensemble votre bien — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", avisAgence: avisAgenceR2, variante, mot: motR2, bio: debugBio, p6: debugP6, noms: debugNoms, commune: { nom: (envr.commune || {}).nom || "", indeterminee: !!(envr.commune || {}).indeterminee }, avertissements };
+    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", avisAgence: avisAgenceR2, photoEquipe: photoEquipeR2, variante, mot: motR2, bio: debugBio, p6: debugP6, noms: debugNoms, commune: { nom: (envr.commune || {}).nom || "", indeterminee: !!(envr.commune || {}).indeterminee }, avertissements };
     avertirDocument("Guide R2", avertissements);
     return url;
   }
@@ -5531,6 +5550,8 @@
         "<li><strong>Facture d'honoraires</strong> : quand la date de signature change, la facture suit et reste une semaine avant l'acte.</li>" +
         "<li><strong>Acte authentique signé</strong> : dès que la date est déplacée, la ligne rappelle la <strong>date prévue initialement</strong> (modifiable dans « Rendez-vous de signature »).</li>" +
         "</ul>" },
+    { id: "photo-equipe-20-11", depuis: "2026-11-20", jours: 7, titre: "Guides R1 et R2 : la photo de l'équipe",
+      html: '<p class="aide" style="max-width:none; margin:0;">La page « Notre agence » des guides R1 et R2 porte maintenant <strong>la photo de l\'équipe</strong> pour Saint-Médard et Blanquefort, en haut à droite. Caudéran garde la sienne ; rien à faire, elle se pose toute seule à la génération.</p>' },
     { id: "civilite-coproprietaire-20-11", depuis: "2026-11-20", jours: 7, titre: "Parcours R1/R2 : la civilité d'un co-propriétaire",
       html: '<p class="aide" style="max-width:none; margin:0;">La civilité choisie en ajoutant un co-propriétaire est maintenant <strong>celle qui s\'imprime</strong> sur les guides et dans les e-mails du dossier, même si la personne a déjà une fiche contact avec une autre civilité (un couple « M. et Mme » dont seule madame est propriétaire, par exemple). Pour corriger un dossier en cours : « + Co-propriétaire », rechercher la personne, choisir la bonne civilité, « Ajouter » — elle est mise à jour, sans doublon. La fiche contact, elle, ne change pas.</p>' },
     { id: "proprietaires-12-19-11", depuis: "2026-11-19", jours: 7, titre: "Parcours R1/R2 : jusqu'à douze propriétaires",
