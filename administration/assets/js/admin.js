@@ -3282,7 +3282,9 @@
       '<p style="margin:10px 0 0;"><strong>Propriétaires :</strong> ' + (p.proprietaires || []).map((o) => '<span class="puce grise" style="margin:2px 4px 2px 0;">' +
         escH([o.civilite, o.prenom, o.nom].filter(Boolean).join(" ")) + (o.email ? " · " + escH(o.email) : "") +
         (o.principal ? "" : ' <button type="button" data-retirer="' + escH(o.id) + '" title="Retirer ce propriétaire" style="border:0; background:none; cursor:pointer; color:#e07a5f;">✕</button>') + "</span>").join("") +
-      ' <button class="btn" id="px-ajouter-prop" style="padding:3px 10px; font-size:12px;">+ Co-propriétaire</button></p>' +
+      ((p.proprietaires || []).length < PROPRIETAIRES_MAX
+        ? ' <button class="btn" id="px-ajouter-prop" style="padding:3px 10px; font-size:12px;">+ Co-propriétaire</button>'
+        : ' <span class="petit" id="px-prop-complet">' + PROPRIETAIRES_MAX + " propriétaires : le maximum pour une fiche.</span>") + "</p>" +
       (p.emails.length ? "" : '<p class="petit" style="color:#e07a5f;">Aucun e-mail sur cette fiche : les envois seront refusés tant que l\'adresse manque.</p>') +
       etapesHtml,
       '<button class="btn btn-danger" id="px-effacer" title="Efface la fiche du parcours (et sa fiche estimation) ; les contacts restent">🗑 Effacer</button>' +
@@ -3292,7 +3294,7 @@
       if (!confirm("Effacer le parcours de " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" ") + " ? La fiche estimation disparaît aussi ; les fiches contact restent.\n\nLe dossier reste récupérable 30 jours dans « Dossiers supprimés ».")) return;
       try { await api("/crm/parcours/" + id, { method: "DELETE" }); toast("Parcours effacé — récupérable 30 jours dans « 🗑 Dossiers supprimés »"); fermerModale(); chargerParcours(); relireEstimations(); } catch (e) { toast(e.message, true); }
     });
-    $("px-ajouter-prop").addEventListener("click", () => ajouterProprietaire(id, p));
+    if ($("px-ajouter-prop")) $("px-ajouter-prop").addEventListener("click", () => ajouterProprietaire(id, p));
     document.querySelectorAll("[data-retirer]").forEach((b) => b.addEventListener("click", async () => {
       const jetonF = sessionModale;
       try { await api("/crm/parcours/" + id + "/proprietaires/" + b.dataset.retirer, { method: "DELETE" }); toast("Propriétaire retiré"); ouvrirParcours(id, jetonF); } catch (e) { toast(e.message, true); }
@@ -3363,21 +3365,63 @@
   const civiliteCourte = (c) => { const t = sansAccentsMin(c); return /et|&|\//.test(t) ? "M. et Mme" : /mme|madame|mlle|mademoiselle/.test(t) ? "Mme" : /^m\b|monsieur|mr/.test(t) ? "M." : ""; };
   const civiliteLongue = (c) => ({ "M.": "Monsieur", "Mme": "Madame", "M. et Mme": "Monsieur et Madame" }[civiliteCourte(c)] || "");
   const prenomPropre = (t) => String(t || "").trim().toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
-  function nomsClient(p, civ) {
+  // « A », « A et B », « A, B et C ».
+  const enumerer = (l) => (l.length < 3 ? l.join(" et ") : l.slice(0, -1).join(", ") + " et " + l[l.length - 1]);
+  const PROPRIETAIRES_MAX = 12; // comme le serveur (indivisions, successions)
+  // Les noms du client tels qu'ils s'impriment, en « morceaux » qu'on ne coupe pas
+  // (une personne par morceau quand les noms diffèrent), et leur forme abrégée
+  // pour le cas où tout le monde ne tient pas.
+  function partiesNoms(p, civ) {
     const c = civ || civiliteCourte;
     const l = (p.proprietaires || []).filter((o) => o.nom || o.prenom);
     const maj = (o) => (o.nom || "").toUpperCase();
-    if (l.length < 2) return [c(p.civilite), prenomPropre(p.prenom), (p.nom || "").toUpperCase()].filter(Boolean).join(" ");
-    const prenoms = l.map((o) => prenomPropre(o.prenom)).filter(Boolean).join(" et ");
+    if (l.length < 2) { const t = [c(p.civilite), prenomPropre(p.prenom), (p.nom || "").toUpperCase()].filter(Boolean).join(" "); return { texte: t, morceaux: t.split(" "), court: t }; }
     if (new Set(l.map((o) => sansAccentsMin(o.nom))).size === 1) {
       // Un même nom : « M. et Mme Benoît et Adélaïde REMPENAULT ».
       const civs = [...new Set(l.map((o) => civiliteCourte(o.civilite)).filter(Boolean))];
       const civ2 = civs.length === 1 && civs[0] !== "M. et Mme" ? (civs[0] === "Mme" ? "Mmes" : "MM.") : "M. et Mme";
       const longue = { "M. et Mme": "Monsieur et Madame", "MM.": "Messieurs", "Mmes": "Mesdames" };
-      return [civ === civiliteLongue ? longue[civ2] : civ2, prenoms, maj(l[0])].filter(Boolean).join(" ");
+      const t = [civ === civiliteLongue ? longue[civ2] : civ2, enumerer(l.map((o) => prenomPropre(o.prenom)).filter(Boolean)), maj(l[0])].filter(Boolean).join(" ");
+      return { texte: t, morceaux: t.split(" "), court: "Consorts " + maj(l[0]) };
     }
-    return l.map((o) => [c(o.civilite), prenomPropre(o.prenom), maj(o)].filter(Boolean).join(" ")).join(" et ");
+    const unites = l.map((o) => [c(o.civilite), prenomPropre(o.prenom), maj(o)].filter(Boolean).join(" "));
+    const n = unites.length;
+    return { texte: enumerer(unites), morceaux: unites.map((u, i) => (i === n - 1 ? "et " + u : u + (i < n - 2 ? "," : ""))), court: unites[0] + " et " + (n - 1) + " autres propriétaires" };
   }
+  const nomsClient = (p, civ) => partiesNoms(p, civ).texte;
+  // Les noms sur une couverture. Une ligne à la taille prévue tant qu'elle tient
+  // (réduite jusqu'à `mini`) ; sinon plusieurs lignes, coupées entre deux
+  // personnes, tant que la place le permet (`place` : points disponibles au-delà
+  // de la première ligne) ; en dernier recours la forme abrégée, et on le dit.
+  // `mesure(texte, taille)` rend la largeur dans la police du document.
+  function composerNoms(p, civ, mesure, o) {
+    const parties = partiesNoms(p, civ);
+    const uneLigne = (texte, plancher) => { for (let t = o.taille; t >= plancher; t -= 0.5) if (mesure(texte, t) <= o.largeur) return t; return 0; };
+    let t = uneLigne(parties.texte, o.mini);
+    if (t) return { lignes: [parties.texte], taille: t, pas: 0, abrege: false };
+    const larg = o.largeurLignes || o.largeur;
+    const couper = (taille, dans) => {
+      const lignes = []; let ligne = "";
+      for (const m of parties.morceaux) {
+        if (mesure(m, taille) > dans) return null;
+        const e = ligne ? ligne + " " + m : m;
+        if (ligne && mesure(e, taille) > dans) { lignes.push(ligne); ligne = m; } else ligne = e;
+      }
+      if (ligne) lignes.push(ligne);
+      return lignes;
+    };
+    for (t = Math.min(o.taille, o.maxiLignes || 11); t >= 8; t -= 0.5) {
+      const pas = Math.round(t * 12.2) / 10; let lignes = couper(t, larg);
+      if (!lignes || (lignes.length - 1) * pas > (o.place || 0)) continue;
+      // Des lignes de longueurs voisines, plutôt qu'un dernier nom seul sur sa ligne.
+      for (let dans = larg * 0.96; dans > larg * 0.4; dans -= larg * 0.04) { const l = couper(t, dans); if (!l || l.length !== lignes.length) break; lignes = l; }
+      return { lignes, taille: t, pas: lignes.length > 1 ? pas : 0, abrege: false };
+    }
+    // Rien ne tient : la forme abrégée, sur une ligne.
+    for (t = Math.min(o.taille, 12); t > 6; t -= 0.5) if (mesure(parties.court, t) <= larg) break;
+    return { lignes: [parties.court], taille: t, pas: 0, abrege: parties.court !== parties.texte };
+  }
+  const NOMS_ABREGES = "les propriétaires ne tiennent pas tous sur la première page : elle porte une forme abrégée de leurs noms";
   // Variantes du guide R1 par agence : Caudéran a son propre PDF (page « Nos
   // moyens de communication » sans SeLoger, Logic-Immo, biens de prestige ni
   // TikTok — tools/guides/variante-cauderan.py) ; les autres partagent le commun.
@@ -3439,7 +3483,7 @@
     // Les textes variables écrits en Helvetica (client, adresses) : s'ils sortent du jeu
     // WinAnsi, Barlow (déjà chargée pour le mot du directeur) est embarquée en secours.
     const stdR = await doc.embedFont(StandardFonts.Helvetica);
-    let secoursR1 = null; const ecritures = { secours: 0, sansSigne: 0 };
+    let secoursR1 = null, nomsAbreges = false, nomsP1 = null; const ecritures = { secours: 0, sansSigne: 0 };
     { const variables = [nomsClient(p), p.adresse, p.cp, p.ville, (p.agence && p.agence.adresse) || "", ...agences().flatMap((a) => [a.nom, a.adresse])].map(espacesSimples).join(" ");
       if (window.fontkit && !ecritTout(stdR, variables)) { try { await chargerMotCache(); secoursR1 = await Promise.all(motCache.fontes.slice(0, 2).map((f) => doc.embedFont(f, { subset: true }))); } catch { secoursR1 = null; } } }
     const sure = (texte, font, gras) => { const e = ecritureSure(texte, font, secoursR1 && secoursR1[gras ? 1 : 0]); if (e.mode === "secours") ecritures.secours++; else if (e.mode === "sans-signe") ecritures.sansSigne++; return e; };
@@ -3530,18 +3574,27 @@
       // Si une ligne du bloc demande la police de secours, les quatre la prennent : pas deux polices dans le même bloc.
       const blocP1 = [nomsClient(p), (p.adresse || "").toUpperCase(), [p.cp, (p.ville || "").toUpperCase()].filter(Boolean).join(" ")];
       const fontP1 = secoursR1 && blocP1.some((t) => !ecritTout(font, espacesSimples(t))) ? secoursR1[0] : font;
-      const droite = (brut, spec) => {
+      // Les noms : une ligne tant qu'elle tient ; à plusieurs propriétaires, des lignes
+      // entières jusqu'à la marge de gauche (la page est libre au-dessus du slogan) :
+      // l'adresse, la ville et la date descendent, puis le bloc remonte un peu.
+      const mesureP1 = (t, taille) => { const e = ecritureSure(t, fontP1, null); return e.font.widthOfTextAtSize(e.texte, taille); };
+      const noms = composerNoms(p, null, mesureP1, { largeur: p1.droite - (p1.gauche || 300), taille: p1.nom.taille, mini: 10, largeurLignes: p1.droite - 62, place: 36 });
+      const enPlus = (noms.lignes.length - 1) * noms.pas, descend = Math.min(24, enPlus), monte = enPlus - descend;
+      if (noms.abrege) nomsAbreges = true;
+      nomsP1 = { lignes: noms.lignes, taille: noms.taille, abrege: noms.abrege, haut: p1.nom.y - monte, bas: p1.date.y + descend };
+      const droite = (brut, spec, fixe) => {
         if (!brut) return;
         const { texte, font: f } = sure(brut, fontP1, false);
         if (fontP1 !== font) ecritures.secours++;
-        let taille = spec.taille;
-        while (taille > 8 && f.widthOfTextAtSize(texte, taille) > p1.droite - (p1.gauche || 300)) taille -= 0.5;
+        let taille = fixe || spec.taille;
+        while (!fixe && taille > 8 && f.widthOfTextAtSize(texte, taille) > p1.droite - (p1.gauche || 300)) taille -= 0.5;
         page.drawText(texte, { x: p1.droite - f.widthOfTextAtSize(texte, taille), y: h - spec.y, size: taille, font: f, color: rgb(0, 0, 0) });
       };
-      droite(nomsClient(p), p1.nom);
-      droite((p.adresse || "").toUpperCase(), p1.adresse);
-      droite([p.cp, (p.ville || "").toUpperCase()].filter(Boolean).join(" "), p1.ville);
-      droite(new Date().toLocaleDateString("fr-FR"), p1.date);
+      noms.lignes.forEach((l, i) => droite(l, { y: p1.nom.y - monte + i * noms.pas }, noms.taille));
+      const plusBas = (spec) => ({ ...spec, y: spec.y + descend }); // (le modèle reste intact : il est gardé en mémoire)
+      droite((p.adresse || "").toUpperCase(), plusBas(p1.adresse));
+      droite([p.cp, (p.ville || "").toUpperCase()].filter(Boolean).join(" "), plusBas(p1.ville));
+      droite(new Date().toLocaleDateString("fr-FR"), plusBas(p1.date));
     }
     doc.setTitle("Guide de commercialisation — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
@@ -3549,8 +3602,9 @@
     // Ce qui n'a pas pu être imprimé tel quel se dit à l'écran.
     const avertissements = [];
     if (pageConseiller.caracteresOmis) avertissements.push("page « Votre conseiller » : la présentation est trop longue pour son encart, elle s'arrête après « " + pageConseiller.finTexte + " » (environ " + pageConseiller.caracteresOmis + " caractères non imprimés)");
+    if (nomsAbreges) avertissements.push(NOMS_ABREGES);
     if (ecritures.sansSigne) avertissements.push("certaines lettres du nom ou de l'adresse n'existent pas dans la police du guide : elles sont écrites sans leur signe");
-    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", mot, pageConseiller, avisAgence, variante, ecritures, avertissements }; // relu par les parcours navigateur
+    window.__dernierGuide = { url, octets, fichier: "guide-r1-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", mot, pageConseiller, avisAgence, variante, ecritures, avertissements, noms: nomsP1 }; // relu par les parcours navigateur
     avertirDocument("Guide R1", avertissements);
     return url;
   }
@@ -4241,14 +4295,21 @@
     const cpVille = [p.cp, p.ville].filter(Boolean).join(" ");
     const aujourdhui = new Date(); const dateJour = aujourdhui.getDate() + " " + MOIS_FR[aujourdhui.getMonth()] + " " + aujourdhui.getFullYear();
     const avertissements = []; // ce qui n'a pas pu être imprimé tel quel : dit à l'écran en fin de génération
+    let debugNoms = null;
     let debugP6 = null;
     // Page 1 : photo, client, adresse, date du jour.
     { const s = meta.p1, pg = page(s.page);
       await image(pg, r2.photo, s.photo, true);
-      ecrireDroite(pg, nomsClient(p, civiliteLongue), s.droite, s.nom.y, s.nom.taille, fR);
-      ecrireDroite(pg, p.adresse, s.droite, s.adresse.y, s.adresse.taille, fR);
-      ecrireDroite(pg, cpVille, s.droite, s.cpville.y, s.cpville.taille, fR);
-      ecrireDroite(pg, dateJour, s.droite, s.date.y, s.date.taille, fR); }
+      // À plusieurs propriétaires, les noms prennent des lignes entières : le bloc remonte
+      // un peu, puis l'adresse, la ville et la date se resserrent et descendent (5 pt au plus).
+      const noms = composerNoms(p, civiliteLongue, (t, taille) => fR.widthOfTextAtSize(String(t), taille), { largeur: s.droite - 62, taille: s.nom.taille, mini: 11, place: 30 });
+      const enPlus = (noms.lignes.length - 1) * noms.pas, monte = Math.min(14, enPlus), reste = enPlus - monte;
+      if (noms.abrege) avertissements.push(NOMS_ABREGES);
+      debugNoms = { lignes: noms.lignes, taille: noms.taille, abrege: noms.abrege, haut: s.nom.y - monte, bas: s.date.y + Math.max(0, reste - 8) };
+      noms.lignes.forEach((l, i) => ecrireDroite(pg, l, s.droite, s.nom.y - monte + i * noms.pas, noms.taille, fR));
+      ecrireDroite(pg, p.adresse, s.droite, s.adresse.y + reste, s.adresse.taille, fR);
+      ecrireDroite(pg, cpVille, s.droite, s.cpville.y + Math.max(0, reste - 4), s.cpville.taille, fR);
+      ecrireDroite(pg, dateJour, s.droite, s.date.y + Math.max(0, reste - 8), s.date.taille, fR); }
     // Page 6 : photo, adresse, points forts, objections.
     { const s = meta.p6, pg = page(s.page);
       await image(pg, r2.photo, s.photo, true);
@@ -4401,7 +4462,7 @@
     doc.setTitle("Vendons ensemble votre bien — " + [p.civilite, p.prenom, p.nom].filter(Boolean).join(" "));
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
-    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", avisAgence: avisAgenceR2, variante, mot: motR2, bio: debugBio, p6: debugP6, commune: { nom: (envr.commune || {}).nom || "", indeterminee: !!(envr.commune || {}).indeterminee }, avertissements };
+    window.__dernierGuide = { url, octets, fichier: "guide-r2-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf", avisAgence: avisAgenceR2, variante, mot: motR2, bio: debugBio, p6: debugP6, noms: debugNoms, commune: { nom: (envr.commune || {}).nom || "", indeterminee: !!(envr.commune || {}).indeterminee }, avertissements };
     avertirDocument("Guide R2", avertissements);
     return url;
   }
@@ -5134,7 +5195,11 @@
     const terrainLib = (x) => (x.terrain && !(estTerrain || x.type === "Terrain") ? Math.round(x.terrain) + " m² de terrain" : "");
     // Couverture + pages fixes.
     { const pg = await ajouterModele(1); const c = meta.couverture;
-      ecrireCentre(pg, nomsClient(p), 297.75, c.client.y, c.client.taille, fS, noir);
+      // À plusieurs propriétaires : des lignes centrées, qui montent au-dessus de l'adresse.
+      const noms = composerNoms(p, null, (t, taille) => largeur(t, fS, taille), { largeur: 2 * (297.75 - G), taille: c.client.taille, mini: 10, place: 58 });
+      if (noms.abrege) livretDebug.nomsAbreges = true;
+      livretDebug.noms = { lignes: noms.lignes, taille: noms.taille, abrege: noms.abrege, haut: c.client.y - (noms.lignes.length - 1) * noms.pas };
+      noms.lignes.forEach((l, i) => ecrireCentre(pg, l, 297.75, c.client.y - (noms.lignes.length - 1 - i) * noms.pas, noms.taille, fS, noir));
       ecrireCentre(pg, [p.adresse, [p.cp, p.ville].filter(Boolean).join(" ")].filter(Boolean).join(", "), 297.75, c.adresse.y, c.adresse.taille, fR, gris);
       ecrireCentre(pg, dateJour, 297.75, c.date.y, c.date.taille, fR, gris);
       if (acm.surface || acm.terrain) ecrireCentre(pg, bienLib, 297.75, c.date.y + 20, c.date.taille, fS, noir); }
@@ -5239,9 +5304,13 @@
     await ajouterModele(meta.sections.opinion);
     { const pg = await pageContenu("L'OPINION DE PLUSIEURS", "PROFESSIONNELS");
       ecrire(pg, "COMMISSION D'ÉVALUATION", G, 110, 14, fB, noir);
-      ecrireDroite(pg, nomsClient(p), D, 150, 11, fS, noir);
-      ecrireDroite(pg, p.adresse || "", D, 166, 10, fR, noir);
-      ecrireDroite(pg, [p.cp, (p.ville || "").toUpperCase()].filter(Boolean).join(" "), D, 181, 10, fR, noir);
+      // À plusieurs propriétaires : des lignes entières, l'adresse descend d'autant (le tableau commence à 234).
+      const noms = composerNoms(p, null, (t, taille) => largeur(t, fS, taille), { largeur: L, taille: 11, mini: 9, maxiLignes: 10, place: 38 });
+      const enPlus = (noms.lignes.length - 1) * noms.pas;
+      livretDebug.nomsCommission = { lignes: noms.lignes, taille: noms.taille, abrege: noms.abrege, bas: 181 + enPlus };
+      noms.lignes.forEach((l, i) => ecrireDroite(pg, l, D, 150 + i * noms.pas, noms.taille, fS, noir));
+      ecrireDroite(pg, p.adresse || "", D, 166 + enPlus, 10, fR, noir);
+      ecrireDroite(pg, [p.cp, (p.ville || "").toUpperCase()].filter(Boolean).join(" "), D, 181 + enPlus, 10, fR, noir);
       const com = acm.commission || [];
       rect(pg, G, 234, L, 26, { color: or });
       ecrireCentre(pg, "Nb de conseillers", G + L * 0.25, 252, 10.5, fB, blanc); ecrireCentre(pg, "Estimations (net vendeur)", G + L * 0.72, 252, 10.5, fB, blanc);
@@ -5355,6 +5424,7 @@
     const octets = await doc.save();
     const url = URL.createObjectURL(new Blob([octets], { type: "application/pdf" }));
     window.__dernierGuide = { url, octets, debug: livretDebug, fichier: "livret-prix-" + sansAccentsMin(p.nom || "client").replace(/\s+/g, "-") + ".pdf" }; // relu par les parcours navigateur
+    if (livretDebug.nomsAbreges) avertirDocument("Livret prix", [NOMS_ABREGES]);
     return url;
   }
 
@@ -5463,6 +5533,8 @@
         "</ul>" },
     { id: "civilite-coproprietaire-20-11", depuis: "2026-11-20", jours: 7, titre: "Parcours R1/R2 : la civilité d'un co-propriétaire",
       html: '<p class="aide" style="max-width:none; margin:0;">La civilité choisie en ajoutant un co-propriétaire est maintenant <strong>celle qui s\'imprime</strong> sur les guides et dans les e-mails du dossier, même si la personne a déjà une fiche contact avec une autre civilité (un couple « M. et Mme » dont seule madame est propriétaire, par exemple). Pour corriger un dossier en cours : « + Co-propriétaire », rechercher la personne, choisir la bonne civilité, « Ajouter » — elle est mise à jour, sans doublon. La fiche contact, elle, ne change pas.</p>' },
+    { id: "proprietaires-12-19-11", depuis: "2026-11-19", jours: 7, titre: "Parcours R1/R2 : jusqu'à douze propriétaires",
+      html: '<p class="aide" style="max-width:none; margin:0;">Une fiche du parcours accepte maintenant <strong>jusqu\'à douze propriétaires</strong> (indivision, succession), au lieu de quatre : bouton « + Co-propriétaire » de la fiche. Les guides R1 et R2 et le livret prix écrivent tous les noms, sur plusieurs lignes si besoin. Au-delà de quatre noms différents, les e-mails s\'ouvrent sur « Bonjour Mesdames, Messieurs, » et partent à chaque adresse.</p>' },
     { id: "dvf-2026-18-11", depuis: "2026-11-18", jours: 10, titre: "Livret prix : les ventes du 1er semestre 2026",
       html: '<p class="aide" style="max-width:none; margin:0;">Les ventes DVF vont maintenant <strong>jusqu\'à fin juin 2026</strong> (elles s\'arrêtaient fin 2025) : livret prix, Studio Estimation et carte de prospection. Le livret indique jusqu\'à quel mois les ventes sont publiées. Les données officielles paraissent deux fois par an, avec environ six mois de décalage : la suite de 2026 arrivera au printemps.</p>' },
     { id: "suivi-dates-17-11", depuis: "2026-11-17", jours: 7, titre: "Suivi des ventes : relances et dates",

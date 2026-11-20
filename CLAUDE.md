@@ -1469,6 +1469,18 @@ fiche du parcours (`px.civilite`, `px.prenom`, `est.nom`) — avant, comme sa fi
 liste Mme / M. / M. et Mme, la vraie civilité de la fiche choisie est montrée, nom et e-mail figés (ils se corrigent
 sur la fiche contact).
 
+**Parcours R1/R2 — jusqu'à douze propriétaires (19/11, Benoît : « plus de 4 propriétaires, limite à 12 »)** :
+`PROPRIETAIRES_MAX = 12` (server/src/parcours.js et admin.js ; le 13e est refusé « Douze propriétaires au plus par
+fiche. »). `PUT /crm/estimations/:id` garde 12 `contactIds` (il tronquait à 10 : réenregistrer la fiche estimation aurait
+délié des propriétaires). E-mails : `civiliteNoms` énumère jusqu'à quatre noms différents, au-delà « Mesdames, Messieurs »
+(une même famille garde « Madame, Monsieur NOM ») ; un envoi par adresse, comme avant. Documents : `partiesNoms` /
+`composerNoms` (admin.js) — une ligne tant qu'elle tient, sinon plusieurs lignes coupées ENTRE deux personnes et
+équilibrées (guide R1 p1, guide R2 p1, couverture du livret, page commission), l'adresse et la date se décalent ; si
+rien ne tient, forme abrégée (« M. X et 11 autres propriétaires », « Consorts NOM ») et avertissement à l'écran. Les
+noms s'énumèrent « A, B et C ». Le modèle gardé en mémoire (`meta.p1`) ne doit JAMAIS être modifié : copier la position.
+Essais : server/test.mjs (12 acceptés, 13e refusé, formule du mail, fiche estimation), smoke `documents` (douze noms
+différents, douze héritiers du même nom, douze noms à rallonge ; PDF dans captures/documents-*-douze.pdf).
+
 **DVF — dépôt de Studio, ventes 2026 (18/11, Benoît : « les réf DVF 2026 dans le livret »)** : Etalab ne publie
 plus de fichier « une commune × un millésime ». Le dossier `files.data.gouv.fr/geo-dvf/latest/csv/` que lisait le
 relais `/crm/dvf` est une ARCHIVE figée à la livraison d'avril (ventes jusqu'au 31/12/2025), annoncée SUPPRIMÉE fin

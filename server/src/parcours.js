@@ -63,9 +63,12 @@ export function civiliteNoms(civilite, nom, proprietaires) {
   if (liste.length < 2) return civiliteNom(civilite, nom);
   const noms = new Set(liste.map((o) => sansAccentsBas(o.nom)));
   if (noms.size === 1) return civiliteNom("M. et Mme", liste[0].nom);
+  // Au-delà de quatre personnes (indivision, succession), on ne les énumère plus.
+  if (liste.length > 4) return "Mesdames, Messieurs";
   return liste.map((o) => civiliteNom(o.civilite || "M. et Mme", o.nom)).join(", ");
 }
-export const PROPRIETAIRES_MAX = 4;
+// Une indivision ou une succession peut réunir beaucoup de monde : douze au plus.
+export const PROPRIETAIRES_MAX = 12;
 
 // Les pièces à préparer, selon le type de bien (à relire avant envoi).
 export const TYPES_BIEN = ["maison", "appartement", "terrain"];
@@ -1032,7 +1035,7 @@ export function monterRoutesParcours(app, { db, env, err, membreCtx, crmCtx, api
     }
     // Déjà sur la fiche : on ne fait que mettre sa civilité à jour (et ce n'est pas un propriétaire de plus).
     const deja = !!contactId && p.proprietaires.some((o) => o.id === contactId);
-    if (!deja && p.proprietaires.length >= PROPRIETAIRES_MAX) return err(c, 400, "Quatre propriétaires au plus par fiche.");
+    if (!deja && p.proprietaires.length >= PROPRIETAIRES_MAX) return err(c, 400, "Douze propriétaires au plus par fiche.");
     if (!contactId) {
       contactId = randId("ct"); cree = true;
       await db.run(
