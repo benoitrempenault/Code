@@ -47,6 +47,20 @@ export default async function () {
   await projet(acheteurs[3], 400000, ["terrain"]); await projet(acheteurs[3], 370000, ["terrain"]); await projet(acheteurs[4], 340000, []);
   await api("/crm/parcours/" + idB + "/acm?c=2", { headers: admin.auth, method: "PUT", body: { terrain: 800, prix: 330000, basse: 305000, haute: 350000 } });
 
+  // D, E, F : douze propriétaires (indivision) — douze noms différents, douze héritiers du même nom,
+  // douze noms très longs. Personnes fictives.
+  const ajouter = (id, o) => api("/crm/parcours/" + id + "/proprietaires", { headers: admin.auth, body: o });
+  const ONZE = [["Mme", "Sylvie", "MARTIN"], ["M.", "Alain", "BERNARD"], ["Mme", "Nicole", "PETIT"], ["M.", "Gérard", "DURAND"], ["Mme", "Monique", "LEROY"], ["M.", "Michel", "MOREAU"],
+    ["Mme", "Chantal", "SIMON"], ["M.", "Daniel", "LAURENT"], ["Mme", "Josiane", "LEFEBVRE"], ["M.", "René", "MICHEL"], ["Mme", "Yvette", "GARCIA"]];
+  const idD = await creer({ civilite: "M.", nom: "DUPONT", prenom: "Bernard", adresse: "8 chemin de l'Indivision", type_bien: "terrain" });
+  const ajoutsD = []; for (const [civilite, prenom, nom] of ONZE) ajoutsD.push(await ajouter(idD, { civilite, prenom, nom, email: prenom.toLowerCase().normalize("NFD").replace(/[^a-z]/g, "") + "@indivision.test" }));
+  const treizieme = await ajouter(idD, { civilite: "M.", prenom: "Treizième", nom: "DETROP" });
+  await api("/crm/parcours/" + idD + "/acm?c=2", { headers: admin.auth, method: "PUT", body: { terrain: 1200, prix: 280000, basse: 265000, haute: 295000 } });
+  const idE = await creer({ civilite: "M.", nom: "FRATRIE", prenom: "Pierre", adresse: "2 impasse des Héritiers" });
+  for (const [civilite, prenom] of ONZE) await ajouter(idE, { civilite, prenom, nom: "FRATRIE" });
+  const idF = await creer({ civilite: "M.", nom: "DE LA TRES-LONGUE-EXEMPLE", prenom: "Jean-Christophe", adresse: "4 rue des Noms Longs" });
+  for (const [civilite, prenom, nom] of ONZE) await ajouter(idF, { civilite, prenom: prenom + "-Marie-Antoinette", nom: nom + "-DE-LA-ROCHE-EXEMPLE DU VAL" });
+
   // G : un co-propriétaire dont la fiche contact est celle d'un couple (« M. et Mme »), alors que seule madame est propriétaire.
   await api("/crm/contacts/bulk", { headers: admin.auth, body: { rows: [{ civilite: "M. et Mme", nom: "COUPLE-EXEMPLE", prenom: "", email: "couple@documents.test" }] } });
   const idG = await creer({ civilite: "M.", nom: "SEUL-EXEMPLE", prenom: "Bernard", adresse: "9 allée de la Civilité" });
@@ -173,6 +187,52 @@ export default async function () {
     await garderDocument(page, "documents-livret-terrain.pdf");
     await page.click("#doc-retour"); await page.waitForSelector(".etapes", { timeout: 10000 });
 
+    // --- Douze propriétaires (19/11) : la fiche les accepte, les documents les écrivent tous sans sortir de la page.
+    ok(ajoutsD.every((r) => r.status === 200) && ajoutsD[10].json.proprietaires.length === 12 && treizieme.status === 400 && /Douze propriétaires au plus/.test(treizieme.json.error || ""),
+      "une fiche accepte douze propriétaires, le treizième est refusé (« " + (treizieme.json.error || "") + " »)");
+    const tousLa = (n) => !!n && !n.abrege && ["DUPONT", ...ONZE.map((o) => o[2])].every((nom) => n.lignes.join(" ").includes(nom));
+    const r1Noms = async (id) => {
+      await fiche(id); await viderToast();
+      await page.click('[data-guide="r1"]');
+      await page.waitForFunction(() => /Guide R1 prêt/.test(document.getElementById("modale-titre")?.textContent || ""), null, { timeout: 60000 });
+      const g = await guide(), ecran = await lireToast();
+      return { ...g, ecran };
+    };
+    await fiche(idD);
+    const ficheD = await page.evaluate(() => ({ puces: document.querySelectorAll("#modale-corps [data-retirer]").length, bouton: !!document.getElementById("px-ajouter-prop"), complet: (document.getElementById("px-prop-complet") || {}).textContent || "" }));
+    ok(ficheD.puces === 11 && !ficheD.bouton && /12 propriétaires : le maximum/.test(ficheD.complet) && /\+11/.test(await page.textContent('tr[data-parcours="' + idD + '"]')),
+      "la fiche montre les douze propriétaires ; à douze, le bouton « + Co-propriétaire » laisse la place à « le maximum » (" + JSON.stringify(ficheD) + ")");
+    const r1D = await r1Noms(idD);
+    ok(tousLa(r1D.noms) && r1D.noms.lignes.length >= 2 && r1D.noms.lignes.length <= 4 && r1D.noms.taille >= 8 && r1D.noms.haut >= 200 && r1D.noms.bas <= 290 && !/propriétaires ne tiennent pas/.test(r1D.ecran),
+      "guide R1, douze noms différents : tous écrits en première page, sur " + (r1D.noms && r1D.noms.lignes.length) + " lignes de " + (r1D.noms && r1D.noms.taille) + " pt, entre le logo et le slogan (" + JSON.stringify(r1D.noms && { haut: r1D.noms.haut, bas: r1D.noms.bas }) + ")");
+    await garderDocument(page, "documents-guide-r1-douze.pdf");
+    await page.click("#doc-retour"); await page.waitForSelector(".etapes", { timeout: 10000 });
+    const r2D = await genererR2(idD, "Le terrain plat", "La servitude de passage", "Un texte court.");
+    ok(tousLa(r2D.noms) && /^Monsieur Bernard DUPONT, Monsieur Alain BERNARD, Monsieur Gérard DURAND,/.test(r2D.noms.lignes[0]) && / et Madame Chantal SIMON$/.test(r2D.noms.lignes.join(" ")) && r2D.noms.taille >= 8 && r2D.noms.haut >= 206 && r2D.noms.bas <= 287,
+      "guide R2, douze noms différents : tous écrits en première page (« Monsieur… », « Madame… »), " + (r2D.noms && r2D.noms.lignes.length) + " lignes de " + (r2D.noms && r2D.noms.taille) + " pt au-dessus de la bande à motifs");
+    await garderDocument(page, "documents-guide-r2-douze.pdf");
+    await page.click("#doc-retour"); await page.waitForSelector(".etapes", { timeout: 10000 });
+    await livret();
+    await page.click("#acm-generer");
+    await page.waitForSelector("#doc-retour", { timeout: 90000 });
+    const lvD = await guide();
+    ok(tousLa(lvD.debug.noms) && lvD.debug.noms.haut >= 495 && tousLa(lvD.debug.nomsCommission) && lvD.debug.nomsCommission.bas <= 222,
+      "livret prix, douze noms différents : tous écrits sur la couverture (" + (lvD.debug.noms && lvD.debug.noms.lignes.length) + " lignes centrées sous le titre) et sur la page de la commission (" + (lvD.debug.nomsCommission && lvD.debug.nomsCommission.lignes.length) + " lignes, au-dessus du tableau)");
+    await garderDocument(page, "documents-livret-douze.pdf");
+    await page.click("#doc-retour"); await page.waitForSelector(".etapes", { timeout: 10000 });
+    // Douze héritiers du même nom : la civilité, les prénoms, le nom une seule fois.
+    const r1E = await r1Noms(idE);
+    ok(r1E.noms && !r1E.noms.abrege && /^M\. et Mme Pierre, Alain, Chantal,/.test(r1E.noms.lignes[0]) && / et Yvette FRATRIE$/.test(r1E.noms.lignes.join(" ")) && (r1E.noms.lignes.join(" ").match(/FRATRIE/g) || []).length === 1,
+      "guide R1, douze héritiers du même nom : « " + (r1E.noms ? r1E.noms.lignes.join(" / ") : "") + " »");
+    await garderDocument(page, "documents-guide-r1-fratrie.pdf");
+    await page.click("#doc-retour"); await page.waitForSelector(".etapes", { timeout: 10000 });
+    // Douze noms à rallonge : ils ne tiennent pas — une forme abrégée, et l'écran le dit.
+    const r1F = await r1Noms(idF);
+    ok(r1F.noms && r1F.noms.abrege && r1F.noms.lignes.length === 1 && r1F.noms.taille >= 9 && /^M\. Jean-Christophe DE LA TRES-LONGUE-EXEMPLE et 11 autres propriétaires$/.test(r1F.noms.lignes[0]) && /⚠ Guide R1/.test(r1F.ecran) && /forme abrégée/.test(r1F.ecran),
+      "guide R1, douze noms à rallonge : la première page porte « " + (r1F.noms ? r1F.noms.lignes[0] : "") + " » (" + (r1F.noms && r1F.noms.taille) + " pt) et l'écran prévient");
+    await garderDocument(page, "documents-guide-r1-noms-longs.pdf");
+    await page.click("#doc-retour"); await page.waitForSelector(".etapes", { timeout: 10000 });
+
     // --- La civilité d'un co-propriétaire (20/11) : « Mme » choisie pour une fiche contact « M. et Mme » — le guide écrivait « M. et Mme ».
     await fiche(idG);
     await page.click("#px-ajouter-prop");
@@ -193,5 +253,7 @@ export default async function () {
     ok(debutG === "Bonjour Monsieur SEUL-EXEMPLE, Madame COUPLE-EXEMPLE,", "l'e-mail avant R1 s'ouvre sur « " + debutG + " »");
     await page.click("#pm-annuler");
     await page.waitForSelector(".etapes", { timeout: 8000 });
+    const r1G = await r1Noms(idG);
+    ok(r1G.noms && r1G.noms.lignes.join(" ") === "M. Bernard SEUL-EXEMPLE et Mme COUPLE-EXEMPLE", "guide R1 : « " + (r1G.noms ? r1G.noms.lignes.join(" ") : "") + " » — la civilité choisie pour le dossier, pas celle de la fiche contact");
   });
 }

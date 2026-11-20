@@ -2335,8 +2335,8 @@ export function createApp(env) {
   async function poserLiensEstimation(agencyId, estId, b) {
     let premier;
     if (Array.isArray(b.contactIds)) {
-      const ids = [...new Set(b.contactIds.map((x) => String(x || "").slice(0, 40)).filter(Boolean))].slice(0, 10);
-      // Les ids viennent du navigateur : paramètres liés (10 au plus), jamais dans le SQL.
+      const ids = [...new Set(b.contactIds.map((x) => String(x || "").slice(0, 40)).filter(Boolean))].slice(0, 12);
+      // Les ids viennent du navigateur : paramètres liés (12 au plus, comme les propriétaires d'un parcours), jamais dans le SQL.
       const valides = ids.length ? (await db.all(
         `SELECT id FROM crm_contacts WHERE agency_id = ? AND id IN (${marques(ids)})`,
         [agencyId, ...ids])).map((r) => r.id) : [];

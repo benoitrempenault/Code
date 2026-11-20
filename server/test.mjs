@@ -4665,6 +4665,27 @@ console.log("— Permanences : API, agenda et prise de rendez-vous");
   for (const cid of [prop1.json.contact_id, propMemeNom.json.contact_id]) await callR("/crm/parcours/" + pxId + "/proprietaires/" + cid, { headers: authP, method: "DELETE" });
   const apSeul = (await callR("/crm/parcours/" + pxId + "/apercu?jalon=avant-r1", { headers: authP })).json;
   ok((await callR("/crm/parcours/" + pxId, { headers: authP })).json.proprietaires.length === 1 && /Madame, Monsieur MOUNEYRES,\n/.test(apSeul.texte) && apSeul.destinataires.length === 1, "retirés, le mail redevient celui d'un seul foyer");
+  // Douze propriétaires au plus (indivision, succession — Benoît, 19/11) ; au-delà de quatre, le mail ne les énumère plus.
+  { const indiv = await callR("/crm/parcours", { headers: authP, body: { civilite: "M.", prenom: "Bernard", nom: "INDIVIS", email: "bernard.indivis@exemple.fr", adresse: "8 chemin de l'Indivision", cp: "33160", ville: "Saint-Médard-en-Jalles", type_bien: "terrain", conseiller_id: teddy.json.id, r1: "2026-12-01", r1_heure: "10:00" } });
+    const idI = indiv.json.id, ajouts = [];
+    for (let k = 2; k <= 12; k++) ajouts.push(await callR("/crm/parcours/" + idI + "/proprietaires", { headers: authP, body: { civilite: k % 2 ? "M." : "Mme", prenom: "Prénom" + k, nom: "HERITIER" + k, email: "heritier" + k + "@exemple.fr" } }));
+    ok(indiv.status === 200 && ajouts.every((r) => r.status === 200) && ajouts[2].json.proprietaires.length === 4 && ajouts[3].json.proprietaires.length === 5 && ajouts[10].json.proprietaires.length === 12,
+       "une fiche accepte un 5e propriétaire, et jusqu'à douze (" + ajouts.map((r) => r.status).join() + ")");
+    const treize = await callR("/crm/parcours/" + idI + "/proprietaires", { headers: authP, body: { civilite: "M.", prenom: "Prénom13", nom: "HERITIER13" } });
+    ok(treize.status === 400 && /Douze propriétaires au plus/.test(treize.json.error) && (await callR("/crm/parcours/" + idI, { headers: authP })).json.proprietaires.length === 12, "le treizième est refusé (« " + treize.json.error + " »)");
+    const apI = (await callR("/crm/parcours/" + idI + "/apercu?jalon=avant-r1", { headers: authP })).json;
+    ok(/^Bonjour Mesdames, Messieurs,\n/.test(apI.texte) && !/HERITIER/.test(apI.texte.split("\n")[0]) && apI.destinataires.length === 12, "à douze, le mail s'ouvre sur « Bonjour Mesdames, Messieurs, » et part aux douze adresses (" + apI.destinataires.length + ")");
+    const { civiliteNoms } = await import("./src/parcours.js");
+    ok(civiliteNoms("M.", "A", [1, 2, 3, 4].map((k) => ({ civilite: "Mme", nom: "NOM" + k }))) === "Madame NOM1, Madame NOM2, Madame NOM3, Madame NOM4"
+       && civiliteNoms("M.", "A", [1, 2, 3, 4, 5].map((k) => ({ civilite: "Mme", nom: "NOM" + k }))) === "Mesdames, Messieurs"
+       && civiliteNoms("M.", "A", [1, 2, 3, 4, 5, 6].map(() => ({ civilite: "Mme", nom: "Fratrie" }))) === "Madame, Monsieur Fratrie",
+       "jusqu'à quatre noms le mail les énumère ; au-delà « Mesdames, Messieurs » ; une même famille garde « Madame, Monsieur NOM »");
+    // La fiche estimation enregistrée depuis l'onglet Estimations renvoie les douze personnes : aucune ne se perd.
+    const ficheI = (await callR("/crm/parcours/" + idI, { headers: authP })).json;
+    const majI = await callR("/crm/estimations/" + idI, { headers: authP, method: "PUT", body: { nom: ficheI.nom, email: ficheI.email, adresse: ficheI.adresse, ville: ficheI.ville, r1: ficheI.r1, r2: ficheI.r2 || "", contactIds: ficheI.proprietaires.map((o) => o.id) } });
+    ok(majI.status === 200 && (await callR("/crm/parcours/" + idI, { headers: authP })).json.proprietaires.length === 12, "la fiche estimation réenregistrée avec ses douze personnes les garde toutes (" + majI.status + ")");
+    await db.run("DELETE FROM crm_estimation_contacts WHERE estimation_id = ?", [idI]); await db.run("DELETE FROM crm_parcours WHERE estimation_id = ?", [idI]); await db.run("DELETE FROM crm_estimations WHERE id = ?", [idI]);
+    await db.run("DELETE FROM crm_contacts WHERE email LIKE 'heritier%@exemple.fr' OR email = 'bernard.indivis@exemple.fr'"); }
   // La civilité d'un co-propriétaire vaut pour le dossier (20/11) : la fiche contact d'un couple « M. et Mme »
   // dont seule madame est propriétaire — le guide et le mail écrivaient « M. et Mme ».
   { await callR("/crm/contacts/bulk", { headers: auth, body: { rows: [{ civilite: "M. et Mme", nom: "COUPLEX", prenom: "", email: "couplex@exemple.fr" }] } });
